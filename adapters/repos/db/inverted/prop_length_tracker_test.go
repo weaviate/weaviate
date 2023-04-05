@@ -264,8 +264,7 @@ func Test_PropertyLengthTracker_Overflow(t *testing.T) {
 	require.NotNil(t, err)
 }
 
-//Testing the switch from the old property length tracker to the new one
-
+// Testing the switch from the old property length tracker to the new one
 func TestFormatConversion(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
@@ -313,8 +312,6 @@ func TestFormatConversion(t *testing.T) {
 		assert.InEpsilon(t, actualMeanForProp20, res, 0.1)
 	})
 }
-
-
 
 func create20PropsAndVerify_old(t *testing.T, tracker *OldPropertyLengthTracker) {
 	type prop struct {

@@ -56,7 +56,6 @@ type OldPropertyLengthTracker struct {
 var PAGE_LENGTH uint16 = 4096
 
 func (t *OldPropertyLengthTracker) putUint16At(v uint16, offset int) {
-
 	binary.LittleEndian.PutUint16(t.pages[offset:offset+2], v)
 }
 
@@ -200,7 +199,7 @@ func (t *OldPropertyLengthTracker) PropertyNames() []string {
 
 			propName := t.pages[offset : offset+propNameLength]
 			offset += propNameLength
-			
+
 			offset += 2
 
 			names = append(names, string(propName))
@@ -302,7 +301,7 @@ func (t *OldPropertyLengthTracker) PropertyMean(propName string) (float32, error
 
 	offset = offset + page*PAGE_LENGTH
 	for o := offset; o < offset+256; o += 4 {
-		
+
 		value, count := t.unpackBucketAt(bucket, int(o))
 		sum += value * count
 		totalCount += count
@@ -374,7 +373,7 @@ func (t *OldPropertyLengthTracker) createPageIfNotExists(page uint16) {
 
 		// the new page must have the correct offset initialized
 		t.putUint16At(2, int(page*PAGE_LENGTH))
-		
+
 	}
 }
 

@@ -13,7 +13,6 @@ package inverted
 
 import (
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"math"
 	"os"
@@ -38,48 +37,43 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 		path: path,
 	}
 
-	
-		// read the file into memory
-		bytes, err := ioutil.ReadFile(path)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return t, nil
-			}
-			return nil, err
+	// read the file into memory
+	bytes, err := ioutil.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return t, nil
 		}
+		return nil, err
+	}
 
-		var data PropLenData
-		if err := json.Unmarshal(bytes, &data); err != nil {
-			if bytes[0] != '{' {
-				//It's probably the old format file, load the old format and convert it to the new format
-				plt, err := NewOldPropertyLengthTracker(path)
-				if err != nil {
-					return nil, errors.Wrap(err, "convert old property length tracker")
-				}
-				
-				propertyNames := plt.PropertyNames()
-				//Loop over every page and bucket in the old tracker and add it to the new tracker
-				for _, name := range propertyNames {
-					t.data.BucketedData[name] = make([]int, 64)
-					for i := 0; i < 64; i++ {
-						count, err := plt.BucketCount(name, uint16(i))
-						if err != nil {
-							return nil, errors.Wrap(err, "convert old property length tracker")
-						}
-						t.data.BucketedData[name][i] = int(count)
+	var data PropLenData
+	if err := json.Unmarshal(bytes, &data); err != nil {
+		if bytes[0] != '{' {
+			// It's probably the old format file, load the old format and convert it to the new format
+			plt, err := NewOldPropertyLengthTracker(path)
+			if err != nil {
+				return nil, errors.Wrap(err, "convert old property length tracker")
+			}
+
+			propertyNames := plt.PropertyNames()
+			// Loop over every page and bucket in the old tracker and add it to the new tracker
+			for _, name := range propertyNames {
+				t.data.BucketedData[name] = make([]int, 64)
+				for i := 0; i < 64; i++ {
+					count, err := plt.BucketCount(name, uint16(i))
+					if err != nil {
+						return nil, errors.Wrap(err, "convert old property length tracker")
 					}
+					t.data.BucketedData[name][i] = int(count)
 				}
-
-				t.FlushBackup()
-				plt.Close()
-				plt.Drop()
 			}
 
-
-			
+			t.FlushBackup()
+			plt.Close()
+			plt.Drop()
 		}
-		t.Flush()
-
+	}
+	t.Flush()
 
 	return t, nil
 }
@@ -95,8 +89,6 @@ func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32
 	t.Lock()
 	defer t.Unlock()
 
-	
-
 	bucketId := t.bucketFromValue(value)
 	if bucket, ok := t.data.BucketedData[propName]; ok {
 		bucket[bucketId] = bucket[bucketId] + 1
@@ -107,7 +99,6 @@ func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32
 	}
 	return nil
 }
-
 
 func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) uint16 {
 	if value <= 5.00 {
@@ -177,7 +168,7 @@ func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (uint64, uint
 		proplenTally += uint64(value)
 		sum += uint64(value * float32(count))
 		totalCount += uint64(count)
-		
+
 	}
 
 	if totalCount == 0 {
@@ -186,8 +177,6 @@ func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (uint64, uint
 
 	return sum, totalCount, float64(sum) / float64(totalCount), countTally, proplenTally, nil
 }
-
-
 
 func (t *JsonPropertyLengthTracker) Flush() error {
 	t.FlushBackup()
@@ -230,7 +219,6 @@ func (t *JsonPropertyLengthTracker) Close() error {
 	t.Lock()
 	defer t.Unlock()
 
-
 	t.data.BucketedData = nil
 
 	return nil
@@ -239,7 +227,6 @@ func (t *JsonPropertyLengthTracker) Close() error {
 func (t *JsonPropertyLengthTracker) Drop() error {
 	t.Lock()
 	defer t.Unlock()
-
 
 	t.data.BucketedData = nil
 
