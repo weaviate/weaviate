@@ -1,7 +1,7 @@
 version: '3.4'
 services:
   t2v-transformers:
-    image: gsi/t2v #semitechnologies/transformers-inference:sentence-transformers-msmarco-distilroberta-base-v2
+    image: gsi/t2v
     ports:
      - "8080:8080"
     environment:
