@@ -188,7 +188,7 @@ func (t *JsonPropertyLengthTracker) Flush() error {
 		return err
 	}
 
-	err = ioutil.WriteFile(t.path, bytes, 0o666)
+	err = os.WriteFile(t.path, bytes, 0o666)
 	if err != nil {
 		return err
 	}
@@ -204,7 +204,7 @@ func (t *JsonPropertyLengthTracker) FlushBackup() error {
 		return err
 	}
 
-	err = ioutil.WriteFile(t.path+".bak", bytes, 0o666)
+	err = os.WriteFile(t.path+".bak", bytes, 0o666)
 	if err != nil {
 		return err
 	}
