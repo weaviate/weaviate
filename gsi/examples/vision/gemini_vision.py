@@ -10,8 +10,8 @@ warnings.filterwarnings("ignore",category=DeprecationWarning)
 DATADIR = '/mnt/nas1/fashion/base64_images/'
 CLASS_NAME = "Fashion"
 WEAVIATE_CONN = "http://localhost:8091"
-MAX_ADDS = 1000 # up to 44k, limit 10k for less than 10 minute upload
-MAX_SEARCHES = 10
+MAX_ADDS = 4000 # up to 44k, limit to 10k for less than 10 minute upload
+MAX_SEARCHES = 50
 BATCH_SIZE = 50
 HEADER = {"Content-Type": "application/json"}
 
