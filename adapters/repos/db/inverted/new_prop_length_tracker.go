@@ -13,6 +13,7 @@ package inverted
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"math"
 	"os"
@@ -72,6 +73,8 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 			plt.Close()
 			plt.Drop()
 		}
+	} else {
+		t.data = data
 	}
 	t.Flush()
 
@@ -129,7 +132,7 @@ func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, erro
 
 	bucket, ok := t.data.BucketedData[propName]
 	if !ok {
-		return 0, nil
+		return 0, fmt.Errorf("property not found %v", propName)
 	}
 
 	sum := float32(0)
