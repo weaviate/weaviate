@@ -46,7 +46,7 @@ import (
 // The counter to the last index byte is only an uint16, so it can at maximum address 65535. This will overflow when the
 // 16th page is added (eg at page=15). To avoid a crash an error is returned in this case, but we will need to change
 // the byteformat to fix this.
-type PropertyLengthTracker struct {
+type OldPropertyLengthTracker struct {
 	file  *os.File
 	path  string
 	pages []byte
@@ -55,40 +55,36 @@ type PropertyLengthTracker struct {
 
 var PAGE_LENGTH uint16 = 4096
 
-func (t *PropertyLengthTracker) putUint16At(v uint16, offset int) {
-	if v == 57638 {
-		panic("no")
-	}
+func (t *OldPropertyLengthTracker) putUint16At(v uint16, offset int) {
+
 	binary.LittleEndian.PutUint16(t.pages[offset:offset+2], v)
 }
 
-func (t *PropertyLengthTracker) uint16At(offset int) uint16 {
+func (t *OldPropertyLengthTracker) uint16At(offset int) uint16 {
 	return binary.LittleEndian.Uint16(t.pages[offset : offset+2])
 }
 
-func (t *PropertyLengthTracker) putUint32At(v uint32, offset int) {
-	if v == 57638 {
-		panic("no")
-	}
+func (t *OldPropertyLengthTracker) putUint32At(v uint32, offset int) {
 	binary.LittleEndian.PutUint32(t.pages[offset:offset+4], v)
 }
 
-func (t *PropertyLengthTracker) uint32At(offset int) uint32 {
+func (t *OldPropertyLengthTracker) uint32At(offset int) uint32 {
 	return binary.LittleEndian.Uint32(t.pages[offset : offset+4])
 }
 
-func (t *PropertyLengthTracker) unpackBucket(bucket uint16, v uint32) (float32, float32) {
+func (t *OldPropertyLengthTracker) unpackBucket(bucket uint16, v uint32) (float32, float32) {
 	count := math.Float32frombits(v)
 	value := t.valueFromBucket(bucket)
 	return value, count
 }
 
-func (t *PropertyLengthTracker) unpackBucketAt(bucket uint16, o int) (float32, float32) {
+func (t *OldPropertyLengthTracker) unpackBucketAt(bucket uint16, o int) (float32, float32) {
 	v := t.uint32At(o)
 	return t.unpackBucket(bucket, v)
 }
 
-func NewPropertyLengthTracker(path string) (*PropertyLengthTracker, error) {
+func NewOldPropertyLengthTracker(path string) (*OldPropertyLengthTracker, error) {
+	fmt.Printf("Bytewise prop length tracker at %s", path)
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o666)
 	if err != nil {
 		return nil, err
@@ -99,7 +95,7 @@ func NewPropertyLengthTracker(path string) (*PropertyLengthTracker, error) {
 		return nil, err
 	}
 
-	t := &PropertyLengthTracker{
+	t := &OldPropertyLengthTracker{
 		pages: nil,
 		file:  f,
 		path:  path,
@@ -131,7 +127,7 @@ func NewPropertyLengthTracker(path string) (*PropertyLengthTracker, error) {
 	return t, nil
 }
 
-func (t *PropertyLengthTracker) TrackProperty(propName string, value float32) error {
+func (t *OldPropertyLengthTracker) TrackProperty(propName string, value float32) error {
 	t.Lock()
 	defer t.Unlock()
 
@@ -162,7 +158,7 @@ func (t *PropertyLengthTracker) TrackProperty(propName string, value float32) er
 // propExists returns page number, relative offset on page, and a bool whether
 // the prop existed at all. The first to values have no meaning if the latter
 // is false
-func (t *PropertyLengthTracker) propExists(needle string) (uint16, uint16, bool) {
+func (t *OldPropertyLengthTracker) propExists(needle string) (uint16, uint16, bool) {
 	pages := len(t.pages) / int(PAGE_LENGTH)
 	for page := 0; page < pages; page++ {
 		pageStart := page * int(PAGE_LENGTH)
@@ -189,7 +185,30 @@ func (t *PropertyLengthTracker) propExists(needle string) (uint16, uint16, bool)
 	return 0, 0, false
 }
 
-func (t *PropertyLengthTracker) addProperty(propName string) (uint16, uint16, error) {
+func (t *OldPropertyLengthTracker) PropertyNames() []string {
+	var names []string
+	pages := len(t.pages) / int(PAGE_LENGTH)
+	for page := 0; page < pages; page++ {
+		pageStart := page * int(PAGE_LENGTH)
+
+		relativeEOI := t.uint16At(pageStart)
+		EOI := pageStart + int(relativeEOI)
+
+		offset := int(pageStart) + 2
+		for offset < EOI {
+			propNameLength := int(t.uint16At(offset))
+			offset += 2
+
+			propName := t.pages[offset : offset+propNameLength]
+			offset += propNameLength
+
+			names = append(names, string(propName))
+		}
+	}
+	return names
+}
+
+func (t *OldPropertyLengthTracker) addProperty(propName string) (uint16, uint16, error) {
 	page := uint16(0)
 
 	for {
@@ -210,7 +229,7 @@ func (t *PropertyLengthTracker) addProperty(propName string) (uint16, uint16, er
 			page++
 			// overflow of uint16 variable that tracks the size of the tracker
 			if page > 15 {
-				return 0, 0, fmt.Errorf("could not add property %v, to PropertyLengthTracker, because the total"+
+				return 0, 0, fmt.Errorf("could not add property %v, to OldPropertyLengthTracker, because the total"+
 					"length of all properties is too long", propName)
 			}
 			continue
@@ -233,7 +252,7 @@ func (t *PropertyLengthTracker) addProperty(propName string) (uint16, uint16, er
 	}
 }
 
-func (t *PropertyLengthTracker) canPageFit(propName []byte,
+func (t *OldPropertyLengthTracker) canPageFit(propName []byte,
 	offset uint16, lastBucketOffset uint16,
 ) bool {
 	// lastBucketOffset represents the end of the writable area, offset
@@ -247,7 +266,7 @@ func (t *PropertyLengthTracker) canPageFit(propName []byte,
 	return spaceLeft >= spaceNeeded
 }
 
-func (t *PropertyLengthTracker) bucketFromValue(value float32) uint16 {
+func (t *OldPropertyLengthTracker) bucketFromValue(value float32) uint16 {
 	if value <= 5.00 {
 		return uint16(value) - 1
 	}
@@ -256,13 +275,10 @@ func (t *PropertyLengthTracker) bucketFromValue(value float32) uint16 {
 	if bucket > 63 {
 		return 64
 	}
-	if bucket == 63 {
-		panic("bucket 63 is too big, you shouldn't be writing to this")
-	}
 	return uint16(bucket)
 }
 
-func (t *PropertyLengthTracker) valueFromBucket(bucket uint16) float32 {
+func (t *OldPropertyLengthTracker) valueFromBucket(bucket uint16) float32 {
 	if bucket <= 5 {
 		return float32(bucket + 1)
 	}
@@ -270,7 +286,7 @@ func (t *PropertyLengthTracker) valueFromBucket(bucket uint16) float32 {
 	return float32(4 * math.Pow(1.25, float64(bucket)-3.5))
 }
 
-func (t *PropertyLengthTracker) PropertyMean(propName string) (float32, error) {
+func (t *OldPropertyLengthTracker) PropertyMean(propName string) (float32, error) {
 	t.Lock()
 	defer t.Unlock()
 
@@ -300,7 +316,7 @@ func (t *PropertyLengthTracker) PropertyMean(propName string) (float32, error) {
 	return sum / totalCount, nil
 }
 
-func (t *PropertyLengthTracker) PropertyTally(propName string) (uint64, uint64, float64, uint64, uint64, error) {
+func (t *OldPropertyLengthTracker) PropertyTally(propName string) (uint64, uint64, float64, uint64, uint64, error) {
 	t.Lock()
 	defer t.Unlock()
 
@@ -334,7 +350,23 @@ func (t *PropertyLengthTracker) PropertyTally(propName string) (uint64, uint64, 
 	return sum, totalCount, float64(sum) / float64(totalCount), countTally, proplenTally, nil
 }
 
-func (t *PropertyLengthTracker) createPageIfNotExists(page uint16) {
+func (t *OldPropertyLengthTracker) BucketCount(propName string, bucket uint16) (uint16, error) {
+	t.Lock()
+	defer t.Unlock()
+
+	page, offset, ok := t.propExists(propName)
+	if !ok {
+		return 0, fmt.Errorf("property %v does not exist in OldPropertyLengthTracker", propName)
+	}
+
+	offset = offset + page*PAGE_LENGTH
+
+	o := offset + (bucket * 4)
+	_, count := t.unpackBucketAt(bucket, int(o))
+	return uint16(count), nil
+}
+
+func (t *OldPropertyLengthTracker) createPageIfNotExists(page uint16) {
 	if uint16(len(t.pages))/PAGE_LENGTH-1 < page {
 		// we need to grow the page buffer
 		newPages := make([]byte, uint64(page+1)*uint64(PAGE_LENGTH))
@@ -346,7 +378,7 @@ func (t *PropertyLengthTracker) createPageIfNotExists(page uint16) {
 	}
 }
 
-func (t *PropertyLengthTracker) Flush() error {
+func (t *OldPropertyLengthTracker) Flush() error {
 	t.Lock()
 	defer t.Unlock()
 
@@ -358,6 +390,7 @@ func (t *PropertyLengthTracker) Flush() error {
 		return errors.Wrap(err, "seek to beginning of prop tracker file")
 	}
 
+	fmt.Printf("Flushing %v bytes to disk in OldPropertyLengthTracker\n", len(t.pages))
 	if _, err := t.file.Write(t.pages); err != nil {
 		return errors.Wrap(err, "flush page content to disk")
 	}
@@ -365,7 +398,7 @@ func (t *PropertyLengthTracker) Flush() error {
 	return nil
 }
 
-func (t *PropertyLengthTracker) Close() error {
+func (t *OldPropertyLengthTracker) Close() error {
 	if err := t.Flush(); err != nil {
 		return errors.Wrap(err, "flush before closing")
 	}
@@ -382,7 +415,7 @@ func (t *PropertyLengthTracker) Close() error {
 	return nil
 }
 
-func (t *PropertyLengthTracker) Drop() error {
+func (t *OldPropertyLengthTracker) Drop() error {
 	t.Lock()
 	defer t.Unlock()
 
@@ -400,6 +433,6 @@ func (t *PropertyLengthTracker) Drop() error {
 	return nil
 }
 
-func (t *PropertyLengthTracker) FileName() string {
+func (t *OldPropertyLengthTracker) FileName() string {
 	return t.file.Name()
 }
