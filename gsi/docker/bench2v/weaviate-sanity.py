@@ -23,7 +23,7 @@ VERBOSE=False
 #
 
 # The weaviate client with connection info
-client = weaviate.Client("http://localhost:8081")  # Replace with your endpoint
+client = weaviate.Client("http://localhost:8091")  # Replace with your endpoint
 
 # In case the weaviate class already exists from previous test, let's try to delete it here.
 try:

@@ -837,8 +837,8 @@ github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 h1:nn5Wsu0esKSJiIVhscUt
 github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529/go.mod h1:DxrIzT+xaE7yg65j358z/aeFdxmN0P9QXhEzd20vsDc=
 github.com/seccomp/libseccomp-golang v0.9.1/go.mod h1:GbW5+tmTXfcxTToHLXlScSlAvWlF4P2Ca7zGrPiEpWo=
 github.com/seccomp/libseccomp-golang v0.9.2-0.20210429002308-3879420cc921/go.mod h1:JA8cRccbGaA1s33RQf7Y1+q9gHmZX1yB/z9WDN1C6fg=
-github.com/semi-technologies/contextionary v0.0.0-20210324171723-00263e697379 h1:grUFNs969NApOCvLyGk5LSur5mr6kab4bm5KmB8YHxg=
-github.com/semi-technologies/contextionary v0.0.0-20210324171723-00263e697379/go.mod h1:K4Y0AopAsafXvvt8IO9PXspi+FeDaJdFSD61I3Homkc=
+github.com/weaviate/contextionary v1.2.0 h1:mjQcOnqvMgE1FymI/Ktqc03FAwIiVGeGQGJG/zeWgAo=
+github.com/weaviate/contextionary v1.2.0/go.mod h1:nIEM3Gq1BzTZLuY+Pl7t8hD3eR6VAU43fRdZTEZ9LRY=
 github.com/shurcooL/sanitized_anchor_name v1.0.0/go.mod h1:1NzhyTcUVG4SuEtjjoZeVRXNmyL/1OwPU0+IJeTBvfc=
 github.com/sirupsen/logrus v1.0.4-0.20170822132746-89742aefa4b2/go.mod h1:pMByvHTf9Beacp5x1UXfOR9xyW/9antXMhjMPG0dEzc=
 github.com/sirupsen/logrus v1.0.6/go.mod h1:pMByvHTf9Beacp5x1UXfOR9xyW/9antXMhjMPG0dEzc=

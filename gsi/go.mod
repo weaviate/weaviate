@@ -24,7 +24,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.11.1
 	github.com/rs/cors v1.5.0
-	github.com/semi-technologies/contextionary v0.0.0-20210324171723-00263e697379
+    github.com/weaviate/contextionary v1.2.0
 	github.com/sirupsen/logrus v1.8.1
 	github.com/spaolacci/murmur3 v1.1.0
 	github.com/square/go-jose v2.3.0+incompatible

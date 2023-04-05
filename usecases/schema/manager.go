@@ -42,9 +42,7 @@ type Manager struct {
 	moduleConfig            ModuleConfig
 	cluster                 *cluster.TxManager
 	clusterState            clusterState
-    //GW - MAJOR CHANGE
 	vectorConfigParser        VectorConfigParser
-    //GW
 	invertedConfigValidator InvertedConfigValidator
 	scaleOut                scaleOut
 	RestoreStatus           sync.Map
@@ -111,10 +109,7 @@ type scaleOut interface {
 // NewManager creates a new manager
 func NewManager(migrator migrate.Migrator, repo Repo,
 	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
-    //GW MAJOR
-	//hnswConfigParser VectorConfigParser, 
 	vectorConfigParser VectorConfigParser, 
-    //GW MAJOR
     vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
@@ -129,9 +124,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		state:                   State{},
 		logger:                  logger,
 		authorizer:              authorizer,
-        //GW MAJOR
 		vectorConfigParser:      vectorConfigParser,
-        //GW MAJOR
 		vectorizerValidator:     vectorizerValidator,
 		invertedConfigValidator: invertedConfigValidator,
 		moduleConfig:            moduleConfig,
