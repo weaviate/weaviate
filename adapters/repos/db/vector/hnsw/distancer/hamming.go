@@ -12,6 +12,8 @@
 package distancer
 
 import (
+	"fmt"
+
 	"github.com/pkg/errors"
 )
 
@@ -33,8 +35,7 @@ type Hamming struct {
 
 func (l Hamming) Distance(b []float32) (float32, bool, error) {
 	if len(l.a) != len(b) {
-		return 0, false, errors.Errorf("vector lengths don't match: %d vs %d",
-			len(l.a), len(b))
+		return 0, false, errors.Wrap(ErrVectorLengthDoesNotMatch, fmt.Sprintf("%d vs %d", len(l.a), len(b)))
 	}
 
 	return hammingImpl(l.a, b), true, nil
@@ -48,8 +49,7 @@ func NewHammingProvider() HammingProvider {
 
 func (l HammingProvider) SingleDist(a, b []float32) (float32, bool, error) {
 	if len(a) != len(b) {
-		return 0, false, errors.Errorf("vector lengths don't match: %d vs %d",
-			len(a), len(b))
+		return 0, false, errors.Wrap(ErrVectorLengthDoesNotMatch, fmt.Sprintf("%d vs %d", len(a), len(b)))
 	}
 
 	return hammingImpl(a, b), true, nil

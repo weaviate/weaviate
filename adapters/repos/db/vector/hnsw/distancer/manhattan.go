@@ -12,6 +12,7 @@
 package distancer
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/pkg/errors"
@@ -35,8 +36,7 @@ type Manhattan struct {
 
 func (l Manhattan) Distance(b []float32) (float32, bool, error) {
 	if len(l.a) != len(b) {
-		return 0, false, errors.Errorf("vector lengths don't match: %d vs %d",
-			len(l.a), len(b))
+		return 0, false, errors.Wrap(ErrVectorLengthDoesNotMatch, fmt.Sprintf("%d vs %d", len(l.a), len(b)))
 	}
 
 	return manhattanImpl(l.a, b), true, nil
@@ -50,8 +50,7 @@ func NewManhattanProvider() ManhattanProvider {
 
 func (l ManhattanProvider) SingleDist(a, b []float32) (float32, bool, error) {
 	if len(a) != len(b) {
-		return 0, false, errors.Errorf("vector lengths don't match: %d vs %d",
-			len(a), len(b))
+		return 0, false, errors.Wrap(ErrVectorLengthDoesNotMatch, fmt.Sprintf("%d vs %d", len(a), len(b)))
 	}
 
 	return manhattanImpl(a, b), true, nil

@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/vector_errors"
 
 	"github.com/pkg/errors"
@@ -226,7 +228,7 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 	// we can skip certain errors if we have some valid results
 	allErrorsCanBeSkipped := true
 	for _, searchError := range searchErrors {
-		if !errors.Is(searchError, vector_errors.ErrNoVectorSearch) {
+		if !errors.Is(searchError, vector_errors.ErrNoVectorSearch) && !errors.Is(searchError, distancer.ErrVectorLengthDoesNotMatch) {
 			allErrorsCanBeSkipped = false
 			break
 		}

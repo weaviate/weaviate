@@ -11,7 +11,11 @@
 
 package distancer
 
-import "github.com/pkg/errors"
+import (
+	"fmt"
+
+	"github.com/pkg/errors"
+)
 
 var l2SquaredImpl func(a, b []float32) float32 = func(a, b []float32) float32 {
 	var sum float32
@@ -30,8 +34,7 @@ type L2Squared struct {
 
 func (l L2Squared) Distance(b []float32) (float32, bool, error) {
 	if len(l.a) != len(b) {
-		return 0, false, errors.Errorf("vector lengths don't match: %d vs %d",
-			len(l.a), len(b))
+		return 0, false, errors.Wrap(ErrVectorLengthDoesNotMatch, fmt.Sprintf("%d vs %d", len(l.a), len(b)))
 	}
 
 	return l2SquaredImpl(l.a, b), true, nil
@@ -45,8 +48,7 @@ func NewL2SquaredProvider() L2SquaredProvider {
 
 func (l L2SquaredProvider) SingleDist(a, b []float32) (float32, bool, error) {
 	if len(a) != len(b) {
-		return 0, false, errors.Errorf("vector lengths don't match: %d vs %d",
-			len(a), len(b))
+		return 0, false, errors.Wrap(ErrVectorLengthDoesNotMatch, fmt.Sprintf("%d vs %d", len(a), len(b)))
 	}
 
 	return l2SquaredImpl(a, b), true, nil

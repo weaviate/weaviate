@@ -12,6 +12,8 @@
 package distancer
 
 import (
+	"fmt"
+
 	"github.com/pkg/errors"
 )
 
@@ -21,8 +23,7 @@ type CosineDistance struct {
 
 func (d *CosineDistance) Distance(b []float32) (float32, bool, error) {
 	if len(d.a) != len(b) {
-		return 0, false, errors.Errorf("vector lengths don't match: %d vs %d",
-			len(d.a), len(b))
+		return 0, false, errors.Wrap(ErrVectorLengthDoesNotMatch, fmt.Sprintf("%d vs %d", len(d.a), len(b)))
 	}
 
 	dist := 1 - dotProductImplementation(d.a, b)
@@ -37,8 +38,7 @@ func NewCosineDistanceProvider() CosineDistanceProvider {
 
 func (d CosineDistanceProvider) SingleDist(a, b []float32) (float32, bool, error) {
 	if len(a) != len(b) {
-		return 0, false, errors.Errorf("vector lengths don't match: %d vs %d",
-			len(a), len(b))
+		return 0, false, errors.Wrap(ErrVectorLengthDoesNotMatch, fmt.Sprintf("%d vs %d", len(a), len(b)))
 	}
 
 	prod := 1 - dotProductImplementation(a, b)
