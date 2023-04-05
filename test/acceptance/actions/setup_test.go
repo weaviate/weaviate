@@ -19,8 +19,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
-	"github.com/weaviate/weaviate/client/schema"
+	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
@@ -37,8 +38,9 @@ func Test_Objects(t *testing.T) {
 			},
 			Properties: []*models.Property{
 				{
-					Name:     "testString",
-					DataType: []string{"string"},
+					Name:         "testString",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				},
 			},
 		})
@@ -51,8 +53,9 @@ func Test_Objects(t *testing.T) {
 			},
 			Properties: []*models.Property{
 				{
-					Name:     "testString",
-					DataType: []string{"string"},
+					Name:         "testString",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				},
 				{
 					Name:     "testWholeNumber",
@@ -93,8 +96,9 @@ func Test_Objects(t *testing.T) {
 					DataType: []string{"TestObject"},
 				},
 				{
-					Name:     "testString",
-					DataType: []string{"string"},
+					Name:         "testString",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				},
 			},
 		})
@@ -125,8 +129,9 @@ func Test_Delete_ReadOnly_Classes(t *testing.T) {
 			},
 			Properties: []*models.Property{
 				{
-					Name:     "stringProp",
-					DataType: []string{"string"},
+					Name:         "stringProp",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				},
 			},
 		})
@@ -160,7 +165,7 @@ func Test_Delete_ReadOnly_Classes(t *testing.T) {
 		require.Equal(t, className, nodesResp.Payload.Nodes[0].Shards[0].Class)
 		targetShard := nodesResp.Payload.Nodes[0].Shards[0].Name
 
-		params := schema.NewSchemaObjectsShardsUpdateParams().
+		params := clschema.NewSchemaObjectsShardsUpdateParams().
 			WithBody(&models.ShardStatus{Status: storagestate.StatusReadOnly.String()}).
 			WithClassName(className).
 			WithShardName(targetShard)
@@ -171,15 +176,15 @@ func Test_Delete_ReadOnly_Classes(t *testing.T) {
 	})
 
 	t.Run("delete class with readonly shard", func(t *testing.T) {
-		params := schema.NewSchemaObjectsDeleteParams().WithClassName(className)
+		params := clschema.NewSchemaObjectsDeleteParams().WithClassName(className)
 		resp, err := helper.Client(t).Schema.SchemaObjectsDelete(params, nil)
 		require.Nil(t, err)
 		require.True(t, resp.IsCode(http.StatusOK))
 	})
 
 	t.Run("assert class is deleted", func(t *testing.T) {
-		params := schema.NewSchemaObjectsGetParams().WithClassName(className)
+		params := clschema.NewSchemaObjectsGetParams().WithClassName(className)
 		_, err := helper.Client(t).Schema.SchemaObjectsGet(params, nil)
-		require.Equal(t, err, &schema.SchemaObjectsGetNotFound{})
+		require.Equal(t, err, &clschema.SchemaObjectsGetNotFound{})
 	})
 }

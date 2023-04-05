@@ -247,8 +247,9 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Vectorizer: "text2vec-contextionary",
 						Class:      "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
-							Name:     test.input,
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
+							Name:         test.input,
 						}},
 					}
 
@@ -276,8 +277,9 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Vectorizer: "text2vec-contextionary",
 						Class:      "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
-							Name:     test.input,
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
+							Name:         test.input,
 						}},
 					}
 
@@ -308,8 +310,9 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Class:      "ValidName",
 						Properties: []*models.Property{
 							{
-								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
-								DataType: []string{"string"},
+								Name:         "dummyPropSoWeDontRunIntoAllNoindexedError",
+								DataType:     schema.DataTypeText.PropString(),
+								Tokenization: models.PropertyTokenizationWhitespace,
 							},
 						},
 					}
@@ -319,8 +322,9 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					require.Nil(t, err)
 
 					property := &models.Property{
-						DataType: []string{"string"},
-						Name:     test.input,
+						DataType:     schema.DataTypeText.PropString(),
+						Tokenization: models.PropertyTokenizationWhitespace,
+						Name:         test.input,
 						ModuleConfig: map[string]interface{}{
 							"text2vec-contextionary": map[string]interface{}{},
 						},
@@ -348,8 +352,9 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Vectorizer: "text2vec-contextionary",
 						Class:      "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
-							Name:     test.input,
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
+							Name:         test.input,
 						}},
 					}
 

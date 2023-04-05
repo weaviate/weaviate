@@ -167,7 +167,7 @@ func cityCountryAirportSchema() schema.Schema {
 					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
-						{Name: "name", DataType: []string{"string"}, Tokenization: "word"},
+						{Name: "name", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
 					},
 				},
 				{
@@ -175,7 +175,7 @@ func cityCountryAirportSchema() schema.Schema {
 					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
-						{Name: "name", DataType: []string{"string"}, Tokenization: "word"},
+						{Name: "name", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
 						{Name: "inCountry", DataType: []string{"Country"}},
 						{Name: "population", DataType: []string{"int"}},
 						{Name: "location", DataType: []string{"geoCoordinates"}},
@@ -186,7 +186,7 @@ func cityCountryAirportSchema() schema.Schema {
 					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
-						{Name: "code", DataType: []string{"string"}, Tokenization: "word"},
+						{Name: "code", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
 						{Name: "phone", DataType: []string{"phoneNumber"}},
 						{Name: "inCity", DataType: []string{"City"}},
 					},

@@ -421,8 +421,9 @@ func Test_AddObjectEmptyProperties(t *testing.T) {
 
 					Properties: []*models.Property{
 						{
-							Name:     "strings",
-							DataType: []string{"string[]"},
+							Name:         "strings",
+							DataType:     schema.DataTypeTextArray.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},

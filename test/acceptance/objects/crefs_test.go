@@ -17,8 +17,9 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/client/objects"
-	"github.com/weaviate/weaviate/client/schema"
+	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 	testhelper "github.com/weaviate/weaviate/test/helper"
 )
@@ -29,11 +30,11 @@ import (
 func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 	defer func() {
 		// clean up so we can run this test multiple times in a row
-		delCityParams := schema.NewSchemaObjectsDeleteParams().WithClassName("ReferenceTestCity")
+		delCityParams := clschema.NewSchemaObjectsDeleteParams().WithClassName("ReferenceTestCity")
 		dresp, err := helper.Client(t).Schema.SchemaObjectsDelete(delCityParams, nil)
 		t.Logf("clean up - delete city \n%v\n %v", dresp, err)
 
-		delPlaceParams := schema.NewSchemaObjectsDeleteParams().WithClassName("ReferenceTestPlace")
+		delPlaceParams := clschema.NewSchemaObjectsDeleteParams().WithClassName("ReferenceTestPlace")
 		dresp, err = helper.Client(t).Schema.SchemaObjectsDelete(delPlaceParams, nil)
 		t.Logf("clean up - delete place \n%v\n %v", dresp, err)
 	}()
@@ -43,12 +44,13 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 		Class: "ReferenceTestPlace",
 		Properties: []*models.Property{
 			{
-				DataType: []string{"string"},
-				Name:     "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+				Name:         "name",
 			},
 		},
 	}
-	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(placeClass)
+	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(placeClass)
 	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 
@@ -57,8 +59,9 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 		Class: "ReferenceTestCity",
 		Properties: []*models.Property{
 			{
-				DataType: []string{"string"},
-				Name:     "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+				Name:         "name",
 			},
 			{
 				DataType: []string{"ReferenceTestPlace"},
@@ -66,7 +69,7 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 			},
 		},
 	}
-	params = schema.NewSchemaObjectsCreateParams().WithObjectClass(cityClass)
+	params = clschema.NewSchemaObjectsCreateParams().WithObjectClass(cityClass)
 	resp, err = helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 
@@ -161,11 +164,11 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 	defer func() {
 		// clean up so we can run this test multiple times in a row
-		delCityParams := schema.NewSchemaObjectsDeleteParams().WithClassName("ReferenceTestCity")
+		delCityParams := clschema.NewSchemaObjectsDeleteParams().WithClassName("ReferenceTestCity")
 		dresp, err := helper.Client(t).Schema.SchemaObjectsDelete(delCityParams, nil)
 		t.Logf("clean up - delete city \n%v\n %v", dresp, err)
 
-		delPlaceParams := schema.NewSchemaObjectsDeleteParams().WithClassName("ReferenceTestPlace")
+		delPlaceParams := clschema.NewSchemaObjectsDeleteParams().WithClassName("ReferenceTestPlace")
 		dresp, err = helper.Client(t).Schema.SchemaObjectsDelete(delPlaceParams, nil)
 		t.Logf("clean up - delete place \n%v\n %v", dresp, err)
 	}()
@@ -175,12 +178,13 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 		Class: "ReferenceTestPlace",
 		Properties: []*models.Property{
 			{
-				DataType: []string{"string"},
-				Name:     "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+				Name:         "name",
 			},
 		},
 	}
-	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(placeClass)
+	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(placeClass)
 	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 
@@ -189,8 +193,9 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 		Class: "ReferenceTestCity",
 		Properties: []*models.Property{
 			{
-				DataType: []string{"string"},
-				Name:     "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+				Name:         "name",
 			},
 			{
 				DataType: []string{"ReferenceTestPlace"},
@@ -198,7 +203,7 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 			},
 		},
 	}
-	params = schema.NewSchemaObjectsCreateParams().WithObjectClass(cityClass)
+	params = clschema.NewSchemaObjectsCreateParams().WithObjectClass(cityClass)
 	resp, err = helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 

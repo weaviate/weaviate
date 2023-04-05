@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func SchemaFromDataset(ds Dataset) *models.Class {
@@ -48,9 +49,9 @@ func SchemaFromDataset(ds Dataset) *models.Class {
 		f := false
 		prop := &models.Property{
 			Name:          SanitizePropName(prop),
-			DataType:      []string{"string"},
+			DataType:      schema.DataTypeText.PropString(),
+			Tokenization:  models.PropertyTokenizationField,
 			IndexInverted: &f,
-			Tokenization:  "field",
 		}
 
 		out.Properties = append(out.Properties, prop)

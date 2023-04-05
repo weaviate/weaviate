@@ -137,8 +137,9 @@ func testAddObjectClass(t *testing.T, lsm *Manager) {
 	err := lsm.AddClass(context.Background(), nil, &models.Class{
 		Class: "Car",
 		Properties: []*models.Property{{
-			DataType: []string{"string"},
-			Name:     "dummy",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
+			Name:         "dummy",
 		}},
 		VectorIndexConfig: map[string]interface{}{
 			"dummy": "this should be parsed",
@@ -174,8 +175,9 @@ func testAddObjectClassExplicitVectorizer(t *testing.T, lsm *Manager) {
 		VectorIndexType: "hnsw",
 		Class:           "Car",
 		Properties: []*models.Property{{
-			DataType: []string{"string"},
-			Name:     "dummy",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
+			Name:         "dummy",
 		}},
 	})
 
@@ -200,8 +202,9 @@ func testAddObjectClassImplicitVectorizer(t *testing.T, lsm *Manager) {
 	err := lsm.AddClass(context.Background(), nil, &models.Class{
 		Class: "Car",
 		Properties: []*models.Property{{
-			DataType: []string{"string"},
-			Name:     "dummy",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
+			Name:         "dummy",
 		}},
 	})
 
@@ -226,8 +229,9 @@ func testAddObjectClassWrongVectorizer(t *testing.T, lsm *Manager) {
 		Class:      "Car",
 		Vectorizer: "vectorizer-5000000",
 		Properties: []*models.Property{{
-			DataType: []string{"string"},
-			Name:     "dummy",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
+			Name:         "dummy",
 		}},
 	})
 
@@ -246,8 +250,9 @@ func testAddObjectClassWrongIndexType(t *testing.T, lsm *Manager) {
 		Class:           "Car",
 		VectorIndexType: "vector-index-2-million",
 		Properties: []*models.Property{{
-			DataType: []string{"string"},
-			Name:     "dummy",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
+			Name:         "dummy",
 		}},
 	})
 
@@ -347,8 +352,9 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 
 	var properties []*models.Property = []*models.Property{
 		{
-			Name:     "color",
-			DataType: []string{"string"},
+			Name:         "color",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
 			ModuleConfig: map[string]interface{}{
 				"text2vec-contextionary": map[string]interface{}{
 					"vectorizePropertyName": true,
@@ -357,7 +363,8 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 		},
 		{
 			Name:          "colorRaw",
-			DataType:      []string{"string"},
+			DataType:      schema.DataTypeText.PropString(),
+			Tokenization:  models.PropertyTokenizationWhitespace,
 			IndexInverted: pointerToFalse(),
 			ModuleConfig: map[string]interface{}{
 				"text2vec-contextionary": map[string]interface{}{
@@ -366,8 +373,9 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 			},
 		},
 		{
-			Name:     "content",
-			DataType: []string{"string"},
+			Name:         "content",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
 			ModuleConfig: map[string]interface{}{
 				"text2vec-contextionary": map[string]interface{}{
 					"vectorizePropertyName": false,
@@ -375,8 +383,9 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 			},
 		},
 		{
-			Name:     "allDefault",
-			DataType: []string{"string"},
+			Name:         "allDefault",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
 		},
 	}
 
@@ -390,7 +399,7 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 	require.Len(t, objectClasses, 1)
 	require.Len(t, objectClasses[0].Properties, 4)
 	assert.Equal(t, objectClasses[0].Properties[0].Name, "color")
-	assert.Equal(t, objectClasses[0].Properties[0].DataType, []string{"string"})
+	assert.Equal(t, objectClasses[0].Properties[0].DataType, schema.DataTypeText.PropString())
 
 	assert.True(t, lsm.IndexedInverted("Car", "color"), "color should be indexed")
 	assert.False(t, lsm.IndexedInverted("Car", "colorRaw"), "color should not be indexed")
@@ -439,7 +448,7 @@ func testDropProperty(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
 	var properties []*models.Property = []*models.Property{
-		{Name: "color", DataType: []string{"string"}},
+		{Name: "color", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
 	}
 
 	err := lsm.AddClass(context.Background(), nil, &models.Class{
@@ -559,8 +568,9 @@ func Test_ExtendSchemaWithExistingPropName(t *testing.T) {
 				VectorIndexConfig: "parse me, i should be in some sort of an object",
 				VectorIndexType:   "hnsw", // will always be set when loading from disk
 				Properties: []*models.Property{{
-					Name:     "my_prop",
-					DataType: []string{"string"},
+					Name:         "my_prop",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				}},
 			}},
 		},

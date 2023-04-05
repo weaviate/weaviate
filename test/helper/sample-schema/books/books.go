@@ -14,6 +14,7 @@ package books
 import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 const defaultClassName = "Books"
@@ -55,8 +56,9 @@ func class(className, vectorizer string) *models.Class {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     "title",
-				DataType: []string{"string"},
+				Name:         "title",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 				ModuleConfig: map[string]interface{}{
 					vectorizer: map[string]interface{}{
 						"skip": false,
@@ -64,8 +66,9 @@ func class(className, vectorizer string) *models.Class {
 				},
 			},
 			{
-				Name:     "description",
-				DataType: []string{"string"},
+				Name:         "description",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 				ModuleConfig: map[string]interface{}{
 					vectorizer: map[string]interface{}{
 						"skip": false,
