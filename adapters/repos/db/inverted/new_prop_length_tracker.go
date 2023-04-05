@@ -22,7 +22,7 @@ import (
 )
 
 type PropLenData struct {
-	BucketedData map[string][]int
+	BucketedData map[string]map[int]int
 }
 
 type JsonPropertyLengthTracker struct {
@@ -33,7 +33,7 @@ type JsonPropertyLengthTracker struct {
 
 func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, error) {
 	t := &JsonPropertyLengthTracker{
-		data: PropLenData{make(map[string][]int)},
+		data: PropLenData{make(map[string]map[int]int)},
 		path: path,
 	}
 
@@ -58,7 +58,7 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 			propertyNames := plt.PropertyNames()
 			// Loop over every page and bucket in the old tracker and add it to the new tracker
 			for _, name := range propertyNames {
-				t.data.BucketedData[name] = make([]int, 64)
+				t.data.BucketedData[name] = make(map[int]int, 64)
 				for i := 0; i < 64; i++ {
 					count, err := plt.BucketCount(name, uint16(i))
 					if err != nil {
@@ -85,28 +85,30 @@ func (t *JsonPropertyLengthTracker) FileName() string {
 }
 
 func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32) error {
+
 	t.Lock()
 	defer t.Unlock()
 
 	bucketId := t.bucketFromValue(value)
 	if _, ok := t.data.BucketedData[propName]; ok {
-		t.data.BucketedData[propName][bucketId] = t.data.BucketedData[propName][bucketId] + 1
+		t.data.BucketedData[propName][int(bucketId)] = t.data.BucketedData[propName][int(bucketId)] + 1
 	} else {
-
-		t.data.BucketedData[propName] = make([]int, 64)
-		t.data.BucketedData[propName][bucketId] = 1
+		
+		t.data.BucketedData[propName] = make(map[int]int, 64)
+		t.data.BucketedData[propName][int(bucketId)] = 1
 	}
 
 	return nil
 }
 
 func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) uint16 {
+	
 	if value <= 5.00 {
-		return uint16(value)
+		return uint16(value) - 1
 	}
 
 	bucket := int(math.Log(float64(value)/4.0)/math.Log(1.25) + 4)
-	if bucket > 64 {
+	if bucket > 63 {
 		return 64
 	}
 	return uint16(bucket)
@@ -114,7 +116,7 @@ func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) uint16 {
 
 func (t *JsonPropertyLengthTracker) valueFromBucket(bucket uint16) float32 {
 	if bucket <= 5 {
-		return float32(bucket)
+		return float32(bucket + 1)
 	}
 
 	return float32(4 * math.Pow(1.25, float64(bucket)-3.5))
@@ -133,7 +135,7 @@ func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, erro
 	totalCount := float32(0)
 
 	for i := 0; i < len(bucket); i++ {
-		sum = sum + t.valueFromBucket(uint16(i))*float32(bucket[i])
+		sum = sum + t.valueFromBucket(uint16(i)) * float32(bucket[i])
 		totalCount += float32(bucket[i])
 	}
 
