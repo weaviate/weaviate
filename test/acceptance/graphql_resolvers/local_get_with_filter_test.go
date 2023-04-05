@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -593,7 +594,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 		t.Run("setup test class and obj", func(t *testing.T) {
 			createObjectClass(t, &models.Class{
 				Class: "NoProps", Properties: []*models.Property{
-					{Name: "unused", DataType: []string{"string"}},
+					{Name: "unused", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
 				},
 			})
 

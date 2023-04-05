@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -39,8 +40,9 @@ func getsWithExpectedFailures(t *testing.T) {
 				},
 				Properties: []*models.Property{
 					{
-						Name:     "name",
-						DataType: []string{"string"},
+						Name:         "name",
+						DataType:     schema.DataTypeText.PropString(),
+						Tokenization: models.PropertyTokenizationWhitespace,
 					},
 				},
 			})
@@ -81,8 +83,9 @@ func getsWithExpectedFailures(t *testing.T) {
 				},
 				Properties: []*models.Property{
 					{
-						Name:     "name",
-						DataType: []string{"string"},
+						Name:         "name",
+						DataType:     schema.DataTypeText.PropString(),
+						Tokenization: models.PropertyTokenizationWhitespace,
 					},
 				},
 			})

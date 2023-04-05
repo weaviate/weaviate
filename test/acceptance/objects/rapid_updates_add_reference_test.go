@@ -20,8 +20,9 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/client/objects"
-	"github.com/weaviate/weaviate/client/schema"
+	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -53,13 +54,14 @@ func Test_RapidlyAddingReferences(t *testing.T) {
 
 	t.Run("adding the required schema", func(t *testing.T) {
 		t.Run("target class", func(t *testing.T) {
-			params := schema.NewSchemaObjectsCreateParams().WithObjectClass(
+			params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(
 				&models.Class{
 					Class: targetClass,
 					Properties: []*models.Property{
 						{
-							DataType: []string{"string"},
-							Name:     "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
+							Name:         "name",
 						},
 					},
 				},
@@ -69,7 +71,7 @@ func Test_RapidlyAddingReferences(t *testing.T) {
 		})
 
 		t.Run("source class", func(t *testing.T) {
-			params := schema.NewSchemaObjectsCreateParams().WithObjectClass(
+			params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(
 				&models.Class{
 					Class: sourceClass,
 					Properties: []*models.Property{
@@ -78,8 +80,9 @@ func Test_RapidlyAddingReferences(t *testing.T) {
 							Name:     "toTarget",
 						},
 						{
-							DataType: []string{"string"},
-							Name:     "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
+							Name:         "name",
 						},
 					},
 				},
@@ -144,7 +147,7 @@ func Test_RapidlyAddingReferences(t *testing.T) {
 
 	// cleanup
 	helper.Client(t).Schema.SchemaObjectsDelete(
-		schema.NewSchemaObjectsDeleteParams().WithClassName(sourceClass), nil)
+		clschema.NewSchemaObjectsDeleteParams().WithClassName(sourceClass), nil)
 	helper.Client(t).Schema.SchemaObjectsDelete(
-		schema.NewSchemaObjectsDeleteParams().WithClassName(targetClass), nil)
+		clschema.NewSchemaObjectsDeleteParams().WithClassName(targetClass), nil)
 }

@@ -51,8 +51,9 @@ func TestConfigValidator(t *testing.T) {
 						Name:     "decsription",
 					},
 					{
-						DataType: []string{"string"},
-						Name:     "name",
+						DataType:     schema.DataTypeText.PropString(),
+						Tokenization: models.PropertyTokenizationWhitespace,
+						Name:         "name",
 					},
 					{
 						DataType: []string{"int"},

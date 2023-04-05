@@ -36,8 +36,9 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 					Class: "Foo",
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{"string"},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 					VectorIndexConfig: hnsw.UserConfig{},

@@ -18,8 +18,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/objects"
-	"github.com/weaviate/weaviate/client/schema"
+	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 	testhelper "github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
@@ -29,7 +30,7 @@ func Test_UnindexedProperty(t *testing.T) {
 	className := "NoIndexTestClass"
 
 	defer func() {
-		delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(className)
+		delParams := clschema.NewSchemaObjectsDeleteParams().WithClassName(className)
 		delResp, err := helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil)
 		helper.AssertRequestOk(t, delResp, err, nil)
 	}()
@@ -44,18 +45,20 @@ func Test_UnindexedProperty(t *testing.T) {
 			},
 			Properties: []*models.Property{
 				{
-					Name:     "name",
-					DataType: []string{"string"},
+					Name:         "name",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				},
 				{
 					Name:          "hiddenName",
-					DataType:      []string{"string"},
+					DataType:      schema.DataTypeText.PropString(),
+					Tokenization:  models.PropertyTokenizationWhitespace,
 					IndexInverted: referenceToFalse(),
 				},
 			},
 		}
 
-		params := schema.NewSchemaObjectsCreateParams().WithObjectClass(c)
+		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
 		resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 		helper.AssertRequestOk(t, resp, err, nil)
 	})

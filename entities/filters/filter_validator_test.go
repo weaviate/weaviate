@@ -49,8 +49,8 @@ func TestValidateIsNullOperator(t *testing.T) {
 					{
 						Class: "Car",
 						Properties: []*models.Property{
-							{Name: "modelName", DataType: []string{"string"}},
-							{Name: "manufacturerName", DataType: []string{"string"}},
+							{Name: "modelName", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
+							{Name: "manufacturerName", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
 							{Name: "horsepower", DataType: []string{"int"}},
 						},
 					},

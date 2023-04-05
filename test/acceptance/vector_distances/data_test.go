@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func addTestSchemaCosine(t *testing.T) {
@@ -23,8 +24,9 @@ func addTestSchemaCosine(t *testing.T) {
 		Vectorizer: "none",
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{"string"},
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 		VectorIndexConfig: map[string]interface{}{
@@ -39,8 +41,9 @@ func addTestSchemaOther(t *testing.T) {
 		Vectorizer: "none",
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{"string"},
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 		VectorIndexConfig: map[string]interface{}{
@@ -53,8 +56,9 @@ func addTestSchemaOther(t *testing.T) {
 		Vectorizer: "none",
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{"string"},
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 		VectorIndexConfig: map[string]interface{}{
@@ -67,8 +71,9 @@ func addTestSchemaOther(t *testing.T) {
 		Vectorizer: "none",
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{"string"},
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 		VectorIndexConfig: map[string]interface{}{
@@ -81,8 +86,9 @@ func addTestSchemaOther(t *testing.T) {
 		Vectorizer: "none",
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{"string"},
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 		VectorIndexConfig: map[string]interface{}{

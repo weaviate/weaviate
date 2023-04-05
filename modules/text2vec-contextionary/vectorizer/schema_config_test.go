@@ -159,8 +159,9 @@ func TestConfigValidator(t *testing.T) {
 				class := &models.Class{
 					Class: test.input,
 					Properties: []*models.Property{{
-						Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
-						DataType: []string{"string"},
+						Name:         "dummyPropSoWeDontRunIntoAllNoindexedError",
+						DataType:     schema.DataTypeText.PropString(),
+						Tokenization: models.PropertyTokenizationWhitespace,
 					}},
 				}
 
@@ -307,8 +308,9 @@ func TestConfigValidator(t *testing.T) {
 				class := &models.Class{
 					Class: "ValidName",
 					Properties: []*models.Property{{
-						DataType: []string{"string"},
-						Name:     test.input,
+						DataType:     schema.DataTypeText.PropString(),
+						Tokenization: models.PropertyTokenizationWhitespace,
+						Name:         test.input,
 					}},
 				}
 
@@ -334,8 +336,9 @@ func TestConfigValidator(t *testing.T) {
 						Name:     "description",
 					},
 					{
-						DataType: []string{"string"},
-						Name:     "name",
+						DataType:     schema.DataTypeText.PropString(),
+						Tokenization: models.PropertyTokenizationWhitespace,
+						Name:         "name",
 					},
 					{
 						DataType: []string{"int"},
@@ -365,8 +368,9 @@ func TestConfigValidator(t *testing.T) {
 					Name:     "descriptions",
 				},
 				{
-					DataType: []string{"string[]"},
-					Name:     "names",
+					DataType:     schema.DataTypeTextArray.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
+					Name:         "names",
 				},
 			},
 		}

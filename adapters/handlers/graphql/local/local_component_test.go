@@ -48,8 +48,9 @@ func TestBuild_GraphQLNetwork(t *testing.T) {
 							Class: "BestLocalAction",
 							Properties: []*models.Property{
 								{
-									DataType: []string{"string"},
-									Name:     "myStringProp",
+									DataType:     schema.DataTypeText.PropString(),
+									Name:         "myStringProp",
+									Tokenization: models.PropertyTokenizationWhitespace,
 								},
 							},
 						},
@@ -68,8 +69,9 @@ func TestBuild_GraphQLNetwork(t *testing.T) {
 							Class: "BestLocalThing",
 							Properties: []*models.Property{
 								{
-									DataType: []string{"string"},
-									Name:     "myStringProp",
+									DataType:     schema.DataTypeText.PropString(),
+									Name:         "myStringProp",
+									Tokenization: models.PropertyTokenizationWhitespace,
 								},
 							},
 						},
@@ -152,8 +154,9 @@ func TestBuild_RefProps(t *testing.T) {
 								Class: "ThisClassAlsoExists",
 								Properties: []*models.Property{
 									{
-										DataType: []string{"string"},
-										Name:     "stringProp",
+										DataType:     schema.DataTypeText.PropString(),
+										Name:         "stringProp",
+										Tokenization: models.PropertyTokenizationWhitespace,
 									},
 								},
 							},
@@ -275,8 +278,9 @@ func validSchema() schema.Schema {
 					Class: "BestLocalThing",
 					Properties: []*models.Property{
 						{
-							DataType: []string{"string"},
-							Name:     "myStringProp",
+							DataType:     schema.DataTypeText.PropString(),
+							Name:         "myStringProp",
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},
