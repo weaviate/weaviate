@@ -85,41 +85,38 @@ func (t *JsonPropertyLengthTracker) FileName() string {
 }
 
 func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32) error {
-	if value == 0 {
-		return nil
-	}
+
 	t.Lock()
 	defer t.Unlock()
 
 	bucketId := t.bucketFromValue(value)
-	if bucket, ok := t.data.BucketedData[propName]; ok {
-		bucket[bucketId] = bucket[bucketId] + 1
+	if _, ok := t.data.BucketedData[propName]; ok {
+		t.data.BucketedData[propName][bucketId] = t.data.BucketedData[propName][bucketId] + 1
 	} else {
-		bucket := make([]int, 64)
-		bucket[bucketId] = 1
-		t.data.BucketedData[propName] = bucket
+		
+		t.data.BucketedData[propName] = make([]int, 64)
+		t.data.BucketedData[propName][bucketId] = 1
 	}
+
 	return nil
 }
 
 func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) uint16 {
+	
 	if value <= 5.00 {
-		return uint16(value) - 1
+		return uint16(value) 
 	}
 
 	bucket := int(math.Log(float64(value)/4.0)/math.Log(1.25) + 4)
-	if bucket > 63 {
+	if bucket > 64 {
 		return 64
-	}
-	if bucket == 63 {
-		panic("bucket 63 is too big, you shouldn't be writing to this")
 	}
 	return uint16(bucket)
 }
 
 func (t *JsonPropertyLengthTracker) valueFromBucket(bucket uint16) float32 {
 	if bucket <= 5 {
-		return float32(bucket + 1)
+		return float32(bucket)
 	}
 
 	return float32(4 * math.Pow(1.25, float64(bucket)-3.5))
@@ -138,7 +135,7 @@ func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, erro
 	totalCount := float32(0)
 
 	for i := 0; i < len(bucket); i++ {
-		sum += t.valueFromBucket(uint16(i)) * float32(bucket[i])
+		sum = sum + t.valueFromBucket(uint16(i)) * float32(bucket[i])
 		totalCount += float32(bucket[i])
 	}
 
