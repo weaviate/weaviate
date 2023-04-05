@@ -247,14 +247,7 @@ func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 	})
 }
 
-
-
-
-
 // Testing the switch from the old property length tracker to the new one
-
-
-
 
 func TestFormatConversion(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
@@ -351,11 +344,7 @@ func create20PropsAndVerify_old(t *testing.T, tracker *OldPropertyLengthTracker)
 	assert.InEpsilon(t, actualMeanForProp20, res, 0.1)
 }
 
-
-//Test the old property length tracker
-
-
-
+// Test the old property length tracker
 
 func Test_OldPropertyLengthTracker(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
