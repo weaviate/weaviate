@@ -84,7 +84,6 @@ func (t *OldPropertyLengthTracker) unpackBucketAt(bucket uint16, o int) (float32
 }
 
 func NewOldPropertyLengthTracker(path string) (*OldPropertyLengthTracker, error) {
-	fmt.Printf("Bytewise prop length tracker at %s", path)
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o666)
 	if err != nil {
 		return nil, err
@@ -201,6 +200,8 @@ func (t *OldPropertyLengthTracker) PropertyNames() []string {
 
 			propName := t.pages[offset : offset+propNameLength]
 			offset += propNameLength
+			
+			offset += 2
 
 			names = append(names, string(propName))
 		}
@@ -338,8 +339,6 @@ func (t *OldPropertyLengthTracker) PropertyTally(propName string) (uint64, uint6
 		proplenTally += uint64(value)
 		sum += uint64(value * count)
 		totalCount += uint64(count)
-		fmt.Printf("Bucket: %v, Offset: %v, Count: %v, Proplen: %v, Sum: %v, TotalCount: %v\n", bucket, o, count, float32(t.valueFromBucket(bucket)), sum, totalCount)
-
 		bucket++
 	}
 
@@ -371,10 +370,11 @@ func (t *OldPropertyLengthTracker) createPageIfNotExists(page uint16) {
 		// we need to grow the page buffer
 		newPages := make([]byte, uint64(page+1)*uint64(PAGE_LENGTH))
 		copy(newPages[:len(t.pages)], t.pages)
+		t.pages = newPages
 
 		// the new page must have the correct offset initialized
 		t.putUint16At(2, int(page*PAGE_LENGTH))
-		t.pages = newPages
+		
 	}
 }
 
@@ -390,7 +390,6 @@ func (t *OldPropertyLengthTracker) Flush() error {
 		return errors.Wrap(err, "seek to beginning of prop tracker file")
 	}
 
-	fmt.Printf("Flushing %v bytes to disk in OldPropertyLengthTracker\n", len(t.pages))
 	if _, err := t.file.Write(t.pages); err != nil {
 		return errors.Wrap(err, "flush page content to disk")
 	}

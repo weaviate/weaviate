@@ -33,7 +33,6 @@ type JsonPropertyLengthTracker struct {
 }
 
 func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, error) {
-fmt.Printf("NewJsonPropertyLengthTracker(%s)")
 	t := &JsonPropertyLengthTracker{
 		data: PropLenData{make(map[string][]int)},
 		path: path,
@@ -71,15 +70,15 @@ fmt.Printf("NewJsonPropertyLengthTracker(%s)")
 					}
 				}
 
-
+				t.FlushBackup()
 				plt.Close()
 				plt.Drop()
 			}
 
 
-			return nil, err
+			
 		}
-		t.data = data
+		t.Flush()
 
 
 	return t, nil
@@ -178,8 +177,6 @@ func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (uint64, uint
 		proplenTally += uint64(value)
 		sum += uint64(value * float32(count))
 		totalCount += uint64(count)
-		fmt.Printf("Bucket: %v, Count: %v, Proplen: %v, Sum: %v, TotalCount: %v\n", i,  count, value, sum, totalCount)
-
 		
 	}
 
@@ -193,6 +190,7 @@ func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (uint64, uint
 
 
 func (t *JsonPropertyLengthTracker) Flush() error {
+	t.FlushBackup()
 	t.Lock()
 	defer t.Unlock()
 
@@ -201,8 +199,26 @@ func (t *JsonPropertyLengthTracker) Flush() error {
 		return err
 	}
 
-	fmt.Printf("Flushing json props to %s, %v bytes\n", t.path, len(bytes))
-	ioutil.WriteFile(t.path, bytes, 0o666)
+	err = ioutil.WriteFile(t.path, bytes, 0o666)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (t *JsonPropertyLengthTracker) FlushBackup() error {
+	t.Lock()
+	defer t.Unlock()
+
+	bytes, err := json.Marshal(t.data)
+	if err != nil {
+		return err
+	}
+
+	err = ioutil.WriteFile(t.path+".bak", bytes, 0o666)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
