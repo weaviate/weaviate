@@ -944,6 +944,8 @@ github.com/weaviate/sroar v0.0.0-20230210105426-26108af5465d/go.mod h1:bJUcu8a/7
 github.com/weaviate/weaviate v1.18.1-0.20230307173515-39ef7cc0c9ff/go.mod h1:uCOsdblsybZcY7kNCXr1B0KCBfgvwuu/yKdXP3cPvEY=
 github.com/weaviate/weaviate v1.18.2 h1:eKkkSEXF6b2RJY71fhfnsn0rmnptLVG+WeZTNib3NpQ=
 github.com/weaviate/weaviate v1.18.2/go.mod h1:mgF6/828NK0gNh6oYuVc+F7TlbmOIvGQEO+1LQf4pgg=
+github.com/weaviate/weaviate v1.18.4-0.20230405084449-20b637b874a5 h1:ttdu5rCJ5M5DTfxOOhS4IycHXSRDScNGKyokI58exZw=
+github.com/weaviate/weaviate v1.18.4-0.20230405084449-20b637b874a5/go.mod h1:kxhoWW4myilbGro6uiWz8vsDo3lfr4o2SKi+B1lIsZ0=
 github.com/weaviate/weaviate-go-client/v4 v4.6.3-0.20230307175645-1e6af74af18b h1:z0SYcFPr9unrTDICox+eGRrferMRcf0kGxLtjgveLrk=
 github.com/weaviate/weaviate-go-client/v4 v4.6.3-0.20230307175645-1e6af74af18b/go.mod h1:ACWAFaKt1TNlMcr42Tlb2pPPKPWvUUOSx47F/uB9Eow=
 github.com/willf/bitset v1.1.10/go.mod h1:RjeCKbqT1RxIR/KWY6phxZiaY1IyutSBfGjNPySAYV4=

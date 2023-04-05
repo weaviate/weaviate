@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/vector_errors"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -221,7 +223,16 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 
 	wg.Wait()
 
-	if len(searchErrors) > 0 {
+	// we can skip certain errors if we have some valid results
+	allErrorsCanBeSkipped := true
+	for _, searchError := range searchErrors {
+		if !errors.Is(searchError, vector_errors.ErrNoVectorSearch) {
+			allErrorsCanBeSkipped = false
+			break
+		}
+	}
+
+	if len(searchErrors) > 0 && (!allErrorsCanBeSkipped || len(searchErrors) == len(db.indices)) {
 		var msg strings.Builder
 		for i, err := range searchErrors {
 			if i != 0 {

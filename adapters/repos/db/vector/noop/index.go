@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/vector_errors"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -38,11 +40,11 @@ func (i *Index) Delete(id ...uint64) error {
 }
 
 func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
-	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
+	return nil, nil, vector_errors.ErrNoVectorSearch
 }
 
 func (i *Index) SearchByVectorDistance(vector []float32, dist float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
-	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
+	return nil, nil, vector_errors.ErrNoVectorSearch
 }
 
 func (i *Index) UpdateUserConfig(updated schema.VectorIndexConfig, callback func()) error {
