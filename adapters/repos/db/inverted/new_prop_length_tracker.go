@@ -81,7 +81,6 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 		}
 	}
 	t.data = data
-	
 
 	return t, nil
 }
@@ -131,8 +130,8 @@ func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, erro
 	defer t.Unlock()
 
 	bucket, ok := t.data.BucketedData[propName]
-	if !ok { 
-		return 0, nil   //Needed for backwards compatibility
+	if !ok {
+		return 0, nil // Needed for backwards compatibility
 	}
 
 	sum := float32(0)
@@ -229,7 +228,7 @@ func (t *JsonPropertyLengthTracker) Close() error {
 }
 
 func (t *JsonPropertyLengthTracker) Drop() error {
-	t.Close()	
+	t.Close()
 
 	t.Lock()
 	defer t.Unlock()
