@@ -40,6 +40,7 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 	bytes, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			t.Flush()
 			return t, nil
 		}
 		return nil, err
@@ -80,6 +81,7 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 		}
 	}
 	t.data = data
+	
 
 	return t, nil
 }
@@ -227,7 +229,8 @@ func (t *JsonPropertyLengthTracker) Close() error {
 }
 
 func (t *JsonPropertyLengthTracker) Drop() error {
-	t.Flush()	//Flush before dropping, for 
+	t.Close()	
+
 	t.Lock()
 	defer t.Unlock()
 
