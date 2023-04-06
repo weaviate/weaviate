@@ -45,37 +45,44 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 		}
 		return nil, err
 	}
+	t.path = path 
 
 	var data PropLenData
 	if err := json.Unmarshal(bytes, &data); err != nil {
 		if bytes[0] != '{' {
 			// It's probably the old format file, load the old format and convert it to the new format
-			plt, err := NewOldPropertyLengthTracker(path)
+			plt, err := NewPropertyLengthTracker(path)
 			if err != nil {
 				return nil, errors.Wrap(err, "convert old property length tracker")
 			}
 
 			propertyNames := plt.PropertyNames()
+			data = PropLenData{make(map[string]map[int]int, len(propertyNames))}
 			// Loop over every page and bucket in the old tracker and add it to the new tracker
 			for _, name := range propertyNames {
-				t.data.BucketedData[name] = make(map[int]int, 64)
+				data.BucketedData[name] = make(map[int]int, 64)
 				for i := 0; i <= 64; i++ {
-					count, err := plt.BucketCount(name, uint16(i))
+					fromBucket := i
+					if i == 64 {
+						fromBucket = -1
+					}
+					count, err := plt.BucketCount(name, uint16(fromBucket))
 					if err != nil {
 						return nil, errors.Wrap(err, "convert old property length tracker")
 					}
-					t.data.BucketedData[name][i] = int(count)
+					data.BucketedData[name][fromBucket] = int(count)
 				}
 			}
-
+			t.data = data
 			t.FlushBackup()
 			plt.Close()
 			plt.Drop()
+			t.Flush()
 		}
-	} else {
-		t.data = data
 	}
-	t.Flush()
+	t.data = data
+
+	
 
 	return t, nil
 }
@@ -164,7 +171,7 @@ func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, fl
 
 	for i := -1; i <= 64; i++ {
 		count := bucket[i]
-		value := t.valueFromBucket(uint16(i))
+		value := t.valueFromBucket(i)
 	
 		sum += int(value * float32(count))
 		tally += int(count)
@@ -230,7 +237,10 @@ func (t *JsonPropertyLengthTracker) Drop() error {
 	t.data.BucketedData = nil
 
 	if err := os.Remove(t.path); err != nil {
-		return errors.Wrap(err, "remove prop length tracker state from disk")
+		return errors.Wrap(err, "remove prop length tracker state from disk:"+t.path)
+	}
+	if err := os.Remove(t.path+".bak"); err != nil {
+		return errors.Wrap(err, "remove prop length tracker state from disk:" +t.path+".bak")
 	}
 
 	return nil
