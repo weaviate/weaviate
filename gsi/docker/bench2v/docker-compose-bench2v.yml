@@ -1,0 +1,12 @@
+version: '3.4'
+services:
+  bench2v:
+    image: gsi/bench2v 
+    ports:
+     - "8080:8080"
+    volumes:
+     - /Users/gwilliams/Projects/GSI/Weaviate/data:/datasets
+    environment:
+      VERBOSE: 1
+      ENABLE_CUDA: 0
+      NUMPY_FILE: "/datasets/deep-10K.npy"
