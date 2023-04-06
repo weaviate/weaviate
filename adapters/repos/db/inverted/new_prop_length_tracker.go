@@ -13,7 +13,6 @@ package inverted
 
 import (
 	"encoding/json"
-	"fmt"
 	"math"
 	"os"
 	"sync"
@@ -130,8 +129,8 @@ func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, erro
 	defer t.Unlock()
 
 	bucket, ok := t.data.BucketedData[propName]
-	if !ok {
-		return 0, fmt.Errorf("property not found %v", propName)
+	if !ok { 
+		return 0, nil   //Needed for backwards compatibility
 	}
 
 	sum := float32(0)
@@ -228,6 +227,7 @@ func (t *JsonPropertyLengthTracker) Close() error {
 }
 
 func (t *JsonPropertyLengthTracker) Drop() error {
+	t.Flush()	//Flush before dropping, for 
 	t.Lock()
 	defer t.Unlock()
 

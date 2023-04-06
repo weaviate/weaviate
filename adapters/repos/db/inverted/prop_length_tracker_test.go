@@ -359,7 +359,7 @@ func create20PropsAndVerify_old(t *testing.T, tracker *PropertyLengthTracker) {
 	require.Nil(t, err)
 	assert.EqualValues(t, res, 0)
 
-	sum, count, average, _ := tracker.PropertyTally("prop_22")
+	sum, _, average, _ := tracker.PropertyTally("prop_22")
 	assert.EqualValues(t, 0, sum)
 	// assert.EqualValues(t, 3, count)
 	assert.EqualValues(t, 0, average)

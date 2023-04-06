@@ -123,13 +123,13 @@ func (pf *vectorCachePrefiller[T]) logLevel(level, count int, before time.Time) 
 }
 
 func (pf *vectorCachePrefiller[T]) logTotal(count, limit int, before time.Time) {
-	pf.logger.WithFields(logrus.Fields{
+	/*pf.logger.WithFields(logrus.Fields{
 		"action":   "hnsw_vector_cache_prefill",
 		"limit":    limit,
 		"count":    count,
 		"took":     time.Since(before),
 		"index_id": pf.index.id,
-	}).Info("prefilled vector cache")
+	}).Info("prefilled vector cache")*/
 }
 
 func levelOfNode(node *vertex) int {
