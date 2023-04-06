@@ -265,7 +265,6 @@ func TestFormatConversion(t *testing.T) {
 
 	t.Run("importing multi-page data and verifying", func(t *testing.T) {
 		create20PropsAndVerify_old(t, tracker)
-		
 	})
 
 	t.Run("commit the state to disk", func(t *testing.T) {
@@ -298,12 +297,11 @@ func TestFormatConversion(t *testing.T) {
 
 		res, err = newTracker.PropertyMean("prop_22")
 		require.Nil(t, err)
-		assert.EqualValues(t, 0,0)
-		sum, count, average,_ := newTracker.PropertyTally("prop_22")
+		assert.EqualValues(t, 0, 0)
+		sum, count, average, _ := newTracker.PropertyTally("prop_22")
 		assert.EqualValues(t, 0, sum)
 		assert.EqualValues(t, 3, count)
 		assert.EqualValues(t, 0, average)
-
 	})
 }
 
@@ -332,10 +330,9 @@ func create20PropsAndVerify_old(t *testing.T, tracker *PropertyLengthTracker) {
 		}
 	}
 
-
 	tracker.TrackProperty("prop_22", 0)
-		tracker.TrackProperty("prop_22", 0)
-		tracker.TrackProperty("prop_22", 0)
+	tracker.TrackProperty("prop_22", 0)
+	tracker.TrackProperty("prop_22", 0)
 
 	for _, prop := range props {
 		actualMean := float32(0)
@@ -359,15 +356,13 @@ func create20PropsAndVerify_old(t *testing.T, tracker *PropertyLengthTracker) {
 	assert.InEpsilon(t, actualMeanForProp20, res, 0.1)
 
 	res, err = tracker.PropertyMean("prop_22")
-		require.Nil(t, err)
-		assert.EqualValues(t, res,0)
-		
-		sum, count, average,_ := tracker.PropertyTally("prop_22")
-		assert.EqualValues(t, 0, sum)
-		//assert.EqualValues(t, 3, count)
-		assert.EqualValues(t, 0, average)
+	require.Nil(t, err)
+	assert.EqualValues(t, res, 0)
 
-		
+	sum, count, average, _ := tracker.PropertyTally("prop_22")
+	assert.EqualValues(t, 0, sum)
+	// assert.EqualValues(t, 3, count)
+	assert.EqualValues(t, 0, average)
 }
 
 // Test the old property length tracker
@@ -501,7 +496,6 @@ func TestOldPropertyLengthTracker(t *testing.T) {
 		create20PropsAndVerify_old(t, tracker)
 	})
 }
-
 
 func TestOldPropertyLengthTracker_Persistence(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())

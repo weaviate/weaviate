@@ -45,7 +45,7 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 		}
 		return nil, err
 	}
-	t.path = path 
+	t.path = path
 
 	var data PropLenData
 	if err := json.Unmarshal(bytes, &data); err != nil {
@@ -81,8 +81,6 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 		}
 	}
 	t.data = data
-
-	
 
 	return t, nil
 }
@@ -140,7 +138,7 @@ func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, erro
 	totalCount := float32(0)
 
 	for i := -1; i <= 64; i++ {
-		count ,ok:= bucket[i]
+		count, ok := bucket[i]
 		if !ok {
 			count = 0
 		}
@@ -155,9 +153,8 @@ func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, erro
 	return sum / totalCount, nil
 }
 
-
 // returns totalPropertyLength, totalCount, average propertyLength = sum / totalCount, total propertylength, totalCount, error
-func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, float64,  error) {
+func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, float64, error) {
 	t.Lock()
 	defer t.Unlock()
 
@@ -172,16 +169,16 @@ func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, fl
 	for i := -1; i <= 64; i++ {
 		count := bucket[i]
 		value := t.valueFromBucket(i)
-	
+
 		sum += int(value * float32(count))
 		tally += int(count)
 	}
 
 	if tally == 0 {
-		return 0, 0, 0,   nil
+		return 0, 0, 0, nil
 	}
 
-	return sum, tally, float64(sum) / float64(tally),   nil
+	return sum, tally, float64(sum) / float64(tally), nil
 }
 
 func (t *JsonPropertyLengthTracker) Flush() error {
@@ -239,8 +236,8 @@ func (t *JsonPropertyLengthTracker) Drop() error {
 	if err := os.Remove(t.path); err != nil {
 		return errors.Wrap(err, "remove prop length tracker state from disk:"+t.path)
 	}
-	if err := os.Remove(t.path+".bak"); err != nil {
-		return errors.Wrap(err, "remove prop length tracker state from disk:" +t.path+".bak")
+	if err := os.Remove(t.path + ".bak"); err != nil {
+		return errors.Wrap(err, "remove prop length tracker state from disk:"+t.path+".bak")
 	}
 
 	return nil

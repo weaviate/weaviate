@@ -97,24 +97,22 @@ func NewPropertyLengthTracker(path string) (*PropertyLengthTracker, error) {
 }
 
 func (t *PropertyLengthTracker) BucketCount(propName string, bucket uint16) (uint16, error) {
-	       t.Lock()
-	       defer t.Unlock()
-	
-	       page, offset, ok := t.propExists(propName)
-	       if !ok {
-	               return 0, fmt.Errorf("property %v does not exist in OldPropertyLengthTracker", propName)
-	       }
-	
-	       offset = offset + page*4096
-	
-	       	o := offset + (bucket * 4)
-		   	v :=binary.LittleEndian.Uint32(t.pages[o : o+4])
-		   	count := math.Float32frombits(v)
-			
-	       return uint16(count), nil
-	}
-	
+	t.Lock()
+	defer t.Unlock()
 
+	page, offset, ok := t.propExists(propName)
+	if !ok {
+		return 0, fmt.Errorf("property %v does not exist in OldPropertyLengthTracker", propName)
+	}
+
+	offset = offset + page*4096
+
+	o := offset + (bucket * 4)
+	v := binary.LittleEndian.Uint32(t.pages[o : o+4])
+	count := math.Float32frombits(v)
+
+	return uint16(count), nil
+}
 
 func (t *PropertyLengthTracker) PropertyNames() []string {
 	var names []string
@@ -122,12 +120,12 @@ func (t *PropertyLengthTracker) PropertyNames() []string {
 	for page := 0; page < pages; page++ {
 		pageStart := page * int(4096)
 
-		relativeEOI := binary.LittleEndian.Uint16(t.pages[pageStart : pageStart+2]) //t.uint16At(pageStart)
+		relativeEOI := binary.LittleEndian.Uint16(t.pages[pageStart : pageStart+2]) // t.uint16At(pageStart)
 		EOI := pageStart + int(relativeEOI)
 
 		offset := int(pageStart) + 2
 		for offset < EOI {
-			propNameLength :=  int(binary.LittleEndian.Uint16(t.pages[offset : offset+2])) //int(t.uint16At(offset))
+			propNameLength := int(binary.LittleEndian.Uint16(t.pages[offset : offset+2])) // int(t.uint16At(offset))
 			offset += 2
 
 			propName := t.pages[offset : offset+propNameLength]
@@ -309,14 +307,13 @@ func (t *PropertyLengthTracker) PropertyMean(propName string) (float32, error) {
 	return sum / totalCount, nil
 }
 
-
 func (t *PropertyLengthTracker) PropertyTally(propName string) (float32, float32, float32, error) {
 	t.Lock()
 	defer t.Unlock()
 
 	page, offset, ok := t.propExists(propName)
 	if !ok {
-		return 0,0,0, nil
+		return 0, 0, 0, nil
 	}
 
 	sum := float32(0)
@@ -334,13 +331,11 @@ func (t *PropertyLengthTracker) PropertyTally(propName string) (float32, float32
 	}
 
 	if totalCount == 0 {
-		return 0,0,0, nil
+		return 0, 0, 0, nil
 	}
 
 	return sum, totalCount, sum / totalCount, nil
 }
-
-
 
 func (t *PropertyLengthTracker) createPageIfNotExists(page uint16) {
 	if uint16(len(t.pages))/4096-1 < page {
