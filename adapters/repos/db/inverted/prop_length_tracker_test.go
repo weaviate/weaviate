@@ -295,7 +295,7 @@ func TestFormatConversion(t *testing.T) {
 		require.Nil(t, err)
 		assert.InEpsilon(t, actualMeanForProp20, res, 0.1)
 
-		res, err = newTracker.PropertyMean("prop_22")
+		_, err = newTracker.PropertyMean("prop_22")
 		require.Nil(t, err)
 		assert.EqualValues(t, 0, 0)
 		sum, count, average, _ := newTracker.PropertyTally("prop_22")
