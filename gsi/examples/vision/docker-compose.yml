@@ -1,0 +1,43 @@
+version: '3.4'
+services:
+  weaviate:
+    command:
+    - --host
+    - 0.0.0.0
+    - --port
+    - '8091'
+    - --scheme
+    - http
+    image: gsijb/weaviate
+    network_mode: host # works on Linux but not Mac
+    volumes:
+      - /var/lib/weaviate:/var/lib/weaviate
+      - /home/public:/home/public
+    restart: "no"
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      DEFAULT_VECTORIZER_MODULE: 'img2vec-neural'
+      ENABLE_MODULES: 'img2vec-neural'
+      IMAGE_INFERENCE_API: "http://localhost:8080"
+      CLUSTER_HOSTNAME: 'node1'
+      DEFAULT_VECTOR_INDEX_TYPE: 'gemini'
+      GEMINI_ALLOCATION_ID: 'fd283b38-3e4a-11eb-a205-7085c2c5e516' # APU11
+      # GEMINI_ALLOCATION_ID: '0b391a1a-b916-11ed-afcb-0242ac1c0002' #APU12
+      GEMINI_DATA_DIRECTORY: '/home/public' # Do Not Change This
+      GEMINI_FVS_SERVER: 'localhost' # On Linux, must use network_mode=host
+      GEMINI_DEBUG: 'false'
+      GEMINI_MIN_RECORDS_CHECK: 'true'
+  i2v-neural:
+    image: semitechnologies/img2vec-pytorch:resnet50
+    network_mode: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [gpu]
+    environment:
+      ENABLE_CUDA: 1
