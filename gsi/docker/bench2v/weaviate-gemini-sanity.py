@@ -9,7 +9,7 @@ import weaviate
 #
 
 # Maximum number of documents to add
-MAX_ADDS = 1000000
+MAX_ADDS = 40
 
 # Maximum number of (successful) searches to perform
 MAX_SEARCHES = 10
@@ -29,7 +29,7 @@ EXISTS_OK = False
 #
 
 # The weaviate client with connection info
-client = weaviate.Client("http://localhost:8081")  # Replace with your endpoint
+client = weaviate.Client("http://localhost:8091")  # Replace with your endpoint
 
 # get the schema
 schema = client.schema.get()
@@ -42,7 +42,7 @@ if not EXISTS_OK:
     print("Verifying there are no classes...")
     if len( schema["classes"] ) != 0:
         if VERBOSE:  print("Found classes by EXISTS_OK=", EXISTS_OK, "classes=", [ cls["class"] for cls in schema["classes"] ] )
-        raise Exception("Found classes.")
+        raise Exception("Found classes and expected none.")
     print("Verified.")
 
 else:
@@ -98,48 +98,6 @@ print("Verifying class is a gemini index...")
 if cls['vectorIndexType'] != "gemini":
     raise Exception("Verification failed.")
 print("Verified.")
-
-print("Verifying index config...")
-
-sys.exit(0)
-
-
-
-
-
-
-
-
-# In case the weaviate class already exists from previous test, let's try to delete it here.
-try:
-    # delete class "YourClassName" - THIS WILL DELETE ALL DATA IN THIS CLASS
-    client.schema.delete_class("Benchmark")  # Replace with your class name
-except:
-    if VERBOSE: traceback.print_exc()
-
-schema = client.schema.get()
-if VERBOSE: print("Updated schema:", json.dumps(schema, indent=4))
-
-# We will create this class "Question"
-class_obj = {
-    "class": "Benchmark",
-    "description": "The benchmark dataset class", 
-    "properties": [
-        {
-            "dataType": ["text"],
-            "description": "The array index as a string",
-            "name": "index",
-        }
-    ]
-}
-
-# create the class at weaviate
-print("Updating the Weaviate schema...")
-client.schema.create_class(class_obj)
-
-# print the schema
-schema = client.schema.get()
-if VERBOSE: print("Updated schema: ", json.dumps(schema, indent=4))
 
 # Prepare a batch process for sending data to weaviate
 print("Uploading benchmark indices to Weaviate (max of around %d strings)" % MAX_ADDS)

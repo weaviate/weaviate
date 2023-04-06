@@ -134,9 +134,9 @@ func New( centroidsHammingK int, centroidsRerank int, hammingK int, nbits int, s
     _, perr := http.Get(ping_url)
 	if perr != nil {
         if gemini_verbose {
-		    fmt.Printf("error making http request: %s\n", err)
+		    fmt.Printf("error making http request to: %s\n", ping_url)
         }
-        return nil, errors.Wrapf( err, "Could not ping the FVS server.")
+        return nil, errors.Wrapf( perr, "Could not ping the FVS server.")
 	}
 
     //

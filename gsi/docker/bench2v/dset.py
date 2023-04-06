@@ -9,6 +9,7 @@ def load():
     global dset
 
     npy_file = os.getenv("NUMPY_FILE")
+    print("npyfile=", npy_file)
     if not os.path.exists(npy_file):
         raise Exception("Cannot locate numpy file at %s" % npy_file)
 
