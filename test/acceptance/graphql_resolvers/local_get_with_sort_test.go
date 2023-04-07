@@ -592,8 +592,8 @@ func gettingObjectsWithSort(t *testing.T) {
 					where: {
 						operator: Or,
 						operands: [
-							{valueString: "6ffb03f8-a853-4ec5-a5d8-302e45aaaf13", path: ["id"], operator: Equal},
-							{valueString: "823abeca-eef3-41c7-b587-7a6977b08003", path: ["id"], operator: Equal}
+							{valueText: "6ffb03f8-a853-4ec5-a5d8-302e45aaaf13", path: ["id"], operator: Equal},
+							{valueText: "823abeca-eef3-41c7-b587-7a6977b08003", path: ["id"], operator: Equal}
 					]}
 				) {
 					name
@@ -644,7 +644,7 @@ func gettingObjectsWithSort(t *testing.T) {
 						order: asc
 					}]
 					where: {
-						valueString: "non-existent-uuid", path: ["id"], operator: Equal
+						valueText: "non-existent-uuid", path: ["id"], operator: Equal
 					}
 				) {
 					name
