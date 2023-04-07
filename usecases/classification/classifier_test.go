@@ -434,9 +434,9 @@ func Test_Classifier_WhereFilterValidation(t *testing.T) {
 
 		t.Run("with only one of the where filters being set", func(t *testing.T) {
 			whereFilter := &models.WhereFilter{
-				Path:        []string{"id"},
-				Operator:    "Like",
-				ValueString: ptString("*"),
+				Path:      []string{"id"},
+				Operator:  "Like",
+				ValueText: ptString("*"),
 			}
 			testData := []struct {
 				name                  string
@@ -509,20 +509,25 @@ func Test_Classifier_WhereFilterValidation(t *testing.T) {
 		})
 	})
 
-	t.Run("when deprecated (valueString) whereFilters are received", func(t *testing.T) {
+	t.Run("[deprecated string] when valueString whereFilters are received", func(t *testing.T) {
 		sg := &fakeSchemaGetter{testSchema()}
 		repo := newFakeClassificationRepo()
 		authorizer := &fakeAuthorizer{}
 		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
 		classifier := New(sg, repo, vectorRepo, authorizer, newNullLogger(), nil)
 
-		t.Run("with deprecated sourceFilter", func(t *testing.T) {
-			deprecatedSourceFilter := &models.WhereFilter{
-				Path:        []string{"description"},
-				Operator:    "Equal",
-				ValueString: ptString("should be valueText"),
-			}
+		validFilter := &models.WhereFilter{
+			Path:      []string{"description"},
+			Operator:  "Equal",
+			ValueText: ptString("valueText is valid"),
+		}
+		deprecatedFilter := &models.WhereFilter{
+			Path:        []string{"description"},
+			Operator:    "Equal",
+			ValueString: ptString("valueString is accepted"),
+		}
 
+		t.Run("with deprecated sourceFilter", func(t *testing.T) {
 			params := models.Classification{
 				Class:              "Article",
 				BasedOnProperties:  []string{"description"},
@@ -531,7 +536,7 @@ func Test_Classifier_WhereFilterValidation(t *testing.T) {
 					"k": json.Number("1"),
 				},
 				Filters: &models.ClassificationFilters{
-					SourceWhere: deprecatedSourceFilter,
+					SourceWhere: deprecatedFilter,
 				},
 				Type: TypeContextual,
 			}
@@ -541,18 +546,6 @@ func Test_Classifier_WhereFilterValidation(t *testing.T) {
 		})
 
 		t.Run("with deprecated targetFilter", func(t *testing.T) {
-			sourceFilter := &models.WhereFilter{
-				Path:      []string{"description"},
-				Operator:  "Equal",
-				ValueText: ptString("someValue"),
-			}
-
-			deprecatedTargetFilter := &models.WhereFilter{
-				Path:        []string{"description"},
-				Operator:    "Equal",
-				ValueString: ptString("someValue"),
-			}
-
 			params := models.Classification{
 				Class:              "Article",
 				BasedOnProperties:  []string{"description"},
@@ -561,8 +554,8 @@ func Test_Classifier_WhereFilterValidation(t *testing.T) {
 					"k": json.Number("1"),
 				},
 				Filters: &models.ClassificationFilters{
-					SourceWhere: sourceFilter,
-					TargetWhere: deprecatedTargetFilter,
+					SourceWhere: validFilter,
+					TargetWhere: deprecatedFilter,
 				},
 				Type: TypeContextual,
 			}
@@ -572,17 +565,6 @@ func Test_Classifier_WhereFilterValidation(t *testing.T) {
 		})
 
 		t.Run("with deprecated trainingFilter", func(t *testing.T) {
-			sourceFilter := &models.WhereFilter{
-				Path:      []string{"description"},
-				Operator:  "Equal",
-				ValueText: ptString("someValue"),
-			}
-			deprecatedTrainingFilter := &models.WhereFilter{
-				Path:        []string{"description"},
-				Operator:    "Equal",
-				ValueString: ptString("someValue"),
-			}
-
 			params := models.Classification{
 				Class:              "Article",
 				BasedOnProperties:  []string{"description"},
@@ -591,8 +573,8 @@ func Test_Classifier_WhereFilterValidation(t *testing.T) {
 					"k": json.Number("1"),
 				},
 				Filters: &models.ClassificationFilters{
-					SourceWhere:      sourceFilter,
-					TrainingSetWhere: deprecatedTrainingFilter,
+					SourceWhere:      validFilter,
+					TrainingSetWhere: deprecatedFilter,
 				},
 				Type: TypeKNN,
 			}

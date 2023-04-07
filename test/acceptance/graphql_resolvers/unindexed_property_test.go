@@ -85,7 +85,7 @@ func Test_UnindexedProperty(t *testing.T) {
 			Get {
 				NoIndexTestClass(where:{
 					operator: Equal,
-					valueString: "elephant"
+					valueText: "elephant"
 					path:["name"]
 				}){
 					name
@@ -111,7 +111,7 @@ func Test_UnindexedProperty(t *testing.T) {
 			Get {
 				NoIndexTestClass(where:{
 					operator: Equal,
-					valueString: "zebra"
+					valueText: "zebra"
 					path:["hiddenName"]
 				}){
 					name

@@ -100,16 +100,16 @@ func deleteObject(t *testing.T, host, class string, id strfmt.UUID) {
 	assert.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 }
 
-func deleteObjects(t *testing.T, host, class string, path []string, valueString string) {
+func deleteObjects(t *testing.T, host, class string, path []string, valueText string) {
 	helper.SetupClient(host)
 
 	batchDelete := &models.BatchDelete{
 		Match: &models.BatchDeleteMatch{
 			Class: class,
 			Where: &models.WhereFilter{
-				Operator:    filters.OperatorLike.Name(),
-				Path:        path,
-				ValueString: &valueString,
+				Operator:  filters.OperatorLike.Name(),
+				Path:      path,
+				ValueText: &valueText,
 			},
 		},
 	}
