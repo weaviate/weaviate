@@ -34,7 +34,7 @@ func FromEnv(config *Config) error {
 	if enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
 		config.TrackVectorDimensions = true
 	}
-	
+
 	if enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
 		if config.TrackVectorDimensions {
 			config.ReindexVectorDimensionsAtStartup = true
