@@ -26,7 +26,6 @@ func aggregateArrayClassWithoutGroupByTest(t *testing.T) {
 		expectedAllResultsAssertions := []assertFunc{
 			asserts.meta(7),
 			asserts.booleanArray("booleans", 10, 4, 6, 0.4, 0.6),
-			asserts.textArray("strings", 10, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{4, 3, 2, 1}),
 			asserts.textArray("texts", 10, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{4, 3, 2, 1}),
 			asserts.numberArray("numbers", 10, 4, 1, 1, 20, 2, 2),
 			asserts.intArray("ints", 10, 104, 101, 101, 1020, 102, 102),
@@ -36,7 +35,6 @@ func aggregateArrayClassWithoutGroupByTest(t *testing.T) {
 		expectedResultsWithDataAssertions := []assertFunc{
 			asserts.meta(2),
 			asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-			asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 			asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 			asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 			asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -46,7 +44,6 @@ func aggregateArrayClassWithoutGroupByTest(t *testing.T) {
 		expectedResultsWithoutDataAssertions := []assertFunc{
 			asserts.meta(3),
 			asserts.booleanArray0("booleans"),
-			asserts.textArray0("strings"),
 			asserts.textArray0("texts"),
 			asserts.numberArray0("numbers"),
 			asserts.intArray0("ints"),
@@ -56,7 +53,6 @@ func aggregateArrayClassWithoutGroupByTest(t *testing.T) {
 		expectedNoResultsAssertions := []assertFunc{
 			asserts.meta(0),
 			asserts.booleanArray0("booleans"),
-			asserts.textArray0("strings"),
 			asserts.textArray0("texts"),
 			asserts.numberArray0("numbers"),
 			asserts.intArray0("ints"),
@@ -107,7 +103,6 @@ func aggregateDuplicatesClassWithoutGroupByTest(t *testing.T) {
 		expectedAllResultsAssertions := []assertFunc{
 			asserts.meta(3),
 			asserts.booleanArray("booleans", 9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-			asserts.textArray("strings", 9, []string{"Astr", "Bstr"}, []int64{6, 3}),
 			asserts.textArray("texts", 9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
 			asserts.numberArray("numbers", 9, 2, 1, 1, 12, 1, 1.3333333333333333),
 			asserts.intArray("ints", 9, 102, 101, 101, 912, 101, 101.33333333333333),
@@ -116,7 +111,6 @@ func aggregateDuplicatesClassWithoutGroupByTest(t *testing.T) {
 		expectedSomeResultsAssertions := []assertFunc{
 			asserts.meta(1),
 			asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-			asserts.textArray("strings", 4, []string{"Astr", "Bstr"}, []int64{3, 1}),
 			asserts.textArray("texts", 4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
 			asserts.numberArray("numbers", 4, 2, 1, 1, 5, 1, 1.25),
 			asserts.intArray("ints", 4, 102, 101, 101, 405, 101, 101.25),
@@ -125,7 +119,6 @@ func aggregateDuplicatesClassWithoutGroupByTest(t *testing.T) {
 		expectedNoResultsAssertions := []assertFunc{
 			asserts.meta(0),
 			asserts.booleanArray0("booleans"),
-			asserts.textArray0("strings"),
 			asserts.textArray0("texts"),
 			asserts.numberArray0("numbers"),
 			asserts.intArray0("ints"),

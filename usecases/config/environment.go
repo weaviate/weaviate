@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
@@ -191,7 +192,7 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("AUTOSCHEMA_ENABLED"); v != "" {
 		config.AutoSchema.Enabled = !(strings.ToLower(v) == "false")
 	}
-	config.AutoSchema.DefaultString = "text"
+	config.AutoSchema.DefaultString = schema.DataTypeText.String()
 	if v := os.Getenv("AUTOSCHEMA_DEFAULT_STRING"); v != "" {
 		config.AutoSchema.DefaultString = v
 	}

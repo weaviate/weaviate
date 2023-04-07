@@ -25,147 +25,12 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 	asserts := newAggregateResponseAssert(t)
 	testCasesGen := &aggregateArrayClassTestCases{}
 
-	t.Run("aggregate ArrayClass with group by strings", func(t *testing.T) {
-		expectedAllResultsAssertions := map[string][]assertFunc{
-			"Astr": {
-				asserts.groupedBy("Astr", "strings"),
-				asserts.meta(4),
-				asserts.booleanArray("booleans", 10, 4, 6, 0.4, 0.6),
-				asserts.textArray("strings", 10, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{4, 3, 2, 1}),
-				asserts.textArray("texts", 10, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{4, 3, 2, 1}),
-				asserts.numberArray("numbers", 10, 4, 1, 1, 20, 2, 2),
-				asserts.intArray("ints", 10, 104, 101, 101, 1020, 102, 102),
-				asserts.dateArray("datesAsStrings", 10),
-				asserts.dateArray("dates", 10),
-			},
-			"Bstr": {
-				asserts.groupedBy("Bstr", "strings"),
-				asserts.meta(3),
-				asserts.booleanArray("booleans", 9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-				asserts.textArray("strings", 9, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{3, 3, 2, 1}),
-				asserts.textArray("texts", 9, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{3, 3, 2, 1}),
-				asserts.numberArray("numbers", 9, 4, 1, 1, 19, 2, 2.111111111111111),
-				asserts.intArray("ints", 9, 104, 101, 101, 919, 102, 102.11111111111111),
-				asserts.dateArray("datesAsStrings", 9),
-				asserts.dateArray("dates", 9),
-			},
-			"Cstr": {
-				asserts.groupedBy("Cstr", "strings"),
-				asserts.meta(2),
-				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
-				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
-				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
-				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
-				asserts.dateArray("datesAsStrings", 7),
-				asserts.dateArray("dates", 7),
-			},
-			"Dstr": {
-				asserts.groupedBy("Dstr", "strings"),
-				asserts.meta(1),
-				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{1, 1, 1, 1}),
-				asserts.textArray("texts", 4, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{1, 1, 1, 1}),
-				asserts.numberArray("numbers", 4, 4, 1, 1, 10, 2.5, 2.5),
-				asserts.intArray("ints", 4, 104, 101, 101, 410, 102.5, 102.5),
-				asserts.dateArray("datesAsStrings", 4),
-				asserts.dateArray("dates", 4),
-			},
-		}
-		expectedResultsWithDataAssertions := map[string][]assertFunc{
-			"Astr": {
-				asserts.groupedBy("Astr", "strings"),
-				asserts.meta(2),
-				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
-				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
-				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
-				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
-				asserts.dateArray("datesAsStrings", 7),
-				asserts.dateArray("dates", 7),
-			},
-			"Bstr": {
-				asserts.groupedBy("Bstr", "strings"),
-				asserts.meta(2),
-				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
-				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
-				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
-				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
-				asserts.dateArray("datesAsStrings", 7),
-				asserts.dateArray("dates", 7),
-			},
-			"Cstr": {
-				asserts.groupedBy("Cstr", "strings"),
-				asserts.meta(2),
-				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
-				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
-				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
-				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
-				asserts.dateArray("datesAsStrings", 7),
-				asserts.dateArray("dates", 7),
-			},
-			"Dstr": {
-				asserts.groupedBy("Dstr", "strings"),
-				asserts.meta(1),
-				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{1, 1, 1, 1}),
-				asserts.textArray("texts", 4, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{1, 1, 1, 1}),
-				asserts.numberArray("numbers", 4, 4, 1, 1, 10, 2.5, 2.5),
-				asserts.intArray("ints", 4, 104, 101, 101, 410, 102.5, 102.5),
-				asserts.dateArray("datesAsStrings", 4),
-				asserts.dateArray("dates", 4),
-			},
-		}
-		expectedResultsWithoutDataAssertions := map[string][]assertFunc{}
-		expectedNoResultsAssertions := map[string][]assertFunc{}
-
-		testCases := []aggregateTestCase{
-			testCasesGen.WithoutFilters(expectedAllResultsAssertions),
-
-			testCasesGen.WithWhereFilter_AllResults(expectedAllResultsAssertions),
-			testCasesGen.WithWhereFilter_ResultsWithData(expectedResultsWithDataAssertions),
-			testCasesGen.WithWhereFilter_ResultsWithoutData(expectedResultsWithoutDataAssertions),
-			testCasesGen.WithWhereFilter_NoResults(expectedNoResultsAssertions),
-
-			testCasesGen.WithNearObjectFilter_AllResults(expectedAllResultsAssertions),
-			testCasesGen.WithNearObjectFilter_ResultsWithData(expectedResultsWithDataAssertions),
-			testCasesGen.WithNearObjectFilter_ResultsWithoutData(expectedResultsWithoutDataAssertions),
-
-			testCasesGen.WithWhereAndNearObjectFilters_AllResults(expectedAllResultsAssertions),
-			testCasesGen.WithWhereAndNearObjectFilters_ResultsWithData(expectedResultsWithDataAssertions),
-			testCasesGen.WithWhereAndNearObjectFilters_ResultsWithoutData(expectedResultsWithoutDataAssertions),
-			testCasesGen.WithWhereAndNearObjectFilters_NoResults(expectedNoResultsAssertions),
-		}
-
-		for _, tc := range testCases {
-			query := aggregateArrayClassQuery(tc.filters, "groupBy: [\"strings\"]")
-
-			t.Run(tc.name, func(t *testing.T) {
-				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
-				extracted := extractArrayClassGroupByResult(result)
-
-				assert.Len(t, extracted, len(tc.groupedAssertions))
-				for groupedBy, groupAssertions := range tc.groupedAssertions {
-					group := findGroup(groupedBy, extracted)
-					require.NotNil(t, group, fmt.Sprintf("Group '%s' not found", groupedBy))
-
-					for _, assertion := range groupAssertions {
-						assertion(group)
-					}
-				}
-			})
-		}
-	})
-
 	t.Run("aggregate ArrayClass with group by texts", func(t *testing.T) {
 		expectedAllResultsAssertions := map[string][]assertFunc{
 			"Atxt": {
 				asserts.groupedBy("Atxt", "texts"),
 				asserts.meta(4),
 				asserts.booleanArray("booleans", 10, 4, 6, 0.4, 0.6),
-				asserts.textArray("strings", 10, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{4, 3, 2, 1}),
 				asserts.textArray("texts", 10, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{4, 3, 2, 1}),
 				asserts.numberArray("numbers", 10, 4, 1, 1, 20, 2, 2),
 				asserts.intArray("ints", 10, 104, 101, 101, 1020, 102, 102),
@@ -176,7 +41,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("Btxt", "texts"),
 				asserts.meta(3),
 				asserts.booleanArray("booleans", 9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-				asserts.textArray("strings", 9, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{3, 3, 2, 1}),
 				asserts.textArray("texts", 9, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{3, 3, 2, 1}),
 				asserts.numberArray("numbers", 9, 4, 1, 1, 19, 2, 2.111111111111111),
 				asserts.intArray("ints", 9, 104, 101, 101, 919, 102, 102.11111111111111),
@@ -187,7 +51,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("Ctxt", "texts"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -198,7 +61,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("Dtxt", "texts"),
 				asserts.meta(1),
 				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{1, 1, 1, 1}),
 				asserts.textArray("texts", 4, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{1, 1, 1, 1}),
 				asserts.numberArray("numbers", 4, 4, 1, 1, 10, 2.5, 2.5),
 				asserts.intArray("ints", 4, 104, 101, 101, 410, 102.5, 102.5),
@@ -211,7 +73,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("Atxt", "texts"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -222,7 +83,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("Btxt", "texts"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -233,7 +93,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("Ctxt", "texts"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -244,7 +103,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("Dtxt", "texts"),
 				asserts.meta(1),
 				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{1, 1, 1, 1}),
 				asserts.textArray("texts", 4, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{1, 1, 1, 1}),
 				asserts.numberArray("numbers", 4, 4, 1, 1, 10, 2.5, 2.5),
 				asserts.intArray("ints", 4, 104, 101, 101, 410, 102.5, 102.5),
@@ -299,7 +157,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("101", "ints"),
 				asserts.meta(4),
 				asserts.booleanArray("booleans", 10, 4, 6, 0.4, 0.6),
-				asserts.textArray("strings", 10, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{4, 3, 2, 1}),
 				asserts.textArray("texts", 10, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{4, 3, 2, 1}),
 				asserts.numberArray("numbers", 10, 4, 1, 1, 20, 2, 2),
 				asserts.intArray("ints", 10, 104, 101, 101, 1020, 102, 102),
@@ -310,7 +167,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("102", "ints"),
 				asserts.meta(3),
 				asserts.booleanArray("booleans", 9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-				asserts.textArray("strings", 9, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{3, 3, 2, 1}),
 				asserts.textArray("texts", 9, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{3, 3, 2, 1}),
 				asserts.numberArray("numbers", 9, 4, 1, 1, 19, 2, 2.111111111111111),
 				asserts.intArray("ints", 9, 104, 101, 101, 919, 102, 102.11111111111111),
@@ -321,7 +177,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("103", "ints"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -332,7 +187,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("104", "ints"),
 				asserts.meta(1),
 				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{1, 1, 1, 1}),
 				asserts.textArray("texts", 4, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{1, 1, 1, 1}),
 				asserts.numberArray("numbers", 4, 4, 1, 1, 10, 2.5, 2.5),
 				asserts.intArray("ints", 4, 104, 101, 101, 410, 102.5, 102.5),
@@ -345,7 +199,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("101", "ints"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -356,7 +209,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("102", "ints"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -367,7 +219,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("103", "ints"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -378,7 +229,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("104", "ints"),
 				asserts.meta(1),
 				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{1, 1, 1, 1}),
 				asserts.textArray("texts", 4, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{1, 1, 1, 1}),
 				asserts.numberArray("numbers", 4, 4, 1, 1, 10, 2.5, 2.5),
 				asserts.intArray("ints", 4, 104, 101, 101, 410, 102.5, 102.5),
@@ -433,7 +283,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("1", "numbers"),
 				asserts.meta(4),
 				asserts.booleanArray("booleans", 10, 4, 6, 0.4, 0.6),
-				asserts.textArray("strings", 10, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{4, 3, 2, 1}),
 				asserts.textArray("texts", 10, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{4, 3, 2, 1}),
 				asserts.numberArray("numbers", 10, 4, 1, 1, 20, 2, 2),
 				asserts.intArray("ints", 10, 104, 101, 101, 1020, 102, 102),
@@ -444,7 +293,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2", "numbers"),
 				asserts.meta(3),
 				asserts.booleanArray("booleans", 9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-				asserts.textArray("strings", 9, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{3, 3, 2, 1}),
 				asserts.textArray("texts", 9, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{3, 3, 2, 1}),
 				asserts.numberArray("numbers", 9, 4, 1, 1, 19, 2, 2.111111111111111),
 				asserts.intArray("ints", 9, 104, 101, 101, 919, 102, 102.11111111111111),
@@ -455,7 +303,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("3", "numbers"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -466,7 +313,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("4", "numbers"),
 				asserts.meta(1),
 				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{1, 1, 1, 1}),
 				asserts.textArray("texts", 4, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{1, 1, 1, 1}),
 				asserts.numberArray("numbers", 4, 4, 1, 1, 10, 2.5, 2.5),
 				asserts.intArray("ints", 4, 104, 101, 101, 410, 102.5, 102.5),
@@ -479,7 +325,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("1", "numbers"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -490,7 +335,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2", "numbers"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -501,7 +345,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("3", "numbers"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -512,7 +355,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("4", "numbers"),
 				asserts.meta(1),
 				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{1, 1, 1, 1}),
 				asserts.textArray("texts", 4, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{1, 1, 1, 1}),
 				asserts.numberArray("numbers", 4, 4, 1, 1, 10, 2.5, 2.5),
 				asserts.intArray("ints", 4, 104, 101, 101, 410, 102.5, 102.5),
@@ -567,7 +409,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2001-06-01T12:00:00Z", "dates"),
 				asserts.meta(4),
 				asserts.booleanArray("booleans", 10, 4, 6, 0.4, 0.6),
-				asserts.textArray("strings", 10, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{4, 3, 2, 1}),
 				asserts.textArray("texts", 10, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{4, 3, 2, 1}),
 				asserts.numberArray("numbers", 10, 4, 1, 1, 20, 2, 2),
 				asserts.intArray("ints", 10, 104, 101, 101, 1020, 102, 102),
@@ -578,7 +419,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2002-06-02T12:00:00Z", "dates"),
 				asserts.meta(3),
 				asserts.booleanArray("booleans", 9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-				asserts.textArray("strings", 9, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{3, 3, 2, 1}),
 				asserts.textArray("texts", 9, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{3, 3, 2, 1}),
 				asserts.numberArray("numbers", 9, 4, 1, 1, 19, 2, 2.111111111111111),
 				asserts.intArray("ints", 9, 104, 101, 101, 919, 102, 102.11111111111111),
@@ -589,7 +429,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2003-06-03T12:00:00Z", "dates"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -600,7 +439,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2004-06-04T12:00:00Z", "dates"),
 				asserts.meta(1),
 				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{1, 1, 1, 1}),
 				asserts.textArray("texts", 4, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{1, 1, 1, 1}),
 				asserts.numberArray("numbers", 4, 4, 1, 1, 10, 2.5, 2.5),
 				asserts.intArray("ints", 4, 104, 101, 101, 410, 102.5, 102.5),
@@ -613,7 +451,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2001-06-01T12:00:00Z", "dates"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -624,7 +461,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2002-06-02T12:00:00Z", "dates"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -635,7 +471,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2003-06-03T12:00:00Z", "dates"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -646,7 +481,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2004-06-04T12:00:00Z", "dates"),
 				asserts.meta(1),
 				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{1, 1, 1, 1}),
 				asserts.textArray("texts", 4, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{1, 1, 1, 1}),
 				asserts.numberArray("numbers", 4, 4, 1, 1, 10, 2.5, 2.5),
 				asserts.intArray("ints", 4, 104, 101, 101, 410, 102.5, 102.5),
@@ -701,7 +535,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2021-06-01T22:18:59.640162Z", "datesAsStrings"),
 				asserts.meta(4),
 				asserts.booleanArray("booleans", 10, 4, 6, 0.4, 0.6),
-				asserts.textArray("strings", 10, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{4, 3, 2, 1}),
 				asserts.textArray("texts", 10, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{4, 3, 2, 1}),
 				asserts.numberArray("numbers", 10, 4, 1, 1, 20, 2, 2),
 				asserts.intArray("ints", 10, 104, 101, 101, 1020, 102, 102),
@@ -712,7 +545,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2022-06-02T22:18:59.640162Z", "datesAsStrings"),
 				asserts.meta(3),
 				asserts.booleanArray("booleans", 9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-				asserts.textArray("strings", 9, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{3, 3, 2, 1}),
 				asserts.textArray("texts", 9, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{3, 3, 2, 1}),
 				asserts.numberArray("numbers", 9, 4, 1, 1, 19, 2, 2.111111111111111),
 				asserts.intArray("ints", 9, 104, 101, 101, 919, 102, 102.11111111111111),
@@ -723,7 +555,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2023-06-03T22:18:59.640162Z", "datesAsStrings"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -734,7 +565,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2024-06-04T22:18:59.640162Z", "datesAsStrings"),
 				asserts.meta(1),
 				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{1, 1, 1, 1}),
 				asserts.textArray("texts", 4, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{1, 1, 1, 1}),
 				asserts.numberArray("numbers", 4, 4, 1, 1, 10, 2.5, 2.5),
 				asserts.intArray("ints", 4, 104, 101, 101, 410, 102.5, 102.5),
@@ -747,7 +577,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2021-06-01T22:18:59.640162Z", "datesAsStrings"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -758,7 +587,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2022-06-02T22:18:59.640162Z", "datesAsStrings"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -769,7 +597,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2023-06-03T22:18:59.640162Z", "datesAsStrings"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -780,7 +607,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2024-06-04T22:18:59.640162Z", "datesAsStrings"),
 				asserts.meta(1),
 				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{1, 1, 1, 1}),
 				asserts.textArray("texts", 4, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{1, 1, 1, 1}),
 				asserts.numberArray("numbers", 4, 4, 1, 1, 10, 2.5, 2.5),
 				asserts.intArray("ints", 4, 104, 101, 101, 410, 102.5, 102.5),
@@ -835,7 +661,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("true", "booleans"),
 				asserts.meta(3),
 				asserts.booleanArray("booleans", 9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-				asserts.textArray("strings", 9, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{3, 3, 2, 1}),
 				asserts.textArray("texts", 9, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{3, 3, 2, 1}),
 				asserts.numberArray("numbers", 9, 4, 1, 1, 19, 2, 2.111111111111111),
 				asserts.intArray("ints", 9, 104, 101, 101, 919, 102, 102.11111111111111),
@@ -846,7 +671,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("false", "booleans"),
 				asserts.meta(4),
 				asserts.booleanArray("booleans", 10, 4, 6, 0.4, 0.6),
-				asserts.textArray("strings", 10, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{4, 3, 2, 1}),
 				asserts.textArray("texts", 10, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{4, 3, 2, 1}),
 				asserts.numberArray("numbers", 10, 4, 1, 1, 20, 2, 2),
 				asserts.intArray("ints", 10, 104, 101, 101, 1020, 102, 102),
@@ -859,7 +683,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("true", "booleans"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -870,7 +693,6 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("false", "booleans"),
 				asserts.meta(2),
 				asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 				asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 				asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 				asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -924,88 +746,12 @@ func aggregateDuplicatesClassWithGroupByTest(t *testing.T) {
 	asserts := newAggregateResponseAssert(t)
 	testCasesGen := &aggregateDuplicatesClassTestCases{}
 
-	t.Run("aggregate DuplicatesClass with group by strings", func(t *testing.T) {
-		expectedAllResultsAssertions := map[string][]assertFunc{
-			"Astr": {
-				asserts.groupedBy("Astr", "strings"),
-				asserts.meta(3),
-				asserts.booleanArray("booleans", 9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-				asserts.textArray("strings", 9, []string{"Astr", "Bstr"}, []int64{6, 3}),
-				asserts.textArray("texts", 9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
-				asserts.numberArray("numbers", 9, 2, 1, 1, 12, 1, 1.3333333333333333),
-				asserts.intArray("ints", 9, 102, 101, 101, 912, 101, 101.33333333333333),
-				asserts.dateArray("datesAsStrings", 9),
-			},
-			"Bstr": {
-				asserts.groupedBy("Bstr", "strings"),
-				asserts.meta(3),
-				asserts.booleanArray("booleans", 9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-				asserts.textArray("strings", 9, []string{"Astr", "Bstr"}, []int64{6, 3}),
-				asserts.textArray("texts", 9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
-				asserts.numberArray("numbers", 9, 2, 1, 1, 12, 1, 1.3333333333333333),
-				asserts.intArray("ints", 9, 102, 101, 101, 912, 101, 101.33333333333333),
-				asserts.dateArray("datesAsStrings", 9),
-			},
-		}
-		expectedSomeResultsAssertions := map[string][]assertFunc{
-			"Astr": {
-				asserts.groupedBy("Astr", "strings"),
-				asserts.meta(1),
-				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr"}, []int64{3, 1}),
-				asserts.textArray("texts", 4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
-				asserts.numberArray("numbers", 4, 2, 1, 1, 5, 1, 1.25),
-				asserts.intArray("ints", 4, 102, 101, 101, 405, 101, 101.25),
-				asserts.dateArray("datesAsStrings", 4),
-			},
-			"Bstr": {
-				asserts.groupedBy("Bstr", "strings"),
-				asserts.meta(1),
-				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr"}, []int64{3, 1}),
-				asserts.textArray("texts", 4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
-				asserts.numberArray("numbers", 4, 2, 1, 1, 5, 1, 1.25),
-				asserts.intArray("ints", 4, 102, 101, 101, 405, 101, 101.25),
-				asserts.dateArray("datesAsStrings", 4),
-			},
-		}
-		expectedNoResultsAssertsions := map[string][]assertFunc{}
-
-		testCases := []aggregateTestCase{
-			testCasesGen.WithoutFilters(expectedAllResultsAssertions),
-
-			testCasesGen.WithWhereFilter_AllResults(expectedAllResultsAssertions),
-			testCasesGen.WithWhereFilter_SomeResults(expectedSomeResultsAssertions),
-			testCasesGen.WithWhereFilter_NoResults(expectedNoResultsAssertsions),
-		}
-
-		for _, tc := range testCases {
-			query := aggregateDuplicatesClassQuery(tc.filters, "groupBy: [\"strings\"]")
-
-			t.Run(tc.name, func(t *testing.T) {
-				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
-				extracted := extractDuplicatesClassGroupByResult(result)
-
-				assert.Len(t, extracted, len(tc.groupedAssertions))
-				for groupedBy, groupAssertions := range tc.groupedAssertions {
-					group := findGroup(groupedBy, extracted)
-					require.NotNil(t, group, fmt.Sprintf("Group '%s' not found", groupedBy))
-
-					for _, assertion := range groupAssertions {
-						assertion(group)
-					}
-				}
-			})
-		}
-	})
-
 	t.Run("aggregate DuplicatesClass with group by texts", func(t *testing.T) {
 		expectedAllResultsAssertions := map[string][]assertFunc{
 			"Atxt": {
 				asserts.groupedBy("Atxt", "texts"),
 				asserts.meta(3),
 				asserts.booleanArray("booleans", 9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-				asserts.textArray("strings", 9, []string{"Astr", "Bstr"}, []int64{6, 3}),
 				asserts.textArray("texts", 9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
 				asserts.numberArray("numbers", 9, 2, 1, 1, 12, 1, 1.3333333333333333),
 				asserts.intArray("ints", 9, 102, 101, 101, 912, 101, 101.33333333333333),
@@ -1015,7 +761,6 @@ func aggregateDuplicatesClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("Btxt", "texts"),
 				asserts.meta(3),
 				asserts.booleanArray("booleans", 9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-				asserts.textArray("strings", 9, []string{"Astr", "Bstr"}, []int64{6, 3}),
 				asserts.textArray("texts", 9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
 				asserts.numberArray("numbers", 9, 2, 1, 1, 12, 1, 1.3333333333333333),
 				asserts.intArray("ints", 9, 102, 101, 101, 912, 101, 101.33333333333333),
@@ -1027,7 +772,6 @@ func aggregateDuplicatesClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("Atxt", "texts"),
 				asserts.meta(1),
 				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr"}, []int64{3, 1}),
 				asserts.textArray("texts", 4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
 				asserts.numberArray("numbers", 4, 2, 1, 1, 5, 1, 1.25),
 				asserts.intArray("ints", 4, 102, 101, 101, 405, 101, 101.25),
@@ -1037,7 +781,6 @@ func aggregateDuplicatesClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("Btxt", "texts"),
 				asserts.meta(1),
 				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr"}, []int64{3, 1}),
 				asserts.textArray("texts", 4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
 				asserts.numberArray("numbers", 4, 2, 1, 1, 5, 1, 1.25),
 				asserts.intArray("ints", 4, 102, 101, 101, 405, 101, 101.25),
@@ -1080,7 +823,6 @@ func aggregateDuplicatesClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("101", "ints"),
 				asserts.meta(3),
 				asserts.booleanArray("booleans", 9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-				asserts.textArray("strings", 9, []string{"Astr", "Bstr"}, []int64{6, 3}),
 				asserts.textArray("texts", 9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
 				asserts.numberArray("numbers", 9, 2, 1, 1, 12, 1, 1.3333333333333333),
 				asserts.intArray("ints", 9, 102, 101, 101, 912, 101, 101.33333333333333),
@@ -1090,7 +832,6 @@ func aggregateDuplicatesClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("102", "ints"),
 				asserts.meta(3),
 				asserts.booleanArray("booleans", 9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-				asserts.textArray("strings", 9, []string{"Astr", "Bstr"}, []int64{6, 3}),
 				asserts.textArray("texts", 9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
 				asserts.numberArray("numbers", 9, 2, 1, 1, 12, 1, 1.3333333333333333),
 				asserts.intArray("ints", 9, 102, 101, 101, 912, 101, 101.33333333333333),
@@ -1102,7 +843,6 @@ func aggregateDuplicatesClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("101", "ints"),
 				asserts.meta(1),
 				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr"}, []int64{3, 1}),
 				asserts.textArray("texts", 4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
 				asserts.numberArray("numbers", 4, 2, 1, 1, 5, 1, 1.25),
 				asserts.intArray("ints", 4, 102, 101, 101, 405, 101, 101.25),
@@ -1112,7 +852,6 @@ func aggregateDuplicatesClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("102", "ints"),
 				asserts.meta(1),
 				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr"}, []int64{3, 1}),
 				asserts.textArray("texts", 4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
 				asserts.numberArray("numbers", 4, 2, 1, 1, 5, 1, 1.25),
 				asserts.intArray("ints", 4, 102, 101, 101, 405, 101, 101.25),
@@ -1155,7 +894,6 @@ func aggregateDuplicatesClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("1", "numbers"),
 				asserts.meta(3),
 				asserts.booleanArray("booleans", 9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-				asserts.textArray("strings", 9, []string{"Astr", "Bstr"}, []int64{6, 3}),
 				asserts.textArray("texts", 9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
 				asserts.numberArray("numbers", 9, 2, 1, 1, 12, 1, 1.3333333333333333),
 				asserts.intArray("ints", 9, 102, 101, 101, 912, 101, 101.33333333333333),
@@ -1165,7 +903,6 @@ func aggregateDuplicatesClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2", "numbers"),
 				asserts.meta(3),
 				asserts.booleanArray("booleans", 9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-				asserts.textArray("strings", 9, []string{"Astr", "Bstr"}, []int64{6, 3}),
 				asserts.textArray("texts", 9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
 				asserts.numberArray("numbers", 9, 2, 1, 1, 12, 1, 1.3333333333333333),
 				asserts.intArray("ints", 9, 102, 101, 101, 912, 101, 101.33333333333333),
@@ -1177,7 +914,6 @@ func aggregateDuplicatesClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("1", "numbers"),
 				asserts.meta(1),
 				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr"}, []int64{3, 1}),
 				asserts.textArray("texts", 4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
 				asserts.numberArray("numbers", 4, 2, 1, 1, 5, 1, 1.25),
 				asserts.intArray("ints", 4, 102, 101, 101, 405, 101, 101.25),
@@ -1187,7 +923,6 @@ func aggregateDuplicatesClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2", "numbers"),
 				asserts.meta(1),
 				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr"}, []int64{3, 1}),
 				asserts.textArray("texts", 4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
 				asserts.numberArray("numbers", 4, 2, 1, 1, 5, 1, 1.25),
 				asserts.intArray("ints", 4, 102, 101, 101, 405, 101, 101.25),
@@ -1230,7 +965,6 @@ func aggregateDuplicatesClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2021-06-01T22:18:59.640162Z", "datesAsStrings"),
 				asserts.meta(3),
 				asserts.booleanArray("booleans", 9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-				asserts.textArray("strings", 9, []string{"Astr", "Bstr"}, []int64{6, 3}),
 				asserts.textArray("texts", 9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
 				asserts.numberArray("numbers", 9, 2, 1, 1, 12, 1, 1.3333333333333333),
 				asserts.intArray("ints", 9, 102, 101, 101, 912, 101, 101.33333333333333),
@@ -1240,7 +974,6 @@ func aggregateDuplicatesClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2022-06-02T22:18:59.640162Z", "datesAsStrings"),
 				asserts.meta(3),
 				asserts.booleanArray("booleans", 9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-				asserts.textArray("strings", 9, []string{"Astr", "Bstr"}, []int64{6, 3}),
 				asserts.textArray("texts", 9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
 				asserts.numberArray("numbers", 9, 2, 1, 1, 12, 1, 1.3333333333333333),
 				asserts.intArray("ints", 9, 102, 101, 101, 912, 101, 101.33333333333333),
@@ -1252,7 +985,6 @@ func aggregateDuplicatesClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2021-06-01T22:18:59.640162Z", "datesAsStrings"),
 				asserts.meta(1),
 				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr"}, []int64{3, 1}),
 				asserts.textArray("texts", 4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
 				asserts.numberArray("numbers", 4, 2, 1, 1, 5, 1, 1.25),
 				asserts.intArray("ints", 4, 102, 101, 101, 405, 101, 101.25),
@@ -1262,7 +994,6 @@ func aggregateDuplicatesClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("2022-06-02T22:18:59.640162Z", "datesAsStrings"),
 				asserts.meta(1),
 				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr"}, []int64{3, 1}),
 				asserts.textArray("texts", 4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
 				asserts.numberArray("numbers", 4, 2, 1, 1, 5, 1, 1.25),
 				asserts.intArray("ints", 4, 102, 101, 101, 405, 101, 101.25),
@@ -1305,7 +1036,6 @@ func aggregateDuplicatesClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("true", "booleans"),
 				asserts.meta(3),
 				asserts.booleanArray("booleans", 9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-				asserts.textArray("strings", 9, []string{"Astr", "Bstr"}, []int64{6, 3}),
 				asserts.textArray("texts", 9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
 				asserts.numberArray("numbers", 9, 2, 1, 1, 12, 1, 1.3333333333333333),
 				asserts.intArray("ints", 9, 102, 101, 101, 912, 101, 101.33333333333333),
@@ -1315,7 +1045,6 @@ func aggregateDuplicatesClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("false", "booleans"),
 				asserts.meta(3),
 				asserts.booleanArray("booleans", 9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-				asserts.textArray("strings", 9, []string{"Astr", "Bstr"}, []int64{6, 3}),
 				asserts.textArray("texts", 9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
 				asserts.numberArray("numbers", 9, 2, 1, 1, 12, 1, 1.3333333333333333),
 				asserts.intArray("ints", 9, 102, 101, 101, 912, 101, 101.33333333333333),
@@ -1327,7 +1056,6 @@ func aggregateDuplicatesClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("true", "booleans"),
 				asserts.meta(1),
 				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr"}, []int64{3, 1}),
 				asserts.textArray("texts", 4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
 				asserts.numberArray("numbers", 4, 2, 1, 1, 5, 1, 1.25),
 				asserts.intArray("ints", 4, 102, 101, 101, 405, 101, 101.25),
@@ -1337,7 +1065,6 @@ func aggregateDuplicatesClassWithGroupByTest(t *testing.T) {
 				asserts.groupedBy("false", "booleans"),
 				asserts.meta(1),
 				asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-				asserts.textArray("strings", 4, []string{"Astr", "Bstr"}, []int64{3, 1}),
 				asserts.textArray("texts", 4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
 				asserts.numberArray("numbers", 4, 2, 1, 1, 5, 1, 1.25),
 				asserts.intArray("ints", 4, 102, 101, 101, 405, 101, 101.25),
