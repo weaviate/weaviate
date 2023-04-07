@@ -89,9 +89,8 @@ func TestClassUpdates(t *testing.T) {
 					Class: "InitialName",
 					Properties: []*models.Property{
 						{
-							Name:         "aProp",
-							DataType:     schema.DataTypeText.PropString(),
-							Tokenization: models.PropertyTokenizationWhitespace,
+							Name:     "aProp",
+							DataType: schema.DataTypeText.PropString(),
 						},
 					},
 				},
@@ -99,9 +98,8 @@ func TestClassUpdates(t *testing.T) {
 					Class: "InitialName",
 					Properties: []*models.Property{
 						{
-							Name:         "aProp",
-							DataType:     schema.DataTypeText.PropString(),
-							Tokenization: models.PropertyTokenizationWhitespace,
+							Name:     "aProp",
+							DataType: schema.DataTypeText.PropString(),
 						},
 					},
 				},
@@ -113,9 +111,8 @@ func TestClassUpdates(t *testing.T) {
 					Class: "InitialName",
 					Properties: []*models.Property{
 						{
-							Name:         "aProp",
-							DataType:     schema.DataTypeText.PropString(),
-							Tokenization: models.PropertyTokenizationWhitespace,
+							Name:     "aProp",
+							DataType: schema.DataTypeText.PropString(),
 						},
 					},
 				},
@@ -123,9 +120,8 @@ func TestClassUpdates(t *testing.T) {
 					Class: "InitialName",
 					Properties: []*models.Property{
 						{
-							Name:         "changedProp",
-							DataType:     schema.DataTypeText.PropString(),
-							Tokenization: models.PropertyTokenizationWhitespace,
+							Name:     "changedProp",
+							DataType: schema.DataTypeText.PropString(),
 						},
 					},
 				},
