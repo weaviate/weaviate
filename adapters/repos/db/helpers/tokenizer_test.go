@@ -15,38 +15,129 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func TestTokenize(t *testing.T) {
 	input := " Hello You*-beautiful_world?!"
 
-	t.Run("tokenize field", func(t *testing.T) {
-		output := tokenizeField(input)
+	type testCase struct {
+		tokenization string
+		expected     []string
+	}
 
-		assert.ElementsMatch(t, output, []string{"Hello You*-beautiful_world?!"})
+	t.Run("tokenize", func(t *testing.T) {
+		testCases := []testCase{
+			{
+				tokenization: models.PropertyTokenizationField,
+				expected:     []string{"Hello You*-beautiful_world?!"},
+			},
+			{
+				tokenization: models.PropertyTokenizationWhitespace,
+				expected:     []string{"Hello", "You*-beautiful_world?!"},
+			},
+			{
+				tokenization: models.PropertyTokenizationLowercase,
+				expected:     []string{"hello", "you*-beautiful_world?!"},
+			},
+			{
+				tokenization: models.PropertyTokenizationWord,
+				expected:     []string{"hello", "you", "beautiful", "world"},
+			},
+		}
+
+		for _, tc := range testCases {
+			terms := Tokenize(tc.tokenization, input)
+			assert.ElementsMatch(t, tc.expected, terms)
+		}
 	})
 
-	t.Run("tokenize whitespace", func(t *testing.T) {
-		output := tokenizeWhitespace(input)
+	t.Run("tokenize with wildcards", func(t *testing.T) {
+		testCases := []testCase{
+			{
+				tokenization: models.PropertyTokenizationField,
+				expected:     []string{"Hello You*-beautiful_world?!"},
+			},
+			{
+				tokenization: models.PropertyTokenizationWhitespace,
+				expected:     []string{"Hello", "You*-beautiful_world?!"},
+			},
+			{
+				tokenization: models.PropertyTokenizationLowercase,
+				expected:     []string{"hello", "you*-beautiful_world?!"},
+			},
+			{
+				tokenization: models.PropertyTokenizationWord,
+				expected:     []string{"hello", "you*", "beautiful", "world?"},
+			},
+		}
 
-		assert.ElementsMatch(t, output, []string{"Hello", "You*-beautiful_world?!"})
+		for _, tc := range testCases {
+			terms := TokenizeWithWildcards(tc.tokenization, input)
+			assert.ElementsMatch(t, tc.expected, terms)
+		}
 	})
+}
 
-	t.Run("tokenize lowercase", func(t *testing.T) {
-		output := tokenizeLowercase(input)
+func TestTokenizeAndCountDuplicates(t *testing.T) {
+	input := "Hello You Beautiful World! hello you beautiful world!"
 
-		assert.ElementsMatch(t, output, []string{"hello", "you*-beautiful_world?!"})
-	})
+	type testCase struct {
+		tokenization string
+		expected     map[string]int
+	}
 
-	t.Run("tokenize word", func(t *testing.T) {
-		output := tokenizeWord(input)
+	testCases := []testCase{
+		{
+			tokenization: models.PropertyTokenizationField,
+			expected: map[string]int{
+				"Hello You Beautiful World! hello you beautiful world!": 1,
+			},
+		},
+		{
+			tokenization: models.PropertyTokenizationWhitespace,
+			expected: map[string]int{
+				"Hello":     1,
+				"You":       1,
+				"Beautiful": 1,
+				"World!":    1,
+				"hello":     1,
+				"you":       1,
+				"beautiful": 1,
+				"world!":    1,
+			},
+		},
+		{
+			tokenization: models.PropertyTokenizationLowercase,
+			expected: map[string]int{
+				"hello":     2,
+				"you":       2,
+				"beautiful": 2,
+				"world!":    2,
+			},
+		},
+		{
+			tokenization: models.PropertyTokenizationWord,
+			expected: map[string]int{
+				"hello":     2,
+				"you":       2,
+				"beautiful": 2,
+				"world":     2,
+			},
+		},
+	}
 
-		assert.ElementsMatch(t, output, []string{"hello", "you", "beautiful", "world"})
-	})
+	for _, tc := range testCases {
+		t.Run(tc.tokenization, func(t *testing.T) {
+			terms, dups := TokenizeAndCountDuplicates(tc.tokenization, input)
 
-	t.Run("tokenize word with wildcards", func(t *testing.T) {
-		output := tokenizeWordWithWildcards(input)
+			assert.Len(t, terms, len(tc.expected))
+			assert.Len(t, dups, len(tc.expected))
 
-		assert.ElementsMatch(t, output, []string{"hello", "you*", "beautiful", "world?"})
-	})
+			for i := range terms {
+				assert.Contains(t, tc.expected, terms[i])
+				assert.Equal(t, tc.expected[terms[i]], dups[i])
+			}
+		})
+	}
 }

@@ -107,31 +107,21 @@ func lowercase(terms []string) []string {
 	return terms
 }
 
-func TokenizeTextAndCountDuplicates(in string) ([]string, []int) {
-	// TODO verify if proper tokenization
-	terms := tokenizeWord(in)
-	return countDuplicates(terms)
-}
-
-func TokenizeStringAndCountDuplicates(in string) ([]string, []int) {
-	// TODO verify if proper tokenization
-	terms := tokenizeWhitespace(in)
-	return countDuplicates(terms)
-}
-
-func countDuplicates(terms []string) ([]string, []int) {
+func TokenizeAndCountDuplicates(tokenization string, in string) ([]string, []int) {
 	counts := map[string]int{}
-	for _, term := range terms {
+	for _, term := range Tokenize(tokenization, in) {
 		counts[term]++
 	}
 
-	termsUnique := make([]string, 0, len(counts))
-	boosts := make([]int, 0, len(counts))
+	unique := make([]string, len(counts))
+	boosts := make([]int, len(counts))
 
+	i := 0
 	for term, boost := range counts {
-		termsUnique = append(termsUnique, term)
-		boosts = append(boosts, boost)
+		unique[i] = term
+		boosts[i] = boost
+		i++
 	}
 
-	return termsUnique, boosts
+	return unique, boosts
 }
