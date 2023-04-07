@@ -158,7 +158,7 @@ func setupRecipe(t *testing.T) {
 			},
 			Properties: []*models.Property{
 				{
-					Name:     "name",
+					Name:         "name",
 					DataType:     schema.DataTypeText.PropString(),
 					Tokenization: models.PropertyTokenizationWhitespace,
 				},
@@ -306,7 +306,7 @@ func setupFoodTypes(t *testing.T) {
 			},
 			Properties: []*models.Property{
 				{
-					Name:     "text",
+					Name:         "text",
 					DataType:     schema.DataTypeText.PropString(),
 					Tokenization: models.PropertyTokenizationWhitespace,
 				},

@@ -19,6 +19,7 @@ import (
 	client "github.com/weaviate/weaviate-go-client/v4/weaviate"
 	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 var paragraphs = []string{
@@ -34,7 +35,11 @@ func TestBm25(t *testing.T) {
 	c.Schema().AllDeleter().Do(ctx)
 	truePointer := true
 
-	cases := []struct{ datatype string }{{datatype: "text[]"}, {datatype: "string[]"}}
+	cases := []struct{ datatype string }{
+		{datatype: string(schema.DataTypeTextArray)},
+		// deprecated string
+		{datatype: string(schema.DataTypeStringArray)},
+	}
 	for _, tt := range cases {
 		t.Run("arrays "+tt.datatype, func(t *testing.T) {
 			className := "Paragraph15845"

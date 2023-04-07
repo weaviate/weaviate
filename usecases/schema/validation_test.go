@@ -247,9 +247,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Vectorizer: "text2vec-contextionary",
 						Class:      "ValidName",
 						Properties: []*models.Property{{
-							DataType:     schema.DataTypeText.PropString(),
-							Tokenization: models.PropertyTokenizationWhitespace,
-							Name:         test.input,
+							DataType: schema.DataTypeText.PropString(),
+							Name:     test.input,
 						}},
 					}
 
@@ -277,9 +276,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Vectorizer: "text2vec-contextionary",
 						Class:      "ValidName",
 						Properties: []*models.Property{{
-							DataType:     schema.DataTypeText.PropString(),
-							Tokenization: models.PropertyTokenizationWhitespace,
-							Name:         test.input,
+							DataType: schema.DataTypeText.PropString(),
+							Name:     test.input,
 						}},
 					}
 
@@ -310,9 +308,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Class:      "ValidName",
 						Properties: []*models.Property{
 							{
-								Name:         "dummyPropSoWeDontRunIntoAllNoindexedError",
-								DataType:     schema.DataTypeText.PropString(),
-								Tokenization: models.PropertyTokenizationWhitespace,
+								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
+								DataType: schema.DataTypeText.PropString(),
 							},
 						},
 					}
@@ -322,9 +319,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					require.Nil(t, err)
 
 					property := &models.Property{
-						DataType:     schema.DataTypeText.PropString(),
-						Tokenization: models.PropertyTokenizationWhitespace,
-						Name:         test.input,
+						DataType: schema.DataTypeText.PropString(),
+						Name:     test.input,
 						ModuleConfig: map[string]interface{}{
 							"text2vec-contextionary": map[string]interface{}{},
 						},
@@ -352,9 +348,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Vectorizer: "text2vec-contextionary",
 						Class:      "ValidName",
 						Properties: []*models.Property{{
-							DataType:     schema.DataTypeText.PropString(),
-							Tokenization: models.PropertyTokenizationWhitespace,
-							Name:         test.input,
+							DataType: schema.DataTypeText.PropString(),
+							Name:     test.input,
 						}},
 					}
 
@@ -523,18 +518,22 @@ func (pdt *fakePropertyDataType) Kind() schema.PropertyKind {
 func (pdt *fakePropertyDataType) IsPrimitive() bool {
 	return pdt.primitiveDataType != ""
 }
+
 func (pdt *fakePropertyDataType) AsPrimitive() schema.DataType {
 	return pdt.primitiveDataType
 }
+
 func (pdt *fakePropertyDataType) IsReference() bool {
 	return !pdt.IsPrimitive()
 }
+
 func (pdt *fakePropertyDataType) Classes() []schema.ClassName {
 	if pdt.IsPrimitive() {
 		return nil
 	}
 	return []schema.ClassName{}
 }
+
 func (pdt *fakePropertyDataType) ContainsClass(name schema.ClassName) bool {
 	return false
 }
