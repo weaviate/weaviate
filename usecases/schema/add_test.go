@@ -427,3 +427,134 @@ func TestAddClass(t *testing.T) {
 		assert.Contains(t, err.Error(), "conflict for property")
 	})
 }
+
+func TestAddClass_Migrate(t *testing.T) {
+	t.Run("migrate string|stringArray datatype and tokenization", func(t *testing.T) {
+		type testCase struct {
+			propName     string
+			dataType     schema.DataType
+			tokenization string
+
+			expectedDataType     schema.DataType
+			expectedTokenization string
+		}
+
+		propName := func(dataType schema.DataType, tokenization string) string {
+			return strings.ReplaceAll(fmt.Sprintf("%s_%s", dataType, tokenization), "[]", "Array")
+		}
+
+		mgr := newSchemaManager()
+		ctx := context.Background()
+		className := "MigrationClass"
+
+		testCases := []testCase{}
+		for _, dataType := range []schema.DataType{
+			schema.DataTypeText, schema.DataTypeTextArray,
+		} {
+			for _, tokenization := range helpers.Tokenizations {
+				testCases = append(testCases, testCase{
+					propName:             propName(dataType, tokenization),
+					dataType:             dataType,
+					tokenization:         tokenization,
+					expectedDataType:     dataType,
+					expectedTokenization: tokenization,
+				})
+			}
+			tokenization := ""
+			testCases = append(testCases, testCase{
+				propName:             propName(dataType, tokenization),
+				dataType:             dataType,
+				tokenization:         tokenization,
+				expectedDataType:     dataType,
+				expectedTokenization: models.PropertyTokenizationWord,
+			})
+		}
+		for _, dataType := range []schema.DataType{
+			schema.DataTypeString, schema.DataTypeStringArray,
+		} {
+			for _, tokenization := range []string{
+				models.PropertyTokenizationWord, models.PropertyTokenizationField, "",
+			} {
+				var expectedDataType schema.DataType
+				switch dataType {
+				case schema.DataTypeStringArray:
+					expectedDataType = schema.DataTypeTextArray
+				default:
+					expectedDataType = schema.DataTypeText
+				}
+
+				var expectedTokenization string
+				switch tokenization {
+				case models.PropertyTokenizationField:
+					expectedTokenization = models.PropertyTokenizationField
+				default:
+					expectedTokenization = models.PropertyTokenizationWhitespace
+				}
+
+				testCases = append(testCases, testCase{
+					propName:             propName(dataType, tokenization),
+					dataType:             dataType,
+					tokenization:         tokenization,
+					expectedDataType:     expectedDataType,
+					expectedTokenization: expectedTokenization,
+				})
+			}
+		}
+
+		t.Run("create class with all properties", func(t *testing.T) {
+			properties := []*models.Property{}
+			for _, tc := range testCases {
+				properties = append(properties, &models.Property{
+					Name:         "created_" + tc.propName,
+					DataType:     tc.dataType.PropString(),
+					Tokenization: tc.tokenization,
+				})
+			}
+
+			err := mgr.AddClass(ctx, nil, &models.Class{
+				Class:      className,
+				Properties: properties,
+			})
+
+			require.Nil(t, err)
+			require.NotNil(t, mgr.state.ObjectSchema)
+			require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
+			require.Equal(t, className, mgr.state.ObjectSchema.Classes[0].Class)
+		})
+
+		t.Run("add properties to existing class", func(t *testing.T) {
+			for _, tc := range testCases {
+				t.Run("added_"+tc.propName, func(t *testing.T) {
+					err := mgr.addClassProperty(ctx, className, &models.Property{
+						Name:         "added_" + tc.propName,
+						DataType:     tc.dataType.PropString(),
+						Tokenization: tc.tokenization,
+					})
+
+					require.Nil(t, err)
+				})
+			}
+		})
+
+		t.Run("verify defaults and migration", func(t *testing.T) {
+			class := mgr.state.ObjectSchema.Classes[0]
+			for _, tc := range testCases {
+				t.Run("created_"+tc.propName, func(t *testing.T) {
+					createdProperty, err := schema.GetPropertyByName(class, "created_"+tc.propName)
+
+					require.Nil(t, err)
+					assert.Equal(t, tc.expectedDataType.PropString(), createdProperty.DataType)
+					assert.Equal(t, tc.expectedTokenization, createdProperty.Tokenization)
+				})
+
+				t.Run("added_"+tc.propName, func(t *testing.T) {
+					addedProperty, err := schema.GetPropertyByName(class, "added_"+tc.propName)
+
+					require.Nil(t, err)
+					assert.Equal(t, tc.expectedDataType.PropString(), addedProperty.DataType)
+					assert.Equal(t, tc.expectedTokenization, addedProperty.Tokenization)
+				})
+			}
+		})
+	})
+}
