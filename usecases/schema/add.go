@@ -239,6 +239,8 @@ func (m *Manager) setPropertyDefaultTokenization(prop *models.Property) {
 		if prop.Tokenization == "" {
 			prop.Tokenization = models.PropertyTokenizationWord
 		}
+	default:
+		// tokenization not supported for other data types
 	}
 }
 

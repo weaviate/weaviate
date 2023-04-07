@@ -42,9 +42,8 @@ func TestRefFinder(t *testing.T) {
 						Class: "Car",
 						Properties: []*models.Property{
 							{
-								Name:         "model",
-								DataType:     schema.DataTypeText.PropString(),
-								Tokenization: models.PropertyTokenizationWhitespace,
+								Name:     "model",
+								DataType: schema.DataTypeText.PropString(),
 							},
 						},
 					},
@@ -52,9 +51,8 @@ func TestRefFinder(t *testing.T) {
 						Class: "Tree",
 						Properties: []*models.Property{
 							{
-								Name:         "kind",
-								DataType:     schema.DataTypeText.PropString(),
-								Tokenization: models.PropertyTokenizationWhitespace,
+								Name:     "kind",
+								DataType: schema.DataTypeText.PropString(),
 							},
 						},
 					},
@@ -76,9 +74,8 @@ func TestRefFinder(t *testing.T) {
 						Class: "Car",
 						Properties: []*models.Property{
 							{
-								Name:         "model",
-								DataType:     schema.DataTypeText.PropString(),
-								Tokenization: models.PropertyTokenizationWhitespace,
+								Name:     "model",
+								DataType: schema.DataTypeText.PropString(),
 							},
 						},
 					},
@@ -86,9 +83,8 @@ func TestRefFinder(t *testing.T) {
 						Class: "Tree",
 						Properties: []*models.Property{
 							{
-								Name:         "kind",
-								DataType:     schema.DataTypeText.PropString(),
-								Tokenization: models.PropertyTokenizationWhitespace,
+								Name:     "kind",
+								DataType: schema.DataTypeText.PropString(),
 							},
 						},
 					},
@@ -96,9 +92,8 @@ func TestRefFinder(t *testing.T) {
 						Class: "Drive",
 						Properties: []*models.Property{
 							{
-								Name:         "destination",
-								DataType:     schema.DataTypeText.PropString(),
-								Tokenization: models.PropertyTokenizationWhitespace,
+								Name:     "destination",
+								DataType: schema.DataTypeText.PropString(),
 							},
 						},
 					},
@@ -106,9 +101,8 @@ func TestRefFinder(t *testing.T) {
 						Class: "Drive",
 						Properties: []*models.Property{
 							{
-								Name:         "destination",
-								DataType:     schema.DataTypeText.PropString(),
-								Tokenization: models.PropertyTokenizationWhitespace,
+								Name:     "destination",
+								DataType: schema.DataTypeText.PropString(),
 							},
 							{
 								Name:     "vehicle",
@@ -143,9 +137,8 @@ func TestRefFinder(t *testing.T) {
 						Class: "Dog",
 						Properties: []*models.Property{
 							{
-								Name:         "name",
-								DataType:     schema.DataTypeText.PropString(),
-								Tokenization: models.PropertyTokenizationWhitespace,
+								Name:     "name",
+								DataType: schema.DataTypeText.PropString(),
 							},
 							{
 								Name:     "hasOwner",
@@ -157,9 +150,8 @@ func TestRefFinder(t *testing.T) {
 						Class: "Car",
 						Properties: []*models.Property{
 							{
-								Name:         "model",
-								DataType:     schema.DataTypeText.PropString(),
-								Tokenization: models.PropertyTokenizationWhitespace,
+								Name:     "model",
+								DataType: schema.DataTypeText.PropString(),
 							},
 						},
 					},
@@ -167,9 +159,8 @@ func TestRefFinder(t *testing.T) {
 						Class: "Person",
 						Properties: []*models.Property{
 							{
-								Name:         "name",
-								DataType:     schema.DataTypeText.PropString(),
-								Tokenization: models.PropertyTokenizationWhitespace,
+								Name:     "name",
+								DataType: schema.DataTypeText.PropString(),
 							},
 							{
 								Name:     "travels",
@@ -185,9 +176,8 @@ func TestRefFinder(t *testing.T) {
 						Class: "Drive",
 						Properties: []*models.Property{
 							{
-								Name:         "destination",
-								DataType:     schema.DataTypeText.PropString(),
-								Tokenization: models.PropertyTokenizationWhitespace,
+								Name:     "destination",
+								DataType: schema.DataTypeText.PropString(),
 							},
 							{
 								Name:     "vehicle",

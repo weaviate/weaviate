@@ -423,7 +423,7 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 			"name":            "Jodie Sparrow",
 			"age":             json.Number("30"),
 			"publicationDate": "2002-10-02T15:00:00Z",
-			"textArray":     []interface{}{"a", "b"},
+			"textArray":       []interface{}{"a", "b"},
 			"numberArray":     []interface{}{json.Number("30")},
 		},
 	}
