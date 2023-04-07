@@ -64,11 +64,6 @@ func arrayClassSchema() *models.Class {
 		InvertedIndexConfig: &models.InvertedIndexConfig{IndexPropertyLength: true, IndexNullState: true},
 		Properties: []*models.Property{
 			{
-				Name:         "strings",
-				DataType:     schema.DataTypeTextArray.PropString(),
-				Tokenization: models.PropertyTokenizationWhitespace,
-			},
-			{
 				Name:         "texts",
 				DataType:     schema.DataTypeTextArray.PropString(),
 				Tokenization: models.PropertyTokenizationWord,
@@ -114,7 +109,6 @@ func objectArrayClass4el() *models.Object {
 		Class: arrayClassName,
 		ID:    objectArrayClassID1_4el,
 		Properties: map[string]interface{}{
-			"strings":  []string{"Astr", "Bstr", "Cstr", "Dstr"},
 			"texts":    []string{"Atxt", "Btxt", "Ctxt", "Dtxt"},
 			"numbers":  []float64{1.0, 2.0, 3.0, 4.0},
 			"ints":     []int{101, 102, 103, 104},
@@ -140,7 +134,6 @@ func objectArrayClass3el() *models.Object {
 		Class: arrayClassName,
 		ID:    objectArrayClassID2_3el,
 		Properties: map[string]interface{}{
-			"strings":  []string{"Astr", "Bstr", "Cstr"},
 			"texts":    []string{"Atxt", "Btxt", "Ctxt"},
 			"numbers":  []float64{1.0, 2.0, 3.0},
 			"ints":     []int{101, 102, 103},
@@ -164,7 +157,6 @@ func objectArrayClass2el() *models.Object {
 		Class: arrayClassName,
 		ID:    objectArrayClassID3_2el,
 		Properties: map[string]interface{}{
-			"strings":  []string{"Astr", "Bstr"},
 			"texts":    []string{"Atxt", "Btxt"},
 			"numbers":  []float64{1.0, 2.0},
 			"ints":     []int{101, 102},
@@ -186,7 +178,6 @@ func objectArrayClass1el() *models.Object {
 		Class: arrayClassName,
 		ID:    objectArrayClassID4_1el,
 		Properties: map[string]interface{}{
-			"strings":  []string{"Astr"},
 			"texts":    []string{"Atxt"},
 			"numbers":  []float64{1.0},
 			"ints":     []int{101},
@@ -206,7 +197,6 @@ func objectArrayClass0el() *models.Object {
 		Class: arrayClassName,
 		ID:    objectArrayClassID5_0el,
 		Properties: map[string]interface{}{
-			"strings":        []string{},
 			"texts":          []string{},
 			"numbers":        []float64{},
 			"ints":           []int{},
@@ -222,7 +212,6 @@ func objectArrayClassNils() *models.Object {
 		Class: arrayClassName,
 		ID:    objectArrayClassID6_nils,
 		Properties: map[string]interface{}{
-			"strings":        nil,
 			"texts":          nil,
 			"numbers":        nil,
 			"ints":           nil,
@@ -256,14 +245,6 @@ func aggregateArrayClassQuery(filters, groupBy string) string {
 						totalFalse
 						percentageTrue
 						percentageFalse
-					}
-					strings{
-						count
-						type
-						topOccurrences {
-							value
-							occurs
-						}
 					}
 					texts{
 						count
@@ -495,11 +476,6 @@ func duplicatesClassSchema() *models.Class {
 		},
 		Properties: []*models.Property{
 			{
-				Name:         "strings",
-				DataType:     schema.DataTypeTextArray.PropString(),
-				Tokenization: models.PropertyTokenizationWhitespace,
-			},
-			{
 				Name:         "texts",
 				DataType:     schema.DataTypeTextArray.PropString(),
 				Tokenization: models.PropertyTokenizationWord,
@@ -537,7 +513,6 @@ func objectDuplicatesClass4el() *models.Object {
 		Class: duplicatesClassName,
 		ID:    objectDuplicatesClassID1_4el,
 		Properties: map[string]interface{}{
-			"strings":  []string{"Astr", "Astr", "Astr", "Bstr"},
 			"texts":    []string{"Atxt", "Atxt", "Atxt", "Btxt"},
 			"numbers":  []float64{1.0, 1.0, 1.0, 2.0},
 			"ints":     []int{101, 101, 101, 102},
@@ -557,7 +532,6 @@ func objectDuplicatesClass3el() *models.Object {
 		Class: duplicatesClassName,
 		ID:    objectDuplicatesClassID2_3el,
 		Properties: map[string]interface{}{
-			"strings":  []string{"Astr", "Astr", "Bstr"},
 			"texts":    []string{"Atxt", "Atxt", "Btxt"},
 			"numbers":  []float64{1.0, 1.0, 2.0},
 			"ints":     []int{101, 101, 102},
@@ -576,7 +550,6 @@ func objectDuplicatesClass2el() *models.Object {
 		Class: duplicatesClassName,
 		ID:    objectDuplicatesClassID3_2el,
 		Properties: map[string]interface{}{
-			"strings":  []string{"Astr", "Bstr"},
 			"texts":    []string{"Atxt", "Btxt"},
 			"numbers":  []float64{1.0, 2.0},
 			"ints":     []int{101, 102},
@@ -605,14 +578,6 @@ func aggregateDuplicatesClassQuery(filters, groupBy string) string {
 						totalFalse
 						percentageTrue
 						percentageFalse
-					}
-					strings{
-						count
-						type
-						topOccurrences {
-							value
-							occurs
-						}
 					}
 					texts{
 						count
@@ -754,7 +719,7 @@ func (tc *aggregateArrayClassTestCases) WithNearObjectFilter_ResultsWithData(gro
 		filters: fmt.Sprintf(`
 			nearObject: {
 				id: "%s"
-				certainty: 0.98
+				certainty: 0.988
 			}`, objectArrayClassID1_4el),
 		groupedAssertions: groupedAssertions,
 	}

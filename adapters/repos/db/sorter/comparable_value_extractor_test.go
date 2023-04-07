@@ -43,16 +43,8 @@ func TestComparableValueExtractor(t *testing.T) {
 			ptrFloat64(900000000002),
 		},
 		{
-			"stringProp",
-			ptrString("string"),
-		},
-		{
 			"textProp",
 			ptrString("text"),
-		},
-		{
-			"stringPropArray",
-			ptrStringArray("string", "string"),
 		},
 		{
 			"textPropArray",

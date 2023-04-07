@@ -171,7 +171,10 @@ func (m *autoSchemaManager) determineType(value interface{}) []schema.DataType {
 		if err == nil {
 			return []schema.DataType{schema.DataType(m.config.DefaultDate)}
 		}
-		return []schema.DataType{schema.DataType(m.config.DefaultString)}
+		if m.config.DefaultString != "" {
+			return []schema.DataType{schema.DataType(m.config.DefaultString)}
+		}
+		return []schema.DataType{schema.DataTypeText}
 	case json.Number:
 		return []schema.DataType{schema.DataType(m.config.DefaultNumber)}
 	case bool:
@@ -215,10 +218,10 @@ func (m *autoSchemaManager) determineType(value interface{}) []schema.DataType {
 					if err == nil {
 						return []schema.DataType{schema.DataTypeDateArray}
 					}
-					if schema.DataType(m.config.DefaultString) == schema.DataTypeText {
-						return []schema.DataType{schema.DataTypeTextArray}
+					if schema.DataType(m.config.DefaultString) == schema.DataTypeString {
+						return []schema.DataType{schema.DataTypeStringArray}
 					}
-					return []schema.DataType{schema.DataTypeStringArray}
+					return []schema.DataType{schema.DataTypeTextArray}
 				case json.Number:
 					if schema.DataType(m.config.DefaultNumber) == schema.DataTypeInt {
 						return []schema.DataType{schema.DataTypeIntArray}
