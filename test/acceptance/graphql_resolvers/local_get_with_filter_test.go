@@ -303,9 +303,9 @@ func gettingObjectsWithFilters(t *testing.T) {
 					ArrayClass(where:{
 						valueInt: 4,
 						operator:Equal,
-						path:["len(strings)"]
+						path:["len(texts)"]
 					}) {
-						strings
+						texts
 					}
 				}
 			}
@@ -320,9 +320,9 @@ func gettingObjectsWithFilters(t *testing.T) {
 					ArrayClass(where:{
 						valueBoolean: true,
 						operator:IsNull,
-						path:["strings"]
+						path:["texts"]
 					}) {
-						strings
+						texts
 					}
 				}
 			}

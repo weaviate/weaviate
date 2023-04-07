@@ -30,18 +30,8 @@ func getMyFavoriteClassSchemaForTests() schema.Schema {
 					Class: testClassName,
 					Properties: []*models.Property{
 						{
-							Name:         "stringProp",
-							DataType:     schema.DataTypeText.PropString(),
-							Tokenization: models.PropertyTokenizationWhitespace,
-						},
-						{
 							Name:     "textProp",
 							DataType: []string{string(schema.DataTypeText)},
-						},
-						{
-							Name:         "stringPropArray",
-							DataType:     schema.DataTypeTextArray.PropString(),
-							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "textPropArray",
@@ -123,9 +113,7 @@ func createMyFavoriteClassObject() *storobj.Object {
 			LastUpdateTimeUnix: 900000000002,
 			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
 			Properties: map[string]interface{}{
-				"stringProp":      "string",
 				"textProp":        "text",
-				"stringPropArray": []string{"string", "string"},
 				"textPropArray":   []string{"text", "text"},
 				"intProp":         float64(100),
 				"numberProp":      float64(17),

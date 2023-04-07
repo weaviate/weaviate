@@ -191,13 +191,13 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 		if err != nil {
 			return nil, fmt.Errorf("invalid string property '%s' on class '%s': %s", propertyName, className, err)
 		}
-	// deprecated string	
+	// deprecated string
 	case schema.DataTypeStringArray:
 		data, err = stringArrayVal(pv, "string")
 		if err != nil {
 			return nil, fmt.Errorf("invalid string array property '%s' on class '%s': %s", propertyName, className, err)
 		}
-	
+
 	default:
 		return nil, fmt.Errorf("unrecognized data type '%s'", *dataType)
 	}

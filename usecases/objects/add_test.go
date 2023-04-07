@@ -35,7 +35,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		manager         *Manager
 	)
 
-	schema := schema.Schema{
+	sch := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
@@ -58,14 +58,14 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		vectorRepo = &fakeVectorRepo{}
 		vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
 		schemaManager := &fakeSchemaManager{
-			GetSchemaResponse: schema,
+			GetSchemaResponse: sch,
 		}
 		locks := &fakeLocks{}
 		cfg := &config.WeaviateConfig{
 			Config: config.Config{
 				AutoSchema: config.AutoSchema{
 					Enabled:       autoSchemaEnabled,
-					DefaultString: "string",
+					DefaultString: schema.DataTypeText.String(),
 				},
 			},
 		}

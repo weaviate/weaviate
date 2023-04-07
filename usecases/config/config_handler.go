@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/deprecations"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"gopkg.in/yaml.v2"
@@ -141,10 +142,13 @@ func (a AutoSchema) Validate() error {
 	if a.DefaultNumber != "int" && a.DefaultNumber != "number" {
 		return fmt.Errorf("autoSchema.defaultNumber must be either 'int' or 'number")
 	}
-	if a.DefaultString != "string" && a.DefaultString != "text" {
+	if a.DefaultString != schema.DataTypeText.String() &&
+		a.DefaultString != schema.DataTypeString.String() {
 		return fmt.Errorf("autoSchema.defaultString must be either 'string' or 'text")
 	}
-	if a.DefaultDate != "date" && a.DefaultDate != "string" && a.DefaultDate != "text" {
+	if a.DefaultDate != "date" &&
+		a.DefaultDate != schema.DataTypeText.String() &&
+		a.DefaultDate != schema.DataTypeString.String() {
 		return fmt.Errorf("autoSchema.defaultDate must be either 'date' or 'string' or 'text")
 	}
 

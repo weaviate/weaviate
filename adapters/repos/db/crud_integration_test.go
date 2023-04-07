@@ -2070,16 +2070,15 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
-				Name:         "stringArray",
-				DataType:     schema.DataTypeTextArray.PropString(),
-				Tokenization: models.PropertyTokenizationWhitespace,
+				Name:     "textArray",
+				DataType: schema.DataTypeTextArray.PropString(),
 			},
 			{
-				Name:     "NumberArray",
+				Name:     "numberArray",
 				DataType: []string{string(schema.DataTypeNumberArray)},
 			},
 			{
-				Name:     "BoolArray",
+				Name:     "boolArray",
 				DataType: []string{string(schema.DataTypeBooleanArray)},
 			},
 		},
@@ -2145,18 +2144,18 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 			ID:    objID,
 			Class: "TestClass",
 			Properties: map[string]interface{}{
-				"stringArray": []string{},
-				"NumberArray": []float64{},
-				"BoolArray":   []bool{},
+				"textArray":   []string{},
+				"numberArray": []float64{},
+				"boolArray":   []bool{},
 			},
 		}
 		obj2 := &models.Object{
 			ID:    objID,
 			Class: "TestClass",
 			Properties: map[string]interface{}{
-				"stringArray": []string{"value"},
-				"NumberArray": []float64{0.5},
-				"BoolArray":   []bool{true},
+				"textArray":   []string{"value"},
+				"numberArray": []float64{0.5},
+				"boolArray":   []bool{true},
 			},
 		}
 
