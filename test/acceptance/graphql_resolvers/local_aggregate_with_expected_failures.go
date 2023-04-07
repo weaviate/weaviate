@@ -126,7 +126,7 @@ func aggregatesWithExpectedFailures(t *testing.T) {
 				Aggregate{
 					CustomVectorClass(
 						where: {
-							valueString: "Mercedes",
+							valueText: "Mercedes",
 							operator: Equal,
 							path: ["name"]
 						}

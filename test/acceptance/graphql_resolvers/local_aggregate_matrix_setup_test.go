@@ -656,7 +656,7 @@ func (tc *aggregateArrayClassTestCases) WithWhereFilter_AllResults(groupedAssert
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "*"
+				valueText: "*"
 			}`,
 		groupedAssertions: groupedAssertions,
 	}
@@ -669,7 +669,7 @@ func (tc *aggregateArrayClassTestCases) WithWhereFilter_ResultsWithData(groupedA
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "%s"
+				valueText: "%s"
 			}`, objectArrayClassID1_4el[:35]+"?"),
 		groupedAssertions: groupedAssertions,
 	}
@@ -682,7 +682,7 @@ func (tc *aggregateArrayClassTestCases) WithWhereFilter_ResultsWithoutData(group
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "%s"
+				valueText: "%s"
 			}`, objectArrayClassID5_0el[:35]+"?"),
 		groupedAssertions: groupedAssertions,
 	}
@@ -695,7 +695,7 @@ func (tc *aggregateArrayClassTestCases) WithWhereFilter_NoResults(groupedAsserti
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "%s"
+				valueText: "%s"
 			}`, notExistingObjectId),
 		groupedAssertions: groupedAssertions,
 	}
@@ -744,7 +744,7 @@ func (tc *aggregateArrayClassTestCases) WithWhereAndNearObjectFilters_AllResults
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "*"
+				valueText: "*"
 			}
 			nearObject: {
 				id: "%s"
@@ -761,7 +761,7 @@ func (tc *aggregateArrayClassTestCases) WithWhereAndNearObjectFilters_ResultsWit
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "%s"
+				valueText: "%s"
 			}
 			nearObject: {
 				id: "%s"
@@ -778,7 +778,7 @@ func (tc *aggregateArrayClassTestCases) WithWhereAndNearObjectFilters_ResultsWit
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "%s"
+				valueText: "%s"
 			}
 			nearObject: {
 				id: "%s"
@@ -795,7 +795,7 @@ func (tc *aggregateArrayClassTestCases) WithWhereAndNearObjectFilters_NoResults(
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "%s"
+				valueText: "%s"
 			}
 			nearObject: {
 				id: "%s"
@@ -821,7 +821,7 @@ func (tc *aggregateNoPropsClassTestCases) WithWhereFilter_AllResults(groupedAsse
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "*"
+				valueText: "*"
 			}`,
 		groupedAssertions: groupedAssertions,
 	}
@@ -834,7 +834,7 @@ func (tc *aggregateNoPropsClassTestCases) WithWhereFilter_SomeResults(groupedAss
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "%s"
+				valueText: "%s"
 			}`, objectNoPropsClassID1[:35]+"?"),
 		groupedAssertions: groupedAssertions,
 	}
@@ -847,7 +847,7 @@ func (tc *aggregateNoPropsClassTestCases) WithWhereFilter_NoResults(groupedAsser
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "%s"
+				valueText: "%s"
 			}`, notExistingObjectId),
 		groupedAssertions: groupedAssertions,
 	}
@@ -872,7 +872,7 @@ func (tc *aggregateNoPropsClassTestCases) WithWhereAndNearObjectFilters_AllResul
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "*"
+				valueText: "*"
 			}
 			nearObject: {
 				id: "%s"
@@ -889,7 +889,7 @@ func (tc *aggregateNoPropsClassTestCases) WithWhereAndNearObjectFilters_SomeResu
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "%s"
+				valueText: "%s"
 			}
 			nearObject: {
 				id: "%s"
@@ -906,7 +906,7 @@ func (tc *aggregateNoPropsClassTestCases) WithWhereAndNearObjectFilters_NoResult
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "%s"
+				valueText: "%s"
 			}
 			nearObject: {
 				id: "%s"
@@ -932,7 +932,7 @@ func (tc *aggregateCityTestCases) WithWhereFilter_AllResults(groupedAssertions m
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "*"
+				valueText: "*"
 			}`,
 		groupedAssertions: groupedAssertions,
 	}
@@ -958,7 +958,7 @@ func (tc *aggregateCityTestCases) WithWhereFilter_ResultsWithoutData(groupedAsse
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "%s"
+				valueText: "%s"
 			}`, nullisland),
 		groupedAssertions: groupedAssertions,
 	}
@@ -971,7 +971,7 @@ func (tc *aggregateCityTestCases) WithWhereFilter_NoResults(groupedAssertions ma
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "%s"
+				valueText: "%s"
 			}`, notExistingObjectId),
 		groupedAssertions: groupedAssertions,
 	}
@@ -1020,7 +1020,7 @@ func (tc *aggregateCityTestCases) WithWhereAndNearObjectFilters_AllResults(group
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "*"
+				valueText: "*"
 			}
 			nearObject: {
 				id: "%s"
@@ -1054,7 +1054,7 @@ func (tc *aggregateCityTestCases) WithWhereAndNearObjectFilters_ResultsWithoutDa
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "%s"
+				valueText: "%s"
 			}
 			nearObject: {
 				id: "%s"
@@ -1071,7 +1071,7 @@ func (tc *aggregateCityTestCases) WithWhereAndNearObjectFilters_NoResults(groupe
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "%s"
+				valueText: "%s"
 			}
 			nearObject: {
 				id: "%s"
@@ -1097,7 +1097,7 @@ func (tc *aggregateDuplicatesClassTestCases) WithWhereFilter_AllResults(groupedA
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "*"
+				valueText: "*"
 			}`,
 		groupedAssertions: groupedAssertions,
 	}
@@ -1110,7 +1110,7 @@ func (tc *aggregateDuplicatesClassTestCases) WithWhereFilter_SomeResults(grouped
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "%s"
+				valueText: "%s"
 			}`, objectDuplicatesClassID1_4el),
 		groupedAssertions: groupedAssertions,
 	}
@@ -1123,7 +1123,7 @@ func (tc *aggregateDuplicatesClassTestCases) WithWhereFilter_NoResults(groupedAs
 			where: {
 				operator: Like
 				path: ["id"]
-				valueString: "%s"
+				valueText: "%s"
 			}`, notExistingObjectId),
 		groupedAssertions: groupedAssertions,
 	}

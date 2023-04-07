@@ -114,7 +114,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 						}
 						{
 							operator: Equal,
-							valueString:"Germany"
+							valueText:"Germany"
 							path:["inCity", "City", "inCountry", "Country", "name"]
 						}
 					]
@@ -143,11 +143,11 @@ func gettingObjectsWithFilters(t *testing.T) {
 					City(where:{
 						operator:Or
 						operands:[{
-							valueString:"Amsterdam",
+							valueText:"Amsterdam",
 							operator:Equal,
 							path:["name"]
 						}, {
-							valueString:"Berlin",
+							valueText:"Berlin",
 							operator:Equal,
 							path:["name"]
 						}]
@@ -182,7 +182,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 			{
 				Get {
 					Airport(where:{
-						valueString:"Amsterdam",
+						valueText:"Amsterdam",
 						operator:Equal,
 						path:["inCity", "City", "name"]
 					}) {
@@ -218,17 +218,17 @@ func gettingObjectsWithFilters(t *testing.T) {
 					operands: [
 						{
 							operator: GreaterThan,
-							valueString: "00000000-0000-0000-0000-000000010000",
+							valueText: "00000000-0000-0000-0000-000000010000",
 							path:["airportId"]
 						},
 						{
 							operator: LessThan,
-							valueString: "00000000-0000-0000-0000-000000030000",
+							valueText: "00000000-0000-0000-0000-000000030000",
 							path:["airportId"]
 						},
 						{
 							operator: NotEqual,
-							valueString: "00000000-0000-0000-0000-000000040000",
+							valueText: "00000000-0000-0000-0000-000000040000",
 							path:["airportId"]
 						}
 					]
@@ -339,7 +339,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 			{
 				Get {
 					Person(where:{
-						valueString: "%s"
+						valueText: "%s"
 						operator:Equal,
 						path:["profession"]
 					}) {
@@ -389,7 +389,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 			{
 				Get {
 					Person(where:{
-						valueString: "%s"
+						valueText: "%s"
 						operator:Equal,
 						path:["about"]
 					}) {
@@ -484,7 +484,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 			{
 				Get {
 					Airport(where:{
-						valueString:"4770bb19-20fd-406e-ac64-9dac54c27a0f",
+						valueText:"4770bb19-20fd-406e-ac64-9dac54c27a0f",
 						operator:Equal,
 						path:["id"]
 					}) {
@@ -540,7 +540,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 							where: {
 								path: ["_creationTimeUnix"]
 								operator: Equal
-								valueString: "%s"
+								valueText: "%s"
 							}
 						)
 						{
@@ -567,7 +567,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 							where: {
 								path: ["_lastUpdateTimeUnix"]
 								operator: Equal
-								valueString: "%s"
+								valueText: "%s"
 							}
 						)
 						{
@@ -605,7 +605,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 			query := fmt.Sprintf(`
 				{
 					Get {
-						NoProps(where:{operator:Equal path:["_id"] valueString:"%s"})
+						NoProps(where:{operator:Equal path:["_id"] valueText:"%s"})
 						{
 							_additional {id}
 						}
