@@ -17,6 +17,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+    "runtime"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -38,6 +39,7 @@ import (
 // would work in both directions.
 func TestComponentCluster(t *testing.T) {
 	t.Run("add class", func(t *testing.T) {
+        runtime.Breakpoint()
 		localManager, remoteManager := setupManagers(t)
 
 		ctx := context.Background()
