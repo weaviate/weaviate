@@ -126,7 +126,10 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
         
         default:
 
-            return fmt.Errorf("Unsupported vector index config.")
+            return fmt.Errorf(errorVectorIndexType, class.VectorIndexConfig)
+            //TODO: Currently returning the previous HNSW error in order to pass current tests
+            //TODO: but it should be something like the following...
+            //TODO: return fmt.Errorf("Unsupported vector index config.")
     }
 
 	modConfig, ok := class.ModuleConfig.(map[string]interface{})

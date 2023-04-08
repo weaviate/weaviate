@@ -17,7 +17,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
-    "runtime"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -39,7 +38,6 @@ import (
 // would work in both directions.
 func TestComponentCluster(t *testing.T) {
 	t.Run("add class", func(t *testing.T) {
-        runtime.Breakpoint()
 		localManager, remoteManager := setupManagers(t)
 
 		ctx := context.Background()
@@ -164,7 +162,8 @@ func newSchemaManagerWithClusterStateAndClient(clusterState *fakeClusterState,
 		valid: []string{"text2vec-contextionary", "model1", "model2"},
 	}
 	sm, err := schemauc.NewManager(&NilMigrator{}, newFakeRepo(), logger, &fakeAuthorizer{},
-		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
+		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone,
+                      DefaultVectorIndexType: config.VectorIndexTypeHNSW},
 		dummyParseVectorConfig, // only option for now
 		vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, clusterState, client, &fakeScaleOutManager{},

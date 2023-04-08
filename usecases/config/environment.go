@@ -238,11 +238,11 @@ func FromEnv(config *Config) error {
 		config.MaximumConcurrentGetRequests = DefaultMaxConcurrentGetRequests
 	}
 
-    config.DefaultVectorIndexType = "hnsw"
+    config.DefaultVectorIndexType = VectorIndexTypeHNSW
     if v := os.Getenv("DEFAULT_VECTOR_INDEX_TYPE"); v !="" {
-        // TODO: Should probably check for valid strings
         config.DefaultVectorIndexType = v
     }
+
     if v := os.Getenv("MODULES_PATH"); v != "" {
         config.ModulesPath = v // "/Users/gwilliams/Projects/GSI/Weaviate/github.fork/weaviate/modules"
     }
@@ -325,9 +325,11 @@ const (
 
 const VectorizerModuleNone = "none"
 
+const VectorIndexTypeHNSW  = "hnsw" // The default builtin index type
+
 // DefaultGossipBindPort uses the hashicorp/memberlist default
 // port value assigned with the use of DefaultLocalConfig
-const DefaultGossipBindPort = 7949 //GW - 6
+const DefaultGossipBindPort = 7946 //TODO - 7946 may conflict with Docker Swarm
 
 // TODO: This should be retrieved dynamically from all installed modules
 const VectorizerModuleText2VecContextionary = "text2vec-contextionary"

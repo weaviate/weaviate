@@ -264,6 +264,7 @@ func (f *WeaviateConfig) GetHostAddress() string {
 
 // LoadConfig from config locations
 func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger logrus.FieldLogger) error {
+
 	// Get command line flags
 	configFileName := flags.Options.(*Flags).ConfigFile
 

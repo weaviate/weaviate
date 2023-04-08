@@ -203,11 +203,6 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 
 	if class.VectorIndexType == "" {
         class.VectorIndexType = m.config.DefaultVectorIndexType
-
-        // TODO: I'm not sure where m.config gets setup
-        if class.VectorIndexType == "" {
-            class.VectorIndexType = "hnsw" 
-        }
 	}
 
 	if m.config.DefaultVectorDistanceMetric != "" {

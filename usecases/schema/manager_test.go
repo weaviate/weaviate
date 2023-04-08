@@ -484,6 +484,7 @@ func newSchemaManager() *Manager {
 	}
 	dummyConfig := config.Config{
 		DefaultVectorizerModule:     config.VectorizerModuleNone,
+        DefaultVectorIndexType:      config.VectorIndexTypeHNSW,
 		DefaultVectorDistanceMetric: "cosine",
 	}
 	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), logger, &fakeAuthorizer{},
