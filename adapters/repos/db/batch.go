@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -44,15 +45,24 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	}
 
 	db.indexLock.RLock()
-	for class := range objectByClass {
-		index := db.indices[indexID(schema.ClassName(class))]
+	for class, queue := range objectByClass {
+		index, ok := db.indices[indexID(schema.ClassName(class))]
+		if !ok {
+			for _, ind := range queue.originalIndex {
+				objs[queue.originalIndex[ind]].Err = fmt.Errorf("could not find index for class %v. It might have been deleted in the meantime", class)
+			}
+			continue
+		}
 		index.dropIndex.RLock()
 		indexByClass[class] = index
 	}
 	db.indexLock.RUnlock()
 
 	for class, queue := range objectByClass {
-		index := indexByClass[class]
+		index, ok := indexByClass[class]
+		if !ok {
+			continue
+		}
 		errs := index.putObjectBatch(ctx, queue.objects, repl)
 		index.dropIndex.RUnlock()
 		for i, err := range errs {
@@ -80,15 +90,24 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 	}
 
 	db.indexLock.RLock()
-	for class := range refByClass {
-		index := db.indices[indexID(class)]
+	for class, queue := range refByClass {
+		index, ok := db.indices[indexID(class)]
+		if !ok {
+			for _, item := range queue {
+				references[item.OriginalIndex].Err = fmt.Errorf("could not find index for class %v. It might have been deleted in the meantime", class)
+			}
+			continue
+		}
 		index.dropIndex.RLock()
 		indexByClass[class] = index
 	}
 	db.indexLock.RUnlock()
 
 	for class, queue := range refByClass {
-		index := indexByClass[class]
+		index, ok := indexByClass[class]
+		if !ok {
+			continue
+		}
 		errs := index.addReferencesBatch(ctx, queue, repl)
 		index.dropIndex.RUnlock()
 		for i, err := range errs {
