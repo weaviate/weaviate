@@ -15,7 +15,7 @@ jobs:
         with:
           go-version: '1.19'
       - uses: actions/checkout@v3
-      - uses: |
+      - run: |
           go mod edit -replace github.com/gsi/weaviate/gemini_plugin=./gsi/weaviate_gemini_plugin
           go mod tidy
           go get github.com/gsi/weaviate/gemini_plugin
