@@ -18,7 +18,6 @@ jobs:
       - run: |
           go mod edit -replace github.com/gsi/weaviate/gemini_plugin=./gsi/weaviate_gemini_plugin
           go mod tidy
-          go get github.com/gsi/weaviate/gemini_plugin
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v3
         with:
