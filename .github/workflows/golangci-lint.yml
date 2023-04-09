@@ -14,9 +14,6 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version: '1.19'
-      - run: |
-          go mod edit -replace github.com/gsi/weaviate/gemini_plugin=./gsi/weaviate_gemini_plugin
-          go mod tidy
       - uses: actions/checkout@v3
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v3
