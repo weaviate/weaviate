@@ -105,7 +105,6 @@ function run_unit_tests() {
     echo "Skipping unit test"
     return
   fi
-  gemini_plugin_go_setup
   go test -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 $(go list ./... | grep -v 'test/acceptance' | grep -v 'test/modules') | grep -v '\[no test files\]'
 }
 
@@ -115,7 +114,6 @@ function run_integration_tests() {
     return
   fi
 
-  gemini_plugin_go_setup
   ./test/integration/run.sh --include-slow
 }
 
@@ -172,10 +170,4 @@ function echo_red() {
   echo -e "${red}${*}${nc}"
 }
 
-function gemini_plugin_go_setup() {
-  # Tell go about the gemini go module in this repo
-  go mod edit -replace github.com/gsi/weaviate/gemini_plugin=./gsi/weaviate_gemini_plugin
-  go mod tidy
-  go get github.com/gsi/weaviate/gemini_plugin
-}
 main "$@"
