@@ -6,15 +6,15 @@ services:
     - --host
     - 0.0.0.0
     - --port
-    - '8081'
+    - '8091'
     - --scheme
     - http
     image: gsi/weaviate
     ports:
-    - 8081:8081
+    - 8091:8091
     volumes:
       - /var/lib/weaviate:/var/lib/weaviate
-    restart: on-failure:0
+    restart: 'no'
     environment:
       OPENAI_APIKEY: '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'
       QUERY_DEFAULTS_LIMIT: 25
@@ -34,6 +34,7 @@ services:
     image: gsi/t2v 
     ports:
      - "8080:8080"
+    restart: 'no'
     environment:
       ENABLE_CUDA: 0 
   fake_fvs:
@@ -42,4 +43,5 @@ services:
     - "7761:7761"
     volumes:
       - /var/lib/weaviate:/var/lib/weaviate
+    restart: 'no'
 ...
