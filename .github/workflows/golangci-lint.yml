@@ -14,7 +14,6 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version: '1.19'
-      = name: go setup for gemini plugin
       - run: |
           go mod edit -replace github.com/gsi/weaviate/gemini_plugin=./gsi/weaviate_gemini_plugin
           go mod tidy
