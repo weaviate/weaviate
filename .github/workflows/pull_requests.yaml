@@ -40,6 +40,10 @@ jobs:
           go-version: 1.19
           package: ./...
           fail-on-vuln: true
+        permissions:
+          actions: read
+          contents: read
+          security-events: write
   Unit-Tests:
     runs-on: ubuntu-latest
     steps:
