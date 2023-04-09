@@ -115,6 +115,7 @@ function run_integration_tests() {
     return
   fi
 
+  gemini_plugin_go_setup
   ./test/integration/run.sh --include-slow
 }
 
