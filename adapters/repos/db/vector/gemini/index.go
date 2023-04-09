@@ -149,7 +149,7 @@ func NewGemini(centroidsHammingK int, centroidsRerank int, hammingK int, nbits i
 	}
 	_, oerr := os.Stat(data_dir)
 	if os.IsNotExist(oerr) {
-		fmt.Println("The GEMINI_DATA_DIRECTORY %s is not valid (%v)", data_dir, err)
+		fmt.Printf("The GEMINI_DATA_DIRECTORY %s is not valid (%v)\n", data_dir, err)
 		return nil, errors.Wrapf(err, "The GEMINI_DATA_DIRECTORY %s is not valid", data_dir)
 	}
 
