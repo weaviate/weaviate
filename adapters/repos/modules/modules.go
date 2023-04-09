@@ -76,7 +76,6 @@ func (r *Repo) Storage(bucketName string) (moduletools.Storage, error) {
 }
 
 func (s *storageBucket) init() error {
-
 	return s.repo.db.Update(func(tx *bolt.Tx) error {
 		if _, err := tx.CreateBucketIfNotExists(s.bucketKey); err != nil {
 			return errors.Wrapf(err, "create module storage bucket '%s'",

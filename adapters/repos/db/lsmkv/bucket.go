@@ -84,7 +84,6 @@ type Bucket struct {
 func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
 	metrics *Metrics, opts ...BucketOption,
 ) (*Bucket, error) {
-
 	beforeAll := time.Now()
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)

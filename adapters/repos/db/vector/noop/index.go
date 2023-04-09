@@ -29,7 +29,6 @@ func NewIndex() *Index {
 }
 
 func (i *Index) Add(id uint64, vector []float32) error {
-
 	// silently ignore
 	return nil
 }
@@ -40,12 +39,10 @@ func (i *Index) Delete(id ...uint64) error {
 }
 
 func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
-
 	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
 func (i *Index) SearchByVectorDistance(vector []float32, dist float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
-
 	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
@@ -68,58 +65,47 @@ func (i *Index) UpdateUserConfig(updated schema.VectorIndexConfig, callback func
 }
 
 func (i *Index) Drop(context.Context) error {
-
 	// silently ignore
 	return nil
 }
 
 func (i *Index) Flush() error {
-
 	// silently ignore
 	return nil
 }
 
 func (i *Index) Shutdown(context.Context) error {
-
 	// silently ignore
 	return nil
 }
 
 func (i *Index) PauseMaintenance(context.Context) error {
-
 	// silently ignore
 	return nil
-
 }
 
 func (i *Index) SwitchCommitLogs(context.Context) error {
-
 	// silently ignore
 	return nil
 }
 
 func (i *Index) ListFiles(context.Context) ([]string, error) {
-
 	// silently ignore
 	return nil, nil
 }
 
 func (i *Index) ResumeMaintenance(context.Context) error {
-
 	// silently ignore
 	return nil
 }
 
 func (i *Index) ValidateBeforeInsert(vector []float32) error {
-
 	// silently ignore
 	return nil
 }
 
 func (i *Index) PostStartup() {
-
 }
 
 func (i *Index) Dump(labels ...string) {
-
 }

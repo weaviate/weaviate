@@ -49,7 +49,6 @@ const (
 )
 
 func (m *Provider) ValidateVectorizer(moduleName string) error {
-
 	mod := m.GetByName(moduleName)
 	if mod == nil {
 		return errors.Errorf("no module with name %q present", moduleName)
@@ -89,7 +88,6 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 	objectDiff *moduletools.ObjectDiff, findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) error {
-
 	switch class.VectorIndexConfig.(type) {
 
 	case hnsw.UserConfig:
@@ -113,8 +111,6 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 				Warningf(warningSkipVectorGenerated, class.Vectorizer)
 		}
 
-		break
-
 	case gemini.UserConfig:
 
 		_, ok := class.VectorIndexConfig.(gemini.UserConfig)
@@ -122,14 +118,11 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 			return fmt.Errorf(errorVectorIndexGeminiType, class.VectorIndexConfig)
 		}
 
-		break
-
 	default:
-
+		// TODO: Currently returning the previous HNSW error in order to pass unit tests
+		// TODO: but it should be something like the following eventually:
+		// TODO: return fmt.Errorf("Unsupported vector index config.")
 		return fmt.Errorf(errorVectorIndexType, class.VectorIndexConfig)
-		//TODO: Currently returning the previous HNSW error in order to pass current tests
-		//TODO: but it should be something like the following...
-		//TODO: return fmt.Errorf("Unsupported vector index config.")
 	}
 
 	modConfig, ok := class.ModuleConfig.(map[string]interface{})

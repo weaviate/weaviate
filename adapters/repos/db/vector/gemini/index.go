@@ -18,7 +18,7 @@ import (
 	"os"
 	"sync"
 
-	//goruntime "runtime"
+	// goruntime "runtime"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -26,7 +26,6 @@ import (
 )
 
 type Gemini struct {
-
 	// global lock to prevent concurrent map read/write, etc.
 	sync.RWMutex
 	idxLock *sync.RWMutex
@@ -71,9 +70,8 @@ type Gemini struct {
 	min_records_check bool
 }
 
-//func New(centroidsHammingK int, centroidsRerank int, hammingK int, nbits int, searchtype string) (*Gemini, error) {
+// func New(centroidsHammingK int, centroidsRerank int, hammingK int, nbits int, searchtype string) (*Gemini, error) {
 func NewGemini(centroidsHammingK int, centroidsRerank int, hammingK int, nbits int, searchtype string) (*Gemini, error) {
-
 	// TODO: Currently we aren't allowing any default overrides
 	if searchtype != string(DefaultSearchType) {
 		return nil, fmt.Errorf("Currently you cannot override the Gemini's default search type.")
@@ -131,13 +129,14 @@ func NewGemini(centroidsHammingK int, centroidsRerank int, hammingK int, nbits i
 		fmt.Println("Formed an FVS ping url=", ping_url)
 	}
 	// ping the FVS server
-	_, perr := http.Get(ping_url)
+	resp, perr := http.Get(ping_url)
 	if perr != nil {
 		if gemini_verbose {
 			fmt.Printf("error making http request to: %s\n", ping_url)
 		}
 		return nil, errors.Wrapf(perr, "Could not ping the FVS server.")
 	}
+	defer resp.Body.Close()
 
 	//
 	// a valid data_dir setting is required for gemini files from the environment
@@ -182,11 +181,9 @@ func NewGemini(centroidsHammingK int, centroidsRerank int, hammingK int, nbits i
 	}
 
 	return idx, nil
-
 }
 
 func (i *Gemini) Add(id uint64, vector []float32) error {
-
 	// sychronize this function
 	i.idxLock.Lock()
 	defer i.idxLock.Unlock()
@@ -260,21 +257,17 @@ func (i *Gemini) Add(id uint64, vector []float32) error {
 	i.stale = true
 
 	return nil
-
 }
 
 func (i *Gemini) Delete(id ...uint64) error {
-
 	if i.verbose {
 		fmt.Println("Gemini SearchByVector: Delete")
 	}
 
 	return errors.New("Delete is not supported.")
-
 }
 
 func (i *Gemini) SearchByVector(vector []float32, k int) ([]uint64, []float32, error) {
-
 	// sychronize this function
 	i.idxLock.Lock()
 	defer i.idxLock.Unlock()
@@ -285,7 +278,6 @@ func (i *Gemini) SearchByVector(vector []float32, k int) ([]uint64, []float32, e
 
 	if i.count == 0 {
 		return nil, nil, errors.Errorf("No items in the gemini index.")
-
 	} else {
 
 		// TODO:  This bit of code is a gnarly and deserves a refactor into an FSM.
@@ -310,7 +302,6 @@ func (i *Gemini) SearchByVector(vector []float32, k int) ([]uint64, []float32, e
 				dataset_id, err := Import_dataset(i.fvs_server, DefaultFVSPort, i.allocation_id, i.db_path, 768, i.verbose)
 				if err != nil {
 					return nil, nil, errors.Wrap(err, "Gemini dataset import failed.")
-
 				} else {
 					i.dataset_id = dataset_id
 
@@ -364,7 +355,6 @@ func (i *Gemini) SearchByVector(vector []float32, k int) ([]uint64, []float32, e
 
 			} else {
 				return nil, nil, fmt.Errorf("Async index build is in progress.  Please try again later.")
-
 			}
 		}
 
@@ -424,7 +414,6 @@ func (i *Gemini) SearchByVector(vector []float32, k int) ([]uint64, []float32, e
 }
 
 func (i *Gemini) SearchByVectorDistance(vector []float32, dist float32, maxLimit int64) ([]uint64, []float32, error) {
-
 	if i.verbose {
 		fmt.Println("Gemini SearchByVectorDistance: Start")
 	}
@@ -432,7 +421,6 @@ func (i *Gemini) SearchByVectorDistance(vector []float32, dist float32, maxLimit
 }
 
 func (i *Gemini) UpdateUserConfig() error {
-
 	if i.verbose {
 		fmt.Println("Gemini UpdateUserConfig: Start")
 	}
@@ -440,7 +428,6 @@ func (i *Gemini) UpdateUserConfig() error {
 }
 
 func (i *Gemini) Drop(context.Context) error {
-
 	// sychronize this function
 	i.idxLock.Lock()
 	defer i.idxLock.Unlock()
@@ -458,7 +445,6 @@ func (i *Gemini) Drop(context.Context) error {
 }
 
 func (i *Gemini) Flush() error {
-
 	if i.verbose {
 		fmt.Println("Gemini Flush: Start")
 	}
@@ -468,7 +454,6 @@ func (i *Gemini) Flush() error {
 }
 
 func (i *Gemini) Shutdown(context.Context) error {
-
 	if i.verbose {
 		fmt.Println("Gemini Shutdown: Start")
 	}
@@ -478,7 +463,6 @@ func (i *Gemini) Shutdown(context.Context) error {
 }
 
 func (i *Gemini) PauseMaintenance(context.Context) error {
-
 	if i.verbose {
 		fmt.Println("Gemini PauseMaintenance: Start")
 	}
@@ -488,7 +472,6 @@ func (i *Gemini) PauseMaintenance(context.Context) error {
 }
 
 func (i *Gemini) SwitchCommitLogs(context.Context) error {
-
 	if i.verbose {
 		fmt.Println("Gemini SwitchCommitLogs: Start")
 	}
@@ -498,7 +481,6 @@ func (i *Gemini) SwitchCommitLogs(context.Context) error {
 }
 
 func (i *Gemini) ListFiles(context.Context) ([]string, error) {
-
 	if i.verbose {
 		fmt.Println("Gemini ListFiles: Start")
 	}
@@ -508,7 +490,6 @@ func (i *Gemini) ListFiles(context.Context) ([]string, error) {
 }
 
 func (i *Gemini) ResumeMaintenance(context.Context) error {
-
 	if i.verbose {
 		fmt.Println("Gemini ResumeMaintenance: Start")
 	}
@@ -518,7 +499,6 @@ func (i *Gemini) ResumeMaintenance(context.Context) error {
 }
 
 func (i *Gemini) ValidateBeforeInsert(vector []float32) error {
-
 	if i.verbose {
 		fmt.Println("Gemini ValidateBeforeInsert: Start")
 	}
@@ -528,7 +508,6 @@ func (i *Gemini) ValidateBeforeInsert(vector []float32) error {
 }
 
 func (i *Gemini) PostStartup() {
-
 	if i.verbose {
 		fmt.Println("Gemini PostStartup: Start")
 	}
@@ -536,7 +515,6 @@ func (i *Gemini) PostStartup() {
 }
 
 func (i *Gemini) Dump(labels ...string) {
-
 	if i.verbose {
 		fmt.Println("Gemini Dump: Start")
 	}

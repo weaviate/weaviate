@@ -110,7 +110,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 		if hnswUserConfig.Skip {
 			s.vectorIndex = noop.NewIndex()
-
 		} else {
 
 			if err := s.initVectorIndex(ctx, hnswUserConfig); err != nil {
@@ -132,7 +131,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 		if geminiUserConfig.Skip {
 			s.vectorIndex = noop.NewIndex()
-
 		} else {
 
 			if err := s.initVectorIndex(ctx, geminiUserConfig); err != nil {
@@ -159,12 +157,11 @@ func (s *Shard) initVectorIndex(
 	ctx context.Context,
 	vectorIndexUserConfig schema.VectorIndexConfig,
 ) error {
-
-	switch vectorIndexUserConfig.(type) {
+	switch uc := vectorIndexUserConfig.(type) {
 
 	case hnswent.UserConfig:
 
-		hnswUserConfig := vectorIndexUserConfig.(hnswent.UserConfig)
+		hnswUserConfig := uc // vectorIndexUserConfig.(hnswent.UserConfig)
 		var distProv distancer.Provider
 
 		switch hnswUserConfig.Distance {
@@ -205,7 +202,7 @@ func (s *Shard) initVectorIndex(
 
 	case geminient.UserConfig:
 
-		geminiUserConfig := vectorIndexUserConfig.(geminient.UserConfig)
+		geminiUserConfig := uc // vectorIndexUserConfig.(geminient.UserConfig)
 
 		// TODO: Currently we don't utilize the non-user Config but that
 		// TODO: may likely change in the future.
@@ -220,11 +217,9 @@ func (s *Shard) initVectorIndex(
 	default:
 		return fmt.Errorf("Unsupported vectorIndexUserConfig.")
 	}
-
 }
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
-
 	err := s.initLSMStore(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: shard db", s.ID())

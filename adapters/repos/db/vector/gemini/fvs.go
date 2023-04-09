@@ -13,16 +13,15 @@ package gemini
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"math"
 	"net/http"
 	"os"
 	"strconv"
-
-	"encoding/binary"
 
 	mmapgo "github.com/edsrzf/mmap-go"
 	"github.com/pkg/errors"
@@ -64,7 +63,8 @@ func Import_dataset(host string, port uint, allocation_token string, path string
 	}
 
 	// create the post json payload
-	values := map[string]interface{}{"dsFilePath": path,
+	values := map[string]interface{}{
+		"dsFilePath":       path,
 		"searchType":       DefaultSearchType,
 		"trainInd":         DefaultTrainInd,
 		"gridTrain":        DefaultGridTrain,
@@ -72,7 +72,8 @@ func Import_dataset(host string, port uint, allocation_token string, path string
 		"qbits":            DefaultQBits,
 		"targetAccuracy":   DefaultTargetAccuracy,
 		"mdUnique":         DefaultMDUnique,
-		"convertToDataset": DefaultConvertToDataset}
+		"convertToDataset": DefaultConvertToDataset,
+	}
 	jsonValue, jErr := json.Marshal(values)
 	if jErr != nil {
 		return "", jErr
@@ -103,7 +104,8 @@ func Import_dataset(host string, port uint, allocation_token string, path string
 	defer response.Body.Close()
 
 	// retrieve response
-	respbody, _ := ioutil.ReadAll(response.Body)
+	// respbody, _ := ioutil.ReadAll(response.Body)
+	respbody, _ := io.ReadAll(response.Body)
 	if verbose {
 		fmt.Println("Fvs: Import_dataset: response status=", response.Status)
 		fmt.Println("Fvs: Import_dataset: response headers=", response.Header)
@@ -125,18 +127,16 @@ func Import_dataset(host string, port uint, allocation_token string, path string
 	if !ok {
 		return "", fmt.Errorf("Response map does not have 'datasetId' key in Import_dataset.")
 	}
-	//TODO:  Check valid GUID format in 'did' string
+	// TODO:  Check valid GUID format in 'did' string
 
 	if verbose {
 		fmt.Println("Fvs: Import_dataset : dataset id=", did)
 	}
 
 	return did, nil
-
 }
 
 func Train_status(host string, port uint, allocation_token string, dataset_id string, verbose bool) (string, error) {
-
 	// form the rest url
 	url := fmt.Sprintf("http://%s:%d/v1.0/dataset/train/status/%s", host, port, dataset_id)
 	if verbose {
@@ -164,7 +164,8 @@ func Train_status(host string, port uint, allocation_token string, dataset_id st
 	defer response.Body.Close()
 
 	// retrieve response
-	respbody, _ := ioutil.ReadAll(response.Body)
+	// respbody, _ := ioutil.ReadAll(response.Body)
+	respbody, _ := io.ReadAll(response.Body)
 	if verbose {
 		fmt.Println("Fvs: Train_status: response status=", response.Status)
 		fmt.Println("Fvs: Train_status: response headers=", response.Header)
@@ -200,7 +201,6 @@ func Train_status(host string, port uint, allocation_token string, dataset_id st
 }
 
 func Load_dataset(host string, port uint, allocation_token string, dataset_id string, verbose bool) (string, error) {
-
 	// form the rest url
 	url := fmt.Sprintf("http://%s:%d/v1.0/dataset/load", host, port)
 	if verbose {
@@ -219,7 +219,8 @@ func Load_dataset(host string, port uint, allocation_token string, dataset_id st
 		"hammingK":          DefaultHammingK,
 		"topk":              DefaultTopK,
 		"bitmasksInd":       DefaultBitmasksInd,
-		"asyncLoad":         DefaultAsyncLoad}
+		"asyncLoad":         DefaultAsyncLoad,
+	}
 	jsonValue, err := json.Marshal(values)
 	if err != nil {
 		return "", errors.Wrap(err, "json.Marshal failed in Fvs Load_dataset")
@@ -249,7 +250,8 @@ func Load_dataset(host string, port uint, allocation_token string, dataset_id st
 	defer response.Body.Close()
 
 	// retrieve response
-	respbody, _ := ioutil.ReadAll(response.Body)
+	// respbody, _ := ioutil.ReadAll(response.Body)
+	respbody, _ := io.ReadAll(response.Body)
 	if verbose {
 		fmt.Println("Fvs: Load_dataset: response status=", response.Status)
 		fmt.Println("Fvs: Load_dataset: response headers=", response.Header)
@@ -276,7 +278,6 @@ func Load_dataset(host string, port uint, allocation_token string, dataset_id st
 }
 
 func Import_queries(host string, port uint, allocation_token string, path string, verbose bool) (string, error) {
-
 	// form the rest url
 	url := fmt.Sprintf("http://%s:%d/v1.0/demo/query/import", host, port)
 	if verbose {
@@ -285,7 +286,8 @@ func Import_queries(host string, port uint, allocation_token string, path string
 
 	// create the post json payload
 	values := map[string]interface{}{
-		"queriesFilePath": path}
+		"queriesFilePath": path,
+	}
 	jsonValue, jErr := json.Marshal(values)
 	if jErr != nil {
 		return "", errors.Wrap(jErr, "json.Marshal failed at Fvs Import_queries.")
@@ -315,7 +317,8 @@ func Import_queries(host string, port uint, allocation_token string, path string
 	defer response.Body.Close()
 
 	// retrieve response
-	respbody, _ := ioutil.ReadAll(response.Body)
+	// respbody, _ := ioutil.ReadAll(response.Body)
+	respbody, _ := io.ReadAll(response.Body)
 	if verbose {
 		fmt.Println("Fvs: Import_queries: response status=", response.Status)
 		fmt.Println("Fvs: Import_queries: response headers=", response.Header)
@@ -340,11 +343,9 @@ func Import_queries(host string, port uint, allocation_token string, path string
 	}
 
 	return qid, nil
-
 }
 
 func Set_focus(host string, port uint, allocation_token string, dataset_id string, verbose bool) error {
-
 	// form the rest url
 	url := fmt.Sprintf("http://%s:%d/v1.0/dataset/focus", host, port)
 	if verbose {
@@ -355,7 +356,8 @@ func Set_focus(host string, port uint, allocation_token string, dataset_id strin
 	//{'allocationId': '0b391a1a-b916-11ed-afcb-0242ac1c0002', 'datasetId': 'cbd7c113-b700-4b32-9bf6-0b9205b7525e'}
 	values := map[string]interface{}{
 		"allocationId": allocation_token,
-		"datasetId":    dataset_id}
+		"datasetId":    dataset_id,
+	}
 	jsonValue, err := json.Marshal(values)
 	if err != nil {
 		return errors.Wrap(err, "json.Marshal failed in Fvs Set_focus.")
@@ -385,7 +387,8 @@ func Set_focus(host string, port uint, allocation_token string, dataset_id strin
 	defer response.Body.Close()
 
 	// retrieve response
-	respbody, _ := ioutil.ReadAll(response.Body)
+	// respbody, _ := ioutil.ReadAll(response.Body)
+	respbody, _ := io.ReadAll(response.Body)
 	if verbose {
 		fmt.Println("Fvs: Set_focus: response status=", response.Status)
 		fmt.Println("Fvs: Set_focus: response headers=", response.Header)
@@ -403,11 +406,9 @@ func Set_focus(host string, port uint, allocation_token string, dataset_id strin
 	}
 
 	return nil
-
 }
 
 func Search(host string, port uint, allocation_token string, dataset_id string, path string, topk uint, verbose bool) ([][]float32, [][]uint64, float32, error) {
-
 	// form the rest url
 	url := fmt.Sprintf("http://%s:%d/v1.0/dataset/search", host, port)
 	if verbose {
@@ -419,7 +420,8 @@ func Search(host string, port uint, allocation_token string, dataset_id string, 
 		"allocationId":    allocation_token,
 		"datasetId":       dataset_id,
 		"queriesFilePath": path,
-		"topk":            topk}
+		"topk":            topk,
+	}
 	jsonValue, err := json.Marshal(values)
 	if err != nil {
 		return nil, nil, 0, errors.Wrap(err, "json.Marhal failed at Fvs Search.")
@@ -449,7 +451,8 @@ func Search(host string, port uint, allocation_token string, dataset_id string, 
 	defer response.Body.Close()
 
 	// retrieve response
-	respbody, _ := ioutil.ReadAll(response.Body)
+	// respbody, _ := ioutil.ReadAll(response.Body)
+	respbody, _ := io.ReadAll(response.Body)
 	if verbose {
 		fmt.Println("Fvs: Search: response status=", response.Status)
 		fmt.Println("Fvs: Search: response headers=", response.Header)
@@ -481,9 +484,6 @@ func Search(host string, port uint, allocation_token string, dataset_id string, 
 		inner := dist[i].([]interface{})
 		farr[i] = make([]float32, len(inner))
 		for j := 0; j < len(inner); j++ {
-			//
-			// YOUR PROBLEM MIGHT BE HERE
-			//
 			switch inner[j].(type) {
 			case string: // THIS WORKS WITH THE REAL FVS SERVER
 				ff, fErr := strconv.ParseFloat(inner[j].(string), 32)
@@ -491,10 +491,8 @@ func Search(host string, port uint, allocation_token string, dataset_id string, 
 					return nil, nil, 0, errors.Wrap(fErr, "float32 extraction failed")
 				}
 				farr[i][j] = float32(ff)
-				break
 			case float64: // THIS WORKS WITH FAKE_FVS
 				farr[i][j] = float32(inner[j].(float64))
-				break
 			default:
 				return nil, nil, 0, fmt.Errorf("unsupported data type")
 			}
@@ -535,7 +533,6 @@ func Search(host string, port uint, allocation_token string, dataset_id string, 
 }
 
 func Delete_queries(host string, port uint, allocation_token string, qid string, verbose bool) (string, error) {
-
 	// form the rest url
 	url := fmt.Sprintf("http://%s:%d/v1.0/demo/query/remove/%s", host, port, qid)
 
@@ -558,7 +555,8 @@ func Delete_queries(host string, port uint, allocation_token string, qid string,
 	defer response.Body.Close()
 
 	// retrieve response
-	respbody, _ := ioutil.ReadAll(response.Body)
+	// respbody, _ := ioutil.ReadAll(response.Body)
+	respbody, _ := io.ReadAll(response.Body)
 	if verbose {
 		fmt.Println("Fvs: Delete_queries: response status=", response.Status)
 		fmt.Println("Fvs: Delete_queries: response headers=", response.Header)
@@ -580,7 +578,6 @@ func Delete_queries(host string, port uint, allocation_token string, qid string,
 }
 
 func Unload_dataset(host string, port uint, allocation_token string, dataset_id string, verbose bool) (string, error) {
-
 	// form the rest url
 	url := fmt.Sprintf("http://%s:%d/v1.0/dataset/unload", host, port)
 	if verbose {
@@ -591,7 +588,8 @@ func Unload_dataset(host string, port uint, allocation_token string, dataset_id 
 	values := map[string]interface{}{
 		"allocationId": allocation_token,
 		"datasetId":    dataset_id,
-		"asyncUnload":  false}
+		"asyncUnload":  false,
+	}
 	jsonValue, err := json.Marshal(values)
 	if err != nil {
 		return "", errors.Wrap(err, "json.Marshal failed at Fvs Unload_dataset.")
@@ -621,7 +619,8 @@ func Unload_dataset(host string, port uint, allocation_token string, dataset_id 
 	defer response.Body.Close()
 
 	// retrieve response
-	respbody, _ := ioutil.ReadAll(response.Body)
+	// respbody, _ := ioutil.ReadAll(response.Body)
+	respbody, _ := io.ReadAll(response.Body)
 	if verbose {
 		fmt.Println("Fvs: Unload_dataset: response status=", response.Status)
 		fmt.Println("Fvs: Unload_dataset: response headers=", response.Header)
@@ -644,11 +643,9 @@ func Unload_dataset(host string, port uint, allocation_token string, dataset_id 
 	}
 
 	return status, nil
-
 }
 
 func Delete_dataset(host string, port uint, allocation_token string, dataset_id string, verbose bool) (string, error) {
-
 	// form the rest url
 	url := fmt.Sprintf("http://%s:%d/v1.0/dataset/remove/%s", host, port, dataset_id)
 
@@ -671,7 +668,8 @@ func Delete_dataset(host string, port uint, allocation_token string, dataset_id 
 	defer response.Body.Close()
 
 	// retrieve response
-	respbody, _ := ioutil.ReadAll(response.Body)
+	// respbody, _ := ioutil.ReadAll(response.Body)
+	respbody, _ := io.ReadAll(response.Body)
 	if verbose {
 		fmt.Println("Fvs: Delete_dataset: response status=", response.Status)
 		fmt.Println("Fvs: Delete_dataset: response headers=", response.Header)
@@ -694,15 +692,12 @@ func Delete_dataset(host string, port uint, allocation_token string, dataset_id 
 	}
 
 	return status, nil
-
 }
 
 // Read a uint32 array from data stored in numpy format
 func Numpy_read_uint32_array(f *mmap.ReaderAt, arr [][]uint32, dim int64, index int64, count int64, offset int64) (int64, error) {
-
 	// Iterate rows
 	for j := 0; j < int(count); j++ {
-
 		// Read consecutive 4 byte array into uint32 array, up to dims
 		for i := 0; i < len(arr[j]); i++ {
 
@@ -719,7 +714,6 @@ func Numpy_read_uint32_array(f *mmap.ReaderAt, arr [][]uint32, dim int64, index 
 
 			arr[j][i] = binary.LittleEndian.Uint32(bt)
 		}
-
 	}
 
 	return dim, nil
@@ -727,10 +721,8 @@ func Numpy_read_uint32_array(f *mmap.ReaderAt, arr [][]uint32, dim int64, index 
 
 // Read a float32 array from data stored in numpy format
 func Numpy_read_float32_array(f *mmap.ReaderAt, arr [][]float32, dim int64, index int64, count int64, offset int64) (int64, error) {
-
 	// Iterate rows
 	for j := 0; j < int(count); j++ {
-
 		// Read consecutive 4 byte array into uint32 array, up to dims
 		for i := 0; i < len(arr[j]); i++ {
 
@@ -742,13 +734,12 @@ func Numpy_read_float32_array(f *mmap.ReaderAt, arr [][]float32, dim int64, inde
 
 			_, err := f.ReadAt(bt, r_offset)
 			if err != nil {
-				fmt.Errorf("error reading file at offset: %d: %v", r_offset, err)
+				return 0, fmt.Errorf("error reading file at offset:%v, %v", r_offset, err)
 			}
 
 			bits := binary.LittleEndian.Uint32(bt)
 			arr[j][i] = math.Float32frombits(bits)
 		}
-
 	}
 
 	return dim, nil
@@ -756,7 +747,6 @@ func Numpy_read_float32_array(f *mmap.ReaderAt, arr [][]float32, dim int64, inde
 
 // Write a uint32 array to a file in numpy format
 func Numpy_append_uint32_array(fname string, arr [][]uint32, dim int64, count int64) error {
-
 	preheader := []byte{0x93, 0x4e, 0x55, 0x4d, 0x50, 0x59, 0x01, 0x00, 0x76, 0x00}
 	fmt_header := "{'descr': '<i4', 'fortran_order': False, 'shape': (%d, %d), }"
 	empty := []byte{0x20}
@@ -773,7 +763,7 @@ func Numpy_append_uint32_array(fname string, arr [][]uint32, dim int64, count in
 	var f *os.File = nil
 	if fexists {
 		// Open file
-		f, err = os.OpenFile(fname, os.O_RDWR, 0755)
+		f, err = os.OpenFile(fname, os.O_RDWR, 0o755)
 		if err != nil {
 			return fmt.Errorf("error openingfile: %v", err)
 		}
@@ -853,12 +843,10 @@ func Numpy_append_uint32_array(fname string, arr [][]uint32, dim int64, count in
 	mem.Flush()
 
 	return nil
-
 }
 
 // Write a float32 array to a file in numpy format
 func Numpy_append_float32_array(fname string, arr [][]float32, dim int64, count int64) (int, int, error) {
-
 	preheader := []byte{0x93, 0x4e, 0x55, 0x4d, 0x50, 0x59, 0x01, 0x00, 0x76, 0x00}
 	fmt_header := "{'descr': '<f4', 'fortran_order': False, 'shape': (%d, %d), }"
 	empty := []byte{0x20}
@@ -875,7 +863,7 @@ func Numpy_append_float32_array(fname string, arr [][]float32, dim int64, count 
 	var f *os.File = nil
 	if fexists {
 		// Open file
-		f, err = os.OpenFile(fname, os.O_RDWR, 0755)
+		f, err = os.OpenFile(fname, os.O_RDWR, 0o755)
 		if err != nil {
 			return 0, 0, errors.Wrap(err, "error openingfile in Numpy_append_float32_array.")
 		}

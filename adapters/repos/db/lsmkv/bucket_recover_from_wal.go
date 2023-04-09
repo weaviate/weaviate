@@ -22,7 +22,6 @@ import (
 )
 
 func (b *Bucket) recoverFromCommitLogs(ctx context.Context) error {
-
 	beforeAll := time.Now()
 	defer b.metrics.TrackStartupBucketRecovery(beforeAll)
 

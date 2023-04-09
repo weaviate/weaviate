@@ -103,7 +103,6 @@ type explorer interface {
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
-
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
@@ -389,7 +388,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 // TODO: Split up and don't write into global variables. Instead return an appState
 func startupRoutine(ctx context.Context) *state.State {
-
 	appState := &state.State{}
 
 	logger := logger()
@@ -487,7 +485,6 @@ func (d *dummyLock) LockSchema() (func() error, error) {
 
 // everything hard-coded right now, to be made dynmaic (from go plugins later)
 func registerModules(appState *state.State) error {
-
 	appState.Logger.
 		WithField("action", "startup").
 		Debug("start registering modules")

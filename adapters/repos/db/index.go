@@ -71,7 +71,6 @@ type Index struct {
 }
 
 func (i *Index) ID() string {
-
 	return indexID(i.Config.ClassName)
 }
 
@@ -136,7 +135,6 @@ func NewIndex(ctx context.Context, config IndexConfig,
 }
 
 func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard *Shard, object *storobj.Object) error) error {
-
 	for _, shard := range i.Shards {
 		wrapper := func(object *storobj.Object) error {
 			return cb(i, shard, object)
@@ -227,7 +225,6 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 }
 
 func (i *Index) getInvertedIndexConfig() schema.InvertedIndexConfig {
-
 	i.invertedIndexConfigLock.Lock()
 	defer i.invertedIndexConfigLock.Unlock()
 
@@ -279,7 +276,6 @@ func (i *Index) shardFromUUID(in strfmt.UUID) (string, error) {
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	replProps *additional.ReplicationProperties,
 ) error {
-
 	if i.Config.ClassName != object.Class() {
 		return errors.Errorf("cannot import object of class %s into index of class %s",
 			object.Class(), i.Config.ClassName)
@@ -433,7 +429,6 @@ func parseAsStringToTime(in interface{}) (time.Time, error) {
 func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	replProps *additional.ReplicationProperties,
 ) []error {
-
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 	type objsAndPos struct {
@@ -782,7 +777,6 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties, replProps *additional.ReplicationProperties,
 ) ([]*storobj.Object, []float32, error) {
-
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
 
@@ -966,7 +960,6 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	dist float32, limit int, filters *filters.LocalFilter,
 	sort []filters.Sort, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
-
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
 
@@ -1046,7 +1039,6 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
-
 	shard, ok := i.Shards[shardName]
 	if !ok {
 		return nil, nil, errors.Errorf("shard %q does not exist locally", shardName)
@@ -1074,7 +1066,6 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 	replProps *additional.ReplicationProperties,
 ) error {
-
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 	shardName, err := i.shardFromUUID(id)
@@ -1331,7 +1322,6 @@ func (i *Index) notifyReady() {
 func (i *Index) findDocIDs(ctx context.Context,
 	filters *filters.LocalFilter,
 ) (map[string][]uint64, error) {
-
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "filter_total")
 
