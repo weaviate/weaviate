@@ -20,12 +20,11 @@ import (
 // Config.UserConfig
 type Config struct {
 	// internal
-	RootPath              string
-	ID                    string
-	PrometheusMetrics     *monitoring.PrometheusMetrics
+	RootPath          string
+	ID                string
+	PrometheusMetrics *monitoring.PrometheusMetrics
 
 	// metadata for monitoring
 	ShardName string
 	ClassName string
 }
-

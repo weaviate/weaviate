@@ -24,8 +24,8 @@ import (
 type Index struct{}
 
 func NewIndex() *Index {
-    idx := &Index{}
-    return idx;    
+	idx := &Index{}
+	return idx
 }
 
 func (i *Index) Add(id uint64, vector []float32) error {
@@ -70,7 +70,7 @@ func (i *Index) UpdateUserConfig(updated schema.VectorIndexConfig, callback func
 func (i *Index) Drop(context.Context) error {
 
 	// silently ignore
-    return nil
+	return nil
 }
 
 func (i *Index) Flush() error {
@@ -86,40 +86,40 @@ func (i *Index) Shutdown(context.Context) error {
 }
 
 func (i *Index) PauseMaintenance(context.Context) error {
-	
-    // silently ignore
+
+	// silently ignore
 	return nil
 
 }
 
 func (i *Index) SwitchCommitLogs(context.Context) error {
-    
-    // silently ignore
+
+	// silently ignore
 	return nil
 }
 
 func (i *Index) ListFiles(context.Context) ([]string, error) {
 
-    // silently ignore
+	// silently ignore
 	return nil, nil
 }
 
 func (i *Index) ResumeMaintenance(context.Context) error {
-    
-    // silently ignore
+
+	// silently ignore
 	return nil
 }
 
 func (i *Index) ValidateBeforeInsert(vector []float32) error {
 
-    // silently ignore
+	// silently ignore
 	return nil
 }
 
 func (i *Index) PostStartup() {
-    
+
 }
 
 func (i *Index) Dump(labels ...string) {
-    
+
 }

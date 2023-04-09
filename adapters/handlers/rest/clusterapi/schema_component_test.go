@@ -163,7 +163,7 @@ func newSchemaManagerWithClusterStateAndClient(clusterState *fakeClusterState,
 	}
 	sm, err := schemauc.NewManager(&NilMigrator{}, newFakeRepo(), logger, &fakeAuthorizer{},
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone,
-                      DefaultVectorIndexType: config.VectorIndexTypeHNSW},
+			DefaultVectorIndexType: config.VectorIndexTypeHNSW},
 		dummyParseVectorConfig, // only option for now
 		vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, clusterState, client, &fakeScaleOutManager{},

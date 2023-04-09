@@ -185,7 +185,7 @@ func FromEnv(config *Config) error {
 
 	if v := os.Getenv("ENABLE_MODULES"); v != "" {
 		config.EnableModules = v
-    }
+	}
 
 	config.AutoSchema.Enabled = true
 	if v := os.Getenv("AUTOSCHEMA_ENABLED"); v != "" {
@@ -238,14 +238,14 @@ func FromEnv(config *Config) error {
 		config.MaximumConcurrentGetRequests = DefaultMaxConcurrentGetRequests
 	}
 
-    config.DefaultVectorIndexType = VectorIndexTypeHNSW
-    if v := os.Getenv("DEFAULT_VECTOR_INDEX_TYPE"); v !="" {
-        config.DefaultVectorIndexType = v
-    }
+	config.DefaultVectorIndexType = VectorIndexTypeHNSW
+	if v := os.Getenv("DEFAULT_VECTOR_INDEX_TYPE"); v != "" {
+		config.DefaultVectorIndexType = v
+	}
 
-    if v := os.Getenv("MODULES_PATH"); v != "" {
-        config.ModulesPath = v // "/Users/gwilliams/Projects/GSI/Weaviate/github.fork/weaviate/modules"
-    }
+	if v := os.Getenv("MODULES_PATH"); v != "" {
+		config.ModulesPath = v // "/Users/gwilliams/Projects/GSI/Weaviate/github.fork/weaviate/modules"
+	}
 
 	return nil
 }
@@ -325,7 +325,7 @@ const (
 
 const VectorizerModuleNone = "none"
 
-const VectorIndexTypeHNSW  = "hnsw" // The default builtin index type
+const VectorIndexTypeHNSW = "hnsw" // The default builtin index type
 
 // DefaultGossipBindPort uses the hashicorp/memberlist default
 // port value assigned with the use of DefaultLocalConfig

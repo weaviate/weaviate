@@ -27,16 +27,16 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/gemini"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
-	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	geminient "github.com/weaviate/weaviate/entities/vectorindex/gemini"
+	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -101,125 +101,125 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
 
 	defer s.metrics.ShardStartup(before)
-    
-    switch index.vectorIndexUserConfig.(type) {
 
-        case hnswent.UserConfig:
+	switch index.vectorIndexUserConfig.(type) {
 
-            hnswUserConfig := index.vectorIndexUserConfig.(hnswent.UserConfig)
+	case hnswent.UserConfig:
 
-            if hnswUserConfig.Skip {
-                s.vectorIndex = noop.NewIndex()
+		hnswUserConfig := index.vectorIndexUserConfig.(hnswent.UserConfig)
 
-            } else {
+		if hnswUserConfig.Skip {
+			s.vectorIndex = noop.NewIndex()
 
-                if err := s.initVectorIndex(ctx, hnswUserConfig); err != nil {
-                    return nil, fmt.Errorf("init vector index: %w", err)
-                }
+		} else {
 
-                defer s.vectorIndex.PostStartup()
-            }
+			if err := s.initVectorIndex(ctx, hnswUserConfig); err != nil {
+				return nil, fmt.Errorf("init vector index: %w", err)
+			}
 
-            if err := s.initNonVector(ctx, class); err != nil {
-                return nil, errors.Wrapf(err, "init shard %q", s.ID())
-            }
+			defer s.vectorIndex.PostStartup()
+		}
 
-	        return s, nil
-        
-        case geminient.UserConfig:
-            
-            geminiUserConfig := index.vectorIndexUserConfig.(geminient.UserConfig)
+		if err := s.initNonVector(ctx, class); err != nil {
+			return nil, errors.Wrapf(err, "init shard %q", s.ID())
+		}
 
-            if geminiUserConfig.Skip {
-                s.vectorIndex = noop.NewIndex()
-            
-            } else {
+		return s, nil
 
-                if err := s.initVectorIndex(ctx, geminiUserConfig); err != nil {
-                    return nil, fmt.Errorf("init vector index: %w", err)
-                }
+	case geminient.UserConfig:
 
-                defer s.vectorIndex.PostStartup()
-            }
+		geminiUserConfig := index.vectorIndexUserConfig.(geminient.UserConfig)
 
-            if err := s.initNonVector(ctx, class); err != nil {
-                return nil, errors.Wrapf(err, "init shard %q", s.ID())
-            }
+		if geminiUserConfig.Skip {
+			s.vectorIndex = noop.NewIndex()
 
-	        return s, nil
+		} else {
 
-        default:
+			if err := s.initVectorIndex(ctx, geminiUserConfig); err != nil {
+				return nil, fmt.Errorf("init vector index: %w", err)
+			}
 
-            return s, fmt.Errorf("Supported vectorInddexUserConfig type.")
+			defer s.vectorIndex.PostStartup()
+		}
 
-    }
+		if err := s.initNonVector(ctx, class); err != nil {
+			return nil, errors.Wrapf(err, "init shard %q", s.ID())
+		}
+
+		return s, nil
+
+	default:
+
+		return s, fmt.Errorf("Supported vectorInddexUserConfig type.")
+
+	}
 }
 
 func (s *Shard) initVectorIndex(
-    ctx context.Context,
-    vectorIndexUserConfig schema.VectorIndexConfig,
+	ctx context.Context,
+	vectorIndexUserConfig schema.VectorIndexConfig,
 ) error {
 
-    switch vectorIndexUserConfig.(type) {
+	switch vectorIndexUserConfig.(type) {
 
-        case hnswent.UserConfig:
+	case hnswent.UserConfig:
 
-            hnswUserConfig := vectorIndexUserConfig.(hnswent.UserConfig)
-            var distProv distancer.Provider
+		hnswUserConfig := vectorIndexUserConfig.(hnswent.UserConfig)
+		var distProv distancer.Provider
 
-            switch hnswUserConfig.Distance {
-                case "", hnswent.DistanceCosine:
-                    distProv = distancer.NewCosineDistanceProvider()
-                case hnswent.DistanceDot:
-                    distProv = distancer.NewDotProductProvider()
-                case hnswent.DistanceL2Squared:
-                    distProv = distancer.NewL2SquaredProvider()
-                case hnswent.DistanceManhattan:
-                    distProv = distancer.NewManhattanProvider()
-                case hnswent.DistanceHamming:
-                    distProv = distancer.NewHammingProvider()
-                default:
-                    return errors.Errorf("unrecognized distance metric %q,"+
-                        "choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", hnswUserConfig.Distance)
-                }
+		switch hnswUserConfig.Distance {
+		case "", hnswent.DistanceCosine:
+			distProv = distancer.NewCosineDistanceProvider()
+		case hnswent.DistanceDot:
+			distProv = distancer.NewDotProductProvider()
+		case hnswent.DistanceL2Squared:
+			distProv = distancer.NewL2SquaredProvider()
+		case hnswent.DistanceManhattan:
+			distProv = distancer.NewManhattanProvider()
+		case hnswent.DistanceHamming:
+			distProv = distancer.NewHammingProvider()
+		default:
+			return errors.Errorf("unrecognized distance metric %q,"+
+				"choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", hnswUserConfig.Distance)
+		}
 
-            vi, err := hnsw.New(hnsw.Config{
-                Logger:            s.index.logger,
-                RootPath:          s.index.Config.RootPath,
-                ID:                s.ID(),
-                ShardName:         s.name,
-                ClassName:         s.index.Config.ClassName.String(),
-                PrometheusMetrics: s.promMetrics,
-                MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-                    return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), s.index.logger)
-                },
-                VectorForIDThunk: s.vectorByIndexID,
-                DistanceProvider: distProv,
-            }, hnswUserConfig)
-            if err != nil {
-                return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
-            }
-            s.vectorIndex = vi
+		vi, err := hnsw.New(hnsw.Config{
+			Logger:            s.index.logger,
+			RootPath:          s.index.Config.RootPath,
+			ID:                s.ID(),
+			ShardName:         s.name,
+			ClassName:         s.index.Config.ClassName.String(),
+			PrometheusMetrics: s.promMetrics,
+			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+				return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), s.index.logger)
+			},
+			VectorForIDThunk: s.vectorByIndexID,
+			DistanceProvider: distProv,
+		}, hnswUserConfig)
+		if err != nil {
+			return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
+		}
+		s.vectorIndex = vi
 
-            return nil
+		return nil
 
-        case geminient.UserConfig:
+	case geminient.UserConfig:
 
-            geminiUserConfig := vectorIndexUserConfig.(geminient.UserConfig)
+		geminiUserConfig := vectorIndexUserConfig.(geminient.UserConfig)
 
-            // TODO: Currently we don't utilize the non-user Config but that 
-            // TODO: may likely change in the future.
-            vi, err := gemini.New( gemini.Config{}, geminiUserConfig )
-            if err != nil {
-                return errors.Wrapf(err, "init shard %q: gemini index", s.ID())
-            }
-            s.vectorIndex = vi
+		// TODO: Currently we don't utilize the non-user Config but that
+		// TODO: may likely change in the future.
+		vi, err := gemini.New(gemini.Config{}, geminiUserConfig)
+		if err != nil {
+			return errors.Wrapf(err, "init shard %q: gemini index", s.ID())
+		}
+		s.vectorIndex = vi
 
-            return nil
+		return nil
 
-        default:
-            return fmt.Errorf("Unsupported vectorIndexUserConfig.")
-    }
+	default:
+		return fmt.Errorf("Unsupported vectorIndexUserConfig.")
+	}
 
 }
 

@@ -300,7 +300,7 @@ func (s *Shard) reinit(ctx context.Context) error {
 	}
 
 	hnswUserConfig, ok := s.index.vectorIndexUserConfig.(hnswent.UserConfig)
-    // TODO:  How do we support the Gemini index?
+	// TODO:  How do we support the Gemini index?
 	if !ok {
 		return fmt.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
 			s.index.vectorIndexUserConfig)

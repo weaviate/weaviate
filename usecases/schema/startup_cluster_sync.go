@@ -40,7 +40,7 @@ import (
 func (m *Manager) startupClusterSync(ctx context.Context,
 	localSchema *State,
 ) error {
- 
+
 	nodes := m.clusterState.AllNames()
 	if len(nodes) <= 1 {
 		return m.startupHandleSingleNode(ctx, nodes)

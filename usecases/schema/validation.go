@@ -96,8 +96,8 @@ func (m *Manager) validateVectorIndex(ctx context.Context, class *models.Class) 
 	switch class.VectorIndexType {
 	case "hnsw":
 		return nil
-    case "gemini":
-        return nil
+	case "gemini":
+		return nil
 	default:
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",
 			class.VectorIndexType)

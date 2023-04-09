@@ -42,7 +42,7 @@ type Manager struct {
 	moduleConfig            ModuleConfig
 	cluster                 *cluster.TxManager
 	clusterState            clusterState
-	vectorConfigParser        VectorConfigParser
+	vectorConfigParser      VectorConfigParser
 	invertedConfigValidator InvertedConfigValidator
 	scaleOut                scaleOut
 	RestoreStatus           sync.Map
@@ -110,8 +110,8 @@ type scaleOut interface {
 // NewManager creates a new manager
 func NewManager(migrator migrate.Migrator, repo Repo,
 	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
-	vectorConfigParser VectorConfigParser, 
-    vectorizerValidator VectorizerValidator,
+	vectorConfigParser VectorConfigParser,
+	vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	txClient cluster.Client, scaleoutManager scaleOut,
@@ -224,7 +224,7 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	// make sure that all migrations have completed before checking sync,
 	// otherwise two identical schemas might fail the check based on form rather
 	// than content
-	
+
 	if err := m.startupClusterSync(ctx, schema); err != nil {
 		return errors.Wrap(err, "sync schema with other nodes in the cluster")
 	}

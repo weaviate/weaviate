@@ -196,13 +196,12 @@ func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
 
 func (m *Manager) setClassDefaults(class *models.Class) {
 
-
 	if class.Vectorizer == "" {
 		class.Vectorizer = m.config.DefaultVectorizerModule
 	}
 
 	if class.VectorIndexType == "" {
-        class.VectorIndexType = m.config.DefaultVectorIndexType
+		class.VectorIndexType = m.config.DefaultVectorIndexType
 	}
 
 	if m.config.DefaultVectorDistanceMetric != "" {
@@ -313,24 +312,24 @@ func (m *Manager) validateProperty(
 func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 	class *models.Class,
 ) error {
-    
-    if class.VectorIndexType == "hnsw" {
-        parsed, err := m.vectorConfigParser(class.VectorIndexConfig)
-        if err != nil {
-            return errors.Wrap(err, "parse vector index config")
-        }
-        class.VectorIndexConfig = parsed
-    } else if class.VectorIndexType == "gemini" {
-        parsed, err := m.vectorConfigParser(class.VectorIndexConfig)
-        if err != nil {
-            return errors.Wrap(err, "parse vector index config")
-        }
-        class.VectorIndexConfig = parsed
-    } else {
-	    return errors.Errorf(
-	    	"parse vector index config: unsupported vector index type: %q",
+
+	if class.VectorIndexType == "hnsw" {
+		parsed, err := m.vectorConfigParser(class.VectorIndexConfig)
+		if err != nil {
+			return errors.Wrap(err, "parse vector index config")
+		}
+		class.VectorIndexConfig = parsed
+	} else if class.VectorIndexType == "gemini" {
+		parsed, err := m.vectorConfigParser(class.VectorIndexConfig)
+		if err != nil {
+			return errors.Wrap(err, "parse vector index config")
+		}
+		class.VectorIndexConfig = parsed
+	} else {
+		return errors.Errorf(
+			"parse vector index config: unsupported vector index type: %q",
 			class.VectorIndexType)
-    }
+	}
 
 	return nil
 }

@@ -41,8 +41,8 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	entgemini "github.com/weaviate/weaviate/entities/vectorindex/gemini"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
@@ -221,45 +221,44 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		remoteIndexClient, appState.Logger, appState.ServerConfig.Config.Persistence.DataPath)
 	appState.Scaler = scaler
 
-
 	// TODO: configure http transport for efficient intra-cluster comm
 	schemaTxClient := clients.NewClusterSchema(clusterHttpClient)
-    
-    if appState.ServerConfig.Config.DefaultVectorIndexType == "hnsw" {
 
-	    schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
-		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
-		enthnsw.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
-		appState.Modules, appState.Cluster, schemaTxClient, scaler,
-	    )
-        if err != nil {
-                appState.Logger.
-                    WithField("action", "startup").WithError(err).
-                    Fatal("could not initialize schema manager")
-                os.Exit(1)
-            }
-	    appState.SchemaManager = schemaManager
+	if appState.ServerConfig.Config.DefaultVectorIndexType == "hnsw" {
 
-    } else if appState.ServerConfig.Config.DefaultVectorIndexType == "gemini" {
-        schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
-            appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
-            entgemini.ParseUserConfig, appState.Modules, inverted.ValidateConfig,
-            appState.Modules, appState.Cluster, schemaTxClient, scaler,
-        )
-        if err != nil {
-            appState.Logger.
-                WithField("action", "startup").WithError(err).
-                Fatal("could not initialize schema manager")
-            os.Exit(1)
-        }
+		schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
+			appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
+			enthnsw.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
+			appState.Modules, appState.Cluster, schemaTxClient, scaler,
+		)
+		if err != nil {
+			appState.Logger.
+				WithField("action", "startup").WithError(err).
+				Fatal("could not initialize schema manager")
+			os.Exit(1)
+		}
+		appState.SchemaManager = schemaManager
 
-	    appState.SchemaManager = schemaManager
-    } else {
-        appState.Logger.
-            WithField("action", "startup").WithError(err).
-            Fatal("could not initialize schema manager with unsupported vector index")
-        os.Exit(1)
-    }
+	} else if appState.ServerConfig.Config.DefaultVectorIndexType == "gemini" {
+		schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
+			appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
+			entgemini.ParseUserConfig, appState.Modules, inverted.ValidateConfig,
+			appState.Modules, appState.Cluster, schemaTxClient, scaler,
+		)
+		if err != nil {
+			appState.Logger.
+				WithField("action", "startup").WithError(err).
+				Fatal("could not initialize schema manager")
+			os.Exit(1)
+		}
+
+		appState.SchemaManager = schemaManager
+	} else {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("could not initialize schema manager with unsupported vector index")
+		os.Exit(1)
+	}
 
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
@@ -273,8 +272,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger)
 
 	backupManager := backup.NewManager(appState.Logger, appState.Authorizer,
-        appState.SchemaManager,
-        repo, appState.Modules)
+		appState.SchemaManager,
+		repo, appState.Modules)
 	appState.BackupManager = backupManager
 
 	go clusterapi.Serve(appState)
@@ -293,43 +292,43 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	objectsManager := objects.NewManager(appState.Locks,
-        appState.SchemaManager,
-        appState.ServerConfig, appState.Logger,
+		appState.SchemaManager,
+		appState.ServerConfig, appState.Logger,
 		appState.Authorizer, vectorRepo, appState.Modules,
 		objects.NewMetrics(appState.Metrics))
 	batchObjectsManager := objects.NewBatchManager(vectorRepo, appState.Modules,
-		appState.Locks, 
-        appState.SchemaManager,
-        appState.ServerConfig, appState.Logger,
+		appState.Locks,
+		appState.SchemaManager,
+		appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Metrics)
 
 	objectsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
-		appState.Logger, appState.Authorizer, vectorRepo, explorer, 
-        appState.SchemaManager,
+		appState.Logger, appState.Authorizer, vectorRepo, explorer,
+		appState.SchemaManager,
 		appState.Modules, traverser.NewMetrics(appState.Metrics),
 		appState.ServerConfig.Config.MaximumConcurrentGetRequests)
 
 	classifier := classification.New(
-        appState.SchemaManager,
-        classifierRepo, vectorRepo, appState.Authorizer,
+		appState.SchemaManager,
+		classifierRepo, vectorRepo, appState.Authorizer,
 		appState.Logger, appState.Modules)
 
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, objectsTraverser)
 	appState.SchemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
-	setupSchemaHandlers(api, 
-        appState.SchemaManager)
+	setupSchemaHandlers(api,
+		appState.SchemaManager)
 	setupObjectHandlers(api, objectsManager, appState.ServerConfig.Config, appState.Logger, appState.Modules)
 	setupObjectBatchHandlers(api, batchObjectsManager)
 	setupGraphQLHandlers(api, appState, appState.SchemaManager)
-	setupMiscHandlers(api, appState.ServerConfig, 
-        appState.SchemaManager,
-        appState.Modules)
+	setupMiscHandlers(api, appState.ServerConfig,
+		appState.SchemaManager,
+		appState.Modules)
 	setupClassificationHandlers(api, classifier)
 	setupBackupHandlers(api, backupScheduler)
-	setupNodesHandlers(api, 
-        appState.SchemaManager,
-        repo, appState)
+	setupNodesHandlers(api,
+		appState.SchemaManager,
+		repo, appState)
 
 	reindexCtx, reindexCtxCancel := context.WithCancel(context.Background())
 	reindexFinished := make(chan error)
@@ -501,7 +500,7 @@ func registerModules(appState *state.State) error {
 		for _, module := range modules {
 			enabledModules[strings.TrimSpace(module)] = true
 		}
-	} 
+	}
 
 	if _, ok := enabledModules["text2vec-contextionary"]; ok {
 		appState.Modules.Register(modcontextionary.New())
@@ -573,8 +572,8 @@ func registerModules(appState *state.State) error {
 			WithField("action", "startup").
 			WithField("module", "text2vec-openai").
 			Debug("enabled module")
-        fmt.Println("after else  ok enabledModules text2vec-openai adapters/handlers/rest/configure_api.go !", ok)
-	} 
+		fmt.Println("after else  ok enabledModules text2vec-openai adapters/handlers/rest/configure_api.go !", ok)
+	}
 
 	if _, ok := enabledModules["qna-openai"]; ok {
 		appState.Modules.Register(modqnaopenai.New())
