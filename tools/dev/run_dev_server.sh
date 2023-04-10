@@ -3,7 +3,7 @@
 CONFIG=${1:-local-development}
 
 # Jump to root directory
-cd "$( dirname "${BASH_SOURCE[0]}" )"/../..
+cd "$( dirname "${BASH_SOURCE[0]}" )"/../.. || return
 
 export GO111MODULE=on
 export LOG_LEVEL=${LOG_LEVEL:-"debug"}
