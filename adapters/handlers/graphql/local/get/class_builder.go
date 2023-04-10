@@ -146,9 +146,7 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties["score"] = b.additionalScoreField()
 	additionalProperties["explainScore"] = b.additionalExplainScoreField()
 	if replicationEnabled(class) {
-		additionalProperties["isConsistent"] = &graphql.Field{
-			Type: graphql.Boolean,
-		}
+		additionalProperties["isConsistent"] = b.isConsistentField()
 	}
 	// module specific additional properties
 	if b.modulesProvider != nil {
@@ -225,5 +223,11 @@ func (b *classBuilder) additionalExplainScoreField() *graphql.Field {
 func (b *classBuilder) additionalLastUpdateTimeUnix() *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.String,
+	}
+}
+
+func (b *classBuilder) isConsistentField() *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.Boolean,
 	}
 }

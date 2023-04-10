@@ -380,6 +380,7 @@ func (ko *Object) SearchResult(additional additional.Properties) *search.Result 
 		AdditionalProperties: additionalProperties,
 		Score:                ko.Score(),
 		ExplainScore:         ko.ExplainScore(),
+		IsConsistent:         ko.IsConsistent,
 		// TODO: Beacon?
 	}
 }
