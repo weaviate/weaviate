@@ -3,7 +3,7 @@
 CONFIG=${1:-local-development}
 
 # Jump to root directory
-cd "$( dirname "${BASH_SOURCE[0]}" )"/../..
+cd "$( dirname "${BASH_SOURCE[0]}" )"/../.. || exit 1
 
 export GO111MODULE=on
 export LOG_LEVEL=${LOG_LEVEL:-"debug"}
@@ -20,7 +20,7 @@ export CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"node1"}
 
 function go_run() {
   GIT_HASH=$(git rev-parse --short HEAD)
-  go run -ldflags "-X github.com/weaviate/weaviate/usecases/config.GitHash=$GIT_HASH" $@
+  go run -ldflags "-X github.com/weaviate/weaviate/usecases/config.GitHash=$GIT_HASH" "$@"
 }
 
 case $CONFIG in
