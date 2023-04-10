@@ -13,6 +13,7 @@ package traverser
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -406,6 +407,14 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 			additionalProperties["lastUpdateTimeUnix"] = res.Updated
 		}
 
+		replEnabled, err := e.replicationEnabled(params)
+		if err != nil {
+			return nil, fmt.Errorf("search results to get response: %w", err)
+		}
+		if replEnabled {
+			additionalProperties["isConsistent"] = res.IsConsistent
+		}
+
 		if len(additionalProperties) > 0 {
 			res.Schema.(map[string]interface{})["_additional"] = additionalProperties
 		}
@@ -613,6 +622,19 @@ func (e *Explorer) checkCertaintyCompatibility(className string) error {
 	}
 
 	return nil
+}
+
+func (e *Explorer) replicationEnabled(params dto.GetParams) (bool, error) {
+	if e.schemaGetter == nil {
+		return false, fmt.Errorf("schemaGetter not set")
+	}
+	sch := e.schemaGetter.GetSchemaSkipAuth()
+	cls := sch.GetClass(schema.ClassName(params.ClassName))
+	if cls == nil {
+		return false, fmt.Errorf("class not found in schema: %q", params.ClassName)
+	}
+
+	return cls.ReplicationConfig != nil && cls.ReplicationConfig.Factor > 1, nil
 }
 
 func ExtractDistanceFromParams(params dto.GetParams) (distance float64, withDistance bool) {
