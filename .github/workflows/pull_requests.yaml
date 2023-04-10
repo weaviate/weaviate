@@ -116,7 +116,7 @@ jobs:
         with:
           name: coverage-report-integration
       - name: Codecov
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v2
         with:
           token: ${{secrets.CODECOV_TOKEN}}
           version: "v0.1.15"
