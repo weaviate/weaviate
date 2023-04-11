@@ -56,7 +56,7 @@ func newRestorer(node string, logger logrus.FieldLogger,
 	}
 }
 
-func (m *restorer) Restore(ctx context.Context,
+func (r *restorer) Restore(ctx context.Context,
 	req *Request,
 	desc *backup.BackupDescriptor,
 	store nodeStore,
@@ -69,7 +69,7 @@ func (m *restorer) Restore(ctx context.Context,
 		Status:  &status,
 		Path:    store.HomeDir(),
 	}
-	if _, err := m.restore(ctx, req, desc, store); err != nil {
+	if _, err := r.restore(ctx, req, desc, store); err != nil {
 		return nil, err
 	}
 	return returnData, nil

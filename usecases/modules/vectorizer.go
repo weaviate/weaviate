@@ -44,8 +44,8 @@ const (
 		"but a vector was explicitly provided. " + warningVectorIgnored
 )
 
-func (m *Provider) ValidateVectorizer(moduleName string) error {
-	mod := m.GetByName(moduleName)
+func (p *Provider) ValidateVectorizer(moduleName string) error {
+	mod := p.GetByName(moduleName)
 	if mod == nil {
 		return errors.Errorf("no module with name %q present", moduleName)
 	}
@@ -59,8 +59,8 @@ func (m *Provider) ValidateVectorizer(moduleName string) error {
 	return nil
 }
 
-func (m *Provider) UsingRef2Vec(className string) bool {
-	class, err := m.getClass(className)
+func (p *Provider) UsingRef2Vec(className string) bool {
+	class, err := p.getClass(className)
 	if err != nil {
 		return false
 	}
@@ -71,7 +71,7 @@ func (m *Provider) UsingRef2Vec(className string) bool {
 	}
 
 	for modName := range cfg.(map[string]interface{}) {
-		mod := m.GetByName(modName)
+		mod := p.GetByName(modName)
 		if _, ok := mod.(modulecapabilities.ReferenceVectorizer); ok {
 			return true
 		}
@@ -80,7 +80,7 @@ func (m *Provider) UsingRef2Vec(className string) bool {
 	return false
 }
 
-func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, class *models.Class,
+func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, class *models.Class,
 	objectDiff *moduletools.ObjectDiff, findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) error {
@@ -110,8 +110,8 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 	}
 	var found modulecapabilities.Module
 	for modName := range modConfig {
-		if err := m.ValidateVectorizer(modName); err == nil {
-			found = m.GetByName(modName)
+		if err := p.ValidateVectorizer(modName); err == nil {
+			found = p.GetByName(modName)
 			break
 		}
 	}
@@ -140,16 +140,16 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 	return nil
 }
 
-func (m *Provider) VectorizerName(className string) (string, error) {
-	name, _, err := m.getClassVectorizer(className)
+func (p *Provider) VectorizerName(className string) (string, error) {
+	name, _, err := p.getClassVectorizer(className)
 	if err != nil {
 		return "", err
 	}
 	return name, nil
 }
 
-func (m *Provider) getClassVectorizer(className string) (string, interface{}, error) {
-	sch := m.schemaGetter.GetSchemaSkipAuth()
+func (p *Provider) getClassVectorizer(className string) (string, interface{}, error) {
+	sch := p.schemaGetter.GetSchemaSkipAuth()
 
 	class := sch.FindClassByName(schema.ClassName(className))
 	if class == nil {

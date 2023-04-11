@@ -19,7 +19,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (c *vectorizer) WaitForStartup(initCtx context.Context,
+func (v *vectorizer) WaitForStartup(initCtx context.Context,
 	interval time.Duration,
 ) error {
 	t := time.NewTicker(interval)
@@ -29,11 +29,11 @@ func (c *vectorizer) WaitForStartup(initCtx context.Context,
 	for {
 		select {
 		case <-t.C:
-			lastErr = c.checkReady(initCtx)
+			lastErr = v.checkReady(initCtx)
 			if lastErr == nil {
 				return nil
 			}
-			c.logger.
+			v.logger.
 				WithField("action", "multi2vec_remote_wait_for_startup").
 				WithError(lastErr).Warnf("multi2vec-clip inference service not ready")
 		case <-expired:
@@ -42,19 +42,19 @@ func (c *vectorizer) WaitForStartup(initCtx context.Context,
 	}
 }
 
-func (c *vectorizer) checkReady(initCtx context.Context) error {
+func (v *vectorizer) checkReady(initCtx context.Context) error {
 	// spawn a new context (derived on the overall context) which is used to
 	// consider an individual request timed out
 	requestCtx, cancel := context.WithTimeout(initCtx, 500*time.Millisecond)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet,
-		c.url("/.well-known/ready"), nil)
+		v.url("/.well-known/ready"), nil)
 	if err != nil {
 		return errors.Wrap(err, "create check ready request")
 	}
 
-	res, err := c.httpClient.Do(req)
+	res, err := v.httpClient.Do(req)
 	if err != nil {
 		return errors.Wrap(err, "send check ready request")
 	}

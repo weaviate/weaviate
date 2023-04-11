@@ -69,23 +69,23 @@ type DB struct {
 	maxNumberGoroutines int
 }
 
-func (d *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
-	d.schemaGetter = sg
+func (db *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
+	db.schemaGetter = sg
 }
 
-func (d *DB) WaitForStartup(ctx context.Context) error {
-	err := d.init(ctx)
+func (db *DB) WaitForStartup(ctx context.Context) error {
+	err := db.init(ctx)
 	if err != nil {
 		return err
 	}
 
-	d.startupComplete.Store(true)
-	d.scanResourceUsage()
+	db.startupComplete.Store(true)
+	db.scanResourceUsage()
 
 	return nil
 }
 
-func (d *DB) StartupComplete() bool { return d.startupComplete.Load() }
+func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
 
 func New(logger logrus.FieldLogger, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
@@ -133,12 +133,12 @@ type Config struct {
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
-func (d *DB) GetIndex(className schema.ClassName) *Index {
-	d.indexLock.RLock()
-	defer d.indexLock.RUnlock()
+func (db *DB) GetIndex(className schema.ClassName) *Index {
+	db.indexLock.RLock()
+	defer db.indexLock.RUnlock()
 
 	id := indexID(className)
-	index, ok := d.indices[id]
+	index, ok := db.indices[id]
 	if !ok {
 		return nil
 	}
@@ -147,12 +147,12 @@ func (d *DB) GetIndex(className schema.ClassName) *Index {
 }
 
 // GetIndexForIncoming returns the index if it exists or nil if it doesn't
-func (d *DB) GetIndexForIncoming(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
-	d.indexLock.RLock()
-	defer d.indexLock.RUnlock()
+func (db *DB) GetIndexForIncoming(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
+	db.indexLock.RLock()
+	defer db.indexLock.RUnlock()
 
 	id := indexID(className)
-	index, ok := d.indices[id]
+	index, ok := db.indices[id]
 	if !ok {
 		return nil
 	}
@@ -161,12 +161,12 @@ func (d *DB) GetIndexForIncoming(className schema.ClassName) sharding.RemoteInde
 }
 
 // DeleteIndex deletes the index
-func (d *DB) DeleteIndex(className schema.ClassName) error {
-	d.indexLock.Lock()
-	defer d.indexLock.Unlock()
+func (db *DB) DeleteIndex(className schema.ClassName) error {
+	db.indexLock.Lock()
+	defer db.indexLock.Unlock()
 
 	id := indexID(className)
-	index, ok := d.indices[id]
+	index, ok := db.indices[id]
 	if !ok {
 		return errors.Errorf("exist index %s", id)
 	}
@@ -174,37 +174,37 @@ func (d *DB) DeleteIndex(className schema.ClassName) error {
 	if err != nil {
 		return errors.Wrapf(err, "drop index %s", id)
 	}
-	delete(d.indices, id)
+	delete(db.indices, id)
 	return nil
 }
 
-func (d *DB) Shutdown(ctx context.Context) error {
-	d.shutdown <- struct{}{}
+func (db *DB) Shutdown(ctx context.Context) error {
+	db.shutdown <- struct{}{}
 
 	// shut down the workers that add objects to
-	for i := 0; i < d.maxNumberGoroutines; i++ {
-		d.jobQueueCh <- job{
+	for i := 0; i < db.maxNumberGoroutines; i++ {
+		db.jobQueueCh <- job{
 			index: -1,
 		}
 	}
 
-	d.indexLock.Lock()
-	defer d.indexLock.Unlock()
-	for id, index := range d.indices {
+	db.indexLock.Lock()
+	defer db.indexLock.Unlock()
+	for id, index := range db.indices {
 		if err := index.Shutdown(ctx); err != nil {
 			return errors.Wrapf(err, "shutdown index %q", id)
 		}
 	}
 
-	d.shutDownWg.Wait() // wait until job queue shutdown is completed
+	db.shutDownWg.Wait() // wait until job queue shutdown is completed
 
 	return nil
 }
 
-func (d *DB) worker() {
-	for jobToAdd := range d.jobQueueCh {
+func (db *DB) worker() {
+	for jobToAdd := range db.jobQueueCh {
 		if jobToAdd.index < 0 {
-			d.shutDownWg.Done()
+			db.shutDownWg.Done()
 			return
 		}
 		jobToAdd.batcher.storeSingleObjectInAdditionalStorage(jobToAdd.ctx, jobToAdd.object, jobToAdd.status, jobToAdd.index)

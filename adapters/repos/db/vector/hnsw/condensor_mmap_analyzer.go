@@ -26,28 +26,28 @@ type mmapIndex struct {
 	connectionsPerLevel int
 }
 
-func (i *mmapIndex) UpsertNodeMaxLevel(node uint64, level uint16) {
-	n := sort.Search(len(i.nodes), func(a int) bool {
-		return i.nodes[a].id >= node
+func (mi *mmapIndex) UpsertNodeMaxLevel(node uint64, level uint16) {
+	n := sort.Search(len(mi.nodes), func(a int) bool {
+		return mi.nodes[a].id >= node
 	})
 
-	if n < len(i.nodes) && i.nodes[n].id == node {
+	if n < len(mi.nodes) && mi.nodes[n].id == node {
 		// update
-		if i.nodes[n].maxLevel < level {
-			i.nodes[n].maxLevel = level
+		if mi.nodes[n].maxLevel < level {
+			mi.nodes[n].maxLevel = level
 		}
 	} else {
 		// insert
 
 		// See https://github.com/golang/go/wiki/SliceTricks#insert
-		i.nodes = append(i.nodes, mmapIndexNode{})
-		copy(i.nodes[n+1:], i.nodes[n:])
-		i.nodes[n].id = node
-		i.nodes[n].maxLevel = level
+		mi.nodes = append(mi.nodes, mmapIndexNode{})
+		copy(mi.nodes[n+1:], mi.nodes[n:])
+		mi.nodes[n].id = node
+		mi.nodes[n].maxLevel = level
 	}
 }
 
-func (i *mmapIndex) DeleteNode(node uint64) {
+func (mi *mmapIndex) DeleteNode(node uint64) {
 }
 
 type mmapIndexNode struct {

@@ -325,7 +325,7 @@ type fakeModulesProvider struct {
 	contextualClassifier modulecapabilities.Classifier
 }
 
-func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error) {
+func (fmp *fakeModulesProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error) {
 	panic("not implemented")
 }
 
@@ -333,14 +333,14 @@ func NewFakeModulesProvider(vectorizer *fakeVectorizer) *fakeModulesProvider {
 	return &fakeModulesProvider{New(vectorizer)}
 }
 
-func (m *fakeModulesProvider) ParseClassifierSettings(name string,
+func (fmp *fakeModulesProvider) ParseClassifierSettings(name string,
 	params *models.Classification,
 ) error {
-	return m.contextualClassifier.ParseClassifierSettings(params)
+	return fmp.contextualClassifier.ParseClassifierSettings(params)
 }
 
-func (m *fakeModulesProvider) GetClassificationFn(className, name string,
+func (fmp *fakeModulesProvider) GetClassificationFn(className, name string,
 	params modulecapabilities.ClassifyParams,
 ) (modulecapabilities.ClassifyItemFn, error) {
-	return m.contextualClassifier.ClassifyFn(params)
+	return fmp.contextualClassifier.ClassifyFn(params)
 }
