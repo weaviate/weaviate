@@ -37,7 +37,7 @@ func New(spellCheck spellCheckClient) *SpellCheckProvider {
 	return &SpellCheckProvider{spellCheck, newParamHelper()}
 }
 
-func (p *SpellCheckProvider) AdditonalPropertyDefaultValue() interface{} {
+func (p *SpellCheckProvider) AdditionalPropertyDefaultValue() interface{} {
 	return &Params{}
 }
 

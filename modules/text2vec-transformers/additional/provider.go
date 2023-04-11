@@ -38,7 +38,7 @@ func (p *GraphQLAdditionalArgumentsProvider) getFeatureProjection() modulecapabi
 			"feature-projection",
 			"feature_projection",
 		},
-		DefaultValue:           p.projector.AdditonalPropertyDefaultValue(),
+		DefaultValue:           p.projector.AdditionalPropertyDefaultValue(),
 		GraphQLNames:           []string{"featureProjection"},
 		GraphQLFieldFunction:   additionalFeatureProjectionField,
 		GraphQLExtractFunction: p.projector.ExtractAdditionalFn,

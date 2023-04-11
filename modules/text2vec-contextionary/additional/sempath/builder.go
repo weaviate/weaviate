@@ -45,7 +45,7 @@ type Remote interface {
 	MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*txt2vecmodels.NearestNeighbors, error)
 }
 
-func (e *PathBuilder) AdditonalPropertyDefaultValue() interface{} {
+func (e *PathBuilder) AdditionalPropertyDefaultValue() interface{} {
 	return &Params{}
 }
 

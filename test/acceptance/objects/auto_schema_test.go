@@ -60,8 +60,8 @@ func TestAutoSchemaWithDifferentProperties(t *testing.T) {
 			resp2, err2 := helper.Client(t).Objects.ObjectsCreate(params2, nil)
 			helper.AssertRequestOk(t, resp2, err2, nil)
 
-			SchmeaParams := schema.NewSchemaDumpParams()
-			resp3, err3 := helper.Client(t).Schema.SchemaDump(SchmeaParams, nil)
+			SchemaParams := schema.NewSchemaDumpParams()
+			resp3, err3 := helper.Client(t).Schema.SchemaDump(SchemaParams, nil)
 			helper.AssertRequestOk(t, resp3, err3, nil)
 			assert.Len(t, resp3.Payload.Classes, 1)
 			class := resp3.Payload.Classes[0]

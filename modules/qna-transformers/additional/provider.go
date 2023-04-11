@@ -26,7 +26,7 @@ type AdditionalProperty interface {
 		in []search.Result, params interface{}, limit *int,
 		argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig) ([]search.Result, error)
 	ExtractAdditionalFn(param []*ast.Argument) interface{}
-	AdditonalPropertyDefaultValue() interface{}
+	AdditionalPropertyDefaultValue() interface{}
 	AdditionalFieldFn(classname string) *graphql.Field
 }
 
