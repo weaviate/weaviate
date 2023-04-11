@@ -45,7 +45,7 @@ func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 
 	// call to migrator needs to be outside the lock that is set in addClass
 	return m.migrator.AddClass(ctx, class, shardState)
-	// TODO gh-846: Rollback state upate if migration fails
+	// TODO gh-846: Rollback state update if migration fails
 }
 
 func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) error {

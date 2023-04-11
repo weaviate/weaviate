@@ -26,7 +26,7 @@ type AdditionalProperty interface {
 		in []search.Result, params interface{}, limit *int,
 		argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig) ([]search.Result, error)
 	ExtractAdditionalFn(param []*ast.Argument) interface{}
-	AdditonalPropertyDefaultValue() interface{}
+	AdditionalPropertyDefaultValue() interface{}
 }
 
 type GraphQLAdditionalArgumentsProvider struct {
@@ -57,7 +57,7 @@ func (p *GraphQLAdditionalArgumentsProvider) getNearestNeighbors() modulecapabil
 			"nearest-neighbors",
 			"nearest_neighbors",
 		},
-		DefaultValue:           p.nnExtender.AdditonalPropertyDefaultValue(),
+		DefaultValue:           p.nnExtender.AdditionalPropertyDefaultValue(),
 		GraphQLNames:           []string{"nearestNeighbors"},
 		GraphQLFieldFunction:   additionalNearestNeighborsField,
 		GraphQLExtractFunction: p.nnExtender.ExtractAdditionalFn,
@@ -78,7 +78,7 @@ func (p *GraphQLAdditionalArgumentsProvider) getFeatureProjection() modulecapabi
 			"feature-projection",
 			"feature_projection",
 		},
-		DefaultValue:           p.projector.AdditonalPropertyDefaultValue(),
+		DefaultValue:           p.projector.AdditionalPropertyDefaultValue(),
 		GraphQLNames:           []string{"featureProjection"},
 		GraphQLFieldFunction:   additionalFeatureProjectionField,
 		GraphQLExtractFunction: p.projector.ExtractAdditionalFn,
@@ -92,7 +92,7 @@ func (p *GraphQLAdditionalArgumentsProvider) getFeatureProjection() modulecapabi
 
 func (p *GraphQLAdditionalArgumentsProvider) getSemanticPath() modulecapabilities.AdditionalProperty {
 	return modulecapabilities.AdditionalProperty{
-		DefaultValue:           p.sempathBuilder.AdditonalPropertyDefaultValue(),
+		DefaultValue:           p.sempathBuilder.AdditionalPropertyDefaultValue(),
 		GraphQLNames:           []string{"semanticPath"},
 		GraphQLFieldFunction:   additionalSemanticPathField,
 		GraphQLExtractFunction: p.sempathBuilder.ExtractAdditionalFn,
@@ -107,7 +107,7 @@ func (p *GraphQLAdditionalArgumentsProvider) getInterpretation() modulecapabilit
 		RestNames: []string{
 			"interpretation",
 		},
-		DefaultValue:           p.interpretation.AdditonalPropertyDefaultValue(),
+		DefaultValue:           p.interpretation.AdditionalPropertyDefaultValue(),
 		GraphQLNames:           []string{"interpretation"},
 		GraphQLFieldFunction:   additionalInterpretationField,
 		GraphQLExtractFunction: p.interpretation.ExtractAdditionalFn,
