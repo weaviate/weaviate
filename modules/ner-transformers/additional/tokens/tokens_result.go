@@ -92,13 +92,13 @@ func (p *TokenProvider) findTokens(ctx context.Context,
 }
 
 func cutOffByCertainty(tokens []ent.TokenResult, certainty *float64) []ent.TokenResult {
-	min_certainty := 0.0
+	minCertainty := 0.0
 	if certainty != nil {
-		min_certainty = *certainty
+		minCertainty = *certainty
 	}
 	a := 0
 	for _, x := range tokens {
-		if x.Certainty >= min_certainty {
+		if x.Certainty >= minCertainty {
 			tokens[a] = x
 			a++
 		}

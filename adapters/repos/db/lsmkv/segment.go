@@ -71,12 +71,12 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	}
 	defer file.Close()
 
-	file_info, err := file.Stat()
+	fileInfo, err := file.Stat()
 	if err != nil {
 		return nil, errors.Wrap(err, "stat file")
 	}
 
-	content, err := syscall.Mmap(int(file.Fd()), 0, int(file_info.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
+	content, err := syscall.Mmap(int(file.Fd()), 0, int(fileInfo.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
 	if err != nil {
 		return nil, errors.Wrap(err, "mmap file")
 	}

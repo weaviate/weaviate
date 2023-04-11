@@ -23,11 +23,11 @@ import (
 func (v *Vectorizer) VectorizeInput(ctx context.Context, input string,
 	icheck vectorizer.ClassIndexCheck,
 ) ([]float32, error) {
-	vector_s, err := v.client.VectorizeQuery(ctx, input, ent.VectorizationConfig{}) // FIXME config?
+	vectorS, err := v.client.VectorizeQuery(ctx, input, ent.VectorizationConfig{}) // FIXME config?
 	if err != nil {
 		return nil, err
 	}
-	return vector_s.Vector, nil
+	return vectorS.Vector, nil
 }
 
 func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
