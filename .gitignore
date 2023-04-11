@@ -3,7 +3,6 @@ nightly/*
 dist/*
 dist
 nightly
-dist
 
 # ignore confectionary files
 contextionary/contextionary.vocab
