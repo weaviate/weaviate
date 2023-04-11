@@ -27,11 +27,11 @@ services:
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
     ports:
-      - 9090:9090
+      - "9090:9090"
   grafana:
     image: grafana/grafana-oss
     ports:
-      - 3000:3000
+      - "3000:3000"
     volumes:
       - ./tools/dev/grafana/grafana.ini:/etc/grafana/grafana.ini
       - ./tools/dev/grafana/datasource.yml:/etc/grafana/provisioning/datasources/prometheus.yml
