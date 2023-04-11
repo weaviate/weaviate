@@ -174,16 +174,16 @@ func BruteForce(vectors [][]float32, query []float32, k int, distance DistanceFu
 	return out
 }
 
-func BuildTruths(queries_size int, vectors_size int, queries [][]float32, vectors [][]float32, k int, distance DistanceFunction, path ...string) [][]uint64 {
+func BuildTruths(queriesSize int, vectorsSize int, queries [][]float32, vectors [][]float32, k int, distance DistanceFunction, path ...string) [][]uint64 {
 	uri := "sift/sift_truths%d.%d.gob"
 	if len(path) > 0 {
 		uri = fmt.Sprintf("%s/%s", path[0], uri)
 	}
-	fileName := fmt.Sprintf(uri, k, vectors_size)
-	truths := make([][]uint64, queries_size)
+	fileName := fmt.Sprintf(uri, k, vectorsSize)
+	truths := make([][]uint64, queriesSize)
 
 	if _, err := os.Stat(fileName); err == nil {
-		return loadTruths(fileName, queries_size, k)
+		return loadTruths(fileName, queriesSize, k)
 	}
 
 	ssdhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
@@ -204,14 +204,14 @@ func BuildTruths(queries_size int, vectors_size int, queries [][]float32, vector
 	return truths
 }
 
-func loadTruths(fileName string, queries_size int, k int) [][]uint64 {
+func loadTruths(fileName string, queriesSize int, k int) [][]uint64 {
 	f, err := os.Open(fileName)
 	if err != nil {
 		panic(errors.Wrap(err, "Could not open truths file"))
 	}
 	defer f.Close()
 
-	truths := make([][]uint64, queries_size)
+	truths := make([][]uint64, queriesSize)
 	cDec := gob.NewDecoder(f)
 	err = cDec.Decode(&truths)
 	if err != nil {
