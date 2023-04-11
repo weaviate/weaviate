@@ -56,7 +56,7 @@ func (f *fakeInterpretation) ExtractAdditionalFn(param []*ast.Argument) interfac
 	return true
 }
 
-func (f *fakeInterpretation) AdditonalPropertyDefaultValue() interface{} {
+func (f *fakeInterpretation) AdditionalPropertyDefaultValue() interface{} {
 	return true
 }
 
@@ -75,7 +75,7 @@ func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument) interface{} {
 	return true
 }
 
-func (f *fakeExtender) AdditonalPropertyDefaultValue() interface{} {
+func (f *fakeExtender) AdditionalPropertyDefaultValue() interface{} {
 	return true
 }
 
@@ -104,7 +104,7 @@ func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
 	}
 }
 
-func (f *fakeProjector) AdditonalPropertyDefaultValue() interface{} {
+func (f *fakeProjector) AdditionalPropertyDefaultValue() interface{} {
 	return &text2vecadditionalprojector.Params{}
 }
 
@@ -123,7 +123,7 @@ func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{}
 	return &text2vecadditionalsempath.Params{}
 }
 
-func (f *fakePathBuilder) AdditonalPropertyDefaultValue() interface{} {
+func (f *fakePathBuilder) AdditionalPropertyDefaultValue() interface{} {
 	return &text2vecadditionalsempath.Params{}
 }
 

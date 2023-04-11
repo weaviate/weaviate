@@ -180,7 +180,7 @@ func Test_UpdateObject(t *testing.T) {
 	res, err := m.UpdateObject(context.Background(), &models.Principal{}, cls, id, payload, nil)
 	require.Nil(t, err)
 	if res.LastUpdateTimeUnix <= beforeUpdate {
-		t.Error("time after update must be greather than time before update ")
+		t.Error("time after update must be greater than time before update ")
 	}
 	res.LastUpdateTimeUnix = 0 // to allow for equality
 	assert.Equal(t, expected, res)

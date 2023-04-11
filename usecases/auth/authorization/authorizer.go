@@ -33,8 +33,8 @@ func New(cfg config.Config) Authorizer {
 	return &DummyAuthorizer{}
 }
 
-// DummyAuthorizer is a pluggable Authorizor which can be used if no specific
-// authorizor is configured. It will allow every authz decision, i.e. it is
+// DummyAuthorizer is a pluggable Authorizer which can be used if no specific
+// authorizer is configured. It will allow every auth decision, i.e. it is
 // effectively the same as "no authorization at all"
 type DummyAuthorizer struct{}
 

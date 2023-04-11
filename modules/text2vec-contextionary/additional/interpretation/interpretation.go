@@ -25,7 +25,7 @@ func New() *Interpretation {
 	return &Interpretation{}
 }
 
-func (e *Interpretation) AdditonalPropertyDefaultValue() interface{} {
+func (e *Interpretation) AdditionalPropertyDefaultValue() interface{} {
 	return true
 }
 

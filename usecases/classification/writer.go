@@ -48,7 +48,7 @@ type batchWriter struct {
 	errorCount      int64
 	ec              *errorcompounder.SafeErrorCompounder
 	cancel          chan struct{}
-	batchTreshold   int
+	batchThreshold  int
 }
 
 func newBatchWriter(vectorRepo vectorRepo) Writer {
@@ -60,7 +60,7 @@ func newBatchWriter(vectorRepo vectorRepo) Writer {
 		errorCount:      0,
 		ec:              &errorcompounder.SafeErrorCompounder{},
 		cancel:          make(chan struct{}),
-		batchTreshold:   100,
+		batchThreshold:  100,
 	}
 }
 
@@ -93,7 +93,7 @@ func (r *batchWriter) storeObject(item search.Result) error {
 	r.batchItemsCount++
 	r.batchIndex++
 	r.batchObjects = append(r.batchObjects, batchObject)
-	if len(r.batchObjects) >= r.batchTreshold {
+	if len(r.batchObjects) >= r.batchThreshold {
 		r.saveObjectItems <- r.batchObjects
 		r.batchObjects = objects.BatchObjects{}
 		r.batchIndex = 0

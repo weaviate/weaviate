@@ -225,7 +225,7 @@ func (u *uploader) class(ctx context.Context, id string, desc backup.ClassDescri
 	return nil
 }
 
-// fileWriter downloads files from object store and writes files to the destintion folder destDir
+// fileWriter downloads files from object store and writes files to the destination folder destDir
 type fileWriter struct {
 	sourcer    Sourcer
 	backend    nodeStore

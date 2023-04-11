@@ -80,7 +80,7 @@ package classification
 // 			assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),
 // 				"execution must abort with authorizer error")
 // 			assert.Equal(t, authorizeCall{principal, test.expectedVerb, test.expectedResource},
-// 				authorizer.calls[0], "correct paramteres must have been used on authorizer")
+// 				authorizer.calls[0], "correct parameters must have been used on authorizer")
 // 		}
 // 	})
 // }
