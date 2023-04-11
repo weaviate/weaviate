@@ -406,7 +406,7 @@ func Test_ReferenceDelete(t *testing.T) {
 		}
 	)
 
-	fake_properties := func(refs ...*models.SingleRef) map[string]interface{} {
+	fakeProperties := func(refs ...*models.SingleRef) map[string]interface{} {
 		mrefs := make(models.MultipleRef, len(refs))
 		copy(mrefs, refs)
 		return map[string]interface{}{
@@ -489,25 +489,25 @@ func Test_ReferenceDelete(t *testing.T) {
 		{
 			Name:       "delete one reference",
 			Req:        req,
-			properties: fake_properties(ref2, &ref, ref3), NewSrcRefsLen: 2,
+			properties: fakeProperties(ref2, &ref, ref3), NewSrcRefsLen: 2,
 			Stage: 3,
 		},
 		{
 			Name:       "delete two references",
 			Req:        req,
-			properties: fake_properties(&ref, ref2, &ref), NewSrcRefsLen: 1,
+			properties: fakeProperties(&ref, ref2, &ref), NewSrcRefsLen: 1,
 			Stage: 3,
 		},
 		{
 			Name:       "delete all references",
 			Req:        req,
-			properties: fake_properties(&ref, &ref), NewSrcRefsLen: 0,
+			properties: fakeProperties(&ref, &ref), NewSrcRefsLen: 0,
 			Stage: 3,
 		},
 		{
 			Name:       "reference not found",
 			Req:        req,
-			properties: fake_properties(ref2, ref3), NewSrcRefsLen: 2,
+			properties: fakeProperties(ref2, ref3), NewSrcRefsLen: 2,
 			Stage: 2,
 		},
 		{
@@ -525,7 +525,7 @@ func Test_ReferenceDelete(t *testing.T) {
 		{
 			Name:       "internal error",
 			Req:        req,
-			properties: fake_properties(ref2, &ref, ref3), NewSrcRefsLen: 3,
+			properties: fakeProperties(ref2, &ref, ref3), NewSrcRefsLen: 3,
 			Stage:      3,
 			WantCode:   StatusInternalServerError,
 			ErrPutRefs: anyErr,

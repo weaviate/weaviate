@@ -58,7 +58,7 @@ func Client(t *testing.T) *apiclient.Weaviate {
 // Create a Weaviate client for the given API key & token.
 func CreateAuth(apiKey strfmt.UUID, apiToken string) runtime.ClientAuthInfoWriterFunc {
 	// Create an auth writer that both sets the api key & token.
-	auth_writer := func(r runtime.ClientRequest, _ strfmt.Registry) error {
+	authWriter := func(r runtime.ClientRequest, _ strfmt.Registry) error {
 		err := r.SetHeaderParam("X-API-KEY", string(apiKey))
 		if err != nil {
 			return err
@@ -67,5 +67,5 @@ func CreateAuth(apiKey strfmt.UUID, apiToken string) runtime.ClientAuthInfoWrite
 		return r.SetHeaderParam("X-API-TOKEN", apiToken)
 	}
 
-	return auth_writer
+	return authWriter
 }
