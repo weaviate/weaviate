@@ -48,6 +48,9 @@ type ClassSettings interface {
 	Model() string
 	Type() string
 	ModelVersion() string
+	ResourceName() string
+	DeploymentId() string
+	IsAzure() bool
 }
 
 func sortStringKeys(schema_map map[string]interface{}) []string {
@@ -132,6 +135,7 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 	}
 
 	text := strings.Join(corpi, " ")
+
 	res, err := v.client.Vectorize(ctx, text, ent.VectorizationConfig{
 		Type:         icheck.Type(),
 		Model:        icheck.Model(),
