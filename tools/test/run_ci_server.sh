@@ -38,7 +38,7 @@ function wait(){
 
     echo "Weaviate is up and running!"
 }
-surpress_on_success() {
+suppress_on_success() {
   out="$("${@}" 2>&1)" || { echo_red "FAILED!";  echo "$out"; return 1; }
   echo "Done!"
 }
@@ -50,6 +50,6 @@ function echo_red() {
 }
 
 build "$@" docker-compose-test.yml weaviate
-surpress_on_success docker compose -f docker-compose-test.yml up --force-recreate -d weaviate contextionary
+supress_on_success docker compose -f docker-compose-test.yml up --force-recreate -d weaviate contextionary
 
 wait "$@" docker-compose-test.yml
