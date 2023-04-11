@@ -45,25 +45,25 @@ type Remote interface {
 	MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*txt2vecmodels.NearestNeighbors, error)
 }
 
-func (e *PathBuilder) AdditionalPropertyDefaultValue() interface{} {
+func (pb *PathBuilder) AdditionalPropertyDefaultValue() interface{} {
 	return &Params{}
 }
 
-func (f *PathBuilder) AdditionalPropertyFn(ctx context.Context,
+func (pb *PathBuilder) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
 	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	if parameters, ok := params.(*Params); ok {
-		return f.CalculatePath(in, parameters)
+		return pb.CalculatePath(in, parameters)
 	}
 	return nil, errors.New("unknown params")
 }
 
-func (f *PathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (pb *PathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{} {
 	return &Params{}
 }
 
-func (f *PathBuilder) CalculatePath(in []search.Result, params *Params) ([]search.Result, error) {
+func (pb *PathBuilder) CalculatePath(in []search.Result, params *Params) ([]search.Result, error) {
 	if len(in) == 0 {
 		return nil, nil
 	}
@@ -77,13 +77,13 @@ func (f *PathBuilder) CalculatePath(in []search.Result, params *Params) ([]searc
 		return nil, errors.Wrap(err, "invalid params")
 	}
 
-	searchNeighbors, err := f.addSearchNeighbors(params)
+	searchNeighbors, err := pb.addSearchNeighbors(params)
 	if err != nil {
 		return nil, err
 	}
 
 	for i, obj := range in {
-		path, err := f.calculatePathPerObject(obj, in, params, searchNeighbors)
+		path, err := pb.calculatePathPerObject(obj, in, params, searchNeighbors)
 		if err != nil {
 			return nil, fmt.Errorf("object %d: %v", i, err)
 		}
@@ -98,16 +98,16 @@ func (f *PathBuilder) CalculatePath(in []search.Result, params *Params) ([]searc
 	return in, nil
 }
 
-func (f *PathBuilder) calculatePathPerObject(obj search.Result, allObjects []search.Result, params *Params,
+func (pb *PathBuilder) calculatePathPerObject(obj search.Result, allObjects []search.Result, params *Params,
 	searchNeighbors []*txt2vecmodels.NearestNeighbor,
 ) (*txt2vecmodels.SemanticPath, error) {
 	dims := len(obj.Vector)
-	matrix, neighbors, err := f.vectorsToMatrix(obj, allObjects, dims, params, searchNeighbors)
+	matrix, neighbors, err := pb.vectorsToMatrix(obj, allObjects, dims, params, searchNeighbors)
 	if err != nil {
 		return nil, err
 	}
 
-	rand.Seed(f.fixedSeed) // TODO: don't use global random function
+	rand.Seed(pb.fixedSeed) // TODO: don't use global random function
 	inputRows := matrix.RawMatrix().Rows
 	t := tsne.NewTSNE(2, float64(inputRows/2), 100, 100, false)
 	res := t.EmbedData(matrix, nil)
@@ -137,12 +137,12 @@ func (f *PathBuilder) calculatePathPerObject(obj search.Result, allObjects []sea
 		}
 	}
 
-	path := f.buildPath(projectedNeighbors, projectedSearchVector, projectedTargetVector)
-	return f.addDistancesToPath(path, neighbors, params.SearchVector, obj.Vector)
+	path := pb.buildPath(projectedNeighbors, projectedSearchVector, projectedTargetVector)
+	return pb.addDistancesToPath(path, neighbors, params.SearchVector, obj.Vector)
 }
 
-func (f *PathBuilder) addSearchNeighbors(params *Params) ([]*txt2vecmodels.NearestNeighbor, error) {
-	nn, err := f.c11y.MultiNearestWordsByVector(context.TODO(), [][]float32{params.SearchVector}, 36, 50)
+func (pb *PathBuilder) addSearchNeighbors(params *Params) ([]*txt2vecmodels.NearestNeighbor, error) {
+	nn, err := pb.c11y.MultiNearestWordsByVector(context.TODO(), [][]float32{params.SearchVector}, 36, 50)
 	if err != nil {
 		return nil, err
 	}
@@ -151,14 +151,14 @@ func (f *PathBuilder) addSearchNeighbors(params *Params) ([]*txt2vecmodels.Neare
 }
 
 // TODO: document behavior if it actually stays like this
-func (f *PathBuilder) vectorsToMatrix(obj search.Result, allObjects []search.Result, dims int,
+func (pb *PathBuilder) vectorsToMatrix(obj search.Result, allObjects []search.Result, dims int,
 	params *Params, searchNeighbors []*txt2vecmodels.NearestNeighbor,
 ) (*mat.Dense, []*txt2vecmodels.NearestNeighbor, error) {
 	items := 1 // the initial object
 	var neighbors []*txt2vecmodels.NearestNeighbor
-	neighbors = f.extractNeighbors(allObjects)
+	neighbors = pb.extractNeighbors(allObjects)
 	neighbors = append(neighbors, searchNeighbors...)
-	neighbors = f.removeDuplicateNeighborsAndDollarNeighbors(neighbors)
+	neighbors = pb.removeDuplicateNeighborsAndDollarNeighbors(neighbors)
 	items += len(neighbors) + 1 // The +1 is for the search vector which we append last
 
 	// concat all vectors to build gonum dense matrix
@@ -191,7 +191,7 @@ func (f *PathBuilder) vectorsToMatrix(obj search.Result, allObjects []search.Res
 	return mat.NewDense(items, dims, mergedVectors), neighbors, nil
 }
 
-func (f *PathBuilder) extractNeighbors(in []search.Result) []*txt2vecmodels.NearestNeighbor {
+func (pb *PathBuilder) extractNeighbors(in []search.Result) []*txt2vecmodels.NearestNeighbor {
 	var out []*txt2vecmodels.NearestNeighbor
 
 	for _, obj := range in {
@@ -209,7 +209,7 @@ func (f *PathBuilder) extractNeighbors(in []search.Result) []*txt2vecmodels.Near
 	return out
 }
 
-func (f *PathBuilder) removeDuplicateNeighborsAndDollarNeighbors(in []*txt2vecmodels.NearestNeighbor) []*txt2vecmodels.NearestNeighbor {
+func (pb *PathBuilder) removeDuplicateNeighborsAndDollarNeighbors(in []*txt2vecmodels.NearestNeighbor) []*txt2vecmodels.NearestNeighbor {
 	seen := map[string]struct{}{}
 	out := make([]*txt2vecmodels.NearestNeighbor, len(in))
 
@@ -231,7 +231,7 @@ func (f *PathBuilder) removeDuplicateNeighborsAndDollarNeighbors(in []*txt2vecmo
 	return out[:i]
 }
 
-func (f *PathBuilder) buildPath(neighbors []*txt2vecmodels.NearestNeighbor, searchVector []float32,
+func (pb *PathBuilder) buildPath(neighbors []*txt2vecmodels.NearestNeighbor, searchVector []float32,
 	target []float32,
 ) *txt2vecmodels.SemanticPath {
 	var path []*txt2vecmodels.SemanticPathElement
@@ -241,14 +241,14 @@ func (f *PathBuilder) buildPath(neighbors []*txt2vecmodels.NearestNeighbor, sear
 	current := searchVector // initial search point
 
 	for {
-		nn := f.nearestNeighbors(current, neighbors, 10)
-		nn = f.discardFurtherThan(nn, minDist, target)
+		nn := pb.nearestNeighbors(current, neighbors, 10)
+		nn = pb.discardFurtherThan(nn, minDist, target)
 		if len(nn) == 0 {
 			break
 		}
-		nn = f.nearestNeighbors(current, nn, 1)
+		nn = pb.nearestNeighbors(current, nn, 1)
 		current = nn[0].Vector
-		minDist = f.distance(current, target)
+		minDist = pb.distance(current, target)
 
 		path = append(path, &txt2vecmodels.SemanticPathElement{
 			Concept: nn[0].Concept,
@@ -260,14 +260,14 @@ func (f *PathBuilder) buildPath(neighbors []*txt2vecmodels.NearestNeighbor, sear
 	}
 }
 
-func (f *PathBuilder) nearestNeighbors(search []float32, candidates []*txt2vecmodels.NearestNeighbor, length int) []*txt2vecmodels.NearestNeighbor {
+func (pb *PathBuilder) nearestNeighbors(search []float32, candidates []*txt2vecmodels.NearestNeighbor, length int) []*txt2vecmodels.NearestNeighbor {
 	sort.Slice(candidates, func(a, b int) bool {
-		return f.distance(candidates[a].Vector, search) < f.distance(candidates[b].Vector, search)
+		return pb.distance(candidates[a].Vector, search) < pb.distance(candidates[b].Vector, search)
 	})
 	return candidates[:length]
 }
 
-func (f *PathBuilder) distance(a, b []float32) float32 {
+func (pb *PathBuilder) distance(a, b []float32) float32 {
 	var sums float32
 	for i := range a {
 		sums += (a[i] - b[i]) * (a[i] - b[i])
@@ -276,11 +276,11 @@ func (f *PathBuilder) distance(a, b []float32) float32 {
 	return float32(math.Sqrt(float64(sums)))
 }
 
-func (f *PathBuilder) discardFurtherThan(candidates []*txt2vecmodels.NearestNeighbor, threshold float32, target []float32) []*txt2vecmodels.NearestNeighbor {
+func (pb *PathBuilder) discardFurtherThan(candidates []*txt2vecmodels.NearestNeighbor, threshold float32, target []float32) []*txt2vecmodels.NearestNeighbor {
 	out := make([]*txt2vecmodels.NearestNeighbor, len(candidates))
 	i := 0
 	for _, c := range candidates {
-		if f.distance(c.Vector, target) >= threshold {
+		if pb.distance(c.Vector, target) >= threshold {
 			continue
 		}
 
@@ -305,7 +305,7 @@ func copyNeighbors(in []*txt2vecmodels.NearestNeighbor) []*txt2vecmodels.Nearest
 	return out
 }
 
-func (f *PathBuilder) addDistancesToPath(path *txt2vecmodels.SemanticPath, neighbors []*txt2vecmodels.NearestNeighbor,
+func (pb *PathBuilder) addDistancesToPath(path *txt2vecmodels.SemanticPath, neighbors []*txt2vecmodels.NearestNeighbor,
 	searchVector, targetVector []float32,
 ) (*txt2vecmodels.SemanticPath, error) {
 	for i, elem := range path.Path {

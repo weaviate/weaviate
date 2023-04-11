@@ -96,10 +96,10 @@ type robjectMarshaler struct {
 	Object  []byte
 }
 
-func (ro *Replica) MarshalBinary() ([]byte, error) {
-	b := robjectMarshaler{ID: ro.ID, Deleted: ro.Deleted}
-	if ro.Object != nil {
-		obj, err := ro.Object.MarshalBinary()
+func (r *Replica) MarshalBinary() ([]byte, error) {
+	b := robjectMarshaler{ID: r.ID, Deleted: r.Deleted}
+	if r.Object != nil {
+		obj, err := r.Object.MarshalBinary()
 		if err != nil {
 			return nil, fmt.Errorf("marshal object: %w", err)
 		}
@@ -109,15 +109,15 @@ func (ro *Replica) MarshalBinary() ([]byte, error) {
 	return json.Marshal(b)
 }
 
-func (ro *Replica) UnmarshalBinary(data []byte) error {
+func (r *Replica) UnmarshalBinary(data []byte) error {
 	var b robjectMarshaler
 
 	err := json.Unmarshal(data, &b)
 	if err != nil {
 		return err
 	}
-	ro.ID = b.ID
-	ro.Deleted = b.Deleted
+	r.ID = b.ID
+	r.Deleted = b.Deleted
 
 	if b.Object != nil {
 		var obj storobj.Object
@@ -125,7 +125,7 @@ func (ro *Replica) UnmarshalBinary(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("unmarshal object: %w", err)
 		}
-		ro.Object = &obj
+		r.Object = &obj
 	}
 
 	return nil

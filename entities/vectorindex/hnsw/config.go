@@ -72,19 +72,19 @@ func (u UserConfig) IndexType() string {
 }
 
 // SetDefaults in the user-specifyable part of the config
-func (c *UserConfig) SetDefaults() {
-	c.MaxConnections = DefaultMaxConnections
-	c.EFConstruction = DefaultEFConstruction
-	c.CleanupIntervalSeconds = DefaultCleanupIntervalSeconds
-	c.VectorCacheMaxObjects = DefaultVectorCacheMaxObjects
-	c.EF = DefaultEF
-	c.DynamicEFFactor = DefaultDynamicEFFactor
-	c.DynamicEFMax = DefaultDynamicEFMax
-	c.DynamicEFMin = DefaultDynamicEFMin
-	c.Skip = DefaultSkip
-	c.FlatSearchCutoff = DefaultFlatSearchCutoff
-	c.Distance = DefaultDistanceMetric
-	c.PQ = PQConfig{
+func (u *UserConfig) SetDefaults() {
+	u.MaxConnections = DefaultMaxConnections
+	u.EFConstruction = DefaultEFConstruction
+	u.CleanupIntervalSeconds = DefaultCleanupIntervalSeconds
+	u.VectorCacheMaxObjects = DefaultVectorCacheMaxObjects
+	u.EF = DefaultEF
+	u.DynamicEFFactor = DefaultDynamicEFFactor
+	u.DynamicEFMax = DefaultDynamicEFMax
+	u.DynamicEFMin = DefaultDynamicEFMin
+	u.Skip = DefaultSkip
+	u.FlatSearchCutoff = DefaultFlatSearchCutoff
+	u.Distance = DefaultDistanceMetric
+	u.PQ = PQConfig{
 		Enabled:        DefaultPQEnabled,
 		BitCompression: DefaultPQBitCompression,
 		Segments:       DefaultPQSegments,
@@ -184,16 +184,16 @@ func ParseAndValidateConfig(input interface{}) (schema.VectorIndexConfig, error)
 	return uc, uc.validate()
 }
 
-func (uc *UserConfig) validate() error {
+func (u *UserConfig) validate() error {
 	var errMsgs []string
-	if uc.MaxConnections < MinmumMaxConnections {
+	if u.MaxConnections < MinmumMaxConnections {
 		errMsgs = append(errMsgs, fmt.Sprintf(
 			"maxConnections must be a positive integer with a minimum of %d",
 			MinmumMaxConnections,
 		))
 	}
 
-	if uc.EFConstruction < MinmumEFConstruction {
+	if u.EFConstruction < MinmumEFConstruction {
 		errMsgs = append(errMsgs, fmt.Sprintf(
 			"efConstruction must be a positive integer with a minimum of %d",
 			MinmumMaxConnections,

@@ -53,7 +53,7 @@ func New(origin string, logger logrus.FieldLogger) *client {
 	}
 }
 
-func (v *client) GetSummary(ctx context.Context, property, text string,
+func (c *client) GetSummary(ctx context.Context, property, text string,
 ) ([]ent.SummaryResult, error) {
 	body, err := json.Marshal(sumInput{
 		Text: text,
@@ -62,13 +62,13 @@ func (v *client) GetSummary(ctx context.Context, property, text string,
 		return nil, errors.Wrapf(err, "marshal body")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", v.url("/sum/"),
+	req, err := http.NewRequestWithContext(ctx, "POST", c.url("/sum/"),
 		bytes.NewReader(body))
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
 	}
 
-	res, err := v.httpClient.Do(req)
+	res, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, errors.Wrap(err, "send POST request")
 	}
@@ -99,6 +99,6 @@ func (v *client) GetSummary(ctx context.Context, property, text string,
 	return out, nil
 }
 
-func (v *client) url(path string) string {
-	return fmt.Sprintf("%s%s", v.origin, path)
+func (c *client) url(path string) string {
+	return fmt.Sprintf("%s%s", c.origin, path)
 }

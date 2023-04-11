@@ -70,44 +70,44 @@ func newObjectsBatcher(s *Shard) *objectsBatcher {
 }
 
 // Objects imports the specified objects in parallel in a batch-fashion
-func (b *objectsBatcher) Objects(ctx context.Context,
+func (ob *objectsBatcher) Objects(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
 	beforeBatch := time.Now()
-	defer b.shard.metrics.BatchObject(beforeBatch, len(objects))
+	defer ob.shard.metrics.BatchObject(beforeBatch, len(objects))
 
-	b.init(objects)
-	b.storeInObjectStore(ctx)
-	b.markDeletedInVectorStorage(ctx)
-	b.storeAdditionalStorageWithWorkers(ctx)
-	b.flushWALs(ctx)
-	return b.errs
+	ob.init(objects)
+	ob.storeInObjectStore(ctx)
+	ob.markDeletedInVectorStorage(ctx)
+	ob.storeAdditionalStorageWithWorkers(ctx)
+	ob.flushWALs(ctx)
+	return ob.errs
 }
 
-func (b *objectsBatcher) init(objects []*storobj.Object) {
-	b.objects = objects
-	b.statuses = map[strfmt.UUID]objectInsertStatus{}
-	b.errs = make([]error, len(objects))
-	b.duplicates = findDuplicatesInBatchObjects(objects)
+func (ob *objectsBatcher) init(objects []*storobj.Object) {
+	ob.objects = objects
+	ob.statuses = map[strfmt.UUID]objectInsertStatus{}
+	ob.errs = make([]error, len(objects))
+	ob.duplicates = findDuplicatesInBatchObjects(objects)
 }
 
 // storeInObjectStore performs all storage operations on the underlying
 // key/value store, this is they object-by-id store, the docID-lookup tables,
 // as well as all inverted indices.
-func (b *objectsBatcher) storeInObjectStore(ctx context.Context) {
+func (ob *objectsBatcher) storeInObjectStore(ctx context.Context) {
 	beforeObjectStore := time.Now()
 
-	errs := b.storeSingleBatchInLSM(ctx, b.objects)
+	errs := ob.storeSingleBatchInLSM(ctx, ob.objects)
 	for i, err := range errs {
 		if err != nil {
-			b.setErrorAtIndex(err, i)
+			ob.setErrorAtIndex(err, i)
 		}
 	}
 
-	b.shard.metrics.ObjectStore(beforeObjectStore)
+	ob.shard.metrics.ObjectStore(beforeObjectStore)
 }
 
-func (b *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
+func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 	batch []*storobj.Object,
 ) []error {
 	errs := make([]error, len(batch))
@@ -127,7 +127,7 @@ func (b *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 		go func(index int, object *storobj.Object) {
 			defer wg.Done()
 
-			if err := b.storeObjectOfBatchInLSM(ctx, index, object); err != nil {
+			if err := ob.storeObjectOfBatchInLSM(ctx, index, object); err != nil {
 				errLock.Lock()
 				errs[index] = err
 				errLock.Unlock()
@@ -139,10 +139,10 @@ func (b *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 	return errs
 }
 
-func (b *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
+func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 	objectIndex int, object *storobj.Object,
 ) error {
-	if _, ok := b.duplicates[objectIndex]; ok {
+	if _, ok := ob.duplicates[objectIndex]; ok {
 		return nil
 	}
 	uuidParsed, err := uuid.Parse(object.ID().String())
@@ -155,12 +155,12 @@ func (b *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 		return err
 	}
 
-	status, err := b.shard.putObjectLSM(object, idBytes, false)
+	status, err := ob.shard.putObjectLSM(object, idBytes, false)
 	if err != nil {
 		return err
 	}
 
-	b.setStatusForID(status, object.ID())
+	ob.setStatusForID(status, object.ID())
 
 	if err := ctx.Err(); err != nil {
 		return errors.Wrapf(err, "end store object %d of batch", objectIndex)
@@ -170,17 +170,17 @@ func (b *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 
 // setStatusForID is thread-safe as it uses the underlying mutex to lock the
 // statuses map when writing into it
-func (b *objectsBatcher) setStatusForID(status objectInsertStatus, id strfmt.UUID) {
-	b.Lock()
-	defer b.Unlock()
-	b.statuses[id] = status
+func (ob *objectsBatcher) setStatusForID(status objectInsertStatus, id strfmt.UUID) {
+	ob.Lock()
+	defer ob.Unlock()
+	ob.statuses[id] = status
 }
 
-func (b *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
+func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 	var docIDsToDelete []uint64
 	var positions []int
-	for pos, object := range b.objects {
-		status := b.statuses[object.ID()]
+	for pos, object := range ob.objects {
+		status := ob.statuses[object.ID()]
 		if status.docIDChanged {
 			docIDsToDelete = append(docIDsToDelete, status.oldDocID)
 			positions = append(positions, pos)
@@ -191,9 +191,9 @@ func (b *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 		return
 	}
 
-	if err := b.shard.vectorIndex.Delete(docIDsToDelete...); err != nil {
+	if err := ob.shard.vectorIndex.Delete(docIDsToDelete...); err != nil {
 		for _, pos := range positions {
-			b.setErrorAtIndex(err, pos)
+			ob.setErrorAtIndex(err, pos)
 		}
 	}
 }
@@ -201,8 +201,8 @@ func (b *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 // storeAdditionalStorageWithWorkers stores the object in all non-key-value
 // stores, such as the main vector index as well as the property-specific
 // indices, such as the geo-index.
-func (b *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context) {
-	if ok := b.checkContext(ctx); !ok {
+func (ob *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context) {
+	if ok := ob.checkContext(ctx); !ok {
 		// if the context is no longer OK, there's no point in continuing - abort
 		// early
 		return
@@ -210,34 +210,34 @@ func (b *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context) 
 
 	beforeVectorIndex := time.Now()
 
-	for i, object := range b.objects {
-		if b.shouldSkipInAdditionalStorage(i) {
+	for i, object := range ob.objects {
+		if ob.shouldSkipInAdditionalStorage(i) {
 			continue
 		}
 
-		b.wg.Add(1)
-		status := b.statuses[object.ID()]
-		b.shard.centralJobQueue <- job{
+		ob.wg.Add(1)
+		status := ob.statuses[object.ID()]
+		ob.shard.centralJobQueue <- job{
 			object:  object,
 			status:  status,
 			index:   i,
 			ctx:     ctx,
-			batcher: b,
+			batcher: ob,
 		}
 	}
 
-	b.shard.metrics.VectorIndex(beforeVectorIndex)
+	ob.shard.metrics.VectorIndex(beforeVectorIndex)
 }
 
-func (b *objectsBatcher) shouldSkipInAdditionalStorage(i int) bool {
-	if ok := b.hasErrorAtIndex(i); ok {
+func (ob *objectsBatcher) shouldSkipInAdditionalStorage(i int) bool {
+	if ok := ob.hasErrorAtIndex(i); ok {
 		// had an error prior, ignore
 		return true
 	}
 
 	// no need to lock the mutex for a duplicate check, as we only ever write
 	// during init() in there - not concurrently
-	if _, ok := b.duplicates[i]; ok {
+	if _, ok := ob.duplicates[i]; ok {
 		// is a duplicate, ignore
 		return true
 	}
@@ -245,11 +245,11 @@ func (b *objectsBatcher) shouldSkipInAdditionalStorage(i int) bool {
 	return false
 }
 
-func (b *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Context,
+func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Context,
 	object *storobj.Object, status objectInsertStatus, index int,
 ) {
 	if err := ctx.Err(); err != nil {
-		b.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
+		ob.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
 		return
 	}
 
@@ -273,46 +273,46 @@ func (b *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Contex
 		// shard.updateVectorIndex which would also handle the delete as required
 		// for a non-batch update. Instead a new method has been introduced that
 		// ignores deletes.
-		if err := b.shard.updateVectorIndexIgnoreDelete(object.Vector, status); err != nil {
-			b.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
+		if err := ob.shard.updateVectorIndexIgnoreDelete(object.Vector, status); err != nil {
+			ob.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
 			return
 		}
 	}
 
-	if err := b.shard.updatePropertySpecificIndices(object, status); err != nil {
-		b.setErrorAtIndex(errors.Wrap(err, "update prop-specific indices"), index)
+	if err := ob.shard.updatePropertySpecificIndices(object, status); err != nil {
+		ob.setErrorAtIndex(errors.Wrap(err, "update prop-specific indices"), index)
 		return
 	}
 }
 
 // hasErrorAtIndex is thread-safe as it uses the underlying mutex to lock
 // before reading from the errs map
-func (b *objectsBatcher) hasErrorAtIndex(i int) bool {
-	b.Lock()
-	defer b.Unlock()
-	return b.errs[i] != nil
+func (ob *objectsBatcher) hasErrorAtIndex(i int) bool {
+	ob.Lock()
+	defer ob.Unlock()
+	return ob.errs[i] != nil
 }
 
 // setErrorAtIndex is thread-safe as it uses the underlying mutex to lock
 // writing into the errs map
-func (b *objectsBatcher) setErrorAtIndex(err error, index int) {
-	b.Lock()
-	defer b.Unlock()
-	b.errs[index] = err
+func (ob *objectsBatcher) setErrorAtIndex(err error, index int) {
+	ob.Lock()
+	defer ob.Unlock()
+	ob.errs[index] = err
 }
 
 // checkContext does nothing if the context is still active. But if the context
 // has error'd, it marks all objects which have not previously error'd yet with
 // the ctx error
-func (s *objectsBatcher) checkContext(ctx context.Context) bool {
+func (ob *objectsBatcher) checkContext(ctx context.Context) bool {
 	if err := ctx.Err(); err != nil {
-		for i, err := range s.errs {
+		for i, err := range ob.errs {
 			if err == nil {
 				// already has an error, ignore
 				continue
 			}
 
-			s.errs[i] = errors.Wrapf(err,
+			ob.errs[i] = errors.Wrapf(err,
 				"inverted indexing complete, about to start vector indexing")
 		}
 
@@ -322,22 +322,22 @@ func (s *objectsBatcher) checkContext(ctx context.Context) bool {
 	return true
 }
 
-func (b *objectsBatcher) flushWALs(ctx context.Context) {
-	if err := b.shard.store.WriteWALs(); err != nil {
-		for i := range b.objects {
-			b.setErrorAtIndex(err, i)
+func (ob *objectsBatcher) flushWALs(ctx context.Context) {
+	if err := ob.shard.store.WriteWALs(); err != nil {
+		for i := range ob.objects {
+			ob.setErrorAtIndex(err, i)
 		}
 	}
 
-	if err := b.shard.vectorIndex.Flush(); err != nil {
-		for i := range b.objects {
-			b.setErrorAtIndex(err, i)
+	if err := ob.shard.vectorIndex.Flush(); err != nil {
+		for i := range ob.objects {
+			ob.setErrorAtIndex(err, i)
 		}
 	}
 
-	if err := b.shard.propLengths.Flush(); err != nil {
-		for i := range b.objects {
-			b.setErrorAtIndex(err, i)
+	if err := ob.shard.propLengths.Flush(); err != nil {
+		for i := range ob.objects {
+			ob.setErrorAtIndex(err, i)
 		}
 	}
 }

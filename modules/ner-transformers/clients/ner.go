@@ -58,7 +58,7 @@ func New(origin string, logger logrus.FieldLogger) *ner {
 	}
 }
 
-func (v *ner) GetTokens(ctx context.Context, property,
+func (n *ner) GetTokens(ctx context.Context, property,
 	text string,
 ) ([]ent.TokenResult, error) {
 	body, err := json.Marshal(nerInput{
@@ -68,13 +68,13 @@ func (v *ner) GetTokens(ctx context.Context, property,
 		return nil, errors.Wrapf(err, "marshal body")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", v.url("/ner/"),
+	req, err := http.NewRequestWithContext(ctx, "POST", n.url("/ner/"),
 		bytes.NewReader(body))
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
 	}
 
-	res, err := v.httpClient.Do(req)
+	res, err := n.httpClient.Do(req)
 	if err != nil {
 		return nil, errors.Wrap(err, "send POST request")
 	}
@@ -110,6 +110,6 @@ func (v *ner) GetTokens(ctx context.Context, property,
 	return out, nil
 }
 
-func (v *ner) url(path string) string {
-	return fmt.Sprintf("%s%s", v.origin, path)
+func (n *ner) url(path string) string {
+	return fmt.Sprintf("%s%s", n.origin, path)
 }

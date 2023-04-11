@@ -27,12 +27,12 @@ import (
 // On init we get the current schema and create one index object per class.
 // They will in turn create shards which will either read an existing db file
 // from disk or create a new one if none exists
-func (d *DB) init(ctx context.Context) error {
-	if err := os.MkdirAll(d.config.RootPath, 0o777); err != nil {
-		return errors.Wrapf(err, "create root path directory at %s", d.config.RootPath)
+func (db *DB) init(ctx context.Context) error {
+	if err := os.MkdirAll(db.config.RootPath, 0o777); err != nil {
+		return errors.Wrapf(err, "create root path directory at %s", db.config.RootPath)
 	}
 
-	objects := d.schemaGetter.GetSchemaSkipAuth().Objects
+	objects := db.schemaGetter.GetSchemaSkipAuth().Objects
 	if objects != nil {
 		for _, class := range objects.Classes {
 			invertedConfig := class.InvertedIndexConfig
@@ -56,29 +56,29 @@ func (d *DB) init(ctx context.Context) error {
 
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                 schema.ClassName(class.Class),
-				RootPath:                  d.config.RootPath,
-				ResourceUsage:             d.config.ResourceUsage,
-				QueryMaximumResults:       d.config.QueryMaximumResults,
-				MemtablesFlushIdleAfter:   d.config.MemtablesFlushIdleAfter,
-				MemtablesInitialSizeMB:    d.config.MemtablesInitialSizeMB,
-				MemtablesMaxSizeMB:        d.config.MemtablesMaxSizeMB,
-				MemtablesMinActiveSeconds: d.config.MemtablesMinActiveSeconds,
-				MemtablesMaxActiveSeconds: d.config.MemtablesMaxActiveSeconds,
-				TrackVectorDimensions:     d.config.TrackVectorDimensions,
+				RootPath:                  db.config.RootPath,
+				ResourceUsage:             db.config.ResourceUsage,
+				QueryMaximumResults:       db.config.QueryMaximumResults,
+				MemtablesFlushIdleAfter:   db.config.MemtablesFlushIdleAfter,
+				MemtablesInitialSizeMB:    db.config.MemtablesInitialSizeMB,
+				MemtablesMaxSizeMB:        db.config.MemtablesMaxSizeMB,
+				MemtablesMinActiveSeconds: db.config.MemtablesMinActiveSeconds,
+				MemtablesMaxActiveSeconds: db.config.MemtablesMaxActiveSeconds,
+				TrackVectorDimensions:     db.config.TrackVectorDimensions,
 				ReplicationFactor:         class.ReplicationConfig.Factor,
-			}, d.schemaGetter.ShardingState(class.Class),
+			}, db.schemaGetter.ShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				class.VectorIndexConfig.(schema.VectorIndexConfig),
-				d.schemaGetter, d, d.logger, d.nodeResolver, d.remoteIndex,
-				d.replicaClient, d.promMetrics, class, d.jobQueueCh)
+				db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
+				db.replicaClient, db.promMetrics, class, db.jobQueueCh)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}
 
-			d.indexLock.Lock()
-			d.indices[idx.ID()] = idx
+			db.indexLock.Lock()
+			db.indices[idx.ID()] = idx
 			idx.notifyReady()
-			d.indexLock.Unlock()
+			db.indexLock.Unlock()
 		}
 	}
 

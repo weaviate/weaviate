@@ -39,13 +39,13 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{cfg: cfg}
 }
 
-func (ic *classSettings) PropertyIndexed(propName string) bool {
-	if ic.cfg == nil {
+func (cs *classSettings) PropertyIndexed(propName string) bool {
+	if cs.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return DefaultPropertyIndexed
 	}
 
-	vcn, ok := ic.cfg.Property(propName)["skip"]
+	vcn, ok := cs.cfg.Property(propName)["skip"]
 	if !ok {
 		return DefaultPropertyIndexed
 	}
@@ -58,12 +58,12 @@ func (ic *classSettings) PropertyIndexed(propName string) bool {
 	return !asBool
 }
 
-func (ic *classSettings) VectorizePropertyName(propName string) bool {
-	if ic.cfg == nil {
+func (cs *classSettings) VectorizePropertyName(propName string) bool {
+	if cs.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return DefaultVectorizePropertyName
 	}
-	vcn, ok := ic.cfg.Property(propName)["vectorizePropertyName"]
+	vcn, ok := cs.cfg.Property(propName)["vectorizePropertyName"]
 	if !ok {
 		return DefaultVectorizePropertyName
 	}
@@ -76,45 +76,45 @@ func (ic *classSettings) VectorizePropertyName(propName string) bool {
 	return asBool
 }
 
-func (ic *classSettings) EndpointURL() string {
-	return ic.getEndpointURL()
+func (cs *classSettings) EndpointURL() string {
+	return cs.getEndpointURL()
 }
 
-func (ic *classSettings) PassageModel() string {
-	model := ic.getPassageModel()
+func (cs *classSettings) PassageModel() string {
+	model := cs.getPassageModel()
 	if model == "" {
 		return DefaultHuggingFaceModel
 	}
 	return model
 }
 
-func (ic *classSettings) QueryModel() string {
-	model := ic.getQueryModel()
+func (cs *classSettings) QueryModel() string {
+	model := cs.getQueryModel()
 	if model == "" {
 		return DefaultHuggingFaceModel
 	}
 	return model
 }
 
-func (ic *classSettings) OptionWaitForModel() bool {
-	return ic.getOptionOrDefault("waitForModel", DefaultOptionWaitForModel)
+func (cs *classSettings) OptionWaitForModel() bool {
+	return cs.getOptionOrDefault("waitForModel", DefaultOptionWaitForModel)
 }
 
-func (ic *classSettings) OptionUseGPU() bool {
-	return ic.getOptionOrDefault("useGPU", DefaultOptionUseGPU)
+func (cs *classSettings) OptionUseGPU() bool {
+	return cs.getOptionOrDefault("useGPU", DefaultOptionUseGPU)
 }
 
-func (ic *classSettings) OptionUseCache() bool {
-	return ic.getOptionOrDefault("useCache", DefaultOptionUseCache)
+func (cs *classSettings) OptionUseCache() bool {
+	return cs.getOptionOrDefault("useCache", DefaultOptionUseCache)
 }
 
-func (ic *classSettings) VectorizeClassName() bool {
-	if ic.cfg == nil {
+func (cs *classSettings) VectorizeClassName() bool {
+	if cs.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return DefaultVectorizeClassName
 	}
 
-	vcn, ok := ic.cfg.Class()["vectorizeClassName"]
+	vcn, ok := cs.cfg.Class()["vectorizeClassName"]
 	if !ok {
 		return DefaultVectorizeClassName
 	}
@@ -127,18 +127,18 @@ func (ic *classSettings) VectorizeClassName() bool {
 	return asBool
 }
 
-func (ic *classSettings) Validate(class *models.Class) error {
-	if ic.cfg == nil {
+func (cs *classSettings) Validate(class *models.Class) error {
+	if cs.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
 
-	err := ic.validateClassSettings()
+	err := cs.validateClassSettings()
 	if err != nil {
 		return err
 	}
 
-	err = ic.validateIndexState(class, ic)
+	err = cs.validateIndexState(class, cs)
 	if err != nil {
 		return err
 	}
@@ -146,17 +146,17 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	return nil
 }
 
-func (ic *classSettings) validateClassSettings() error {
-	endpointURL := ic.getEndpointURL()
+func (cs *classSettings) validateClassSettings() error {
+	endpointURL := cs.getEndpointURL()
 	if endpointURL != "" {
 		// endpoint is set, should be used for feature extraction
 		// all other settings are not relevant
 		return nil
 	}
 
-	model := ic.getProperty("model")
-	passageModel := ic.getProperty("passageModel")
-	queryModel := ic.getProperty("queryModel")
+	model := cs.getProperty("model")
+	passageModel := cs.getProperty("passageModel")
+	queryModel := cs.getProperty("queryModel")
 
 	if model != "" && (passageModel != "" || queryModel != "") {
 		return errors.New("only one setting must be set either 'model' or 'passageModel' with 'queryModel'")
@@ -173,33 +173,33 @@ func (ic *classSettings) validateClassSettings() error {
 	return nil
 }
 
-func (ic *classSettings) getPassageModel() string {
-	model := ic.getProperty("model")
+func (cs *classSettings) getPassageModel() string {
+	model := cs.getProperty("model")
 	if model == "" {
-		model = ic.getProperty("passageModel")
+		model = cs.getProperty("passageModel")
 	}
 	return model
 }
 
-func (ic *classSettings) getQueryModel() string {
-	model := ic.getProperty("model")
+func (cs *classSettings) getQueryModel() string {
+	model := cs.getProperty("model")
 	if model == "" {
-		model = ic.getProperty("queryModel")
+		model = cs.getProperty("queryModel")
 	}
 	return model
 }
 
-func (ic *classSettings) getEndpointURL() string {
-	endpointURL := ic.getProperty("endpointUrl")
+func (cs *classSettings) getEndpointURL() string {
+	endpointURL := cs.getProperty("endpointUrl")
 	if endpointURL == "" {
-		endpointURL = ic.getProperty("endpointURL")
+		endpointURL = cs.getProperty("endpointURL")
 	}
 	return endpointURL
 }
 
-func (ic *classSettings) getOption(option string) *bool {
-	if ic.cfg != nil {
-		options, ok := ic.cfg.Class()["options"]
+func (cs *classSettings) getOption(option string) *bool {
+	if cs.cfg != nil {
+		options, ok := cs.cfg.Class()["options"]
 		if ok {
 			asMap, ok := options.(map[string]interface{})
 			if ok {
@@ -216,17 +216,17 @@ func (ic *classSettings) getOption(option string) *bool {
 	return nil
 }
 
-func (ic *classSettings) getOptionOrDefault(option string, defaultValue bool) bool {
-	optionValue := ic.getOption(option)
+func (cs *classSettings) getOptionOrDefault(option string, defaultValue bool) bool {
+	optionValue := cs.getOption(option)
 	if optionValue != nil {
 		return *optionValue
 	}
 	return defaultValue
 }
 
-func (ic *classSettings) getProperty(name string) string {
-	if ic.cfg != nil {
-		model, ok := ic.cfg.Class()[name]
+func (cs *classSettings) getProperty(name string) string {
+	if cs.cfg != nil {
+		model, ok := cs.cfg.Class()[name]
 		if ok {
 			asString, ok := model.(string)
 			if ok {
@@ -237,7 +237,7 @@ func (ic *classSettings) getProperty(name string) string {
 	return ""
 }
 
-func (cv *classSettings) validateIndexState(class *models.Class, settings ClassSettings) error {
+func (cs *classSettings) validateIndexState(class *models.Class, settings ClassSettings) error {
 	if settings.VectorizeClassName() {
 		// if the user chooses to vectorize the classname, vector-building will
 		// always be possible, no need to investigate further
