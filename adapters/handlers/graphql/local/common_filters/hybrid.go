@@ -20,9 +20,9 @@ import (
 
 func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*searchparams.HybridSearch, error) {
 	var subsearches []interface{}
-	operands_i := source["operands"]
-	if operands_i != nil {
-		operands := operands_i.([]interface{})
+	operandsI := source["operands"]
+	if operandsI != nil {
+		operands := operandsI.([]interface{})
 		for _, operand := range operands {
 			operandMap := operand.(map[string]interface{})
 			subsearches = append(subsearches, operandMap)
@@ -69,9 +69,9 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 	}
 
 	args.SubSearches = weightedSearchResults
-	limit_i := source["limit"]
-	if limit_i != nil {
-		args.Limit = int(limit_i.(int))
+	limitI := source["limit"]
+	if limitI != nil {
+		args.Limit = int(limitI.(int))
 	}
 
 	alpha, ok := source["alpha"]
