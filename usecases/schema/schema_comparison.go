@@ -132,8 +132,8 @@ type propsComparison struct {
 	msgs                  []string
 }
 
-func (cc *propsComparison) addMsg(msg ...string) {
-	cc.msgs = append(cc.msgs, msg...)
+func (pc *propsComparison) addMsg(msg ...string) {
+	pc.msgs = append(pc.msgs, msg...)
 }
 
 func (pc *propsComparison) diff() []string {

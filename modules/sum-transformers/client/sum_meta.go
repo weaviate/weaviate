@@ -20,13 +20,13 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *client) MetaInfo() (map[string]interface{}, error) {
-	req, err := http.NewRequestWithContext(context.Background(), "GET", s.url("/meta"), nil)
+func (c *client) MetaInfo() (map[string]interface{}, error) {
+	req, err := http.NewRequestWithContext(context.Background(), "GET", c.url("/meta"), nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "create GET meta request")
 	}
 
-	res, err := s.httpClient.Do(req)
+	res, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, errors.Wrap(err, "send GET meta request")
 	}

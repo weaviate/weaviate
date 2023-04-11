@@ -50,23 +50,23 @@ func (g GeoDistancer) Distance(b []float32) (float32, bool, error) {
 
 type GeoProvider struct{}
 
-func (p GeoProvider) New(vec []float32) Distancer {
+func (gp GeoProvider) New(vec []float32) Distancer {
 	return GeoDistancer{a: vec}
 }
 
-func (p GeoProvider) SingleDist(vec1, vec2 []float32) (float32, bool, error) {
+func (gp GeoProvider) SingleDist(vec1, vec2 []float32) (float32, bool, error) {
 	return geoDist(vec1, vec2)
 }
 
-func (p GeoProvider) Type() string {
+func (gp GeoProvider) Type() string {
 	return "geo"
 }
 
-func (d GeoProvider) Step(x, y []float32) float32 {
+func (gp GeoProvider) Step(x, y []float32) float32 {
 	panic("Not implemented")
 }
 
-func (d GeoProvider) Wrap(x float32) float32 {
+func (gp GeoProvider) Wrap(x float32) float32 {
 	panic("Not implemented")
 }
 
