@@ -247,7 +247,7 @@ func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument) interface{} {
 	return nil
 }
 
-func (f *fakeExtender) AdditonalPropertyDefaultValue() interface{} {
+func (f *fakeExtender) AdditionalPropertyDefaultValue() interface{} {
 	return getDefaultParam("nearestNeighbors")
 }
 
@@ -266,7 +266,7 @@ func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
 	return nil
 }
 
-func (f *fakeProjector) AdditonalPropertyDefaultValue() interface{} {
+func (f *fakeProjector) AdditionalPropertyDefaultValue() interface{} {
 	return getDefaultParam("featureProjection")
 }
 
@@ -285,7 +285,7 @@ func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{}
 	return nil
 }
 
-func (f *fakePathBuilder) AdditonalPropertyDefaultValue() interface{} {
+func (f *fakePathBuilder) AdditionalPropertyDefaultValue() interface{} {
 	return getDefaultParam("semanticPath")
 }
 
@@ -581,7 +581,7 @@ func (m *nearCustomTextModule) AdditionalProperties() map[string]modulecapabilit
 
 func (m *nearCustomTextModule) getFeatureProjection() modulecapabilities.AdditionalProperty {
 	return modulecapabilities.AdditionalProperty{
-		DefaultValue: m.fakeProjector.AdditonalPropertyDefaultValue(),
+		DefaultValue: m.fakeProjector.AdditionalPropertyDefaultValue(),
 		GraphQLNames: []string{"featureProjection"},
 		GraphQLFieldFunction: func(classname string) *graphql.Field {
 			return &graphql.Field{
@@ -626,7 +626,7 @@ func (m *nearCustomTextModule) getFeatureProjection() modulecapabilities.Additio
 
 func (m *nearCustomTextModule) getNearestNeighbors() modulecapabilities.AdditionalProperty {
 	return modulecapabilities.AdditionalProperty{
-		DefaultValue: m.fakeExtender.AdditonalPropertyDefaultValue(),
+		DefaultValue: m.fakeExtender.AdditionalPropertyDefaultValue(),
 		GraphQLNames: []string{"nearestNeighbors"},
 		GraphQLFieldFunction: func(classname string) *graphql.Field {
 			return &graphql.Field{
@@ -656,7 +656,7 @@ func (m *nearCustomTextModule) getNearestNeighbors() modulecapabilities.Addition
 
 func (m *nearCustomTextModule) getSemanticPath() modulecapabilities.AdditionalProperty {
 	return modulecapabilities.AdditionalProperty{
-		DefaultValue: m.fakePathBuilder.AdditonalPropertyDefaultValue(),
+		DefaultValue: m.fakePathBuilder.AdditionalPropertyDefaultValue(),
 		GraphQLNames: []string{"semanticPath"},
 		GraphQLFieldFunction: func(classname string) *graphql.Field {
 			return &graphql.Field{

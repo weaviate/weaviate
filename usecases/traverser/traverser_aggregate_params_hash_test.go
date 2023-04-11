@@ -15,7 +15,7 @@ package traverser
 // func Test_ParamsHashing(t *testing.T) {
 // 	params := func() AggregateParams {
 // 		return AggregateParams{
-// 			Analytics: filters.AnalyticsProps{UseAnaltyicsEngine: true},
+// 			Analytics: filters.AnalyticsProps{UseAnalyticsEngine: true},
 // 			ClassName: schema.ClassName("MyBestClass"),
 // 			Filters:   nil,
 // 			Kind:      kind.Thing,
