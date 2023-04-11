@@ -16,7 +16,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
-const AnonymousPrinicpalUsername = "anonymous"
+const AnonymousPrincipalUsername = "anonymous"
 
 // Authorizer provides either full (admin) or no access
 type Authorizer struct {
@@ -76,6 +76,6 @@ func (a *Authorizer) addReadOnlyUserList(users []string) {
 
 func newAnonymousPrincipal() *models.Principal {
 	return &models.Principal{
-		Username: AnonymousPrinicpalUsername,
+		Username: AnonymousPrincipalUsername,
 	}
 }

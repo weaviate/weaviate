@@ -39,7 +39,7 @@ func New(openai openAIClient) *GenerateProvider {
 	return &GenerateProvider{openai, maximumNumberOfGoroutines}
 }
 
-func (p *GenerateProvider) AdditonalPropertyDefaultValue() interface{} {
+func (p *GenerateProvider) AdditionalPropertyDefaultValue() interface{} {
 	return &Params{}
 }
 

@@ -1500,7 +1500,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 					expextedAggs := expectedResult.Groups[0].Properties["dividendYield"].NumericalAggregations
 
 					// max, min, count, sum are always exact matches, but we need an
-					// epsiolon check because of floating point arithmetics
+					// epsilon check because of floating point arithmetics
 					assert.InEpsilon(t, expextedAggs["maximum"], aggs["maximum"], 0.1)
 					assert.Equal(t, expextedAggs["minimum"], aggs["minimum"]) // equal because the result == 0
 					assert.InEpsilon(t, expextedAggs["count"], aggs["count"], 0.1)
@@ -1517,7 +1517,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 					expextedAggs := expectedResult.Groups[0].Properties["price"].NumericalAggregations
 
 					// max, min, count, sum are always exact matches, but we need an
-					// epsiolon check because of floating point arithmetics
+					// epsilon check because of floating point arithmetics
 					assert.InEpsilon(t, expextedAggs["maximum"], aggs["maximum"], 0.1)
 					assert.InEpsilon(t, expextedAggs["minimum"], aggs["minimum"], 0.1)
 					assert.InEpsilon(t, expextedAggs["count"], aggs["count"], 0.1)

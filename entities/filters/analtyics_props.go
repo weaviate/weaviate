@@ -15,6 +15,6 @@ package filters
 // functions (such as Meta and Aggregate). They tell the connectors whether
 // to use an external analytics engine if such an engine is configured.
 type AnalyticsProps struct {
-	UseAnaltyicsEngine bool
+	UseAnalyticsEngine bool
 	ForceRecalculate   bool
 }

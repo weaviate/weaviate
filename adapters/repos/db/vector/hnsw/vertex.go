@@ -102,7 +102,7 @@ func (v *vertex) appendConnectionAtLevelNoLock(level int, connection uint64, max
 			target = maxConns
 		}
 
-		// handle rounding errors on maxConns not cleanly divisble by 4
+		// handle rounding errors on maxConns not cleanly divisible by 4
 		if target < len(v.connections[level])+1 {
 			target = len(v.connections[level]) + 1
 		}

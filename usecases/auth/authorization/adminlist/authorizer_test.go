@@ -19,7 +19,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
-func Test_AdminList_Authorizor(t *testing.T) {
+func Test_AdminList_Authorizer(t *testing.T) {
 	t.Run("with read requests", func(t *testing.T) {
 		t.Run("with no users configured at all", func(t *testing.T) {
 			cfg := Config{
