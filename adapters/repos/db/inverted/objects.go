@@ -207,6 +207,37 @@ func HasFrequency(dt schema.DataType) bool {
 	}
 }
 
+// Indicates whether property should be indexed
+// Index contains document ids having property of given value
+// and number of occurrences in the property
+// (index created with help of bucket of StrategyMapCollection)
+// TODO implement
+func IsSearchable(prop *models.Property) bool {
+	switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
+	case schema.DataTypeText, schema.DataTypeTextArray:
+		// only text/text[] can by searchable
+	default:
+		return false
+	}
+
+	// by default text/text[] property is searchable
+	if prop.IndexInverted == nil {
+		return true
+	}
+	return *prop.IndexInverted
+}
+
+// Indicates whether property should be indexed
+// Index contains only document ids having property of given value
+// (index created with help of bucket of StrategyRoaringSet)
+// TODO implement
+func IsFilterable(prop *models.Property) bool {
+	if prop.IndexInverted == nil {
+		return true
+	}
+	return *prop.IndexInverted
+}
+
 func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Property, error) {
 	var hasFrequency bool
 	var items []Countable
