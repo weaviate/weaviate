@@ -85,23 +85,3 @@ func LowercaseFirstLetter(name string) string {
 
 	return strings.ToLower(string(name[0])) + name[1:]
 }
-
-// Indicates whether property should be indexed
-// Index contains document ids having property of given value
-// and number of occurrences in the property
-// (index created with help of bucket of StrategyMapCollection)
-// TODO implement
-func IsSearchable(prop *models.Property) bool {
-	return IsFilterable(prop)
-}
-
-// Indicates whether property should be indexed
-// Index contains only document ids having property of given value
-// (index created with help of bucket of StrategyRoaringSet)
-// TODO implement
-func IsFilterable(prop *models.Property) bool {
-	if prop.IndexInverted == nil {
-		return true
-	}
-	return *prop.IndexInverted
-}

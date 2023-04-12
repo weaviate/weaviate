@@ -418,7 +418,7 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 }
 
 func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *errgroup.Group) {
-	if !schema.IsFilterable(prop) && !schema.IsSearchable(prop) {
+	if !inverted.IsFilterable(prop) && !inverted.IsSearchable(prop) {
 		return
 	}
 
@@ -454,53 +454,73 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		return storagestate.ErrStatusReadOnly
 	}
 
-	if schema.IsRefDataType(prop.DataType) {
-		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
-			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet), // ref props do not have frequencies -> Set
-			s.memtableIdleConfig(),
-			s.dynamicMemtableSizing(),
-		); err != nil {
-			return err
-		}
-
-		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.HashBucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
-			lsmkv.WithStrategy(lsmkv.StrategyReplace),
-			s.memtableIdleConfig(),
-			s.dynamicMemtableSizing(),
-		); err != nil {
-			return err
-		}
-	}
-
-	if schema.DataType(prop.DataType[0]) == schema.DataTypeGeoCoordinates {
-		return s.initGeoProp(prop)
-	}
-
 	bucketOpts := []lsmkv.BucketOption{
 		s.memtableIdleConfig(),
 		s.dynamicMemtableSizing(),
 	}
-	if inverted.HasFrequency(schema.DataType(prop.DataType[0])) {
-		bucketOpts = append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
-		if s.versioner.Version() < 2 {
-			bucketOpts = append(bucketOpts, lsmkv.WithLegacyMapSorting())
+
+	if inverted.IsFilterable(prop) {
+		if dt, _ := schema.AsPrimitive(prop.DataType); dt == schema.DataTypeGeoCoordinates {
+			return s.initGeoProp(prop)
 		}
-	} else {
-		bucketOpts = append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+
+		if schema.IsRefDataType(prop.DataType) {
+			if err := s.store.CreateOrLoadBucket(ctx,
+				helpers.BucketFromPropNameMetaCountLSM(prop.Name),
+				append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
+			); err != nil {
+				return err
+			}
+
+			if err := s.store.CreateOrLoadBucket(ctx,
+				helpers.HashBucketFromPropNameMetaCountLSM(prop.Name),
+				append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyReplace))...,
+			); err != nil {
+				return err
+			}
+		}
+
+		if err := s.store.CreateOrLoadBucket(ctx,
+			helpers.BucketFromPropNameLSM(prop.Name),
+			append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
+		); err != nil {
+			return err
+		}
+
+		if err := s.store.CreateOrLoadBucket(ctx,
+			helpers.HashBucketFromPropNameLSM(prop.Name),
+			append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyReplace))...,
+		); err != nil {
+			return err
+		}
 	}
 
-	if err := s.store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(prop.Name),
-		bucketOpts...); err != nil {
-		return err
+	if inverted.IsSearchable(prop) {
+		searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+		if s.versioner.Version() < 2 {
+			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
+		}
+
+		if err := s.store.CreateOrLoadBucket(ctx,
+			helpers.BucketSearchableFromPropNameLSM(prop.Name),
+			searchableBucketOpts...,
+		); err != nil {
+			return err
+		}
+
+		// create hash bucket only if it was not created before
+		// same hash bucket is used for both filterable and searchable indexes
+		if !inverted.IsFilterable(prop) {
+			if err := s.store.CreateOrLoadBucket(ctx,
+				helpers.HashBucketFromPropNameLSM(prop.Name),
+				append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyReplace))...,
+			); err != nil {
+				return err
+			}
+		}
 	}
 
-	return s.store.CreateOrLoadBucket(ctx, helpers.HashBucketFromPropNameLSM(prop.Name),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace),
-		s.memtableIdleConfig(),
-		s.dynamicMemtableSizing(),
-	)
+	return nil
 }
 
 func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property) error {
@@ -517,14 +537,14 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 	}
 
 	if err := s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(prop.Name+filters.InternalPropertyLength),
+		helpers.BucketFromPropNameLengthLSM(prop.Name),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 	); err != nil {
 		return err
 	}
 
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameLSM(prop.Name+filters.InternalPropertyLength),
+		helpers.HashBucketFromPropNameLengthLSM(prop.Name),
 		lsmkv.WithStrategy(lsmkv.StrategyReplace))
 }
 
@@ -534,14 +554,14 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 	}
 
 	if err := s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(prop.Name+filters.InternalNullIndex),
+		helpers.BucketFromPropNameNullLSM(prop.Name),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 	); err != nil {
 		return err
 	}
 
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameLSM(prop.Name+filters.InternalNullIndex),
+		helpers.HashBucketFromPropNameNullLSM(prop.Name),
 		lsmkv.WithStrategy(lsmkv.StrategyReplace))
 }
 
