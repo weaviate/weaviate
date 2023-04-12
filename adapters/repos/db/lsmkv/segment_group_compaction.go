@@ -79,7 +79,7 @@ func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 		return nil
 	}
 
-	// now pick any two segements which match the level
+	// now pick any two segments which match the level
 	var res []int
 
 	for i, segment := range sg.segments {

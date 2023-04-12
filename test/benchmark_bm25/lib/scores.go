@@ -33,11 +33,11 @@ func (n *Scores) AddResult(matchingIds []int, resultIds []interface{}, propNameW
 	DCG := 0.
 	for rank, resultId := range resultIds {
 		id, err := strconv.Atoi(resultId.(map[string]interface{})[propNameWithId].(string))
-		for _, matchigId := range matchingIds {
+		for _, matchingId := range matchingIds {
 			if err != nil {
 				return err
 			}
-			if id == matchigId {
+			if id == matchingId {
 				if rank == 0 {
 					n.hitsAt1 += 1
 				}

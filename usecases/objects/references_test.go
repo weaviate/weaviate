@@ -122,12 +122,12 @@ func Test_ReferenceAdd(t *testing.T) {
 		WantErr     error
 		SrcNotFound bool
 		// control errors
-		ErrAddRef      error
-		ErrTagetExists error
-		ErrSrcExists   error
-		ErrAuth        error
-		ErrLock        error
-		ErrSchema      error
+		ErrAddRef       error
+		ErrTargetExists error
+		ErrSrcExists    error
+		ErrAuth         error
+		ErrLock         error
+		ErrSchema       error
 		// Stage: 1 -> validation(), 2 -> target exists(), 3 -> source exists(), 4 -> AddReference()
 		Stage int
 	}{
@@ -179,9 +179,9 @@ func Test_ReferenceAdd(t *testing.T) {
 		{Name: "add valid reference", Req: req, Stage: 4},
 		{
 			Name: "referenced class not found", Req: req, Stage: 2,
-			WantCode:       StatusBadRequest,
-			ErrTagetExists: anyErr,
-			WantErr:        anyErr,
+			WantCode:        StatusBadRequest,
+			ErrTargetExists: anyErr,
+			WantErr:         anyErr,
 		},
 		{
 			Name: "source object internal error", Req: req, Stage: 3,
@@ -210,7 +210,7 @@ func Test_ReferenceAdd(t *testing.T) {
 			m.schemaManager.(*fakeSchemaManager).GetschemaErr = tc.ErrSchema
 			m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 			if tc.Stage >= 2 {
-				m.repo.On("Exists", "", refID).Return(true, tc.ErrTagetExists).Once()
+				m.repo.On("Exists", "", refID).Return(true, tc.ErrTargetExists).Once()
 			}
 			if tc.Stage >= 3 {
 				m.repo.On("Exists", tc.Req.Class, tc.Req.ID).Return(!tc.SrcNotFound, tc.ErrSrcExists).Once()
@@ -268,12 +268,12 @@ func Test_ReferenceUpdate(t *testing.T) {
 		WantErr     error
 		SrcNotFound bool
 		// control errors
-		ErrPutRefs     error
-		ErrTagetExists error
-		ErrSrcExists   error
-		ErrAuth        error
-		ErrLock        error
-		ErrSchema      error
+		ErrPutRefs      error
+		ErrTargetExists error
+		ErrSrcExists    error
+		ErrAuth         error
+		ErrLock         error
+		ErrSchema       error
 		// Stage: 1 -> validation(), 2 -> target exists(), 3 -> PutObject()
 		Stage int
 	}{
@@ -331,9 +331,9 @@ func Test_ReferenceUpdate(t *testing.T) {
 		{Name: "update valid reference", Req: req, Stage: 3},
 		{
 			Name: "referenced class not found", Req: req, Stage: 2,
-			WantCode:       StatusBadRequest,
-			ErrTagetExists: anyErr,
-			WantErr:        anyErr,
+			WantCode:        StatusBadRequest,
+			ErrTargetExists: anyErr,
+			WantErr:         anyErr,
 		},
 		{
 			Name: "internal error", Req: req, Stage: 3,
@@ -360,7 +360,7 @@ func Test_ReferenceUpdate(t *testing.T) {
 			}
 			m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(srcObj, tc.ErrSrcExists)
 			if tc.Stage >= 2 {
-				m.repo.On("Exists", "", refID).Return(true, tc.ErrTagetExists).Once()
+				m.repo.On("Exists", "", refID).Return(true, tc.ErrTargetExists).Once()
 			}
 
 			if tc.Stage >= 3 {
@@ -427,12 +427,12 @@ func Test_ReferenceDelete(t *testing.T) {
 		WantErr     error
 		SrcNotFound bool
 		// control errors
-		ErrPutRefs     error
-		ErrTagetExists error
-		ErrSrcExists   error
-		ErrAuth        error
-		ErrLock        error
-		ErrSchema      error
+		ErrPutRefs      error
+		ErrTargetExists error
+		ErrSrcExists    error
+		ErrAuth         error
+		ErrLock         error
+		ErrSchema       error
 		// Stage: 1 -> validation(), 2 -> target exists(), 3 -> PutObject()
 		Stage int
 	}{

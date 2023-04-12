@@ -73,7 +73,7 @@ func NewTxManager(remote Remote, logger logrus.FieldLogger) *TxManager {
 		// the tx manager with only one set of functions. For example, if the
 		// specific Tx is only ever used for broadcasting writes, there is no need
 		// to set a responseFn. However, if the fn was nil, we'd panic. Thus a
-		// dummy function is a resonable default - and much cleaner than a
+		// dummy function is a reasonable default - and much cleaner than a
 		// nil-check on every call.
 		commitFn:   newDummyCommitResponseFn(),
 		responseFn: newDummyCommitResponseFn(),
@@ -339,8 +339,8 @@ func (c *TxManager) IncomingCommitTransaction(ctx context.Context,
 		return ErrInvalidTransaction
 	}
 
-	// use transaction from cache, not passed in for two reason: a.) protect
-	// against the transaction being manipulated after being created, b.) allow
+	// use transaction from cache, not passed in for two reason: a. protect
+	// against the transaction being manipulated after being created, b. allow
 	// an "empty" transaction that only contains the id for less network overhead
 	// (we don't need to pass the payload around anymore, after it's successfully
 	// opened - every node has a copy of the payload now)

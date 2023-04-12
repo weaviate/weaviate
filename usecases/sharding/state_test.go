@@ -248,7 +248,7 @@ func TestStateDeepCopy(t *testing.T) {
 				Name:           "original",
 				OwnsVirtual:    []string{"original"},
 				OwnsPercentage: 7,
-				BelongsToNodes: []string{"orignal"},
+				BelongsToNodes: []string{"original"},
 			},
 		},
 		Virtual: []Virtual{
@@ -279,7 +279,7 @@ func TestStateDeepCopy(t *testing.T) {
 				Name:           "original",
 				OwnsVirtual:    []string{"original"},
 				OwnsPercentage: 7,
-				BelongsToNodes: []string{"orignal"},
+				BelongsToNodes: []string{"original"},
 			},
 		},
 		Virtual: []Virtual{

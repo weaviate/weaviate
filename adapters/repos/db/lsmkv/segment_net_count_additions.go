@@ -30,7 +30,7 @@ var ErrInvalidChecksum = errors.New("invalid checksum")
 // existOnLowerSegments is a simple function that can be passed at segment
 // initialization time to check if any of the keys are truly new or previously
 // seen. This can in turn be used to build up the net count additions. The
-// reason this is abstrate:
+// reason this is abstract:
 type existsOnLowerSegmentsFn func(key []byte) (bool, error)
 
 func (ind *segment) countNetPath() string {

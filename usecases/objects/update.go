@@ -73,7 +73,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context, principa
 	}
 
 	// Set the original creation timestamp before call to put,
-	// otherwise it is lost. This is because `class` is unmarshaled
+	// otherwise it is lost. This is because `class` is unmarshalled
 	// directly from the request body, therefore `CreationTimeUnix`
 	// inherits the zero value.
 	updates.CreationTimeUnix = obj.Created
