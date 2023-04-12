@@ -38,14 +38,14 @@ func MetaCountProp(propName string) string {
 	return fmt.Sprintf("%s__meta_count", propName)
 }
 
-// BucketFromPropName creates the byte-representation used as the bucket name
-// for a partiular prop in the inverted index
+// BucketFromPropName creates string used as the bucket name
+// for a particular prop in the inverted index
 func BucketFromPropNameLSM(propName string) string {
 	return fmt.Sprintf("property_%s", propName)
 }
 
-// HashBucketFromPropName creates the byte-representation used as the bucket name
-// for the status information of a partiular prop in the inverted index
+// HashBucketFromPropName creates string used as the bucket name
+// for the status information of a particular prop in the inverted index
 func HashBucketFromPropNameLSM(propName string) string {
 	return fmt.Sprintf("hash_property_%s", propName)
 }
@@ -66,6 +66,18 @@ func HashBucketFromPropNameNullLSM(propName string) string {
 	return HashBucketFromPropNameLSM(propName + filters.InternalNullIndex)
 }
 
+func BucketFromPropNameMetaCountLSM(propName string) string {
+	return BucketFromPropNameLSM(MetaCountProp(propName))
+}
+
+func HashBucketFromPropNameMetaCountLSM(propName string) string {
+	return HashBucketFromPropNameLSM(MetaCountProp(propName))
+}
+
 func TempBucketFromBucketName(bucketName string) string {
 	return bucketName + "_temp"
+}
+
+func BucketSearchableFromPropNameLSM(propName string) string {
+	return fmt.Sprintf("property_searchable%s", propName)
 }
