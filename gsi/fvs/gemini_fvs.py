@@ -48,6 +48,39 @@ def compute_recall(a, b):
     ninter = sum( intersect )
     return ninter / a.size, intersect
 
+def get_dataset_counts(args):
+    
+    # Setup connection to local FVS api
+    server = socket.gethostbyname(socket.gethostname())
+    port = "7761"
+    version = 'v1.0'
+
+    # Create FVS api objects
+    config = swagger_client.configuration.Configuration()
+    api_config = swagger_client.ApiClient(config)
+    gsi_boards_apis = swagger_client.BoardsApi(api_config)
+    gsi_datasets_apis = swagger_client.DatasetsApi(api_config)
+
+    # Configure the FVS api
+    config.verify_ssl = False
+    config.host = f'http://{server}:{port}/{version}'
+  
+    # Capture the supplied allocation id
+    Allocation_id = args.allocation
+
+    # Set default header
+    api_config.default_headers["allocationToken"] = Allocation_id
+
+    # Print dataset count
+    print("Getting total datasets...")
+    resp = gsi_datasets_apis.controllers_dataset_controller_get_datasets_list(allocation_token=Allocation_id)
+    print(f"\nNumber of datasets:{len(resp.datasets_list)}\n")
+
+    # Print loaded dataset count
+    print("Getting loaded datasets for allocation token: ", Allocation_id)
+    resp = gsi_boards_apis.controllers_boards_controller_get_allocations_list(Allocation_id)
+    print(F"\nNumber of loaded datasets: {len(resp.allocations_list[Allocation_id]['loadedDatasets'])}\n")
+
 def run_benchmark(args):
     '''Run a specific benchmark.'''
 
@@ -78,6 +111,7 @@ def run_benchmark(args):
     # Create FVS api objects
     config = swagger_client.configuration.Configuration()
     api_config = swagger_client.ApiClient(config)
+    gsi_boards_apis = swagger_client.BoardsApi(api_config)
     gsi_datasets_apis = swagger_client.DatasetsApi(api_config)
     gsi_dataset_apis = swagger_client.DatasetApi(api_config)
     gsi_search_apis = swagger_client.SearchApi(api_config)
@@ -248,6 +282,7 @@ if __name__ == "__main__":
 
     args = init_args()
 
-    run_benchmark(args)
+    get_dataset_counts(args)
+    # run_benchmark(args)
 
     print("Done.")
