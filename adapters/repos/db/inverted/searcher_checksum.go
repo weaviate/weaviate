@@ -28,7 +28,7 @@ import (
 // But to be able to recognize this read operation further down the line (e.g.
 // when merging independent filter) we need a new checksum describing exactly
 // this request. Thus we simply treat the existing checksums as an input string
-// (appended) and caculate a new one
+// (appended) and calculate a new one
 func combineChecksums(checksums [][]byte, operator filters.Operator) []byte {
 	if len(checksums) == 1 {
 		return checksums[0]
@@ -68,7 +68,7 @@ func combineChecksums(checksums [][]byte, operator filters.Operator) []byte {
 // value of the inverted row for a checksum. This also enables us to skip
 // parsing and take a result from the cache. However, in external searches,
 // such as with a geoProp per-property index, there is no raw row like there is
-// on the inverted index. Instead the inner index alrady returns a list of
+// on the inverted index. Instead the inner index already returns a list of
 // docIDs
 //
 // This is probably not the most efficient way to do this, as we are doing an

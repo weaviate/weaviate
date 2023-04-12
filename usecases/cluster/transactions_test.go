@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSuccesfulOutgoingWriteTransaction(t *testing.T) {
+func TestSuccessfulOutgoingWriteTransaction(t *testing.T) {
 	payload := "my-payload"
 	trType := TransactionType("my-type")
 	ctx := context.Background()
@@ -100,7 +100,7 @@ func TestTryingToCommitTransactionPastTTL(t *testing.T) {
 	require.Nil(t, err)
 }
 
-func TestTryingToCommitIncommingTransactionPastTTL(t *testing.T) {
+func TestTryingToCommitIncomingTransactionPastTTL(t *testing.T) {
 	payload := "my-payload"
 	trType := TransactionType("my-type")
 	ctx := context.Background()
@@ -395,7 +395,7 @@ func TestSuccessfulDistributedReadTransaction(t *testing.T) {
 		return nil
 	})
 	local := NewTxManager(&wrapTxManagerAsBroadcaster{remote}, remote.logger)
-	// TODO local.SetConsenusFn
+	// TODO local.SetConsensusFn
 
 	trType := TransactionType("my-read-tx")
 

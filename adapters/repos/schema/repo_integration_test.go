@@ -47,7 +47,7 @@ func Test_SchemaRepo(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("retrieveing a stored schema", func(t *testing.T) {
+	t.Run("retrieving a stored schema", func(t *testing.T) {
 		res, err := r.LoadSchema(context.Background())
 		require.Nil(t, err)
 		expected := exampleSchema()

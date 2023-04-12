@@ -151,7 +151,7 @@ func (s *State) PhysicalShard(in []byte) string {
 	return virtual.AssignedToPhysical
 }
 
-// CountPhysicalShards return a count of pysical shards
+// CountPhysicalShards return a count of physical shards
 func (s *State) CountPhysicalShards() int {
 	return len(s.Physical)
 }
@@ -315,7 +315,7 @@ func (s *State) distributeVirtualAmongPhysical() {
 	}
 }
 
-// uses linear search, but should only be used during shard init and udpate
+// uses linear search, but should only be used during shard init and update
 // operations, not in regular
 func (s *State) virtualByName(name string) *Virtual {
 	for i := range s.Virtual {
