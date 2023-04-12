@@ -30,6 +30,15 @@ type JsonPropertyLengthTracker struct {
 	sync.Mutex
 }
 
+// This class replaces the old PropertyLengthTracker.  It fixes a bug and provides a
+// simpler, easier to maintain implementation.  The format is future-proofed, new
+// data can be added to the file without breaking old versions of Weaviate.
+//
+// The property length tracker is used to track the length of properties in the
+// inverted index.  This is inexact, each property is bucketed into one of 64
+// buckets.  Each bucket has a value calculated by float32(4 * math.Pow(1.25, float64(bucket)-3.5)).
+//
+// The new tracker is exactly compatible with the old format to enable migration, which is why there is a -1 bucket.  Altering the number of buckets or their values will break compatibility.
 func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, error) {
 	t := &JsonPropertyLengthTracker{
 		data: PropLenData{make(map[string]map[int]int)},
@@ -40,7 +49,7 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 	bytes, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			t.Flush()
+			t.Flush(false)
 			return t, nil
 		}
 		return nil, err
@@ -74,10 +83,10 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 				}
 			}
 			t.data = data
-			t.FlushBackup()
+			t.Flush(true)
 			plt.Close()
 			plt.Drop()
-			t.Flush()
+			t.Flush(false)
 		}
 	}
 	t.data = data
@@ -181,8 +190,11 @@ func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, fl
 	return sum, tally, float64(sum) / float64(tally), nil
 }
 
-func (t *JsonPropertyLengthTracker) Flush() error {
-	t.FlushBackup()
+func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
+	if !flushBackup {  //Write the backup file first
+		t.Flush(true)  
+	}
+
 	t.Lock()
 	defer t.Unlock()
 
@@ -191,31 +203,21 @@ func (t *JsonPropertyLengthTracker) Flush() error {
 		return err
 	}
 
-	err = os.WriteFile(t.path, bytes, 0o666)
+	filename := t.path
+	if flushBackup {
+		filename = t.path + ".bak"
+	}
+
+	err = os.WriteFile(filename, bytes, 0o666)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (t *JsonPropertyLengthTracker) FlushBackup() error {
-	t.Lock()
-	defer t.Unlock()
-
-	bytes, err := json.Marshal(t.data)
-	if err != nil {
-		return err
-	}
-
-	err = os.WriteFile(t.path+".bak", bytes, 0o666)
-	if err != nil {
-		return err
-	}
-	return nil
-}
 
 func (t *JsonPropertyLengthTracker) Close() error {
-	if err := t.Flush(); err != nil {
+	if err := t.Flush(false); err != nil {
 		return errors.Wrap(err, "flush before closing")
 	}
 
