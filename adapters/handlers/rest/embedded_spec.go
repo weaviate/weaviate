@@ -2995,7 +2995,7 @@ func init() {
           "example": "foobarium"
         },
         "definition": {
-          "description": "A list of space-delimited words or a sentence describing what the custom concept is about. Avoid using the custom concept itself. An Example definition for the custom concept 'foobarium': would be 'a naturally occourring element which can only be seen by programmers'",
+          "description": "A list of space-delimited words or a sentence describing what the custom concept is about. Avoid using the custom concept itself. An Example definition for the custom concept 'foobarium': would be 'a naturally occurring element which can only be seen by programmers'",
           "type": "string"
         },
         "weight": {
@@ -3940,7 +3940,7 @@ func init() {
           "format": "float32"
         },
         "losingCount": {
-          "description": "size of the losing group, can be 0 if the winning group size euqals k",
+          "description": "size of the losing group, can be 0 if the winning group size equals k",
           "type": "number",
           "format": "int64"
         },
@@ -7444,7 +7444,7 @@ func init() {
           "example": "foobarium"
         },
         "definition": {
-          "description": "A list of space-delimited words or a sentence describing what the custom concept is about. Avoid using the custom concept itself. An Example definition for the custom concept 'foobarium': would be 'a naturally occourring element which can only be seen by programmers'",
+          "description": "A list of space-delimited words or a sentence describing what the custom concept is about. Avoid using the custom concept itself. An Example definition for the custom concept 'foobarium': would be 'a naturally occurring element which can only be seen by programmers'",
           "type": "string"
         },
         "weight": {
@@ -8477,7 +8477,7 @@ func init() {
           "format": "float32"
         },
         "losingCount": {
-          "description": "size of the losing group, can be 0 if the winning group size euqals k",
+          "description": "size of the losing group, can be 0 if the winning group size equals k",
           "type": "number",
           "format": "int64"
         },
