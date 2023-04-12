@@ -82,7 +82,7 @@ func CreateSimpleSchema(vectorizer string) schema.Schema {
 	}
 }
 
-// CarSchema contains a car which has every primtive field and a ref field there is
+// CarSchema contains a car which has every primitive field and a ref field there is
 var CarSchema = schema.Schema{
 	Objects: &models.Schema{
 		Classes: []*models.Class{

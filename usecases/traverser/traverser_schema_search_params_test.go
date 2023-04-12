@@ -65,7 +65,7 @@ func Test__SchemaSearch_Validation(t *testing.T) {
 			expectedError: errors.New("invalid Certainty: must be between 0 and 1, but got '4.000000'"),
 		},
 		{
-			name: "inavlid search type",
+			name: "invalid search type",
 			searchParams: SearchParams{
 				SearchType: SearchType("invalid"),
 				Name:       "bestName",

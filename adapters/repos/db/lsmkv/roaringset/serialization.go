@@ -64,7 +64,7 @@ func (sn *SegmentNode) Len() uint64 {
 }
 
 // Additions returns the additions roaring bitmap with shared state. Only use
-// this method if you can garantuee that you will only use it while holding a
+// this method if you can guarantee that you will only use it while holding a
 // maintenance lock or can otherwise be sure that no compaction can occur. If
 // you can't guarantee that, instead use [*SegmentNode.AdditionsWithCopy].
 func (sn *SegmentNode) Additions() *sroar.Bitmap {
@@ -86,7 +86,7 @@ func (sn *SegmentNode) AdditionsWithCopy() *sroar.Bitmap {
 }
 
 // Deletions returns the deletions roaring bitmap with shared state. Only use
-// this method if you can garantuee that you will only use it while holding a
+// this method if you can guarantee that you will only use it while holding a
 // maintenance lock or can otherwise be sure that no compaction can occur. If
 // you can't guarantee that, instead use [*SegmentNode.DeletionsWithCopy].
 func (sn *SegmentNode) Deletions() *sroar.Bitmap {

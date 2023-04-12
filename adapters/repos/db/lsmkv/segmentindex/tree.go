@@ -288,7 +288,7 @@ func (t *Tree) MarshalBinaryInto(w io.Writer) (int64, error) {
 	return int64(size), nil
 }
 
-// returns indivdual offsets and total size, nil nodes are skipped
+// returns individual offsets and total size, nil nodes are skipped
 func (t *Tree) calculateDiskOffsets() ([]int, int) {
 	current := 0
 	out := make([]int, len(t.nodes))

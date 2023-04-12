@@ -539,7 +539,7 @@ func Test_ExploreConcepts(t *testing.T) {
 			},
 		}, res)
 
-		// see dummy implemenation of MoveTo and MoveAway for why the vector should
+		// see dummy implementation of MoveTo and MoveAway for why the vector should
 		// be the way it is
 		assert.Equal(t, []float32{1.5, 2.5, 3.5}, vectorSearcher.calledWithVector)
 		assert.Equal(t, 100, vectorSearcher.calledWithLimit,
@@ -662,7 +662,7 @@ func Test_ExploreConcepts(t *testing.T) {
 			},
 		}, res)
 
-		// see dummy implemenation of MoveTo and MoveAway for why the vector should
+		// see dummy implementation of MoveTo and MoveAway for why the vector should
 		// be the way it is
 		assert.Equal(t, []float32{1.5, 2.5, 3.5}, vectorSearcher.calledWithVector)
 		assert.Equal(t, 100, vectorSearcher.calledWithLimit,

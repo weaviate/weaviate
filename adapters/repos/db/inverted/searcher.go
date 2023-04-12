@@ -199,7 +199,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	cacheable := pv.cacheable()
 	if cacheable && allowCaching {
 		if err := pv.fetchHashes(s); err != nil {
-			return nil, errors.Wrap(err, "fetch row hashes to check for cach eligibility")
+			return nil, errors.Wrap(err, "fetch row hashes to check for cache eligibility")
 		}
 
 		if res, ok := s.rowCache.Load(pv.docIDs.checksum); ok {
@@ -618,9 +618,9 @@ type docBitmap struct {
 	checksum []byte
 }
 
-// newUnitializedDocBitmap can be used whenever we can be sure that the first
+// newUninitializedDocBitmap can be used whenever we can be sure that the first
 // user of the docBitmap will set or replace the bitmap, such as a row reader
-func newUnitializedDocBitmap() docBitmap {
+func newUninitializedDocBitmap() docBitmap {
 	return docBitmap{docIDs: nil}
 }
 

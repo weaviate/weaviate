@@ -52,7 +52,7 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Bucket,
 	limit int, pv *propValuePair, skipCache bool,
 ) (docBitmap, error) {
-	out := newUnitializedDocBitmap()
+	out := newUninitializedDocBitmap()
 	var hashBucket *lsmkv.Bucket
 	var err error
 
