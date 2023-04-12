@@ -91,35 +91,6 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	return nil
 }
 
-func (m *Migrator) addPropertiesAndNullAndLength(ctx context.Context, prop *models.Property, idx *Index) error {
-	err := idx.addProperty(ctx, prop)
-	if err != nil {
-		return errors.Wrapf(err, "extend idx '%s' with property", idx.ID())
-	}
-
-	if idx.invertedIndexConfig.IndexNullState {
-		err = idx.addNullStateProperty(ctx, prop)
-		if err != nil {
-			return errors.Wrapf(err, "extend idx '%s' with nullstate properties", idx.ID())
-		}
-	}
-
-	if idx.invertedIndexConfig.IndexPropertyLength {
-		dt := schema.DataType(prop.DataType[0])
-		// some datatypes are not added to the inverted index, so we can skip them here
-		switch dt {
-		case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeInt,
-			schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
-		default:
-			err = idx.addPropertyLength(ctx, prop)
-			if err != nil {
-				return errors.Wrapf(err, "extend idx '%s' with property length", idx.ID())
-			}
-		}
-	}
-	return nil
-}
-
 func (m *Migrator) DropClass(ctx context.Context, className string) error {
 	err := m.db.DeleteIndex(schema.ClassName(className))
 	if err != nil {
@@ -143,10 +114,7 @@ func (m *Migrator) AddProperty(ctx context.Context, className string, prop *mode
 		return errors.Errorf("cannot add property to a non-existing index for %s", className)
 	}
 
-	if prop.IndexInverted == nil || *prop.IndexInverted {
-		return m.addPropertiesAndNullAndLength(ctx, prop, idx)
-	}
-	return nil
+	return idx.addProperty(ctx, prop)
 }
 
 // DropProperty is ignored, API compliant change

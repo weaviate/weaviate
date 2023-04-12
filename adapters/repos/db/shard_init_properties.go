@@ -17,7 +17,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -29,64 +28,21 @@ func (s *Shard) initProperties(class *models.Class) error {
 
 	eg := &errgroup.Group{}
 	for _, prop := range class.Properties {
-		if prop.IndexInverted != nil && !*prop.IndexInverted {
-			continue
-		}
-
-		// Important: wrap the error group goroutine spawning in a new closure,
-		// otherwise it is entirely unpredictable what "prop" refers to in each new
-		// goroutine. This is because we are spawning new goroutines from a loop.
-		// For details, see this excellent blog post:
-		// https://appliedgo.com/blog/goroutine-closures
-		func(prop *models.Property) {
-			eg.Go(func() error {
-				if schema.DataType(prop.DataType[0]) == schema.DataTypeGeoCoordinates {
-					if err := s.initGeoProp(prop); err != nil {
-						return errors.Wrapf(err, "init property %s", prop.Name)
-					}
-				} else {
-					// served by the inverted index, init the buckets there
-					if err := s.addProperty(context.TODO(), prop); err != nil {
-						return errors.Wrapf(err, "init property %s", prop.Name)
-					}
-				}
-				if s.index.invertedIndexConfig.IndexNullState {
-					eg.Go(func() error {
-						if err := s.addNullState(context.TODO(), prop); err != nil {
-							return errors.Wrapf(err, "init property %s null state", prop.Name)
-						}
-
-						return nil
-					})
-				}
-				if s.index.invertedIndexConfig.IndexPropertyLength {
-					eg.Go(func() error {
-						if err := s.addPropertyLength(context.TODO(), prop); err != nil {
-							return errors.Wrapf(err, "init property %s null state", prop.Name)
-						}
-
-						return nil
-					})
-				}
-				return nil
-			})
-		}(prop)
+		s.createPropertyIndex(context.TODO(), prop, eg)
 	}
 
 	eg.Go(func() error {
 		if err := s.addIDProperty(context.TODO()); err != nil {
-			return errors.Wrap(err, "init id property")
+			return errors.Wrap(err, "create id property index")
 		}
-
 		return nil
 	})
 
 	if s.index.invertedIndexConfig.IndexTimestamps {
 		eg.Go(func() error {
 			if err := s.addTimestampProperties(context.TODO()); err != nil {
-				return errors.Wrap(err, "init timestamp properties")
+				return errors.Wrap(err, "create timestamp properties indexes")
 			}
-
 			return nil
 		})
 	}
@@ -94,12 +50,14 @@ func (s *Shard) initProperties(class *models.Class) error {
 	if s.index.Config.TrackVectorDimensions {
 		eg.Go(func() error {
 			if err := s.addDimensionsProperty(context.TODO()); err != nil {
-				return errors.Wrap(err, "init id property")
+				return errors.Wrap(err, "crreate dimensions property index")
 			}
-
 			return nil
 		})
 	}
 
-	return eg.Wait()
+	if err := eg.Wait(); err != nil {
+		return errors.Wrapf(err, "init properties on shard '%s'", s.ID())
+	}
+	return nil
 }
