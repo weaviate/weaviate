@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	"net"
 	"net/http"
 	"os"
@@ -565,6 +566,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", "qna-openai").
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativecohere.Name]; ok {
+		appState.Modules.Register(modgenerativecohere.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativecohere.Name).
 			Debug("enabled module")
 	}
 

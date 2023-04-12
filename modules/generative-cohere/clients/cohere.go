@@ -46,8 +46,8 @@ func New(apiKey string, logger logrus.FieldLogger) *cohere {
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
-		host:   "",
-		path:   "",
+		host:   "https://api.cohere.ai",
+		path:   "/v1/generate",
 		logger: logger,
 	}
 }
@@ -75,14 +75,28 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 
 	//Create request
 
-	oaiUrl, err := url.JoinPath(v.host, v.path)
+	cohereUrl, err := url.JoinPath(v.host, v.path)
 	if err != nil {
 		return nil, errors.Wrap(err, "join Cohere API host and path")
 	}
+	input := generateInput{
+		Prompt:            prompt,
+		Model:             settings.Model(),
+		MaxTokens:         settings.MaxTokens(),
+		Temperature:       settings.Temperature(),
+		K:                 settings.K(),
+		StopSequences:     settings.StopSequences(),
+		ReturnLikelihoods: settings.ReturnLikelihoods(),
+	}
+
+	body, err := json.Marshal(input)
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal body")
+	}
 
 	//todo put body back
-	req, err := http.NewRequestWithContext(ctx, "POST", oaiUrl,
-		bytes.NewReader(nil))
+	req, err := http.NewRequestWithContext(ctx, "POST", cohereUrl,
+		bytes.NewReader(body))
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
 	}
@@ -90,7 +104,7 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	if err != nil {
 		return nil, errors.Wrapf(err, "Cohere API Key")
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	req.Header.Add("Authorization", fmt.Sprintf("BEARER %s", apiKey))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := v.httpClient.Do(req)
@@ -117,9 +131,10 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}
 
 	//call Cohere and parse response
+	textResponse := resBody.Generations[0].Text
 
 	return &ent.GenerateResult{
-		Result: nil,
+		Result: &textResponse,
 	}, nil
 }
 
@@ -162,23 +177,26 @@ func (v *cohere) getApiKey(ctx context.Context) (string, error) {
 }
 
 type generateInput struct {
-	Prompt           string   `json:"prompt"`
-	Model            string   `json:"model"`
-	MaxTokens        float64  `json:"max_tokens"`
-	Temperature      float64  `json:"temperature"`
-	Stop             []string `json:"stop"`
-	FrequencyPenalty float64  `json:"frequency_penalty"`
-	PresencePenalty  float64  `json:"presence_penalty"`
-	TopP             float64  `json:"top_p"`
+	Prompt            string   `json:"prompt"`
+	Model             string   `json:"model"`
+	MaxTokens         int      `json:"max_tokens"`
+	Temperature       int      `json:"temperature"`
+	K                 int      `json:"k"`
+	StopSequences     []string `json:"stop_sequences"`
+	ReturnLikelihoods string   `json:"return_likelihoods"`
 }
 
 type generateResponse struct {
-	Error *cohereApiError `json:"error,omitempty"`
+	Generations []generation
+	Error       *cohereApiError `json:"error,omitempty"`
 }
 
+type generation struct {
+	Text string `json:"text"`
+}
+
+// need to check this
+// I think you just get message
 type cohereApiError struct {
 	Message string `json:"message"`
-	Type    string `json:"type"`
-	Param   string `json:"param"`
-	Code    string `json:"code"`
 }
