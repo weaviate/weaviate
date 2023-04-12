@@ -173,7 +173,7 @@ func TestSchedulerBackupStatus(t *testing.T) {
 		assert.NotNil(t, err)
 	})
 
-	t.Run("MetdataNotFound", func(t *testing.T) {
+	t.Run("MetadataNotFound", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, ErrAny)
 		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
@@ -257,7 +257,7 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 		assert.NotNil(t, err)
 	})
 
-	t.Run("MetdataNotFound", func(t *testing.T) {
+	t.Run("MetadataNotFound", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(nil, ErrAny)
 		_, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id)

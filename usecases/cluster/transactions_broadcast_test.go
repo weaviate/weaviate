@@ -92,7 +92,7 @@ func TestBroadcastOpenTransactionAfterNodeHasDied(t *testing.T) {
 	require.NotNil(t, err)
 	assert.Contains(t, err.Error(), "host2")
 
-	// no node is should have received an nopen
+	// no node is should have received an open
 	assert.ElementsMatch(t, []string{}, client.openCalled)
 }
 

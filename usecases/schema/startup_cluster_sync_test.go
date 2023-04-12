@@ -206,7 +206,7 @@ func TestStartupSync(t *testing.T) {
 	})
 
 	t.Run("node with data (re-)joining, but other nodes are too old", func(t *testing.T) {
-		// we expect that sync would be skipped beacause the other nodes can't take
+		// we expect that sync would be skipped because the other nodes can't take
 		// part in the sync
 		clusterState := &fakeClusterState{
 			hosts: []string{"node1", "node2"},

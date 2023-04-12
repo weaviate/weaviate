@@ -44,9 +44,9 @@ type DB struct {
 	startupComplete atomic.Bool
 
 	// indexLock is an RWMutex which allows concurrent access to various indexes,
-	// but only one modifaction at a time. R/W can be a bit confusing here,
+	// but only one modification at a time. R/W can be a bit confusing here,
 	// because it does not refer to write or read requests from a user's
-	// perspetive, but rather:
+	// perspective, but rather:
 	//
 	// - Read -> The array containing all indexes is read-only. In other words
 	// there will never be a race condition from doing something like index :=

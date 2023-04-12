@@ -77,7 +77,7 @@ func TestConfigValidator(t *testing.T) {
 				vectorize: true,
 			},
 
-			// inavlid names
+			// invalid names
 			{
 				name:      "Single uppercase word NOT present in the c11y",
 				input:     "Carrot",
@@ -231,7 +231,7 @@ func TestConfigValidator(t *testing.T) {
 				vectorize: true,
 			},
 
-			// inavlid names
+			// invalid names
 			{
 				name:      "Single uppercase word NOT present in the c11y",
 				input:     "Carrot",
@@ -331,7 +331,7 @@ func TestConfigValidator(t *testing.T) {
 				Properties: []*models.Property{
 					{
 						DataType: []string{"text"},
-						Name:     "decsription",
+						Name:     "description",
 					},
 					{
 						DataType: []string{"string"},
@@ -362,7 +362,7 @@ func TestConfigValidator(t *testing.T) {
 			Properties: []*models.Property{
 				{
 					DataType: []string{"text[]"},
-					Name:     "decsriptions",
+					Name:     "descriptions",
 				},
 				{
 					DataType: []string{"string[]"},

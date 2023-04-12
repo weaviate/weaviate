@@ -77,7 +77,7 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 }
 
 // as the name implies this method only performs the insertions, but completely
-// ingores any deletes. It thus assumes that the caller has already taken care
+// ignores any deletes. It thus assumes that the caller has already taken care
 // of all the deletes in another way
 func (s *Shard) updateVectorIndexIgnoreDelete(vector []float32,
 	status objectInsertStatus,

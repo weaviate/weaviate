@@ -50,7 +50,7 @@ func Test_ClassificationsRepo(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("retrieveing stored classifications", func(t *testing.T) {
+	t.Run("retrieving stored classifications", func(t *testing.T) {
 		expectedOne := exampleOne()
 		expectedTwo := exampleTwo()
 

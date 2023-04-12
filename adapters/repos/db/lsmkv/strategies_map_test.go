@@ -158,7 +158,7 @@ func TestMapEncoderDecoderJourney(t *testing.T) {
 			}
 			res, err := newMapDecoder().Do(encoded, false)
 			require.Nil(t, err)
-			// NOTE: we are accpeting that the order can be lost on updates
+			// NOTE: we are accepting that the order can be lost on updates
 			assert.ElementsMatch(t, test.out, res)
 		})
 	}

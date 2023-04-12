@@ -151,7 +151,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 			expectErrMsg: "you think I let anyone through?",
 		},
 		{
-			name: "both an enabled, with an 'obvous' api key",
+			name: "both an enabled, with an 'obvious' api key",
 			config: config.Authentication{
 				OIDC: config.OIDC{
 					Enabled: true,
