@@ -86,7 +86,7 @@ func ClassNameFromDatasetID(in string) string {
 
 func SanitizePropName(in string) string {
 	if len(in) >= 2 && in[0] == '_' && in[1] != '_' {
-		// single leading underscore is reseved, but we can append another one
+		// single leading underscore is reserved, but we can append another one
 		return "_" + in
 	}
 

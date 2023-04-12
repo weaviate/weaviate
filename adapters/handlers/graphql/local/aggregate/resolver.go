@@ -237,7 +237,7 @@ func extractAggregators(selections *ast.SelectionSet) ([]aggregation.Aggregator,
 func extractGroupBy(args map[string]interface{}, rootClass string) (*filters.Path, error) {
 	groupBy, ok := args["groupBy"]
 	if !ok {
-		// not set means the user is not intersted in grouping (former Meta)
+		// not set means the user is not interested in grouping (former Meta)
 		return nil, nil
 	}
 

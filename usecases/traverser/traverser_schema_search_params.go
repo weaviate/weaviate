@@ -36,7 +36,7 @@ type SearchParams struct {
 	// Name is the string-representation of the class or property name
 	Name string
 
-	// Certaintiy must be a value between 0 and 1. The higher it is the narrower
+	// Certainty must be a value between 0 and 1. The higher it is the narrower
 	// is the search, the lower it is, the wider the search is
 	Certainty float32
 }
