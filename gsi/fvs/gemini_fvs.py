@@ -76,37 +76,43 @@ def unload_datasets(args):
     dsets = gsi_datasets_apis.controllers_dataset_controller_get_datasets_list(allocation_token=Allocation_id)
     print(f"\nNumber of datasets:{len(dsets.datasets_list)}\n")
 
-    # Print loaded dataset count
-    print("Getting loaded datasets for allocation token: ", Allocation_id)
-    loaded = gsi_boards_apis.controllers_boards_controller_get_allocations_list(Allocation_id)
-    print(F"\nNumber of loaded datasets: {len(loaded.allocations_list[Allocation_id]['loadedDatasets'])}\n")
+    # if no datasets skip everything
+    if len(dsets.datasets_list) > 0:
+        # Print loaded dataset count
+        print("Getting loaded datasets for allocation token: ", Allocation_id)
+        loaded = gsi_boards_apis.controllers_boards_controller_get_allocations_list(Allocation_id)
+        print(F"\nNumber of loaded datasets: {len(loaded.allocations_list[Allocation_id]['loadedDatasets'])}\n")
 
-    # Unloading all datasets
-    print("Unloading all loaded datasets...")
-    loaded = loaded.allocations_list["0b391a1a-b916-11ed-afcb-0242ac1c0002"]["loadedDatasets"]
-    for data in loaded:
-        dataset_id = data['datasetId']
-        resp = gsi_datasets_apis.controllers_dataset_controller_unload_dataset(
-                    UnloadDatasetRequest(allocation_id=Allocation_id, dataset_id=dataset_id), 
-                    allocation_token=Allocation_id)
-        if resp.status != 'ok':
-            print(f"error unloading dataset: {dataset_id}")
+        # Unloading all datasets
+        print("Unloading all loaded datasets...")
+        loaded = loaded.allocations_list["0b391a1a-b916-11ed-afcb-0242ac1c0002"]["loadedDatasets"]
+        for data in loaded:
+            dataset_id = data['datasetId']
+            resp = gsi_datasets_apis.controllers_dataset_controller_unload_dataset(
+                        UnloadDatasetRequest(allocation_id=Allocation_id, dataset_id=dataset_id), 
+                        allocation_token=Allocation_id)
+            if resp.status != 'ok':
+                print(f"error unloading dataset: {dataset_id}")
 
-    curr = gsi_boards_apis.controllers_boards_controller_get_allocations_list(Allocation_id)
-    print(f"Unloaded datasets, current loaded dataset count: {len(curr.allocations_list[Allocation_id]['loadedDatasets'])}\n")
+        # Getting current number of loaded datasets
+        curr = gsi_boards_apis.controllers_boards_controller_get_allocations_list(Allocation_id)
+        print(f"Unloaded datasets, current loaded dataset count: {len(curr.allocations_list[Allocation_id]['loadedDatasets'])}\n")
 
-    # Full wipe: delete all datasets
-    wipe = input("would you like to delete all datasets? y/[n]: ")
-    if wipe == "y":
-        wipe = input("are you super sure? y/[n]: ")
+        # Full wipe: delete all datasets
+        wipe = input("would you like to delete all datasets? y/[n]: ")
         if wipe == "y":
-            print("removing all datasets...")
-            for data in dsets.datasets_list:
-                dataset_id = data['id']
-                resp = gsi_datasets_apis.controllers_dataset_controller_remove_dataset(\
-                        dataset_id=dataset_id, allocation_token=Allocation_id)
-                if resp.status != "ok":
-                    print(f"Error removing dataset: {dataset_id}")
+            wipe = input("are you super sure? y/[n]: ")
+            if wipe == "y":
+                print("removing all datasets...")
+                for data in dsets.datasets_list:
+                    dataset_id = data['id']
+                    resp = gsi_datasets_apis.controllers_dataset_controller_remove_dataset(\
+                            dataset_id=dataset_id, allocation_token=Allocation_id)
+                    if resp.status != "ok":
+                        print(f"Error removing dataset: {dataset_id}")
+
+    else:
+        print("Currently no datasets ready for fvs")
     print("Done")
 
 
