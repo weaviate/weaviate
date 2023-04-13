@@ -39,7 +39,7 @@ func New(origin string, logger logrus.FieldLogger) *qna {
 	}
 }
 
-func (v *qna) Answer(ctx context.Context,
+func (q *qna) Answer(ctx context.Context,
 	text, question string,
 ) (*ent.AnswerResult, error) {
 	body, err := json.Marshal(answersInput{
@@ -50,13 +50,13 @@ func (v *qna) Answer(ctx context.Context,
 		return nil, errors.Wrapf(err, "marshal body")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", v.url("/answers/"),
+	req, err := http.NewRequestWithContext(ctx, "POST", q.url("/answers/"),
 		bytes.NewReader(body))
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
 	}
 
-	res, err := v.httpClient.Do(req)
+	res, err := q.httpClient.Do(req)
 	if err != nil {
 		return nil, errors.Wrap(err, "send POST request")
 	}
@@ -86,8 +86,8 @@ func (v *qna) Answer(ctx context.Context,
 	}, nil
 }
 
-func (v *qna) url(path string) string {
-	return fmt.Sprintf("%s%s", v.origin, path)
+func (q *qna) url(path string) string {
+	return fmt.Sprintf("%s%s", q.origin, path)
 }
 
 type answersInput struct {

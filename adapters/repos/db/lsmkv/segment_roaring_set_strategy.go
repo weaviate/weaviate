@@ -19,23 +19,23 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
-func (i *segment) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
+func (s *segment) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 	out := roaringset.BitmapLayer{}
 
-	if i.strategy != segmentindex.StrategyRoaringSet {
+	if s.strategy != segmentindex.StrategyRoaringSet {
 		return out, fmt.Errorf("need strategy %s", StrategyRoaringSet)
 	}
 
-	if !i.bloomFilter.Test(key) {
+	if !s.bloomFilter.Test(key) {
 		return out, lsmkv.NotFound
 	}
 
-	node, err := i.index.Get(key)
+	node, err := s.index.Get(key)
 	if err != nil {
 		return out, err
 	}
 
-	sn := roaringset.NewSegmentNodeFromBuffer(i.contents[node.Start:node.End])
+	sn := roaringset.NewSegmentNodeFromBuffer(s.contents[node.Start:node.End])
 
 	// make sure that any data is copied before exiting this method, otherwise we
 	// risk a SEGFAULT as described in

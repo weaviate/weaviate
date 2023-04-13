@@ -146,8 +146,8 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 	return m, nil
 }
 
-func (s *Manager) TxManager() *cluster.TxManager {
-	return s.cluster
+func (m *Manager) TxManager() *cluster.TxManager {
+	return m.cluster
 }
 
 type authorizer interface {
