@@ -144,33 +144,33 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	return ind, nil
 }
 
-func (ind *segment) close() error {
-	return syscall.Munmap(ind.contents)
+func (s *segment) close() error {
+	return syscall.Munmap(s.contents)
 }
 
-func (ind *segment) drop() error {
+func (s *segment) drop() error {
 	// support for persisting bloom filters and cnas was added in v1.17,
 	// therefore the files may not be present on segments created with previous
 	// versions. By using RemoveAll, which does not error on NotExists, these
 	// drop calls are backward-compatible:
-	if err := os.RemoveAll(ind.bloomFilterPath()); err != nil {
+	if err := os.RemoveAll(s.bloomFilterPath()); err != nil {
 		return fmt.Errorf("drop bloom filter: %w", err)
 	}
 
-	for i := 0; i < int(ind.secondaryIndexCount); i++ {
-		if err := os.RemoveAll(ind.bloomFilterSecondaryPath(i)); err != nil {
+	for i := 0; i < int(s.secondaryIndexCount); i++ {
+		if err := os.RemoveAll(s.bloomFilterSecondaryPath(i)); err != nil {
 			return fmt.Errorf("drop bloom filter: %w", err)
 		}
 	}
 
-	if err := os.RemoveAll(ind.countNetPath()); err != nil {
+	if err := os.RemoveAll(s.countNetPath()); err != nil {
 		return fmt.Errorf("drop count net additions file: %w", err)
 	}
 
 	// for the segment itself, we're not using RemoveAll, but Remove. If there
 	// was a NotExists error here, something would be seriously wrong and we
 	// don't want to ignore it.
-	if err := os.Remove(ind.path); err != nil {
+	if err := os.Remove(s.path); err != nil {
 		return fmt.Errorf("drop segment: %w", err)
 	}
 
@@ -179,11 +179,11 @@ func (ind *segment) drop() error {
 
 // Size returns the total size of the segment in bytes, including the header
 // and index
-func (ind *segment) Size() int {
-	return len(ind.contents)
+func (s *segment) Size() int {
+	return len(s.contents)
 }
 
 // Payload Size is only the payload of the index, excluding the index
-func (ind *segment) PayloadSize() int {
-	return int(ind.dataEndPos)
+func (s *segment) PayloadSize() int {
+	return int(s.dataEndPos)
 }

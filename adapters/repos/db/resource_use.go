@@ -42,7 +42,7 @@ func (d diskUse) String() string {
 		float64(d.avail)/float64(GB))
 }
 
-func (d *DB) scanResourceUsage() {
+func (db *DB) scanResourceUsage() {
 	memMonitor := memwatch.NewMonitor(
 		runtime.MemProfile, debug.SetMemoryLimit, runtime.MemProfileRate)
 
@@ -51,33 +51,33 @@ func (d *DB) scanResourceUsage() {
 		defer t.Stop()
 		for {
 			select {
-			case <-d.shutdown:
+			case <-db.shutdown:
 				return
 			case <-t.C:
-				d.indexLock.RLock()
-				for _, i := range d.indices {
+				db.indexLock.RLock()
+				for _, i := range db.indices {
 					for _, s := range i.Shards {
 						if !s.isReadOnly() {
 							diskPath := i.Config.RootPath
-							du := d.getDiskUse(diskPath)
+							du := db.getDiskUse(diskPath)
 
 							s.resourceUseWarn(memMonitor, du)
 							s.resourceUseReadonly(memMonitor, du)
 						}
 					}
 				}
-				d.indexLock.RUnlock()
+				db.indexLock.RUnlock()
 			}
 		}
 	}()
 }
 
-func (d *DB) getDiskUse(diskPath string) diskUse {
+func (db *DB) getDiskUse(diskPath string) diskUse {
 	fs := syscall.Statfs_t{}
 
 	err := syscall.Statfs(diskPath, &fs)
 	if err != nil {
-		d.logger.WithField("action", "read_disk_use").
+		db.logger.WithField("action", "read_disk_use").
 			WithField("path", diskPath).
 			Errorf("failed to read disk usage: %s", err)
 	}

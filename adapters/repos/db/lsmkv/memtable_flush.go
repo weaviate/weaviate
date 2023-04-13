@@ -21,64 +21,64 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
-func (l *Memtable) flush() error {
+func (m *Memtable) flush() error {
 	// close the commit log first, this also forces it to be fsynced. If
 	// something fails there, don't proceed with flushing. The commit log will
 	// only be deleted at the very end, if the flush was successful
 	// (indicated by a successful close of the flush file - which indicates a
 	// successful fsync)
 
-	if err := l.commitlog.close(); err != nil {
+	if err := m.commitlog.close(); err != nil {
 		return errors.Wrap(err, "close commit log file")
 	}
 
-	if l.Size() == 0 {
+	if m.Size() == 0 {
 		// this is an empty memtable, nothing to do
 		// however, we still have to cleanup the commit log, otherwise we will
 		// attempt to recover from it on the next cycle
-		if err := l.commitlog.delete(); err != nil {
+		if err := m.commitlog.delete(); err != nil {
 			return errors.Wrap(err, "delete commit log file")
 		}
 		return nil
 	}
 
-	f, err := os.Create(l.path + ".db")
+	f, err := os.Create(m.path + ".db")
 	if err != nil {
 		return err
 	}
 
-	w := bufio.NewWriterSize(f, int(float64(l.size)*1.3)) // calculate 30% overhead for disk representation
+	w := bufio.NewWriterSize(f, int(float64(m.size)*1.3)) // calculate 30% overhead for disk representation
 
 	var keys []segmentindex.Key
-	switch l.strategy {
+	switch m.strategy {
 	case StrategyReplace:
-		if keys, err = l.flushDataReplace(w); err != nil {
+		if keys, err = m.flushDataReplace(w); err != nil {
 			return err
 		}
 
 	case StrategySetCollection:
-		if keys, err = l.flushDataSet(w); err != nil {
+		if keys, err = m.flushDataSet(w); err != nil {
 			return err
 		}
 
 	case StrategyRoaringSet:
-		if keys, err = l.flushDataRoaringSet(w); err != nil {
+		if keys, err = m.flushDataRoaringSet(w); err != nil {
 			return err
 		}
 
 	case StrategyMapCollection:
-		if keys, err = l.flushDataMap(w); err != nil {
+		if keys, err = m.flushDataMap(w); err != nil {
 			return err
 		}
 
 	default:
-		return fmt.Errorf("cannot flush strategy %s", l.strategy)
+		return fmt.Errorf("cannot flush strategy %s", m.strategy)
 	}
 
 	indices := &segmentindex.Indexes{
 		Keys:                keys,
-		SecondaryIndexCount: l.secondaryIndices,
-		ScratchSpacePath:    l.path + ".scratch.d",
+		SecondaryIndexCount: m.secondaryIndices,
+		ScratchSpacePath:    m.path + ".scratch.d",
 	}
 
 	if _, err := indices.WriteTo(w); err != nil {
@@ -96,21 +96,21 @@ func (l *Memtable) flush() error {
 	// only now that the file has been flushed is it safe to delete the commit log
 	// TODO: there might be an interest in keeping the commit logs around for
 	// longer as they might come in handy for replication
-	return l.commitlog.delete()
+	return m.commitlog.delete()
 }
 
-func (l *Memtable) flushDataReplace(f io.Writer) ([]segmentindex.Key, error) {
-	flat := l.key.flattenInOrder()
+func (m *Memtable) flushDataReplace(f io.Writer) ([]segmentindex.Key, error) {
+	flat := m.key.flattenInOrder()
 
 	totalDataLength := totalKeyAndValueSize(flat)
-	perObjectAdditions := len(flat) * (1 + 8 + 4 + int(l.secondaryIndices)*4) // 1 byte for the tombstone, 8 bytes value length encoding, 4 bytes key length encoding, + 4 bytes key encoding for every secondary index
+	perObjectAdditions := len(flat) * (1 + 8 + 4 + int(m.secondaryIndices)*4) // 1 byte for the tombstone, 8 bytes value length encoding, 4 bytes key length encoding, + 4 bytes key encoding for every secondary index
 	headerSize := segmentindex.HeaderSize
 	header := segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + perObjectAdditions + headerSize),
 		Level:            0, // always level zero on a new one
 		Version:          0, // always version 0 for now
-		SecondaryIndices: l.secondaryIndices,
-		Strategy:         SegmentStrategyFromString(l.strategy),
+		SecondaryIndices: m.secondaryIndices,
+		Strategy:         SegmentStrategyFromString(m.strategy),
 	}
 
 	n, err := header.WriteTo(f)
@@ -128,7 +128,7 @@ func (l *Memtable) flushDataReplace(f io.Writer) ([]segmentindex.Key, error) {
 			value:               node.value,
 			primaryKey:          node.key,
 			secondaryKeys:       node.secondaryKeys,
-			secondaryIndexCount: l.secondaryIndices,
+			secondaryIndexCount: m.secondaryIndices,
 		}
 
 		ki, err := segNode.KeyIndexAndWriteTo(f)
@@ -143,15 +143,15 @@ func (l *Memtable) flushDataReplace(f io.Writer) ([]segmentindex.Key, error) {
 	return keys, nil
 }
 
-func (l *Memtable) flushDataSet(f io.Writer) ([]segmentindex.Key, error) {
-	flat := l.keyMulti.flattenInOrder()
-	return l.flushDataCollection(f, flat)
+func (m *Memtable) flushDataSet(f io.Writer) ([]segmentindex.Key, error) {
+	flat := m.keyMulti.flattenInOrder()
+	return m.flushDataCollection(f, flat)
 }
 
-func (l *Memtable) flushDataMap(f io.Writer) ([]segmentindex.Key, error) {
-	l.RLock()
-	flat := l.keyMap.flattenInOrder()
-	l.RUnlock()
+func (m *Memtable) flushDataMap(f io.Writer) ([]segmentindex.Key, error) {
+	m.RLock()
+	flat := m.keyMap.flattenInOrder()
+	m.RUnlock()
 
 	// by encoding each map pair we can force the same structure as for a
 	// collection, which means we can reuse the same flushing logic
@@ -175,10 +175,10 @@ func (l *Memtable) flushDataMap(f io.Writer) ([]segmentindex.Key, error) {
 		}
 
 	}
-	return l.flushDataCollection(f, asMulti)
+	return m.flushDataCollection(f, asMulti)
 }
 
-func (l *Memtable) flushDataCollection(f io.Writer,
+func (m *Memtable) flushDataCollection(f io.Writer,
 	flat []*binarySearchNodeMulti,
 ) ([]segmentindex.Key, error) {
 	totalDataLength := totalValueSizeCollection(flat)
@@ -186,8 +186,8 @@ func (l *Memtable) flushDataCollection(f io.Writer,
 		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
 		Level:            0, // always level zero on a new one
 		Version:          0, // always version 0 for now
-		SecondaryIndices: l.secondaryIndices,
-		Strategy:         SegmentStrategyFromString(l.strategy),
+		SecondaryIndices: m.secondaryIndices,
+		Strategy:         SegmentStrategyFromString(m.strategy),
 	}
 
 	n, err := header.WriteTo(f)

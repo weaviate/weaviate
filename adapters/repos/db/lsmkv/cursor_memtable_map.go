@@ -24,7 +24,7 @@ type memtableCursorMap struct {
 	unlock  func()
 }
 
-func (l *Memtable) newMapCursor() innerCursorMap {
+func (m *Memtable) newMapCursor() innerCursorMap {
 	// This cursor is a really primitive approach, it actually requires
 	// flattening the entire memtable - even if the cursor were to point to the
 	// very last element. However, given that the memtable will on average be
@@ -32,15 +32,15 @@ func (l *Memtable) newMapCursor() innerCursorMap {
 	// get away with the full-flattening and a linear search. Let's not optimize
 	// prematurely.
 
-	l.RLock()
-	defer l.RUnlock()
+	m.RLock()
+	defer m.RUnlock()
 
-	data := l.keyMap.flattenInOrder()
+	data := m.keyMap.flattenInOrder()
 
 	return &memtableCursorMap{
 		data:   data,
-		lock:   l.RLock,
-		unlock: l.RUnlock,
+		lock:   m.RLock,
+		unlock: m.RUnlock,
 	}
 }
 

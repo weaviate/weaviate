@@ -514,25 +514,25 @@ func newFakeModulesProvider() *fakeModulesProvider {
 	return &fakeModulesProvider{newNearCustomTextModule()}
 }
 
-func (f *fakeModulesProvider) GetAll() []modulecapabilities.Module {
+func (fmp *fakeModulesProvider) GetAll() []modulecapabilities.Module {
 	panic("implement me")
 }
 
-func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error) {
+func (fmp *fakeModulesProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error) {
 	panic("not implemented")
 }
 
-func (p *fakeModulesProvider) GetArguments(class *models.Class) map[string]*graphql.ArgumentConfig {
+func (fmp *fakeModulesProvider) GetArguments(class *models.Class) map[string]*graphql.ArgumentConfig {
 	args := map[string]*graphql.ArgumentConfig{}
-	if class.Vectorizer == p.nearCustomTextModule.Name() {
-		for name, argument := range p.nearCustomTextModule.Arguments() {
+	if class.Vectorizer == fmp.nearCustomTextModule.Name() {
+		for name, argument := range fmp.nearCustomTextModule.Arguments() {
 			args[name] = argument.GetArgumentsFunction(class.Class)
 		}
 	}
 	return args
 }
 
-func (p *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface{}, className string) map[string]interface{} {
+func (fmp *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface{}, className string) map[string]interface{} {
 	exractedParams := map[string]interface{}{}
 	if param, ok := arguments["nearCustomText"]; ok {
 		exractedParams["nearCustomText"] = extractNearTextParam(param.(map[string]interface{}))
@@ -540,9 +540,9 @@ func (p *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface
 	return exractedParams
 }
 
-func (p *fakeModulesProvider) GetAdditionalFields(class *models.Class) map[string]*graphql.Field {
+func (fmp *fakeModulesProvider) GetAdditionalFields(class *models.Class) map[string]*graphql.Field {
 	additionalProperties := map[string]*graphql.Field{}
-	for name, additionalProperty := range p.nearCustomTextModule.AdditionalProperties() {
+	for name, additionalProperty := range fmp.nearCustomTextModule.AdditionalProperties() {
 		if additionalProperty.GraphQLFieldFunction != nil {
 			additionalProperties[name] = additionalProperty.GraphQLFieldFunction(class.Class)
 		}
@@ -550,8 +550,8 @@ func (p *fakeModulesProvider) GetAdditionalFields(class *models.Class) map[strin
 	return additionalProperties
 }
 
-func (p *fakeModulesProvider) ExtractAdditionalField(className, name string, params []*ast.Argument) interface{} {
-	if additionalProperties := p.nearCustomTextModule.AdditionalProperties(); len(additionalProperties) > 0 {
+func (fmp *fakeModulesProvider) ExtractAdditionalField(className, name string, params []*ast.Argument) interface{} {
+	if additionalProperties := fmp.nearCustomTextModule.AdditionalProperties(); len(additionalProperties) > 0 {
 		if additionalProperty, ok := additionalProperties[name]; ok {
 			if additionalProperty.GraphQLExtractFunction != nil {
 				return additionalProperty.GraphQLExtractFunction(params)
@@ -561,9 +561,9 @@ func (p *fakeModulesProvider) ExtractAdditionalField(className, name string, par
 	return nil
 }
 
-func (p *fakeModulesProvider) GraphQLAdditionalFieldNames() []string {
+func (fmp *fakeModulesProvider) GraphQLAdditionalFieldNames() []string {
 	additionalPropertiesNames := []string{}
-	for _, additionalProperty := range p.nearCustomTextModule.AdditionalProperties() {
+	for _, additionalProperty := range fmp.nearCustomTextModule.AdditionalProperties() {
 		if additionalProperty.GraphQLNames != nil {
 			additionalPropertiesNames = append(additionalPropertiesNames, additionalProperty.GraphQLNames...)
 		}

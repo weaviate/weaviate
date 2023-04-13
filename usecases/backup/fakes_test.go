@@ -72,70 +72,70 @@ func newFakeBackend() *fakeBackend {
 	return &fakeBackend{doneChan: make(chan bool)}
 }
 
-func (s *fakeBackend) HomeDir(backupID string) string {
-	s.RLock()
-	defer s.RUnlock()
-	args := s.Called(backupID)
+func (fb *fakeBackend) HomeDir(backupID string) string {
+	fb.RLock()
+	defer fb.RUnlock()
+	args := fb.Called(backupID)
 	return args.String(0)
 }
 
-func (s *fakeBackend) PutFile(ctx context.Context, backupID, key, srcPath string) error {
-	s.Lock()
-	defer s.Unlock()
-	args := s.Called(ctx, backupID, key, srcPath)
+func (fb *fakeBackend) PutFile(ctx context.Context, backupID, key, srcPath string) error {
+	fb.Lock()
+	defer fb.Unlock()
+	args := fb.Called(ctx, backupID, key, srcPath)
 	return args.Error(0)
 }
 
-func (s *fakeBackend) PutObject(ctx context.Context, backupID, key string, bytes []byte) error {
-	s.Lock()
-	defer s.Unlock()
-	args := s.Called(ctx, backupID, key, bytes)
+func (fb *fakeBackend) PutObject(ctx context.Context, backupID, key string, bytes []byte) error {
+	fb.Lock()
+	defer fb.Unlock()
+	args := fb.Called(ctx, backupID, key, bytes)
 	if key == BackupFile {
-		json.Unmarshal(bytes, &s.meta)
+		json.Unmarshal(bytes, &fb.meta)
 	} else if key == GlobalBackupFile || key == GlobalRestoreFile {
-		json.Unmarshal(bytes, &s.glMeta)
-		if s.glMeta.Status == backup.Success || s.glMeta.Status == backup.Failed {
-			close(s.doneChan)
+		json.Unmarshal(bytes, &fb.glMeta)
+		if fb.glMeta.Status == backup.Success || fb.glMeta.Status == backup.Failed {
+			close(fb.doneChan)
 		}
 	}
 	return args.Error(0)
 }
 
-func (s *fakeBackend) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
-	s.RLock()
-	defer s.RUnlock()
-	args := s.Called(ctx, backupID, key)
+func (fb *fakeBackend) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+	fb.RLock()
+	defer fb.RUnlock()
+	args := fb.Called(ctx, backupID, key)
 	if args.Get(0) != nil {
 		return args.Get(0).([]byte), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (s *fakeBackend) Initialize(ctx context.Context, backupID string) error {
-	s.Lock()
-	defer s.Unlock()
-	args := s.Called(ctx, backupID)
+func (fb *fakeBackend) Initialize(ctx context.Context, backupID string) error {
+	fb.Lock()
+	defer fb.Unlock()
+	args := fb.Called(ctx, backupID)
 	return args.Error(0)
 }
 
-func (s *fakeBackend) SourceDataPath() string {
-	s.RLock()
-	defer s.RUnlock()
-	args := s.Called()
+func (fb *fakeBackend) SourceDataPath() string {
+	fb.RLock()
+	defer fb.RUnlock()
+	args := fb.Called()
 	return args.String(0)
 }
 
-func (s *fakeBackend) IsExternal() bool {
+func (fb *fakeBackend) IsExternal() bool {
 	return true
 }
 
-func (f *fakeBackend) Name() string {
+func (fb *fakeBackend) Name() string {
 	return "fakeBackend"
 }
 
-func (s *fakeBackend) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
-	s.Lock()
-	defer s.Unlock()
-	args := s.Called(ctx, backupID, key, destPath)
+func (fb *fakeBackend) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+	fb.Lock()
+	defer fb.Unlock()
+	args := fb.Called(ctx, backupID, key, destPath)
 	return args.Error(0)
 }
