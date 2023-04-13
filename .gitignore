@@ -23,7 +23,7 @@ cc-test-reporter
 dist_tmp
 
 # No weaviate bins
-./weaviate
+weaviate
 
 # Logs
 logs
