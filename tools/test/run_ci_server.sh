@@ -5,7 +5,7 @@ set -euo pipefail
 
 function build() {
   echo "Pull images..."
-  surpress_on_success docker pull golang:1.19-alpine
+  suppress_on_success docker pull golang:1.19-alpine
   echo "Build containers (this will take the longest)..."
   GIT_HASH=$(git rev-parse --short HEAD)
   docker compose -f "$1" build --build-arg GITHASH="$GIT_HASH" --build-arg EXTRA_BUILD_ARGS="-race" "$2"
@@ -50,6 +50,6 @@ function echo_red() {
 }
 
 build "$@" docker-compose-test.yml weaviate
-supress_on_success docker compose -f docker-compose-test.yml up --force-recreate -d weaviate contextionary
+suppress_on_success docker compose -f docker-compose-test.yml up --force-recreate -d weaviate contextionary
 
 wait "$@" docker-compose-test.yml
