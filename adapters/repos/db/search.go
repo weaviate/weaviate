@@ -138,8 +138,8 @@ func extractDistanceFromParams(params dto.GetParams) float32 {
 // Earlier use cases required only []search.Result as a return value from the db, and the
 // Class VectorSearch method fit this need. Later on, other use cases presented the need
 // for the raw storage objects, such as hybrid search.
-func (db *DB) ClassObjectVectorSearch(ctx context.Context, class string, vector []float32, offset, limit int,
-	filters *filters.LocalFilter,
+func (db *DB) ClassObjectVectorSearch(ctx context.Context, class string, vector []float32,
+	offset int, limit int, filters *filters.LocalFilter, addl additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	totalLimit := offset + limit
 
@@ -149,7 +149,7 @@ func (db *DB) ClassObjectVectorSearch(ctx context.Context, class string, vector 
 	}
 
 	objs, dist, err := index.objectVectorSearch(
-		ctx, vector, 0, totalLimit, filters, nil, additional.Properties{})
+		ctx, vector, 0, totalLimit, filters, nil, addl)
 	if err != nil {
 		return nil, nil, fmt.Errorf("search index %s: %w", index.ID(), err)
 	}
@@ -160,7 +160,7 @@ func (db *DB) ClassObjectVectorSearch(ctx context.Context, class string, vector 
 func (db *DB) ClassVectorSearch(ctx context.Context, class string, vector []float32, offset, limit int,
 	filters *filters.LocalFilter,
 ) ([]search.Result, error) {
-	objs, dist, err := db.ClassObjectVectorSearch(ctx, class, vector, offset, limit, filters)
+	objs, dist, err := db.ClassObjectVectorSearch(ctx, class, vector, offset, limit, filters, additional.Properties{})
 	if err != nil {
 		return nil, err
 	}
