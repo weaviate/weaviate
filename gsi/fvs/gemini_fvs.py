@@ -48,6 +48,75 @@ def compute_recall(a, b):
     ninter = sum( intersect )
     return ninter / a.size, intersect
 
+def unload_datasets(args):
+    if args.unload:
+        # Setup connection to local FVS api
+        server = socket.gethostbyname(socket.gethostname())
+        port = "7761"
+        version = 'v1.0'
+
+        # Create FVS api objects
+        config = swagger_client.configuration.Configuration()
+        api_config = swagger_client.ApiClient(config)
+        gsi_boards_apis = swagger_client.BoardsApi(api_config)
+        gsi_datasets_apis = swagger_client.DatasetsApi(api_config)
+
+        # Configure the FVS api
+        config.verify_ssl = False
+        config.host = f'http://{server}:{port}/{version}'
+    
+        # Capture the supplied allocation id
+        Allocation_id = args.allocation
+
+        # Set default header
+        api_config.default_headers["allocationToken"] = Allocation_id
+
+        # Print dataset count
+        print("Getting total datasets...")
+        dsets = gsi_datasets_apis.controllers_dataset_controller_get_datasets_list(allocation_token=Allocation_id)
+        print(f"Number of datasets:{len(dsets.datasets_list)}")
+
+        # if no datasets skip everything
+        if len(dsets.datasets_list) > 0:
+            # Print loaded dataset count
+            print("Getting loaded datasets for allocation token: ", Allocation_id)
+            loaded = gsi_boards_apis.controllers_boards_controller_get_allocations_list(Allocation_id)
+            print(f"Number of loaded datasets: {len(loaded.allocations_list[Allocation_id]['loadedDatasets'])}")
+            # check loaded dataset count
+            if len(loaded.allocations_list[Allocation_id]["loadedDatasets"]) > 0:
+                # Unloading all datasets
+                print("Unloading all loaded datasets...")
+                loaded = loaded.allocations_list["0b391a1a-b916-11ed-afcb-0242ac1c0002"]["loadedDatasets"]
+                for data in loaded:
+                    dataset_id = data['datasetId']
+                    resp = gsi_datasets_apis.controllers_dataset_controller_unload_dataset(
+                                UnloadDatasetRequest(allocation_id=Allocation_id, dataset_id=dataset_id), 
+                                allocation_token=Allocation_id)
+                    if resp.status != 'ok':
+                        print(f"error unloading dataset: {dataset_id}")
+
+                # Getting current number of loaded datasets
+                curr = gsi_boards_apis.controllers_boards_controller_get_allocations_list(Allocation_id)
+                print(f"Unloaded datasets, current loaded dataset count: {len(curr.allocations_list[Allocation_id]['loadedDatasets'])}")
+
+        # Full wipe: delete all datasets
+        if args.wipe == True:
+            wipe = input("are you super sure? y/[n]: ")
+            if wipe == "y":
+                print("removing all datasets...")
+                for data in dsets.datasets_list:
+                    dataset_id = data['id']
+                    resp = gsi_datasets_apis.controllers_dataset_controller_remove_dataset(\
+                            dataset_id=dataset_id, allocation_token=Allocation_id)
+                    if resp.status != "ok":
+                        print(f"Error removing dataset: {dataset_id}")
+
+        else:
+            print("Currently no loaded datasets. Done.")
+    else: 
+        print("Done")
+
+
 def run_benchmark(args):
     '''Run a specific benchmark.'''
 
@@ -217,6 +286,8 @@ def init_args():
     parser.add_argument('-n','--neighbors', required=False, default=10, type=int)
     parser.add_argument('-s','--save', required=False, default=False, action='store_true')
     #parser.add_argument('-n','--tries', required=False, default=5)
+    parser.add_argument('-u', '--unload', required=False, default=True, action='store_false')
+    parser.add_argument('-w', '--wipe', required=False, default=False, action='store_true')
     args = parser.parse_args()
 
     if not os.path.exists( args.dataset ):
@@ -247,7 +318,7 @@ def init_args():
 if __name__ == "__main__":
 
     args = init_args()
-
+    unload_datasets(args) # only runs if --unload flag not passed
     run_benchmark(args)
 
     print("Done.")
