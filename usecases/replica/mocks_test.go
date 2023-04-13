@@ -114,38 +114,37 @@ func (f *fakeClient) Abort(ctx context.Context, host, index, shard, requestID st
 
 // Replica finder
 type fakeShardingState struct {
+	thisNode        string
 	ShardToReplicas map[string][]string
 	nodeResolver    *fakeNodeResolver
 }
 
-func newFakeShardingState(shardToReplicas map[string][]string, resolver *fakeNodeResolver) *fakeShardingState {
-	return &fakeShardingState{ShardToReplicas: shardToReplicas, nodeResolver: resolver}
+func newFakeShardingState(thisNode string, shardToReplicas map[string][]string, resolver *fakeNodeResolver) *fakeShardingState {
+	return &fakeShardingState{
+		thisNode:        thisNode,
+		ShardToReplicas: shardToReplicas,
+		nodeResolver:    resolver,
+	}
 }
 
 func (f *fakeShardingState) NodeName() string {
-	return "Coordinator"
+	return f.thisNode
 }
 
-func (f *fakeShardingState) ResolveParentNodes(_ string, shard string,
-) ([]string, []string, error) {
-	reps, ok := f.ShardToReplicas[shard]
+func (f *fakeShardingState) ResolveParentNodes(_ string, shard string) (map[string]string, error) {
+	replicas, ok := f.ShardToReplicas[shard]
 	if !ok {
-		return nil, nil, fmt.Errorf("sharding state not found")
+		return nil, fmt.Errorf("sharding state not found")
 	}
 
-	var resolved []string
-	var unresolved []string
+	m := make(map[string]string)
+	for _, name := range replicas {
+		addr, _ := f.nodeResolver.NodeHostname(name)
+		m[name] = addr
 
-	for _, rep := range reps {
-		host, found := f.nodeResolver.NodeHostname(rep)
-		if found && host != "" {
-			resolved = append(resolved, host)
-		} else {
-			unresolved = append(unresolved, rep)
-		}
 	}
 
-	return resolved, unresolved, nil
+	return m, nil
 }
 
 // node resolver

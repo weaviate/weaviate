@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -57,18 +58,13 @@ type Finder struct {
 
 // NewFinder constructs a new finder instance
 func NewFinder(className string,
-	stateGetter shardingState,
-	nodeResolver nodeResolver,
+	resolver *resolver,
 	client rClient,
 	l logrus.FieldLogger,
 ) *Finder {
 	cl := finderClient{client}
 	return &Finder{
-		resolver: &resolver{
-			schema:       stateGetter,
-			nodeResolver: nodeResolver,
-			class:        className,
-		},
+		resolver: resolver,
 		finderStream: finderStream{
 			repairer: repairer{
 				class:  className,
@@ -101,7 +97,7 @@ func (f *Finder) GetOne(ctx context.Context,
 			return findOneReply{host, x.Version, r, x.UpdateTime, true}, err
 		}
 	}
-	replyCh, state, err := c.Pull(ctx, l, op)
+	replyCh, state, err := c.Pull(ctx, l, op, "")
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
 		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
@@ -113,46 +109,49 @@ func (f *Finder) GetOne(ctx context.Context,
 	return result.Value, err
 }
 
-// GetAll gets all objects which satisfy the giving consistency
-func (f *Finder) GetAll(ctx context.Context,
-	l ConsistencyLevel,
-	shard string,
-	ids []strfmt.UUID,
-) ([]*storobj.Object, error) {
-	c := newReadCoordinator[batchReply](f, shard)
-	op := func(ctx context.Context, host string, fullRead bool) (batchReply, error) {
-		if fullRead {
-			xs, err := f.client.FullReads(ctx, host, f.class, shard, ids)
-			return batchReply{Sender: host, IsDigest: false, FullData: xs}, err
-		} else {
-			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids)
-			return batchReply{Sender: host, IsDigest: true, DigestData: xs}, err
-		}
-	}
-	replyCh, state, err := c.Pull(ctx, l, op)
-	if err != nil {
-		f.log.WithField("op", "pull.all").Error(err)
-		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
-	}
-	result := <-f.readAll(ctx, shard, ids, replyCh, state)
-	if err = result.Err; err != nil {
-		err = fmt.Errorf("%s %q: %w", msgCLevel, l, err)
-	}
-
-	return result.Value, err
+type ShardDesc struct {
+	Name string
+	Node string
 }
 
+// CheckConsistency for objects belonging to different physical shards.
+//
+// For each x in xs the fields BelongsToNode and BelongsToShard must be set non empty
 func (f *Finder) CheckConsistency(ctx context.Context,
-	l ConsistencyLevel, objs []*storobj.Object,
-	scores []float32,
-) ([]*storobj.Object, []float32, error) {
-	// TODO:
-	// 1. Aggregate result set by shard
-	// 2. Aggregate the result set of a shard by node (owner of objects)
-	// 3. Set digest requests for non owning nodes
-	// 4. Check the consistency level for each shard
-	// 5. Repair for each shard
-	return objs, scores, nil
+	l ConsistencyLevel, xs []*storobj.Object,
+) (retErr error) {
+	if len(xs) == 0 {
+		return nil
+	}
+	for i, x := range xs { // check shard and node name are set
+		if x == nil {
+			return fmt.Errorf("contains nil at object at index %d", i)
+		}
+		if x.BelongsToNode == "" || x.BelongsToShard == "" {
+			return fmt.Errorf("missing node or shard at index %d", i)
+		}
+	}
+
+	if l == One { // already consistent
+		for i := range xs {
+			xs[i].IsConsistent = true
+		}
+		return nil
+	}
+	// check shard consistency concurrently
+	gr, ctx := errgroup.WithContext(ctx)
+	for _, part := range cluster(createBatch(xs)) {
+		part := part
+		gr.Go(func() error {
+			_, err := f.checkShardConsistency(ctx, l, part)
+			if err != nil {
+				f.log.WithField("op", "check_shard_consistency").
+					WithField("shard", part.Shard).Error(err)
+			}
+			return err
+		})
+	}
+	return gr.Wait()
 }
 
 // Exists checks if an object exists which satisfies the giving consistency
@@ -170,7 +169,7 @@ func (f *Finder) Exists(ctx context.Context,
 		}
 		return existReply{host, x}, err
 	}
-	replyCh, state, err := c.Pull(ctx, l, op)
+	replyCh, state, err := c.Pull(ctx, l, op, "")
 	if err != nil {
 		f.log.WithField("op", "pull.exist").Error(err)
 		return false, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
@@ -196,4 +195,32 @@ func (f *Finder) NodeObject(ctx context.Context,
 	}
 	r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds)
 	return r.Object, err
+}
+
+// checkShardConsistency checks consistency for a set of objects belonging to a shard
+// It returns the most recent objects or and erro
+func (f *Finder) checkShardConsistency(ctx context.Context,
+	l ConsistencyLevel,
+	batch shardPart,
+) ([]*storobj.Object, error) {
+	var (
+		c         = newReadCoordinator[batchReply](f, batch.Shard)
+		shard     = batch.Shard
+		data, ids = batch.Extract() // extract from current content
+	)
+	op := func(ctx context.Context, host string, fullRead bool) (batchReply, error) {
+		if fullRead { // we already have the content
+			return batchReply{Sender: host, IsDigest: false, FullData: data}, nil
+		} else {
+			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids)
+			return batchReply{Sender: host, IsDigest: true, DigestData: xs}, err
+		}
+	}
+
+	replyCh, state, err := c.Pull(ctx, l, op, batch.Node)
+	if err != nil {
+		return nil, fmt.Errorf("pull shard: %w", errReplicas)
+	}
+	result := <-f.readBatchPart(ctx, batch, ids, replyCh, state)
+	return result.Value, result.Err
 }
