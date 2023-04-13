@@ -147,8 +147,8 @@ func (f *fakeClusterState) ClusterHealthScore() int {
 	return 0
 }
 
-func (f *fakeClusterState) ResolveParentNodes(string, string) ([]string, []string, error) {
-	return nil, nil, nil
+func (f *fakeClusterState) ResolveParentNodes(string, string) (map[string]string, error) {
+	return nil, nil
 }
 
 func (f *fakeClusterState) NodeHostname(nodeName string) (string, bool) {

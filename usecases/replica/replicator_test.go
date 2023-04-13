@@ -673,7 +673,6 @@ func TestReplicatorAddReferences(t *testing.T) {
 
 type fakeFactory struct {
 	CLS            string
-	Shard          string
 	Nodes          []string
 	Shard2replicas map[string][]string
 	WClient        *fakeClient
@@ -687,7 +686,6 @@ func newFakeFactory(class, shard string, nodes []string) *fakeFactory {
 
 	return &fakeFactory{
 		CLS:            class,
-		Shard:          shard,
 		Nodes:          nodes,
 		Shard2replicas: map[string][]string{shard: nodes},
 		WClient:        &fakeClient{},
@@ -697,9 +695,13 @@ func newFakeFactory(class, shard string, nodes []string) *fakeFactory {
 	}
 }
 
+func (f fakeFactory) AddShard(shard string, nodes []string) {
+	f.Shard2replicas[shard] = nodes
+}
+
 func (f fakeFactory) newReplicator() *Replicator {
 	nodeResolver := newFakeNodeResolver(f.Nodes)
-	shardingState := newFakeShardingState(f.Shard2replicas, nodeResolver)
+	shardingState := newFakeShardingState("A", f.Shard2replicas, nodeResolver)
 	return NewReplicator(
 		f.CLS,
 		shardingState,
@@ -710,10 +712,15 @@ func (f fakeFactory) newReplicator() *Replicator {
 		}{f.RClient, f.WClient}, f.log)
 }
 
-func (f fakeFactory) newFinder() *Finder {
+func (f fakeFactory) newFinder(thisNode string) *Finder {
 	nodeResolver := newFakeNodeResolver(f.Nodes)
-	shardingState := newFakeShardingState(f.Shard2replicas, nodeResolver)
-	return NewFinder(f.CLS, shardingState, nodeResolver, f.RClient, f.log)
+	resolver := &resolver{
+		Schema:       newFakeShardingState(thisNode, f.Shard2replicas, nodeResolver),
+		nodeResolver: nodeResolver,
+		Class:        f.CLS,
+		NodeName:     thisNode,
+	}
+	return NewFinder(f.CLS, resolver, f.RClient, f.log)
 }
 
 func (f fakeFactory) assertLogContains(t *testing.T, key string, xs ...string) {

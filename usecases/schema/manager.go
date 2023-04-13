@@ -61,7 +61,7 @@ type SchemaGetter interface {
 	Nodes() []string
 	NodeName() string
 	ClusterHealthScore() int
-	ResolveParentNodes(string, string) ([]string, []string, error)
+	ResolveParentNodes(string, string) (map[string]string, error)
 }
 
 type VectorizerValidator interface {

@@ -58,9 +58,8 @@ func (f *fakeSchemaGetter) ClusterHealthScore() int {
 	return 0
 }
 
-func (f fakeSchemaGetter) ResolveParentNodes(_ string, shard string,
-) ([]string, []string, error) {
-	return nil, nil, nil
+func (f fakeSchemaGetter) ResolveParentNodes(_ string, shard string) (map[string]string, error) {
+	return nil, nil
 }
 
 func singleShardState() *sharding.State {

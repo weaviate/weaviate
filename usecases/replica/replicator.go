@@ -39,7 +39,7 @@ const (
 type (
 	shardingState interface {
 		NodeName() string
-		ResolveParentNodes(class, shardName string) (hosts, nodes []string, err error)
+		ResolveParentNodes(class, shardName string) (map[string]string, error)
 	}
 
 	nodeResolver interface {
@@ -57,7 +57,7 @@ type Replicator struct {
 	class          string
 	stateGetter    shardingState
 	client         Client
-	resolver       nodeResolver
+	resolver       *resolver
 	log            logrus.FieldLogger
 	requestCounter atomic.Uint64
 	stream         replicatorStream
@@ -70,13 +70,19 @@ func NewReplicator(className string,
 	client Client,
 	l logrus.FieldLogger,
 ) *Replicator {
+	resolver := &resolver{
+		Schema:       stateGetter,
+		nodeResolver: nodeResolver,
+		Class:        className,
+		NodeName:     stateGetter.NodeName(),
+	}
 	return &Replicator{
 		class:       className,
 		stateGetter: stateGetter,
 		client:      client,
-		resolver:    nodeResolver,
+		resolver:    resolver,
 		log:         l,
-		Finder:      NewFinder(className, stateGetter, nodeResolver, client, l),
+		Finder:      NewFinder(className, resolver, client, l),
 	}
 }
 
