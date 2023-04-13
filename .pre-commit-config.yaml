@@ -1,8 +1,13 @@
 repos:
-- repo: local
-  hooks:
-    - id: gofumpt
-      name: gofumpt
-      entry: gofumpt -w
-      language: system
-      types: [go]
+  - repo: local
+    hooks:
+      - id: gofumpt
+        name: gofumpt
+        entry: gofumpt -w
+        language: system
+        types: [ go ]
+      - id: swagger
+        name: swagger
+        entry: ./tools/gen-code-from-swagger.sh
+        language: system
+        types: [ go ]
