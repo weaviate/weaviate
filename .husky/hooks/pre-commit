@@ -1,0 +1,6 @@
+#!/bin/bash
+
+go install mvdan.cc/gofumpt@latest
+gofumpt -w .
+
+./tools/gen-code-from-swagger.sh

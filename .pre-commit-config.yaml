@@ -1,8 +1,0 @@
-repos:
-- repo: local
-  hooks:
-    - id: gofumpt
-      name: gofumpt
-      entry: gofumpt -w
-      language: system
-      types: [go]
