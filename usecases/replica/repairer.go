@@ -166,7 +166,7 @@ func (r *repairer) repairExist(ctx context.Context,
 }
 
 // repairAll repairs objects when reading them ((use in combination with Finder::GetAll)
-func (r *repairer) repairAll(ctx context.Context,
+func (r *repairer) repairBatchPart(ctx context.Context,
 	shard string,
 	ids []strfmt.UUID,
 	votes []vote,
@@ -179,10 +179,13 @@ func (r *repairer) repairAll(ctx context.Context,
 		ms         = make([]iTuple, 0, len(ids))       // mismatches
 		nDeletions = 0
 		cl         = r.client
+		nVotes     = len(votes)
 	)
+
 	// find most recent objects
 	for i, x := range votes[contentIdx].FullData {
 		lastTimes[i] = iTuple{S: contentIdx, O: i, T: x.UpdateTime(), Deleted: x.Deleted}
+		votes[contentIdx].Count[i] = nVotes // reuse Count[] to check consistency
 	}
 	for i, vote := range votes {
 		if i != contentIdx {
@@ -192,6 +195,7 @@ func (r *repairer) repairAll(ctx context.Context,
 					lastTimes[j] = iTuple{S: i, O: j, T: x.UpdateTime}
 				}
 				lastTimes[j].Deleted = deleted
+				votes[i].Count[j] = nVotes
 			}
 		}
 	}
@@ -200,6 +204,7 @@ func (r *repairer) repairAll(ctx context.Context,
 		if lastTimes[i].Deleted { // conflict
 			nDeletions++
 			result[i] = nil
+			votes[contentIdx].Count[i] = 0
 		} else if contentIdx != lastTimes[i].S {
 			ms = append(ms, lastTimes[i])
 		} else {
@@ -209,7 +214,7 @@ func (r *repairer) repairAll(ctx context.Context,
 	if len(ms) > 0 { // fetch most recent objects
 		// partition by hostname
 		sort.SliceStable(ms, func(i, j int) bool { return ms[i].S < ms[j].S })
-		partitions := make([]int, 0, len(votes)-2)
+		partitions := make([]int, 0, len(votes))
 		pre := ms[0].S
 		for i, y := range ms {
 			if y.S != pre {
@@ -223,7 +228,8 @@ func (r *repairer) repairAll(ctx context.Context,
 		gr, ctx := errgroup.WithContext(ctx)
 		start := 0
 		for _, end := range partitions { // fetch diffs
-			receiver := votes[ms[start].S].Sender
+			rid := ms[start].S
+			receiver := votes[rid].Sender
 			query := make([]strfmt.UUID, end-start)
 			for j := 0; start < end; start++ {
 				query[j] = ids[ms[start].O]
@@ -232,54 +238,58 @@ func (r *repairer) repairAll(ctx context.Context,
 			start := start
 			gr.Go(func() error {
 				resp, err := cl.FullReads(ctx, receiver, r.class, shard, query)
-				if err != nil {
-					return err
-				}
 				for i, n := 0, len(query); i < n; i++ {
 					idx := ms[start-n+i].O
-					if lastTimes[idx].T != resp[i].UpdateTime() {
-						return fmt.Errorf("object %s changed on %s", ids[idx], receiver)
+					if err != nil || lastTimes[idx].T != resp[i].UpdateTime() {
+						votes[rid].Count[idx]--
+					} else {
+						result[idx] = resp[i].Object
 					}
-					result[idx] = resp[i].Object
 				}
 				return nil
 			})
-			if err := gr.Wait(); err != nil {
-				return nil, err
-			}
+
+		}
+		if err := gr.Wait(); err != nil {
+			return nil, err
 		}
 	}
 
 	// concurrent repairs
 	gr, ctx := errgroup.WithContext(ctx)
-	for _, vote := range votes {
+	for rid, vote := range votes {
 		query := make([]*objects.VObject, 0, len(ids)/2)
+		m := make(map[string]int, len(ids)/2) //
 		for j, x := range lastTimes {
-			if cTime := vote.UpdateTimeAt(j); x.T != cTime && !x.Deleted {
+			cTime := vote.UpdateTimeAt(j)
+			if x.T != cTime && !x.Deleted && result[j] != nil && vote.Count[j] == nVotes {
 				query = append(query, &objects.VObject{LatestObject: &result[j].Object, StaleUpdateTime: cTime})
+				m[string(result[j].ID())] = j
 			}
 		}
 		if len(query) == 0 {
 			continue
 		}
 		receiver := vote.Sender
+		rid := rid
 		gr.Go(func() error {
 			rs, err := cl.Overwrite(ctx, receiver, r.class, shard, query)
 			if err != nil {
-				return fmt.Errorf("node %q could not repair objects: %w", receiver, err)
+				for _, idx := range m {
+					votes[rid].Count[idx]--
+				}
+				return nil
 			}
 			for _, r := range rs {
 				if r.Err != "" {
-					return fmt.Errorf("object changed in the meantime on node %s: %s", receiver, r.Err)
+					if idx, ok := m[r.ID]; ok {
+						votes[rid].Count[idx]--
+					}
 				}
 			}
 			return nil
 		})
 	}
-	err := gr.Wait()
-	if nDeletions > 0 {
-		return result, errConflictExistOrDeleted
-	}
 
-	return result, err
+	return result, gr.Wait()
 }

@@ -39,7 +39,9 @@ type Object struct {
 	VectorLen         int           `json:"-"`
 	BelongsToNode     string        `json:"-"`
 	BelongsToShard    string        `json:"-"`
-	docID             uint64
+	IsConsistent      bool          `json:"-"`
+
+	docID uint64
 }
 
 func New(docID uint64) *Object {

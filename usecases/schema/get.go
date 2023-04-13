@@ -91,40 +91,25 @@ func (m *Manager) ShardingState(className string) *sharding.State {
 	return &copiedState
 }
 
-// ResolveParentNodes resolves the hostname for each node a shard belongs to
+// ResolveParentNodes gets all replicas for a specific class shard and resolves their names
 //
-// If the hostname cannot be resolved for a given node, the name of the node
-// is returned instead.
-func (m *Manager) ResolveParentNodes(class, shardName string,
-) (resolved, unresolved []string, err error) {
+// it returns map[node_name] node_address where node_address = "" if can't resolve node_name
+func (m *Manager) ResolveParentNodes(class, shardName string) (map[string]string, error) {
 	shard, ok := m.ShardingState(class).Physical[shardName]
 	if !ok {
-		return nil, nil, fmt.Errorf("sharding state not found")
+		return nil, fmt.Errorf("sharding state not found")
 	}
 
 	if len(shard.BelongsToNodes) == 0 {
-		return nil, nil, nil
+		return nil, nil
 	}
-	resolved = make([]string, 1, len(shard.BelongsToNodes))
-	thisNode := m.NodeName()
-	// Put this node first of the list
-	// So that the replicator can use this node as first active node
+
+	name2Addr := make(map[string]string, len(shard.BelongsToNodes))
 	for _, node := range shard.BelongsToNodes {
-		host, ok := m.clusterState.NodeHostname(node)
-		if ok && host != "" {
-			if thisNode == node {
-				resolved[0] = host
-				continue
-			}
-			resolved = append(resolved, host)
-		} else {
-			unresolved = append(unresolved, node)
-		}
+		host, _ := m.clusterState.NodeHostname(node)
+		name2Addr[node] = host
 	}
-	if resolved[0] == "" {
-		resolved = resolved[1:]
-	}
-	return
+	return name2Addr, nil
 }
 
 func (m *Manager) Nodes() []string {
