@@ -48,7 +48,7 @@ def compute_recall(a, b):
     ninter = sum( intersect )
     return ninter / a.size, intersect
 
-def get_dataset_counts(args):
+def unload_datasets(args):
     
     # Setup connection to local FVS api
     server = socket.gethostbyname(socket.gethostname())
@@ -73,13 +73,42 @@ def get_dataset_counts(args):
 
     # Print dataset count
     print("Getting total datasets...")
-    resp = gsi_datasets_apis.controllers_dataset_controller_get_datasets_list(allocation_token=Allocation_id)
-    print(f"\nNumber of datasets:{len(resp.datasets_list)}\n")
+    dsets = gsi_datasets_apis.controllers_dataset_controller_get_datasets_list(allocation_token=Allocation_id)
+    print(f"\nNumber of datasets:{len(dsets.datasets_list)}\n")
 
     # Print loaded dataset count
     print("Getting loaded datasets for allocation token: ", Allocation_id)
-    resp = gsi_boards_apis.controllers_boards_controller_get_allocations_list(Allocation_id)
-    print(F"\nNumber of loaded datasets: {len(resp.allocations_list[Allocation_id]['loadedDatasets'])}\n")
+    loaded = gsi_boards_apis.controllers_boards_controller_get_allocations_list(Allocation_id)
+    print(F"\nNumber of loaded datasets: {len(loaded.allocations_list[Allocation_id]['loadedDatasets'])}\n")
+
+    # Unloading all datasets
+    print("Unloading all loaded datasets...")
+    loaded = loaded.allocations_list["0b391a1a-b916-11ed-afcb-0242ac1c0002"]["loadedDatasets"]
+    for data in loaded:
+        dataset_id = data['datasetId']
+        resp = gsi_datasets_apis.controllers_dataset_controller_unload_dataset(
+                    UnloadDatasetRequest(allocation_id=Allocation_id, dataset_id=dataset_id), 
+                    allocation_token=Allocation_id)
+        if resp.status != 'ok':
+            print(f"error unloading dataset: {dataset_id}")
+
+    curr = gsi_boards_apis.controllers_boards_controller_get_allocations_list(Allocation_id)
+    print(f"Unloaded datasets, current loaded dataset count: {len(curr.allocations_list[Allocation_id]['loadedDatasets'])}\n")
+
+    # Full wipe: delete all datasets
+    wipe = input("would you like to delete all datasets? y/[n]: ")
+    if wipe == "y":
+        wipe = input("are you super sure? y/[n]: ")
+        if wipe == "y":
+            print("removing all datasets...")
+            for data in dsets.datasets_list:
+                dataset_id = data['id']
+                resp = gsi_datasets_apis.controllers_dataset_controller_remove_dataset(\
+                        dataset_id=dataset_id, allocation_token=Allocation_id)
+                if resp.status != "ok":
+                    print(f"Error removing dataset: {dataset_id}")
+    print("Done")
+
 
 def run_benchmark(args):
     '''Run a specific benchmark.'''
@@ -111,7 +140,6 @@ def run_benchmark(args):
     # Create FVS api objects
     config = swagger_client.configuration.Configuration()
     api_config = swagger_client.ApiClient(config)
-    gsi_boards_apis = swagger_client.BoardsApi(api_config)
     gsi_datasets_apis = swagger_client.DatasetsApi(api_config)
     gsi_dataset_apis = swagger_client.DatasetApi(api_config)
     gsi_search_apis = swagger_client.SearchApi(api_config)
@@ -282,7 +310,7 @@ if __name__ == "__main__":
 
     args = init_args()
 
-    get_dataset_counts(args)
+    unload_datasets(args)
     # run_benchmark(args)
 
     print("Done.")

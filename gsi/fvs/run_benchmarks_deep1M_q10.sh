@@ -24,7 +24,7 @@ GROUNDTRUTH="/mnt/nas1/fvs_benchmark_datasets/deep-1M-gt-10.npy"
 #
 if [ -f "$OUTPUT" ]; then
 	echo "Error:  The file $OUTPUT already exists.  Please move that file or use a file path that does not already exist."
-	exit 1
+	# exit 1
 fi
 
 # Make sure this script exists on any error going forward.
