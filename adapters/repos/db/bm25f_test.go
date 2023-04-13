@@ -244,39 +244,38 @@ func TestBM25FJourney(t *testing.T) {
 
 	// Check non-alpha search on string field
 
-	// String are by default not tokenized, so we can search for non-alpha characters
-	t.Run("bm25f stringfield non-alpha", func(t *testing.T) {
-		kwrStringField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "textField"}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
+	// text/field are tokenized entirely, so we can search for non-alpha characters
+	t.Run("bm25f textField non-alpha", func(t *testing.T) {
+		kwrTextField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "textField"}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
 		addit = additional.Properties{}
-		resStringField, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrStringField, nil, nil, addit, nil)
+		resTextField, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrTextField, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		// Print results
 		t.Log("--- Start results for textField search ---")
-		for _, r := range resStringField {
+		for _, r := range resTextField {
 			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
 
 		// Check results in correct order
-		require.Equal(t, uint64(7), resStringField[0].DocID())
+		require.Equal(t, uint64(7), resTextField[0].DocID())
 	})
 
-	// String and text fields are indexed differently, so this checks the string indexing and searching.  In particular,
-	// string fields are not lower-cased before indexing, so upper case searches must be passed through unchanged.
-	t.Run("bm25f stringfield caps", func(t *testing.T) {
-		kwrStringField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"textField"}, Query: "YELLING IS FUN"}
+	// text/field are not lower-cased before indexing, so upper case searches must be passed through unchanged.
+	t.Run("bm25f textField caps", func(t *testing.T) {
+		kwrTextField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"textField"}, Query: "YELLING IS FUN"}
 		addit := additional.Properties{}
-		resStringField, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrStringField, nil, nil, addit, nil)
+		resTextField, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrTextField, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		// Print results
 		t.Log("--- Start results for textField caps search ---")
-		for _, r := range resStringField {
+		for _, r := range resTextField {
 			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
 
 		// Check results in correct order
-		require.Equal(t, uint64(8), resStringField[0].DocID())
+		require.Equal(t, uint64(8), resTextField[0].DocID())
 	})
 
 	// Check basic text search WITH CAPS
