@@ -46,8 +46,9 @@ func TestNestedReferences(t *testing.T) {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},
@@ -57,8 +58,9 @@ func TestNestedReferences(t *testing.T) {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "onPlanet",
@@ -72,8 +74,9 @@ func TestNestedReferences(t *testing.T) {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "onContinent",
@@ -87,8 +90,9 @@ func TestNestedReferences(t *testing.T) {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "inCountry",
@@ -102,8 +106,9 @@ func TestNestedReferences(t *testing.T) {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "inCity",
@@ -525,7 +530,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
-	schema := schema.Schema{
+	sch := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
@@ -534,8 +539,9 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{"string"},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},
@@ -545,8 +551,9 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{"string"},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "toTarget",
@@ -572,7 +579,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("add required classes", func(t *testing.T) {
-		for _, class := range schema.Objects.Classes {
+		for _, class := range sch.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
 				err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 				require.Nil(t, err)
@@ -580,7 +587,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		}
 	})
 
-	schemaGetter.schema = schema
+	schemaGetter.schema = sch
 	targetID := strfmt.UUID("a4a92239-e748-4e55-bbbd-f606926619a7")
 	target2ID := strfmt.UUID("325084e7-4faa-43a5-b2b1-56e207be169a")
 	sourceID := strfmt.UUID("0826c61b-85c1-44ac-aebb-cfd07ace6a57")

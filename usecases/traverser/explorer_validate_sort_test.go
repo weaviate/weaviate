@@ -239,7 +239,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort: []filters.Sort{
-					{Path: []string{"string_prop"}, Order: "asc"},
+					{Path: []string{"text_prop"}, Order: "asc"},
 					{Path: nil, Order: "desce"},
 				},
 			},
@@ -252,7 +252,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort: []filters.Sort{
-					{Path: []string{"string_prop"}, Order: "asc"},
+					{Path: []string{"text_prop"}, Order: "asc"},
 					{Path: []string{}, Order: "asc"},
 				},
 			},
@@ -264,7 +264,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort: []filters.Sort{
-					{Path: []string{"string_prop"}, Order: "asc"},
+					{Path: []string{"text_prop"}, Order: "asc"},
 					{Path: []string{"nonexistentproperty2"}, Order: "asc"},
 				},
 			},
@@ -278,7 +278,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort: []filters.Sort{
-					{Path: []string{"string_prop"}, Order: "asc"},
+					{Path: []string{"text_prop"}, Order: "asc"},
 					{Path: []string{"ref_prop"}, Order: "desc"},
 				},
 			},
@@ -292,7 +292,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort: []filters.Sort{
-					{Path: []string{"string_prop"}, Order: "asc"},
+					{Path: []string{"text_prop"}, Order: "asc"},
 					{Path: []string{"ref", "prop"}, Order: "asc"},
 				},
 			},
@@ -306,7 +306,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort: []filters.Sort{
-					{Path: []string{"string_prop"}, Order: "asc"},
+					{Path: []string{"text_prop"}, Order: "asc"},
 					{Path: []string{"ref_prop"}, Order: "asc"},
 					{Path: []string{"ref", "prop"}, Order: "asc"},
 				},
@@ -323,14 +323,14 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 
 	properSortFilters := []testData{
 		{
-			name: "sort by string_prop",
+			name: "sort by text_prop",
 			params: dto.GetParams{
 				ClassName: "ClassOne",
 				NearVector: &searchparams.NearVector{
 					Vector: []float32{0.8, 0.2, 0.7},
 				},
 				Sort: []filters.Sort{
-					{Path: []string{"string_prop"}, Order: "asc"},
+					{Path: []string{"text_prop"}, Order: "asc"},
 				},
 			},
 		},

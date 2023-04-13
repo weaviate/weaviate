@@ -59,8 +59,8 @@ func TestSortValidation(t *testing.T) {
 					{
 						Class: "Car",
 						Properties: []*models.Property{
-							{Name: "modelName", DataType: []string{"string"}},
-							{Name: "manufacturerName", DataType: []string{"string"}},
+							{Name: "modelName", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
+							{Name: "manufacturerName", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
 							{Name: "horsepower", DataType: []string{"int"}},
 							{Name: "my_id", DataType: []string{"uuid"}},
 							{Name: "my_idz", DataType: []string{"uuid[]"}},

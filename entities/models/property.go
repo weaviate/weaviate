@@ -46,8 +46,8 @@ type Property struct {
 	// Name of the property as URI relative to the schema URL.
 	Name string `json:"name,omitempty"`
 
-	// Determines tokenization of the property as separate words or whole field. Optional. Applies to string, string[], text and text[] data types. Allowed values are `word` (default) and `field` for string and string[], `word` (default) for text and text[]. Not supported for remaining data types
-	// Enum: [word field]
+	// Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are `word` (default; splits on any non-alphanumerical, lowercases), `lowercase` (splits on white spaces, lowercases), `whitespace` (splits on white spaces), `field` (trims). Not supported for remaining data types
+	// Enum: [word lowercase whitespace field]
 	Tokenization string `json:"tokenization,omitempty"`
 }
 
@@ -69,7 +69,7 @@ var propertyTypeTokenizationPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["word","field"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["word","lowercase","whitespace","field"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -81,6 +81,12 @@ const (
 
 	// PropertyTokenizationWord captures enum value "word"
 	PropertyTokenizationWord string = "word"
+
+	// PropertyTokenizationLowercase captures enum value "lowercase"
+	PropertyTokenizationLowercase string = "lowercase"
+
+	// PropertyTokenizationWhitespace captures enum value "whitespace"
+	PropertyTokenizationWhitespace string = "whitespace"
 
 	// PropertyTokenizationField captures enum value "field"
 	PropertyTokenizationField string = "field"

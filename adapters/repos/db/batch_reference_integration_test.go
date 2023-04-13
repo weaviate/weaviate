@@ -65,8 +65,8 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 					Properties: []*models.Property{
 						{
 							Name:         "name",
-							DataType:     []string{"string"},
-							Tokenization: "word",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},
@@ -77,8 +77,8 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 					Properties: []*models.Property{
 						{
 							Name:         "name",
-							DataType:     []string{"string"},
-							Tokenization: "word",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "toTarget",
@@ -318,7 +318,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				},
 				Value: &filters.Value{
 					Value: "item",
-					Type:  dtString,
+					Type:  schema.DataTypeText,
 				},
 			},
 		}

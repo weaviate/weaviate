@@ -43,7 +43,7 @@ func TestRefFinder(t *testing.T) {
 						Properties: []*models.Property{
 							{
 								Name:     "model",
-								DataType: []string{string(schema.DataTypeString)},
+								DataType: schema.DataTypeText.PropString(),
 							},
 						},
 					},
@@ -52,7 +52,7 @@ func TestRefFinder(t *testing.T) {
 						Properties: []*models.Property{
 							{
 								Name:     "kind",
-								DataType: []string{string(schema.DataTypeString)},
+								DataType: schema.DataTypeText.PropString(),
 							},
 						},
 					},
@@ -75,7 +75,7 @@ func TestRefFinder(t *testing.T) {
 						Properties: []*models.Property{
 							{
 								Name:     "model",
-								DataType: []string{string(schema.DataTypeString)},
+								DataType: schema.DataTypeText.PropString(),
 							},
 						},
 					},
@@ -84,7 +84,7 @@ func TestRefFinder(t *testing.T) {
 						Properties: []*models.Property{
 							{
 								Name:     "kind",
-								DataType: []string{string(schema.DataTypeString)},
+								DataType: schema.DataTypeText.PropString(),
 							},
 						},
 					},
@@ -93,7 +93,7 @@ func TestRefFinder(t *testing.T) {
 						Properties: []*models.Property{
 							{
 								Name:     "destination",
-								DataType: []string{string(schema.DataTypeString)},
+								DataType: schema.DataTypeText.PropString(),
 							},
 						},
 					},
@@ -102,7 +102,7 @@ func TestRefFinder(t *testing.T) {
 						Properties: []*models.Property{
 							{
 								Name:     "destination",
-								DataType: []string{string(schema.DataTypeString)},
+								DataType: schema.DataTypeText.PropString(),
 							},
 							{
 								Name:     "vehicle",
@@ -138,7 +138,7 @@ func TestRefFinder(t *testing.T) {
 						Properties: []*models.Property{
 							{
 								Name:     "name",
-								DataType: []string{string(schema.DataTypeString)},
+								DataType: schema.DataTypeText.PropString(),
 							},
 							{
 								Name:     "hasOwner",
@@ -151,7 +151,7 @@ func TestRefFinder(t *testing.T) {
 						Properties: []*models.Property{
 							{
 								Name:     "model",
-								DataType: []string{string(schema.DataTypeString)},
+								DataType: schema.DataTypeText.PropString(),
 							},
 						},
 					},
@@ -160,7 +160,7 @@ func TestRefFinder(t *testing.T) {
 						Properties: []*models.Property{
 							{
 								Name:     "name",
-								DataType: []string{string(schema.DataTypeString)},
+								DataType: schema.DataTypeText.PropString(),
 							},
 							{
 								Name:     "travels",
@@ -177,7 +177,7 @@ func TestRefFinder(t *testing.T) {
 						Properties: []*models.Property{
 							{
 								Name:     "destination",
-								DataType: []string{string(schema.DataTypeString)},
+								DataType: schema.DataTypeText.PropString(),
 							},
 							{
 								Name:     "vehicle",

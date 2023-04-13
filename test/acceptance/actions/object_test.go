@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -47,8 +48,9 @@ func TestFindObject(t *testing.T) {
 		Vectorizer: "none",
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{"string"},
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 			{
 				Name:     "friend",
@@ -94,8 +96,9 @@ func TestHeadObject(t *testing.T) {
 		Vectorizer: "none",
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{"string"},
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 	})
@@ -137,8 +140,9 @@ func TestPutObject(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     "testString",
-				DataType: []string{"string"},
+				Name:         "testString",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 			{
 				Name:     "testWholeNumber",
@@ -219,8 +223,9 @@ func TestPatchObject(t *testing.T) {
 		ModuleConfig: mconfig,
 		Properties: []*models.Property{
 			{
-				Name:     "string1",
-				DataType: []string{"string"},
+				Name:         "string1",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 			{
 				Name:     "integer1",

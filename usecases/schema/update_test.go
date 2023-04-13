@@ -90,7 +90,7 @@ func TestClassUpdates(t *testing.T) {
 					Properties: []*models.Property{
 						{
 							Name:     "aProp",
-							DataType: []string{"string"},
+							DataType: schema.DataTypeText.PropString(),
 						},
 					},
 				},
@@ -99,7 +99,7 @@ func TestClassUpdates(t *testing.T) {
 					Properties: []*models.Property{
 						{
 							Name:     "aProp",
-							DataType: []string{"string"},
+							DataType: schema.DataTypeText.PropString(),
 						},
 					},
 				},
@@ -112,7 +112,7 @@ func TestClassUpdates(t *testing.T) {
 					Properties: []*models.Property{
 						{
 							Name:     "aProp",
-							DataType: []string{"string"},
+							DataType: schema.DataTypeText.PropString(),
 						},
 					},
 				},
@@ -121,7 +121,7 @@ func TestClassUpdates(t *testing.T) {
 					Properties: []*models.Property{
 						{
 							Name:     "changedProp",
-							DataType: []string{"string"},
+							DataType: schema.DataTypeText.PropString(),
 						},
 					},
 				},

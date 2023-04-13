@@ -90,8 +90,9 @@ var CarSchema = schema.Schema{
 				Class: "Manufacturer",
 				Properties: []*models.Property{
 					{
-						Name:     "name",
-						DataType: []string{"string"},
+						Name:         "name",
+						DataType:     schema.DataTypeText.PropString(),
+						Tokenization: models.PropertyTokenizationWhitespace,
 					},
 				},
 			},
@@ -107,8 +108,9 @@ var CarSchema = schema.Schema{
 						DataType: []string{"number"},
 					},
 					{
-						Name:     "modelName",
-						DataType: []string{"string"},
+						Name:         "modelName",
+						DataType:     schema.DataTypeText.PropString(),
+						Tokenization: models.PropertyTokenizationWhitespace,
 					},
 					{
 						Name:     "madeBy",

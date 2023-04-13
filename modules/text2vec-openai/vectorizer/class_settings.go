@@ -217,8 +217,7 @@ func (cs *classSettings) validateIndexState(class *models.Class, settings ClassS
 				"got %v", prop.Name, prop.DataType)
 		}
 
-		if prop.DataType[0] != string(schema.DataTypeString) &&
-			prop.DataType[0] != string(schema.DataTypeText) {
+		if prop.DataType[0] != string(schema.DataTypeText) {
 			// we can only vectorize text-like props
 			continue
 		}

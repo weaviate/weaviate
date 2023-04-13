@@ -16,13 +16,14 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func TestConfig_AutoSchema(t *testing.T) {
 	t.Run("invalid DefaultNumber", func(t *testing.T) {
 		auth := AutoSchema{
 			DefaultNumber: "float",
-			DefaultString: "string",
+			DefaultString: schema.DataTypeText.String(),
 			DefaultDate:   "date",
 		}
 		expected := fmt.Errorf("autoSchema.defaultNumber must be either 'int' or 'number")
@@ -44,7 +45,7 @@ func TestConfig_AutoSchema(t *testing.T) {
 	t.Run("invalid DefaultDate", func(t *testing.T) {
 		auth := AutoSchema{
 			DefaultNumber: "int",
-			DefaultString: "string",
+			DefaultString: schema.DataTypeText.String(),
 			DefaultDate:   "int",
 		}
 		expected := fmt.Errorf("autoSchema.defaultDate must be either 'date' or 'string' or 'text")
@@ -55,7 +56,7 @@ func TestConfig_AutoSchema(t *testing.T) {
 	t.Run("all valid AutoSchema configurations", func(t *testing.T) {
 		auth := AutoSchema{
 			DefaultNumber: "int",
-			DefaultString: "string",
+			DefaultString: schema.DataTypeText.String(),
 			DefaultDate:   "date",
 		}
 		err := auth.Validate()

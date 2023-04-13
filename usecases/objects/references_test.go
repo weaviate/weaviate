@@ -681,8 +681,9 @@ func articleSchemaForTest() schema.Schema {
 					VectorIndexConfig: hnsw.UserConfig{},
 					Properties: []*models.Property{
 						{
-							Name:     "title",
-							DataType: []string{"string"},
+							Name:         "title",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "hasParagraphs",
@@ -711,8 +712,9 @@ func zooAnimalSchemaForTest() schema.Schema {
 					VectorIndexConfig: hnsw.UserConfig{},
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{"string"},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "area",
@@ -741,8 +743,9 @@ func zooAnimalSchemaForTest() schema.Schema {
 					VectorIndexConfig: hnsw.UserConfig{},
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{"string"},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},
@@ -751,8 +754,9 @@ func zooAnimalSchemaForTest() schema.Schema {
 					VectorIndexConfig: hnsw.UserConfig{},
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{"string"},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "area",
@@ -785,8 +789,9 @@ func zooAnimalSchemaForTest() schema.Schema {
 					VectorIndexConfig: hnsw.UserConfig{},
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{"string"},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},

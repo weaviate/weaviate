@@ -13,11 +13,14 @@ package schema
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func Test_Validation_ClassNames(t *testing.T) {
@@ -244,7 +247,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Vectorizer: "text2vec-contextionary",
 						Class:      "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
+							DataType: schema.DataTypeText.PropString(),
 							Name:     test.input,
 						}},
 					}
@@ -273,7 +276,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Vectorizer: "text2vec-contextionary",
 						Class:      "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
+							DataType: schema.DataTypeText.PropString(),
 							Name:     test.input,
 						}},
 					}
@@ -306,7 +309,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Properties: []*models.Property{
 							{
 								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
-								DataType: []string{"string"},
+								DataType: schema.DataTypeText.PropString(),
 							},
 						},
 					}
@@ -316,7 +319,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					require.Nil(t, err)
 
 					property := &models.Property{
-						DataType: []string{"string"},
+						DataType: schema.DataTypeText.PropString(),
 						Name:     test.input,
 						ModuleConfig: map[string]interface{}{
 							"text2vec-contextionary": map[string]interface{}{},
@@ -345,7 +348,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Vectorizer: "text2vec-contextionary",
 						Class:      "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
+							DataType: schema.DataTypeText.PropString(),
 							Name:     test.input,
 						}},
 					}
@@ -367,4 +370,170 @@ func Test_Validation_PropertyNames(t *testing.T) {
 			}
 		})
 	})
+}
+
+func Test_Validation_Tokenization(t *testing.T) {
+	type testCase struct {
+		name             string
+		tokenization     string
+		propertyDataType schema.PropertyDataType
+		expectedErrMsg   string
+	}
+
+	runTestCases := func(t *testing.T, testCases []testCase) {
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				err := validatePropertyTokenization(tc.tokenization, tc.propertyDataType)
+				if tc.expectedErrMsg == "" {
+					assert.Nil(t, err)
+				} else {
+					assert.NotNil(t, err)
+					assert.EqualError(t, err, tc.expectedErrMsg)
+				}
+			})
+		}
+	}
+
+	t.Run("validates text/textArray and all tokenizations", func(t *testing.T) {
+		testCases := []testCase{}
+		for _, dataType := range []schema.DataType{
+			schema.DataTypeText, schema.DataTypeTextArray,
+		} {
+			for _, tokenization := range helpers.Tokenizations {
+				testCases = append(testCases, testCase{
+					name:             fmt.Sprintf("%s + '%s'", dataType, tokenization),
+					propertyDataType: newFakePropertyDataType(dataType),
+					tokenization:     tokenization,
+					expectedErrMsg:   "",
+				})
+			}
+
+			for _, tokenization := range []string{"non_existing", ""} {
+				testCases = append(testCases, testCase{
+					name:             fmt.Sprintf("%s + '%s'", dataType, tokenization),
+					propertyDataType: newFakePropertyDataType(dataType),
+					tokenization:     tokenization,
+					expectedErrMsg:   fmt.Sprintf("Tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
+				})
+			}
+		}
+
+		runTestCases(t, testCases)
+	})
+
+	t.Run("validates non text/textArray and all tokenizations", func(t *testing.T) {
+		testCases := []testCase{}
+		for _, dataType := range schema.PrimitiveDataTypes {
+			switch dataType {
+			case schema.DataTypeText, schema.DataTypeTextArray:
+				continue
+			default:
+				testCases = append(testCases, testCase{
+					name:             fmt.Sprintf("%s + ''", dataType),
+					propertyDataType: newFakePropertyDataType(dataType),
+					tokenization:     "",
+					expectedErrMsg:   "",
+				})
+
+				for _, tokenization := range append(helpers.Tokenizations, "non_existing") {
+					testCases = append(testCases, testCase{
+						name:             fmt.Sprintf("%s + '%s'", dataType, tokenization),
+						propertyDataType: newFakePropertyDataType(dataType),
+						tokenization:     tokenization,
+						expectedErrMsg:   fmt.Sprintf("Tokenization is not allowed for data type '%s'", dataType),
+					})
+				}
+			}
+		}
+
+		runTestCases(t, testCases)
+	})
+
+	t.Run("validates ref datatype (empty) and all tokenizations", func(t *testing.T) {
+		testCases := []testCase{}
+
+		testCases = append(testCases, testCase{
+			name:             "ref + ''",
+			propertyDataType: newFakePropertyDataType(""),
+			tokenization:     "",
+			expectedErrMsg:   "",
+		})
+
+		for _, tokenization := range append(helpers.Tokenizations, "non_existing") {
+			testCases = append(testCases, testCase{
+				name:             fmt.Sprintf("ref + '%s'", tokenization),
+				propertyDataType: newFakePropertyDataType(""),
+				tokenization:     tokenization,
+				expectedErrMsg:   "Tokenization is not allowed for reference data type",
+			})
+		}
+
+		runTestCases(t, testCases)
+	})
+
+	t.Run("[deprecated string] validates string/stringArray and all tokenizations", func(t *testing.T) {
+		testCases := []testCase{}
+		for _, dataType := range []schema.DataType{
+			schema.DataTypeString, schema.DataTypeStringArray,
+		} {
+			for _, tokenization := range append(helpers.Tokenizations, "non_existing") {
+				switch tokenization {
+				case models.PropertyTokenizationWord, models.PropertyTokenizationField:
+					testCases = append(testCases, testCase{
+						name:             fmt.Sprintf("%s + %s", dataType, tokenization),
+						propertyDataType: newFakePropertyDataType(dataType),
+						tokenization:     tokenization,
+						expectedErrMsg:   "",
+					})
+				default:
+					testCases = append(testCases, testCase{
+						name:             fmt.Sprintf("%s + %s", dataType, tokenization),
+						propertyDataType: newFakePropertyDataType(dataType),
+						tokenization:     tokenization,
+						expectedErrMsg:   fmt.Sprintf("Tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
+					})
+				}
+			}
+		}
+
+		runTestCases(t, testCases)
+	})
+}
+
+type fakePropertyDataType struct {
+	primitiveDataType schema.DataType
+}
+
+func newFakePropertyDataType(primitiveDataType schema.DataType) schema.PropertyDataType {
+	return &fakePropertyDataType{primitiveDataType}
+}
+
+func (pdt *fakePropertyDataType) Kind() schema.PropertyKind {
+	if pdt.IsPrimitive() {
+		return schema.PropertyKindPrimitive
+	}
+	return schema.PropertyKindRef
+}
+
+func (pdt *fakePropertyDataType) IsPrimitive() bool {
+	return pdt.primitiveDataType != ""
+}
+
+func (pdt *fakePropertyDataType) AsPrimitive() schema.DataType {
+	return pdt.primitiveDataType
+}
+
+func (pdt *fakePropertyDataType) IsReference() bool {
+	return !pdt.IsPrimitive()
+}
+
+func (pdt *fakePropertyDataType) Classes() []schema.ClassName {
+	if pdt.IsPrimitive() {
+		return nil
+	}
+	return []schema.ClassName{}
+}
+
+func (pdt *fakePropertyDataType) ContainsClass(name schema.ClassName) bool {
+	return false
 }

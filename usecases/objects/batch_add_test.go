@@ -419,8 +419,9 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 
 					Properties: []*models.Property{
 						{
-							Name:     "strings",
-							DataType: []string{"string[]"},
+							Name:         "strings",
+							DataType:     schema.DataTypeTextArray.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},
