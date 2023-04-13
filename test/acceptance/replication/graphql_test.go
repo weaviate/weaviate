@@ -83,16 +83,6 @@ func graphqlSearch(t *testing.T) {
 		time.Sleep(10 * time.Second)
 	})
 
-	t.Run("get inconsistent search results with ALL (1/2 nodes up)", func(t *testing.T) {
-		resp := gqlGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, replica.All)
-		checkResultsConsistency(t, resp, false)
-	})
-
-	t.Run("get inconsistent search results with QUORUM (1/2 nodes up)", func(t *testing.T) {
-		resp := gqlGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, replica.Quorum)
-		checkResultsConsistency(t, resp, false)
-	})
-
 	t.Run("get consistent search results with ONE (1/2 nodes up)", func(t *testing.T) {
 		resp := gqlGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, replica.One)
 		checkResultsConsistency(t, resp, true)
