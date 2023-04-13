@@ -248,3 +248,9 @@ func (s *Searcher) getHashBucket(pv *propValuePair) (*lsmkv.Bucket, error) {
 	}
 	return hashBucket, nil
 }
+
+func copyBytes(in []byte) []byte {
+	out := make([]byte, len(in))
+	copy(out, in)
+	return out
+}
