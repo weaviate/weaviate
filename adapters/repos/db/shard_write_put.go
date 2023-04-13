@@ -48,7 +48,7 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		}
 	}
 
-	status, err := s.putObjectLSM(object, uuid, false)
+	status, err := s.putObjectLSM(object, uuid)
 	if err != nil {
 		return errors.Wrap(err, "store object in LSM store")
 	}
@@ -121,8 +121,7 @@ func (s *Shard) updateVectorIndex(vector []float32,
 	return nil
 }
 
-func (s *Shard) putObjectLSM(object *storobj.Object,
-	idBytes []byte, skipInverted bool,
+func (s *Shard) putObjectLSM(object *storobj.Object, idBytes []byte,
 ) (objectInsertStatus, error) {
 	before := time.Now()
 	defer s.metrics.PutObject(before)
@@ -161,13 +160,11 @@ func (s *Shard) putObjectLSM(object *storobj.Object,
 	lock.Unlock()
 	s.metrics.PutObjectUpsertObject(before)
 
-	if !skipInverted {
-		before = time.Now()
-		if err := s.updateInvertedIndexLSM(object, status, previous); err != nil {
-			return status, errors.Wrap(err, "update inverted indices")
-		}
-		s.metrics.PutObjectUpdateInverted(before)
+	before = time.Now()
+	if err := s.updateInvertedIndexLSM(object, status, previous); err != nil {
+		return status, errors.Wrap(err, "update inverted indices")
 	}
+	s.metrics.PutObjectUpdateInverted(before)
 
 	return status, nil
 }
