@@ -144,10 +144,10 @@ class ApiClient(object):
         # request url
         url = self.configuration.host + resource_path
 
-
-        print("CALL API", "method=", method, "url=", url, "qp=", query_params, 
-            "headers", header_params, "post_params", post_params,
-            "body", body, "preload", _preload_content)
+        if os.getenv("GEMINI_SWAGGER_VERBOSE"):
+            print("CALL API", "method=", method, "url=", url, "qp=", query_params, 
+                "headers", header_params, "post_params", post_params,
+                "body", body, "preload", _preload_content)
 
         # perform request and return response
         response_data = self.request(
