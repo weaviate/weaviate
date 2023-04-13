@@ -247,8 +247,7 @@ func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 	})
 }
 
-// Testing the switch from the old property length tracker to the new one
-
+// Testing the switch from the old property length tracker to the new one 
 func TestFormatConversion(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()

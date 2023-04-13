@@ -28,6 +28,7 @@ type JsonPropertyLengthTracker struct {
 	path string
 	data PropLenData
 	sync.Mutex
+	UnlimitedBuckets bool
 }
 
 // This class replaces the old PropertyLengthTracker.  It fixes a bug and provides a
@@ -43,6 +44,7 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 	t := &JsonPropertyLengthTracker{
 		data: PropLenData{make(map[string]map[int]int)},
 		path: path,
+		UnlimitedBuckets: true,
 	}
 
 	// read the file into memory
@@ -115,6 +117,9 @@ func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32
 }
 
 func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) int {
+	if t.UnlimitedBuckets {
+		return int(value)
+	}
 	if value <= 5.00 {
 		return int(value) - 1
 	}
@@ -127,6 +132,9 @@ func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) int {
 }
 
 func (t *JsonPropertyLengthTracker) valueFromBucket(bucket int) float32 {
+	if t.UnlimitedBuckets {
+		return float32(bucket)
+	}
 	if bucket <= 5 {
 		return float32(bucket + 1)
 	}
@@ -166,6 +174,18 @@ func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, erro
 func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, float64, error) {
 	t.Lock()
 	defer t.Unlock()
+
+	if t.UnlimitedBuckets {
+		sum :=0
+		tally := 0
+
+		for bucket, count := range t.data.BucketedData[propName] {
+			tally += count
+			sum += bucket * count
+		}
+		return sum, tally, float64(sum) / float64(tally), nil
+	}
+
 
 	bucket, ok := t.data.BucketedData[propName]
 	if !ok {
