@@ -1,0 +1,12 @@
+ignore:
+  - "client/"
+  - "cmd/weaviate-server/main.go$"
+  - "test/"
+  - "entities/models/"
+  - "adapters/handlers/rest/operations/"
+  - "adapters/handlers/rest/doc.go$"
+  - "adapters/handlers/rest/embedded_spec.go$"
+  - "adapters/handlers/rest/server.go$"
+  - "adapters/repos/db/vector/hnsw/distancer/asm/"
+  - "deprecations/data.go$"
+  - "deprecations/gen.go$"
