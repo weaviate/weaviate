@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 PROJECT=semi-automated-benchmarking
 ZONE=us-central1-a

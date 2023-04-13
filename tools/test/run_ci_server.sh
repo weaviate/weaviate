@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
 
 # This scripts starts a Weaviate server with the test scheme and waits until weaviate is up and running.
