@@ -259,8 +259,9 @@ func updateTestClass() *models.Class {
 				Name:     "intProp",
 			},
 			{
-				DataType: []string{string(schema.DataTypeString)},
-				Name:     "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+				Name:         "name",
 			},
 		},
 	}

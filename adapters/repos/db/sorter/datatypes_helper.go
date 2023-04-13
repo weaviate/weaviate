@@ -37,7 +37,7 @@ func (h *dataTypesHelper) getStrings(propName string) []string {
 
 func (h *dataTypesHelper) find(propName string) []string {
 	if propName == filters.InternalPropID || propName == filters.InternalPropBackwardsCompatID {
-		return []string{string(schema.DataTypeString)}
+		return schema.DataTypeText.PropString()
 	}
 	if propName == filters.InternalPropCreationTimeUnix || propName == filters.InternalPropLastUpdateTimeUnix {
 		return []string{string(schema.DataTypeInt)}

@@ -20,7 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/models"
-	sch "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/multishard"
@@ -123,8 +123,9 @@ func addTestSchema(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{"string"},
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 	})
@@ -143,8 +144,9 @@ func addTestSchema(t *testing.T) {
 		InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: true, IndexPropertyLength: true, IndexTimestamps: true},
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{"string"},
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 				ModuleConfig: map[string]interface{}{
 					"text2vec-contextionary": map[string]interface{}{
 						"skip": false,
@@ -206,8 +208,9 @@ func addTestSchema(t *testing.T) {
 				},
 			},
 			{
-				Name:     "timezones",
-				DataType: []string{"string[]"},
+				Name:         "timezones",
+				DataType:     schema.DataTypeTextArray.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 				ModuleConfig: map[string]interface{}{
 					"text2vec-contextionary": map[string]interface{}{
 						"skip": true,
@@ -260,8 +263,9 @@ func addTestSchema(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     "code",
-				DataType: []string{"string"},
+				Name:         "code",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 			{
 				Name:     "phone",
@@ -287,8 +291,9 @@ func addTestSchema(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{"string"},
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 				ModuleConfig: map[string]interface{}{
 					"text2vec-contextionary": map[string]interface{}{
 						"vectorizePropertyName": false,
@@ -316,8 +321,9 @@ func addTestSchema(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{"string"},
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 				ModuleConfig: map[string]interface{}{
 					"text2vec-contextionary": map[string]interface{}{
 						"vectorizePropertyName": false,
@@ -335,7 +341,7 @@ func addTestSchema(t *testing.T) {
 			},
 			{
 				Name:         "profession",
-				DataType:     []string{string(sch.DataTypeString)},
+				DataType:     schema.DataTypeText.PropString(),
 				Tokenization: models.PropertyTokenizationField,
 				ModuleConfig: map[string]interface{}{
 					"text2vec-contextionary": map[string]interface{}{
@@ -345,7 +351,7 @@ func addTestSchema(t *testing.T) {
 			},
 			{
 				Name:         "about",
-				DataType:     []string{string(sch.DataTypeStringArray)},
+				DataType:     schema.DataTypeTextArray.PropString(),
 				Tokenization: models.PropertyTokenizationField,
 				ModuleConfig: map[string]interface{}{
 					"text2vec-contextionary": map[string]interface{}{
@@ -366,7 +372,7 @@ func addTestSchema(t *testing.T) {
 		Properties: []*models.Property{
 			{
 				Name:         "name",
-				DataType:     []string{string(sch.DataTypeString)},
+				DataType:     schema.DataTypeText.PropString(),
 				Tokenization: models.PropertyTokenizationField,
 				ModuleConfig: map[string]interface{}{
 					"text2vec-contextionary": map[string]interface{}{
@@ -376,7 +382,7 @@ func addTestSchema(t *testing.T) {
 			},
 			{
 				Name:         "description",
-				DataType:     []string{string(sch.DataTypeText)},
+				DataType:     []string{string(schema.DataTypeText)},
 				Tokenization: models.PropertyTokenizationWord,
 				ModuleConfig: map[string]interface{}{
 					"text2vec-contextionary": map[string]interface{}{
@@ -396,8 +402,9 @@ func addTestSchema(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     "contents",
-				DataType: []string{"string"},
+				Name:         "contents",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 	})
@@ -413,16 +420,18 @@ func addTestSchema(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     "unique",
-				DataType: []string{"string"},
+				Name:         "unique",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 			{
 				Name:     "timestamp",
 				DataType: []string{"date"},
 			},
 			{
-				Name:     "identical",
-				DataType: []string{"string"},
+				Name:         "identical",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 	})
@@ -432,8 +441,9 @@ func addTestSchema(t *testing.T) {
 		Vectorizer: "none",
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{"string"},
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 	})
@@ -948,8 +958,9 @@ func addTestDataNearObjectSearch(t *testing.T) {
 			},
 			Properties: []*models.Property{
 				{
-					Name:     "name",
-					DataType: []string{"string"},
+					Name:         "name",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				},
 			},
 		})
@@ -1032,8 +1043,9 @@ func addTestDataCursorSearch(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{"string"},
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 	})

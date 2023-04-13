@@ -29,9 +29,7 @@ func TestDataTypesHelper(t *testing.T) {
 			propName string
 			expected []string
 		}{
-			{"stringProp", []string{string(schema.DataTypeString)}},
 			{"textProp", []string{string(schema.DataTypeText)}},
-			{"stringPropArray", []string{string(schema.DataTypeStringArray)}},
 			{"textPropArray", []string{string(schema.DataTypeTextArray)}},
 			{"intProp", []string{string(schema.DataTypeInt)}},
 			{"numberProp", []string{string(schema.DataTypeNumber)}},
@@ -58,9 +56,7 @@ func TestDataTypesHelper(t *testing.T) {
 			propName string
 			expected schema.DataType
 		}{
-			{"stringProp", schema.DataTypeString},
 			{"textProp", schema.DataTypeText},
-			{"stringPropArray", schema.DataTypeStringArray},
 			{"textPropArray", schema.DataTypeTextArray},
 			{"intProp", schema.DataTypeInt},
 			{"numberProp", schema.DataTypeNumber},

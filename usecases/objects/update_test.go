@@ -47,8 +47,9 @@ func Test_UpdateAction(t *testing.T) {
 					VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 					Properties: []*models.Property{
 						{
-							DataType: []string{"string"},
-							Name:     "foo",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
+							Name:         "foo",
 						},
 					},
 				},
@@ -136,8 +137,9 @@ func Test_UpdateObject(t *testing.T) {
 					VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 					Properties: []*models.Property{
 						{
-							DataType: []string{"string"},
-							Name:     "foo",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
+							Name:         "foo",
 						},
 					},
 				},

@@ -180,9 +180,7 @@ func (cv *ConfigValidator) validateIndexState(ctx context.Context,
 				"got %v", prop.Name, prop.DataType)
 		}
 
-		if prop.DataType[0] != string(schema.DataTypeString) &&
-			prop.DataType[0] != string(schema.DataTypeText) &&
-			prop.DataType[0] != string(schema.DataTypeStringArray) &&
+		if prop.DataType[0] != string(schema.DataTypeText) &&
 			prop.DataType[0] != string(schema.DataTypeTextArray) {
 			// we can only vectorize text-like props
 			continue
@@ -217,8 +215,7 @@ func (cv *ConfigValidator) checkForPossibilityOfDuplicateVectors(
 	// search if there is at least one indexed, string/text prop. If found exit
 	for _, prop := range class.Properties {
 		// length check skipped, because validation has already passed
-		if prop.DataType[0] != string(schema.DataTypeString) &&
-			prop.DataType[0] != string(schema.DataTypeText) {
+		if prop.DataType[0] != string(schema.DataTypeText) {
 			// we can only vectorize text-like props
 			continue
 		}

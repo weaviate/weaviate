@@ -18,8 +18,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/client/schema"
+	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -44,10 +45,10 @@ func TestInvalidDataTypeInProperty(t *testing.T) {
 			},
 		}
 
-		params := schema.NewSchemaObjectsCreateParams().WithObjectClass(c)
+		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
 		resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 		helper.AssertRequestFail(t, resp, err, func() {
-			parsed, ok := err.(*schema.SchemaObjectsCreateUnprocessableEntity)
+			parsed, ok := err.(*clschema.SchemaObjectsCreateUnprocessableEntity)
 			require.True(t, ok, "error should be unprocessable entity")
 			assert.Equal(t, "property 'someProperty': invalid dataType: dataType cannot be an empty string",
 				parsed.Payload.Error[0].Message)
@@ -68,16 +69,17 @@ func TestInvalidPropertyName(t *testing.T) {
 			Class: className,
 			Properties: []*models.Property{
 				{
-					Name:     "some-property",
-					DataType: []string{"string"},
+					Name:         "some-property",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				},
 			},
 		}
 
-		params := schema.NewSchemaObjectsCreateParams().WithObjectClass(c)
+		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
 		resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 		helper.AssertRequestFail(t, resp, err, func() {
-			parsed, ok := err.(*schema.SchemaObjectsCreateUnprocessableEntity)
+			parsed, ok := err.(*clschema.SchemaObjectsCreateUnprocessableEntity)
 			require.True(t, ok, "error should be unprocessable entity")
 			assert.Equal(t, "'some-property' is not a valid property name. Property names in Weaviate "+
 				"are restricted to valid GraphQL names, which must be “/[_A-Za-z][_0-9A-Za-z]*/”.",
@@ -103,7 +105,7 @@ func TestAddAndRemoveObjectClass(t *testing.T) {
 	}
 
 	t.Log("Creating class")
-	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(tc)
+	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(tc)
 	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 
@@ -114,7 +116,7 @@ func TestAddAndRemoveObjectClass(t *testing.T) {
 
 	// Now clean up this class.
 	t.Log("Remove the class")
-	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(randomObjectClassName)
+	delParams := clschema.NewSchemaObjectsDeleteParams().WithClassName(randomObjectClassName)
 	delResp, err := helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil)
 	helper.AssertRequestOk(t, delResp, err, nil)
 
@@ -140,11 +142,11 @@ func TestUpdateHNSWSettingsAfterAddingRefProps(t *testing.T) {
 	})
 
 	defer func(t *testing.T) {
-		params := schema.NewSchemaObjectsDeleteParams().WithClassName(className)
+		params := clschema.NewSchemaObjectsDeleteParams().WithClassName(className)
 		_, err := helper.Client(t).Schema.SchemaObjectsDelete(params, nil)
 		assert.Nil(t, err)
 		if err != nil {
-			if typed, ok := err.(*schema.SchemaObjectsDeleteBadRequest); ok {
+			if typed, ok := err.(*clschema.SchemaObjectsDeleteBadRequest); ok {
 				fmt.Println(typed.Payload.Error[0].Message)
 			}
 		}
@@ -155,19 +157,20 @@ func TestUpdateHNSWSettingsAfterAddingRefProps(t *testing.T) {
 			Class: className,
 			Properties: []*models.Property{
 				{
-					Name:     "string_prop",
-					DataType: []string{"string"},
+					Name:         "string_prop",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				},
 			},
 		}
 
-		params := schema.NewSchemaObjectsCreateParams().WithObjectClass(c)
+		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
 		_, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 		assert.Nil(t, err)
 	})
 
 	t.Run("adding a ref prop after the fact", func(t *testing.T) {
-		params := schema.NewSchemaObjectsPropertiesAddParams().
+		params := clschema.NewSchemaObjectsPropertiesAddParams().
 			WithClassName(className).
 			WithBody(&models.Property{
 				DataType: []string{className},
@@ -178,7 +181,7 @@ func TestUpdateHNSWSettingsAfterAddingRefProps(t *testing.T) {
 	})
 
 	t.Run("obtaining the class, making an innocent change and trying to update it", func(t *testing.T) {
-		params := schema.NewSchemaObjectsGetParams().
+		params := clschema.NewSchemaObjectsGetParams().
 			WithClassName(className)
 		res, err := helper.Client(t).Schema.SchemaObjectsGet(params, nil)
 		require.Nil(t, err)
@@ -187,7 +190,7 @@ func TestUpdateHNSWSettingsAfterAddingRefProps(t *testing.T) {
 
 		class.VectorIndexConfig.(map[string]interface{})["ef"] = float64(1234)
 
-		updateParams := schema.NewSchemaObjectsUpdateParams().
+		updateParams := clschema.NewSchemaObjectsUpdateParams().
 			WithClassName(className).
 			WithObjectClass(class)
 		_, err = helper.Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
@@ -195,7 +198,7 @@ func TestUpdateHNSWSettingsAfterAddingRefProps(t *testing.T) {
 	})
 
 	t.Run("obtaining the class, making a change to IndexNullState (immutable) property and update", func(t *testing.T) {
-		params := schema.NewSchemaObjectsGetParams().
+		params := clschema.NewSchemaObjectsGetParams().
 			WithClassName(className)
 		res, err := helper.Client(t).Schema.SchemaObjectsGet(params, nil)
 		require.Nil(t, err)
@@ -204,7 +207,7 @@ func TestUpdateHNSWSettingsAfterAddingRefProps(t *testing.T) {
 
 		// IndexNullState cannot be updated during runtime
 		class.InvertedIndexConfig.IndexNullState = true
-		updateParams := schema.NewSchemaObjectsUpdateParams().
+		updateParams := clschema.NewSchemaObjectsUpdateParams().
 			WithClassName(className).
 			WithObjectClass(class)
 		_, err = helper.Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
@@ -212,7 +215,7 @@ func TestUpdateHNSWSettingsAfterAddingRefProps(t *testing.T) {
 	})
 
 	t.Run("obtaining the class, making a change to IndexPropertyLength (immutable) property and update", func(t *testing.T) {
-		params := schema.NewSchemaObjectsGetParams().
+		params := clschema.NewSchemaObjectsGetParams().
 			WithClassName(className)
 		res, err := helper.Client(t).Schema.SchemaObjectsGet(params, nil)
 		require.Nil(t, err)
@@ -221,7 +224,7 @@ func TestUpdateHNSWSettingsAfterAddingRefProps(t *testing.T) {
 
 		// IndexPropertyLength cannot be updated during runtime
 		class.InvertedIndexConfig.IndexPropertyLength = true
-		updateParams := schema.NewSchemaObjectsUpdateParams().
+		updateParams := clschema.NewSchemaObjectsUpdateParams().
 			WithClassName(className).
 			WithObjectClass(class)
 		_, err = helper.Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
@@ -242,11 +245,11 @@ func TestUpdateClassWithoutVectorIndex(t *testing.T) {
 	})
 
 	defer func(t *testing.T) {
-		params := schema.NewSchemaObjectsDeleteParams().WithClassName(className)
+		params := clschema.NewSchemaObjectsDeleteParams().WithClassName(className)
 		_, err := helper.Client(t).Schema.SchemaObjectsDelete(params, nil)
 		assert.Nil(t, err)
 		if err != nil {
-			if typed, ok := err.(*schema.SchemaObjectsDeleteBadRequest); ok {
+			if typed, ok := err.(*clschema.SchemaObjectsDeleteBadRequest); ok {
 				fmt.Println(typed.Payload.Error[0].Message)
 			}
 		}
@@ -271,13 +274,13 @@ func TestUpdateClassWithoutVectorIndex(t *testing.T) {
 			},
 		}
 
-		params := schema.NewSchemaObjectsCreateParams().WithObjectClass(c)
+		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
 		_, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 		assert.Nil(t, err)
 	})
 
 	t.Run("obtaining the class, making an innocent change and trying to update it", func(t *testing.T) {
-		params := schema.NewSchemaObjectsGetParams().
+		params := clschema.NewSchemaObjectsGetParams().
 			WithClassName(className)
 		res, err := helper.Client(t).Schema.SchemaObjectsGet(params, nil)
 		require.Nil(t, err)
@@ -286,7 +289,7 @@ func TestUpdateClassWithoutVectorIndex(t *testing.T) {
 
 		class.InvertedIndexConfig.Stopwords.Preset = "none"
 
-		updateParams := schema.NewSchemaObjectsUpdateParams().
+		updateParams := clschema.NewSchemaObjectsUpdateParams().
 			WithClassName(className).
 			WithObjectClass(class)
 		_, err = helper.Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
@@ -310,18 +313,20 @@ func TestUpdateClassWithoutVectorIndex(t *testing.T) {
 // 		Class: randomThingClassName,
 // 		Properties: []*models.Property{
 // 			&models.Property{
-// 				DataType: []string{"string"},
+// DataType:     schema.DataTypeText.PropString(),
+// Tokenization: models.PropertyTokenizationWhitespace,
 // 				Name:     "name",
 // 			},
 // 			&models.Property{
-// 				DataType: []string{"string"},
+// DataType:     schema.DataTypeText.PropString(),
+// Tokenization: models.PropertyTokenizationWhitespace,
 // 				Name:     "description",
 // 			},
 // 		},
 // 	}
 
 // 	t.Log("Creating class")
-// 	params := schema.NewSchemaThingsCreateParams().WithThingClass(tc)
+// 	params := clschema.NewSchemaThingsCreateParams().WithThingClass(tc)
 // 	resp, err := helper.Client(t).Schema.SchemaThingsCreate(params, nil)
 // 	helper.AssertRequestOk(t, resp, err, nil)
 
@@ -341,7 +346,7 @@ func TestUpdateClassWithoutVectorIndex(t *testing.T) {
 // 	assert.Nil(t, err, "adding a class instance should not error")
 
 // 	t.Log("delete a single property of the class")
-// 	deleteParams := schema.NewSchemaThingsPropertiesDeleteParams().
+// 	deleteParams := clschema.NewSchemaThingsPropertiesDeleteParams().
 // 		WithClassName(randomThingClassName).
 // 		WithPropertyName("description")
 // 	_, err = helper.Client(t).Schema.SchemaThingsPropertiesDelete(deleteParams, nil)
@@ -369,11 +374,12 @@ func TestUpdateClassWithoutVectorIndex(t *testing.T) {
 // 	assert.Nil(t, err, "listing things should not error")
 
 // 	t.Log("verifying we could re-add the property with the same name")
-// 	readdParams := schema.NewSchemaThingsPropertiesAddParams().
+// 	readdParams := clschema.NewSchemaThingsPropertiesAddParams().
 // 		WithClassName(randomThingClassName).
 // 		WithBody(&models.Property{
 // 			Name:     "description",
-// 			DataType: []string{"string"},
+// DataType:     schema.DataTypeText.PropString(),
+// Tokenization: models.PropertyTokenizationWhitespace,
 // 		})
 
 // 	_, err = helper.Client(t).Schema.SchemaThingsPropertiesAdd(readdParams, nil)
@@ -381,7 +387,7 @@ func TestUpdateClassWithoutVectorIndex(t *testing.T) {
 
 // 	// Now clean up this class.
 // 	t.Log("Remove the class")
-// 	delParams := schema.NewSchemaThingsDeleteParams().WithClassName(randomThingClassName)
+// 	delParams := clschema.NewSchemaThingsDeleteParams().WithClassName(randomThingClassName)
 // 	delResp, err := helper.Client(t).Schema.SchemaThingsDelete(delParams, nil)
 // 	helper.AssertRequestOk(t, delResp, err, nil)
 

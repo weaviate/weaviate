@@ -173,8 +173,8 @@ func createClassWithEverything(IndexNullState bool, IndexPropertyLength bool) *m
 		Properties: []*models.Property{
 			{
 				Name:         "strings",
-				DataType:     []string{"string[]"},
-				Tokenization: models.PropertyTokenizationWord,
+				DataType:     schema.DataTypeTextArray.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 			{
 				Name:         "texts",
@@ -210,8 +210,9 @@ func createClassWithEverything(IndexNullState bool, IndexPropertyLength bool) *m
 				DataType: []string{"int"},
 			},
 			{
-				Name:     "string",
-				DataType: []string{"string"},
+				Name:         "string",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 			{
 				Name:     "text",

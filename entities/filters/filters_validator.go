@@ -19,38 +19,50 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
+// string and stringArray are deprecated as of v1.19
+// however they are allowed in filters and considered aliases
+// for text and textArray
+var deprecatedDataTypeAliases map[schema.DataType]schema.DataType = map[schema.DataType]schema.DataType{
+	schema.DataTypeString:      schema.DataTypeText,
+	schema.DataTypeStringArray: schema.DataTypeTextArray,
+}
+
 func ValidateFilters(sch schema.Schema, filters *LocalFilter) error {
 	if filters == nil {
 		return errors.New("empty where")
 	}
-	return validateClause(sch, filters.Root)
+	cw := newClauseWrapper(filters.Root)
+	if err := validateClause(sch, cw); err != nil {
+		return err
+	}
+	cw.updateClause()
+	return nil
 }
 
-func validateClause(sch schema.Schema, clause *Clause) error {
+func validateClause(sch schema.Schema, cw *clauseWrapper) error {
 	// check if nested
-	if clause.Operands != nil {
+	if cw.getOperands() != nil {
 		var errs []error
 
-		for i, child := range clause.Operands {
-			if err := validateClause(sch, &child); err != nil {
+		for i, child := range cw.getOperands() {
+			if err := validateClause(sch, child); err != nil {
 				errs = append(errs, errors.Wrapf(err, "child operand at position %d", i))
 			}
 		}
 
 		if len(errs) > 0 {
 			return mergeErrs(errs)
-		} else {
-			return nil
 		}
+		return nil
 	}
 
 	// validate current
 
-	className := clause.On.GetInnerMost().Class
-	propName := clause.On.GetInnerMost().Property
+	className := cw.getClassName()
+	propName := cw.getPropertyName()
 
 	if IsInternalProperty(propName) {
-		return validateInternalPropertyClause(propName, clause)
+		return validateInternalPropertyClause(propName, cw)
 	}
 
 	class := sch.FindClassByName(className)
@@ -70,43 +82,43 @@ func validateClause(sch schema.Schema, clause *Clause) error {
 		return err
 	}
 
-	if clause.Operator == OperatorIsNull {
-		if clause.Value.Type == schema.DataTypeBoolean {
-			return nil
-		} else {
-			errors.Errorf("operator IsNull requires a booleanValue, got %q instead",
-				valueNameFromDataType(clause.Value.Type))
+	if cw.getOperator() == OperatorIsNull {
+		if !cw.isType(schema.DataTypeBoolean) {
+			return errors.Errorf("operator IsNull requires a booleanValue, got %q instead",
+				cw.getValueNameFromType())
 		}
+		return nil
 	}
 
 	if isPropLengthFilter {
-		op := clause.Operator
-		if clause.Value.Type != schema.DataTypeInt {
+		if !cw.isType(schema.DataTypeInt) {
 			return errors.Errorf("Filtering for property length requires IntValue, got %q instead",
-				valueNameFromDataType(clause.Value.Type))
-		} else if op != OperatorEqual && op != OperatorNotEqual &&
-			op != OperatorGreaterThan && op != OperatorGreaterThanEqual &&
-			op != OperatorLessThan && op != OperatorLessThanEqual {
+				cw.getValueNameFromType())
+		}
+		switch op := cw.getOperator(); op {
+		case OperatorEqual, OperatorNotEqual, OperatorGreaterThan, OperatorGreaterThanEqual,
+			OperatorLessThan, OperatorLessThanEqual:
+			// ok
+		default:
 			return errors.Errorf("Filtering for property length supports operators (not) equal and greater/less than (equal), got %q instead",
 				op)
-		} else if clause.Value.Value.(int) < 0 {
-			return errors.Errorf("Can only filter for positive property length got %v instead", clause.Value.Value)
-		} else {
-			return nil
 		}
+		if val := cw.getValue(); val.(int) < 0 {
+			return errors.Errorf("Can only filter for positive property length got %v instead", val)
+		}
+		return nil
 	}
 
 	if isUUIDType(prop.DataType[0]) {
-		return validateUUIDType(propName, clause)
+		return validateUUIDType(propName, cw)
 	}
 
 	if schema.IsRefDataType(prop.DataType) {
 		// bit of an edge case, directly on refs (i.e. not on a primitive prop of a
 		// ref) we only allow valueInt which is what's used to count references
-		if clause.Value.Type == schema.DataTypeInt {
+		if cw.isType(schema.DataTypeInt) {
 			return nil
 		}
-
 		return errors.Errorf("Property %q is a ref prop to the class %q. Only "+
 			"\"valueInt\" can be used on a ref prop directly to count the number of refs. "+
 			"Or did you mean to filter on a primitive prop of the referenced class? "+
@@ -114,15 +126,15 @@ func validateClause(sch schema.Schema, clause *Clause) error {
 			"[<propName>, <ClassNameOfReferencedClass>, <primitvePropOnClass>]",
 			propName, prop.DataType[0])
 	} else if baseType, ok := schema.IsArrayType(schema.DataType(prop.DataType[0])); ok {
-		if baseType != clause.Value.Type {
+		if !cw.isType(baseType) {
 			return errors.Errorf("data type filter cannot use %q on type %q, use %q instead",
-				valueNameFromDataType(clause.Value.Type),
+				cw.getValueNameFromType(),
 				schema.DataType(prop.DataType[0]),
 				valueNameFromDataType(baseType))
 		}
-	} else if prop.DataType[0] != string(clause.Value.Type) {
+	} else if !cw.isType(schema.DataType(prop.DataType[0])) {
 		return errors.Errorf("data type filter cannot use %q on type %q, use %q instead",
-			valueNameFromDataType(clause.Value.Type),
+			cw.getValueNameFromType(),
 			schema.DataType(prop.DataType[0]),
 			valueNameFromDataType(schema.DataType(prop.DataType[0])))
 	}
@@ -155,21 +167,20 @@ func IsInternalProperty(propName schema.PropertyName) bool {
 	}
 }
 
-func validateInternalPropertyClause(propName schema.PropertyName, clause *Clause) error {
+func validateInternalPropertyClause(propName schema.PropertyName, cw *clauseWrapper) error {
 	switch propName {
 	case InternalPropBackwardsCompatID, InternalPropID:
-		if clause.Value.Type == schema.DataTypeString {
+		if cw.isType(schema.DataTypeText) {
 			return nil
 		}
 		return errors.Errorf(
-			`using ["_id"] to filter by uuid: must use "valueString" to specify the id`)
+			`using ["_id"] to filter by uuid: must use "valueText" to specify the id`)
 	case InternalPropCreationTimeUnix, InternalPropLastUpdateTimeUnix:
-		if clause.Value.Type == schema.DataTypeDate ||
-			clause.Value.Type == schema.DataTypeString {
+		if cw.isType(schema.DataTypeDate) || cw.isType(schema.DataTypeText) {
 			return nil
 		}
 		return errors.Errorf(
-			`using ["%s"] to filter by timestamp: must use "valueString" or "valueDate"`, propName)
+			`using ["%s"] to filter by timestamp: must use "valueText" or "valueDate"`, propName)
 	default:
 		return errors.Errorf("unsupported internal property: %s", propName)
 	}
@@ -180,17 +191,17 @@ func isUUIDType(dtString string) bool {
 	return dt == schema.DataTypeUUID || dt == schema.DataTypeUUIDArray
 }
 
-func validateUUIDType(propName schema.PropertyName, clause *Clause) error {
-	if clause.Value.Type == schema.DataTypeString {
-		return validateUUIDOperators(propName, clause)
+func validateUUIDType(propName schema.PropertyName, cw *clauseWrapper) error {
+	if cw.isType(schema.DataTypeText) {
+		return validateUUIDOperators(propName, cw)
 	}
 
 	return fmt.Errorf("property %q is of type \"uuid\" or \"uuid[]\": "+
-		"specify uuid as string using \"valueString\"", propName)
+		"specify uuid as string using \"valueText\"", propName)
 }
 
-func validateUUIDOperators(propName schema.PropertyName, clause *Clause) error {
-	op := clause.Operator
+func validateUUIDOperators(propName schema.PropertyName, cw *clauseWrapper) error {
+	op := cw.getOperator()
 
 	switch op {
 	case OperatorEqual, OperatorNotEqual, OperatorLessThan, OperatorLessThanEqual,
@@ -198,5 +209,75 @@ func validateUUIDOperators(propName schema.PropertyName, clause *Clause) error {
 		return nil
 	default:
 		return fmt.Errorf("operator %q cannot be used on uuid/uuid[] props", op.Name())
+	}
+}
+
+type clauseWrapper struct {
+	clause    *Clause
+	origType  schema.DataType
+	aliasType schema.DataType
+	operands  []*clauseWrapper
+}
+
+func newClauseWrapper(clause *Clause) *clauseWrapper {
+	w := &clauseWrapper{clause: clause}
+	if clause.Operands != nil {
+		w.operands = make([]*clauseWrapper, len(clause.Operands))
+		for i := range clause.Operands {
+			w.operands[i] = newClauseWrapper(&clause.Operands[i])
+		}
+	} else {
+		w.origType = clause.Value.Type
+		w.aliasType = deprecatedDataTypeAliases[clause.Value.Type]
+	}
+	return w
+}
+
+func (w *clauseWrapper) isType(dt schema.DataType) bool {
+	if w.operands != nil {
+		return false
+	}
+	return dt == w.origType || (dt == w.aliasType && w.aliasType != "")
+}
+
+func (w *clauseWrapper) getValueNameFromType() string {
+	return valueNameFromDataType(w.origType)
+}
+
+func (w *clauseWrapper) getOperands() []*clauseWrapper {
+	return w.operands
+}
+
+func (w *clauseWrapper) getOperator() Operator {
+	return w.clause.Operator
+}
+
+func (w *clauseWrapper) getValue() interface{} {
+	return w.clause.Value.Value
+}
+
+func (w *clauseWrapper) getClassName() schema.ClassName {
+	if w.operands != nil {
+		return ""
+	}
+	return w.clause.On.GetInnerMost().Class
+}
+
+func (w *clauseWrapper) getPropertyName() schema.PropertyName {
+	if w.operands != nil {
+		return ""
+	}
+	return w.clause.On.GetInnerMost().Property
+}
+
+func (w *clauseWrapper) updateClause() {
+	if w.operands != nil {
+		for i := range w.operands {
+			w.operands[i].updateClause()
+		}
+	} else {
+		if w.aliasType != "" {
+			w.clause.Value.Type = w.aliasType
+		}
 	}
 }

@@ -57,28 +57,55 @@ func TestExtractFilterToplevelField(t *testing.T) {
 func TestExtractFilterLike(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver(t, mockParams{reportFilter: true})
-	expectedParams := &filters.LocalFilter{Root: &filters.Clause{
-		Operator: filters.OperatorLike,
-		On: &filters.Path{
-			Class:    schema.AssertValidClassName("SomeAction"),
-			Property: schema.AssertValidPropertyName("name"),
-		},
-		Value: &filters.Value{
-			Value: "Schn*el",
-			Type:  schema.DataTypeString,
-		},
-	}}
+	t.Run("extracts with valueText", func(t *testing.T) {
+		resolver := newMockResolver(t, mockParams{reportFilter: true})
+		expectedParams := &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorLike,
+			On: &filters.Path{
+				Class:    schema.AssertValidClassName("SomeAction"),
+				Property: schema.AssertValidPropertyName("name"),
+			},
+			Value: &filters.Value{
+				Value: "Schn*el",
+				Type:  schema.DataTypeText,
+			},
+		}}
 
-	resolver.On("ReportFilters", expectedParams).
-		Return(test_helper.EmptyList(), nil).Once()
+		resolver.On("ReportFilters", expectedParams).
+			Return(test_helper.EmptyList(), nil).Once()
 
-	query := `{ SomeAction(where: {
-			path: ["name"],
-			operator: Like,
-			valueString: "Schn*el",
-		}) }`
-	resolver.AssertResolve(t, query)
+		query := `{ SomeAction(where: {
+				path: ["name"],
+				operator: Like,
+				valueText: "Schn*el",
+			}) }`
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("[deprecated string] extracts with valueString", func(t *testing.T) {
+		resolver := newMockResolver(t, mockParams{reportFilter: true})
+		expectedParams := &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorLike,
+			On: &filters.Path{
+				Class:    schema.AssertValidClassName("SomeAction"),
+				Property: schema.AssertValidPropertyName("name"),
+			},
+			Value: &filters.Value{
+				Value: "Schn*el",
+				Type:  schema.DataTypeString,
+			},
+		}}
+
+		resolver.On("ReportFilters", expectedParams).
+			Return(test_helper.EmptyList(), nil).Once()
+
+		query := `{ SomeAction(where: {
+				path: ["name"],
+				operator: Like,
+				valueString: "Schn*el",
+			}) }`
+		resolver.AssertResolve(t, query)
+	})
 }
 
 func TestExtractFilterLike_ValueText(t *testing.T) {

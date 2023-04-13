@@ -81,10 +81,10 @@ func Test_ValidateUserInput(t *testing.T) {
 			name: "basedOnProperty is not of type text",
 			input: models.Classification{
 				Class:              "Article",
-				BasedOnProperties:  []string{"name"},
+				BasedOnProperties:  []string{"words"},
 				ClassifyProperties: []string{"exactCategory"},
 			},
-			expectedError: fmt.Errorf("invalid classification: basedOnProperties: property 'name' must be of type 'text'"),
+			expectedError: fmt.Errorf("invalid classification: basedOnProperties: property 'words' must be of type 'text'"),
 		},
 
 		{
@@ -141,7 +141,7 @@ func Test_ValidateUserInput(t *testing.T) {
 				BasedOnProperties:  []string{"description"},
 				ClassifyProperties: []string{"exactCategory"},
 				Filters: &models.ClassificationFilters{
-					TargetWhere: &models.WhereFilter{Operator: "Equal", Path: []string{"foo"}, ValueString: ptString("bar")},
+					TargetWhere: &models.WhereFilter{Operator: "Equal", Path: []string{"foo"}, ValueText: ptString("bar")},
 				},
 				Type: "knn",
 			},
@@ -167,7 +167,7 @@ func Test_ValidateUserInput(t *testing.T) {
 				BasedOnProperties:  []string{"description"},
 				ClassifyProperties: []string{"exactCategory"},
 				Filters: &models.ClassificationFilters{
-					TrainingSetWhere: &models.WhereFilter{Operator: "Equal", Path: []string{"foo"}, ValueString: ptString("bar")},
+					TrainingSetWhere: &models.WhereFilter{Operator: "Equal", Path: []string{"foo"}, ValueText: ptString("bar")},
 				},
 				Type: "text2vec-contextionary-contextual",
 			},

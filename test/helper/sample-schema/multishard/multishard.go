@@ -14,6 +14,7 @@ package multishard
 import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 const (
@@ -40,8 +41,9 @@ func class(vectorizer string) *models.Class {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{"string"},
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 				ModuleConfig: map[string]interface{}{
 					vectorizer: map[string]interface{}{
 						"vectorizePropertyName": false,

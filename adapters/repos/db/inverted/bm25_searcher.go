@@ -139,22 +139,34 @@ func (b *BM25Searcher) wand(
 		if err != nil {
 			return nil, nil, err
 		}
-
 	}
 
 	// There are currently cases, for different tokenization:
-	// Text, string and field.
-	// For the first two the query is tokenized accordingly and for the last one the full query is used. The respective
-	// properties are then searched for the search terms and the results at the end are combined using WAND
-	queryTextTerms, duplicateTextBoost := helpers.TokenizeTextAndCountDuplicates(params.Query)
-	queryTextTerms, duplicateTextBoost = b.removeStopwordsFromQueryTerms(queryTextTerms, duplicateTextBoost, stopWordDetector)
-	// No stopword filtering for strings as they should retain the value as is
-	queryStringTerms, duplicateStringBoost := helpers.TokenizeStringAndCountDuplicates(params.Query)
+	// word, lowercase, whitespace and field.
+	// Query is tokenized and respective properties are then searched for the search terms,
+	// results at the end are combined using WAND
+	tokenizationsOrdered := []string{
+		models.PropertyTokenizationWord,
+		models.PropertyTokenizationLowercase,
+		models.PropertyTokenizationWhitespace,
+		models.PropertyTokenizationField,
+	}
 
-	propertyNamesFullQuery := make([]string, 0)
-	propertyNamesText := make([]string, 0)
-	propertyNamesString := make([]string, 0)
+	queryTermsByTokenization := map[string][]string{}
+	duplicateBoostsByTokenization := map[string][]int{}
+	propNamesByTokenization := map[string][]string{}
 	propertyBoosts := make(map[string]float32, len(params.Properties))
+
+	for _, tokenization := range tokenizationsOrdered {
+		queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization] = helpers.TokenizeAndCountDuplicates(tokenization, params.Query)
+
+		// stopword filtering for word tokenization
+		if tokenization == models.PropertyTokenizationWord {
+			queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization] = b.removeStopwordsFromQueryTerms(queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization], stopWordDetector)
+		}
+
+		propNamesByTokenization[tokenization] = make([]string, 0)
+	}
 
 	averagePropLength := 0.
 	for _, propertyWithBoost := range params.Properties {
@@ -178,84 +190,55 @@ func (b *BM25Searcher) wand(
 			return nil, nil, err
 		}
 
-		if prop.Tokenization == "word" {
-			if prop.DataType[0] == "text" || prop.DataType[0] == "text[]" {
-				propertyNamesText = append(propertyNamesText, property)
-			} else if prop.DataType[0] == "string" || prop.DataType[0] == "string[]" {
-				propertyNamesString = append(propertyNamesString, property)
-			} else {
-				return nil, nil, fmt.Errorf("cannot handle datatype %v", prop.DataType[0])
+		switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
+		case schema.DataTypeText, schema.DataTypeTextArray:
+			if _, exists := propNamesByTokenization[prop.Tokenization]; !exists {
+				return nil, nil, fmt.Errorf("cannot handle tokenization %v", prop.Tokenization)
 			}
-		} else {
-			propertyNamesFullQuery = append(propertyNamesFullQuery, property)
+			propNamesByTokenization[prop.Tokenization] = append(propNamesByTokenization[prop.Tokenization], property)
+		default:
+			return nil, nil, fmt.Errorf("cannot handle datatype %v", dt)
 		}
 	}
 
 	averagePropLength = averagePropLength / float64(len(params.Properties))
 
-	// preallocate the results (+1 is for full query)
-	fullQueryLength := 0
-	if len(propertyNamesFullQuery) > 0 {
-		fullQueryLength = 1
+	// preallocate the results
+	lengthAllResults := 0
+	for tokenization, propNames := range propNamesByTokenization {
+		if len(propNames) > 0 {
+			lengthAllResults += len(queryTermsByTokenization[tokenization])
+		}
 	}
-	stringLength := 0
-	if len(propertyNamesString) > 0 {
-		stringLength = len(queryStringTerms)
-	}
-	textLength := 0
-	if len(propertyNamesText) > 0 {
-		textLength = len(queryTextTerms)
-	}
-	lengthAllResults := textLength + stringLength + fullQueryLength
 	results := make(terms, lengthAllResults)
 	indices := make([]map[uint64]int, lengthAllResults)
 
 	var eg errgroup.Group
-	if len(propertyNamesText) > 0 {
-		for i := range queryTextTerms {
-			queryTerm := queryTextTerms[i]
-			j := i
-			eg.Go(func() error {
-				termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerm, propertyNamesText, propertyBoosts, duplicateTextBoost[j], params.AdditionalExplanations)
-				if err != nil {
-					return err
-				}
-				results[j] = termResult
-				indices[j] = docIndices
-				return nil
-			})
-		}
-	}
+	offset := 0
 
-	if len(propertyNamesString) > 0 {
-		for i := range queryStringTerms {
-			queryTerm := queryStringTerms[i]
-			ind := i
-			j := ind + textLength
+	for _, tokenization := range tokenizationsOrdered {
+		propNames := propNamesByTokenization[tokenization]
+		if len(propNames) > 0 {
+			queryTerms := queryTermsByTokenization[tokenization]
+			duplicateBoosts := duplicateBoostsByTokenization[tokenization]
 
-			eg.Go(func() error {
-				termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerm, propertyNamesString, propertyBoosts, duplicateStringBoost[ind], params.AdditionalExplanations)
-				if err != nil {
-					return err
-				}
-				results[j] = termResult
-				indices[j] = docIndices
-				return nil
-			})
-		}
-	}
+			for i := range queryTerms {
+				j := i
+				k := i + offset
 
-	if len(propertyNamesFullQuery) > 0 {
-		lengthPreviousResults := stringLength + textLength
-		eg.Go(func() error {
-			termResult, docIndices, err := b.createTerm(N, filterDocIds, params.Query, propertyNamesFullQuery, propertyBoosts, 1, params.AdditionalExplanations)
-			if err != nil {
-				return err
+				eg.Go(func() error {
+					termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerms[j], propNames,
+						propertyBoosts, duplicateBoosts[j], params.AdditionalExplanations)
+					if err != nil {
+						return err
+					}
+					results[k] = termResult
+					indices[k] = docIndices
+					return nil
+				})
 			}
-			results[lengthPreviousResults] = termResult
-			indices[lengthPreviousResults] = docIndices
-			return nil
-		})
+			offset += len(queryTerms)
+		}
 	}
 
 	if err := eg.Wait(); err != nil {

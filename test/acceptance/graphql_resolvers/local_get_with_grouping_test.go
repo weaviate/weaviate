@@ -178,7 +178,7 @@ func gettingObjectsWithGrouping(t *testing.T) {
 		query := `
 			{
 				Get {
-					Company(group:{type:merge force:1.0} where:{path:["id"] operator:Like valueString:"*"}) {
+					Company(group:{type:merge force:1.0} where:{path:["id"] operator:Like valueText:"*"}) {
 						name
 						inCity {
 							... on City {
