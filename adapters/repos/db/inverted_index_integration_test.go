@@ -51,9 +51,21 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:         "name",
+				Name:         "initialWithIINil",
 				DataType:     []string{"string"},
 				Tokenization: "word",
+			},
+			{
+				Name:          "initialWithIITrue",
+				DataType:      []string{"string"},
+				Tokenization:  "word",
+				IndexInverted: truePointer(),
+			},
+			{
+				Name:          "initialWithoutII",
+				DataType:      []string{"string"},
+				Tokenization:  "word",
+				IndexInverted: falsePointer(),
 			},
 		},
 	}
@@ -76,28 +88,34 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 
 	migrator := NewMigrator(repo, logger)
+	require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 
-	t.Run("add class", func(t *testing.T) {
-		err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
-		require.Nil(t, err)
-	})
-	t.Run("Add additional property", func(t *testing.T) {
-		err := migrator.AddProperty(context.Background(), class.Class, &models.Property{
-			Name:         "OtherProp",
-			DataType:     []string{"string"},
-			Tokenization: "word",
-		})
-		require.Nil(t, err)
-	})
+	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, &models.Property{
+		Name:         "updateWithIINil",
+		DataType:     []string{"string"},
+		Tokenization: "word",
+	}))
+	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, &models.Property{
+		Name:          "updateWithIITrue",
+		DataType:      []string{"string"},
+		Tokenization:  "word",
+		IndexInverted: truePointer(),
+	}))
+	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, &models.Property{
+		Name:          "updateWithoutII",
+		DataType:      []string{"string"},
+		Tokenization:  "word",
+		IndexInverted: falsePointer(),
+	}))
 
 	t.Run("check for additional buckets", func(t *testing.T) {
 		for _, idx := range migrator.db.indices {
 			for _, shd := range idx.Shards {
 				createBucket := shd.store.Bucket("property__creationTimeUnix")
-				assert.NotNil(t, createBucket, "property__creationTimeUnix bucket not found")
+				assert.NotNil(t, createBucket)
 
 				createHashBucket := shd.store.Bucket("hash_property__creationTimeUnix")
-				assert.NotNil(t, createHashBucket, "hash_property__creationTimeUnix bucket not found")
+				assert.NotNil(t, createHashBucket)
 
 				updateBucket := shd.store.Bucket("property__lastUpdateTimeUnix")
 				assert.NotNil(t, updateBucket)
@@ -105,15 +123,24 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 				updateHashBucket := shd.store.Bucket("hash_property__lastUpdateTimeUnix")
 				assert.NotNil(t, updateHashBucket, "hash_property__creationTimeUnix bucket not found")
 
-				assert.NotNil(t, shd.store.Bucket("property_name"+filters.InternalNullIndex), "property_name"+filters.InternalNullIndex+"bucket not found")
-				assert.NotNil(t, shd.store.Bucket("hash_property_name"+filters.InternalNullIndex), "hash_property_name"+filters.InternalNullIndex+"bucket not found")
-				assert.NotNil(t, shd.store.Bucket("property_OtherProp"+filters.InternalNullIndex), "property_name"+filters.InternalNullIndex+"bucket not found")
-				assert.NotNil(t, shd.store.Bucket("hash_property_OtherProp"+filters.InternalNullIndex), "hash_property_name"+filters.InternalNullIndex+"bucket not found")
+				cases := []struct {
+					prop        string
+					compareFunc func(t assert.TestingT, object interface{}, msgAndArgs ...interface{}) bool
+				}{
+					{prop: "initialWithIINil", compareFunc: assert.NotNil},
+					{prop: "initialWithIITrue", compareFunc: assert.NotNil},
+					{prop: "initialWithoutII", compareFunc: assert.Nil},
+					{prop: "updateWithIINil", compareFunc: assert.NotNil},
+					{prop: "updateWithIITrue", compareFunc: assert.NotNil},
+					{prop: "updateWithoutII", compareFunc: assert.Nil},
+				}
+				for _, tt := range cases {
+					tt.compareFunc(t, shd.store.Bucket("property_"+tt.prop+filters.InternalNullIndex))
+					tt.compareFunc(t, shd.store.Bucket("hash_property_"+tt.prop+filters.InternalNullIndex))
 
-				assert.NotNil(t, shd.store.Bucket("property_name"+filters.InternalPropertyLength), "property_name"+filters.InternalNullIndex+"bucket not found")
-				assert.NotNil(t, shd.store.Bucket("hash_property_name"+filters.InternalPropertyLength), "hash_property_name"+filters.InternalNullIndex+"bucket not found")
-				assert.NotNil(t, shd.store.Bucket("property_OtherProp"+filters.InternalPropertyLength), "property_name"+filters.InternalNullIndex+"bucket not found")
-				assert.NotNil(t, shd.store.Bucket("hash_property_OtherProp"+filters.InternalPropertyLength), "hash_property_name"+filters.InternalNullIndex+"bucket not found")
+					tt.compareFunc(t, shd.store.Bucket("property_"+tt.prop+filters.InternalPropertyLength))
+					tt.compareFunc(t, shd.store.Bucket("hash_property_"+tt.prop+filters.InternalPropertyLength))
+				}
 			}
 		}
 	})
@@ -123,7 +150,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		objWithProperty := &models.Object{
 			ID:         testID1,
 			Class:      "TestClass",
-			Properties: map[string]interface{}{"name": "objectarooni", "OtherProp": "whatever"},
+			Properties: map[string]interface{}{"initialWithIINil": "0", "initialWithIITrue": "0", "initialWithoutII": "1", "updateWithIINil": "2", "updateWithIITrue": "2", "updateWithoutII": "3"},
 		}
 		vec := []float32{1, 2, 3}
 		require.Nil(t, repo.PutObject(context.Background(), objWithProperty, vec, nil))
@@ -132,9 +159,17 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		objWithoutProperty := &models.Object{
 			ID:         testID2,
 			Class:      "TestClass",
-			Properties: map[string]interface{}{"name": nil, "OtherProp": nil},
+			Properties: map[string]interface{}{},
 		}
 		require.Nil(t, repo.PutObject(context.Background(), objWithoutProperty, vec, nil))
+
+		testID3 := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a64")
+		objWithNilProperty := &models.Object{
+			ID:         testID3,
+			Class:      "TestClass",
+			Properties: map[string]interface{}{"initialWithIINil": nil, "initialWithIITrue": nil, "initialWithoutII": nil, "updateWithIINil": nil, "updateWithIITrue": nil, "updateWithoutII": nil},
+		}
+		require.Nil(t, repo.PutObject(context.Background(), objWithNilProperty, vec, nil))
 	})
 
 	t.Run("delete class", func(t *testing.T) {

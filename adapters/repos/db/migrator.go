@@ -143,7 +143,10 @@ func (m *Migrator) AddProperty(ctx context.Context, className string, prop *mode
 		return errors.Errorf("cannot add property to a non-existing index for %s", className)
 	}
 
-	return m.addPropertiesAndNullAndLength(ctx, prop, idx)
+	if prop.IndexInverted == nil || *prop.IndexInverted {
+		return m.addPropertiesAndNullAndLength(ctx, prop, idx)
+	}
+	return nil
 }
 
 // DropProperty is ignored, API compliant change
