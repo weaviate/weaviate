@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 PROJECT=semi-automated-benchmarking
 ZONE=us-central1-a
@@ -102,7 +102,7 @@ function install_go {
 function install_docker() {
   ssh_command "if ! command -v docker &> /dev/null; then curl -fsSL https://get.docker.com -o get-docker.sh && sh ./get-docker.sh; fi"
   ssh_command "sudo groupadd docker || true"
-  ssh_command 'sudo usermod -aG docker $USER'
+  ssh_command "sudo usermod -aG docker $USER"
 }
 
 function clone_repository() {
@@ -119,7 +119,7 @@ function checkout() {
 
 function benchmark() {
   echo_green "Run benchmarks on remote machine"
-  ssh_command 'echo "stop all running docker containers"; docker rm -f $(docker ps -q) || true'
+  ssh_command "echo "stop all running docker containers"; docker rm -f $(docker ps -q) || true"
   ssh_command "cd ~/weaviate; rm test/benchmark/benchmark_results.json || true"
   ssh_command "cd ~/weaviate; test/benchmark/run_performance_tracker.sh"
   echo_green "Copy results file to local machine"
