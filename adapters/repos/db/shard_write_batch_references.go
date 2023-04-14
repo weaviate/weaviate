@@ -308,13 +308,11 @@ func (b *referencesBatcher) analyzeRef(obj *storobj.Object,
 	return []inverted.Property{{
 		Name:         helpers.MetaCountProp(ref.From.Property.String()),
 		Items:        countItems,
-		HasFrequency: inverted.HasFrequency(prop),
 		IsFilterable: inverted.IsFilterable(prop),
 		IsSearchable: inverted.IsSearchable(prop),
 	}, {
 		Name:         ref.From.Property.String(),
 		Items:        valueItems,
-		HasFrequency: inverted.HasFrequency(prop),
 		IsFilterable: inverted.IsFilterable(prop),
 		IsSearchable: inverted.IsSearchable(prop),
 	}}, nil

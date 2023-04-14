@@ -31,7 +31,6 @@ func NewDeltaMerger() *DeltaMerger {
 func (dm *DeltaMerger) AddAdditions(props []Property, docID uint64) {
 	for _, prop := range props {
 		storedProp := dm.additions.getOrCreate(prop.Name)
-		storedProp.hasFrequency = prop.HasFrequency
 		storedProp.isFilterable = prop.IsFilterable
 		storedProp.isSearchable = prop.IsSearchable
 		for _, item := range prop.Items {
@@ -74,7 +73,6 @@ type DeltaMergeResult struct {
 type MergeProperty struct {
 	Name         string
 	MergeItems   []MergeItem
-	HasFrequency bool
 	IsFilterable bool
 	IsSearchable bool
 }
@@ -143,7 +141,6 @@ func (pbn propsByName) merge() []MergeProperty {
 type propWithDocIDs struct {
 	name         string
 	items        map[string]*countableWithDocIDs
-	hasFrequency bool
 	isFilterable bool
 	isSearchable bool
 }
@@ -183,7 +180,6 @@ func (pwd *propWithDocIDs) merge() *MergeProperty {
 	return &MergeProperty{
 		Name:         pwd.name,
 		MergeItems:   items[:i],
-		HasFrequency: pwd.hasFrequency,
 		IsFilterable: pwd.isFilterable,
 		IsSearchable: pwd.isSearchable,
 	}
