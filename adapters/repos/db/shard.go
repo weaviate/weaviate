@@ -418,7 +418,7 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 }
 
 func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *errgroup.Group) {
-	if !inverted.IsFilterable(prop) && !inverted.IsSearchable(prop) {
+	if !inverted.IsIndexable(prop) {
 		return
 	}
 

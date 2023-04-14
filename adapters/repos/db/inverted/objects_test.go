@@ -653,7 +653,7 @@ func TestAnalyzeObject(t *testing.T) {
 	})
 
 	t.Run("when objects are indexed by timestamps", func(t *testing.T) {
-		schema := map[string]interface{}{
+		sch := map[string]interface{}{
 			"description":         "pretty ok if you ask me",
 			"_creationTimeUnix":   1650551406404,
 			"_lastUpdateTimeUnix": 1650551406404,
@@ -663,12 +663,12 @@ func TestAnalyzeObject(t *testing.T) {
 		props := []*models.Property{
 			{
 				Name:         "description",
-				DataType:     []string{"text"},
-				Tokenization: "word",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWord,
 			},
 		}
 
-		res, err := a.Object(schema, props, uuid)
+		res, err := a.Object(sch, props, uuid)
 		require.Nil(t, err)
 		require.Len(t, res, 4)
 
@@ -684,6 +684,8 @@ func TestAnalyzeObject(t *testing.T) {
 					{Data: []byte("me"), TermFrequency: 1},
 				},
 				HasFrequency: true,
+				IsFilterable: false,
+				IsSearchable: false,
 			},
 			{
 				Name:  "_id",
