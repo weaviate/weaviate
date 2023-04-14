@@ -271,7 +271,7 @@ func (s *Shard) generateRowHash() ([]byte, error) {
 
 func (s *Shard) addPropLengths(props []inverted.Property) error {
 	for _, prop := range props {
-		if !prop.HasFrequency {
+		if !prop.IsSearchable {
 			continue
 		}
 

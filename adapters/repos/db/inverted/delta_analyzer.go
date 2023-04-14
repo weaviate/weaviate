@@ -51,7 +51,6 @@ func Delta(previous, next []Property) DeltaResults {
 			out.ToAdd = append(out.ToAdd, Property{
 				Name:         nextProp.Name,
 				Items:        toAdd,
-				HasFrequency: nextProp.HasFrequency,
 				IsFilterable: nextProp.IsFilterable,
 				IsSearchable: nextProp.IsSearchable,
 			})
@@ -60,7 +59,6 @@ func Delta(previous, next []Property) DeltaResults {
 			out.ToDelete = append(out.ToDelete, Property{
 				Name:         nextProp.Name,
 				Items:        toDelete,
-				HasFrequency: nextProp.HasFrequency,
 				IsFilterable: nextProp.IsFilterable,
 				IsSearchable: nextProp.IsSearchable,
 			})

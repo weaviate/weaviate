@@ -683,7 +683,6 @@ func TestAnalyzeObject(t *testing.T) {
 					{Data: []byte("ask"), TermFrequency: 1},
 					{Data: []byte("me"), TermFrequency: 1},
 				},
-				HasFrequency: true,
 				IsFilterable: false,
 				IsSearchable: false,
 			},
@@ -703,7 +702,8 @@ func TestAnalyzeObject(t *testing.T) {
 
 		for i := range res {
 			assert.Equal(t, expected[i].Name, res[i].Name)
-			assert.Equal(t, expected[i].HasFrequency, res[i].HasFrequency)
+			assert.Equal(t, expected[i].IsFilterable, res[i].IsFilterable)
+			assert.Equal(t, expected[i].IsSearchable, res[i].IsSearchable)
 			assert.ElementsMatch(t, expected[i].Items, res[i].Items)
 		}
 	})

@@ -30,7 +30,6 @@ type Property struct {
 	Name         string
 	Items        []Countable
 	Length       int
-	HasFrequency bool
 	IsFilterable bool
 	IsSearchable bool
 }
