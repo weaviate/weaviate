@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -26,72 +27,92 @@ type batchQueue struct {
 	originalIndex []int
 }
 
-func (db *DB) BatchPutObjects(ctx context.Context, objects objects.BatchObjects,
+func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	repl *additional.ReplicationProperties,
 ) (objects.BatchObjects, error) {
-	byIndex := map[string]batchQueue{}
+	objectByClass := make(map[string]batchQueue)
+	indexByClass := make(map[string]*Index)
+
+	for _, item := range objs {
+		if item.Err != nil {
+			// item has a validation error or another reason to ignore
+			continue
+		}
+		queue := objectByClass[item.Object.Class]
+		queue.objects = append(queue.objects, storobj.FromObject(item.Object, item.Vector))
+		queue.originalIndex = append(queue.originalIndex, item.OriginalIndex)
+		objectByClass[item.Object.Class] = queue
+	}
+
 	db.indexLock.RLock()
-	defer db.indexLock.RUnlock()
-
-	for _, item := range objects {
-		for _, index := range db.indices {
-			if index.Config.ClassName != schema.ClassName(item.Object.Class) {
-				continue
+	for class, queue := range objectByClass {
+		index, ok := db.indices[indexID(schema.ClassName(class))]
+		if !ok {
+			for _, ind := range queue.originalIndex {
+				objs[queue.originalIndex[ind]].Err = fmt.Errorf("could not find index for class %v. It might have been deleted in the meantime", class)
 			}
-
-			if item.Err != nil {
-				// item has a validation error or another reason to ignore
-				continue
-			}
-
-			queue := byIndex[index.ID()]
-			object := storobj.FromObject(item.Object, item.Vector)
-			queue.objects = append(queue.objects, object)
-			queue.originalIndex = append(queue.originalIndex, item.OriginalIndex)
-			byIndex[index.ID()] = queue
+			continue
 		}
+		index.dropIndex.RLock()
+		indexByClass[class] = index
 	}
+	db.indexLock.RUnlock()
 
-	for indexID, queue := range byIndex {
-		errs := db.indices[indexID].putObjectBatch(ctx, queue.objects, repl)
-		for index, err := range errs {
+	for class, queue := range objectByClass {
+		index, ok := indexByClass[class]
+		if !ok {
+			continue
+		}
+		errs := index.putObjectBatch(ctx, queue.objects, repl)
+		index.dropIndex.RUnlock()
+		for i, err := range errs {
 			if err != nil {
-				objects[queue.originalIndex[index]].Err = err
+				objs[queue.originalIndex[i]].Err = err
 			}
 		}
 	}
 
-	return objects, nil
+	return objs, nil
 }
 
 func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchReferences,
 	repl *additional.ReplicationProperties,
 ) (objects.BatchReferences, error) {
-	byIndex := map[string]objects.BatchReferences{}
-	db.indexLock.RLock()
-	defer db.indexLock.RUnlock()
+	refByClass := make(map[schema.ClassName]objects.BatchReferences)
+	indexByClass := make(map[schema.ClassName]*Index)
+
 	for _, item := range references {
-		for _, index := range db.indices {
-			if item.Err != nil {
-				// item has a validation error or another reason to ignore
-				continue
-			}
-
-			if index.Config.ClassName != item.From.Class {
-				continue
-			}
-
-			queue := byIndex[index.ID()]
-			queue = append(queue, item)
-			byIndex[index.ID()] = queue
+		if item.Err != nil {
+			// item has a validation error or another reason to ignore
+			continue
 		}
+		refByClass[item.From.Class] = append(refByClass[item.From.Class], item)
 	}
 
-	for indexID, queue := range byIndex {
-		errs := db.indices[indexID].addReferencesBatch(ctx, queue, repl)
-		for index, err := range errs {
+	db.indexLock.RLock()
+	for class, queue := range refByClass {
+		index, ok := db.indices[indexID(class)]
+		if !ok {
+			for _, item := range queue {
+				references[item.OriginalIndex].Err = fmt.Errorf("could not find index for class %v. It might have been deleted in the meantime", class)
+			}
+			continue
+		}
+		index.dropIndex.RLock()
+		indexByClass[class] = index
+	}
+	db.indexLock.RUnlock()
+
+	for class, queue := range refByClass {
+		index, ok := indexByClass[class]
+		if !ok {
+			continue
+		}
+		errs := index.addReferencesBatch(ctx, queue, repl)
+		index.dropIndex.RUnlock()
+		for i, err := range errs {
 			if err != nil {
-				references[queue[index].OriginalIndex].Err = err
+				references[queue[i].OriginalIndex].Err = err
 			}
 		}
 	}
