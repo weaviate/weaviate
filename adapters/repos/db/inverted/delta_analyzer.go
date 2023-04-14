@@ -52,6 +52,8 @@ func Delta(previous, next []Property) DeltaResults {
 				Name:         nextProp.Name,
 				Items:        toAdd,
 				HasFrequency: nextProp.HasFrequency,
+				IsFilterable: nextProp.IsFilterable,
+				IsSearchable: nextProp.IsSearchable,
 			})
 		}
 		if len(toDelete) > 0 {
@@ -59,6 +61,8 @@ func Delta(previous, next []Property) DeltaResults {
 				Name:         nextProp.Name,
 				Items:        toDelete,
 				HasFrequency: nextProp.HasFrequency,
+				IsFilterable: nextProp.IsFilterable,
+				IsSearchable: nextProp.IsSearchable,
 			})
 		}
 	}

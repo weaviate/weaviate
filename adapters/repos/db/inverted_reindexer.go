@@ -277,6 +277,7 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 			}
 		}
 
+		// TODO text_rbm_inverted_index change to filterable/searchable
 		if property.HasFrequency {
 			propLen := float32(len(property.Items))
 			for _, item := range property.Items {
