@@ -44,7 +44,7 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 	t := &JsonPropertyLengthTracker{
 		data: PropLenData{make(map[string]map[int]int)},
 		path: path,
-		UnlimitedBuckets: true,
+		UnlimitedBuckets: false,
 	}
 
 	// read the file into memory
