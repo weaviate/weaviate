@@ -66,6 +66,20 @@ type Index struct {
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
 
+	// This lock should be used together with the db indexLock.
+	//
+	// The db indexlock locks the map that contains all indices against changes and should be used while iterating.
+	// This lock protects this specific index form being deleted while in use. Use Rlock to signale that it is in use.
+	// This way many goroutines can use a specific index in parallel. The delete-routine will try to acquire a RWlock.
+	//
+	// Usage:
+	// Lock the whole db using db.indexLock
+	// pick the indices you want and Rlock them
+	// unlock db.indexLock
+	// Use the indices
+	// RUnlock all picked indices
+	dropIndex sync.RWMutex
+
 	metrics         *Metrics
 	centralJobQueue chan job
 }
