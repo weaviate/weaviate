@@ -25,28 +25,36 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 	docID uint64,
 ) error {
 	for _, prop := range props {
-		b := s.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
-		if b == nil {
-			return fmt.Errorf("no bucket for prop '%s' found", prop.Name)
-		}
-
 		hashBucket := s.store.Bucket(helpers.HashBucketFromPropNameLSM(prop.Name))
-		if b == nil {
+		if hashBucket == nil {
 			return fmt.Errorf("no hash bucket for prop '%s' found", prop.Name)
 		}
 
-		if prop.HasFrequency {
+		if prop.IsFilterable {
+			bucket := s.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
+			if bucket == nil {
+				return fmt.Errorf("no bucket for prop '%s' found", prop.Name)
+			}
+
 			for _, item := range prop.Items {
-				if err := s.deleteInvertedIndexItemWithFrequencyLSM(b, hashBucket, item,
+				if err := s.deleteInvertedIndexItemLSM(bucket, hashBucket, item,
 					docID); err != nil {
-					return errors.Wrapf(err, "extend index with item '%s'",
+					return errors.Wrapf(err, "delete item '%s' from index",
 						string(item.Data))
 				}
 			}
-		} else {
+		}
+
+		if prop.IsSearchable {
+			bucket := s.store.Bucket(helpers.BucketSearchableFromPropNameLSM(prop.Name))
+			if bucket == nil {
+				return fmt.Errorf("no bucket searchable for prop '%s' found", prop.Name)
+			}
+
 			for _, item := range prop.Items {
-				if err := s.deleteInvertedIndexItemLSM(b, hashBucket, item, docID); err != nil {
-					return errors.Wrapf(err, "extend index with item '%s'",
+				if err := s.deleteInvertedIndexItemWithFrequencyLSM(bucket, hashBucket, item,
+					docID); err != nil {
+					return errors.Wrapf(err, "delete item '%s' from index",
 						string(item.Data))
 				}
 			}
@@ -56,12 +64,10 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 	return nil
 }
 
-func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Bucket,
+func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket, hashBucket *lsmkv.Bucket,
 	item inverted.Countable, docID uint64,
 ) error {
-	if b.Strategy() != lsmkv.StrategyMapCollection {
-		panic("prop has frequency, but bucket does not have 'Map' strategy")
-	}
+	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
 
 	hash, err := s.generateRowHash()
 	if err != nil {
@@ -81,15 +87,13 @@ func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Buc
 		binary.BigEndian.PutUint64(docIDBytes, docID)
 	}
 
-	return b.MapDeleteKey(item.Data, docIDBytes)
+	return bucket.MapDeleteKey(item.Data, docIDBytes)
 }
 
-func (s *Shard) deleteInvertedIndexItemLSM(b, hashBucket *lsmkv.Bucket,
+func (s *Shard) deleteInvertedIndexItemLSM(bucket, hashBucket *lsmkv.Bucket,
 	item inverted.Countable, docID uint64,
 ) error {
-	if b.Strategy() != lsmkv.StrategySetCollection && b.Strategy() != lsmkv.StrategyRoaringSet {
-		panic("prop has no frequency, but bucket does not have 'Set' nor 'RoaringSet' strategy")
-	}
+	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
 
 	hash, err := s.generateRowHash()
 	if err != nil {
@@ -100,12 +104,12 @@ func (s *Shard) deleteInvertedIndexItemLSM(b, hashBucket *lsmkv.Bucket,
 		return err
 	}
 
-	if b.Strategy() == lsmkv.StrategyRoaringSet {
-		return b.RoaringSetRemoveOne(item.Data, docID)
+	if bucket.Strategy() == lsmkv.StrategyRoaringSet {
+		return bucket.RoaringSetRemoveOne(item.Data, docID)
 	}
 
 	docIDBytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(docIDBytes, docID)
 
-	return b.SetDeleteSingle(item.Data, docIDBytes)
+	return bucket.SetDeleteSingle(item.Data, docIDBytes)
 }

@@ -343,6 +343,7 @@ func (s *Shard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
 		return errors.Wrap(err, "unmarshal previous object")
 	}
 
+	// TODO text_rbm_inverted_index null props cleanup?
 	previousInvertProps, _, err := s.analyzeObject(previousObject)
 	if err != nil {
 		return errors.Wrap(err, "analyze previous object")
