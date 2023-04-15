@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
+	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
@@ -39,20 +40,36 @@ func commitLogDirectory(rootPath, name string) string {
 	return fmt.Sprintf("%s/%s.hnsw.commitlog.d", rootPath, name)
 }
 
-func NewCommitLogger(rootPath, name string,
-	maintainenceInterval time.Duration, logger logrus.FieldLogger,
+func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 	opts ...CommitlogOption,
 ) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
-		rootPath:             rootPath,
-		id:                   name,
-		maintainenceInterval: maintainenceInterval,
-		condensor:            NewMemoryCondensor(logger),
-		logger:               logger,
+		rootPath:  rootPath,
+		id:        name,
+		condensor: NewMemoryCondensor(logger),
+		logger:    logger,
 
 		// both can be overwritten using functional options
 		maxSizeIndividual: defaultCommitLogSize / 5,
 		maxSizeCombining:  defaultCommitLogSize,
+
+		// Previously we had an interval of 10s in here, which was changed to
+		// 0.5s as part of gh-1867. There's really no way to wait so long in
+		// between checks: If you are running on a low-powered machine, the
+		// interval will simply find that there is no work and do nothing in
+		// each iteration. However, if you are running on a very powerful
+		// machine within 10s you could have potentially created two units of
+		// work, but we'll only be handling one every 10s. This means
+		// uncombined/uncondensed hnsw commit logs will keep piling up can only
+		// be processes long after the initial insert is complete. This also
+		// means that if there is a crash during importing a lot of work needs
+		// to be done at startup, since the commit logs still contain too many
+		// redundancies. So as of now it seems there are only advantages to
+		// running the cleanup checks and work much more often.
+		//
+		// update: switched to dynamic intervals with values between 500ms and 10s
+		// introduced to address https://github.com/weaviate/weaviate/issues/2783
+		cycleTicker: cyclemanager.HnswCommitLoggerCycleTicker,
 	}
 
 	for _, o := range opts {
@@ -66,8 +83,8 @@ func NewCommitLogger(rootPath, name string,
 		return nil, err
 	}
 
-	l.switchLogCycle = cyclemanager.New(l.maintainenceInterval, l.startSwitchLogs)
-	l.condenseCycle = cyclemanager.New(l.maintainenceInterval, l.startCombineAndCondenseLogs)
+	l.switchLogCycle = cyclemanager.New(l.cycleTicker(), l.startSwitchLogs)
+	l.condenseCycle = cyclemanager.New(l.cycleTicker(), l.startCombineAndCondenseLogs)
 
 	l.commitLogger = commitlog.NewLoggerWithFile(fd)
 	l.Start()
@@ -240,17 +257,17 @@ type hnswCommitLogger struct {
 	// buffer
 	sync.Mutex
 
-	rootPath             string
-	id                   string
-	condensor            condensor
-	logger               logrus.FieldLogger
-	maxSizeIndividual    int64
-	maxSizeCombining     int64
-	commitLogger         *commitlog.Logger
-	maintainenceInterval time.Duration
+	rootPath          string
+	id                string
+	condensor         condensor
+	logger            logrus.FieldLogger
+	maxSizeIndividual int64
+	maxSizeCombining  int64
+	commitLogger      *commitlog.Logger
 
 	switchLogCycle *cyclemanager.CycleManager
 	condenseCycle  *cyclemanager.CycleManager
+	cycleTicker    cyclemanager.TickerProvider
 }
 
 type HnswCommitType uint8 // 256 options, plenty of room for future extensions
@@ -267,6 +284,7 @@ const (
 	ResetIndex
 	ClearLinksAtLevel // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1701
 	AddLinksAtLevel   // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1705
+	AddPQ
 )
 
 func (t HnswCommitType) String() string {
@@ -293,12 +311,21 @@ func (t HnswCommitType) String() string {
 		return "ResetIndex"
 	case ClearLinksAtLevel:
 		return "ClearLinksAtLevel"
+	case AddPQ:
+		return "AddProductQuantizer"
 	}
 	return "unknown commit type"
 }
 
 func (l *hnswCommitLogger) ID() string {
 	return l.id
+}
+
+func (l *hnswCommitLogger) AddPQ(data ssdhelpers.PQData) error {
+	l.Lock()
+	defer l.Unlock()
+
+	return l.commitLogger.AddPQ(data)
 }
 
 // AddNode adds an empty node
@@ -430,48 +457,58 @@ func (l *hnswCommitLogger) RootPath() string {
 	return l.rootPath
 }
 
-func (l *hnswCommitLogger) startSwitchLogs(stopFunc cyclemanager.StopFunc) {
-	if err := l.SwitchCommitLogs(false); err != nil {
+func (l *hnswCommitLogger) startSwitchLogs(shouldBreak cyclemanager.ShouldBreakFunc) bool {
+	executed, err := l.switchCommitLogs(false)
+	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_maintenance").
 			Error("hnsw commit log maintenance failed")
 	}
+	return executed
 }
 
-func (l *hnswCommitLogger) startCombineAndCondenseLogs(stopFunc cyclemanager.StopFunc) {
-	if err := l.combineLogs(); err != nil {
+func (l *hnswCommitLogger) startCombineAndCondenseLogs(shouldBreak cyclemanager.ShouldBreakFunc) bool {
+	executed1, err := l.combineLogs()
+	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_combining").
 			Error("hnsw commit log maintenance (combining) failed")
 	}
 
-	if err := l.condenseOldLogs(); err != nil {
+	executed2, err := l.condenseOldLogs()
+	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_condensing").
 			Error("hnsw commit log maintenance (condensing) failed")
 	}
+	return executed1 || executed2
 }
 
 func (l *hnswCommitLogger) SwitchCommitLogs(force bool) error {
+	_, err := l.switchCommitLogs(force)
+	return err
+}
+
+func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 	l.Lock()
 	defer l.Unlock()
 
 	size, err := l.commitLogger.FileSize()
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if size <= l.maxSizeIndividual && !force {
-		return nil
+		return false, nil
 	}
 
 	oldFileName, err := l.commitLogger.FileName()
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if err := l.commitLogger.Close(); err != nil {
-		return err
+		return true, err
 	}
 
 	// this is a new commit log, initialize with the current time stamp
@@ -496,25 +533,25 @@ func (l *hnswCommitLogger) SwitchCommitLogs(force bool) error {
 	fd, err := os.OpenFile(commitLogFileName(l.rootPath, l.id, fileName),
 		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
-		return errors.Wrap(err, "create commit log file")
+		return true, errors.Wrap(err, "create commit log file")
 	}
 
 	l.commitLogger = commitlog.NewLoggerWithFile(fd)
 
-	return nil
+	return true, nil
 }
 
-func (l *hnswCommitLogger) condenseOldLogs() error {
+func (l *hnswCommitLogger) condenseOldLogs() (bool, error) {
 	files, err := getCommitFileNames(l.rootPath, l.id)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if len(files) <= 1 {
 		// if there are no files there is nothing to do
 		// if there is only a single file, it must still be in use, we can't do
 		// anything yet
-		return nil
+		return false, nil
 	}
 
 	// cut off last element, as that's never a candidate
@@ -526,13 +563,13 @@ func (l *hnswCommitLogger) condenseOldLogs() error {
 			continue
 		}
 
-		return l.condensor.Do(candidate)
+		return true, l.condensor.Do(candidate)
 	}
 
-	return nil
+	return false, nil
 }
 
-func (l *hnswCommitLogger) combineLogs() error {
+func (l *hnswCommitLogger) combineLogs() (bool, error) {
 	// maxSize is the desired final size, since we assume a lot of redunancy we
 	// can set the combining threshold higher than the final threshold under the
 	// assumption that the combined file will be considerably smaller than the

@@ -78,7 +78,7 @@ type fakeNodes struct {
 	nodes []string
 }
 
-func (f fakeNodes) AllNames() []string {
+func (f fakeNodes) Candidates() []string {
 	return f.nodes
 }
 
@@ -86,11 +86,12 @@ func (f fakeNodes) LocalName() string {
 	return f.nodes[0]
 }
 
-func TestInitShardWithReplicas(t *testing.T) {
+func TestInitState(t *testing.T) {
 	type test struct {
 		nodes             []string
 		replicationFactor int
 		shards            int
+		ok                bool
 	}
 
 	// this tests asserts that nodes are assigned evenly with various
@@ -101,36 +102,48 @@ func TestInitShardWithReplicas(t *testing.T) {
 			nodes:             []string{"node1", "node2", "node3"},
 			replicationFactor: 1,
 			shards:            3,
+			ok:                true,
 		},
 		{
 			nodes:             []string{"node1", "node2", "node3"},
 			replicationFactor: 2,
 			shards:            3,
+			ok:                true,
 		},
 		{
 			nodes:             []string{"node1", "node2", "node3"},
 			replicationFactor: 3,
 			shards:            1,
+			ok:                true,
 		},
 		{
 			nodes:             []string{"node1", "node2", "node3"},
 			replicationFactor: 3,
 			shards:            3,
+			ok:                true,
 		},
 		{
 			nodes:             []string{"node1", "node2", "node3"},
 			replicationFactor: 3,
 			shards:            2,
+			ok:                true,
 		},
 		{
 			nodes:             []string{"node1", "node2", "node3", "node4", "node5", "node6"},
 			replicationFactor: 4,
 			shards:            6,
+			ok:                true,
+		},
+		{
+			nodes:             []string{"node1", "node2"},
+			replicationFactor: 4,
+			shards:            4,
+			ok:                false,
 		},
 	}
 
 	for _, test := range tests {
-		t.Run(fmt.Sprintf("shards=%d, rf=%d", test.shards, test.replicationFactor),
+		t.Run(fmt.Sprintf("Shards=%d_RF=%d", test.shards, test.replicationFactor),
 			func(t *testing.T) {
 				nodes := fakeNodes{test.nodes}
 				cfg, err := ParseConfig(map[string]interface{}{
@@ -140,22 +153,23 @@ func TestInitShardWithReplicas(t *testing.T) {
 				require.Nil(t, err)
 
 				state, err := InitState("my-index", cfg, nodes, int64(test.replicationFactor))
+				if !test.ok {
+					require.NotNil(t, err)
+					return
+				}
 				require.Nil(t, err)
 
 				nodeCounter := map[string]int{}
-
+				actual := 0
 				for _, shard := range state.Physical {
 					for _, node := range shard.BelongsToNodes {
 						nodeCounter[node]++
+						actual++
 					}
 				}
 
 				// assert that total no of associations is correct
 				desired := test.shards * test.replicationFactor
-				actual := 0
-				for _, count := range nodeCounter {
-					actual += count
-				}
 				assert.Equal(t, desired, actual, "correct number of node associations")
 
 				// assert that shards are hit evenly
@@ -168,47 +182,50 @@ func TestInitShardWithReplicas(t *testing.T) {
 }
 
 func TestAdjustReplicas(t *testing.T) {
-	t.Run("scaling up from 1 to 3", func(t *testing.T) {
-		nodes := fakeNodes{nodes: []string{"node1", "node2", "node3"}}
-		shard := Physical{BelongsToNodes: []string{"node1"}}
-		expected := Physical{BelongsToNodes: []string{"node1", "node2", "node3"}}
-
+	t.Run("1->3", func(t *testing.T) {
+		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3", "N4", "N5"}}
+		shard := Physical{BelongsToNodes: []string{"N1"}}
 		require.Nil(t, shard.AdjustReplicas(3, nodes))
-		assert.Equal(t, expected, shard)
+		assert.ElementsMatch(t, []string{"N1", "N2", "N3"}, shard.BelongsToNodes)
 	})
 
-	t.Run("scaling up from 2 to 3", func(t *testing.T) {
-		nodes := fakeNodes{nodes: []string{"node1", "node2", "node3"}}
-		shard := Physical{BelongsToNodes: []string{"node2", "node3"}}
-		expected := Physical{BelongsToNodes: []string{"node2", "node3", "node1"}}
-
+	t.Run("2->3", func(t *testing.T) {
+		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3", "N4", "N5"}}
+		shard := Physical{BelongsToNodes: []string{"N2", "N3"}}
 		require.Nil(t, shard.AdjustReplicas(3, nodes))
-		assert.Equal(t, expected, shard)
+		assert.ElementsMatch(t, []string{"N1", "N2", "N3"}, shard.BelongsToNodes)
 	})
 
-	t.Run("scaling from 3 to 3 - no change required", func(t *testing.T) {
-		nodes := fakeNodes{nodes: []string{"node1", "node2", "node3"}}
-		shard := Physical{BelongsToNodes: []string{"node1", "node2", "node3"}}
-		expected := Physical{BelongsToNodes: []string{"node1", "node2", "node3"}}
-
+	t.Run("3->3", func(t *testing.T) {
+		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3", "N4", "N5"}}
+		shard := Physical{BelongsToNodes: []string{"N1", "N2", "N3"}}
 		require.Nil(t, shard.AdjustReplicas(3, nodes))
-		assert.Equal(t, expected, shard)
+		assert.ElementsMatch(t, []string{"N1", "N2", "N3"}, shard.BelongsToNodes)
 	})
 
-	t.Run("scaling down from 3 to 2", func(t *testing.T) {
-		nodes := fakeNodes{nodes: []string{"node1", "node2", "node3"}}
-		shard := Physical{BelongsToNodes: []string{"node1", "node2", "node3"}}
-		expected := Physical{BelongsToNodes: []string{"node1", "node2"}}
-
+	t.Run("3->2", func(t *testing.T) {
+		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3"}}
+		shard := Physical{BelongsToNodes: []string{"N1", "N2", "N3"}}
 		require.Nil(t, shard.AdjustReplicas(2, nodes))
-		assert.Equal(t, expected, shard)
+		assert.ElementsMatch(t, []string{"N1", "N2"}, shard.BelongsToNodes)
 	})
 
-	t.Run("attempting to scale to a negative value", func(t *testing.T) {
-		nodes := fakeNodes{nodes: []string{"node1", "node2", "node3"}}
-		shard := Physical{BelongsToNodes: []string{"node1", "node2", "node3"}}
-
-		require.NotNil(t, shard.AdjustReplicas(-22, nodes))
+	t.Run("Min", func(t *testing.T) {
+		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3"}}
+		shard := Physical{BelongsToNodes: []string{"N1", "N2", "N3"}}
+		require.NotNil(t, shard.AdjustReplicas(-1, nodes))
+	})
+	t.Run("Max", func(t *testing.T) {
+		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3"}}
+		shard := Physical{BelongsToNodes: []string{"N1", "N2", "N3"}}
+		require.NotNil(t, shard.AdjustReplicas(4, nodes))
+	})
+	t.Run("Bug", func(t *testing.T) {
+		names := []string{"N1", "N2", "N3", "N4"}
+		nodes := fakeNodes{nodes: names} // bug
+		shard := Physical{BelongsToNodes: []string{"N1", "N1", "N1", "N2", "N2"}}
+		require.Nil(t, shard.AdjustReplicas(4, nodes)) // correct
+		require.ElementsMatch(t, names, shard.BelongsToNodes)
 	})
 }
 

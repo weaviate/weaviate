@@ -253,7 +253,7 @@ func (i *Index) IncomingCreateShard(ctx context.Context,
 	}
 
 	// TODO: metrics
-	s, err := NewShard(ctx, nil, shardName, i, nil)
+	s, err := NewShard(ctx, nil, shardName, i, nil, i.centralJobQueue)
 	if err != nil {
 		return err
 	}
@@ -300,7 +300,7 @@ func (s *Shard) reinit(ctx context.Context) error {
 	}
 
 	hnswUserConfig, ok := s.index.vectorIndexUserConfig.(hnswent.UserConfig)
-    // TODO:  How do we support the Gemini index?
+	// TODO:  How do we support the Gemini index?
 	if !ok {
 		return fmt.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
 			s.index.vectorIndexUserConfig)
@@ -334,44 +334,45 @@ func (db *DB) OverwriteObjects(ctx context.Context,
 // It returns nil if all object have been successfully overwritten
 // and otherwise a list of failed operations.
 func (i *Index) overwriteObjects(ctx context.Context,
-	shard string, list []*objects.VObject,
+	shard string, updates []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
-	result := make([]replica.RepairResponse, 0, len(list)/2)
+	result := make([]replica.RepairResponse, 0, len(updates)/2)
 	s := i.Shards[shard]
 	if s == nil {
 		return nil, fmt.Errorf("shard %q not found locally", shard)
 	}
-	for _, update := range list {
-		id := update.LatestObject.ID
-		found, err := s.objectByID(ctx, id, nil, additional.Properties{})
-		if err != nil || found == nil {
-			result = append(result, replica.RepairResponse{
-				ID:  id.String(),
-				Err: "not found",
-			})
+	for i, u := range updates {
+		// Just in case but this should not happen
+		data := u.LatestObject
+		if data == nil || data.ID == "" {
+			msg := fmt.Sprintf("received nil object or empty uuid at position %d", i)
+			result = append(result, replica.RepairResponse{Err: msg})
 			continue
 		}
-		// the stored object is not the most recent version. in
-		// this case, we overwrite it with the more recent one.
-		if found.LastUpdateTimeUnix() == update.StaleUpdateTime {
-			err := s.putObject(ctx, storobj.FromObject(update.LatestObject, update.LatestObject.Vector))
+		// valid update
+		found, err := s.objectByID(ctx, data.ID, nil, additional.Properties{})
+		var curUpdateTime int64 // 0 means object doesn't exist on this node
+		if found != nil {
+			curUpdateTime = found.LastUpdateTimeUnix()
+		}
+		r := replica.RepairResponse{ID: data.ID.String(), UpdateTime: curUpdateTime}
+		switch {
+		case err != nil:
+			r.Err = "not found: " + err.Error()
+		case curUpdateTime == u.StaleUpdateTime:
+			// the stored object is not the most recent version. in
+			// this case, we overwrite it with the more recent one.
+			err := s.putObject(ctx, storobj.FromObject(data, data.Vector))
 			if err != nil {
-				result = append(result, replica.RepairResponse{
-					ID:         id.String(),
-					UpdateTime: found.LastUpdateTimeUnix(),
-					// Version: , todo
-					Err: fmt.Sprintf("overwrite stale object: %v", err),
-				})
-				continue
+				r.Err = fmt.Sprintf("overwrite stale object: %v", err)
 			}
-		} else {
-			// todo set version once implemented
-			result = append(result, replica.RepairResponse{
-				ID:         id.String(),
-				UpdateTime: found.LastUpdateTimeUnix(),
-				// Version: , todo
-				Err: "conflict",
-			})
+		case curUpdateTime != data.LastUpdateTimeUnix:
+			// object changed and its state differs from recent known state
+			r.Err = "conflict"
+		}
+
+		if r.Err != "" { // include only unsuccessful responses
+			result = append(result, r)
 		}
 	}
 	if len(result) == 0 {
@@ -424,12 +425,13 @@ func (i *Index) digestObjects(ctx context.Context,
 				// TODO: use version when supported
 				Version: 0,
 			}
-		}
-		result[j] = replica.RepairResponse{
-			ID:         objs[j].ID().String(),
-			UpdateTime: objs[j].LastUpdateTimeUnix(),
-			// TODO: use version when supported
-			Version: 0,
+		} else {
+			result[j] = replica.RepairResponse{
+				ID:         objs[j].ID().String(),
+				UpdateTime: objs[j].LastUpdateTimeUnix(),
+				// TODO: use version when supported
+				Version: 0,
+			}
 		}
 	}
 
@@ -496,7 +498,7 @@ func (i *Index) fetchObjects(ctx context.Context,
 
 	objs, err := shard.multiObjectByID(ctx, wrapIDsInMulti(ids))
 	if err != nil {
-		return nil, fmt.Errorf("shard %q read repair multi get objects: %w", shard.ID(), err)
+		return nil, fmt.Errorf("shard %q replication multi get objects: %w", shard.ID(), err)
 	}
 
 	resp := make([]objects.Replica, len(ids))
@@ -520,10 +522,4 @@ func (i *Index) fetchObjects(ctx context.Context,
 	}
 
 	return resp, nil
-}
-
-func (db *DB) DoesExist(ctx context.Context,
-	class, shardName string, id strfmt.UUID,
-) (objects.Replica, error) {
-	panic("not implemented")
 }

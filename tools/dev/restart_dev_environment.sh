@@ -49,6 +49,9 @@ fi
 if [[ "$*" == *--gcs* ]]; then
   ADDITIONAL_SERVICES+=('backup-gcs')
 fi
+if [[ "$*" == *--azure* ]]; then
+  ADDITIONAL_SERVICES+=('backup-azure')
+fi
 
 docker compose -f $DOCKER_COMPOSE_FILE down --remove-orphans
 
@@ -88,9 +91,14 @@ if [[ "$*" == *--s3* ]]; then
   echo "the text2vec-contextionary model container with backup-s3 module"
 fi
 
-if [[ "$*" == *--s3* ]]; then
+if [[ "$*" == *--gcs* ]]; then
   echo "You have specified the --gcs option. Starting up"
   echo "the text2vec-contextionary model container with backup-gcs module"
+fi
+
+if [[ "$*" == *--azure* ]]; then
+  echo "You have specified the --azure option. Starting up"
+  echo "the text2vec-contextionary model container with backup-azure module"
 fi
 
 echo "You can now run the dev version with: ./tools/dev/run_dev_server.sh or ./tools/dev/run_dev_server_no_network.sh"

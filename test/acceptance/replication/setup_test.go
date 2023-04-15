@@ -13,17 +13,9 @@ package replication
 
 import "testing"
 
-// These tests has been deactivated because getting
-// the server endpoints for getting objects are not working properly
-// adapters/handlers/rest/clusterapi/indices_replicas.go
-// TODO: activate once fixed
-//
-//nolint:all
 func TestReplication(t *testing.T) {
-	enable := false
-	if enable { // just to satisfy golangci-lint
-		t.Run("immediate replica CRUD", immediateReplicaCRUD)
-		t.Run("eventual replica CRUD", eventualReplicaCRUD)
-	}
+	t.Run("immediate replica CRUD", immediateReplicaCRUD)
+	t.Run("eventual replica CRUD", eventualReplicaCRUD)
 	t.Run("multishard scale out", multiShardScaleOut)
+	t.Run("read repair", readRepair)
 }

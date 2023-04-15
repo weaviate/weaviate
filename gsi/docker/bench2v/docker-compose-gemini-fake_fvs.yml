@@ -35,8 +35,11 @@ services:
     volumes:
      - /Users/gwilliams/Projects/GSI/Weaviate/data/:/datasets
     environment:
+      VERBOSE: 1
       ENABLE_CUDA: 0
-      NUMPY_FILE: "/datasets/deep-1M.npy"
+      DATABASE_FILE: "/datasets/deep-10K.npy"
+      QUERY_FILE: "/datasets/deep-queries-1000.npy"
+      GROUND_TRUTH_FILE: "/datasets/deep-10K-gt-1000.npy"
   fake_fvs:
     image: gsi/fake_fvs
     ports:

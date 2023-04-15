@@ -409,28 +409,27 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "",
+      "description": "Break down of filtered query latency by operation",
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "continuous-GrYlRd"
           },
           "custom": {
             "axisCenteredZero": false,
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
-            "axisSoftMin": 0,
             "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 15,
+            "fillOpacity": 0,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
               "viz": false
             },
-            "lineInterpolation": "smooth",
+            "lineInterpolation": "linear",
             "lineWidth": 1,
             "pointSize": 5,
             "scaleDistribution": {
@@ -440,7 +439,7 @@
             "spanNulls": false,
             "stacking": {
               "group": "A",
-              "mode": "normal"
+              "mode": "none"
             },
             "thresholdsStyle": {
               "mode": "off"
@@ -459,17 +458,18 @@
                 "value": 80
               }
             ]
-          }
+          },
+          "unit": "ms"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
+        "h": 9,
         "w": 12,
         "x": 0,
         "y": 17
       },
-      "id": 2,
+      "id": 11,
       "options": {
         "legend": {
           "calcs": [],
@@ -488,23 +488,12 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
+          "editorMode": "code",
           "exemplar": true,
-          "expr": "sum(concurrent_queries_count{query_type=\"aggregate\"})",
-          "interval": "",
-          "legendFormat": "Aggregate",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "exemplar": true,
-          "expr": "sum(concurrent_queries_count{query_type=\"get_graphql\"})",
-          "hide": false,
-          "interval": "",
-          "legendFormat": "Get (GraphQL)",
-          "refId": "B"
+          "expr": "rate(queries_filtered_vector_durations_ms_sum{operation=\"filter\"}[$__interval]) / rate(queries_filtered_vector_durations_ms_count{operation=\"filter\"}[$__interval])",
+          "legendFormat": "{{class_name}}/{{operation}}/{{shard_name}}",
+          "range": true,
+          "refId": "Filter"
         },
         {
           "datasource": {
@@ -512,11 +501,12 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(concurrent_queries_count{query_type=\"get_object\"})",
+          "exemplar": true,
+          "expr": "rate(queries_filtered_vector_durations_ms_sum{operation=\"sort\"}[$__interval]) / rate(queries_filtered_vector_durations_ms_count{operation=\"sort\"}[$__interval])",
           "hide": false,
-          "legendFormat": "Get (Objects)",
+          "legendFormat": "{{class_name}}/{{operation}}/{{shard_name}}",
           "range": true,
-          "refId": "C"
+          "refId": "Sort"
         },
         {
           "datasource": {
@@ -524,14 +514,28 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(concurrent_queries_count{query_type=\"head_object\"})",
+          "exemplar": true,
+          "expr": "rate(queries_filtered_vector_durations_ms_sum{operation=\"vector\"}[$__interval]) / rate(queries_filtered_vector_durations_ms_count{operation=\"vector\"}[$__interval])",
           "hide": false,
-          "legendFormat": "Head (Objects)",
+          "legendFormat": "{{class_name}}/{{operation}}/{{shard_name}}",
           "range": true,
-          "refId": "D"
+          "refId": "Vector"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "rate(queries_filtered_vector_durations_ms_sum{operation=\"objects\"}[$__interval]) / rate(queries_filtered_vector_durations_ms_count{operation=\"objects\"}[$__interval])",
+          "hide": false,
+          "legendFormat": "{{class_name}}/{{operation}}/{{shard_name}}",
+          "range": true,
+          "refId": "Objects"
         }
       ],
-      "title": "Concurrent Read Requests",
+      "title": "Filtered Query Latency",
       "type": "timeseries"
     },
     {
@@ -727,6 +731,136 @@
       ],
       "title": "Concurrent Write Requests",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "exemplar": true,
+          "expr": "sum(concurrent_queries_count{query_type=\"aggregate\"})",
+          "interval": "",
+          "legendFormat": "Aggregate",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "exemplar": true,
+          "expr": "sum(concurrent_queries_count{query_type=\"get_graphql\"})",
+          "hide": false,
+          "interval": "",
+          "legendFormat": "Get (GraphQL)",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(concurrent_queries_count{query_type=\"get_object\"})",
+          "hide": false,
+          "legendFormat": "Get (Objects)",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(concurrent_queries_count{query_type=\"head_object\"})",
+          "hide": false,
+          "legendFormat": "Head (Objects)",
+          "range": true,
+          "refId": "D"
+        }
+      ],
+      "title": "Concurrent Read Requests",
+      "type": "timeseries"
     }
   ],
   "refresh": "5s",
@@ -737,7 +871,7 @@
     "list": []
   },
   "time": {
-    "from": "now-15m",
+    "from": "now-5m",
     "to": "now"
   },
   "timepicker": {},

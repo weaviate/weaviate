@@ -19,7 +19,7 @@ import (
 	"context"
 	"fmt"
 	"time"
-    
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -96,7 +96,7 @@ type VectorRepo interface {
 	Object(ctx context.Context, class string, id strfmt.UUID, props search.SelectProperties,
 		additional additional.Properties, repl *additional.ReplicationProperties) (*search.Result, error)
 	// Exists returns true if an object of a giving class exists
-	Exists(ctx context.Context, class string, id strfmt.UUID) (bool, error)
+	Exists(ctx context.Context, class string, id strfmt.UUID, repl *additional.ReplicationProperties) (bool, error)
 	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties,
 		additional additional.Properties) (*search.Result, error)
 	ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,

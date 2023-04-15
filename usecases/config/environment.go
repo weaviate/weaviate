@@ -41,6 +41,10 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if enabled(os.Getenv("REINDEX_SET_TO_ROARINGSET_AT_STARTUP")) {
+		config.ReindexSetToRoaringsetAtStartup = true
+	}
+
 	if v := os.Getenv("PROMETHEUS_MONITORING_PORT"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
@@ -82,15 +86,32 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
+		config.Authentication.APIKey.Enabled = true
+
+		if keysString, ok := os.LookupEnv("AUTHENTICATION_APIKEY_ALLOWED_KEYS"); ok {
+			keys := strings.Split(keysString, ",")
+			config.Authentication.APIKey.AllowedKeys = keys
+		}
+
+		if keysString, ok := os.LookupEnv("AUTHENTICATION_APIKEY_USERS"); ok {
+			keys := strings.Split(keysString, ",")
+			config.Authentication.APIKey.Users = keys
+		}
+	}
+
 	if enabled(os.Getenv("AUTHORIZATION_ADMINLIST_ENABLED")) {
 		config.Authorization.AdminList.Enabled = true
 
-		users := strings.Split(os.Getenv("AUTHORIZATION_ADMINLIST_USERS"), ",")
-		roUsers := strings.Split(os.Getenv("AUTHORIZATION_ADMINLIST_READONLY_USERS"),
-			",")
+		usersString, ok := os.LookupEnv("AUTHORIZATION_ADMINLIST_USERS")
+		if ok {
+			config.Authorization.AdminList.Users = strings.Split(usersString, ",")
+		}
 
-		config.Authorization.AdminList.ReadOnlyUsers = roUsers
-		config.Authorization.AdminList.Users = users
+		roUsersString, ok := os.LookupEnv("AUTHORIZATION_ADMINLIST_READONLY_USERS")
+		if ok {
+			config.Authorization.AdminList.ReadOnlyUsers = strings.Split(roUsersString, ",")
+		}
 	}
 
 	clusterCfg, err := parseClusterConfig()
@@ -164,7 +185,7 @@ func FromEnv(config *Config) error {
 
 	if v := os.Getenv("ENABLE_MODULES"); v != "" {
 		config.EnableModules = v
-    }
+	}
 
 	config.AutoSchema.Enabled = true
 	if v := os.Getenv("AUTOSCHEMA_ENABLED"); v != "" {
@@ -217,14 +238,14 @@ func FromEnv(config *Config) error {
 		config.MaximumConcurrentGetRequests = DefaultMaxConcurrentGetRequests
 	}
 
-    config.DefaultVectorIndexType = "hnsw"
-    if v := os.Getenv("DEFAULT_VECTOR_INDEX_TYPE"); v !="" {
-        // TODO: Should probably check for valid strings
-        config.DefaultVectorIndexType = v
-    }
-    if v := os.Getenv("MODULES_PATH"); v != "" {
-        config.ModulesPath = v // "/Users/gwilliams/Projects/GSI/Weaviate/github.fork/weaviate/modules"
-    }
+	config.DefaultVectorIndexType = VectorIndexTypeHNSW
+	if v := os.Getenv("DEFAULT_VECTOR_INDEX_TYPE"); v != "" {
+		config.DefaultVectorIndexType = v
+	}
+
+	if v := os.Getenv("MODULES_PATH"); v != "" {
+		config.ModulesPath = v // "/Users/gwilliams/Projects/GSI/Weaviate/github.fork/weaviate/modules"
+	}
 
 	return nil
 }
@@ -304,9 +325,12 @@ const (
 
 const VectorizerModuleNone = "none"
 
+const VectorIndexTypeHNSW = "hnsw" // The default builtin index type
+
 // DefaultGossipBindPort uses the hashicorp/memberlist default
 // port value assigned with the use of DefaultLocalConfig
-const DefaultGossipBindPort = 7949 //GW - 6
+// TODO - 7946 may conflict with Docker Swarm
+const DefaultGossipBindPort = 7946
 
 // TODO: This should be retrieved dynamically from all installed modules
 const VectorizerModuleText2VecContextionary = "text2vec-contextionary"

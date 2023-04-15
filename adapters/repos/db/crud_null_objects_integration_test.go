@@ -146,15 +146,15 @@ func createRepo(t *testing.T) (*Migrator, *DB, *fakeSchemaGetter) {
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	logger, _ := test.NewNullLogger()
 	dirName := t.TempDir()
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	return NewMigrator(repo, logger), repo, schemaGetter
 }
 

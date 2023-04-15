@@ -24,6 +24,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -47,7 +48,14 @@ type Bucket struct {
 	memtableThreshold uint64
 	memtableResizer   *memtableSizeAdvisor
 	strategy          string
-	secondaryIndices  uint16
+	// Strategy inverted index is supposed to be created with, but existing
+	// segment files were created with different one.
+	// It can happen when new strategy were introduced to weaviate, but
+	// files are already created using old implementation.
+	// Example: RoaringSet strategy replaces CollectionSet strategy.
+	// Field can be used for migration files of old strategy to newer one.
+	desiredStrategy  string
+	secondaryIndices uint16
 
 	// for backward compatibility
 	legacyMapSortingBeforeCompaction bool
@@ -76,7 +84,6 @@ type Bucket struct {
 func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
 	metrics *Metrics, opts ...BucketOption,
 ) (*Bucket, error) {
-    
 	beforeAll := time.Now()
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
@@ -108,10 +115,22 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		b.memtableThreshold = uint64(b.memtableResizer.Initial())
 	}
 
-	sg, err := newSegmentGroup(dir, cyclemanager.DefaultLSMCompactionInterval, logger,
-		b.legacyMapSortingBeforeCompaction, metrics, b.strategy, b.monitorCount)
+	sg, err := newSegmentGroup(dir, logger, b.legacyMapSortingBeforeCompaction,
+		metrics, b.strategy, b.monitorCount)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
+	}
+
+	// Actual strategy is stored in segment files. In case it is SetCollection,
+	// while new implementation uses bitmaps and supposed to be RoaringSet,
+	// bucket and segmentgroup strategy is changed back to SetCollection
+	// (memtables will be created later on, with already modified strategy)
+	// TODO what if only WAL files exists, and there is no segment to get actual strategy?
+	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
+		sg.segments[0].strategy == segmentindex.StrategySetCollection {
+		b.strategy = StrategySetCollection
+		b.desiredStrategy = StrategyRoaringSet
+		sg.strategy = StrategySetCollection
 	}
 
 	b.disk = sg
@@ -124,7 +143,9 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		return nil, err
 	}
 
-	b.flushCycle = cyclemanager.New(cyclemanager.DefaultMemtableFlushInterval, b.flushAndSwitchIfThresholdsMet)
+	b.flushCycle = cyclemanager.New(
+		cyclemanager.MemtableFlushCycleTicker(),
+		b.flushAndSwitchIfThresholdsMet)
 	b.flushCycle.Start()
 
 	b.metrics.TrackStartupBucket(beforeAll)
@@ -142,7 +163,9 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 		if err != nil {
 			return fmt.Errorf("cannot unmarshal object %d, %v", i, err)
 		}
-		f(obj)
+		if err := f(obj); err != nil {
+			return errors.Wrapf(err, "callback on object '%d' failed", obj.DocID())
+		}
 
 		i++
 	}
@@ -612,10 +635,19 @@ func (b *Bucket) Count() int {
 		panic("Count() called on strategy other than 'replace'")
 	}
 
-	memtableCount := b.memtableNetCount(b.active.countStats())
-	if b.flushing != nil {
-		memtableCount += b.memtableNetCount(b.flushing.countStats())
+	memtableCount := 0
+	if b.flushing == nil {
+		// only consider active
+		memtableCount += b.memtableNetCount(b.active.countStats(), nil)
+	} else {
+		flushingCountStats := b.flushing.countStats()
+		activeCountStats := b.active.countStats()
+		deltaActive := b.memtableNetCount(activeCountStats, flushingCountStats)
+		deltaFlushing := b.memtableNetCount(flushingCountStats, nil)
+
+		memtableCount = deltaActive + deltaFlushing
 	}
+
 	diskCount := b.disk.count()
 
 	if b.monitorCount {
@@ -624,29 +656,36 @@ func (b *Bucket) Count() int {
 	return memtableCount + diskCount
 }
 
-func (b *Bucket) memtableNetCount(stats *countStats) int {
+func (b *Bucket) memtableNetCount(stats *countStats, previousMemtable *countStats) int {
 	netCount := 0
 
 	// TODO: this uses regular get, given that this may be called quite commonly,
 	// we might consider building a pure Exists(), which skips reading the value
 	// and only checks for tombstones, etc.
 	for _, key := range stats.upsertKeys {
-		v, _ := b.disk.get(key) // current implementation can't error
-		if v == nil {
-			// this key didn't exist before
+		if !b.existsOnDiskAndPreviousMemtable(previousMemtable, key) {
 			netCount++
 		}
 	}
 
 	for _, key := range stats.tombstonedKeys {
-		v, _ := b.disk.get(key) // current implementation can't error
-		if v != nil {
-			// this key existed before
+		if b.existsOnDiskAndPreviousMemtable(previousMemtable, key) {
 			netCount--
 		}
 	}
 
 	return netCount
+}
+
+func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byte) bool {
+	v, _ := b.disk.get(key) // current implementation can't error
+	if v == nil {
+		// not on disk, but it could still be in the previous memtable
+		return previous.hasUpsert(key)
+	}
+
+	// it exists on disk ,but it could still have been deleted in the previous memtable
+	return !previous.hasTombstone(key)
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) error {
@@ -685,22 +724,12 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.StopFunc) {
-	b.flushLock.Lock()
-
-	// to check the current size of the WAL to
-	// see if the threshold has been reached
-	stat, err := b.active.commitlog.file.Stat()
-	if err != nil {
-		b.logger.WithField("action", "lsm_wal_stat").
-			WithField("path", b.dir).
-			WithError(err).
-			Fatal("flush and switch failed")
-	}
-
+func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldBreak cyclemanager.ShouldBreakFunc) bool {
+	b.flushLock.RLock()
+	commitLogSize := b.active.commitlog.Size()
 	memtableTooLarge := b.active.Size() >= b.memtableThreshold
-	walTooLarge := uint64(stat.Size()) >= b.walThreshold
-	dirtyButIdle := (b.active.Size() > 0 || stat.Size() > 0) &&
+	walTooLarge := uint64(commitLogSize) >= b.walThreshold
+	dirtyButIdle := (b.active.Size() > 0 || commitLogSize > 0) &&
 		b.active.IdleDuration() >= b.flushAfterIdle
 	shouldSwitch := memtableTooLarge || walTooLarge || dirtyButIdle
 
@@ -713,12 +742,13 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.StopFunc) {
 			WithField("path", b.dir).
 			Warn("flush halted due to shard READONLY status")
 
-		b.flushLock.Unlock()
+		b.flushLock.RUnlock()
+		// TODO maybe will not be necessary with dynamic interval
 		time.Sleep(time.Second)
-		return
+		return false
 	}
 
-	b.flushLock.Unlock()
+	b.flushLock.RUnlock()
 	if shouldSwitch {
 		cycleLength := b.active.ActiveDuration()
 		if err := b.FlushAndSwitch(); err != nil {
@@ -734,7 +764,9 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.StopFunc) {
 				b.memtableThreshold = uint64(next)
 			}
 		}
+		return true
 	}
+	return false
 }
 
 // UpdateStatus is used by the parent shard to communicate to the bucket
@@ -818,6 +850,10 @@ func (b *Bucket) atomicallySwitchMemtable() error {
 
 func (b *Bucket) Strategy() string {
 	return b.strategy
+}
+
+func (b *Bucket) DesiredStrategy() string {
+	return b.desiredStrategy
 }
 
 // the WAL uses a buffer and isn't written until the buffer size is crossed or

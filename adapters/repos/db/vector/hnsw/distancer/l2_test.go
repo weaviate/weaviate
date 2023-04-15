@@ -64,3 +64,23 @@ func TestL2Distancer(t *testing.T) {
 		assert.Equal(t, expectedDistance, dist)
 	})
 }
+
+func TestL2DistancerStepbyStep(t *testing.T) {
+	t.Run("step by step equals SingleDist", func(t *testing.T) {
+		vec1 := []float32{3, 4, 5}
+		vec2 := []float32{1.5, 2, 2.5}
+
+		expectedDistance, ok, err := NewL2SquaredProvider().New(vec1).Distance(vec2)
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		distanceProvider := NewL2SquaredProvider()
+		sum := float32(0.0)
+		for i := range vec1 {
+			sum += distanceProvider.Step([]float32{vec1[i]}, []float32{vec2[i]})
+		}
+		control := distanceProvider.Wrap(sum)
+
+		assert.Equal(t, control, expectedDistance)
+	})
+}

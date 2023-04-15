@@ -16,12 +16,13 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-type exists func(_ context.Context, class string, _ strfmt.UUID) (bool, error)
+type exists func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties) (bool, error)
 
 const (
 	// ErrorMissingActionObjects message
@@ -56,19 +57,23 @@ const (
 	ErrorInvalidCRefType string = "'cref' type '%s' does not exists"
 	// ErrorNotFoundInDatabase message
 	ErrorNotFoundInDatabase string = "%s: no object with id %s found"
+	// ErrorInvalidProperties message
+	ErrorInvalidProperties string = "properties of object %v must be of type map[string]interface"
 )
 
 type Validator struct {
-	exists exists
-	config *config.WeaviateConfig
+	exists           exists
+	config           *config.WeaviateConfig
+	replicationProps *additional.ReplicationProperties
 }
 
-func New(exists exists,
-	config *config.WeaviateConfig,
+func New(exists exists, config *config.WeaviateConfig,
+	repl *additional.ReplicationProperties,
 ) *Validator {
 	return &Validator{
-		exists: exists,
-		config: config,
+		exists:           exists,
+		config:           config,
+		replicationProps: repl,
 	}
 }
 
@@ -104,7 +109,7 @@ func (v *Validator) ValidateSingleRef(ctx context.Context, cref *models.SingleRe
 	}
 
 	// locally check for object existence
-	ok, err := v.exists(ctx, ref.Class, ref.TargetID)
+	ok, err := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps)
 	if err != nil {
 		return err
 	}

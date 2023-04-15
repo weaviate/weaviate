@@ -41,18 +41,18 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 
 	defer repo.Shutdown(context.Background())
 
-	require.Nil(t, err)
 	migrator := NewMigrator(repo, logger)
 
 	s := schema.Schema{
@@ -167,7 +167,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			sourceID))
 		require.Nil(t, err)
 		targets := []strfmt.UUID{target1, target2}
-		refs := make(objects.BatchReferences, len(targets), len(targets))
+		refs := make(objects.BatchReferences, len(targets))
 		for i, target := range targets {
 			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s",
 				target))
@@ -221,7 +221,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			sourceID))
 		require.Nil(t, err)
 		targets := []strfmt.UUID{target3, target4}
-		refs := make(objects.BatchReferences, len(targets), len(targets))
+		refs := make(objects.BatchReferences, len(targets))
 		for i, target := range targets {
 			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s", target))
 			require.Nil(t, err)
@@ -340,7 +340,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			// prior to making the inverted index and its docIDs immutable, a ref
 			// update would not change the doc ID, therefore the batch reference
 			// never had to interact with the vector index. Now that they're
-			// immutable, the udpated doc ID needs to be "re-inserted" even if the
+			// immutable, the updated doc ID needs to be "re-inserted" even if the
 			// vector is still the same
 			// UPDATE gh-1334: Since batch refs are now a special case where we
 			// tolerate a re-use of the doc id, the above assumption is no longer

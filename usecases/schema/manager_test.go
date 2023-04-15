@@ -88,6 +88,10 @@ func (n *NilMigrator) RecalculateVectorDimensions(ctx context.Context) error {
 	return nil
 }
 
+func (n *NilMigrator) InvertedReindex(ctx context.Context, taskNames ...string) error {
+	return nil
+}
+
 var schemaTests = []struct {
 	name string
 	fn   func(*testing.T, *Manager)
@@ -480,6 +484,7 @@ func newSchemaManager() *Manager {
 	}
 	dummyConfig := config.Config{
 		DefaultVectorizerModule:     config.VectorizerModuleNone,
+		DefaultVectorIndexType:      config.VectorIndexTypeHNSW,
 		DefaultVectorDistanceMetric: "cosine",
 	}
 	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), logger, &fakeAuthorizer{},

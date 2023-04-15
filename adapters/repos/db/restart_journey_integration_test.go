@@ -50,15 +50,15 @@ func TestRestartJourney(t *testing.T) {
 	}
 	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{shardState: shardState}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", func(t *testing.T) {
@@ -167,15 +167,15 @@ func TestRestartJourney(t *testing.T) {
 		require.Nil(t, repo.Shutdown(context.Background()))
 		repo = nil
 
-		newRepo = New(logger, Config{
+		newRepo, err = New(logger, Config{
 			MemtablesFlushIdleAfter:   60,
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
 			MaxImportGoroutinesFactor: 1,
 		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-		newRepo.SetSchemaGetter(schemaGetter)
-		err := newRepo.WaitForStartup(testCtx())
 		require.Nil(t, err)
+		newRepo.SetSchemaGetter(schemaGetter)
+		require.Nil(t, newRepo.WaitForStartup(testCtx()))
 	})
 
 	t.Run("verify after restart", func(t *testing.T) {

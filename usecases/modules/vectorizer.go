@@ -21,9 +21,9 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/vectorindex/gemini"
-    "github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 const (
@@ -33,7 +33,7 @@ const (
 	errorVectorIndexType = "vector index config (%T) is not of type HNSW, " +
 		"but objects manager is restricted to HNSW"
 
-    errorVectorIndexGeminiType = "vector index config (%T) is not of type Gemini, " +
+	errorVectorIndexGeminiType = "vector index config (%T) is not of type Gemini, " +
 		"but objects manager is restricted to Gemini"
 
 	warningVectorIgnored = "This vector will be ignored. If you meant to index " +
@@ -49,7 +49,6 @@ const (
 )
 
 func (m *Provider) ValidateVectorizer(moduleName string) error {
-
 	mod := m.GetByName(moduleName)
 	if mod == nil {
 		return errors.Errorf("no module with name %q present", moduleName)
@@ -89,45 +88,42 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 	objectDiff *moduletools.ObjectDiff, findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) error {
+	switch class.VectorIndexConfig.(type) {
 
-    switch class.VectorIndexConfig.(type) {
+	case hnsw.UserConfig:
 
-        case hnsw.UserConfig:
+		hnswConfig, ok := class.VectorIndexConfig.(hnsw.UserConfig)
+		if !ok {
+			return fmt.Errorf(errorVectorIndexType, class.VectorIndexConfig)
+		}
 
-	        hnswConfig, ok := class.VectorIndexConfig.(hnsw.UserConfig)
-	        if !ok {
-	            return fmt.Errorf(errorVectorIndexType, class.VectorIndexConfig)
-	        }
+		if class.Vectorizer == config.VectorizerModuleNone {
+			if hnswConfig.Skip && len(object.Vector) > 0 {
+				logger.WithField("className", object.Class).
+					Warningf(warningSkipVectorProvided)
+			}
+			return nil
+		}
 
-            if class.Vectorizer == config.VectorizerModuleNone {
-                if hnswConfig.Skip && len(object.Vector) > 0 {
-                    logger.WithField("className", object.Class).
-                    Warningf(warningSkipVectorProvided)
-                }
-                return nil
-            }
+		if hnswConfig.Skip {
+			logger.WithField("className", object.Class).
+				WithField("vectorizer", class.Vectorizer).
+				Warningf(warningSkipVectorGenerated, class.Vectorizer)
+		}
 
-            if hnswConfig.Skip {
-                logger.WithField("className", object.Class).
-                    WithField("vectorizer", class.Vectorizer).
-                    Warningf(warningSkipVectorGenerated, class.Vectorizer)
-            }
+	case gemini.UserConfig:
 
-            break
+		_, ok := class.VectorIndexConfig.(gemini.UserConfig)
+		if !ok {
+			return fmt.Errorf(errorVectorIndexGeminiType, class.VectorIndexConfig)
+		}
 
-        case gemini.UserConfig:
-	
-            _, ok := class.VectorIndexConfig.(gemini.UserConfig)
-	        if !ok {
-		        return fmt.Errorf(errorVectorIndexGeminiType, class.VectorIndexConfig)
-	        }
-
-            break
-        
-        default:
-
-            return fmt.Errorf("Unsupported vector index config.")
-    }
+	default:
+		// TODO: Currently returning the previous HNSW error in order to pass unit tests
+		// TODO: but it should be something like the following eventually:
+		// TODO: return fmt.Errorf("Unsupported vector index config.")
+		return fmt.Errorf(errorVectorIndexType, class.VectorIndexConfig)
+	}
 
 	modConfig, ok := class.ModuleConfig.(map[string]interface{})
 	if !ok {

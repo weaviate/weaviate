@@ -19,19 +19,21 @@ import (
 )
 
 var (
-	Origin             string
-	DatasetConfigPath  string
-	BatchSize          int
-	QueriesCount       int
-	MultiplyProperties int
+	Origin                 string
+	DatasetConfigPath      string
+	BatchSize              int
+	QueriesCount           int
+	MultiplyProperties     int
+	FilterObjectPercentage int
 )
 
 const (
-	DefaultOrigin             = "http://localhost:8080"
-	DefaultDatasetConfigPath  = "datasets.yml"
-	DefaultBatchSize          = 100
-	DefaultQueriesCount       = -1
-	DefaultMultiplyProperties = 1
+	DefaultOrigin                 = "http://localhost:8080"
+	DefaultDatasetConfigPath      = "datasets.yml"
+	DefaultBatchSize              = 100
+	DefaultQueriesCount           = -1
+	DefaultMultiplyProperties     = 1
+	DefaultFilterObjectPercentage = 0
 )
 
 var rootCmd = &cobra.Command{

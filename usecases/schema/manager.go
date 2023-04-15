@@ -36,13 +36,13 @@ type Manager struct {
 	state                   State
 	callbacks               []func(updatedSchema schema.Schema)
 	logger                  logrus.FieldLogger
-	authorizer              authorizer
+	Authorizer              authorizer
 	config                  config.Config
 	vectorizerValidator     VectorizerValidator
 	moduleConfig            ModuleConfig
 	cluster                 *cluster.TxManager
 	clusterState            clusterState
-	vectorConfigParser        VectorConfigParser
+	vectorConfigParser      VectorConfigParser
 	invertedConfigValidator InvertedConfigValidator
 	scaleOut                scaleOut
 	RestoreStatus           sync.Map
@@ -90,6 +90,7 @@ type clusterState interface {
 
 	// AllNames initializes shard distribution across nodes
 	AllNames() []string
+	Candidates() []string
 	LocalName() string
 	NodeCount() int
 	NodeHostname(nodeName string) (string, bool)
@@ -109,13 +110,12 @@ type scaleOut interface {
 // NewManager creates a new manager
 func NewManager(migrator migrate.Migrator, repo Repo,
 	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
-	vectorConfigParser VectorConfigParser, 
-    vectorizerValidator VectorizerValidator,
+	vectorConfigParser VectorConfigParser,
+	vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	txClient cluster.Client, scaleoutManager scaleOut,
 ) (*Manager, error) {
-
 	txBroadcaster := cluster.NewTxBroadcaster(clusterState, txClient)
 	m := &Manager{
 		config:                  config,
@@ -123,7 +123,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		repo:                    repo,
 		state:                   State{},
 		logger:                  logger,
-		authorizer:              authorizer,
+		Authorizer:              authorizer,
 		vectorConfigParser:      vectorConfigParser,
 		vectorizerValidator:     vectorizerValidator,
 		invertedConfigValidator: invertedConfigValidator,
@@ -192,7 +192,6 @@ func (m *Manager) triggerSchemaUpdateCallbacks() {
 }
 
 func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
-
 	schema, err := m.repo.LoadSchema(ctx)
 	if err != nil {
 		return fmt.Errorf("could not load schema:  %v", err)
@@ -223,7 +222,7 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	// make sure that all migrations have completed before checking sync,
 	// otherwise two identical schemas might fail the check based on form rather
 	// than content
-	
+
 	if err := m.startupClusterSync(ctx, schema); err != nil {
 		return errors.Wrap(err, "sync schema with other nodes in the cluster")
 	}

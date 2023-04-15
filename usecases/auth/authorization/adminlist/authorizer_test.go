@@ -158,6 +158,23 @@ func Test_AdminList_Authorizor(t *testing.T) {
 				"should have the correct err msg")
 		})
 
+		t.Run("with an empty user, it denies the request", func(t *testing.T) {
+			cfg := Config{
+				Enabled: true,
+				Users: []string{
+					"alice",
+				},
+			}
+
+			principal := &models.Principal{
+				Username: "",
+			}
+
+			err := New(cfg).Authorize(principal, "create", "things")
+			assert.Equal(t, errors.NewForbidden(principal, "create", "things"), err,
+				"should have the correct err msg")
+		})
+
 		t.Run("with a configured admin user, it allows the request", func(t *testing.T) {
 			cfg := Config{
 				Enabled: true,

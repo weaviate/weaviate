@@ -474,6 +474,7 @@ func TestMapCollectionStrategy_InsertAndDelete(t *testing.T) {
 				Key:   []byte("row2-key2"),
 				Value: []byte("row2-key2-reinserted"),
 			})
+			require.Nil(t, err)
 		})
 
 		t.Run("validate the results", func(t *testing.T) {
@@ -571,6 +572,7 @@ func TestMapCollectionStrategy_InsertAndDelete(t *testing.T) {
 				Key:   []byte("row2-key2"),
 				Value: []byte("row2-key2-reinserted"),
 			})
+			require.Nil(t, err)
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
@@ -668,6 +670,7 @@ func TestMapCollectionStrategy_InsertAndDelete(t *testing.T) {
 				Key:   []byte("row2-key2"),
 				Value: []byte("row2-key2-reinserted"),
 			})
+			require.Nil(t, err)
 		})
 
 		t.Run("orderly shutdown", func(t *testing.T) {

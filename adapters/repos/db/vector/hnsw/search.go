@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
@@ -61,6 +62,9 @@ func (h *hnsw) autoEfFromK(k int) int {
 }
 
 func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	h.compressActionLock.RLock()
+	defer h.compressActionLock.RUnlock()
+
 	if h.distancerProvider.Type() == "cosine-dot" {
 		// cosine-dot requires normalized vectors, as the dot product and cosine
 		// similarity are only identical if the vector is normalized
@@ -68,7 +72,7 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowLi
 	}
 
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
-	if allowList != nil && !h.forbidFlat && len(allowList) < flatSearchCutoff {
+	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
 		return h.flatSearch(vector, k, allowList)
 	}
 	return h.knnSearchByVector(vector, k, h.searchTimeEF(k), allowList)
@@ -163,18 +167,39 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
-	distancer := h.distancerProvider.New(queryVector)
+	var floatDistancer distancer.Distancer
+	var byteDistancer *ssdhelpers.PQDistancer
+	if h.compressed.Load() {
+		byteDistancer = h.pq.NewDistancer(queryVector)
+	} else {
+		floatDistancer = h.distancerProvider.New(queryVector)
+	}
 
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
 		results, level, visited, allowList)
-
-	worstResultDistance, err := h.currentWorstResultDistance(results, distancer)
+	var worstResultDistance float32
+	var err error
+	if h.compressed.Load() {
+		worstResultDistance, err = h.currentWorstResultDistanceToByte(results, byteDistancer)
+	} else {
+		worstResultDistance, err = h.currentWorstResultDistanceToFloat(results, floatDistancer)
+	}
 	if err != nil {
 		return nil, errors.Wrapf(err, "calculate distance of current last result")
 	}
 
 	for candidates.Len() > 0 {
-		dist, ok, err := h.distanceToNode(distancer, candidates.Top().ID)
+		var dist float32
+		var ok bool
+		var err error
+		if h.compressed.Load() {
+			dist, ok, err = h.distanceToByteNode(byteDistancer, candidates.Top().ID)
+		} else {
+			dist, ok, err = h.distanceToFloatNode(floatDistancer, candidates.Top().ID)
+		}
+		if err != nil {
+			return nil, errors.Wrap(err, "calculate distance between candidate and query")
+		}
 		if err != nil {
 			return nil, errors.Wrap(err, "calculate distance between candidate and query")
 		}
@@ -240,8 +265,14 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 
 			// make sure we never visit this neighbor again
 			visited.Visit(neighborID)
-
-			distance, ok, err := h.distanceToNode(distancer, neighborID)
+			var distance float32
+			var ok bool
+			var err error
+			if h.compressed.Load() {
+				distance, ok, err = h.distanceToByteNode(byteDistancer, neighborID)
+			} else {
+				distance, ok, err = h.distanceToFloatNode(floatDistancer, neighborID)
+			}
 			if err != nil {
 				return nil, errors.Wrap(err, "calculate distance between candidate and query")
 			}
@@ -269,7 +300,11 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 
 				results.Insert(neighborID, distance)
 
-				h.cache.prefetch(candidates.Top().ID)
+				if h.compressed.Load() {
+					h.compressedVectorsCache.prefetch(candidates.Top().ID)
+				} else {
+					h.cache.prefetch(candidates.Top().ID)
+				}
 
 				// +1 because we have added one node size calculating the len
 				if results.Len() > ef {
@@ -320,12 +355,12 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	}
 }
 
-func (h *hnsw) currentWorstResultDistance(results *priorityqueue.Queue,
+func (h *hnsw) currentWorstResultDistanceToFloat(results *priorityqueue.Queue,
 	distancer distancer.Distancer,
 ) (float32, error) {
 	if results.Len() > 0 {
 		id := results.Top().ID
-		d, ok, err := h.distanceToNode(distancer, id)
+		d, ok, err := h.distanceToFloatNode(distancer, id)
 		if err != nil {
 			return 0, errors.Wrap(err,
 				"calculated distance between worst result and query")
@@ -344,7 +379,48 @@ func (h *hnsw) currentWorstResultDistance(results *priorityqueue.Queue,
 	}
 }
 
-func (h *hnsw) distanceToNode(distancer distancer.Distancer,
+func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue,
+	distancer *ssdhelpers.PQDistancer,
+) (float32, error) {
+	if results.Len() > 0 {
+		id := results.Top().ID
+		d, ok, err := h.distanceToByteNode(distancer, id)
+		if err != nil {
+			return 0, errors.Wrap(err,
+				"calculated distance between worst result and query")
+		}
+
+		if !ok {
+			return math.MaxFloat32, nil
+		}
+		return d, nil
+	} else {
+		// if the entrypoint (which we received from a higher layer doesn't match
+		// the allow List the result list is empty. In this case we can just set
+		// the worstDistance to an arbitrarily large number, so that any
+		// (allowed) candidate will have a lower distance in comparison
+		return math.MaxFloat32, nil
+	}
+}
+
+func (h *hnsw) distanceToByteNode(distancer *ssdhelpers.PQDistancer,
+	nodeID uint64,
+) (float32, bool, error) {
+	vec, err := h.compressedVectorsCache.get(context.Background(), nodeID)
+	if err != nil {
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			h.handleDeletedNode(e.DocID)
+			return 0, false, nil
+		} else {
+			// not a typed error, we can recover from, return with err
+			return 0, false, errors.Wrapf(err, "get vector of docID %d", nodeID)
+		}
+	}
+	return distancer.Distance(vec)
+}
+
+func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer,
 	nodeID uint64,
 ) (float32, bool, error) {
 	candidateVec, err := h.vectorForID(context.Background(), nodeID)

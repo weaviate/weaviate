@@ -13,10 +13,12 @@ package lsmkv
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"os"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 func (l *Memtable) flush() error {
@@ -34,7 +36,10 @@ func (l *Memtable) flush() error {
 		// this is an empty memtable, nothing to do
 		// however, we still have to cleanup the commit log, otherwise we will
 		// attempt to recover from it on the next cycle
-		return l.commitlog.delete()
+		if err := l.commitlog.delete(); err != nil {
+			return errors.Wrap(err, "delete commit log file")
+		}
+		return nil
 	}
 
 	f, err := os.Create(l.path + ".db")
@@ -44,7 +49,7 @@ func (l *Memtable) flush() error {
 
 	w := bufio.NewWriterSize(f, int(float64(l.size)*1.3)) // calculate 30% overhead for disk representation
 
-	var keys []keyIndex
+	var keys []segmentindex.Key
 	switch l.strategy {
 	case StrategyReplace:
 		if keys, err = l.flushDataReplace(w); err != nil {
@@ -56,17 +61,24 @@ func (l *Memtable) flush() error {
 			return err
 		}
 
+	case StrategyRoaringSet:
+		if keys, err = l.flushDataRoaringSet(w); err != nil {
+			return err
+		}
+
 	case StrategyMapCollection:
 		if keys, err = l.flushDataMap(w); err != nil {
 			return err
 		}
 
+	default:
+		return fmt.Errorf("cannot flush strategy %s", l.strategy)
 	}
 
-	indices := &segmentIndices{
-		keys:                keys,
-		secondaryIndexCount: l.secondaryIndices,
-		scratchSpacePath:    l.path + ".scratch.d",
+	indices := &segmentindex.Indexes{
+		Keys:                keys,
+		SecondaryIndexCount: l.secondaryIndices,
+		ScratchSpacePath:    l.path + ".scratch.d",
 	}
 
 	if _, err := indices.WriteTo(w); err != nil {
@@ -87,24 +99,18 @@ func (l *Memtable) flush() error {
 	return l.commitlog.delete()
 }
 
-// SegmentOffset describes the general offset in a segment until the data
-// starts, it is comprised of 2 bytes for level, 2 bytes for version,
-// 2 bytes for secondary index count, 2 bytes for strategy, 8 bytes
-// for the pointer to the index part
-const SegmentHeaderSize = 16
-
-func (l *Memtable) flushDataReplace(f io.Writer) ([]keyIndex, error) {
+func (l *Memtable) flushDataReplace(f io.Writer) ([]segmentindex.Key, error) {
 	flat := l.key.flattenInOrder()
 
 	totalDataLength := totalKeyAndValueSize(flat)
 	perObjectAdditions := len(flat) * (1 + 8 + 4 + int(l.secondaryIndices)*4) // 1 byte for the tombstone, 8 bytes value length encoding, 4 bytes key length encoding, + 4 bytes key encoding for every secondary index
-	headerSize := SegmentHeaderSize
-	header := segmentHeader{
-		indexStart:       uint64(totalDataLength + perObjectAdditions + headerSize),
-		level:            0, // always level zero on a new one
-		version:          0, // always version 0 for now
-		secondaryIndices: l.secondaryIndices,
-		strategy:         SegmentStrategyFromString(l.strategy),
+	headerSize := segmentindex.HeaderSize
+	header := segmentindex.Header{
+		IndexStart:       uint64(totalDataLength + perObjectAdditions + headerSize),
+		Level:            0, // always level zero on a new one
+		Version:          0, // always version 0 for now
+		SecondaryIndices: l.secondaryIndices,
+		Strategy:         SegmentStrategyFromString(l.strategy),
 	}
 
 	n, err := header.WriteTo(f)
@@ -112,7 +118,7 @@ func (l *Memtable) flushDataReplace(f io.Writer) ([]keyIndex, error) {
 		return nil, err
 	}
 	headerSize = int(n)
-	keys := make([]keyIndex, len(flat))
+	keys := make([]segmentindex.Key, len(flat))
 
 	totalWritten := headerSize
 	for i, node := range flat {
@@ -131,18 +137,18 @@ func (l *Memtable) flushDataReplace(f io.Writer) ([]keyIndex, error) {
 		}
 
 		keys[i] = ki
-		totalWritten = ki.valueEnd
+		totalWritten = ki.ValueEnd
 	}
 
 	return keys, nil
 }
 
-func (l *Memtable) flushDataSet(f io.Writer) ([]keyIndex, error) {
+func (l *Memtable) flushDataSet(f io.Writer) ([]segmentindex.Key, error) {
 	flat := l.keyMulti.flattenInOrder()
 	return l.flushDataCollection(f, flat)
 }
 
-func (l *Memtable) flushDataMap(f io.Writer) ([]keyIndex, error) {
+func (l *Memtable) flushDataMap(f io.Writer) ([]segmentindex.Key, error) {
 	l.RLock()
 	flat := l.keyMap.flattenInOrder()
 	l.RUnlock()
@@ -174,14 +180,14 @@ func (l *Memtable) flushDataMap(f io.Writer) ([]keyIndex, error) {
 
 func (l *Memtable) flushDataCollection(f io.Writer,
 	flat []*binarySearchNodeMulti,
-) ([]keyIndex, error) {
+) ([]segmentindex.Key, error) {
 	totalDataLength := totalValueSizeCollection(flat)
-	header := segmentHeader{
-		indexStart:       uint64(totalDataLength + SegmentHeaderSize),
-		level:            0, // always level zero on a new one
-		version:          0, // always version 0 for now
-		secondaryIndices: l.secondaryIndices,
-		strategy:         SegmentStrategyFromString(l.strategy),
+	header := segmentindex.Header{
+		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
+		Level:            0, // always level zero on a new one
+		Version:          0, // always version 0 for now
+		SecondaryIndices: l.secondaryIndices,
+		Strategy:         SegmentStrategyFromString(l.strategy),
 	}
 
 	n, err := header.WriteTo(f)
@@ -189,7 +195,7 @@ func (l *Memtable) flushDataCollection(f io.Writer,
 		return nil, err
 	}
 	headerSize := int(n)
-	keys := make([]keyIndex, len(flat))
+	keys := make([]segmentindex.Key, len(flat))
 
 	totalWritten := headerSize
 	for i, node := range flat {
@@ -203,7 +209,7 @@ func (l *Memtable) flushDataCollection(f io.Writer,
 		}
 
 		keys[i] = ki
-		totalWritten = ki.valueEnd
+		totalWritten = ki.ValueEnd
 	}
 
 	return keys, nil

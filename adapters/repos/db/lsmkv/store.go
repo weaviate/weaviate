@@ -13,8 +13,10 @@ package lsmkv
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path"
+	"strings"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -109,7 +111,6 @@ func (s *Store) bucketDir(bucketName string) string {
 func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 	opts ...BucketOption,
 ) error {
-
 	if b := s.Bucket(bucketName); b != nil {
 		return nil
 	}
@@ -283,4 +284,111 @@ func (s *Store) runJobOnBuckets(ctx context.Context,
 	}
 
 	return finalResult, nil
+}
+
+func (s *Store) GetBucketsByName() map[string]*Bucket {
+	s.bucketAccessLock.RLock()
+	defer s.bucketAccessLock.RUnlock()
+
+	newMap := map[string]*Bucket{}
+	for name, bucket := range s.bucketsByName {
+		newMap[name] = bucket
+	}
+
+	return newMap
+}
+
+// Creates bucket, first removing any files if already exist
+// Bucket can not be registered in bucketsByName before removal
+func (s *Store) CreateBucket(ctx context.Context, bucketName string,
+	opts ...BucketOption,
+) error {
+	if b := s.Bucket(bucketName); b != nil {
+		return fmt.Errorf("bucket %s exists and is already in use", bucketName)
+	}
+
+	bucketDir := s.bucketDir(bucketName)
+	if err := os.RemoveAll(bucketDir); err != nil {
+		return errors.Wrapf(err, "failed removing bucket %s files", bucketName)
+	}
+
+	b, err := NewBucket(ctx, bucketDir, s.rootDir, s.logger, s.metrics, opts...)
+	if err != nil {
+		return err
+	}
+
+	s.setBucket(bucketName, b)
+	return nil
+}
+
+// Replaces 1st bucket with 2nd one. Both buckets have to registered in bucketsByName.
+// 2nd bucket swaps the 1st one in bucketsByName using 1st one's name, 2nd one's name is deleted.
+// Dir path of 2nd bucket is changed to dir of 1st bucket as well as all other related paths of
+// bucket resources (segment group, memtables, commit log).
+// Dir path of 1st bucket is temporarily suffixed with "___del", later on bucket is shutdown and
+// its files deleted.
+// 2nd bucket becomes 1st bucket
+func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucketName string) error {
+	s.bucketAccessLock.Lock()
+	defer s.bucketAccessLock.Unlock()
+
+	bucket := s.bucketsByName[bucketName]
+	if bucket == nil {
+		return fmt.Errorf("bucket '%s' not found", bucketName)
+	}
+	replacementBucket := s.bucketsByName[replacementBucketName]
+	if replacementBucket == nil {
+		return fmt.Errorf("replacement bucket '%s' not found", replacementBucketName)
+	}
+	s.bucketsByName[bucketName] = replacementBucket
+	delete(s.bucketsByName, replacementBucketName)
+
+	currBucketDir := bucket.dir
+	newBucketDir := bucket.dir + "___del"
+	currReplacementBucketDir := replacementBucket.dir
+	newReplacementBucketDir := currBucketDir
+
+	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
+		return errors.Wrapf(err, "failed moving orig bucket dir '%s'", currBucketDir)
+	}
+	if err := os.Rename(currReplacementBucketDir, newReplacementBucketDir); err != nil {
+		return errors.Wrapf(err, "failed moving replacement bucket dir '%s'", currReplacementBucketDir)
+	}
+
+	updateDir := func(bucket *Bucket, currBucketDir, newBucketDir string) {
+		updatePath := func(src string) string {
+			return strings.Replace(src, currBucketDir, newBucketDir, 1)
+		}
+
+		bucket.flushLock.Lock()
+		bucket.dir = newBucketDir
+		if bucket.active != nil {
+			bucket.active.path = updatePath(bucket.active.path)
+			bucket.active.commitlog.path = updatePath(bucket.active.commitlog.path)
+		}
+		if bucket.flushing != nil {
+			bucket.flushing.path = updatePath(bucket.flushing.path)
+			bucket.flushing.commitlog.path = updatePath(bucket.flushing.commitlog.path)
+		}
+		bucket.flushLock.Unlock()
+
+		bucket.disk.maintenanceLock.Lock()
+		bucket.disk.dir = newBucketDir
+		for _, segment := range bucket.disk.segments {
+			segment.path = updatePath(segment.path)
+		}
+		bucket.disk.maintenanceLock.Unlock()
+	}
+
+	updateDir(bucket, currBucketDir, newBucketDir)
+	updateDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir)
+
+	if err := bucket.Shutdown(ctx); err != nil {
+		return errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
+	}
+	if err := os.RemoveAll(newBucketDir); err != nil {
+		return errors.Wrapf(err, "failed removing dir '%s'", newBucketDir)
+	}
+
+	return nil
 }

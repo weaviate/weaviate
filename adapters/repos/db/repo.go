@@ -13,8 +13,12 @@ package db
 
 import (
 	"context"
+	"math"
+	"runtime"
 	"sync"
 	"sync/atomic"
+
+	"github.com/weaviate/weaviate/entities/storobj"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -59,6 +63,10 @@ type DB struct {
 	//
 	// See also: https://github.com/weaviate/weaviate/issues/2351
 	indexLock sync.RWMutex
+
+	jobQueueCh          chan job
+	shutDownWg          sync.WaitGroup
+	maxNumberGoroutines int
 }
 
 func (d *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
@@ -66,7 +74,6 @@ func (d *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
 }
 
 func (d *DB) WaitForStartup(ctx context.Context) error {
-
 	err := d.init(ctx)
 	if err != nil {
 		return err
@@ -84,35 +91,45 @@ func New(logger logrus.FieldLogger, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics,
-) *DB {
-	return &DB{
-		logger:        logger,
-		config:        config,
-		indices:       map[string]*Index{},
-		remoteIndex:   remoteIndex,
-		nodeResolver:  nodeResolver,
-		remoteNode:    sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
-		replicaClient: replicaClient,
-		promMetrics:   promMetrics,
-		shutdown:      make(chan struct{}),
+) (*DB, error) {
+	db := &DB{
+		logger:              logger,
+		config:              config,
+		indices:             map[string]*Index{},
+		remoteIndex:         remoteIndex,
+		nodeResolver:        nodeResolver,
+		remoteNode:          sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
+		replicaClient:       replicaClient,
+		promMetrics:         promMetrics,
+		shutdown:            make(chan struct{}),
+		jobQueueCh:          make(chan job, 100000),
+		maxNumberGoroutines: int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 	}
+	if db.maxNumberGoroutines == 0 {
+		return db, errors.New("no workers to add batch-jobs configured.")
+	}
+	db.shutDownWg.Add(db.maxNumberGoroutines)
+	for i := 0; i < db.maxNumberGoroutines; i++ {
+		go db.worker()
+	}
+
+	return db, nil
 }
 
 type Config struct {
-	RootPath                         string
-	QueryLimit                       int64
-	QueryMaximumResults              int64
-	ResourceUsage                    config.ResourceUsage
-	MaxImportGoroutinesFactor        float64
-	MemtablesFlushIdleAfter          int
-	MemtablesInitialSizeMB           int
-	MemtablesMaxSizeMB               int
-	MemtablesMinActiveSeconds        int
-	MemtablesMaxActiveSeconds        int
-	TrackVectorDimensions            bool
-	ReindexVectorDimensionsAtStartup bool
-	ServerVersion                    string
-	GitHash                          string
+	RootPath                  string
+	QueryLimit                int64
+	QueryMaximumResults       int64
+	ResourceUsage             config.ResourceUsage
+	MaxImportGoroutinesFactor float64
+	MemtablesFlushIdleAfter   int
+	MemtablesInitialSizeMB    int
+	MemtablesMaxSizeMB        int
+	MemtablesMinActiveSeconds int
+	MemtablesMaxActiveSeconds int
+	TrackVectorDimensions     bool
+	ServerVersion             string
+	GitHash                   string
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
@@ -164,6 +181,13 @@ func (d *DB) DeleteIndex(className schema.ClassName) error {
 func (d *DB) Shutdown(ctx context.Context) error {
 	d.shutdown <- struct{}{}
 
+	// shut down the workers that add objects to
+	for i := 0; i < d.maxNumberGoroutines; i++ {
+		d.jobQueueCh <- job{
+			index: -1,
+		}
+	}
+
 	d.indexLock.Lock()
 	defer d.indexLock.Unlock()
 	for id, index := range d.indices {
@@ -172,5 +196,26 @@ func (d *DB) Shutdown(ctx context.Context) error {
 		}
 	}
 
+	d.shutDownWg.Wait() // wait until job queue shutdown is completed
+
 	return nil
+}
+
+func (d *DB) worker() {
+	for jobToAdd := range d.jobQueueCh {
+		if jobToAdd.index < 0 {
+			d.shutDownWg.Done()
+			return
+		}
+		jobToAdd.batcher.storeSingleObjectInAdditionalStorage(jobToAdd.ctx, jobToAdd.object, jobToAdd.status, jobToAdd.index)
+		jobToAdd.batcher.wg.Done()
+	}
+}
+
+type job struct {
+	object  *storobj.Object
+	status  objectInsertStatus
+	index   int
+	ctx     context.Context
+	batcher *objectsBatcher
 }

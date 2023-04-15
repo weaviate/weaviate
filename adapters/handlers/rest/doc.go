@@ -13,12 +13,12 @@
 
 // Package rest Weaviate
 //
-//	Cloud-native, modular vector search engine
+//	Cloud-native, modular vector database
 //	Schemes:
 //	  https
 //	Host: localhost
 //	BasePath: /v1
-//	Version: 1.18.0-prealpha
+//	Version: 1.19.0-prealpha
 //	Contact: Weaviate<hello@weaviate.io> https://github.com/weaviate
 //
 //	Consumes:

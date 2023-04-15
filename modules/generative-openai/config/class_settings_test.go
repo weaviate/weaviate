@@ -36,8 +36,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},
-			wantModel:            "text-davinci-003",
-			wantMaxTokens:        1200,
+			wantModel:            "gpt-3.5-turbo",
+			wantMaxTokens:        4097,
 			wantTemperature:      0.0,
 			wantTopP:             1,
 			wantFrequencyPenalty: 0.0,
@@ -46,6 +46,26 @@ func Test_classSettings_Validate(t *testing.T) {
 		},
 		{
 			name: "Everything non default configured",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"model":            "gpt-3.5-turbo",
+					"maxTokens":        4097,
+					"temperature":      0.5,
+					"topP":             3,
+					"frequencyPenalty": 0.1,
+					"presencePenalty":  0.9,
+				},
+			},
+			wantModel:            "gpt-3.5-turbo",
+			wantMaxTokens:        4097,
+			wantTemperature:      0.5,
+			wantTopP:             3,
+			wantFrequencyPenalty: 0.1,
+			wantPresencePenalty:  0.9,
+			wantErr:              nil,
+		},
+		{
+			name: "Legacy config",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":            "text-davinci-003",

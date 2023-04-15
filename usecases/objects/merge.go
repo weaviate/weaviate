@@ -33,6 +33,7 @@ type MergeDocument struct {
 	Vector               []float32                   `json:"vector"`
 	UpdateTime           int64                       `json:"updateTime"`
 	AdditionalProperties models.AdditionalProperties `json:"additionalProperties"`
+	PropertiesToDelete   []string                    `json:"propertiesToDelete"`
 }
 
 func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
@@ -50,9 +51,19 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	m.metrics.MergeObjectInc()
 	defer m.metrics.MergeObjectDec()
 
-	if err := m.validateObject(ctx, principal, updates); err != nil {
+	var propertiesToDelete []string
+	if updates.Properties != nil {
+		for key, val := range updates.Properties.(map[string]interface{}) {
+			if val == nil {
+				propertiesToDelete = append(propertiesToDelete, schema.LowercaseFirstLetter(key))
+			}
+		}
+	}
+
+	if err := m.validateObjectAndNormalizeNames(ctx, principal, updates, repl); err != nil {
 		return &Error{"bad request", StatusBadRequest, err}
 	}
+
 	if updates.Properties == nil {
 		updates.Properties = map[string]interface{}{}
 	}
@@ -63,12 +74,12 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	if obj == nil {
 		return &Error{"not found", StatusNotFound, err}
 	}
-	return m.patchObject(ctx, principal, obj, updates, repl)
+	return m.patchObject(ctx, principal, obj, updates, repl, propertiesToDelete)
 }
 
 // patchObject patches an existing object obj with updates
 func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
-	obj *search.Result, updates *models.Object, repl *additional.ReplicationProperties,
+	obj *search.Result, updates *models.Object, repl *additional.ReplicationProperties, propertiesToDelete []string,
 ) *Error {
 	cls, id := updates.Class, updates.ID
 	primitive, refs := m.splitPrimitiveAndRefs(updates.Properties.(map[string]interface{}), cls, id)
@@ -78,12 +89,13 @@ func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
 		return &Error{"merge and vectorize", StatusInternalServerError, err}
 	}
 	mergeDoc := MergeDocument{
-		Class:           cls,
-		ID:              id,
-		PrimitiveSchema: primitive,
-		References:      refs,
-		Vector:          objWithVec.Vector,
-		UpdateTime:      m.timeSource.Now(),
+		Class:              cls,
+		ID:                 id,
+		PrimitiveSchema:    primitive,
+		References:         refs,
+		Vector:             objWithVec.Vector,
+		UpdateTime:         m.timeSource.Now(),
+		PropertiesToDelete: propertiesToDelete,
 	}
 
 	if objWithVec.Additional != nil {

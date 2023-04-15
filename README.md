@@ -3,11 +3,11 @@
 [![Build Status](https://github.com/weaviate/weaviate/actions/workflows/.github/workflows/pull_requests.yaml/badge.svg?branch=master)](https://github.com/weaviate/weaviate/actions/workflows/.github/workflows/pull_requests.yaml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/weaviate/weaviate)](https://goreportcard.com/report/github.com/weaviate/weaviate)
 [![Coverage Status](https://codecov.io/gh/weaviate/weaviate/branch/master/graph/badge.svg)](https://codecov.io/gh/weaviate/weaviate)
-[![Slack](https://img.shields.io/badge/slack--channel-blue?logo=slack)](https://join.slack.com/t/weaviate/shared_invite/zt-goaoifjr-o8FuVz9b1HLzhlUfyfddhw)
+[![Slack](https://img.shields.io/badge/slack--channel-blue?logo=slack)](https://weaviate.io/slack)
 
 ## Overview
 
-Weaviate is an **open source ​vector search engine** that is robust, scalable, cloud-native, and fast. 
+Weaviate is an **open source ​vector database** that is robust, scalable, cloud-native, and fast.
 
 If you just want to get started, great! Try:
 - the [quickstart tutorial](https://weaviate.io/developers/weaviate/quickstart) if you are looking to use Weaviate, or
@@ -31,23 +31,23 @@ Weaviate typically performs a 10-NN neighbor search out of millions of objects i
 
 ### Flexibility
 
-You can use Weaviate to conveniently **vectorize your data at import time**, or alternatively you can **upload your own vectors**. 
+You can use Weaviate to conveniently **vectorize your data at import time**, or alternatively you can **upload your own vectors**.
 
 These vectorization options are enabled by Weaviate modules. Modules enable use of popular services and model hubs such as [OpenAI](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-openai), [Cohere](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-cohere) or [HuggingFace](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-huggingface) and much more, including use of local and custom models.
 
 ### Production-readiness
 
-Weaviate is designed to take you from **rapid prototyping** all the way to **production at scale**. 
+Weaviate is designed to take you from **rapid prototyping** all the way to **production at scale**.
 
-To this end, Weaviate is built with [scaling](https://weaviate.io/developers/weaviate/concepts/cluster), [replication](https://weaviate.io/developers/weaviate/concepts/replication-architecture), and [security](https://weaviate.io/developers/weaviate/configuration/authentication) in mind, among others. 
+To this end, Weaviate is built with [scaling](https://weaviate.io/developers/weaviate/concepts/cluster), [replication](https://weaviate.io/developers/weaviate/concepts/replication-architecture), and [security](https://weaviate.io/developers/weaviate/configuration/authentication) in mind, among others.
 
 ### Beyond search
 
-Weaviate is a search engine that is capable of much more. Some of its other superpowers include **recommendation**, **summarization**, and **integrations with neural search frameworks**.
+Weaviate powers lightning-fast vector searches, but it is capable of much more. Some of its other superpowers include **recommendation**, **summarization**, and **integrations with neural search frameworks**.
 
 ## What can you build with Weaviate?
 
-For starters, you can build vector search engines with text, images, or a combination of both. 
+For starters, you can build vector databases with text, images, or a combination of both.
 
 You can also build question and answer extraction, summarization and classification systems.
 
@@ -59,9 +59,9 @@ You can find [code examples here](https://github.com/weaviate/weaviate-examples)
 
 ## Weaviate content
 
-Speaking of content - we love connecting with our community through these. We love helping amazing people build cool things with Weaviate, and we love getting to know them as well as talking to them about their passions. 
+Speaking of content - we love connecting with our community through these. We love helping amazing people build cool things with Weaviate, and we love getting to know them as well as talking to them about their passions.
 
-To this end, our team does an amazing job with our [blog](https://weaviate.io/blog) and [podcast](https://weaviate.io/podcast). 
+To this end, our team does an amazing job with our [blog](https://weaviate.io/blog) and [podcast](https://weaviate.io/podcast).
 
 Some of our past favorites include:
 
@@ -81,10 +81,10 @@ Both our [📝 blogs](https://weaviate.io/blog) and [🎙️ podcasts](https://w
 
 ## Join our community!
 
-Also, we invite you to join our [Slack](https://join.slack.com/t/weaviate/shared_invite/zt-goaoifjr-o8FuVz9b1HLzhlUfyfddhw) community. There, you can meet other Weaviate users and members of the Weaviate team to talk all things Weaviate and AI (and other topics!).
+Also, we invite you to join our [Slack](https://weaviate.io/slack) community. There, you can meet other Weaviate users and members of the Weaviate team to talk all things Weaviate and AI (and other topics!).
 
 You can also say hi to us below:
-- [Twitter](https://twitter.com/weaviate_io) 
+- [Twitter](https://twitter.com/weaviate_io)
 - [LinkedIn](https://www.linkedin.com/company/weaviate-io)
 
 Or connect to us via:
@@ -95,7 +95,7 @@ Or connect to us via:
 
 ## Weaviate helps ...
 
-1. **Software Engineers** ([docs](https://weaviate.io/developers/weaviate/current/)) - Who use Weaviate as an ML-first database for your applications. 
+1. **Software Engineers** ([docs](https://weaviate.io/developers/weaviate/current/)) - Who use Weaviate as an ML-first database for your applications.
     * Out-of-the-box modules for: NLP/semantic search, automatic classification and image similarity search.
     * Easy to integrate into your current architecture, with full CRUD support like you're used to from other OSS databases.
     * Cloud-native, distributed, runs well on Kubernetes and scales with your workloads.

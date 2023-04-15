@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -114,6 +115,16 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 		if err != nil {
 			return nil, fmt.Errorf("invalid text property '%s' on class '%s': %s", propertyName, className, err)
 		}
+	case schema.DataTypeUUID:
+		asStr, err := stringVal(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid uuid property '%s' on class '%s': %s", propertyName, className, err)
+		}
+
+		data, err = uuid.Parse(asStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid uuid property '%s' on class '%s': %s", propertyName, className, err)
+		}
 	case schema.DataTypeInt:
 		data, err = intVal(pv)
 		if err != nil {
@@ -178,6 +189,11 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 		data, err = dateArrayVal(pv)
 		if err != nil {
 			return nil, fmt.Errorf("invalid date array property '%s' on class '%s': %s", propertyName, className, err)
+		}
+	case schema.DataTypeUUIDArray:
+		data, err = ParseUUIDArray(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid uuid array property '%s' on class '%s': %s", propertyName, className, err)
 		}
 
 	default:
@@ -539,4 +555,38 @@ func dateArrayVal(val interface{}) ([]interface{}, error) {
 	}
 
 	return typed, nil
+}
+
+func ParseUUIDArray(in any) ([]uuid.UUID, error) {
+	var err error
+
+	if parsed, ok := in.([]uuid.UUID); ok {
+		return parsed, nil
+	}
+
+	asSlice, ok := in.([]any)
+	if !ok {
+		return nil, fmt.Errorf("not a slice type: %T", in)
+	}
+
+	d := make([]uuid.UUID, len(asSlice))
+	for i, elem := range asSlice {
+		asUUID, ok := elem.(uuid.UUID)
+		if ok {
+			d[i] = asUUID
+			continue
+		}
+
+		asStr, ok := elem.(string)
+		if !ok {
+			return nil, fmt.Errorf("array element neither uuid.UUID nor str, but: %T", elem)
+		}
+
+		d[i], err = uuid.Parse(asStr)
+		if err != nil {
+			return nil, fmt.Errorf("at pos %d: %w", i, err)
+		}
+	}
+
+	return d, nil
 }

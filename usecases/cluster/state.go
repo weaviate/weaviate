@@ -22,8 +22,9 @@ import (
 )
 
 type State struct {
-	config Config
-	list   *memberlist.Memberlist
+	config   Config
+	list     *memberlist.Memberlist
+	delegate delegate
 }
 
 type Config struct {
@@ -34,20 +35,30 @@ type Config struct {
 	IgnoreStartupSchemaSync bool   `json:"ignoreStartupSchemaSync" yaml:"ignoreStartupSchemaSync"`
 }
 
-func Init(userConfig Config, logger logrus.FieldLogger) (*State, error) {
+func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *State, err error) {
 	cfg := memberlist.DefaultLANConfig()
 	cfg.LogOutput = newLogParser(logger)
-
 	if userConfig.Hostname != "" {
 		cfg.Name = userConfig.Hostname
 	}
-
+	state := State{
+		config: userConfig,
+		delegate: delegate{
+			Name:     cfg.Name,
+			dataPath: dataPath,
+			log:      logger,
+		},
+	}
+	if err := state.delegate.init(); err != nil {
+		logger.WithField("action", "init_state.delete_init").Error(err)
+	}
+	cfg.Delegate = &state.delegate
+	cfg.Events = events{&state.delegate}
 	if userConfig.GossipBindPort != 0 {
 		cfg.BindPort = userConfig.GossipBindPort
 	}
 
-	list, err := memberlist.Create(cfg)
-	if err != nil {
+	if state.list, err = memberlist.Create(cfg); err != nil {
 		logger.WithField("action", "memberlist_init").
 			WithField("hostname", userConfig.Hostname).
 			WithField("bind_port", userConfig.GossipBindPort).
@@ -71,7 +82,7 @@ func Init(userConfig Config, logger logrus.FieldLogger) (*State, error) {
 				Warn("specified hostname to join cluster cannot be resolved. This is fine" +
 					"if this is the first node of a new cluster, but problematic otherwise.")
 		} else {
-			_, err := list.Join(joinAddr)
+			_, err := state.list.Join(joinAddr)
 			if err != nil {
 				logger.WithField("action", "memberlist_init").
 					WithField("remote_hostname", joinAddr).
@@ -81,8 +92,7 @@ func Init(userConfig Config, logger logrus.FieldLogger) (*State, error) {
 			}
 		}
 	}
-
-	return &State{list: list, config: userConfig}, nil
+	return &state, nil
 }
 
 // Hostnames for all live members, except self. Use AllHostnames to include
@@ -131,6 +141,12 @@ func (s *State) AllNames() []string {
 	return out
 }
 
+// Candidates returns list of nodes (names) sorted by the
+// free amount of disk space in descending order
+func (s *State) Candidates() []string {
+	return s.delegate.sortCandidates(s.AllNames())
+}
+
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) NodeCount() int {
 	return s.list.NumMembers()
@@ -158,4 +174,8 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 
 func (s *State) SchemaSyncIgnored() bool {
 	return s.config.IgnoreStartupSchemaSync
+}
+
+func (s *State) NodeInfo(node string) (NodeInfo, bool) {
+	return s.delegate.get(node)
 }

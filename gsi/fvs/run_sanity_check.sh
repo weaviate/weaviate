@@ -9,7 +9,7 @@ RAN=$RANDOM
 OUTPUT="/tmp/$(echo $RAN | md5sum | head -c 20).txt"
 
 # Set a valid allocation id
-ALLOCATION_ID="0b391a1a-b916-11ed-afcb-0242ac1c0002" #"fd283b38-3e4a-11eb-a205-7085c2c5e516"
+ALLOCATION_ID="fd283b38-3e4a-11eb-a205-7085c2c5e516" #"0b391a1a-b916-11ed-afcb-0242ac1c0002" #"fd283b38-3e4a-11eb-a205-7085c2c5e516"
 
 # Path to dataset numpy file
 DATASET="/mnt/nas1/fvs_benchmark_datasets/deep-1M.npy"

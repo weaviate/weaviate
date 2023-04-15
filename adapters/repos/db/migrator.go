@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"golang.org/x/sync/errgroup"
 )
 
 type Migrator struct {
@@ -45,7 +46,6 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			RootPath:                  m.db.config.RootPath,
 			ResourceUsage:             m.db.config.ResourceUsage,
 			QueryMaximumResults:       m.db.config.QueryMaximumResults,
-			MaxImportGoroutinesFactor: m.db.config.MaxImportGoroutinesFactor,
 			MemtablesFlushIdleAfter:   m.db.config.MemtablesFlushIdleAfter,
 			MemtablesInitialSizeMB:    m.db.config.MemtablesInitialSizeMB,
 			MemtablesMaxSizeMB:        m.db.config.MemtablesMaxSizeMB,
@@ -60,7 +60,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		class.VectorIndexConfig.(schema.VectorIndexConfig),
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
-		m.db.replicaClient, m.db.promMetrics, class)
+		m.db.replicaClient, m.db.promMetrics, class, m.db.jobQueueCh)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
@@ -248,4 +248,49 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	}()
 
 	return nil
+}
+
+func (m *Migrator) InvertedReindex(ctx context.Context, taskNames ...string) error {
+	tasksProviders := map[string]func() ShardInvertedReindexTask{
+		"ShardInvertedReindexTaskSetToRoaringSet": func() ShardInvertedReindexTask {
+			return &ShardInvertedReindexTaskSetToRoaringSet{}
+		},
+	}
+
+	tasks := map[string]ShardInvertedReindexTask{}
+	for _, taskName := range taskNames {
+		if taskProvider, ok := tasksProviders[taskName]; ok {
+			tasks[taskName] = taskProvider()
+		}
+	}
+
+	if len(tasks) == 0 {
+		return nil
+	}
+
+	errgrp := &errgroup.Group{}
+	for _, index := range m.db.indices {
+		for _, shard := range index.Shards {
+			func(shard *Shard) {
+				errgrp.Go(func() error {
+					reindexer := NewShardInvertedReindexer(shard, m.logger)
+					for taskName, task := range tasks {
+						reindexer.AddTask(task)
+						m.logger.
+							WithField("action", "inverted reindex").
+							WithField("task", taskName).
+							WithField("shard", shard.name).
+							Info("About to start inverted reindexing, this may take a while")
+					}
+					res := reindexer.Do(ctx)
+					m.logger.
+						WithField("action", "inverted reindex").
+						WithField("shard", shard.name).
+						Info("Finished inverted reindexing")
+					return res
+				})
+			}(shard)
+		}
+	}
+	return errgrp.Wait()
 }

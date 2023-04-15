@@ -55,7 +55,7 @@ func (a *Aggregator) bm25Objects(ctx context.Context, kw *searchparams.KeywordRa
 	objs, dists, err := inverted.NewBM25Searcher(cfg.BM25, a.store, s,
 		a.invertedRowCache, propertyspecific.Indices{}, a.classSearcher,
 		nil, a.propLengths, a.logger, a.shardVersion,
-	).Objects(ctx, *a.params.ObjectLimit, kw, a.params.Filters,
+	).Objects(ctx, nil, *a.params.ObjectLimit, *kw, a.params.Filters,
 		nil, additional.Properties{Vector: true}, a.params.ClassName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("bm25 objects: %w", err)

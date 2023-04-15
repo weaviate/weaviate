@@ -36,14 +36,14 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
@@ -661,164 +661,6 @@ func parkedAtEitherWithVector() search.SelectProperties {
 					AdditionalProperties: additional.Properties{
 						Vector: true,
 					},
-				},
-			},
-		},
-	}
-}
-
-func drivesCarparkedAtLot() search.SelectProperties {
-	return search.SelectProperties{
-		search.SelectProperty{
-			Name:        "drives",
-			IsPrimitive: false,
-			Refs: []search.SelectClass{
-				{
-					ClassName:     "MultiRefCar",
-					RefProperties: parkedAtLot(),
-				},
-			},
-		},
-	}
-}
-
-func drivesCarparkedAtGarage() search.SelectProperties {
-	return search.SelectProperties{
-		search.SelectProperty{
-			Name:        "drives",
-			IsPrimitive: false,
-			Refs: []search.SelectClass{
-				{
-					ClassName:     "MultiRefCar",
-					RefProperties: parkedAtGarage(),
-				},
-			},
-		},
-	}
-}
-
-func drivesCarparkedAtEither() search.SelectProperties {
-	return search.SelectProperties{
-		search.SelectProperty{
-			Name:        "drives",
-			IsPrimitive: false,
-			Refs: []search.SelectClass{
-				{
-					ClassName:     "MultiRefCar",
-					RefProperties: parkedAtEither(),
-				},
-			},
-		},
-	}
-}
-
-func friendsWithdrivesCarparkedAtLot() search.SelectProperties {
-	return search.SelectProperties{
-		search.SelectProperty{
-			Name:        "friendsWith",
-			IsPrimitive: false,
-			Refs: []search.SelectClass{
-				{
-					ClassName:     "MultiRefDriver",
-					RefProperties: drivesCarparkedAtLot(),
-				},
-			},
-		},
-	}
-}
-
-func friendsWithdrivesCarparkedAtGarage() search.SelectProperties {
-	return search.SelectProperties{
-		search.SelectProperty{
-			Name:        "friendsWith",
-			IsPrimitive: false,
-			Refs: []search.SelectClass{
-				{
-					ClassName:     "MultiRefDriver",
-					RefProperties: drivesCarparkedAtGarage(),
-				},
-			},
-		},
-	}
-}
-
-func friendsWithdrivesCarparkedAtEither() search.SelectProperties {
-	return search.SelectProperties{
-		search.SelectProperty{
-			Name:        "friendsWith",
-			IsPrimitive: false,
-			Refs: []search.SelectClass{
-				{
-					ClassName:     "MultiRefDriver",
-					RefProperties: drivesCarparkedAtEither(),
-				},
-			},
-		},
-	}
-}
-
-func hasMembersfriendsWithdrivesCarparkedAtLot() search.SelectProperties {
-	return search.SelectProperties{
-		search.SelectProperty{
-			Name:        "hasMembers",
-			IsPrimitive: false,
-			Refs: []search.SelectClass{
-				{
-					ClassName:     "MultiRefPerson",
-					RefProperties: friendsWithdrivesCarparkedAtLot(),
-				},
-			},
-		},
-	}
-}
-
-func hasMembersfriendsWithdrivesCarparkedAtGarage() search.SelectProperties {
-	return search.SelectProperties{
-		search.SelectProperty{
-			Name:        "hasMembers",
-			IsPrimitive: false,
-			Refs: []search.SelectClass{
-				{
-					ClassName:     "MultiRefPerson",
-					RefProperties: friendsWithdrivesCarparkedAtGarage(),
-				},
-			},
-		},
-	}
-}
-
-func hasMembersfriendsWithdrivesCarparkedAtEither() search.SelectProperties {
-	return search.SelectProperties{
-		search.SelectProperty{
-			Name:        "hasMembers",
-			IsPrimitive: false,
-			Refs: []search.SelectClass{
-				{
-					ClassName:     "MultiRefPerson",
-					RefProperties: friendsWithdrivesCarparkedAtEither(),
-				},
-			},
-		},
-	}
-}
-
-func refToBothGarages() []interface{} {
-	return []interface{}{
-		search.LocalRef{
-			Class: "MultiRefParkingLot",
-			Fields: map[string]interface{}{
-				"name": "Fancy Parking Lot",
-				"id":   strfmt.UUID("1023967b-9512-475b-8ef9-673a110b695d"),
-			},
-		},
-		search.LocalRef{
-			Class: "MultiRefParkingGarage",
-			Fields: map[string]interface{}{
-				"name": "Luxury Parking Garage",
-				"id":   strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
-				"location": &models.GeoCoordinates{
-					Latitude:  ptFloat32(48.864716),
-					Longitude: ptFloat32(2.349014),
 				},
 			},
 		},

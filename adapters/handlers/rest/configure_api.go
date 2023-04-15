@@ -39,11 +39,11 @@ import (
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	entgemini "github.com/weaviate/weaviate/entities/vectorindex/gemini"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
@@ -103,7 +103,6 @@ type explorer interface {
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
-
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
@@ -141,9 +140,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.JSONConsumer = runtime.JSONConsumer()
 
-	api.OidcAuth = func(token string, scopes []string) (*models.Principal, error) {
-		return appState.OIDC.ValidateAndExtract(token, scopes)
-	}
+	api.OidcAuth = NewTokenAuthComposer(
+		appState.ServerConfig.Config.Authentication,
+		appState.APIKey, appState.OIDC)
 
 	api.Logger = func(msg string, args ...interface{}) {
 		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
@@ -167,22 +166,27 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	remoteIndexClient := clients.NewRemoteIndex(clusterHttpClient)
 	remoteNodesClient := clients.NewRemoteNode(clusterHttpClient)
 	replicationClient := clients.NewReplicationClient(clusterHttpClient)
-	repo := db.New(appState.Logger, db.Config{
-		ServerVersion:                    config.ServerVersion,
-		GitHash:                          config.GitHash,
-		MemtablesFlushIdleAfter:          appState.ServerConfig.Config.Persistence.FlushIdleMemtablesAfter,
-		MemtablesInitialSizeMB:           10,
-		MemtablesMaxSizeMB:               appState.ServerConfig.Config.Persistence.MemtablesMaxSizeMB,
-		MemtablesMinActiveSeconds:        appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
-		MemtablesMaxActiveSeconds:        appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
-		RootPath:                         appState.ServerConfig.Config.Persistence.DataPath,
-		QueryLimit:                       appState.ServerConfig.Config.QueryDefaults.Limit,
-		QueryMaximumResults:              appState.ServerConfig.Config.QueryMaximumResults,
-		MaxImportGoroutinesFactor:        appState.ServerConfig.Config.MaxImportGoroutinesFactor,
-		TrackVectorDimensions:            appState.ServerConfig.Config.TrackVectorDimensions,
-		ReindexVectorDimensionsAtStartup: appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup,
-		ResourceUsage:                    appState.ServerConfig.Config.ResourceUsage,
+	repo, err := db.New(appState.Logger, db.Config{
+		ServerVersion:             config.ServerVersion,
+		GitHash:                   config.GitHash,
+		MemtablesFlushIdleAfter:   appState.ServerConfig.Config.Persistence.FlushIdleMemtablesAfter,
+		MemtablesInitialSizeMB:    10,
+		MemtablesMaxSizeMB:        appState.ServerConfig.Config.Persistence.MemtablesMaxSizeMB,
+		MemtablesMinActiveSeconds: appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
+		MemtablesMaxActiveSeconds: appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
+		RootPath:                  appState.ServerConfig.Config.Persistence.DataPath,
+		QueryLimit:                appState.ServerConfig.Config.QueryDefaults.Limit,
+		QueryMaximumResults:       appState.ServerConfig.Config.QueryMaximumResults,
+		MaxImportGoroutinesFactor: appState.ServerConfig.Config.MaxImportGoroutinesFactor,
+		TrackVectorDimensions:     appState.ServerConfig.Config.TrackVectorDimensions,
+		ResourceUsage:             appState.ServerConfig.Config.ResourceUsage,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics) // TODO client
+	if err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("invalid new DB")
+	}
+
 	appState.DB = repo
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
@@ -216,45 +220,44 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		remoteIndexClient, appState.Logger, appState.ServerConfig.Config.Persistence.DataPath)
 	appState.Scaler = scaler
 
-
 	// TODO: configure http transport for efficient intra-cluster comm
 	schemaTxClient := clients.NewClusterSchema(clusterHttpClient)
-    
-    if appState.ServerConfig.Config.DefaultVectorIndexType == "hnsw" {
 
-	    schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
-		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
-		enthnsw.ParseUserConfig, appState.Modules, inverted.ValidateConfig,
-		appState.Modules, appState.Cluster, schemaTxClient, scaler,
-	    )
-        if err != nil {
-                appState.Logger.
-                    WithField("action", "startup").WithError(err).
-                    Fatal("could not initialize schema manager")
-                os.Exit(1)
-            }
-	    appState.SchemaManager = schemaManager
+	if appState.ServerConfig.Config.DefaultVectorIndexType == "hnsw" {
 
-    } else if appState.ServerConfig.Config.DefaultVectorIndexType == "gemini" {
-        schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
-            appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
-            entgemini.ParseUserConfig, appState.Modules, inverted.ValidateConfig,
-            appState.Modules, appState.Cluster, schemaTxClient, scaler,
-        )
-        if err != nil {
-            appState.Logger.
-                WithField("action", "startup").WithError(err).
-                Fatal("could not initialize schema manager")
-            os.Exit(1)
-        }
+		schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
+			appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
+			enthnsw.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
+			appState.Modules, appState.Cluster, schemaTxClient, scaler,
+		)
+		if err != nil {
+			appState.Logger.
+				WithField("action", "startup").WithError(err).
+				Fatal("could not initialize schema manager")
+			os.Exit(1)
+		}
+		appState.SchemaManager = schemaManager
 
-	    appState.SchemaManager = schemaManager
-    } else {
-        appState.Logger.
-            WithField("action", "startup").WithError(err).
-            Fatal("could not initialize schema manager with unsupported vector index")
-        os.Exit(1)
-    }
+	} else if appState.ServerConfig.Config.DefaultVectorIndexType == "gemini" {
+		schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
+			appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
+			entgemini.ParseUserConfig, appState.Modules, inverted.ValidateConfig,
+			appState.Modules, appState.Cluster, schemaTxClient, scaler,
+		)
+		if err != nil {
+			appState.Logger.
+				WithField("action", "startup").WithError(err).
+				Fatal("could not initialize schema manager")
+			os.Exit(1)
+		}
+
+		appState.SchemaManager = schemaManager
+	} else {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("could not initialize schema manager with unsupported vector index")
+		os.Exit(1)
+	}
 
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
@@ -268,8 +271,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger)
 
 	backupManager := backup.NewManager(appState.Logger, appState.Authorizer,
-        appState.SchemaManager,
-        repo, appState.Modules)
+		appState.SchemaManager,
+		repo, appState.Modules)
 	appState.BackupManager = backupManager
 
 	go clusterapi.Serve(appState)
@@ -288,45 +291,62 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	objectsManager := objects.NewManager(appState.Locks,
-        appState.SchemaManager,
-        appState.ServerConfig, appState.Logger,
+		appState.SchemaManager,
+		appState.ServerConfig, appState.Logger,
 		appState.Authorizer, vectorRepo, appState.Modules,
 		objects.NewMetrics(appState.Metrics))
 	batchObjectsManager := objects.NewBatchManager(vectorRepo, appState.Modules,
-		appState.Locks, 
-        appState.SchemaManager,
-        appState.ServerConfig, appState.Logger,
+		appState.Locks,
+		appState.SchemaManager,
+		appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Metrics)
 
 	objectsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
-		appState.Logger, appState.Authorizer, vectorRepo, explorer, 
-        appState.SchemaManager,
+		appState.Logger, appState.Authorizer, vectorRepo, explorer,
+		appState.SchemaManager,
 		appState.Modules, traverser.NewMetrics(appState.Metrics),
 		appState.ServerConfig.Config.MaximumConcurrentGetRequests)
 
 	classifier := classification.New(
-        appState.SchemaManager,
-        classifierRepo, vectorRepo, appState.Authorizer,
+		appState.SchemaManager,
+		classifierRepo, vectorRepo, appState.Authorizer,
 		appState.Logger, appState.Modules)
 
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, objectsTraverser)
 	appState.SchemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
-	setupSchemaHandlers(api, 
-        appState.SchemaManager)
+	setupSchemaHandlers(api,
+		appState.SchemaManager)
 	setupObjectHandlers(api, objectsManager, appState.ServerConfig.Config, appState.Logger, appState.Modules)
 	setupObjectBatchHandlers(api, batchObjectsManager)
-	setupGraphQLHandlers(api, appState)
-	setupMiscHandlers(api, appState.ServerConfig, 
-        appState.SchemaManager,
-        appState.Modules)
+	setupGraphQLHandlers(api, appState, appState.SchemaManager)
+	setupMiscHandlers(api, appState.ServerConfig,
+		appState.SchemaManager,
+		appState.Modules)
 	setupClassificationHandlers(api, classifier)
 	setupBackupHandlers(api, backupScheduler)
-	setupNodesHandlers(api, 
-        appState.SchemaManager,
-        repo, appState)
+	setupNodesHandlers(api,
+		appState.SchemaManager,
+		repo, appState)
+
+	reindexCtx, reindexCtxCancel := context.WithCancel(context.Background())
+	reindexFinished := make(chan error)
+	if appState.ServerConfig.Config.ReindexSetToRoaringsetAtStartup {
+		// start reindexing inverted indexes (if requested by user) in the background
+		// allowing db to complete api configuration and start handling requests
+		go func() {
+			appState.Logger.
+				WithField("action", "startup").
+				Info("Reindexing sets to roaring sets")
+			// FIXME to avoid import cycles tasks are passed as strings
+			reindexFinished <- migrator.InvertedReindex(reindexCtx, "ShardInvertedReindexTaskSetToRoaringSet")
+		}()
+	}
 
 	api.ServerShutdown = func() {
+		// stop reindexing on server shutdown
+		reindexCtxCancel()
+
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
@@ -368,7 +388,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 // TODO: Split up and don't write into global variables. Instead return an appState
 func startupRoutine(ctx context.Context) *state.State {
-
 	appState := &state.State{}
 
 	logger := logger()
@@ -403,6 +422,7 @@ func startupRoutine(ctx context.Context) *state.State {
 		Debug("config loaded")
 
 	appState.OIDC = configureOIDC(appState)
+	appState.APIKey = configureAPIKey(appState)
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
 	appState.Authorizer = configureAuthorizer(appState)
 
@@ -414,7 +434,7 @@ func startupRoutine(ctx context.Context) *state.State {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized schema")
 
-	clusterState, err := cluster.Init(serverConfig.Config.Cluster, logger)
+	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Persistence.DataPath, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
 			Error("could not init cluster state")
@@ -465,7 +485,6 @@ func (d *dummyLock) LockSchema() (func() error, error) {
 
 // everything hard-coded right now, to be made dynmaic (from go plugins later)
 func registerModules(appState *state.State) error {
-
 	appState.Logger.
 		WithField("action", "startup").
 		Debug("start registering modules")
@@ -478,7 +497,7 @@ func registerModules(appState *state.State) error {
 		for _, module := range modules {
 			enabledModules[strings.TrimSpace(module)] = true
 		}
-	} 
+	}
 
 	if _, ok := enabledModules["text2vec-contextionary"]; ok {
 		appState.Modules.Register(modcontextionary.New())
@@ -550,8 +569,8 @@ func registerModules(appState *state.State) error {
 			WithField("action", "startup").
 			WithField("module", "text2vec-openai").
 			Debug("enabled module")
-        fmt.Println("after else  ok enabledModules text2vec-openai adapters/handlers/rest/configure_api.go !", ok)
-	} 
+		fmt.Println("after else  ok enabledModules text2vec-openai adapters/handlers/rest/configure_api.go !", ok)
+	}
 
 	if _, ok := enabledModules["qna-openai"]; ok {
 		appState.Modules.Register(modqnaopenai.New())
@@ -598,6 +617,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modstggcs.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modstgazure.Name]; ok {
+		appState.Modules.Register(modstgazure.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modstgazure.Name).
 			Debug("enabled module")
 	}
 

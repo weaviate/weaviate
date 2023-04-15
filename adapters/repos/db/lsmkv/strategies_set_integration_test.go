@@ -891,7 +891,7 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			require.Nil(t, b.FlushAndSwitch())
 		})
 
-		t.Run("thrid third (%3==2) memtable-only", func(t *testing.T) {
+		t.Run("third (%3==2) memtable-only", func(t *testing.T) {
 			pairs := 20
 			valuesPerPair := 3
 			var keys [][]byte

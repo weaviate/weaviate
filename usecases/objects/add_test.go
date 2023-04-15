@@ -13,9 +13,11 @@ package objects
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -121,6 +123,26 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		assert.Equal(t, res.ID, uuidDuringCreation, "check that connector add ID and user response match")
 	})
 
+	t.Run("with an explicit (correct) uppercase id set", func(t *testing.T) {
+		reset()
+
+		ctx := context.Background()
+		id := strfmt.UUID("4A334D0B-6347-40A0-A5AE-339677B20EDE")
+		lowered := strfmt.UUID(strings.ToLower(id.String()))
+		object := &models.Object{
+			ID:     id,
+			Class:  "Foo",
+			Vector: []float32{0.1, 0.2, 0.3},
+		}
+		vectorRepo.On("Exists", "Foo", lowered).Return(false, nil).Once()
+		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			Return(nil, nil)
+
+		res, err := manager.AddObject(ctx, nil, object, nil)
+		require.Nil(t, err)
+		assert.Equal(t, res.ID, lowered, "check that id was lowered and added")
+	})
+
 	t.Run("with an explicit (correct) ID set and a property that doesn't exist", func(t *testing.T) {
 		resetAutoSchema(true)
 
@@ -168,7 +190,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		reset()
 
 		ctx := context.Background()
-		id := strfmt.UUID("5a1cd361-1e0d-4FOOOOOOO2ae-bd52-ee09cb5f31cc")
+		id := strfmt.UUID("5a1cd361-1e0d-4fooooooo2ae-bd52-ee09cb5f31cc")
 		class := &models.Object{
 			ID:    id,
 			Class: "Foo",
@@ -313,7 +335,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		reset()
 
 		ctx := context.Background()
-		id := strfmt.UUID("5a1cd361-1e0d-4FOOOOOOO2ae-bd52-ee09cb5f31cc")
+		id := strfmt.UUID("5a1cd361-1e0d-4f00000002ae-bd52-ee09cb5f31cc")
 		object := &models.Object{
 			ID:    id,
 			Class: "Foo",
@@ -434,4 +456,69 @@ func Test_AddObjectEmptyProperties(t *testing.T) {
 	addedObject, err := manager.AddObject(ctx, nil, object, nil)
 	assert.Nil(t, err)
 	assert.NotNil(t, addedObject.Properties)
+}
+
+func Test_AddObjectWithUUIDProps(t *testing.T) {
+	var (
+		vectorRepo      *fakeVectorRepo
+		modulesProvider *fakeModulesProvider
+		manager         *Manager
+	)
+	schema := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class:             "TestClass",
+					VectorIndexConfig: hnsw.UserConfig{},
+
+					Properties: []*models.Property{
+						{
+							Name:     "my_id",
+							DataType: []string{"uuid"},
+						},
+						{
+							Name:     "my_idz",
+							DataType: []string{"uuid[]"},
+						},
+					},
+				},
+			},
+		},
+	}
+	reset := func() {
+		vectorRepo = &fakeVectorRepo{}
+		vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
+		schemaManager := &fakeSchemaManager{
+			GetSchemaResponse: schema,
+		}
+		locks := &fakeLocks{}
+		cfg := &config.WeaviateConfig{}
+		authorizer := &fakeAuthorizer{}
+		logger, _ := test.NewNullLogger()
+		modulesProvider = getFakeModulesProvider()
+		metrics := &fakeMetrics{}
+		manager = NewManager(locks, schemaManager, cfg, logger,
+			authorizer, vectorRepo, modulesProvider, metrics)
+	}
+	reset()
+	ctx := context.Background()
+	object := &models.Object{
+		Class:  "TestClass",
+		Vector: []float32{9, 9, 9},
+		Properties: map[string]interface{}{
+			"my_id":  "28bafa1e-7956-4c58-8a02-4499a9d15253",
+			"my_idz": []any{"28bafa1e-7956-4c58-8a02-4499a9d15253"},
+		},
+	}
+	modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+		Return(nil, nil)
+	addedObject, err := manager.AddObject(ctx, nil, object, nil)
+	require.Nil(t, err)
+	require.NotNil(t, addedObject.Properties)
+
+	expectedID := uuid.MustParse("28bafa1e-7956-4c58-8a02-4499a9d15253")
+	expectedIDz := []uuid.UUID{uuid.MustParse("28bafa1e-7956-4c58-8a02-4499a9d15253")}
+
+	assert.Equal(t, expectedID, addedObject.Properties.(map[string]interface{})["my_id"])
+	assert.Equal(t, expectedIDz, addedObject.Properties.(map[string]interface{})["my_idz"])
 }

@@ -39,9 +39,8 @@ func TestEnvironmentImportGoroutineFactor(t *testing.T) {
 	}
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Clearenv()
 			if len(tt.goroutineFactor) == 1 {
-				os.Setenv("MAX_IMPORT_GOROUTINES_FACTOR", tt.goroutineFactor[0])
+				t.Setenv("MAX_IMPORT_GOROUTINES_FACTOR", tt.goroutineFactor[0])
 			}
 			conf := Config{}
 			err := FromEnv(&conf)
@@ -70,9 +69,8 @@ func TestEnvironmentSetFlushAfter_BackwardCompatibility(t *testing.T) {
 	}
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Clearenv()
 			if len(tt.flushAfter) == 1 {
-				os.Setenv("PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER", tt.flushAfter[0])
+				t.Setenv("PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER", tt.flushAfter[0])
 			}
 			conf := Config{}
 			err := FromEnv(&conf)
@@ -101,9 +99,8 @@ func TestEnvironmentSetFlushAfter_NewName(t *testing.T) {
 	}
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Clearenv()
 			if len(tt.flushAfter) == 1 {
-				os.Setenv("PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS", tt.flushAfter[0])
+				t.Setenv("PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS", tt.flushAfter[0])
 			}
 			conf := Config{}
 			err := FromEnv(&conf)
@@ -121,8 +118,8 @@ func TestEnvironmentFlushConflictingValues(t *testing.T) {
 	// if both the old and new variable names are used the new variable name
 	// should be taken into consideration
 	os.Clearenv()
-	os.Setenv("PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER", "16")
-	os.Setenv("PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS", "17")
+	t.Setenv("PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER", "16")
+	t.Setenv("PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS", "17")
 	conf := Config{}
 	err := FromEnv(&conf)
 	require.Nil(t, err)
@@ -145,9 +142,8 @@ func TestEnvironmentMemtable_MaxSize(t *testing.T) {
 	}
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Clearenv()
 			if len(tt.value) == 1 {
-				os.Setenv("PERSISTENCE_MEMTABLES_MAX_SIZE_MB", tt.value[0])
+				t.Setenv("PERSISTENCE_MEMTABLES_MAX_SIZE_MB", tt.value[0])
 			}
 			conf := Config{}
 			err := FromEnv(&conf)
@@ -176,9 +172,8 @@ func TestEnvironmentMemtable_MinDuration(t *testing.T) {
 	}
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Clearenv()
 			if len(tt.value) == 1 {
-				os.Setenv("PERSISTENCE_MEMTABLES_MIN_ACTIVE_DURATION_SECONDS", tt.value[0])
+				t.Setenv("PERSISTENCE_MEMTABLES_MIN_ACTIVE_DURATION_SECONDS", tt.value[0])
 			}
 			conf := Config{}
 			err := FromEnv(&conf)
@@ -207,9 +202,8 @@ func TestEnvironmentMemtable_MaxDuration(t *testing.T) {
 	}
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Clearenv()
 			if len(tt.value) == 1 {
-				os.Setenv("PERSISTENCE_MEMTABLES_MAX_ACTIVE_DURATION_SECONDS", tt.value[0])
+				t.Setenv("PERSISTENCE_MEMTABLES_MAX_ACTIVE_DURATION_SECONDS", tt.value[0])
 			}
 			conf := Config{}
 			err := FromEnv(&conf)
@@ -281,7 +275,7 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_IGNORE_SCHEMA_SYNC": "true",
 			},
 			expectedResult: cluster.Config{
-				GossipBindPort:          7949, //TODO: 7946 conflicts with Docker swarm port
+				GossipBindPort:          7946, // TODO: 7946 might conflict with Docker swarm
 				DataBindPort:            7947,
 				IgnoreStartupSchemaSync: true,
 			},
@@ -315,7 +309,7 @@ func TestEnvironmentSetDefaultVectorDistanceMetric(t *testing.T) {
 
 	t.Run("NonEmptyDefaultVectorDistanceMetric", func(t *testing.T) {
 		os.Clearenv()
-		os.Setenv("DEFAULT_VECTOR_DISTANCE_METRIC", "l2-squared")
+		t.Setenv("DEFAULT_VECTOR_DISTANCE_METRIC", "l2-squared")
 		conf := Config{}
 		FromEnv(&conf)
 		require.Equal(t, "l2-squared", conf.DefaultVectorDistanceMetric)
@@ -336,9 +330,8 @@ func TestEnvironmentMaxConcurrentGetRequests(t *testing.T) {
 	}
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Clearenv()
 			if len(tt.value) == 1 {
-				os.Setenv("MAXIMUM_CONCURRENT_GET_REQUESTS", tt.value[0])
+				t.Setenv("MAXIMUM_CONCURRENT_GET_REQUESTS", tt.value[0])
 			}
 			conf := Config{}
 			err := FromEnv(&conf)

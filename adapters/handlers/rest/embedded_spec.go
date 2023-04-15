@@ -41,14 +41,14 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "Cloud-native, modular vector search engine",
+    "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
     "contact": {
       "name": "Weaviate",
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.18.0-prealpha"
+    "version": "1.19.0-prealpha"
   },
   "basePath": "/v1",
   "paths": {
@@ -929,6 +929,9 @@ func init() {
         "operationId": "objects.list",
         "parameters": [
           {
+            "$ref": "#/parameters/CommonAfterParameterQuery"
+          },
+          {
             "$ref": "#/parameters/CommonOffsetParameterQuery"
           },
           {
@@ -1330,6 +1333,9 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -4202,6 +4208,12 @@ func init() {
     }
   },
   "parameters": {
+    "CommonAfterParameterQuery": {
+      "type": "string",
+      "description": "The starting ID of the result window.",
+      "name": "after",
+      "in": "query"
+    },
     "CommonClassParameterQuery": {
       "type": "string",
       "description": "Class parameter specifies the class from which to query objects",
@@ -4311,14 +4323,14 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "Cloud-native, modular vector search engine",
+    "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
     "contact": {
       "name": "Weaviate",
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.18.0-prealpha"
+    "version": "1.19.0-prealpha"
   },
   "basePath": "/v1",
   "paths": {
@@ -5208,6 +5220,12 @@ func init() {
         "operationId": "objects.list",
         "parameters": [
           {
+            "type": "string",
+            "description": "The starting ID of the result window.",
+            "name": "after",
+            "in": "query"
+          },
+          {
             "type": "integer",
             "format": "int64",
             "default": 0,
@@ -5648,6 +5666,12 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
@@ -8730,6 +8754,12 @@ func init() {
     }
   },
   "parameters": {
+    "CommonAfterParameterQuery": {
+      "type": "string",
+      "description": "The starting ID of the result window.",
+      "name": "after",
+      "in": "query"
+    },
     "CommonClassParameterQuery": {
       "type": "string",
       "description": "Class parameter specifies the class from which to query objects",

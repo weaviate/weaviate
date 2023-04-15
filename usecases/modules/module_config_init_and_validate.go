@@ -58,9 +58,7 @@ func (p *Provider) SetSinglePropertyDefaults(class *models.Class,
 		return
 	}
 
-	cfg := NewClassBasedModuleConfig(class, class.Vectorizer)
-
-	p.setSinglePropertyConfigDefaults(class, prop, cfg, cc)
+	p.setSinglePropertyConfigDefaults(class, prop, cc)
 }
 
 func (p *Provider) setPerClassConfigDefaults(class *models.Class,
@@ -88,18 +86,21 @@ func (p *Provider) setPerPropertyConfigDefaults(class *models.Class,
 	cfg *ClassBasedModuleConfig, cc modulecapabilities.ClassConfigurator,
 ) {
 	for _, prop := range class.Properties {
-		p.setSinglePropertyConfigDefaults(class, prop, cfg, cc)
+		p.setSinglePropertyConfigDefaults(class, prop, cc)
 	}
 }
 
 func (p *Provider) setSinglePropertyConfigDefaults(class *models.Class,
-	prop *models.Property, cfg *ClassBasedModuleConfig,
-	cc modulecapabilities.ClassConfigurator,
+	prop *models.Property, cc modulecapabilities.ClassConfigurator,
 ) {
 	dt, _ := schema.GetValueDataTypeFromString(prop.DataType[0])
 	modDefaults := cc.PropertyConfigDefaults(dt)
-	userSpecified := cfg.Property(prop.Name)
 	mergedConfig := map[string]interface{}{}
+	userSpecified := make(map[string]interface{})
+
+	if prop.ModuleConfig != nil {
+		userSpecified = prop.ModuleConfig.(map[string]interface{})[class.Vectorizer].(map[string]interface{})
+	}
 
 	for key, value := range modDefaults {
 		mergedConfig[key] = value

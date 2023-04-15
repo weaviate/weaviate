@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - '**'        # run on ever branch except master (is covered by PR)
+      - '!gsigw/bench2v'
       - '!master'
 jobs:
   Unit-Tests:
@@ -11,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Set up Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v4
         with:
           go-version: 1.19
           cache: true
@@ -22,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Set up Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v4
         with:
           go-version: 1.19
           cache: true

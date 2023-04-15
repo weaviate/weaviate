@@ -33,7 +33,7 @@ import (
 func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 	class *models.Class,
 ) error {
-	err := m.authorizer.Authorize(principal, "create", "schema/objects")
+	err := m.Authorizer.Authorize(principal, "create", "schema/objects")
 	if err != nil {
 		return err
 	}
@@ -71,8 +71,8 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 		defer timer.ObserveDuration()
 	}
 
-	class.Class = upperCaseClassName(class.Class)
-	class.Properties = lowerCaseAllPropertyNames(class.Properties)
+	class.Class = schema.UppercaseClassName(class.Class)
+	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
 	m.setClassDefaults(class)
 
 	err = m.validateCanAddClass(ctx, class, true)
@@ -119,8 +119,8 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 	m.Lock()
 	defer m.Unlock()
 
-	class.Class = upperCaseClassName(class.Class)
-	class.Properties = lowerCaseAllPropertyNames(class.Properties)
+	class.Class = schema.UppercaseClassName(class.Class)
+	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
 	m.setClassDefaults(class)
 
 	err := m.validateCanAddClass(ctx, class, false)
@@ -195,14 +195,12 @@ func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
 }
 
 func (m *Manager) setClassDefaults(class *models.Class) {
-
-
 	if class.Vectorizer == "" {
 		class.Vectorizer = m.config.DefaultVectorizerModule
 	}
 
 	if class.VectorIndexType == "" {
-        class.VectorIndexType = m.config.DefaultVectorIndexType
+		class.VectorIndexType = m.config.DefaultVectorIndexType
 	}
 
 	if m.config.DefaultVectorDistanceMetric != "" {
@@ -313,24 +311,23 @@ func (m *Manager) validateProperty(
 func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 	class *models.Class,
 ) error {
-    
-    if class.VectorIndexType == "hnsw" {
-        parsed, err := m.vectorConfigParser(class.VectorIndexConfig)
-        if err != nil {
-            return errors.Wrap(err, "parse vector index config")
-        }
-        class.VectorIndexConfig = parsed
-    } else if class.VectorIndexType == "gemini" {
-        parsed, err := m.vectorConfigParser(class.VectorIndexConfig)
-        if err != nil {
-            return errors.Wrap(err, "parse vector index config")
-        }
-        class.VectorIndexConfig = parsed
-    } else {
-	    return errors.Errorf(
-	    	"parse vector index config: unsupported vector index type: %q",
+	if class.VectorIndexType == "hnsw" {
+		parsed, err := m.vectorConfigParser(class.VectorIndexConfig)
+		if err != nil {
+			return errors.Wrap(err, "parse vector index config")
+		}
+		class.VectorIndexConfig = parsed
+	} else if class.VectorIndexType == "gemini" {
+		parsed, err := m.vectorConfigParser(class.VectorIndexConfig)
+		if err != nil {
+			return errors.Wrap(err, "parse vector index config")
+		}
+		class.VectorIndexConfig = parsed
+	} else {
+		return errors.Errorf(
+			"parse vector index config: unsupported vector index type: %q",
 			class.VectorIndexType)
-    }
+	}
 
 	return nil
 }
@@ -347,38 +344,6 @@ func (m *Manager) parseShardingConfig(ctx context.Context,
 	class.ShardingConfig = parsed
 
 	return nil
-}
-
-func upperCaseClassName(name string) string {
-	if len(name) < 1 {
-		return name
-	}
-
-	if len(name) == 1 {
-		return strings.ToUpper(name)
-	}
-
-	return strings.ToUpper(string(name[0])) + name[1:]
-}
-
-func lowerCaseAllPropertyNames(props []*models.Property) []*models.Property {
-	for i, prop := range props {
-		props[i].Name = lowerCaseFirstLetter(prop.Name)
-	}
-
-	return props
-}
-
-func lowerCaseFirstLetter(name string) string {
-	if len(name) < 1 {
-		return name
-	}
-
-	if len(name) == 1 {
-		return strings.ToLower(name)
-	}
-
-	return strings.ToLower(string(name[0])) + name[1:]
 }
 
 func setInvertedConfigDefaults(class *models.Class) {

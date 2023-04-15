@@ -162,7 +162,10 @@ func newSchemaManagerWithClusterStateAndClient(clusterState *fakeClusterState,
 		valid: []string{"text2vec-contextionary", "model1", "model2"},
 	}
 	sm, err := schemauc.NewManager(&NilMigrator{}, newFakeRepo(), logger, &fakeAuthorizer{},
-		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
+		config.Config{
+			DefaultVectorizerModule: config.VectorizerModuleNone,
+			DefaultVectorIndexType:  config.VectorIndexTypeHNSW,
+		},
 		dummyParseVectorConfig, // only option for now
 		vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, clusterState, client, &fakeScaleOutManager{},

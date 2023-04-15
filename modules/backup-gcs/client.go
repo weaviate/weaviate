@@ -13,10 +13,11 @@ package modstggcs
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path"
-	"strconv"
+	"strings"
 
 	"cloud.google.com/go/storage"
 	"github.com/pkg/errors"
@@ -35,10 +36,7 @@ type gcsClient struct {
 
 func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcsClient, error) {
 	options := []option.ClientOption{}
-	useAuth, err := strconv.ParseBool(os.Getenv("BACKUP_GCS_USE_AUTH"))
-	if err != nil {
-		return nil, errors.Wrap(err, "get env")
-	}
+	useAuth := strings.ToLower(os.Getenv("BACKUP_GCS_USE_AUTH")) != "false"
 	if useAuth {
 		scopes := []string{
 			"https://www.googleapis.com/auth/devstorage.read_write",
@@ -136,14 +134,48 @@ func (g *gcsClient) GetObject(ctx context.Context, backupID, key string) ([]byte
 	return contents, nil
 }
 
+// PutFile creates an object with contents from file at filePath.
 func (g *gcsClient) PutFile(ctx context.Context, backupID, key, srcPath string) error {
-	srcPath = path.Join(g.dataPath, srcPath)
-	contents, err := os.ReadFile(srcPath)
+	bucket, err := g.findBucket(ctx)
 	if err != nil {
-		return errors.Wrapf(err, "read file '%s'", srcPath)
+		return fmt.Errorf("find bucket: %w", err)
 	}
 
-	return g.PutObject(ctx, backupID, key, contents)
+	// open source file
+	filePath := path.Join(g.dataPath, srcPath)
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("os.Open %q: %w", filePath, err)
+	}
+	defer file.Close()
+
+	// create a new writer
+	object := g.makeObjectName(backupID, key)
+	writer := bucket.Object(object).NewWriter(ctx)
+	writer.ContentType = "application/octet-stream"
+	writer.Metadata = map[string]string{"backup-id": backupID}
+
+	// if we return early make sure writer is closed
+	closeWriter := true
+	defer func() {
+		if closeWriter {
+			writer.Close()
+		}
+	}()
+
+	nBytes, err := io.Copy(writer, file)
+	if err != nil {
+		return fmt.Errorf("io.Copy %q %q: %w", object, filePath, err)
+	}
+	closeWriter = false
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("Writer.Close %q: %w", filePath, err)
+	}
+	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues("backup-gcs", "class")
+	if err == nil {
+		metric.Add(float64(nBytes))
+	}
+	return nil
 }
 
 func (g *gcsClient) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
@@ -194,19 +226,57 @@ func (g *gcsClient) Initialize(ctx context.Context, backupID string) error {
 	return nil
 }
 
-func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
-	obj, err := g.GetObject(ctx, backupID, key)
+// WriteToFile downloads an object and store its content in destPath
+// The file destPath will be created if it doesn't exit
+func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath string) (err error) {
+	bucket, err := g.findBucket(ctx)
 	if err != nil {
-		return errors.Wrapf(err, "get object '%s'", key)
+		return fmt.Errorf("find bucket: %w", err)
 	}
 
+	// validate destination path
+	if st, err := os.Stat(destPath); err == nil {
+		if st.IsDir() {
+			return fmt.Errorf("file is a directory")
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	// create empty file
 	dir := path.Dir(destPath)
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-		return errors.Wrapf(err, "make dir '%s'", dir)
+		return fmt.Errorf("os.MkdirAll %q: %w", dir, err)
+	}
+	file, err := os.Create(destPath)
+	if err != nil {
+		return fmt.Errorf("os.Create %q: %w", destPath, err)
 	}
 
-	if err := os.WriteFile(destPath, obj, os.ModePerm); err != nil {
-		return errors.Wrapf(err, "write file '%s'", destPath)
+	// make sure to close and delete in case we return early
+	closeAndRemove := true
+	defer func() {
+		if closeAndRemove {
+			file.Close()
+			os.Remove(destPath)
+		}
+	}()
+
+	// create reader
+	object := g.makeObjectName(backupID, key)
+	rc, err := bucket.Object(object).NewReader(ctx)
+	if err != nil {
+		return fmt.Errorf("Object(%q).NewReader: %v", object, err)
+	}
+	defer rc.Close()
+
+	// transfer content to the file
+	if _, err := io.Copy(file, rc); err != nil {
+		return fmt.Errorf("io.Copy:%q %q: %w", destPath, object, err)
+	}
+	closeAndRemove = false
+	if err = file.Close(); err != nil {
+		return fmt.Errorf("f.Close %q: %w", destPath, err)
 	}
 
 	return nil

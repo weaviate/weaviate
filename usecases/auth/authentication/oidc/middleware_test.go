@@ -163,6 +163,7 @@ func tokenWithGroups(t *testing.T, subject string, issuer string, aud string, gr
 }
 
 func tokenWithClaims(t *testing.T, subject string, issuer string, aud string, claims claims) string {
+	//nolint:staticcheck // is deprecated, but for the purpose of this test, this doesn't matter
 	claims.StandardClaims = jwt.StandardClaims{
 		Subject:   subject,
 		Issuer:    issuer,

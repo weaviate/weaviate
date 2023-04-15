@@ -19,6 +19,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -134,7 +136,7 @@ func (sg *SegmentGroup) compactOnce() error {
 
 	// TODO: call metrics just once with variable strategy label
 
-	case SegmentStrategyReplace:
+	case segmentindex.StrategyReplace:
 		c := newCompactorReplace(f, sg.segmentAtPos(pair[0]).newCursor(),
 			sg.segmentAtPos(pair[1]).newCursor(), level, secondaryIndices, scratchSpacePath)
 
@@ -146,7 +148,7 @@ func (sg *SegmentGroup) compactOnce() error {
 		if err := c.do(); err != nil {
 			return err
 		}
-	case SegmentStrategySetCollection:
+	case segmentindex.StrategySetCollection:
 		c := newCompactorSetCollection(f, sg.segmentAtPos(pair[0]).newCollectionCursor(),
 			sg.segmentAtPos(pair[1]).newCollectionCursor(), level, secondaryIndices,
 			scratchSpacePath)
@@ -159,7 +161,7 @@ func (sg *SegmentGroup) compactOnce() error {
 		if err := c.do(); err != nil {
 			return err
 		}
-	case SegmentStrategyMapCollection:
+	case segmentindex.StrategyMapCollection:
 		c := newCompactorMapCollection(f,
 			sg.segmentAtPos(pair[0]).newCollectionCursorReusable(),
 			sg.segmentAtPos(pair[1]).newCollectionCursorReusable(),
@@ -171,6 +173,24 @@ func (sg *SegmentGroup) compactOnce() error {
 		}
 
 		if err := c.do(); err != nil {
+			return err
+		}
+	case segmentindex.StrategyRoaringSet:
+		leftSegment := sg.segmentAtPos(pair[0])
+		rightSegment := sg.segmentAtPos(pair[1])
+
+		leftCursor := leftSegment.newRoaringSetCursor()
+		rightCursor := rightSegment.newRoaringSetCursor()
+
+		c := roaringset.NewCompactor(f, leftCursor, rightCursor,
+			level, scratchSpacePath)
+
+		if sg.metrics != nil {
+			sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": sg.dir}).Set(1)
+			defer sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": sg.dir}).Set(0)
+		}
+
+		if err := c.Do(); err != nil {
 			return err
 		}
 
@@ -267,7 +287,7 @@ func (sg *SegmentGroup) stripTmpExtension(oldPath string) (string, error) {
 	return newPath, nil
 }
 
-func (sg *SegmentGroup) compactIfLevelsMatch(stopFunc cyclemanager.StopFunc) {
+func (sg *SegmentGroup) compactIfLevelsMatch(shouldBreak cyclemanager.ShouldBreakFunc) bool {
 	sg.monitorSegments()
 
 	if sg.eligibleForCompaction() {
@@ -277,11 +297,13 @@ func (sg *SegmentGroup) compactIfLevelsMatch(stopFunc cyclemanager.StopFunc) {
 				WithError(err).
 				Errorf("compaction failed")
 		}
-	} else {
-		sg.logger.WithField("action", "lsm_compaction").
-			WithField("path", sg.dir).
-			Trace("no segment eligible for compaction")
+		return true
 	}
+
+	sg.logger.WithField("action", "lsm_compaction").
+		WithField("path", sg.dir).
+		Trace("no segment eligible for compaction")
+	return false
 }
 
 func (sg *SegmentGroup) Len() int {

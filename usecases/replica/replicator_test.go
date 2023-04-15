@@ -15,8 +15,11 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -29,10 +32,64 @@ var (
 )
 
 func TestReplicatorReplicaNotFound(t *testing.T) {
-	f := newFakeFactory("C1", "S", []string{})
-	rep := f.newReplicator()
-	err := rep.PutObject(context.Background(), "S", nil, All)
-	assert.ErrorIs(t, err, errNoReplicaFound)
+	ctx := context.Background()
+
+	t.Run("PutObject", func(t *testing.T) {
+		f := newFakeFactory("C1", "S", []string{})
+		rep := f.newReplicator()
+		err := rep.PutObject(ctx, "S", nil, All)
+		assert.ErrorIs(t, err, errReplicas)
+		f.assertLogErrorContains(t, errNoReplicaFound.Error())
+	})
+
+	t.Run("MergeObject", func(t *testing.T) {
+		f := newFakeFactory("C1", "S", []string{})
+		rep := f.newReplicator()
+		err := rep.MergeObject(ctx, "S", nil, All)
+		assert.ErrorIs(t, err, errReplicas)
+		f.assertLogErrorContains(t, errNoReplicaFound.Error())
+	})
+
+	t.Run("DeleteObject", func(t *testing.T) {
+		f := newFakeFactory("C1", "S", []string{})
+		rep := f.newReplicator()
+		err := rep.DeleteObject(ctx, "S", "id", All)
+		assert.ErrorIs(t, err, errReplicas)
+		f.assertLogErrorContains(t, errNoReplicaFound.Error())
+	})
+
+	t.Run("PutObjects", func(t *testing.T) {
+		f := newFakeFactory("C1", "S", []string{})
+		rep := f.newReplicator()
+		errs := rep.PutObjects(ctx, "S", []*storobj.Object{{}, {}}, All)
+		assert.Equal(t, 2, len(errs))
+		for _, err := range errs {
+			assert.ErrorIs(t, err, errReplicas)
+		}
+		f.assertLogErrorContains(t, errNoReplicaFound.Error())
+	})
+
+	t.Run("DeleteObjects", func(t *testing.T) {
+		f := newFakeFactory("C1", "S", []string{})
+		rep := f.newReplicator()
+		xs := rep.DeleteObjects(ctx, "S", []uint64{1, 2, 3}, false, All)
+		assert.Equal(t, 3, len(xs))
+		for _, x := range xs {
+			assert.ErrorIs(t, x.Err, errReplicas)
+		}
+		f.assertLogErrorContains(t, errNoReplicaFound.Error())
+	})
+
+	t.Run("AddReferences", func(t *testing.T) {
+		f := newFakeFactory("C1", "S", []string{})
+		rep := f.newReplicator()
+		errs := rep.AddReferences(ctx, "S", []objects.BatchReference{{}, {}}, All)
+		assert.Equal(t, 2, len(errs))
+		for _, err := range errs {
+			assert.ErrorIs(t, err, errReplicas)
+		}
+		f.assertLogErrorContains(t, errNoReplicaFound.Error())
+	})
 }
 
 func TestReplicatorPutObject(t *testing.T) {
@@ -61,7 +118,7 @@ func TestReplicatorPutObject(t *testing.T) {
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 
-		f.WClient.On("PutObject", ctx, "A", cls, shard, anyVal, obj).Return(resp, errAny)
+		f.WClient.On("PutObject", ctx, "A", cls, shard, anyVal, obj).Return(resp, errAny).After(time.Second * 10)
 		f.WClient.On("Abort", ctx, "A", cls, shard, anyVal).Return(resp, nil)
 
 		f.WClient.On("PutObject", ctx, "B", cls, shard, anyVal, obj).Return(resp, nil)
@@ -100,7 +157,7 @@ func TestReplicatorPutObject(t *testing.T) {
 		f.WClient.On("Abort", ctx, nodes[1], "C1", shard, anyVal).Return(resp, nil)
 
 		err := rep.PutObject(ctx, shard, obj, All)
-		assert.ErrorIs(t, err, errAny)
+		assert.ErrorIs(t, err, errReplicas)
 	})
 
 	t.Run("PhaseOneUnsuccessfulResponse", func(t *testing.T) {
@@ -114,9 +171,7 @@ func TestReplicatorPutObject(t *testing.T) {
 		f.WClient.On("Abort", ctx, nodes[1], "C1", shard, anyVal).Return(resp, nil)
 
 		err := rep.PutObject(ctx, shard, obj, All)
-		want := &Error{}
-		assert.ErrorAs(t, err, &want)
-		assert.ErrorContains(t, err, errAny.Error())
+		assert.ErrorIs(t, err, errReplicas)
 	})
 
 	t.Run("Commit", func(t *testing.T) {
@@ -165,7 +220,7 @@ func TestReplicatorMergeObject(t *testing.T) {
 		f.WClient.On("Abort", ctx, nodes[1], cls, shard, anyVal).Return(resp, nil)
 
 		err := rep.MergeObject(ctx, shard, merge, All)
-		assert.ErrorIs(t, err, errAny)
+		assert.ErrorIs(t, err, errReplicas)
 	})
 
 	t.Run("PhaseOneUnsuccessfulResponse", func(t *testing.T) {
@@ -179,9 +234,7 @@ func TestReplicatorMergeObject(t *testing.T) {
 		f.WClient.On("Abort", ctx, nodes[1], cls, shard, anyVal).Return(resp, nil)
 
 		err := rep.MergeObject(ctx, shard, merge, All)
-		want := &Error{}
-		assert.ErrorAs(t, err, &want)
-		assert.ErrorContains(t, err, errAny.Error())
+		assert.ErrorIs(t, err, errReplicas)
 	})
 
 	t.Run("Commit", func(t *testing.T) {
@@ -223,7 +276,7 @@ func TestReplicatorDeleteObject(t *testing.T) {
 
 		err := rep.DeleteObject(ctx, shard, uuid, All)
 		assert.NotNil(t, err)
-		assert.ErrorIs(t, err, errAny)
+		assert.ErrorIs(t, err, errReplicas)
 	})
 
 	t.Run("SuccessWithConsistencyLevelAll", func(t *testing.T) {
@@ -314,7 +367,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 		result := factory.newReplicator().DeleteObjects(ctx, shard, docIDs, false, All)
 		assert.Equal(t, len(result), 2)
 		for _, r := range result {
-			assert.ErrorIs(t, r.Err, errAny)
+			assert.ErrorIs(t, r.Err, errReplicas)
 		}
 	})
 
@@ -488,7 +541,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 
 		errs := rep.PutObjects(ctx, shard, objs, All)
 		assert.Equal(t, 3, len(errs))
-		assert.ErrorIs(t, errs[0], errAny)
+		assert.ErrorIs(t, errs[0], errReplicas)
 	})
 
 	t.Run("PhaseOneUnsuccessfulResponse", func(t *testing.T) {
@@ -501,9 +554,10 @@ func TestReplicatorPutObjects(t *testing.T) {
 		f.WClient.On("Abort", ctx, nodes[1], "C1", shard, anyVal).Return(resp1, nil)
 
 		errs := rep.PutObjects(ctx, shard, objs, All)
-		want := &Error{}
 		assert.Equal(t, 3, len(errs))
-		assert.ErrorAs(t, errs[0], &want)
+		for _, err := range errs {
+			assert.ErrorIs(t, err, errReplicas)
+		}
 	})
 
 	t.Run("PhaseTwoDecodingError", func(t *testing.T) {
@@ -580,7 +634,7 @@ func TestReplicatorAddReferences(t *testing.T) {
 
 		errs := rep.AddReferences(ctx, shard, refs, All)
 		assert.Equal(t, 2, len(errs))
-		assert.ErrorIs(t, errs[0], errAny)
+		assert.ErrorIs(t, errs[0], errReplicas)
 	})
 
 	t.Run("PhaseOneUnsuccessfulResponse", func(t *testing.T) {
@@ -594,9 +648,10 @@ func TestReplicatorAddReferences(t *testing.T) {
 		f.WClient.On("Abort", ctx, nodes[1], "C1", shard, anyVal).Return(resp, nil)
 
 		errs := rep.AddReferences(ctx, shard, refs, All)
-		want := &Error{}
 		assert.Equal(t, 2, len(errs))
-		assert.ErrorAs(t, errs[0], &want)
+		for _, err := range errs {
+			assert.ErrorIs(t, err, errReplicas)
+		}
 	})
 
 	t.Run("Commit", func(t *testing.T) {
@@ -623,9 +678,13 @@ type fakeFactory struct {
 	Shard2replicas map[string][]string
 	WClient        *fakeClient
 	RClient        *fakeRClient
+	log            *logrus.Logger
+	hook           *test.Hook
 }
 
 func newFakeFactory(class, shard string, nodes []string) *fakeFactory {
+	logger, hook := test.NewNullLogger()
+
 	return &fakeFactory{
 		CLS:            class,
 		Shard:          shard,
@@ -633,6 +692,8 @@ func newFakeFactory(class, shard string, nodes []string) *fakeFactory {
 		Shard2replicas: map[string][]string{shard: nodes},
 		WClient:        &fakeClient{},
 		RClient:        &fakeRClient{},
+		log:            logger,
+		hook:           hook,
 	}
 }
 
@@ -644,13 +705,55 @@ func (f fakeFactory) newReplicator() *Replicator {
 		shardingState,
 		nodeResolver,
 		struct {
-			RClient
-			WClient
-		}{f.RClient, f.WClient})
+			rClient
+			wClient
+		}{f.RClient, f.WClient}, f.log)
 }
 
 func (f fakeFactory) newFinder() *Finder {
 	nodeResolver := newFakeNodeResolver(f.Nodes)
 	shardingState := newFakeShardingState(f.Shard2replicas, nodeResolver)
-	return NewFinder(f.CLS, shardingState, nodeResolver, f.RClient)
+	return NewFinder(f.CLS, shardingState, nodeResolver, f.RClient, f.log)
+}
+
+func (f fakeFactory) assertLogContains(t *testing.T, key string, xs ...string) {
+	t.Helper()
+	// logging might happen after returning to the caller
+	// Therefore, we need to make sure that the goroutine
+	// running in the background is writing to the log
+	entry := f.hook.LastEntry()
+	for i := 0; entry == nil && i < 20; i++ {
+		<-time.After(time.Millisecond * 10)
+		entry = f.hook.LastEntry()
+	}
+	data := ""
+	if entry != nil {
+		data, _ = entry.Data[key].(string)
+	} else {
+		t.Errorf("log entry is empty")
+		return
+	}
+	for _, x := range xs {
+		assert.Contains(t, data, x)
+	}
+}
+
+func (f fakeFactory) assertLogErrorContains(t *testing.T, xs ...string) {
+	t.Helper()
+	// logging might happen after returning to the caller
+	// Therefore, we need to make sure that the goroutine
+	// running in the background is writing to the log
+	entry := f.hook.LastEntry()
+	for i := 0; entry == nil && i < 20; i++ {
+		<-time.After(time.Millisecond * 10)
+		entry = f.hook.LastEntry()
+	}
+
+	if entry == nil {
+		t.Errorf("log entry is empty")
+		return
+	}
+	for _, x := range xs {
+		assert.Contains(t, entry.Message, x)
+	}
 }

@@ -22,12 +22,6 @@ ARG GITHASH="unknown"
 ARG EXTRA_BUILD_ARGS=""
 COPY . .
 
-# Gemini Plugin - The module lives in the repo, so tell Go about it.
-#COPY gsi /go/src/github.com/weaviate/weaviate/gsi
-RUN go mod edit -replace github.com/gsi/weaviate/gemini_plugin=./gsi/weaviate_gemini_plugin
-RUN go get github.com/gsi/weaviate/gemini_plugin
-# Gemini Plugin
-
 RUN GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
       -ldflags '-w -extldflags "-static" -X github.com/weaviate/weaviate/usecases/config.GitHash='"$GITHASH"'' \
       -o /weaviate-server ./cmd/weaviate-server

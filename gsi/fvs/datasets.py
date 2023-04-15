@@ -5,6 +5,7 @@ import random
 import sys
 import struct
 import time
+import traceback
 
 import numpy as np
 
@@ -15,6 +16,7 @@ BASEDIR = "data/"
 
 def download(src, dst=None, max_size=None):
     """ download an URL, possibly cropped """
+    print("main download", dst, max_size)
     if os.path.exists(dst):
         return
     print('downloading %s -> %s...' % (src, dst))
@@ -39,6 +41,7 @@ def download(src, dst=None, max_size=None):
         )
         if not block:
             break
+        print("download blocks", max_size, totsz, len(block))
         if max_size is not None and totsz + len(block) >= max_size:
             block = block[:max_size - totsz]
             outf.write(block)
@@ -273,6 +276,7 @@ class DatasetCompetitionFormat(Dataset):
                     download(sourceurl, outfile)
                 except:
                     print("Warning: Problem downloading->%s to %s" % (sourceurl, outfile) )
+                    traceback.print_exc()
         else:
                 print("Warning: Did NOT download public query at gt datasets.")
 
@@ -306,6 +310,7 @@ class DatasetCompetitionFormat(Dataset):
         else:
             # download cropped version of file
             file_size = 8 + self.d * self.nb * np.dtype(self.dtype).itemsize
+            print("Download cropped ->", file_size)
             outfile = outfile + '.crop_nb_%d' % self.nb
             if os.path.exists(outfile):
                 print("file %s already exists" % outfile)
@@ -331,6 +336,7 @@ class DatasetCompetitionFormat(Dataset):
         nsplit, rank = split
         i0, i1 = self.nb * rank // nsplit, self.nb * (rank + 1) // nsplit
         filename = self.get_dataset_fn()
+        print("Get dataset iterator for", filename)
         x = xbin_mmap(filename, dtype=self.dtype, maxn=self.nb)
         assert x.shape == (self.nb, self.d)
         for j0 in range(i0, i1, bs):
@@ -470,7 +476,9 @@ class BigANNDataset(DatasetCompetitionFormat):
 class Deep1BDataset(DatasetCompetitionFormat):
     def __init__(self, nb_M=1000):
         self.nb_M = nb_M
-        self.nb = 10**6 * nb_M
+        if (self.nb_M):
+            print("Warning: Requested size is not a multiple of 1M")
+        self.nb = int( 10**6 * nb_M )
         self.d = 96
         self.nq = 10000
         self.dtype = "float32"
@@ -480,12 +488,13 @@ class Deep1BDataset(DatasetCompetitionFormat):
         self.gt_fn = (
             "https://storage.yandexcloud.net/yandex-research/ann-datasets/deep_new_groundtruth.public.10K.bin" if self.nb_M == 1000 else
             subset_url + "GT_100M/deep-100M" if self.nb_M == 100 else
-            subset_url + "GT_10M/deep-50M" if self.nb_M == 50 else
-            subset_url + "GT_10M/deep-20M" if self.nb_M == 20 else
+            subset_url + "GT_50M/deep-50M" if self.nb_M == 50 else
+            subset_url + "GT_20M/deep-20M" if self.nb_M == 20 else
             subset_url + "GT_10M/deep-10M" if self.nb_M == 10 else
             subset_url + "GT_10M/deep-5M" if self.nb_M == 5 else
             subset_url + "GT_10M/deep-2M" if self.nb_M == 2 else
             subset_url + "GT_1M/deep-1M" if self.nb_M == 1 else
+            subset_url + "GT_1M/deep-10K" if self.nb_M == 0.01 else
             None
         )
         self.base_url = "https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/"
@@ -738,6 +747,7 @@ DATASETS = {
     'deep-5M': lambda : Deep1BDataset(5),
     'deep-2M': lambda : Deep1BDataset(2),
     'deep-1M': lambda : Deep1BDataset(1),
+    'deep-10K': lambda : Deep1BDataset(0.01),
 
     'ssnpp-1B': lambda : SSNPPDataset(1000),
     'ssnpp-10M': lambda : SSNPPDataset(10),

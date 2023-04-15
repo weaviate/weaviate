@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -30,10 +31,13 @@ func (pv *propValuePair) cacheable() bool {
 
 	switch pv.operator {
 	case filters.OperatorEqual, filters.OperatorAnd, filters.OperatorOr,
-		filters.OperatorGreaterThan, filters.OperatorGreaterThanEqual,
-		filters.OperatorLessThan, filters.OperatorLessThanEqual,
 		filters.OperatorNotEqual, filters.OperatorLike:
-		return true
+		// do not cache nested queries with an extreme amount of operands, such as
+		// ref-filter queries. For those queries, just checking the large amount of
+		// hashes has a very signifcant cost - even if they all turn out to be
+		// cache misses
+		return len(pv.children) < 10000
+
 	default:
 		return false
 	}
@@ -105,10 +109,15 @@ func (pv *propValuePair) hashForNonEqualOp(store *lsmkv.Store,
 	if pv.hasFrequency {
 		return pv.hashForNonEqualOpWithFrequency(propBucket, hashBucket, shardVersion)
 	}
-	return pv.hashForNonEqualOpWithoutFrequency(propBucket, hashBucket)
+
+	if propBucket.Strategy() == lsmkv.StrategyRoaringSet {
+		return pv.hashForNonEqualOpWithoutFrequencyRoaringSet(propBucket, hashBucket)
+	}
+
+	return pv.hashForNonEqualOpWithoutFrequencySet(propBucket, hashBucket)
 }
 
-func (pv *propValuePair) hashForNonEqualOpWithoutFrequency(propBucket,
+func (pv *propValuePair) hashForNonEqualOpWithoutFrequencySet(propBucket,
 	hashBucket *lsmkv.Bucket,
 ) ([]byte, error) {
 	rr := NewRowReader(propBucket, pv.value, pv.operator, true)
@@ -118,6 +127,33 @@ func (pv *propValuePair) hashForNonEqualOpWithoutFrequency(propBucket,
 		keys = append(keys, k)
 		return true, nil
 	}); err != nil {
+		return nil, errors.Wrap(err, "read row")
+	}
+
+	hashes := make([][]byte, len(keys))
+	for i, key := range keys {
+		h, err := hashBucket.Get(key)
+		if err != nil {
+			return nil, errors.Wrapf(err, "get hash for key %v", key)
+		}
+		hashes[i] = h
+	}
+
+	return combineChecksums(hashes, pv.operator), nil
+}
+
+func (pv *propValuePair) hashForNonEqualOpWithoutFrequencyRoaringSet(propBucket,
+	hashBucket *lsmkv.Bucket,
+) ([]byte, error) {
+	rr := NewRowReaderRoaringSet(propBucket, pv.value, pv.operator, true)
+
+	var keys [][]byte
+	var readFn RoaringSetReadFn = func(k []byte, _ *sroar.Bitmap) (bool, error) {
+		keys = append(keys, k)
+		return true, nil
+	}
+
+	if err := rr.Read(context.TODO(), readFn); err != nil {
 		return nil, errors.Wrap(err, "read row")
 	}
 

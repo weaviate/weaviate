@@ -14,10 +14,8 @@ package db
 import (
 	"context"
 	"fmt"
-	"math"
 	"os"
 	"path"
-	"runtime"
 	"sync"
 	"time"
 
@@ -29,17 +27,16 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/gemini"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
-	"github.com/weaviate/weaviate/entities/storobj"
-	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	geminient "github.com/weaviate/weaviate/entities/vectorindex/gemini"
+	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -64,32 +61,20 @@ type Shard struct {
 	versioner         *shardVersioner
 	resourceScanState *resourceScanState
 
-	numActiveBatches    int
-	activeBatchesLock   sync.Mutex
-	jobQueueCh          chan job
-	shutDownWg          sync.WaitGroup
-	maxNumberGoroutines int
-
 	status              storagestate.Status
 	statusLock          sync.Mutex
 	propertyIndicesLock sync.RWMutex
 	stopMetrics         chan struct{}
+
+	centralJobQueue chan job // reference to queue used by all shards
 
 	docIdLock []sync.Mutex
 	// replication
 	replicationMap pendingReplicaTasks
 }
 
-type job struct {
-	object  *storobj.Object
-	status  objectInsertStatus
-	index   int
-	ctx     context.Context
-	batcher *objectsBatcher
-}
-
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
-	shardName string, index *Index, class *models.Class,
+	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 ) (*Shard, error) {
 	before := time.Now()
 
@@ -105,160 +90,137 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		promMetrics:      promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
-		deletedDocIDs:       docid.NewInMemDeletedTracker(),
-		randomSource:        rand,
-		resourceScanState:   newResourceScanState(),
-		jobQueueCh:          make(chan job, 100000),
-		maxNumberGoroutines: int(math.Round(index.Config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
-		stopMetrics:         make(chan struct{}),
-		replicationMap:      pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		deletedDocIDs:     docid.NewInMemDeletedTracker(),
+		randomSource:      rand,
+		resourceScanState: newResourceScanState(),
+		stopMetrics:       make(chan struct{}),
+		replicationMap:    pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue:   jobQueueCh,
 	}
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
-	if s.maxNumberGoroutines == 0 {
-		return s, errors.New("no workers to add batch-jobs configured.")
-	}
 
 	defer s.metrics.ShardStartup(before)
-    
-    switch index.vectorIndexUserConfig.(type) {
 
-        case hnswent.UserConfig:
+	switch index.vectorIndexUserConfig.(type) {
 
-            hnswUserConfig := index.vectorIndexUserConfig.(hnswent.UserConfig)
+	case hnswent.UserConfig:
 
-            if hnswUserConfig.Skip {
-                s.vectorIndex = noop.NewIndex()
+		hnswUserConfig := index.vectorIndexUserConfig.(hnswent.UserConfig)
 
-            } else {
+		if hnswUserConfig.Skip {
+			s.vectorIndex = noop.NewIndex()
+		} else {
 
-                if err := s.initVectorIndex(ctx, hnswUserConfig); err != nil {
-                    return nil, fmt.Errorf("init vector index: %w", err)
-                }
+			if err := s.initVectorIndex(ctx, hnswUserConfig); err != nil {
+				return nil, fmt.Errorf("init vector index: %w", err)
+			}
 
-                defer s.vectorIndex.PostStartup()
-            }
+			defer s.vectorIndex.PostStartup()
+		}
 
-            if err := s.initNonVector(ctx, class); err != nil {
-                return nil, errors.Wrapf(err, "init shard %q", s.ID())
-            }
+		if err := s.initNonVector(ctx, class); err != nil {
+			return nil, errors.Wrapf(err, "init shard %q", s.ID())
+		}
 
-	        return s, nil
-        
-        case geminient.UserConfig:
-            
-            geminiUserConfig := index.vectorIndexUserConfig.(geminient.UserConfig)
+		return s, nil
 
-            if geminiUserConfig.Skip {
-                s.vectorIndex = noop.NewIndex()
-            
-            } else {
+	case geminient.UserConfig:
 
-                if err := s.initVectorIndex(ctx, geminiUserConfig); err != nil {
-                    return nil, fmt.Errorf("init vector index: %w", err)
-                }
+		geminiUserConfig := index.vectorIndexUserConfig.(geminient.UserConfig)
 
-                defer s.vectorIndex.PostStartup()
-            }
+		if geminiUserConfig.Skip {
+			s.vectorIndex = noop.NewIndex()
+		} else {
 
-            if err := s.initNonVector(ctx, class); err != nil {
-                return nil, errors.Wrapf(err, "init shard %q", s.ID())
-            }
+			if err := s.initVectorIndex(ctx, geminiUserConfig); err != nil {
+				return nil, fmt.Errorf("init vector index: %w", err)
+			}
 
-	        return s, nil
+			defer s.vectorIndex.PostStartup()
+		}
 
-        default:
+		if err := s.initNonVector(ctx, class); err != nil {
+			return nil, errors.Wrapf(err, "init shard %q", s.ID())
+		}
 
-            return s, fmt.Errorf("Supported vectorInddexUserConfig type.")
+		return s, nil
 
-    }
+	default:
+
+		return s, fmt.Errorf("Supported vectorInddexUserConfig type.")
+
+	}
 }
 
 func (s *Shard) initVectorIndex(
-    ctx context.Context,
-    vectorIndexUserConfig schema.VectorIndexConfig,
+	ctx context.Context,
+	vectorIndexUserConfig schema.VectorIndexConfig,
 ) error {
+	switch uc := vectorIndexUserConfig.(type) {
 
-    switch vectorIndexUserConfig.(type) {
+	case hnswent.UserConfig:
 
-        case hnswent.UserConfig:
+		hnswUserConfig := uc // vectorIndexUserConfig.(hnswent.UserConfig)
+		var distProv distancer.Provider
 
-            hnswUserConfig := vectorIndexUserConfig.(hnswent.UserConfig)
-            var distProv distancer.Provider
+		switch hnswUserConfig.Distance {
+		case "", hnswent.DistanceCosine:
+			distProv = distancer.NewCosineDistanceProvider()
+		case hnswent.DistanceDot:
+			distProv = distancer.NewDotProductProvider()
+		case hnswent.DistanceL2Squared:
+			distProv = distancer.NewL2SquaredProvider()
+		case hnswent.DistanceManhattan:
+			distProv = distancer.NewManhattanProvider()
+		case hnswent.DistanceHamming:
+			distProv = distancer.NewHammingProvider()
+		default:
+			return errors.Errorf("unrecognized distance metric %q,"+
+				"choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", hnswUserConfig.Distance)
+		}
 
-            switch hnswUserConfig.Distance {
-                case "", hnswent.DistanceCosine:
-                    distProv = distancer.NewCosineDistanceProvider()
-                case hnswent.DistanceDot:
-                    distProv = distancer.NewDotProductProvider()
-                case hnswent.DistanceL2Squared:
-                    distProv = distancer.NewL2SquaredProvider()
-                case hnswent.DistanceManhattan:
-                    distProv = distancer.NewManhattanProvider()
-                case hnswent.DistanceHamming:
-                    distProv = distancer.NewHammingProvider()
-                default:
-                    return errors.Errorf("unrecognized distance metric %q,"+
-                        "choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", hnswUserConfig.Distance)
-                }
+		vi, err := hnsw.New(hnsw.Config{
+			Logger:            s.index.logger,
+			RootPath:          s.index.Config.RootPath,
+			ID:                s.ID(),
+			ShardName:         s.name,
+			ClassName:         s.index.Config.ClassName.String(),
+			PrometheusMetrics: s.promMetrics,
+			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+				return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), s.index.logger)
+			},
+			VectorForIDThunk: s.vectorByIndexID,
+			DistanceProvider: distProv,
+		}, hnswUserConfig)
+		if err != nil {
+			return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
+		}
+		s.vectorIndex = vi
 
-            vi, err := hnsw.New(hnsw.Config{
-                Logger:            s.index.logger,
-                RootPath:          s.index.Config.RootPath,
-                ID:                s.ID(),
-                ShardName:         s.name,
-                ClassName:         s.index.Config.ClassName.String(),
-                PrometheusMetrics: s.promMetrics,
-                MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-                    // Previously we had an interval of 10s in here, which was changed to
-                    // 0.5s as part of gh-1867. There's really no way to wait so long in
-                    // between checks: If you are running on a low-powered machine, the
-                    // interval will simply find that there is no work and do nothing in
-                    // each iteration. However, if you are running on a very powerful
-                    // machine within 10s you could have potentially created two units of
-                    // work, but we'll only be handling one every 10s. This means
-                    // uncombined/uncondensed hnsw/gemini commit logs will keep piling up can only
-                    // be processes long after the initial insert is complete. This also
-                    // means that if there is a crash during importing a lot of work needs
-                    // to be done at startup, since the commit logs still contain too many
-                    // redundancies. So as of now it seems there are only advantages to
-                    // running the cleanup checks and work much more often.
-                    return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
-                        s.index.logger)
-                },
-                VectorForIDThunk: s.vectorByIndexID,
-                DistanceProvider: distProv,
-            }, hnswUserConfig)
+		return nil
 
-            if err != nil {
-                return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
-            }
-            s.vectorIndex = vi
-            return nil
+	case geminient.UserConfig:
 
-        case geminient.UserConfig:
+		geminiUserConfig := uc // vectorIndexUserConfig.(geminient.UserConfig)
 
-            geminiUserConfig := vectorIndexUserConfig.(geminient.UserConfig)
+		// TODO: Currently we don't utilize the non-user Config but that
+		// TODO: may likely change in the future.
+		vi, err := gemini.New(gemini.Config{}, geminiUserConfig)
+		if err != nil {
+			return errors.Wrapf(err, "init shard %q: gemini index", s.ID())
+		}
+		s.vectorIndex = vi
 
-            // TODO: Currently we don't utilize the non-user Config but that 
-            // TODO: may likely change in the future.
-            vi, err := gemini.New( gemini.Config{}, geminiUserConfig )
-            if err != nil {
-                return errors.Wrapf(err, "init shard %q: gemini index", s.ID())
-            }
-            s.vectorIndex = vi
+		return nil
 
-            return nil
-
-        default:
-            return fmt.Errorf("Unsupported vectorIndexUserConfig.")
-    }
-
+	default:
+		return fmt.Errorf("Unsupported vectorIndexUserConfig.")
+	}
 }
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
-
-	err := s.initDBFile(ctx)
+	err := s.initLSMStore(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: shard db", s.ID())
 	}
@@ -307,7 +269,7 @@ func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
 	return idBytes[15] % IdLockPoolSize
 }
 
-func (s *Shard) initDBFile(ctx context.Context) error {
+func (s *Shard) initLSMStore(ctx context.Context) error {
 	annotatedLogger := s.index.logger.WithFields(logrus.Fields{
 		"shard": s.name,
 		"index": s.index.ID(),
@@ -327,13 +289,8 @@ func (s *Shard) initDBFile(ctx context.Context) error {
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
 		lsmkv.WithSecondaryIndices(1),
 		lsmkv.WithMonitorCount(),
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithDynamicMemtableSizing(
-			s.index.Config.MemtablesInitialSizeMB,
-			s.index.Config.MemtablesMaxSizeMB,
-			s.index.Config.MemtablesMinActiveSeconds,
-			s.index.Config.MemtablesMaxActiveSeconds,
-		),
+		s.dynamicMemtableSizing(),
+		s.memtableIdleConfig(),
 	)
 	if err != nil {
 		return errors.Wrap(err, "create objects bucket")
@@ -344,10 +301,7 @@ func (s *Shard) initDBFile(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) drop(force bool) error {
-	if s.isReadOnly() && !force {
-		return storagestate.ErrStatusReadOnly
-	}
+func (s *Shard) drop() error {
 	s.replicationMap.clear()
 
 	if s.index.Config.TrackVectorDimensions {
@@ -479,7 +433,7 @@ func (s *Shard) addPropertyLength(ctx context.Context, prop *models.Property) er
 
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(prop.Name+filters.InternalPropertyLength),
-		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 	if err != nil {
 		return err
 	}
@@ -501,7 +455,7 @@ func (s *Shard) addNullState(ctx context.Context, prop *models.Property) error {
 
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(prop.Name+filters.InternalNullIndex),
-		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 	if err != nil {
 		return err
 	}
@@ -520,7 +474,7 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 	if err != nil {
 		return err
 	}
@@ -539,7 +493,7 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 	if err != nil {
 		return err
 	}
@@ -554,6 +508,20 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 	return nil
 }
 
+func (s *Shard) memtableIdleConfig() lsmkv.BucketOption {
+	return lsmkv.WithIdleThreshold(
+		time.Duration(s.index.Config.MemtablesFlushIdleAfter) * time.Second)
+}
+
+func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
+	return lsmkv.WithDynamicMemtableSizing(
+		s.index.Config.MemtablesInitialSizeMB,
+		s.index.Config.MemtablesMaxSizeMB,
+		s.index.Config.MemtablesMinActiveSeconds,
+		s.index.Config.MemtablesMaxActiveSeconds,
+	)
+}
+
 func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
@@ -561,8 +529,9 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 	if schema.IsRefDataType(prop.DataType) {
 		err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
-			lsmkv.WithStrategy(lsmkv.StrategySetCollection), // ref props do not have frequencies -> Set
-			lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
+			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet), // ref props do not have frequencies -> Set
+			s.memtableIdleConfig(),
+			s.dynamicMemtableSizing(),
 		)
 		if err != nil {
 			return err
@@ -571,7 +540,8 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 		err = s.store.CreateOrLoadBucket(ctx,
 			helpers.HashBucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
 			lsmkv.WithStrategy(lsmkv.StrategyReplace),
-			lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
+			s.memtableIdleConfig(),
+			s.dynamicMemtableSizing(),
 		)
 		if err != nil {
 			return err
@@ -582,26 +552,29 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 		return s.initGeoProp(prop)
 	}
 
-	var mapOpts []lsmkv.BucketOption
+	bucketOpts := []lsmkv.BucketOption{
+		s.memtableIdleConfig(),
+		s.dynamicMemtableSizing(),
+	}
 	if inverted.HasFrequency(schema.DataType(prop.DataType[0])) {
-		mapOpts = append(mapOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
-		mapOpts = append(mapOpts, lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second))
+		bucketOpts = append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
 		if s.versioner.Version() < 2 {
-			mapOpts = append(mapOpts, lsmkv.WithLegacyMapSorting())
+			bucketOpts = append(bucketOpts, lsmkv.WithLegacyMapSorting())
 		}
 	} else {
-		mapOpts = append(mapOpts, lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+		bucketOpts = append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 	}
 
 	err := s.store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(prop.Name),
-		mapOpts...)
+		bucketOpts...)
 	if err != nil {
 		return err
 	}
 
 	err = s.store.CreateOrLoadBucket(ctx, helpers.HashBucketFromPropNameLSM(prop.Name),
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
+		s.memtableIdleConfig(),
+		s.dynamicMemtableSizing(),
 	)
 	if err != nil {
 		return err
@@ -617,7 +590,10 @@ func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 		return storagestate.ErrStatusReadOnly
 	}
 
-	return s.vectorIndex.UpdateUserConfig(updated)
+	s.updateStatus(storagestate.StatusReadOnly.String())
+	return s.vectorIndex.UpdateUserConfig(updated, func() {
+		s.updateStatus(storagestate.StatusReady.String())
+	})
 }
 
 func (s *Shard) shutdown(ctx context.Context) error {

@@ -25,7 +25,7 @@ import argparse
 WEAVIATE_CONN   = "http://localhost:8091"
 
 # Maximum number of documents to add
-MAX_ADDS        = 4000
+MAX_ADDS        = 20 #4000
 
 # Maximum number of (successful) searches to perform
 MAX_SEARCHES    = 10

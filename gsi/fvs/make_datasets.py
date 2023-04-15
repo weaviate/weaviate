@@ -48,6 +48,11 @@ DEEP1M =  "deep-1M.npy"
 DEEP1M_GT_10 = "deep-1M-gt-10.npy"
 DEEP1M_GT_10_DISTS = "deep-1M-gt-10-dists.npy"
 
+# Deep10K filenames
+DEEP10K =  "deep-10K.npy"
+DEEP10K_GT_1000 = "deep-10K-gt-1000.npy"
+DEEP10K_GT_10 = "deep-10K-gt-10.npy"
+
 
 # 
 # Configure modules
@@ -537,5 +542,78 @@ elif VERIFY:
         raise Exception("Bad size for %s" % fname, arr.shape)
     print("Verified.")
 
+# Create/verify deep-10K
+fname = os.path.join( FVS_DATA_DIR, DEEP10K )
+print("Checking ", fname,"exists...")
+if not os.path.exists(fname):
+    print("Creating", fname, "...")
+
+    print("Downloading Competition Deep1B base, query, and gt...")
+    ds = datasets.DATASETS["deep-10K"]()
+    ds.prepare(False)
+
+    for dt in ds.get_dataset_iterator(bs=1000):
+        newsize = append_floatarray(fname, dt)
+        print("deep-10K, appended batch, newsize=", newsize)
+        if newsize[0]==10000:
+            break
+
+    print("done")
+
+elif VERIFY:
+    # Verify it
+    print("Found %s.  Verifying it (this may take a sec.)" % fname)
+    arr = numpy.load(fname)
+    if arr.shape[0]!=10000:
+        raise Exception("Bad size for %s" % fname, arr.shape)
+    print("Verified.")
+
+# DEEP10K of DEEP1B, gt set - 10
+fname = os.path.join( FVS_DATA_DIR, DEEP10K_GT_10)
+print("Checking ", fname,"exists...")
+if not os.path.exists(fname):
+    ds = datasets.DATASETS["deep-10K"]()
+    ds.prepare(False)
+
+    I, D = ds.get_groundtruth()
+    print(I.shape)
+    I = I[:10,:]
+    print(I.shape)
+
+    print("saving",fname)
+    numpy.save( fname, I )
+    print("done")
+
+elif VERIFY:
+    # Verify it
+    print("Found %s.  Verifying it..." % fname)
+    arr = numpy.load(fname)
+    if arr.shape[0]!=10:
+        raise Exception("Bad size for %s" % fname, arr.shape)
+    print("Verified.")
+
+# DEEP10K of DEEP1B, gt set - 1000
+fname = os.path.join( FVS_DATA_DIR, DEEP10K_GT_1000)
+print("Checking ", fname,"exists...")
+if not os.path.exists(fname):
+    ds = datasets.DATASETS["deep-10K"]()
+    ds.prepare(False)
+
+    I, D = ds.get_groundtruth()
+    print(I.shape)
+    I = I[:1000,:]
+    print(I.shape)
+
+    print("saving",fname)
+    numpy.save( fname, I )
+    print("done")
+
+elif VERIFY:
+    # Verify it
+    print("Found %s.  Verifying it..." % fname)
+    arr = numpy.load(fname)
+    if arr.shape[0]!=1000:
+        raise Exception("Bad size for %s" % fname, arr.shape)
+    print("Verified.")
 
 print("Done.")

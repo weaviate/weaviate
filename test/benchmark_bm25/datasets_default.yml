@@ -19,6 +19,18 @@ datasets:
         - _id 
     queries:
       property: text
+  - id: fiqa
+    path: ./datasets/fiqa
+    corpus:
+      indexed_properties:
+        - title
+        - text
+      unindexed_properties:
+        - _id
+    queries:
+      property: query
+      matching_results: original_matchingDocIDs
+      property_with_id: _id
   - id: quora
     path: ./datasets/quora
     corpus:

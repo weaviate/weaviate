@@ -68,7 +68,7 @@ type ModulesProvider interface {
 type vectorClassSearch interface {
 	ClassObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error)
 	ClassObjectVectorSearch(context.Context, string, []float32,
-		int, int, *filters.LocalFilter) ([]*storobj.Object, []float32, error)
+		int, int, *filters.LocalFilter) ([]*storobj.Object, []float32, int64, error)
 	ClassSearch(ctx context.Context, params dto.GetParams) ([]search.Result, error)
 	VectorClassSearch(ctx context.Context, params dto.GetParams) ([]search.Result, error)
 	VectorSearch(ctx context.Context, vector []float32, offset, limit int,
@@ -119,7 +119,11 @@ func (e *Explorer) GetClass(ctx context.Context,
 	}
 
 	if err := e.validateSort(params.ClassName, params.Sort); err != nil {
-		return nil, errors.Wrap(err, "invalid 'sort' filter")
+		return nil, errors.Wrap(err, "invalid 'sort' parameter")
+	}
+
+	if err := e.validateCursor(params); err != nil {
+		return nil, errors.Wrap(err, "cursor api: invalid 'after' parameter")
 	}
 
 	if params.KeywordRanking != nil {
@@ -133,15 +137,9 @@ func (e *Explorer) GetClass(ctx context.Context,
 	return e.getClassList(ctx, params)
 }
 
-func (e *Explorer) getClassKeywordBased(ctx context.Context,
-	params dto.GetParams,
-) ([]interface{}, error) {
+func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParams) ([]interface{}, error) {
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
 		return nil, errors.Errorf("conflict: both near<Media> and keyword-based (bm25) arguments present, choose one")
-	}
-
-	if params.Filters != nil {
-		return nil, errors.Errorf("filtered keyword search (bm25) not supported yet")
 	}
 
 	if len(params.KeywordRanking.Query) == 0 {
@@ -245,8 +243,8 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		if hybridSearchLimit == 0 {
 			hybridSearchLimit = hybrid.DefaultLimit
 		}
-		res, dists, err := e.search.ClassObjectVectorSearch(
-			ctx, params.ClassName, vec, 0, hybridSearchLimit, nil)
+		res, dists, _, err := e.search.ClassObjectVectorSearch(
+			ctx, params.ClassName, vec, 0, hybridSearchLimit, params.Filters)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -405,6 +403,9 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 		}
 
 		if params.AdditionalProperties.LastUpdateTimeUnix {
+			// This used to be "=res.Updated" but now is "res.SearchTime"
+			// so its awful hack to surface the searchtime to
+			// Weaviate clients.
 			additionalProperties["lastUpdateTimeUnix"] = res.Updated
 		}
 

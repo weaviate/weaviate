@@ -1,6 +1,0 @@
-Deep-10M
-
-python create_dataset.py --dataset deep-20M
-
-python make_groundtruth.py --dataset deep-20M --o /mnt/nas1/fvs_benchmark_datasets/bigann_competition_data/deep1b/deep-20M
-

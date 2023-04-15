@@ -1,0 +1,32 @@
+name: Generate release assets
+
+on:
+  release:
+    types: [published]
+
+env:
+  CGO_ENABLED: 0
+
+permissions:
+  contents: write
+
+jobs:
+  releases-matrix:
+    name: Release precompiled binaries
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: wangyoucao577/go-release-action@3d0cbf9e00fbc5a1e88a81878cbc8ef496646cda
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          goos: ${{ matrix.goos }}
+          goarch: ${{ matrix.goarch }}
+          goversion: "1.19"
+          project_path: "./cmd/weaviate-server"
+          extra_files: LICENSE README.md
+          ldflags: -w -extldflags "-static" -X github.com/weaviate/weaviate/usecases/config.GitHash='"$GITHASH"'
+          sha256sum: true
