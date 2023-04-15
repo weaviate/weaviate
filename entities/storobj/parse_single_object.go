@@ -31,6 +31,12 @@ func ParseAndExtractProperty(data []byte, propName string) ([]string, bool, erro
 	if propName == "_lastUpdateTimeUnix" {
 		return extractLastUpdateTimeUnix(data)
 	}
+	// GW
+	if propName == "_searchTime" {
+		return extractLastUpdateTimeUnix(data)
+	}
+	// GW
+
 	return ParseAndExtractTextProp(data, propName)
 }
 

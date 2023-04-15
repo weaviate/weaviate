@@ -238,7 +238,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 func (s *Shard) objectVectorSearch(ctx context.Context,
 	searchVector []float32, targetDist float32, limit int, filters *filters.LocalFilter,
 	sort []filters.Sort, additional additional.Properties,
-) ([]*storobj.Object, []float32, error) {
+) ([]*storobj.Object, []float32, int64, error) {
 	var (
 		ids       []uint64
 		dists     []float32
@@ -250,27 +250,33 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 		beforeFilter := time.Now()
 		list, err := s.buildAllowList(ctx, filters, additional)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, 0, err
 		}
 		allowList = list
 		s.metrics.FilteredVectorFilter(time.Since(beforeFilter))
 	}
 
-	beforeVector := time.Now()
+	beforeIndexSearch := time.Now()
+
 	if limit < 0 {
 		ids, dists, err = s.vectorIndex.SearchByVectorDistance(
 			searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 		if err != nil {
-			return nil, nil, errors.Wrap(err, "vector search by distance")
+			return nil, nil, 0, errors.Wrap(err, "vector search by distance")
 		}
 	} else {
 		ids, dists, err = s.vectorIndex.SearchByVector(searchVector, limit, allowList)
 		if err != nil {
-			return nil, nil, errors.Wrap(err, "vector search")
+			return nil, nil, 0, errors.Wrap(err, "vector search")
 		}
 	}
+
+	indexSearchTook := int64(time.Since(beforeIndexSearch))
+
+	beforeVector := time.Now()
+
 	if len(ids) == 0 {
-		return nil, nil, nil
+		return nil, nil, indexSearchTook, nil
 	}
 
 	if filters != nil {
@@ -282,7 +288,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 		ids, dists, err = s.sortDocIDsAndDists(ctx, limit, sort,
 			s.index.Config.ClassName, ids, dists)
 		if err != nil {
-			return nil, nil, errors.Wrap(err, "vector search sort")
+			return nil, nil, indexSearchTook, errors.Wrap(err, "vector search sort")
 		}
 		if filters != nil {
 			s.metrics.FilteredVectorSort(time.Since(beforeSort))
@@ -294,14 +300,14 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	objs, err := storobj.ObjectsByDocID(bucket, ids, additional)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, indexSearchTook, err
 	}
 
 	if filters != nil {
 		s.metrics.FilteredVectorObjects(time.Since(beforeObjects))
 	}
 
-	return objs, dists, nil
+	return objs, dists, indexSearchTook, nil
 }
 
 func (s *Shard) objectList(ctx context.Context, limit int,

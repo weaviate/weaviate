@@ -109,7 +109,7 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 	}
 
 	targetDist := extractDistanceFromParams(params)
-	res, dists, err := idx.objectVectorSearch(ctx, params.SearchVector, targetDist,
+	res, dists, searchTook, err := idx.objectVectorSearch(ctx, params.SearchVector, targetDist,
 		totalLimit, params.Filters, params.Sort, params.AdditionalProperties)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
@@ -121,7 +121,7 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 
 	return db.ResolveReferences(ctx,
 		storobj.SearchResultsWithDists(db.getStoreObjects(res, params.Pagination),
-			params.AdditionalProperties, db.getDists(dists, params.Pagination)),
+			params.AdditionalProperties, searchTook, db.getDists(dists, params.Pagination)),
 		params.Properties, params.AdditionalProperties)
 }
 
@@ -142,33 +142,33 @@ func extractDistanceFromParams(params dto.GetParams) float32 {
 // for the raw storage objects, such as hybrid search.
 func (db *DB) ClassObjectVectorSearch(ctx context.Context, class string, vector []float32, offset, limit int,
 	filters *filters.LocalFilter,
-) ([]*storobj.Object, []float32, error) {
+) ([]*storobj.Object, []float32, int64, error) {
 	totalLimit := offset + limit
 
 	index := db.GetIndex(schema.ClassName(class))
 	if index == nil {
-		return nil, nil, fmt.Errorf("tried to browse non-existing index for %s", class)
+		return nil, nil, 0, fmt.Errorf("tried to browse non-existing index for %s", class)
 	}
 
-	objs, dist, err := index.objectVectorSearch(
+	objs, dist, searchTook, err := index.objectVectorSearch(
 		ctx, vector, 0, totalLimit, filters, nil, additional.Properties{})
 	if err != nil {
-		return nil, nil, fmt.Errorf("search index %s: %w", index.ID(), err)
+		return nil, nil, 0, fmt.Errorf("search index %s: %w", index.ID(), err)
 	}
 
-	return objs, dist, nil
+	return objs, dist, searchTook, nil
 }
 
 func (db *DB) ClassVectorSearch(ctx context.Context, class string, vector []float32, offset, limit int,
 	filters *filters.LocalFilter,
 ) ([]search.Result, error) {
-	objs, dist, err := db.ClassObjectVectorSearch(ctx, class, vector, offset, limit, filters)
+	objs, dist, searchTook, err := db.ClassObjectVectorSearch(ctx, class, vector, offset, limit, filters)
 	if err != nil {
 		return nil, err
 	}
 
 	var searchErrors []error
-	found := storobj.SearchResultsWithDists(objs, additional.Properties{}, dist)
+	found := storobj.SearchResultsWithDists(objs, additional.Properties{}, searchTook, dist)
 
 	if len(searchErrors) > 0 {
 		var msg strings.Builder
@@ -206,7 +206,7 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 		go func(index *Index, wg *sync.WaitGroup) {
 			defer wg.Done()
 
-			objs, dist, err := index.objectVectorSearch(
+			objs, dist, searchTook, err := index.objectVectorSearch(
 				ctx, vector, 0, totalLimit, filters, nil, additional.Properties{})
 			if err != nil {
 				mutex.Lock()
@@ -215,7 +215,7 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 			}
 
 			mutex.Lock()
-			found = append(found, storobj.SearchResultsWithDists(objs, additional.Properties{}, dist)...)
+			found = append(found, storobj.SearchResultsWithDists(objs, additional.Properties{}, searchTook, dist)...)
 			mutex.Unlock()
 		}(index, wg)
 	}

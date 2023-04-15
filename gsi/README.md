@@ -78,9 +78,9 @@ Since Weaviate can now support both the Gemini Plugin alongside its native HNSW,
 
 We can show at this time benchmarks on FVS, upon which the Gemini Plugin is built.  Please see this [README](fvs/README.md) for those detailed results.  In that directory, you will find code and instructions so that you can reproduce these results on your system.
 
-## Off-line Index Training
+## Index Training
 
-The algorithm that powers the Gemini Plugin (via the FVS) requires an off-line index training/build step.  This contrasts to the native HNSW algorithm which builds its index incrementally and dynamically as the Weaviate application adds vectors. The Gemini Plugin launches the index training operation in a deferred manner, when the Weaviate application invokes its first "search" query.  The index training runs asynchronously (e.g, in the background), and therefore does not block the Weaviate client application.  The application immediately receives a message indicating asynchronous training operation started.  Weaviate developers should take note of this as they may need to modify their application's control flow accordingly when using a Gemini index.
+The algorithm that powers the Gemini Plugin (via the FVS) requires an index training build step.  The Gemini Plugin will launch the index training in a deferred manner, when the Weaviate application invokes its first "search" query.  The index training runs asynchronously (e.g, in the background), and therefore does not block the Weaviate client application.  The application immediately receives a message indicating asynchronous training operation started.  Weaviate developers should take note of this as they may need to modify their application's control flow accordingly when using a Gemini index.
 
 Ideally, a Weaviate client application that leverages the Gemini Plugin should be structured as follows:
 * first add all the objects that need to be vectorized via the relevant Weaviate import API calls.
@@ -94,11 +94,11 @@ As datasets become larger, the elapsed time that your application needs to wait 
 
 #  Roadmap
 
-More Gemini Plugin improvements are coming as we continue to integrate deeper into Weaviate and, importantly, as the Weaviate ecosystem starts to give us feedback:
+We are considering additional features below and look forward to working with the Weaviate ecosystem:
 
-* we are working on eliminating the off-line training process of the Gemini index
 * integrate system observability metrics into Prometheus alongside Weaviate
-* support Weaviate's fail-over and replication strategies for data center high-availablity deployment
+* match Weaviate's fail-over and replication strategies for the data center high-availablity
 * implement Weaviate's native HNSW data recovery such as index re-initialization
 * integrate test automation including unit tests, stress tests, and code coverage tests by extending Github's CI/CD infrastructure to GSI's hardware cloud
 * continued benchmark efforts comparing the hardware accelerated Weaviate Gemini index vs. native HNSW for large datasets
+* please contact GSI Technology for additional feature requests

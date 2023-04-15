@@ -146,8 +146,8 @@ func (f *fakeVectorSearcher) ClassObjectSearch(ctx context.Context,
 
 func (f *fakeVectorSearcher) ClassObjectVectorSearch(context.Context,
 	string, []float32, int, int, *filters.LocalFilter,
-) ([]*storobj.Object, []float32, error) {
-	return nil, nil, nil
+) ([]*storobj.Object, []float32, int64, error) {
+	return nil, nil, 0, nil
 }
 
 func (f *fakeVectorSearcher) ResolveReferences(ctx context.Context, objs search.Results,

@@ -5,35 +5,43 @@ services:
     - --host
     - 0.0.0.0
     - --port
-    - '8081'
+    - '8091'
     - --scheme
     - http
     image: gsi/weaviate
-    ports:
-    - 8081:8081
+#    ports:
+#    - 8091:8091
+    network_mode: host
     volumes:
       - /var/lib/weaviate:/var/lib/weaviate
-    restart: on-failure:0
+      - /home/public:/home/public
+    restart: 'no'
     environment:
       QUERY_DEFAULTS_LIMIT: 25
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
       PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
       DEFAULT_VECTORIZER_MODULE: 'text2vec-transformers'
       ENABLE_MODULES: 'text2vec-transformers'
-      TRANSFORMERS_INFERENCE_API: 'http://bench2v:8080'
+      TRANSFORMERS_INFERENCE_API: 'http://localhost:8080'
       CLUSTER_HOSTNAME: 'node1'
       DEFAULT_VECTOR_INDEX_TYPE: 'gemini'
       GEMINI_ALLOCATION_ID: '0b391a1a-b916-11ed-afcb-0242ac1c0002'
       GEMINI_DATA_DIRECTORY: '/var/lib/weaviate'
-      GEMINI_FVS_SERVER: 'fake_fvs'
+      GEMINI_FVS_SERVER: 'localhost'
       GEMINI_DEBUG: 'false'
       GEMINI_MIN_RECORDS_CHECK: 'false'
   bench2v:
     image: gsi/bench2v 
-    ports:
-     - "8080:8080"
+#    ports:
+#    - "8080:8080"
+    network_mode: host
     volumes:
-     - /Users/gwilliams/Projects/GSI/Weaviate/data/:/datasets
+#     - /Users/gwilliams/Projects/GSI/Weaviate/data/:/datasets
+     - /mnt/nas1/fvs_benchmark_datasets:/datasets
+    restart: 'no'
     environment:
+      VERBOSE: 0
       ENABLE_CUDA: 0
-      NUMPY_FILE: "/datasets/deep-1M.npy"
+      DATABASE_FILE: "/datasets/deep-2M.npy"
+      QUERY_FILE: "/datasets/deep-queries-1000.npy"
+      GROUND_TRUTH_FILE: "/datasets/deep-2M-gt-1000.npy"

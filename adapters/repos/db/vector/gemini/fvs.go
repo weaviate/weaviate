@@ -40,6 +40,11 @@ const (
 )
 
 const (
+	SearchTypeFlat     = "flat"
+	SearchTypeClusters = "clusters"
+)
+
+const (
 	DefaultTypicalNQueries   = 10
 	DefaultMaxNQueries       = 3100
 	DefaultNormalize         = false
@@ -55,17 +60,19 @@ const (
 	DefaultFVSPort = 7761
 )
 
-func Import_dataset(host string, port uint, allocation_token string, path string, bits uint, verbose bool) (string, error) {
+func Import_dataset(host string, port uint, allocation_token string, path string, bits uint, search_type string, verbose bool) (string, error) {
 	// form the rest url
 	url := fmt.Sprintf("http://%s:%d/v1.0/dataset/import", host, port)
 	if verbose {
 		fmt.Println("Fvs: Import_dataset: url=", url)
 	}
 
+	fmt.Println("Warning: Configurable FVS parameters being passed:", bits, search_type)
+
 	// create the post json payload
 	values := map[string]interface{}{
 		"dsFilePath":       path,
-		"searchType":       DefaultSearchType,
+		"searchType":       search_type,
 		"trainInd":         DefaultTrainInd,
 		"gridTrain":        DefaultGridTrain,
 		"nbits":            bits,

@@ -12,6 +12,9 @@
 package gemini
 
 import (
+	"encoding/json"
+
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -25,9 +28,14 @@ const (
 	DefaultNBits             = 768
 )
 
+const (
+	GeminiSearchTypeFlat     = "flat"
+	GeminiSearchTypeClusters = "clusters"
+)
+
 type UserConfig struct {
 	Skip              bool   `json:"skip"`
-	SearchType        string `json:"distance"`
+	SearchType        string `json:"searchType"`
 	CentroidsHammingK int    `json:"centroidsHammingK"`
 	CentroidsRerank   int    `json:"centroidsRerank"`
 	HammingK          int    `json:"hammingK"`
@@ -50,5 +58,25 @@ func (c *UserConfig) SetDefaults() {
 func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
 	uc := UserConfig{}
 	uc.SetDefaults()
+
+	// TODO: Currently we are only allow the setting of nbits and searchtype
+
+	dct := input.(map[string]interface{})
+	// configure nBits
+	dval := dct["nBits"]
+	val, err := dval.(json.Number).Int64()
+	if err != nil {
+		return nil, errors.Wrapf(err, "Could not parse user config 'nBits'.")
+	}
+	uc.NBits = int(val)
+
+	// configure searchType
+	sdval := dct["searchType"]
+	stval, sterr := sdval.(string)
+	if !sterr {
+		return nil, errors.Wrapf(err, "Could not parse user config 'searchType'.")
+	}
+	uc.SearchType = stval
+
 	return uc, nil
 }

@@ -37,6 +37,9 @@ type Result struct {
 
 	// Dimensions in case search was vector-based, 0 otherwise
 	Dims int
+
+	// Inner vector search time if captured, 0 otherwise
+	SearchTime int64
 }
 
 type Results []Result

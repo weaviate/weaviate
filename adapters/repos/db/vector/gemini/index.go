@@ -68,14 +68,17 @@ type Gemini struct {
 
 	// determines if we do a min records count
 	min_records_check bool
+
+	// trained bitvector size
+	nbits uint
+
+	// trained search_type
+	search_type string
 }
 
-// func New(centroidsHammingK int, centroidsRerank int, hammingK int, nbits int, searchtype string) (*Gemini, error) {
-func NewGemini(centroidsHammingK int, centroidsRerank int, hammingK int, nbits int, searchtype string) (*Gemini, error) {
-	// TODO: Currently we aren't allowing any default overrides
-	if searchtype != string(DefaultSearchType) {
-		return nil, fmt.Errorf("Currently you cannot override the Gemini's default search type.")
-	}
+// func New(centroidsHammingK int, centroidsRerank int, hammingK int, nbits int, searchType string) (*Gemini, error) {
+func NewGemini(centroidsHammingK int, centroidsRerank int, hammingK int, nBits int, searchType string) (*Gemini, error) {
+	// TODO: Currently we aren't allowing some default overrides
 	if centroidsHammingK != int(DefaultCentroidsHammingK) {
 		return nil, fmt.Errorf("Currently you cannot override the Gemini's default centroids hamming k.")
 	}
@@ -84,6 +87,16 @@ func NewGemini(centroidsHammingK int, centroidsRerank int, hammingK int, nbits i
 	}
 	if hammingK != int(DefaultHammingK) {
 		return nil, fmt.Errorf("Currently you cannot override the Gemini's default hamming k.")
+	}
+
+	// Validate searchType
+	if searchType != string(SearchTypeFlat) && searchType != string(SearchTypeClusters) {
+		return nil, fmt.Errorf("Unsupported search type=%s", searchType)
+	}
+
+	// Validate nBits
+	if nBits != 64 && nBits != 128 && nBits != 256 && nBits != 512 && nBits != 768 {
+		return nil, fmt.Errorf("Unsupported bitvector size=%d", nBits)
 	}
 
 	//
@@ -175,6 +188,8 @@ func NewGemini(centroidsHammingK int, centroidsRerank int, hammingK int, nbits i
 	idx.last_fvs_status = ""
 	idx.fvs_server = fvs_server
 	idx.min_records_check = min_records_check
+	idx.nbits = uint(nBits)
+	idx.search_type = searchType
 
 	if idx.verbose {
 		fmt.Println("Gemini index constructor db_path=", idx.db_path)
@@ -299,7 +314,7 @@ func (i *Gemini) SearchByVector(vector []float32, k int) ([]uint64, []float32, e
 					return nil, nil, fmt.Errorf("FVS requires a mininum of %d vectors in the dataset.", DefaultCentroidsRerank)
 				}
 
-				dataset_id, err := Import_dataset(i.fvs_server, DefaultFVSPort, i.allocation_id, i.db_path, 768, i.verbose)
+				dataset_id, err := Import_dataset(i.fvs_server, DefaultFVSPort, i.allocation_id, i.db_path, i.nbits, i.search_type, i.verbose)
 				if err != nil {
 					return nil, nil, errors.Wrap(err, "Gemini dataset import failed.")
 				} else {

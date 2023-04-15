@@ -382,8 +382,9 @@ func (ko *Object) SearchResult(additional additional.Properties) *search.Result 
 	}
 }
 
-func (ko *Object) SearchResultWithDist(addl additional.Properties, dist float32) search.Result {
+func (ko *Object) SearchResultWithDist(addl additional.Properties, searchTook int64, dist float32) search.Result {
 	res := ko.SearchResult(addl)
+	res.SearchTime = searchTook
 	res.Dist = dist
 	res.Certainty = float32(additional.DistToCertainty(float64(dist)))
 	return *res
@@ -405,12 +406,13 @@ func SearchResults(in []*Object, additional additional.Properties) search.Result
 }
 
 func SearchResultsWithDists(in []*Object, addl additional.Properties,
+	searchTook int64,
 	dists []float32,
 ) search.Results {
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
-		out[i] = elem.SearchResultWithDist(addl, dists[i])
+		out[i] = elem.SearchResultWithDist(addl, searchTook, dists[i])
 	}
 
 	return out

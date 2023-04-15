@@ -5,7 +5,7 @@ services:
     - --host
     - 0.0.0.0
     - --port
-    - '8081'
+    - '8091'
     - --scheme
     - http
     image: gsi/weaviate

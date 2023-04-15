@@ -24,7 +24,7 @@ services:
       ENABLE_MODULES: 'text2vec-transformers'
       TRANSFORMERS_INFERENCE_API: 'http://t2v-transformers:8080'
       CLUSTER_HOSTNAME: 'node1'
-      DEFAULT_VECTOR_INDEX_TYPE: 'gemini'
+      DEFAULT_VECTOR_INDEX_TYPE: 'hnsw'
       GEMINI_ALLOCATION_ID: '0b391a1a-b916-11ed-afcb-0242ac1c0002'
       GEMINI_DATA_DIRECTORY: '/var/lib/weaviate'
       GEMINI_FVS_SERVER: 'fake_fvs'

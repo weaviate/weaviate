@@ -17,6 +17,8 @@ import (
 	"regexp"
 	"strings"
 
+	//"runtime"
+
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
@@ -596,6 +598,7 @@ func extractProperties(className string, selections *ast.SelectionSet,
 						continue
 					} else if additionalCheck.isAdditional(s.Name.Value) {
 						additionalProperty := s.Name.Value
+
 						if additionalProperty == "classification" {
 							additionalProps.Classification = true
 							continue

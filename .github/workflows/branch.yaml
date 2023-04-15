@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - '**'        # run on ever branch except master (is covered by PR)
+      - '!gsigw/bench2v'
       - '!master'
 jobs:
   Unit-Tests:

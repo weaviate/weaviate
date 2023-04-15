@@ -5,15 +5,15 @@ services:
     - --host
     - 0.0.0.0
     - --port
-    - '8081'
+    - '8091'
     - --scheme
     - http
     image: gsi/weaviate
     ports:
-    - 8081:8081
+    - 8091:8091
     volumes:
       - /var/lib/weaviate:/var/lib/weaviate
-    restart: on-failure:0
+    restart: 'no'
     environment:
       QUERY_DEFAULTS_LIMIT: 25
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
@@ -22,12 +22,19 @@ services:
       ENABLE_MODULES: 'text2vec-transformers'
       TRANSFORMERS_INFERENCE_API: 'http://bench2v:8080'
       CLUSTER_HOSTNAME: 'node1'
+      DEFAULT_VECTOR_INDEX_TYPE: 'hnsw'
   bench2v:
     image: gsi/bench2v 
     ports:
      - "8080:8080"
     volumes:
-     - /Users/gwilliams/Projects/GSI/Weaviate/data/:/datasets
+#     - /Users/gwilliams/Projects/GSI/Weaviate/data/:/datasets
+     - /mnt/nas1/fvs_benchmark_datasets:/datasets
+    restart: 'no'
     environment:
+      VERBOSE: 0
       ENABLE_CUDA: 0
-      NUMPY_FILE: "/datasets/deep-1M.npy"
+      DATABASE_FILE: "/datasets/deep-50M.npy"
+      QUERY_FILE: "/datasets/deep-queries-1000.npy"
+      GROUND_TRUTH_FILE: "/datasets/deep-50M-gt-1000.npy"
+

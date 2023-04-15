@@ -5,8 +5,12 @@ services:
     ports:
      - "8080:8080"
     volumes:
-     - /Users/gwilliams/Projects/GSI/Weaviate/data:/datasets
+     - /mnt/nas1/fvs_benchmark_datasets:/datasets
+#     - /Users/gwilliams/Projects/GSI/Weaviate/data:/datasets
+    restart: "no"
     environment:
       VERBOSE: 1
       ENABLE_CUDA: 0
-      NUMPY_FILE: "/datasets/deep-10K.npy"
+      DATABASE_FILE: "/datasets/deep-10K.npy"
+      QUERY_FILE: "/datasets/deep-queries-1000.npy"
+      GROUND_TRUTH_FILE: "/datasets/deep-10K-gt-1000.npy"

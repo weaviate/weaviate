@@ -17,4 +17,5 @@ which dlv
 # dlv test github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi 
 # dlv test github.com/weaviate/weaviate/usecases/schema
 # dlv test github.com/weaviate/weaviate/usecases/config
-dlv test github.com/weaviate/weaviate/usecases/modules
+# dlv test github.com/weaviate/weaviate/usecases/modules
+dlv test github.com/weaviate/weaviate/usecases/traverser
