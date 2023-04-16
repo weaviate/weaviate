@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -272,6 +273,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 	if len(ids) == 0 {
 		return nil, nil, nil
 	}
+	fmt.Printf("hnsw took %s\n", time.Since(beforeVector))
 
 	if filters != nil {
 		s.metrics.FilteredVectorVector(time.Since(beforeVector))
@@ -296,6 +298,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 	if err != nil {
 		return nil, nil, err
 	}
+	fmt.Printf("retrieving objects took %s\n", time.Since(beforeObjects))
 
 	if filters != nil {
 		s.metrics.FilteredVectorObjects(time.Since(beforeObjects))
