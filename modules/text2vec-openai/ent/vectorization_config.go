@@ -12,6 +12,7 @@
 package ent
 
 type VectorizationConfig struct {
-	Type, Model, ModelVersion, ResourceName, DeploymentId string
-	IsAzure                                               bool
+	Type, Model, ModelVersion, ResourceName string
+	DeploymentID                            string `json:"deploymentId"`
+	IsAzure                                 bool
 }

@@ -49,19 +49,32 @@ type openAIApiError struct {
 	Code    string `json:"code"`
 }
 
+func buildUrl(config ent.VectorizationConfig) (string, error) {
+	if config.IsAzure {
+		host := "https://" + config.ResourceName + ".openai.azure.com"
+		path := "openai/deployments/" + config.DeploymentID + "/embeddings"
+		queryParam := "api-version=2022-12-01"
+		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil
+	}
+	host := "https://api.openai.com"
+	path := "/v1/embeddings"
+	return url.JoinPath(host, path)
+}
+
 type vectorizer struct {
 	openAIApiKey string
 	azureApiKey  string
 	httpClient   *http.Client
+	buildUrlFn   func(config ent.VectorizationConfig) (string, error)
 	logger       logrus.FieldLogger
 }
 
-func New(openAIApiKey string, azureApiKey string, logger logrus.FieldLogger) *vectorizer {
-
+func New(openAIApiKey, azureApiKey string, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
 		openAIApiKey: openAIApiKey,
 		azureApiKey:  azureApiKey,
 		httpClient:   &http.Client{},
+		buildUrlFn:   buildUrl,
 		logger:       logger,
 	}
 }
@@ -79,39 +92,26 @@ func (v *vectorizer) VectorizeQuery(ctx context.Context, input string,
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, input string, model string, config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
-
-	var body []byte
-	var err error
-	if config.IsAzure {
-		body, err = json.Marshal(embeddingsRequest{
-			Input: input,
-		})
-	} else {
-		body, err = json.Marshal(embeddingsRequest{
-			Input: input,
-			Model: model,
-		})
-	}
-
+	body, err := json.Marshal(v.getEmbeddingsRequest(input, model, config.IsAzure))
 	if err != nil {
-		return nil, errors.Wrapf(err, "marshal body")
+		return nil, errors.Wrap(err, "marshal body")
 	}
 
-	oaiUrl, err := buildUrl(config)
+	endpoint, err := v.buildUrlFn(config)
 	if err != nil {
 		return nil, errors.Wrap(err, "join OpenAI API host and path")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", oaiUrl,
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint,
 		bytes.NewReader(body))
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
 	}
 	apiKey, err := v.getApiKey(ctx, config.IsAzure)
 	if err != nil {
-		return nil, errors.Wrapf(err, "API Key")
+		return nil, errors.Wrap(err, "API Key")
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey, config.IsAzure))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := v.httpClient.Do(req)
@@ -130,13 +130,8 @@ func (v *vectorizer) vectorize(ctx context.Context, input string, model string, 
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
-	if res.StatusCode >= 500 {
-		errorMessage := getErrorMessage(res.StatusCode, resBody.Error, "connection to OpenAI failed with status: %d error: %v")
-		return nil, errors.Errorf(errorMessage)
-	}
-	if res.StatusCode >= 400 {
-		errorMessage := getErrorMessage(res.StatusCode, resBody.Error, "failed with status: %d")
-		return nil, errors.Errorf(errorMessage)
+	if res.StatusCode != 200 {
+		return nil, v.getError(endpoint, res.StatusCode, resBody.Error)
 	}
 
 	if len(resBody.Data) != 1 {
@@ -150,27 +145,31 @@ func (v *vectorizer) vectorize(ctx context.Context, input string, model string, 
 	}, nil
 }
 
-func buildUrl(config ent.VectorizationConfig) (string, error) {
-	host := "https://api.openai.com"
-	path := "/v1/embeddings"
-	if config.IsAzure {
-		host = "https://" + config.ResourceName + ".openai.azure.com"
-		path = "openai/deployments/" + config.DeploymentId + "/embeddings"
-	}
-	return url.JoinPath(host, path)
-}
-
-func getErrorMessage(statusCode int, resBodyError *openAIApiError, errorTemplate string) string {
+func (v *vectorizer) getError(url string, statusCode int, resBodyError *openAIApiError) error {
 	if resBodyError != nil {
-		return fmt.Sprintf(errorTemplate, statusCode, resBodyError.Message)
+		return fmt.Errorf("connection to: %s failed with status: %d error: %v", url, statusCode, resBodyError.Message)
 	}
-	return fmt.Sprintf(errorTemplate, statusCode)
+	return fmt.Errorf("connection to: %s failed with status: %d", url, statusCode)
 }
 
-func (v *vectorizer) getApiKey(ctx context.Context, azure bool) (string, error) {
+func (v *vectorizer) getEmbeddingsRequest(input, model string, isAzure bool) embeddingsRequest {
+	if isAzure {
+		return embeddingsRequest{Input: input}
+	}
+	return embeddingsRequest{Input: input, Model: model}
+}
+
+func (v *vectorizer) getApiKeyHeaderAndValue(apiKey string, isAzure bool) (string, string) {
+	if isAzure {
+		return "api-key", apiKey
+	}
+	return "Authorization", fmt.Sprintf("Bearer %s", apiKey)
+}
+
+func (v *vectorizer) getApiKey(ctx context.Context, isAzure bool) (string, error) {
 	var apiKey, envVar string
 
-	if azure {
+	if isAzure {
 		apiKey = "X-Azure-Api-Key"
 		envVar = "AZURE_APIKEY"
 		if len(v.azureApiKey) > 0 {
@@ -184,16 +183,16 @@ func (v *vectorizer) getApiKey(ctx context.Context, azure bool) (string, error) 
 		}
 	}
 
-	return getApiKeyFromContext(ctx, apiKey, envVar)
+	return v.getApiKeyFromContext(ctx, apiKey, envVar)
 }
 
-func getApiKeyFromContext(ctx context.Context, apiKey, envVar string) (string, error) {
+func (v *vectorizer) getApiKeyFromContext(ctx context.Context, apiKey, envVar string) (string, error) {
 	if apiValue := ctx.Value(apiKey); apiValue != nil {
 		if apiKeyHeader, ok := apiValue.([]string); ok && len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
 			return apiKeyHeader[0], nil
 		}
 	}
-	return "", errors.New(fmt.Sprintf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar))
+	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
 }
 
 func (v *vectorizer) getModelString(docType, model, action, version string) string {
