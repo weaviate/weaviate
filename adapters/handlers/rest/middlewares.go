@@ -126,7 +126,6 @@ func makeAddMonitoring(metrics *monitoring.PrometheusMetrics) func(http.Handler)
 			method := r.Method
 			path := r.URL.Path
 			next.ServeHTTP(w, r)
-			fmt.Printf("total request took %s\n", time.Since(before))
 
 			if strings.HasPrefix(path, "/v1/batch/objects") && method == http.MethodPost {
 				metrics.BatchTime.With(prometheus.Labels{
