@@ -33,23 +33,38 @@ import (
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
-type openai struct {
-	apiKey     string
-	host       string
-	path       string
-	httpClient *http.Client
-	logger     logrus.FieldLogger
+func buildUrl(isLegacy bool, resourceName, deploymentID string) (string, error) {
+	if resourceName != "" && deploymentID != "" {
+		host := "https://" + resourceName + ".openai.azure.com"
+		path := "openai/deployments/" + deploymentID + "/chat/completions"
+		queryParam := "api-version=2023-03-15-preview"
+		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil
+	}
+	host := "https://api.openai.com"
+	path := "/v1/chat/completions"
+	if isLegacy {
+		path = "/v1/completions"
+	}
+	return url.JoinPath(host, path)
 }
 
-func New(apiKey string, logger logrus.FieldLogger) *openai {
+type openai struct {
+	openAIApiKey string
+	azureApiKey  string
+	buildUrlFn   func(isLegacy bool, resourceName, deploymentID string) (string, error)
+	httpClient   *http.Client
+	logger       logrus.FieldLogger
+}
+
+func New(openAIApiKey, azureApiKey string, logger logrus.FieldLogger) *openai {
 	return &openai{
-		apiKey: apiKey,
+		openAIApiKey: openAIApiKey,
+		azureApiKey:  azureApiKey,
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
-		host:   "https://api.openai.com",
-		path:   "/v1/chat/completions",
-		logger: logger,
+		buildUrlFn: buildUrl,
+		logger:     logger,
 	}
 }
 
@@ -72,15 +87,13 @@ func (v *openai) GenerateAllResults(ctx context.Context, textProperties []map[st
 func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*ent.GenerateResult, error) {
 	settings := config.NewClassSettings(cfg)
 
-	var oaiUrl string
-	var err error
-	var input generateInput
+	oaiUrl, err := v.buildUrlFn(settings.IsLegacy(), settings.ResourceName(), settings.DeploymentID())
+	if err != nil {
+		return nil, errors.Wrap(err, "url join path")
+	}
 
+	var input generateInput
 	if settings.IsLegacy() {
-		oaiUrl, err = url.JoinPath(v.host, "/v1/completions")
-		if err != nil {
-			return nil, errors.Wrap(err, "url join path")
-		}
 		input = generateInput{
 			Prompt:           prompt,
 			Model:            settings.Model(),
@@ -91,10 +104,6 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 			TopP:             settings.TopP(),
 		}
 	} else {
-		oaiUrl, err = url.JoinPath(v.host, v.path)
-		if err != nil {
-			return nil, errors.Wrap(err, "url join path")
-		}
 		tokens := determineTokens(settings.GetMaxTokensForModel(settings.Model()), settings.MaxTokens(), prompt)
 		input = generateInput{
 			Messages: []message{{
@@ -120,11 +129,11 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
 	}
-	apiKey, err := v.getApiKey(ctx)
+	apiKey, err := v.getApiKey(ctx, settings.IsAzure())
 	if err != nil {
 		return nil, errors.Wrapf(err, "OpenAI API Key")
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey, settings.IsAzure()))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := v.httpClient.Do(req)
@@ -143,18 +152,11 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
-	if res.StatusCode >= 500 {
-		errorMessage := getErrorMessage(res.StatusCode, resBody.Error, "connection to OpenAI failed with status: %d error: %v")
-		return nil, errors.Errorf(errorMessage)
-	} else if res.StatusCode >= 400 {
-		errorMessage := ""
-		if settings.IsLegacy() {
-			errorMessage = getErrorMessage(res.StatusCode, resBody.Error, "failed with status: %d")
-		} else {
-			errorMessage = getErrorMessage(res.StatusCode, resBody.Error, "failed with status: %d and message: %v")
+	if res.StatusCode != 200 || resBody.Error != nil {
+		if resBody.Error != nil {
+			return nil, fmt.Errorf("connection to OpenAI failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)
 		}
-
-		return nil, errors.Errorf(errorMessage)
+		return nil, fmt.Errorf("failed with status: %d", res.StatusCode)
 	}
 
 	textResponse := resBody.Choices[0].Text
@@ -187,11 +189,11 @@ func determineTokens(maxTokensSetting float64, classSetting float64, prompt stri
 	return int(tokens)
 }
 
-func getErrorMessage(statusCode int, resBodyError *openAIApiError, errorTemplate string) string {
-	if resBodyError != nil {
-		return fmt.Sprintf(errorTemplate, statusCode, resBodyError.Message)
+func (v *openai) getApiKeyHeaderAndValue(apiKey string, isAzure bool) (string, string) {
+	if isAzure {
+		return "api-key", apiKey
 	}
-	return fmt.Sprintf(errorTemplate, statusCode)
+	return "Authorization", fmt.Sprintf("Bearer %s", apiKey)
 }
 
 func (v *openai) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
@@ -231,18 +233,33 @@ func countWhitespace(s string) int {
 	return count
 }
 
-func (v *openai) getApiKey(ctx context.Context) (string, error) {
-	if len(v.apiKey) > 0 {
-		return v.apiKey, nil
+func (v *openai) getApiKey(ctx context.Context, isAzure bool) (string, error) {
+	var apiKey, envVar string
+
+	if isAzure {
+		apiKey = "X-Azure-Api-Key"
+		envVar = "AZURE_APIKEY"
+		if len(v.azureApiKey) > 0 {
+			return v.azureApiKey, nil
+		}
+	} else {
+		apiKey = "X-Openai-Api-Key"
+		envVar = "OPENAI_APIKEY"
+		if len(v.openAIApiKey) > 0 {
+			return v.openAIApiKey, nil
+		}
 	}
-	apiKey := ctx.Value("X-Openai-Api-Key")
-	if apiKeyHeader, ok := apiKey.([]string); ok &&
-		len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
-		return apiKeyHeader[0], nil
+
+	return v.getApiKeyFromContext(ctx, apiKey, envVar)
+}
+
+func (v *openai) getApiKeyFromContext(ctx context.Context, apiKey, envVar string) (string, error) {
+	if apiValue := ctx.Value(apiKey); apiValue != nil {
+		if apiKeyHeader, ok := apiValue.([]string); ok && len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
+			return apiKeyHeader[0], nil
+		}
 	}
-	return "", errors.New("no api key found " +
-		"neither in request header: X-OpenAI-Api-Key " +
-		"nor in environment variable under OPENAI_APIKEY")
+	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
 }
 
 type generateInput struct {

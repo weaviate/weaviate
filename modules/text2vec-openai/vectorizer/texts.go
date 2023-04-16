@@ -27,7 +27,7 @@ func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 		Model:        settings.Model(),
 		ModelVersion: settings.ModelVersion(),
 		ResourceName: settings.ResourceName(),
-		DeploymentId: settings.DeploymentId(),
+		DeploymentID: settings.DeploymentID(),
 		IsAzure:      settings.IsAzure(),
 	})
 	if err != nil {

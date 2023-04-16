@@ -101,12 +101,12 @@ func (ic *classSettings) ResourceName() string {
 	return ic.getProperty("resourceName", "")
 }
 
-func (ic *classSettings) DeploymentId() string {
+func (ic *classSettings) DeploymentID() string {
 	return ic.getProperty("deploymentId", "")
 }
 
 func (ic *classSettings) IsAzure() bool {
-	return (ic.ResourceName() == "") != (ic.DeploymentId() == "")
+	return ic.ResourceName() != "" && ic.DeploymentID() != ""
 }
 
 func (ic *classSettings) VectorizeClassName() bool {
@@ -149,10 +149,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return err
 	}
 
-	resourceName := ic.ResourceName()
-	deploymentId := ic.DeploymentId()
-
-	err := ic.validateAzureConfig(resourceName, deploymentId)
+	err := ic.validateAzureConfig(ic.ResourceName(), ic.DeploymentID())
 	if err != nil {
 		return err
 	}
@@ -259,7 +256,7 @@ func (cv *classSettings) validateIndexState(class *models.Class, settings ClassS
 }
 
 func (ic *classSettings) validateAzureConfig(resourceName string, deploymentId string) error {
-	if ic.IsAzure() {
+	if (resourceName == "" && deploymentId != "") || (resourceName != "" && deploymentId == "") {
 		return fmt.Errorf("both resourceName and deploymentId must be provided")
 	}
 	return nil
