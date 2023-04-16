@@ -7,6 +7,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -42,13 +43,43 @@ type Server struct {
 func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
 	before := time.Now()
 	// TODO: auth
-	_, err := s.traverser.GetClass(ctx, nil, searchParamsFromProto(req))
+	res, err := s.traverser.GetClass(ctx, nil, searchParamsFromProto(req))
 	if err != nil {
 		return nil, err
 	}
 
-	tookSeconds := float64(time.Since(before)) / float64(time.Second)
-	return nil, fmt.Errorf("showing results not implemented yet, search took %fs", tookSeconds)
+	return searchResultsToProto(res, before), nil
+}
+
+func searchResultsToProto(res []any, start time.Time) *pb.SearchReply {
+	tookSeconds := float64(time.Since(start)) / float64(time.Second)
+	out := &pb.SearchReply{
+		Took:    float32(tookSeconds),
+		Results: make([]*pb.SearchResult, len(res)),
+	}
+
+	for i, raw := range res {
+		asMap, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		idRaw, ok := asMap["id"]
+		if !ok {
+			continue
+		}
+
+		idStrfmt, ok := idRaw.(strfmt.UUID)
+		if !ok {
+			continue
+		}
+
+		out.Results[i] = &pb.SearchResult{
+			Id: idStrfmt.String(),
+		}
+	}
+
+	return out
 }
 
 func searchParamsFromProto(req *pb.SearchRequest) dto.GetParams {
@@ -57,6 +88,12 @@ func searchParamsFromProto(req *pb.SearchRequest) dto.GetParams {
 	if req.NearVector != nil {
 		out.NearVector = &searchparams.NearVector{
 			Vector: req.NearVector.Vector,
+		}
+	}
+
+	if req.NearObject != nil {
+		out.NearObject = &searchparams.NearObject{
+			ID: req.NearObject.Id,
 		}
 	}
 
