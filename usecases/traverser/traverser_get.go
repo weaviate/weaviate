@@ -22,7 +22,7 @@ import (
 
 func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 	params dto.GetParams,
-) (interface{}, error) {
+) ([]interface{}, error) {
 	before := time.Now()
 
 	ok := t.ratelimiter.TryInc()

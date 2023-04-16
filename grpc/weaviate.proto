@@ -12,10 +12,15 @@ message SearchRequest {
   string className = 1;
   uint32 limit = 2;
   NearVectorParams nearVector = 3;
+  NearObjectParams nearObject = 4;
 }
 
 message NearVectorParams {
   repeated float vector = 1;
+}
+
+message NearObjectParams {
+  string id = 1;
 }
 
 message SearchReply {
