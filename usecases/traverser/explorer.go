@@ -13,6 +13,8 @@ package traverser
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -107,6 +109,10 @@ func (e *Explorer) SetSchemaGetter(sg uc.SchemaGetter) {
 func (e *Explorer) GetClass(ctx context.Context,
 	params dto.GetParams,
 ) ([]interface{}, error) {
+	before := time.Now()
+	defer func() {
+		fmt.Printf("everything excluding graphql took %s\n", time.Since(before))
+	}()
 	if params.Pagination == nil {
 		params.Pagination = &filters.Pagination{
 			Offset: 0,

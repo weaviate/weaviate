@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/schema"
@@ -43,6 +44,11 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, gqlProvider graphQLProvid
 	api.GraphqlGraphqlPostHandler = graphql.GraphqlPostHandlerFunc(func(params graphql.GraphqlPostParams, principal *models.Principal) middleware.Responder {
 		// All requests to the graphQL API need at least permissions to read the schema. Request might have further
 		// authorization requirements.
+		before := time.Now()
+		defer func() {
+			fmt.Printf("everything including GraphQL took %s\n", time.Since(before))
+		}()
+
 		err := m.Authorizer.Authorize(principal, "list", "schema/*")
 		if err != nil {
 			switch err.(type) {

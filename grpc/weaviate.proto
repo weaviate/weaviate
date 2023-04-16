@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+option go_package = "github.com/weaviate/weaviate/grpc";
+
+package weaviategrpc;
+
+service Weaviate {
+  rpc Search(SearchRequest) returns (SearchReply) {};
+}
+
+message SearchRequest {
+  string className = 1;
+  uint32 limit = 2;
+  NearVectorParams nearVector = 3;
+}
+
+message NearVectorParams {
+  repeated float vector = 1;
+}
+
+message SearchReply {
+  repeated SearchResult results = 1;
+  float took = 2;
+}
+
+message SearchResult {
+  string id = 1;
+}
