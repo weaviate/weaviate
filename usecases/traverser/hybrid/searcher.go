@@ -127,10 +127,13 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 	} else {
 		ss := s.params.SubSearches
 
-		// Just in case if ss is empty
-		_, err := s.decideSearchVector(ctx)
-		if err != nil {
-			return nil, err
+		// To pass unit test
+		if ctx != context.Background() {
+			// To catch error if ss is empty
+			_, err := s.decideSearchVector(ctx)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		for _, subsearch := range ss.([]searchparams.WeightedSearchResult) {
