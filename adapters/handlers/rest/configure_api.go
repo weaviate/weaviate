@@ -277,6 +277,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager,
 		appState.Modules, traverser.NewMetrics(appState.Metrics),
 		appState.ServerConfig.Config.MaximumConcurrentGetRequests)
+	appState.Traverser = objectsTraverser
 
 	classifier := classification.New(schemaManager, classifierRepo, vectorRepo, appState.Authorizer,
 		appState.Logger, appState.Modules)
@@ -346,6 +347,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			Info("Reindexing dimensions")
 		migrator.RecalculateVectorDimensions(ctx)
 	}
+
+	setupGrpc(appState)
 
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
