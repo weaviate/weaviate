@@ -22,6 +22,8 @@ import (
 
 type PropLenData struct {
 	BucketedData map[string]map[int]int
+	SumData 	map[string]int
+	CountData 	map[string]int
 }
 
 type JsonPropertyLengthTracker struct {
@@ -42,7 +44,7 @@ type JsonPropertyLengthTracker struct {
 // The new tracker is exactly compatible with the old format to enable migration, which is why there is a -1 bucket.  Altering the number of buckets or their values will break compatibility.
 func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, error) {
 	t := &JsonPropertyLengthTracker{
-		data: PropLenData{make(map[string]map[int]int)},
+		data: PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)},
 		path: path,
 		UnlimitedBuckets: false,
 	}
@@ -68,7 +70,7 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 			}
 
 			propertyNames := plt.PropertyNames()
-			data = PropLenData{make(map[string]map[int]int, len(propertyNames))}
+			data =  PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
 			// Loop over every page and bucket in the old tracker and add it to the new tracker
 			for _, name := range propertyNames {
 				data.BucketedData[name] = make(map[int]int, 64)
@@ -104,6 +106,8 @@ func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32
 	t.Lock()
 	defer t.Unlock()
 
+	t.data.SumData[propName] =  t.data.SumData[propName] + int(value)
+	t.data.CountData[propName] = t.data.CountData[propName] + 1
 
 	bucketId := t.bucketFromValue(value)
 	if _, ok := t.data.BucketedData[propName]; ok {
@@ -147,26 +151,8 @@ func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, erro
 	t.Lock()
 	defer t.Unlock()
 
-	bucket, ok := t.data.BucketedData[propName]
-	if !ok {
-		return 0, nil // Needed for backwards compatibility
-	}
+	return float32(t.data.SumData[propName]) / float32(t.data.CountData[propName]), nil
 
-	sum := float32(0)
-
-	intCount :=0
-	for length, count := range bucket {
-		
-		sum = sum + t.valueFromBucket(length)*float32(count)
-		intCount += count
-	}
-
-	if intCount == 0 {
-		return 0, nil
-	}
-	totalCount := float32(intCount)
-
-	return sum / totalCount, nil
 }
 
 // returns totalPropertyLength, totalCount, average propertyLength = sum / totalCount, total propertylength, totalCount, error
@@ -174,39 +160,8 @@ func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, fl
 	t.Lock()
 	defer t.Unlock()
 
-	if t.UnlimitedBuckets {
-		sum :=0
-		tally := 0
+	return t.data.SumData[propName], t.data.CountData[propName], float64(t.data.SumData[propName]) / float64(t.data.CountData[propName]), nil
 
-		for bucket, count := range t.data.BucketedData[propName] {
-			tally += count
-			sum += bucket * count
-		}
-		return sum, tally, float64(sum) / float64(tally), nil
-	}
-
-
-	bucket, ok := t.data.BucketedData[propName]
-	if !ok {
-		return 0, 0, 0, nil
-	}
-
-	sum := int(0)
-	tally := int(0)
-
-	for i := -1; i <= 64; i++ {
-		count := bucket[i]
-		value := t.valueFromBucket(i)
-
-		sum += int(value * float32(count))
-		tally += int(count)
-	}
-
-	if tally == 0 {
-		return 0, 0, 0, nil
-	}
-
-	return sum, tally, float64(sum) / float64(tally), nil
 }
 
 func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
