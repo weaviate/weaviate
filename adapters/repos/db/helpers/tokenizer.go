@@ -25,15 +25,6 @@ var Tokenizations []string = []string{
 	models.PropertyTokenizationField,
 }
 
-func IsSupportedTokenization(tokenization string) bool {
-	for _, t := range Tokenizations {
-		if t == tokenization {
-			return true
-		}
-	}
-	return false
-}
-
 func Tokenize(tokenization string, in string) []string {
 	switch tokenization {
 	case models.PropertyTokenizationWord:

@@ -25,11 +25,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/notimplemented"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"golang.org/x/sync/errgroup"
@@ -259,76 +259,83 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 
 	// on value or non-nested filter
 	props := filter.On.Slice()
-	if len(props) != 1 {
-		return s.extractReferenceFilter(filter, className)
-	}
-	// we are on a value element
+	propName := props[0]
 
-	if s.onInternalProp(props[0]) {
-		return s.extractInternalProp(props[0], filter.Value.Type, filter.Value.Value, filter.Operator)
+	if s.onInternalProp(propName) {
+		return s.extractInternalProp(propName, filter.Value.Type, filter.Value.Value, filter.Operator)
 	}
 
-	if s.onRefProp(className, props[0]) && filter.Value.Type == schema.DataTypeInt {
-		// ref prop and int type is a special case, the user is looking for the
-		// reference count as opposed to the content
-		return s.extractReferenceCount(props[0], filter.Value.Value, filter.Operator)
-	}
-
-	if s.onGeoProp(className, props[0]) {
-		return s.extractGeoFilter(props[0], filter.Value.Value, filter.Value.Type,
-			filter.Operator)
-	}
-
-	if s.onUUIDProp(className, props[0]) {
-		return s.extractUUIDFilter(props[0], filter.Value.Value, filter.Value.Type,
-			filter.Operator)
-	}
-
-	if s.onTokenizablePropValue(filter.Value.Type) {
-		property, err := s.schema.GetProperty(className, schema.PropertyName(props[0]))
+	if extractedPropName, ok := schema.IsPropertyLength(propName, 0); ok {
+		property, err := s.schema.GetProperty(className, schema.PropertyName(extractedPropName))
 		if err != nil {
 			return nil, err
 		}
-
-		return s.extractTokenizableProp(props[0], filter.Value.Type, filter.Value.Value,
-			filter.Operator, property.Tokenization)
+		return s.extractPropertyLength(property, filter.Value.Type, filter.Value.Value, filter.Operator)
 	}
 
-	return s.extractPrimitiveProp(props[0], filter.Value.Type, filter.Value.Value,
+	property, err := s.schema.GetProperty(className, schema.PropertyName(propName))
+	if err != nil {
+		return nil, err
+	}
+
+	if filter.Operator == filters.OperatorIsNull {
+		return s.extractPropertyNull(property, filter.Value.Type, filter.Value.Value, filter.Operator)
+	}
+
+	if s.onRefProp(property) && len(props) != 1 {
+		return s.extractReferenceFilter(property, filter)
+	}
+
+	if s.onRefProp(property) && filter.Value.Type == schema.DataTypeInt {
+		// ref prop and int type is a special case, the user is looking for the
+		// reference count as opposed to the content
+		return s.extractReferenceCount(property, filter.Value.Value, filter.Operator)
+	}
+
+	if s.onGeoProp(property) {
+		return s.extractGeoFilter(property, filter.Value.Value, filter.Value.Type,
+			filter.Operator)
+	}
+
+	if s.onUUIDProp(property) {
+		return s.extractUUIDFilter(property, filter.Value.Value, filter.Value.Type,
+			filter.Operator)
+	}
+
+	if s.onTokenizableProp(property) {
+		return s.extractTokenizableProp(property, filter.Value.Type, filter.Value.Value,
+			filter.Operator)
+	}
+
+	return s.extractPrimitiveProp(property, filter.Value.Type, filter.Value.Value,
 		filter.Operator)
 }
 
-func (s *Searcher) extractReferenceFilter(filter *filters.Clause,
-	className schema.ClassName,
+func (s *Searcher) extractReferenceFilter(prop *models.Property,
+	filter *filters.Clause,
 ) (*propValuePair, error) {
 	ctx := context.TODO()
-	return newRefFilterExtractor(s.logger, s.classSearcher, filter, className, s.schema).
+	return newRefFilterExtractor(s.logger, s.classSearcher, filter, prop).
 		Do(ctx)
 }
 
-func (s *Searcher) extractPrimitiveProp(propName string, dt schema.DataType,
+func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.DataType,
 	value interface{}, operator filters.Operator,
 ) (*propValuePair, error) {
 	var extractValueFn func(in interface{}) ([]byte, error)
-	var hasFrequency bool
-	switch dt {
+	switch propType {
 	case schema.DataTypeBoolean:
 		extractValueFn = s.extractBoolValue
-		hasFrequency = false
 	case schema.DataTypeInt:
 		extractValueFn = s.extractIntValue
-		hasFrequency = false
 	case schema.DataTypeNumber:
 		extractValueFn = s.extractNumberValue
-		hasFrequency = false
 	case schema.DataTypeDate:
 		extractValueFn = s.extractDateValue
-		hasFrequency = false
 	case "":
 		return nil, fmt.Errorf("data type cannot be empty")
 	default:
-		return nil, fmt.Errorf("data type %q not supported yet in standalone mode, "+
-			"see %s for details", dt, notimplemented.Link)
+		return nil, fmt.Errorf("data type %q not supported in query", propType)
 	}
 
 	byteValue, err := extractValueFn(value)
@@ -338,13 +345,15 @@ func (s *Searcher) extractPrimitiveProp(propName string, dt schema.DataType,
 
 	return &propValuePair{
 		value:        byteValue,
-		hasFrequency: hasFrequency,
-		prop:         propName,
+		prop:         prop.Name,
 		operator:     operator,
+		hasFrequency: false,
+		isFilterable: IsFilterable(prop),
+		isSearchable: IsSearchable(prop),
 	}, nil
 }
 
-func (s *Searcher) extractReferenceCount(propName string, value interface{},
+func (s *Searcher) extractReferenceCount(prop *models.Property, value interface{},
 	operator filters.Operator,
 ) (*propValuePair, error) {
 	byteValue, err := s.extractIntCountValue(value)
@@ -354,18 +363,20 @@ func (s *Searcher) extractReferenceCount(propName string, value interface{},
 
 	return &propValuePair{
 		value:        byteValue,
-		hasFrequency: false,
-		prop:         helpers.MetaCountProp(propName),
+		prop:         helpers.MetaCountProp(prop.Name),
 		operator:     operator,
+		hasFrequency: false,
+		isFilterable: IsFilterableMetaCount,
+		isSearchable: IsSearchableMetaCount,
 	}, nil
 }
 
-func (s *Searcher) extractGeoFilter(propName string, value interface{},
+func (s *Searcher) extractGeoFilter(prop *models.Property, value interface{},
 	valueType schema.DataType, operator filters.Operator,
 ) (*propValuePair, error) {
 	if valueType != schema.DataTypeGeoCoordinates {
 		return nil, fmt.Errorf("prop %q is of type geoCoordinates, it can only"+
-			"be used with geoRange filters", propName)
+			"be used with geoRange filters", prop.Name)
 	}
 
 	parsed := value.(filters.GeoRange)
@@ -373,38 +384,42 @@ func (s *Searcher) extractGeoFilter(propName string, value interface{},
 	return &propValuePair{
 		value:         nil, // not going to be served by an inverted index
 		valueGeoRange: &parsed,
-		hasFrequency:  false,
-		prop:          propName,
+		prop:          prop.Name,
 		operator:      operator,
+		hasFrequency:  false,
+		isFilterable:  IsFilterable(prop),
+		isSearchable:  IsSearchable(prop),
 	}, nil
 }
 
-func (s *Searcher) extractUUIDFilter(propName string, value interface{},
+func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
 	valueType schema.DataType, operator filters.Operator,
 ) (*propValuePair, error) {
+	var byteValue []byte
+
 	switch valueType {
 	case schema.DataTypeText:
-		// ok
+		asStr, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("expected to see uuid as string in filter, got %T", value)
+		}
+		parsed, err := uuid.Parse(asStr)
+		if err != nil {
+			return nil, fmt.Errorf("parse uuid string: %w", err)
+		}
+		byteValue = parsed[:]
 	default:
 		return nil, fmt.Errorf("prop %q is of type uuid, the uuid to filter "+
-			"on must be specified as a string (e.g. valueText:<uuid>)", propName)
-	}
-
-	asStr, ok := value.(string)
-	if !ok {
-		return nil, fmt.Errorf("expected to see uuid as string in filter, got %T", value)
-	}
-
-	parsed, err := uuid.Parse(asStr)
-	if err != nil {
-		return nil, fmt.Errorf("parse uuid string: %w", err)
+			"on must be specified as a string (e.g. valueText:<uuid>)", prop.Name)
 	}
 
 	return &propValuePair{
-		value:        parsed[:],
-		hasFrequency: false,
-		prop:         propName,
+		value:        byteValue,
+		prop:         prop.Name,
 		operator:     operator,
+		hasFrequency: false,
+		isFilterable: IsFilterable(prop),
+		isSearchable: IsSearchable(prop),
 	}, nil
 }
 
@@ -413,95 +428,102 @@ func (s *Searcher) extractInternalProp(propName string, propType schema.DataType
 ) (*propValuePair, error) {
 	switch propName {
 	case filters.InternalPropBackwardsCompatID, filters.InternalPropID:
-		return s.extractIDProp(value, operator)
+		return s.extractIDProp(propName, propType, value, operator)
 	case filters.InternalPropCreationTimeUnix, filters.InternalPropLastUpdateTimeUnix:
-		return extractTimestampProp(propName, propType, value, operator)
+		return s.extractTimestampProp(propName, propType, value, operator)
 	default:
 		return nil, fmt.Errorf(
 			"failed to extract internal prop, unsupported internal prop '%s'", propName)
 	}
 }
 
-func (s *Searcher) extractIDProp(value interface{},
-	operator filters.Operator,
+func (s *Searcher) extractIDProp(propName string, propType schema.DataType,
+	value interface{}, operator filters.Operator,
 ) (*propValuePair, error) {
-	v, ok := value.(string)
-	if !ok {
-		return nil, fmt.Errorf("expected value to be string, got %T", value)
-	}
+	var byteValue []byte
 
-	return &propValuePair{
-		value:        []byte(v),
-		hasFrequency: false,
-		prop:         filters.InternalPropID,
-		operator:     operator,
-	}, nil
-}
-
-func extractTimestampProp(propName string, propType schema.DataType, value interface{},
-	operator filters.Operator,
-) (*propValuePair, error) {
 	switch propType {
-	case schema.DataTypeText, schema.DataTypeDate:
-		// ok
-	default:
-		return nil, fmt.Errorf(
-			"failed to extract internal prop, unsupported type %T for prop %s", value, propName)
-	}
-
-	var valResult []byte
-	// if propType is a `valueDate`, we need to convert
-	// it to ms before fetching. this is the format by
-	// which our timestamps are indexed
-	if propType == schema.DataTypeDate {
-		v, ok := value.(time.Time)
-		if !ok {
-			return nil, fmt.Errorf("expected value to be time.Time, got %T", value)
-		}
-
-		b, err := json.Marshal(v.UnixNano() / int64(time.Millisecond))
-		if err != nil {
-			return nil, fmt.Errorf("failed to extract internal prop: %s", err)
-		}
-		valResult = b
-	} else {
+	case schema.DataTypeText:
 		v, ok := value.(string)
 		if !ok {
-			return nil, fmt.Errorf("expected value to be string, got %T", value)
+			return nil, fmt.Errorf("expected value to be string, got '%T'", value)
 		}
-		valResult = []byte(v)
+		byteValue = []byte(v)
+	default:
+		return nil, fmt.Errorf(
+			"failed to extract id prop, unsupported type '%T' for prop '%s'", propType, propName)
 	}
 
 	return &propValuePair{
-		value:        valResult,
-		hasFrequency: false,
-		prop:         propName,
+		value:        byteValue,
+		prop:         filters.InternalPropID,
 		operator:     operator,
+		hasFrequency: false,
+		isFilterable: IsFilterableIdProp,
+		isSearchable: IsSearchableIdProp,
 	}, nil
 }
 
-func (s *Searcher) extractTokenizableProp(propName string, searchedDataType schema.DataType, value interface{},
-	operator filters.Operator, configuredTokenization string,
+func (s *Searcher) extractTimestampProp(propName string, propType schema.DataType, value interface{},
+	operator filters.Operator,
+) (*propValuePair, error) {
+	var byteValue []byte
+
+	switch propType {
+	case schema.DataTypeText:
+		v, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("expected value to be string, got '%T'", value)
+		}
+		byteValue = []byte(v)
+	case schema.DataTypeDate:
+		// if propType is a `valueDate`, we need to convert
+		// it to ms before fetching. this is the format by
+		// which our timestamps are indexed
+		v, ok := value.(time.Time)
+		if !ok {
+			return nil, fmt.Errorf("expected value to be time.Time, got '%T'", value)
+		}
+		b, err := json.Marshal(v.UnixNano() / int64(time.Millisecond))
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to extract timestamp prop '%s", propName)
+		}
+		byteValue = b
+	default:
+		return nil, fmt.Errorf(
+			"failed to extract timestamp prop, unsupported type '%T' for prop '%s'", propType, propName)
+	}
+
+	return &propValuePair{
+		value:        byteValue,
+		prop:         propName,
+		operator:     operator,
+		hasFrequency: false,
+		isFilterable: IsFilterableTimestampProp, // TODO text_rbm_inverted_index & with settings
+		isSearchable: IsSearchableTimestampProp, // TODO text_rbm_inverted_index & with settings
+	}, nil
+}
+
+func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema.DataType,
+	value interface{}, operator filters.Operator,
 ) (*propValuePair, error) {
 	var terms []string
 
-	switch searchedDataType {
+	switch propType {
 	case schema.DataTypeText:
-		if !helpers.IsSupportedTokenization(configuredTokenization) {
-			return nil, fmt.Errorf("unsupported tokenization '%s' configured for data type '%s'", configuredTokenization, searchedDataType)
-		}
-
 		// if the operator is like, we cannot apply the regular text-splitting
 		// logic as it would remove all wildcard symbols
 		if operator == filters.OperatorLike {
-			terms = helpers.TokenizeWithWildcards(configuredTokenization, value.(string))
+			terms = helpers.TokenizeWithWildcards(prop.Tokenization, value.(string))
 		} else {
-			terms = helpers.Tokenize(configuredTokenization, value.(string))
+			terms = helpers.Tokenize(prop.Tokenization, value.(string))
 		}
 	default:
-		return nil, fmt.Errorf("expected value type to be text, got %v", searchedDataType)
+		return nil, fmt.Errorf("expected value type to be text, got %v", propType)
 	}
 
+	isFilterable := IsFilterable(prop)
+	isSearchable := IsSearchable(prop)
 	propValuePairs := make([]*propValuePair, 0, len(terms))
 	for _, term := range terms {
 		if s.stopwords.IsStopword(term) {
@@ -509,9 +531,11 @@ func (s *Searcher) extractTokenizableProp(propName string, searchedDataType sche
 		}
 		propValuePairs = append(propValuePairs, &propValuePair{
 			value:        []byte(term),
-			hasFrequency: true,
-			prop:         propName,
+			prop:         prop.Name,
 			operator:     operator,
+			hasFrequency: true,
+			isFilterable: isFilterable,
+			isSearchable: isSearchable,
 		})
 	}
 
@@ -524,16 +548,65 @@ func (s *Searcher) extractTokenizableProp(propName string, searchedDataType sche
 	return nil, errors.Errorf("invalid search term, only stopwords provided. Stopwords can be configured in class.invertedIndexConfig.stopwords")
 }
 
+func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.DataType,
+	value interface{}, operator filters.Operator,
+) (*propValuePair, error) {
+	var byteValue []byte
+
+	switch propType {
+	case schema.DataTypeInt:
+		b, err := s.extractIntValue(value)
+		if err != nil {
+			return nil, err
+		}
+		byteValue = b
+	default:
+		return nil, fmt.Errorf(
+			"failed to extract length of prop, unsupported type '%T' for length of prop '%s'", propType, prop.Name)
+	}
+
+	return &propValuePair{
+		value:        byteValue,
+		prop:         helpers.PropLength(prop.Name),
+		operator:     operator,
+		hasFrequency: false,
+		isFilterable: IsFilterablePropLength, // TODO text_rbm_inverted_index & with settings
+		isSearchable: IsSearchablePropLength, // TODO text_rbm_inverted_index & with settings
+	}, nil
+}
+
+func (s *Searcher) extractPropertyNull(prop *models.Property, propType schema.DataType,
+	value interface{}, operator filters.Operator,
+) (*propValuePair, error) {
+	var valResult []byte
+
+	switch propType {
+	case schema.DataTypeBoolean:
+		b, err := s.extractBoolValue(value)
+		if err != nil {
+			return nil, err
+		}
+		valResult = b
+	default:
+		return nil, fmt.Errorf(
+			"failed to extract null prop, unsupported type '%T' for null prop '%s'", propType, prop.Name)
+	}
+
+	return &propValuePair{
+		value:        valResult,
+		prop:         helpers.PropNull(prop.Name),
+		operator:     operator,
+		hasFrequency: false,
+		isFilterable: IsFilterablePropNull, // TODO text_rbm_inverted_index & with settings
+		isSearchable: IsSearchablePropNull, // TODO text_rbm_inverted_index & with settings
+	}, nil
+}
+
 // TODO: repeated calls to on... aren't too efficient because we iterate over
 // the schema each time, might be smarter to have a single method that
 // determines the type and then we switch based on the result. However, the
 // effect of that should be very small unless the schema is absolutely massive.
-func (s *Searcher) onRefProp(className schema.ClassName, propName string) bool {
-	property, err := s.schema.GetProperty(className, schema.PropertyName(propName))
-	if err != nil {
-		return false
-	}
-
+func (s *Searcher) onRefProp(property *models.Property) bool {
 	return schema.IsRefDataType(property.DataType)
 }
 
@@ -541,13 +614,8 @@ func (s *Searcher) onRefProp(className schema.ClassName, propName string) bool {
 // the schema each time, might be smarter to have a single method that
 // determines the type and then we switch based on the result. However, the
 // effect of that should be very small unless the schema is absolutely massive.
-func (s *Searcher) onGeoProp(className schema.ClassName, propName string) bool {
-	property, err := s.schema.GetProperty(className, schema.PropertyName(propName))
-	if err != nil {
-		return false
-	}
-
-	return schema.DataType(property.DataType[0]) == schema.DataTypeGeoCoordinates
+func (s *Searcher) onGeoProp(prop *models.Property) bool {
+	return schema.DataType(prop.DataType[0]) == schema.DataTypeGeoCoordinates
 }
 
 // Note: A UUID prop is a user-specified prop of type UUID. This has nothing to
@@ -558,23 +626,22 @@ func (s *Searcher) onGeoProp(className schema.ClassName, propName string) bool {
 // the schema each time, might be smarter to have a single method that
 // determines the type and then we switch based on the result. However, the
 // effect of that should be very small unless the schema is absolutely massive.
-func (s *Searcher) onUUIDProp(className schema.ClassName, propName string) bool {
-	property, err := s.schema.GetProperty(className, schema.PropertyName(propName))
-	if err != nil {
+func (s *Searcher) onUUIDProp(prop *models.Property) bool {
+	switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
+	case schema.DataTypeUUID, schema.DataTypeUUIDArray:
+		return true
+	default:
 		return false
 	}
-
-	dt := schema.DataType(property.DataType[0])
-	return dt == schema.DataTypeUUID || dt == schema.DataTypeUUIDArray
 }
 
 func (s *Searcher) onInternalProp(propName string) bool {
 	return filters.IsInternalProperty(schema.PropertyName(propName))
 }
 
-func (s *Searcher) onTokenizablePropValue(valueType schema.DataType) bool {
-	switch valueType {
-	case schema.DataTypeText:
+func (s *Searcher) onTokenizableProp(prop *models.Property) bool {
+	switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
+	case schema.DataTypeText, schema.DataTypeTextArray:
 		return true
 	default:
 		return false

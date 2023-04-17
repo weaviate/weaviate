@@ -43,16 +43,16 @@ func Test_CachedFilters_String(t *testing.T) {
 	require.Nil(t, err)
 
 	propName := "inverted-with-frequency"
+	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+	hashBucketName := helpers.HashBucketFromPropNameLSM(propName)
 
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
-		helpers.BucketFromPropNameLSM(propName),
-		lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
+		bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
-		helpers.HashBucketFromPropNameLSM(propName),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace)))
+		hashBucketName, lsmkv.WithStrategy(lsmkv.StrategyReplace)))
 
-	bWithFrequency := store.Bucket(helpers.BucketFromPropNameLSM(propName))
-	bHashes := store.Bucket(helpers.HashBucketFromPropNameLSM(propName))
+	bWithFrequency := store.Bucket(bucketName)
+	bHashes := store.Bucket(hashBucketName)
 
 	defer store.Shutdown(context.Background())
 
@@ -678,16 +678,16 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 	require.Nil(t, err)
 
 	propName := "inverted-with-frequency"
+	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+	hashBucketName := helpers.HashBucketFromPropNameLSM(propName)
 
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
-		helpers.BucketFromPropNameLSM(propName),
-		lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
+		bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
-		helpers.HashBucketFromPropNameLSM(propName),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace)))
+		hashBucketName, lsmkv.WithStrategy(lsmkv.StrategyReplace)))
 
-	bWithFrequency := store.Bucket(helpers.BucketFromPropNameLSM(propName))
-	bHashes := store.Bucket(helpers.HashBucketFromPropNameLSM(propName))
+	bWithFrequency := store.Bucket(bucketName)
+	bHashes := store.Bucket(hashBucketName)
 
 	defer store.Shutdown(context.Background())
 
@@ -850,6 +850,9 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 }
 
 func createSchema() schema.Schema {
+	vFalse := false
+	vTrue := true
+
 	return schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
@@ -857,13 +860,17 @@ func createSchema() schema.Schema {
 					Class: className,
 					Properties: []*models.Property{
 						{
-							Name:         "inverted-with-frequency",
-							DataType:     schema.DataTypeText.PropString(),
-							Tokenization: models.PropertyTokenizationWhitespace,
+							Name:            "inverted-with-frequency",
+							DataType:        schema.DataTypeText.PropString(),
+							Tokenization:    models.PropertyTokenizationWhitespace,
+							IndexFilterable: &vFalse,
+							IndexSearchable: &vTrue,
 						},
 						{
-							Name:     "inverted-without-frequency",
-							DataType: []string{"int"},
+							Name:            "inverted-without-frequency",
+							DataType:        schema.DataTypeInt.PropString(),
+							IndexFilterable: &vTrue,
+							IndexSearchable: &vFalse,
 						},
 					},
 				},
