@@ -345,14 +345,16 @@ func file_grpc_weaviate_proto_rawDescGZIP() []byte {
 	return file_grpc_weaviate_proto_rawDescData
 }
 
-var file_grpc_weaviate_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
-var file_grpc_weaviate_proto_goTypes = []interface{}{
-	(*SearchRequest)(nil),    // 0: weaviategrpc.SearchRequest
-	(*NearVectorParams)(nil), // 1: weaviategrpc.NearVectorParams
-	(*NearObjectParams)(nil), // 2: weaviategrpc.NearObjectParams
-	(*SearchReply)(nil),      // 3: weaviategrpc.SearchReply
-	(*SearchResult)(nil),     // 4: weaviategrpc.SearchResult
-}
+var (
+	file_grpc_weaviate_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+	file_grpc_weaviate_proto_goTypes  = []interface{}{
+		(*SearchRequest)(nil),    // 0: weaviategrpc.SearchRequest
+		(*NearVectorParams)(nil), // 1: weaviategrpc.NearVectorParams
+		(*NearObjectParams)(nil), // 2: weaviategrpc.NearObjectParams
+		(*SearchReply)(nil),      // 3: weaviategrpc.SearchReply
+		(*SearchResult)(nil),     // 4: weaviategrpc.SearchResult
+	}
+)
 var file_grpc_weaviate_proto_depIdxs = []int32{
 	1, // 0: weaviategrpc.SearchRequest.nearVector:type_name -> weaviategrpc.NearVectorParams
 	2, // 1: weaviategrpc.SearchRequest.nearObject:type_name -> weaviategrpc.NearObjectParams
