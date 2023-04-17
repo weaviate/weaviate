@@ -218,7 +218,7 @@ func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 	})
 
 	t.Run("commit the state to disk", func(t *testing.T) {
-		require.Nil(t, tracker.Flush())
+		require.Nil(t, tracker.Flush(false))
 	})
 
 	t.Run("shut down the tracker", func(t *testing.T) {
@@ -294,9 +294,9 @@ func TestFormatConversion(t *testing.T) {
 		require.Nil(t, err)
 		assert.InEpsilon(t, actualMeanForProp20, res, 0.1)
 
-		_, err = newTracker.PropertyMean("prop_22")
+		res, err = newTracker.PropertyMean("prop_22")
 		require.Nil(t, err)
-		assert.EqualValues(t, 0, 0)
+		assert.EqualValues(t, res, 0)
 		sum, count, average, _ := newTracker.PropertyTally("prop_22")
 		assert.EqualValues(t, 0, sum)
 		assert.EqualValues(t, 3, count)

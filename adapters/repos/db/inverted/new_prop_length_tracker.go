@@ -74,6 +74,8 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 			// Loop over every page and bucket in the old tracker and add it to the new tracker
 			for _, name := range propertyNames {
 				data.BucketedData[name] = make(map[int]int, 64)
+				data.CountData[name] = 0
+				data.SumData[name] = 0
 				for i := 0; i <= 64; i++ {
 					fromBucket := i
 					if i == 64 {
@@ -84,6 +86,16 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 						return nil, errors.Wrap(err, "convert old property length tracker")
 					}
 					data.BucketedData[name][fromBucket] = int(count)
+					value := float32(0)
+					if fromBucket == -1 {
+						value = 0
+					} else {
+						value = plt.valueFromBucket(uint16(fromBucket))
+					}
+					
+					data.SumData[name] = data.SumData[name] + int(value) * int(count)
+					data.CountData[name] = data.CountData[name] + int(count)
+
 				}
 			}
 			t.data = data
@@ -144,14 +156,26 @@ func (t *JsonPropertyLengthTracker) valueFromBucket(bucket int) float32 {
 		return float32(bucket + 1)
 	}
 
+	if bucket > 63 {
+		return -1
+	}
+
 	return float32(4 * math.Pow(1.25, float64(bucket)-3.5))
 }
 
 func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, error) {
 	t.Lock()
 	defer t.Unlock()
+	sum, ok := t.data.SumData[propName]
+	if !ok {
+		return 0, nil
+	}
+	count, ok := t.data.CountData[propName]
+	if !ok {
+		return 0, nil
+	}
 
-	return float32(t.data.SumData[propName]) / float32(t.data.CountData[propName]), nil
+	return float32(sum) / float32(count), nil
 
 }
 
@@ -159,8 +183,15 @@ func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, erro
 func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, float64, error) {
 	t.Lock()
 	defer t.Unlock()
-
-	return t.data.SumData[propName], t.data.CountData[propName], float64(t.data.SumData[propName]) / float64(t.data.CountData[propName]), nil
+	sum, ok := t.data.SumData[propName]
+	if !ok {
+		return 0, 0,0,nil
+	}
+	count, ok := t.data.CountData[propName]
+	if !ok {
+		return 0,0,0, nil
+	}
+	return sum, count, float64(sum) / float64(count), nil
 
 }
 
