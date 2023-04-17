@@ -340,7 +340,10 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 	searchVector []float32, params dto.GetParams,
 ) ([]interface{}, error) {
 	output := make([]interface{}, 0, len(input))
-
+	replEnabled, err := e.replicationEnabled(params)
+	if err != nil {
+		return nil, fmt.Errorf("search results to get response: %w", err)
+	}
 	for _, res := range input {
 		additionalProperties := make(map[string]interface{})
 
@@ -407,10 +410,6 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 			additionalProperties["lastUpdateTimeUnix"] = res.Updated
 		}
 
-		replEnabled, err := e.replicationEnabled(params)
-		if err != nil {
-			return nil, fmt.Errorf("search results to get response: %w", err)
-		}
 		if replEnabled {
 			additionalProperties["isConsistent"] = res.IsConsistent
 		}
