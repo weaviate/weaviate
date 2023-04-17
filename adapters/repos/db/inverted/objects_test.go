@@ -683,20 +683,26 @@ func TestAnalyzeObject(t *testing.T) {
 					{Data: []byte("ask"), TermFrequency: 1},
 					{Data: []byte("me"), TermFrequency: 1},
 				},
-				IsFilterable: false,
+				IsFilterable: true,
+				IsSearchable: true,
+			},
+			{
+				Name:         "_id",
+				Items:        []Countable{{Data: []byte("2609f1bc-7693-48f3-b531-6ddc52cd2501")}},
+				IsFilterable: true,
 				IsSearchable: false,
 			},
 			{
-				Name:  "_id",
-				Items: []Countable{{Data: []byte("2609f1bc-7693-48f3-b531-6ddc52cd2501")}},
+				Name:         "_creationTimeUnix",
+				Items:        []Countable{{Data: []byte("1650551406404")}},
+				IsFilterable: true,
+				IsSearchable: false,
 			},
 			{
-				Name:  "_creationTimeUnix",
-				Items: []Countable{{Data: []byte("1650551406404")}},
-			},
-			{
-				Name:  "_lastUpdateTimeUnix",
-				Items: []Countable{{Data: []byte("1650551406404")}},
+				Name:         "_lastUpdateTimeUnix",
+				Items:        []Countable{{Data: []byte("1650551406404")}},
+				IsFilterable: true,
+				IsSearchable: false,
 			},
 		}
 

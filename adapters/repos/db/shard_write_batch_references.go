@@ -308,8 +308,8 @@ func (b *referencesBatcher) analyzeRef(obj *storobj.Object,
 	return []inverted.Property{{
 		Name:         helpers.MetaCountProp(ref.From.Property.String()),
 		Items:        countItems,
-		IsFilterable: inverted.IsFilterable(prop),
-		IsSearchable: inverted.IsSearchable(prop),
+		IsFilterable: inverted.IsFilterableMetaCount && inverted.IsIndexable(prop),
+		IsSearchable: inverted.IsSearchableMetaCount && inverted.IsIndexable(prop),
 	}, {
 		Name:         ref.From.Property.String(),
 		Items:        valueItems,

@@ -260,10 +260,10 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		t.Run("test "+name+" directly on nullState property", func(t *testing.T) {
 			createTimeStringFilter := &filters.LocalFilter{
 				Root: &filters.Clause{
-					Operator: filters.OperatorEqual,
+					Operator: filters.OperatorIsNull,
 					On: &filters.Path{
 						Class:    "TestClass",
-						Property: "name_nullState",
+						Property: "name",
 					},
 					Value: &filters.Value{
 						Value: searchVal != testID1,
@@ -289,7 +289,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 				Operator: filters.OperatorEqual,
 				On: &filters.Path{
 					Class:    "TestClass",
-					Property: "name" + filters.InternalPropertyLength,
+					Property: "len(name)",
 				},
 				Value: &filters.Value{
 					Value: 12,
