@@ -128,7 +128,7 @@ func gqlGet(t *testing.T, host, class string, cl replica.ConsistencyLevel, field
 
 	q := fmt.Sprintf("{Get {%s (consistencyLevel: %s)", class, cl) + " {%s}}}"
 	if len(fields) == 0 {
-		fields = []string{"_additional{id}"}
+		fields = []string{"_additional{id isConsistent}"}
 	}
 	q = fmt.Sprintf(q, strings.Join(fields, " "))
 

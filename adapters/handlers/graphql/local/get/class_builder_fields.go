@@ -526,7 +526,7 @@ func (ac *additionalCheck) isAdditional(name string) bool {
 	if name == "classification" || name == "certainty" ||
 		name == "distance" || name == "id" || name == "vector" ||
 		name == "creationTimeUnix" || name == "lastUpdateTimeUnix" ||
-		name == "score" || name == "explainScore" {
+		name == "score" || name == "explainScore" || name == "isConsistent" {
 		return true
 	}
 	if ac.isModuleAdditional(name) {
@@ -625,6 +625,10 @@ func extractProperties(className string, selections *ast.SelectionSet,
 							additionalProps.LastUpdateTimeUnix = true
 							continue
 						}
+						if additionalProperty == "isConsistent" {
+							additionalProps.IsConsistent = true
+							continue
+						}
 						if modulesProvider != nil {
 							if additionalCheck.isModuleAdditional(additionalProperty) {
 								additionalProps.ModuleParams = getModuleParams(additionalProps.ModuleParams)
@@ -633,7 +637,7 @@ func extractProperties(className string, selections *ast.SelectionSet,
 							}
 						}
 					} else {
-						return nil, additionalProps, fmt.Errorf("Expected a InlineFragment, not a '%s' field ", s.Name.Value)
+						return nil, additionalProps, fmt.Errorf("Expected an InlineFragment, not a '%s' field ", s.Name.Value)
 					}
 
 				case *ast.FragmentSpread:
