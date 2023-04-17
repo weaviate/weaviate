@@ -67,8 +67,8 @@ type ModulesProvider interface {
 
 type vectorClassSearch interface {
 	ClassObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error)
-	ClassObjectVectorSearch(context.Context, string, []float32,
-		int, int, *filters.LocalFilter) ([]*storobj.Object, []float32, error)
+	ClassObjectVectorSearch(context.Context, string, []float32, int, int,
+		*filters.LocalFilter, additional.Properties) ([]*storobj.Object, []float32, error)
 	ClassSearch(ctx context.Context, params dto.GetParams) ([]search.Result, error)
 	VectorClassSearch(ctx context.Context, params dto.GetParams) ([]search.Result, error)
 	VectorSearch(ctx context.Context, vector []float32, offset, limit int,
@@ -243,8 +243,8 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		if hybridSearchLimit == 0 {
 			hybridSearchLimit = hybrid.DefaultLimit
 		}
-		res, dists, err := e.search.ClassObjectVectorSearch(
-			ctx, params.ClassName, vec, 0, hybridSearchLimit, params.Filters)
+		res, dists, err := e.search.ClassObjectVectorSearch(ctx, params.ClassName,
+			vec, 0, hybridSearchLimit, params.Filters, params.AdditionalProperties)
 		if err != nil {
 			return nil, nil, err
 		}
