@@ -154,7 +154,3 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 				"add `indexTimestamps: true` to the invertedIndexConfig")
 	})
 }
-
-func ptBool(in bool) *bool {
-	return &in
-}

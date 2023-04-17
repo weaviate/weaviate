@@ -48,16 +48,6 @@ func BM25FinvertedConfig(k1, b float32, stopWordPreset string) *models.InvertedI
 	}
 }
 
-func truePointer() *bool {
-	t := true
-	return &t
-}
-
-func falsePointer() *bool {
-	t := false
-	return &t
-}
-
 func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32,
 ) {
 	class := &models.Class{

@@ -52,7 +52,10 @@ func (dm *DeltaMerger) AddDeletions(props []Property, docID uint64) {
 			}
 
 			// this was not added by us, we need to remove it
-			deletionItem := dm.deletions.getOrCreate(prop.Name).getOrCreateItem(item.Data)
+			deletionProp := dm.deletions.getOrCreate(prop.Name)
+			deletionProp.isFilterable = prop.IsFilterable
+			deletionProp.isSearchable = prop.IsSearchable
+			deletionItem := deletionProp.getOrCreateItem(item.Data)
 			deletionItem.addDocIDAndFrequency(docID, 0) // frequency does not matter on deletion
 		}
 	}

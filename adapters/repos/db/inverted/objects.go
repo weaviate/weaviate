@@ -106,8 +106,8 @@ func (a *Analyzer) analyzeIDProp(id strfmt.UUID) (*Property, error) {
 				Data: value,
 			},
 		},
-		IsFilterable: true,
-		IsSearchable: false,
+		IsFilterable: IsFilterableIdProp,
+		IsSearchable: IsSearchableIdProp,
 	}, nil
 }
 
@@ -124,8 +124,8 @@ func (a *Analyzer) analyzeTimestampProps(input map[string]any) ([]Property, erro
 		props = append(props, Property{
 			Name:         filters.InternalPropCreationTimeUnix,
 			Items:        []Countable{{Data: b}},
-			IsFilterable: true,
-			IsSearchable: false,
+			IsFilterable: IsFilterableTimestampProp,
+			IsSearchable: IsSearchableTimestampProp,
 		})
 	}
 
@@ -137,8 +137,8 @@ func (a *Analyzer) analyzeTimestampProps(input map[string]any) ([]Property, erro
 		props = append(props, Property{
 			Name:         filters.InternalPropLastUpdateTimeUnix,
 			Items:        []Countable{{Data: b}},
-			IsFilterable: true,
-			IsSearchable: false,
+			IsFilterable: IsFilterableTimestampProp,
+			IsSearchable: IsSearchableTimestampProp,
 		})
 	}
 
@@ -594,3 +594,27 @@ func IsFilterable(prop *models.Property) bool {
 func IsIndexable(prop *models.Property) bool {
 	return IsFilterable(prop) || IsSearchable(prop)
 }
+
+const (
+	// allways
+	IsFilterableIdProp = true
+	IsSearchableIdProp = false
+
+	// only if index.invertedIndexConfig.IndexTimestamps set
+	IsFilterableTimestampProp = true
+	IsSearchableTimestampProp = false
+
+	// TODO when?
+	IsFilterableMetaCount = true
+	IsSearchableMetaCount = false
+
+	// only if index.invertedIndexConfig.IndexNullState set
+	// and either property.indexFilterable or property.indexSearchable set
+	IsFilterablePropNull = true
+	IsSearchablePropNull = false
+
+	// only if index.invertedIndexConfig.IndexPropertyLength set
+	// and either property.indexFilterable or property.indexSearchable set
+	IsFilterablePropLength = true
+	IsSearchablePropLength = false
+)

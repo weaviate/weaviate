@@ -38,6 +38,14 @@ func MetaCountProp(propName string) string {
 	return fmt.Sprintf("%s__meta_count", propName)
 }
 
+func PropLength(propName string) string {
+	return propName + filters.InternalPropertyLength
+}
+
+func PropNull(propName string) string {
+	return propName + filters.InternalNullIndex
+}
+
 // BucketFromPropName creates string used as the bucket name
 // for a particular prop in the inverted index
 func BucketFromPropNameLSM(propName string) string {
@@ -79,5 +87,5 @@ func TempBucketFromBucketName(bucketName string) string {
 }
 
 func BucketSearchableFromPropNameLSM(propName string) string {
-	return fmt.Sprintf("property_searchable%s", propName)
+	return fmt.Sprintf("property_searchable_%s", propName)
 }
