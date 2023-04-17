@@ -34,6 +34,7 @@ type Result struct {
 	Updated              int64
 	AdditionalProperties models.AdditionalProperties
 	VectorWeights        map[string]string
+	IsConsistent         bool
 
 	// Dimensions in case search was vector-based, 0 otherwise
 	Dims int

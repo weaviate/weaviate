@@ -893,8 +893,8 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		l := replica.ConsistencyLevel(replProps.ConsistencyLevel)
 		err = i.replicator.CheckConsistency(ctx, l, outObjects)
 		if err != nil {
-			return nil, nil, fmt.Errorf(
-				"failed to check consistency of search results: %w", err)
+			i.logger.WithField("action", "object_search").
+				Errorf("failed to check consistency of search results: %v", err)
 		}
 	}
 
