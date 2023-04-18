@@ -1781,6 +1781,13 @@ func TestNearTextNoNoModules(t *testing.T) {
 	})
 }
 
+func TestHybridWithSort(t *testing.T) {
+	t.Parallel()
+	resolver := newMockResolverWithNoModules()
+	query := `{Get{SomeAction(hybrid:{query:"apple"},sort:[{path:["name"],order:desc}]){intField}}}`
+	resolver.AssertFailToResolve(t, query, "hybrid search is not compatible with sort")
+}
+
 func TestNearObjectNoModules(t *testing.T) {
 	t.Parallel()
 

@@ -381,6 +381,9 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 		// refactored
 		var hybridParams *searchparams.HybridSearch
 		if hybrid, ok := p.Args["hybrid"]; ok {
+			if len(sort) > 0 {
+				return nil, fmt.Errorf("hybrid search is not compatible with sort")
+			}
 			p, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}), additional.ExplainScore)
 			if err != nil {
 				return nil, fmt.Errorf("failed to extract hybrid params: %w", err)
