@@ -39,6 +39,7 @@ func StartAndListen(port int, state *state.State) error {
 		authComposer: composer.New(
 			state.ServerConfig.Config.Authentication,
 			state.APIKey, state.OIDC),
+		allowAnonymousAccess: state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
 	})
 	state.Logger.WithField("action", "grpc_startup").
 		Infof("grpc server listening at %v", lis.Addr())
@@ -52,8 +53,9 @@ func StartAndListen(port int, state *state.State) error {
 
 type Server struct {
 	pb.UnimplementedWeaviateServer
-	traverser    *traverser.Traverser
-	authComposer composer.TokenFunc
+	traverser            *traverser.Traverser
+	authComposer         composer.TokenFunc
+	allowAnonymousAccess bool
 }
 
 func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
