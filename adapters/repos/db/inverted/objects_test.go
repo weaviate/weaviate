@@ -775,6 +775,355 @@ func TestConvertSliceToUntyped(t *testing.T) {
 	}
 }
 
+func TestIndexInverted(t *testing.T) {
+	vFalse := false
+	vTrue := true
+
+	t.Run("is filterable", func(t *testing.T) {
+		type testCase struct {
+			name         string
+			isInverted   *bool
+			isFilterable *bool
+			dataType     schema.DataType
+
+			expextedFilterable bool
+		}
+
+		testCases := []testCase{
+			{
+				name:         "int, inverted null, filterable null",
+				isInverted:   nil,
+				isFilterable: nil,
+				dataType:     schema.DataTypeInt,
+
+				expextedFilterable: true,
+			},
+			{
+				name:         "int, inverted false, filterable null",
+				isInverted:   &vFalse,
+				isFilterable: nil,
+				dataType:     schema.DataTypeInt,
+
+				expextedFilterable: false,
+			},
+			{
+				name:         "int, inverted true, filterable null",
+				isInverted:   &vTrue,
+				isFilterable: nil,
+				dataType:     schema.DataTypeInt,
+
+				expextedFilterable: true,
+			},
+			{
+				name:         "int, inverted null, filterable false",
+				isInverted:   nil,
+				isFilterable: &vFalse,
+				dataType:     schema.DataTypeInt,
+
+				expextedFilterable: false,
+			},
+			{
+				name:         "int, inverted false, filterable false",
+				isInverted:   &vFalse,
+				isFilterable: &vFalse,
+				dataType:     schema.DataTypeInt,
+
+				expextedFilterable: false,
+			},
+			{
+				name:         "int, inverted true, filterable false",
+				isInverted:   &vTrue,
+				isFilterable: &vFalse,
+				dataType:     schema.DataTypeInt,
+
+				expextedFilterable: false,
+			},
+			{
+				name:         "int, inverted null, filterable true",
+				isInverted:   nil,
+				isFilterable: &vTrue,
+				dataType:     schema.DataTypeInt,
+
+				expextedFilterable: true,
+			},
+			{
+				name:         "int, inverted false, filterable true",
+				isInverted:   &vFalse,
+				isFilterable: &vTrue,
+				dataType:     schema.DataTypeInt,
+
+				expextedFilterable: true,
+			},
+			{
+				name:         "int, inverted true, filterable true",
+				isInverted:   &vTrue,
+				isFilterable: &vTrue,
+				dataType:     schema.DataTypeInt,
+
+				expextedFilterable: true,
+			},
+
+			{
+				name:         "text, inverted null, filterable null",
+				isInverted:   nil,
+				isFilterable: nil,
+				dataType:     schema.DataTypeText,
+
+				expextedFilterable: true,
+			},
+			{
+				name:         "text, inverted false, filterable null",
+				isInverted:   &vFalse,
+				isFilterable: nil,
+				dataType:     schema.DataTypeText,
+
+				expextedFilterable: false,
+			},
+			{
+				name:         "text, inverted true, filterable null",
+				isInverted:   &vTrue,
+				isFilterable: nil,
+				dataType:     schema.DataTypeText,
+
+				expextedFilterable: true,
+			},
+			{
+				name:         "text, inverted null, filterable false",
+				isInverted:   nil,
+				isFilterable: &vFalse,
+				dataType:     schema.DataTypeText,
+
+				expextedFilterable: false,
+			},
+			{
+				name:         "text, inverted false, filterable false",
+				isInverted:   &vFalse,
+				isFilterable: &vFalse,
+				dataType:     schema.DataTypeText,
+
+				expextedFilterable: false,
+			},
+			{
+				name:         "text, inverted true, filterable false",
+				isInverted:   &vTrue,
+				isFilterable: &vFalse,
+				dataType:     schema.DataTypeText,
+
+				expextedFilterable: false,
+			},
+			{
+				name:         "text, inverted null, filterable true",
+				isInverted:   nil,
+				isFilterable: &vTrue,
+				dataType:     schema.DataTypeText,
+
+				expextedFilterable: true,
+			},
+			{
+				name:         "text, inverted false, filterable true",
+				isInverted:   &vFalse,
+				isFilterable: &vTrue,
+				dataType:     schema.DataTypeText,
+
+				expextedFilterable: true,
+			},
+			{
+				name:         "text, inverted true, filterable true",
+				isInverted:   &vTrue,
+				isFilterable: &vTrue,
+				dataType:     schema.DataTypeText,
+
+				expextedFilterable: true,
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				isFilterable := IsFilterable(&models.Property{
+					Name:            "prop",
+					DataType:        tc.dataType.PropString(),
+					IndexInverted:   tc.isInverted,
+					IndexFilterable: tc.isFilterable,
+				})
+
+				assert.Equal(t, tc.expextedFilterable, isFilterable)
+			})
+		}
+	})
+
+	t.Run("is searchable", func(t *testing.T) {
+		type testCase struct {
+			name         string
+			isInverted   *bool
+			isSearchable *bool
+			dataType     schema.DataType
+
+			expextedSearchable bool
+		}
+
+		testCases := []testCase{
+			{
+				name:         "int, inverted null, searchable null",
+				isInverted:   nil,
+				isSearchable: nil,
+				dataType:     schema.DataTypeInt,
+
+				expextedSearchable: false,
+			},
+			{
+				name:         "int, inverted false, searchable null",
+				isInverted:   &vFalse,
+				isSearchable: nil,
+				dataType:     schema.DataTypeInt,
+
+				expextedSearchable: false,
+			},
+			{
+				name:         "int, inverted true, searchable null",
+				isInverted:   &vTrue,
+				isSearchable: nil,
+				dataType:     schema.DataTypeInt,
+
+				expextedSearchable: false,
+			},
+			{
+				name:         "int, inverted null, searchable false",
+				isInverted:   nil,
+				isSearchable: &vFalse,
+				dataType:     schema.DataTypeInt,
+
+				expextedSearchable: false,
+			},
+			{
+				name:         "int, inverted false, searchable false",
+				isInverted:   &vFalse,
+				isSearchable: &vFalse,
+				dataType:     schema.DataTypeInt,
+
+				expextedSearchable: false,
+			},
+			{
+				name:         "int, inverted true, searchable false",
+				isInverted:   &vTrue,
+				isSearchable: &vFalse,
+				dataType:     schema.DataTypeInt,
+
+				expextedSearchable: false,
+			},
+			{
+				name:         "int, inverted null, searchable true",
+				isInverted:   nil,
+				isSearchable: &vTrue,
+				dataType:     schema.DataTypeInt,
+
+				expextedSearchable: false,
+			},
+			{
+				name:         "int, inverted false, searchable true",
+				isInverted:   &vFalse,
+				isSearchable: &vTrue,
+				dataType:     schema.DataTypeInt,
+
+				expextedSearchable: false,
+			},
+			{
+				name:         "int, inverted true, searchable true",
+				isInverted:   &vTrue,
+				isSearchable: &vTrue,
+				dataType:     schema.DataTypeInt,
+
+				expextedSearchable: false,
+			},
+
+			{
+				name:         "text, inverted null, searchable null",
+				isInverted:   nil,
+				isSearchable: nil,
+				dataType:     schema.DataTypeText,
+
+				expextedSearchable: true,
+			},
+			{
+				name:         "text, inverted false, searchable null",
+				isInverted:   &vFalse,
+				isSearchable: nil,
+				dataType:     schema.DataTypeText,
+
+				expextedSearchable: false,
+			},
+			{
+				name:         "text, inverted true, searchable null",
+				isInverted:   &vTrue,
+				isSearchable: nil,
+				dataType:     schema.DataTypeText,
+
+				expextedSearchable: true,
+			},
+			{
+				name:         "text, inverted null, searchable false",
+				isInverted:   nil,
+				isSearchable: &vFalse,
+				dataType:     schema.DataTypeText,
+
+				expextedSearchable: false,
+			},
+			{
+				name:         "text, inverted false, searchable false",
+				isInverted:   &vFalse,
+				isSearchable: &vFalse,
+				dataType:     schema.DataTypeText,
+
+				expextedSearchable: false,
+			},
+			{
+				name:         "text, inverted true, searchable false",
+				isInverted:   &vTrue,
+				isSearchable: &vFalse,
+				dataType:     schema.DataTypeText,
+
+				expextedSearchable: false,
+			},
+			{
+				name:         "text, inverted null, searchable true",
+				isInverted:   nil,
+				isSearchable: &vTrue,
+				dataType:     schema.DataTypeText,
+
+				expextedSearchable: true,
+			},
+			{
+				name:         "text, inverted false, searchable true",
+				isInverted:   &vFalse,
+				isSearchable: &vTrue,
+				dataType:     schema.DataTypeText,
+
+				expextedSearchable: true,
+			},
+			{
+				name:         "text, inverted true, searchable true",
+				isInverted:   &vTrue,
+				isSearchable: &vTrue,
+				dataType:     schema.DataTypeText,
+
+				expextedSearchable: true,
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				isSearchable := IsSearchable(&models.Property{
+					Name:            "prop",
+					DataType:        tc.dataType.PropString(),
+					IndexInverted:   tc.isInverted,
+					IndexSearchable: tc.isSearchable,
+				})
+
+				assert.Equal(t, tc.expextedSearchable, isSearchable)
+			})
+		}
+	})
+}
+
 func mustGetByteIntNumber(in int) []byte {
 	out, err := LexicographicallySortableInt64(int64(in))
 	if err != nil {
