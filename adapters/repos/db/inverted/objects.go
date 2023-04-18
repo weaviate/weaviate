@@ -567,16 +567,19 @@ func convertToUntyped[T comparable](in []T) []any {
 func IsSearchable(prop *models.Property) bool {
 	switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 	case schema.DataTypeText, schema.DataTypeTextArray:
-		// continue
+		// by default property is searchable only for text/text[] props
+		if prop.IndexSearchable == nil {
+			// but if indexInverted is explicitly set
+			// use its setting as backward compatible
+			if prop.IndexInverted == nil {
+				return true
+			}
+			return *prop.IndexInverted
+		}
+		return *prop.IndexSearchable
 	default:
 		return false
 	}
-
-	// by default property is searchable
-	if prop.IndexInverted == nil {
-		return true
-	}
-	return *prop.IndexInverted
 }
 
 // Indicates whether property should be indexed
@@ -585,10 +588,15 @@ func IsSearchable(prop *models.Property) bool {
 // TODO implement
 func IsFilterable(prop *models.Property) bool {
 	// by default property is filterable
-	if prop.IndexInverted == nil {
-		return true
+	if prop.IndexFilterable == nil {
+		// but if indexInverted is explicitly set
+		// use its setting as backward compatible
+		if prop.IndexInverted == nil {
+			return true
+		}
+		return *prop.IndexInverted
 	}
-	return *prop.IndexInverted
+	return *prop.IndexFilterable
 }
 
 func IsIndexable(prop *models.Property) bool {
