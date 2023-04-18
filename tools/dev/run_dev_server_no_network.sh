@@ -1,7 +1,7 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 # Jump to root directory
-cd "$( dirname "${BASH_SOURCE[0]}" )"/../..
+cd "$( dirname "${BASH_SOURCE[0]}" )"/../.. || exit 1
 
 export GO111MODULE=on
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 set -eou pipefail
 
@@ -90,7 +90,7 @@ function main() {
     echo_green "Building weaviate image for module acceptance tests..."
     echo "This could take some time..."
     GIT_HASH=$(git rev-parse --short HEAD)
-    docker build --build-arg GITHASH=$GIT_HASH -t $module_test_image .
+    docker build --build-arg GITHASH="$GIT_HASH" -t $module_test_image .
     export "TEST_WEAVIATE_IMAGE"=$module_test_image
 
     run_module_tests "$@"
