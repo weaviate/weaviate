@@ -2,10 +2,8 @@ package grpc
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/weaviate/weaviate/entities/models"
 	"google.golang.org/grpc/metadata"
 )
@@ -18,26 +16,32 @@ import (
 func (s *Server) principalFromContext(ctx context.Context) (*models.Principal, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		fmt.Println("no metadata")
-		return s.authComposer("", nil)
+		return s.tryAnonymous()
 	}
-	spew.Dump(md)
 
 	// the grpc library will lowercase all md keys, so we need to make sure to
 	// check a lowercase key
 	authValue, ok := md["authorization"]
 	if !ok {
-		return s.authComposer("", nil)
+		return s.tryAnonymous()
 	}
 
 	if len(authValue) == 0 {
-		return s.authComposer("", nil)
+		return s.tryAnonymous()
 	}
 
 	if !strings.HasPrefix(authValue[0], "Bearer ") {
-		return s.authComposer("", nil)
+		return s.tryAnonymous()
 	}
 
 	token := strings.TrimPrefix(authValue[0], "Bearer ")
 	return s.authComposer(token, nil)
+}
+
+func (s *Server) tryAnonymous() (*models.Principal, error) {
+	if s.allowAnonymousAccess {
+		return nil, nil
+	}
+
+	return s.authComposer("", nil)
 }

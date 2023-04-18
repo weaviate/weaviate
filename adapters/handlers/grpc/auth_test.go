@@ -17,32 +17,59 @@ func TestAuth(t *testing.T) {
 		buildCtx    func() context.Context
 		shouldErr   bool
 		expectedOut *models.Principal
+		allowAnon   bool
 	}{
 		{
-			name: "nothing provided",
+			name: "nothing provided, anon allowed",
 			buildCtx: func() context.Context {
 				return context.Background()
 			},
-			shouldErr:   false,
-			expectedOut: &models.Principal{Username: "anon"},
+			allowAnon: true,
+			shouldErr: false,
 		},
 		{
-			name: "with md, but nothing usable",
+			name: "nothing provided, anon forbidden",
+			buildCtx: func() context.Context {
+				return context.Background()
+			},
+			allowAnon: false,
+			shouldErr: true,
+		},
+		{
+			name: "with md, but nothing usable, anon allowed",
 			buildCtx: func() context.Context {
 				md := metadata.Pairs("unrelated", "unrelated")
 				return metadata.NewIncomingContext(context.Background(), md)
 			},
-			shouldErr:   false,
-			expectedOut: &models.Principal{Username: "anon"},
+			allowAnon: true,
+			shouldErr: false,
 		},
 		{
-			name: "with md, but nothing usable",
+			name: "with md, but nothing usable, anon forbidden",
+			buildCtx: func() context.Context {
+				md := metadata.Pairs("unrelated", "unrelated")
+				return metadata.NewIncomingContext(context.Background(), md)
+			},
+			allowAnon: false,
+			shouldErr: true,
+		},
+		{
+			name: "with md, but nothing usable, anon allowed",
 			buildCtx: func() context.Context {
 				md := metadata.Pairs("authorization", "wrong-format")
 				return metadata.NewIncomingContext(context.Background(), md)
 			},
-			shouldErr:   false,
-			expectedOut: &models.Principal{Username: "anon"},
+			allowAnon: true,
+			shouldErr: false,
+		},
+		{
+			name: "with md, but nothing usable, anon forbidden",
+			buildCtx: func() context.Context {
+				md := metadata.Pairs("authorization", "wrong-format")
+				return metadata.NewIncomingContext(context.Background(), md)
+			},
+			allowAnon: false,
+			shouldErr: true,
 		},
 		{
 			name: "with md, and a token",
@@ -66,12 +93,13 @@ func TestAuth(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			s := &Server{
+				allowAnonymousAccess: test.allowAnon,
 				authComposer: func(token string, scopes []string) (*models.Principal, error) {
 					if token == "" {
-						return &models.Principal{Username: "anon"}, nil
+						return nil, fmt.Errorf("not allowed")
 					}
 					if token == "err" {
-						return nil, fmt.Errorf("err")
+						return nil, fmt.Errorf("other error")
 					}
 					return &models.Principal{Username: token}, nil
 				},
