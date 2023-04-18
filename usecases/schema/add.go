@@ -45,7 +45,7 @@ func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 
 	// call to migrator needs to be outside the lock that is set in addClass
 	return m.migrator.AddClass(ctx, class, shardState)
-	// TODO gh-846: Rollback state upate if migration fails
+	// TODO gh-846: Rollback state update if migration fails
 }
 
 func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) error {
@@ -73,12 +73,14 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 
 	class.Class = schema.UppercaseClassName(class.Class)
 	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
-	m.setClassDefaults(class)
 
+	m.setClassDefaults(class)
 	err = m.validateCanAddClass(ctx, class, true)
 	if err != nil {
 		return err
 	}
+	// migrate only after validation in completed
+	m.migrateClassSettings(class)
 
 	err = m.parseShardingConfig(ctx, class)
 	if err != nil {
@@ -121,12 +123,14 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 
 	class.Class = schema.UppercaseClassName(class.Class)
 	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
-	m.setClassDefaults(class)
 
+	m.setClassDefaults(class)
 	err := m.validateCanAddClass(ctx, class, false)
 	if err != nil {
 		return nil, err
 	}
+	// migrate only after validation in completed
+	m.migrateClassSettings(class)
 
 	err = m.parseShardingConfig(ctx, class)
 	if err != nil {
@@ -224,18 +228,51 @@ func (m *Manager) setPropertyDefaults(prop *models.Property) {
 }
 
 func (m *Manager) setPropertyDefaultTokenization(prop *models.Property) {
-	// already set, no default needed
-	if prop.Tokenization != "" {
+	switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
+	case schema.DataTypeString, schema.DataTypeStringArray:
+		// deprecated as of v1.19, default tokenization was word
+		// which will be migrated to text+whitespace
+		if prop.Tokenization == "" {
+			prop.Tokenization = models.PropertyTokenizationWord
+		}
+	case schema.DataTypeText, schema.DataTypeTextArray:
+		if prop.Tokenization == "" {
+			prop.Tokenization = models.PropertyTokenizationWord
+		}
+	default:
+		// tokenization not supported for other data types
+	}
+}
+
+func (m *Manager) migrateClassSettings(class *models.Class) {
+	for _, prop := range class.Properties {
+		m.migratePropertySettings(prop)
+	}
+}
+
+func (m *Manager) migratePropertySettings(prop *models.Property) {
+	m.migratePropertyDataTypeAndTokenization(prop)
+}
+
+// as of v1.19 DataTypeString and DataTypeStringArray are deprecated
+// here both are changed to Text/TextArray
+// and proper, backward compatible tokenization
+func (m *Manager) migratePropertyDataTypeAndTokenization(prop *models.Property) {
+	switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
+	case schema.DataTypeString:
+		prop.DataType = schema.DataTypeText.PropString()
+	case schema.DataTypeStringArray:
+		prop.DataType = schema.DataTypeTextArray.PropString()
+	default:
+		// other types need no migration and do not support tokenization
 		return
 	}
 
-	// set only for tokenization supporting data types
-	if len(prop.DataType) == 1 {
-		switch prop.DataType[0] {
-		case string(schema.DataTypeString), string(schema.DataTypeStringArray),
-			string(schema.DataTypeText), string(schema.DataTypeTextArray):
-			prop.Tokenization = models.PropertyTokenizationWord
-		}
+	switch prop.Tokenization {
+	case models.PropertyTokenizationWord:
+		prop.Tokenization = models.PropertyTokenizationWhitespace
+	case models.PropertyTokenizationField:
+		// stays field
 	}
 }
 

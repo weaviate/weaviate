@@ -49,29 +49,29 @@ func NewProvider() *Provider {
 	}
 }
 
-func (m *Provider) Register(mod modulecapabilities.Module) {
-	m.registered[mod.Name()] = mod
+func (p *Provider) Register(mod modulecapabilities.Module) {
+	p.registered[mod.Name()] = mod
 	if modHasAltNames, ok := mod.(modulecapabilities.ModuleHasAltNames); ok {
 		for _, altName := range modHasAltNames.AltNames() {
-			m.altNames[altName] = mod.Name()
+			p.altNames[altName] = mod.Name()
 		}
 	}
 }
 
-func (m *Provider) GetByName(name string) modulecapabilities.Module {
-	if mod, ok := m.registered[name]; ok {
+func (p *Provider) GetByName(name string) modulecapabilities.Module {
+	if mod, ok := p.registered[name]; ok {
 		return mod
 	}
-	if origName, ok := m.altNames[name]; ok {
-		return m.registered[origName]
+	if origName, ok := p.altNames[name]; ok {
+		return p.registered[origName]
 	}
 	return nil
 }
 
-func (m *Provider) GetAll() []modulecapabilities.Module {
-	out := make([]modulecapabilities.Module, len(m.registered))
+func (p *Provider) GetAll() []modulecapabilities.Module {
+	out := make([]modulecapabilities.Module, len(p.registered))
 	i := 0
-	for _, mod := range m.registered {
+	for _, mod := range p.registered {
 		out[i] = mod
 		i++
 	}
@@ -79,9 +79,9 @@ func (m *Provider) GetAll() []modulecapabilities.Module {
 	return out
 }
 
-func (m *Provider) GetAllExclude(module string) []modulecapabilities.Module {
+func (p *Provider) GetAllExclude(module string) []modulecapabilities.Module {
 	filtered := []modulecapabilities.Module{}
-	for _, mod := range m.GetAll() {
+	for _, mod := range p.GetAll() {
 		if mod.Name() != module {
 			filtered = append(filtered, mod)
 		}
@@ -89,14 +89,14 @@ func (m *Provider) GetAllExclude(module string) []modulecapabilities.Module {
 	return filtered
 }
 
-func (m *Provider) SetSchemaGetter(sg schemaGetter) {
-	m.schemaGetter = sg
+func (p *Provider) SetSchemaGetter(sg schemaGetter) {
+	p.schemaGetter = sg
 }
 
-func (m *Provider) Init(ctx context.Context,
+func (p *Provider) Init(ctx context.Context,
 	params moduletools.ModuleInitParams, logger logrus.FieldLogger,
 ) error {
-	for i, mod := range m.GetAll() {
+	for i, mod := range p.GetAll() {
 		if err := mod.Init(ctx, params); err != nil {
 			return errors.Wrapf(err, "init module %d (%q)", i, mod.Name())
 		} else {
@@ -105,9 +105,9 @@ func (m *Provider) Init(ctx context.Context,
 				Debug("initialized module")
 		}
 	}
-	for i, mod := range m.GetAll() {
+	for i, mod := range p.GetAll() {
 		if modExtension, ok := mod.(modulecapabilities.ModuleExtension); ok {
-			if err := modExtension.InitExtension(m.GetAllExclude(mod.Name())); err != nil {
+			if err := modExtension.InitExtension(p.GetAllExclude(mod.Name())); err != nil {
 				return errors.Wrapf(err, "init module extension %d (%q)", i, mod.Name())
 			} else {
 				logger.WithField("action", "startup").
@@ -116,9 +116,9 @@ func (m *Provider) Init(ctx context.Context,
 			}
 		}
 	}
-	for i, mod := range m.GetAll() {
+	for i, mod := range p.GetAll() {
 		if modDependency, ok := mod.(modulecapabilities.ModuleDependency); ok {
-			if err := modDependency.InitDependency(m.GetAllExclude(mod.Name())); err != nil {
+			if err := modDependency.InitDependency(p.GetAllExclude(mod.Name())); err != nil {
 				return errors.Wrapf(err, "init module dependency %d (%q)", i, mod.Name())
 			} else {
 				logger.WithField("action", "startup").
@@ -127,20 +127,20 @@ func (m *Provider) Init(ctx context.Context,
 			}
 		}
 	}
-	if err := m.validate(); err != nil {
+	if err := p.validate(); err != nil {
 		return errors.Wrap(err, "validate modules")
 	}
-	if m.HasMultipleVectorizers() {
+	if p.HasMultipleVectorizers() {
 		logger.Warn("Multiple vector spaces are present, GraphQL Explore and REST API list objects endpoint module include params has been disabled as a result.")
 	}
 	return nil
 }
 
-func (m *Provider) validate() error {
+func (p *Provider) validate() error {
 	searchers := map[string][]string{}
 	additionalGraphQLProps := map[string][]string{}
 	additionalRestAPIProps := map[string][]string{}
-	for _, mod := range m.GetAll() {
+	for _, mod := range p.GetAll() {
 		if module, ok := mod.(modulecapabilities.GraphQLArguments); ok {
 			allArguments := []string{}
 			for paraName, argument := range module.Arguments() {
@@ -148,24 +148,24 @@ func (m *Provider) validate() error {
 					allArguments = append(allArguments, paraName)
 				}
 			}
-			searchers = m.scanProperties(searchers, allArguments, mod.Name())
+			searchers = p.scanProperties(searchers, allArguments, mod.Name())
 		}
 		if module, ok := mod.(modulecapabilities.AdditionalProperties); ok {
-			allAdditionalRestAPIProps, allAdditionalGrapQLProps := m.getAdditionalProps(module.AdditionalProperties())
-			additionalGraphQLProps = m.scanProperties(additionalGraphQLProps,
+			allAdditionalRestAPIProps, allAdditionalGrapQLProps := p.getAdditionalProps(module.AdditionalProperties())
+			additionalGraphQLProps = p.scanProperties(additionalGraphQLProps,
 				allAdditionalGrapQLProps, mod.Name())
-			additionalRestAPIProps = m.scanProperties(additionalRestAPIProps,
+			additionalRestAPIProps = p.scanProperties(additionalRestAPIProps,
 				allAdditionalRestAPIProps, mod.Name())
 		}
 	}
 
 	var errorMessages []string
 	errorMessages = append(errorMessages,
-		m.validateModules("searcher", searchers, internalSearchers)...)
+		p.validateModules("searcher", searchers, internalSearchers)...)
 	errorMessages = append(errorMessages,
-		m.validateModules("graphql additional property", additionalGraphQLProps, internalAdditionalProperties)...)
+		p.validateModules("graphql additional property", additionalGraphQLProps, internalAdditionalProperties)...)
 	errorMessages = append(errorMessages,
-		m.validateModules("rest api additional property", additionalRestAPIProps, internalAdditionalProperties)...)
+		p.validateModules("rest api additional property", additionalRestAPIProps, internalAdditionalProperties)...)
 	if len(errorMessages) > 0 {
 		return errors.Errorf("%v", errorMessages)
 	}
@@ -173,7 +173,7 @@ func (m *Provider) validate() error {
 	return nil
 }
 
-func (m *Provider) scanProperties(result map[string][]string, properties []string, module string) map[string][]string {
+func (p *Provider) scanProperties(result map[string][]string, properties []string, module string) map[string][]string {
 	for i := range properties {
 		if result[properties[i]] == nil {
 			result[properties[i]] = []string{}
@@ -185,7 +185,7 @@ func (m *Provider) scanProperties(result map[string][]string, properties []strin
 	return result
 }
 
-func (m *Provider) getAdditionalProps(additionalProps map[string]modulecapabilities.AdditionalProperty) ([]string, []string) {
+func (p *Provider) getAdditionalProps(additionalProps map[string]modulecapabilities.AdditionalProperty) ([]string, []string) {
 	restProps := []string{}
 	graphQLProps := []string{}
 
@@ -200,7 +200,7 @@ func (m *Provider) getAdditionalProps(additionalProps map[string]modulecapabilit
 	return restProps, graphQLProps
 }
 
-func (m *Provider) validateModules(name string, properties map[string][]string, internalProperties []string) []string {
+func (p *Provider) validateModules(name string, properties map[string][]string, internalProperties []string) []string {
 	errorMessages := []string{}
 	for propertyName, modules := range properties {
 		for i := range internalProperties {
@@ -211,19 +211,19 @@ func (m *Provider) validateModules(name string, properties map[string][]string, 
 			}
 		}
 		if len(modules) > 1 {
-			m.hasMultipleVectorizers = true
+			p.hasMultipleVectorizers = true
 		}
 		for _, moduleName := range modules {
-			moduleType := m.GetByName(moduleName).Type()
-			if m.moduleProvidesMultipleVectorizers(moduleType) {
-				m.hasMultipleVectorizers = true
+			moduleType := p.GetByName(moduleName).Type()
+			if p.moduleProvidesMultipleVectorizers(moduleType) {
+				p.hasMultipleVectorizers = true
 			}
 		}
 	}
 	return errorMessages
 }
 
-func (m *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) bool {
+func (p *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) bool {
 	switch moduleType {
 	case modulecapabilities.Text2Vec,
 		modulecapabilities.Img2Vec,
@@ -236,30 +236,30 @@ func (m *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) 
 	}
 }
 
-func (m *Provider) moduleProvidesMultipleVectorizers(moduleType modulecapabilities.ModuleType) bool {
+func (p *Provider) moduleProvidesMultipleVectorizers(moduleType modulecapabilities.ModuleType) bool {
 	return moduleType == modulecapabilities.Text2MultiVec
 }
 
-func (m *Provider) shouldIncludeClassArgument(class *models.Class, module string,
+func (p *Provider) shouldIncludeClassArgument(class *models.Class, module string,
 	moduleType modulecapabilities.ModuleType,
 ) bool {
-	return class.Vectorizer == module || !m.isVectorizerModule(moduleType)
+	return class.Vectorizer == module || !p.isVectorizerModule(moduleType)
 }
 
-func (m *Provider) shouldCrossClassIncludeClassArgument(class *models.Class, module string,
+func (p *Provider) shouldCrossClassIncludeClassArgument(class *models.Class, module string,
 	moduleType modulecapabilities.ModuleType,
 ) bool {
 	if class == nil {
-		return !m.HasMultipleVectorizers()
+		return !p.HasMultipleVectorizers()
 	}
-	return m.shouldIncludeClassArgument(class, module, moduleType)
+	return p.shouldIncludeClassArgument(class, module, moduleType)
 }
 
-func (m *Provider) shouldIncludeArgument(schema *models.Schema, module string,
+func (p *Provider) shouldIncludeArgument(schema *models.Schema, module string,
 	moduleType modulecapabilities.ModuleType,
 ) bool {
 	for _, c := range schema.Classes {
-		if m.shouldIncludeClassArgument(c, module, moduleType) {
+		if p.shouldIncludeClassArgument(c, module, moduleType) {
 			return true
 		}
 	}
@@ -267,10 +267,10 @@ func (m *Provider) shouldIncludeArgument(schema *models.Schema, module string,
 }
 
 // GetArguments provides GraphQL Get arguments
-func (m *Provider) GetArguments(class *models.Class) map[string]*graphql.ArgumentConfig {
+func (p *Provider) GetArguments(class *models.Class) map[string]*graphql.ArgumentConfig {
 	arguments := map[string]*graphql.ArgumentConfig{}
-	for _, module := range m.GetAll() {
-		if m.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
+	for _, module := range p.GetAll() {
+		if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
 			if arg, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for name, argument := range arg.Arguments() {
 					if argument.GetArgumentsFunction != nil {
@@ -284,10 +284,10 @@ func (m *Provider) GetArguments(class *models.Class) map[string]*graphql.Argumen
 }
 
 // AggregateArguments provides GraphQL Aggregate arguments
-func (m *Provider) AggregateArguments(class *models.Class) map[string]*graphql.ArgumentConfig {
+func (p *Provider) AggregateArguments(class *models.Class) map[string]*graphql.ArgumentConfig {
 	arguments := map[string]*graphql.ArgumentConfig{}
-	for _, module := range m.GetAll() {
-		if m.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
+	for _, module := range p.GetAll() {
+		if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
 			if arg, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for name, argument := range arg.Arguments() {
 					if argument.AggregateArgumentsFunction != nil {
@@ -301,10 +301,10 @@ func (m *Provider) AggregateArguments(class *models.Class) map[string]*graphql.A
 }
 
 // ExploreArguments provides GraphQL Explore arguments
-func (m *Provider) ExploreArguments(schema *models.Schema) map[string]*graphql.ArgumentConfig {
+func (p *Provider) ExploreArguments(schema *models.Schema) map[string]*graphql.ArgumentConfig {
 	arguments := map[string]*graphql.ArgumentConfig{}
-	for _, module := range m.GetAll() {
-		if m.shouldIncludeArgument(schema, module.Name(), module.Type()) {
+	for _, module := range p.GetAll() {
+		if p.shouldIncludeArgument(schema, module.Name(), module.Type()) {
 			if arg, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for name, argument := range arg.Arguments() {
 					if argument.ExploreArgumentsFunction != nil {
@@ -320,24 +320,24 @@ func (m *Provider) ExploreArguments(schema *models.Schema) map[string]*graphql.A
 // CrossClassExtractSearchParams extracts GraphQL arguments from modules without
 // being specific to any one class and it's configuration. This is used in
 // Explore() { } for example
-func (m *Provider) CrossClassExtractSearchParams(arguments map[string]interface{}) map[string]interface{} {
-	return m.extractSearchParams(arguments, nil)
+func (p *Provider) CrossClassExtractSearchParams(arguments map[string]interface{}) map[string]interface{} {
+	return p.extractSearchParams(arguments, nil)
 }
 
 // ExtractSearchParams extracts GraphQL arguments
-func (m *Provider) ExtractSearchParams(arguments map[string]interface{}, className string) map[string]interface{} {
+func (p *Provider) ExtractSearchParams(arguments map[string]interface{}, className string) map[string]interface{} {
 	exractedParams := map[string]interface{}{}
-	class, err := m.getClass(className)
+	class, err := p.getClass(className)
 	if err != nil {
 		return exractedParams
 	}
-	return m.extractSearchParams(arguments, class)
+	return p.extractSearchParams(arguments, class)
 }
 
-func (m *Provider) extractSearchParams(arguments map[string]interface{}, class *models.Class) map[string]interface{} {
+func (p *Provider) extractSearchParams(arguments map[string]interface{}, class *models.Class) map[string]interface{} {
 	exractedParams := map[string]interface{}{}
-	for _, module := range m.GetAll() {
-		if m.shouldCrossClassIncludeClassArgument(class, module.Name(), module.Type()) {
+	for _, module := range p.GetAll() {
+		if p.shouldCrossClassIncludeClassArgument(class, module.Name(), module.Type()) {
 			if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for paramName, argument := range args.Arguments() {
 					if param, ok := arguments[paramName]; ok && argument.ExtractFunction != nil {
@@ -354,23 +354,23 @@ func (m *Provider) extractSearchParams(arguments map[string]interface{}, class *
 // CrossClassValidateSearchParam validates module parameters without
 // being specific to any one class and it's configuration. This is used in
 // Explore() { } for example
-func (m *Provider) CrossClassValidateSearchParam(name string, value interface{}) error {
-	return m.validateSearchParam(name, value, nil)
+func (p *Provider) CrossClassValidateSearchParam(name string, value interface{}) error {
+	return p.validateSearchParam(name, value, nil)
 }
 
 // ValidateSearchParam validates module parameters
-func (m *Provider) ValidateSearchParam(name string, value interface{}, className string) error {
-	class, err := m.getClass(className)
+func (p *Provider) ValidateSearchParam(name string, value interface{}, className string) error {
+	class, err := p.getClass(className)
 	if err != nil {
 		return err
 	}
 
-	return m.validateSearchParam(name, value, class)
+	return p.validateSearchParam(name, value, class)
 }
 
-func (m *Provider) validateSearchParam(name string, value interface{}, class *models.Class) error {
-	for _, module := range m.GetAll() {
-		if m.shouldCrossClassIncludeClassArgument(class, module.Name(), module.Type()) {
+func (p *Provider) validateSearchParam(name string, value interface{}, class *models.Class) error {
+	for _, module := range p.GetAll() {
+		if p.shouldCrossClassIncludeClassArgument(class, module.Name(), module.Type()) {
 			if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for paramName, argument := range args.Arguments() {
 					if paramName == name && argument.ValidateFunction != nil {
@@ -385,10 +385,10 @@ func (m *Provider) validateSearchParam(name string, value interface{}, class *mo
 }
 
 // GetAdditionalFields provides GraphQL Get additional fields
-func (m *Provider) GetAdditionalFields(class *models.Class) map[string]*graphql.Field {
+func (p *Provider) GetAdditionalFields(class *models.Class) map[string]*graphql.Field {
 	additionalProperties := map[string]*graphql.Field{}
-	for _, module := range m.GetAll() {
-		if m.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
+	for _, module := range p.GetAll() {
+		if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
 			if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
 				for name, additionalProperty := range arg.AdditionalProperties() {
 					if additionalProperty.GraphQLFieldFunction != nil {
@@ -402,13 +402,13 @@ func (m *Provider) GetAdditionalFields(class *models.Class) map[string]*graphql.
 }
 
 // ExtractAdditionalField extracts additional properties from given graphql arguments
-func (m *Provider) ExtractAdditionalField(className, name string, params []*ast.Argument) interface{} {
-	class, err := m.getClass(className)
+func (p *Provider) ExtractAdditionalField(className, name string, params []*ast.Argument) interface{} {
+	class, err := p.getClass(className)
 	if err != nil {
 		return err
 	}
-	for _, module := range m.GetAll() {
-		if m.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
+	for _, module := range p.GetAll() {
+		if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
 			if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
 				if additionalProperties := arg.AdditionalProperties(); len(additionalProperties) > 0 {
 					if additionalProperty, ok := additionalProperties[name]; ok {
@@ -424,10 +424,10 @@ func (m *Provider) ExtractAdditionalField(className, name string, params []*ast.
 }
 
 // GetObjectAdditionalExtend extends rest api get queries with additional properties
-func (m *Provider) GetObjectAdditionalExtend(ctx context.Context,
+func (p *Provider) GetObjectAdditionalExtend(ctx context.Context,
 	in *search.Result, moduleParams map[string]interface{},
 ) (*search.Result, error) {
-	resArray, err := m.additionalExtend(ctx, search.Results{*in}, moduleParams, nil, "ObjectGet", nil)
+	resArray, err := p.additionalExtend(ctx, search.Results{*in}, moduleParams, nil, "ObjectGet", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -435,41 +435,41 @@ func (m *Provider) GetObjectAdditionalExtend(ctx context.Context,
 }
 
 // ListObjectsAdditionalExtend extends rest api list queries with additional properties
-func (m *Provider) ListObjectsAdditionalExtend(ctx context.Context,
+func (p *Provider) ListObjectsAdditionalExtend(ctx context.Context,
 	in search.Results, moduleParams map[string]interface{},
 ) (search.Results, error) {
-	return m.additionalExtend(ctx, in, moduleParams, nil, "ObjectList", nil)
+	return p.additionalExtend(ctx, in, moduleParams, nil, "ObjectList", nil)
 }
 
 // GetExploreAdditionalExtend extends graphql api get queries with additional properties
-func (m *Provider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
+func (p *Provider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
 	moduleParams map[string]interface{}, searchVector []float32,
 	argumentModuleParams map[string]interface{},
 ) ([]search.Result, error) {
-	return m.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet", argumentModuleParams)
+	return p.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet", argumentModuleParams)
 }
 
 // ListExploreAdditionalExtend extends graphql api list queries with additional properties
-func (m *Provider) ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
+func (p *Provider) ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
 	moduleParams map[string]interface{},
 	argumentModuleParams map[string]interface{},
 ) ([]search.Result, error) {
-	return m.additionalExtend(ctx, in, moduleParams, nil, "ExploreList", argumentModuleParams)
+	return p.additionalExtend(ctx, in, moduleParams, nil, "ExploreList", argumentModuleParams)
 }
 
-func (m *Provider) additionalExtend(ctx context.Context, in []search.Result,
+func (p *Provider) additionalExtend(ctx context.Context, in []search.Result,
 	moduleParams map[string]interface{}, searchVector []float32,
 	capability string, argumentModuleParams map[string]interface{},
 ) ([]search.Result, error) {
 	toBeExtended := in
 	if len(toBeExtended) > 0 {
-		class, err := m.getClassFromSearchResult(toBeExtended)
+		class, err := p.getClassFromSearchResult(toBeExtended)
 		if err != nil {
 			return nil, err
 		}
 		allAdditionalProperties := map[string]modulecapabilities.AdditionalProperty{}
-		for _, module := range m.GetAll() {
-			if m.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
+		for _, module := range p.GetAll() {
+			if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
 				if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
 					if arg != nil && arg.AdditionalProperties() != nil {
 						for name, additionalProperty := range arg.AdditionalProperties() {
@@ -480,12 +480,12 @@ func (m *Provider) additionalExtend(ctx context.Context, in []search.Result,
 			}
 		}
 		if len(allAdditionalProperties) > 0 {
-			if err := m.checkCapabilities(allAdditionalProperties, moduleParams, capability); err != nil {
+			if err := p.checkCapabilities(allAdditionalProperties, moduleParams, capability); err != nil {
 				return nil, err
 			}
 			cfg := NewClassBasedModuleConfig(class, "")
 			for name, value := range moduleParams {
-				additionalPropertyFn := m.getAdditionalPropertyFn(allAdditionalProperties[name], capability)
+				additionalPropertyFn := p.getAdditionalPropertyFn(allAdditionalProperties[name], capability)
 				if additionalPropertyFn != nil && value != nil {
 					searchValue := value
 					if searchVectorValue, ok := value.(modulecapabilities.AdditionalPropertyWithSearchVector); ok {
@@ -506,18 +506,18 @@ func (m *Provider) additionalExtend(ctx context.Context, in []search.Result,
 	return toBeExtended, nil
 }
 
-func (m *Provider) getClassFromSearchResult(in []search.Result) (*models.Class, error) {
+func (p *Provider) getClassFromSearchResult(in []search.Result) (*models.Class, error) {
 	if len(in) > 0 {
-		return m.getClass(in[0].ClassName)
+		return p.getClass(in[0].ClassName)
 	}
 	return nil, errors.Errorf("unknown class")
 }
 
-func (m *Provider) checkCapabilities(additionalProperties map[string]modulecapabilities.AdditionalProperty,
+func (p *Provider) checkCapabilities(additionalProperties map[string]modulecapabilities.AdditionalProperty,
 	moduleParams map[string]interface{}, capability string,
 ) error {
 	for name := range moduleParams {
-		additionalPropertyFn := m.getAdditionalPropertyFn(additionalProperties[name], capability)
+		additionalPropertyFn := p.getAdditionalPropertyFn(additionalProperties[name], capability)
 		if additionalPropertyFn == nil {
 			return errors.Errorf("unknown capability: %s", name)
 		}
@@ -525,7 +525,7 @@ func (m *Provider) checkCapabilities(additionalProperties map[string]modulecapab
 	return nil
 }
 
-func (m *Provider) getAdditionalPropertyFn(
+func (p *Provider) getAdditionalPropertyFn(
 	additionalProperty modulecapabilities.AdditionalProperty,
 	capability string,
 ) modulecapabilities.AdditionalPropertyFn {
@@ -544,9 +544,9 @@ func (m *Provider) getAdditionalPropertyFn(
 }
 
 // GraphQLAdditionalFieldNames get's all additional field names used in graphql
-func (m *Provider) GraphQLAdditionalFieldNames() []string {
+func (p *Provider) GraphQLAdditionalFieldNames() []string {
 	additionalPropertiesNames := []string{}
-	for _, module := range m.GetAll() {
+	for _, module := range p.GetAll() {
 		if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
 			for _, additionalProperty := range arg.AdditionalProperties() {
 				if additionalProperty.GraphQLNames != nil {
@@ -560,10 +560,10 @@ func (m *Provider) GraphQLAdditionalFieldNames() []string {
 
 // RestApiAdditionalProperties get's all rest specific additional properties with their
 // default values
-func (m *Provider) RestApiAdditionalProperties(includeProp string, class *models.Class) map[string]interface{} {
+func (p *Provider) RestApiAdditionalProperties(includeProp string, class *models.Class) map[string]interface{} {
 	moduleParams := map[string]interface{}{}
-	for _, module := range m.GetAll() {
-		if m.shouldCrossClassIncludeClassArgument(class, module.Name(), module.Type()) {
+	for _, module := range p.GetAll() {
+		if p.shouldCrossClassIncludeClassArgument(class, module.Name(), module.Type()) {
 			if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
 				for name, additionalProperty := range arg.AdditionalProperties() {
 					for _, includePropName := range additionalProperty.RestNames {
@@ -580,17 +580,17 @@ func (m *Provider) RestApiAdditionalProperties(includeProp string, class *models
 
 // VectorFromSearchParam gets a vector for a given argument. This is used in
 // Get { Class() } for example
-func (m *Provider) VectorFromSearchParam(ctx context.Context,
+func (p *Provider) VectorFromSearchParam(ctx context.Context,
 	className string, param string, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn,
 ) ([]float32, error) {
-	class, err := m.getClass(className)
+	class, err := p.getClass(className)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, mod := range m.GetAll() {
-		if m.shouldIncludeClassArgument(class, mod.Name(), mod.Type()) {
+	for _, mod := range p.GetAll() {
+		if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type()) {
 			var moduleName string
 			var vectorSearches modulecapabilities.ArgumentVectorForParams
 			if searcher, ok := mod.(modulecapabilities.Searcher); ok {
@@ -621,11 +621,11 @@ func (m *Provider) VectorFromSearchParam(ctx context.Context,
 // CrossClassVectorFromSearchParam gets a vector for a given argument without
 // being specific to any one class and it's configuration. This is used in
 // Explore() { } for example
-func (m *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
+func (p *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 	param string, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn,
 ) ([]float32, error) {
-	for _, mod := range m.GetAll() {
+	for _, mod := range p.GetAll() {
 		if searcher, ok := mod.(modulecapabilities.Searcher); ok {
 			if vectorSearches := searcher.VectorSearches(); vectorSearches != nil {
 				if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
@@ -642,16 +642,16 @@ func (m *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 	panic("VectorFromParams was called without any known params present")
 }
 
-func (m *Provider) VectorFromInput(ctx context.Context,
+func (p *Provider) VectorFromInput(ctx context.Context,
 	className string, input string,
 ) ([]float32, error) {
-	class, err := m.getClass(className)
+	class, err := p.getClass(className)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, mod := range m.GetAll() {
-		if m.shouldIncludeClassArgument(class, mod.Name(), mod.Type()) {
+	for _, mod := range p.GetAll() {
+		if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type()) {
 			if vectorizer, ok := mod.(modulecapabilities.InputVectorizer); ok {
 				cfg := NewClassBasedModuleConfig(class, mod.Name())
 				return vectorizer.VectorizeInput(ctx, input, cfg)
@@ -663,15 +663,15 @@ func (m *Provider) VectorFromInput(ctx context.Context,
 }
 
 // ParseClassifierSettings parses and adds classifier specific settings
-func (m *Provider) ParseClassifierSettings(name string,
+func (p *Provider) ParseClassifierSettings(name string,
 	params *models.Classification,
 ) error {
-	class, err := m.getClass(params.Class)
+	class, err := p.getClass(params.Class)
 	if err != nil {
 		return err
 	}
-	for _, module := range m.GetAll() {
-		if m.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
+	for _, module := range p.GetAll() {
+		if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
 			if c, ok := module.(modulecapabilities.ClassificationProvider); ok {
 				for _, classifier := range c.Classifiers() {
 					if classifier != nil && classifier.Name() == name {
@@ -685,15 +685,15 @@ func (m *Provider) ParseClassifierSettings(name string,
 }
 
 // GetClassificationFn returns given module's classification
-func (m *Provider) GetClassificationFn(className, name string,
+func (p *Provider) GetClassificationFn(className, name string,
 	params modulecapabilities.ClassifyParams,
 ) (modulecapabilities.ClassifyItemFn, error) {
-	class, err := m.getClass(className)
+	class, err := p.getClass(className)
 	if err != nil {
 		return nil, err
 	}
-	for _, module := range m.GetAll() {
-		if m.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
+	for _, module := range p.GetAll() {
+		if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
 			if c, ok := module.(modulecapabilities.ClassificationProvider); ok {
 				for _, classifier := range c.Classifiers() {
 					if classifier != nil && classifier.Name() == name {
@@ -707,9 +707,9 @@ func (m *Provider) GetClassificationFn(className, name string,
 }
 
 // GetMeta returns meta information about modules
-func (m *Provider) GetMeta() (map[string]interface{}, error) {
+func (p *Provider) GetMeta() (map[string]interface{}, error) {
 	metaInfos := map[string]interface{}{}
-	for _, module := range m.GetAll() {
+	for _, module := range p.GetAll() {
 		if c, ok := module.(modulecapabilities.MetaProvider); ok {
 			meta, err := c.MetaInfo()
 			if err != nil {
@@ -721,8 +721,8 @@ func (m *Provider) GetMeta() (map[string]interface{}, error) {
 	return metaInfos, nil
 }
 
-func (m *Provider) getClass(className string) (*models.Class, error) {
-	sch := m.schemaGetter.GetSchemaSkipAuth()
+func (p *Provider) getClass(className string) (*models.Class, error) {
+	sch := p.schemaGetter.GetSchemaSkipAuth()
 	class := sch.FindClassByName(schema.ClassName(className))
 	if class == nil {
 		return nil, errors.Errorf("class %q not found in schema", className)
@@ -730,12 +730,12 @@ func (m *Provider) getClass(className string) (*models.Class, error) {
 	return class, nil
 }
 
-func (m *Provider) HasMultipleVectorizers() bool {
-	return m.hasMultipleVectorizers
+func (p *Provider) HasMultipleVectorizers() bool {
+	return p.hasMultipleVectorizers
 }
 
-func (m *Provider) BackupBackend(backend string) (modulecapabilities.BackupBackend, error) {
-	if module := m.GetByName(backend); module != nil {
+func (p *Provider) BackupBackend(backend string) (modulecapabilities.BackupBackend, error) {
+	if module := p.GetByName(backend); module != nil {
 		if module.Type() == modulecapabilities.Backup {
 			if backend, ok := module.(modulecapabilities.BackupBackend); ok {
 				return backend, nil

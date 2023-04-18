@@ -15,6 +15,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func ArticlesClass() *models.Class {
@@ -22,8 +23,9 @@ func ArticlesClass() *models.Class {
 		Class: "Article",
 		Properties: []*models.Property{
 			{
-				Name:     "title",
-				DataType: []string{"string"},
+				Name:         "title",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 			{
 				Name:     "hasParagraphs",
@@ -39,7 +41,7 @@ func ParagraphsClass() *models.Class {
 		Properties: []*models.Property{
 			{
 				Name:     "contents",
-				DataType: []string{"text"},
+				DataType: schema.DataTypeText.PropString(),
 			},
 		},
 		Vectorizer: "none",

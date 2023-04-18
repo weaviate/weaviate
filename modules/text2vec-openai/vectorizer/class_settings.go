@@ -47,13 +47,13 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{cfg: cfg}
 }
 
-func (ic *classSettings) PropertyIndexed(propName string) bool {
-	if ic.cfg == nil {
+func (cs *classSettings) PropertyIndexed(propName string) bool {
+	if cs.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return DefaultPropertyIndexed
 	}
 
-	vcn, ok := ic.cfg.Property(propName)["skip"]
+	vcn, ok := cs.cfg.Property(propName)["skip"]
 	if !ok {
 		return DefaultPropertyIndexed
 	}
@@ -66,12 +66,12 @@ func (ic *classSettings) PropertyIndexed(propName string) bool {
 	return !asBool
 }
 
-func (ic *classSettings) VectorizePropertyName(propName string) bool {
-	if ic.cfg == nil {
+func (cs *classSettings) VectorizePropertyName(propName string) bool {
+	if cs.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return DefaultVectorizePropertyName
 	}
-	vcn, ok := ic.cfg.Property(propName)["vectorizePropertyName"]
+	vcn, ok := cs.cfg.Property(propName)["vectorizePropertyName"]
 	if !ok {
 		return DefaultVectorizePropertyName
 	}
@@ -84,26 +84,26 @@ func (ic *classSettings) VectorizePropertyName(propName string) bool {
 	return asBool
 }
 
-func (ic *classSettings) Model() string {
-	return ic.getProperty("model", DefaultOpenAIModel)
+func (cs *classSettings) Model() string {
+	return cs.getProperty("model", DefaultOpenAIModel)
 }
 
-func (ic *classSettings) Type() string {
-	return ic.getProperty("type", DefaultOpenAIDocumentType)
+func (cs *classSettings) Type() string {
+	return cs.getProperty("type", DefaultOpenAIDocumentType)
 }
 
-func (ic *classSettings) ModelVersion() string {
-	defaultVersion := PickDefaultModelVersion(ic.Model(), ic.Type())
-	return ic.getProperty("modelVersion", defaultVersion)
+func (cs *classSettings) ModelVersion() string {
+	defaultVersion := PickDefaultModelVersion(cs.Model(), cs.Type())
+	return cs.getProperty("modelVersion", defaultVersion)
 }
 
-func (ic *classSettings) VectorizeClassName() bool {
-	if ic.cfg == nil {
+func (cs *classSettings) VectorizeClassName() bool {
+	if cs.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return DefaultVectorizeClassName
 	}
 
-	vcn, ok := ic.cfg.Class()["vectorizeClassName"]
+	vcn, ok := cs.cfg.Class()["vectorizeClassName"]
 	if !ok {
 		return DefaultVectorizeClassName
 	}
@@ -116,28 +116,28 @@ func (ic *classSettings) VectorizeClassName() bool {
 	return asBool
 }
 
-func (ic *classSettings) Validate(class *models.Class) error {
-	if ic.cfg == nil {
+func (cs *classSettings) Validate(class *models.Class) error {
+	if cs.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
 
-	docType := ic.Type()
-	if !ic.validateOpenAISetting(docType, availableOpenAITypes) {
+	docType := cs.Type()
+	if !cs.validateOpenAISetting(docType, availableOpenAITypes) {
 		return errors.Errorf("wrong OpenAI type name, available model names are: %v", availableOpenAITypes)
 	}
 
-	model := ic.Model()
-	if !ic.validateOpenAISetting(model, availableOpenAIModels) {
+	model := cs.Model()
+	if !cs.validateOpenAISetting(model, availableOpenAIModels) {
 		return errors.Errorf("wrong OpenAI model name, available model names are: %v", availableOpenAIModels)
 	}
 
-	version := ic.ModelVersion()
-	if err := ic.validateModelVersion(version, model, docType); err != nil {
+	version := cs.ModelVersion()
+	if err := cs.validateModelVersion(version, model, docType); err != nil {
 		return err
 	}
 
-	err := ic.validateIndexState(class, ic)
+	err := cs.validateIndexState(class, cs)
 	if err != nil {
 		return err
 	}
@@ -145,7 +145,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	return nil
 }
 
-func (ic *classSettings) validateModelVersion(version, model, docType string) error {
+func (cs *classSettings) validateModelVersion(version, model, docType string) error {
 	if version == "001" {
 		// no restrictions
 		return nil
@@ -175,7 +175,7 @@ func (ic *classSettings) validateModelVersion(version, model, docType string) er
 	return nil
 }
 
-func (ic *classSettings) validateOpenAISetting(value string, availableValues []string) bool {
+func (cs *classSettings) validateOpenAISetting(value string, availableValues []string) bool {
 	for i := range availableValues {
 		if value == availableValues[i] {
 			return true
@@ -184,13 +184,13 @@ func (ic *classSettings) validateOpenAISetting(value string, availableValues []s
 	return false
 }
 
-func (ic *classSettings) getProperty(name, defaultValue string) string {
-	if ic.cfg == nil {
+func (cs *classSettings) getProperty(name, defaultValue string) string {
+	if cs.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return defaultValue
 	}
 
-	model, ok := ic.cfg.Class()[name]
+	model, ok := cs.cfg.Class()[name]
 	if ok {
 		asString, ok := model.(string)
 		if ok {
@@ -201,7 +201,7 @@ func (ic *classSettings) getProperty(name, defaultValue string) string {
 	return defaultValue
 }
 
-func (cv *classSettings) validateIndexState(class *models.Class, settings ClassSettings) error {
+func (cs *classSettings) validateIndexState(class *models.Class, settings ClassSettings) error {
 	if settings.VectorizeClassName() {
 		// if the user chooses to vectorize the classname, vector-building will
 		// always be possible, no need to investigate further
@@ -217,8 +217,7 @@ func (cv *classSettings) validateIndexState(class *models.Class, settings ClassS
 				"got %v", prop.Name, prop.DataType)
 		}
 
-		if prop.DataType[0] != string(schema.DataTypeString) &&
-			prop.DataType[0] != string(schema.DataTypeText) {
+		if prop.DataType[0] != string(schema.DataTypeText) {
 			// we can only vectorize text-like props
 			continue
 		}

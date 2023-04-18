@@ -61,7 +61,7 @@ type SchemaGetter interface {
 	Nodes() []string
 	NodeName() string
 	ClusterHealthScore() int
-	ResolveParentNodes(string, string) ([]string, []string, error)
+	ResolveParentNodes(string, string) (map[string]string, error)
 }
 
 type VectorizerValidator interface {
@@ -146,8 +146,8 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 	return m, nil
 }
 
-func (s *Manager) TxManager() *cluster.TxManager {
-	return s.cluster
+func (m *Manager) TxManager() *cluster.TxManager {
+	return m.cluster
 }
 
 type authorizer interface {
@@ -321,6 +321,7 @@ func (m *Manager) parseConfigs(ctx context.Context, schema *State) error {
 	for _, class := range schema.ObjectSchema.Classes {
 		for _, prop := range class.Properties {
 			m.setPropertyDefaults(prop)
+			m.migratePropertySettings(prop)
 		}
 
 		if err := m.parseVectorIndexConfig(ctx, class); err != nil {

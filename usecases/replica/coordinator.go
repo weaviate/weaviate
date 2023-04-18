@@ -44,29 +44,21 @@ type (
 func newCoordinator[T any](r *Replicator, shard, requestID string, l logrus.FieldLogger,
 ) *coordinator[T] {
 	return &coordinator[T]{
-		Client: r.client,
-		Resolver: &resolver{
-			schema:       r.stateGetter,
-			nodeResolver: r.resolver,
-			class:        r.class,
-		},
-		log:   l,
-		Class: r.class,
-		Shard: shard,
-		TxID:  requestID,
+		Client:   r.client,
+		Resolver: r.resolver,
+		log:      l,
+		Class:    r.class,
+		Shard:    shard,
+		TxID:     requestID,
 	}
 }
 
 // newCoordinator used by the Finder to read objects from replicas
 func newReadCoordinator[T any](f *Finder, shard string) *coordinator[T] {
 	return &coordinator[T]{
-		Resolver: &resolver{
-			schema:       f.resolver.schema,
-			nodeResolver: f.resolver,
-			class:        f.class,
-		},
-		Class: f.class,
-		Shard: shard,
+		Resolver: f.resolver,
+		Class:    f.class,
+		Shard:    shard,
 	}
 }
 
@@ -159,7 +151,7 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	ask readyOp,
 	com commitOp[T],
 ) (<-chan _Result[T], int, error) {
-	state, err := c.Resolver.State(c.Shard, cl)
+	state, err := c.Resolver.State(c.Shard, cl, "")
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
@@ -169,12 +161,14 @@ func (c *coordinator[T]) Push(ctx context.Context,
 }
 
 // Pull data from replica depending on consistency level
-// Pull involves just as many replicas to satisfy the consistency level
+// Pull involves just as many replicas to satisfy the consistency level.
+//
+// directCandidate when specified a direct request is set to this node (default to this node)
 func (c *coordinator[T]) Pull(ctx context.Context,
 	cl ConsistencyLevel,
-	op readOp[T],
+	op readOp[T], directCandidate string,
 ) (<-chan _Result[T], rState, error) {
-	state, err := c.Resolver.State(c.Shard, cl)
+	state, err := c.Resolver.State(c.Shard, cl, directCandidate)
 	if err != nil {
 		return nil, state, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}

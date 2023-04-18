@@ -167,7 +167,7 @@ func (r *Resolver) resolveRef(item *models.SingleRef, desiredClass string,
 	res, ok := r.cacher.Get(si)
 	if !ok {
 		// silently ignore, could have been deleted in the meantime, or we're
-		// asking for a non-matching selectProperty, for eaxmple if we ask for
+		// asking for a non-matching selectProperty, for example if we ask for
 		// Article { published { ... on { Magazine { name } ... on { Journal { name } }
 		// we don't know at resolve time if this ID will point to a Magazine or a
 		// Journal, so we will get a few empty responses when trying both for any

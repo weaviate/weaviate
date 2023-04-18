@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -93,8 +94,9 @@ func TestIncommingTxCommit(t *testing.T) {
 				Payload: AddPropertyPayload{
 					ClassName: "FirstClass",
 					Property: &models.Property{
-						DataType: []string{"string"},
-						Name:     "new_prop",
+						DataType:     schema.DataTypeText.PropString(),
+						Tokenization: models.PropertyTokenizationWhitespace,
+						Name:         "new_prop",
 					},
 				},
 			},

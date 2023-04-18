@@ -36,8 +36,9 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 					Class: "Foo",
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{"string"},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 					VectorIndexConfig: hnsw.UserConfig{},
@@ -86,9 +87,9 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 					Match: &models.BatchDeleteMatch{
 						Class: "SomeClass",
 						Where: &models.WhereFilter{
-							Path:        []string{"some", "path"},
-							Operator:    "Equal",
-							ValueString: ptString("value"),
+							Path:      []string{"some", "path"},
+							Operator:  "Equal",
+							ValueText: ptString("value"),
 						},
 					},
 				},
@@ -101,9 +102,9 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 					Match: &models.BatchDeleteMatch{
 						Class: "Foo",
 						Where: &models.WhereFilter{
-							Path:        []string{"some"},
-							Operator:    "Equal",
-							ValueString: ptString("value"),
+							Path:      []string{"some"},
+							Operator:  "Equal",
+							ValueText: ptString("value"),
 						},
 					},
 				},
@@ -144,9 +145,9 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 					Match: &models.BatchDeleteMatch{
 						Class: "Foo",
 						Where: &models.WhereFilter{
-							Path:        []string{},
-							Operator:    "Equal",
-							ValueString: ptString("name"),
+							Path:      []string{},
+							Operator:  "Equal",
+							ValueText: ptString("name"),
 						},
 					},
 				},
@@ -159,9 +160,9 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 					Match: &models.BatchDeleteMatch{
 						Class: "Foo",
 						Where: &models.WhereFilter{
-							Path:        []string{"name"},
-							Operator:    "Equal",
-							ValueString: ptString("value"),
+							Path:      []string{"name"},
+							Operator:  "Equal",
+							ValueText: ptString("value"),
 						},
 					},
 				},

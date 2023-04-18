@@ -99,7 +99,7 @@ func getWithCursorSearch(t *testing.T) {
 			{
 				name:             "error with where",
 				className:        "CursorClass",
-				filter:           `limit: 1 after: "" where:{path:"id" operator:Like valueString:"*"}`,
+				filter:           `limit: 1 after: "" where:{path:"id" operator:Like valueText:"*"}`,
 				expectedErrorMsg: "cursor api: invalid 'after' parameter: where cannot be set with after and limit parameters",
 			},
 			{

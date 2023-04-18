@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func TestAnalyzeObject(t *testing.T) {
@@ -31,7 +32,7 @@ func TestAnalyzeObject(t *testing.T) {
 	t.Run("with multiple properties", func(t *testing.T) {
 		id1 := uuid.New()
 		id2 := uuid.New()
-		schema := map[string]interface{}{
+		sch := map[string]interface{}{
 			"description": "I am great!",
 			"email":       "john@doe.com",
 			"about_me":    "I like reading sci-fi books",
@@ -46,23 +47,23 @@ func TestAnalyzeObject(t *testing.T) {
 		props := []*models.Property{
 			{
 				Name:         "description",
-				DataType:     []string{"text"},
-				Tokenization: "word",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWord,
 			},
 			{
 				Name:         "email",
-				DataType:     []string{"string"},
-				Tokenization: "word",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 			{
 				Name:         "about_me",
-				DataType:     []string{"string"},
-				Tokenization: "word",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationLowercase,
 			},
 			{
 				Name:         "profession",
-				DataType:     []string{"string"},
-				Tokenization: "field",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationField,
 			},
 			{
 				Name:     "id1",
@@ -81,7 +82,7 @@ func TestAnalyzeObject(t *testing.T) {
 				DataType: []string{"uuid[]"},
 			},
 		}
-		res, err := a.Object(schema, props, strfmt.UUID(uuid))
+		res, err := a.Object(sch, props, strfmt.UUID(uuid))
 		require.Nil(t, err)
 
 		expectedDescription := []Countable{
@@ -108,7 +109,7 @@ func TestAnalyzeObject(t *testing.T) {
 
 		expectedAboutMe := []Countable{
 			{
-				Data:          []byte("I"),
+				Data:          []byte("i"),
 				TermFrequency: float32(1),
 			},
 			{
@@ -229,6 +230,207 @@ func TestAnalyzeObject(t *testing.T) {
 		assert.ElementsMatch(t, expectedID2, actualID2, res)
 		assert.ElementsMatch(t, expectedIDArray1, actualIDArray1, res)
 		assert.ElementsMatch(t, expectedIDArray2, actualIDArray2, res)
+	})
+
+	t.Run("with array properties", func(t *testing.T) {
+		sch := map[string]interface{}{
+			"descriptions": []interface{}{"I am great!", "I am also great!"},
+			"emails":       []interface{}{"john@doe.com", "john2@doe.com"},
+			"about_me":     []interface{}{"I like reading sci-fi books", "I like playing piano"},
+			"professions":  []interface{}{"Mechanical Engineer", "Marketing Analyst"},
+			"integers":     []interface{}{int64(1), int64(2), int64(3), int64(4)},
+			"numbers":      []interface{}{float64(1.1), float64(2.2), float64(3.0), float64(4)},
+		}
+
+		uuid := "2609f1bc-7693-48f3-b531-6ddc52cd2501"
+		props := []*models.Property{
+			{
+				Name:         "descriptions",
+				DataType:     schema.DataTypeTextArray.PropString(),
+				Tokenization: models.PropertyTokenizationWord,
+			},
+			{
+				Name:         "emails",
+				DataType:     schema.DataTypeTextArray.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+			},
+			{
+				Name:         "about_me",
+				DataType:     schema.DataTypeTextArray.PropString(),
+				Tokenization: models.PropertyTokenizationLowercase,
+			},
+			{
+				Name:         "professions",
+				DataType:     schema.DataTypeTextArray.PropString(),
+				Tokenization: models.PropertyTokenizationField,
+			},
+			{
+				Name:     "integers",
+				DataType: []string{"int[]"},
+			},
+			{
+				Name:     "numbers",
+				DataType: []string{"number[]"},
+			},
+		}
+		res, err := a.Object(sch, props, strfmt.UUID(uuid))
+		require.Nil(t, err)
+
+		expectedDescriptions := []Countable{
+			{
+				Data:          []byte("i"),
+				TermFrequency: float32(2),
+			},
+			{
+				Data:          []byte("am"),
+				TermFrequency: float32(2),
+			},
+			{
+				Data:          []byte("great"),
+				TermFrequency: float32(2),
+			},
+			{
+				Data:          []byte("also"),
+				TermFrequency: float32(1),
+			},
+		}
+
+		expectedEmails := []Countable{
+			{
+				Data:          []byte("john@doe.com"),
+				TermFrequency: float32(1),
+			},
+			{
+				Data:          []byte("john2@doe.com"),
+				TermFrequency: float32(1),
+			},
+		}
+
+		expectedAboutMe := []Countable{
+			{
+				Data:          []byte("i"),
+				TermFrequency: float32(2),
+			},
+			{
+				Data:          []byte("like"),
+				TermFrequency: float32(2),
+			},
+			{
+				Data:          []byte("reading"),
+				TermFrequency: float32(1),
+			},
+			{
+				Data:          []byte("sci-fi"),
+				TermFrequency: float32(1),
+			},
+			{
+				Data:          []byte("books"),
+				TermFrequency: float32(1),
+			},
+			{
+				Data:          []byte("playing"),
+				TermFrequency: float32(1),
+			},
+			{
+				Data:          []byte("piano"),
+				TermFrequency: float32(1),
+			},
+		}
+
+		expectedProfessions := []Countable{
+			{
+				Data:          []byte("Mechanical Engineer"),
+				TermFrequency: float32(1),
+			},
+			{
+				Data:          []byte("Marketing Analyst"),
+				TermFrequency: float32(1),
+			},
+		}
+
+		expectedIntegers := []Countable{
+			{
+				Data: mustGetByteIntNumber(1),
+			},
+			{
+				Data: mustGetByteIntNumber(2),
+			},
+			{
+				Data: mustGetByteIntNumber(3),
+			},
+			{
+				Data: mustGetByteIntNumber(4),
+			},
+		}
+
+		expectedNumbers := []Countable{
+			{
+				Data: mustGetByteFloatNumber(1.1),
+			},
+			{
+				Data: mustGetByteFloatNumber(2.2),
+			},
+			{
+				Data: mustGetByteFloatNumber(3.0),
+			},
+			{
+				Data: mustGetByteFloatNumber(4),
+			},
+		}
+
+		expectedUUID := []Countable{
+			{
+				Data:          []byte(uuid),
+				TermFrequency: 0,
+			},
+		}
+
+		assert.Len(t, res, 7)
+		var actualDescriptions []Countable
+		var actualEmails []Countable
+		var actualAboutMe []Countable
+		var actualProfessions []Countable
+		var actualIntegers []Countable
+		var actualNumbers []Countable
+		var actualUUID []Countable
+
+		for _, elem := range res {
+			if elem.Name == "emails" {
+				actualEmails = elem.Items
+			}
+
+			if elem.Name == "descriptions" {
+				actualDescriptions = elem.Items
+			}
+
+			if elem.Name == "about_me" {
+				actualAboutMe = elem.Items
+			}
+
+			if elem.Name == "professions" {
+				actualProfessions = elem.Items
+			}
+
+			if elem.Name == "integers" {
+				actualIntegers = elem.Items
+			}
+
+			if elem.Name == "numbers" {
+				actualNumbers = elem.Items
+			}
+
+			if elem.Name == "_id" {
+				actualUUID = elem.Items
+			}
+		}
+
+		assert.ElementsMatch(t, expectedEmails, actualEmails, res)
+		assert.ElementsMatch(t, expectedDescriptions, actualDescriptions, res)
+		assert.ElementsMatch(t, expectedAboutMe, actualAboutMe, res)
+		assert.ElementsMatch(t, expectedProfessions, actualProfessions, res)
+		assert.ElementsMatch(t, expectedIntegers, actualIntegers, res)
+		assert.ElementsMatch(t, expectedNumbers, actualNumbers, res)
+		assert.ElementsMatch(t, expectedUUID, actualUUID, res)
 	})
 
 	t.Run("with refProps", func(t *testing.T) {
@@ -390,207 +592,6 @@ func TestAnalyzeObject(t *testing.T) {
 			assert.ElementsMatch(t, expectedUUID, actualUUID, res)
 		})
 
-		t.Run("with array properties", func(t *testing.T) {
-			schema := map[string]interface{}{
-				"descriptions": []interface{}{"I am great!", "I am also great!"},
-				"emails":       []interface{}{"john@doe.com", "john2@doe.com"},
-				"about_me":     []interface{}{"I like reading sci-fi books", "I like playing piano"},
-				"professions":  []interface{}{"Mechanical Engineer", "Marketing Analyst"},
-				"integers":     []interface{}{int64(1), int64(2), int64(3), int64(4)},
-				"numbers":      []interface{}{float64(1.1), float64(2.2), float64(3.0), float64(4)},
-			}
-
-			uuid := "2609f1bc-7693-48f3-b531-6ddc52cd2501"
-			props := []*models.Property{
-				{
-					Name:         "descriptions",
-					DataType:     []string{"text[]"},
-					Tokenization: "word",
-				},
-				{
-					Name:         "emails",
-					DataType:     []string{"string[]"},
-					Tokenization: "word",
-				},
-				{
-					Name:         "about_me",
-					DataType:     []string{"string[]"},
-					Tokenization: "word",
-				},
-				{
-					Name:         "professions",
-					DataType:     []string{"string[]"},
-					Tokenization: "field",
-				},
-				{
-					Name:     "integers",
-					DataType: []string{"int[]"},
-				},
-				{
-					Name:     "numbers",
-					DataType: []string{"number[]"},
-				},
-			}
-			res, err := a.Object(schema, props, strfmt.UUID(uuid))
-			require.Nil(t, err)
-
-			expectedDescriptions := []Countable{
-				{
-					Data:          []byte("i"),
-					TermFrequency: float32(2),
-				},
-				{
-					Data:          []byte("am"),
-					TermFrequency: float32(2),
-				},
-				{
-					Data:          []byte("great"),
-					TermFrequency: float32(2),
-				},
-				{
-					Data:          []byte("also"),
-					TermFrequency: float32(1),
-				},
-			}
-
-			expectedEmails := []Countable{
-				{
-					Data:          []byte("john@doe.com"),
-					TermFrequency: float32(1),
-				},
-				{
-					Data:          []byte("john2@doe.com"),
-					TermFrequency: float32(1),
-				},
-			}
-
-			expectedAboutMe := []Countable{
-				{
-					Data:          []byte("I"),
-					TermFrequency: float32(2),
-				},
-				{
-					Data:          []byte("like"),
-					TermFrequency: float32(2),
-				},
-				{
-					Data:          []byte("reading"),
-					TermFrequency: float32(1),
-				},
-				{
-					Data:          []byte("sci-fi"),
-					TermFrequency: float32(1),
-				},
-				{
-					Data:          []byte("books"),
-					TermFrequency: float32(1),
-				},
-				{
-					Data:          []byte("playing"),
-					TermFrequency: float32(1),
-				},
-				{
-					Data:          []byte("piano"),
-					TermFrequency: float32(1),
-				},
-			}
-
-			expectedProfessions := []Countable{
-				{
-					Data:          []byte("Mechanical Engineer"),
-					TermFrequency: float32(1),
-				},
-				{
-					Data:          []byte("Marketing Analyst"),
-					TermFrequency: float32(1),
-				},
-			}
-
-			expectedIntegers := []Countable{
-				{
-					Data: mustGetByteIntNumber(1),
-				},
-				{
-					Data: mustGetByteIntNumber(2),
-				},
-				{
-					Data: mustGetByteIntNumber(3),
-				},
-				{
-					Data: mustGetByteIntNumber(4),
-				},
-			}
-
-			expectedNumbers := []Countable{
-				{
-					Data: mustGetByteFloatNumber(1.1),
-				},
-				{
-					Data: mustGetByteFloatNumber(2.2),
-				},
-				{
-					Data: mustGetByteFloatNumber(3.0),
-				},
-				{
-					Data: mustGetByteFloatNumber(4),
-				},
-			}
-
-			expectedUUID := []Countable{
-				{
-					Data:          []byte(uuid),
-					TermFrequency: 0,
-				},
-			}
-
-			assert.Len(t, res, 7)
-			var actualDescriptions []Countable
-			var actualEmails []Countable
-			var actualAboutMe []Countable
-			var actualProfessions []Countable
-			var actualIntegers []Countable
-			var actualNumbers []Countable
-			var actualUUID []Countable
-
-			for _, elem := range res {
-				if elem.Name == "emails" {
-					actualEmails = elem.Items
-				}
-
-				if elem.Name == "descriptions" {
-					actualDescriptions = elem.Items
-				}
-
-				if elem.Name == "about_me" {
-					actualAboutMe = elem.Items
-				}
-
-				if elem.Name == "professions" {
-					actualProfessions = elem.Items
-				}
-
-				if elem.Name == "integers" {
-					actualIntegers = elem.Items
-				}
-
-				if elem.Name == "numbers" {
-					actualNumbers = elem.Items
-				}
-
-				if elem.Name == "_id" {
-					actualUUID = elem.Items
-				}
-			}
-
-			assert.ElementsMatch(t, expectedEmails, actualEmails, res)
-			assert.ElementsMatch(t, expectedDescriptions, actualDescriptions, res)
-			assert.ElementsMatch(t, expectedAboutMe, actualAboutMe, res)
-			assert.ElementsMatch(t, expectedProfessions, actualProfessions, res)
-			assert.ElementsMatch(t, expectedIntegers, actualIntegers, res)
-			assert.ElementsMatch(t, expectedNumbers, actualNumbers, res)
-			assert.ElementsMatch(t, expectedUUID, actualUUID, res)
-		})
-
 		// due to the fix introduced in https://github.com/weaviate/weaviate/pull/2320,
 		// MultipleRef's can appear as empty []interface{} when no actual refs are provided for
 		// an object's reference property.
@@ -600,7 +601,7 @@ func TestAnalyzeObject(t *testing.T) {
 		t.Run("when rep prop is stored as empty interface{} slice", func(t *testing.T) {
 			uuid := "cf768bb0-03d8-4464-8f54-f787cf174c01"
 			name := "Transformers"
-			schema := map[string]interface{}{
+			sch := map[string]interface{}{
 				"name":      name,
 				"reference": []interface{}{},
 			}
@@ -608,15 +609,15 @@ func TestAnalyzeObject(t *testing.T) {
 			props := []*models.Property{
 				{
 					Name:         "name",
-					DataType:     []string{"string"},
-					Tokenization: "word",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				},
 				{
 					Name:     "reference",
 					DataType: []string{"SomeClass"},
 				},
 			}
-			res, err := a.Object(schema, props, strfmt.UUID(uuid))
+			res, err := a.Object(sch, props, strfmt.UUID(uuid))
 			require.Nil(t, err)
 
 			expectedUUID := []Countable{

@@ -37,7 +37,7 @@ type ReferenceMetaClassification struct {
 	// Closest distance of a neighbor from the winning group
 	ClosestWinningDistance float64 `json:"closestWinningDistance,omitempty"`
 
-	// size of the losing group, can be 0 if the winning group size euqals k
+	// size of the losing group, can be 0 if the winning group size equals k
 	LosingCount int64 `json:"losingCount,omitempty"`
 
 	// deprecated - do not use, to be removed in 0.23.0

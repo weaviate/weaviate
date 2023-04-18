@@ -258,7 +258,7 @@ func (kv *MapPair) FromBytes(in []byte, keyOnly bool) error {
 	// the wrong place. By the time we are in this method, we can no longer
 	// control the memory safety of the "in" argument. Thus, such a copy must
 	// happen at a much earlier scope when a lock is held that protects against
-	// removing the segment. Such an implmentation can now be found in
+	// removing the segment. Such an implementation can now be found in
 	// segment_collection_strategy.go as part of the *segment.getCollection
 	// method. As a result all memory used here can now be considered read-only
 	// and is safe to be used indefinitely.

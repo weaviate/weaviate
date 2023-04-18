@@ -24,9 +24,9 @@ func (bcp *basicComparatorProvider) provide(dataType schema.DataType, order stri
 	switch dataType {
 	case schema.DataTypeBlob:
 		return newStringComparator(order)
-	case schema.DataTypeString, schema.DataTypeText:
+	case schema.DataTypeText:
 		return newStringComparator(order)
-	case schema.DataTypeStringArray, schema.DataTypeTextArray:
+	case schema.DataTypeTextArray:
 		return newStringArrayComparator(order)
 	case schema.DataTypeNumber, schema.DataTypeInt:
 		return newFloat64Comparator(order)

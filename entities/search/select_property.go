@@ -79,7 +79,7 @@ func (sp SelectProperties) ShouldResolve(path []string) (bool, error) {
 			"refProp, className, refProp, className, etc.")
 	}
 
-	// the above gives us the guarantuee that path contains at least two elements
+	// the above gives us the guarantee that path contains at least two elements
 	property := path[0]
 	class := schema.ClassName(path[1])
 

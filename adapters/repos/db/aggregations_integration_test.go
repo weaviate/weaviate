@@ -958,7 +958,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 					Root: &filters.Clause{
 						Operator: filters.OperatorEqual,
 						Value: &filters.Value{
-							Type:  schema.DataTypeString,
+							Type:  schema.DataTypeText,
 							Value: "Superbread",
 						},
 						On: &filters.Path{
@@ -1500,7 +1500,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 					expextedAggs := expectedResult.Groups[0].Properties["dividendYield"].NumericalAggregations
 
 					// max, min, count, sum are always exact matches, but we need an
-					// epsiolon check because of floating point arithmetics
+					// epsilon check because of floating point arithmetics
 					assert.InEpsilon(t, expextedAggs["maximum"], aggs["maximum"], 0.1)
 					assert.Equal(t, expextedAggs["minimum"], aggs["minimum"]) // equal because the result == 0
 					assert.InEpsilon(t, expextedAggs["count"], aggs["count"], 0.1)
@@ -1517,7 +1517,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 					expextedAggs := expectedResult.Groups[0].Properties["price"].NumericalAggregations
 
 					// max, min, count, sum are always exact matches, but we need an
-					// epsiolon check because of floating point arithmetics
+					// epsilon check because of floating point arithmetics
 					assert.InEpsilon(t, expextedAggs["maximum"], aggs["maximum"], 0.1)
 					assert.InEpsilon(t, expextedAggs["minimum"], aggs["minimum"], 0.1)
 					assert.InEpsilon(t, expextedAggs["count"], aggs["count"], 0.1)
@@ -1792,7 +1792,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 					Root: &filters.Clause{
 						Operator: filters.OperatorEqual,
 						Value: &filters.Value{
-							Type:  schema.DataTypeString,
+							Type:  schema.DataTypeText,
 							Value: "Superbread",
 						},
 						On: &filters.Path{
@@ -2248,7 +2248,7 @@ func sectorEqualsFoodFilter() *filters.LocalFilter {
 			},
 			Value: &filters.Value{
 				Value: "Food",
-				Type:  schema.DataTypeString,
+				Type:  schema.DataTypeText,
 			},
 		},
 	}

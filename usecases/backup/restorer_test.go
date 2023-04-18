@@ -488,7 +488,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		}},
 	}
 
-	t.Run("GetMetdataFile", func(t *testing.T) {
+	t.Run("GetMetadataFile", func(t *testing.T) {
 		backend := newFakeBackend()
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, backup.ErrNotFound{})
 		backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})

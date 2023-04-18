@@ -86,8 +86,9 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		Class: "deletetest",
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{"string"},
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 		InvertedIndexConfig: &models.InvertedIndexConfig{},
@@ -124,8 +125,9 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	require.Nil(t, err)
 
 	err = index.addProperty(context.TODO(), &models.Property{
-		Name:     "name",
-		DataType: []string{"string"},
+		Name:         "name",
+		DataType:     schema.DataTypeText.PropString(),
+		Tokenization: models.PropertyTokenizationWhitespace,
 	})
 	require.Nil(t, err)
 
@@ -173,8 +175,9 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	err = index.addUUIDProperty(context.TODO())
 	require.Nil(t, err)
 	err = index.addProperty(context.TODO(), &models.Property{
-		Name:     "name",
-		DataType: []string{"string"},
+		Name:         "name",
+		DataType:     schema.DataTypeText.PropString(),
+		Tokenization: models.PropertyTokenizationWhitespace,
 	})
 	require.Nil(t, err)
 
@@ -242,8 +245,9 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		Class: "deletetest",
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{"string"},
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 		InvertedIndexConfig: &models.InvertedIndexConfig{},
@@ -280,8 +284,9 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	require.Nil(t, err)
 
 	err = index.addProperty(ctx, &models.Property{
-		Name:     "name",
-		DataType: []string{"string"},
+		Name:         "name",
+		DataType:     schema.DataTypeText.PropString(),
+		Tokenization: models.PropertyTokenizationWhitespace,
 	})
 	require.Nil(t, err)
 

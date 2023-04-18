@@ -53,6 +53,6 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&Origin, "origin", "o", DefaultOrigin, "origin (schem + host + port) where weaviate is running")
+	rootCmd.PersistentFlags().StringVarP(&Origin, "origin", "o", DefaultOrigin, "origin (schema + host + port) where weaviate is running")
 	rootCmd.PersistentFlags().StringVar(&DatasetConfigPath, "dataset-config", DefaultDatasetConfigPath, "path to dataset config file")
 }

@@ -304,7 +304,7 @@ func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
 	out.values = make([]value, valuesLen)
 	for i := range out.values {
 		if n, err := io.ReadFull(r, tmpBuf[0:9]); err != nil {
-			return out, errors.Wrap(err, "read value tombston and len")
+			return out, errors.Wrap(err, "read value tombstone and len")
 		} else {
 			out.offset += n
 		}
@@ -350,7 +350,7 @@ func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
 // similar size.
 //
 // As a result calling this method only makes sense if you plan on calling it
-// multiple times. Calling it just once on an unitialized node does not have
+// multiple times. Calling it just once on an uninitialized node does not have
 // major advantages over calling ParseCollectionNode.
 func ParseCollectionNodeInto(in []byte, node *segmentCollectionNode) error {
 	// offset is only the local offset relative to "in". In the end we need to

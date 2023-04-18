@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	schemauc "github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -47,7 +48,7 @@ func Test_SchemaRepo(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("retrieveing a stored schema", func(t *testing.T) {
+	t.Run("retrieving a stored schema", func(t *testing.T) {
 		res, err := r.LoadSchema(context.Background())
 		require.Nil(t, err)
 		expected := exampleSchema()
@@ -63,8 +64,9 @@ func exampleSchema() schemauc.State {
 					Class: "MyAction",
 					Properties: []*models.Property{
 						{
-							Name:     "myActionProp",
-							DataType: []string{"string"},
+							Name:         "myActionProp",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},
@@ -72,8 +74,9 @@ func exampleSchema() schemauc.State {
 					Class: "MyThing",
 					Properties: []*models.Property{
 						{
-							Name:     "myThingProp",
-							DataType: []string{"string"},
+							Name:         "myThingProp",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},

@@ -10,7 +10,6 @@
 //
 
 //go:build !race
-// +build !race
 
 package ssdhelpers_test
 

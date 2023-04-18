@@ -2995,7 +2995,7 @@ func init() {
           "example": "foobarium"
         },
         "definition": {
-          "description": "A list of space-delimited words or a sentence describing what the custom concept is about. Avoid using the custom concept itself. An Example definition for the custom concept 'foobarium': would be 'a naturally occourring element which can only be seen by programmers'",
+          "description": "A list of space-delimited words or a sentence describing what the custom concept is about. Avoid using the custom concept itself. An Example definition for the custom concept 'foobarium': would be 'a naturally occurring element which can only be seen by programmers'",
           "type": "string"
         },
         "weight": {
@@ -3907,10 +3907,12 @@ func init() {
           "type": "string"
         },
         "tokenization": {
-          "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to string, string[], text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default) and ` + "`" + `field` + "`" + ` for string and string[], ` + "`" + `word` + "`" + ` (default) for text and text[]. Not supported for remaining data types",
+          "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default; splits on any non-alphanumerical, lowercases), ` + "`" + `lowercase` + "`" + ` (splits on white spaces, lowercases), ` + "`" + `whitespace` + "`" + ` (splits on white spaces), ` + "`" + `field` + "`" + ` (trims). Not supported for remaining data types",
           "type": "string",
           "enum": [
             "word",
+            "lowercase",
+            "whitespace",
             "field"
           ]
         }
@@ -3940,7 +3942,7 @@ func init() {
           "format": "float32"
         },
         "losingCount": {
-          "description": "size of the losing group, can be 0 if the winning group size euqals k",
+          "description": "size of the losing group, can be 0 if the winning group size equals k",
           "type": "number",
           "format": "int64"
         },
@@ -4174,13 +4176,13 @@ func init() {
           "example": 3.14
         },
         "valueString": {
-          "description": "value as string",
+          "description": "value as text (deprecated as of v1.19; alias for valueText)",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
         },
         "valueText": {
-          "description": "value as text (on text props)",
+          "description": "value as text",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
@@ -7444,7 +7446,7 @@ func init() {
           "example": "foobarium"
         },
         "definition": {
-          "description": "A list of space-delimited words or a sentence describing what the custom concept is about. Avoid using the custom concept itself. An Example definition for the custom concept 'foobarium': would be 'a naturally occourring element which can only be seen by programmers'",
+          "description": "A list of space-delimited words or a sentence describing what the custom concept is about. Avoid using the custom concept itself. An Example definition for the custom concept 'foobarium': would be 'a naturally occurring element which can only be seen by programmers'",
           "type": "string"
         },
         "weight": {
@@ -8444,10 +8446,12 @@ func init() {
           "type": "string"
         },
         "tokenization": {
-          "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to string, string[], text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default) and ` + "`" + `field` + "`" + ` for string and string[], ` + "`" + `word` + "`" + ` (default) for text and text[]. Not supported for remaining data types",
+          "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default; splits on any non-alphanumerical, lowercases), ` + "`" + `lowercase` + "`" + ` (splits on white spaces, lowercases), ` + "`" + `whitespace` + "`" + ` (splits on white spaces), ` + "`" + `field` + "`" + ` (trims). Not supported for remaining data types",
           "type": "string",
           "enum": [
             "word",
+            "lowercase",
+            "whitespace",
             "field"
           ]
         }
@@ -8477,7 +8481,7 @@ func init() {
           "format": "float32"
         },
         "losingCount": {
-          "description": "size of the losing group, can be 0 if the winning group size euqals k",
+          "description": "size of the losing group, can be 0 if the winning group size equals k",
           "type": "number",
           "format": "int64"
         },
@@ -8711,13 +8715,13 @@ func init() {
           "example": 3.14
         },
         "valueString": {
-          "description": "value as string",
+          "description": "value as text (deprecated as of v1.19; alias for valueText)",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
         },
         "valueText": {
-          "description": "value as text (on text props)",
+          "description": "value as text",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"

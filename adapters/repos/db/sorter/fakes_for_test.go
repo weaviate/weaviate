@@ -30,16 +30,8 @@ func getMyFavoriteClassSchemaForTests() schema.Schema {
 					Class: testClassName,
 					Properties: []*models.Property{
 						{
-							Name:     "stringProp",
-							DataType: []string{string(schema.DataTypeString)},
-						},
-						{
 							Name:     "textProp",
 							DataType: []string{string(schema.DataTypeText)},
-						},
-						{
-							Name:     "stringPropArray",
-							DataType: []string{string(schema.DataTypeStringArray)},
 						},
 						{
 							Name:     "textPropArray",
@@ -86,8 +78,9 @@ func getMyFavoriteClassSchemaForTests() schema.Schema {
 							DataType: []string{string(schema.DataTypeGeoCoordinates)},
 						},
 						{
-							Name:     "emptyStringProp",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "emptyStringProp",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "emptyBoolProp",
@@ -120,9 +113,7 @@ func createMyFavoriteClassObject() *storobj.Object {
 			LastUpdateTimeUnix: 900000000002,
 			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
 			Properties: map[string]interface{}{
-				"stringProp":      "string",
 				"textProp":        "text",
-				"stringPropArray": []string{"string", "string"},
 				"textPropArray":   []string{"text", "text"},
 				"intProp":         float64(100),
 				"numberProp":      float64(17),
@@ -159,8 +150,9 @@ func sorterCitySchema() schema.Schema {
 					Class: "City",
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "country",
@@ -179,8 +171,9 @@ func sorterCitySchema() schema.Schema {
 							DataType: []string{string(schema.DataTypeDate)},
 						},
 						{
-							Name:     "timezones",
-							DataType: []string{string(schema.DataTypeStringArray)},
+							Name:         "timezones",
+							DataType:     schema.DataTypeTextArray.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "timezonesUTC",

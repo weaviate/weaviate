@@ -122,12 +122,12 @@ func Test_ReferenceAdd(t *testing.T) {
 		WantErr     error
 		SrcNotFound bool
 		// control errors
-		ErrAddRef      error
-		ErrTagetExists error
-		ErrSrcExists   error
-		ErrAuth        error
-		ErrLock        error
-		ErrSchema      error
+		ErrAddRef       error
+		ErrTargetExists error
+		ErrSrcExists    error
+		ErrAuth         error
+		ErrLock         error
+		ErrSchema       error
 		// Stage: 1 -> validation(), 2 -> target exists(), 3 -> source exists(), 4 -> AddReference()
 		Stage int
 	}{
@@ -179,9 +179,9 @@ func Test_ReferenceAdd(t *testing.T) {
 		{Name: "add valid reference", Req: req, Stage: 4},
 		{
 			Name: "referenced class not found", Req: req, Stage: 2,
-			WantCode:       StatusBadRequest,
-			ErrTagetExists: anyErr,
-			WantErr:        anyErr,
+			WantCode:        StatusBadRequest,
+			ErrTargetExists: anyErr,
+			WantErr:         anyErr,
 		},
 		{
 			Name: "source object internal error", Req: req, Stage: 3,
@@ -210,7 +210,7 @@ func Test_ReferenceAdd(t *testing.T) {
 			m.schemaManager.(*fakeSchemaManager).GetschemaErr = tc.ErrSchema
 			m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 			if tc.Stage >= 2 {
-				m.repo.On("Exists", "", refID).Return(true, tc.ErrTagetExists).Once()
+				m.repo.On("Exists", "", refID).Return(true, tc.ErrTargetExists).Once()
 			}
 			if tc.Stage >= 3 {
 				m.repo.On("Exists", tc.Req.Class, tc.Req.ID).Return(!tc.SrcNotFound, tc.ErrSrcExists).Once()
@@ -268,12 +268,12 @@ func Test_ReferenceUpdate(t *testing.T) {
 		WantErr     error
 		SrcNotFound bool
 		// control errors
-		ErrPutRefs     error
-		ErrTagetExists error
-		ErrSrcExists   error
-		ErrAuth        error
-		ErrLock        error
-		ErrSchema      error
+		ErrPutRefs      error
+		ErrTargetExists error
+		ErrSrcExists    error
+		ErrAuth         error
+		ErrLock         error
+		ErrSchema       error
 		// Stage: 1 -> validation(), 2 -> target exists(), 3 -> PutObject()
 		Stage int
 	}{
@@ -331,9 +331,9 @@ func Test_ReferenceUpdate(t *testing.T) {
 		{Name: "update valid reference", Req: req, Stage: 3},
 		{
 			Name: "referenced class not found", Req: req, Stage: 2,
-			WantCode:       StatusBadRequest,
-			ErrTagetExists: anyErr,
-			WantErr:        anyErr,
+			WantCode:        StatusBadRequest,
+			ErrTargetExists: anyErr,
+			WantErr:         anyErr,
 		},
 		{
 			Name: "internal error", Req: req, Stage: 3,
@@ -360,7 +360,7 @@ func Test_ReferenceUpdate(t *testing.T) {
 			}
 			m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(srcObj, tc.ErrSrcExists)
 			if tc.Stage >= 2 {
-				m.repo.On("Exists", "", refID).Return(true, tc.ErrTagetExists).Once()
+				m.repo.On("Exists", "", refID).Return(true, tc.ErrTargetExists).Once()
 			}
 
 			if tc.Stage >= 3 {
@@ -406,7 +406,7 @@ func Test_ReferenceDelete(t *testing.T) {
 		}
 	)
 
-	fake_properties := func(refs ...*models.SingleRef) map[string]interface{} {
+	fakeProperties := func(refs ...*models.SingleRef) map[string]interface{} {
 		mrefs := make(models.MultipleRef, len(refs))
 		copy(mrefs, refs)
 		return map[string]interface{}{
@@ -427,12 +427,12 @@ func Test_ReferenceDelete(t *testing.T) {
 		WantErr     error
 		SrcNotFound bool
 		// control errors
-		ErrPutRefs     error
-		ErrTagetExists error
-		ErrSrcExists   error
-		ErrAuth        error
-		ErrLock        error
-		ErrSchema      error
+		ErrPutRefs      error
+		ErrTargetExists error
+		ErrSrcExists    error
+		ErrAuth         error
+		ErrLock         error
+		ErrSchema       error
 		// Stage: 1 -> validation(), 2 -> target exists(), 3 -> PutObject()
 		Stage int
 	}{
@@ -489,25 +489,25 @@ func Test_ReferenceDelete(t *testing.T) {
 		{
 			Name:       "delete one reference",
 			Req:        req,
-			properties: fake_properties(ref2, &ref, ref3), NewSrcRefsLen: 2,
+			properties: fakeProperties(ref2, &ref, ref3), NewSrcRefsLen: 2,
 			Stage: 3,
 		},
 		{
 			Name:       "delete two references",
 			Req:        req,
-			properties: fake_properties(&ref, ref2, &ref), NewSrcRefsLen: 1,
+			properties: fakeProperties(&ref, ref2, &ref), NewSrcRefsLen: 1,
 			Stage: 3,
 		},
 		{
 			Name:       "delete all references",
 			Req:        req,
-			properties: fake_properties(&ref, &ref), NewSrcRefsLen: 0,
+			properties: fakeProperties(&ref, &ref), NewSrcRefsLen: 0,
 			Stage: 3,
 		},
 		{
 			Name:       "reference not found",
 			Req:        req,
-			properties: fake_properties(ref2, ref3), NewSrcRefsLen: 2,
+			properties: fakeProperties(ref2, ref3), NewSrcRefsLen: 2,
 			Stage: 2,
 		},
 		{
@@ -525,7 +525,7 @@ func Test_ReferenceDelete(t *testing.T) {
 		{
 			Name:       "internal error",
 			Req:        req,
-			properties: fake_properties(ref2, &ref, ref3), NewSrcRefsLen: 3,
+			properties: fakeProperties(ref2, &ref, ref3), NewSrcRefsLen: 3,
 			Stage:      3,
 			WantCode:   StatusInternalServerError,
 			ErrPutRefs: anyErr,
@@ -681,8 +681,9 @@ func articleSchemaForTest() schema.Schema {
 					VectorIndexConfig: hnsw.UserConfig{},
 					Properties: []*models.Property{
 						{
-							Name:     "title",
-							DataType: []string{"string"},
+							Name:         "title",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "hasParagraphs",
@@ -711,8 +712,9 @@ func zooAnimalSchemaForTest() schema.Schema {
 					VectorIndexConfig: hnsw.UserConfig{},
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{"string"},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "area",
@@ -741,8 +743,9 @@ func zooAnimalSchemaForTest() schema.Schema {
 					VectorIndexConfig: hnsw.UserConfig{},
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{"string"},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},
@@ -751,8 +754,9 @@ func zooAnimalSchemaForTest() schema.Schema {
 					VectorIndexConfig: hnsw.UserConfig{},
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{"string"},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "area",
@@ -785,8 +789,9 @@ func zooAnimalSchemaForTest() schema.Schema {
 					VectorIndexConfig: hnsw.UserConfig{},
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{"string"},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},

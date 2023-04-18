@@ -128,26 +128,6 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 		// single level, primitive props + arrays
 		{
 			{
-				name: "valid string search",
-				filters: buildFilter(filters.OperatorEqual, []interface{}{"string_prop"},
-					schema.DataTypeString, "foo"),
-				expectedError: nil,
-			},
-		},
-		buildInvalidTests(filters.OperatorEqual, []interface{}{"string_prop"},
-			schema.DataTypeString, allValueTypesExcept(schema.DataTypeString), "foo"),
-		{
-			{
-				name: "valid string array search",
-				filters: buildFilter(filters.OperatorEqual, []interface{}{"string_array_prop"},
-					schema.DataTypeString, "foo"),
-				expectedError: nil,
-			},
-		},
-		buildInvalidTests(filters.OperatorEqual, []interface{}{"string_array_prop"},
-			schema.DataTypeStringArray, allValueTypesExcept(schema.DataTypeString), "foo"),
-		{
-			{
 				name: "valid text search",
 				filters: buildFilter(filters.OperatorEqual, []interface{}{"text_prop"},
 					schema.DataTypeText, "foo"),
@@ -155,7 +135,7 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 			},
 		},
 		buildInvalidTests(filters.OperatorEqual, []interface{}{"text_prop"},
-			schema.DataTypeText, allValueTypesExcept(schema.DataTypeText), "foo"),
+			schema.DataTypeText, allValueTypesExcept(schema.DataTypeText, schema.DataTypeString), "foo"),
 		{
 			{
 				name: "valid text array search",
@@ -165,7 +145,7 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 			},
 		},
 		buildInvalidTests(filters.OperatorEqual, []interface{}{"text_array_prop"},
-			schema.DataTypeTextArray, allValueTypesExcept(schema.DataTypeText), "foo"),
+			schema.DataTypeTextArray, allValueTypesExcept(schema.DataTypeText, schema.DataTypeString), "foo"),
 		{
 			{
 				name: "valid number search",
@@ -272,40 +252,40 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 			{
 				name: "valid nested filter",
 				filters: buildNestedFilter(filters.OperatorAnd,
-					buildFilter(filters.OperatorEqual, []interface{}{"string_prop"},
-						schema.DataTypeString, "foo"),
+					buildFilter(filters.OperatorEqual, []interface{}{"text_prop"},
+						schema.DataTypeText, "foo"),
 					buildFilter(filters.OperatorEqual, []interface{}{"int_prop"},
 						schema.DataTypeInt, "foo"),
 				),
 				expectedError: nil,
 			},
 		},
-		buildInvalidNestedTests(filters.OperatorEqual, []interface{}{"string_prop"},
-			schema.DataTypeString, allValueTypesExcept(schema.DataTypeString), "foo"),
+		buildInvalidNestedTests(filters.OperatorEqual, []interface{}{"text_prop"},
+			schema.DataTypeText, allValueTypesExcept(schema.DataTypeText, schema.DataTypeString), "foo"),
 
 		// cross-ref filters
 		{
 			{
 				name: "valid ref filter",
-				filters: buildFilter(filters.OperatorEqual, []interface{}{"ref_prop", "ClassTwo", "string_prop"},
-					schema.DataTypeString, "foo"),
+				filters: buildFilter(filters.OperatorEqual, []interface{}{"ref_prop", "ClassTwo", "text_prop"},
+					schema.DataTypeText, "foo"),
 				expectedError: nil,
 			},
 		},
-		buildInvalidTests(filters.OperatorEqual, []interface{}{"string_prop", "ClassTwo", "string_prop"},
-			schema.DataTypeString, allValueTypesExcept(schema.DataTypeString), "foo"),
+		buildInvalidTests(filters.OperatorEqual, []interface{}{"text_prop", "ClassTwo", "text_prop"},
+			schema.DataTypeText, allValueTypesExcept(schema.DataTypeText, schema.DataTypeString), "foo"),
 		{
 			{
 				name: "invalid ref filter, due to non-existing class",
-				filters: buildFilter(filters.OperatorEqual, []interface{}{"ref_prop", "ClassThree", "string_prop"},
-					schema.DataTypeString, "foo"),
+				filters: buildFilter(filters.OperatorEqual, []interface{}{"ref_prop", "ClassThree", "text_prop"},
+					schema.DataTypeText, "foo"),
 				expectedError: errors.Errorf("invalid 'where' filter: class " +
 					"\"ClassThree\" does not exist in schema"),
 			},
 			{
 				name: "invalid ref filter, due to non-existing prop on ref",
 				filters: buildFilter(filters.OperatorEqual, []interface{}{"ref_prop", "ClassTwo", "invalid_prop"},
-					schema.DataTypeString, "foo"),
+					schema.DataTypeText, "foo"),
 				expectedError: errors.Errorf("invalid 'where' filter: no such prop with name 'invalid_prop' " +
 					"found in class 'ClassTwo' " +
 					"in the schema. Check your schema files for which properties in this class are available"),
@@ -329,7 +309,7 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 			{
 				name: "filter by id",
 				filters: buildFilter(filters.OperatorEqual, []interface{}{"id"},
-					schema.DataTypeString, "foo"),
+					schema.DataTypeText, "foo"),
 				expectedError: nil,
 			},
 			{
@@ -338,7 +318,41 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 					schema.DataTypeInt, "foo"),
 				expectedError: errors.Errorf(
 					"invalid 'where' filter: using [\"_id\"] to filter by uuid: " +
-						"must use \"valueString\" to specify the id"),
+						"must use \"valueText\" to specify the id"),
+			},
+		},
+
+		// string and stringArray are deprecated as of v1.19
+		// however they are allowed in filters and considered aliases
+		// for text and textArray
+		{
+			{
+				name: "[deprecated string] valid text search",
+				filters: buildFilter(filters.OperatorEqual, []interface{}{"text_prop"},
+					schema.DataTypeString, "foo"),
+				expectedError: nil,
+			},
+			{
+				name: "[deprecated string] valid text array search",
+				filters: buildFilter(filters.OperatorEqual, []interface{}{"text_array_prop"},
+					schema.DataTypeString, "foo"),
+				expectedError: nil,
+			},
+			{
+				name: "[deprecated string] valid nested filter",
+				filters: buildNestedFilter(filters.OperatorAnd,
+					buildFilter(filters.OperatorEqual, []interface{}{"text_prop"},
+						schema.DataTypeString, "foo"),
+					buildFilter(filters.OperatorEqual, []interface{}{"int_prop"},
+						schema.DataTypeInt, "foo"),
+				),
+				expectedError: nil,
+			},
+			{
+				name: "[deprecated string] valid ref filter",
+				filters: buildFilter(filters.OperatorEqual, []interface{}{"ref_prop", "ClassTwo", "text_prop"},
+					schema.DataTypeString, "foo"),
+				expectedError: nil,
 			},
 		},
 	}
@@ -413,20 +427,12 @@ func schemaForFiltersValidation() schema.Schema {
 					Class: "ClassOne",
 					Properties: []*models.Property{
 						{
-							Name:     "string_prop",
-							DataType: []string{string(schema.DataTypeString)},
-						},
-						{
 							Name:     "text_prop",
-							DataType: []string{string(schema.DataTypeText)},
-						},
-						{
-							Name:     "string_array_prop",
-							DataType: []string{string(schema.DataTypeStringArray)},
+							DataType: schema.DataTypeText.PropString(),
 						},
 						{
 							Name:     "text_array_prop",
-							DataType: []string{string(schema.DataTypeTextArray)},
+							DataType: schema.DataTypeTextArray.PropString(),
 						},
 						{
 							Name:     "number_prop",
@@ -482,8 +488,8 @@ func schemaForFiltersValidation() schema.Schema {
 					Class: "ClassTwo",
 					Properties: []*models.Property{
 						{
-							Name:     "string_prop",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:     "text_prop",
+							DataType: schema.DataTypeText.PropString(),
 						},
 					},
 				},
@@ -528,7 +534,7 @@ func buildNestedFilter(op filters.Operator,
 	return out
 }
 
-func allValueTypesExcept(except schema.DataType) []schema.DataType {
+func allValueTypesExcept(except ...schema.DataType) []schema.DataType {
 	all := []schema.DataType{
 		schema.DataTypeString,
 		schema.DataTypeText,
@@ -540,16 +546,19 @@ func allValueTypesExcept(except schema.DataType) []schema.DataType {
 		schema.DataTypeDate,
 	}
 
-	out := make([]schema.DataType, len(all)-1)
+	out := make([]schema.DataType, 0, len(all))
 
 	i := 0
+outer:
 	for _, dt := range all {
-		if dt == except {
-			continue
+		for _, exc := range except {
+			if dt == exc {
+				continue outer
+			}
 		}
-		out[i] = dt
+		out = append(out, dt)
 		i++
 	}
 
-	return out
+	return out[:i]
 }

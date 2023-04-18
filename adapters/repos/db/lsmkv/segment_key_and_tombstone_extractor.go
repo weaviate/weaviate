@@ -35,7 +35,7 @@ type bufferedKeyAndTombstoneExtractor struct {
 	callbackCycle       int
 }
 
-type keyAndTombstoneCallbackFn func(key []byte, tomstone bool)
+type keyAndTombstoneCallbackFn func(key []byte, tombstone bool)
 
 func newBufferedKeyAndTombstoneExtractor(rawSegment []byte, initialOffset uint64,
 	end uint64, outputBufferSize uint64, secondaryIndexCount uint16,
@@ -87,7 +87,7 @@ func (e *bufferedKeyAndTombstoneExtractor) readSingleEntry() bool {
 		return false
 	}
 
-	// copy tomstone value into output buffer
+	// copy tombstone value into output buffer
 	e.outputBuffer[e.outputBufferOffset] = e.rawSegment[e.offset]
 	e.offset++
 	e.outputBufferOffset++

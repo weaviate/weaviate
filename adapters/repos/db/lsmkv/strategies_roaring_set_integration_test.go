@@ -87,7 +87,7 @@ func TestRoaringSetStrategy_InsertAndSetAdd(t *testing.T) {
 
 			res, err = b.RoaringSetGet(key2)
 			require.Nil(t, err)
-			for _, testVal := range []uint64{3, 4, 5} { // ectended with 5
+			for _, testVal := range []uint64{3, 4, 5} { // extended with 5
 				assert.True(t, res.Contains(testVal))
 			}
 
@@ -166,7 +166,7 @@ func TestRoaringSetStrategy_InsertAndSetAdd(t *testing.T) {
 
 			res, err = b.RoaringSetGet(key2)
 			require.Nil(t, err)
-			for _, testVal := range []uint64{3, 4, 5} { // ectended with 5
+			for _, testVal := range []uint64{3, 4, 5} { // extended with 5
 				assert.True(t, res.Contains(testVal))
 			}
 

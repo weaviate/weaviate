@@ -100,8 +100,7 @@ func (a *Aggregator) aggTypeOfProperty(
 		return aggregation.PropertyTypeNumerical, dt, nil
 	case schema.DataTypeBoolean, schema.DataTypeBooleanArray:
 		return aggregation.PropertyTypeBoolean, dt, nil
-	case schema.DataTypeText, schema.DataTypeString, schema.DataTypeTextArray,
-		schema.DataTypeStringArray:
+	case schema.DataTypeText, schema.DataTypeTextArray:
 		return aggregation.PropertyTypeText, dt, nil
 	case schema.DataTypeDate, schema.DataTypeDateArray:
 		return aggregation.PropertyTypeDate, dt, nil

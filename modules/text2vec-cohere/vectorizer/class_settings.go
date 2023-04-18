@@ -44,13 +44,13 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{cfg: cfg}
 }
 
-func (ic *classSettings) PropertyIndexed(propName string) bool {
-	if ic.cfg == nil {
+func (cs *classSettings) PropertyIndexed(propName string) bool {
+	if cs.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return DefaultPropertyIndexed
 	}
 
-	vcn, ok := ic.cfg.Property(propName)["skip"]
+	vcn, ok := cs.cfg.Property(propName)["skip"]
 	if !ok {
 		return DefaultPropertyIndexed
 	}
@@ -63,12 +63,12 @@ func (ic *classSettings) PropertyIndexed(propName string) bool {
 	return !asBool
 }
 
-func (ic *classSettings) VectorizePropertyName(propName string) bool {
-	if ic.cfg == nil {
+func (cs *classSettings) VectorizePropertyName(propName string) bool {
+	if cs.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return DefaultVectorizePropertyName
 	}
-	vcn, ok := ic.cfg.Property(propName)["vectorizePropertyName"]
+	vcn, ok := cs.cfg.Property(propName)["vectorizePropertyName"]
 	if !ok {
 		return DefaultVectorizePropertyName
 	}
@@ -81,21 +81,21 @@ func (ic *classSettings) VectorizePropertyName(propName string) bool {
 	return asBool
 }
 
-func (ic *classSettings) Model() string {
-	return ic.getProperty("model", DefaultCohereModel)
+func (cs *classSettings) Model() string {
+	return cs.getProperty("model", DefaultCohereModel)
 }
 
-func (ic *classSettings) Truncate() string {
-	return ic.getProperty("truncate", DefaultTruncate)
+func (cs *classSettings) Truncate() string {
+	return cs.getProperty("truncate", DefaultTruncate)
 }
 
-func (ic *classSettings) VectorizeClassName() bool {
-	if ic.cfg == nil {
+func (cs *classSettings) VectorizeClassName() bool {
+	if cs.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return DefaultVectorizeClassName
 	}
 
-	vcn, ok := ic.cfg.Class()["vectorizeClassName"]
+	vcn, ok := cs.cfg.Class()["vectorizeClassName"]
 	if !ok {
 		return DefaultVectorizeClassName
 	}
@@ -108,22 +108,22 @@ func (ic *classSettings) VectorizeClassName() bool {
 	return asBool
 }
 
-func (ic *classSettings) Validate(class *models.Class) error {
-	if ic.cfg == nil {
+func (cs *classSettings) Validate(class *models.Class) error {
+	if cs.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
 
-	model := ic.Model()
-	if !ic.validateCohereSetting(model, append(availableCohereModels, experimetnalCohereModels...)) {
+	model := cs.Model()
+	if !cs.validateCohereSetting(model, append(availableCohereModels, experimetnalCohereModels...)) {
 		return errors.Errorf("wrong Cohere model name, available model names are: %v", availableCohereModels)
 	}
-	truncate := ic.Truncate()
-	if !ic.validateCohereSetting(truncate, availableTruncates) {
+	truncate := cs.Truncate()
+	if !cs.validateCohereSetting(truncate, availableTruncates) {
 		return errors.Errorf("wrong truncate type, available types are: %v", availableTruncates)
 	}
 
-	err := ic.validateIndexState(class, ic)
+	err := cs.validateIndexState(class, cs)
 	if err != nil {
 		return err
 	}
@@ -131,7 +131,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	return nil
 }
 
-func (ic *classSettings) validateCohereSetting(value string, availableValues []string) bool {
+func (cs *classSettings) validateCohereSetting(value string, availableValues []string) bool {
 	for i := range availableValues {
 		if value == availableValues[i] {
 			return true
@@ -140,13 +140,13 @@ func (ic *classSettings) validateCohereSetting(value string, availableValues []s
 	return false
 }
 
-func (ic *classSettings) getProperty(name, defaultValue string) string {
-	if ic.cfg == nil {
+func (cs *classSettings) getProperty(name, defaultValue string) string {
+	if cs.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return defaultValue
 	}
 
-	model, ok := ic.cfg.Class()[name]
+	model, ok := cs.cfg.Class()[name]
 	if ok {
 		asString, ok := model.(string)
 		if ok {
@@ -161,7 +161,7 @@ func (ic *classSettings) getProperty(name, defaultValue string) string {
 	return defaultValue
 }
 
-func (cv *classSettings) validateIndexState(class *models.Class, settings ClassSettings) error {
+func (cs *classSettings) validateIndexState(class *models.Class, settings ClassSettings) error {
 	if settings.VectorizeClassName() {
 		// if the user chooses to vectorize the classname, vector-building will
 		// always be possible, no need to investigate further
@@ -177,8 +177,7 @@ func (cv *classSettings) validateIndexState(class *models.Class, settings ClassS
 				"got %v", prop.Name, prop.DataType)
 		}
 
-		if prop.DataType[0] != string(schema.DataTypeString) &&
-			prop.DataType[0] != string(schema.DataTypeText) {
+		if prop.DataType[0] != string(schema.DataTypeText) {
 			// we can only vectorize text-like props
 			continue
 		}

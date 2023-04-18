@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func SchemaFromDataset(ds Dataset) *models.Class {
@@ -48,9 +49,9 @@ func SchemaFromDataset(ds Dataset) *models.Class {
 		f := false
 		prop := &models.Property{
 			Name:          SanitizePropName(prop),
-			DataType:      []string{"string"},
+			DataType:      schema.DataTypeText.PropString(),
+			Tokenization:  models.PropertyTokenizationField,
 			IndexInverted: &f,
-			Tokenization:  "field",
 		}
 
 		out.Properties = append(out.Properties, prop)
@@ -86,7 +87,7 @@ func ClassNameFromDatasetID(in string) string {
 
 func SanitizePropName(in string) string {
 	if len(in) >= 2 && in[0] == '_' && in[1] != '_' {
-		// single leading underscore is reseved, but we can append another one
+		// single leading underscore is reserved, but we can append another one
 		return "_" + in
 	}
 

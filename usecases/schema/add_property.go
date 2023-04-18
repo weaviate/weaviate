@@ -46,17 +46,19 @@ func (m *Manager) addClassProperty(ctx context.Context,
 	}
 	prop.Name = schema.LowercaseFirstLetter(prop.Name)
 
-	if err := m.setNewPropDefaults(class, prop); err != nil {
-		return err
-	}
-
 	existingPropertyNames := map[string]bool{}
 	for _, existingProperty := range class.Properties {
 		existingPropertyNames[strings.ToLower(existingProperty.Name)] = true
 	}
+
+	if err := m.setNewPropDefaults(class, prop); err != nil {
+		return err
+	}
 	if err := m.validateProperty(prop, className, existingPropertyNames, false); err != nil {
 		return err
 	}
+	// migrate only after validation in completed
+	m.migratePropertySettings(prop)
 
 	tx, err := m.cluster.BeginTransaction(ctx, AddProperty,
 		AddPropertyPayload{className, prop}, DefaultTxTTL)

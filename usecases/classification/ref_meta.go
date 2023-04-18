@@ -33,7 +33,7 @@ func (r NeighborRef) Meta() *models.ReferenceMetaClassification {
 		WinningCount:           int64(r.WinningCount),
 		LosingCount:            int64(r.LosingCount),
 		ClosestOverallDistance: float64(r.Distances.ClosestOverallDistance),
-		WinningDistance:        float64(r.Distances.MeanWinningDistance), // deprectaed, remove in 0.23.0
+		WinningDistance:        float64(r.Distances.MeanWinningDistance), // deprecated, remove in 0.23.0
 		MeanWinningDistance:    float64(r.Distances.MeanWinningDistance),
 		ClosestWinningDistance: float64(r.Distances.ClosestWinningDistance),
 	}

@@ -54,7 +54,7 @@ func (f *finderStream) readOne(ctx context.Context,
 	go func() {
 		defer close(resultCh)
 		var (
-			votes      = make([]objTuple, 0, len(st.Hosts))
+			votes      = make([]objTuple, 0, st.Level)
 			maxCount   = 0
 			contentIdx = -1
 		)
@@ -118,71 +118,6 @@ type (
 	}
 )
 
-// readAll reads in replicated objects specified by their ids
-func (f *finderStream) readAll(ctx context.Context,
-	shard string,
-	ids []strfmt.UUID,
-	ch <-chan _Result[batchReply], st rState,
-) <-chan batchResult {
-	resultCh := make(chan batchResult, 1)
-
-	go func() {
-		defer close(resultCh)
-		var (
-			N = len(ids) // number of requested objects
-			// votes counts number of votes per object for each node
-			votes      = make([]vote, 0, len(st.Hosts))
-			contentIdx = -1 // index of full read reply
-		)
-
-		for r := range ch { // len(ch) == st.Level
-			resp := r.Value
-			if r.Err != nil { // at least one node is not responding
-				f.log.WithField("op", "get").WithField("replica", r.Value.Sender).
-					WithField("class", f.class).WithField("shard", shard).Error(r.Err)
-				resultCh <- batchResult{nil, errRead}
-				return
-			}
-			if !resp.IsDigest {
-				contentIdx = len(votes)
-			}
-
-			votes = append(votes, vote{resp, make([]int, N), nil})
-			M := 0
-			for i := 0; i < N; i++ {
-				max := 0
-				lastTime := resp.UpdateTimeAt(i)
-
-				for j := range votes { // count votes
-					if votes[j].UpdateTimeAt(i) == lastTime {
-						votes[j].Count[i]++
-					}
-					if max < votes[j].Count[i] {
-						max = votes[j].Count[i]
-					}
-				}
-				if max >= st.Level {
-					M++
-				}
-			}
-
-			if M == N {
-				resultCh <- batchResult{fromReplicas(votes[contentIdx].FullData), nil}
-				return
-			}
-		}
-		res, err := f.repairAll(ctx, shard, ids, votes, st, contentIdx)
-		if err == nil {
-			resultCh <- batchResult{res, nil}
-		}
-		resultCh <- batchResult{nil, errRepair}
-		f.log.WithField("op", "repair_all").WithField("class", f.class).
-			WithField("shard", shard).WithField("uuids", ids).Error(err)
-	}()
-
-	return resultCh
-}
-
 type boolTuple tuple[RepairResponse]
 
 // readExistence checks if replicated object exists
@@ -196,7 +131,7 @@ func (f *finderStream) readExistence(ctx context.Context,
 	go func() {
 		defer close(resultCh)
 		var (
-			votes    = make([]boolTuple, 0, len(st.Hosts)) // number of votes per replica
+			votes    = make([]boolTuple, 0, st.Level) // number of votes per replica
 			maxCount = 0
 		)
 
@@ -244,6 +179,95 @@ func (f *finderStream) readExistence(ctx context.Context,
 			WithField("shard", shard).WithField("uuid", id).
 			WithField("msg", sb.String()).Error(err)
 	}()
+	return resultCh
+}
+
+// readBatchPart reads in replicated objects specified by their ids
+// It checks each object x for consistency and sets x.IsConsistent
+func (f *finderStream) readBatchPart(ctx context.Context,
+	batch shardPart,
+	ids []strfmt.UUID,
+	ch <-chan _Result[batchReply], st rState,
+) <-chan batchResult {
+	resultCh := make(chan batchResult, 1)
+
+	go func() {
+		defer close(resultCh)
+		var (
+			N = len(ids) // number of requested objects
+			// votes counts number of votes per object for each node
+			votes      = make([]vote, 0, st.Level)
+			contentIdx = -1 // index of full read reply
+		)
+
+		for r := range ch { // len(ch) == st.Level
+			resp := r.Value
+			if r.Err != nil { // at least one node is not responding
+				f.log.WithField("op", "read_batch.get").WithField("replica", r.Value.Sender).
+					WithField("class", f.class).WithField("shard", batch.Shard).Error(r.Err)
+				resultCh <- batchResult{nil, errRead}
+				return
+			}
+			if !resp.IsDigest {
+				contentIdx = len(votes)
+			}
+
+			votes = append(votes, vote{resp, make([]int, N), nil})
+			M := 0
+			for i := 0; i < N; i++ {
+				max := 0
+				lastTime := resp.UpdateTimeAt(i)
+
+				for j := range votes { // count votes
+					if votes[j].UpdateTimeAt(i) == lastTime {
+						votes[j].Count[i]++
+					}
+					if max < votes[j].Count[i] {
+						max = votes[j].Count[i]
+					}
+				}
+				if max >= st.Level {
+					M++
+				}
+			}
+
+			if M == N { // all objects are consistent
+				for _, idx := range batch.Index {
+					batch.Data[idx].IsConsistent = true
+				}
+				resultCh <- batchResult{fromReplicas(votes[contentIdx].FullData), nil}
+				return
+			}
+		}
+		res, err := f.repairBatchPart(ctx, batch.Shard, ids, votes, st, contentIdx)
+		if err != nil {
+			resultCh <- batchResult{nil, errRepair}
+			f.log.WithField("op", "repair_batch").WithField("class", f.class).
+				WithField("shard", batch.Shard).WithField("uuids", ids).Error(err)
+			return
+		}
+		// count total number of votes
+		maxCount := len(votes) * len(votes)
+		sum := votes[0].Count
+		for _, vote := range votes[1:] {
+			for i, n := range vote.Count {
+				sum[i] += n
+			}
+		}
+		// set consistency flag
+		for i, n := range sum {
+			if n == maxCount { // if consistent
+				prev := batch.Data[batch.Index[i]]
+				res[i].BelongsToShard = prev.BelongsToShard
+				res[i].BelongsToNode = prev.BelongsToNode
+				batch.Data[batch.Index[i]] = res[i]
+				res[i].IsConsistent = true
+			}
+		}
+
+		resultCh <- batchResult{res, nil}
+	}()
+
 	return resultCh
 }
 

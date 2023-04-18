@@ -190,7 +190,7 @@ func (b *referencesBatcher) writeInverted(in inverted.DeltaMergeResult) error {
 func (b *referencesBatcher) writeInvertedDeletions(
 	in []inverted.MergeProperty,
 ) error {
-	// in the references batcher we can only ever write ref count entires which
+	// in the references batcher we can only ever write ref count entire which
 	// are guaranteed to be not have a frequency, meaning they will use the
 	// "Set" strategy in the lsmkv store
 	for _, prop := range in {
@@ -221,7 +221,7 @@ func (b *referencesBatcher) writeInvertedDeletions(
 func (b *referencesBatcher) writeInvertedAdditions(
 	in []inverted.MergeProperty,
 ) error {
-	// in the references batcher we can only ever write ref count entires which
+	// in the references batcher we can only ever write ref count entire which
 	// are guaranteed to be not have a frequency, meaning they will use the
 	// "Set" strategy in the lsmkv store
 	for _, prop := range in {

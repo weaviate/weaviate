@@ -524,7 +524,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 					},
 					Value: &filters.Value{
 						Value: "elephant",
-						Type:  schema.DataType("text"),
+						Type:  schema.DataTypeText,
 					},
 				},
 				{
@@ -535,7 +535,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 					},
 					Value: &filters.Value{
 						Value: "elephant",
-						Type:  schema.DataType("string"),
+						Type:  schema.DataTypeText,
 					},
 				},
 			},
@@ -554,7 +554,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 					},
 					Value: &filters.Value{
 						Value: "My",
-						Type:  schema.DataType("text"),
+						Type:  schema.DataTypeText,
 					},
 				},
 				{
@@ -565,7 +565,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 					},
 					Value: &filters.Value{
 						Value: "journeys",
-						Type:  schema.DataType("text"),
+						Type:  schema.DataTypeText,
 					},
 				},
 			},

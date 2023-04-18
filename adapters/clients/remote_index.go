@@ -598,13 +598,13 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
 	}
 
-	bactchDeleteResults, err := clusterapi.IndicesPayloads.BatchDeleteResults.Unmarshal(resBytes)
+	batchDeleteResults, err := clusterapi.IndicesPayloads.BatchDeleteResults.Unmarshal(resBytes)
 	if err != nil {
 		err := errors.Wrap(err, "unmarshal body")
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
 	}
 
-	return bactchDeleteResults
+	return batchDeleteResults
 }
 
 func (c *RemoteIndex) GetShardStatus(ctx context.Context,

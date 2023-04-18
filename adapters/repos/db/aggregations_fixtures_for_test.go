@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -29,8 +30,8 @@ var productClass = &models.Class{
 	Properties: []*models.Property{
 		{
 			Name:         "name",
-			DataType:     []string{"string"},
-			Tokenization: "word",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
 		},
 	},
 }
@@ -42,8 +43,8 @@ var companyClass = &models.Class{
 	Properties: []*models.Property{
 		{
 			Name:         "sector",
-			DataType:     []string{"string"},
-			Tokenization: "word",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
 		},
 		{
 			Name:         "location",
@@ -77,8 +78,8 @@ var arrayTypesClass = &models.Class{
 	Properties: []*models.Property{
 		{
 			Name:         "strings",
-			DataType:     []string{"string[]"},
-			Tokenization: "word",
+			DataType:     schema.DataTypeTextArray.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
 		},
 		{
 			Name:     "numbers",
@@ -93,16 +94,18 @@ var customerClass = &models.Class{
 	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{
-			Name:     "internalId",
-			DataType: []string{"string"},
+			Name:         "internalId",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
 		},
 		{
 			Name:     "timeArrived",
 			DataType: []string{"date"},
 		},
 		{
-			Name:     "countryOfOrigin",
-			DataType: []string{"string"},
+			Name:         "countryOfOrigin",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
 		},
 	},
 }

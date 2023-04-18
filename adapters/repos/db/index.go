@@ -66,6 +66,20 @@ type Index struct {
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
 
+	// This lock should be used together with the db indexLock.
+	//
+	// The db indexlock locks the map that contains all indices against changes and should be used while iterating.
+	// This lock protects this specific index form being deleted while in use. Use Rlock to signale that it is in use.
+	// This way many goroutines can use a specific index in parallel. The delete-routine will try to acquire a RWlock.
+	//
+	// Usage:
+	// Lock the whole db using db.indexLock
+	// pick the indices you want and Rlock them
+	// unlock db.indexLock
+	// Use the indices
+	// RUnlock all picked indices
+	dropIndex sync.RWMutex
+
 	metrics         *Metrics
 	centralJobQueue chan job
 }
@@ -876,8 +890,8 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		if replProps == nil {
 			replProps = defaultConsistency(replica.One)
 		}
-		outObjects, outScores, err = i.replicator.CheckConsistency(ctx,
-			replica.ConsistencyLevel(replProps.ConsistencyLevel), outObjects, outScores)
+		l := replica.ConsistencyLevel(replProps.ConsistencyLevel)
+		err = i.replicator.CheckConsistency(ctx, l, outObjects)
 		if err != nil {
 			return nil, nil, fmt.Errorf(
 				"failed to check consistency of search results: %w", err)
@@ -908,7 +922,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
 				if err != nil {
 					return fmt.Errorf(
-						"local shard object serach %s: %w", shard.ID(), err)
+						"local shard object search %s: %w", shard.ID(), err)
 				}
 				if i.replicationEnabled() {
 					storobj.AddOwnership(objs, i.getSchema.NodeName(), shardName)

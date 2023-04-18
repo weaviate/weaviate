@@ -15,8 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/client/schema"
+	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -28,8 +29,9 @@ func Test_Batch(t *testing.T) {
 			Class: "BulkTest",
 			Properties: []*models.Property{
 				{
-					Name:     "name",
-					DataType: []string{"string"},
+					Name:         "name",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				},
 			},
 		})
@@ -37,8 +39,9 @@ func Test_Batch(t *testing.T) {
 			Class: "BulkTestSource",
 			Properties: []*models.Property{
 				{
-					Name:     "name",
-					DataType: []string{"string"},
+					Name:         "name",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				},
 				{
 					Name:     "ref",
@@ -73,13 +76,13 @@ func Test_Batch(t *testing.T) {
 }
 
 func createObjectClass(t *testing.T, class *models.Class) {
-	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
+	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 }
 
 func deleteObjectClass(t *testing.T, class string) {
-	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
+	delParams := clschema.NewSchemaObjectsDeleteParams().WithClassName(class)
 	delRes, err := helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil)
 	helper.AssertRequestOk(t, delRes, err, nil)
 }
