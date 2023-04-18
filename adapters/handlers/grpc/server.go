@@ -14,7 +14,6 @@ package grpc
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"time"
 
@@ -24,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	pb "github.com/weaviate/weaviate/grpc"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"google.golang.org/grpc"
 )
@@ -36,9 +36,13 @@ func StartAndListen(port int, state *state.State) error {
 	s := grpc.NewServer()
 	pb.RegisterWeaviateServer(s, &Server{
 		traverser: state.Traverser,
+		authComposer: composer.New(
+			state.ServerConfig.Config.Authentication,
+			state.APIKey, state.OIDC),
 	})
-	// TODO: use proper logger
-	log.Printf("grpc server listening at %v", lis.Addr())
+	state.Logger.WithField("action", "grpc_startup").
+		Infof("grpc server listening at %v", lis.Addr())
+
 	if err := s.Serve(lis); err != nil {
 		return fmt.Errorf("failed to serve: %v", err)
 	}
@@ -48,13 +52,19 @@ func StartAndListen(port int, state *state.State) error {
 
 type Server struct {
 	pb.UnimplementedWeaviateServer
-	traverser *traverser.Traverser
+	traverser    *traverser.Traverser
+	authComposer composer.TokenFunc
 }
 
 func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
 	before := time.Now()
-	// TODO: auth
-	res, err := s.traverser.GetClass(ctx, nil, searchParamsFromProto(req))
+
+	principal, err := s.principalFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("extract auth: %w", err)
+	}
+
+	res, err := s.traverser.GetClass(ctx, principal, searchParamsFromProto(req))
 	if err != nil {
 		return nil, err
 	}
