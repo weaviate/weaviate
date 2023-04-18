@@ -234,8 +234,11 @@ case $CONFIG in
 
   local-apikey)
       AUTHENTICATION_APIKEY_ENABLED=true \
-      AUTHENTICATION_APIKEY_ALLOWED_KEYS=my-secret-key,your-secret-key \
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS=my-secret-key \
+      AUTHENTICATION_APIKEY_USERS=john@doe.com \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=false \
+      AUTHORIZATION_ADMINLIST_ENABLED=true \
+      AUTHORIZATION_ADMINLIST_USERS=john@doe.com \
       DEFAULT_VECTORIZER_MODULE=none \
       go_run ./cmd/weaviate-server \
         --scheme http \

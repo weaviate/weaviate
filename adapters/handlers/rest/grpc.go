@@ -12,8 +12,6 @@
 package rest
 
 import (
-	"log"
-
 	"github.com/weaviate/weaviate/adapters/handlers/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 )
@@ -24,8 +22,8 @@ func setupGrpc(state *state.State) {
 	go func() {
 		port := 50051 // TODO: make configurable
 		if err := grpc.StartAndListen(port, state); err != nil {
-			// TODO: use proper logger
-			log.Fatalf("failed to serve: %v", err)
+			state.Logger.WithField("action", "grpc_startup").WithError(err).
+				Fatal("failed to start grpc server")
 		}
 	}()
 }
