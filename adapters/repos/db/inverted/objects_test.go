@@ -782,7 +782,6 @@ func TestIndexInverted(t *testing.T) {
 	t.Run("is filterable", func(t *testing.T) {
 		type testCase struct {
 			name         string
-			isInverted   *bool
 			isFilterable *bool
 			dataType     schema.DataType
 
@@ -791,145 +790,42 @@ func TestIndexInverted(t *testing.T) {
 
 		testCases := []testCase{
 			{
-				name:         "int, inverted null, filterable null",
-				isInverted:   nil,
+				name:         "int, filterable null",
 				isFilterable: nil,
 				dataType:     schema.DataTypeInt,
 
 				expextedFilterable: true,
 			},
 			{
-				name:         "int, inverted false, filterable null",
-				isInverted:   &vFalse,
-				isFilterable: nil,
-				dataType:     schema.DataTypeInt,
-
-				expextedFilterable: false,
-			},
-			{
-				name:         "int, inverted true, filterable null",
-				isInverted:   &vTrue,
-				isFilterable: nil,
-				dataType:     schema.DataTypeInt,
-
-				expextedFilterable: true,
-			},
-			{
-				name:         "int, inverted null, filterable false",
-				isInverted:   nil,
+				name:         "int, filterable false",
 				isFilterable: &vFalse,
 				dataType:     schema.DataTypeInt,
 
 				expextedFilterable: false,
 			},
 			{
-				name:         "int, inverted false, filterable false",
-				isInverted:   &vFalse,
-				isFilterable: &vFalse,
-				dataType:     schema.DataTypeInt,
-
-				expextedFilterable: false,
-			},
-			{
-				name:         "int, inverted true, filterable false",
-				isInverted:   &vTrue,
-				isFilterable: &vFalse,
-				dataType:     schema.DataTypeInt,
-
-				expextedFilterable: false,
-			},
-			{
-				name:         "int, inverted null, filterable true",
-				isInverted:   nil,
+				name:         "int, filterable true",
 				isFilterable: &vTrue,
 				dataType:     schema.DataTypeInt,
 
 				expextedFilterable: true,
 			},
 			{
-				name:         "int, inverted false, filterable true",
-				isInverted:   &vFalse,
-				isFilterable: &vTrue,
-				dataType:     schema.DataTypeInt,
-
-				expextedFilterable: true,
-			},
-			{
-				name:         "int, inverted true, filterable true",
-				isInverted:   &vTrue,
-				isFilterable: &vTrue,
-				dataType:     schema.DataTypeInt,
-
-				expextedFilterable: true,
-			},
-
-			{
-				name:         "text, inverted null, filterable null",
-				isInverted:   nil,
+				name:         "text, filterable null",
 				isFilterable: nil,
 				dataType:     schema.DataTypeText,
 
 				expextedFilterable: true,
 			},
 			{
-				name:         "text, inverted false, filterable null",
-				isInverted:   &vFalse,
-				isFilterable: nil,
-				dataType:     schema.DataTypeText,
-
-				expextedFilterable: false,
-			},
-			{
-				name:         "text, inverted true, filterable null",
-				isInverted:   &vTrue,
-				isFilterable: nil,
-				dataType:     schema.DataTypeText,
-
-				expextedFilterable: true,
-			},
-			{
-				name:         "text, inverted null, filterable false",
-				isInverted:   nil,
+				name:         "text, filterable false",
 				isFilterable: &vFalse,
 				dataType:     schema.DataTypeText,
 
 				expextedFilterable: false,
 			},
 			{
-				name:         "text, inverted false, filterable false",
-				isInverted:   &vFalse,
-				isFilterable: &vFalse,
-				dataType:     schema.DataTypeText,
-
-				expextedFilterable: false,
-			},
-			{
-				name:         "text, inverted true, filterable false",
-				isInverted:   &vTrue,
-				isFilterable: &vFalse,
-				dataType:     schema.DataTypeText,
-
-				expextedFilterable: false,
-			},
-			{
-				name:         "text, inverted null, filterable true",
-				isInverted:   nil,
-				isFilterable: &vTrue,
-				dataType:     schema.DataTypeText,
-
-				expextedFilterable: true,
-			},
-			{
-				name:         "text, inverted false, filterable true",
-				isInverted:   &vFalse,
-				isFilterable: &vTrue,
-				dataType:     schema.DataTypeText,
-
-				expextedFilterable: true,
-			},
-			{
-				name:         "text, inverted true, filterable true",
-				isInverted:   &vTrue,
+				name:         "text, filterable true",
 				isFilterable: &vTrue,
 				dataType:     schema.DataTypeText,
 
@@ -942,7 +838,6 @@ func TestIndexInverted(t *testing.T) {
 				isFilterable := IsFilterable(&models.Property{
 					Name:            "prop",
 					DataType:        tc.dataType.PropString(),
-					IndexInverted:   tc.isInverted,
 					IndexFilterable: tc.isFilterable,
 				})
 
@@ -954,7 +849,6 @@ func TestIndexInverted(t *testing.T) {
 	t.Run("is searchable", func(t *testing.T) {
 		type testCase struct {
 			name         string
-			isInverted   *bool
 			isSearchable *bool
 			dataType     schema.DataType
 
@@ -963,145 +857,42 @@ func TestIndexInverted(t *testing.T) {
 
 		testCases := []testCase{
 			{
-				name:         "int, inverted null, searchable null",
-				isInverted:   nil,
+				name:         "int, searchable null",
 				isSearchable: nil,
 				dataType:     schema.DataTypeInt,
 
 				expextedSearchable: false,
 			},
 			{
-				name:         "int, inverted false, searchable null",
-				isInverted:   &vFalse,
-				isSearchable: nil,
-				dataType:     schema.DataTypeInt,
-
-				expextedSearchable: false,
-			},
-			{
-				name:         "int, inverted true, searchable null",
-				isInverted:   &vTrue,
-				isSearchable: nil,
-				dataType:     schema.DataTypeInt,
-
-				expextedSearchable: false,
-			},
-			{
-				name:         "int, inverted null, searchable false",
-				isInverted:   nil,
+				name:         "int, searchable false",
 				isSearchable: &vFalse,
 				dataType:     schema.DataTypeInt,
 
 				expextedSearchable: false,
 			},
 			{
-				name:         "int, inverted false, searchable false",
-				isInverted:   &vFalse,
-				isSearchable: &vFalse,
-				dataType:     schema.DataTypeInt,
-
-				expextedSearchable: false,
-			},
-			{
-				name:         "int, inverted true, searchable false",
-				isInverted:   &vTrue,
-				isSearchable: &vFalse,
-				dataType:     schema.DataTypeInt,
-
-				expextedSearchable: false,
-			},
-			{
-				name:         "int, inverted null, searchable true",
-				isInverted:   nil,
+				name:         "int, searchable true",
 				isSearchable: &vTrue,
 				dataType:     schema.DataTypeInt,
 
 				expextedSearchable: false,
 			},
 			{
-				name:         "int, inverted false, searchable true",
-				isInverted:   &vFalse,
-				isSearchable: &vTrue,
-				dataType:     schema.DataTypeInt,
-
-				expextedSearchable: false,
-			},
-			{
-				name:         "int, inverted true, searchable true",
-				isInverted:   &vTrue,
-				isSearchable: &vTrue,
-				dataType:     schema.DataTypeInt,
-
-				expextedSearchable: false,
-			},
-
-			{
-				name:         "text, inverted null, searchable null",
-				isInverted:   nil,
+				name:         "text, searchable null",
 				isSearchable: nil,
 				dataType:     schema.DataTypeText,
 
 				expextedSearchable: true,
 			},
 			{
-				name:         "text, inverted false, searchable null",
-				isInverted:   &vFalse,
-				isSearchable: nil,
-				dataType:     schema.DataTypeText,
-
-				expextedSearchable: false,
-			},
-			{
-				name:         "text, inverted true, searchable null",
-				isInverted:   &vTrue,
-				isSearchable: nil,
-				dataType:     schema.DataTypeText,
-
-				expextedSearchable: true,
-			},
-			{
-				name:         "text, inverted null, searchable false",
-				isInverted:   nil,
+				name:         "text, searchable false",
 				isSearchable: &vFalse,
 				dataType:     schema.DataTypeText,
 
 				expextedSearchable: false,
 			},
 			{
-				name:         "text, inverted false, searchable false",
-				isInverted:   &vFalse,
-				isSearchable: &vFalse,
-				dataType:     schema.DataTypeText,
-
-				expextedSearchable: false,
-			},
-			{
-				name:         "text, inverted true, searchable false",
-				isInverted:   &vTrue,
-				isSearchable: &vFalse,
-				dataType:     schema.DataTypeText,
-
-				expextedSearchable: false,
-			},
-			{
-				name:         "text, inverted null, searchable true",
-				isInverted:   nil,
-				isSearchable: &vTrue,
-				dataType:     schema.DataTypeText,
-
-				expextedSearchable: true,
-			},
-			{
-				name:         "text, inverted false, searchable true",
-				isInverted:   &vFalse,
-				isSearchable: &vTrue,
-				dataType:     schema.DataTypeText,
-
-				expextedSearchable: true,
-			},
-			{
-				name:         "text, inverted true, searchable true",
-				isInverted:   &vTrue,
+				name:         "text, searchable true",
 				isSearchable: &vTrue,
 				dataType:     schema.DataTypeText,
 
@@ -1114,7 +905,6 @@ func TestIndexInverted(t *testing.T) {
 				isSearchable := IsSearchable(&models.Property{
 					Name:            "prop",
 					DataType:        tc.dataType.PropString(),
-					IndexInverted:   tc.isInverted,
 					IndexSearchable: tc.isSearchable,
 				})
 
