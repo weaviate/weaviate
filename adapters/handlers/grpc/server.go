@@ -15,7 +15,11 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 	"time"
+
+	"github.com/weaviate/weaviate/entities/search"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -66,15 +70,16 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
 
-	res, err := s.traverser.GetClass(ctx, principal, searchParamsFromProto(req))
+	searchParams := searchParamsFromProto(req)
+	res, err := s.traverser.GetClass(ctx, principal, searchParams)
 	if err != nil {
 		return nil, err
 	}
 
-	return searchResultsToProto(res, before), nil
+	return searchResultsToProto(res, before, searchParams), nil
 }
 
-func searchResultsToProto(res []any, start time.Time) *pb.SearchReply {
+func searchResultsToProto(res []any, start time.Time, searchParams dto.GetParams) *pb.SearchReply {
 	tookSeconds := float64(time.Since(start)) / float64(time.Second)
 	out := &pb.SearchReply{
 		Took:    float32(tookSeconds),
@@ -87,19 +92,39 @@ func searchResultsToProto(res []any, start time.Time) *pb.SearchReply {
 			continue
 		}
 
-		idRaw, ok := asMap["id"]
-		if !ok {
+		props := make(map[string]interface{})
+		for _, prop := range searchParams.Properties {
+			propRaw, ok := asMap[prop.Name]
+			if !ok {
+				continue
+			}
+			props[prop.Name] = propRaw
+		}
+
+		newStruct, err := structpb.NewStruct(props)
+		if err != nil {
 			continue
 		}
 
-		idStrfmt, ok := idRaw.(strfmt.UUID)
-		if !ok {
-			continue
+		result := &pb.SearchResult{
+			Properties:           newStruct,
+			AdditionalProperties: &pb.AdditionalProps{},
 		}
 
-		out.Results[i] = &pb.SearchResult{
-			Id: idStrfmt.String(),
+		if searchParams.AdditionalProperties.ID {
+			idRaw, ok := asMap["id"]
+			if !ok {
+				continue
+			}
+
+			idStrfmt, ok := idRaw.(strfmt.UUID)
+			if !ok {
+				continue
+			}
+			result.AdditionalProperties.Id = idStrfmt.String()
 		}
+
+		out.Results[i] = result
 	}
 
 	return out
@@ -108,6 +133,27 @@ func searchResultsToProto(res []any, start time.Time) *pb.SearchReply {
 func searchParamsFromProto(req *pb.SearchRequest) dto.GetParams {
 	out := dto.GetParams{}
 	out.ClassName = req.ClassName
+
+	if req.Properties != nil && len(req.Properties) > 0 {
+		for _, prop := range req.Properties {
+			isPrimitive := strings.Contains(prop, "...")
+
+			// Todo: Ref Props
+			out.Properties = append(out.Properties, search.SelectProperty{
+				Name:        prop,
+				IsPrimitive: isPrimitive,
+			})
+		}
+	}
+
+	if req.AdditionalProperties != nil {
+		for _, addProp := range req.AdditionalProperties {
+			if addProp == "id" {
+				out.AdditionalProperties.ID = true
+			}
+		}
+	}
+
 	if req.NearVector != nil {
 		out.NearVector = &searchparams.NearVector{
 			Vector: req.NearVector.Vector,
