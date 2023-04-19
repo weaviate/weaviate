@@ -62,7 +62,6 @@ func Prop(p *models.Property) *models.Property {
 		Tokenization:    p.Tokenization,
 		IndexFilterable: ptrBoolCopy(p.IndexFilterable),
 		IndexSearchable: ptrBoolCopy(p.IndexSearchable),
-		IndexInverted:   ptrBoolCopy(p.IndexInverted), // TODO text_rbm_inverted_index remove
 	}
 }
 
