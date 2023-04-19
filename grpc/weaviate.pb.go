@@ -355,6 +355,7 @@ var (
 		(*SearchResult)(nil),     // 4: weaviategrpc.SearchResult
 	}
 )
+
 var file_grpc_weaviate_proto_depIdxs = []int32{
 	1, // 0: weaviategrpc.SearchRequest.nearVector:type_name -> weaviategrpc.NearVectorParams
 	2, // 1: weaviategrpc.SearchRequest.nearObject:type_name -> weaviategrpc.NearObjectParams
