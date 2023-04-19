@@ -612,7 +612,7 @@ const (
 	IsFilterableTimestampProp = true
 	IsSearchableTimestampProp = false
 
-	// TODO when?
+	// only if property.indexFilterable or property.indexSearchable set
 	IsFilterableMetaCount = true
 	IsSearchableMetaCount = false
 

@@ -231,16 +231,14 @@ func SetupFusionClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGett
 		Class:               "MyClass",
 		Properties: []*models.Property{
 			{
-				Name:          "title",
-				DataType:      []string{string(schema.DataTypeText)},
-				Tokenization:  "word",
-				IndexInverted: truePointer(),
+				Name:         "title",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWord,
 			},
 			{
-				Name:          "description",
-				DataType:      []string{string(schema.DataTypeText)},
-				Tokenization:  "word",
-				IndexInverted: truePointer(),
+				Name:         "description",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWord,
 			},
 		},
 	}
