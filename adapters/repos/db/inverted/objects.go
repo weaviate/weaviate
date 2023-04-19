@@ -563,18 +563,12 @@ func convertToUntyped[T comparable](in []T) []any {
 // Index contains document ids having property of given value
 // and number of occurrences in the property
 // (index created with help of bucket of StrategyMapCollection)
-// TODO implement
 func IsSearchable(prop *models.Property) bool {
 	switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 	case schema.DataTypeText, schema.DataTypeTextArray:
 		// by default property is searchable only for text/text[] props
 		if prop.IndexSearchable == nil {
-			// but if indexInverted is explicitly set
-			// use its setting as backward compatible
-			if prop.IndexInverted == nil {
-				return true
-			}
-			return *prop.IndexInverted
+			return true
 		}
 		return *prop.IndexSearchable
 	default:
@@ -585,16 +579,10 @@ func IsSearchable(prop *models.Property) bool {
 // Indicates whether property should be indexed
 // Index contains only document ids having property of given value
 // (index created with help of bucket of StrategyRoaringSet)
-// TODO implement
 func IsFilterable(prop *models.Property) bool {
 	// by default property is filterable
 	if prop.IndexFilterable == nil {
-		// but if indexInverted is explicitly set
-		// use its setting as backward compatible
-		if prop.IndexInverted == nil {
-			return true
-		}
-		return *prop.IndexInverted
+		return true
 	}
 	return *prop.IndexFilterable
 }
