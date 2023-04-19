@@ -24,7 +24,7 @@ const (
 	IndexTypeHashPropNull
 )
 
-func IsSupportedPropertyIndexType(indexType PropertyIndexType) bool {
+func isSupportedPropertyIndexType(indexType PropertyIndexType) bool {
 	switch indexType {
 	case IndexTypePropValue,
 		IndexTypePropLength,
@@ -38,15 +38,15 @@ func IsSupportedPropertyIndexType(indexType PropertyIndexType) bool {
 	}
 }
 
-func CheckSupportedPropertyIndexType(indexType PropertyIndexType) {
-	if !IsSupportedPropertyIndexType(indexType) {
+func checkSupportedPropertyIndexType(indexType PropertyIndexType) {
+	if !isSupportedPropertyIndexType(indexType) {
 		panic("unsupported property index type")
 	}
 }
 
 // Some index types are supported by specific strategies only
 // Method ensures both index type and strategy work together
-func IsIndexTypeSupportedByStrategy(indexType PropertyIndexType, strategy string) bool {
+func isIndexTypeSupportedByStrategy(indexType PropertyIndexType, strategy string) bool {
 	switch indexType {
 	case IndexTypeHashPropValue,
 		IndexTypeHashPropLength,
