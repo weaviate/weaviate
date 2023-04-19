@@ -33,21 +33,32 @@ func TestBm25(t *testing.T) {
 	ctx := context.Background()
 	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
 	c.Schema().AllDeleter().Do(ctx)
-	truePointer := true
+	vFalse := false
+	vTrue := true
 
-	cases := []struct{ datatype string }{
-		{datatype: string(schema.DataTypeTextArray)},
+	cases := []struct{ datatype schema.DataType }{
+		{datatype: schema.DataTypeTextArray},
 		// deprecated string
-		{datatype: string(schema.DataTypeStringArray)},
+		{datatype: schema.DataTypeStringArray},
 	}
 	for _, tt := range cases {
-		t.Run("arrays "+tt.datatype, func(t *testing.T) {
+		t.Run("arrays "+tt.datatype.String(), func(t *testing.T) {
 			className := "Paragraph15845"
 			class := &models.Class{
 				Class: className,
 				Properties: []*models.Property{
-					{Name: "contents", DataType: []string{tt.datatype}, Tokenization: "word", IndexInverted: &truePointer},
-					{Name: "num", DataType: []string{"int"}},
+					{
+						Name:            "contents",
+						DataType:        tt.datatype.PropString(),
+						Tokenization:    models.PropertyTokenizationWord,
+						IndexFilterable: &vFalse,
+						IndexSearchable: &vTrue,
+					},
+					{
+						Name:            "num",
+						DataType:        schema.DataTypeInt.PropString(),
+						IndexFilterable: &vTrue,
+					},
 				},
 				InvertedIndexConfig: &models.InvertedIndexConfig{Bm25: &models.BM25Config{K1: 1.2, B: 0.75}},
 				Vectorizer:          "none",
