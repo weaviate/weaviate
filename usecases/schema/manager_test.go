@@ -350,6 +350,9 @@ func testCantAddSameClassTwiceDifferentKinds(t *testing.T, lsm *Manager) {
 func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
+	vFalse := false
+	vTrue := true
+
 	var properties []*models.Property = []*models.Property{
 		{
 			Name:         "color",
@@ -362,10 +365,47 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 			},
 		},
 		{
-			Name:          "colorRaw",
-			DataType:      schema.DataTypeText.PropString(),
-			Tokenization:  models.PropertyTokenizationWhitespace,
-			IndexInverted: pointerToFalse(),
+			Name:            "colorRaw1",
+			DataType:        schema.DataTypeText.PropString(),
+			Tokenization:    models.PropertyTokenizationWhitespace,
+			IndexFilterable: &vFalse,
+			IndexSearchable: &vFalse,
+			ModuleConfig: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"skip": true,
+				},
+			},
+		},
+		{
+			Name:            "colorRaw2",
+			DataType:        schema.DataTypeText.PropString(),
+			Tokenization:    models.PropertyTokenizationWhitespace,
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vFalse,
+			ModuleConfig: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"skip": true,
+				},
+			},
+		},
+		{
+			Name:            "colorRaw3",
+			DataType:        schema.DataTypeText.PropString(),
+			Tokenization:    models.PropertyTokenizationWhitespace,
+			IndexFilterable: &vFalse,
+			IndexSearchable: &vTrue,
+			ModuleConfig: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"skip": true,
+				},
+			},
+		},
+		{
+			Name:            "colorRaw4",
+			DataType:        schema.DataTypeText.PropString(),
+			Tokenization:    models.PropertyTokenizationWhitespace,
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vTrue,
 			ModuleConfig: map[string]interface{}{
 				"text2vec-contextionary": map[string]interface{}{
 					"skip": true,
@@ -397,18 +437,16 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 
 	objectClasses := testGetClasses(lsm)
 	require.Len(t, objectClasses, 1)
-	require.Len(t, objectClasses[0].Properties, 4)
+	require.Len(t, objectClasses[0].Properties, 7)
 	assert.Equal(t, objectClasses[0].Properties[0].Name, "color")
 	assert.Equal(t, objectClasses[0].Properties[0].DataType, schema.DataTypeText.PropString())
 
 	assert.True(t, lsm.IndexedInverted("Car", "color"), "color should be indexed")
-	assert.False(t, lsm.IndexedInverted("Car", "colorRaw"), "color should not be indexed")
+	assert.False(t, lsm.IndexedInverted("Car", "colorRaw1"), "colorRaw1 should not be indexed")
+	assert.True(t, lsm.IndexedInverted("Car", "colorRaw2"), "colorRaw2 should be indexed")
+	assert.True(t, lsm.IndexedInverted("Car", "colorRaw3"), "colorRaw3 should be indexed")
+	assert.True(t, lsm.IndexedInverted("Car", "colorRaw4"), "colorRaw4 should be indexed")
 	assert.True(t, lsm.IndexedInverted("Car", "allDefault"), "allDefault should be indexed")
-}
-
-func pointerToFalse() *bool {
-	b := false
-	return &b
 }
 
 func testAddInvalidPropertyDuringCreation(t *testing.T, lsm *Manager) {

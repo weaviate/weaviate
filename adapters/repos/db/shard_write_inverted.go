@@ -66,9 +66,9 @@ func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, []ni
 
 			// Add props as nil props if
 			// 1. They are not in the schema map ( == nil)
-			// 2. Their inverted index is enabled (either nil or true)
+			// 2. Their inverted index is enabled
 			_, ok := schemaMap[prop.Name]
-			if !ok && !(prop.IndexInverted != nil && !*prop.IndexInverted) {
+			if !ok && inverted.IsIndexable(prop) {
 				nilProps = append(nilProps, nilProp{
 					Name:                prop.Name,
 					AddToPropertyLength: isPropertyForLength(dt),
