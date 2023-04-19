@@ -36,7 +36,6 @@ type propValuePair struct {
 	valueGeoRange *filters.GeoRange
 	docIDs        docBitmap
 	children      []*propValuePair
-	hasFrequency  bool
 	isFilterable  bool
 	isSearchable  bool
 }

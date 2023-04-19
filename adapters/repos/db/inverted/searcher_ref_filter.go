@@ -148,7 +148,6 @@ func (r *refFilterExtractor) emptyPropValuePair() *propValuePair {
 		prop:         r.property.Name,
 		value:        nil,
 		operator:     filters.OperatorEqual,
-		hasFrequency: false,
 		isFilterable: IsFilterable(r.property),
 		isSearchable: IsSearchable(r.property),
 	}
@@ -176,7 +175,6 @@ func (r *refFilterExtractor) idToPropValuePairWithValue(v []byte,
 		prop:         r.property.Name,
 		value:        v,
 		operator:     filters.OperatorEqual,
-		hasFrequency: false,
 		isFilterable: isFilterable,
 		isSearchable: isSearchable,
 	}, nil
@@ -196,7 +194,6 @@ func (r *refFilterExtractor) chainedIDsToPropValuePair(ids []classUUIDPair) (*pr
 		prop:         r.property.Name,
 		operator:     filters.OperatorOr,
 		children:     children,
-		hasFrequency: false,
 		isFilterable: isFilterable,
 		isSearchable: isSearchable,
 	}, nil
