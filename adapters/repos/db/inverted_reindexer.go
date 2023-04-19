@@ -95,7 +95,7 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 			return err
 		}
 
-		if !IsIndexTypeSupportedByStrategy(reindexProperty.IndexType, reindexProperty.DesiredStrategy) {
+		if !isIndexTypeSupportedByStrategy(reindexProperty.IndexType, reindexProperty.DesiredStrategy) {
 			err := fmt.Errorf("strategy '%s' is not supported for given index type '%d",
 				reindexProperty.DesiredStrategy, reindexProperty.IndexType)
 			r.logError(err, "invalid strategy")
@@ -429,7 +429,7 @@ func (r *ShardInvertedReindexer) handleNilProperty(ctx context.Context, checker 
 }
 
 func (r *ShardInvertedReindexer) bucketName(propName string, indexType PropertyIndexType) string {
-	CheckSupportedPropertyIndexType(indexType)
+	checkSupportedPropertyIndexType(indexType)
 
 	switch indexType {
 	case IndexTypePropValue:
