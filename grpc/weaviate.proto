@@ -1,5 +1,6 @@
 syntax = "proto3";
 
+import "google/protobuf/struct.proto";
 option go_package = "github.com/weaviate/weaviate/grpc";
 
 package weaviategrpc;
@@ -11,8 +12,10 @@ service Weaviate {
 message SearchRequest {
   string className = 1;
   uint32 limit = 2;
-  NearVectorParams nearVector = 3;
-  NearObjectParams nearObject = 4;
+  repeated string properties = 3;
+  repeated string additional_properties = 4;
+  NearVectorParams nearVector = 5;
+  NearObjectParams nearObject = 6;
 }
 
 message NearVectorParams {
@@ -29,5 +32,10 @@ message SearchReply {
 }
 
 message SearchResult {
+  google.protobuf.Struct properties = 1;
+  AdditionalProps additional_properties = 2;
+}
+
+message AdditionalProps {
   string id = 1;
 }
