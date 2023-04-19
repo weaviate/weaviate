@@ -40,9 +40,9 @@ function release() {
   docker buildx build "${args[@]}" .
 
   if [ -n "$tag_preview" ]; then
-    echo "PREVIEW_TAG=$tag_preview" >> $GITHUB_OUTPUT
+    echo "PREVIEW_TAG=$tag_preview" >> "$GITHUB_OUTPUT"
   elif [ -n "$tag_exact" ]; then
-    echo "PREVIEW_TAG=$tag_exact" >> $GITHUB_OUTPUT
+    echo "PREVIEW_TAG=$tag_exact" >> "$GITHUB_OUTPUT"
   fi
 }
 
