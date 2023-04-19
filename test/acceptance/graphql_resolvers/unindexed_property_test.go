@@ -36,6 +36,9 @@ func Test_UnindexedProperty(t *testing.T) {
 	}()
 
 	t.Run("creating a class with two string props", func(t *testing.T) {
+		vFalse := false
+		vTrue := true
+
 		c := &models.Class{
 			Class: className,
 			ModuleConfig: map[string]interface{}{
@@ -45,15 +48,18 @@ func Test_UnindexedProperty(t *testing.T) {
 			},
 			Properties: []*models.Property{
 				{
-					Name:         "name",
-					DataType:     schema.DataTypeText.PropString(),
-					Tokenization: models.PropertyTokenizationWhitespace,
+					Name:            "name",
+					DataType:        schema.DataTypeText.PropString(),
+					Tokenization:    models.PropertyTokenizationWhitespace,
+					IndexFilterable: &vTrue,
+					IndexSearchable: &vTrue,
 				},
 				{
-					Name:          "hiddenName",
-					DataType:      schema.DataTypeText.PropString(),
-					Tokenization:  models.PropertyTokenizationWhitespace,
-					IndexInverted: referenceToFalse(),
+					Name:            "hiddenName",
+					DataType:        schema.DataTypeText.PropString(),
+					Tokenization:    models.PropertyTokenizationWhitespace,
+					IndexFilterable: &vFalse,
+					IndexSearchable: &vFalse,
 				},
 			},
 		}
@@ -124,11 +130,6 @@ func Test_UnindexedProperty(t *testing.T) {
 		require.Nil(t, err)
 		assert.True(t, len(res.Errors) > 0, "this query should be impossible as the field was not indexed")
 	})
-}
-
-func referenceToFalse() *bool {
-	b := false
-	return &b
 }
 
 func assertGetObjectEventually(t *testing.T, uuid strfmt.UUID) *models.Object {
