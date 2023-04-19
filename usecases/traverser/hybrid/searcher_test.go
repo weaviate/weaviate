@@ -335,6 +335,7 @@ func TestSearcher(t *testing.T) {
 				provider.On("VectorFromInput", ctx, class,
 					params.HybridSearch.SubSearches.([]searchparams.WeightedSearchResult)[0].
 						SearchParams.(searchparams.NearVector).Vector).Return([]float32{1, 2, 3}, nil)
+				provider.On("VectorFromInput", ctx, class, "").Return([]float32{1, 2, 3}, nil)
 				s := NewSearcher(params, logger, sparse, dense, nil, provider)
 				res, err := s.Search(ctx)
 				require.Nil(t, err)
@@ -417,6 +418,7 @@ func TestSearcher(t *testing.T) {
 				provider.On("VectorFromInput", ctx, class,
 					params.HybridSearch.SubSearches.([]searchparams.WeightedSearchResult)[1].
 						SearchParams.(searchparams.NearTextParams).Values[0]).Return([]float32{1, 2, 3}, nil)
+				provider.On("VectorFromInput", ctx, class, "").Return([]float32{1, 2, 3}, nil)
 				s := NewSearcher(params, logger, sparse, dense, nil, provider)
 				res, err := s.Search(ctx)
 				require.Nil(t, err)
