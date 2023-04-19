@@ -372,6 +372,9 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 		// extracts bm25 (sparseSearch) from the query
 		var keywordRankingParams *searchparams.KeywordRanking
 		if bm25, ok := p.Args["bm25"]; ok {
+			if len(sort) > 0 {
+				return nil, fmt.Errorf("bm25 search is not compatible with sort")
+			}
 			p := common_filters.ExtractBM25(bm25.(map[string]interface{}), additional.ExplainScore)
 			keywordRankingParams = &p
 		}
