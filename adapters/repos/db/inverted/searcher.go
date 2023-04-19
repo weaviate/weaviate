@@ -347,7 +347,6 @@ func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.D
 		value:        byteValue,
 		prop:         prop.Name,
 		operator:     operator,
-		hasFrequency: false,
 		isFilterable: IsFilterable(prop),
 		isSearchable: IsSearchable(prop),
 	}, nil
@@ -365,7 +364,6 @@ func (s *Searcher) extractReferenceCount(prop *models.Property, value interface{
 		value:        byteValue,
 		prop:         helpers.MetaCountProp(prop.Name),
 		operator:     operator,
-		hasFrequency: false,
 		isFilterable: IsFilterableMetaCount,
 		isSearchable: IsSearchableMetaCount,
 	}, nil
@@ -386,7 +384,6 @@ func (s *Searcher) extractGeoFilter(prop *models.Property, value interface{},
 		valueGeoRange: &parsed,
 		prop:          prop.Name,
 		operator:      operator,
-		hasFrequency:  false,
 		isFilterable:  IsFilterable(prop),
 		isSearchable:  IsSearchable(prop),
 	}, nil
@@ -417,7 +414,6 @@ func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
 		value:        byteValue,
 		prop:         prop.Name,
 		operator:     operator,
-		hasFrequency: false,
 		isFilterable: IsFilterable(prop),
 		isSearchable: IsSearchable(prop),
 	}, nil
@@ -458,7 +454,6 @@ func (s *Searcher) extractIDProp(propName string, propType schema.DataType,
 		value:        byteValue,
 		prop:         filters.InternalPropID,
 		operator:     operator,
-		hasFrequency: false,
 		isFilterable: IsFilterableIdProp,
 		isSearchable: IsSearchableIdProp,
 	}, nil
@@ -498,7 +493,6 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 		value:        byteValue,
 		prop:         propName,
 		operator:     operator,
-		hasFrequency: false,
 		isFilterable: IsFilterableTimestampProp, // TODO text_rbm_inverted_index & with settings
 		isSearchable: IsSearchableTimestampProp, // TODO text_rbm_inverted_index & with settings
 	}, nil
@@ -533,7 +527,6 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 			value:        []byte(term),
 			prop:         prop.Name,
 			operator:     operator,
-			hasFrequency: true,
 			isFilterable: isFilterable,
 			isSearchable: isSearchable,
 		})
@@ -569,7 +562,6 @@ func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.
 		value:        byteValue,
 		prop:         helpers.PropLength(prop.Name),
 		operator:     operator,
-		hasFrequency: false,
 		isFilterable: IsFilterablePropLength, // TODO text_rbm_inverted_index & with settings
 		isSearchable: IsSearchablePropLength, // TODO text_rbm_inverted_index & with settings
 	}, nil
@@ -596,7 +588,6 @@ func (s *Searcher) extractPropertyNull(prop *models.Property, propType schema.Da
 		value:        valResult,
 		prop:         helpers.PropNull(prop.Name),
 		operator:     operator,
-		hasFrequency: false,
 		isFilterable: IsFilterablePropNull, // TODO text_rbm_inverted_index & with settings
 		isSearchable: IsSearchablePropNull, // TODO text_rbm_inverted_index & with settings
 	}, nil
