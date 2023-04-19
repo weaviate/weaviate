@@ -448,6 +448,7 @@ var (
 		(*structpb.Struct)(nil),  // 6: google.protobuf.Struct
 	}
 )
+
 var file_weaviate_proto_depIdxs = []int32{
 	1, // 0: weaviategrpc.SearchRequest.near_vector:type_name -> weaviategrpc.NearVectorParams
 	2, // 1: weaviategrpc.SearchRequest.near_object:type_name -> weaviategrpc.NearObjectParams
