@@ -37,17 +37,32 @@ type JsonPropertyLengthTracker struct {
 // simpler, easier to maintain implementation.  The format is future-proofed, new
 // data can be added to the file without breaking old versions of Weaviate.
 //
-// The property length tracker is used to track the length of properties in the
-// inverted index.  This is inexact, each property is bucketed into one of 64
-// buckets.  Each bucket has a value calculated by float32(4 * math.Pow(1.25, float64(bucket)-3.5)).
+// * We need to know the mean length of all properties for BM25 calculations
+// * The prop length tracker is an approximate tracker that uses buckets and simply counts the entries in the buckets
+// * There is a precise global counter for the sum of all lengths and a precise global counter for the number of entries
+// * It only exists for string/text because these are the only prop types that can be used with BM25
+// * It should probably always exist when indexSearchable is set on a text prop going forward
+//
+// Property lengths are put into one of 64 buckets.  The value of a bucket is given by the formula:
+//
+// float32(4 * math.Pow(1.25, float64(bucket)-3.5))
+//
+// Which as implemented gives bucket values of 0,1,2,3,4,5,6,8,10,13,17,21,26,33,41,52,65,81,101,127,158,198,248,310,387,484,606,757,947,1183,1479,1849,2312,2890,3612,4515,5644,7055,8819,11024,13780,17226,21532,26915,33644,42055,52569,65712,82140,102675,128344,160430,200537,250671,313339,391674,489593,611991,764989,956237,1195296,1494120,1867651,2334564
+//
+// These buckets are then recorded to disk.  The original implementation was a binary format where all the data was tracked using manual pointer arithmetic.  The new version tracks the statistics in a go map, and marshals that into JSON before writing it to disk.  There is no measurable difference in speed between these two implementations while importing data, however it appears to slow the queries by about 15% (while improving recall by ~25%).
 //
 // The new tracker is exactly compatible with the old format to enable migration, which is why there is a -1 bucket.  Altering the number of buckets or their values will break compatibility.
+//
+// Set UnlimitedBuckets to true for precise length tracking
+
+// NewJsonPropertyLengthTracker creates a new tracker and loads the data from the given path.  If the file is in the old format, it will be converted to the new format.
 func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, error) {
 	t := &JsonPropertyLengthTracker{
 		data:             PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)},
 		path:             path,
 		UnlimitedBuckets: false,
 	}
+	
 
 	// read the file into memory
 	bytes, err := os.ReadFile(path)
@@ -110,10 +125,12 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 	return t, nil
 }
 
+// Path to the file on disk
 func (t *JsonPropertyLengthTracker) FileName() string {
 	return t.path
 }
 
+// Adds a new value to the tracker
 func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32) error {
 	t.Lock()
 	defer t.Unlock()
@@ -133,6 +150,25 @@ func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32
 	return nil
 }
 
+// Removes a value from the tracker
+func (t *JsonPropertyLengthTracker) UnTrackProperty(propName string, value float32) error {
+	t.Lock()
+	defer t.Unlock()
+
+	t.data.SumData[propName] = t.data.SumData[propName] - int(value)
+	t.data.CountData[propName] = t.data.CountData[propName] - 1
+
+	bucketId := t.bucketFromValue(value)
+	if _, ok := t.data.BucketedData[propName]; ok {
+		t.data.BucketedData[propName][int(bucketId)] = t.data.BucketedData[propName][int(bucketId)] - 1
+	} else {
+		//Yikes
+	}
+
+	return nil
+}
+
+// Returns the bucket that the given value belongs to
 func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) int {
 	if t.UnlimitedBuckets {
 		return int(value)
@@ -148,6 +184,7 @@ func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) int {
 	return int(bucket)
 }
 
+// Returns the value that the given bucket represents
 func (t *JsonPropertyLengthTracker) valueFromBucket(bucket int) float32 {
 	if t.UnlimitedBuckets {
 		return float32(bucket)
@@ -163,6 +200,7 @@ func (t *JsonPropertyLengthTracker) valueFromBucket(bucket int) float32 {
 	return float32(4 * math.Pow(1.25, float64(bucket)-3.5))
 }
 
+// Returns the average length of the given property
 func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, error) {
 	t.Lock()
 	defer t.Unlock()
@@ -193,6 +231,7 @@ func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, fl
 	return sum, count, float64(sum) / float64(count), nil
 }
 
+// Writes the current state of the tracker to disk.  (flushBackup = true) will only write the backup file
 func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
 	if !flushBackup { // Write the backup file first
 		t.Flush(true)
@@ -218,6 +257,7 @@ func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
 	return nil
 }
 
+// Closes the tracker and removes the backup file
 func (t *JsonPropertyLengthTracker) Close() error {
 	if err := t.Flush(false); err != nil {
 		return errors.Wrap(err, "flush before closing")
@@ -231,6 +271,7 @@ func (t *JsonPropertyLengthTracker) Close() error {
 	return nil
 }
 
+// Drop removes the tracker from disk
 func (t *JsonPropertyLengthTracker) Drop() error {
 	t.Close()
 

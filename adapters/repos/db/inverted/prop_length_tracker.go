@@ -166,6 +166,29 @@ func (t *PropertyLengthTracker) TrackProperty(propName string, value float32) er
 	return nil
 }
 
+func (t *PropertyLengthTracker) UnTrackProperty(propName string, value float32) error {
+	t.Lock()
+	defer t.Unlock()
+
+	var page uint16
+	var relBucketOffset uint16
+	if p, o, ok := t.propExists(propName); ok {
+		page = p
+		relBucketOffset = o
+	} else {
+		return fmt.Errorf("property %v does not exist in OldPropertyLengthTracker", propName)
+	}
+
+	bucketOffset := page*4096 + relBucketOffset + t.bucketFromValue(value)*4
+
+	v := binary.LittleEndian.Uint32(t.pages[bucketOffset : bucketOffset+4])
+	currentValue := math.Float32frombits(v)
+	currentValue -= 1
+	v = math.Float32bits(currentValue)
+	binary.LittleEndian.PutUint32(t.pages[bucketOffset:bucketOffset+4], v)
+	return nil
+}
+
 // propExists returns page number, relative offset on page, and a bool whether
 // the prop existed at all. The first to values have no meaning if the latter
 // is false
@@ -307,7 +330,7 @@ func (t *PropertyLengthTracker) PropertyMean(propName string) (float32, error) {
 	return sum / totalCount, nil
 }
 
-func (t *PropertyLengthTracker) PropertyTally(propName string) (float32, float32, float32, error) {
+func (t *PropertyLengthTracker) PropertyTally(propName string) (int, int, float32, error) {
 	t.Lock()
 	defer t.Unlock()
 
@@ -334,7 +357,7 @@ func (t *PropertyLengthTracker) PropertyTally(propName string) (float32, float32
 		return 0, 0, 0, nil
 	}
 
-	return sum, totalCount, sum / totalCount, nil
+	return int(sum), int(totalCount), sum / totalCount, nil
 }
 
 func (t *PropertyLengthTracker) createPageIfNotExists(page uint16) {

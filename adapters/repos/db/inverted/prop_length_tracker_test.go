@@ -95,6 +95,37 @@ func Test_PropertyLengthTracker(t *testing.T) {
 		}
 	})
 
+	t.Run("test untrack", func(t *testing.T) {
+		tracker, err := NewJsonPropertyLengthTracker(trackerPath)
+		require.Nil(t, err)
+
+		tracker.TrackProperty("test-prop", 1)
+		tracker.TrackProperty("test-prop", 2)
+		tracker.TrackProperty("test-prop", 3)
+		tracker.Flush(false)
+
+		sum, count, mean, err := tracker.PropertyTally("test-prop")
+		require.Nil(t, err)
+		assert.Equal(t, 6, sum)
+		assert.Equal(t, 3, count)
+		assert.InEpsilon(t, 2, mean, 0.1)
+
+		tracker.UnTrackProperty("test-prop", 2)
+		sum, count, mean, err = tracker.PropertyTally("test-prop")
+		require.Nil(t, err)
+		assert.Equal(t, 4, sum)
+		assert.Equal(t, 2, count)
+		assert.InEpsilon(t, 2, mean, 0.1)
+
+		tracker.UnTrackProperty("test-prop", 1)
+		sum, count, mean, err = tracker.PropertyTally("test-prop")
+		require.Nil(t, err)
+		assert.Equal(t, 3, sum)
+		assert.Equal(t, 1, count)
+		assert.InEpsilon(t, 3, mean, 0.1)
+
+	})
+
 	t.Run("multiple properties (can all fit on one page)", func(t *testing.T) {
 		type prop struct {
 			values   []float32
@@ -438,6 +469,39 @@ func TestOldPropertyLengthTracker(t *testing.T) {
 			})
 		}
 	})
+
+
+	t.Run("test untrack", func(t *testing.T) {
+		tracker, err := NewPropertyLengthTracker(trackerPath)
+		require.Nil(t, err)
+
+		tracker.TrackProperty("test-prop", 1)
+		tracker.TrackProperty("test-prop", 2)
+		tracker.TrackProperty("test-prop", 3)
+		tracker.Flush()
+
+		sum, count, mean, err := tracker.PropertyTally("test-prop")
+		require.Nil(t, err)
+		assert.Equal(t, 6, sum)
+		assert.Equal(t, 3, count)
+		assert.InEpsilon(t, 2, mean, 0.1)
+
+		tracker.UnTrackProperty("test-prop", 2)
+		sum, count, mean, err = tracker.PropertyTally("test-prop")
+		require.Nil(t, err)
+		assert.Equal(t, 4, sum)
+		assert.Equal(t, 2, count)
+		assert.InEpsilon(t, 2, mean, 0.1)
+
+		tracker.UnTrackProperty("test-prop", 1)
+		sum, count, mean, err = tracker.PropertyTally("test-prop")
+		require.Nil(t, err)
+		assert.Equal(t, 3, sum)
+		assert.Equal(t, 1, count)
+		assert.InEpsilon(t, 3, mean, 0.1)
+
+	})
+
 
 	t.Run("multiple properties (can all fit on one page)", func(t *testing.T) {
 		type prop struct {

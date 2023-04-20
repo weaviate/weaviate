@@ -53,6 +53,34 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 		return errors.Wrap(err, "get existing doc id from object binary")
 	}
 
+	obj , err:= storobj.FromBinary(existing)
+	if err != nil {
+		return errors.Wrap(err, "get existing object from binary")
+	}
+
+	properties := obj.Object.Properties
+	
+	// Remove each property from the property length tracker.
+	for _, prop := range properties.(map[string]interface{}) {
+		switch prop.(type) {
+		case string:
+			s.propLengths.UnTrackProperty(prop.(string), float32(len(prop.(string))))
+		case []string:
+			for _, val := range prop.([]string) {
+				s.propLengths.UnTrackProperty(val, float32(len(val)))
+			}
+		}
+	}
+
+	s.propLengths.Flush(false)
+
+
+		
+		
+	
+
+
+
 	err = bucket.Delete(idBytes)
 	if err != nil {
 		return errors.Wrap(err, "delete object from bucket")

@@ -1087,6 +1087,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 		return err
 	}
 
+
 	if i.replicationEnabled() {
 		if replProps == nil {
 			replProps = defaultConsistency()
