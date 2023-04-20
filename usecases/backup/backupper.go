@@ -158,9 +158,17 @@ func (b *backupper) backup(ctx context.Context,
 			Version:       Version,
 			ServerVersion: config.ServerVersion,
 		}
-		if err := provider.all(context.Background(), req.Classes, &result); err != nil {
+
+		// the coordinator might want to abort the backup
+		done := make(chan struct{})
+		ctx := b.withCancellation(context.Background(), id, done)
+		defer close(done)
+
+		if err := provider.all(ctx, req.Classes, &result); err != nil {
 			b.logger.WithField("action", "create_backup").
 				Error(err)
+			b.lastAsyncError = err
+
 		}
 		result.CompletedAt = time.Now().UTC()
 	}()
