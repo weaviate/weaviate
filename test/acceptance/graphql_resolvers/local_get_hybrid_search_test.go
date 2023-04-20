@@ -175,6 +175,33 @@ func getWithHybridSearch(t *testing.T) {
 		require.Len(t, result, 9)
 	})
 
+	t.Run("with _additional{vector}", func(t *testing.T) {
+		query := `
+		{
+		  	Get {
+				Company(
+					hybrid: {
+						query: "Apple", 
+						alpha: 0.5, 
+					}
+				) {
+					_additional {
+						vector
+					}
+				}
+			}
+		}`
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query).Get("Get", "Company").AsSlice()
+		require.Len(t, result, 9)
+		for _, res := range result {
+			company := res.(map[string]interface{})
+			addl := company["_additional"].(map[string]interface{})
+			vec, found := addl["vector"]
+			assert.True(t, found)
+			assert.Len(t, vec, 300)
+		}
+	})
+
 	t.Run("with references", func(t *testing.T) {
 		query := `
 		{
