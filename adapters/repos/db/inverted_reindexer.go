@@ -99,6 +99,8 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 			return err
 		}
 
+		// TODO verify if property indeed need reindex before creating buckets
+		// (is filterable / is searchable / null or prop length index enabled)
 		bucketsToReindex[i] = r.bucketName(reindexProperty.PropertyName, reindexProperty.IndexType)
 		if err := r.createTempBucket(ctx, bucketsToReindex[i], reindexProperty.DesiredStrategy,
 			reindexProperty.BucketOptions...); err != nil {
@@ -257,9 +259,10 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 ) error {
 	reindexableHashPropValue := checker.isReindexable(property.Name, IndexTypeHashPropValue)
 	reindexablePropValue := checker.isReindexable(property.Name, IndexTypePropValue)
+	reindexablePropSearchableValue := checker.isReindexable(property.Name, IndexTypePropSearchableValue)
 
-	if reindexableHashPropValue || reindexablePropValue {
-		var hashBucketValue, bucketValue *lsmkv.Bucket
+	if reindexableHashPropValue || reindexablePropValue || reindexablePropSearchableValue {
+		var hashBucketValue, bucketValue, bucketSearchableValue *lsmkv.Bucket
 
 		if reindexableHashPropValue {
 			hashBucketValue = r.tempBucket(property.Name, IndexTypeHashPropValue)
@@ -273,37 +276,30 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 				return fmt.Errorf("no bucket for prop '%s' value found", property.Name)
 			}
 		}
+		if reindexablePropSearchableValue {
+			bucketSearchableValue = r.tempBucket(property.Name, IndexTypePropSearchableValue)
+			if bucketSearchableValue == nil {
+				return fmt.Errorf("no bucket searchable for prop '%s' value found", property.Name)
+			}
+		}
 
-		// TODO text_rbm_inverted_index change to filterable/searchable
-		// if property.HasFrequency {
-		if false {
-			propLen := float32(len(property.Items))
-			for _, item := range property.Items {
-				key := item.Data
-				if reindexableHashPropValue {
-					if err := r.shard.addToPropertyHashBucket(hashBucketValue, key); err != nil {
-						return errors.Wrapf(err, "failed adding to prop '%s' value hash bucket", property.Name)
-					}
-				}
-				if reindexablePropValue {
-					pair := r.shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
-					if err := r.shard.addToPropertyMapBucket(bucketValue, pair, key); err != nil {
-						return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
-					}
+		propLen := float32(len(property.Items))
+		for _, item := range property.Items {
+			key := item.Data
+			if reindexableHashPropValue && (property.IsFilterable || property.IsSearchable) {
+				if err := r.shard.addToPropertyHashBucket(hashBucketValue, key); err != nil {
+					return errors.Wrapf(err, "failed adding to prop '%s' value hash bucket", property.Name)
 				}
 			}
-		} else {
-			for _, item := range property.Items {
-				key := item.Data
-				if reindexableHashPropValue {
-					if err := r.shard.addToPropertyHashBucket(hashBucketValue, key); err != nil {
-						return errors.Wrapf(err, "failed adding to prop '%s' value hash bucket", property.Name)
-					}
+			if reindexablePropSearchableValue && property.IsSearchable {
+				pair := r.shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
+				if err := r.shard.addToPropertyMapBucket(bucketSearchableValue, pair, key); err != nil {
+					return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
 				}
-				if reindexablePropValue {
-					if err := r.shard.addToPropertySetBucket(bucketValue, docID, key); err != nil {
-						return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
-					}
+			}
+			if reindexablePropValue && property.IsFilterable {
+				if err := r.shard.addToPropertySetBucket(bucketValue, docID, key); err != nil {
+					return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
 				}
 			}
 		}
@@ -431,6 +427,8 @@ func (r *ShardInvertedReindexer) bucketName(propName string, indexType PropertyI
 	switch indexType {
 	case IndexTypePropValue:
 		return helpers.BucketFromPropNameLSM(propName)
+	case IndexTypePropSearchableValue:
+		return helpers.BucketSearchableFromPropNameLSM(propName)
 	case IndexTypePropLength:
 		return helpers.BucketFromPropNameLengthLSM(propName)
 	case IndexTypePropNull:
