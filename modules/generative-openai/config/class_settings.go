@@ -13,6 +13,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -99,6 +100,11 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	topP := ic.getFloatProperty(topPProperty, &DefaultOpenAITopP)
 	if topP == nil || (*topP < 0 || *topP > 5) {
 		return errors.Errorf("Wrong topP configuration, values are should have a minimal value of 1 and max of 5")
+	}
+
+	err := ic.validateAzureConfig(ic.ResourceName(), ic.DeploymentID())
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -188,6 +194,25 @@ func (ic *classSettings) PresencePenalty() float64 {
 
 func (ic *classSettings) TopP() float64 {
 	return *ic.getFloatProperty(topPProperty, &DefaultOpenAITopP)
+}
+
+func (ic *classSettings) ResourceName() string {
+	return *ic.getStringProperty("resourceName", "")
+}
+
+func (ic *classSettings) DeploymentID() string {
+	return *ic.getStringProperty("deploymentId", "")
+}
+
+func (ic *classSettings) IsAzure() bool {
+	return ic.ResourceName() != "" && ic.DeploymentID() != ""
+}
+
+func (ic *classSettings) validateAzureConfig(resourceName string, deploymentId string) error {
+	if (resourceName == "" && deploymentId != "") || (resourceName != "" && deploymentId == "") {
+		return fmt.Errorf("both resourceName and deploymentId must be provided")
+	}
+	return nil
 }
 
 func contains[T comparable](s []T, e T) bool {

@@ -29,6 +29,9 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantTopP             float64
 		wantFrequencyPenalty float64
 		wantPresencePenalty  float64
+		wantResourceName     string
+		wantDeploymentID     string
+		wantIsAzure          bool
 		wantErr              error
 	}{
 		{
@@ -85,6 +88,30 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr:              nil,
 		},
 		{
+			name: "Azure OpenAI config",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"resourceName":     "weaviate",
+					"deploymentId":     "gpt-3.5-turbo",
+					"maxTokens":        4097,
+					"temperature":      0.5,
+					"topP":             3,
+					"frequencyPenalty": 0.1,
+					"presencePenalty":  0.9,
+				},
+			},
+			wantResourceName:     "weaviate",
+			wantDeploymentID:     "gpt-3.5-turbo",
+			wantIsAzure:          true,
+			wantModel:            "gpt-3.5-turbo",
+			wantMaxTokens:        4097,
+			wantTemperature:      0.5,
+			wantTopP:             3,
+			wantFrequencyPenalty: 0.1,
+			wantPresencePenalty:  0.9,
+			wantErr:              nil,
+		},
+		{
 			name: "Wrong maxTokens configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
@@ -129,12 +156,30 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 			wantErr: errors.Errorf("Wrong topP configuration, values are should have a minimal value of 1 and max of 5"),
 		},
+		{
+			name: "Wrong Azure config - empty deploymentId",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"resourceName": "resource-name",
+				},
+			},
+			wantErr: errors.Errorf("both resourceName and deploymentId must be provided"),
+		},
+		{
+			name: "Wrong Azure config - empty resourceName",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"deploymentId": "deployment-name",
+				},
+			},
+			wantErr: errors.Errorf("both resourceName and deploymentId must be provided"),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ic := NewClassSettings(tt.cfg)
 			if tt.wantErr != nil {
-				assert.Equal(t, tt.wantErr.Error(), ic.Validate(nil).Error())
+				assert.EqualError(t, tt.wantErr, ic.Validate(nil).Error())
 			} else {
 				assert.Equal(t, tt.wantModel, ic.Model())
 				assert.Equal(t, tt.wantMaxTokens, ic.MaxTokens())
@@ -142,6 +187,9 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantTopP, ic.TopP())
 				assert.Equal(t, tt.wantFrequencyPenalty, ic.FrequencyPenalty())
 				assert.Equal(t, tt.wantPresencePenalty, ic.PresencePenalty())
+				assert.Equal(t, tt.wantResourceName, ic.ResourceName())
+				assert.Equal(t, tt.wantDeploymentID, ic.DeploymentID())
+				assert.Equal(t, tt.wantIsAzure, ic.IsAzure())
 			}
 		})
 	}

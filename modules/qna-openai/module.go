@@ -132,9 +132,10 @@ func (m *QnAModule) InitDependency(modules []modulecapabilities.Module) error {
 func (m *QnAModule) initAdditional(ctx context.Context,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("OPENAI_APIKEY")
+	openAIApiKey := os.Getenv("OPENAI_APIKEY")
+	azureApiKey := os.Getenv("AZURE_APIKEY")
 
-	client := clients.New(apiKey, logger)
+	client := clients.New(openAIApiKey, azureApiKey, logger)
 
 	m.qna = client
 

@@ -144,8 +144,8 @@ func (f *fakeVectorSearcher) ClassObjectSearch(ctx context.Context,
 	return nil, nil, nil
 }
 
-func (f *fakeVectorSearcher) ClassObjectVectorSearch(context.Context,
-	string, []float32, int, int, *filters.LocalFilter,
+func (f *fakeVectorSearcher) ClassObjectVectorSearch(context.Context, string,
+	[]float32, int, int, *filters.LocalFilter, additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	return nil, nil, nil
 }

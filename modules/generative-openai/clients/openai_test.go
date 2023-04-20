@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -29,6 +30,15 @@ import (
 func nullLogger() logrus.FieldLogger {
 	l, _ := test.NewNullLogger()
 	return l
+}
+
+func fakeBuildUrl(serverURL string, isLegacy bool, resourceName, deploymentID string) (string, error) {
+	endpoint, err := buildUrl(isLegacy, resourceName, deploymentID)
+	if err != nil {
+		return "", err
+	}
+	endpoint = strings.Replace(endpoint, "https://api.openai.com", serverURL, 1)
+	return endpoint, nil
 }
 
 func TestGetAnswer(t *testing.T) {
@@ -49,8 +59,10 @@ func TestGetAnswer(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		c := New("apiKey", nullLogger())
-		c.host = server.URL
+		c := New("openAIApiKey", "", nullLogger())
+		c.buildUrlFn = func(isLegacy bool, resourceName, deploymentID string) (string, error) {
+			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID)
+		}
 
 		expected := ent.GenerateResult{
 			Result: ptString("John"),
@@ -73,13 +85,15 @@ func TestGetAnswer(t *testing.T) {
 		})
 		defer server.Close()
 
-		c := New("apiKey", nullLogger())
-		c.host = server.URL
+		c := New("openAIApiKey", "", nullLogger())
+		c.buildUrlFn = func(isLegacy bool, resourceName, deploymentID string) (string, error) {
+			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID)
+		}
 
 		_, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil)
 
 		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "connection to OpenAI failed with status: 500 error: some error from the server")
+		assert.Error(t, err, "connection to OpenAI failed with status: 500 error: some error from the server")
 	})
 }
 
