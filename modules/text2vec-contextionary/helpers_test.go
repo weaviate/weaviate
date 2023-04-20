@@ -349,9 +349,9 @@ func newExploreMockResolver() *mockResolver {
 
 func (m *mockResolver) GetClass(ctx context.Context, principal *models.Principal,
 	params dto.GetParams,
-) (interface{}, error) {
+) ([]interface{}, error) {
 	args := m.Called(params)
-	return args.Get(0), args.Error(1)
+	return args.Get(0).([]interface{}), args.Error(1)
 }
 
 func (m *mockResolver) Explore(ctx context.Context,
@@ -363,7 +363,7 @@ func (m *mockResolver) Explore(ctx context.Context,
 
 // Resolver is a local abstraction of the required UC resolvers
 type GetResolver interface {
-	GetClass(ctx context.Context, principal *models.Principal, info dto.GetParams) (interface{}, error)
+	GetClass(ctx context.Context, principal *models.Principal, info dto.GetParams) ([]interface{}, error)
 }
 
 type ExploreResolver interface {
