@@ -22,6 +22,7 @@ const (
 	IndexTypeHashPropValue
 	IndexTypeHashPropLength
 	IndexTypeHashPropNull
+	IndexTypePropSearchableValue
 )
 
 func isSupportedPropertyIndexType(indexType PropertyIndexType) bool {
@@ -31,7 +32,8 @@ func isSupportedPropertyIndexType(indexType PropertyIndexType) bool {
 		IndexTypePropNull,
 		IndexTypeHashPropValue,
 		IndexTypeHashPropLength,
-		IndexTypeHashPropNull:
+		IndexTypeHashPropNull,
+		IndexTypePropSearchableValue:
 		return true
 	default:
 		return false
@@ -53,10 +55,11 @@ func isIndexTypeSupportedByStrategy(indexType PropertyIndexType, strategy string
 		IndexTypeHashPropNull:
 		return lsmkv.IsExpectedStrategy(strategy, lsmkv.StrategyReplace)
 	case IndexTypePropLength,
-		IndexTypePropNull:
+		IndexTypePropNull,
+		IndexTypePropValue:
 		return lsmkv.IsExpectedStrategy(strategy, lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
-	case IndexTypePropValue:
-		return lsmkv.IsExpectedStrategy(strategy, lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet, lsmkv.StrategyMapCollection)
+	case IndexTypePropSearchableValue:
+		return lsmkv.IsExpectedStrategy(strategy, lsmkv.StrategyMapCollection)
 	}
 	return false
 }
