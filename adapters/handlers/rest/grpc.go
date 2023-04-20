@@ -17,11 +17,8 @@ import (
 )
 
 func setupGrpc(state *state.State) {
-	// TODO: hide behind flag and only start when requested
-
 	go func() {
-		port := 50051 // TODO: make configurable
-		if err := grpc.StartAndListen(port, state); err != nil {
+		if err := grpc.StartAndListen(state); err != nil {
 			state.Logger.WithField("action", "grpc_startup").WithError(err).
 				Fatal("failed to start grpc server")
 		}

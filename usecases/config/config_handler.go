@@ -87,6 +87,7 @@ type Config struct {
 	AutoSchema                       AutoSchema     `json:"auto_schema" yaml:"auto_schema"`
 	Cluster                          cluster.Config `json:"cluster" yaml:"cluster"`
 	Monitoring                       Monitoring     `json:"monitoring" yaml:"monitoring"`
+	GRPC                             GRPC           `json:"grpc" yaml:"grpc"`
 	Profiling                        Profiling      `json:"profiling" yaml:"profiling"`
 	ResourceUsage                    ResourceUsage  `json:"resource_usage" yaml:"resource_usage"`
 	MaxImportGoroutinesFactor        float64        `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
@@ -168,6 +169,10 @@ type Monitoring struct {
 	Enabled bool   `json:"enabled" yaml:"enabled"`
 	Tool    string `json:"tool" yaml:"tool"`
 	Port    int    `json:"port" yaml:"port"`
+}
+
+type GRPC struct {
+	Port int `json:"port" yaml:"port"`
 }
 
 type Profiling struct {
