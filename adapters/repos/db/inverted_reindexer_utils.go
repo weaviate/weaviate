@@ -15,6 +15,8 @@ import (
 	"regexp"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func GetPropNameAndIndexTypeFromBucketName(bucketName string) (string, PropertyIndexType) {
@@ -69,24 +71,30 @@ func GetPropNameAndIndexTypeFromBucketName(bucketName string) (string, PropertyI
 
 type reindexablePropertyChecker struct {
 	reindexables map[string]map[PropertyIndexType]struct{}
+	props        map[string]*models.Property
 }
 
-func newReindexablePropertyChecker(reindexableProperties []ReindexableProperty) *reindexablePropertyChecker {
+func newReindexablePropertyChecker(reindexableProperties []ReindexableProperty, class *models.Class) *reindexablePropertyChecker {
 	reindexables := map[string]map[PropertyIndexType]struct{}{}
+	props := map[string]*models.Property{}
 	for _, property := range reindexableProperties {
 		if _, ok := reindexables[property.PropertyName]; !ok {
 			reindexables[property.PropertyName] = map[PropertyIndexType]struct{}{}
 		}
 		reindexables[property.PropertyName][property.IndexType] = struct{}{}
+		props[property.PropertyName], _ = schema.GetPropertyByName(class, property.PropertyName)
 	}
-	return &reindexablePropertyChecker{reindexables}
+	return &reindexablePropertyChecker{reindexables, props}
 }
 
 func (c *reindexablePropertyChecker) isReindexable(propName string, indexType PropertyIndexType) bool {
-	if _, ok := c.reindexables[propName]; !ok {
-		return false
-	} else if _, ok := c.reindexables[propName][indexType]; !ok {
-		return false
+	if _, ok := c.reindexables[propName]; ok {
+		_, ok := c.reindexables[propName][indexType]
+		return ok
 	}
-	return true
+	return false
+}
+
+func (c *reindexablePropertyChecker) getSchemaProp(propName string) *models.Property {
+	return c.props[propName]
 }

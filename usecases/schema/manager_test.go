@@ -92,6 +92,10 @@ func (n *NilMigrator) InvertedReindex(ctx context.Context, taskNames ...string) 
 	return nil
 }
 
+func (n *NilMigrator) AdjustFilterablePropSettings(ctx context.Context) error {
+	return nil
+}
+
 var schemaTests = []struct {
 	name string
 	fn   func(*testing.T, *Manager)
