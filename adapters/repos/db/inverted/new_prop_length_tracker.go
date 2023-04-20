@@ -161,7 +161,7 @@ func (t *JsonPropertyLengthTracker) UnTrackProperty(propName string, value float
 	if _, ok := t.data.BucketedData[propName]; ok {
 		t.data.BucketedData[propName][int(bucketId)] = t.data.BucketedData[propName][int(bucketId)] - 1
 	} else {
-		// Yikes
+		return errors.New("property not found")
 	}
 
 	return nil
