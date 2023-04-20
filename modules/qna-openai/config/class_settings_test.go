@@ -29,6 +29,9 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantTopP             float64
 		wantFrequencyPenalty float64
 		wantPresencePenalty  float64
+		wantResourceName     string
+		wantDeploymentID     string
+		wantIsAzure          bool
 		wantErr              error
 	}{
 		{
@@ -62,6 +65,25 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantTopP:             3,
 			wantFrequencyPenalty: 0.1,
 			wantPresencePenalty:  0.9,
+			wantErr:              nil,
+		},
+		{
+			name: "Azure OpenAI config",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"resourceName": "weaviate",
+					"deploymentId": "text-ada-001",
+				},
+			},
+			wantModel:            "text-ada-001",
+			wantResourceName:     "weaviate",
+			wantDeploymentID:     "text-ada-001",
+			wantIsAzure:          true,
+			wantMaxTokens:        16,
+			wantTemperature:      0.0,
+			wantTopP:             1,
+			wantFrequencyPenalty: 0.0,
+			wantPresencePenalty:  0.0,
 			wantErr:              nil,
 		},
 		{
@@ -127,12 +149,30 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 			wantErr: errors.Errorf("Wrong topP configuration, values are should have a minimal value of 1 and max of 5"),
 		},
+		{
+			name: "Wrong Azure OpenAI config - empty deploymentId",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"resourceName": "resource-name",
+				},
+			},
+			wantErr: errors.Errorf("both resourceName and deploymentId must be provided"),
+		},
+		{
+			name: "Wrong Azure OpenAI config - empty resourceName",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"deploymentId": "ada",
+				},
+			},
+			wantErr: errors.Errorf("both resourceName and deploymentId must be provided"),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ic := NewClassSettings(tt.cfg)
 			if tt.wantErr != nil {
-				assert.Equal(t, tt.wantErr.Error(), ic.Validate(nil).Error())
+				assert.EqualError(t, tt.wantErr, ic.Validate(nil).Error())
 			} else {
 				assert.Equal(t, tt.wantModel, ic.Model())
 				assert.Equal(t, tt.wantMaxTokens, ic.MaxTokens())
@@ -140,6 +180,9 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantTopP, ic.TopP())
 				assert.Equal(t, tt.wantFrequencyPenalty, ic.FrequencyPenalty())
 				assert.Equal(t, tt.wantPresencePenalty, ic.PresencePenalty())
+				assert.Equal(t, tt.wantResourceName, ic.ResourceName())
+				assert.Equal(t, tt.wantDeploymentID, ic.DeploymentID())
+				assert.Equal(t, tt.wantIsAzure, ic.IsAzure())
 			}
 		})
 	}

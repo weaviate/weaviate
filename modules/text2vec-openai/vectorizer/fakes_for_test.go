@@ -53,6 +53,9 @@ type fakeSettings struct {
 	openAIType         string
 	openAIModel        string
 	openAIModelVersion string
+	resourceName       string
+	deploymentID       string
+	isAzure            bool
 }
 
 func (f *fakeSettings) PropertyIndexed(propName string) bool {
@@ -77,4 +80,16 @@ func (f *fakeSettings) Model() string {
 
 func (f *fakeSettings) ModelVersion() string {
 	return f.openAIModelVersion
+}
+
+func (f *fakeSettings) ResourceName() string {
+	return f.resourceName
+}
+
+func (f *fakeSettings) DeploymentID() string {
+	return f.deploymentID
+}
+
+func (f *fakeSettings) IsAzure() bool {
+	return f.isAzure
 }

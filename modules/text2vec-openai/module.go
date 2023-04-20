@@ -102,8 +102,10 @@ func (m *OpenAIModule) InitExtension(modules []modulecapabilities.Module) error 
 func (m *OpenAIModule) initVectorizer(ctx context.Context,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("OPENAI_APIKEY")
-	client := clients.New(apiKey, logger)
+	openAIApiKey := os.Getenv("OPENAI_APIKEY")
+	azureApiKey := os.Getenv("AZURE_APIKEY")
+
+	client := clients.New(openAIApiKey, azureApiKey, logger)
 
 	m.vectorizer = vectorizer.New(client)
 	m.metaProvider = client
