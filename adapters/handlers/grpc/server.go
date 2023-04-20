@@ -193,12 +193,12 @@ func searchParamsFromProto(req *pb.SearchRequest) (dto.GetParams, error) {
 		}
 
 		if no.Certainty != nil {
-			out.NearVector.Certainty = *no.Certainty
+			out.NearObject.Certainty = *no.Certainty
 		}
 
 		if no.Distance != nil {
-			out.NearVector.Distance = *no.Distance
-			out.NearVector.WithDistance = true
+			out.NearObject.Distance = *no.Distance
+			out.NearObject.WithDistance = true
 		}
 	}
 
