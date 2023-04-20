@@ -132,6 +132,19 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		b.desiredStrategy = StrategyRoaringSet
 		sg.strategy = StrategySetCollection
 	}
+	// As of v1.19 property's IndexInterval setting is replaced with
+	// IndexFilterable (roaring set) + IndexSearchable (map) and enabled by default.
+	// Buckets for text/text[] inverted indexes created before 1.19 have strategy
+	// map and name that since 1.19 is used by filterable indeverted index.
+	// Those buckets (roaring set by configuration, but in fact map) have to be
+	// renamed on startup by migrator. Here actual strategy is set based on
+	// data found in segment files
+	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
+		sg.segments[0].strategy == segmentindex.StrategyMapCollection {
+		b.strategy = StrategyMapCollection
+		b.desiredStrategy = StrategyRoaringSet
+		sg.strategy = StrategyMapCollection
+	}
 
 	b.disk = sg
 

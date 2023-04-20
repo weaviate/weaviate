@@ -20,6 +20,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -32,6 +34,7 @@ type ShardInvertedReindexTask interface {
 type ReindexableProperty struct {
 	PropertyName    string
 	IndexType       PropertyIndexType
+	NewIndex        bool // is new index, there is no bucket to replace with
 	DesiredStrategy string
 	BucketOptions   []lsmkv.BucketOption
 }
@@ -41,10 +44,19 @@ type ShardInvertedReindexer struct {
 	shard  *Shard
 
 	tasks []ShardInvertedReindexTask
+	class *models.Class
 }
 
 func NewShardInvertedReindexer(shard *Shard, logger logrus.FieldLogger) *ShardInvertedReindexer {
-	return &ShardInvertedReindexer{logger: logger, shard: shard, tasks: []ShardInvertedReindexTask{}}
+	class, _ := schema.GetClassByName(shard.index.getSchema.GetSchemaSkipAuth().Objects,
+		shard.index.Config.ClassName.String())
+
+	return &ShardInvertedReindexer{
+		logger: logger,
+		shard:  shard,
+		tasks:  []ShardInvertedReindexTask{},
+		class:  class,
+	}
 }
 
 func (r *ShardInvertedReindexer) AddTask(task ShardInvertedReindexTask) {
@@ -72,7 +84,8 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 	if len(reindexProperties) == 0 {
 		r.logger.
 			WithField("action", "inverted reindex").
-			WithField("shard", r.shard.name).
+			WithField("index", r.shard.index.ID()).
+			WithField("shard", r.shard.ID()).
 			Debug("no properties to reindex")
 		return nil
 	}
@@ -130,16 +143,31 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 		tempBucket.FlushMemtable(ctx)
 		tempBucket.UpdateStatus(storagestate.StatusReadOnly)
 
-		if err := r.shard.store.ReplaceBuckets(ctx, bucketsToReindex[i], tempBucketName); err != nil {
-			r.logError(err, "failed replacing buckets")
-			return err
+		if reindexProperties[i].NewIndex {
+			if err := r.shard.store.RenameBucket(ctx, tempBucketName, bucketsToReindex[i]); err != nil {
+				r.logError(err, "failed renaming buckets")
+				return err
+			}
+
+			r.logger.
+				WithField("action", "inverted reindex").
+				WithField("shard", r.shard.name).
+				WithField("bucket", bucketsToReindex[i]).
+				WithField("temp_bucket", tempBucketName).
+				Debug("renamed bucket")
+		} else {
+			if err := r.shard.store.ReplaceBuckets(ctx, bucketsToReindex[i], tempBucketName); err != nil {
+				r.logError(err, "failed replacing buckets")
+				return err
+			}
+
+			r.logger.
+				WithField("action", "inverted reindex").
+				WithField("shard", r.shard.name).
+				WithField("bucket", bucketsToReindex[i]).
+				WithField("temp_bucket", tempBucketName).
+				Debug("replaced buckets")
 		}
-		r.logger.
-			WithField("action", "inverted reindex").
-			WithField("shard", r.shard.name).
-			WithField("bucket", bucketsToReindex[i]).
-			WithField("temp_bucket", tempBucketName).
-			Debug("replaced buckets")
 	}
 
 	if err := r.checkContextExpired(ctx, "resuming store stopped due to context canceled"); err != nil {
@@ -203,7 +231,7 @@ func (r *ShardInvertedReindexer) createTempBucket(ctx context.Context, name stri
 }
 
 func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexableProperties []ReindexableProperty) error {
-	checker := newReindexablePropertyChecker(reindexableProperties)
+	checker := newReindexablePropertyChecker(reindexableProperties, r.class)
 	objectsBucket := r.shard.store.Bucket(helpers.ObjectsBucketLSM)
 
 	r.logger.
@@ -262,6 +290,8 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 	reindexablePropSearchableValue := checker.isReindexable(property.Name, IndexTypePropSearchableValue)
 
 	if reindexableHashPropValue || reindexablePropValue || reindexablePropSearchableValue {
+		schemaProp := checker.getSchemaProp(property.Name)
+
 		var hashBucketValue, bucketValue, bucketSearchableValue *lsmkv.Bucket
 
 		if reindexableHashPropValue {
@@ -286,18 +316,18 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 		propLen := float32(len(property.Items))
 		for _, item := range property.Items {
 			key := item.Data
-			if reindexableHashPropValue && (property.IsFilterable || property.IsSearchable) {
+			if reindexableHashPropValue && inverted.IsIndexable(schemaProp) {
 				if err := r.shard.addToPropertyHashBucket(hashBucketValue, key); err != nil {
 					return errors.Wrapf(err, "failed adding to prop '%s' value hash bucket", property.Name)
 				}
 			}
-			if reindexablePropSearchableValue && property.IsSearchable {
+			if reindexablePropSearchableValue && inverted.IsSearchable(schemaProp) {
 				pair := r.shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
 				if err := r.shard.addToPropertyMapBucket(bucketSearchableValue, pair, key); err != nil {
 					return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
 				}
 			}
-			if reindexablePropValue && property.IsFilterable {
+			if reindexablePropValue && inverted.IsFilterable(schemaProp) {
 				if err := r.shard.addToPropertySetBucket(bucketValue, docID, key); err != nil {
 					return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
 				}

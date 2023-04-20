@@ -87,5 +87,5 @@ func TempBucketFromBucketName(bucketName string) string {
 }
 
 func BucketSearchableFromPropNameLSM(propName string) string {
-	return fmt.Sprintf("property_searchable_%s", propName)
+	return BucketFromPropNameLSM(propName + "_searchable")
 }
