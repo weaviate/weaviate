@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 // State is the only source of application-wide state
@@ -51,6 +52,7 @@ type State struct {
 	RemoteIndexIncoming   *sharding.RemoteIndexIncoming
 	RemoteNodeIncoming    *sharding.RemoteNodeIncoming
 	RemoteReplicaIncoming *replica.RemoteReplicaIncoming
+	Traverser             *traverser.Traverser
 
 	ClassificationRepo *classifications.DistributedRepo
 	Metrics            *monitoring.PrometheusMetrics

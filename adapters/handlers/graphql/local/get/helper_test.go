@@ -647,7 +647,7 @@ func newMockResolverWithNoModules() *mockResolver {
 
 func (m *mockResolver) GetClass(ctx context.Context, principal *models.Principal,
 	params dto.GetParams,
-) (interface{}, error) {
+) ([]interface{}, error) {
 	args := m.Called(params)
-	return args.Get(0), args.Error(1)
+	return args.Get(0).([]interface{}), args.Error(1)
 }

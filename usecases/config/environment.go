@@ -239,6 +239,14 @@ func FromEnv(config *Config) error {
 		config.MaximumConcurrentGetRequests = DefaultMaxConcurrentGetRequests
 	}
 
+	if err := parsePositiveInt(
+		"GRPC_PORT",
+		func(val int) { config.GRPC.Port = val },
+		DefaultGRPCPort,
+	); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -313,6 +321,7 @@ const (
 	DefaultPersistenceMemtablesMinDuration    = 15
 	DefaultPersistenceMemtablesMaxDuration    = 45
 	DefaultMaxConcurrentGetRequests           = 0
+	DefaultGRPCPort                           = 50051
 )
 
 const VectorizerModuleNone = "none"
