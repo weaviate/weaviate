@@ -137,7 +137,7 @@ func searchParamsFromProto(req *pb.SearchRequest) dto.GetParams {
 
 	if req.Properties != nil && len(req.Properties) > 0 {
 		for _, prop := range req.Properties {
-			isPrimitive := strings.Contains(prop, "...")
+			isPrimitive := !strings.Contains(prop, "...")
 
 			// Todo: Ref Props
 			out.Properties = append(out.Properties, search.SelectProperty{
