@@ -32,8 +32,9 @@ import (
 	"google.golang.org/grpc"
 )
 
-func StartAndListen(port int, state *state.State) error {
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+func StartAndListen(state *state.State) error {
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d",
+		state.ServerConfig.Config.GRPC.Port))
 	if err != nil {
 		return err
 	}
