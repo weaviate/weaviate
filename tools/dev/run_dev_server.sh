@@ -53,6 +53,7 @@ case $CONFIG in
         --write-timeout=600s
     ;;
   second-node)
+      GRPC_PORT=50052 \
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./data-node2" \
@@ -73,6 +74,7 @@ case $CONFIG in
     ;;
 
     third-node)
+        GRPC_PORT=50053 \
         CONTEXTIONARY_URL=localhost:9999 \
         AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
         PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-node3" \
@@ -92,6 +94,7 @@ case $CONFIG in
       ;;
 
     fourth-node)
+        GRPC_PORT=50054 \
         CONTEXTIONARY_URL=localhost:9999 \
         AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
         PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-node4" \
