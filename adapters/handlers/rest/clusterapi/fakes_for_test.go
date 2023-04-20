@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	schemaent "github.com/weaviate/weaviate/entities/schema"
 	schemauc "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/migrate"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -216,5 +217,9 @@ func (n *NilMigrator) RecalculateVectorDimensions(ctx context.Context) error {
 }
 
 func (n *NilMigrator) InvertedReindex(ctx context.Context, taskNames ...string) error {
+	return nil
+}
+
+func (n *NilMigrator) AdjustFilterablePropSettings(ctx context.Context, updateSchema migrate.UpdateSchema) error {
 	return nil
 }

@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/schema/migrate"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"golang.org/x/sync/errgroup"
 )
@@ -264,4 +265,26 @@ func (m *Migrator) InvertedReindex(ctx context.Context, taskNames ...string) err
 		}
 	}
 	return errgrp.Wait()
+}
+
+// As of v1.19 property's IndexInverted setting is replaced with IndexFilterable
+// and IndexSearchable
+// Filterable buckets use roaring set strategy and searchable ones use map strategy
+// (therefore applicabe just for text/text[])
+// Since both type of buckets can coexist for text/text[] props they need to be
+// distinguished by their name: searchable bucket has "searchable" suffix.
+// Up until v1.18 default text/text[]/string/string[] (string/string[] deprecated since v1.19)
+// strategy for buckets was map, migrating from pre v1.19 to v1.19 needs to properly
+// handle existing text/text[] buckets of map strategy having filterable bucket name
+//
+// Enabled InvertedIndex translates in v1.19 to both InvertedFilterable and InvertedSearchable
+// enabled, but since only searchable bucket exist (with filterable name), it has to be renamed
+// to searchable bucket, and IndexFilterable need to be disabled so weaviate knew there is only
+// searchable bucket available to use.
+// All properties with IndexFilterable setting disabled here will be stored to file.
+// It is up to user to decide whether he wants to create missing filterable indexes for
+// text/text[] properties and enable IndexFilterable setting to have benefits of
+// faster roaring bitmaps based filtering.
+func (m *Migrator) AdjustFilterablePropSettings(ctx context.Context, updateSchema migrate.UpdateSchema) error {
+	return newFilterableToSearchableMigrator(m).do(ctx, updateSchema)
 }

@@ -344,3 +344,10 @@ func (m *Manager) parseConfigs(ctx context.Context, schema *State) error {
 
 	return nil
 }
+
+func (m *Manager) UpdateSchema(ctx context.Context, cb migrate.UpdateSchemaCallback) error {
+	if err := cb(m.state.ObjectSchema); err != nil {
+		return err
+	}
+	return m.repo.SaveSchema(ctx, m.state)
+}

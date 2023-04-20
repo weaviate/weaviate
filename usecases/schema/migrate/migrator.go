@@ -43,5 +43,11 @@ type Migrator interface {
 	UpdateInvertedIndexConfig(ctx context.Context, className string,
 		updated *models.InvertedIndexConfig) error
 	RecalculateVectorDimensions(ctx context.Context) error
+
 	InvertedReindex(ctx context.Context, taskNames ...string) error
+	AdjustFilterablePropSettings(ctx context.Context, updateSchema UpdateSchema) error
 }
+
+type UpdateSchema func(ctx context.Context, cb UpdateSchemaCallback) error
+
+type UpdateSchemaCallback func(schema *models.Schema) error

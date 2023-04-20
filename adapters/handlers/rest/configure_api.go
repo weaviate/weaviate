@@ -261,7 +261,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	if err != nil {
 		appState.Logger.
 			WithError(err).
-			WithField("action", "startup").WithError(err).
+			WithField("action", "startup").
 			Fatal("db didn't start up")
 		os.Exit(1)
 	}
@@ -294,6 +294,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupClassificationHandlers(api, classifier)
 	setupBackupHandlers(api, backupScheduler)
 	setupNodesHandlers(api, schemaManager, repo, appState)
+
+	err = migrator.AdjustFilterablePropSettings(ctx, schemaManager.UpdateSchema)
+	if err != nil {
+		appState.Logger.
+			WithError(err).
+			WithField("action", "adjustFilterablePropSettings").
+			Fatal("migration failed")
+		os.Exit(1)
+	}
 
 	reindexCtx, reindexCtxCancel := context.WithCancel(context.Background())
 	reindexFinished := make(chan error)
