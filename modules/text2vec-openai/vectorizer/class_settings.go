@@ -97,6 +97,18 @@ func (ic *classSettings) ModelVersion() string {
 	return ic.getProperty("modelVersion", defaultVersion)
 }
 
+func (ic *classSettings) ResourceName() string {
+	return ic.getProperty("resourceName", "")
+}
+
+func (ic *classSettings) DeploymentID() string {
+	return ic.getProperty("deploymentId", "")
+}
+
+func (ic *classSettings) IsAzure() bool {
+	return ic.ResourceName() != "" && ic.DeploymentID() != ""
+}
+
 func (ic *classSettings) VectorizeClassName() bool {
 	if ic.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
@@ -137,7 +149,12 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return err
 	}
 
-	err := ic.validateIndexState(class, ic)
+	err := ic.validateAzureConfig(ic.ResourceName(), ic.DeploymentID())
+	if err != nil {
+		return err
+	}
+
+	err = ic.validateIndexState(class, ic)
 	if err != nil {
 		return err
 	}
@@ -236,6 +253,13 @@ func (cv *classSettings) validateIndexState(class *models.Class, settings ClassS
 		"to true if the class name is contextionary-valid. Alternatively add at least " +
 		"contextionary-valid text/string property which is not excluded from " +
 		"indexing.")
+}
+
+func (ic *classSettings) validateAzureConfig(resourceName string, deploymentId string) error {
+	if (resourceName == "" && deploymentId != "") || (resourceName != "" && deploymentId == "") {
+		return fmt.Errorf("both resourceName and deploymentId must be provided")
+	}
+	return nil
 }
 
 func PickDefaultModelVersion(model, docType string) string {
