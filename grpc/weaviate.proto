@@ -22,10 +22,14 @@ message SearchRequest {
 message NearVectorParams {
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated float vector = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
 }
 
 message NearObjectParams {
   string id = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
 }
 
 message SearchReply {

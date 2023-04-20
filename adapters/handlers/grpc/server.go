@@ -71,7 +71,10 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
 
-	searchParams := searchParamsFromProto(req)
+	searchParams, err := searchParamsFromProto(req)
+	if err != nil {
+		return nil, fmt.Errorf("extract params: %w", err)
+	}
 	res, err := s.traverser.GetClass(ctx, principal, searchParams)
 	if err != nil {
 		return nil, err
@@ -131,7 +134,7 @@ func searchResultsToProto(res []any, start time.Time, searchParams dto.GetParams
 	return out
 }
 
-func searchParamsFromProto(req *pb.SearchRequest) dto.GetParams {
+func searchParamsFromProto(req *pb.SearchRequest) (dto.GetParams, error) {
 	out := dto.GetParams{}
 	out.ClassName = req.ClassName
 
@@ -155,15 +158,47 @@ func searchParamsFromProto(req *pb.SearchRequest) dto.GetParams {
 		}
 	}
 
-	if req.NearVector != nil {
+	if nv := req.NearVector; nv != nil {
 		out.NearVector = &searchparams.NearVector{
-			Vector: req.NearVector.Vector,
+			Vector: nv.Vector,
+		}
+
+		// The following business logic should not sit in the API. However, it is
+		// also part of the GraphQL API, so we need to duplicate it in order to get
+		// the same behavior
+		if nv.Distance != nil && nv.Certainty != nil {
+			return out, fmt.Errorf("near_vector: cannot provide distance and certainty")
+		}
+
+		if nv.Certainty != nil {
+			out.NearVector.Certainty = *nv.Certainty
+		}
+
+		if nv.Distance != nil {
+			out.NearVector.Distance = *nv.Distance
+			out.NearVector.WithDistance = true
 		}
 	}
 
-	if req.NearObject != nil {
+	if no := req.NearObject; no != nil {
 		out.NearObject = &searchparams.NearObject{
 			ID: req.NearObject.Id,
+		}
+
+		// The following business logic should not sit in the API. However, it is
+		// also part of the GraphQL API, so we need to duplicate it in order to get
+		// the same behavior
+		if no.Distance != nil && no.Certainty != nil {
+			return out, fmt.Errorf("near_object: cannot provide distance and certainty")
+		}
+
+		if no.Certainty != nil {
+			out.NearVector.Certainty = *no.Certainty
+		}
+
+		if no.Distance != nil {
+			out.NearVector.Distance = *no.Distance
+			out.NearVector.WithDistance = true
 		}
 	}
 
@@ -175,5 +210,5 @@ func searchParamsFromProto(req *pb.SearchRequest) dto.GetParams {
 		out.Pagination.Limit = 10
 	}
 
-	return out
+	return out, nil
 }
