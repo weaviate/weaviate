@@ -90,12 +90,11 @@ var queryCmd = &cobra.Command{
 
 			result, err := bm25Query.Do(context.Background())
 
-		
-				result, err = bm25Query.Do(context.Background())
-				if err != nil {
-					return err
-				}
-			
+			result, err = bm25Query.Do(context.Background())
+			if err != nil {
+				return err
+			}
+
 			if result.Errors != nil {
 				return errors.New(result.Errors[0].Message)
 			}
