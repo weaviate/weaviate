@@ -123,7 +123,6 @@ func Test_PropertyLengthTracker(t *testing.T) {
 		assert.Equal(t, 3, sum)
 		assert.Equal(t, 1, count)
 		assert.InEpsilon(t, 3, mean, 0.1)
-
 	})
 
 	t.Run("multiple properties (can all fit on one page)", func(t *testing.T) {
@@ -470,7 +469,6 @@ func TestOldPropertyLengthTracker(t *testing.T) {
 		}
 	})
 
-
 	t.Run("test untrack", func(t *testing.T) {
 		tracker, err := NewPropertyLengthTracker(trackerPath)
 		require.Nil(t, err)
@@ -499,9 +497,7 @@ func TestOldPropertyLengthTracker(t *testing.T) {
 		assert.Equal(t, 3, sum)
 		assert.Equal(t, 1, count)
 		assert.InEpsilon(t, 3, mean, 0.1)
-
 	})
-
 
 	t.Run("multiple properties (can all fit on one page)", func(t *testing.T) {
 		type prop struct {

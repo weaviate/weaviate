@@ -62,7 +62,6 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 		path:             path,
 		UnlimitedBuckets: false,
 	}
-	
 
 	// read the file into memory
 	bytes, err := os.ReadFile(path)
@@ -162,7 +161,7 @@ func (t *JsonPropertyLengthTracker) UnTrackProperty(propName string, value float
 	if _, ok := t.data.BucketedData[propName]; ok {
 		t.data.BucketedData[propName][int(bucketId)] = t.data.BucketedData[propName][int(bucketId)] - 1
 	} else {
-		//Yikes
+		// Yikes
 	}
 
 	return nil
