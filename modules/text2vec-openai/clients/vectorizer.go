@@ -130,8 +130,8 @@ func (v *vectorizer) vectorize(ctx context.Context, input string, model string, 
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
-	if res.StatusCode != 200 {
-		return nil, v.getError(endpoint, res.StatusCode, resBody.Error)
+	if res.StatusCode != 200 || resBody.Error != nil {
+		return nil, v.getError(res.StatusCode, resBody.Error, config.IsAzure)
 	}
 
 	if len(resBody.Data) != 1 {
@@ -145,11 +145,15 @@ func (v *vectorizer) vectorize(ctx context.Context, input string, model string, 
 	}, nil
 }
 
-func (v *vectorizer) getError(url string, statusCode int, resBodyError *openAIApiError) error {
-	if resBodyError != nil {
-		return fmt.Errorf("connection to: %s failed with status: %d error: %v", url, statusCode, resBodyError.Message)
+func (v *vectorizer) getError(statusCode int, resBodyError *openAIApiError, isAzure bool) error {
+	endpoint := "OpenAI API"
+	if isAzure {
+		endpoint = "Azure OpenAI API"
 	}
-	return fmt.Errorf("connection to: %s failed with status: %d", url, statusCode)
+	if resBodyError != nil {
+		return fmt.Errorf("connection to: %s failed with status: %d error: %v", endpoint, statusCode, resBodyError.Message)
+	}
+	return fmt.Errorf("connection to: %s failed with status: %d", endpoint, statusCode)
 }
 
 func (v *vectorizer) getEmbeddingsRequest(input, model string, isAzure bool) embeddingsRequest {

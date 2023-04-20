@@ -111,10 +111,7 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 	}
 
 	if res.StatusCode != 200 || resBody.Error != nil {
-		if resBody.Error != nil {
-			return nil, fmt.Errorf("connection to OpenAI failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)
-		}
-		return nil, fmt.Errorf("failed with status: %d", res.StatusCode)
+		return nil, v.getError(res.StatusCode, resBody.Error, settings.IsAzure())
 	}
 
 	if len(resBody.Choices) > 0 && resBody.Choices[0].Text != "" {
@@ -129,6 +126,17 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 		Question: question,
 		Answer:   nil,
 	}, nil
+}
+
+func (v *qna) getError(statusCode int, resBodyError *openAIApiError, isAzure bool) error {
+	endpoint := "OpenAI API"
+	if isAzure {
+		endpoint = "Azure OpenAI API"
+	}
+	if resBodyError != nil {
+		return fmt.Errorf("connection to: %s failed with status: %d error: %v", endpoint, statusCode, resBodyError.Message)
+	}
+	return fmt.Errorf("connection to: %s failed with status: %d", endpoint, statusCode)
 }
 
 func (v *qna) getApiKeyHeaderAndValue(apiKey string, isAzure bool) (string, string) {

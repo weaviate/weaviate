@@ -14,7 +14,6 @@ package clients
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -86,7 +85,7 @@ func TestClient(t *testing.T) {
 			ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
-		assert.EqualError(t, err, fmt.Sprintf("connection to: %s failed with status: 500 error: nope, not gonna happen", server.URL))
+		assert.EqualError(t, err, "connection to: OpenAI API failed with status: 500 error: nope, not gonna happen")
 	})
 
 	t.Run("when OpenAI key is passed using X-Openai-Api-Key header", func(t *testing.T) {
