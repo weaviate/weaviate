@@ -148,6 +148,10 @@ func searchParamsFromProto(req *pb.SearchRequest) (dto.GetParams, error) {
 				IsPrimitive: isPrimitive,
 			})
 		}
+	} else {
+		// This is a pure-ID query without any props. Indicate this to the DB, so
+		// it can optimize accordingly
+		out.AdditionalProperties.NoProps = true
 	}
 
 	if req.AdditionalProperties != nil {
