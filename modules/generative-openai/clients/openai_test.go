@@ -33,7 +33,7 @@ func nullLogger() logrus.FieldLogger {
 }
 
 func fakeBuildUrl(serverURL string, isLegacy bool, resourceName, deploymentID string) (string, error) {
-	endpoint, err := buildUrl(isLegacy, resourceName, deploymentID)
+	endpoint, err := buildUrlFn(isLegacy, resourceName, deploymentID)
 	if err != nil {
 		return "", err
 	}
@@ -60,7 +60,7 @@ func TestGetAnswer(t *testing.T) {
 		defer server.Close()
 
 		c := New("openAIApiKey", "", nullLogger())
-		c.buildUrlFn = func(isLegacy bool, resourceName, deploymentID string) (string, error) {
+		c.buildUrl = func(isLegacy bool, resourceName, deploymentID string) (string, error) {
 			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID)
 		}
 
@@ -86,7 +86,7 @@ func TestGetAnswer(t *testing.T) {
 		defer server.Close()
 
 		c := New("openAIApiKey", "", nullLogger())
-		c.buildUrlFn = func(isLegacy bool, resourceName, deploymentID string) (string, error) {
+		c.buildUrl = func(isLegacy bool, resourceName, deploymentID string) (string, error) {
 			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID)
 		}
 
