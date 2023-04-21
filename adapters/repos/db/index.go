@@ -991,11 +991,9 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	shardingState := i.getSchema.ShardingState(i.Config.ClassName.String())
 	shardNames := shardingState.AllPhysicalShards()
 
-	if len(shardNames) == 1 {
-		if shardingState.IsShardLocal(shardNames[0]) {
-			return i.singleLocalShardObjectVectorSearch(ctx, searchVector, dist, limit, filters,
-				sort, additional, shardNames[0])
-		}
+	if len(shardNames) == 1 && shardingState.IsShardLocal(shardNames[0]) {
+		return i.singleLocalShardObjectVectorSearch(ctx, searchVector, dist, limit, filters,
+			sort, additional, shardNames[0])
 	}
 
 	// a limit of -1 is used to signal a search by distance. if that is
