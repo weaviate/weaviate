@@ -289,7 +289,10 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 		}
 	}
 
-	beforeObjects := time.Now()
+	var beforeObjects time.Time
+	if filters != nil {
+		beforeObjects = time.Now()
+	}
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	objs, err := storobj.ObjectsByDocID(bucket, ids, additional)
