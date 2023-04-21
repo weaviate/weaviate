@@ -26,7 +26,6 @@ type pools struct {
 	pqHeuristic  *pqMinWithIndexPool
 	pqResults    *pqMaxPool
 	pqCandidates *pqMinPool
-	connList     *connList
 }
 
 func newPools(maxConnectionsLayerZero int) *pools {
@@ -41,7 +40,6 @@ func newPools(maxConnectionsLayerZero int) *pools {
 		pqHeuristic:  newPqMinWithIndexPool(maxConnectionsLayerZero),
 		pqResults:    newPqMaxPool(maxConnectionsLayerZero),
 		pqCandidates: newPqMinPool(maxConnectionsLayerZero),
-		connList:     newConnList(maxConnectionsLayerZero),
 	}
 }
 
@@ -130,29 +128,4 @@ func (pqh *pqMaxPool) GetMax(capacity int) *priorityqueue.Queue {
 
 func (pqh *pqMaxPool) Put(pq *priorityqueue.Queue) {
 	pqh.pool.Put(pq)
-}
-
-func newConnList(capacity int) *connList {
-	return &connList{
-		pool: &sync.Pool{
-			New: func() interface{} {
-				l := make([]uint64, 0, capacity)
-				return &l
-			},
-		},
-	}
-}
-
-type connList struct {
-	pool *sync.Pool
-}
-
-func (cl *connList) Get(length int) *[]uint64 {
-	list := cl.pool.Get().(*[]uint64)
-	*list = (*list)[:length]
-	return list
-}
-
-func (cl *connList) Put(list *[]uint64) {
-	cl.pool.Put(list)
 }
