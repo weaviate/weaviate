@@ -970,7 +970,7 @@ func (i *Index) sort(objects []*storobj.Object, scores []float32,
 		Sort(objects, scores, limit, sort)
 }
 
-func (i *Index) singleShardObjectVectorSearch(ctx context.Context, searchVector []float32,
+func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVector []float32,
 	dist float32, limit int, filters *filters.LocalFilter,
 	sort []filters.Sort, additional additional.Properties, shardName string,
 ) ([]*storobj.Object, []float32, error) {
@@ -991,6 +991,13 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	shardingState := i.getSchema.ShardingState(i.Config.ClassName.String())
 	shardNames := shardingState.AllPhysicalShards()
 
+	if len(shardNames) == 1 {
+		if shardingState.IsShardLocal(shardNames[0]) {
+			return i.singleLocalShardObjectVectorSearch(ctx, searchVector, dist, limit, filters,
+				sort, additional, shardNames[0])
+		}
+	}
+
 	// a limit of -1 is used to signal a search by distance. if that is
 	// the case we have to adjust how we calculate the output capacity
 	var shardCap int
@@ -998,13 +1005,6 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 		shardCap = len(shardNames) * hnsw.DefaultSearchByDistInitialLimit
 	} else {
 		shardCap = len(shardNames) * limit
-	}
-
-	if len(shardNames) == 1 {
-		if shardingState.IsShardLocal(shardNames[0]) {
-			return i.singleShardObjectVectorSearch(ctx, searchVector, dist, shardCap, filters,
-				sort, additional, shardNames[0])
-		}
 	}
 
 	errgrp := &errgroup.Group{}
