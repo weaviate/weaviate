@@ -387,7 +387,6 @@
       },
       "type": "object"
     },
-
     "StopwordConfig": {
       "description": "fine-grained control over stopword list usage",
       "properties": {
@@ -657,7 +656,8 @@
             "word",
             "lowercase",
             "whitespace",
-            "field"
+            "field",
+            "ngram"
           ]
         }
       },

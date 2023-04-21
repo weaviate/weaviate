@@ -3913,7 +3913,8 @@ func init() {
             "word",
             "lowercase",
             "whitespace",
-            "field"
+            "field",
+            "ngram"
           ]
         }
       }
@@ -8452,7 +8453,8 @@ func init() {
             "word",
             "lowercase",
             "whitespace",
-            "field"
+            "field",
+            "ngram"
           ]
         }
       }
