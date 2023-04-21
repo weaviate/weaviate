@@ -23,6 +23,7 @@ var Tokenizations []string = []string{
 	models.PropertyTokenizationLowercase,
 	models.PropertyTokenizationWhitespace,
 	models.PropertyTokenizationField,
+	models.PropertyTokenizationNgram,
 }
 
 func IsSupportedTokenization(tokenization string) bool {
@@ -44,6 +45,8 @@ func Tokenize(tokenization string, in string) []string {
 		return tokenizeWhitespace(in)
 	case models.PropertyTokenizationField:
 		return tokenizeField(in)
+	case models.PropertyTokenizationNgram:
+		return tokenizeNgram(in)
 	default:
 		return []string{}
 	}
@@ -59,6 +62,8 @@ func TokenizeWithWildcards(tokenization string, in string) []string {
 		return tokenizeWhitespace(in)
 	case models.PropertyTokenizationField:
 		return tokenizeField(in)
+	case models.PropertyTokenizationNgram:
+		return tokenizeNgramWithWildcards(in)
 	default:
 		return []string{}
 	}
@@ -91,6 +96,17 @@ func tokenizeWord(in string) []string {
 	return lowercase(terms)
 }
 
+// tokenizeNgram splits on any non-alphanumerical and lowercases the words, joins them together, then groups them into trigrams
+func tokenizeNgram(in string) []string {
+	terms := tokenizeWord(in)
+	inputString := strings.Join(terms, "")
+	var ngrams []string
+	for i := 0; i < len(inputString)-2; i++ {
+		ngrams = append(ngrams, inputString[i:i+3])
+	}
+	return ngrams
+}
+
 // tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and
 // lowercases the words
 func tokenizeWordWithWildcards(in string) []string {
@@ -98,6 +114,17 @@ func tokenizeWordWithWildcards(in string) []string {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r) && r != '?' && r != '*'
 	})
 	return lowercase(terms)
+}
+
+// tokenizeNgram splits on any non-alphanumerical and lowercases the words, joins them together, then groups them into trigrams
+func tokenizeNgramWithWildcards(in string) []string {
+	terms := tokenizeWordWithWildcards(in)
+	inputString := strings.Join(terms, "")
+	var ngrams []string
+	for i := 0; i < len(inputString)-2; i++ {
+		ngrams = append(ngrams, inputString[i:i+3])
+	}
+	return ngrams
 }
 
 func lowercase(terms []string) []string {
