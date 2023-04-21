@@ -111,6 +111,10 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 func FromBinaryOptional(data []byte,
 	addProp additional.Properties,
 ) (*Object, error) {
+	if addProp.NoProps {
+		return FromBinaryUUIDOnly(data)
+	}
+
 	ko := &Object{}
 
 	var version uint8
@@ -212,15 +216,14 @@ func ObjectsByDocID(bucket bucket, ids []uint64,
 	}
 
 	var (
-		out = make([]*Object, len(ids))
-		i   = 0
+		docIDBuf = make([]byte, 8)
+		out      = make([]*Object, len(ids))
+		i        = 0
 	)
 
 	for _, id := range ids {
-		keyBuf := bytes.NewBuffer(nil)
-		binary.Write(keyBuf, binary.LittleEndian, &id)
-		docIDBytes := keyBuf.Bytes()
-		res, err := bucket.GetBySecondary(0, docIDBytes)
+		binary.LittleEndian.PutUint64(docIDBuf, id)
+		res, err := bucket.GetBySecondary(0, docIDBuf)
 		if err != nil {
 			return nil, err
 		}
