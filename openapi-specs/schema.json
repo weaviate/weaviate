@@ -709,7 +709,8 @@
             "word",
             "lowercase",
             "whitespace",
-            "field"
+            "field",
+            "ngram"
           ]
         }
       },
