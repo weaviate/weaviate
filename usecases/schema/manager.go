@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -78,10 +79,13 @@ type ModuleConfig interface {
 // and persist the schema state
 type Repo interface {
 	SaveSchema(ctx context.Context, schema State) error
+	SaveClass(ctx context.Context, c *models.Class, s *sharding.State) error
 
 	// should return nil (and no error) to indicate that no remote schema had
 	// been stored before
 	LoadSchema(ctx context.Context) (*State, error)
+
+	LoadAllClasses(ctx context.Context) (*State, error)
 }
 
 type clusterState interface {
@@ -175,6 +179,33 @@ func (m *Manager) saveSchema(ctx context.Context) error {
 	return nil
 }
 
+func (m *Manager) saveClass(ctx context.Context,
+	c *models.Class, s *sharding.State,
+) error {
+	before := time.Now()
+
+	err := m.repo.SaveClass(ctx, c, s)
+	if err != nil {
+		return err
+	}
+
+	m.logger.
+		WithField("action", "schema_update").
+		WithField("class_name", c.Class).
+		WithField("took", time.Since(before)).
+		Debug("saving updated schema to disk")
+
+	before = time.Now()
+	m.triggerSchemaUpdateCallbacks()
+
+	m.logger.
+		WithField("action", "schema_update_callback").
+		WithField("class_name", c.Class).
+		WithField("took", time.Since(before)).
+		Debug("ran schema update callbacks because of class change")
+	return nil
+}
+
 // RegisterSchemaUpdateCallback allows other usecases to register a primitive
 // type update callback. The callbacks will be called any time we persist a
 // schema upadate
@@ -191,14 +222,14 @@ func (m *Manager) triggerSchemaUpdateCallbacks() {
 }
 
 func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
-	schema, err := m.repo.LoadSchema(ctx)
+	schema, err := m.repo.LoadAllClasses(ctx)
 	if err != nil {
 		return fmt.Errorf("could not load schema:  %v", err)
 	}
 
-	if schema == nil {
-		schema = newSchema()
-	}
+	// if schema == nil {
+	// 	schema = newSchema()
+	// }
 
 	if err := m.parseConfigs(ctx, schema); err != nil {
 		return errors.Wrap(err, "load schema")
@@ -226,10 +257,15 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 		return errors.Wrap(err, "sync schema with other nodes in the cluster")
 	}
 
-	// store in persistent storage
-	if err := m.repo.SaveSchema(ctx, m.state); err != nil {
-		return fmt.Errorf("initialized a new schema, but couldn't update remote: %v", err)
-	}
+	// // store in persistent storage
+	// if err := m.repo.SaveSchema(ctx, m.state); err != nil {
+	// 	return fmt.Errorf("initialized a new schema, but couldn't update remote: %v", err)
+	// }
+
+	// TODO: The monolithic store all no longer makes sense. Here we might want
+	// to check if something actually changed, e.g. if a migration actually ran
+	// and only store those classes that were changed. Otherwise we'd have to
+	// save thousands of classes on every startup that didn't change at all
 
 	return nil
 }

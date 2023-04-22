@@ -195,7 +195,7 @@ func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
 	m.shardingStateLock.Lock()
 	m.state.ShardingState[class.Class] = shardState
 	m.shardingStateLock.Unlock()
-	return m.saveSchema(ctx)
+	return m.saveClass(ctx, class, shardState)
 }
 
 func (m *Manager) setClassDefaults(class *models.Class) {
