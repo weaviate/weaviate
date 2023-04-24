@@ -57,6 +57,21 @@ You can find [code examples here](https://github.com/weaviate/weaviate-examples)
 - [Cohere Multilingual ML Models with Weaviate](https://weaviate.io/blog/cohere-multilingual-with-weaviate)
 - [The Sphere Dataset in Weaviate](https://weaviate.io/blog/sphere-dataset-in-weaviate)
 
+### Integrations
+
+Examples and/or documentation of Weaviate integrations (a-z).
+
+- [Auto-GPT](https://github.com/Significant-Gravitas/Auto-GPT/blob/master/docs/configuration/memory.md#weaviate-setup) ([blogpost](https://weaviate.io/blog/autogpt-and-weaviate)) – use Weaviate as a memory backend for Auto-GPT
+- [Cohere](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-cohere) ([blogpost](https://txt.cohere.com/embedding-archives-wikipedia/)) - Use Cohere embeddings with Weaviate.
+- [DocArray](https://docarray.jina.ai/advanced/document-store/weaviate/) - Use Weaviate as a document store in DocArray.
+- [Haystack](https://docs.haystack.deepset.ai/reference/document-store-api#weaviatedocumentstore) ([blogpost](https://www.deepset.ai/weaviate-vector-search-engine-integration)) - Use Weaviate as a document store in Haystack.
+- [Hugging Face](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-huggingface) - Use Hugging Face models with Weaviate.
+- [LangChain](https://python.langchain.com/en/latest/ecosystem/weaviate.html#weaviate) ([blogpost](https://weaviate.io/blog/combining-langchain-and-weaviate)) - Use Weaviate as a memory backend for LangChain.
+- [LlamaIndex](https://gpt-index.readthedocs.io/en/latest/how_to/integrations/vector_stores.html) - Use Weaviate as a memory backend for LlamaIndex.
+- [OpenAI - ChatGPT retrieval plugin](https://github.com/openai/chatgpt-retrieval-plugin/blob/main/docs/providers/weaviate/setup.md) - Use Weaviate as a memory backend for ChatGPT.
+- [OpenAI](https://github.com/openai/openai-cookbook/tree/main/examples/vector_databases/weaviate) - use OpenAI embeddings with Weaviate.
+- [yours?](https://weaviate.io/slack)
+
 ## Weaviate content
 
 Speaking of content - we love connecting with our community through these. We love helping amazing people build cool things with Weaviate, and we love getting to know them as well as talking to them about their passions.
