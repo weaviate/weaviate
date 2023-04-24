@@ -87,10 +87,8 @@ var queryCmd = &cobra.Command{
 				filter.WithValueInt(int64(FilterObjectPercentage))
 				bm25Query = bm25Query.WithWhere(filter)
 			}
-
+			
 			result, err := bm25Query.Do(context.Background())
-
-			result, err = bm25Query.Do(context.Background())
 			if err != nil {
 				return err
 			}
