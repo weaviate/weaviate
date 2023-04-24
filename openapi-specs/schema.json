@@ -710,7 +710,7 @@
             "lowercase",
             "whitespace",
             "field",
-            "ngram"
+            "trigram"
           ]
         }
       },

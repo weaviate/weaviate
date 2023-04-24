@@ -23,7 +23,7 @@ var Tokenizations []string = []string{
 	models.PropertyTokenizationLowercase,
 	models.PropertyTokenizationWhitespace,
 	models.PropertyTokenizationField,
-	models.PropertyTokenizationNgram,
+	models.PropertyTokenizationTrigram,
 }
 
 func Tokenize(tokenization string, in string) []string {
@@ -36,8 +36,8 @@ func Tokenize(tokenization string, in string) []string {
 		return tokenizeWhitespace(in)
 	case models.PropertyTokenizationField:
 		return tokenizeField(in)
-	case models.PropertyTokenizationNgram:
-		return tokenizeNgram(in)
+	case models.PropertyTokenizationTrigram:
+		return tokenizetrigram(in)
 	default:
 		return []string{}
 	}
@@ -53,8 +53,8 @@ func TokenizeWithWildcards(tokenization string, in string) []string {
 		return tokenizeWhitespace(in)
 	case models.PropertyTokenizationField:
 		return tokenizeField(in)
-	case models.PropertyTokenizationNgram:
-		return tokenizeNgramWithWildcards(in)
+	case models.PropertyTokenizationTrigram:
+		return tokenizetrigramWithWildcards(in)
 	default:
 		return []string{}
 	}
@@ -87,15 +87,15 @@ func tokenizeWord(in string) []string {
 	return lowercase(terms)
 }
 
-// tokenizeNgram splits on any non-alphanumerical and lowercases the words, joins them together, then groups them into trigrams
-func tokenizeNgram(in string) []string {
+// tokenizetrigram splits on any non-alphanumerical and lowercases the words, joins them together, then groups them into trigrams
+func tokenizetrigram(in string) []string {
 	terms := tokenizeWord(in)
 	inputString := strings.Join(terms, "")
-	var ngrams []string
+	var trigrams []string
 	for i := 0; i < len(inputString)-2; i++ {
-		ngrams = append(ngrams, inputString[i:i+3])
+		trigrams = append(trigrams, inputString[i:i+3])
 	}
-	return ngrams
+	return trigrams
 }
 
 // tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and
@@ -107,15 +107,15 @@ func tokenizeWordWithWildcards(in string) []string {
 	return lowercase(terms)
 }
 
-// tokenizeNgram splits on any non-alphanumerical and lowercases the words, joins them together, then groups them into trigrams
-func tokenizeNgramWithWildcards(in string) []string {
+// tokenizetrigram splits on any non-alphanumerical and lowercases the words, joins them together, then groups them into trigrams
+func tokenizetrigramWithWildcards(in string) []string {
 	terms := tokenizeWordWithWildcards(in)
 	inputString := strings.Join(terms, "")
-	var ngrams []string
+	var trigrams []string
 	for i := 0; i < len(inputString)-2; i++ {
-		ngrams = append(ngrams, inputString[i:i+3])
+		trigrams = append(trigrams, inputString[i:i+3])
 	}
-	return ngrams
+	return trigrams
 }
 
 func lowercase(terms []string) []string {

@@ -52,13 +52,13 @@ func (m *Manager) validatePropertyTokenization(tokenization string, propertyData
 		case schema.DataTypeString, schema.DataTypeStringArray:
 			// deprecated as of v1.19, will be migrated to DataTypeText/DataTypeTextArray
 			switch tokenization {
-			case models.PropertyTokenizationField, models.PropertyTokenizationWord, models.PropertyTokenizationNgram:
+			case models.PropertyTokenizationField, models.PropertyTokenizationWord, models.PropertyTokenizationTrigram:
 				return nil
 			}
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			switch tokenization {
 			case models.PropertyTokenizationField, models.PropertyTokenizationWord,
-				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase, models.PropertyTokenizationNgram:
+				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase, models.PropertyTokenizationTrigram:
 				return nil
 			}
 		default:
