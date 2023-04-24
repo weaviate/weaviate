@@ -18,11 +18,11 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"strings"
 )
 
 //nolint:all
@@ -61,17 +61,25 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 	}
 
 	properties := obj.Object.Properties
-	class := schema.GetClassByName(s.index.getSchema, obj.Class)
+	sch := s.index.getSchema.GetSchemaSkipAuth()
+	class := sch.GetClass(obj.Class())
+	if err != nil {
+		return errors.Wrap(err, "get class from schema")
+	}
 
 	// Remove each property from the property length tracker.
-	for propName, propTypes := range class.Properties {
-		for _, propType := range propTypes {
-			switch propType {
-			case "string", "text":
-				s.propLengths.UnTrackProperty(propName, float32(len(properties.(map[string]interface{})[propName].(string))))
-			case "string[]", "text[]":
-				for _, val := range properties.(map[string]interface{})[propName].([]string) {
-					s.propLengths.UnTrackProperty(propName, float32(len(val)))
+	for _, propTypes := range class.Properties {
+		propName := strings.ToLower(propTypes.Name)
+		fmt.Println("Decrementing property length for", propName)
+		if properties.(map[string]interface{})[propName] != nil {
+			for _, propType := range propTypes.DataType {
+				switch propType {
+				case "string", "text":
+					s.propLengths.UnTrackProperty(propName, float32(len(properties.(map[string]interface{})[propName].(string))))
+				case "string[]", "text[]":
+					for _, val := range properties.(map[string]interface{})[propName].([]string) {
+						s.propLengths.UnTrackProperty(propName, float32(len(val)))
+					}
 				}
 			}
 		}
