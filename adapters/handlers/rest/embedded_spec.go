@@ -3914,7 +3914,7 @@ func init() {
             "lowercase",
             "whitespace",
             "field",
-            "ngram"
+            "trigram"
           ]
         }
       }
@@ -8454,7 +8454,7 @@ func init() {
             "lowercase",
             "whitespace",
             "field",
-            "ngram"
+            "trigram"
           ]
         }
       }
