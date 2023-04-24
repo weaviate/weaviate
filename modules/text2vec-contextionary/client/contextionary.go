@@ -107,8 +107,8 @@ func (c *Client) SchemaSearch(ctx context.Context, params traverser.SearchParams
 
 	res, err := c.grpcClient.SchemaSearch(ctx, pbParams)
 	if err != nil {
-		if strings.Contains(fmt.Sprintf("%v", err), "") {
-			c.logger.WithError(err).WithField("module", "contextionary").Error("module uncontactable")
+		if strings.Contains(fmt.Sprintf("%v", err), "connect: connection refused") {
+			c.logger.WithError(err).WithField("module", "contextionary").Warnf("module uncontactable")
 		}
 		return traverser.SearchResults{}, err
 	}
