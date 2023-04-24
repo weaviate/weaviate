@@ -15,10 +15,12 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"strings"
 	"time"
 
+	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/entities/search"
+
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/go-openapi/strfmt"
@@ -96,22 +98,13 @@ func searchResultsToProto(res []any, start time.Time, searchParams dto.GetParams
 			continue
 		}
 
-		props := make(map[string]interface{})
-		for _, prop := range searchParams.Properties {
-			propRaw, ok := asMap[prop.Name]
-			if !ok {
-				continue
-			}
-			props[prop.Name] = propRaw
-		}
-
-		newStruct, err := structpb.NewStruct(props)
+		props, err := extractPropertiesAnswer(asMap, searchParams.Properties, searchParams.ClassName)
 		if err != nil {
 			continue
 		}
 
 		result := &pb.SearchResult{
-			Properties:           newStruct,
+			Properties:           props,
 			AdditionalProperties: &pb.AdditionalProps{},
 		}
 
@@ -134,21 +127,87 @@ func searchResultsToProto(res []any, start time.Time, searchParams dto.GetParams
 	return out
 }
 
+func extractPropertiesAnswer(results map[string]interface{}, properties search.SelectProperties, class string) (*pb.ReturnProperties, error) {
+	props := pb.ReturnProperties{}
+	nonRefProps := make(map[string]interface{}, 0)
+	refProps := make([]*pb.ReturnRefProperties, 0)
+	for _, prop := range properties {
+		propRaw, ok := results[prop.Name]
+		if !ok {
+			continue
+		}
+		if prop.IsPrimitive {
+			nonRefProps[prop.Name] = propRaw
+			continue
+		}
+		refs, ok := propRaw.([]interface{})
+		if !ok {
+			continue
+		}
+		ref, ok := refs[0].(search.LocalRef)
+		if !ok {
+			continue
+		}
+		extractedRefProps, err := extractPropertiesAnswer(ref.Fields, prop.Refs[0].RefProperties, ref.Class)
+		if err != nil {
+			continue
+		}
+		refProp := pb.ReturnRefProperties{PropName: prop.Name, Properties: extractedRefProps}
+		refProps = append(refProps, &refProp)
+	}
+	if len(nonRefProps) > 0 {
+		newStruct, err := structpb.NewStruct(nonRefProps)
+		if err != nil {
+			return nil, errors.Wrap(err, "creating ref-prop struct")
+		}
+		props.NonRefProperties = newStruct
+	}
+	if len(refProps) > 0 {
+		props.RefProps = refProps
+	}
+
+	props.ClassName = class
+
+	return &props, nil
+}
+
+func extractPropertiesRequest(reqProps *pb.Properties) []search.SelectProperty {
+	var props []search.SelectProperty
+	if reqProps == nil {
+		return props
+	}
+	if reqProps.NonRefProperties != nil && len(reqProps.NonRefProperties) > 0 {
+		for _, prop := range reqProps.NonRefProperties {
+			props = append(props, search.SelectProperty{
+				Name:        prop,
+				IsPrimitive: true,
+			})
+		}
+	}
+
+	if reqProps.RefProperties != nil && len(reqProps.RefProperties) > 0 {
+		for _, prop := range reqProps.RefProperties {
+			props = append(props, search.SelectProperty{
+				Name:        prop.ReferenceProperty,
+				IsPrimitive: false,
+				Refs: []search.SelectClass{{
+					ClassName:     prop.ClassName,
+					RefProperties: extractPropertiesRequest(prop.LinkedProperties),
+				}},
+			})
+		}
+	}
+
+	return props
+}
+
 func searchParamsFromProto(req *pb.SearchRequest) (dto.GetParams, error) {
 	out := dto.GetParams{}
 	out.ClassName = req.ClassName
 
-	if req.Properties != nil && len(req.Properties) > 0 {
-		for _, prop := range req.Properties {
-			isPrimitive := !strings.Contains(prop, "...")
+	out.Properties = extractPropertiesRequest(req.Properties)
 
-			// Todo: Ref Props
-			out.Properties = append(out.Properties, search.SelectProperty{
-				Name:        prop,
-				IsPrimitive: isPrimitive,
-			})
-		}
-	} else {
+	if len(out.Properties) == 0 {
 		// This is a pure-ID query without any props. Indicate this to the DB, so
 		// it can optimize accordingly
 		out.AdditionalProperties.NoProps = true
