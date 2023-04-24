@@ -56,7 +56,7 @@ func NewClient(uri string, logger logrus.FieldLogger) (*Client, error) {
 func (c *Client) IsStopWord(ctx context.Context, word string) (bool, error) {
 	res, err := c.grpcClient.IsWordStopword(ctx, &pb.Word{Word: word})
 	if err != nil {
-		if strings.Contains(fmt.Sprintf("%v", err), "module uncontactable") {
+		if strings.Contains(fmt.Sprintf("%v", err), "connect: connection refused") {
 			c.logger.WithError(err).WithField("module", "contextionary").Warnf("module uncontactable")
 		}
 		return false, err
@@ -69,7 +69,7 @@ func (c *Client) IsStopWord(ctx context.Context, word string) (bool, error) {
 func (c *Client) IsWordPresent(ctx context.Context, word string) (bool, error) {
 	res, err := c.grpcClient.IsWordPresent(ctx, &pb.Word{Word: word})
 	if err != nil {
-		if strings.Contains(fmt.Sprintf("%v", err), "module uncontactable") {
+		if strings.Contains(fmt.Sprintf("%v", err), "connect: connection refused") {
 			c.logger.WithError(err).WithField("module", "contextionary").Warnf("module uncontactable")
 		}
 		return false, err
@@ -82,7 +82,7 @@ func (c *Client) IsWordPresent(ctx context.Context, word string) (bool, error) {
 func (c *Client) SafeGetSimilarWordsWithCertainty(ctx context.Context, word string, certainty float32) ([]string, error) {
 	res, err := c.grpcClient.SafeGetSimilarWordsWithCertainty(ctx, &pb.SimilarWordsParams{Word: word, Certainty: certainty})
 	if err != nil {
-		if strings.Contains(fmt.Sprintf("%v", err), "module uncontactable") {
+		if strings.Contains(fmt.Sprintf("%v", err), "connect: connection refused") {
 			c.logger.WithError(err).WithField("module", "contextionary").Warnf("module uncontactable")
 		}
 		return nil, err
@@ -160,7 +160,7 @@ func searchResultsFromProto(input []*pb.SchemaSearchResult) []traverser.SearchRe
 func (c *Client) VectorForWord(ctx context.Context, word string) ([]float32, error) {
 	res, err := c.grpcClient.VectorForWord(ctx, &pb.Word{Word: word})
 	if err != nil {
-		if strings.Contains(fmt.Sprintf("%v", err), "module uncontactable") {
+		if strings.Contains(fmt.Sprintf("%v", err), "connect: connection refused") {
 			c.logger.WithError(err).WithField("module", "contextionary").Warnf("module uncontactable")
 		}
 		return nil, fmt.Errorf("could not get vector from remote: %v", err)
@@ -179,7 +179,7 @@ func (c *Client) MultiVectorForWord(ctx context.Context, words []string) ([][]fl
 
 	res, err := c.grpcClient.MultiVectorForWord(ctx, &pb.WordList{Words: wordParams})
 	if err != nil {
-		if strings.Contains(fmt.Sprintf("%v", err), "module uncontactable") {
+		if strings.Contains(fmt.Sprintf("%v", err), "connect: connection refused") {
 			c.logger.WithError(err).WithField("module", "contextionary").Warnf("module uncontactable")
 		}
 		return nil, err
@@ -211,7 +211,7 @@ func (c *Client) MultiNearestWordsByVector(ctx context.Context, vectors [][]floa
 
 	res, err := c.grpcClient.MultiNearestWordsByVector(ctx, &pb.VectorNNParamsList{Params: searchParams})
 	if err != nil {
-		if strings.Contains(fmt.Sprintf("%v", err), "module uncontactable") {
+		if strings.Contains(fmt.Sprintf("%v", err), "connect: connection refused") {
 			c.logger.WithError(err).WithField("module", "contextionary").Warnf("module uncontactable")
 		}
 		return nil, err
@@ -286,7 +286,7 @@ func (c *Client) NearestWordsByVector(ctx context.Context, vector []float32, n i
 		Vector: vectorToProto(vector),
 	})
 	if err != nil {
-		if strings.Contains(fmt.Sprintf("%v", err), "module uncontactable") {
+		if strings.Contains(fmt.Sprintf("%v", err), "connect: connection refused") {
 			c.logger.WithError(err).WithField("module", "contextionary").Warnf("module uncontactable")
 		}
 		return nil, nil, fmt.Errorf("could not get nearest words by vector: %v", err)
