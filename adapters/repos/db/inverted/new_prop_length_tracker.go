@@ -21,6 +21,7 @@ import (
 )
 
 var MAX_BUCKETS = 64
+
 type PropLenData struct {
 	BucketedData map[string]map[int]int
 	SumData      map[string]int
@@ -180,7 +181,7 @@ func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) int {
 	}
 
 	bucket := int(math.Log(float64(value)/4.0)/math.Log(1.25) + 4)
-	if bucket > MAX_BUCKETS -1 {
+	if bucket > MAX_BUCKETS-1 {
 		return MAX_BUCKETS
 	}
 	return int(bucket)
@@ -226,11 +227,11 @@ func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, fl
 	defer t.Unlock()
 	sum, ok := t.data.SumData[propName]
 	if !ok {
-		return 0, 0, 0, nil	//Required to match the old prop tracker (for now)
+		return 0, 0, 0, nil // Required to match the old prop tracker (for now)
 	}
 	count, ok := t.data.CountData[propName]
 	if !ok {
-		return 0, 0, 0, nil  //Required to match the old prop tracker (for now)
+		return 0, 0, 0, nil // Required to match the old prop tracker (for now)
 	}
 	return sum, count, float64(sum) / float64(count), nil
 }
