@@ -20,6 +20,7 @@ import (
 	"github.com/pkg/errors"
 )
 
+var MAX_BUCKETS = 64
 type PropLenData struct {
 	BucketedData map[string]map[int]int
 	SumData      map[string]int
@@ -87,12 +88,12 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 			data = PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
 			// Loop over every page and bucket in the old tracker and add it to the new tracker
 			for _, name := range propertyNames {
-				data.BucketedData[name] = make(map[int]int, 64)
+				data.BucketedData[name] = make(map[int]int, MAX_BUCKETS)
 				data.CountData[name] = 0
 				data.SumData[name] = 0
-				for i := 0; i <= 64; i++ {
+				for i := 0; i <= MAX_BUCKETS; i++ {
 					fromBucket := i
-					if i == 64 {
+					if i == MAX_BUCKETS {
 						fromBucket = -1
 					}
 					count, err := plt.BucketCount(name, uint16(fromBucket))
@@ -142,7 +143,7 @@ func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32
 		t.data.BucketedData[propName][int(bucketId)] = t.data.BucketedData[propName][int(bucketId)] + 1
 	} else {
 
-		t.data.BucketedData[propName] = make(map[int]int, 64)
+		t.data.BucketedData[propName] = make(map[int]int, 64+1)
 		t.data.BucketedData[propName][int(bucketId)] = 1
 	}
 
@@ -177,8 +178,8 @@ func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) int {
 	}
 
 	bucket := int(math.Log(float64(value)/4.0)/math.Log(1.25) + 4)
-	if bucket > 63 {
-		return 64
+	if bucket > MAX_BUCKETS -1 {
+		return MAX_BUCKETS
 	}
 	return int(bucket)
 }
