@@ -51,10 +51,14 @@ For starters, you can build vector databases with text, images, or a combination
 
 You can also build question and answer extraction, summarization and classification systems.
 
-You can find [code examples here](https://github.com/weaviate/weaviate-examples), and you might blog posts like these useful:
+You can find [code examples here](https://github.com/weaviate/weaviate-examples), and you might these blog posts useful:
 
+- [The ChatGPT Retrieval Plugin - Weaviate as a Long-term Memory Store for Generative AI](https://weaviate.io/blog/weaviate-retrieval-plugin)
+- [Giving Auto-GPT Long-Term Memory with Weaviate](https://weaviate.io/blog/autogpt-and-weaviate)
+- [Combining LangChain and Weaviate](https://weaviate.io/blog/combining-langchain-and-weaviate)
 - [How to build an Image Search Application with Weaviate](https://weaviate.io/blog/how-to-build-an-image-search-application-with-weaviate)
 - [Cohere Multilingual ML Models with Weaviate](https://weaviate.io/blog/cohere-multilingual-with-weaviate)
+- [Weaviate Podcast Search](https://weaviate.io/blog/weaviate-podcast-search)
 - [The Sphere Dataset in Weaviate](https://weaviate.io/blog/sphere-dataset-in-weaviate)
 
 ### Integrations
@@ -82,9 +86,14 @@ Some of our past favorites include:
 
 ### 📝 Blogs
 
+- [What to expect from Weaviate in 2023](https://weaviate.io/blog/what-to-expect-from-weaviate-in-2023)
 - [Why is vector search so fast?](https://weaviate.io/blog/Why-is-Vector-Search-so-fast)
 - [Cohere Multilingual ML Models with Weaviate](https://weaviate.io/blog/Cohere-multilingual-with-weaviate)
 - [Vamana vs. HNSW - Exploring ANN algorithms Part 1](https://weaviate.io/blog/ann-algorithms-vamana-vs-hnsw)
+- [HNSW+PQ - Exploring ANN algorithms Part 2.1](https://weaviate.io/blog/ann-algorithms-hnsw-pq)
+- [The Tile Encoder - Exploring ANN algorithms Part 2.2](https://weaviate.io/blog/ann-algorithms-tiles-enocoder)
+- [How GPT4.0 and other Large Language Models Work](https://weaviate.io/blog/what-are-llms)
+- [Monitoring Weaviate in Production](https://weaviate.io/blog/monitoring-weaviate-in-production)
 
 ### 🎙️ Podcasts
 
@@ -130,7 +139,7 @@ Or connect to us via:
 You can use Weaviate with any of these clients:
 
 - [Python](https://weaviate.io/developers/weaviate/client-libraries/python)
-- [Javascript](https://weaviate.io/developers/weaviate/client-libraries/javascript)
+- [JavaScript/TypeScript](https://weaviate.io/developers/weaviate/client-libraries/typescript)
 - [Go](https://weaviate.io/developers/weaviate/client-libraries/go)
 - [Java](https://weaviate.io/developers/weaviate/client-libraries/java)
 
