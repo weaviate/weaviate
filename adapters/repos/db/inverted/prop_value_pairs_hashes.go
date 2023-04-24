@@ -23,12 +23,6 @@ import (
 )
 
 func (pv *propValuePair) cacheable() bool {
-	for _, child := range pv.children {
-		if !child.cacheable() {
-			return false
-		}
-	}
-
 	switch pv.operator {
 	case filters.OperatorEqual, filters.OperatorAnd, filters.OperatorOr,
 		filters.OperatorNotEqual, filters.OperatorLike:
@@ -36,8 +30,15 @@ func (pv *propValuePair) cacheable() bool {
 		// ref-filter queries. For those queries, just checking the large amount of
 		// hashes has a very signifcant cost - even if they all turn out to be
 		// cache misses
-		return len(pv.children) < 10000
-
+		if len(pv.children) >= 10000 {
+			return false
+		}
+		for _, child := range pv.children {
+			if !child.cacheable() {
+				return false
+			}
+		}
+		return true
 	default:
 		return false
 	}
