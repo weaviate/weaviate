@@ -335,7 +335,7 @@ func (ob *objectsBatcher) flushWALs(ctx context.Context) {
 		}
 	}
 
-	if err := ob.shard.propLengths.Flush(); err != nil {
+	if err := ob.shard.propLengths.Flush(false); err != nil {
 		for i := range ob.objects {
 			ob.setErrorAtIndex(err, i)
 		}

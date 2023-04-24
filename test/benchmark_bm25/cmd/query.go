@@ -92,6 +92,7 @@ var queryCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
+
 			if result.Errors != nil {
 				return errors.New(result.Errors[0].Message)
 			}

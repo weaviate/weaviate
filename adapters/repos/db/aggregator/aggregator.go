@@ -43,7 +43,7 @@ type Aggregator struct {
 	vectorIndex      vectorIndex
 	stopwords        stopwords.StopwordDetector
 	shardVersion     uint16
-	propLengths      *inverted.PropertyLengthTracker
+	propLengths      *inverted.JsonPropertyLengthTracker
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,
@@ -51,7 +51,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	classSearcher inverted.ClassSearcher,
 	deletedDocIDs inverted.DeletedDocIDChecker, stopwords stopwords.StopwordDetector,
 	shardVersion uint16, vectorIndex vectorIndex, logger logrus.FieldLogger,
-	propLengths *inverted.PropertyLengthTracker,
+	propLengths *inverted.JsonPropertyLengthTracker,
 ) *Aggregator {
 	return &Aggregator{
 		logger:           logger,

@@ -17,6 +17,9 @@ issues:
     # Exclude some staticcheck messages
     - linters:
         - staticcheck
+      text: "S1034"
+    - linters:
+        - staticcheck
       text: "SA1029:"
     - linters:
         - staticcheck
