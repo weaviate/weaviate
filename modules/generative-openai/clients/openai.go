@@ -22,7 +22,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -33,7 +32,7 @@ import (
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
-func buildUrl(isLegacy bool, resourceName, deploymentID string) (string, error) {
+func buildUrlFn(isLegacy bool, resourceName, deploymentID string) (string, error) {
 	if resourceName != "" && deploymentID != "" {
 		host := "https://" + resourceName + ".openai.azure.com"
 		path := "openai/deployments/" + deploymentID + "/chat/completions"
@@ -51,7 +50,7 @@ func buildUrl(isLegacy bool, resourceName, deploymentID string) (string, error) 
 type openai struct {
 	openAIApiKey string
 	azureApiKey  string
-	buildUrlFn   func(isLegacy bool, resourceName, deploymentID string) (string, error)
+	buildUrl     func(isLegacy bool, resourceName, deploymentID string) (string, error)
 	httpClient   *http.Client
 	logger       logrus.FieldLogger
 }
@@ -63,8 +62,8 @@ func New(openAIApiKey, azureApiKey string, logger logrus.FieldLogger) *openai {
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
-		buildUrlFn: buildUrl,
-		logger:     logger,
+		buildUrl: buildUrlFn,
+		logger:   logger,
 	}
 }
 
@@ -87,36 +86,14 @@ func (v *openai) GenerateAllResults(ctx context.Context, textProperties []map[st
 func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*ent.GenerateResult, error) {
 	settings := config.NewClassSettings(cfg)
 
-	oaiUrl, err := v.buildUrlFn(settings.IsLegacy(), settings.ResourceName(), settings.DeploymentID())
+	oaiUrl, err := v.buildUrl(settings.IsLegacy(), settings.ResourceName(), settings.DeploymentID())
 	if err != nil {
 		return nil, errors.Wrap(err, "url join path")
 	}
 
-	var input generateInput
-	if settings.IsLegacy() {
-		input = generateInput{
-			Prompt:           prompt,
-			Model:            settings.Model(),
-			MaxTokens:        settings.MaxTokens(),
-			Temperature:      settings.Temperature(),
-			FrequencyPenalty: settings.FrequencyPenalty(),
-			PresencePenalty:  settings.PresencePenalty(),
-			TopP:             settings.TopP(),
-		}
-	} else {
-		tokens := determineTokens(settings.GetMaxTokensForModel(settings.Model()), settings.MaxTokens(), prompt)
-		input = generateInput{
-			Messages: []message{{
-				Role:    "user",
-				Content: prompt,
-			}},
-			Model:            settings.Model(),
-			MaxTokens:        float64(tokens),
-			Temperature:      settings.Temperature(),
-			FrequencyPenalty: settings.FrequencyPenalty(),
-			PresencePenalty:  settings.PresencePenalty(),
-			TopP:             settings.TopP(),
-		}
+	input, err := v.generateInput(prompt, settings)
+	if err != nil {
+		return nil, errors.Wrap(err, "generate input")
 	}
 
 	body, err := json.Marshal(input)
@@ -178,6 +155,43 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}, nil
 }
 
+func (v *openai) generateInput(prompt string, settings config.ClassSettings) (generateInput, error) {
+	if settings.IsLegacy() {
+		return generateInput{
+			Prompt:           prompt,
+			Model:            settings.Model(),
+			MaxTokens:        settings.MaxTokens(),
+			Temperature:      settings.Temperature(),
+			FrequencyPenalty: settings.FrequencyPenalty(),
+			PresencePenalty:  settings.PresencePenalty(),
+			TopP:             settings.TopP(),
+		}, nil
+	} else {
+		var input generateInput
+		messages := []message{{
+			Role:    "user",
+			Content: prompt,
+		}}
+		tokens, err := v.determineTokens(settings.GetMaxTokensForModel(settings.Model()), settings.MaxTokens(), settings.Model(), messages)
+		if err != nil {
+			return input, errors.Wrap(err, "determine tokens count")
+		}
+		input = generateInput{
+			Messages:         messages,
+			MaxTokens:        tokens,
+			Temperature:      settings.Temperature(),
+			FrequencyPenalty: settings.FrequencyPenalty(),
+			PresencePenalty:  settings.PresencePenalty(),
+			TopP:             settings.TopP(),
+		}
+		if !settings.IsAzure() {
+			// model is mandatory for OpenAI calls, but obsolete for Azure calls
+			input.Model = settings.Model()
+		}
+		return input, nil
+	}
+}
+
 func (v *openai) getError(statusCode int, resBodyError *openAIApiError, isAzure bool) error {
 	endpoint := "OpenAI API"
 	if isAzure {
@@ -189,12 +203,17 @@ func (v *openai) getError(statusCode int, resBodyError *openAIApiError, isAzure 
 	return fmt.Errorf("connection to: %s failed with status: %d", endpoint, statusCode)
 }
 
-func determineTokens(maxTokensSetting float64, classSetting float64, prompt string) int {
-	tokens := float64(countWhitespace(prompt)+1) * 3
-	if tokens+classSetting > maxTokensSetting {
-		return int(maxTokensSetting - tokens)
+func (v *openai) determineTokens(maxTokensSetting float64, classSetting float64, model string, messages []message) (float64, error) {
+	tokenMessagesCount, err := getTokensCount(model, messages)
+	if err != nil {
+		return 0, err
 	}
-	return int(tokens)
+	messageTokens := float64(tokenMessagesCount)
+	if messageTokens+classSetting >= maxTokensSetting {
+		// max token limit must be in range: [1, maxTokensSetting) that's why -1 is added
+		return maxTokensSetting - messageTokens - 1, nil
+	}
+	return messageTokens, nil
 }
 
 func (v *openai) getApiKeyHeaderAndValue(apiKey string, isAzure bool) (string, string) {
@@ -226,19 +245,6 @@ func (v *openai) generateForPrompt(textProperties map[string]string, prompt stri
 		prompt = strings.ReplaceAll(prompt, originalProperty, value)
 	}
 	return prompt, nil
-}
-
-func countWhitespace(s string) int {
-	count := 0
-	for {
-		idx := strings.IndexFunc(s, unicode.IsSpace)
-		if idx == -1 {
-			break
-		}
-		count++
-		s = s[idx+1:]
-	}
-	return count
 }
 
 func (v *openai) getApiKey(ctx context.Context, isAzure bool) (string, error) {
@@ -273,7 +279,7 @@ func (v *openai) getApiKeyFromContext(ctx context.Context, apiKey, envVar string
 type generateInput struct {
 	Prompt           string    `json:"prompt,omitempty"`
 	Messages         []message `json:"messages,omitempty"`
-	Model            string    `json:"model"`
+	Model            string    `json:"model,omitempty"`
 	MaxTokens        float64   `json:"max_tokens"`
 	Temperature      float64   `json:"temperature"`
 	Stop             []string  `json:"stop"`
@@ -285,6 +291,7 @@ type generateInput struct {
 type message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
+	Name    string `json:"name,omitempty"`
 }
 
 type generateResponse struct {

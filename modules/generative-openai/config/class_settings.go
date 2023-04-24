@@ -58,11 +58,26 @@ var defaultMaxTokens = map[string]float64{
 	"gpt-4-32k":        32768,
 }
 
+type ClassSettings interface {
+	IsLegacy() bool
+	Model() string
+	MaxTokens() float64
+	Temperature() float64
+	FrequencyPenalty() float64
+	PresencePenalty() float64
+	TopP() float64
+	ResourceName() string
+	DeploymentID() string
+	IsAzure() bool
+	GetMaxTokensForModel(model string) float64
+	Validate(class *models.Class) error
+}
+
 type classSettings struct {
 	cfg moduletools.ClassConfig
 }
 
-func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
+func NewClassSettings(cfg moduletools.ClassConfig) ClassSettings {
 	return &classSettings{cfg: cfg}
 }
 
