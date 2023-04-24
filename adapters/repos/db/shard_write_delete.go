@@ -18,6 +18,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -60,15 +61,18 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 	}
 
 	properties := obj.Object.Properties
+	class := schema.GetClassByName(s.index.getSchema, obj.Class)
 
 	// Remove each property from the property length tracker.
-	for _, prop := range properties.(map[string]interface{}) {
-		switch prop.(type) {
-		case string:
-			s.propLengths.UnTrackProperty(prop.(string), float32(len(prop.(string))))
-		case []string:
-			for _, val := range prop.([]string) {
-				s.propLengths.UnTrackProperty(val, float32(len(val)))
+	for propName, propTypes := range class.Properties {
+		for _, propType := range propTypes {
+			switch propType {
+			case "string", "text":
+				s.propLengths.UnTrackProperty(propName, float32(len(properties.(map[string]interface{})[propName].(string))))
+			case "string[]", "text[]":
+				for _, val := range properties.(map[string]interface{})[propName].([]string) {
+					s.propLengths.UnTrackProperty(propName, float32(len(val)))
+				}
 			}
 		}
 	}
