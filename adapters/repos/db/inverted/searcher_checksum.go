@@ -112,3 +112,22 @@ func docPointerChecksum(pointers []uint64) ([]byte, error) {
 
 // 	return true
 // }
+
+func checksumsIdenticalBM(docBitmaps []*docBitmap) bool {
+	if len(docBitmaps) == 0 {
+		return false
+	}
+
+	if len(docBitmaps) == 1 {
+		return true
+	}
+
+	firstChecksum := docBitmaps[0].checksum
+	for _, docBitmap := range docBitmaps {
+		if !bytes.Equal(docBitmap.checksum, firstChecksum) {
+			return false
+		}
+	}
+
+	return true
+}
