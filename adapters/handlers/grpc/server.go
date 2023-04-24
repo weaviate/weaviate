@@ -144,14 +144,19 @@ func extractPropertiesAnswer(results map[string]interface{}, properties search.S
 		if !ok {
 			continue
 		}
-		ref, ok := refs[0].(search.LocalRef)
-		if !ok {
-			continue
+		extractedRefProps := make([]*pb.ReturnProperties, 0, len(refs))
+		for _, ref := range refs {
+			refLocal, ok := ref.(search.LocalRef)
+			if !ok {
+				continue
+			}
+			extractedRefProp, err := extractPropertiesAnswer(refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class)
+			if err != nil {
+				continue
+			}
+			extractedRefProps = append(extractedRefProps, extractedRefProp)
 		}
-		extractedRefProps, err := extractPropertiesAnswer(ref.Fields, prop.Refs[0].RefProperties, ref.Class)
-		if err != nil {
-			continue
-		}
+
 		refProp := pb.ReturnRefProperties{PropName: prop.Name, Properties: extractedRefProps}
 		refProps = append(refProps, &refProp)
 	}
