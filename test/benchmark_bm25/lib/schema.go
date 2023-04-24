@@ -49,7 +49,7 @@ func SchemaFromDataset(ds Dataset) *models.Class {
 		f := false
 		prop := &models.Property{
 			Name:          SanitizePropName(prop),
-			DataType:      schema.DataTypeText.PropString(),
+			DataType:      []string{string(schema.DataTypeText)},
 			Tokenization:  models.PropertyTokenizationField,
 			IndexInverted: &f,
 		}
