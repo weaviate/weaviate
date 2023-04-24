@@ -20,14 +20,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 type ShardInvertedReindexTask interface {
-	GetPropertiesToReindex(ctx context.Context, store *lsmkv.Store, indexConfig IndexConfig,
-		invertedIndexConfig schema.InvertedIndexConfig, logger logrus.FieldLogger,
+	GetPropertiesToReindex(ctx context.Context, shard *Shard,
 	) ([]ReindexableProperty, error)
 }
 
@@ -66,8 +64,7 @@ func (r *ShardInvertedReindexer) Do(ctx context.Context) error {
 }
 
 func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedReindexTask) error {
-	reindexProperties, err := task.GetPropertiesToReindex(ctx, r.shard.store,
-		r.shard.index.Config, r.shard.index.invertedIndexConfig, r.logger)
+	reindexProperties, err := task.GetPropertiesToReindex(ctx, r.shard)
 	if err != nil {
 		r.logError(err, "failed getting reindex properties")
 		return errors.Wrapf(err, "failed getting reindex properties")
