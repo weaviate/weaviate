@@ -65,7 +65,7 @@ message ReturnProperties {
 }
 
 message ReturnRefProperties {
-  ReturnProperties properties = 1;
+  repeated ReturnProperties properties = 1;
   string prop_name = 2;
 }
 
