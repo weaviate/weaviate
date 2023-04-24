@@ -34,24 +34,16 @@ import (
 )
 
 type filterableToSearchableMigrator struct {
-	logger        logrus.FieldLogger
-	flagFileName  string
-	stateFileName string
-
+	logger       logrus.FieldLogger
+	files        *filterableToSearchableMigrationFiles
 	schemaGetter schema.SchemaGetter
 	indexes      map[string]*Index
 }
 
-type migratedFilterable2SearchableState struct {
-	Class2Props map[string]map[string]struct{}
-}
-
 func newFilterableToSearchableMigrator(migrator *Migrator) *filterableToSearchableMigrator {
 	return &filterableToSearchableMigrator{
-		logger:        migrator.logger,
-		flagFileName:  path.Join(migrator.db.config.RootPath, "migration1.19.filter2search.skip.flag"),
-		stateFileName: path.Join(migrator.db.config.RootPath, "migration1.19.filter2search.state"),
-
+		logger:       migrator.logger,
+		files:        newFilterableToSearchableMigrationFiles(migrator.db.config.RootPath),
 		schemaGetter: migrator.db.schemaGetter,
 		indexes:      migrator.db.indices,
 	}
@@ -63,18 +55,19 @@ func (m *filterableToSearchableMigrator) do(ctx context.Context, updateSchema mi
 	// searchable bucket does not exist (in fact weaviate will create empty one with map strategy)
 
 	// if flag exists, no class/property needs fixing
-	if m.existsMigrationSkipFlag() {
+	if m.files.existsMigrationSkipFlag() {
 		m.log().Debug("migration skip flag set, skipping migration")
 		return nil
 	}
 
-	migratedState, err := m.loadMigratedState()
+	m.log().Debug("loading migration state")
+	migrationState, err := m.files.loadMigrationState()
 	if err != nil {
 		m.log().WithError(err).Error("loading migrated state")
 		return errors.Wrap(err, "loading migrated state")
 	}
 
-	migratedStateUpdated := false
+	migrationStateUpdated := false
 	updateLock := new(sync.Mutex)
 	sch := m.schemaGetter.GetSchemaSkipAuth().Objects
 
@@ -101,8 +94,8 @@ func (m *filterableToSearchableMigrator) do(ctx context.Context, updateSchema mi
 				return errors.Wrap(err, "failed updating schema")
 			}
 
-			migratedState.Class2Props[index.Config.ClassName.String()] = migratedProps
-			migratedStateUpdated = true
+			migrationState.Class2Props[index.Config.ClassName.String()] = migratedProps
+			migrationStateUpdated = true
 			return nil
 		})
 	}
@@ -113,8 +106,9 @@ func (m *filterableToSearchableMigrator) do(ctx context.Context, updateSchema mi
 	}
 
 	// save state regardless of previous error
-	if migratedStateUpdated {
-		if err := m.saveMigratedState(migratedState); err != nil {
+	if migrationStateUpdated {
+		m.log().Debug("saving migration state")
+		if err := m.files.saveMigrationState(migrationState); err != nil {
 			m.log().WithError(err).Error("failed saving migration state")
 			return errors.Wrap(err, "failed saving migration state")
 		}
@@ -124,7 +118,7 @@ func (m *filterableToSearchableMigrator) do(ctx context.Context, updateSchema mi
 		return errors.Wrap(err, "failed migrating classes")
 	}
 
-	if err := m.createMigrationSkipFlag(); err != nil {
+	if err := m.files.createMigrationSkipFlag(); err != nil {
 		m.log().WithError(err).Error("failed creating migration skip flag")
 		return errors.Wrap(err, "failed creating migration skip flag")
 	}
@@ -312,74 +306,6 @@ func (m *filterableToSearchableMigrator) resumeStoreActivity(
 	return nil
 }
 
-func (m *filterableToSearchableMigrator) loadMigratedState() (*migratedFilterable2SearchableState, error) {
-	m.log().Debug("loading migration state")
-
-	f, err := os.OpenFile(m.stateFileName, os.O_RDWR|os.O_CREATE, 0o666)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	buf := new(bytes.Buffer)
-	if _, err := buf.ReadFrom(f); err != nil {
-		return nil, err
-	}
-	bytes := buf.Bytes()
-
-	migrated := migratedFilterable2SearchableState{
-		Class2Props: map[string]map[string]struct{}{},
-	}
-
-	if len(bytes) > 0 {
-		if err := json.Unmarshal(bytes, &migrated); err != nil {
-			return nil, err
-		}
-	}
-	return &migrated, nil
-}
-
-func (m *filterableToSearchableMigrator) saveMigratedState(state *migratedFilterable2SearchableState) error {
-	m.log().Debug("saving migration state")
-
-	bytes, err := json.Marshal(state)
-	if err != nil {
-		return err
-	}
-
-	fileNameTemp := m.stateFileName + ".temp"
-	f, err := os.Create(fileNameTemp)
-	if err != nil {
-		return err
-	}
-
-	_, err = f.Write(bytes)
-	if err != nil {
-		return err
-	}
-	f.Close()
-
-	err = os.Rename(fileNameTemp, m.stateFileName)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (m *filterableToSearchableMigrator) existsMigrationSkipFlag() bool {
-	_, err := os.Stat(m.flagFileName)
-	return err == nil
-}
-
-func (m *filterableToSearchableMigrator) createMigrationSkipFlag() error {
-	f, err := os.Create(m.flagFileName)
-	if err != nil {
-		return err
-	}
-	f.Close()
-	return nil
-}
-
 func (m *filterableToSearchableMigrator) log() *logrus.Entry {
 	return m.logger.WithField("action", "inverted filter2search migration")
 }
@@ -398,4 +324,84 @@ func (m *filterableToSearchableMigrator) uniquePropsToSlice(uniqueProps map[stri
 		props = append(props, prop)
 	}
 	return props
+}
+
+type filterableToSearchableMigrationState struct {
+	Class2Props map[string]map[string]struct{}
+}
+
+type filterableToSearchableMigrationFiles struct {
+	flagFileName  string
+	stateFileName string
+}
+
+func newFilterableToSearchableMigrationFiles(rootPath string) *filterableToSearchableMigrationFiles {
+	return &filterableToSearchableMigrationFiles{
+		flagFileName:  path.Join(rootPath, "migration1.19.filter2search.skip.flag"),
+		stateFileName: path.Join(rootPath, "migration1.19.filter2search.state"),
+	}
+}
+
+func (mf *filterableToSearchableMigrationFiles) loadMigrationState() (*filterableToSearchableMigrationState, error) {
+	f, err := os.OpenFile(mf.stateFileName, os.O_RDWR|os.O_CREATE, 0o666)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(f); err != nil {
+		return nil, err
+	}
+	bytes := buf.Bytes()
+
+	state := filterableToSearchableMigrationState{
+		Class2Props: map[string]map[string]struct{}{},
+	}
+
+	if len(bytes) > 0 {
+		if err := json.Unmarshal(bytes, &state); err != nil {
+			return nil, err
+		}
+	}
+	return &state, nil
+}
+
+func (mf *filterableToSearchableMigrationFiles) saveMigrationState(state *filterableToSearchableMigrationState) error {
+	bytes, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+
+	fileNameTemp := mf.stateFileName + ".temp"
+	f, err := os.Create(fileNameTemp)
+	if err != nil {
+		return err
+	}
+
+	_, err = f.Write(bytes)
+	f.Close()
+	if err != nil {
+		return err
+	}
+
+	err = os.Rename(fileNameTemp, mf.stateFileName)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (mf *filterableToSearchableMigrationFiles) existsMigrationSkipFlag() bool {
+	_, err := os.Stat(mf.flagFileName)
+	return err == nil
+}
+
+func (mf *filterableToSearchableMigrationFiles) createMigrationSkipFlag() error {
+	f, err := os.Create(mf.flagFileName)
+	if err != nil {
+		return err
+	}
+	f.Close()
+	return nil
 }

@@ -68,25 +68,31 @@ func GetPropNameAndIndexTypeFromBucketName(bucketName string) (string, PropertyI
 }
 
 type reindexablePropertyChecker struct {
-	reindexables map[string]map[PropertyIndexType]struct{}
+	reindexables map[string]map[PropertyIndexType]bool
 }
 
 func newReindexablePropertyChecker(reindexableProperties []ReindexableProperty) *reindexablePropertyChecker {
-	reindexables := map[string]map[PropertyIndexType]struct{}{}
+	reindexables := map[string]map[PropertyIndexType]bool{}
 	for _, property := range reindexableProperties {
 		if _, ok := reindexables[property.PropertyName]; !ok {
-			reindexables[property.PropertyName] = map[PropertyIndexType]struct{}{}
+			reindexables[property.PropertyName] = map[PropertyIndexType]bool{}
 		}
-		reindexables[property.PropertyName][property.IndexType] = struct{}{}
+		reindexables[property.PropertyName][property.IndexType] = property.NewIndex
 	}
 	return &reindexablePropertyChecker{reindexables}
 }
 
 func (c *reindexablePropertyChecker) isReindexable(propName string, indexType PropertyIndexType) bool {
-	if _, ok := c.reindexables[propName]; !ok {
-		return false
-	} else if _, ok := c.reindexables[propName][indexType]; !ok {
-		return false
+	if _, ok := c.reindexables[propName]; ok {
+		_, ok := c.reindexables[propName][indexType]
+		return ok
 	}
-	return true
+	return false
+}
+
+func (c *reindexablePropertyChecker) isNewIndex(propName string, indexType PropertyIndexType) bool {
+	if c.isReindexable(propName, indexType) {
+		return c.reindexables[propName][indexType]
+	}
+	return false
 }

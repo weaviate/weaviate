@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -223,6 +224,13 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 }
 
 func (m *Migrator) InvertedReindex(ctx context.Context, taskNames ...string) error {
+	var errs errorcompounder.ErrorCompounder
+	errs.Add(m.doInvertedReindex(ctx, taskNames...))
+	errs.Add(m.doInvertedIndexMissingTextFilterable(ctx, taskNames...))
+	return errs.ToError()
+}
+
+func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) error {
 	tasksProviders := map[string]func() ShardInvertedReindexTask{
 		"ShardInvertedReindexTaskSetToRoaringSet": func() ShardInvertedReindexTask {
 			return &ShardInvertedReindexTaskSetToRoaringSet{}
@@ -243,28 +251,146 @@ func (m *Migrator) InvertedReindex(ctx context.Context, taskNames ...string) err
 	errgrp := &errgroup.Group{}
 	for _, index := range m.db.indices {
 		for _, shard := range index.Shards {
-			func(shard *Shard) {
-				errgrp.Go(func() error {
-					reindexer := NewShardInvertedReindexer(shard, m.logger)
-					for taskName, task := range tasks {
-						reindexer.AddTask(task)
-						m.logger.
-							WithField("action", "inverted reindex").
-							WithField("task", taskName).
-							WithField("shard", shard.name).
-							Info("About to start inverted reindexing, this may take a while")
-					}
-					res := reindexer.Do(ctx)
-					m.logger.
-						WithField("action", "inverted reindex").
-						WithField("shard", shard.name).
-						Info("Finished inverted reindexing")
-					return res
-				})
-			}(shard)
+			shard := shard
+
+			errgrp.Go(func() error {
+				reindexer := NewShardInvertedReindexer(shard, m.logger)
+				for taskName, task := range tasks {
+					reindexer.AddTask(task)
+					m.logInvertedReindexShard(shard).
+						WithField("task", taskName).
+						Info("About to start inverted reindexing, this may take a while")
+				}
+				if err := reindexer.Do(ctx); err != nil {
+					m.logInvertedReindexShard(shard).
+						WithError(err).
+						Error("failed reindexing")
+					return errors.Wrapf(err, "failed reindexing shard '%s'", shard.ID())
+				}
+				m.logInvertedReindexShard(shard).
+					Info("Finished inverted reindexing")
+				return nil
+			})
 		}
 	}
 	return errgrp.Wait()
+}
+
+func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, taskNames ...string) error {
+	taskName := "ShardInvertedReindexTaskMissingTextFilterable"
+	taskFound := false
+	for _, name := range taskNames {
+		if name == taskName {
+			taskFound = true
+			break
+		}
+	}
+	if !taskFound {
+		return nil
+	}
+
+	task := newShardInvertedReindexTaskMissingTextFilterable(m)
+	if err := task.init(); err != nil {
+		m.logMissingTextFilterable().WithError(err).Error("failed init missing text filterable task")
+		return errors.Wrap(err, "failed init missing text filterable task")
+	}
+
+	if len(task.migrationState.Class2Props) == 0 {
+		m.logMissingTextFilterable().Info("no classes to create filterable index, skipping")
+		return nil
+	}
+
+	m.logMissingTextFilterable().Info("staring missing text filterable task")
+
+	errgrpIndexes := &errgroup.Group{}
+	errgrpIndexes.SetLimit(50)
+	for _, index := range m.db.indices {
+		index := index
+		className := index.Config.ClassName.String()
+
+		if _, ok := task.migrationState.Class2Props[className]; !ok {
+			continue
+		}
+
+		errgrpIndexes.Go(func() error {
+			errgrpShards := &errgroup.Group{}
+			for _, shard := range index.Shards {
+				shard := shard
+
+				errgrpShards.Go(func() error {
+					m.logMissingTextFilterableShard(shard).
+						Info("starting filterable indexing on shard, this may take a while")
+
+					reindexer := NewShardInvertedReindexer(shard, m.logger)
+					reindexer.AddTask(task)
+
+					if err := reindexer.Do(ctx); err != nil {
+						m.logMissingTextFilterableShard(shard).
+							WithError(err).
+							Error("failed filterable indexing on shard")
+						return errors.Wrapf(err, "failed filterable indexing for shard '%s' of index '%s'",
+							shard.ID(), index.ID())
+					}
+					m.logMissingTextFilterableShard(shard).
+						Info("finished filterable indexing on shard")
+					return nil
+				})
+			}
+
+			if err := errgrpShards.Wait(); err != nil {
+				m.logMissingTextFilterableIndex(index).
+					WithError(err).
+					Error("failed filterable indexing on index")
+				return errors.Wrapf(err, "failed filterable indexing of index '%s'", index.ID())
+			}
+
+			if err := task.removeClassFromMigrationStateAndSave(className); err != nil {
+				m.logMissingTextFilterableIndex(index).
+					WithError(err).
+					Error("failed updating migration state file")
+				return errors.Wrapf(err, "failed updating migration state file for class '%s'", className)
+			}
+
+			m.logMissingTextFilterableIndex(index).
+				Info("finished filterable indexing on index")
+
+			// TODO schema update here?
+
+			return nil
+		})
+	}
+
+	if err := errgrpIndexes.Wait(); err != nil {
+		m.logMissingTextFilterable().
+			WithError(err).
+			Error("failed missing text filterable task")
+		return errors.Wrap(err, "failed missing text filterable task")
+	}
+
+	m.logMissingTextFilterable().Info("finished missing text filterable task")
+	return nil
+}
+
+func (m *Migrator) logInvertedReindex() *logrus.Entry {
+	return m.logger.WithField("action", "inverted_reindex")
+}
+
+func (m *Migrator) logInvertedReindexShard(shard *Shard) *logrus.Entry {
+	return m.logInvertedReindex().
+		WithField("index", shard.index.ID()).
+		WithField("shard", shard.ID())
+}
+
+func (m *Migrator) logMissingTextFilterable() *logrus.Entry {
+	return m.logger.WithField("action", "ii_missing_text_filterable")
+}
+
+func (m *Migrator) logMissingTextFilterableIndex(index *Index) *logrus.Entry {
+	return m.logMissingTextFilterable().WithField("index", index.ID())
+}
+
+func (m *Migrator) logMissingTextFilterableShard(shard *Shard) *logrus.Entry {
+	return m.logMissingTextFilterableIndex(shard.index).WithField("shard", shard.ID())
 }
 
 // As of v1.19 property's IndexInverted setting is replaced with IndexFilterable

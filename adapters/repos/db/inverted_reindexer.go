@@ -32,6 +32,7 @@ type ShardInvertedReindexTask interface {
 type ReindexableProperty struct {
 	PropertyName    string
 	IndexType       PropertyIndexType
+	NewIndex        bool // is new index, ignores prop inverted settings, there is no bucket to replace with
 	DesiredStrategy string
 	BucketOptions   []lsmkv.BucketOption
 }
@@ -130,16 +131,31 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 		tempBucket.FlushMemtable(ctx)
 		tempBucket.UpdateStatus(storagestate.StatusReadOnly)
 
-		if err := r.shard.store.ReplaceBuckets(ctx, bucketsToReindex[i], tempBucketName); err != nil {
-			r.logError(err, "failed replacing buckets")
-			return err
+		if reindexProperties[i].NewIndex {
+			if err := r.shard.store.RenameBucket(ctx, tempBucketName, bucketsToReindex[i]); err != nil {
+				r.logError(err, "failed renaming buckets")
+				return err
+			}
+
+			r.logger.
+				WithField("action", "inverted reindex").
+				WithField("shard", r.shard.name).
+				WithField("bucket", bucketsToReindex[i]).
+				WithField("temp_bucket", tempBucketName).
+				Debug("renamed bucket")
+		} else {
+			if err := r.shard.store.ReplaceBuckets(ctx, bucketsToReindex[i], tempBucketName); err != nil {
+				r.logError(err, "failed replacing buckets")
+				return err
+			}
+
+			r.logger.
+				WithField("action", "inverted reindex").
+				WithField("shard", r.shard.name).
+				WithField("bucket", bucketsToReindex[i]).
+				WithField("temp_bucket", tempBucketName).
+				Debug("replaced buckets")
 		}
-		r.logger.
-			WithField("action", "inverted reindex").
-			WithField("shard", r.shard.name).
-			WithField("bucket", bucketsToReindex[i]).
-			WithField("temp_bucket", tempBucketName).
-			Debug("replaced buckets")
 	}
 
 	if err := r.checkContextExpired(ctx, "resuming store stopped due to context canceled"); err != nil {
@@ -262,6 +278,10 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 	reindexablePropSearchableValue := checker.isReindexable(property.Name, IndexTypePropSearchableValue)
 
 	if reindexableHashPropValue || reindexablePropValue || reindexablePropSearchableValue {
+		newHashPropValue := checker.isNewIndex(property.Name, IndexTypeHashPropValue)
+		newPropValue := checker.isNewIndex(property.Name, IndexTypePropValue)
+		newPropSearchableValue := checker.isNewIndex(property.Name, IndexTypePropSearchableValue)
+
 		var hashBucketValue, bucketValue, bucketSearchableValue *lsmkv.Bucket
 
 		if reindexableHashPropValue {
@@ -286,18 +306,18 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 		propLen := float32(len(property.Items))
 		for _, item := range property.Items {
 			key := item.Data
-			if reindexableHashPropValue && (property.IsFilterable || property.IsSearchable) {
+			if reindexableHashPropValue && (property.IsFilterable || property.IsSearchable || newHashPropValue) {
 				if err := r.shard.addToPropertyHashBucket(hashBucketValue, key); err != nil {
 					return errors.Wrapf(err, "failed adding to prop '%s' value hash bucket", property.Name)
 				}
 			}
-			if reindexablePropSearchableValue && property.IsSearchable {
+			if reindexablePropSearchableValue && (property.IsSearchable || newPropSearchableValue) {
 				pair := r.shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
 				if err := r.shard.addToPropertyMapBucket(bucketSearchableValue, pair, key); err != nil {
 					return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
 				}
 			}
-			if reindexablePropValue && property.IsFilterable {
+			if reindexablePropValue && (property.IsFilterable || newPropValue) {
 				if err := r.shard.addToPropertySetBucket(bucketValue, docID, key); err != nil {
 					return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
 				}

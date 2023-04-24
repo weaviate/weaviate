@@ -304,10 +304,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
-	reindexCtx, reindexCtxCancel := context.WithCancel(context.Background())
-	reindexFinished := make(chan error, 1)
 	// FIXME to avoid import cycles, tasks are passed as strings
 	reindexTaskNames := []string{}
+	reindexCtx, reindexCtxCancel := context.WithCancel(context.Background())
+	reindexFinished := make(chan error, 1)
 
 	if appState.ServerConfig.Config.ReindexSetToRoaringsetAtStartup {
 		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTaskSetToRoaringSet")
@@ -322,7 +322,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			appState.Logger.
 				WithField("action", "startup").
 				Info("Reindexing inverted indexes")
-			// FIXME to avoid import cycles tasks are passed as strings
 			reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNames...)
 		}()
 	}
