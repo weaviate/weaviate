@@ -41,7 +41,7 @@ type JsonPropertyLengthTracker struct {
 // * We need to know the mean length of all properties for BM25 calculations
 // * The prop length tracker is an approximate tracker that uses buckets and simply counts the entries in the buckets
 // * There is a precise global counter for the sum of all lengths and a precise global counter for the number of entries
-// * It only exists for string/text because these are the only prop types that can be used with BM25
+// * It only exists for string/text (and their array forms) because these are the only prop types that can be used with BM25
 // * It should probably always exist when indexSearchable is set on a text prop going forward
 //
 // Property lengths are put into one of 64 buckets.  The value of a bucket is given by the formula:
@@ -55,6 +55,8 @@ type JsonPropertyLengthTracker struct {
 // The new tracker is exactly compatible with the old format to enable migration, which is why there is a -1 bucket.  Altering the number of buckets or their values will break compatibility.
 //
 // Set UnlimitedBuckets to true for precise length tracking
+//
+// Note that some of the code in this file is forced by the need to be backwards-compatible with the old format.  Once we are confident that all users have migrated to the new format, we can remove the old format code and simplify this file.
 
 // NewJsonPropertyLengthTracker creates a new tracker and loads the data from the given path.  If the file is in the old format, it will be converted to the new format.
 func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, error) {
@@ -195,7 +197,7 @@ func (t *JsonPropertyLengthTracker) valueFromBucket(bucket int) float32 {
 		return float32(bucket + 1)
 	}
 
-	if bucket > 63 {
+	if bucket > MAX_BUCKETS-1 {
 		return -1
 	}
 
@@ -224,11 +226,11 @@ func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, fl
 	defer t.Unlock()
 	sum, ok := t.data.SumData[propName]
 	if !ok {
-		return 0, 0, 0, nil
+		return 0, 0, 0, nil	//Required to match the old prop tracker (for now)
 	}
 	count, ok := t.data.CountData[propName]
 	if !ok {
-		return 0, 0, 0, nil
+		return 0, 0, 0, nil  //Required to match the old prop tracker (for now)
 	}
 	return sum, count, float64(sum) / float64(count), nil
 }
