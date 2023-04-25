@@ -43,10 +43,15 @@ func TestAuthGraphQLValidUserNotOnAdminlist(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	config, err := client.NewConfig(os.Getenv(weaviateEndpoint), "http", auth.ResourceOwnerPasswordFlow{Username: wcsUserNotOnAdmin, Password: pw}, nil)
+
+	conf := client.Config{
+		Scheme:     "http",
+		Host:       os.Getenv(weaviateEndpoint),
+		AuthConfig: auth.ResourceOwnerPasswordFlow{Username: wcsUserNotOnAdmin, Password: pw},
+	}
+	c, err := client.NewClient(conf)
 	require.Nil(t, err)
 
-	c := client.New(*config)
 	_, err = c.GraphQL().Raw().WithQuery("{__schema {queryType {fields {name}}}}").Do(ctx)
 	require.NotNil(t, err)
 }
@@ -59,9 +64,13 @@ func TestAuthGraphQLValidUser(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	config, err := client.NewConfig(os.Getenv(weaviateEndpoint), "http", auth.ResourceOwnerPasswordFlow{Username: wcsUserOnAdmin, Password: pwAdminUser}, nil)
+	conf := client.Config{
+		Scheme:     "http",
+		Host:       os.Getenv(weaviateEndpoint),
+		AuthConfig: auth.ResourceOwnerPasswordFlow{Username: wcsUserOnAdmin, Password: pwAdminUser},
+	}
+	c, err := client.NewClient(conf)
 	require.Nil(t, err)
-	c := client.New(*config)
 
 	// add a class so schema is not empty
 	require.Nil(t, c.Schema().AllDeleter().Do(ctx))
@@ -73,10 +82,14 @@ func TestAuthGraphQLValidUser(t *testing.T) {
 	})
 
 	t.Run("returns auth error for non-admin", func(t *testing.T) {
-		configNoAdmin, err := client.NewConfig(os.Getenv(weaviateEndpoint), "http", auth.ResourceOwnerPasswordFlow{Username: wcsUserNotOnAdmin, Password: pwNoAdminUser}, nil)
+		conf2 := client.Config{
+			Scheme:     "http",
+			Host:       os.Getenv(weaviateEndpoint),
+			AuthConfig: auth.ResourceOwnerPasswordFlow{Username: wcsUserNotOnAdmin, Password: pwNoAdminUser},
+		}
+		cNoAdmin, err := client.NewClient(conf2)
 		require.Nil(t, err)
 
-		cNoAdmin := client.New(*configNoAdmin)
 		_, err = cNoAdmin.GraphQL().Raw().WithQuery("{__schema {queryType {fields {name}}}}").Do(ctx)
 		require.NotNil(t, err)
 		wErr, ok := err.(*fault.WeaviateClientError)
