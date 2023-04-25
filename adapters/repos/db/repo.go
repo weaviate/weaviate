@@ -31,17 +31,18 @@ import (
 )
 
 type DB struct {
-	logger          logrus.FieldLogger
-	schemaGetter    schemaUC.SchemaGetter
-	config          Config
-	indices         map[string]*Index
-	remoteIndex     sharding.RemoteIndexClient
-	replicaClient   replica.Client
-	nodeResolver    nodeResolver
-	remoteNode      *sharding.RemoteNode
-	promMetrics     *monitoring.PrometheusMetrics
-	shutdown        chan struct{}
-	startupComplete atomic.Bool
+	logger            logrus.FieldLogger
+	schemaGetter      schemaUC.SchemaGetter
+	config            Config
+	indices           map[string]*Index
+	remoteIndex       sharding.RemoteIndexClient
+	replicaClient     replica.Client
+	nodeResolver      nodeResolver
+	remoteNode        *sharding.RemoteNode
+	promMetrics       *monitoring.PrometheusMetrics
+	shutdown          chan struct{}
+	startupComplete   atomic.Bool
+	resourceScanState *resourceScanState
 
 	// indexLock is an RWMutex which allows concurrent access to various indexes,
 	// but only one modifaction at a time. R/W can be a bit confusing here,
@@ -107,6 +108,7 @@ func New(logger logrus.FieldLogger, config Config,
 		shutdown:            make(chan struct{}),
 		jobQueueCh:          make(chan job, 100000),
 		maxNumberGoroutines: int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
+		resourceScanState:   newResourceScanState(),
 	}
 	if db.maxNumberGoroutines == 0 {
 		return db, errors.New("no workers to add batch-jobs configured.")
