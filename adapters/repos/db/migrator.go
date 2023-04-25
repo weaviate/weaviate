@@ -138,10 +138,11 @@ func (m *Migrator) UpdateClass(ctx context.Context, className string, newClassNa
 }
 
 func (m *Migrator) AddProperty(ctx context.Context, className string, prop *models.Property) error {
-	idx := m.db.GetIndex(schema.ClassName(className))
-	if idx == nil {
-		return errors.Errorf("cannot add property to a non-existing index for %s", className)
+	idx, err := m.db.GetIndexLockedIfExists(schema.ClassName(className))
+	if err != nil {
+		return err
 	}
+	defer idx.dropIndex.RUnlock()
 
 	if prop.IndexInverted == nil || *prop.IndexInverted {
 		return m.addPropertiesAndNullAndLength(ctx, prop, idx)
@@ -164,19 +165,21 @@ func (m *Migrator) UpdateProperty(ctx context.Context, className string, propNam
 }
 
 func (m *Migrator) GetShardsStatus(ctx context.Context, className string) (map[string]string, error) {
-	idx := m.db.GetIndex(schema.ClassName(className))
-	if idx == nil {
-		return nil, errors.Errorf("cannot get shards status for a non-existing index for %s", className)
+	idx, err := m.db.GetIndexLockedIfExists(schema.ClassName(className))
+	if err != nil {
+		return nil, errors.Wrap(err, "cannot get shards status")
 	}
 
+	defer idx.dropIndex.RUnlock()
 	return idx.getShardsStatus(ctx)
 }
 
 func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error {
-	idx := m.db.GetIndex(schema.ClassName(className))
-	if idx == nil {
-		return errors.Errorf("cannot update shard status to a non-existing index for %s", className)
+	idx, err := m.db.GetIndexLockedIfExists(schema.ClassName(className))
+	if err != nil {
+		return errors.Wrap(err, "cannot update shards status")
 	}
+	defer idx.dropIndex.RUnlock()
 
 	return idx.updateShardStatus(ctx, shardName, targetStatus)
 }
@@ -188,10 +191,11 @@ func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
 func (m *Migrator) UpdateVectorIndexConfig(ctx context.Context,
 	className string, updated schema.VectorIndexConfig,
 ) error {
-	idx := m.db.GetIndex(schema.ClassName(className))
-	if idx == nil {
-		return errors.Errorf("cannot update vector index config of non-existing index for %s", className)
+	idx, err := m.db.GetIndexLockedIfExists(schema.ClassName(className))
+	if err != nil {
+		return errors.Wrap(err, "cannot cannot update vector index config")
 	}
+	defer idx.dropIndex.RUnlock()
 
 	return idx.updateVectorIndexConfig(ctx, updated)
 }
@@ -214,10 +218,11 @@ func (m *Migrator) ValidateInvertedIndexConfigUpdate(ctx context.Context,
 func (m *Migrator) UpdateInvertedIndexConfig(ctx context.Context, className string,
 	updated *models.InvertedIndexConfig,
 ) error {
-	idx := m.db.GetIndex(schema.ClassName(className))
-	if idx == nil {
-		return errors.Errorf("cannot update inverted index config of non-existing index for %s", className)
+	idx, err := m.db.GetIndexLockedIfExists(schema.ClassName(className))
+	if err != nil {
+		return errors.Wrap(err, "cannot update inverted index config")
 	}
+	defer idx.dropIndex.RUnlock()
 
 	conf := inverted.ConfigFromModel(updated)
 

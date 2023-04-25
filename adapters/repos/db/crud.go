@@ -33,10 +33,14 @@ func (d *DB) PutObject(ctx context.Context, obj *models.Object,
 	vector []float32, repl *additional.ReplicationProperties,
 ) error {
 	object := storobj.FromObject(obj, vector)
-	idx := d.GetIndex(object.Class())
+	idx, err := d.GetIndexLockedIfExists(object.Class())
+	if err != nil {
+		return err
+	}
 	if idx == nil {
 		return fmt.Errorf("import into non-existing index for %s", object.Class())
 	}
+	defer idx.dropIndex.RUnlock()
 
 	if err := idx.putObject(ctx, object, repl); err != nil {
 		return errors.Wrapf(err, "import into index %s", idx.ID())
@@ -49,13 +53,13 @@ func (d *DB) PutObject(ctx context.Context, obj *models.Object,
 func (d *DB) DeleteObject(ctx context.Context, class string,
 	id strfmt.UUID, repl *additional.ReplicationProperties,
 ) error {
-	idx := d.GetIndex(schema.ClassName(class))
-	if idx == nil {
-		return fmt.Errorf("delete from non-existing index for %s", class)
-	}
-
-	err := idx.deleteObject(ctx, id, repl)
+	idx, err := d.GetIndexLockedIfExists(schema.ClassName(class))
 	if err != nil {
+		return err
+	}
+	defer idx.dropIndex.RUnlock()
+
+	if err := idx.deleteObject(ctx, id, repl); err != nil {
 		return fmt.Errorf("delete from index %q: %w", idx.ID(), err)
 	}
 
@@ -159,10 +163,11 @@ func (d *DB) Object(ctx context.Context, class string,
 	id strfmt.UUID, props search.SelectProperties,
 	adds additional.Properties, repl *additional.ReplicationProperties,
 ) (*search.Result, error) {
-	idx := d.GetIndex(schema.ClassName(class))
-	if idx == nil {
-		return nil, nil
+	idx, err := d.GetIndexLockedIfExists(schema.ClassName(class))
+	if err != nil {
+		return nil, err
 	}
+	defer idx.dropIndex.RUnlock()
 
 	obj, err := idx.objectByID(ctx, id, props, adds, repl)
 	if err != nil {
@@ -196,11 +201,14 @@ func (d *DB) Exists(ctx context.Context, class string,
 	if class == "" {
 		return d.anyExists(ctx, id, repl)
 	}
-	index := d.GetIndex(schema.ClassName(class))
-	if index == nil {
-		return false, nil
+	idx, err := d.GetIndexLockedIfExists(schema.ClassName(class))
+	if err != nil {
+		return false, err
 	}
-	return index.exists(ctx, id, repl)
+
+	defer idx.dropIndex.RUnlock()
+
+	return idx.exists(ctx, id, repl)
 }
 
 func (d *DB) anyExists(ctx context.Context, id strfmt.UUID,
@@ -250,13 +258,13 @@ func (d *DB) AddReference(ctx context.Context,
 func (d *DB) Merge(ctx context.Context, merge objects.MergeDocument,
 	repl *additional.ReplicationProperties,
 ) error {
-	idx := d.GetIndex(schema.ClassName(merge.Class))
-	if idx == nil {
-		return fmt.Errorf("merge from non-existing index for %s", merge.Class)
-	}
-
-	err := idx.mergeObject(ctx, merge, repl)
+	idx, err := d.GetIndexLockedIfExists(schema.ClassName(merge.Class))
 	if err != nil {
+		return err
+	}
+	defer idx.dropIndex.RUnlock()
+
+	if err := idx.mergeObject(ctx, merge, repl); err != nil {
 		return errors.Wrapf(err, "merge into index %s", idx.ID())
 	}
 

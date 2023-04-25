@@ -144,7 +144,7 @@ func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResp
 		}}
 	}
 
-	if idx = db.GetIndex(schema.ClassName(name)); idx == nil {
+	if !db.IndexExists(schema.ClassName(name)) {
 		return nil, &replica.SimpleResponse{Errors: []replica.Error{
 			*replica.NewError(replica.StatusClassNotFound, name),
 		}}
@@ -325,8 +325,12 @@ func (s *Shard) reinit(ctx context.Context) error {
 func (db *DB) OverwriteObjects(ctx context.Context,
 	class, shardName string, vobjects []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
-	index := db.GetIndex(schema.ClassName(class))
-	return index.overwriteObjects(ctx, shardName, vobjects)
+	idx, err := db.GetIndexLockedIfExists(schema.ClassName(class))
+	if err != nil {
+		return nil, err
+	}
+	defer idx.dropIndex.RUnlock()
+	return idx.overwriteObjects(ctx, shardName, vobjects)
 }
 
 // overwrite objects if their state didn't change in the meantime
@@ -389,8 +393,12 @@ func (i *Index) IncomingOverwriteObjects(ctx context.Context,
 func (db *DB) DigestObjects(ctx context.Context,
 	class, shardName string, ids []strfmt.UUID,
 ) (result []replica.RepairResponse, err error) {
-	index := db.GetIndex(schema.ClassName(class))
-	return index.digestObjects(ctx, shardName, ids)
+	idx, err := db.GetIndexLockedIfExists(schema.ClassName(class))
+	if err != nil {
+		return nil, err
+	}
+	defer idx.dropIndex.RUnlock()
+	return idx.digestObjects(ctx, shardName, ids)
 }
 
 func (i *Index) digestObjects(ctx context.Context,
@@ -446,8 +454,12 @@ func (i *Index) IncomingDigestObjects(ctx context.Context,
 func (db *DB) FetchObject(ctx context.Context,
 	class, shardName string, id strfmt.UUID,
 ) (objects.Replica, error) {
-	index := db.GetIndex(schema.ClassName(class))
-	return index.readRepairGetObject(ctx, shardName, id)
+	idx, err := db.GetIndexLockedIfExists(schema.ClassName(class))
+	if err != nil {
+		return objects.Replica{}, err
+	}
+	defer idx.dropIndex.RUnlock()
+	return idx.readRepairGetObject(ctx, shardName, id)
 }
 
 func (i *Index) readRepairGetObject(ctx context.Context,
@@ -483,8 +495,12 @@ func (i *Index) readRepairGetObject(ctx context.Context,
 func (db *DB) FetchObjects(ctx context.Context,
 	class, shardName string, ids []strfmt.UUID,
 ) ([]objects.Replica, error) {
-	index := db.GetIndex(schema.ClassName(class))
-	return index.fetchObjects(ctx, shardName, ids)
+	idx, err := db.GetIndexLockedIfExists(schema.ClassName(class))
+	if err != nil {
+		return nil, err
+	}
+	defer idx.dropIndex.RUnlock()
+	return idx.fetchObjects(ctx, shardName, ids)
 }
 
 func (i *Index) fetchObjects(ctx context.Context,

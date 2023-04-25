@@ -34,10 +34,11 @@ import (
 func (db *DB) Aggregate(ctx context.Context,
 	params aggregation.Params,
 ) (*aggregation.Result, error) {
-	idx := db.GetIndex(params.ClassName)
-	if idx == nil {
-		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
+	idx, err := db.GetIndexLockedIfExists(params.ClassName)
+	if err != nil {
+		return nil, err
 	}
+	defer idx.dropIndex.RUnlock()
 
 	return idx.aggregate(ctx, params)
 }
@@ -54,10 +55,11 @@ func (db *DB) GetQueryMaximumResults() int {
 func (db *DB) ClassObjectSearch(ctx context.Context,
 	params dto.GetParams,
 ) ([]*storobj.Object, []float32, error) {
-	idx := db.GetIndex(schema.ClassName(params.ClassName))
-	if idx == nil {
-		return nil, nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
+	idx, err := db.GetIndexLockedIfExists(schema.ClassName(params.ClassName))
+	if err != nil {
+		return nil, nil, err
 	}
+	defer idx.dropIndex.RUnlock()
 
 	if params.Pagination == nil {
 		return nil, nil, fmt.Errorf("invalid params, pagination object is nil")
@@ -102,10 +104,11 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 		return nil, errors.Wrapf(err, "invalid pagination params")
 	}
 
-	idx := db.GetIndex(schema.ClassName(params.ClassName))
-	if idx == nil {
-		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
+	idx, err := db.GetIndexLockedIfExists(schema.ClassName(params.ClassName))
+	if err != nil {
+		return nil, err
 	}
+	defer idx.dropIndex.RUnlock()
 
 	targetDist := extractDistanceFromParams(params)
 	res, dists, err := idx.objectVectorSearch(ctx, params.SearchVector, targetDist,
@@ -143,15 +146,16 @@ func (db *DB) ClassObjectVectorSearch(ctx context.Context, class string, vector 
 ) ([]*storobj.Object, []float32, error) {
 	totalLimit := offset + limit
 
-	index := db.GetIndex(schema.ClassName(class))
-	if index == nil {
-		return nil, nil, fmt.Errorf("tried to browse non-existing index for %s", class)
+	idx, err := db.GetIndexLockedIfExists(schema.ClassName(class))
+	if err != nil {
+		return nil, nil, err
 	}
+	defer idx.dropIndex.RUnlock()
 
-	objs, dist, err := index.objectVectorSearch(
+	objs, dist, err := idx.objectVectorSearch(
 		ctx, vector, 0, totalLimit, filters, nil, addl)
 	if err != nil {
-		return nil, nil, fmt.Errorf("search index %s: %w", index.ID(), err)
+		return nil, nil, fmt.Errorf("search index %s: %w", idx.ID(), err)
 	}
 
 	return objs, dist, nil
@@ -253,7 +257,13 @@ func (d *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results, 
 			return nil, &objects.Error{Msg: "sorting", Code: objects.StatusBadRequest, Err: err}
 		}
 	}
-	idx := d.GetIndex(schema.ClassName(q.Class))
+	idx, err := d.GetIndexLockedIfExists(schema.ClassName(q.Class))
+	if err != nil {
+		return nil, &objects.Error{Msg: "index", Code: objects.StatusBadRequest, Err: err}
+	}
+
+	defer idx.dropIndex.RUnlock()
+
 	if idx == nil {
 		return nil, &objects.Error{Msg: "class not found " + q.Class, Code: objects.StatusNotFound}
 	}

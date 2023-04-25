@@ -29,8 +29,7 @@ type BackupState struct {
 // Backupable returns whether all given class can be backed up.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	for _, c := range classes {
-		idx := db.GetIndex(schema.ClassName(c))
-		if idx == nil {
+		if !db.IndexExists(schema.ClassName(c)) {
 			return fmt.Errorf("class %v doesn't exist", c)
 		}
 	}
@@ -58,14 +57,15 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 	go func() {
 		for _, c := range classes {
 			desc := backup.ClassDescriptor{Name: c}
-			idx := db.GetIndex(schema.ClassName(c))
-			if idx == nil {
-				desc.Error = fmt.Errorf("class %v doesn't exist any more", c)
+			idx, err := db.GetIndexLockedIfExists(schema.ClassName(c))
+			if err != nil {
+				desc.Error = errors.Wrap(err, "class doesn't exist any more")
 			} else if err := idx.descriptor(ctx, bakid, &desc); err != nil {
 				desc.Error = fmt.Errorf("backup class %v descriptor: %w", c, err)
 			} else {
 				desc.Error = ctx.Err()
 			}
+			idx.dropIndex.RUnlock()
 
 			ds <- desc
 			if desc.Error != nil {
@@ -81,10 +81,11 @@ func (db *DB) ShardsBackup(
 	ctx context.Context, bakID, class string, shards []string,
 ) (_ backup.ClassDescriptor, err error) {
 	cd := backup.ClassDescriptor{Name: class}
-	idx := db.GetIndex(schema.ClassName(class))
-	if idx == nil {
-		return cd, fmt.Errorf("no index for class %q", class)
+	idx, err := db.GetIndexLockedIfExists(schema.ClassName(class))
+	if err != nil {
+		return cd, err
 	}
+	defer idx.dropIndex.RUnlock()
 
 	if err := idx.initBackup(bakID); err != nil {
 		return cd, fmt.Errorf("init backup state for class %q: %w", class, err)
@@ -120,15 +121,16 @@ func (db *DB) ShardsBackup(
 
 // ReleaseBackup release resources acquired by the index during backup
 func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) error {
-	idx := db.GetIndex(schema.ClassName(class))
-	if idx != nil {
-		return idx.ReleaseBackup(ctx, bakID)
+	idx, err := db.GetIndexLockedIfExists(schema.ClassName(class))
+	if err != nil {
+		return err
 	}
-	return nil
+	defer idx.dropIndex.RUnlock()
+	return idx.ReleaseBackup(ctx, bakID)
 }
 
 func (db *DB) ClassExists(name string) bool {
-	return db.GetIndex(schema.ClassName(name)) != nil
+	return db.IndexExists(schema.ClassName(name))
 }
 
 func (db *DB) Shards(ctx context.Context, class string) []string {

@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"runtime"
 	"sync"
@@ -147,6 +148,30 @@ func (d *DB) GetIndex(className schema.ClassName) *Index {
 	}
 
 	return index
+}
+
+// GetIndexLockedIfExists returns the LOCKED index if it exists or nil if it doesn't
+func (d *DB) GetIndexLockedIfExists(className schema.ClassName) (*Index, error) {
+	d.indexLock.RLock()
+	defer d.indexLock.RUnlock()
+
+	id := indexID(className)
+	index, ok := d.indices[id]
+	if !ok {
+		return nil, fmt.Errorf("index for class %v does not exist", className)
+	}
+	index.dropIndex.RLock() // caller needs to unlock
+	return index, nil
+}
+
+// IndexExists returns if an index exists
+func (d *DB) IndexExists(className schema.ClassName) bool {
+	d.indexLock.RLock()
+	defer d.indexLock.RUnlock()
+
+	id := indexID(className)
+	_, ok := d.indices[id]
+	return ok
 }
 
 // GetIndexForIncoming returns the index if it exists or nil if it doesn't
