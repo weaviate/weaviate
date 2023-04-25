@@ -161,7 +161,7 @@ func (c *Client) VectorForWord(ctx context.Context, word string) ([]float32, err
 	return v, nil
 }
 
-func logConnectionRefused(logger *logrus.Logger, err error) {
+func logConnectionRefused(logger logrus.FieldLogger, err error) {
 	if strings.Contains(fmt.Sprintf("%v", err), "connect: connection refused") {
 		logger.WithError(err).WithField("module", "contextionary").Warnf("module uncontactable")
 	}
