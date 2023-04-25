@@ -149,8 +149,6 @@ func searchResultsFromProto(input []*pb.SchemaSearchResult) []traverser.SearchRe
 	return output
 }
 
-
-
 func (c *Client) VectorForWord(ctx context.Context, word string) ([]float32, error) {
 	res, err := c.grpcClient.VectorForWord(ctx, &pb.Word{Word: word})
 	if err != nil {
