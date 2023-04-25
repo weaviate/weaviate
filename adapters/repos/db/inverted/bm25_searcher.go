@@ -192,11 +192,12 @@ func (b *BM25Searcher) wand(
 		switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			if _, exists := propNamesByTokenization[prop.Tokenization]; !exists {
-				return nil, nil, fmt.Errorf("cannot handle tokenization '%v'", prop.Tokenization)
+				return nil, nil, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",
+					prop.Tokenization, prop.Name)
 			}
 			propNamesByTokenization[prop.Tokenization] = append(propNamesByTokenization[prop.Tokenization], property)
 		default:
-			return nil, nil, fmt.Errorf("cannot handle datatype %v", dt)
+			return nil, nil, fmt.Errorf("cannot handle datatype '%v' of property '%s'", dt, prop.Name)
 		}
 	}
 
