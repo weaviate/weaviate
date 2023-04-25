@@ -30,6 +30,19 @@ func TestAddClass(t *testing.T) {
 		require.EqualError(t, err, "'' is not a valid class name")
 	})
 
+	t.Run("with permuted-casing class names", func(t *testing.T) {
+		mgr := newSchemaManager()
+		err := mgr.AddClass(context.Background(),
+			nil, &models.Class{Class: "NewClass"})
+		require.Nil(t, err)
+		err = mgr.AddClass(context.Background(),
+			nil, &models.Class{Class: "NewCLASS"})
+		require.NotNil(t, err)
+		require.Equal(t,
+			"class name \"NewCLASS\" already exists as a permutation of: \"NewClass\". "+
+				"class names must be unique when lowercased", err.Error())
+	})
+
 	t.Run("with default BM25 params", func(t *testing.T) {
 		mgr := newSchemaManager()
 
