@@ -199,9 +199,9 @@ func (d *DB) Exists(ctx context.Context, class string,
 		return d.anyExists(ctx, id, repl)
 	}
 
-	idx, err := d.GetIndexLockedIfExists(schema.ClassName(class))
-	if err != nil {
-		return false, err
+	idx, _ := d.GetIndexLockedIfExists(schema.ClassName(class))
+	if idx == nil {
+		return false, nil // if index does not exist, object does not exist
 	}
 	defer idx.dropIndex.RUnlock()
 
