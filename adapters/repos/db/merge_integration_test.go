@@ -260,8 +260,8 @@ func Test_MergingObjects(t *testing.T) {
 		}
 
 		err := repo.Merge(context.Background(), md, nil)
-		assert.Equal(t, fmt.Errorf(
-			"merge from non-existing index for WrongClass"), err)
+		assert.Equal(t,
+			"merge: index for class WrongClass does not exist", err.Error())
 	})
 	t.Run("add a reference and replace one prop", func(t *testing.T) {
 		source, err := crossref.ParseSource(fmt.Sprintf(

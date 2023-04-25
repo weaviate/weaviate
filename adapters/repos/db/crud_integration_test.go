@@ -188,7 +188,7 @@ func TestCRUD(t *testing.T) {
 
 		err := repo.PutObject(context.Background(), thing, vector, nil)
 		assert.Equal(t,
-			fmt.Errorf("import into non-existing index for WrongClass"), err)
+			"import: index for class WrongClass does not exist", err.Error())
 	})
 
 	timeMust := func(t strfmt.DateTime, err error) strfmt.DateTime {
@@ -985,8 +985,8 @@ func TestCRUD(t *testing.T) {
 	t.Run("trying to delete from a non-existing class", func(t *testing.T) {
 		err := repo.DeleteObject(context.Background(), "WrongClass", thingID, nil)
 
-		assert.Equal(t, fmt.Errorf(
-			"delete from non-existing index for WrongClass"), err)
+		assert.Equal(t,
+			"delete: index for class WrongClass does not exist", err.Error())
 	})
 
 	t.Run("verifying the thing is NOT indexed in the inverted index",
@@ -1441,7 +1441,7 @@ func TestCRUD_Query(t *testing.T) {
 			{
 				name:               "error on empty class",
 				query:              toParams("", 0, 7, &filters.Cursor{After: "", Limit: 7}, nil, nil),
-				constainsErrorMsgs: []string{"class not found"},
+				constainsErrorMsgs: []string{"index for class  does not exist code"},
 			},
 			{
 				name: "error on sort parameter",
