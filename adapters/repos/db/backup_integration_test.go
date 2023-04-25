@@ -80,6 +80,12 @@ func TestBackup_DBLevel(t *testing.T) {
 
 		classes := db.ListBackupable()
 
+		t.Run("doesn't fail on casing permutation of existing class", func(t *testing.T) {
+			err := db.Backupable(ctx, []string{"DBLeVELBackupClass"})
+			require.NotNil(t, err)
+			require.Equal(t, "class DBLeVELBackupClass doesn't exist", err.Error())
+		})
+
 		t.Run("create backup", func(t *testing.T) {
 			err := db.Backupable(ctx, classes)
 			assert.Nil(t, err)

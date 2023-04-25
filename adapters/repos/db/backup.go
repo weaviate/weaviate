@@ -29,8 +29,9 @@ type BackupState struct {
 // Backupable returns whether all given class can be backed up.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	for _, c := range classes {
-		idx := db.GetIndex(schema.ClassName(c))
-		if idx == nil {
+		className := schema.ClassName(c)
+		idx := db.GetIndex(className)
+		if idx == nil || idx.Config.ClassName != className {
 			return fmt.Errorf("class %v doesn't exist", c)
 		}
 	}
