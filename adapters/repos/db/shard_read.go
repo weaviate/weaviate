@@ -188,7 +188,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 			objs, err = inverted.NewSearcher(s.index.logger, s.store,
 				s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
 				s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
-				s.index.stopwords, s.versioner.Version()).
+				s.index.stopwords, s.versioner.Version(), s.isFallbackToSearchable).
 				DocIDs(ctx, filters, additional, s.index.Config.ClassName)
 			if err != nil {
 				return nil, nil, err
@@ -230,7 +230,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 	objs, err := inverted.NewSearcher(s.index.logger, s.store,
 		s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
 		s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
-		s.index.stopwords, s.versioner.Version()).
+		s.index.stopwords, s.versioner.Version(), s.isFallbackToSearchable).
 		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName)
 	return objs, nil, err
 }
@@ -395,7 +395,7 @@ func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter
 	list, err := inverted.NewSearcher(s.index.logger, s.store,
 		s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
 		s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
-		s.index.stopwords, s.versioner.Version()).
+		s.index.stopwords, s.versioner.Version(), s.isFallbackToSearchable).
 		DocIDs(ctx, filters, addl, s.index.Config.ClassName)
 	if err != nil {
 		return nil, errors.Wrap(err, "build inverted filter allow list")
