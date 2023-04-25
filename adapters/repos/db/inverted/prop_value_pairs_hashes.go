@@ -13,6 +13,7 @@ package inverted
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
@@ -113,7 +114,7 @@ func (pv *propValuePair) hashForNonEqualOp(store *lsmkv.Store,
 		return pv.hashForNonEqualOpWithFrequency(bucket, hashBucket, shardVersion)
 	}
 
-	return nil, errors.New("property is neither filterable nor searchable")
+	return nil, fmt.Errorf("property '%s' is neither filterable nor searchable", pv.prop)
 }
 
 func (pv *propValuePair) hashForNonEqualOpWithoutFrequencySet(propBucket,

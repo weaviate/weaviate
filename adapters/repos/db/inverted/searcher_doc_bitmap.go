@@ -14,6 +14,7 @@ package inverted
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
@@ -50,7 +51,7 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 		return s.docBitmapInvertedMap(ctx, b, limit, pv)
 	}
 
-	return docBitmap{}, errors.New("property is neither filterable nor searchable")
+	return docBitmap{}, fmt.Errorf("property '%s' is neither filterable nor searchable", pv.prop)
 }
 
 func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Bucket,
