@@ -18,7 +18,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
 )
@@ -58,54 +57,29 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 	limit int, pv *propValuePair,
 ) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
-	var hashBucket *lsmkv.Bucket
-	var err error
-
-	hashBucket, err = s.getHashBucket(pv)
-	if err != nil {
-		return out, err
-	}
-
-	rr := NewRowReaderRoaringSet(b, pv.value, pv.operator, false)
-	var hashes [][]byte
-	i := 0
+	isEmpty := true
 	var readFn RoaringSetReadFn = func(k []byte, docIDs *sroar.Bitmap) (bool, error) {
-		if i == 0 {
+		if isEmpty {
 			out.docIDs = docIDs
+			isEmpty = false
 		} else {
 			out.docIDs.Or(docIDs)
 		}
-		i++
-
-		currHash, err := hashBucket.Get(k)
-		if err != nil {
-			return false, errors.Wrap(err, "get hash")
-		}
-		// currHash is only safe to access for the lifetime of the RowReader, once
-		// that has finished, a compaction could happen and remove the underlying
-		// memory that the slice points to. Since the hashes will be used to merge
-		// filters - which happens after the RowReader has completed - this can lead
-		// to segfault crashes. Now is the time to safely copy it, creating a new
-		// and immutable slice.
-		hashes = append(hashes, copyBytes(currHash))
 
 		if limit > 0 && out.docIDs.GetCardinality() >= limit {
 			return false, nil
 		}
-
 		return true, nil
 	}
 
+	rr := NewRowReaderRoaringSet(b, pv.value, pv.operator, false)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, errors.Wrap(err, "read row")
 	}
 
-	if i == 0 {
-		// no rows were read, initially an empty bitmap
-		out = newDocBitmap()
+	if isEmpty {
+		return newDocBitmap(), nil
 	}
-
-	out.checksum = combineChecksums(hashes, pv.operator)
 	return out, nil
 }
 
@@ -113,29 +87,10 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 	limit int, pv *propValuePair,
 ) (docBitmap, error) {
 	out := newDocBitmap()
-	hashBucket, err := s.getHashBucket(pv)
-	if err != nil {
-		return out, err
-	}
-
-	rr := NewRowReader(b, pv.value, pv.operator, false)
-	var hashes [][]byte
 	var readFn ReadFn = func(k []byte, ids [][]byte) (bool, error) {
 		for _, asBytes := range ids {
 			out.docIDs.Set(binary.LittleEndian.Uint64(asBytes))
 		}
-
-		currHash, err := hashBucket.Get(k)
-		if err != nil {
-			return false, errors.Wrap(err, "get hash")
-		}
-		// currHash is only safe to access for the lifetime of the RowReader, once
-		// that has finished, a compaction could happen and remove the underlying
-		// memory that the slice points to. Since the hashes will be used to merge
-		// filters - which happens after the RowReader has completed - this can lead
-		// to segfault crashes. Now is the time to safely copy it, creating a new
-		// and immutable slice.
-		hashes = append(hashes, copyBytes(currHash))
 
 		if limit > 0 && out.docIDs.GetCardinality() >= limit {
 			return false, nil
@@ -143,11 +98,11 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 		return true, nil
 	}
 
+	rr := NewRowReader(b, pv.value, pv.operator, false)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, errors.Wrap(err, "read row")
 	}
 
-	out.checksum = combineChecksums(hashes, pv.operator)
 	return out, nil
 }
 
@@ -155,13 +110,6 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 	limit int, pv *propValuePair,
 ) (docBitmap, error) {
 	out := newDocBitmap()
-	hashBucket, err := s.getHashBucket(pv)
-	if err != nil {
-		return out, err
-	}
-
-	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false, s.shardVersion)
-	var hashes [][]byte
 	var readFn ReadFnFrequency = func(k []byte, pairs []lsmkv.MapPair) (bool, error) {
 		for _, pair := range pairs {
 			// this entry has a frequency, but that's only used for bm25, not for
@@ -173,29 +121,17 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 			}
 		}
 
-		currHash, err := hashBucket.Get(k)
-		if err != nil {
-			return false, errors.Wrap(err, "get hash")
-		}
-		// currHash is only safe to access for the lifetime of the RowReader, once
-		// that has finished, a compaction could happen and remove the underlying
-		// memory that the slice points to. Since the hashes will be used to merge
-		// filters - which happens after the RowReader has completed - this can lead
-		// to segfault crashes. Now is the time to safely copy it, creating a new
-		// and immutable slice.
-		hashes = append(hashes, copyBytes(currHash))
-
 		if limit > 0 && out.docIDs.GetCardinality() >= limit {
 			return false, nil
 		}
 		return true, nil
 	}
 
+	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false, s.shardVersion)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, errors.Wrap(err, "read row")
 	}
 
-	out.checksum = combineChecksums(hashes, pv.operator)
 	return out, nil
 }
 
@@ -213,34 +149,5 @@ func (s *Searcher) docBitmapGeo(ctx context.Context, pv *propValuePair) (docBitm
 	}
 
 	out.docIDs.SetMany(res)
-
-	// we can not use the checksum in the same fashion as with the inverted
-	// index, i.e. it can not prevent a search as the underlying index does not
-	// have any understanding of checksums which could prevent such a read.
-	// However, there is more use in the checksum: It can also be used in merging
-	// searches (e.g. cond1 AND cond2). The merging operation itself is expensive
-	// and cachable, therefore there is a lot of value in calculating and
-	// returning a checksum - even for geoProps.
-	checksum, err := docPointerChecksum(res)
-	if err != nil {
-		return out, errors.Wrap(err, "calculate checksum")
-	}
-
-	out.checksum = checksum
 	return out, nil
-}
-
-// TODO move to some helper/utils?
-func (s *Searcher) getHashBucket(pv *propValuePair) (*lsmkv.Bucket, error) {
-	hashBucket := s.store.Bucket(helpers.HashBucketFromPropNameLSM(pv.prop))
-	if hashBucket == nil {
-		return nil, errors.Errorf("no hash bucket for prop '%s' found", pv.prop)
-	}
-	return hashBucket, nil
-}
-
-func copyBytes(in []byte) []byte {
-	out := make([]byte, len(in))
-	copy(out, in)
-	return out
 }

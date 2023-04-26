@@ -649,8 +649,7 @@ func (it *sliceDocIDsIterator) Len() int {
 }
 
 type docBitmap struct {
-	docIDs   *sroar.Bitmap
-	checksum []byte
+	docIDs *sroar.Bitmap
 }
 
 // newUninitializedDocBitmap can be used whenever we can be sure that the first
