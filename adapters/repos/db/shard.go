@@ -44,20 +44,19 @@ const IdLockPoolSize = 128
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
-	index             *Index // a reference to the underlying index, which in turn contains schema information
-	name              string
-	store             *lsmkv.Store
-	counter           *indexcounter.Counter
-	vectorIndex       VectorIndex
-	invertedRowCache  *inverted.RowCacher
-	metrics           *Metrics
-	promMetrics       *monitoring.PrometheusMetrics
-	propertyIndices   propertyspecific.Indices
-	deletedDocIDs     *docid.InMemDeletedTracker
-	propLengths       *inverted.PropertyLengthTracker
-	randomSource      *bufferedRandomGen
-	versioner         *shardVersioner
-	resourceScanState *resourceScanState
+	index            *Index // a reference to the underlying index, which in turn contains schema information
+	name             string
+	store            *lsmkv.Store
+	counter          *indexcounter.Counter
+	vectorIndex      VectorIndex
+	invertedRowCache *inverted.RowCacher
+	metrics          *Metrics
+	promMetrics      *monitoring.PrometheusMetrics
+	propertyIndices  propertyspecific.Indices
+	deletedDocIDs    *docid.InMemDeletedTracker
+	propLengths      *inverted.PropertyLengthTracker
+	randomSource     *bufferedRandomGen
+	versioner        *shardVersioner
 
 	status              storagestate.Status
 	statusLock          sync.Mutex
@@ -88,12 +87,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		promMetrics:      promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
-		deletedDocIDs:     docid.NewInMemDeletedTracker(),
-		randomSource:      rand,
-		resourceScanState: newResourceScanState(),
-		stopMetrics:       make(chan struct{}),
-		replicationMap:    pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
-		centralJobQueue:   jobQueueCh,
+		deletedDocIDs:   docid.NewInMemDeletedTracker(),
+		randomSource:    rand,
+		stopMetrics:     make(chan struct{}),
+		replicationMap:  pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue: jobQueueCh,
 	}
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
