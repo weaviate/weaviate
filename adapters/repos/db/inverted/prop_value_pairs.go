@@ -144,14 +144,7 @@ func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
 		mergeFn(dbms[i].docIDs)
 	}
 
-	checksums := make([][]byte, len(pv.children))
-	for i := 0; i < len(dbms); i++ {
-		checksums[i] = dbms[i].checksum
-	}
-	checksum := combineChecksums(checksums, pv.operator)
-
 	return &docBitmap{
-		docIDs:   roaringset.Condense(mergeRes),
-		checksum: checksum,
+		docIDs: roaringset.Condense(mergeRes),
 	}, nil
 }
