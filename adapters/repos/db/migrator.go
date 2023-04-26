@@ -222,6 +222,48 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	return nil
 }
 
+func (m *Migrator) RecountProperties(ctx context.Context) error {
+	count := 0
+	m.logger.
+		WithField("action", "recount").
+		Info("Recounting properties, this may take a while")
+
+	// Iterate over all indexes
+	for _, index := range m.db.indices {
+		// Iterate over all shards
+		err := index.IterateObjects(ctx, func(index *Index, shard *Shard, object *storobj.Object) error {
+			count = count + 1
+			props, _, err := shard.analyzeObject(object)
+			if err != nil {
+				m.logger.WithField("error", err).Error("could not analyze object")
+				return nil
+			}
+
+			if err := shard.addPropLengths(props); err != nil {
+				m.logger.WithField("error", err).Error("could not add prop lengths")
+				return nil
+			}
+
+			return nil
+		})
+
+		if err != nil {
+			m.logger.WithField("error", err).Error("could not iterate over objects")
+		}
+
+	}
+	go func() {
+		for {
+			m.logger.
+				WithField("action", "recount").
+				Warnf("Recounted %v objects. Recounting properties complete. Please remove environment variable 	RECOUNT_PROPERTIES_AT_STARTUP before next startup", count)
+			time.Sleep(5 * time.Minute)
+		}
+	}()
+
+	return nil
+}
+
 func (m *Migrator) InvertedReindex(ctx context.Context, taskNames ...string) error {
 	var errs errorcompounder.ErrorCompounder
 	errs.Add(m.doInvertedReindex(ctx, taskNames...))
