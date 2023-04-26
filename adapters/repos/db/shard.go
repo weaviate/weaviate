@@ -44,20 +44,19 @@ const IdLockPoolSize = 128
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
-	index             *Index // a reference to the underlying index, which in turn contains schema information
-	name              string
-	store             *lsmkv.Store
-	counter           *indexcounter.Counter
-	vectorIndex       VectorIndex
-	invertedRowCache  *inverted.RowCacher
-	metrics           *Metrics
-	promMetrics       *monitoring.PrometheusMetrics
-	propertyIndices   propertyspecific.Indices
-	deletedDocIDs     *docid.InMemDeletedTracker
-	propLengths       *inverted.JsonPropertyLengthTracker
-	randomSource      *bufferedRandomGen
-	versioner         *shardVersioner
-	resourceScanState *resourceScanState
+	index            *Index // a reference to the underlying index, which in turn contains schema information
+	name             string
+	store            *lsmkv.Store
+	counter          *indexcounter.Counter
+	vectorIndex      VectorIndex
+	invertedRowCache *inverted.RowCacher
+	metrics          *Metrics
+	promMetrics      *monitoring.PrometheusMetrics
+	propertyIndices  propertyspecific.Indices
+	deletedDocIDs    *docid.InMemDeletedTracker
+	propLengths      *inverted.JsonPropertyLengthTracker
+	randomSource     *bufferedRandomGen
+	versioner        *shardVersioner
 
 	status              storagestate.Status
 	statusLock          sync.Mutex
