@@ -313,11 +313,15 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results ter
 	buf := make([]byte, 8)
 	for topKHeap.Len() > 0 {
 		res := topKHeap.Pop()
-		scores = append(scores, res.Dist)
 		binary.LittleEndian.PutUint64(buf, res.ID)
 		objectByte, err := objectsBucket.GetBySecondary(0, buf)
 		if err != nil {
 			return nil, nil, err
+		}
+
+		if len(objectByte) == 0 {
+			b.logger.Warnf("Skipping object in BM25: object with id %v has a length of 0 bytes.", res.ID)
+			continue
 		}
 
 		obj, err := storobj.FromBinary(objectByte)
@@ -339,6 +343,8 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results ter
 			}
 		}
 		objects = append(objects, obj)
+		scores = append(scores, res.Dist)
+
 	}
 	return objects, scores, nil
 }
