@@ -174,7 +174,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 		bm25Config := s.index.getInvertedIndexConfig().BM25
 
 		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
-			s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
+			s.index.getSchema.GetSchemaSkipAuth(),
 			s.propertyIndices, s.index.classSearcher, s.deletedDocIDs, s.propLengths,
 			s.index.logger, s.versioner.Version())
 
@@ -186,7 +186,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 
 		if filters != nil {
 			objs, err = inverted.NewSearcher(s.index.logger, s.store,
-				s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
+				s.index.getSchema.GetSchemaSkipAuth(),
 				s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
 				s.index.stopwords, s.versioner.Version(), s.isFallbackToSearchable).
 				DocIDs(ctx, filters, additional, s.index.Config.ClassName)
@@ -228,7 +228,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 		return objs, nil, err
 	}
 	objs, err := inverted.NewSearcher(s.index.logger, s.store,
-		s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
+		s.index.getSchema.GetSchemaSkipAuth(),
 		s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
 		s.index.stopwords, s.versioner.Version(), s.isFallbackToSearchable).
 		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName)
@@ -393,7 +393,7 @@ func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter
 	addl additional.Properties,
 ) (helpers.AllowList, error) {
 	list, err := inverted.NewSearcher(s.index.logger, s.store,
-		s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
+		s.index.getSchema.GetSchemaSkipAuth(),
 		s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
 		s.index.stopwords, s.versioner.Version(), s.isFallbackToSearchable).
 		DocIDs(ctx, filters, addl, s.index.Config.ClassName)
