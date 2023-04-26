@@ -88,12 +88,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		promMetrics:      promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
-		deletedDocIDs:     docid.NewInMemDeletedTracker(),
-		randomSource:      rand,
-		resourceScanState: newResourceScanState(),
-		stopMetrics:       make(chan struct{}),
-		replicationMap:    pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
-		centralJobQueue:   jobQueueCh,
+		deletedDocIDs:   docid.NewInMemDeletedTracker(),
+		randomSource:    rand,
+		stopMetrics:     make(chan struct{}),
+		replicationMap:  pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue: jobQueueCh,
 	}
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
