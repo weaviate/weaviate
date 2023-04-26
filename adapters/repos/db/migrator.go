@@ -228,7 +228,7 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 		WithField("action", "recount").
 		Info("Recounting properties, this may take a while")
 
-	clearedShard := map[string]bool{}
+
 	m.db.indexLock.Lock()
 	defer m.db.indexLock.Unlock()
 	// Iterate over all indexes
