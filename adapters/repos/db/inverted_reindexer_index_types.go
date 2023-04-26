@@ -19,9 +19,6 @@ const (
 	IndexTypePropValue PropertyIndexType = iota + 1
 	IndexTypePropLength
 	IndexTypePropNull
-	IndexTypeHashPropValue
-	IndexTypeHashPropLength
-	IndexTypeHashPropNull
 	IndexTypePropSearchableValue
 )
 
@@ -30,9 +27,6 @@ func isSupportedPropertyIndexType(indexType PropertyIndexType) bool {
 	case IndexTypePropValue,
 		IndexTypePropLength,
 		IndexTypePropNull,
-		IndexTypeHashPropValue,
-		IndexTypeHashPropLength,
-		IndexTypeHashPropNull,
 		IndexTypePropSearchableValue:
 		return true
 	default:
@@ -50,10 +44,6 @@ func checkSupportedPropertyIndexType(indexType PropertyIndexType) {
 // Method ensures both index type and strategy work together
 func isIndexTypeSupportedByStrategy(indexType PropertyIndexType, strategy string) bool {
 	switch indexType {
-	case IndexTypeHashPropValue,
-		IndexTypeHashPropLength,
-		IndexTypeHashPropNull:
-		return lsmkv.IsExpectedStrategy(strategy, lsmkv.StrategyReplace)
 	case IndexTypePropLength,
 		IndexTypePropNull,
 		IndexTypePropValue:
