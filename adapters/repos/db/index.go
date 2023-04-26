@@ -163,14 +163,12 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 
 func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard *Shard) error) error {
 	for _, shard := range i.Shards {
-		
-		if err :=cb(i, shard) ; err != nil {
+		if err := cb(i, shard); err != nil {
 			return err
 		}
 	}
 	return nil
 }
-
 
 func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
 	eg := &errgroup.Group{}
