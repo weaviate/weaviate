@@ -17,7 +17,6 @@ package inverted
 import (
 	"context"
 	"encoding/binary"
-	"math/rand"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -35,10 +34,7 @@ const (
 	className = "TestClass"
 )
 
-func Test_CachedFilters_String(t *testing.T) {
-	// TODO text_rbm_inverted_index_cache_cleanup
-	t.Skip("rowCache not used anymore")
-
+func Test_Filters_String(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -47,15 +43,9 @@ func Test_CachedFilters_String(t *testing.T) {
 
 	propName := "inverted-with-frequency"
 	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
-	hashBucketName := helpers.HashBucketFromPropNameLSM(propName)
-
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
 		bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
-	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
-		hashBucketName, lsmkv.WithStrategy(lsmkv.StrategyReplace)))
-
 	bWithFrequency := store.Bucket(bucketName)
-	bHashes := store.Bucket(hashBucketName)
 
 	defer store.Shutdown(context.Background())
 
@@ -80,19 +70,14 @@ func Test_CachedFilters_String(t *testing.T) {
 	t.Run("import data", func(t *testing.T) {
 		for value, ids := range fakeInvertedIndex {
 			idsMapValues := idsToBinaryMapValues(ids)
-			hash := make([]byte, 16)
-			_, err := rand.Read(hash)
-			require.Nil(t, err)
 			for _, pair := range idsMapValues {
 				require.Nil(t, bWithFrequency.MapSet([]byte(value), pair))
 			}
-			require.Nil(t, bHashes.Put([]byte(value), hash))
 		}
 
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-	rowCacher := newRowCacherSpy()
 	searcher := NewSearcher(logger, store, createSchema(),
 		nil, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false })
 
@@ -270,84 +255,36 @@ func Test_CachedFilters_String(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			rowCacher.reset()
-
-			t.Run("cache should be empty", func(t *testing.T) {
-				assert.Equal(t, 0, rowCacher.count)
-			})
-
-			t.Run("with cold cache", func(t *testing.T) {
+			t.Run("before update", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
 			})
 
-			t.Run("cache should be filled now", func(t *testing.T) {
-				assert.Equal(t, 1, rowCacher.count)
-				require.NotNil(t, rowCacher.lastEntry)
-				assert.Equal(t, test.expectedListBeforeUpdate.Slice(),
-					rowCacher.lastEntry.AllowList.Slice())
-				assert.Equal(t, 0, rowCacher.hitCount)
-			})
-
-			t.Run("with warm cache", func(t *testing.T) {
-				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, className)
-				assert.Nil(t, err)
-				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
-			})
-
-			t.Run("cache should have received a hit", func(t *testing.T) {
-				assert.Equal(t, 1, rowCacher.hitCount)
-			})
-
-			t.Run("alter the state to invalidate the cache", func(t *testing.T) {
+			t.Run("update", func(t *testing.T) {
 				value := []byte("modulo-7")
 				idsMapValues := idsToBinaryMapValues([]uint64{21})
-				hash := make([]byte, 16)
-				_, err := rand.Read(hash)
-				require.Nil(t, err)
 				for _, pair := range idsMapValues {
 					require.Nil(t, bWithFrequency.MapSet([]byte(value), pair))
 				}
-				require.Nil(t, bHashes.Put([]byte(value), hash))
 
 				// for like filter
 				value = []byte("modulo-17")
 				idsMapValues = idsToBinaryMapValues([]uint64{17})
-				hash = make([]byte, 16)
-				_, err = rand.Read(hash)
-				require.Nil(t, err)
 				for _, pair := range idsMapValues {
 					require.Nil(t, bWithFrequency.MapSet([]byte(value), pair))
 				}
-				require.Nil(t, bHashes.Put([]byte(value), hash))
 			})
 
-			t.Run("with a stale cache", func(t *testing.T) {
+			t.Run("after update", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListAfterUpdate.Slice(), res.Slice())
 			})
 
-			t.Run("cache should have not have received another hit", func(t *testing.T) {
-				assert.Equal(t, 1, rowCacher.hitCount)
-			})
-
-			t.Run("with the cache being fresh again now", func(t *testing.T) {
-				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, className)
-				assert.Nil(t, err)
-				assert.Equal(t, test.expectedListAfterUpdate.Slice(), res.Slice())
-			})
-
-			t.Run("cache should have received another hit", func(t *testing.T) {
-				assert.Equal(t, 2, rowCacher.hitCount)
-			})
-
-			t.Run("restore inverted index, so we can run test suite again",
+			t.Run("restore inverted index, so test suite can be run again",
 				func(t *testing.T) {
 					idsMapValues := idsToBinaryMapValues([]uint64{21})
 					require.Nil(t, bWithFrequency.MapDeleteKey([]byte("modulo-7"),
@@ -356,16 +293,12 @@ func Test_CachedFilters_String(t *testing.T) {
 					idsMapValues = idsToBinaryMapValues([]uint64{17})
 					require.Nil(t, bWithFrequency.MapDeleteKey([]byte("modulo-17"),
 						idsMapValues[0].Key))
-					rowCacher.reset()
 				})
 		})
 	}
 }
 
-func Test_CachedFilters_Int(t *testing.T) {
-	// TODO text_rbm_inverted_index_cache_cleanup
-	t.Skip("rowCache not used anymore")
-
+func Test_Filters_Int(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -373,16 +306,10 @@ func Test_CachedFilters_Int(t *testing.T) {
 	require.Nil(t, err)
 
 	propName := "inverted-without-frequency"
-
+	bucketName := helpers.BucketFromPropNameLSM(propName)
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
-		helpers.BucketFromPropNameLSM(propName),
-		lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
-	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
-		helpers.HashBucketFromPropNameLSM(propName),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace)))
-
-	bucket := store.Bucket(helpers.BucketFromPropNameLSM(propName))
-	bHashes := store.Bucket(helpers.HashBucketFromPropNameLSM(propName))
+		bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
+	bucket := store.Bucket(bucketName)
 
 	defer store.Shutdown(context.Background())
 
@@ -407,21 +334,14 @@ func Test_CachedFilters_Int(t *testing.T) {
 	t.Run("import data", func(t *testing.T) {
 		for value, ids := range fakeInvertedIndex {
 			idValues := idsToBinaryList(ids)
-			hash := make([]byte, 16)
-			_, err := rand.Read(hash)
-			require.Nil(t, err)
-
 			valueBytes, err := LexicographicallySortableInt64(value)
 			require.Nil(t, err)
-
 			require.Nil(t, bucket.SetAdd(valueBytes, idValues))
-			require.Nil(t, bHashes.Put([]byte(valueBytes), hash))
 		}
 
 		require.Nil(t, bucket.FlushAndSwitch())
 	})
 
-	rowCacher := newRowCacherSpy()
 	searcher := NewSearcher(logger, store, createSchema(),
 		nil, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false })
 
@@ -541,68 +461,24 @@ func Test_CachedFilters_Int(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			rowCacher.reset()
-
-			t.Run("cache should be empty", func(t *testing.T) {
-				assert.Equal(t, 0, rowCacher.count)
-			})
-
-			t.Run("with cold cache", func(t *testing.T) {
+			t.Run("before update", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
 			})
 
-			t.Run("cache should be filled now", func(t *testing.T) {
-				assert.Equal(t, 1, rowCacher.count)
-				require.NotNil(t, rowCacher.lastEntry)
-				assert.Equal(t, test.expectedListBeforeUpdate.Slice(),
-					rowCacher.lastEntry.AllowList.Slice())
-				assert.Equal(t, 0, rowCacher.hitCount)
-			})
-
-			t.Run("with warm cache", func(t *testing.T) {
-				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, className)
-				assert.Nil(t, err)
-				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
-			})
-
-			t.Run("cache should have received a hit", func(t *testing.T) {
-				assert.Equal(t, 1, rowCacher.hitCount)
-			})
-
-			t.Run("alter the state to invalidate the cache", func(t *testing.T) {
+			t.Run("update", func(t *testing.T) {
 				value, _ := LexicographicallySortableInt64(7)
 				idsBinary := idsToBinaryList([]uint64{21})
-				hash := make([]byte, 16)
-				_, err := rand.Read(hash)
-				require.Nil(t, err)
 				require.Nil(t, bucket.SetAdd([]byte(value), idsBinary))
-				require.Nil(t, bHashes.Put([]byte(value), hash))
 			})
 
-			t.Run("with a stale cache", func(t *testing.T) {
+			t.Run("after update", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListAfterUpdate.Slice(), res.Slice())
-			})
-
-			t.Run("cache should have not have received another hit", func(t *testing.T) {
-				assert.Equal(t, 1, rowCacher.hitCount)
-			})
-
-			t.Run("with the cache being fresh again now", func(t *testing.T) {
-				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, className)
-				assert.Nil(t, err)
-				assert.Equal(t, test.expectedListAfterUpdate.Slice(), res.Slice())
-			})
-
-			t.Run("cache should have received another hit", func(t *testing.T) {
-				assert.Equal(t, 2, rowCacher.hitCount)
 			})
 
 			t.Run("restore inverted index, so we can run test suite again",
@@ -610,76 +486,14 @@ func Test_CachedFilters_Int(t *testing.T) {
 					idsList := idsToBinaryList([]uint64{21})
 					value, _ := LexicographicallySortableInt64(7)
 					require.Nil(t, bucket.SetDeleteSingle(value, idsList[0]))
-					rowCacher.reset()
 				})
 		})
 	}
 }
 
-func idsToBinaryList(ids []uint64) [][]byte {
-	out := make([][]byte, len(ids))
-	for i, id := range ids {
-		out[i] = make([]byte, 8)
-		binary.LittleEndian.PutUint64(out[i], id)
-	}
-
-	return out
-}
-
-func idsToBinaryMapValues(ids []uint64) []lsmkv.MapPair {
-	out := make([]lsmkv.MapPair, len(ids))
-	for i, id := range ids {
-		out[i] = lsmkv.MapPair{
-			Key:   make([]byte, 8),
-			Value: make([]byte, 8),
-		}
-		binary.BigEndian.PutUint64(out[i].Key, id)
-		// leave frequency empty for now
-	}
-
-	return out
-}
-
-type rowCacherSpy struct {
-	cacher    *RowCacher
-	count     int
-	hitCount  int
-	lastEntry *CacheEntry
-}
-
-func newRowCacherSpy() *rowCacherSpy {
-	spy := rowCacherSpy{}
-	spy.reset()
-	return &spy
-}
-
-func (s *rowCacherSpy) Load(id []byte) (*CacheEntry, bool) {
-	entry, ok := s.cacher.Load(id)
-	if ok {
-		s.hitCount++
-	}
-	return entry, ok
-}
-
-func (s *rowCacherSpy) Store(id []byte, entry *CacheEntry) {
-	s.count++
-	s.lastEntry = entry
-	s.cacher.Store(id, entry)
-}
-
-func (s *rowCacherSpy) reset() {
-	s.count = 0
-	s.hitCount = 0
-	s.lastEntry = nil
-	s.cacher = NewRowCacher(1e6)
-}
-
 // This prevents a regression on
 // https://github.com/weaviate/weaviate/issues/1772
-func Test_DuplicateEntriesInAnd_String(t *testing.T) {
-	// TODO text_rbm_inverted_index_cache_cleanup
-	t.Skip("rowCache not used anymore")
-
+func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -688,15 +502,9 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 
 	propName := "inverted-with-frequency"
 	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
-	hashBucketName := helpers.HashBucketFromPropNameLSM(propName)
-
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
 		bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
-	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
-		hashBucketName, lsmkv.WithStrategy(lsmkv.StrategyReplace)))
-
 	bWithFrequency := store.Bucket(bucketName)
-	bHashes := store.Bucket(hashBucketName)
 
 	defer store.Shutdown(context.Background())
 
@@ -708,19 +516,13 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 	t.Run("import data", func(t *testing.T) {
 		for value, ids := range fakeInvertedIndex {
 			idsMapValues := idsToBinaryMapValues(ids)
-			hash := make([]byte, 16)
-			_, err := rand.Read(hash)
-			require.Nil(t, err)
 			for _, pair := range idsMapValues {
 				require.Nil(t, bWithFrequency.MapSet([]byte(value), pair))
 			}
-			require.Nil(t, bHashes.Put([]byte(value), hash))
 		}
-
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-	rowCacher := newRowCacherSpy()
 	searcher := NewSearcher(logger, store, createSchema(),
 		nil, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false })
 
@@ -770,80 +572,32 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			rowCacher.reset()
-
-			t.Run("cache should be empty", func(t *testing.T) {
-				assert.Equal(t, 0, rowCacher.count)
-			})
-
-			t.Run("with cold cache", func(t *testing.T) {
+			t.Run("before update", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
 			})
 
-			t.Run("cache should be filled now", func(t *testing.T) {
-				assert.Equal(t, 1, rowCacher.count)
-				require.NotNil(t, rowCacher.lastEntry)
-				assert.Equal(t, test.expectedListBeforeUpdate.Slice(),
-					rowCacher.lastEntry.AllowList.Slice())
-				assert.Equal(t, 0, rowCacher.hitCount)
-			})
-
-			t.Run("with warm cache", func(t *testing.T) {
-				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, className)
-				assert.Nil(t, err)
-				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
-			})
-
-			t.Run("cache should have received a hit", func(t *testing.T) {
-				assert.Equal(t, 1, rowCacher.hitCount)
-			})
-
-			t.Run("alter the state to invalidate the cache", func(t *testing.T) {
+			t.Run("update", func(t *testing.T) {
 				value := []byte("list_a")
 				idsMapValues := idsToBinaryMapValues([]uint64{3})
-				hash := make([]byte, 16)
-				_, err := rand.Read(hash)
-				require.Nil(t, err)
 				for _, pair := range idsMapValues {
 					require.Nil(t, bWithFrequency.MapSet([]byte(value), pair))
 				}
-				require.Nil(t, bHashes.Put([]byte(value), hash))
 
 				value = []byte("list_b")
 				idsMapValues = idsToBinaryMapValues([]uint64{3})
-				hash = make([]byte, 16)
-				_, err = rand.Read(hash)
-				require.Nil(t, err)
 				for _, pair := range idsMapValues {
 					require.Nil(t, bWithFrequency.MapSet([]byte(value), pair))
 				}
-				require.Nil(t, bHashes.Put([]byte(value), hash))
 			})
 
-			t.Run("with a stale cache", func(t *testing.T) {
+			t.Run("after update", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListAfterUpdate.Slice(), res.Slice())
-			})
-
-			t.Run("cache should have not have received another hit", func(t *testing.T) {
-				assert.Equal(t, 1, rowCacher.hitCount)
-			})
-
-			t.Run("with the cache being fresh again now", func(t *testing.T) {
-				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, className)
-				assert.Nil(t, err)
-				assert.Equal(t, test.expectedListAfterUpdate.Slice(), res.Slice())
-			})
-
-			t.Run("cache should have received another hit", func(t *testing.T) {
-				assert.Equal(t, 2, rowCacher.hitCount)
 			})
 
 			t.Run("restore inverted index, so we can run test suite again",
@@ -856,6 +610,30 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 				})
 		})
 	}
+}
+
+func idsToBinaryList(ids []uint64) [][]byte {
+	out := make([][]byte, len(ids))
+	for i, id := range ids {
+		out[i] = make([]byte, 8)
+		binary.LittleEndian.PutUint64(out[i], id)
+	}
+
+	return out
+}
+
+func idsToBinaryMapValues(ids []uint64) []lsmkv.MapPair {
+	out := make([]lsmkv.MapPair, len(ids))
+	for i, id := range ids {
+		out[i] = lsmkv.MapPair{
+			Key:   make([]byte, 8),
+			Value: make([]byte, 8),
+		}
+		binary.BigEndian.PutUint64(out[i].Key, id)
+		// leave frequency empty for now
+	}
+
+	return out
 }
 
 func createSchema() schema.Schema {
