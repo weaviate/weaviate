@@ -130,7 +130,7 @@ func getCommitFileNames(rootPath, name string) ([]string, error) {
 		return nil, errors.Wrap(err, "browse commit logger directory")
 	}
 
-	files = removeTmpScratchFiles(files)
+	files = removeTmpScratchOrHiddenFiles(files)
 	files, err = removeTmpCombiningFiles(dir, files)
 	if err != nil {
 		return nil, errors.Wrap(err, "remove temporary files")
@@ -177,7 +177,7 @@ func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
 		return "", false, nil
 	}
 
-	files = removeTmpScratchFiles(files)
+	files = removeTmpScratchOrHiddenFiles(files)
 	files, err = removeTmpCombiningFiles(dirPath, files)
 	if err != nil {
 		return "", false, errors.Wrap(err, "clean up tmp combining files")
@@ -203,11 +203,15 @@ func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
 	return files[0].Name(), true, nil
 }
 
-func removeTmpScratchFiles(in []os.DirEntry) []os.DirEntry {
+func removeTmpScratchOrHiddenFiles(in []os.DirEntry) []os.DirEntry {
 	out := make([]os.DirEntry, len(in))
 	i := 0
 	for _, info := range in {
 		if strings.HasSuffix(info.Name(), ".scratch.tmp") {
+			continue
+		}
+
+		if strings.HasPrefix(info.Name(), ".") {
 			continue
 		}
 
