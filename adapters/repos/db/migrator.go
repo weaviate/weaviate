@@ -229,11 +229,22 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 		Info("Recounting properties, this may take a while")
 
 	clearedShard := map[string]bool{}
-
+	m.db.indexLock.Lock()
+	defer m.db.indexLock.Unlock()
 	// Iterate over all indexes
 	for _, index := range m.db.indices {
+
+		// Clear the shards before counting
+		err := index.IterateShards(ctx, func(index *Index, shard *Shard) error {
+			shard.propLengths.Clear()
+			return nil
+		})
+		if err != nil {
+			m.logger.WithField("error", err).Error("could not clear prop lengths")
+		}
+
 		// Iterate over all shards
-		err := index.IterateObjects(ctx, func(index *Index, shard *Shard, object *storobj.Object) error {
+		err = index.IterateObjects(ctx, func(index *Index, shard *Shard, object *storobj.Object) error {
 			if _, ok := clearedShard[shard.name]; !ok {
 				shard.propLengths.Clear()
 				clearedShard[shard.name] = true
