@@ -129,7 +129,7 @@ func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) error {
 }
 
 func (db *DB) ClassExists(name string) bool {
-	return db.GetIndex(schema.ClassName(name)) != nil
+	return db.IndexExists(schema.ClassName(name))
 }
 
 func (db *DB) Shards(ctx context.Context, class string) []string {
