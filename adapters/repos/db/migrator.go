@@ -245,10 +245,6 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 
 		// Iterate over all shards
 		err = index.IterateObjects(ctx, func(index *Index, shard *Shard, object *storobj.Object) error {
-			if _, ok := clearedShard[shard.name]; !ok {
-				shard.propLengths.Clear()
-				clearedShard[shard.name] = true
-			}
 			count = count + 1
 			props, _, err := shard.analyzeObject(object)
 			if err != nil {
