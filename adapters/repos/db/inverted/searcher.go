@@ -39,7 +39,6 @@ type Searcher struct {
 	logger                 logrus.FieldLogger
 	store                  *lsmkv.Store
 	schema                 schema.Schema
-	rowCache               cacher        // TODO text_rbm_inverted_index_cache_cleanup remove rowCache
 	classSearcher          ClassSearcher // to allow recursive searches on ref-props
 	propIndices            propertyspecific.Indices
 	deletedDocIDs          DeletedDocIDChecker
@@ -48,17 +47,12 @@ type Searcher struct {
 	isFallbackToSearchable IsFallbackToSearchable
 }
 
-type cacher interface {
-	Store(id []byte, entry *CacheEntry)
-	Load(id []byte) (*CacheEntry, bool)
-}
-
 type DeletedDocIDChecker interface {
 	Contains(id uint64) bool
 }
 
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
-	schema schema.Schema, rowCache cacher,
+	schema schema.Schema,
 	propIndices propertyspecific.Indices, classSearcher ClassSearcher,
 	deletedDocIDs DeletedDocIDChecker, stopwords stopwords.StopwordDetector,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
@@ -67,7 +61,6 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		logger:                 logger,
 		store:                  store,
 		schema:                 schema,
-		rowCache:               rowCache,
 		propIndices:            propIndices,
 		classSearcher:          classSearcher,
 		deletedDocIDs:          deletedDocIDs,
