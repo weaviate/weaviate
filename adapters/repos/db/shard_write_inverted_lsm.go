@@ -143,17 +143,9 @@ func (s *Shard) addToPropertyNullIndex(propName string, docID uint64, isNull boo
 		return errors.Errorf("no bucket for prop '%s' null found", propName)
 	}
 
-	hashBucketNull := s.store.Bucket(helpers.HashBucketFromPropNameNullLSM(propName))
-	if hashBucketNull == nil {
-		return errors.Errorf("no hash bucket for prop '%s' null found", propName)
-	}
-
 	key, err := s.keyPropertyNull(isNull)
 	if err != nil {
 		return errors.Wrapf(err, "failed creating key for prop '%s' null", propName)
-	}
-	if err := s.addToPropertyHashBucket(hashBucketNull, key); err != nil {
-		return errors.Wrapf(err, "failed adding to prop '%s' null hash bucket", propName)
 	}
 	if err := s.addToPropertySetBucket(bucketNull, docID, key); err != nil {
 		return errors.Wrapf(err, "failed adding to prop '%s' null bucket", propName)

@@ -70,10 +70,6 @@ func BucketFromPropNameNullLSM(propName string) string {
 	return BucketFromPropNameLSM(propName + filters.InternalNullIndex)
 }
 
-func HashBucketFromPropNameNullLSM(propName string) string {
-	return HashBucketFromPropNameLSM(propName + filters.InternalNullIndex)
-}
-
 func BucketFromPropNameMetaCountLSM(propName string) string {
 	return BucketFromPropNameLSM(MetaCountProp(propName))
 }

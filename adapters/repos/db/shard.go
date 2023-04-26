@@ -560,16 +560,9 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 		return storagestate.ErrStatusReadOnly
 	}
 
-	if err := s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameNullLSM(prop.Name),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
-	); err != nil {
-		return err
-	}
-
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameNullLSM(prop.Name),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace))
+		helpers.BucketFromPropNameNullLSM(prop.Name),
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 }
 
 func (s *Shard) updateVectorIndexConfig(ctx context.Context,
