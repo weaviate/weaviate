@@ -366,13 +366,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		migrator.RecalculateVectorDimensions(ctx)
 	}
 
-		// Add recount properties of all the objects in the database, if requested by the user
-		if appState.ServerConfig.Config.RecountPropertiesAtStartup {
-			appState.Logger.
-				WithField("action", "startup").
-				Info("Recounting properties")
-			migrator.RecountProperties(ctx)
-		}
+	// Add recount properties of all the objects in the database, if requested by the user
+	if appState.ServerConfig.Config.RecountPropertiesAtStartup {
+		appState.Logger.
+			WithField("action", "startup").
+			Info("Recounting properties")
+		migrator.RecountProperties(ctx)
+	}
 
 	setupGrpc(appState)
 

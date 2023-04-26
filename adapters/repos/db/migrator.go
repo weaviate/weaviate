@@ -228,8 +228,8 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 		WithField("action", "recount").
 		Info("Recounting properties, this may take a while")
 
-		clearedShard := map[string]bool{}
-	
+	clearedShard := map[string]bool{}
+
 	// Iterate over all indexes
 	for _, index := range m.db.indices {
 		// Iterate over all shards
@@ -252,7 +252,6 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 
 			return nil
 		})
-
 		if err != nil {
 			m.logger.WithField("error", err).Error("could not iterate over objects")
 		}

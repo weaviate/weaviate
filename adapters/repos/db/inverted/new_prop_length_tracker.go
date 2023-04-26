@@ -60,7 +60,7 @@ type JsonPropertyLengthTracker struct {
 // Note that some of the code in this file is forced by the need to be backwards-compatible with the old format.  Once we are confident that all users have migrated to the new format, we can remove the old format code and simplify this file.
 
 // NewJsonPropertyLengthTracker creates a new tracker and loads the data from the given path.  If the file is in the old format, it will be converted to the new format.
-func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker,  error) {
+func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, error) {
 	t := &JsonPropertyLengthTracker{
 		data:             PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)},
 		path:             path,
@@ -132,7 +132,6 @@ func (t *JsonPropertyLengthTracker) Clear() {
 	defer t.Unlock()
 
 	t.data = PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
-
 }
 
 // Path to the file on disk

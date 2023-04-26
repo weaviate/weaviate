@@ -219,7 +219,6 @@ func (n *NilMigrator) RecountProperties(ctx context.Context) error {
 	return nil
 }
 
-
 func (n *NilMigrator) InvertedReindex(ctx context.Context, taskNames ...string) error {
 	return nil
 }
