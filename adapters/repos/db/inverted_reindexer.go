@@ -29,6 +29,10 @@ import (
 type ShardInvertedReindexTask interface {
 	GetPropertiesToReindex(ctx context.Context, shard *Shard,
 	) ([]ReindexableProperty, error)
+	// right now only OnResume is needed, but in the future more
+	// callbacks could be added
+	// (like OnPrePauseStore, OnPostPauseStore, OnPreResumeStore, etc)
+	OnPostResumeStore(ctx context.Context, shard *Shard) error
 }
 
 type ReindexableProperty struct {
@@ -174,7 +178,7 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 		return err
 	}
 
-	if err := r.resumeStoreActivity(ctx); err != nil {
+	if err := r.resumeStoreActivity(ctx, task); err != nil {
 		r.logError(err, "failed resuming store activity")
 		return err
 	}
@@ -199,11 +203,14 @@ func (r *ShardInvertedReindexer) pauseStoreActivity(ctx context.Context) error {
 	return nil
 }
 
-func (r *ShardInvertedReindexer) resumeStoreActivity(ctx context.Context) error {
+func (r *ShardInvertedReindexer) resumeStoreActivity(ctx context.Context, task ShardInvertedReindexTask) error {
 	if err := r.shard.store.ResumeCompaction(ctx); err != nil {
 		return errors.Wrapf(err, "failed resuming compaction for shard '%s'", r.shard.name)
 	}
 	r.shard.store.UpdateBucketsStatus(storagestate.StatusReady)
+	if err := task.OnPostResumeStore(ctx, r.shard); err != nil {
+		return errors.Wrap(err, "failed OnPostResumeStore")
+	}
 
 	r.logger.
 		WithField("action", "inverted reindex").

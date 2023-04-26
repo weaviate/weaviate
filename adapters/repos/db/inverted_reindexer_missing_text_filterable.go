@@ -112,3 +112,9 @@ func (t *shardInvertedReindexTaskMissingTextFilterable) updateMigrationStateAndS
 	delete(t.migrationState.MissingFilterableClass2Props, classCreatedFilterable)
 	return t.files.saveMigrationState(t.migrationState)
 }
+
+func (t *shardInvertedReindexTaskMissingTextFilterable) OnPostResumeStore(ctx context.Context, shard *Shard) error {
+	// turn off fallback mode immediately after creating filterable index and resuming store's activity
+	shard.fallbackToSearchable = false
+	return nil
+}

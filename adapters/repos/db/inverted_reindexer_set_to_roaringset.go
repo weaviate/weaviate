@@ -88,3 +88,7 @@ func (t *ShardInvertedReindexTaskSetToRoaringSet) GetPropertiesToReindex(ctx con
 
 	return reindexableProperties, nil
 }
+
+func (t *ShardInvertedReindexTaskSetToRoaringSet) OnPostResumeStore(ctx context.Context, shard *Shard) error {
+	return nil
+}

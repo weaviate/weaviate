@@ -353,11 +353,6 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 			m.logMissingFilterableIndex(index).
 				Info("finished filterable indexing on index")
 
-			for _, shard := range index.Shards {
-				m.logMissingFilterableShard(shard).Info("disabling fallback mode for shard")
-				shard.fallbackToSearchable = false
-			}
-
 			return nil
 		})
 	}
