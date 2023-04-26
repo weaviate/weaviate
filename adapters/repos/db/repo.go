@@ -149,6 +149,16 @@ func (d *DB) GetIndex(className schema.ClassName) *Index {
 	return index
 }
 
+// IndexExists returns if an index exists
+func (d *DB) IndexExists(className schema.ClassName) bool {
+	d.indexLock.RLock()
+	defer d.indexLock.RUnlock()
+
+	id := indexID(className)
+	_, ok := d.indices[id]
+	return ok
+}
+
 // GetIndexForIncoming returns the index if it exists or nil if it doesn't
 func (d *DB) GetIndexForIncoming(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
 	d.indexLock.RLock()
