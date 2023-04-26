@@ -36,6 +36,9 @@ const (
 )
 
 func Test_CachedFilters_String(t *testing.T) {
+	// TODO text_rbm_inverted_index_cache_cleanup
+	t.Skip("rowCache not used anymore")
+
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -360,6 +363,9 @@ func Test_CachedFilters_String(t *testing.T) {
 }
 
 func Test_CachedFilters_Int(t *testing.T) {
+	// TODO text_rbm_inverted_index_cache_cleanup
+	t.Skip("rowCache not used anymore")
+
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -671,6 +677,9 @@ func (s *rowCacherSpy) reset() {
 // This prevents a regression on
 // https://github.com/weaviate/weaviate/issues/1772
 func Test_DuplicateEntriesInAnd_String(t *testing.T) {
+	// TODO text_rbm_inverted_index_cache_cleanup
+	t.Skip("rowCache not used anymore")
+
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()

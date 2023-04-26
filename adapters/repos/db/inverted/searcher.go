@@ -39,7 +39,7 @@ type Searcher struct {
 	logger                 logrus.FieldLogger
 	store                  *lsmkv.Store
 	schema                 schema.Schema
-	rowCache               cacher
+	rowCache               cacher        // TODO text_rbm_inverted_index_cache_cleanup remove rowCache
 	classSearcher          ClassSearcher // to allow recursive searches on ref-props
 	propIndices            propertyspecific.Indices
 	deletedDocIDs          DeletedDocIDChecker
@@ -87,12 +87,11 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		return nil, err
 	}
 
-	cacheable := pv.cacheable()
-	if err := pv.fetchDocIDs(s, limit, !cacheable); err != nil {
+	if err := pv.fetchDocIDs(s, limit); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
-	dbm, err := pv.mergeDocIDs(cacheable)
+	dbm, err := pv.mergeDocIDs()
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
@@ -189,6 +188,7 @@ func (s *Searcher) DocIDsPreventCaching(ctx context.Context, filter *filters.Loc
 	return s.docIDs(ctx, filter, additional, className, false)
 }
 
+// TODO text_rbm_inverted_index_cache_cleanup remove allowCaching
 func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 	allowCaching bool,
@@ -198,36 +198,16 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, err
 	}
 
-	cacheable := pv.cacheable()
-	if cacheable && allowCaching {
-		if err := pv.fetchHashes(s); err != nil {
-			return nil, errors.Wrap(err, "fetch row hashes to check for cache eligibility")
-		}
-
-		if res, ok := s.rowCache.Load(pv.docIDs.checksum); ok {
-			return res.AllowList, nil
-		}
-	}
-
-	if err := pv.fetchDocIDs(s, 0, !cacheable); err != nil {
+	if err := pv.fetchDocIDs(s, 0); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
-	dbm, err := pv.mergeDocIDs(cacheable)
+	dbm, err := pv.mergeDocIDs()
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
 
-	out := helpers.NewAllowListFromBitmap(dbm.docIDs)
-
-	if cacheable && allowCaching {
-		s.rowCache.Store(pv.docIDs.checksum, &CacheEntry{
-			AllowList: out,
-			Hash:      pv.docIDs.checksum,
-		})
-	}
-
-	return out, nil
+	return helpers.NewAllowListFromBitmap(dbm.docIDs), nil
 }
 
 func (s *Searcher) extractPropValuePair(filter *filters.Clause,

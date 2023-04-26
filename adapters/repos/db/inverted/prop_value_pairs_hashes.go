@@ -22,28 +22,6 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
-func (pv *propValuePair) cacheable() bool {
-	switch pv.operator {
-	case filters.OperatorEqual, filters.OperatorAnd, filters.OperatorOr,
-		filters.OperatorNotEqual, filters.OperatorLike:
-		// do not cache nested queries with an extreme amount of operands, such as
-		// ref-filter queries. For those queries, just checking the large amount of
-		// hashes has a very signifcant cost - even if they all turn out to be
-		// cache misses
-		if len(pv.children) >= 10000 {
-			return false
-		}
-		for _, child := range pv.children {
-			if !child.cacheable() {
-				return false
-			}
-		}
-		return true
-	default:
-		return false
-	}
-}
-
 func (pv *propValuePair) fetchHashes(s *Searcher) error {
 	if pv.operator.OnValue() {
 		bucketName := helpers.HashBucketFromPropNameLSM(pv.prop)

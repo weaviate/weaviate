@@ -46,23 +46,6 @@ func combineChecksums(checksums [][]byte, operator filters.Operator) []byte {
 	return buf
 }
 
-// func combineSetChecksums(sets []*docPointers, operator filters.Operator) []byte {
-// 	if len(sets) == 1 {
-// 		return sets[0].checksum
-// 	}
-
-// 	total := make([]byte, 8*len(sets)+1) // one extra byte for operator encoding
-// 	for i, set := range sets {
-// 		copy(total[(i*8):(i+1)*8], set.checksum)
-// 	}
-// 	total[len(total)-1] = uint8(operator)
-
-// 	newChecksum := crc64.Checksum(total, crc64.MakeTable(crc64.ISO))
-// 	buf := make([]byte, 8)
-// 	binary.LittleEndian.PutUint64(buf, newChecksum)
-// 	return buf
-// }
-
 // docPointerChecksum is a way to generate a checksum from an already "parsed"
 // list of docIDs. This is untypical, as usually we can just use the raw binary
 // value of the inverted row for a checksum. This also enables us to skip
@@ -92,42 +75,4 @@ func docPointerChecksum(pointers []uint64) ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
-}
-
-// func checksumsIdentical(sets []*docPointers) bool {
-// 	if len(sets) == 0 {
-// 		return false
-// 	}
-
-// 	if len(sets) == 1 {
-// 		return true
-// 	}
-
-// 	lastChecksum := sets[0].checksum
-// 	for _, set := range sets {
-// 		if !bytes.Equal(set.checksum, lastChecksum) {
-// 			return false
-// 		}
-// 	}
-
-// 	return true
-// }
-
-func checksumsIdenticalBM(docBitmaps []*docBitmap) bool {
-	if len(docBitmaps) == 0 {
-		return false
-	}
-
-	if len(docBitmaps) == 1 {
-		return true
-	}
-
-	firstChecksum := docBitmaps[0].checksum
-	for _, docBitmap := range docBitmaps {
-		if !bytes.Equal(docBitmap.checksum, firstChecksum) {
-			return false
-		}
-	}
-
-	return true
 }

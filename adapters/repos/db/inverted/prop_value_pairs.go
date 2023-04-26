@@ -44,7 +44,7 @@ func newPropValuePair() propValuePair {
 	return propValuePair{docIDs: newDocBitmap()}
 }
 
-func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int, skipChecksum bool) error {
+func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 	if pv.operator.OnValue() {
 		var bucketName string
 		if pv.isFilterable {
@@ -83,7 +83,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int, skipChecksum bool) 
 		}
 
 		ctx := context.TODO() // TODO: pass through instead of spawning new
-		dbm, err := s.docBitmap(ctx, b, limit, pv, skipChecksum)
+		dbm, err := s.docBitmap(ctx, b, limit, pv)
 		if err != nil {
 			return err
 		}
@@ -97,7 +97,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int, skipChecksum bool) 
 				// otherwise we run into situations where each subfilter on their own
 				// runs into the limit, possibly yielding in "less than limit" results
 				// after merging.
-				err := child.fetchDocIDs(s, 0, skipChecksum)
+				err := child.fetchDocIDs(s, 0)
 				if err != nil {
 					return errors.Wrapf(err, "nested child %d", i)
 				}
@@ -113,7 +113,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int, skipChecksum bool) 
 	return nil
 }
 
-func (pv *propValuePair) mergeDocIDs(useChecksums bool) (*docBitmap, error) {
+func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
 	if pv.operator.OnValue() {
 		return &pv.docIDs, nil
 	}
@@ -127,16 +127,11 @@ func (pv *propValuePair) mergeDocIDs(useChecksums bool) (*docBitmap, error) {
 
 	dbms := make([]*docBitmap, len(pv.children))
 	for i, child := range pv.children {
-		dbm, err := child.mergeDocIDs(useChecksums)
+		dbm, err := child.mergeDocIDs()
 		if err != nil {
 			return nil, errors.Wrapf(err, "retrieve doc bitmap of child %d", i)
 		}
 		dbms[i] = dbm
-	}
-
-	if useChecksums && checksumsIdenticalBM(dbms) {
-		// all children are identical, no need to merge, simply return the first
-		return dbms[0], nil
 	}
 
 	mergeRes := dbms[0].docIDs.Clone()
@@ -149,14 +144,11 @@ func (pv *propValuePair) mergeDocIDs(useChecksums bool) (*docBitmap, error) {
 		mergeFn(dbms[i].docIDs)
 	}
 
-	var checksum []byte
-	if useChecksums {
-		checksums := make([][]byte, len(pv.children))
-		for i := 0; i < len(dbms); i++ {
-			checksums[i] = dbms[i].checksum
-		}
-		checksum = combineChecksums(checksums, pv.operator)
+	checksums := make([][]byte, len(pv.children))
+	for i := 0; i < len(dbms); i++ {
+		checksums[i] = dbms[i].checksum
 	}
+	checksum := combineChecksums(checksums, pv.operator)
 
 	return &docBitmap{
 		docIDs:   roaringset.Condense(mergeRes),

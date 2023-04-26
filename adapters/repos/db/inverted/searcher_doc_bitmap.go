@@ -24,7 +24,7 @@ import (
 )
 
 func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
-	pv *propValuePair, skipChecksum bool,
+	pv *propValuePair,
 ) (docBitmap, error) {
 	// geo props cannot be served by the inverted index and they require an
 	// external index. So, instead of trying to serve this chunk of the filter
@@ -38,7 +38,7 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 	if pv.isFilterable {
 		// bucket with strategy roaring set serves bitmaps directly
 		if b.Strategy() == lsmkv.StrategyRoaringSet {
-			return s.docBitmapInvertedRoaringSet(ctx, b, limit, pv, skipChecksum)
+			return s.docBitmapInvertedRoaringSet(ctx, b, limit, pv)
 		}
 
 		// bucket with strategy set serves docIds used to build bitmap
@@ -55,17 +55,15 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 }
 
 func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Bucket,
-	limit int, pv *propValuePair, skipChecksum bool,
+	limit int, pv *propValuePair,
 ) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
 	var hashBucket *lsmkv.Bucket
 	var err error
 
-	if !skipChecksum {
-		hashBucket, err = s.getHashBucket(pv)
-		if err != nil {
-			return out, err
-		}
+	hashBucket, err = s.getHashBucket(pv)
+	if err != nil {
+		return out, err
 	}
 
 	rr := NewRowReaderRoaringSet(b, pv.value, pv.operator, false)
@@ -79,19 +77,17 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 		}
 		i++
 
-		if !skipChecksum {
-			currHash, err := hashBucket.Get(k)
-			if err != nil {
-				return false, errors.Wrap(err, "get hash")
-			}
-			// currHash is only safe to access for the lifetime of the RowReader, once
-			// that has finished, a compaction could happen and remove the underlying
-			// memory that the slice points to. Since the hashes will be used to merge
-			// filters - which happens after the RowReader has completed - this can lead
-			// to segfault crashes. Now is the time to safely copy it, creating a new
-			// and immutable slice.
-			hashes = append(hashes, copyBytes(currHash))
+		currHash, err := hashBucket.Get(k)
+		if err != nil {
+			return false, errors.Wrap(err, "get hash")
 		}
+		// currHash is only safe to access for the lifetime of the RowReader, once
+		// that has finished, a compaction could happen and remove the underlying
+		// memory that the slice points to. Since the hashes will be used to merge
+		// filters - which happens after the RowReader has completed - this can lead
+		// to segfault crashes. Now is the time to safely copy it, creating a new
+		// and immutable slice.
+		hashes = append(hashes, copyBytes(currHash))
 
 		if limit > 0 && out.docIDs.GetCardinality() >= limit {
 			return false, nil
@@ -109,9 +105,7 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 		out = newDocBitmap()
 	}
 
-	if !skipChecksum {
-		out.checksum = combineChecksums(hashes, pv.operator)
-	}
+	out.checksum = combineChecksums(hashes, pv.operator)
 	return out, nil
 }
 
