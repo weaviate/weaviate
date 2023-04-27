@@ -89,8 +89,10 @@ func tokenizeWord(in string) []string {
 
 // tokenizetrigram splits on any non-alphanumerical and lowercases the words, joins them together, then groups them into trigrams
 func tokenizetrigram(in string) []string {
-	terms := tokenizeWord(in)
-	inputString := strings.Join(terms, "")
+	//Strip whitespace and punctuation from the input string
+	inputString := strings.Join(strings.FieldsFunc(in, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
+	}), "")
 	var trigrams []string
 	for i := 0; i < len(inputString)-2; i++ {
 		trigrams = append(trigrams, inputString[i:i+3])
