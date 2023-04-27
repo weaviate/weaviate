@@ -70,7 +70,6 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 	// Remove each property from the property length tracker.
 	for _, propTypes := range class.Properties {
 		propName := strings.ToLower(propTypes.Name)
-		fmt.Println("Decrementing property length for", propName)
 		if properties.(map[string]interface{})[propName] != nil {
 			for _, propType := range propTypes.DataType {
 				switch propType {
