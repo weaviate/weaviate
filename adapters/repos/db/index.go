@@ -965,7 +965,7 @@ func (i *Index) sort(objects []*storobj.Object, scores []float32,
 func (i *Index) mergeGroups(objects []*storobj.Object, dists []float32,
 	groupBy *searchparams.GroupBy, limit, shardCount int,
 ) ([]*storobj.Object, []float32, error) {
-	return newGroupMerger(objects, dists, groupBy, limit, shardCount).Do()
+	return newGroupMerger(objects, dists, groupBy).Do()
 }
 
 func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVector []float32,
