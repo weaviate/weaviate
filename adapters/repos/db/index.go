@@ -18,6 +18,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/autocut"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -868,6 +870,12 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		// sort only for multiple shards (already sorted for single)
 		// and for not reference nested query (sort is applied for root query)
 		outObjects, outScores = i.sortByID(outObjects, outScores)
+	}
+
+	if keywordRanking != nil && keywordRanking.AutoCut > 0 {
+		cutOff := autocut.Autocut(outScores, keywordRanking.AutoCut)
+		outObjects = outObjects[:cutOff]
+		outScores = outScores[:cutOff]
 	}
 
 	// if this search was caused by a reference property
