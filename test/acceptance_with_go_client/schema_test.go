@@ -13,31 +13,34 @@ package acceptance_with_go_client
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+	client "github.com/weaviate/weaviate-go-client/v4/weaviate"
+	"github.com/weaviate/weaviate-go-client/v4/weaviate/fault"
 	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
-
-	"github.com/stretchr/testify/require"
-
-	client "github.com/weaviate/weaviate-go-client/v4/weaviate"
 )
+
+type testCase struct {
+	className1 string
+	className2 string
+}
 
 func TestSchemaCasingClass(t *testing.T) {
 	ctx := context.Background()
 	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
 
-	upperClassName := "RandomGreenCar"
-	lowerClassName := "randomGreenCar"
+	className1 := "RandomGreenCar"
+	className2 := "RANDOMGreenCar"
 
-	cases := []struct {
-		className1 string
-		className2 string
-	}{
-		{className1: upperClassName, className2: upperClassName},
-		{className1: lowerClassName, className2: lowerClassName},
-		{className1: upperClassName, className2: lowerClassName},
-		{className1: lowerClassName, className2: upperClassName},
+	cases := []testCase{
+		{className1: className1, className2: className1},
+		{className1: className2, className2: className2},
+		{className1: className1, className2: className2},
+		{className1: className2, className2: className1},
 	}
 	for _, tt := range cases {
 		t.Run(tt.className1+" "+tt.className2, func(t *testing.T) {
@@ -46,28 +49,67 @@ func TestSchemaCasingClass(t *testing.T) {
 			class := &models.Class{Class: tt.className1, Vectorizer: "none"}
 			require.Nil(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
 
-			// try to create class again with other casing. This should fail as it already exists
+			// try to create class again with permuted-casing duplicate.
+			// this should fail as it already exists
 			class2 := &models.Class{Class: tt.className2, Vectorizer: "none"}
-			require.NotNil(t, c.Schema().ClassCreator().WithClass(class2).Do(ctx))
+			err := c.Schema().ClassCreator().WithClass(class2).Do(ctx)
+			checkDuplicateClassErrors(t, err, tt)
 
-			// create object with both casing as class name. Both should succeed
-			_, err := c.Data().Creator().WithClassName(tt.className1).Do(ctx)
+			// create object with both casing as class name.
+			_, err = c.Data().Creator().WithClassName(tt.className1).Do(ctx)
 			require.Nil(t, err)
+			// this should fail if the 2nd class is a non-equal permutation of the first
 			_, err = c.Data().Creator().WithClassName(tt.className2).Do(ctx)
-			require.Nil(t, err)
+			if tt.className1 != tt.className2 {
+				require.NotNil(t, err)
+			} else {
+				require.Nil(t, err)
+			}
 
-			// two objects should have been added
-			result, err := c.GraphQL().Aggregate().WithClassName(upperClassName).WithFields(graphql.Field{
+			result, err := c.GraphQL().Aggregate().WithClassName(tt.className1).WithFields(graphql.Field{
 				Name: "meta", Fields: []graphql.Field{
 					{Name: "count"},
 				},
 			}).Do(ctx)
 			require.Nil(t, err)
-			require.Equal(t, result.Data["Aggregate"].(map[string]interface{})[upperClassName].([]interface{})[0].(map[string]interface{})["meta"].(map[string]interface{})["count"], 2.)
+			require.Empty(t, result.Errors)
+			data := result.Data["Aggregate"].(map[string]interface{})[tt.className1].([]interface{})[0].(map[string]interface{})["meta"].(map[string]interface{})["count"]
+			if tt.className1 == tt.className2 {
+				// two objects should have been added if the test case contains exact class name matches
+				require.Equal(t, data, 2.)
+			} else {
+				// otherwise, only one object should have been created, since the permuted class name does not exist
+				require.Equal(t, data, 1.)
+			}
 
 			// class exists only once in Uppercase, so lowercase delete has to fail
-			require.Nil(t, c.Schema().ClassDeleter().WithClassName(upperClassName).Do(ctx))
-			require.NotNil(t, c.Schema().ClassDeleter().WithClassName(lowerClassName).Do(ctx))
+			require.Nil(t, c.Schema().ClassDeleter().WithClassName(tt.className1).Do(ctx))
+			require.NotNil(t, c.Schema().ClassDeleter().WithClassName(tt.className2).Do(ctx))
 		})
 	}
+}
+
+func checkDuplicateClassErrors(t *testing.T, err error, tt testCase) {
+	require.NotNil(t, err)
+	rawError, ok := err.(*fault.WeaviateClientError)
+	if ok {
+		var clientErr clientError
+		require.Nil(t, json.Unmarshal([]byte(rawError.Msg), &clientErr))
+		require.Len(t, clientErr.Error, 1)
+		if tt.className1 == tt.className2 {
+			require.Equal(t, clientErr.Error[0].Message, fmt.Sprintf("class name %q already exists", tt.className2))
+		} else {
+			require.Equal(t, clientErr.Error[0].Message,
+				fmt.Sprintf("class name %q already exists as a permutation of: %q. class names must be unique when lowercased",
+					tt.className2, tt.className1))
+		}
+	} else {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+type clientError struct {
+	Error []struct {
+		Message string `json:"message"`
+	} `json:"error"`
 }

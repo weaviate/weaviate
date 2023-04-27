@@ -96,6 +96,49 @@ func NewPropertyLengthTracker(path string) (*PropertyLengthTracker, error) {
 	return t, nil
 }
 
+func (t *PropertyLengthTracker) BucketCount(propName string, bucket uint16) (uint16, error) {
+	t.Lock()
+	defer t.Unlock()
+
+	page, offset, ok := t.propExists(propName)
+	if !ok {
+		return 0, fmt.Errorf("property %v does not exist in OldPropertyLengthTracker", propName)
+	}
+
+	offset = offset + page*4096
+
+	o := offset + (bucket * 4)
+	v := binary.LittleEndian.Uint32(t.pages[o : o+4])
+	count := math.Float32frombits(v)
+
+	return uint16(count), nil
+}
+
+func (t *PropertyLengthTracker) PropertyNames() []string {
+	var names []string
+	pages := len(t.pages) / int(4096)
+	for page := 0; page < pages; page++ {
+		pageStart := page * int(4096)
+
+		relativeEOI := binary.LittleEndian.Uint16(t.pages[pageStart : pageStart+2]) // t.uint16At(pageStart)
+		EOI := pageStart + int(relativeEOI)
+
+		offset := int(pageStart) + 2
+		for offset < EOI {
+			propNameLength := int(binary.LittleEndian.Uint16(t.pages[offset : offset+2])) // int(t.uint16At(offset))
+			offset += 2
+
+			propName := t.pages[offset : offset+propNameLength]
+			offset += propNameLength
+
+			offset += 2
+
+			names = append(names, string(propName))
+		}
+	}
+	return names
+}
+
 func (t *PropertyLengthTracker) TrackProperty(propName string, value float32) error {
 	t.Lock()
 	defer t.Unlock()
@@ -118,6 +161,29 @@ func (t *PropertyLengthTracker) TrackProperty(propName string, value float32) er
 	v := binary.LittleEndian.Uint32(t.pages[bucketOffset : bucketOffset+4])
 	currentValue := math.Float32frombits(v)
 	currentValue += 1
+	v = math.Float32bits(currentValue)
+	binary.LittleEndian.PutUint32(t.pages[bucketOffset:bucketOffset+4], v)
+	return nil
+}
+
+func (t *PropertyLengthTracker) UnTrackProperty(propName string, value float32) error {
+	t.Lock()
+	defer t.Unlock()
+
+	var page uint16
+	var relBucketOffset uint16
+	if p, o, ok := t.propExists(propName); ok {
+		page = p
+		relBucketOffset = o
+	} else {
+		return fmt.Errorf("property %v does not exist in OldPropertyLengthTracker", propName)
+	}
+
+	bucketOffset := page*4096 + relBucketOffset + t.bucketFromValue(value)*4
+
+	v := binary.LittleEndian.Uint32(t.pages[bucketOffset : bucketOffset+4])
+	currentValue := math.Float32frombits(v)
+	currentValue -= 1
 	v = math.Float32bits(currentValue)
 	binary.LittleEndian.PutUint32(t.pages[bucketOffset:bucketOffset+4], v)
 	return nil
@@ -262,6 +328,36 @@ func (t *PropertyLengthTracker) PropertyMean(propName string) (float32, error) {
 	}
 
 	return sum / totalCount, nil
+}
+
+func (t *PropertyLengthTracker) PropertyTally(propName string) (int, int, float32, error) {
+	t.Lock()
+	defer t.Unlock()
+
+	page, offset, ok := t.propExists(propName)
+	if !ok {
+		return 0, 0, 0, nil
+	}
+
+	sum := float32(0)
+	totalCount := float32(0)
+	bucket := uint16(0)
+
+	offset = offset + page*4096
+	for o := offset; o < offset+256; o += 4 {
+		v := binary.LittleEndian.Uint32(t.pages[o : o+4])
+		count := math.Float32frombits(v)
+		sum += float32(t.valueFromBucket(bucket)) * count
+		totalCount += count
+
+		bucket++
+	}
+
+	if totalCount == 0 {
+		return 0, 0, 0, nil
+	}
+
+	return int(sum), int(totalCount), sum / totalCount, nil
 }
 
 func (t *PropertyLengthTracker) createPageIfNotExists(page uint16) {

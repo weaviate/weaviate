@@ -441,8 +441,8 @@ func TestBM25FSingleProp(t *testing.T) {
 	require.Equal(t, uint64(4), res[3].DocID())
 
 	// Check scores
-	EqualFloats(t, float32(0.1236), res[0].Score(), 5)
-	EqualFloats(t, float32(0.0362), res[1].Score(), 5)
+	EqualFloats(t, float32(0.1248), res[0].Score(), 5)
+	EqualFloats(t, float32(0.0363), res[1].Score(), 5)
 }
 
 func TestBM25FWithFilters(t *testing.T) {
@@ -606,8 +606,8 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	}
 
 	// Check scores
-	EqualFloats(t, float32(0.06011), res[0].Score(), 6)
-	EqualFloats(t, float32(0.04228), res[1].Score(), 6)
+	EqualFloats(t, float32(0.06023), res[0].Score(), 6)
+	EqualFloats(t, float32(0.04238), res[1].Score(), 6)
 }
 
 func EqualFloats(t *testing.T, expected, actual float32, significantFigures int) {
@@ -824,9 +824,9 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 		require.Len(t, res, 3)
 
 		// Check scores
-		EqualFloats(t, float32(0.89207935), res[0].Score(), 5)
-		EqualFloats(t, float32(0.5427927), res[1].Score(), 5)
-		EqualFloats(t, float32(0.39563084), res[2].Score(), 5)
+		EqualFloats(t, float32(0.8914), res[0].Score(), 5)
+		EqualFloats(t, float32(0.5425), res[1].Score(), 5)
+		EqualFloats(t, float32(0.3952), res[2].Score(), 5)
 	})
 
 	t.Run("Results without stopwords", func(t *testing.T) {

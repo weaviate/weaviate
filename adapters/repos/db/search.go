@@ -319,6 +319,12 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 	props search.SelectProperties, additional additional.Properties,
 ) (search.Results, error) {
+	if additional.NoProps {
+		// If we have no props, there also can't be refs among them, so we can skip
+		// the refcache resolver
+		return objs, nil
+	}
+
 	res, err := refcache.NewResolver(refcache.NewCacher(db, db.logger)).
 		Do(ctx, objs, props, additional)
 	if err != nil {

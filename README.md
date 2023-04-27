@@ -51,11 +51,30 @@ For starters, you can build vector databases with text, images, or a combination
 
 You can also build question and answer extraction, summarization and classification systems.
 
-You can find [code examples here](https://github.com/weaviate/weaviate-examples), and you might blog posts like these useful:
+You can find [code examples here](https://github.com/weaviate/weaviate-examples), and you might these blog posts useful:
 
+- [The ChatGPT Retrieval Plugin - Weaviate as a Long-term Memory Store for Generative AI](https://weaviate.io/blog/weaviate-retrieval-plugin)
+- [Giving Auto-GPT Long-Term Memory with Weaviate](https://weaviate.io/blog/autogpt-and-weaviate)
+- [Combining LangChain and Weaviate](https://weaviate.io/blog/combining-langchain-and-weaviate)
 - [How to build an Image Search Application with Weaviate](https://weaviate.io/blog/how-to-build-an-image-search-application-with-weaviate)
 - [Cohere Multilingual ML Models with Weaviate](https://weaviate.io/blog/cohere-multilingual-with-weaviate)
+- [Weaviate Podcast Search](https://weaviate.io/blog/weaviate-podcast-search)
 - [The Sphere Dataset in Weaviate](https://weaviate.io/blog/sphere-dataset-in-weaviate)
+
+### Integrations
+
+Examples and/or documentation of Weaviate integrations (a-z).
+
+- [Auto-GPT](https://github.com/Significant-Gravitas/Auto-GPT/blob/master/docs/configuration/memory.md#weaviate-setup) ([blogpost](https://weaviate.io/blog/autogpt-and-weaviate)) – use Weaviate as a memory backend for Auto-GPT
+- [Cohere](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-cohere) ([blogpost](https://txt.cohere.com/embedding-archives-wikipedia/)) - Use Cohere embeddings with Weaviate.
+- [DocArray](https://docarray.jina.ai/advanced/document-store/weaviate/) - Use Weaviate as a document store in DocArray.
+- [Haystack](https://docs.haystack.deepset.ai/reference/document-store-api#weaviatedocumentstore) ([blogpost](https://www.deepset.ai/weaviate-vector-search-engine-integration)) - Use Weaviate as a document store in Haystack.
+- [Hugging Face](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-huggingface) - Use Hugging Face models with Weaviate.
+- [LangChain](https://python.langchain.com/en/latest/ecosystem/weaviate.html#weaviate) ([blogpost](https://weaviate.io/blog/combining-langchain-and-weaviate)) - Use Weaviate as a memory backend for LangChain.
+- [LlamaIndex](https://gpt-index.readthedocs.io/en/latest/how_to/integrations/vector_stores.html) - Use Weaviate as a memory backend for LlamaIndex.
+- [OpenAI - ChatGPT retrieval plugin](https://github.com/openai/chatgpt-retrieval-plugin/blob/main/docs/providers/weaviate/setup.md) - Use Weaviate as a memory backend for ChatGPT.
+- [OpenAI](https://github.com/openai/openai-cookbook/tree/main/examples/vector_databases/weaviate) - use OpenAI embeddings with Weaviate.
+- [yours?](https://weaviate.io/slack)
 
 ## Weaviate content
 
@@ -67,9 +86,14 @@ Some of our past favorites include:
 
 ### 📝 Blogs
 
+- [What to expect from Weaviate in 2023](https://weaviate.io/blog/what-to-expect-from-weaviate-in-2023)
 - [Why is vector search so fast?](https://weaviate.io/blog/Why-is-Vector-Search-so-fast)
 - [Cohere Multilingual ML Models with Weaviate](https://weaviate.io/blog/Cohere-multilingual-with-weaviate)
 - [Vamana vs. HNSW - Exploring ANN algorithms Part 1](https://weaviate.io/blog/ann-algorithms-vamana-vs-hnsw)
+- [HNSW+PQ - Exploring ANN algorithms Part 2.1](https://weaviate.io/blog/ann-algorithms-hnsw-pq)
+- [The Tile Encoder - Exploring ANN algorithms Part 2.2](https://weaviate.io/blog/ann-algorithms-tiles-enocoder)
+- [How GPT4.0 and other Large Language Models Work](https://weaviate.io/blog/what-are-llms)
+- [Monitoring Weaviate in Production](https://weaviate.io/blog/monitoring-weaviate-in-production)
 
 ### 🎙️ Podcasts
 
@@ -115,7 +139,7 @@ Or connect to us via:
 You can use Weaviate with any of these clients:
 
 - [Python](https://weaviate.io/developers/weaviate/client-libraries/python)
-- [Javascript](https://weaviate.io/developers/weaviate/client-libraries/javascript)
+- [JavaScript/TypeScript](https://weaviate.io/developers/weaviate/client-libraries/typescript)
 - [Go](https://weaviate.io/developers/weaviate/client-libraries/go)
 - [Java](https://weaviate.io/developers/weaviate/client-libraries/java)
 

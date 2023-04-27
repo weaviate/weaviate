@@ -85,11 +85,12 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		return nil, err
 	}
 
-	if err := pv.fetchDocIDs(s, limit, !pv.cacheable()); err != nil {
+	cacheable := pv.cacheable()
+	if err := pv.fetchDocIDs(s, limit, !cacheable); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
-	dbm, err := pv.mergeDocIDs()
+	dbm, err := pv.mergeDocIDs(cacheable)
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
@@ -206,11 +207,11 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		}
 	}
 
-	if err := pv.fetchDocIDs(s, 0, !pv.cacheable()); err != nil {
+	if err := pv.fetchDocIDs(s, 0, !cacheable); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
-	dbm, err := pv.mergeDocIDs()
+	dbm, err := pv.mergeDocIDs(cacheable)
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}

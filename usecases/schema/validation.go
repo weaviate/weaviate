@@ -14,6 +14,7 @@ package schema
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -23,8 +24,14 @@ import (
 
 func (m *Manager) validateClassNameUniqueness(className string) error {
 	for _, otherClass := range m.state.ObjectSchema.Classes {
-		if className == otherClass.Class {
-			return fmt.Errorf("Name '%s' already used as a name for an Object class", className)
+		if strings.EqualFold(className, otherClass.Class) {
+			if className != otherClass.Class {
+				// It's a permutation
+				return fmt.Errorf(
+					"class name %q already exists as a permutation of: %q. class names must be unique when lowercased",
+					className, otherClass.Class)
+			}
+			return fmt.Errorf("class name %q already exists", className)
 		}
 	}
 

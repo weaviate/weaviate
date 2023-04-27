@@ -970,15 +970,31 @@ func (i *Index) sort(objects []*storobj.Object, scores []float32,
 		Sort(objects, scores, limit, sort)
 }
 
+func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVector []float32,
+	dist float32, limit int, filters *filters.LocalFilter,
+	sort []filters.Sort, additional additional.Properties, shardName string,
+) ([]*storobj.Object, []float32, error) {
+	shard := i.Shards[shardName]
+	res, resDists, err := shard.objectVectorSearch(
+		ctx, searchVector, dist, limit, filters, sort, additional)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
+	}
+
+	return res, resDists, nil
+}
+
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	dist float32, limit int, filters *filters.LocalFilter,
 	sort []filters.Sort, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
-	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
-		AllPhysicalShards()
+	shardingState := i.getSchema.ShardingState(i.Config.ClassName.String())
+	shardNames := shardingState.AllPhysicalShards()
 
-	errgrp := &errgroup.Group{}
-	m := &sync.Mutex{}
+	if len(shardNames) == 1 && shardingState.IsShardLocal(shardNames[0]) {
+		return i.singleLocalShardObjectVectorSearch(ctx, searchVector, dist, limit, filters,
+			sort, additional, shardNames[0])
+	}
 
 	// a limit of -1 is used to signal a search by distance. if that is
 	// the case we have to adjust how we calculate the output capacity
@@ -989,14 +1005,15 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 		shardCap = len(shardNames) * limit
 	}
 
+	errgrp := &errgroup.Group{}
+	m := &sync.Mutex{}
+
 	out := make([]*storobj.Object, 0, shardCap)
 	dists := make([]float32, 0, shardCap)
 	for _, shardName := range shardNames {
 		shardName := shardName
 		errgrp.Go(func() error {
-			local := i.getSchema.
-				ShardingState(i.Config.ClassName.String()).
-				IsShardLocal(shardName)
+			local := shardingState.IsShardLocal(shardName)
 
 			var res []*storobj.Object
 			var resDists []float32
