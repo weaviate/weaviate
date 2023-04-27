@@ -165,6 +165,8 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	desc.Status = string(backup.Transferring)
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes)
 	defer func() {
+		//  make sure context is not cancelled when uploading metadata
+		ctx := context.Background()
 		if err != nil {
 			desc.Error = err.Error()
 			err = fmt.Errorf("upload %w: %v", err, u.backend.PutMeta(ctx, desc))

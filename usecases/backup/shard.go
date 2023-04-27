@@ -100,10 +100,7 @@ func (c *shardSyncChan) waitForCoordinator(d time.Duration, id string) error {
 		select {
 		case <-timer.C:
 			return fmt.Errorf("timed out waiting for coordinator to commit")
-		case v, ok := <-c.coordChan:
-			if !ok {
-				continue
-			}
+		case v := <-c.coordChan:
 			switch v := v.(type) {
 			case AbortRequest:
 				if v.ID == id {
@@ -116,6 +113,29 @@ func (c *shardSyncChan) waitForCoordinator(d time.Duration, id string) error {
 			}
 		}
 	}
+}
+
+// withCancellation return a new context which will be cancelled if the coordinator
+// want to abort the commit phase
+func (c *shardSyncChan) withCancellation(ctx context.Context, id string, done chan struct{}) context.Context {
+	ctx, cancel := context.WithCancel(ctx)
+	go func() {
+		defer cancel()
+		for {
+			select {
+			case v := <-c.coordChan:
+				switch v := v.(type) {
+				case AbortRequest:
+					if v.ID == id {
+						return
+					}
+				}
+			case <-done: // caller is done
+				return
+			}
+		}
+	}()
+	return ctx
 }
 
 // OnCommit will be triggered when the coordinator confirms the execution of a previous operation
@@ -131,7 +151,7 @@ func (c *shardSyncChan) OnCommit(ctx context.Context, req *StatusRequest) error 
 // Abort tells a node to abort the previous backup operation
 func (c *shardSyncChan) OnAbort(_ context.Context, req *AbortRequest) error {
 	st := c.lastOp.get()
-	if st.ID == req.ID && c.waitingForCoordinatorToCommit.Load() {
+	if st.ID == req.ID {
 		c.coordChan <- *req
 		return nil
 	}
