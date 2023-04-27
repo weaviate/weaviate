@@ -321,23 +321,10 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 		return storagestate.ErrStatusReadOnly
 	}
 
-	err := s.store.CreateOrLoadBucket(ctx,
+	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropID),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
-	if err != nil {
-		return err
-	}
-
-	err = s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameLSM(filters.InternalPropID),
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace))
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (s *Shard) addDimensionsProperty(ctx context.Context) error {
@@ -373,41 +360,17 @@ func (s *Shard) addTimestampProperties(ctx context.Context) error {
 }
 
 func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
-	err := s.store.CreateOrLoadBucket(ctx,
+	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
-	if err != nil {
-		return err
-	}
-	err = s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace))
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
-	err := s.store.CreateOrLoadBucket(ctx,
+	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
-	if err != nil {
-		return err
-	}
-	err = s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace))
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (s *Shard) memtableIdleConfig() lsmkv.BucketOption {
@@ -486,13 +449,6 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		); err != nil {
 			return err
 		}
-
-		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.HashBucketFromPropNameLSM(prop.Name),
-			append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyReplace))...,
-		); err != nil {
-			return err
-		}
 	}
 
 	if inverted.HasSearchableIndex(prop) {
@@ -506,17 +462,6 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			searchableBucketOpts...,
 		); err != nil {
 			return err
-		}
-
-		// create hash bucket only if it was not created before
-		// same hash bucket is used for both filterable and searchable indexes
-		if !inverted.HasFilterableIndex(prop) {
-			if err := s.store.CreateOrLoadBucket(ctx,
-				helpers.HashBucketFromPropNameLSM(prop.Name),
-				append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyReplace))...,
-			); err != nil {
-				return err
-			}
 		}
 	}
 
