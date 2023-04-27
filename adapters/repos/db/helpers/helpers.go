@@ -53,11 +53,11 @@ func BucketFromPropNameLSM(propName string) string {
 }
 
 func BucketFromPropNameLengthLSM(propName string) string {
-	return BucketFromPropNameLSM(propName + filters.InternalPropertyLength)
+	return BucketFromPropNameLSM(PropLength(propName))
 }
 
 func BucketFromPropNameNullLSM(propName string) string {
-	return BucketFromPropNameLSM(propName + filters.InternalNullIndex)
+	return BucketFromPropNameLSM(PropNull(propName))
 }
 
 func BucketFromPropNameMetaCountLSM(propName string) string {
