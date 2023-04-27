@@ -12,6 +12,7 @@
 package db
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/weaviate/weaviate/entities/additional"
@@ -20,43 +21,70 @@ import (
 )
 
 type groupMerger struct {
-	objects    []*storobj.Object
-	dists      []float32
-	groupBy    *searchparams.GroupBy
-	limit      int
-	shardCount int
+	objects []*storobj.Object
+	dists   []float32
+	groupBy *searchparams.GroupBy
 }
 
 func newGroupMerger(objects []*storobj.Object, dists []float32,
-	groupBy *searchparams.GroupBy, limit, shardCount int,
+	groupBy *searchparams.GroupBy,
 ) *groupMerger {
-	return &groupMerger{objects, dists, groupBy, limit, shardCount}
+	return &groupMerger{objects, dists, groupBy}
 }
 
 func (gm *groupMerger) Do() ([]*storobj.Object, []float32, error) {
-	groups := map[string][]additional.Group{}
+	groups := map[string][]*additional.Group{}
 	objects := map[string][]int{}
 
 	for i, obj := range gm.objects {
 		g, ok := obj.AdditionalProperties()["group"]
 		if !ok {
-			continue
+			return nil, nil, fmt.Errorf("group not found for object: %v", obj.ID())
 		}
-		group, ok := g.(additional.Group)
+		group, ok := g.(*additional.Group)
 		if !ok {
-			continue
+			return nil, nil, fmt.Errorf("wrong group type for object: %v", obj.ID())
 		}
 		groups[group.GroupValue] = append(groups[group.GroupValue], group)
 		objects[group.GroupValue] = append(objects[group.GroupValue], i)
 	}
 
-	i := 0
-	objs := make([]*storobj.Object, len(groups))
-	dists := make([]float32, len(groups))
-	for val, group := range groups {
-		if i >= (gm.groupBy.Groups + gm.shardCount) {
-			break
+	getMinDistance := func(groups []*additional.Group) float32 {
+		min := groups[0].MinDistance
+		for i := range groups {
+			if groups[i].MinDistance < min {
+				min = groups[i].MinDistance
+			}
 		}
+		return min
+	}
+
+	type groupMinDistance struct {
+		value    string
+		distance float32
+	}
+
+	groupDistances := []groupMinDistance{}
+	for val, group := range groups {
+		groupDistances = append(groupDistances, groupMinDistance{
+			value: val, distance: getMinDistance(group),
+		})
+	}
+
+	sort.Slice(groupDistances, func(i, j int) bool {
+		return groupDistances[i].distance < groupDistances[j].distance
+	})
+
+	desiredLength := len(groups)
+	if desiredLength > gm.groupBy.Groups {
+		desiredLength = gm.groupBy.Groups
+	}
+
+	objs := make([]*storobj.Object, desiredLength)
+	dists := make([]float32, desiredLength)
+	for i, groupDistance := range groupDistances[:desiredLength] {
+		val := groupDistance.value
+		group := groups[groupDistance.value]
 		count := 0
 		hits := []map[string]interface{}{}
 		for _, g := range group {
@@ -76,7 +104,7 @@ func (gm *groupMerger) Do() ([]*storobj.Object, []float32, error) {
 
 		indx := objects[val][0]
 		obj, dist := gm.objects[indx], gm.dists[indx]
-		obj.AdditionalProperties()["group"] = additional.Group{
+		obj.AdditionalProperties()["group"] = &additional.Group{
 			ID:          i,
 			GroupValue:  val,
 			Count:       count,
@@ -85,13 +113,7 @@ func (gm *groupMerger) Do() ([]*storobj.Object, []float32, error) {
 			MinDistance: hits[len(hits)-1]["_additional"].(*additional.GroupHitAdditional).Distance,
 		}
 		objs[i], dists[i] = obj, dist
-		i++
 	}
 
-	objs, dists = newObjectsByGroupsSorter().sort(objs[:i], dists[:i])
-	cutoff := gm.groupBy.Groups
-	if cutoff > i {
-		cutoff = i
-	}
-	return objs[:cutoff], dists[:cutoff], nil
+	return objs, dists, nil
 }
