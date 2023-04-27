@@ -50,6 +50,57 @@ func FusionScoreCombSUM(results [][]search.Result) []search.Result {
 	return out
 }
 
+func FusionNormalize(weights []float64, results [][]*Result) []*Result {
+	maximum := []float32{-100000, -100000}
+	minimum := []float32{100000, 100000}
+
+	for i := range results {
+		for _, res := range results[i] {
+			if res.SecondarySortValue > maximum[i] {
+				maximum[i] = res.SecondarySortValue
+			}
+
+			if res.SecondarySortValue < minimum[i] {
+				minimum[i] = res.SecondarySortValue
+			}
+
+		}
+	}
+
+	// normalize scores
+	mapResults := make(map[strfmt.UUID]*Result)
+
+	for i := range results {
+		weight := float32(weights[i])
+		for _, res := range results[i] {
+			tempResult := res
+			score := weight * (res.SecondarySortValue - minimum[i]) / (maximum[i] - minimum[i])
+
+			previousResult, ok := mapResults[res.ID]
+			if ok {
+				score += previousResult.Score
+			}
+			tempResult.Score = score
+
+			mapResults[res.ID] = tempResult
+		}
+	}
+
+	concat := make([]*Result, 0, len(mapResults))
+	for _, res := range mapResults {
+		concat = append(concat, res)
+	}
+
+	sort.Slice(concat, func(i, j int) bool {
+		a_b := float64(concat[j].Score - concat[i].Score)
+		if a_b*a_b < 1e-14 {
+			return concat[i].SecondarySortValue > concat[j].SecondarySortValue
+		}
+		return float64(concat[i].Score) > float64(concat[j].Score)
+	})
+	return concat
+}
+
 func FusionReciprocal(weights []float64, results [][]*Result) []*Result {
 	mapResults := map[strfmt.UUID]*Result{}
 	for resultSetIndex, result := range results {

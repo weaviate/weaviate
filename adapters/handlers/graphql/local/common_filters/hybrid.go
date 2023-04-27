@@ -90,6 +90,11 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 		args.Query = query.(string)
 	}
 
+	autocut, ok := source["autocut"]
+	if ok {
+		args.AutoCut = autocut.(int)
+	}
+
 	if _, ok := source["vector"]; ok {
 		vector := source["vector"].([]interface{})
 		args.Vector = make([]float32, len(vector))

@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/autocut"
+
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/search"
@@ -149,6 +151,7 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 	}
 
 	fused := FusionReciprocal(weights, found)
+	fused = FusionNormalize(weights, found)
 
 	if s.params.Limit >= 1 && (len(fused) > s.params.Limit) { //-1 is possible?
 		s.logger.Debugf("found more hybrid search results than limit, "+
@@ -165,6 +168,14 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 		for i := range fused {
 			fused[i].Result = &(sr[i])
 		}
+	}
+	if s.params.AutoCut > 0 {
+		scores := make([]float32, len(fused))
+		for i := range fused {
+			scores[i] = fused[i].Score
+		}
+		cutOff := autocut.Autocut(scores, s.params.AutoCut)
+		fused = fused[:cutOff]
 	}
 
 	return fused, nil

@@ -35,7 +35,7 @@ var (
 	ctx  = context.Background()
 )
 
-func AddClassAndObjects(t *testing.T, className string, datatype string, c *client.Client) {
+func AddClassAndObjectsArray(t *testing.T, className string, datatype string, c *client.Client) {
 	class := &models.Class{
 		Class: className,
 		Properties: []*models.Property{
@@ -73,6 +73,31 @@ func AddClassAndObjects(t *testing.T, className string, datatype string, c *clie
 	require.Nil(t, err)
 }
 
+func AddClassAndObjectsString(t *testing.T, className string, c *client.Client) {
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "contents", DataType: []string{"text"}, Tokenization: "word", IndexInverted: &TRUE},
+		},
+		InvertedIndexConfig: &models.InvertedIndexConfig{Bm25: &models.BM25Config{K1: 1.2, B: 0.75}},
+		Vectorizer:          "none",
+	}
+	require.Nil(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+	creator := c.Data().Creator()
+	_, err := creator.WithClassName(className).WithProperties(
+		map[string]interface{}{"contents": "nice day", "num": 0}).WithVector([]float32{1, 2, 3}).Do(ctx)
+	require.Nil(t, err)
+	_, err = creator.WithClassName(className).WithProperties(
+		map[string]interface{}{"contents": "nice sunny day", "num": 1}).WithVector([]float32{1.1, 2.1, 3.1}).Do(ctx)
+	require.Nil(t, err)
+	_, err = creator.WithClassName(className).WithVector([]float32{4, 5, 6}).WithProperties(
+		map[string]interface{}{"contents": "many words without content. does not matter at all. this is suuuper long and only has one word: nice", "num": 2}).Do(ctx)
+	_, err = creator.WithClassName(className).WithVector([]float32{4.1, 4.2, 4.3}).WithProperties(
+		map[string]interface{}{"contents": "many words without content. does not matter at all. this is also suuuper long and only has one word: day", "num": 3}).Do(ctx)
+	require.Nil(t, err)
+}
+
 func TestBm25(t *testing.T) {
 	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
 	c.Schema().AllDeleter().Do(ctx)
@@ -85,7 +110,7 @@ func TestBm25(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run("arrays "+tt.datatype, func(t *testing.T) {
-			AddClassAndObjects(t, className, tt.datatype, c)
+			AddClassAndObjectsArray(t, className, tt.datatype, c)
 			defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
 			builder := c.GraphQL().Bm25ArgBuilder().WithQuery("nice rain").WithProperties("contents")
@@ -105,7 +130,34 @@ func TestBm25Autocut(t *testing.T) {
 	c.Schema().AllDeleter().Do(ctx)
 	className := "Paragraph453745"
 
-	AddClassAndObjects(t, className, string(schema.DataTypeTextArray), c)
+	AddClassAndObjectsArray(t, className, string(schema.DataTypeTextArray), c)
+	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+	cases := []struct {
+		autocut    int
+		numResults int
+	}{
+		{autocut: 1, numResults: 2}, {autocut: 2, numResults: 4}, {autocut: -1, numResults: 4 /*disabled*/},
+	}
+	for _, tt := range cases {
+		t.Run("autocut "+fmt.Sprint(tt.autocut), func(t *testing.T) {
+			results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(bm25:{query:\"rain nice\", autocut: %d, properties: [\"contents\"]}){num}}}", className, tt.autocut)).Do(ctx)
+			require.Nil(t, err)
+			result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
+			require.Len(t, result, tt.numResults)
+			require.Equal(t, 0., result[0].(map[string]interface{})["num"])
+			require.Equal(t, 1., result[1].(map[string]interface{})["num"])
+		})
+	}
+}
+
+func TestHybridAutocut(t *testing.T) {
+	ctx := context.Background()
+	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c.Schema().AllDeleter().Do(ctx)
+	className := "Paragraph3936"
+
+	AddClassAndObjectsString(t, className, c)
 	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
 	cases := []struct {

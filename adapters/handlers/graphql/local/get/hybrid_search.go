@@ -55,6 +55,10 @@ func hybridOperands(classObject *graphql.Object,
 			Description: "Vector search",
 			Type:        graphql.NewList(graphql.Float),
 		},
+		"autocut": &graphql.InputObjectFieldConfig{
+			Description: "Cut off number of results after the Nth extrema. Off by default, negative numbers mean off",
+			Type:        graphql.Int,
+		},
 	}
 
 	if os.Getenv("ENABLE_EXPERIMENTAL_HYBRID_OPERANDS") != "" {
