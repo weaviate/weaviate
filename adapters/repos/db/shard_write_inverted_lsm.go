@@ -119,17 +119,9 @@ func (s *Shard) addToPropertyLengthIndex(propName string, docID uint64, length i
 		return errors.Errorf("no bucket for prop '%s' length found", propName)
 	}
 
-	hashBucketLength := s.store.Bucket(helpers.HashBucketFromPropNameLengthLSM(propName))
-	if hashBucketLength == nil {
-		return errors.Errorf("no hash bucket for prop '%s' length found", propName)
-	}
-
 	key, err := s.keyPropertyLength(length)
 	if err != nil {
 		return errors.Wrapf(err, "failed creating key for prop '%s' length", propName)
-	}
-	if err := s.addToPropertyHashBucket(hashBucketLength, key); err != nil {
-		return errors.Wrapf(err, "failed adding to prop '%s' length hash bucket", propName)
 	}
 	if err := s.addToPropertySetBucket(bucketLength, docID, key); err != nil {
 		return errors.Wrapf(err, "failed adding to prop '%s' length bucket", propName)
@@ -184,6 +176,7 @@ func (s *Shard) keyPropertyNull(isNull bool) ([]byte, error) {
 	return []byte{uint8(filters.InternalNotNullState)}, nil
 }
 
+// TODO hash_buckets_cleanup
 func (s *Shard) addToPropertyHashBucket(hashBucket *lsmkv.Bucket, key []byte) error {
 	lsmkv.CheckExpectedStrategy(hashBucket.Strategy(), lsmkv.StrategyReplace)
 

@@ -536,16 +536,9 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 	default:
 	}
 
-	if err := s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLengthLSM(prop.Name),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
-	); err != nil {
-		return err
-	}
-
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameLengthLSM(prop.Name),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace))
+		helpers.BucketFromPropNameLengthLSM(prop.Name),
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 }
 
 func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property) error {
