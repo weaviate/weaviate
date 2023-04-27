@@ -55,7 +55,6 @@ type Shard struct {
 	propertyIndices propertyspecific.Indices
 	deletedDocIDs   *docid.InMemDeletedTracker
 	propLengths     *inverted.JsonPropertyLengthTracker
-	randomSource    *bufferedRandomGen
 	versioner       *shardVersioner
 
 	status              storagestate.Status
@@ -86,11 +85,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 ) (*Shard, error) {
 	before := time.Now()
 
-	rand, err := newBufferedRandomGen(64 * 1024)
-	if err != nil {
-		return nil, errors.Wrap(err, "init bufferend random generator")
-	}
-
 	s := &Shard{
 		index:       index,
 		name:        shardName,
@@ -98,7 +92,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
 		deletedDocIDs:   docid.NewInMemDeletedTracker(),
-		randomSource:    rand,
 		stopMetrics:     make(chan struct{}),
 		replicationMap:  pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
 		centralJobQueue: jobQueueCh,
