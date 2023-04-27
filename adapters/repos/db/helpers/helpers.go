@@ -74,10 +74,6 @@ func BucketFromPropNameMetaCountLSM(propName string) string {
 	return BucketFromPropNameLSM(MetaCountProp(propName))
 }
 
-func HashBucketFromPropNameMetaCountLSM(propName string) string {
-	return HashBucketFromPropNameLSM(MetaCountProp(propName))
-}
-
 func TempBucketFromBucketName(bucketName string) string {
 	return bucketName + "_temp"
 }
