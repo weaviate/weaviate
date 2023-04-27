@@ -245,9 +245,8 @@ func TestUpdateJourney(t *testing.T) {
 		assert.ElementsMatch(t, expectedInAnyOrder, searchInv(t, filters.OperatorEqual, 30))
 	})
 
-
 	t.Run("test recount", func(t *testing.T) {
-		shards :=  repo.GetIndex("UpdateTestClass").Shards
+		shards := repo.GetIndex("UpdateTestClass").Shards
 		var shard *Shard
 		for _, shardv := range shards {
 			shard = shardv
@@ -257,11 +256,9 @@ func TestUpdateJourney(t *testing.T) {
 
 		require.Nil(t, err)
 
-		
-
 		sum, count, mean, err := tracker.PropertyTally("name")
 		require.Nil(t, err)
-		assert.Equal(t, 54, sum)  //FIXME updates are not tracked in the proplengths tracker
+		assert.Equal(t, 54, sum) // FIXME updates are not tracked in the proplengths tracker
 		assert.Equal(t, 6, count)
 		assert.InEpsilon(t, 9, mean, 0.1)
 
@@ -281,11 +278,7 @@ func TestUpdateJourney(t *testing.T) {
 		assert.Equal(t, 36, sum)
 		assert.Equal(t, 4, count)
 		assert.Equal(t, float64(9), mean)
-
 	})
-
-
-
 }
 
 func updateTestClass() *models.Class {

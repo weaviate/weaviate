@@ -12,7 +12,6 @@
 package inverted
 
 import (
-	"context"
 	"fmt"
 	"math/rand"
 	"path"
@@ -21,7 +20,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/usecases/schema/migrate"
 )
 
 func Test_PropertyLengthTracker(t *testing.T) {
@@ -126,7 +124,6 @@ func Test_PropertyLengthTracker(t *testing.T) {
 		assert.Equal(t, 1, count)
 		assert.InEpsilon(t, 3, mean, 0.1)
 	})
-
 
 	t.Run("multiple properties (can all fit on one page)", func(t *testing.T) {
 		type prop struct {
@@ -623,6 +620,3 @@ func Test_PropertyLengthTracker_Overflow(t *testing.T) {
 	err = tracker.TrackProperty("OVERFLOW", float32(123))
 	require.NotNil(t, err)
 }
-
-
-
