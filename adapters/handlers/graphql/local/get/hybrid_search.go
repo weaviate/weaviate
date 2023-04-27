@@ -59,6 +59,10 @@ func hybridOperands(classObject *graphql.Object,
 			Description: "Cut off number of results after the Nth extrema. Off by default, negative numbers mean off",
 			Type:        graphql.Int,
 		},
+		"experimental_fusion": &graphql.InputObjectFieldConfig{
+			Description: "Experimental Fusion algo. Might break everything",
+			Type:        graphql.Boolean,
+		},
 	}
 
 	if os.Getenv("ENABLE_EXPERIMENTAL_HYBRID_OPERANDS") != "" {

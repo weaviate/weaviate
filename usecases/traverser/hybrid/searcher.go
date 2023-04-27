@@ -150,8 +150,12 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 		}
 	}
 
-	fused := FusionReciprocal(weights, found)
-	fused = FusionNormalize(weights, found)
+	var fused []*Result
+	if s.params.ExperimentalFusion {
+		fused = FusionNormalize(weights, found)
+	} else {
+		fused = FusionReciprocal(weights, found)
+	}
 
 	if s.params.Limit >= 1 && (len(fused) > s.params.Limit) { //-1 is possible?
 		s.logger.Debugf("found more hybrid search results than limit, "+
