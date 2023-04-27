@@ -69,11 +69,6 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []n
 }
 
 func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property) error {
-	hashBucketValue := s.store.Bucket(helpers.HashBucketFromPropNameLSM(property.Name))
-	if hashBucketValue == nil {
-		return errors.Errorf("no hash bucket for prop '%s' found", property.Name)
-	}
-
 	if property.HasFilterableIndex {
 		bucketValue := s.store.Bucket(helpers.BucketFromPropNameLSM(property.Name))
 		if bucketValue == nil {
@@ -82,9 +77,6 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 
 		for _, item := range property.Items {
 			key := item.Data
-			if err := s.addToPropertyHashBucket(hashBucketValue, key); err != nil {
-				return errors.Wrapf(err, "failed adding to prop '%s' value hash bucket", property.Name)
-			}
 			if err := s.addToPropertySetBucket(bucketValue, docID, key); err != nil {
 				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
 			}
@@ -100,9 +92,6 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 		propLen := float32(len(property.Items))
 		for _, item := range property.Items {
 			key := item.Data
-			if err := s.addToPropertyHashBucket(hashBucketValue, key); err != nil {
-				return errors.Wrapf(err, "failed adding to prop '%s' value hash bucket", property.Name)
-			}
 			pair := s.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
 			if err := s.addToPropertyMapBucket(bucketValue, pair, key); err != nil {
 				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
@@ -176,7 +165,7 @@ func (s *Shard) keyPropertyNull(isNull bool) ([]byte, error) {
 	return []byte{uint8(filters.InternalNotNullState)}, nil
 }
 
-// TODO hash_buckets_cleanup
+// TODO hash_buckets_cleanup remove
 func (s *Shard) addToPropertyHashBucket(hashBucket *lsmkv.Bucket, key []byte) error {
 	lsmkv.CheckExpectedStrategy(hashBucket.Strategy(), lsmkv.StrategyReplace)
 
@@ -211,20 +200,11 @@ func (s *Shard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key [
 	return bucket.RoaringSetAddOne(key, docID)
 }
 
-func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b, hashBucket *lsmkv.Bucket,
+func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket,
 	item inverted.MergeItem,
 ) error {
 	if b.Strategy() != lsmkv.StrategySetCollection && b.Strategy() != lsmkv.StrategyRoaringSet {
 		panic("prop has no frequency, but bucket does not have 'Set' nor 'RoaringSet' strategy")
-	}
-
-	hash, err := s.generateRowHash()
-	if err != nil {
-		return err
-	}
-
-	if err := hashBucket.Put(item.Data, hash); err != nil {
-		return err
 	}
 
 	if b.Strategy() == lsmkv.StrategyRoaringSet {
@@ -250,6 +230,7 @@ func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b, hashBucket *lsmkv
 // if it should read the row again from cache. So changing the "hash" (by
 // replacing it with other random bytes) is essentially just a signal to the
 // read-time cacher to invalidate its entry
+// TODO hash_buckets_cleanup remove
 func (s *Shard) generateRowHash() ([]byte, error) {
 	return s.randomSource.Make(8)
 }
