@@ -165,22 +165,6 @@ func (s *Shard) keyPropertyNull(isNull bool) ([]byte, error) {
 	return []byte{uint8(filters.InternalNotNullState)}, nil
 }
 
-// TODO hash_buckets_cleanup remove
-func (s *Shard) addToPropertyHashBucket(hashBucket *lsmkv.Bucket, key []byte) error {
-	lsmkv.CheckExpectedStrategy(hashBucket.Strategy(), lsmkv.StrategyReplace)
-
-	hash, err := s.generateRowHash()
-	if err != nil {
-		return err
-	}
-
-	if err := hashBucket.Put(key, hash); err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func (s *Shard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
 	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
 
@@ -222,17 +206,6 @@ func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket,
 	}
 
 	return b.SetAdd(item.Data, docIDs)
-}
-
-// the row hash isn't actually a hash at this point, it is just a random
-// sequence of bytes. The important thing is that every new write into this row
-// replaces the hash as the read cacher will make a decision based on the hash
-// if it should read the row again from cache. So changing the "hash" (by
-// replacing it with other random bytes) is essentially just a signal to the
-// read-time cacher to invalidate its entry
-// TODO hash_buckets_cleanup remove
-func (s *Shard) generateRowHash() ([]byte, error) {
-	return s.randomSource.Make(8)
 }
 
 func (s *Shard) addPropLengths(props []inverted.Property) error {
