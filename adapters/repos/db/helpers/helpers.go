@@ -62,10 +62,6 @@ func BucketFromPropNameLengthLSM(propName string) string {
 	return BucketFromPropNameLSM(propName + filters.InternalPropertyLength)
 }
 
-func HashBucketFromPropNameLengthLSM(propName string) string {
-	return HashBucketFromPropNameLSM(propName + filters.InternalPropertyLength)
-}
-
 func BucketFromPropNameNullLSM(propName string) string {
 	return BucketFromPropNameLSM(propName + filters.InternalNullIndex)
 }
