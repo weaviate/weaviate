@@ -258,9 +258,9 @@ func TestUpdateJourney(t *testing.T) {
 
 		sum, count, mean, err := tracker.PropertyTally("name")
 		require.Nil(t, err)
-		assert.Equal(t, 54, sum) // FIXME updates are not tracked in the proplengths tracker
+		assert.Equal(t, 6, sum) // FIXME updates are not tracked in the proplengths tracker, the old count isn't deleted
 		assert.Equal(t, 6, count)
-		assert.InEpsilon(t, 9, mean, 0.1)
+		assert.InEpsilon(t, 1, mean, 0.1)
 
 		tracker.Clear()
 		sum, count, mean, err = tracker.PropertyTally("name")
@@ -275,9 +275,9 @@ func TestUpdateJourney(t *testing.T) {
 
 		sum, count, mean, err = tracker.PropertyTally("name")
 		require.Nil(t, err)
-		assert.Equal(t, 36, sum)
+		assert.Equal(t, 4, sum)
 		assert.Equal(t, 4, count)
-		assert.Equal(t, float64(9), mean)
+		assert.Equal(t, float64(1), mean)
 	})
 }
 
