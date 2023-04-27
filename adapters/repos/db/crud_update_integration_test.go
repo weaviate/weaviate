@@ -244,6 +244,48 @@ func TestUpdateJourney(t *testing.T) {
 		expectedInAnyOrder = []interface{}{"element-3"}
 		assert.ElementsMatch(t, expectedInAnyOrder, searchInv(t, filters.OperatorEqual, 30))
 	})
+
+
+	t.Run("test recount", func(t *testing.T) {
+		shards :=  repo.GetIndex("UpdateTestClass").Shards
+		var shard *Shard
+		for _, shardv := range shards {
+			shard = shardv
+		}
+
+		tracker := shard.propLengths
+
+		require.Nil(t, err)
+
+		
+
+		sum, count, mean, err := tracker.PropertyTally("name")
+		require.Nil(t, err)
+		assert.Equal(t, 54, sum)  //FIXME updates are not tracked in the proplengths tracker
+		assert.Equal(t, 6, count)
+		assert.InEpsilon(t, 9, mean, 0.1)
+
+		tracker.Clear()
+		sum, count, mean, err = tracker.PropertyTally("name")
+		require.Nil(t, err)
+		assert.Equal(t, 0, sum)
+		assert.Equal(t, 0, count)
+		assert.Equal(t, float64(0), mean)
+
+		logger := logrus.New()
+		migrator := NewMigrator(repo, logger)
+		migrator.RecountProperties(context.Background())
+
+		sum, count, mean, err = tracker.PropertyTally("name")
+		require.Nil(t, err)
+		assert.Equal(t, 36, sum)
+		assert.Equal(t, 4, count)
+		assert.Equal(t, float64(9), mean)
+
+	})
+
+
+
 }
 
 func updateTestClass() *models.Class {
