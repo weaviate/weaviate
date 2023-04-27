@@ -478,13 +478,6 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			); err != nil {
 				return err
 			}
-
-			if err := s.store.CreateOrLoadBucket(ctx,
-				helpers.HashBucketFromPropNameMetaCountLSM(prop.Name),
-				append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyReplace))...,
-			); err != nil {
-				return err
-			}
 		}
 
 		if err := s.store.CreateOrLoadBucket(ctx,
