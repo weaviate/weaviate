@@ -700,7 +700,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName})
 		assert.Nil(t, err)
 		for i := 0; i < 20; i++ {
-			time.Sleep(time.Millisecond * 50)
+			time.Sleep(time.Microsecond * 500)
 			fmt.Println(m.backupper.lastOp.get().Status)
 			if i > 0 && m.backupper.lastOp.get().Status == "" {
 				break
