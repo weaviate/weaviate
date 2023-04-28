@@ -45,19 +45,18 @@ const IdLockPoolSize = 128
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
-	index            *Index // a reference to the underlying index, which in turn contains schema information
-	name             string
-	store            *lsmkv.Store
-	counter          *indexcounter.Counter
-	vectorIndex      VectorIndex
-	invertedRowCache *inverted.RowCacher
-	metrics          *Metrics
-	promMetrics      *monitoring.PrometheusMetrics
-	propertyIndices  propertyspecific.Indices
-	deletedDocIDs    *docid.InMemDeletedTracker
-	propLengths      *inverted.JsonPropertyLengthTracker
-	randomSource     *bufferedRandomGen
-	versioner        *shardVersioner
+	index           *Index // a reference to the underlying index, which in turn contains schema information
+	name            string
+	store           *lsmkv.Store
+	counter         *indexcounter.Counter
+	vectorIndex     VectorIndex
+	metrics         *Metrics
+	promMetrics     *monitoring.PrometheusMetrics
+	propertyIndices propertyspecific.Indices
+	deletedDocIDs   *docid.InMemDeletedTracker
+	propLengths     *inverted.JsonPropertyLengthTracker
+	randomSource    *bufferedRandomGen
+	versioner       *shardVersioner
 
 	status              storagestate.Status
 	statusLock          sync.Mutex
@@ -93,10 +92,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	s := &Shard{
-		index:            index,
-		name:             shardName,
-		invertedRowCache: inverted.NewRowCacher(500 * 1024 * 1024),
-		promMetrics:      promMetrics,
+		index:       index,
+		name:        shardName,
+		promMetrics: promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
 		deletedDocIDs:   docid.NewInMemDeletedTracker(),

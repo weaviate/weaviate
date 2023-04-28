@@ -145,14 +145,11 @@ func (b *deleteObjectsBatcher) setErrorAtIndex(err error, index int) {
 func (s *Shard) findDocIDs(ctx context.Context,
 	filters *filters.LocalFilter,
 ) ([]uint64, error) {
-	// This method is used exclusively for batch delete, so we can always
-	// prevent filter caching, as a Batch-Delete filter will lead to a state
-	// mutation, making the filter not reusable anyway.
 	allowList, err := inverted.NewSearcher(s.index.logger, s.store,
-		s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache, nil,
+		s.index.getSchema.GetSchemaSkipAuth(), nil,
 		s.index.classSearcher, s.deletedDocIDs, s.index.stopwords,
 		s.versioner.version, s.isFallbackToSearchable).
-		DocIDsPreventCaching(ctx, filters, additional.Properties{}, s.index.Config.ClassName)
+		DocIDs(ctx, filters, additional.Properties{}, s.index.Config.ClassName)
 	if err != nil {
 		return nil, err
 	}
