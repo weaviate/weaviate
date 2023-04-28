@@ -31,10 +31,10 @@ var paragraphs = []string{
 
 func TestBm25(t *testing.T) {
 	ctx := context.Background()
-	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	require.Nil(t, err)
+
 	c.Schema().AllDeleter().Do(ctx)
-	vFalse := false
-	vTrue := true
 
 	cases := []struct{ datatype schema.DataType }{
 		{datatype: schema.DataTypeTextArray},

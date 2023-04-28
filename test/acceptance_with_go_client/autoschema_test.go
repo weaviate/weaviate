@@ -24,7 +24,8 @@ import (
 
 func TestAutoschemaCasingClass(t *testing.T) {
 	ctx := context.Background()
-	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	require.Nil(t, err)
 
 	upperClassName := "RandomBlueTree"
 	lowerClassName := "randomBlueTree"
@@ -58,7 +59,8 @@ func TestAutoschemaCasingClass(t *testing.T) {
 
 func TestAutoschemaCasingProps(t *testing.T) {
 	ctx := context.Background()
-	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	require.Nil(t, err)
 
 	className := "RandomGreenBike"
 
@@ -104,7 +106,8 @@ func TestAutoschemaCasingProps(t *testing.T) {
 
 func TestAutoschemaCasingUpdateProps(t *testing.T) {
 	ctx := context.Background()
-	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	require.Nil(t, err)
 
 	objId := "67b79643-cf8b-4b22-b206-6e63dbb4e57a"
 	upperPropName := "SomeProp"
