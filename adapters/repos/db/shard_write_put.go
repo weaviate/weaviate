@@ -12,6 +12,7 @@
 package db
 
 import (
+
 	"bytes"
 	"context"
 	"encoding/binary"
@@ -258,6 +259,23 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		return errors.Wrap(err, "analyze next object")
 	}
 
+	
+
+	if status.docIDChanged {
+			oldObject, err := storobj.FromBinary(previous)
+			
+				oldProps, _, err := s.analyzeObject(oldObject)
+				if err != nil {
+					s.index.logger.WithField("action", "subtractPropLengths").WithError(err).Error("could not subtract prop lengths")
+				}
+
+				if err := s.subtractPropLengths(oldProps); err != nil {
+					s.index.logger.WithField("action", "subtractPropLengths").WithError(err).Error("could not subtract prop lengths")
+				}
+		
+	
+	}
+
 	// TODO: metrics
 	if err := s.updateInvertedIndexCleanupOldLSM(status, previous); err != nil {
 		return errors.Wrap(err, "analyze and cleanup previous")
@@ -278,6 +296,8 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		return errors.Wrap(err, "put inverted indices props")
 	}
 	s.metrics.InvertedExtend(before, len(props))
+
+
 
 	if err := s.addPropLengths(props); err != nil {
 		return errors.Wrap(err, "store field length values for props")
