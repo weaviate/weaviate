@@ -197,26 +197,11 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 			filterDocIds = objs
 		}
 
-		searchFunc := func(index uint64) *storobj.Object {
-			v, _ := s.objectByIndexID(ctx, index, false)
-			return v
-		}
-
-		if keywordRanking.Type == "bm25" {
-			className := s.index.Config.ClassName
-			bm25objs, bm25count, err = bm25searcher.BM25F(ctx,
-				filterDocIds, className, limit, *keywordRanking,
-				filters, sort, additional, searchFunc)
-			if err != nil {
-				return nil, nil, err
-			}
-		} else {
-			bm25objs, bm25count, err = bm25searcher.Objects(ctx,
-				filterDocIds, limit, *keywordRanking, filters,
-				sort, additional, s.index.Config.ClassName)
-			if err != nil {
-				return nil, nil, err
-			}
+		className := s.index.Config.ClassName
+		bm25objs, bm25count, err = bm25searcher.BM25F(ctx,
+			filterDocIds, className, limit, *keywordRanking)
+		if err != nil {
+			return nil, nil, err
 		}
 
 		return bm25objs, bm25count, nil

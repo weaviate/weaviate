@@ -34,8 +34,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -78,8 +76,6 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 
 func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList, className schema.ClassName, limit int,
 	keywordRanking searchparams.KeywordRanking,
-	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
-	objectByIndexID func(index uint64) *storobj.Object,
 ) ([]*storobj.Object, []float32, error) {
 	// WEAVIATE-471 - If a property is not searchable, return an error
 	for _, property := range keywordRanking.Properties {
@@ -98,30 +94,6 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 	}
 
 	return objs, scores, nil
-}
-
-// Objects returns a list of full objects
-func (b *BM25Searcher) Objects(ctx context.Context, filterDocIds helpers.AllowList, limit int,
-	keywordRanking searchparams.KeywordRanking,
-	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
-	className schema.ClassName,
-) ([]*storobj.Object, []float32, error) {
-	class, err := schema.GetClassByName(b.schema.Objects, string(className))
-	if err != nil {
-		return nil, []float32{}, errors.Wrap(err, "get class by name")
-	}
-	property := keywordRanking.Properties[0]
-	p, err := schema.GetPropertyByName(class, property)
-	if err != nil {
-		return nil, []float32{}, errors.Wrap(err, "read property from class")
-	}
-
-	if IsSearchable(p) {
-		keywordRanking.Properties = keywordRanking.Properties[:1]
-		return b.wand(ctx, filterDocIds, class, keywordRanking, limit)
-	} else {
-		return []*storobj.Object{}, []float32{}, nil
-	}
 }
 
 func (b *BM25Searcher) wand(
