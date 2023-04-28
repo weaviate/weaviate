@@ -1007,16 +1007,15 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 		return nil, nil, err
 	}
 
-	var err error
-	if len(sort) > 0 {
-		out, dists, err = i.sort(out, dists, sort, limit)
-		if err != nil {
-			i.logger.WithField("action", "sort_vector_search_results").Error(err.Error())
-		}
-	} else if len(shardNames) > 0 {
-		out, dists = newDistancesSorter().sort(out, dists)
+	if len(shardNames) == 1 {
+		return out, dists, nil
 	}
 
+	if len(shardNames) > 1 && len(sort) > 0 {
+		return i.sort(out, dists, sort, limit)
+	}
+
+	out, dists = newDistancesSorter().sort(out, dists)
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]
 		dists = dists[:limit]
