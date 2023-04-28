@@ -60,31 +60,7 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 		return errors.Wrap(err, "get existing object from binary")
 	}
 
-	properties := obj.Object.Properties
-	sch := s.index.getSchema.GetSchemaSkipAuth()
-	class := sch.GetClass(obj.Class())
-	if err != nil {
-		return errors.Wrap(err, "get class from schema")
-	}
-
-	// Remove each property from the property length tracker.
-	for _, propTypes := range class.Properties {
-		propName := strings.ToLower(propTypes.Name)
-		if properties.(map[string]interface{})[propName] != nil {
-			for _, propType := range propTypes.DataType {
-				switch propType {
-				case "string", "text":
-					s.propLengths.UnTrackProperty(propName, float32(len(properties.(map[string]interface{})[propName].(string))))
-				case "string[]", "text[]":
-					for _, val := range properties.(map[string]interface{})[propName].([]string) {
-						s.propLengths.UnTrackProperty(propName, float32(len(val)))
-					}
-				}
-			}
-		}
-	}
-
-	s.propLengths.Flush(false)
+	s.subtractPropLengths(obj *storobj.Object)
 
 	err = bucket.Delete(idBytes)
 	if err != nil {
@@ -183,6 +159,8 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 	if err != nil {
 		return errors.Wrap(err, "analyze previous object")
 	}
+
+	s.subtractPropLengths(previousInvertProps)
 
 	err = s.deleteFromInvertedIndicesLSM(previousInvertProps, docID)
 	if err != nil {

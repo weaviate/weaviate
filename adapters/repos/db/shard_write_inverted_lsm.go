@@ -16,6 +16,7 @@ import (
 	"math"
 
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/storobj"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -282,6 +283,22 @@ func (s *Shard) addPropLengths(props []inverted.Property) error {
 	}
 
 	return nil
+}
+
+func (s *Shard) subtractPropLengths(props []inverted.Property) error {
+	for _, prop := range props {
+		if !prop.HasFrequency {
+			continue
+		}
+
+		if err := s.propLengths.UnTrackProperty(prop.Name, float32(len(prop.Items))); err != nil {
+			return err
+		}
+
+	}
+
+	return nil
+	
 }
 
 func (s *Shard) extendDimensionTrackerLSM(
