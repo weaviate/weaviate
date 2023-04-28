@@ -98,6 +98,14 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 		}
 	}
 
+	if _, ok := source["properties"]; ok {
+		properties := source["properties"].([]interface{})
+		args.Properties = make([]string, len(properties))
+		for i, value := range properties {
+			args.Properties[i] = value.(string)
+		}
+	}
+
 	args.Type = "hybrid"
 	return &args, nil
 }
