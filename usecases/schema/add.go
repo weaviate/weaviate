@@ -252,6 +252,7 @@ func (m *Manager) migrateClassSettings(class *models.Class) {
 
 func (m *Manager) migratePropertySettings(prop *models.Property) {
 	m.migratePropertyDataTypeAndTokenization(prop)
+	m.migratePropertyIndexInverted(prop)
 }
 
 // as of v1.19 DataTypeString and DataTypeStringArray are deprecated
@@ -274,6 +275,22 @@ func (m *Manager) migratePropertyDataTypeAndTokenization(prop *models.Property) 
 	case models.PropertyTokenizationField:
 		// stays field
 	}
+}
+
+// as of v1.19 IndexInverted is deprecated and replaced with
+// IndexFilterable (set inverted index)
+// and IndexSearchable (map inverted index with term frequencies;
+// therefore applicable only to text/text[] data types)
+func (m *Manager) migratePropertyIndexInverted(prop *models.Property) {
+	// if none of new options is set, use inverted settings
+	if prop.IndexFilterable == nil && prop.IndexSearchable == nil {
+		if prop.IndexInverted != nil {
+			prop.IndexFilterable = prop.IndexInverted
+			prop.IndexSearchable = prop.IndexInverted
+		}
+	}
+	// new options have precedence so inverted can be reset
+	prop.IndexInverted = nil
 }
 
 func (m *Manager) validateCanAddClass(

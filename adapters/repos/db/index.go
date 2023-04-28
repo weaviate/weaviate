@@ -162,12 +162,13 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 }
 
 func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
-	for name, shard := range i.Shards {
-		if err := shard.addProperty(ctx, prop); err != nil {
-			return errors.Wrapf(err, "add property to shard %q", name)
-		}
+	eg := &errgroup.Group{}
+	for _, shard := range i.Shards {
+		shard.createPropertyIndex(ctx, prop, eg)
 	}
-
+	if err := eg.Wait(); err != nil {
+		return errors.Wrapf(err, "extend idx '%s' with property '%s", i.ID(), prop.Name)
+	}
 	return nil
 }
 
@@ -195,26 +196,6 @@ func (i *Index) addTimestampProperties(ctx context.Context) error {
 	for name, shard := range i.Shards {
 		if err := shard.addTimestampProperties(ctx); err != nil {
 			return errors.Wrapf(err, "add timestamp properties to shard %q", name)
-		}
-	}
-
-	return nil
-}
-
-func (i *Index) addNullStateProperty(ctx context.Context, prop *models.Property) error {
-	for name, shard := range i.Shards {
-		if err := shard.addNullState(ctx, prop); err != nil {
-			return errors.Wrapf(err, "add null state to shard %q", name)
-		}
-	}
-
-	return nil
-}
-
-func (i *Index) addPropertyLength(ctx context.Context, prop *models.Property) error {
-	for name, shard := range i.Shards {
-		if err := shard.addPropertyLength(ctx, prop); err != nil {
-			return errors.Wrapf(err, "add property length to shard %q", name)
 		}
 	}
 
@@ -807,9 +788,8 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		propHash := cl.Properties
 		// Get keys of hash
 		for _, v := range propHash {
-			if (v.DataType[0] == "text" || v.DataType[0] == "string") &&
-				schema.PropertyIsIndexed(i.getSchema.GetSchemaSkipAuth().Objects,
-					i.Config.ClassName.String(), v.Name) { // Also the array types?
+			if inverted.PropertyIsSearchable(i.getSchema.GetSchemaSkipAuth().Objects,
+				i.Config.ClassName.String(), v.Name) {
 				keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
 			}
 		}

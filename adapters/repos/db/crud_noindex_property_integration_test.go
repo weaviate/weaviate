@@ -37,6 +37,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
+	vFalse := false
 	logger, _ := test.NewNullLogger()
 	thingclass := &models.Class{
 		Class:               "ThingClassWithNoIndexProps",
@@ -47,10 +48,11 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 			DataType:     schema.DataTypeText.PropString(),
 			Tokenization: models.PropertyTokenizationWhitespace,
 		}, {
-			Name:          "hiddenStringProp",
-			DataType:      schema.DataTypeText.PropString(),
-			Tokenization:  models.PropertyTokenizationWhitespace,
-			IndexInverted: ptBool(false),
+			Name:            "hiddenStringProp",
+			DataType:        schema.DataTypeText.PropString(),
+			Tokenization:    models.PropertyTokenizationWhitespace,
+			IndexFilterable: &vFalse,
+			IndexSearchable: &vFalse,
 		}},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
@@ -153,8 +155,4 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 			"timestamps must be indexed to be filterable! "+
 				"add `indexTimestamps: true` to the invertedIndexConfig")
 	})
-}
-
-func ptBool(in bool) *bool {
-	return &in
 }

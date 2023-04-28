@@ -68,7 +68,7 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 			return nil, fmt.Errorf("prop %q has no datatype", prop.Name)
 		}
 
-		if prop.IndexInverted != nil && !*prop.IndexInverted {
+		if !IsIndexable(prop) {
 			continue
 		}
 
@@ -100,13 +100,14 @@ func (a *Analyzer) analyzeIDProp(id strfmt.UUID) (*Property, error) {
 		return nil, fmt.Errorf("marshal id prop: %w", err)
 	}
 	return &Property{
-		Name:         filters.InternalPropID,
-		HasFrequency: false,
+		Name: filters.InternalPropID,
 		Items: []Countable{
 			{
 				Data: value,
 			},
 		},
+		IsFilterable: IsFilterableIdProp,
+		IsSearchable: IsSearchableIdProp,
 	}, nil
 }
 
@@ -121,8 +122,10 @@ func (a *Analyzer) analyzeTimestampProps(input map[string]any) ([]Property, erro
 			return nil, fmt.Errorf("analyze create timestamp prop: %w", err)
 		}
 		props = append(props, Property{
-			Name:  filters.InternalPropCreationTimeUnix,
-			Items: []Countable{{Data: b}},
+			Name:         filters.InternalPropCreationTimeUnix,
+			Items:        []Countable{{Data: b}},
+			IsFilterable: IsFilterableTimestampProp,
+			IsSearchable: IsSearchableTimestampProp,
 		})
 	}
 
@@ -132,8 +135,10 @@ func (a *Analyzer) analyzeTimestampProps(input map[string]any) ([]Property, erro
 			return nil, fmt.Errorf("analyze update timestamp prop: %w", err)
 		}
 		props = append(props, Property{
-			Name:  filters.InternalPropLastUpdateTimeUnix,
-			Items: []Countable{{Data: b}},
+			Name:         filters.InternalPropLastUpdateTimeUnix,
+			Items:        []Countable{{Data: b}},
+			IsFilterable: IsFilterableTimestampProp,
+			IsSearchable: IsSearchableTimestampProp,
 		})
 	}
 
@@ -198,29 +203,17 @@ func (a *Analyzer) extendPropertiesWithPrimitive(properties *[]Property,
 	return nil
 }
 
-func HasFrequency(dt schema.DataType) bool {
-	switch dt {
-	case schema.DataTypeText, schema.DataTypeTextArray:
-		return true
-	default:
-		return false
-	}
-}
-
 func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Property, error) {
-	var hasFrequency bool
 	var items []Countable
 	dt := schema.DataType(prop.DataType[0])
 	switch dt {
 	case schema.DataTypeTextArray:
-		hasFrequency = HasFrequency(dt)
 		in, err := stringsFromValues(prop, values)
 		if err != nil {
 			return nil, err
 		}
 		items = a.TextArray(prop.Tokenization, in)
 	case schema.DataTypeIntArray:
-		hasFrequency = HasFrequency(dt)
 		in := make([]int64, len(values))
 		for i, value := range values {
 			if asJsonNumber, ok := value.(json.Number); ok {
@@ -250,7 +243,6 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	case schema.DataTypeNumberArray:
-		hasFrequency = HasFrequency(dt)
 		in := make([]float64, len(values))
 		for i, value := range values {
 			if asJsonNumber, ok := value.(json.Number); ok {
@@ -274,7 +266,6 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	case schema.DataTypeBooleanArray:
-		hasFrequency = HasFrequency(dt)
 		in := make([]bool, len(values))
 		for i, value := range values {
 			asBool, ok := value.(bool)
@@ -290,7 +281,6 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	case schema.DataTypeDateArray:
-		hasFrequency = HasFrequency(dt)
 		in := make([]int64, len(values))
 		for i, value := range values {
 			// dates can be either a date-string or directly a time object. Try to parse both
@@ -313,7 +303,6 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	case schema.DataTypeUUIDArray:
-		hasFrequency = false
 		parsed, err := validation.ParseUUIDArray(values)
 		if err != nil {
 			return nil, fmt.Errorf("parse uuid array: %w", err)
@@ -332,8 +321,9 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 	return &Property{
 		Name:         prop.Name,
 		Items:        items,
-		HasFrequency: hasFrequency,
 		Length:       len(values),
+		IsFilterable: IsFilterable(prop),
+		IsSearchable: IsSearchable(prop),
 	}, nil
 }
 
@@ -350,13 +340,11 @@ func stringsFromValues(prop *models.Property, values []any) ([]string, error) {
 }
 
 func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Property, error) {
-	var hasFrequency bool
 	var items []Countable
 	propertyLength := -1 // will be overwritten for string/text, signals not to add the other types.
 	dt := schema.DataType(prop.DataType[0])
 	switch dt {
 	case schema.DataTypeText:
-		hasFrequency = HasFrequency(dt)
 		asString, ok := value.(string)
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
@@ -364,7 +352,6 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 		items = a.Text(prop.Tokenization, asString)
 		propertyLength = utf8.RuneCountInString(asString)
 	case schema.DataTypeInt:
-		hasFrequency = HasFrequency(dt)
 		if asFloat, ok := value.(float64); ok {
 			// unmarshaling from json into a dynamic schema will assume every number
 			// is a float64
@@ -387,7 +374,6 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	case schema.DataTypeNumber:
-		hasFrequency = HasFrequency(dt)
 		asFloat, ok := value.(float64)
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be of type float64, but got %T", prop.Name, value)
@@ -399,7 +385,6 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	case schema.DataTypeBoolean:
-		hasFrequency = HasFrequency(dt)
 		asBool, ok := value.(bool)
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be of type bool, but got %T", prop.Name, value)
@@ -411,7 +396,6 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	case schema.DataTypeDate:
-		hasFrequency = HasFrequency(dt)
 		var err error
 		if asString, ok := value.(string); ok {
 			// for example when patching the date may have been loaded as a string
@@ -431,7 +415,6 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 		}
 	case schema.DataTypeUUID:
 		var err error
-		hasFrequency = false
 
 		if asString, ok := value.(string); ok {
 			// for example when patching the uuid may have been loaded as a string
@@ -458,8 +441,9 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 	return &Property{
 		Name:         prop.Name,
 		Items:        items,
-		HasFrequency: hasFrequency,
 		Length:       propertyLength,
+		IsFilterable: IsFilterable(prop),
+		IsSearchable: IsSearchable(prop),
 	}, nil
 }
 
@@ -523,8 +507,9 @@ func (a *Analyzer) analyzeRefPropCount(prop *models.Property,
 	return &Property{
 		Name:         helpers.MetaCountProp(prop.Name),
 		Items:        items,
-		HasFrequency: false,
 		Length:       len(value),
+		IsFilterable: IsFilterable(prop),
+		IsSearchable: IsSearchable(prop),
 	}, nil
 }
 
@@ -539,7 +524,8 @@ func (a *Analyzer) analyzeRefProp(prop *models.Property,
 	return &Property{
 		Name:         prop.Name,
 		Items:        items,
-		HasFrequency: false,
+		IsFilterable: IsFilterable(prop),
+		IsSearchable: IsSearchable(prop),
 	}, nil
 }
 
@@ -572,3 +558,59 @@ func convertToUntyped[T comparable](in []T) []any {
 	}
 	return out
 }
+
+// Indicates whether property should be indexed
+// Index contains document ids having property of given value
+// and number of occurrences in the property
+// (index created with help of bucket of StrategyMapCollection)
+func IsSearchable(prop *models.Property) bool {
+	switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
+	case schema.DataTypeText, schema.DataTypeTextArray:
+		// by default property is searchable only for text/text[] props
+		if prop.IndexSearchable == nil {
+			return true
+		}
+		return *prop.IndexSearchable
+	default:
+		return false
+	}
+}
+
+// Indicates whether property should be indexed
+// Index contains only document ids having property of given value
+// (index created with help of bucket of StrategyRoaringSet)
+func IsFilterable(prop *models.Property) bool {
+	// by default property is filterable
+	if prop.IndexFilterable == nil {
+		return true
+	}
+	return *prop.IndexFilterable
+}
+
+func IsIndexable(prop *models.Property) bool {
+	return IsFilterable(prop) || IsSearchable(prop)
+}
+
+const (
+	// allways
+	IsFilterableIdProp = true
+	IsSearchableIdProp = false
+
+	// only if index.invertedIndexConfig.IndexTimestamps set
+	IsFilterableTimestampProp = true
+	IsSearchableTimestampProp = false
+
+	// only if property.indexFilterable or property.indexSearchable set
+	IsFilterableMetaCount = true
+	IsSearchableMetaCount = false
+
+	// only if index.invertedIndexConfig.IndexNullState set
+	// and either property.indexFilterable or property.indexSearchable set
+	IsFilterablePropNull = true
+	IsSearchablePropNull = false
+
+	// only if index.invertedIndexConfig.IndexPropertyLength set
+	// and either property.indexFilterable or property.indexSearchable set
+	IsFilterablePropLength = true
+	IsSearchablePropLength = false
+)
