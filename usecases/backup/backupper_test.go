@@ -682,6 +682,8 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		ch := fakeBackupDescriptor(genClassDescriptions(cls, cls2)...)
 		sourcer.On("BackupDescriptors", any, backupID, mock.Anything).Return(ch).RunFn = func(a mock.Arguments) {
 			m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName})
+			// give the abort request time to propagate
+			time.Sleep(time.Millisecond)
 		}
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 

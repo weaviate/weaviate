@@ -218,6 +218,10 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	classes := req.Include
 	if len(classes) == 0 {
 		classes = s.backupper.selector.ListClasses(ctx)
+		// no classes exist in the DB
+		if len(classes) == 0 {
+			return nil, fmt.Errorf("no available classes to backup, there's nothing to do here")
+		}
 	}
 	if classes = filterClasses(classes, req.Exclude); len(classes) == 0 {
 		return nil, fmt.Errorf("empty class list: please choose from : %v", classes)
