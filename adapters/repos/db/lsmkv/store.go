@@ -355,33 +355,8 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 		return errors.Wrapf(err, "failed moving replacement bucket dir '%s'", currReplacementBucketDir)
 	}
 
-	updateDir := func(bucket *Bucket, currBucketDir, newBucketDir string) {
-		updatePath := func(src string) string {
-			return strings.Replace(src, currBucketDir, newBucketDir, 1)
-		}
-
-		bucket.flushLock.Lock()
-		bucket.dir = newBucketDir
-		if bucket.active != nil {
-			bucket.active.path = updatePath(bucket.active.path)
-			bucket.active.commitlog.path = updatePath(bucket.active.commitlog.path)
-		}
-		if bucket.flushing != nil {
-			bucket.flushing.path = updatePath(bucket.flushing.path)
-			bucket.flushing.commitlog.path = updatePath(bucket.flushing.commitlog.path)
-		}
-		bucket.flushLock.Unlock()
-
-		bucket.disk.maintenanceLock.Lock()
-		bucket.disk.dir = newBucketDir
-		for _, segment := range bucket.disk.segments {
-			segment.path = updatePath(segment.path)
-		}
-		bucket.disk.maintenanceLock.Unlock()
-	}
-
-	updateDir(bucket, currBucketDir, newBucketDir)
-	updateDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir)
+	s.updateBucketDir(bucket, currBucketDir, newBucketDir)
+	s.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir)
 
 	if err := bucket.Shutdown(ctx); err != nil {
 		return errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
@@ -391,4 +366,55 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	}
 
 	return nil
+}
+
+func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName string) error {
+	s.bucketAccessLock.Lock()
+	defer s.bucketAccessLock.Unlock()
+
+	currBucket := s.bucketsByName[bucketName]
+	if currBucket == nil {
+		return fmt.Errorf("bucket '%s' not found", bucketName)
+	}
+	newBucket := s.bucketsByName[newBucketName]
+	if newBucket != nil {
+		return fmt.Errorf("bucket '%s' already exists", newBucketName)
+	}
+	s.bucketsByName[newBucketName] = currBucket
+	delete(s.bucketsByName, bucketName)
+
+	currBucketDir := currBucket.dir
+	newBucketDir := s.bucketDir(newBucketName)
+
+	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
+		return errors.Wrapf(err, "failed renaming bucket dir '%s' to '%s'", currBucketDir, newBucketDir)
+	}
+
+	s.updateBucketDir(currBucket, currBucketDir, newBucketDir)
+	return nil
+}
+
+func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) {
+	updatePath := func(src string) string {
+		return strings.Replace(src, bucketDir, newBucketDir, 1)
+	}
+
+	bucket.flushLock.Lock()
+	bucket.dir = newBucketDir
+	if bucket.active != nil {
+		bucket.active.path = updatePath(bucket.active.path)
+		bucket.active.commitlog.path = updatePath(bucket.active.commitlog.path)
+	}
+	if bucket.flushing != nil {
+		bucket.flushing.path = updatePath(bucket.flushing.path)
+		bucket.flushing.commitlog.path = updatePath(bucket.flushing.commitlog.path)
+	}
+	bucket.flushLock.Unlock()
+
+	bucket.disk.maintenanceLock.Lock()
+	bucket.disk.dir = newBucketDir
+	for _, segment := range bucket.disk.segments {
+		segment.path = updatePath(segment.path)
+	}
+	bucket.disk.maintenanceLock.Unlock()
 }

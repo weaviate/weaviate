@@ -69,6 +69,17 @@ type Shard struct {
 	docIdLock []sync.Mutex
 	// replication
 	replicationMap pendingReplicaTasks
+
+	// Indicates whether searchable buckets should be used
+	// when filterable buckets are missing for text/text[] properties
+	// This can happen for db created before v1.19, where
+	// only map (now called searchable) buckets were created as inverted
+	// indexes for text/text[] props.
+	// Now roaring set (filterable) and map (searchable) buckets can
+	// coexists for text/text[] props, and by default both are enabled.
+	// So despite property's IndexFilterable and IndexSearchable settings
+	// being enabled, only searchable bucket exists
+	fallbackToSearchable bool
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -617,4 +628,8 @@ func (s *Shard) objectCount() int {
 	}
 
 	return b.Count()
+}
+
+func (s *Shard) isFallbackToSearchable() bool {
+	return s.fallbackToSearchable
 }

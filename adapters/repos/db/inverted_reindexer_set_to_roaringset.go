@@ -15,24 +15,21 @@ import (
 	"context"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/schema"
 )
 
 type ShardInvertedReindexTaskSetToRoaringSet struct{}
 
 func (t *ShardInvertedReindexTaskSetToRoaringSet) GetPropertiesToReindex(ctx context.Context,
-	store *lsmkv.Store, indexConfig IndexConfig, invertedIndexConfig schema.InvertedIndexConfig,
-	logger logrus.FieldLogger,
+	shard *Shard,
 ) ([]ReindexableProperty, error) {
 	reindexableProperties := []ReindexableProperty{}
 
 	bucketOptions := []lsmkv.BucketOption{
-		lsmkv.WithIdleThreshold(time.Duration(indexConfig.MemtablesFlushIdleAfter) * time.Second),
+		lsmkv.WithIdleThreshold(time.Duration(shard.index.Config.MemtablesFlushIdleAfter) * time.Second),
 	}
 
-	for name, bucket := range store.GetBucketsByName() {
+	for name, bucket := range shard.store.GetBucketsByName() {
 		if bucket.Strategy() == lsmkv.StrategySetCollection &&
 			bucket.DesiredStrategy() == lsmkv.StrategyRoaringSet {
 
@@ -90,4 +87,8 @@ func (t *ShardInvertedReindexTaskSetToRoaringSet) GetPropertiesToReindex(ctx con
 	}
 
 	return reindexableProperties, nil
+}
+
+func (t *ShardInvertedReindexTaskSetToRoaringSet) OnPostResumeStore(ctx context.Context, shard *Shard) error {
+	return nil
 }

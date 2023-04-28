@@ -238,14 +238,9 @@ func (s *Searcher) docBitmapGeo(ctx context.Context, pv *propValuePair) (docBitm
 
 // TODO move to some helper/utils?
 func (s *Searcher) getHashBucket(pv *propValuePair) (*lsmkv.Bucket, error) {
-	propName := pv.prop
-	if pv.operator == filters.OperatorIsNull {
-		propName += filters.InternalNullIndex
-	}
-
-	hashBucket := s.store.Bucket(helpers.HashBucketFromPropNameLSM(propName))
+	hashBucket := s.store.Bucket(helpers.HashBucketFromPropNameLSM(pv.prop))
 	if hashBucket == nil {
-		return nil, errors.Errorf("no hash bucket for prop '%s' found", propName)
+		return nil, errors.Errorf("no hash bucket for prop '%s' found", pv.prop)
 	}
 	return hashBucket, nil
 }

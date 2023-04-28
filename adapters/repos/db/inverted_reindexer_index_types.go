@@ -22,41 +22,44 @@ const (
 	IndexTypeHashPropValue
 	IndexTypeHashPropLength
 	IndexTypeHashPropNull
+	IndexTypePropSearchableValue
 )
 
-func IsSupportedPropertyIndexType(indexType PropertyIndexType) bool {
+func isSupportedPropertyIndexType(indexType PropertyIndexType) bool {
 	switch indexType {
 	case IndexTypePropValue,
 		IndexTypePropLength,
 		IndexTypePropNull,
 		IndexTypeHashPropValue,
 		IndexTypeHashPropLength,
-		IndexTypeHashPropNull:
+		IndexTypeHashPropNull,
+		IndexTypePropSearchableValue:
 		return true
 	default:
 		return false
 	}
 }
 
-func CheckSupportedPropertyIndexType(indexType PropertyIndexType) {
-	if !IsSupportedPropertyIndexType(indexType) {
+func checkSupportedPropertyIndexType(indexType PropertyIndexType) {
+	if !isSupportedPropertyIndexType(indexType) {
 		panic("unsupported property index type")
 	}
 }
 
 // Some index types are supported by specific strategies only
 // Method ensures both index type and strategy work together
-func IsIndexTypeSupportedByStrategy(indexType PropertyIndexType, strategy string) bool {
+func isIndexTypeSupportedByStrategy(indexType PropertyIndexType, strategy string) bool {
 	switch indexType {
 	case IndexTypeHashPropValue,
 		IndexTypeHashPropLength,
 		IndexTypeHashPropNull:
 		return lsmkv.IsExpectedStrategy(strategy, lsmkv.StrategyReplace)
 	case IndexTypePropLength,
-		IndexTypePropNull:
+		IndexTypePropNull,
+		IndexTypePropValue:
 		return lsmkv.IsExpectedStrategy(strategy, lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
-	case IndexTypePropValue:
-		return lsmkv.IsExpectedStrategy(strategy, lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet, lsmkv.StrategyMapCollection)
+	case IndexTypePropSearchableValue:
+		return lsmkv.IsExpectedStrategy(strategy, lsmkv.StrategyMapCollection)
 	}
 	return false
 }

@@ -46,6 +46,10 @@ func FromEnv(config *Config) error {
 		config.ReindexSetToRoaringsetAtStartup = true
 	}
 
+	if enabled(os.Getenv("INDEX_MISSING_TEXT_FILTERABLE_AT_STARTUP")) {
+		config.IndexMissingTextFilterableAtStartup = true
+	}
+
 	if v := os.Getenv("PROMETHEUS_MONITORING_PORT"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {

@@ -36,15 +36,16 @@ import (
 )
 
 type Searcher struct {
-	logger        logrus.FieldLogger
-	store         *lsmkv.Store
-	schema        schema.Schema
-	rowCache      cacher
-	classSearcher ClassSearcher // to allow recursive searches on ref-props
-	propIndices   propertyspecific.Indices
-	deletedDocIDs DeletedDocIDChecker
-	stopwords     stopwords.StopwordDetector
-	shardVersion  uint16
+	logger                 logrus.FieldLogger
+	store                  *lsmkv.Store
+	schema                 schema.Schema
+	rowCache               cacher
+	classSearcher          ClassSearcher // to allow recursive searches on ref-props
+	propIndices            propertyspecific.Indices
+	deletedDocIDs          DeletedDocIDChecker
+	stopwords              stopwords.StopwordDetector
+	shardVersion           uint16
+	isFallbackToSearchable IsFallbackToSearchable
 }
 
 type cacher interface {
@@ -60,18 +61,19 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	schema schema.Schema, rowCache cacher,
 	propIndices propertyspecific.Indices, classSearcher ClassSearcher,
 	deletedDocIDs DeletedDocIDChecker, stopwords stopwords.StopwordDetector,
-	shardVersion uint16,
+	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
 ) *Searcher {
 	return &Searcher{
-		logger:        logger,
-		store:         store,
-		schema:        schema,
-		rowCache:      rowCache,
-		propIndices:   propIndices,
-		classSearcher: classSearcher,
-		deletedDocIDs: deletedDocIDs,
-		stopwords:     stopwords,
-		shardVersion:  shardVersion,
+		logger:                 logger,
+		store:                  store,
+		schema:                 schema,
+		rowCache:               rowCache,
+		propIndices:            propIndices,
+		classSearcher:          classSearcher,
+		deletedDocIDs:          deletedDocIDs,
+		stopwords:              stopwords,
+		shardVersion:           shardVersion,
+		isFallbackToSearchable: isFallbackToSearchable,
 	}
 }
 
@@ -516,7 +518,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 		return nil, fmt.Errorf("expected value type to be text, got %v", propType)
 	}
 
-	isFilterable := IsFilterable(prop)
+	isFilterable := IsFilterable(prop) && !s.isFallbackToSearchable()
 	isSearchable := IsSearchable(prop)
 	propValuePairs := make([]*propValuePair, 0, len(terms))
 	for _, term := range terms {
