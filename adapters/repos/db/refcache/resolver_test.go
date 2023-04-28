@@ -410,7 +410,7 @@ func TestResolver(t *testing.T) {
 						},
 					},
 					AdditionalProperties: models.AdditionalProperties{
-						"group": additional.Group{
+						"group": &additional.Group{
 							Hits: []map[string]interface{}{
 								{
 									"nestedRef": models.MultipleRef{
@@ -500,7 +500,7 @@ func TestResolver(t *testing.T) {
 						},
 					},
 					AdditionalProperties: models.AdditionalProperties{
-						"group": additional.Group{
+						"group": &additional.Group{
 							Hits: []map[string]interface{}{
 								{
 									"nestedRef": []interface{}{

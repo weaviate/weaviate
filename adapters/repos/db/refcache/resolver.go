@@ -107,7 +107,7 @@ func (r *Resolver) parseAdditionalGroup(
 	properties search.SelectProperties,
 ) (models.AdditionalProperties, error) {
 	if additionalProperties != nil && additionalProperties["group"] != nil {
-		if group, ok := additionalProperties["group"].(additional.Group); ok {
+		if group, ok := additionalProperties["group"].(*additional.Group); ok {
 			for j, hit := range group.Hits {
 				schema, err := r.parseSchema(hit, r.getGroupSelectProperties(properties))
 				if err != nil {

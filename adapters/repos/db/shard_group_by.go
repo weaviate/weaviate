@@ -105,12 +105,17 @@ DOCS_LOOP:
 		}
 	}
 
-	objs := make([]*storobj.Object, len(groups))
-	dists := make([]float32, len(groups))
+	objs := make([]*storobj.Object, len(groupsOrdered))
+	dists := make([]float32, len(groupsOrdered))
+	objIDs := []uint64{}
 	for i, val := range groupsOrdered {
 		docIDs := groups[val]
-		unmarshalled := docIDObject[docIDs[0]]
+		unmarshalled, err := g.getUnmarshalled(docIDs[0], docIDObject, objIDs)
+		if err != nil {
+			return nil, nil, err
+		}
 		dist := docIDDistance[docIDs[0]]
+		objIDs = append(objIDs, docIDs[0])
 		hits := make([]map[string]interface{}, len(docIDs))
 		for j, docID := range docIDs {
 			props := map[string]interface{}{}
@@ -143,6 +148,35 @@ DOCS_LOOP:
 	}
 
 	return objs, dists, nil
+}
+
+func (g *grouper) getUnmarshalled(docID uint64,
+	docIDObject map[uint64]*storobj.Object,
+	objIDs []uint64,
+) (*storobj.Object, error) {
+	containsDocID := false
+	for i := range objIDs {
+		if objIDs[i] == docID {
+			containsDocID = true
+			break
+		}
+	}
+	if containsDocID {
+		// we have already added this object containing a group to the result array
+		// and we need to unmarshall it again so that a group won't get overridden
+		docIDBytes := make([]byte, 8)
+		binary.LittleEndian.PutUint64(docIDBytes, docID)
+		objData, err := g.objBucket.GetBySecondary(0, docIDBytes)
+		if err != nil {
+			return nil, fmt.Errorf("%w: could not get obj by doc id %d", err, docID)
+		}
+		unmarshalled, err := storobj.FromBinaryOptional(objData, g.additional)
+		if err != nil {
+			return nil, fmt.Errorf("%w: unmarshal data object doc id %d", err, docID)
+		}
+		return unmarshalled, nil
+	}
+	return docIDObject[docID], nil
 }
 
 func (g *grouper) getValues(values []string) []string {
