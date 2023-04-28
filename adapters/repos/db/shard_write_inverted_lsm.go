@@ -297,7 +297,6 @@ func (s *Shard) subtractPropLengths(props []inverted.Property) error {
 	}
 
 	return nil
-	
 }
 
 func (s *Shard) extendDimensionTrackerLSM(

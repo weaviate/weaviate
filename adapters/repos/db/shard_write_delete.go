@@ -54,7 +54,6 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 		return errors.Wrap(err, "get existing doc id from object binary")
 	}
 
-
 	err = bucket.Delete(idBytes)
 	if err != nil {
 		return errors.Wrap(err, "delete object from bucket")

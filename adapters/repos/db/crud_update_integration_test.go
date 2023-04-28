@@ -19,11 +19,11 @@ import (
 	"math/rand"
 	"testing"
 	"time"
-	
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -32,7 +32,6 @@ import (
 	libschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 )
 
 // Updates are non trivial, because vector indices are built under the
@@ -83,7 +82,7 @@ func TestUpdateJourney(t *testing.T) {
 
 		sum, count, mean, err := tracker.PropertyTally("name")
 		require.Nil(t, err)
-		assert.Equal(t, 4, sum) 
+		assert.Equal(t, 4, sum)
 		assert.Equal(t, 4, count)
 		assert.InEpsilon(t, 1, mean, 0.1)
 	})
@@ -158,18 +157,17 @@ func TestUpdateJourney(t *testing.T) {
 				additional.Properties{})
 			require.Nil(t, err)
 
-			//time.Sleep(20*time.Second)
+			// time.Sleep(20*time.Second)
 			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil)
 			require.Nil(t, err)
-		
 
 			tracker := getTracker(repo, "UpdateTestClass")
 
 			require.Nil(t, err)
-	
+
 			sum, count, mean, err := tracker.PropertyTally("name")
 			require.Nil(t, err)
-			assert.Equal(t, 4, sum) 
+			assert.Equal(t, 4, sum)
 			assert.Equal(t, 4, count)
 			assert.InEpsilon(t, 1, mean, 0.1)
 		})
@@ -224,17 +222,17 @@ func TestUpdateJourney(t *testing.T) {
 			require.Nil(t, err)
 
 			old.Schema.(map[string]interface{})["intProp"] = int64(21)
-			//time.Sleep(20*time.Second)
+			// time.Sleep(20*time.Second)
 			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil)
 			require.Nil(t, err)
 
 			tracker := getTracker(repo, "UpdateTestClass")
 
 			require.Nil(t, err)
-	
+
 			sum, count, mean, err := tracker.PropertyTally("name")
 			require.Nil(t, err)
-			assert.Equal(t, 4, sum) 
+			assert.Equal(t, 4, sum)
 			assert.Equal(t, 4, count)
 			assert.InEpsilon(t, 1, mean, 0.1)
 		})
@@ -279,20 +277,14 @@ func TestUpdateJourney(t *testing.T) {
 		assert.ElementsMatch(t, expectedInAnyOrder, searchInv(t, filters.OperatorEqual, 30))
 	})
 
-
-
-
-
 	t.Run("test recount", func(t *testing.T) {
-
-
 		tracker := getTracker(repo, "UpdateTestClass")
 
 		require.Nil(t, err)
 
 		sum, count, mean, err := tracker.PropertyTally("name")
 		require.Nil(t, err)
-		assert.Equal(t, 4, sum) 
+		assert.Equal(t, 4, sum)
 		assert.Equal(t, 4, count)
 		assert.InEpsilon(t, 1, mean, 0.1)
 
@@ -389,7 +381,6 @@ func extractPropValues(in search.Results, propName string) []interface{} {
 	return out
 }
 
-
 func getTracker(repo *DB, className string) *inverted.JsonPropertyLengthTracker {
 	shards := repo.GetIndex("UpdateTestClass").Shards
 	var shard *Shard
@@ -398,9 +389,6 @@ func getTracker(repo *DB, className string) *inverted.JsonPropertyLengthTracker 
 	}
 
 	tracker := shard.propLengths
-
-	
-
 
 	return tracker
 }
