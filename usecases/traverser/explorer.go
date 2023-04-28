@@ -436,7 +436,7 @@ func (e *Explorer) extractAdditionalPropertiesFromGroupRefs(
 	additionalGroup interface{},
 	params search.SelectProperties,
 ) {
-	if group, ok := additionalGroup.(additional.Group); ok {
+	if group, ok := additionalGroup.(*additional.Group); ok {
 		if len(group.Hits) > 0 {
 			var groupSelectProperties search.SelectProperties
 			for _, selectProp := range params {

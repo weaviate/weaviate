@@ -153,7 +153,7 @@ func (c *Cacher) findJobsFromResponse(objects []search.Result, properties search
 
 func (c *Cacher) parseAdditionalGroup(obj search.Result, properties search.SelectProperties) error {
 	if obj.AdditionalProperties != nil && obj.AdditionalProperties["group"] != nil {
-		if group, ok := obj.AdditionalProperties["group"].(additional.Group); ok {
+		if group, ok := obj.AdditionalProperties["group"].(*additional.Group); ok {
 			for _, hitMap := range group.Hits {
 				if err := c.parseSchemaMap(hitMap, c.getGroupSelectProperties(properties)); err != nil {
 					return err

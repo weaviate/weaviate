@@ -612,7 +612,7 @@ func TestCacher(t *testing.T) {
 				"primitive": "foobar",
 			},
 			AdditionalProperties: models.AdditionalProperties{
-				"group": additional.Group{
+				"group": &additional.Group{
 					Hits: []map[string]interface{}{
 						{
 							"primitive": "foobar",
@@ -652,7 +652,7 @@ func TestCacher(t *testing.T) {
 					},
 				},
 				AdditionalProperties: models.AdditionalProperties{
-					"group": additional.Group{
+					"group": &additional.Group{
 						Hits: []map[string]interface{}{
 							{
 								"primitive": "foobar",
@@ -714,7 +714,7 @@ func TestCacher(t *testing.T) {
 				"primitive": "foobar",
 			},
 			AdditionalProperties: models.AdditionalProperties{
-				"group": additional.Group{
+				"group": &additional.Group{
 					Hits: []map[string]interface{}{
 						{
 							"primitive": "foobar",
@@ -761,7 +761,7 @@ func TestCacher(t *testing.T) {
 					},
 				},
 				AdditionalProperties: models.AdditionalProperties{
-					"group": additional.Group{
+					"group": &additional.Group{
 						Hits: []map[string]interface{}{
 							{
 								"primitive": "foobar",
@@ -893,7 +893,7 @@ func TestCacher(t *testing.T) {
 					},
 				},
 				AdditionalProperties: models.AdditionalProperties{
-					"group": additional.Group{
+					"group": &additional.Group{
 						Hits: []map[string]interface{}{
 							{
 								"primitive": "foobar",
