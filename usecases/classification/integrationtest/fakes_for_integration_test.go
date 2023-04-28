@@ -63,8 +63,8 @@ func (m *fakeSchemaGetter) ClusterHealthScore() int {
 }
 
 func (m *fakeSchemaGetter) ResolveParentNodes(_ string, shard string,
-) ([]string, []string, error) {
-	return nil, nil, nil
+) (map[string]string, error) {
+	return nil, nil
 }
 
 func singleShardState() *sharding.State {
@@ -137,8 +137,9 @@ func testSchema() schema.Schema {
 							DataType: []string{string(schema.DataTypeText)},
 						},
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "exactCategory",

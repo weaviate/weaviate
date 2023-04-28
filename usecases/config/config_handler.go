@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/deprecations"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"gopkg.in/yaml.v2"
@@ -70,29 +71,31 @@ type Flags struct {
 
 // Config outline of the config file
 type Config struct {
-	Name                             string         `json:"name" yaml:"name"`
-	Debug                            bool           `json:"debug" yaml:"debug"`
-	QueryDefaults                    QueryDefaults  `json:"query_defaults" yaml:"query_defaults"`
-	QueryMaximumResults              int64          `json:"query_maximum_results" yaml:"query_maximum_results"`
-	Contextionary                    Contextionary  `json:"contextionary" yaml:"contextionary"`
-	Authentication                   Authentication `json:"authentication" yaml:"authentication"`
-	Authorization                    Authorization  `json:"authorization" yaml:"authorization"`
-	Origin                           string         `json:"origin" yaml:"origin"`
-	Persistence                      Persistence    `json:"persistence" yaml:"persistence"`
-	DefaultVectorizerModule          string         `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
-	DefaultVectorDistanceMetric      string         `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
-	EnableModules                    string         `json:"enable_modules" yaml:"enable_modules"`
-	ModulesPath                      string         `json:"modules_path" yaml:"modules_path"`
-	AutoSchema                       AutoSchema     `json:"auto_schema" yaml:"auto_schema"`
-	Cluster                          cluster.Config `json:"cluster" yaml:"cluster"`
-	Monitoring                       Monitoring     `json:"monitoring" yaml:"monitoring"`
-	Profiling                        Profiling      `json:"profiling" yaml:"profiling"`
-	ResourceUsage                    ResourceUsage  `json:"resource_usage" yaml:"resource_usage"`
-	MaxImportGoroutinesFactor        float64        `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
-	MaximumConcurrentGetRequests     int            `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
-	TrackVectorDimensions            bool           `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
-	ReindexVectorDimensionsAtStartup bool           `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
-	ReindexSetToRoaringsetAtStartup  bool           `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
+	Name                                string         `json:"name" yaml:"name"`
+	Debug                               bool           `json:"debug" yaml:"debug"`
+	QueryDefaults                       QueryDefaults  `json:"query_defaults" yaml:"query_defaults"`
+	QueryMaximumResults                 int64          `json:"query_maximum_results" yaml:"query_maximum_results"`
+	Contextionary                       Contextionary  `json:"contextionary" yaml:"contextionary"`
+	Authentication                      Authentication `json:"authentication" yaml:"authentication"`
+	Authorization                       Authorization  `json:"authorization" yaml:"authorization"`
+	Origin                              string         `json:"origin" yaml:"origin"`
+	Persistence                         Persistence    `json:"persistence" yaml:"persistence"`
+	DefaultVectorizerModule             string         `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
+	DefaultVectorDistanceMetric         string         `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
+	EnableModules                       string         `json:"enable_modules" yaml:"enable_modules"`
+	ModulesPath                         string         `json:"modules_path" yaml:"modules_path"`
+	AutoSchema                          AutoSchema     `json:"auto_schema" yaml:"auto_schema"`
+	Cluster                             cluster.Config `json:"cluster" yaml:"cluster"`
+	Monitoring                          Monitoring     `json:"monitoring" yaml:"monitoring"`
+	GRPC                                GRPC           `json:"grpc" yaml:"grpc"`
+	Profiling                           Profiling      `json:"profiling" yaml:"profiling"`
+	ResourceUsage                       ResourceUsage  `json:"resource_usage" yaml:"resource_usage"`
+	MaxImportGoroutinesFactor           float64        `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
+	MaximumConcurrentGetRequests        int            `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
+	TrackVectorDimensions               bool           `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
+	ReindexVectorDimensionsAtStartup    bool           `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
+	ReindexSetToRoaringsetAtStartup     bool           `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
+	IndexMissingTextFilterableAtStartup bool           `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
 }
 
 type moduleProvider interface {
@@ -141,10 +144,13 @@ func (a AutoSchema) Validate() error {
 	if a.DefaultNumber != "int" && a.DefaultNumber != "number" {
 		return fmt.Errorf("autoSchema.defaultNumber must be either 'int' or 'number")
 	}
-	if a.DefaultString != "string" && a.DefaultString != "text" {
+	if a.DefaultString != schema.DataTypeText.String() &&
+		a.DefaultString != schema.DataTypeString.String() {
 		return fmt.Errorf("autoSchema.defaultString must be either 'string' or 'text")
 	}
-	if a.DefaultDate != "date" && a.DefaultDate != "string" && a.DefaultDate != "text" {
+	if a.DefaultDate != "date" &&
+		a.DefaultDate != schema.DataTypeText.String() &&
+		a.DefaultDate != schema.DataTypeString.String() {
 		return fmt.Errorf("autoSchema.defaultDate must be either 'date' or 'string' or 'text")
 	}
 
@@ -164,6 +170,10 @@ type Monitoring struct {
 	Enabled bool   `json:"enabled" yaml:"enabled"`
 	Tool    string `json:"tool" yaml:"tool"`
 	Port    int    `json:"port" yaml:"port"`
+}
+
+type GRPC struct {
+	Port int `json:"port" yaml:"port"`
 }
 
 type Profiling struct {
@@ -276,6 +286,8 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	_ = err // explicitly ignore
 
 	if len(file) > 0 {
+		logger.WithField("action", "config_load").WithField("config_file_path", configFileName).
+			Info("Usage of the weaviate.conf.json file is deprecated and will be removed in the future. Please use environment variables.")
 		config, err := f.parseConfigFile(file, configFileName)
 		if err != nil {
 			return configErr(err)

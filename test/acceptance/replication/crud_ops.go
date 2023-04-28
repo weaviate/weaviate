@@ -100,31 +100,35 @@ func deleteObject(t *testing.T, host, class string, id strfmt.UUID) {
 	assert.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 }
 
-func deleteObjects(t *testing.T, host, class string, path []string, valueString string) {
+func deleteObjects(t *testing.T, host, class string, path []string, valueText string) {
 	helper.SetupClient(host)
 
 	batchDelete := &models.BatchDelete{
 		Match: &models.BatchDeleteMatch{
 			Class: class,
 			Where: &models.WhereFilter{
-				Operator:    filters.OperatorLike.Name(),
-				Path:        path,
-				ValueString: &valueString,
+				Operator:  filters.OperatorLike.Name(),
+				Path:      path,
+				ValueText: &valueText,
 			},
 		},
 	}
 	helper.DeleteObjectsBatch(t, batchDelete)
 
-	resp := gqlGet(t, host, class)
+	resp := gqlGet(t, host, class, replica.All)
 	assert.Empty(t, resp)
 }
 
-func gqlGet(t *testing.T, host, class string, fields ...string) []interface{} {
+func gqlGet(t *testing.T, host, class string, cl replica.ConsistencyLevel, fields ...string) []interface{} {
 	helper.SetupClient(host)
 
-	q := "{Get {" + class + " {%s}}}"
+	if cl == "" {
+		cl = replica.Quorum
+	}
+
+	q := fmt.Sprintf("{Get {%s (consistencyLevel: %s)", class, cl) + " {%s}}}"
 	if len(fields) == 0 {
-		fields = []string{"_additional{id}"}
+		fields = []string{"_additional{id isConsistent}"}
 	}
 	q = fmt.Sprintf(q, strings.Join(fields, " "))
 

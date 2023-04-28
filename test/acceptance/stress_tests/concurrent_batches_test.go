@@ -27,6 +27,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 type batch struct {
@@ -87,9 +88,10 @@ func createSchemaRequest(url string) *http.Request {
 				Name:        "counter2",
 			},
 			{
-				DataType:    []string{"string"},
-				Description: "The value of the counter in the dataset",
-				Name:        "something",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+				Description:  "The value of the counter in the dataset",
+				Name:         "something",
 			},
 		},
 		VectorIndexConfig: map[string]interface{}{

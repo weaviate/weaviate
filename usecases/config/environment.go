@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
@@ -43,6 +44,10 @@ func FromEnv(config *Config) error {
 
 	if enabled(os.Getenv("REINDEX_SET_TO_ROARINGSET_AT_STARTUP")) {
 		config.ReindexSetToRoaringsetAtStartup = true
+	}
+
+	if enabled(os.Getenv("INDEX_MISSING_TEXT_FILTERABLE_AT_STARTUP")) {
+		config.IndexMissingTextFilterableAtStartup = true
 	}
 
 	if v := os.Getenv("PROMETHEUS_MONITORING_PORT"); v != "" {
@@ -191,7 +196,7 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("AUTOSCHEMA_ENABLED"); v != "" {
 		config.AutoSchema.Enabled = !(strings.ToLower(v) == "false")
 	}
-	config.AutoSchema.DefaultString = "text"
+	config.AutoSchema.DefaultString = schema.DataTypeText.String()
 	if v := os.Getenv("AUTOSCHEMA_DEFAULT_STRING"); v != "" {
 		config.AutoSchema.DefaultString = v
 	}
@@ -236,6 +241,14 @@ func FromEnv(config *Config) error {
 		config.MaximumConcurrentGetRequests = int(asInt)
 	} else {
 		config.MaximumConcurrentGetRequests = DefaultMaxConcurrentGetRequests
+	}
+
+	if err := parsePositiveInt(
+		"GRPC_PORT",
+		func(val int) { config.GRPC.Port = val },
+		DefaultGRPCPort,
+	); err != nil {
+		return err
 	}
 
 	return nil
@@ -312,6 +325,7 @@ const (
 	DefaultPersistenceMemtablesMinDuration    = 15
 	DefaultPersistenceMemtablesMaxDuration    = 45
 	DefaultMaxConcurrentGetRequests           = 0
+	DefaultGRPCPort                           = 50051
 )
 
 const VectorizerModuleNone = "none"

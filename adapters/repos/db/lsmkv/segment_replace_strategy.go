@@ -21,29 +21,29 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
-func (i *segment) get(key []byte) ([]byte, error) {
-	if i.strategy != segmentindex.StrategyReplace {
+func (s *segment) get(key []byte) ([]byte, error) {
+	if s.strategy != segmentindex.StrategyReplace {
 		return nil, errors.Errorf("get only possible for strategy %q", StrategyReplace)
 	}
 
 	before := time.Now()
 
-	if !i.bloomFilter.Test(key) {
-		i.bloomFilterMetrics.trueNegative(before)
+	if !s.bloomFilter.Test(key) {
+		s.bloomFilterMetrics.trueNegative(before)
 		return nil, lsmkv.NotFound
 	}
 
-	node, err := i.index.Get(key)
+	node, err := s.index.Get(key)
 	if err != nil {
 		if err == lsmkv.NotFound {
-			i.bloomFilterMetrics.falsePositive(before)
+			s.bloomFilterMetrics.falsePositive(before)
 			return nil, lsmkv.NotFound
 		} else {
 			return nil, err
 		}
 	}
 
-	defer i.bloomFilterMetrics.truePositive(before)
+	defer s.bloomFilterMetrics.truePositive(before)
 
 	// We need to copy the data we read from the segment exactly once in this
 	// place. This means that future processing can share this memory as much as
@@ -57,25 +57,25 @@ func (i *segment) get(key []byte) ([]byte, error) {
 	// Similar approach was used to fix SEGFAULT in collection strategy
 	// https://github.com/weaviate/weaviate/issues/1837
 	contentsCopy := make([]byte, node.End-node.Start)
-	copy(contentsCopy, i.contents[node.Start:node.End])
+	copy(contentsCopy, s.contents[node.Start:node.End])
 
-	return i.replaceStratParseData(contentsCopy)
+	return s.replaceStratParseData(contentsCopy)
 }
 
-func (i *segment) getBySecondary(pos int, key []byte) ([]byte, error) {
-	if i.strategy != segmentindex.StrategyReplace {
+func (s *segment) getBySecondary(pos int, key []byte) ([]byte, error) {
+	if s.strategy != segmentindex.StrategyReplace {
 		return nil, errors.Errorf("get only possible for strategy %q", StrategyReplace)
 	}
 
-	if pos > len(i.secondaryIndices) || i.secondaryIndices[pos] == nil {
+	if pos > len(s.secondaryIndices) || s.secondaryIndices[pos] == nil {
 		return nil, errors.Errorf("no secondary index at pos %d", pos)
 	}
 
-	if !i.secondaryBloomFilters[pos].Test(key) {
+	if !s.secondaryBloomFilters[pos].Test(key) {
 		return nil, lsmkv.NotFound
 	}
 
-	node, err := i.secondaryIndices[pos].Get(key)
+	node, err := s.secondaryIndices[pos].Get(key)
 	if err != nil {
 		return nil, err
 	}
@@ -92,12 +92,12 @@ func (i *segment) getBySecondary(pos int, key []byte) ([]byte, error) {
 	// Similar approach was used to fix SEGFAULT in collection strategy
 	// https://github.com/weaviate/weaviate/issues/1837
 	contentsCopy := make([]byte, node.End-node.Start)
-	copy(contentsCopy, i.contents[node.Start:node.End])
+	copy(contentsCopy, s.contents[node.Start:node.End])
 
-	return i.replaceStratParseData(contentsCopy)
+	return s.replaceStratParseData(contentsCopy)
 }
 
-func (i *segment) replaceStratParseData(in []byte) ([]byte, error) {
+func (s *segment) replaceStratParseData(in []byte) ([]byte, error) {
 	if len(in) == 0 {
 		return nil, lsmkv.NotFound
 	}
@@ -117,14 +117,14 @@ func (i *segment) replaceStratParseData(in []byte) ([]byte, error) {
 	return in[9 : 9+valueLength], nil
 }
 
-func (i *segment) replaceStratParseDataWithKey(in []byte) (segmentReplaceNode, error) {
+func (s *segment) replaceStratParseDataWithKey(in []byte) (segmentReplaceNode, error) {
 	if len(in) == 0 {
 		return segmentReplaceNode{}, lsmkv.NotFound
 	}
 
 	r := bytes.NewReader(in)
 
-	out, err := ParseReplaceNode(r, i.secondaryIndexCount)
+	out, err := ParseReplaceNode(r, s.secondaryIndexCount)
 	if err != nil {
 		return out, err
 	}
@@ -136,7 +136,7 @@ func (i *segment) replaceStratParseDataWithKey(in []byte) (segmentReplaceNode, e
 	return out, nil
 }
 
-func (i *segment) replaceStratParseDataWithKeyInto(in []byte,
+func (s *segment) replaceStratParseDataWithKeyInto(in []byte,
 	node *segmentReplaceNode,
 ) error {
 	if len(in) == 0 {
@@ -145,7 +145,7 @@ func (i *segment) replaceStratParseDataWithKeyInto(in []byte,
 
 	r := bytes.NewReader(in)
 
-	err := ParseReplaceNodeInto(r, i.secondaryIndexCount, node)
+	err := ParseReplaceNodeInto(r, s.secondaryIndexCount, node)
 	if err != nil {
 		return err
 	}

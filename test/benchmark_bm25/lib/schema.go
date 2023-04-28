@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func SchemaFromDataset(ds Dataset) *models.Class {
@@ -34,9 +35,11 @@ func SchemaFromDataset(ds Dataset) *models.Class {
 		t := true
 		// all indexed props are indexed as text
 		prop := &models.Property{
-			Name:          SanitizePropName(prop),
-			DataType:      []string{"text"},
-			IndexInverted: &t,
+			Name:            SanitizePropName(prop),
+			DataType:        schema.DataTypeText.PropString(),
+			Tokenization:    models.PropertyTokenizationWord,
+			IndexFilterable: &t,
+			IndexSearchable: &t,
 		}
 
 		out.Properties = append(out.Properties, prop)
@@ -47,10 +50,11 @@ func SchemaFromDataset(ds Dataset) *models.Class {
 		// all indexed props are indexed as text
 		f := false
 		prop := &models.Property{
-			Name:          SanitizePropName(prop),
-			DataType:      []string{"string"},
-			IndexInverted: &f,
-			Tokenization:  "field",
+			Name:            SanitizePropName(prop),
+			DataType:        schema.DataTypeText.PropString(),
+			Tokenization:    models.PropertyTokenizationField,
+			IndexFilterable: &f,
+			IndexSearchable: &f,
 		}
 
 		out.Properties = append(out.Properties, prop)
@@ -86,7 +90,7 @@ func ClassNameFromDatasetID(in string) string {
 
 func SanitizePropName(in string) string {
 	if len(in) >= 2 && in[0] == '_' && in[1] != '_' {
-		// single leading underscore is reseved, but we can append another one
+		// single leading underscore is reserved, but we can append another one
 		return "_" + in
 	}
 

@@ -37,7 +37,11 @@ type Object struct {
 	Object            models.Object `json:"object"`
 	Vector            []float32     `json:"vector"`
 	VectorLen         int           `json:"-"`
-	docID             uint64
+	BelongsToNode     string        `json:"-"`
+	BelongsToShard    string        `json:"-"`
+	IsConsistent      bool          `json:"-"`
+
+	docID uint64
 }
 
 func New(docID uint64) *Object {
@@ -107,6 +111,10 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 func FromBinaryOptional(data []byte,
 	addProp additional.Properties,
 ) (*Object, error) {
+	if addProp.NoProps {
+		return FromBinaryUUIDOnly(data)
+	}
+
 	ko := &Object{}
 
 	var version uint8
@@ -208,15 +216,14 @@ func ObjectsByDocID(bucket bucket, ids []uint64,
 	}
 
 	var (
-		out = make([]*Object, len(ids))
-		i   = 0
+		docIDBuf = make([]byte, 8)
+		out      = make([]*Object, len(ids))
+		i        = 0
 	)
 
 	for _, id := range ids {
-		keyBuf := bytes.NewBuffer(nil)
-		binary.Write(keyBuf, binary.LittleEndian, &id)
-		docIDBytes := keyBuf.Bytes()
-		res, err := bucket.GetBySecondary(0, docIDBytes)
+		binary.LittleEndian.PutUint64(docIDBuf, id)
+		res, err := bucket.GetBySecondary(0, docIDBuf)
 		if err != nil {
 			return nil, err
 		}
@@ -376,6 +383,7 @@ func (ko *Object) SearchResult(additional additional.Properties) *search.Result 
 		AdditionalProperties: additionalProperties,
 		Score:                ko.Score(),
 		ExplainScore:         ko.ExplainScore(),
+		IsConsistent:         ko.IsConsistent,
 		// TODO: Beacon?
 	}
 }
@@ -780,21 +788,11 @@ func (ko *Object) DeepCopyDangerous() *Object {
 	}
 }
 
-func DocIDsFromSearchResults(sr []search.Result) ([]uint64, error) {
-	ids := make([]uint64, len(sr))
-	for i, res := range sr {
-		obj := FromObject(res.Object(), res.Vector)
-		b, err := obj.MarshalBinary()
-		if err != nil {
-			return nil, err
-		}
-		id, err := DocIDFromBinary(b)
-		if err != nil {
-			return nil, err
-		}
-		ids[i] = id
+func AddOwnership(objs []*Object, node, shard string) {
+	for i := range objs {
+		objs[i].BelongsToNode = node
+		objs[i].BelongsToShard = shard
 	}
-	return ids, nil
 }
 
 func deepCopyVector(orig []float32) []float32 {

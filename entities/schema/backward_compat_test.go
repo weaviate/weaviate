@@ -11,7 +11,9 @@
 
 package schema
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestIsArrayDataType(t *testing.T) {
 	type args struct {
@@ -25,14 +27,14 @@ func TestIsArrayDataType(t *testing.T) {
 		{
 			name: "is string array",
 			args: args{
-				dt: []string{"string[]"},
+				dt: DataTypeTextArray.PropString(),
 			},
 			want: true,
 		},
 		{
 			name: "is not string array",
 			args: args{
-				dt: []string{"string"},
+				dt: DataTypeText.PropString(),
 			},
 			want: false,
 		},
@@ -77,6 +79,20 @@ func TestIsArrayDataType(t *testing.T) {
 				dt: []string{"int"},
 			},
 			want: false,
+		},
+		{
+			name: "is not uuid array",
+			args: args{
+				dt: []string{"uuid"},
+			},
+			want: false,
+		},
+		{
+			name: "is uuid array",
+			args: args{
+				dt: []string{"uuid[]"},
+			},
+			want: true,
 		},
 	}
 	for _, tt := range tests {

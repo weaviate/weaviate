@@ -54,20 +54,23 @@ func Class(c *models.Class) *models.Class {
 }
 
 func Prop(p *models.Property) *models.Property {
-	var indexInverted *bool = nil
-	if p.IndexInverted != nil {
-		b := *(p.IndexInverted)
-		indexInverted = &b
-	}
-
 	return &models.Property{
-		DataType:      p.DataType,
-		Description:   p.Description,
-		ModuleConfig:  p.ModuleConfig,
-		Name:          p.Name,
-		Tokenization:  p.Tokenization,
-		IndexInverted: indexInverted,
+		DataType:        p.DataType,
+		Description:     p.Description,
+		ModuleConfig:    p.ModuleConfig,
+		Name:            p.Name,
+		Tokenization:    p.Tokenization,
+		IndexFilterable: ptrBoolCopy(p.IndexFilterable),
+		IndexSearchable: ptrBoolCopy(p.IndexSearchable),
 	}
+}
+
+func ptrBoolCopy(ptrBool *bool) *bool {
+	if ptrBool != nil {
+		b := *ptrBool
+		return &b
+	}
+	return nil
 }
 
 func InvertedIndexConfig(i *models.InvertedIndexConfig) *models.InvertedIndexConfig {

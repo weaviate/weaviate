@@ -48,7 +48,7 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		}
 	}
 
-	status, err := s.putObjectLSM(object, uuid, false)
+	status, err := s.putObjectLSM(object, uuid)
 	if err != nil {
 		return errors.Wrap(err, "store object in LSM store")
 	}
@@ -65,7 +65,7 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		return errors.Wrap(err, "flush all buffered WALs")
 	}
 
-	if err := s.propLengths.Flush(); err != nil {
+	if err := s.propLengths.Flush(false); err != nil {
 		return errors.Wrap(err, "flush prop length tracker to disk")
 	}
 
@@ -77,7 +77,7 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 }
 
 // as the name implies this method only performs the insertions, but completely
-// ingores any deletes. It thus assumes that the caller has already taken care
+// ignores any deletes. It thus assumes that the caller has already taken care
 // of all the deletes in another way
 func (s *Shard) updateVectorIndexIgnoreDelete(vector []float32,
 	status objectInsertStatus,
@@ -121,8 +121,7 @@ func (s *Shard) updateVectorIndex(vector []float32,
 	return nil
 }
 
-func (s *Shard) putObjectLSM(object *storobj.Object,
-	idBytes []byte, skipInverted bool,
+func (s *Shard) putObjectLSM(object *storobj.Object, idBytes []byte,
 ) (objectInsertStatus, error) {
 	before := time.Now()
 	defer s.metrics.PutObject(before)
@@ -161,13 +160,11 @@ func (s *Shard) putObjectLSM(object *storobj.Object,
 	lock.Unlock()
 	s.metrics.PutObjectUpsertObject(before)
 
-	if !skipInverted {
-		before = time.Now()
-		if err := s.updateInvertedIndexLSM(object, status, previous); err != nil {
-			return status, errors.Wrap(err, "update inverted indices")
-		}
-		s.metrics.PutObjectUpdateInverted(before)
+	before = time.Now()
+	if err := s.updateInvertedIndexLSM(object, status, previous); err != nil {
+		return status, errors.Wrap(err, "update inverted indices")
 	}
+	s.metrics.PutObjectUpdateInverted(before)
 
 	return status, nil
 }
@@ -343,6 +340,7 @@ func (s *Shard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
 		return errors.Wrap(err, "unmarshal previous object")
 	}
 
+	// TODO text_rbm_inverted_index null props cleanup?
 	previousInvertProps, _, err := s.analyzeObject(previousObject)
 	if err != nil {
 		return errors.Wrap(err, "analyze previous object")

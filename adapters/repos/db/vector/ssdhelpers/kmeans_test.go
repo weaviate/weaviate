@@ -10,7 +10,6 @@
 //
 
 //go:build !race
-// +build !race
 
 package ssdhelpers_test
 
@@ -54,8 +53,8 @@ func Test_NoRaceKMeansNNearest(t *testing.T) {
 }
 
 func Test_NoRaceRandomData(t *testing.T) {
-	vectors_size := 10000
-	vectors, _ := testinghelpers.RandomVecs(vectors_size, 0, 128)
+	vectorsSize := 10000
+	vectors, _ := testinghelpers.RandomVecs(vectorsSize, 0, 128)
 	before := time.Now()
 	kmeans := ssdhelpers.NewKMeans(
 		256,

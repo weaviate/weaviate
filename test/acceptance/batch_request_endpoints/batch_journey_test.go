@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -118,12 +119,14 @@ func Test_BugFlakyResultCountWithVectorSearch(t *testing.T) {
 				Class: className,
 				Properties: []*models.Property{
 					{
-						Name:     "title",
-						DataType: []string{"string"},
+						Name:         "title",
+						DataType:     schema.DataTypeText.PropString(),
+						Tokenization: models.PropertyTokenizationWhitespace,
 					},
 					{
-						Name:     "url",
-						DataType: []string{"string"},
+						Name:         "url",
+						DataType:     schema.DataTypeText.PropString(),
+						Tokenization: models.PropertyTokenizationWhitespace,
 					},
 					{
 						Name:     "wordCount",

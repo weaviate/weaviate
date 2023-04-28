@@ -238,8 +238,8 @@ func classificationTestSchema() []*models.Class {
 			Properties: []*models.Property{
 				{
 					Name:         "name",
-					DataType:     []string{string(schema.DataTypeString)},
-					Tokenization: "word",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				},
 			},
 		},
@@ -250,8 +250,8 @@ func classificationTestSchema() []*models.Class {
 			Properties: []*models.Property{
 				{
 					Name:         "name",
-					DataType:     []string{string(schema.DataTypeString)},
-					Tokenization: "word",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				},
 			},
 		},
@@ -267,8 +267,8 @@ func classificationTestSchema() []*models.Class {
 				},
 				{
 					Name:         "name",
-					DataType:     []string{string(schema.DataTypeString)},
-					Tokenization: "word",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				},
 				{
 					Name:     "exactCategory",

@@ -27,7 +27,8 @@ package test
 // 			Properties: []*models.Property{
 // 				&models.Property{
 // 					Name:     "testString",
-// 					DataType: []string{"string"},
+// DataType:     schema.DataTypeText.PropString(),
+// Tokenization: models.PropertyTokenizationWhitespace,
 // 				},
 // 				&models.Property{
 // 					Name:     "testWholeNumber",

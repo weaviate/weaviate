@@ -296,7 +296,7 @@ func creatingObjects(t *testing.T) {
 			},
 			errorCheck: func(t *testing.T, err *models.ErrorResponse) {
 				assert.Contains(t,
-					"invalid object: invalid string property 'testString' on class 'TestObject': not a string, but json.Number",
+					"invalid object: invalid text property 'testString' on class 'TestObject': not a string, but json.Number",
 					err.Error[0].Message)
 			},
 		},

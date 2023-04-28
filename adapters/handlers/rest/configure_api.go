@@ -60,6 +60,7 @@ import (
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/classification"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -116,7 +117,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		go func() {
 			mux := http.NewServeMux()
 			mux.Handle("/metrics", promhttp.Handler())
-			http.ListenAndServe(":2112", mux)
+			http.ListenAndServe(fmt.Sprintf(":%d", appState.ServerConfig.Config.Monitoring.Port), mux)
 		}()
 	}
 
@@ -139,7 +140,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.JSONConsumer = runtime.JSONConsumer()
 
-	api.OidcAuth = NewTokenAuthComposer(
+	api.OidcAuth = composer.New(
 		appState.ServerConfig.Config.Authentication,
 		appState.APIKey, appState.OIDC)
 
@@ -260,7 +261,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	if err != nil {
 		appState.Logger.
 			WithError(err).
-			WithField("action", "startup").WithError(err).
+			WithField("action", "startup").
 			Fatal("db didn't start up")
 		os.Exit(1)
 	}
@@ -277,6 +278,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager,
 		appState.Modules, traverser.NewMetrics(appState.Metrics),
 		appState.ServerConfig.Config.MaximumConcurrentGetRequests)
+	appState.Traverser = objectsTraverser
 
 	classifier := classification.New(schemaManager, classifierRepo, vectorRepo, appState.Authorizer,
 		appState.Logger, appState.Modules)
@@ -293,17 +295,34 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupBackupHandlers(api, backupScheduler)
 	setupNodesHandlers(api, schemaManager, repo, appState)
 
+	err = migrator.AdjustFilterablePropSettings(ctx)
+	if err != nil {
+		appState.Logger.
+			WithError(err).
+			WithField("action", "adjustFilterablePropSettings").
+			Fatal("migration failed")
+		os.Exit(1)
+	}
+
+	// FIXME to avoid import cycles, tasks are passed as strings
+	reindexTaskNames := []string{}
 	reindexCtx, reindexCtxCancel := context.WithCancel(context.Background())
-	reindexFinished := make(chan error)
+	reindexFinished := make(chan error, 1)
+
 	if appState.ServerConfig.Config.ReindexSetToRoaringsetAtStartup {
+		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTaskSetToRoaringSet")
+	}
+	if appState.ServerConfig.Config.IndexMissingTextFilterableAtStartup {
+		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTaskMissingTextFilterable")
+	}
+	if len(reindexTaskNames) > 0 {
 		// start reindexing inverted indexes (if requested by user) in the background
 		// allowing db to complete api configuration and start handling requests
 		go func() {
 			appState.Logger.
 				WithField("action", "startup").
-				Info("Reindexing sets to roaring sets")
-			// FIXME to avoid import cycles tasks are passed as strings
-			reindexFinished <- migrator.InvertedReindex(reindexCtx, "ShardInvertedReindexTaskSetToRoaringSet")
+				Info("Reindexing inverted indexes")
+			reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNames...)
 		}()
 	}
 
@@ -346,6 +365,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			Info("Reindexing dimensions")
 		migrator.RecalculateVectorDimensions(ctx)
 	}
+
+	setupGrpc(appState)
 
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }

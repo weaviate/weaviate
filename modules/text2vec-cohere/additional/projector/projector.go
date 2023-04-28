@@ -40,7 +40,7 @@ type FeatureProjector struct {
 	fixedSeed int64
 }
 
-func (f *FeatureProjector) AdditonalPropertyDefaultValue() interface{} {
+func (f *FeatureProjector) AdditionalPropertyDefaultValue() interface{} {
 	return &Params{}
 }
 

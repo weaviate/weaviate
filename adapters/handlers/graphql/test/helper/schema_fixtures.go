@@ -52,6 +52,14 @@ func CreateSimpleSchema(vectorizer string) schema.Schema {
 							DataType: []string{"int"},
 						},
 						{
+							Name:     "uuidField",
+							DataType: []string{"uuid"},
+						},
+						{
+							Name:     "uuidArrayField",
+							DataType: []string{"uuid[]"},
+						},
+						{
 							Name:     "location",
 							DataType: []string{"geoCoordinates"},
 						},
@@ -74,7 +82,7 @@ func CreateSimpleSchema(vectorizer string) schema.Schema {
 	}
 }
 
-// CarSchema contains a car which has every primtive field and a ref field there is
+// CarSchema contains a car which has every primitive field and a ref field there is
 var CarSchema = schema.Schema{
 	Objects: &models.Schema{
 		Classes: []*models.Class{
@@ -82,8 +90,9 @@ var CarSchema = schema.Schema{
 				Class: "Manufacturer",
 				Properties: []*models.Property{
 					{
-						Name:     "name",
-						DataType: []string{"string"},
+						Name:         "name",
+						DataType:     schema.DataTypeText.PropString(),
+						Tokenization: models.PropertyTokenizationWhitespace,
 					},
 				},
 			},
@@ -99,8 +108,9 @@ var CarSchema = schema.Schema{
 						DataType: []string{"number"},
 					},
 					{
-						Name:     "modelName",
-						DataType: []string{"string"},
+						Name:         "modelName",
+						DataType:     schema.DataTypeText.PropString(),
+						Tokenization: models.PropertyTokenizationWhitespace,
 					},
 					{
 						Name:     "madeBy",

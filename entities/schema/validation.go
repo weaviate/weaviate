@@ -30,8 +30,7 @@ func init() {
 	reservedPropertyNames = []string{"_additional", "_id", "id"}
 }
 
-// ValidateClassName validates that this string is a valid class name (formate
-// wise)
+// ValidateClassName validates that this string is a valid class name (format wise)
 func ValidateClassName(name string) (ClassName, error) {
 	if validateClassNameRegex.MatchString(name) {
 		return ClassName(name), nil

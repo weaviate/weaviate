@@ -19,7 +19,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/docid"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
-	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -122,12 +121,10 @@ func (fa *filteredAggregator) bm25Objects(ctx context.Context, kw *searchparams.
 		class = s.GetClass(fa.params.ClassName)
 		cfg   = inverted.ConfigFromModel(class.InvertedIndexConfig)
 	)
-
 	objs, dists, err := inverted.NewBM25Searcher(cfg.BM25, fa.store, s,
-		fa.invertedRowCache, propertyspecific.Indices{}, fa.classSearcher,
+		propertyspecific.Indices{}, fa.classSearcher,
 		nil, fa.propLengths, fa.logger, fa.shardVersion,
-	).Objects(ctx, nil, *fa.params.ObjectLimit, *kw, fa.params.Filters,
-		nil, additional.Properties{}, fa.params.ClassName)
+	).BM25F(ctx, nil, fa.params.ClassName, *fa.params.ObjectLimit, *kw)
 	if err != nil {
 		return nil, nil, fmt.Errorf("bm25 objects: %w", err)
 	}
@@ -258,11 +255,11 @@ func (fa *filteredAggregator) addPropValue(prop propAgg, value interface{}) erro
 			return nil
 		}
 		switch prop.dataType {
-		case schema.DataTypeText, schema.DataTypeString:
+		case schema.DataTypeText:
 			if err := analyzeString(value); err != nil {
 				return err
 			}
-		case schema.DataTypeTextArray, schema.DataTypeStringArray:
+		case schema.DataTypeTextArray:
 			valueStruct, ok := value.([]interface{})
 			if !ok {
 				return fmt.Errorf("expected property type []text or []string, received %T", valueStruct)

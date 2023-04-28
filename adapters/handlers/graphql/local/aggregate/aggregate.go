@@ -205,8 +205,6 @@ func metaObject(prefix string) *graphql.Object {
 
 func classPropertyField(dataType schema.DataType, class *models.Class, property *models.Property) (*graphql.Field, error) {
 	switch dataType {
-	case schema.DataTypeString:
-		return makePropertyField(class, property, stringPropertyFields)
 	case schema.DataTypeText:
 		return makePropertyField(class, property, stringPropertyFields)
 	case schema.DataTypeInt:
@@ -227,7 +225,7 @@ func classPropertyField(dataType schema.DataType, class *models.Class, property 
 		return nil, nil
 	case schema.DataTypeBlob:
 		return makePropertyField(class, property, stringPropertyFields)
-	case schema.DataTypeStringArray, schema.DataTypeTextArray:
+	case schema.DataTypeTextArray:
 		return makePropertyField(class, property, stringPropertyFields)
 	case schema.DataTypeIntArray, schema.DataTypeNumberArray:
 		return makePropertyField(class, property, numericPropertyFields)
@@ -235,6 +233,9 @@ func classPropertyField(dataType schema.DataType, class *models.Class, property 
 		return makePropertyField(class, property, booleanPropertyFields)
 	case schema.DataTypeDateArray:
 		return makePropertyField(class, property, datePropertyFields)
+	case schema.DataTypeUUID, schema.DataTypeUUIDArray:
+		// not aggregatable
+		return nil, nil
 	default:
 		return nil, fmt.Errorf(schema.ErrorNoSuchDatatype+": %s", dataType)
 	}

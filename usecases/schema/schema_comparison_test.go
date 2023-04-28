@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -139,8 +140,9 @@ func Test_SchemaComparison_VariousMismatches(t *testing.T) {
 							Name:     "prop_2",
 						},
 						{
-							DataType: []string{"string"},
-							Name:     "prop_4",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
+							Name:         "prop_4",
 						},
 					},
 					Description: "foo",
@@ -222,7 +224,7 @@ func Test_SchemaComparison_VariousMismatches(t *testing.T) {
 		"class Foo: property prop_2 exists in L, but not in R",
 		"class Foo: property prop_3 exists in R, but not in L",
 		"class Foo: property prop_4: mismatch: " +
-			"L has {\"dataType\":[\"string\"],\"name\":\"prop_4\"}, but " +
+			"L has {\"dataType\":[\"text\"],\"name\":\"prop_4\",\"tokenization\":\"whitespace\"}, but " +
 			"R has {\"dataType\":[\"text\"],\"name\":\"prop_4\"}",
 		"class Foo: description mismatch: " +
 			"L has \"foo\", but R has \"\"",

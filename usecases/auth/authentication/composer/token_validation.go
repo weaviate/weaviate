@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package rest
+package composer
 
 import (
 	"github.com/golang-jwt/jwt/v4"
@@ -18,15 +18,15 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-type openAPITokenFunc func(token string, scopes []string) (*models.Principal, error)
+type TokenFunc func(token string, scopes []string) (*models.Principal, error)
 
-// NewTokenAuthComposer provides an OpenAPI compatible token validation
+// New provides an OpenAPI compatible token validation
 // function that validates the token either as OIDC or as an APIKey token
 // depending on which is configured. If both are configured, the scheme is
 // figured out at runtime.
-func NewTokenAuthComposer(config config.Authentication,
+func New(config config.Authentication,
 	apikey apiKeyValidator, oidc oidcValidator,
-) openAPITokenFunc {
+) TokenFunc {
 	if config.APIKey.Enabled && config.OIDC.Enabled {
 		return pickAuthSchemeDynamically(apikey, oidc)
 	}
@@ -42,7 +42,7 @@ func NewTokenAuthComposer(config config.Authentication,
 
 func pickAuthSchemeDynamically(
 	apiKey apiKeyValidator, oidc oidcValidator,
-) openAPITokenFunc {
+) TokenFunc {
 	return func(token string, scopes []string) (*models.Principal, error) {
 		_, err := jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
 			return nil, nil

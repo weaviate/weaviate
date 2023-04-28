@@ -15,7 +15,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -68,6 +70,12 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 			return nil, err
 		}
 		params.Hybrid.Vector = vec
+	}
+
+	if params.Filters != nil {
+		if err := filters.ValidateFilters(t.schemaGetter.GetSchemaSkipAuth(), params.Filters); err != nil {
+			return nil, errors.Wrap(err, "invalid 'where' filter")
+		}
 	}
 
 	res, err := t.vectorSearcher.Aggregate(ctx, *params)

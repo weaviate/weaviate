@@ -18,47 +18,71 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func TestAnalyzeObject(t *testing.T) {
-	a := NewAnalyzer(fakeStopwordDetector{})
+	a := NewAnalyzer(nil)
 
 	t.Run("with multiple properties", func(t *testing.T) {
-		schema := map[string]interface{}{
+		id1 := uuid.New()
+		id2 := uuid.New()
+		sch := map[string]interface{}{
 			"description": "I am great!",
 			"email":       "john@doe.com",
 			"about_me":    "I like reading sci-fi books",
 			"profession":  "Mechanical Engineer",
+			"id1":         id1,                 // correctly parsed
+			"id2":         id2.String(),        // untyped
+			"idArray1":    []uuid.UUID{id1},    // coorectly parsed
+			"idArray2":    []any{id2.String()}, // untyped
 		}
 
 		uuid := "2609f1bc-7693-48f3-b531-6ddc52cd2501"
 		props := []*models.Property{
 			{
 				Name:         "description",
-				DataType:     []string{"text"},
-				Tokenization: "word",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWord,
 			},
 			{
 				Name:         "email",
-				DataType:     []string{"string"},
-				Tokenization: "word",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 			{
 				Name:         "about_me",
-				DataType:     []string{"string"},
-				Tokenization: "word",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationLowercase,
 			},
 			{
 				Name:         "profession",
-				DataType:     []string{"string"},
-				Tokenization: "field",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationField,
+			},
+			{
+				Name:     "id1",
+				DataType: []string{"uuid"},
+			},
+			{
+				Name:     "id2",
+				DataType: []string{"uuid"},
+			},
+			{
+				Name:     "idArray1",
+				DataType: []string{"uuid[]"},
+			},
+			{
+				Name:     "idArray2",
+				DataType: []string{"uuid[]"},
 			},
 		}
-		res, err := a.Object(schema, props, strfmt.UUID(uuid))
+		res, err := a.Object(sch, props, strfmt.UUID(uuid))
 		require.Nil(t, err)
 
 		expectedDescription := []Countable{
@@ -85,7 +109,7 @@ func TestAnalyzeObject(t *testing.T) {
 
 		expectedAboutMe := []Countable{
 			{
-				Data:          []byte("I"),
+				Data:          []byte("i"),
 				TermFrequency: float32(1),
 			},
 			{
@@ -120,12 +144,44 @@ func TestAnalyzeObject(t *testing.T) {
 			},
 		}
 
-		require.Len(t, res, 5)
+		expectedID1 := []Countable{
+			{
+				Data:          []byte(id1[:]),
+				TermFrequency: 0,
+			},
+		}
+
+		expectedID2 := []Countable{
+			{
+				Data:          []byte(id2[:]),
+				TermFrequency: 0,
+			},
+		}
+
+		expectedIDArray1 := []Countable{
+			{
+				Data:          []byte(id1[:]),
+				TermFrequency: 0,
+			},
+		}
+
+		expectedIDArray2 := []Countable{
+			{
+				Data:          []byte(id2[:]),
+				TermFrequency: 0,
+			},
+		}
+
+		require.Len(t, res, 9)
 		var actualDescription []Countable
 		var actualEmail []Countable
 		var actualAboutMe []Countable
 		var actualProfession []Countable
 		var actualUUID []Countable
+		var actualID1 []Countable
+		var actualID2 []Countable
+		var actualIDArray1 []Countable
+		var actualIDArray2 []Countable
 
 		for _, elem := range res {
 			if elem.Name == "email" {
@@ -147,12 +203,233 @@ func TestAnalyzeObject(t *testing.T) {
 			if elem.Name == "_id" {
 				actualUUID = elem.Items
 			}
+
+			if elem.Name == "id1" {
+				actualID1 = elem.Items
+			}
+
+			if elem.Name == "id2" {
+				actualID2 = elem.Items
+			}
+
+			if elem.Name == "idArray1" {
+				actualIDArray1 = elem.Items
+			}
+
+			if elem.Name == "idArray2" {
+				actualIDArray2 = elem.Items
+			}
 		}
 
 		assert.ElementsMatch(t, expectedEmail, actualEmail, res)
 		assert.ElementsMatch(t, expectedDescription, actualDescription, res)
 		assert.ElementsMatch(t, expectedAboutMe, actualAboutMe, res)
 		assert.ElementsMatch(t, expectedProfession, actualProfession, res)
+		assert.ElementsMatch(t, expectedUUID, actualUUID, res)
+		assert.ElementsMatch(t, expectedID1, actualID1, res)
+		assert.ElementsMatch(t, expectedID2, actualID2, res)
+		assert.ElementsMatch(t, expectedIDArray1, actualIDArray1, res)
+		assert.ElementsMatch(t, expectedIDArray2, actualIDArray2, res)
+	})
+
+	t.Run("with array properties", func(t *testing.T) {
+		sch := map[string]interface{}{
+			"descriptions": []interface{}{"I am great!", "I am also great!"},
+			"emails":       []interface{}{"john@doe.com", "john2@doe.com"},
+			"about_me":     []interface{}{"I like reading sci-fi books", "I like playing piano"},
+			"professions":  []interface{}{"Mechanical Engineer", "Marketing Analyst"},
+			"integers":     []interface{}{int64(1), int64(2), int64(3), int64(4)},
+			"numbers":      []interface{}{float64(1.1), float64(2.2), float64(3.0), float64(4)},
+		}
+
+		uuid := "2609f1bc-7693-48f3-b531-6ddc52cd2501"
+		props := []*models.Property{
+			{
+				Name:         "descriptions",
+				DataType:     schema.DataTypeTextArray.PropString(),
+				Tokenization: models.PropertyTokenizationWord,
+			},
+			{
+				Name:         "emails",
+				DataType:     schema.DataTypeTextArray.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+			},
+			{
+				Name:         "about_me",
+				DataType:     schema.DataTypeTextArray.PropString(),
+				Tokenization: models.PropertyTokenizationLowercase,
+			},
+			{
+				Name:         "professions",
+				DataType:     schema.DataTypeTextArray.PropString(),
+				Tokenization: models.PropertyTokenizationField,
+			},
+			{
+				Name:     "integers",
+				DataType: []string{"int[]"},
+			},
+			{
+				Name:     "numbers",
+				DataType: []string{"number[]"},
+			},
+		}
+		res, err := a.Object(sch, props, strfmt.UUID(uuid))
+		require.Nil(t, err)
+
+		expectedDescriptions := []Countable{
+			{
+				Data:          []byte("i"),
+				TermFrequency: float32(2),
+			},
+			{
+				Data:          []byte("am"),
+				TermFrequency: float32(2),
+			},
+			{
+				Data:          []byte("great"),
+				TermFrequency: float32(2),
+			},
+			{
+				Data:          []byte("also"),
+				TermFrequency: float32(1),
+			},
+		}
+
+		expectedEmails := []Countable{
+			{
+				Data:          []byte("john@doe.com"),
+				TermFrequency: float32(1),
+			},
+			{
+				Data:          []byte("john2@doe.com"),
+				TermFrequency: float32(1),
+			},
+		}
+
+		expectedAboutMe := []Countable{
+			{
+				Data:          []byte("i"),
+				TermFrequency: float32(2),
+			},
+			{
+				Data:          []byte("like"),
+				TermFrequency: float32(2),
+			},
+			{
+				Data:          []byte("reading"),
+				TermFrequency: float32(1),
+			},
+			{
+				Data:          []byte("sci-fi"),
+				TermFrequency: float32(1),
+			},
+			{
+				Data:          []byte("books"),
+				TermFrequency: float32(1),
+			},
+			{
+				Data:          []byte("playing"),
+				TermFrequency: float32(1),
+			},
+			{
+				Data:          []byte("piano"),
+				TermFrequency: float32(1),
+			},
+		}
+
+		expectedProfessions := []Countable{
+			{
+				Data:          []byte("Mechanical Engineer"),
+				TermFrequency: float32(1),
+			},
+			{
+				Data:          []byte("Marketing Analyst"),
+				TermFrequency: float32(1),
+			},
+		}
+
+		expectedIntegers := []Countable{
+			{
+				Data: mustGetByteIntNumber(1),
+			},
+			{
+				Data: mustGetByteIntNumber(2),
+			},
+			{
+				Data: mustGetByteIntNumber(3),
+			},
+			{
+				Data: mustGetByteIntNumber(4),
+			},
+		}
+
+		expectedNumbers := []Countable{
+			{
+				Data: mustGetByteFloatNumber(1.1),
+			},
+			{
+				Data: mustGetByteFloatNumber(2.2),
+			},
+			{
+				Data: mustGetByteFloatNumber(3.0),
+			},
+			{
+				Data: mustGetByteFloatNumber(4),
+			},
+		}
+
+		expectedUUID := []Countable{
+			{
+				Data:          []byte(uuid),
+				TermFrequency: 0,
+			},
+		}
+
+		assert.Len(t, res, 7)
+		var actualDescriptions []Countable
+		var actualEmails []Countable
+		var actualAboutMe []Countable
+		var actualProfessions []Countable
+		var actualIntegers []Countable
+		var actualNumbers []Countable
+		var actualUUID []Countable
+
+		for _, elem := range res {
+			if elem.Name == "emails" {
+				actualEmails = elem.Items
+			}
+
+			if elem.Name == "descriptions" {
+				actualDescriptions = elem.Items
+			}
+
+			if elem.Name == "about_me" {
+				actualAboutMe = elem.Items
+			}
+
+			if elem.Name == "professions" {
+				actualProfessions = elem.Items
+			}
+
+			if elem.Name == "integers" {
+				actualIntegers = elem.Items
+			}
+
+			if elem.Name == "numbers" {
+				actualNumbers = elem.Items
+			}
+
+			if elem.Name == "_id" {
+				actualUUID = elem.Items
+			}
+		}
+
+		assert.ElementsMatch(t, expectedEmails, actualEmails, res)
+		assert.ElementsMatch(t, expectedDescriptions, actualDescriptions, res)
+		assert.ElementsMatch(t, expectedAboutMe, actualAboutMe, res)
+		assert.ElementsMatch(t, expectedProfessions, actualProfessions, res)
+		assert.ElementsMatch(t, expectedIntegers, actualIntegers, res)
+		assert.ElementsMatch(t, expectedNumbers, actualNumbers, res)
 		assert.ElementsMatch(t, expectedUUID, actualUUID, res)
 	})
 
@@ -315,207 +592,6 @@ func TestAnalyzeObject(t *testing.T) {
 			assert.ElementsMatch(t, expectedUUID, actualUUID, res)
 		})
 
-		t.Run("with array properties", func(t *testing.T) {
-			schema := map[string]interface{}{
-				"descriptions": []interface{}{"I am great!", "I am also great!"},
-				"emails":       []interface{}{"john@doe.com", "john2@doe.com"},
-				"about_me":     []interface{}{"I like reading sci-fi books", "I like playing piano"},
-				"professions":  []interface{}{"Mechanical Engineer", "Marketing Analyst"},
-				"integers":     []interface{}{int64(1), int64(2), int64(3), int64(4)},
-				"numbers":      []interface{}{float64(1.1), float64(2.2), float64(3.0), float64(4)},
-			}
-
-			uuid := "2609f1bc-7693-48f3-b531-6ddc52cd2501"
-			props := []*models.Property{
-				{
-					Name:         "descriptions",
-					DataType:     []string{"text[]"},
-					Tokenization: "word",
-				},
-				{
-					Name:         "emails",
-					DataType:     []string{"string[]"},
-					Tokenization: "word",
-				},
-				{
-					Name:         "about_me",
-					DataType:     []string{"string[]"},
-					Tokenization: "word",
-				},
-				{
-					Name:         "professions",
-					DataType:     []string{"string[]"},
-					Tokenization: "field",
-				},
-				{
-					Name:     "integers",
-					DataType: []string{"int[]"},
-				},
-				{
-					Name:     "numbers",
-					DataType: []string{"number[]"},
-				},
-			}
-			res, err := a.Object(schema, props, strfmt.UUID(uuid))
-			require.Nil(t, err)
-
-			expectedDescriptions := []Countable{
-				{
-					Data:          []byte("i"),
-					TermFrequency: float32(2),
-				},
-				{
-					Data:          []byte("am"),
-					TermFrequency: float32(2),
-				},
-				{
-					Data:          []byte("great"),
-					TermFrequency: float32(2),
-				},
-				{
-					Data:          []byte("also"),
-					TermFrequency: float32(1),
-				},
-			}
-
-			expectedEmails := []Countable{
-				{
-					Data:          []byte("john@doe.com"),
-					TermFrequency: float32(1),
-				},
-				{
-					Data:          []byte("john2@doe.com"),
-					TermFrequency: float32(1),
-				},
-			}
-
-			expectedAboutMe := []Countable{
-				{
-					Data:          []byte("I"),
-					TermFrequency: float32(2),
-				},
-				{
-					Data:          []byte("like"),
-					TermFrequency: float32(2),
-				},
-				{
-					Data:          []byte("reading"),
-					TermFrequency: float32(1),
-				},
-				{
-					Data:          []byte("sci-fi"),
-					TermFrequency: float32(1),
-				},
-				{
-					Data:          []byte("books"),
-					TermFrequency: float32(1),
-				},
-				{
-					Data:          []byte("playing"),
-					TermFrequency: float32(1),
-				},
-				{
-					Data:          []byte("piano"),
-					TermFrequency: float32(1),
-				},
-			}
-
-			expectedProfessions := []Countable{
-				{
-					Data:          []byte("Mechanical Engineer"),
-					TermFrequency: float32(1),
-				},
-				{
-					Data:          []byte("Marketing Analyst"),
-					TermFrequency: float32(1),
-				},
-			}
-
-			expectedIntegers := []Countable{
-				{
-					Data: mustGetByteIntNumber(1),
-				},
-				{
-					Data: mustGetByteIntNumber(2),
-				},
-				{
-					Data: mustGetByteIntNumber(3),
-				},
-				{
-					Data: mustGetByteIntNumber(4),
-				},
-			}
-
-			expectedNumbers := []Countable{
-				{
-					Data: mustGetByteFloatNumber(1.1),
-				},
-				{
-					Data: mustGetByteFloatNumber(2.2),
-				},
-				{
-					Data: mustGetByteFloatNumber(3.0),
-				},
-				{
-					Data: mustGetByteFloatNumber(4),
-				},
-			}
-
-			expectedUUID := []Countable{
-				{
-					Data:          []byte(uuid),
-					TermFrequency: 0,
-				},
-			}
-
-			assert.Len(t, res, 7)
-			var actualDescriptions []Countable
-			var actualEmails []Countable
-			var actualAboutMe []Countable
-			var actualProfessions []Countable
-			var actualIntegers []Countable
-			var actualNumbers []Countable
-			var actualUUID []Countable
-
-			for _, elem := range res {
-				if elem.Name == "emails" {
-					actualEmails = elem.Items
-				}
-
-				if elem.Name == "descriptions" {
-					actualDescriptions = elem.Items
-				}
-
-				if elem.Name == "about_me" {
-					actualAboutMe = elem.Items
-				}
-
-				if elem.Name == "professions" {
-					actualProfessions = elem.Items
-				}
-
-				if elem.Name == "integers" {
-					actualIntegers = elem.Items
-				}
-
-				if elem.Name == "numbers" {
-					actualNumbers = elem.Items
-				}
-
-				if elem.Name == "_id" {
-					actualUUID = elem.Items
-				}
-			}
-
-			assert.ElementsMatch(t, expectedEmails, actualEmails, res)
-			assert.ElementsMatch(t, expectedDescriptions, actualDescriptions, res)
-			assert.ElementsMatch(t, expectedAboutMe, actualAboutMe, res)
-			assert.ElementsMatch(t, expectedProfessions, actualProfessions, res)
-			assert.ElementsMatch(t, expectedIntegers, actualIntegers, res)
-			assert.ElementsMatch(t, expectedNumbers, actualNumbers, res)
-			assert.ElementsMatch(t, expectedUUID, actualUUID, res)
-		})
-
 		// due to the fix introduced in https://github.com/weaviate/weaviate/pull/2320,
 		// MultipleRef's can appear as empty []interface{} when no actual refs are provided for
 		// an object's reference property.
@@ -525,7 +601,7 @@ func TestAnalyzeObject(t *testing.T) {
 		t.Run("when rep prop is stored as empty interface{} slice", func(t *testing.T) {
 			uuid := "cf768bb0-03d8-4464-8f54-f787cf174c01"
 			name := "Transformers"
-			schema := map[string]interface{}{
+			sch := map[string]interface{}{
 				"name":      name,
 				"reference": []interface{}{},
 			}
@@ -533,15 +609,15 @@ func TestAnalyzeObject(t *testing.T) {
 			props := []*models.Property{
 				{
 					Name:         "name",
-					DataType:     []string{"string"},
-					Tokenization: "word",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				},
 				{
 					Name:     "reference",
 					DataType: []string{"SomeClass"},
 				},
 			}
-			res, err := a.Object(schema, props, strfmt.UUID(uuid))
+			res, err := a.Object(sch, props, strfmt.UUID(uuid))
 			require.Nil(t, err)
 
 			expectedUUID := []Countable{
@@ -577,7 +653,7 @@ func TestAnalyzeObject(t *testing.T) {
 	})
 
 	t.Run("when objects are indexed by timestamps", func(t *testing.T) {
-		schema := map[string]interface{}{
+		sch := map[string]interface{}{
 			"description":         "pretty ok if you ask me",
 			"_creationTimeUnix":   1650551406404,
 			"_lastUpdateTimeUnix": 1650551406404,
@@ -587,12 +663,12 @@ func TestAnalyzeObject(t *testing.T) {
 		props := []*models.Property{
 			{
 				Name:         "description",
-				DataType:     []string{"text"},
-				Tokenization: "word",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWord,
 			},
 		}
 
-		res, err := a.Object(schema, props, uuid)
+		res, err := a.Object(sch, props, uuid)
 		require.Nil(t, err)
 		require.Len(t, res, 4)
 
@@ -607,25 +683,33 @@ func TestAnalyzeObject(t *testing.T) {
 					{Data: []byte("ask"), TermFrequency: 1},
 					{Data: []byte("me"), TermFrequency: 1},
 				},
-				HasFrequency: true,
+				IsFilterable: true,
+				IsSearchable: true,
 			},
 			{
-				Name:  "_id",
-				Items: []Countable{{Data: []byte("2609f1bc-7693-48f3-b531-6ddc52cd2501")}},
+				Name:         "_id",
+				Items:        []Countable{{Data: []byte("2609f1bc-7693-48f3-b531-6ddc52cd2501")}},
+				IsFilterable: true,
+				IsSearchable: false,
 			},
 			{
-				Name:  "_creationTimeUnix",
-				Items: []Countable{{Data: []byte("1650551406404")}},
+				Name:         "_creationTimeUnix",
+				Items:        []Countable{{Data: []byte("1650551406404")}},
+				IsFilterable: true,
+				IsSearchable: false,
 			},
 			{
-				Name:  "_lastUpdateTimeUnix",
-				Items: []Countable{{Data: []byte("1650551406404")}},
+				Name:         "_lastUpdateTimeUnix",
+				Items:        []Countable{{Data: []byte("1650551406404")}},
+				IsFilterable: true,
+				IsSearchable: false,
 			},
 		}
 
 		for i := range res {
 			assert.Equal(t, expected[i].Name, res[i].Name)
-			assert.Equal(t, expected[i].HasFrequency, res[i].HasFrequency)
+			assert.Equal(t, expected[i].IsFilterable, res[i].IsFilterable)
+			assert.Equal(t, expected[i].IsSearchable, res[i].IsSearchable)
 			assert.ElementsMatch(t, expected[i].Items, res[i].Items)
 		}
 	})
@@ -689,6 +773,145 @@ func TestConvertSliceToUntyped(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestIndexInverted(t *testing.T) {
+	vFalse := false
+	vTrue := true
+
+	t.Run("is filterable", func(t *testing.T) {
+		type testCase struct {
+			name         string
+			isFilterable *bool
+			dataType     schema.DataType
+
+			expextedFilterable bool
+		}
+
+		testCases := []testCase{
+			{
+				name:         "int, filterable null",
+				isFilterable: nil,
+				dataType:     schema.DataTypeInt,
+
+				expextedFilterable: true,
+			},
+			{
+				name:         "int, filterable false",
+				isFilterable: &vFalse,
+				dataType:     schema.DataTypeInt,
+
+				expextedFilterable: false,
+			},
+			{
+				name:         "int, filterable true",
+				isFilterable: &vTrue,
+				dataType:     schema.DataTypeInt,
+
+				expextedFilterable: true,
+			},
+			{
+				name:         "text, filterable null",
+				isFilterable: nil,
+				dataType:     schema.DataTypeText,
+
+				expextedFilterable: true,
+			},
+			{
+				name:         "text, filterable false",
+				isFilterable: &vFalse,
+				dataType:     schema.DataTypeText,
+
+				expextedFilterable: false,
+			},
+			{
+				name:         "text, filterable true",
+				isFilterable: &vTrue,
+				dataType:     schema.DataTypeText,
+
+				expextedFilterable: true,
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				isFilterable := IsFilterable(&models.Property{
+					Name:            "prop",
+					DataType:        tc.dataType.PropString(),
+					IndexFilterable: tc.isFilterable,
+				})
+
+				assert.Equal(t, tc.expextedFilterable, isFilterable)
+			})
+		}
+	})
+
+	t.Run("is searchable", func(t *testing.T) {
+		type testCase struct {
+			name         string
+			isSearchable *bool
+			dataType     schema.DataType
+
+			expextedSearchable bool
+		}
+
+		testCases := []testCase{
+			{
+				name:         "int, searchable null",
+				isSearchable: nil,
+				dataType:     schema.DataTypeInt,
+
+				expextedSearchable: false,
+			},
+			{
+				name:         "int, searchable false",
+				isSearchable: &vFalse,
+				dataType:     schema.DataTypeInt,
+
+				expextedSearchable: false,
+			},
+			{
+				name:         "int, searchable true",
+				isSearchable: &vTrue,
+				dataType:     schema.DataTypeInt,
+
+				expextedSearchable: false,
+			},
+			{
+				name:         "text, searchable null",
+				isSearchable: nil,
+				dataType:     schema.DataTypeText,
+
+				expextedSearchable: true,
+			},
+			{
+				name:         "text, searchable false",
+				isSearchable: &vFalse,
+				dataType:     schema.DataTypeText,
+
+				expextedSearchable: false,
+			},
+			{
+				name:         "text, searchable true",
+				isSearchable: &vTrue,
+				dataType:     schema.DataTypeText,
+
+				expextedSearchable: true,
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				isSearchable := IsSearchable(&models.Property{
+					Name:            "prop",
+					DataType:        tc.dataType.PropString(),
+					IndexSearchable: tc.isSearchable,
+				})
+
+				assert.Equal(t, tc.expextedSearchable, isSearchable)
+			})
+		}
+	})
 }
 
 func mustGetByteIntNumber(in int) []byte {

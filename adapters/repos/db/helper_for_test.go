@@ -42,8 +42,8 @@ func parkingGaragesSchema() schema.Schema {
 					Properties: []*models.Property{
 						{
 							Name:         "name",
-							DataType:     []string{string(schema.DataTypeString)},
-							Tokenization: "word",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "location",
@@ -58,8 +58,8 @@ func parkingGaragesSchema() schema.Schema {
 					Properties: []*models.Property{
 						{
 							Name:         "name",
-							DataType:     []string{string(schema.DataTypeString)},
-							Tokenization: "word",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},
@@ -70,8 +70,8 @@ func parkingGaragesSchema() schema.Schema {
 					Properties: []*models.Property{
 						{
 							Name:         "name",
-							DataType:     []string{string(schema.DataTypeString)},
-							Tokenization: "word",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "parkedAt",
@@ -86,8 +86,8 @@ func parkingGaragesSchema() schema.Schema {
 					Properties: []*models.Property{
 						{
 							Name:         "name",
-							DataType:     []string{string(schema.DataTypeString)},
-							Tokenization: "word",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "drives",
@@ -102,8 +102,8 @@ func parkingGaragesSchema() schema.Schema {
 					Properties: []*models.Property{
 						{
 							Name:         "name",
-							DataType:     []string{string(schema.DataTypeString)},
-							Tokenization: "word",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "friendsWith",
@@ -118,8 +118,8 @@ func parkingGaragesSchema() schema.Schema {
 					Properties: []*models.Property{
 						{
 							Name:         "name",
-							DataType:     []string{string(schema.DataTypeString)},
-							Tokenization: "word",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "hasMembers",
@@ -136,8 +136,8 @@ func parkingGaragesSchema() schema.Schema {
 					Properties: []*models.Property{
 						{
 							Name:         "name",
-							DataType:     []string{string(schema.DataTypeString)},
-							Tokenization: "word",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},
@@ -148,8 +148,8 @@ func parkingGaragesSchema() schema.Schema {
 					Properties: []*models.Property{
 						{
 							Name:         "name",
-							DataType:     []string{string(schema.DataTypeString)},
-							Tokenization: "word",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},
@@ -167,7 +167,7 @@ func cityCountryAirportSchema() schema.Schema {
 					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
-						{Name: "name", DataType: []string{"string"}, Tokenization: "word"},
+						{Name: "name", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
 					},
 				},
 				{
@@ -175,7 +175,7 @@ func cityCountryAirportSchema() schema.Schema {
 					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
-						{Name: "name", DataType: []string{"string"}, Tokenization: "word"},
+						{Name: "name", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
 						{Name: "inCountry", DataType: []string{"Country"}},
 						{Name: "population", DataType: []string{"int"}},
 						{Name: "location", DataType: []string{"geoCoordinates"}},
@@ -186,7 +186,7 @@ func cityCountryAirportSchema() schema.Schema {
 					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
-						{Name: "code", DataType: []string{"string"}, Tokenization: "word"},
+						{Name: "code", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
 						{Name: "phone", DataType: []string{"phoneNumber"}},
 						{Name: "inCity", DataType: []string{"City"}},
 					},
@@ -197,6 +197,7 @@ func cityCountryAirportSchema() schema.Schema {
 }
 
 func testCtx() context.Context {
+	//nolint:govet
 	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
 	return ctx
 }
@@ -245,18 +246,6 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 	idx.Shards[shardName] = shd
 
 	return shd, idx
-}
-
-func withVectorIndexing(affirmative bool) func(*Index) {
-	if affirmative {
-		return func(i *Index) {
-			i.vectorIndexUserConfig = enthnsw.NewDefaultUserConfig()
-		}
-	}
-
-	return func(i *Index) {
-		i.vectorIndexUserConfig = enthnsw.UserConfig{Skip: true}
-	}
 }
 
 func testObject(className string) *storobj.Object {

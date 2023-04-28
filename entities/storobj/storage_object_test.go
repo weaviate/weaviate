@@ -292,7 +292,6 @@ func TestStorageArrayObjectMarshalling(t *testing.T) {
 				},
 			},
 			Properties: map[string]interface{}{
-				"stringArray": []string{"a", "b"},
 				"textArray":   []string{"c", "d"},
 				"numberArray": []float64{1.1, 2.1},
 				"foo":         float64(17),
@@ -318,13 +317,6 @@ func TestStorageArrayObjectMarshalling(t *testing.T) {
 		assert.Equal(t, uint64(7), id)
 	})
 
-	t.Run("extract string array prop", func(t *testing.T) {
-		prop, ok, err := ParseAndExtractTextProp(asBinary, "stringArray")
-		require.Nil(t, err)
-		require.True(t, ok)
-		assert.Equal(t, []string{"a", "b"}, prop)
-	})
-
 	t.Run("extract text array prop", func(t *testing.T) {
 		prop, ok, err := ParseAndExtractTextProp(asBinary, "textArray")
 		require.Nil(t, err)
@@ -342,27 +334,30 @@ func TestStorageArrayObjectMarshalling(t *testing.T) {
 
 func TestExtractionOfSingleProperties(t *testing.T) {
 	expected := map[string]interface{}{
-		"intArray":       []interface{}{1., 2., 5000.},
-		"time":           "2011-11-23T01:52:23.000004234Z",
-		"ref":            []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
-		"beacon":         []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
-		"textArray":      []interface{}{"hello", ",", "I", "am", "a", "veeery", "long", "Array", "with some text."},
-		"stringArrayUTF": []interface{}{"語", "b"},
-		"numberArray":    []interface{}{1.1, 2.1},
-		"boolArray":      []interface{}{true, false, true},
+		"numberArray":  []interface{}{1.1, 2.1},
+		"intArray":     []interface{}{1., 2., 5000.},
+		"textArrayUTF": []interface{}{"語", "b"},
+		"textArray":    []interface{}{"hello", ",", "I", "am", "a", "veeery", "long", "Array", "with some text."},
+		"foo":          float64(17),
+		"text":         "single string",
+		"bool":         true,
+		"time":         "2011-11-23T01:52:23.000004234Z",
+		"boolArray":    []interface{}{true, false, true},
+		"beacon":       []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
+		"ref":          []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
 	}
 	properties := map[string]interface{}{
-		"numberArray":    []float64{1.1, 2.1},
-		"intArray":       []int32{1, 2, 5000},
-		"stringArrayUTF": []string{"語", "b"},
-		"textArray":      []string{"hello", ",", "I", "am", "a", "veeery", "long", "Array", "with some text."},
-		"foo":            float64(17),
-		"string":         "single string",
-		"bool":           true,
-		"time":           time.Date(2011, 11, 23, 1, 52, 23, 4234, time.UTC),
-		"boolArray":      []bool{true, false, true},
-		"beacon":         []map[string]interface{}{{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
-		"ref":            []models.SingleRef{{Beacon: "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247", Class: "OtherClass", Href: "/v1/f81bfe5e-16ba-4615-a516-46c2ae2e5a80"}},
+		"numberArray":  []float64{1.1, 2.1},
+		"intArray":     []int32{1, 2, 5000},
+		"textArrayUTF": []string{"語", "b"},
+		"textArray":    []string{"hello", ",", "I", "am", "a", "veeery", "long", "Array", "with some text."},
+		"foo":          float64(17),
+		"text":         "single string",
+		"bool":         true,
+		"time":         time.Date(2011, 11, 23, 1, 52, 23, 4234, time.UTC),
+		"boolArray":    []bool{true, false, true},
+		"beacon":       []map[string]interface{}{{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
+		"ref":          []models.SingleRef{{Beacon: "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247", Class: "OtherClass", Href: "/v1/f81bfe5e-16ba-4615-a516-46c2ae2e5a80"}},
 	}
 	before := FromObject(
 		&models.Object{
@@ -391,11 +386,7 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 	// test with reused property map
 	for i := 0; i < 2; i++ {
 		require.Nil(t, UnmarshalPropertiesFromObject(byteObject, &extractedProperties, propertyNames, propStrings))
-		for key := range properties {
-			if _, ok := expected[key]; !ok {
-				expected[key] = properties[key]
-			}
-
+		for key := range expected {
 			require.Equal(t, expected[key], extractedProperties[key])
 		}
 

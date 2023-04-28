@@ -70,7 +70,7 @@ func (h *objectsSorterHelper) sort(objects []*storobj.Object, distances []float3
 	sorter := newDefaultSorter(h.comparator, count)
 
 	for i := range objects {
-		payload := object_distance_payload{o: objects[i]}
+		payload := objectDistancePayload{o: objects[i]}
 		if withDistances {
 			payload.d = distances[i]
 		}
@@ -88,7 +88,7 @@ func (h *objectsSorterHelper) sort(objects []*storobj.Object, distances []float3
 		if i >= slice {
 			return true
 		}
-		p := payload.(object_distance_payload)
+		p := payload.(objectDistancePayload)
 		objects[i] = p.o
 		if withDistances {
 			distances[i] = p.d
@@ -103,7 +103,7 @@ func (h *objectsSorterHelper) sort(objects []*storobj.Object, distances []float3
 	return objects[:slice], distances, nil
 }
 
-type object_distance_payload struct {
+type objectDistancePayload struct {
 	o *storobj.Object
 	d float32
 }

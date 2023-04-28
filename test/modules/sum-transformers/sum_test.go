@@ -41,7 +41,7 @@ func Test_SUMTransformers(t *testing.T) {
 					Books(where: {
 						operator: Equal
 						path:["title"]
-						valueString: "Dune"
+						valueText: "Dune"
 					}){
 						title
 						_additional {

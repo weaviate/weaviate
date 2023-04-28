@@ -18,14 +18,16 @@ import (
 	"unicode/utf8"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
-func (a *Analyzer) Object(input map[string]interface{}, props []*models.Property,
+func (a *Analyzer) Object(input map[string]any, props []*models.Property,
 	uuid strfmt.UUID,
 ) ([]Property, error) {
 	propsMap := map[string]*models.Property{}
@@ -35,18 +37,18 @@ func (a *Analyzer) Object(input map[string]interface{}, props []*models.Property
 
 	properties, err := a.analyzeProps(propsMap, input)
 	if err != nil {
-		return nil, errors.Wrap(err, "analyze props")
+		return nil, fmt.Errorf("analyze props: %w", err)
 	}
 
 	idProp, err := a.analyzeIDProp(uuid)
 	if err != nil {
-		return nil, errors.Wrap(err, "analyze uuid prop")
+		return nil, fmt.Errorf("analyze uuid prop: %w", err)
 	}
 	properties = append(properties, *idProp)
 
 	tsProps, err := a.analyzeTimestampProps(input)
 	if err != nil {
-		return nil, errors.Wrap(err, "analyze timestamp props")
+		return nil, fmt.Errorf("analyze timestamp props: %w", err)
 	}
 	// tsProps will be nil here if weaviate is
 	// not setup to index by timestamps
@@ -58,7 +60,7 @@ func (a *Analyzer) Object(input map[string]interface{}, props []*models.Property
 }
 
 func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
-	input map[string]interface{},
+	input map[string]any,
 ) ([]Property, error) {
 	var out []Property
 	for key, prop := range propsMap {
@@ -66,7 +68,7 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 			return nil, fmt.Errorf("prop %q has no datatype", prop.Name)
 		}
 
-		if prop.IndexInverted != nil && !*prop.IndexInverted {
+		if !IsIndexable(prop) {
 			continue
 		}
 
@@ -95,20 +97,21 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 func (a *Analyzer) analyzeIDProp(id strfmt.UUID) (*Property, error) {
 	value, err := id.MarshalText()
 	if err != nil {
-		return nil, errors.Wrap(err, "marshal id prop")
+		return nil, fmt.Errorf("marshal id prop: %w", err)
 	}
 	return &Property{
-		Name:         filters.InternalPropID,
-		HasFrequency: false,
+		Name: filters.InternalPropID,
 		Items: []Countable{
 			{
 				Data: value,
 			},
 		},
+		IsFilterable: IsFilterableIdProp,
+		IsSearchable: IsSearchableIdProp,
 	}, nil
 }
 
-func (a *Analyzer) analyzeTimestampProps(input map[string]interface{}) ([]Property, error) {
+func (a *Analyzer) analyzeTimestampProps(input map[string]any) ([]Property, error) {
 	createTime, createTimeOK := input[filters.InternalPropCreationTimeUnix]
 	updateTime, updateTimeOK := input[filters.InternalPropLastUpdateTimeUnix]
 
@@ -116,22 +119,26 @@ func (a *Analyzer) analyzeTimestampProps(input map[string]interface{}) ([]Proper
 	if createTimeOK {
 		b, err := json.Marshal(createTime)
 		if err != nil {
-			return nil, errors.Wrap(err, "analyze create timestamp prop")
+			return nil, fmt.Errorf("analyze create timestamp prop: %w", err)
 		}
 		props = append(props, Property{
-			Name:  filters.InternalPropCreationTimeUnix,
-			Items: []Countable{{Data: b}},
+			Name:         filters.InternalPropCreationTimeUnix,
+			Items:        []Countable{{Data: b}},
+			IsFilterable: IsFilterableTimestampProp,
+			IsSearchable: IsSearchableTimestampProp,
 		})
 	}
 
 	if updateTimeOK {
 		b, err := json.Marshal(updateTime)
 		if err != nil {
-			return nil, errors.Wrap(err, "analyze update timestamp prop")
+			return nil, fmt.Errorf("analyze update timestamp prop: %w", err)
 		}
 		props = append(props, Property{
-			Name:  filters.InternalPropLastUpdateTimeUnix,
-			Items: []Countable{{Data: b}},
+			Name:         filters.InternalPropLastUpdateTimeUnix,
+			Items:        []Countable{{Data: b}},
+			IsFilterable: IsFilterableTimestampProp,
+			IsSearchable: IsSearchableTimestampProp,
 		})
 	}
 
@@ -139,7 +146,7 @@ func (a *Analyzer) analyzeTimestampProps(input map[string]interface{}) ([]Proper
 }
 
 func (a *Analyzer) extendPropertiesWithArrayType(properties *[]Property,
-	prop *models.Property, input map[string]interface{}, propName string,
+	prop *models.Property, input map[string]any, propName string,
 ) error {
 	value, ok := input[propName]
 	if !ok {
@@ -153,7 +160,7 @@ func (a *Analyzer) extendPropertiesWithArrayType(properties *[]Property,
 		return fmt.Errorf("extend properties with array type: %w", err)
 	}
 
-	values, ok := value.([]interface{})
+	values, ok := value.([]any)
 	if !ok {
 		// skip any primitive prop that's not set
 		return errors.New("analyze array prop: expected array prop")
@@ -161,7 +168,7 @@ func (a *Analyzer) extendPropertiesWithArrayType(properties *[]Property,
 
 	property, err := a.analyzeArrayProp(prop, values)
 	if err != nil {
-		return errors.Wrap(err, "analyze primitive prop")
+		return fmt.Errorf("analyze array prop: %w", err)
 	}
 	if property == nil {
 		return nil
@@ -174,7 +181,7 @@ func (a *Analyzer) extendPropertiesWithArrayType(properties *[]Property,
 // extendPropertiesWithPrimitive mutates the passed in properties, by extending
 // it with an additional property - if applicable
 func (a *Analyzer) extendPropertiesWithPrimitive(properties *[]Property,
-	prop *models.Property, input map[string]interface{}, propName string,
+	prop *models.Property, input map[string]any, propName string,
 ) error {
 	var property *Property
 	var err error
@@ -186,7 +193,7 @@ func (a *Analyzer) extendPropertiesWithPrimitive(properties *[]Property,
 	}
 	property, err = a.analyzePrimitiveProp(prop, value)
 	if err != nil {
-		return errors.Wrap(err, "analyze primitive prop")
+		return fmt.Errorf("analyze primitive prop: %w", err)
 	}
 	if property == nil {
 		return nil
@@ -196,36 +203,20 @@ func (a *Analyzer) extendPropertiesWithPrimitive(properties *[]Property,
 	return nil
 }
 
-func HasFrequency(dt schema.DataType) bool {
-	if dt == schema.DataTypeText || dt == schema.DataTypeString ||
-		dt == schema.DataTypeStringArray || dt == schema.DataTypeTextArray {
-		return true
-	}
-
-	return false
-}
-
-func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{}) (*Property, error) {
-	var hasFrequency bool
+func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Property, error) {
 	var items []Countable
-	dt := schema.DataType(prop.DataType[0])
-	switch dt {
+	isFilterable := IsFilterable(prop)
+	isSearchable := IsSearchable(prop)
+
+	switch dt := schema.DataType(prop.DataType[0]); dt {
 	case schema.DataTypeTextArray:
-		hasFrequency = HasFrequency(dt)
+		isFilterable = isFilterable && !a.isFallbackToSearchable()
 		in, err := stringsFromValues(prop, values)
 		if err != nil {
 			return nil, err
 		}
 		items = a.TextArray(prop.Tokenization, in)
-	case schema.DataTypeStringArray:
-		hasFrequency = HasFrequency(dt)
-		in, err := stringsFromValues(prop, values)
-		if err != nil {
-			return nil, err
-		}
-		items = a.StringArray(prop.Tokenization, in)
 	case schema.DataTypeIntArray:
-		hasFrequency = HasFrequency(dt)
 		in := make([]int64, len(values))
 		for i, value := range values {
 			if asJsonNumber, ok := value.(json.Number); ok {
@@ -252,10 +243,9 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{})
 		var err error
 		items, err = a.IntArray(in)
 		if err != nil {
-			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	case schema.DataTypeNumberArray:
-		hasFrequency = HasFrequency(dt)
 		in := make([]float64, len(values))
 		for i, value := range values {
 			if asJsonNumber, ok := value.(json.Number); ok {
@@ -276,10 +266,9 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{})
 		var err error
 		items, err = a.FloatArray(in) // convert to int before analyzing
 		if err != nil {
-			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	case schema.DataTypeBooleanArray:
-		hasFrequency = HasFrequency(dt)
 		in := make([]bool, len(values))
 		for i, value := range values {
 			asBool, ok := value.(bool)
@@ -292,10 +281,9 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{})
 		var err error
 		items, err = a.BoolArray(in) // convert to int before analyzing
 		if err != nil {
-			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	case schema.DataTypeDateArray:
-		hasFrequency = HasFrequency(dt)
 		in := make([]int64, len(values))
 		for i, value := range values {
 			// dates can be either a date-string or directly a time object. Try to parse both
@@ -304,7 +292,7 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{})
 			} else if asString, okString := value.(string); okString {
 				parsedTime, err := time.Parse(time.RFC3339Nano, asString)
 				if err != nil {
-					return nil, errors.Wrapf(err, "Time parsing")
+					return nil, fmt.Errorf("parse time: %w", err)
 				}
 				in[i] = parsedTime.UnixNano()
 			} else {
@@ -315,7 +303,17 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{})
 		var err error
 		items, err = a.IntArray(in)
 		if err != nil {
-			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
+		}
+	case schema.DataTypeUUIDArray:
+		parsed, err := validation.ParseUUIDArray(values)
+		if err != nil {
+			return nil, fmt.Errorf("parse uuid array: %w", err)
+		}
+
+		items, err = a.UUIDArray(parsed)
+		if err != nil {
+			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 
 	default:
@@ -326,12 +324,13 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{})
 	return &Property{
 		Name:         prop.Name,
 		Items:        items,
-		HasFrequency: hasFrequency,
 		Length:       len(values),
+		IsFilterable: isFilterable,
+		IsSearchable: isSearchable,
 	}, nil
 }
 
-func stringsFromValues(prop *models.Property, values []interface{}) ([]string, error) {
+func stringsFromValues(prop *models.Property, values []any) ([]string, error) {
 	in := make([]string, len(values))
 	for i, value := range values {
 		asString, ok := value.(string)
@@ -343,30 +342,22 @@ func stringsFromValues(prop *models.Property, values []interface{}) ([]string, e
 	return in, nil
 }
 
-func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}) (*Property, error) {
-	var hasFrequency bool
+func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Property, error) {
 	var items []Countable
 	propertyLength := -1 // will be overwritten for string/text, signals not to add the other types.
-	dt := schema.DataType(prop.DataType[0])
-	switch dt {
+	isFilterable := IsFilterable(prop)
+	isSearchable := IsSearchable(prop)
+
+	switch dt := schema.DataType(prop.DataType[0]); dt {
 	case schema.DataTypeText:
-		hasFrequency = HasFrequency(dt)
+		isFilterable = isFilterable && !a.isFallbackToSearchable()
 		asString, ok := value.(string)
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
 		}
 		items = a.Text(prop.Tokenization, asString)
 		propertyLength = utf8.RuneCountInString(asString)
-	case schema.DataTypeString:
-		hasFrequency = HasFrequency(dt)
-		asString, ok := value.(string)
-		if !ok {
-			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
-		}
-		items = a.String(prop.Tokenization, asString)
-		propertyLength = utf8.RuneCountInString(asString)
 	case schema.DataTypeInt:
-		hasFrequency = HasFrequency(dt)
 		if asFloat, ok := value.(float64); ok {
 			// unmarshaling from json into a dynamic schema will assume every number
 			// is a float64
@@ -386,10 +377,9 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 		var err error
 		items, err = a.Int(asInt)
 		if err != nil {
-			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	case schema.DataTypeNumber:
-		hasFrequency = HasFrequency(dt)
 		asFloat, ok := value.(float64)
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be of type float64, but got %T", prop.Name, value)
@@ -398,10 +388,9 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 		var err error
 		items, err = a.Float(asFloat) // convert to int before analyzing
 		if err != nil {
-			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	case schema.DataTypeBoolean:
-		hasFrequency = HasFrequency(dt)
 		asBool, ok := value.(bool)
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be of type bool, but got %T", prop.Name, value)
@@ -410,16 +399,15 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 		var err error
 		items, err = a.Bool(asBool) // convert to int before analyzing
 		if err != nil {
-			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	case schema.DataTypeDate:
-		hasFrequency = HasFrequency(dt)
 		var err error
 		if asString, ok := value.(string); ok {
 			// for example when patching the date may have been loaded as a string
 			value, err = time.Parse(time.RFC3339Nano, asString)
 			if err != nil {
-				return nil, errors.Wrap(err, "parse stringified timestamp")
+				return nil, fmt.Errorf("parse stringified timestamp: %w", err)
 			}
 		}
 		asTime, ok := value.(time.Time)
@@ -429,7 +417,27 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 
 		items, err = a.Int(asTime.UnixNano())
 		if err != nil {
-			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
+		}
+	case schema.DataTypeUUID:
+		var err error
+
+		if asString, ok := value.(string); ok {
+			// for example when patching the uuid may have been loaded as a string
+			value, err = uuid.Parse(asString)
+			if err != nil {
+				return nil, fmt.Errorf("parse stringified uuid: %w", err)
+			}
+		}
+
+		asUUID, ok := value.(uuid.UUID)
+		if !ok {
+			return nil, fmt.Errorf("expected property %s to be uuid.UUID, but got %T", prop.Name, value)
+		}
+
+		items, err = a.UUID(asUUID)
+		if err != nil {
+			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	default:
 		// ignore unsupported prop type
@@ -439,8 +447,9 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 	return &Property{
 		Name:         prop.Name,
 		Items:        items,
-		HasFrequency: hasFrequency,
 		Length:       propertyLength,
+		IsFilterable: isFilterable,
+		IsSearchable: isSearchable,
 	}, nil
 }
 
@@ -449,7 +458,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 // will be added. If the ref is set the ref-prop itself will also be added and
 // contain all references as values
 func (a *Analyzer) extendPropertiesWithReference(properties *[]Property,
-	prop *models.Property, input map[string]interface{}, propName string,
+	prop *models.Property, input map[string]any, propName string,
 ) error {
 	value, ok := input[propName]
 	if !ok {
@@ -461,11 +470,11 @@ func (a *Analyzer) extendPropertiesWithReference(properties *[]Property,
 	asRefs, ok = value.(models.MultipleRef)
 	if !ok {
 		// due to the fix introduced in https://github.com/weaviate/weaviate/pull/2320,
-		// MultipleRef's can appear as empty []interface{} when no actual refs are provided for
+		// MultipleRef's can appear as empty []any when no actual refs are provided for
 		// an object's reference property.
 		//
-		// if we encounter []interface{}, assume it indicates an empty ref prop, and skip it.
-		_, ok := value.([]interface{})
+		// if we encounter []any, assume it indicates an empty ref prop, and skip it.
+		_, ok := value.([]any)
 		if !ok {
 			return fmt.Errorf("expected property %q to be of type models.MutlipleRef,"+
 				" but got %T", prop.Name, value)
@@ -475,7 +484,7 @@ func (a *Analyzer) extendPropertiesWithReference(properties *[]Property,
 
 	property, err := a.analyzeRefPropCount(prop, asRefs)
 	if err != nil {
-		return errors.Wrap(err, "ref count")
+		return fmt.Errorf("ref count: %w", err)
 	}
 
 	*properties = append(*properties, *property)
@@ -486,7 +495,7 @@ func (a *Analyzer) extendPropertiesWithReference(properties *[]Property,
 
 	property, err = a.analyzeRefProp(prop, asRefs)
 	if err != nil {
-		return errors.Wrap(err, "refs")
+		return fmt.Errorf("refs: %w", err)
 	}
 
 	*properties = append(*properties, *property)
@@ -498,14 +507,15 @@ func (a *Analyzer) analyzeRefPropCount(prop *models.Property,
 ) (*Property, error) {
 	items, err := a.RefCount(value)
 	if err != nil {
-		return nil, errors.Wrapf(err, "analyze ref-property %q", prop.Name)
+		return nil, fmt.Errorf("analyze ref-property %q: %w", prop.Name, err)
 	}
 
 	return &Property{
 		Name:         helpers.MetaCountProp(prop.Name),
 		Items:        items,
-		HasFrequency: false,
 		Length:       len(value),
+		IsFilterable: IsFilterable(prop),
+		IsSearchable: IsSearchable(prop),
 	}, nil
 }
 
@@ -514,19 +524,20 @@ func (a *Analyzer) analyzeRefProp(prop *models.Property,
 ) (*Property, error) {
 	items, err := a.Ref(value)
 	if err != nil {
-		return nil, errors.Wrapf(err, "analyze ref-property %q", prop.Name)
+		return nil, fmt.Errorf("analyze ref-property %q: %w", prop.Name, err)
 	}
 
 	return &Property{
 		Name:         prop.Name,
 		Items:        items,
-		HasFrequency: false,
+		IsFilterable: IsFilterable(prop),
+		IsSearchable: IsSearchable(prop),
 	}, nil
 }
 
-func typedSliceToUntyped(in interface{}) ([]interface{}, error) {
+func typedSliceToUntyped(in any) ([]any, error) {
 	switch typed := in.(type) {
-	case []interface{}:
+	case []any:
 		// nothing to do
 		return typed, nil
 	case []string:
@@ -539,15 +550,73 @@ func typedSliceToUntyped(in interface{}) ([]interface{}, error) {
 		return convertToUntyped[bool](typed), nil
 	case []float64:
 		return convertToUntyped[float64](typed), nil
+	case []uuid.UUID:
+		return convertToUntyped[uuid.UUID](typed), nil
 	default:
 		return nil, errors.Errorf("unsupported type %T", in)
 	}
 }
 
-func convertToUntyped[T comparable](in []T) []interface{} {
-	out := make([]interface{}, len(in))
+func convertToUntyped[T comparable](in []T) []any {
+	out := make([]any, len(in))
 	for i := range out {
 		out[i] = in[i]
 	}
 	return out
 }
+
+// Indicates whether property should be indexed
+// Index contains document ids having property of given value
+// and number of occurrences in the property
+// (index created with help of bucket of StrategyMapCollection)
+func IsSearchable(prop *models.Property) bool {
+	switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
+	case schema.DataTypeText, schema.DataTypeTextArray:
+		// by default property is searchable only for text/text[] props
+		if prop.IndexSearchable == nil {
+			return true
+		}
+		return *prop.IndexSearchable
+	default:
+		return false
+	}
+}
+
+// Indicates whether property should be indexed
+// Index contains only document ids having property of given value
+// (index created with help of bucket of StrategyRoaringSet)
+func IsFilterable(prop *models.Property) bool {
+	// by default property is filterable
+	if prop.IndexFilterable == nil {
+		return true
+	}
+	return *prop.IndexFilterable
+}
+
+func IsIndexable(prop *models.Property) bool {
+	return IsFilterable(prop) || IsSearchable(prop)
+}
+
+const (
+	// allways
+	IsFilterableIdProp = true
+	IsSearchableIdProp = false
+
+	// only if index.invertedIndexConfig.IndexTimestamps set
+	IsFilterableTimestampProp = true
+	IsSearchableTimestampProp = false
+
+	// only if property.indexFilterable or property.indexSearchable set
+	IsFilterableMetaCount = true
+	IsSearchableMetaCount = false
+
+	// only if index.invertedIndexConfig.IndexNullState set
+	// and either property.indexFilterable or property.indexSearchable set
+	IsFilterablePropNull = true
+	IsSearchablePropNull = false
+
+	// only if index.invertedIndexConfig.IndexPropertyLength set
+	// and either property.indexFilterable or property.indexSearchable set
+	IsFilterablePropLength = true
+	IsSearchablePropLength = false
+)

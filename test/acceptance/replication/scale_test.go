@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func multiShardScaleOut(t *testing.T) {
@@ -132,9 +133,9 @@ func multiShardScaleOut(t *testing.T) {
 
 	t.Run("kill a node and check contents of remaining node", func(t *testing.T) {
 		stopNode(ctx, t, compose, compose.GetWeaviateNode2().Name())
-		p := gqlGet(t, compose.GetWeaviate().URI(), paragraphClass.Class)
+		p := gqlGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, replica.One)
 		assert.Len(t, p, 10)
-		a := gqlGet(t, compose.GetWeaviate().URI(), articleClass.Class)
+		a := gqlGet(t, compose.GetWeaviate().URI(), articleClass.Class, replica.One)
 		assert.Len(t, a, 10)
 	})
 }

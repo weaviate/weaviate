@@ -43,6 +43,7 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, gqlProvider graphQLProvid
 	api.GraphqlGraphqlPostHandler = graphql.GraphqlPostHandlerFunc(func(params graphql.GraphqlPostParams, principal *models.Principal) middleware.Responder {
 		// All requests to the graphQL API need at least permissions to read the schema. Request might have further
 		// authorization requirements.
+
 		err := m.Authorizer.Authorize(principal, "list", "schema/*")
 		if err != nil {
 			switch err.(type) {

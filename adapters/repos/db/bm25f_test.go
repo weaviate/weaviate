@@ -25,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -48,18 +49,11 @@ func BM25FinvertedConfig(k1, b float32, stopWordPreset string) *models.InvertedI
 	}
 }
 
-func truePointer() *bool {
-	t := true
-	return &t
-}
-
-func falsePointer() *bool {
-	t := false
-	return &t
-}
-
 func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32,
 ) {
+	vFalse := false
+	vTrue := true
+
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
@@ -67,51 +61,59 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 
 		Properties: []*models.Property{
 			{
-				Name:          "title",
-				DataType:      []string{string(schema.DataTypeText)},
-				Tokenization:  "word",
-				IndexInverted: truePointer(),
+				Name:            "title",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "description",
-				DataType:      []string{string(schema.DataTypeText)},
-				Tokenization:  "word",
-				IndexInverted: truePointer(),
+				Name:            "description",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "review",
-				DataType:      []string{string(schema.DataTypeText)},
-				Tokenization:  "word",
-				IndexInverted: truePointer(),
+				Name:            "review",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "stringField",
-				DataType:      []string{string(schema.DataTypeString)},
-				Tokenization:  "field",
-				IndexInverted: truePointer(),
+				Name:            "textField",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationField,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "stringFieldWord",
-				DataType:      []string{string(schema.DataTypeString)},
-				Tokenization:  "word",
-				IndexInverted: truePointer(),
+				Name:            "textWhitespace",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWhitespace,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "relatedToGolf",
-				DataType:      []string{string(schema.DataTypeBoolean)},
-				IndexInverted: truePointer(),
+				Name:            "relatedToGolf",
+				DataType:        schema.DataTypeBoolean.PropString(),
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "multiTitles",
-				DataType:      []string{string(schema.DataTypeTextArray)},
-				Tokenization:  "word",
-				IndexInverted: truePointer(),
+				Name:            "multiTitles",
+				DataType:        schema.DataTypeTextArray.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "multiStringFieldWord",
-				DataType:      []string{string(schema.DataTypeStringArray)},
-				Tokenization:  "word",
-				IndexInverted: truePointer(),
+				Name:            "multiTextWhitespace",
+				DataType:        schema.DataTypeTextArray.PropString(),
+				Tokenization:    models.PropertyTokenizationWhitespace,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 		},
 	}
@@ -133,10 +135,10 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 	testData = append(testData, map[string]interface{}{"title": "My journeys in Journey", "description": "A journey story about journeying"})
 	testData = append(testData, map[string]interface{}{"title": "An unrelated title", "description": "Actually all about journey"})
 	testData = append(testData, map[string]interface{}{"title": "journey journey", "description": "journey journey journey"})
-	testData = append(testData, map[string]interface{}{"title": "journey", "description": "journey journey", "multiStringFieldWord": []string{"totally irrelevant:)", "we all MuuultiYell! together"}})
-	testData = append(testData, map[string]interface{}{"title": "JOURNEY", "description": "A LOUD JOURNEY", "multiStringFieldWord": []string{"MuuultiYell!", "is fun"}})
-	testData = append(testData, map[string]interface{}{"title": "An unrelated title", "description": "Absolutely nothing to do with the topic", "stringField": "*&^$@#$%^&*()(Offtopic!!!!"})
-	testData = append(testData, map[string]interface{}{"title": "none", "description": "other", "stringField": "YELLING IS FUN"})
+	testData = append(testData, map[string]interface{}{"title": "journey", "description": "journey journey", "multiTextWhitespace": []string{"totally irrelevant:)", "we all MuuultiYell! together"}})
+	testData = append(testData, map[string]interface{}{"title": "JOURNEY", "description": "A LOUD JOURNEY", "multiTextWhitespace": []string{"MuuultiYell!", "is fun"}})
+	testData = append(testData, map[string]interface{}{"title": "An unrelated title", "description": "Absolutely nothing to do with the topic", "textField": "*&^$@#$%^&*()(Offtopic!!!!"})
+	testData = append(testData, map[string]interface{}{"title": "none", "description": "other", "textField": "YELLING IS FUN"})
 	testData = append(testData, map[string]interface{}{"title": "something", "description": "none none", "review": "none none none none none none"})
 
 	for i, data := range testData {
@@ -153,6 +155,9 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 // DuplicatedFrom SetupClass to make sure this new test does not alter the results of the existing one
 func SetupClassForFilterScoringTest(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32,
 ) {
+	vFalse := false
+	vTrue := true
+
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
@@ -160,15 +165,16 @@ func SetupClassForFilterScoringTest(t require.TestingT, repo *DB, schemaGetter *
 
 		Properties: []*models.Property{
 			{
-				Name:          "description",
-				DataType:      []string{string(schema.DataTypeText)},
-				Tokenization:  "word",
-				IndexInverted: truePointer(),
+				Name:            "description",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "relatedToGolf",
-				DataType:      []string{string(schema.DataTypeBoolean)},
-				IndexInverted: truePointer(),
+				Name:            "relatedToGolf",
+				DataType:        schema.DataTypeBoolean.PropString(),
+				IndexFilterable: &vTrue,
 			},
 		},
 	}
@@ -223,8 +229,8 @@ func TestBM25FJourney(t *testing.T) {
 	addit := additional.Properties{}
 
 	t.Run("bm25f journey", func(t *testing.T) {
-		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "stringField"}, Query: "journey"}
-		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "textField"}, Query: "journey"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		// Print results
@@ -244,45 +250,44 @@ func TestBM25FJourney(t *testing.T) {
 
 	// Check non-alpha search on string field
 
-	// String are by default not tokenized, so we can search for non-alpha characters
-	t.Run("bm25f stringfield non-alpha", func(t *testing.T) {
-		kwrStringField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "stringField"}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
+	// text/field are tokenized entirely, so we can search for non-alpha characters
+	t.Run("bm25f textField non-alpha", func(t *testing.T) {
+		kwrTextField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "textField"}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
 		addit = additional.Properties{}
-		resStringField, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrStringField, nil, nil, addit)
+		resTextField, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrTextField, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		// Print results
-		t.Log("--- Start results for stringField search ---")
-		for _, r := range resStringField {
+		t.Log("--- Start results for textField search ---")
+		for _, r := range resTextField {
 			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
 
 		// Check results in correct order
-		require.Equal(t, uint64(7), resStringField[0].DocID())
+		require.Equal(t, uint64(7), resTextField[0].DocID())
 	})
 
-	// String and text fields are indexed differently, so this checks the string indexing and searching.  In particular,
-	// string fields are not lower-cased before indexing, so upper case searches must be passed through unchanged.
-	t.Run("bm25f stringfield caps", func(t *testing.T) {
-		kwrStringField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"stringField"}, Query: "YELLING IS FUN"}
+	// text/field are not lower-cased before indexing, so upper case searches must be passed through unchanged.
+	t.Run("bm25f textField caps", func(t *testing.T) {
+		kwrTextField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"textField"}, Query: "YELLING IS FUN"}
 		addit := additional.Properties{}
-		resStringField, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrStringField, nil, nil, addit)
+		resTextField, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrTextField, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		// Print results
-		t.Log("--- Start results for stringField caps search ---")
-		for _, r := range resStringField {
+		t.Log("--- Start results for textField caps search ---")
+		for _, r := range resTextField {
 			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
 
 		// Check results in correct order
-		require.Equal(t, uint64(8), resStringField[0].DocID())
+		require.Equal(t, uint64(8), resTextField[0].DocID())
 	})
 
 	// Check basic text search WITH CAPS
 	t.Run("bm25f text with caps", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "JOURNEY"}
-		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
 		// Print results
 		t.Log("--- Start results for search with caps ---")
 		for _, r := range res {
@@ -297,7 +302,7 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("bm25f journey boosted", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^3", "description"}, Query: "journey"}
-		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
 
 		require.Nil(t, err)
 		// Print results
@@ -315,7 +320,7 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("Check search with two terms", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey somewhere"}
-		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 		// Check results in correct order
 		require.Equal(t, uint64(1), res[0].DocID())
@@ -328,7 +333,7 @@ func TestBM25FJourney(t *testing.T) {
 	t.Run("bm25f journey somewhere no properties", func(t *testing.T) {
 		// Check search with no properties (should include all properties)
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "journey somewhere"}
-		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		// Check results in correct order
@@ -341,14 +346,14 @@ func TestBM25FJourney(t *testing.T) {
 	t.Run("bm25f non alphanums", func(t *testing.T) {
 		// Check search with no properties (should include all properties)
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
-		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 		require.Equal(t, uint64(7), res[0].DocID())
 	})
 
 	t.Run("First result has high score", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "about BM25F"}
-		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		require.Equal(t, uint64(0), res[0].DocID())
@@ -357,7 +362,7 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("More results than limit", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
-		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		require.Equal(t, uint64(4), res[0].DocID())
@@ -370,7 +375,7 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("Results from three properties", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "none"}
-		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		require.Equal(t, uint64(9), res[0].DocID())
@@ -381,7 +386,7 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("Include additional explanations", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey", AdditionalExplanations: true}
-		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		// With additionalExplanations explainScore entry should be present
@@ -392,7 +397,7 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("Array fields text", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"multiTitles"}, Query: "dinner"}
-		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		require.Len(t, res, 2)
@@ -401,8 +406,8 @@ func TestBM25FJourney(t *testing.T) {
 	})
 
 	t.Run("Array fields string", func(t *testing.T) {
-		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"multiStringFieldWord"}, Query: "MuuultiYell!"}
-		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit)
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"multiTextWhitespace"}, Query: "MuuultiYell!"}
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		require.Len(t, res, 2)
@@ -435,15 +440,15 @@ func TestBM25FSingleProp(t *testing.T) {
 	// Check boosted
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
 	addit := additional.Properties{}
-	res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+	res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
 	require.Nil(t, err)
 	// Check results in correct order
 	require.Equal(t, uint64(3), res[0].DocID())
 	require.Equal(t, uint64(4), res[3].DocID())
 
 	// Check scores
-	EqualFloats(t, float32(0.1236), res[0].Score(), 5)
-	EqualFloats(t, float32(0.0362), res[1].Score(), 5)
+	EqualFloats(t, float32(0.1248), res[0].Score(), 5)
+	EqualFloats(t, float32(0.0363), res[1].Score(), 5)
 }
 
 func TestBM25FWithFilters(t *testing.T) {
@@ -499,7 +504,7 @@ func TestBM25FWithFilters(t *testing.T) {
 
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
 	addit := additional.Properties{}
-	res, _, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit)
+	res, _, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit, nil)
 
 	require.Nil(t, err)
 	require.True(t, len(res) == 1)
@@ -548,9 +553,9 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilter(t *testing.T) {
 	}
 
 	addit := additional.Properties{}
-	filtered, _, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit)
+	filtered, _, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit, nil)
 	require.Nil(t, err)
-	unfiltered, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+	unfiltered, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
 	require.Nil(t, err)
 
 	require.Len(t, filtered, 1)   // should match exactly one element
@@ -586,7 +591,7 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	// Check boosted
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^2", "description"}, Query: "journey"}
 	addit := additional.Properties{}
-	res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+	res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
 
 	// Print results
 	t.Log("--- Start results for boosted search ---")
@@ -607,8 +612,8 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	}
 
 	// Check scores
-	EqualFloats(t, float32(0.06011), res[0].Score(), 6)
-	EqualFloats(t, float32(0.04228), res[1].Score(), 6)
+	EqualFloats(t, float32(0.06023), res[0].Score(), 6)
+	EqualFloats(t, float32(0.04238), res[1].Score(), 6)
 }
 
 func EqualFloats(t *testing.T, expected, actual float32, significantFigures int) {
@@ -658,6 +663,7 @@ func TestBM25FCompare(t *testing.T) {
 		addit := additional.Properties{}
 
 		withBM25Fobjs, withBM25Fscores, err := shard.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		require.Nil(t, err)
 
 		for i, r := range withBM25Fobjs {
 			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), withBM25Fscores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
@@ -667,12 +673,12 @@ func TestBM25FCompare(t *testing.T) {
 		kwr.Type = ""
 
 		objs, scores, err := shard.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		require.Nil(t, err)
 
 		for i, r := range objs {
 			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
 
-		require.Nil(t, err)
 		require.Equal(t, len(withBM25Fobjs), len(objs))
 		for i := range objs {
 			t.Logf("%v: BM25F score: %v, BM25 score: %v", i, withBM25Fscores[i], scores[i])
@@ -685,7 +691,10 @@ func TestBM25FCompare(t *testing.T) {
 	}
 }
 
-func Test_propertyIsIndexed(t *testing.T) {
+func Test_propertyIsSearchable(t *testing.T) {
+	vFalse := false
+	vTrue := true
+
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: BM25FinvertedConfig(1, 1, "none"),
@@ -693,22 +702,25 @@ func Test_propertyIsIndexed(t *testing.T) {
 
 		Properties: []*models.Property{
 			{
-				Name:          "title",
-				DataType:      []string{string(schema.DataTypeText)},
-				Tokenization:  "word",
-				IndexInverted: nil,
+				Name:            "title",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: nil,
 			},
 			{
-				Name:          "description",
-				DataType:      []string{string(schema.DataTypeText)},
-				Tokenization:  "word",
-				IndexInverted: truePointer(),
+				Name:            "description",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "stringField",
-				DataType:      []string{string(schema.DataTypeString)},
-				Tokenization:  "field",
-				IndexInverted: falsePointer(),
+				Name:            "textField",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationField,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vFalse,
 			},
 		},
 	}
@@ -717,26 +729,29 @@ func Test_propertyIsIndexed(t *testing.T) {
 		Classes: []*models.Class{class},
 	}
 	t.Run("Property index", func(t *testing.T) {
-		if got := schema.PropertyIsIndexed(ClassSchema, "MyClass", "description"); got != true {
-			t.Errorf("propertyIsIndexed() = %v, want %v", got, true)
+		if got := inverted.PropertyIsSearchable(ClassSchema, "MyClass", "description"); got != true {
+			t.Errorf("propertyIsSearchable() = %v, want %v", got, true)
 		}
 
-		if got := schema.PropertyIsIndexed(ClassSchema, "MyClass", "description^2"); got != true {
-			t.Errorf("propertyIsIndexed() = %v, want %v", got, true)
+		if got := inverted.PropertyIsSearchable(ClassSchema, "MyClass", "description^2"); got != true {
+			t.Errorf("propertyIsSearchable() = %v, want %v", got, true)
 		}
 
-		if got := schema.PropertyIsIndexed(ClassSchema, "MyClass", "stringField"); got != false {
-			t.Errorf("propertyIsIndexed() = %v, want %v", got, false)
+		if got := inverted.PropertyIsSearchable(ClassSchema, "MyClass", "textField"); got != false {
+			t.Errorf("propertyIsSearchable() = %v, want %v", got, false)
 		}
 
-		if got := schema.PropertyIsIndexed(ClassSchema, "MyClass", "title"); got != true {
-			t.Errorf("propertyIsIndexed() = %v, want %v", got, true)
+		if got := inverted.PropertyIsSearchable(ClassSchema, "MyClass", "title"); got != true {
+			t.Errorf("propertyIsSearchable() = %v, want %v", got, true)
 		}
 	})
 }
 
 func SetupClassDocuments(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32, preset string,
 ) string {
+	vFalse := false
+	vTrue := true
+
 	className := "DocumentsPreset_" + preset
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
@@ -745,10 +760,11 @@ func SetupClassDocuments(t require.TestingT, repo *DB, schemaGetter *fakeSchemaG
 
 		Properties: []*models.Property{
 			{
-				Name:          "document",
-				DataType:      []string{string(schema.DataTypeText)},
-				Tokenization:  "word",
-				IndexInverted: truePointer(),
+				Name:            "document",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 		},
 	}
@@ -808,7 +824,7 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 
 	t.Run("single term", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "considered a"}
-		res, _, err := idxNone.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit)
+		res, _, err := idxNone.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		// Print results
@@ -824,21 +840,21 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 		require.Len(t, res, 3)
 
 		// Check scores
-		EqualFloats(t, float32(0.89207935), res[0].Score(), 5)
-		EqualFloats(t, float32(0.5427927), res[1].Score(), 5)
-		EqualFloats(t, float32(0.39563084), res[2].Score(), 5)
+		EqualFloats(t, float32(0.8914), res[0].Score(), 5)
+		EqualFloats(t, float32(0.5425), res[1].Score(), 5)
+		EqualFloats(t, float32(0.3952), res[2].Score(), 5)
 	})
 
 	t.Run("Results without stopwords", func(t *testing.T) {
 		kwrNoStopwords := &searchparams.KeywordRanking{Type: "bm25", Query: "example losing business"}
-		resNoStopwords, _, err := idxNone.objectSearch(context.TODO(), 10, nil, kwrNoStopwords, nil, nil, addit)
+		resNoStopwords, _, err := idxNone.objectSearch(context.TODO(), 10, nil, kwrNoStopwords, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		classEn := SetupClassDocuments(t, repo, schemaGetter, logger, 0.5, 0.75, "en")
 		idxEn := repo.GetIndex(schema.ClassName(classEn))
 		require.NotNil(t, idxEn)
 		kwrStopwords := &searchparams.KeywordRanking{Type: "bm25", Query: "an example on losing the business"}
-		resStopwords, _, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwords, nil, nil, addit)
+		resStopwords, _, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwords, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		require.Equal(t, len(resNoStopwords), len(resStopwords))
@@ -849,7 +865,7 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 		}
 
 		kwrStopwordsDuplicate := &searchparams.KeywordRanking{Type: "bm25", Query: "on an example on losing the business on"}
-		resStopwordsDuplicate, _, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwordsDuplicate, nil, nil, addit)
+		resStopwordsDuplicate, _, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwordsDuplicate, nil, nil, addit, nil)
 		require.Nil(t, err)
 		require.Equal(t, len(resNoStopwords), len(resStopwordsDuplicate))
 		for i, resNo := range resNoStopwords {
@@ -861,6 +877,9 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 }
 
 func MultiPropClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) string {
+	vFalse := false
+	vTrue := true
+
 	className := "MultiProps"
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
@@ -869,16 +888,18 @@ func MultiPropClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter
 
 		Properties: []*models.Property{
 			{
-				Name:          "document",
-				DataType:      []string{string(schema.DataTypeText)},
-				Tokenization:  "word",
-				IndexInverted: truePointer(),
+				Name:            "document",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "title",
-				DataType:      []string{string(schema.DataTypeText)},
-				Tokenization:  "word",
-				IndexInverted: truePointer(),
+				Name:            "title",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 		},
 	}
@@ -938,7 +959,7 @@ func TestBM25F_SortMultiProp(t *testing.T) {
 
 	t.Run("single term", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "pepper banana"}
-		res, _, err := idx.objectSearch(context.TODO(), 1, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 1, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		// Print results

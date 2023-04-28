@@ -54,7 +54,7 @@ func Test_MergingObjects(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
-	schema := schema.Schema{
+	sch := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
@@ -63,8 +63,9 @@ func Test_MergingObjects(t *testing.T) {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{"string"},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},
@@ -74,8 +75,9 @@ func Test_MergingObjects(t *testing.T) {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{ // tries to have "one of each property type"
 						{
-							Name:     "string",
-							DataType: []string{"string"},
+							Name:         "string",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "text",
@@ -109,8 +111,9 @@ func Test_MergingObjects(t *testing.T) {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "foo",
-							DataType: []string{"string"},
+							Name:         "foo",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},
@@ -119,7 +122,7 @@ func Test_MergingObjects(t *testing.T) {
 	}
 
 	t.Run("add required classes", func(t *testing.T) {
-		for _, class := range schema.Objects.Classes {
+		for _, class := range sch.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
 				err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 				require.Nil(t, err)
@@ -127,7 +130,7 @@ func Test_MergingObjects(t *testing.T) {
 		}
 	})
 
-	schemaGetter.schema = schema
+	schemaGetter.schema = sch
 
 	target1 := strfmt.UUID("897be7cc-1ae1-4b40-89d9-d3ea98037638")
 	target2 := strfmt.UUID("5cc94aba-93e4-408a-ab19-3d803216a04e")
@@ -232,7 +235,7 @@ func Test_MergingObjects(t *testing.T) {
 		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{})
 		require.Nil(t, err)
 
-		schema := source.Object().Properties.(map[string]interface{})
+		sch := source.Object().Properties.(map[string]interface{})
 		expectedSchema := map[string]interface{}{
 			// from original
 			"string": "only the string prop set",
@@ -247,7 +250,7 @@ func Test_MergingObjects(t *testing.T) {
 			"text": "some text",
 		}
 
-		assert.Equal(t, expectedSchema, schema)
+		assert.Equal(t, expectedSchema, sch)
 	})
 
 	t.Run("trying to merge from non-existing index", func(t *testing.T) {
@@ -268,7 +271,7 @@ func Test_MergingObjects(t *testing.T) {
 			"weaviate://localhost/MergeTestSource/%s/toTarget", sourceID))
 		require.Nil(t, err)
 		targets := []strfmt.UUID{target1}
-		refs := make(objects.BatchReferences, len(targets), len(targets))
+		refs := make(objects.BatchReferences, len(targets))
 		for i, target := range targets {
 			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s", target))
 			require.Nil(t, err)
@@ -297,7 +300,7 @@ func Test_MergingObjects(t *testing.T) {
 		ref, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s", target1))
 		require.Nil(t, err)
 
-		schema := source.Object().Properties.(map[string]interface{})
+		sch := source.Object().Properties.(map[string]interface{})
 		expectedSchema := map[string]interface{}{
 			"string": "let's update the string prop",
 			"number": 7.0,
@@ -312,7 +315,7 @@ func Test_MergingObjects(t *testing.T) {
 			},
 		}
 
-		assert.Equal(t, expectedSchema, schema)
+		assert.Equal(t, expectedSchema, sch)
 	})
 
 	t.Run("add more references in rapid succession", func(t *testing.T) {
@@ -321,7 +324,7 @@ func Test_MergingObjects(t *testing.T) {
 			"weaviate://localhost/MergeTestSource/%s/toTarget", sourceID))
 		require.Nil(t, err)
 		targets := []strfmt.UUID{target2, target3, target4}
-		refs := make(objects.BatchReferences, len(targets), len(targets))
+		refs := make(objects.BatchReferences, len(targets))
 		for i, target := range targets {
 			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s", target))
 			require.Nil(t, err)
@@ -418,7 +421,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 	hnswConfig := enthnsw.NewDefaultUserConfig()
 	hnswConfig.Skip = true
-	schema := schema.Schema{
+	sch := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
@@ -427,20 +430,24 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{ // tries to have "one of each property type"
 						{
-							Name: "untouched_string", Tokenization: "word",
-							DataType: []string{"string"},
+							Name:         "untouched_string",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
-							Name: "touched_string", Tokenization: "word",
-							DataType: []string{"string"},
+							Name:         "touched_string",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
-							Name: "untouched_string_array", Tokenization: "word",
-							DataType: []string{"string[]"},
+							Name:         "untouched_string_array",
+							DataType:     schema.DataTypeTextArray.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
-							Name: "touched_string_array", Tokenization: "word",
-							DataType: []string{"string[]"},
+							Name:         "touched_string_array",
+							DataType:     schema.DataTypeTextArray.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name: "untouched_text", Tokenization: "word",
@@ -479,7 +486,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 	}
 
 	t.Run("add required classes", func(t *testing.T) {
-		for _, class := range schema.Objects.Classes {
+		for _, class := range sch.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
 				err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 				require.Nil(t, err)
@@ -487,7 +494,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 		}
 	})
 
-	schemaGetter.schema = schema
+	schemaGetter.schema = sch
 
 	t.Run("add initial object", func(t *testing.T) {
 		id := 0
@@ -570,7 +577,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 							fmt.Sprintf("%s_string", prefix),
 							fmt.Sprintf("%d", id),
 							eq,
-							dtString),
+							schema.DataTypeText),
 					},
 					{
 						name: "string array filter",
@@ -578,7 +585,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 							fmt.Sprintf("%s_string_array", prefix),
 							fmt.Sprintf("%d", id),
 							eq,
-							dtString),
+							schema.DataTypeText),
 					},
 					{
 						name: "text filter",

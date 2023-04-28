@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -23,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 )
@@ -31,10 +30,9 @@ import (
 // a helper tool to extract the uuid beacon for any matching reference
 type refFilterExtractor struct {
 	logger        logrus.FieldLogger
-	filter        *filters.Clause
-	className     schema.ClassName
 	classSearcher ClassSearcher
-	schema        schema.Schema
+	filter        *filters.Clause
+	property      *models.Property
 }
 
 // ClassSearcher is anything that allows a root-level ClassSearch
@@ -44,16 +42,14 @@ type ClassSearcher interface {
 	GetQueryMaximumResults() int
 }
 
-func newRefFilterExtractor(logger logrus.FieldLogger,
-	classSearcher ClassSearcher, filter *filters.Clause,
-	className schema.ClassName, schema schema.Schema,
+func newRefFilterExtractor(logger logrus.FieldLogger, classSearcher ClassSearcher,
+	filter *filters.Clause, property *models.Property,
 ) *refFilterExtractor {
 	return &refFilterExtractor{
 		logger:        logger,
-		filter:        filter,
-		className:     className,
 		classSearcher: classSearcher,
-		schema:        schema,
+		filter:        filter,
+		property:      property,
 	}
 }
 
@@ -149,10 +145,11 @@ func (r *refFilterExtractor) resultsToPropValuePairs(ids []classUUIDPair,
 
 func (r *refFilterExtractor) emptyPropValuePair() *propValuePair {
 	return &propValuePair{
-		prop:         lowercaseFirstLetter(r.filter.On.Property.String()),
-		hasFrequency: false,
+		prop:         r.property.Name,
 		value:        nil,
 		operator:     filters.OperatorEqual,
+		isFilterable: IsFilterable(r.property),
+		isSearchable: IsSearchable(r.property),
 	}
 }
 
@@ -171,27 +168,34 @@ func (r *refFilterExtractor) backwardCompatibleIDToPropValuePair(p classUUIDPair
 	return r.chainedIDsToPropValuePair([]classUUIDPair{p})
 }
 
-func (r *refFilterExtractor) idToPropValuePairWithValue(v []byte) (*propValuePair, error) {
+func (r *refFilterExtractor) idToPropValuePairWithValue(v []byte,
+	isFilterable, isSearchable bool,
+) (*propValuePair, error) {
 	return &propValuePair{
-		prop:         lowercaseFirstLetter(r.filter.On.Property.String()),
-		hasFrequency: false,
+		prop:         r.property.Name,
 		value:        v,
 		operator:     filters.OperatorEqual,
+		isFilterable: isFilterable,
+		isSearchable: isSearchable,
 	}, nil
 }
 
 // chain multiple alternatives using an OR operator
 func (r *refFilterExtractor) chainedIDsToPropValuePair(ids []classUUIDPair) (*propValuePair, error) {
-	children, err := r.idsToPropValuePairs(ids)
+	isFilterable := IsFilterable(r.property)
+	isSearchable := IsSearchable(r.property)
+
+	children, err := r.idsToPropValuePairs(ids, isFilterable, isSearchable)
 	if err != nil {
 		return nil, err
 	}
 
 	return &propValuePair{
-		prop:         lowercaseFirstLetter(r.filter.On.Property.String()),
-		hasFrequency: false,
+		prop:         r.property.Name,
 		operator:     filters.OperatorOr,
 		children:     children,
+		isFilterable: isFilterable,
+		isSearchable: isSearchable,
 	}, nil
 }
 
@@ -202,7 +206,9 @@ func (r *refFilterExtractor) chainedIDsToPropValuePair(ids []classUUIDPair) (*pr
 // backward-compatible logic should be removed, as soon as we can be sure that
 // no more class-less beacons exist. Most likely this will be the case with the
 // next breaking change, such as v2.0.0.
-func (r *refFilterExtractor) idsToPropValuePairs(ids []classUUIDPair) ([]*propValuePair, error) {
+func (r *refFilterExtractor) idsToPropValuePairs(ids []classUUIDPair,
+	isFilterable, isSearchale bool,
+) ([]*propValuePair, error) {
 	// This makes it safe to access the first element later on without further
 	// checks
 	if len(ids) == 0 {
@@ -213,7 +219,7 @@ func (r *refFilterExtractor) idsToPropValuePairs(ids []classUUIDPair) ([]*propVa
 	bb := crossref.NewBulkBuilderWithEstimates(len(ids)*2, ids[0].class, 1.25)
 	for i, id := range ids {
 		// future-proof way
-		pv, err := r.idToPropValuePairWithValue(bb.ClassAndID(id.class, id.id))
+		pv, err := r.idToPropValuePairWithValue(bb.ClassAndID(id.class, id.id), isFilterable, isSearchale)
 		if err != nil {
 			return nil, err
 		}
@@ -221,7 +227,7 @@ func (r *refFilterExtractor) idsToPropValuePairs(ids []classUUIDPair) ([]*propVa
 		out[i*2] = pv
 
 		// backward-compatible way
-		pv, err = r.idToPropValuePairWithValue(bb.LegacyIDOnly(id.id))
+		pv, err = r.idToPropValuePairWithValue(bb.LegacyIDOnly(id.id), isFilterable, isSearchale)
 		if err != nil {
 			return nil, err
 		}
@@ -238,15 +244,4 @@ func (r *refFilterExtractor) validate() error {
 	}
 
 	return nil
-}
-
-func lowercaseFirstLetter(in string) string {
-	switch len(in) {
-	case 0:
-		return in
-	case 1:
-		return strings.ToLower(in)
-	default:
-		return strings.ToLower(in[:1]) + in[1:]
-	}
 }

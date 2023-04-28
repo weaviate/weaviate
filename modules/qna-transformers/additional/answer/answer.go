@@ -46,7 +46,7 @@ func New(qna qnaClient, paramsHelper paramsHelper) *AnswerProvider {
 	return &AnswerProvider{qna, paramsHelper}
 }
 
-func (p *AnswerProvider) AdditonalPropertyDefaultValue() interface{} {
+func (p *AnswerProvider) AdditionalPropertyDefaultValue() interface{} {
 	return &Params{}
 }
 

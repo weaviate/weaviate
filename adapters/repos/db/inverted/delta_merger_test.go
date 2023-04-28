@@ -26,7 +26,8 @@ func TestDeltaMerger(t *testing.T) {
 				{Data: []byte("a")},
 				{Data: []byte("b")},
 			},
-			HasFrequency: true,
+			IsFilterable: false,
+			IsSearchable: true,
 		}}, 0)
 
 		dm.AddDeletions([]Property{{
@@ -39,7 +40,8 @@ func TestDeltaMerger(t *testing.T) {
 			Additions: []MergeProperty{
 				{
 					Name:         "field1",
-					HasFrequency: true,
+					IsFilterable: false,
+					IsSearchable: true,
 					MergeItems: []MergeItem{
 						{
 							Data: []byte("b"),

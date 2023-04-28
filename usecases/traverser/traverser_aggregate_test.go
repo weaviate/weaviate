@@ -205,7 +205,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 								},
 							},
 							Type:       aggregation.PropertyTypeText,
-							SchemaType: string(schema.DataTypeString),
+							SchemaType: string(schema.DataTypeText),
 						},
 						"date": {
 							TextAggregation: aggregation.Text{
@@ -342,8 +342,9 @@ var aggregateTestSchema = schema.Schema{
 				Class: "MyClass",
 				Properties: []*models.Property{
 					{
-						Name:     "label",
-						DataType: []string{string(schema.DataTypeString)},
+						Name:         "label",
+						DataType:     schema.DataTypeText.PropString(),
+						Tokenization: models.PropertyTokenizationWhitespace,
 					},
 					{
 						Name:     "number",

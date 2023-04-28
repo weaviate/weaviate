@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func testExplore(t *testing.T) {
@@ -29,8 +30,9 @@ func testExplore(t *testing.T) {
 			Vectorizer: "none",
 			Properties: []*models.Property{
 				{
-					Name:     "name",
-					DataType: []string{"string"},
+					Name:         "name",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				},
 			},
 			VectorIndexConfig: map[string]interface{}{

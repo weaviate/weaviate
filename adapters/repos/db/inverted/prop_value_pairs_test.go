@@ -16,92 +16,96 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
-func TestPropValuePairs_MergeAnd(t *testing.T) {
-	pv := &propValuePair{
-		operator: filters.OperatorAnd,
-		children: []*propValuePair{
-			{
-				docIDs: docBitmap{
-					docIDs:   roaringset.NewBitmap(7, 8, 9, 10, 11),
-					checksum: []byte{0x01},
-				},
-				operator: filters.OperatorEqual,
-			},
-			{
-				docIDs: docBitmap{
-					docIDs:   roaringset.NewBitmap(1, 3, 5, 7, 9, 11),
-					checksum: []byte{0x02},
-				},
-				operator: filters.OperatorEqual,
-			},
-			{
-				docIDs: docBitmap{
-					docIDs:   roaringset.NewBitmap(1, 3, 5, 7, 9),
-					checksum: []byte{0x03},
-				},
-				operator: filters.OperatorEqual,
-			},
-			{
-				docIDs: docBitmap{
-					docIDs:   roaringset.NewBitmap(1, 3, 5, 7),
-					checksum: []byte{0x04},
-				},
-				operator: filters.OperatorEqual,
-			},
-		},
-	}
+func TestPropValuePairs_Merging(t *testing.T) {
+	t.Run("allways creates new underlying bitmap", func(t *testing.T) {
+		type testCase struct {
+			name string
 
-	expectedIds := []uint64{7}
+			bitmaps  []*sroar.Bitmap
+			operator filters.Operator
 
-	dbm, err := pv.mergeDocIDs()
+			expectedIds []uint64
+		}
 
-	require.Nil(t, err)
-	assert.ElementsMatch(t, expectedIds, dbm.IDs())
-}
-
-func TestPropValuePairs_MergeOr(t *testing.T) {
-	pv := &propValuePair{
-		operator: filters.OperatorOr,
-		children: []*propValuePair{
+		testCases := []testCase{
 			{
-				docIDs: docBitmap{
-					docIDs:   roaringset.NewBitmap(7, 8, 9, 10, 11),
-					checksum: []byte{0x01},
+				name: "AND; different sets",
+
+				bitmaps: []*sroar.Bitmap{
+					roaringset.NewBitmap(7, 8, 9, 10, 11),
+					roaringset.NewBitmap(1, 3, 5, 7, 9, 11),
+					roaringset.NewBitmap(1, 3, 5, 7, 9),
 				},
-				operator: filters.OperatorEqual,
+				operator: filters.OperatorAnd,
+
+				expectedIds: []uint64{7, 9},
 			},
 			{
-				docIDs: docBitmap{
-					docIDs:   roaringset.NewBitmap(1, 3, 5, 7, 9, 11),
-					checksum: []byte{0x02},
+				name: "OR; different sets",
+
+				bitmaps: []*sroar.Bitmap{
+					roaringset.NewBitmap(7, 8, 9, 10, 11),
+					roaringset.NewBitmap(1, 3, 5, 7, 9, 11),
+					roaringset.NewBitmap(1, 3, 5, 7, 9),
 				},
-				operator: filters.OperatorEqual,
+				operator: filters.OperatorOr,
+
+				expectedIds: []uint64{1, 3, 5, 7, 8, 9, 10, 11},
 			},
 			{
-				docIDs: docBitmap{
-					docIDs:   roaringset.NewBitmap(1, 3, 5, 7, 9),
-					checksum: []byte{0x03},
+				name: "AND; same sets",
+
+				bitmaps: []*sroar.Bitmap{
+					roaringset.NewBitmap(7, 8, 9, 10, 11),
+					roaringset.NewBitmap(7, 8, 9, 10, 11),
+					roaringset.NewBitmap(7, 8, 9, 10, 11),
 				},
-				operator: filters.OperatorEqual,
+				operator: filters.OperatorAnd,
+
+				expectedIds: []uint64{7, 8, 9, 10, 11},
 			},
 			{
-				docIDs: docBitmap{
-					docIDs:   roaringset.NewBitmap(1, 3, 5, 7),
-					checksum: []byte{0x04},
+				name: "OR; same sets",
+
+				bitmaps: []*sroar.Bitmap{
+					roaringset.NewBitmap(7, 8, 9, 10, 11),
+					roaringset.NewBitmap(7, 8, 9, 10, 11),
+					roaringset.NewBitmap(7, 8, 9, 10, 11),
 				},
-				operator: filters.OperatorEqual,
+				operator: filters.OperatorOr,
+
+				expectedIds: []uint64{7, 8, 9, 10, 11},
 			},
-		},
-	}
+		}
 
-	expectedPointers := []uint64{1, 3, 5, 7, 8, 9, 10, 11}
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				pv := &propValuePair{
+					operator: tc.operator,
+					children: make([]*propValuePair, len(tc.bitmaps)),
+				}
+				for i := range tc.bitmaps {
+					pv.children[i] = &propValuePair{
+						operator: filters.OperatorEqual,
+						docIDs: docBitmap{
+							docIDs: tc.bitmaps[i],
+						},
+					}
+				}
 
-	dbm, err := pv.mergeDocIDs()
+				dbm, err := pv.mergeDocIDs()
 
-	require.Nil(t, err)
-	assert.ElementsMatch(t, expectedPointers, dbm.IDs())
+				require.Nil(t, err)
+				assert.ElementsMatch(t, tc.expectedIds, dbm.IDs())
+				assert.False(t, tc.bitmaps[0] == dbm.docIDs)
+				assert.False(t, tc.bitmaps[1] == dbm.docIDs)
+				assert.False(t, tc.bitmaps[2] == dbm.docIDs)
+			})
+		}
+	})
 }

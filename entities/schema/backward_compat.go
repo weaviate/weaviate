@@ -85,37 +85,7 @@ func GetValueDataTypeFromString(dt string) (*DataType, error) {
 	var returnDataType DataType
 
 	if IsValidValueDataType(dt) {
-		if dt == string(DataTypeBoolean) {
-			returnDataType = DataTypeBoolean
-		} else if dt == string(DataTypeInt) {
-			returnDataType = DataTypeInt
-		} else if dt == string(DataTypeDate) {
-			returnDataType = DataTypeDate
-		} else if dt == string(DataTypeNumber) {
-			returnDataType = DataTypeNumber
-		} else if dt == string(DataTypeString) {
-			returnDataType = DataTypeString
-		} else if dt == string(DataTypeText) {
-			returnDataType = DataTypeText
-		} else if dt == string(DataTypeGeoCoordinates) {
-			returnDataType = DataTypeGeoCoordinates
-		} else if dt == string(DataTypePhoneNumber) {
-			returnDataType = DataTypePhoneNumber
-		} else if dt == string(DataTypeBlob) {
-			returnDataType = DataTypeBlob
-		} else if dt == string(DataTypeStringArray) {
-			returnDataType = DataTypeStringArray
-		} else if dt == string(DataTypeTextArray) {
-			returnDataType = DataTypeTextArray
-		} else if dt == string(DataTypeIntArray) {
-			returnDataType = DataTypeIntArray
-		} else if dt == string(DataTypeNumberArray) {
-			returnDataType = DataTypeNumberArray
-		} else if dt == string(DataTypeBooleanArray) {
-			returnDataType = DataTypeBooleanArray
-		} else if dt == string(DataTypeDateArray) {
-			returnDataType = DataTypeDateArray
-		}
+		returnDataType = DataType(dt)
 	} else {
 		return nil, errors_.New(ErrorNoSuchDatatype)
 	}
@@ -136,6 +106,8 @@ func IsValidValueDataType(dt string) bool {
 		string(DataTypeGeoCoordinates),
 		string(DataTypePhoneNumber),
 		string(DataTypeBlob),
+		string(DataTypeUUID),
+		string(DataTypeUUIDArray),
 		string(DataTypeStringArray),
 		string(DataTypeTextArray),
 		string(DataTypeIntArray),
@@ -165,7 +137,8 @@ func IsArrayDataType(dt []string) bool {
 	for i := range dt {
 		switch DataType(dt[i]) {
 		case DataTypeStringArray, DataTypeTextArray, DataTypeIntArray,
-			DataTypeNumberArray, DataTypeBooleanArray, DataTypeDateArray:
+			DataTypeNumberArray, DataTypeBooleanArray, DataTypeDateArray,
+			DataTypeUUIDArray:
 			return true
 		default:
 			// move to the next loop

@@ -68,8 +68,9 @@ func (db *DB) ClassObjectSearch(ctx context.Context,
 		return nil, nil, errors.Wrapf(err, "invalid pagination params")
 	}
 
-	res, dist, err := idx.objectSearch(ctx, totalLimit, params.Filters,
-		params.KeywordRanking, params.Sort, params.Cursor, params.AdditionalProperties)
+	res, dist, err := idx.objectSearch(ctx, totalLimit,
+		params.Filters, params.KeywordRanking, params.Sort, params.Cursor,
+		params.AdditionalProperties, params.ReplicationProperties)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "object search at index %s", idx.ID())
 	}
@@ -119,8 +120,9 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 	}
 
 	return db.ResolveReferences(ctx,
-		storobj.SearchResultsWithDists(db.getStoreObjects(res, params.Pagination), params.AdditionalProperties,
-			db.getDists(dists, params.Pagination)), params.Properties, params.AdditionalProperties)
+		storobj.SearchResultsWithDists(db.getStoreObjects(res, params.Pagination),
+			params.AdditionalProperties, db.getDists(dists, params.Pagination)),
+		params.Properties, params.AdditionalProperties)
 }
 
 func extractDistanceFromParams(params dto.GetParams) float32 {
@@ -242,18 +244,18 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 }
 
 // Query a specific class
-func (d *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results, *objects.Error) {
+func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results, *objects.Error) {
 	totalLimit := q.Offset + q.Limit
 	if totalLimit == 0 {
 		return nil, nil
 	}
 	if len(q.Sort) > 0 {
-		scheme := d.schemaGetter.GetSchemaSkipAuth()
+		scheme := db.schemaGetter.GetSchemaSkipAuth()
 		if err := filters.ValidateSort(scheme, schema.ClassName(q.Class), q.Sort); err != nil {
 			return nil, &objects.Error{Msg: "sorting", Code: objects.StatusBadRequest, Err: err}
 		}
 	}
-	idx := d.GetIndex(schema.ClassName(q.Class))
+	idx := db.GetIndex(schema.ClassName(q.Class))
 	if idx == nil {
 		return nil, &objects.Error{Msg: "class not found " + q.Class, Code: objects.StatusNotFound}
 	}
@@ -262,41 +264,42 @@ func (d *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results, 
 			return nil, &objects.Error{Msg: "cursor api: invalid 'after' parameter", Code: objects.StatusBadRequest, Err: err}
 		}
 	}
-	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters, nil, q.Sort, q.Cursor, q.Additional)
+	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters, nil, q.Sort, q.Cursor, q.Additional, nil)
 	if err != nil {
 		return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}
 	}
-	return d.getSearchResults(storobj.SearchResults(res, q.Additional), q.Offset, q.Limit), nil
+	return db.getSearchResults(storobj.SearchResults(res, q.Additional), q.Offset, q.Limit), nil
 }
 
 // ObjectSearch search each index.
 // Deprecated by Query which searches a specific index
-func (d *DB) ObjectSearch(ctx context.Context, offset, limit int,
+func (db *DB) ObjectSearch(ctx context.Context, offset, limit int,
 	filters *filters.LocalFilter, sort []filters.Sort,
 	additional additional.Properties,
 ) (search.Results, error) {
-	return d.objectSearch(ctx, offset, limit, filters, sort, additional)
+	return db.objectSearch(ctx, offset, limit, filters, sort, additional)
 }
 
-func (d *DB) objectSearch(ctx context.Context, offset, limit int,
+func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 	filters *filters.LocalFilter, sort []filters.Sort,
 	additional additional.Properties,
 ) (search.Results, error) {
 	var found []*storobj.Object
 
-	if err := d.validateSort(sort); err != nil {
+	if err := db.validateSort(sort); err != nil {
 		return nil, errors.Wrap(err, "search")
 	}
 
 	totalLimit := offset + limit
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
-	d.indexLock.RLock()
-	for _, index := range d.indices {
+	db.indexLock.RLock()
+	for _, index := range db.indices {
 		// TODO support all additional props
-		res, _, err := index.objectSearch(ctx, totalLimit, filters, nil, sort, nil, additional)
+		res, _, err := index.objectSearch(ctx, totalLimit,
+			filters, nil, sort, nil, additional, nil)
 		if err != nil {
-			d.indexLock.RUnlock()
+			db.indexLock.RUnlock()
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
 		}
 
@@ -306,17 +309,23 @@ func (d *DB) objectSearch(ctx context.Context, offset, limit int,
 			break
 		}
 	}
-	d.indexLock.RUnlock()
+	db.indexLock.RUnlock()
 
-	return d.getSearchResults(storobj.SearchResults(found, additional), offset, limit), nil
+	return db.getSearchResults(storobj.SearchResults(found, additional), offset, limit), nil
 }
 
 // ResolveReferences takes a list of search results and enriches them
 // with any referenced objects
-func (d *DB) ResolveReferences(ctx context.Context, objs search.Results,
+func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 	props search.SelectProperties, additional additional.Properties,
 ) (search.Results, error) {
-	res, err := refcache.NewResolver(refcache.NewCacher(d, d.logger)).
+	if additional.NoProps {
+		// If we have no props, there also can't be refs among them, so we can skip
+		// the refcache resolver
+		return objs, nil
+	}
+
+	res, err := refcache.NewResolver(refcache.NewCacher(db, db.logger)).
 		Do(ctx, objs, props, additional)
 	if err != nil {
 		return nil, fmt.Errorf("resolve cross-refs: %w", err)
@@ -325,13 +334,13 @@ func (d *DB) ResolveReferences(ctx context.Context, objs search.Results,
 	return res, nil
 }
 
-func (d *DB) validateSort(sort []filters.Sort) error {
+func (db *DB) validateSort(sort []filters.Sort) error {
 	if len(sort) > 0 {
 		var errorMsgs []string
 		// needs to happen before the index lock as they might deadlock each other
-		schema := d.schemaGetter.GetSchemaSkipAuth()
-		d.indexLock.RLock()
-		for _, index := range d.indices {
+		schema := db.schemaGetter.GetSchemaSkipAuth()
+		db.indexLock.RLock()
+		for _, index := range db.indices {
 			err := filters.ValidateSort(schema,
 				index.Config.ClassName, sort)
 			if err != nil {
@@ -339,7 +348,7 @@ func (d *DB) validateSort(sort []filters.Sort) error {
 				errorMsgs = append(errorMsgs, errorMsg)
 			}
 		}
-		d.indexLock.RUnlock()
+		db.indexLock.RUnlock()
 		if len(errorMsgs) > 0 {
 			return errors.Errorf("%s", strings.Join(errorMsgs, ", "))
 		}
@@ -362,32 +371,32 @@ func (db *DB) getTotalLimit(pagination *filters.Pagination, addl additional.Prop
 	return totalLimit, nil
 }
 
-func (d *DB) getSearchResults(found search.Results, paramOffset, paramLimit int) search.Results {
-	offset, limit := d.getOffsetLimit(len(found), paramOffset, paramLimit)
+func (db *DB) getSearchResults(found search.Results, paramOffset, paramLimit int) search.Results {
+	offset, limit := db.getOffsetLimit(len(found), paramOffset, paramLimit)
 	if offset == 0 && limit == 0 {
 		return nil
 	}
 	return found[offset:limit]
 }
 
-func (d *DB) getStoreObjects(res []*storobj.Object, pagination *filters.Pagination) []*storobj.Object {
-	offset, limit := d.getOffsetLimit(len(res), pagination.Offset, pagination.Limit)
+func (db *DB) getStoreObjects(res []*storobj.Object, pagination *filters.Pagination) []*storobj.Object {
+	offset, limit := db.getOffsetLimit(len(res), pagination.Offset, pagination.Limit)
 	if offset == 0 && limit == 0 {
 		return nil
 	}
 	return res[offset:limit]
 }
 
-func (d *DB) getDists(dists []float32, pagination *filters.Pagination) []float32 {
-	offset, limit := d.getOffsetLimit(len(dists), pagination.Offset, pagination.Limit)
+func (db *DB) getDists(dists []float32, pagination *filters.Pagination) []float32 {
+	offset, limit := db.getOffsetLimit(len(dists), pagination.Offset, pagination.Limit)
 	if offset == 0 && limit == 0 {
 		return nil
 	}
 	return dists[offset:limit]
 }
 
-func (d *DB) getOffsetLimit(arraySize int, offset, limit int) (int, int) {
-	totalLimit := offset + d.getLimit(limit)
+func (db *DB) getOffsetLimit(arraySize int, offset, limit int) (int, int) {
+	totalLimit := offset + db.getLimit(limit)
 	if arraySize > totalLimit {
 		return offset, totalLimit
 	} else if arraySize > offset {

@@ -187,6 +187,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	if err != nil {
 		return nil, errors.Wrapf(err, "calculate distance of current last result")
 	}
+	connectionsReusable := make([]uint64, h.maximumConnectionsLayerZero)
 
 	for candidates.Len() > 0 {
 		var dist float32
@@ -232,8 +233,6 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 			continue
 		}
 
-		var connections *[]uint64
-
 		if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
 			// How is it possible that we could ever have more connections than the
 			// allowed maximum? It is not anymore, but there was a bug that allowed
@@ -246,17 +245,15 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 			//
 			// This was discovered as part of
 			// https://github.com/weaviate/weaviate/issues/1897
-			c := make([]uint64, len(candidateNode.connections[level]))
-			connections = &c
+			connectionsReusable = make([]uint64, len(candidateNode.connections[level]))
 		} else {
-			connections = h.pools.connList.Get(len(candidateNode.connections[level]))
-			defer h.pools.connList.Put(connections)
+			connectionsReusable = connectionsReusable[:len(candidateNode.connections[level])]
 		}
 
-		copy(*connections, candidateNode.connections[level])
+		copy(connectionsReusable, candidateNode.connections[level])
 		candidateNode.Unlock()
 
-		for _, neighborID := range *connections {
+		for _, neighborID := range connectionsReusable {
 
 			if ok := visited.Visited(neighborID); ok {
 				// skip if we've already visited this neighbor

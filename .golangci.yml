@@ -17,6 +17,9 @@ issues:
     # Exclude some staticcheck messages
     - linters:
         - staticcheck
+      text: "S1034"
+    - linters:
+        - staticcheck
       text: "SA1029:"
     - linters:
         - staticcheck
@@ -24,3 +27,10 @@ issues:
     - linters:
         - staticcheck
       text: "SA5011"
+    - linters:
+        - govet
+      text: "composites"
+run:
+  build-tags:
+    - integrationTest
+    - integrationTestSlow

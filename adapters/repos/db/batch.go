@@ -125,6 +125,9 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 ) (objects.BatchDeleteResult, error) {
 	// get index for a given class
 	idx := db.GetIndex(params.ClassName)
+	if idx == nil {
+		return objects.BatchDeleteResult{}, errors.Errorf("cannot find index for class %v", params.ClassName)
+	}
 	// find all DocIDs in all shards that match the filter
 	shardDocIDs, err := idx.findDocIDs(ctx, params.Filters)
 	if err != nil {

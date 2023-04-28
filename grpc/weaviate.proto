@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package weaviategrpc;
+
+import "google/protobuf/struct.proto";
+option go_package = "github.com/weaviate/weaviate/grpc";
+
+
+service Weaviate {
+  rpc Search(SearchRequest) returns (SearchReply) {};
+}
+
+message SearchRequest {
+  string class_name = 1;
+  uint32 limit = 2;
+  repeated string properties = 3;
+  repeated string additional_properties = 4;
+  NearVectorParams near_vector = 5;
+  NearObjectParams near_object = 6;
+}
+
+message NearVectorParams {
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated float vector = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+}
+
+message NearObjectParams {
+  string id = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+}
+
+message SearchReply {
+  repeated SearchResult results = 1;
+  float took = 2;
+}
+
+message SearchResult {
+  google.protobuf.Struct properties = 1;
+  AdditionalProps additional_properties = 2;
+}
+
+message AdditionalProps {
+  string id = 1;
+}

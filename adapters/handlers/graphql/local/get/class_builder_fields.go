@@ -35,15 +35,6 @@ func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
 	property *models.Property, className string,
 ) *graphql.Field {
 	switch propertyType.AsPrimitive() {
-	case schema.DataTypeString:
-		return &graphql.Field{
-			Description: property.Description,
-			Name:        property.Name,
-			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return p.Source.(map[string]interface{})[p.Info.FieldName], nil
-			},
-		}
 	case schema.DataTypeText:
 		return &graphql.Field{
 			Description: property.Description,
@@ -98,7 +89,7 @@ func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
 			Name:        property.Name,
 			Type:        graphql.String,
 		}
-	case schema.DataTypeStringArray, schema.DataTypeTextArray:
+	case schema.DataTypeTextArray:
 		return &graphql.Field{
 			Description: property.Description,
 			Name:        property.Name,
@@ -127,6 +118,18 @@ func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
 			Description: property.Description,
 			Name:        property.Name,
 			Type:        graphql.NewList(graphql.String), // String since no graphql date datatype exists
+		}
+	case schema.DataTypeUUIDArray:
+		return &graphql.Field{
+			Description: property.Description,
+			Name:        property.Name,
+			Type:        graphql.NewList(graphql.String), // Always return UUID as string representation to the user
+		}
+	case schema.DataTypeUUID:
+		return &graphql.Field{
+			Description: property.Description,
+			Name:        property.Name,
+			Type:        graphql.String, // Always return UUID as string representation to the user
 		}
 	default:
 		panic(fmt.Sprintf("buildGetClass: unknown primitive type for %s.%s; %s",
@@ -227,6 +230,7 @@ func buildGetClassField(classObject *graphql.Object,
 	}
 
 	field.Args["bm25"] = bm25Argument(class.Class)
+	field.Args["hybrid"] = hybridArgument(classObject, class, modulesProvider)
 
 	if modulesProvider != nil {
 		for name, argument := range modulesProvider.GetArguments(class) {
@@ -234,7 +238,9 @@ func buildGetClassField(classObject *graphql.Object,
 		}
 	}
 
-	field.Args["hybrid"] = hybridArgument(classObject, class, modulesProvider)
+	if replicationEnabled(class) {
+		field.Args["consistencyLevel"] = consistencyLevelArgument(class)
+	}
 
 	return field
 }
@@ -328,7 +334,8 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 
 		selectionsOfClass := p.Info.FieldASTs[0].SelectionSet
 
-		properties, additional, err := extractProperties(className, selectionsOfClass, p.Info.Fragments, r.modulesProvider)
+		properties, addlProps, err := extractProperties(
+			className, selectionsOfClass, p.Info.Fragments, r.modulesProvider)
 		if err != nil {
 			return nil, err
 		}
@@ -375,7 +382,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			if len(sort) > 0 {
 				return nil, fmt.Errorf("bm25 search is not compatible with sort")
 			}
-			p := common_filters.ExtractBM25(bm25.(map[string]interface{}), additional.ExplainScore)
+			p := common_filters.ExtractBM25(bm25.(map[string]interface{}), addlProps.ExplainScore)
 			keywordRankingParams = &p
 		}
 
@@ -387,7 +394,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			if len(sort) > 0 {
 				return nil, fmt.Errorf("hybrid search is not compatible with sort")
 			}
-			p, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}), additional.ExplainScore)
+			p, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}), addlProps.ExplainScore)
 			if err != nil {
 				return nil, fmt.Errorf("failed to extract hybrid params: %w", err)
 			}
@@ -397,22 +404,30 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			}
 		}
 
+		var replProps *additional.ReplicationProperties
+		if cl, ok := p.Args["consistencyLevel"]; ok {
+			replProps = &additional.ReplicationProperties{
+				ConsistencyLevel: cl.(string),
+			}
+		}
+
 		group := extractGroup(p.Args)
 
 		params := dto.GetParams{
-			Filters:              filters,
-			ClassName:            className,
-			Pagination:           pagination,
-			Cursor:               cursor,
-			Properties:           properties,
-			Sort:                 sort,
-			NearVector:           nearVectorParams,
-			NearObject:           nearObjectParams,
-			Group:                group,
-			ModuleParams:         moduleParams,
-			AdditionalProperties: additional,
-			KeywordRanking:       keywordRankingParams,
-			HybridSearch:         hybridParams,
+			Filters:               filters,
+			ClassName:             className,
+			Pagination:            pagination,
+			Cursor:                cursor,
+			Properties:            properties,
+			Sort:                  sort,
+			NearVector:            nearVectorParams,
+			NearObject:            nearObjectParams,
+			Group:                 group,
+			ModuleParams:          moduleParams,
+			AdditionalProperties:  addlProps,
+			KeywordRanking:        keywordRankingParams,
+			HybridSearch:          hybridParams,
+			ReplicationProperties: replProps,
 		}
 
 		// need to perform vector search by distance
@@ -517,7 +532,7 @@ func (ac *additionalCheck) isAdditional(name string) bool {
 	if name == "classification" || name == "certainty" ||
 		name == "distance" || name == "id" || name == "vector" ||
 		name == "creationTimeUnix" || name == "lastUpdateTimeUnix" ||
-		name == "score" || name == "explainScore" {
+		name == "score" || name == "explainScore" || name == "isConsistent" {
 		return true
 	}
 	if ac.isModuleAdditional(name) {
@@ -616,6 +631,10 @@ func extractProperties(className string, selections *ast.SelectionSet,
 							additionalProps.LastUpdateTimeUnix = true
 							continue
 						}
+						if additionalProperty == "isConsistent" {
+							additionalProps.IsConsistent = true
+							continue
+						}
 						if modulesProvider != nil {
 							if additionalCheck.isModuleAdditional(additionalProperty) {
 								additionalProps.ModuleParams = getModuleParams(additionalProps.ModuleParams)
@@ -624,7 +643,7 @@ func extractProperties(className string, selections *ast.SelectionSet,
 							}
 						}
 					} else {
-						return nil, additionalProps, fmt.Errorf("Expected a InlineFragment, not a '%s' field ", s.Name.Value)
+						return nil, additionalProps, fmt.Errorf("Expected an InlineFragment, not a '%s' field ", s.Name.Value)
 					}
 
 				case *ast.FragmentSpread:

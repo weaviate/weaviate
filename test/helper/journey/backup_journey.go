@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
 )
@@ -132,8 +133,9 @@ func addTestClass(t *testing.T, className string) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     "contents",
-				DataType: []string{"string"},
+				Name:         "contents",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 	}

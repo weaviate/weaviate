@@ -163,13 +163,18 @@ func (m *autoSchemaManager) getDataTypes(dataTypes []schema.DataType) []string {
 }
 
 func (m *autoSchemaManager) determineType(value interface{}) []schema.DataType {
+	fallbackDataType := []schema.DataType{schema.DataTypeText}
+
 	switch v := value.(type) {
 	case string:
 		_, err := time.Parse(time.RFC3339, v)
 		if err == nil {
 			return []schema.DataType{schema.DataType(m.config.DefaultDate)}
 		}
-		return []schema.DataType{schema.DataType(m.config.DefaultString)}
+		if m.config.DefaultString != "" {
+			return []schema.DataType{schema.DataType(m.config.DefaultString)}
+		}
+		return []schema.DataType{schema.DataTypeText}
 	case json.Number:
 		return []schema.DataType{schema.DataType(m.config.DefaultNumber)}
 	case bool:
@@ -181,8 +186,7 @@ func (m *autoSchemaManager) determineType(value interface{}) []schema.DataType {
 		if v["input"] != nil {
 			return []schema.DataType{schema.DataTypePhoneNumber}
 		}
-		// fallback to String
-		return []schema.DataType{schema.DataTypeString}
+		return fallbackDataType
 	case []interface{}:
 		if len(v) > 0 {
 			dataType := []schema.DataType{}
@@ -214,10 +218,10 @@ func (m *autoSchemaManager) determineType(value interface{}) []schema.DataType {
 					if err == nil {
 						return []schema.DataType{schema.DataTypeDateArray}
 					}
-					if schema.DataType(m.config.DefaultString) == schema.DataTypeText {
-						return []schema.DataType{schema.DataTypeTextArray}
+					if schema.DataType(m.config.DefaultString) == schema.DataTypeString {
+						return []schema.DataType{schema.DataTypeStringArray}
 					}
-					return []schema.DataType{schema.DataTypeStringArray}
+					return []schema.DataType{schema.DataTypeTextArray}
 				case json.Number:
 					if schema.DataType(m.config.DefaultNumber) == schema.DataTypeInt {
 						return []schema.DataType{schema.DataTypeIntArray}
@@ -229,9 +233,8 @@ func (m *autoSchemaManager) determineType(value interface{}) []schema.DataType {
 			}
 			return dataType
 		}
-		// fallback to String
-		return []schema.DataType{schema.DataTypeString}
+		return fallbackDataType
 	default:
-		return []schema.DataType{schema.DataTypeString}
+		return fallbackDataType
 	}
 }

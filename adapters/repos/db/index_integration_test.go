@@ -47,7 +47,7 @@ func TestIndex_DropIndex(t *testing.T) {
 	indexFilesAfterDelete, err := getIndexFilenames(dirName, class.Class)
 	require.Nil(t, err)
 
-	assert.Equal(t, 5, len(indexFilesBeforeDelete))
+	assert.Equal(t, 6, len(indexFilesBeforeDelete))
 	assert.Equal(t, 0, len(indexFilesAfterDelete))
 }
 
@@ -71,9 +71,9 @@ func TestIndex_DropEmptyAndRecreateEmptyIndex(t *testing.T) {
 	indexFilesAfterRecreate, err := getIndexFilenames(dirName, class.Class)
 	require.Nil(t, err)
 
-	assert.Equal(t, 5, len(indexFilesBeforeDelete))
+	assert.Equal(t, 6, len(indexFilesBeforeDelete))
 	assert.Equal(t, 0, len(indexFilesAfterDelete))
-	assert.Equal(t, 5, len(indexFilesAfterRecreate))
+	assert.Equal(t, 6, len(indexFilesAfterRecreate))
 
 	err = index.drop()
 	require.Nil(t, err)
@@ -86,8 +86,9 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		Class: "deletetest",
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{"string"},
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 		InvertedIndexConfig: &models.InvertedIndexConfig{},
@@ -124,8 +125,9 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	require.Nil(t, err)
 
 	err = index.addProperty(context.TODO(), &models.Property{
-		Name:     "name",
-		DataType: []string{"string"},
+		Name:         "name",
+		DataType:     schema.DataTypeText.PropString(),
+		Tokenization: models.PropertyTokenizationWhitespace,
 	})
 	require.Nil(t, err)
 
@@ -173,8 +175,9 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	err = index.addUUIDProperty(context.TODO())
 	require.Nil(t, err)
 	err = index.addProperty(context.TODO(), &models.Property{
-		Name:     "name",
-		DataType: []string{"string"},
+		Name:         "name",
+		DataType:     schema.DataTypeText.PropString(),
+		Tokenization: models.PropertyTokenizationWhitespace,
 	})
 	require.Nil(t, err)
 
@@ -210,9 +213,9 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		productsIds[1], nil, additional.Properties{}, nil)
 	require.Nil(t, err)
 
-	assert.Equal(t, 5, len(indexFilesBeforeDelete))
+	assert.Equal(t, 6, len(indexFilesBeforeDelete))
 	assert.Equal(t, 0, len(indexFilesAfterDelete))
-	assert.Equal(t, 5, len(indexFilesAfterRecreate))
+	assert.Equal(t, 6, len(indexFilesAfterRecreate))
 	assert.Equal(t, indexFilesBeforeDelete, indexFilesAfterRecreate)
 	assert.NotNil(t, beforeDeleteObj1)
 	assert.NotNil(t, beforeDeleteObj2)
@@ -242,8 +245,9 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		Class: "deletetest",
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{"string"},
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 		InvertedIndexConfig: &models.InvertedIndexConfig{},
@@ -280,8 +284,9 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	require.Nil(t, err)
 
 	err = index.addProperty(ctx, &models.Property{
-		Name:     "name",
-		DataType: []string{"string"},
+		Name:         "name",
+		DataType:     schema.DataTypeText.PropString(),
+		Tokenization: models.PropertyTokenizationWhitespace,
 	})
 	require.Nil(t, err)
 

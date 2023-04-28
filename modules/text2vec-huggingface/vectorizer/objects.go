@@ -53,9 +53,9 @@ type ClassSettings interface {
 	OptionUseCache() bool
 }
 
-func sortStringKeys(schema_map map[string]interface{}) []string {
-	keys := make([]string, 0, len(schema_map))
-	for k := range schema_map {
+func sortStringKeys(schemaMap map[string]interface{}) []string {
+	keys := make([]string, 0, len(schemaMap))
+	for k := range schemaMap {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)

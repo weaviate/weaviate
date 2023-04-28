@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package rest
+package composer
 
 import (
 	"fmt"
@@ -26,8 +26,8 @@ func Test_TokenAuthComposer(t *testing.T) {
 		name         string
 		token        string
 		config       config.Authentication
-		oidc         openAPITokenFunc
-		apiKey       openAPITokenFunc
+		oidc         TokenFunc
+		apiKey       TokenFunc
 		expectErr    bool
 		expectErrMsg string
 	}
@@ -151,7 +151,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 			expectErrMsg: "you think I let anyone through?",
 		},
 		{
-			name: "both an enabled, with an 'obvous' api key",
+			name: "both an enabled, with an 'obvious' api key",
 			config: config.Authentication{
 				OIDC: config.OIDC{
 					Enabled: true,
@@ -214,7 +214,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			v := NewTokenAuthComposer(
+			v := New(
 				test.config,
 				fakeValidator{v: test.apiKey},
 				fakeValidator{v: test.oidc},
@@ -232,7 +232,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 }
 
 type fakeValidator struct {
-	v openAPITokenFunc
+	v TokenFunc
 }
 
 func (v fakeValidator) ValidateAndExtract(t string, s []string) (*models.Principal, error) {

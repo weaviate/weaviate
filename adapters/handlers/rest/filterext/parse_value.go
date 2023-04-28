@@ -66,14 +66,6 @@ var valueExtractors = []valueExtractorFunc{
 
 		return valueFilter(*in.ValueNumber, schema.DataTypeNumber), nil
 	},
-	// string
-	func(in *models.WhereFilter) (*filters.Value, error) {
-		if in.ValueString == nil {
-			return nil, nil
-		}
-
-		return valueFilter(*in.ValueString, schema.DataTypeString), nil
-	},
 	// text
 	func(in *models.WhereFilter) (*filters.Value, error) {
 		if in.ValueText == nil {
@@ -123,6 +115,14 @@ var valueExtractors = []valueExtractorFunc{
 				Longitude: in.ValueGeoRange.GeoCoordinates.Longitude,
 			},
 		}, schema.DataTypeGeoCoordinates), nil
+	},
+	// deprecated string
+	func(in *models.WhereFilter) (*filters.Value, error) {
+		if in.ValueString == nil {
+			return nil, nil
+		}
+
+		return valueFilter(*in.ValueString, schema.DataTypeString), nil
 	},
 }
 

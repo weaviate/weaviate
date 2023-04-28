@@ -33,6 +33,11 @@ type Properties struct {
 	Distance           bool                   `json:"distance"`
 	Score              bool                   `json:"score"`
 	ExplainScore       bool                   `json:"explainScore"`
+	IsConsistent       bool                   `json:"isConsistent"`
+
+	// The User is not interested in returning props, we can skip any costly
+	// operation that isn't required.
+	NoProps bool `json:"noProps"`
 
 	// ReferenceQuery is used to indicate that a search
 	// is being conducted on behalf of a referenced

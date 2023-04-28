@@ -56,25 +56,6 @@ func Test_ExtractFlatFilters(t *testing.T) {
 				}},
 			},
 			{
-				name: "valid string filter",
-				input: &models.WhereFilter{
-					Operator:    "Equal",
-					ValueString: ptString("foo bar"),
-					Path:        []string{"stringField"},
-				},
-				expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
-					Operator: filters.OperatorEqual,
-					On: &filters.Path{
-						Class:    schema.AssertValidClassName("Todo"),
-						Property: schema.AssertValidPropertyName("stringField"),
-					},
-					Value: &filters.Value{
-						Value: "foo bar",
-						Type:  schema.DataTypeString,
-					},
-				}},
-			},
-			{
 				name: "valid date filter",
 				input: &models.WhereFilter{
 					Operator:  "Equal",
@@ -172,6 +153,25 @@ func Test_ExtractFlatFilters(t *testing.T) {
 							Distance: 2.0,
 						},
 						Type: schema.DataTypeGeoCoordinates,
+					},
+				}},
+			},
+			{
+				name: "[deprected string] valid string filter",
+				input: &models.WhereFilter{
+					Operator:    "Equal",
+					ValueString: ptString("foo bar"),
+					Path:        []string{"stringField"},
+				},
+				expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.AssertValidClassName("Todo"),
+						Property: schema.AssertValidPropertyName("stringField"),
+					},
+					Value: &filters.Value{
+						Value: "foo bar",
+						Type:  schema.DataTypeString,
 					},
 				}},
 			},

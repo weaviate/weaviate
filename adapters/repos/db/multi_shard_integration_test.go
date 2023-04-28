@@ -168,15 +168,14 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 			},
 			Properties: []*models.Property{
 				{
-					Name:          "contents",
-					DataType:      []string{string(schema.DataTypeText)},
-					Tokenization:  "word",
-					IndexInverted: truePointer(),
+					Name:         "contents",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWord,
 				},
 				{
-					Name:          "stringProp",
-					DataType:      []string{string(schema.DataTypeString)},
-					IndexInverted: truePointer(),
+					Name:         "stringProp",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				},
 				{
 					Name:     "textArrayProp",
@@ -687,7 +686,7 @@ func makeTestBatchDeleteAllObjects(repo *DB) func(t *testing.T) {
 							Operator: filters.OperatorLike,
 							Value: &filters.Value{
 								Value: "*",
-								Type:  schema.DataTypeString,
+								Type:  schema.DataTypeText,
 							},
 							On: &filters.Path{
 								Property: "id",
@@ -862,9 +861,9 @@ func testClassesForImporting() []*models.Class {
 					DataType: []string{string(schema.DataTypeInt)},
 				},
 				{
-					Name:          "stringProp",
-					DataType:      []string{string(schema.DataTypeString)},
-					IndexInverted: truePointer(),
+					Name:         "stringProp",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				},
 				{
 					Name:     "textArrayProp",
@@ -890,8 +889,9 @@ func testClassesForImporting() []*models.Class {
 					DataType: []string{string(schema.DataTypeInt)},
 				},
 				{
-					Name:     "stringProp",
-					DataType: []string{string(schema.DataTypeString)},
+					Name:         "stringProp",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				},
 				{
 					Name:     "textArrayProp",

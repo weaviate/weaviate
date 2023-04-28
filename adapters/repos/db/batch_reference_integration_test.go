@@ -65,8 +65,8 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 					Properties: []*models.Property{
 						{
 							Name:         "name",
-							DataType:     []string{"string"},
-							Tokenization: "word",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},
@@ -77,8 +77,8 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 					Properties: []*models.Property{
 						{
 							Name:         "name",
-							DataType:     []string{"string"},
-							Tokenization: "word",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "toTarget",
@@ -167,7 +167,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			sourceID))
 		require.Nil(t, err)
 		targets := []strfmt.UUID{target1, target2}
-		refs := make(objects.BatchReferences, len(targets), len(targets))
+		refs := make(objects.BatchReferences, len(targets))
 		for i, target := range targets {
 			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s",
 				target))
@@ -221,7 +221,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			sourceID))
 		require.Nil(t, err)
 		targets := []strfmt.UUID{target3, target4}
-		refs := make(objects.BatchReferences, len(targets), len(targets))
+		refs := make(objects.BatchReferences, len(targets))
 		for i, target := range targets {
 			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s", target))
 			require.Nil(t, err)
@@ -318,7 +318,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				},
 				Value: &filters.Value{
 					Value: "item",
-					Type:  dtString,
+					Type:  schema.DataTypeText,
 				},
 			},
 		}
@@ -340,7 +340,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			// prior to making the inverted index and its docIDs immutable, a ref
 			// update would not change the doc ID, therefore the batch reference
 			// never had to interact with the vector index. Now that they're
-			// immutable, the udpated doc ID needs to be "re-inserted" even if the
+			// immutable, the updated doc ID needs to be "re-inserted" even if the
 			// vector is still the same
 			// UPDATE gh-1334: Since batch refs are now a special case where we
 			// tolerate a re-use of the doc id, the above assumption is no longer

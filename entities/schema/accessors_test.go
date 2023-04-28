@@ -23,8 +23,8 @@ func Test_Accessors(t *testing.T) {
 	car := &models.Class{
 		Class: "Car",
 		Properties: []*models.Property{
-			{Name: "modelName", DataType: []string{"string"}},
-			{Name: "manufacturerName", DataType: []string{"string"}},
+			{Name: "modelName", DataType: DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
+			{Name: "manufacturerName", DataType: DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
 			{Name: "horsepower", DataType: []string{"int"}},
 		},
 	}
@@ -33,7 +33,7 @@ func Test_Accessors(t *testing.T) {
 		Class: "Train",
 		Properties: []*models.Property{
 			{Name: "capacity", DataType: []string{"int"}},
-			{Name: "trainCompany", DataType: []string{"string"}},
+			{Name: "trainCompany", DataType: DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
 		},
 	}
 
@@ -42,30 +42,30 @@ func Test_Accessors(t *testing.T) {
 		Properties: []*models.Property{},
 	}
 
-	schema := Empty()
-	schema.Objects.Classes = []*models.Class{car, train, action}
+	sch := Empty()
+	sch.Objects.Classes = []*models.Class{car, train, action}
 
 	t.Run("GetClass by kind and name", func(t *testing.T) {
-		class := schema.GetClass("Car")
+		class := sch.GetClass("Car")
 		assert.Equal(t, car, class)
 
-		class = schema.GetClass("Invalid")
+		class = sch.GetClass("Invalid")
 		assert.Equal(t, (*models.Class)(nil), class)
 	})
 
 	t.Run("FindClass by name (without providing the kind)", func(t *testing.T) {
-		class := schema.FindClassByName("Car")
+		class := sch.FindClassByName("Car")
 		assert.Equal(t, car, class)
 
-		class = schema.FindClassByName("SomeAction")
+		class = sch.FindClassByName("SomeAction")
 		assert.Equal(t, action, class)
 
-		class = schema.FindClassByName("Invalid")
+		class = sch.FindClassByName("Invalid")
 		assert.Equal(t, (*models.Class)(nil), class)
 	})
 
 	t.Run("GetPropsOfType", func(t *testing.T) {
-		props := schema.GetPropsOfType("string")
+		props := sch.GetPropsOfType(DataTypeText.String())
 
 		expectedProps := []ClassAndProperty{
 			{
@@ -86,24 +86,25 @@ func Test_Accessors(t *testing.T) {
 	})
 
 	t.Run("GetProperty by kind, classname, name", func(t *testing.T) {
-		prop, err := schema.GetProperty("Car", "modelName")
+		prop, err := sch.GetProperty("Car", "modelName")
 		assert.Nil(t, err)
 
 		expectedProp := &models.Property{
-			Name:     "modelName",
-			DataType: []string{"string"},
+			Name:         "modelName",
+			DataType:     DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
 		}
 
 		assert.Equal(t, expectedProp, prop)
 	})
 
 	t.Run("GetProperty for invalid class", func(t *testing.T) {
-		_, err := schema.GetProperty("WrongClass", "modelName")
+		_, err := sch.GetProperty("WrongClass", "modelName")
 		assert.Equal(t, errors.New("no such class with name 'WrongClass' found in the schema. Check your schema files for which classes are available"), err)
 	})
 
 	t.Run("GetProperty for invalid prop", func(t *testing.T) {
-		_, err := schema.GetProperty("Car", "wrongProperty")
+		_, err := sch.GetProperty("Car", "wrongProperty")
 		assert.Equal(t, errors.New("no such prop with name 'wrongProperty' found in class 'Car' in the schema. Check your schema files for which properties in this class are available"), err)
 	})
 }

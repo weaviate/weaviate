@@ -36,6 +36,8 @@ import (
 func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
+	vFalse := false
+	vTrue := true
 
 	class := &models.Class{
 		Class:             "TestClass",
@@ -52,20 +54,22 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		Properties: []*models.Property{
 			{
 				Name:         "initialWithIINil",
-				DataType:     []string{"string"},
-				Tokenization: "word",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 			{
-				Name:          "initialWithIITrue",
-				DataType:      []string{"string"},
-				Tokenization:  "word",
-				IndexInverted: truePointer(),
+				Name:            "initialWithIITrue",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWhitespace,
+				IndexFilterable: &vTrue,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "initialWithoutII",
-				DataType:      []string{"string"},
-				Tokenization:  "word",
-				IndexInverted: falsePointer(),
+				Name:            "initialWithoutII",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWhitespace,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vFalse,
 			},
 		},
 	}
@@ -92,20 +96,22 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 
 	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, &models.Property{
 		Name:         "updateWithIINil",
-		DataType:     []string{"string"},
-		Tokenization: "word",
+		DataType:     schema.DataTypeText.PropString(),
+		Tokenization: models.PropertyTokenizationWhitespace,
 	}))
 	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, &models.Property{
-		Name:          "updateWithIITrue",
-		DataType:      []string{"string"},
-		Tokenization:  "word",
-		IndexInverted: truePointer(),
+		Name:            "updateWithIITrue",
+		DataType:        schema.DataTypeText.PropString(),
+		Tokenization:    models.PropertyTokenizationWhitespace,
+		IndexFilterable: &vTrue,
+		IndexSearchable: &vTrue,
 	}))
 	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, &models.Property{
-		Name:          "updateWithoutII",
-		DataType:      []string{"string"},
-		Tokenization:  "word",
-		IndexInverted: falsePointer(),
+		Name:            "updateWithoutII",
+		DataType:        schema.DataTypeText.PropString(),
+		Tokenization:    models.PropertyTokenizationWhitespace,
+		IndexFilterable: &vFalse,
+		IndexSearchable: &vFalse,
 	}))
 
 	t.Run("check for additional buckets", func(t *testing.T) {
@@ -202,8 +208,9 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{"string"},
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 			{
 				Name:     "number array",
@@ -259,10 +266,10 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		t.Run("test "+name+" directly on nullState property", func(t *testing.T) {
 			createTimeStringFilter := &filters.LocalFilter{
 				Root: &filters.Clause{
-					Operator: filters.OperatorEqual,
+					Operator: filters.OperatorIsNull,
 					On: &filters.Path{
 						Class:    "TestClass",
-						Property: "name_nullState",
+						Property: "name",
 					},
 					Value: &filters.Value{
 						Value: searchVal != testID1,
@@ -288,7 +295,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 				Operator: filters.OperatorEqual,
 				On: &filters.Path{
 					Class:    "TestClass",
-					Property: "name" + filters.InternalPropertyLength,
+					Property: "len(name)",
 				},
 				Value: &filters.Value{
 					Value: 12,
@@ -324,8 +331,8 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 		Properties: []*models.Property{
 			{
 				Name:         "name",
-				DataType:     []string{"string"},
-				Tokenization: "word",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 	}
@@ -380,7 +387,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 				},
 				Value: &filters.Value{
 					Value: fmt.Sprint(now),
-					Type:  dtString,
+					Type:  schema.DataTypeText,
 				},
 			},
 		}
@@ -394,7 +401,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 				},
 				Value: &filters.Value{
 					Value: fmt.Sprint(now),
-					Type:  dtString,
+					Type:  schema.DataTypeText,
 				},
 			},
 		}

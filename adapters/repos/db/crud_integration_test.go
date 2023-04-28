@@ -51,8 +51,8 @@ func TestCRUD(t *testing.T) {
 		Properties: []*models.Property{
 			{
 				Name:         "stringProp",
-				DataType:     []string{string(schema.DataTypeString)},
-				Tokenization: "word",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 			{
 				Name:     "location",
@@ -71,8 +71,8 @@ func TestCRUD(t *testing.T) {
 		Properties: []*models.Property{
 			{
 				Name:         "stringProp",
-				DataType:     []string{string(schema.DataTypeString)},
-				Tokenization: "word",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 			{
 				Name:     "refProp",
@@ -256,11 +256,11 @@ func TestCRUD(t *testing.T) {
 		res, err := repo.ObjectByID(context.Background(), thingID, nil,
 			additional.Properties{})
 		require.Nil(t, err)
+		assert.Equal(t, expected, res.ObjectWithVector(false))
 
 		res, err = repo.Object(context.Background(), expected.Class, thingID, nil,
 			additional.Properties{}, nil)
 		require.Nil(t, err)
-
 		assert.Equal(t, expected, res.ObjectWithVector(false))
 	})
 
@@ -281,7 +281,7 @@ func TestCRUD(t *testing.T) {
 							// we would not have found this object before using "updated", as
 							// this string was only introduced as part of the update
 							Value: "updated",
-							Type:  dtString,
+							Type:  schema.DataTypeText,
 						},
 					},
 				},
@@ -306,7 +306,7 @@ func TestCRUD(t *testing.T) {
 						},
 						Value: &filters.Value{
 							Value: "some",
-							Type:  dtString,
+							Type:  schema.DataTypeText,
 						},
 					},
 				},
@@ -334,7 +334,7 @@ func TestCRUD(t *testing.T) {
 							// we would not have found this object before using "updated", as
 							// this string was only introduced as part of the update
 							Value: "value",
-							Type:  dtString,
+							Type:  schema.DataTypeText,
 						},
 					},
 				},
@@ -937,7 +937,7 @@ func TestCRUD(t *testing.T) {
 					},
 					Value: &filters.Value{
 						Value: "some",
-						Type:  dtString,
+						Type:  schema.DataTypeText,
 					},
 				},
 			},
@@ -961,7 +961,7 @@ func TestCRUD(t *testing.T) {
 					},
 					Value: &filters.Value{
 						Value: "some",
-						Type:  dtString,
+						Type:  schema.DataTypeText,
 					},
 				},
 			},
@@ -1003,7 +1003,7 @@ func TestCRUD(t *testing.T) {
 						},
 						Value: &filters.Value{
 							Value: "some",
-							Type:  dtString,
+							Type:  schema.DataTypeText,
 						},
 					},
 				},
@@ -1026,7 +1026,7 @@ func TestCRUD(t *testing.T) {
 						},
 						Value: &filters.Value{
 							Value: "some",
-							Type:  dtString,
+							Type:  schema.DataTypeText,
 						},
 					},
 				},
@@ -1194,7 +1194,7 @@ func TestCRUD(t *testing.T) {
 									},
 									Value: &filters.Value{
 										Value: fmt.Sprintf("action#%d", i),
-										Type:  dtString,
+										Type:  schema.DataTypeText,
 									},
 								},
 								{
@@ -1209,7 +1209,7 @@ func TestCRUD(t *testing.T) {
 									},
 									Value: &filters.Value{
 										Value: "thing#*",
-										Type:  dtString,
+										Type:  schema.DataTypeText,
 									},
 								},
 							},
@@ -1250,7 +1250,7 @@ func TestCRUD(t *testing.T) {
 						},
 						Value: &filters.Value{
 							Value: id.String(),
-							Type:  dtString,
+							Type:  schema.DataTypeText,
 						},
 					},
 				},
@@ -1288,8 +1288,8 @@ func TestCRUD_Query(t *testing.T) {
 		Properties: []*models.Property{
 			{
 				Name:         "stringProp",
-				DataType:     []string{string(schema.DataTypeString)},
-				Tokenization: "word",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 	}
@@ -1955,7 +1955,8 @@ func Test_PutPatchRestart(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
-	ctx, _ := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
 
 	testClass := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
@@ -1964,8 +1965,8 @@ func Test_PutPatchRestart(t *testing.T) {
 		Properties: []*models.Property{
 			{
 				Name:         "description",
-				DataType:     []string{string(schema.DataTypeString)},
-				Tokenization: "word",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 	}
@@ -2042,7 +2043,7 @@ func Test_PutPatchRestart(t *testing.T) {
 				},
 				Value: &filters.Value{
 					Value: testID.String(),
-					Type:  dtString,
+					Type:  schema.DataTypeText,
 				},
 			},
 		}
@@ -2069,15 +2070,15 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
-				Name:     "stringArray",
-				DataType: []string{string(schema.DataTypeStringArray)},
+				Name:     "textArray",
+				DataType: schema.DataTypeTextArray.PropString(),
 			},
 			{
-				Name:     "NumberArray",
+				Name:     "numberArray",
 				DataType: []string{string(schema.DataTypeNumberArray)},
 			},
 			{
-				Name:     "BoolArray",
+				Name:     "boolArray",
 				DataType: []string{string(schema.DataTypeBooleanArray)},
 			},
 		},
@@ -2089,8 +2090,9 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
-				Name:     "stringProp",
-				DataType: []string{string(schema.DataTypeString)},
+				Name:         "stringProp",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 	}
@@ -2101,8 +2103,9 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
-				Name:     "stringProp",
-				DataType: []string{string(schema.DataTypeString)},
+				Name:         "stringProp",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 			{
 				Name:     "refProp",
@@ -2141,18 +2144,18 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 			ID:    objID,
 			Class: "TestClass",
 			Properties: map[string]interface{}{
-				"stringArray": []string{},
-				"NumberArray": []float64{},
-				"BoolArray":   []bool{},
+				"textArray":   []string{},
+				"numberArray": []float64{},
+				"boolArray":   []bool{},
 			},
 		}
 		obj2 := &models.Object{
 			ID:    objID,
 			Class: "TestClass",
 			Properties: map[string]interface{}{
-				"stringArray": []string{"value"},
-				"NumberArray": []float64{0.5},
-				"BoolArray":   []bool{true},
+				"textArray":   []string{"value"},
+				"numberArray": []float64{0.5},
+				"boolArray":   []bool{true},
 			},
 		}
 
@@ -2236,8 +2239,9 @@ func TestOverwriteObjects(t *testing.T) {
 		Class:               "SomeClass",
 		Properties: []*models.Property{
 			{
-				Name:     "stringProp",
-				DataType: []string{string(schema.DataTypeString)},
+				Name:         "stringProp",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 	}
@@ -2331,8 +2335,9 @@ func TestIndexDigestObjects(t *testing.T) {
 		Class:               "SomeClass",
 		Properties: []*models.Property{
 			{
-				Name:     "stringProp",
-				DataType: []string{string(schema.DataTypeString)},
+				Name:         "stringProp",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 	}
@@ -2454,8 +2459,9 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 		Class:               "SomeClass",
 		Properties: []*models.Property{
 			{
-				Name:     "stringProp",
-				DataType: []string{string(schema.DataTypeString)},
+				Name:         "stringProp",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 	}

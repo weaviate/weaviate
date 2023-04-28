@@ -629,7 +629,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 						Operator: filters.OperatorLike,
 						Value: &filters.Value{
 							Value: "*",
-							Type:  schema.DataTypeString,
+							Type:  schema.DataTypeText,
 						},
 						On: &filters.Path{
 							Property: "id",

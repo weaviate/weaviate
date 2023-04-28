@@ -30,11 +30,11 @@ var ErrInvalidChecksum = errors.New("invalid checksum")
 // existOnLowerSegments is a simple function that can be passed at segment
 // initialization time to check if any of the keys are truly new or previously
 // seen. This can in turn be used to build up the net count additions. The
-// reason this is abstrate:
+// reason this is abstract:
 type existsOnLowerSegmentsFn func(key []byte) (bool, error)
 
-func (ind *segment) countNetPath() string {
-	return countNetPathFromSegmentPath(ind.path)
+func (s *segment) countNetPath() string {
+	return countNetPathFromSegmentPath(s.path)
 }
 
 func countNetPathFromSegmentPath(segPath string) string {
@@ -42,19 +42,19 @@ func countNetPathFromSegmentPath(segPath string) string {
 	return fmt.Sprintf("%s.cna", extless)
 }
 
-func (ind *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn) error {
-	if ind.strategy != segmentindex.StrategyReplace {
+func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn) error {
+	if s.strategy != segmentindex.StrategyReplace {
 		// replace is the only strategy that supports counting
 		return nil
 	}
 
-	ok, err := fileExists(ind.countNetPath())
+	ok, err := fileExists(s.countNetPath())
 	if err != nil {
 		return err
 	}
 
 	if ok {
-		err = ind.loadCountNetFromDisk()
+		err = s.loadCountNetFromDisk()
 		if err == nil {
 			return nil
 		}
@@ -84,26 +84,26 @@ func (ind *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn) error 
 		}
 	}
 
-	extr := newBufferedKeyAndTombstoneExtractor(ind.contents, ind.dataStartPos,
-		ind.dataEndPos, 10e6, ind.secondaryIndexCount, cb)
+	extr := newBufferedKeyAndTombstoneExtractor(s.contents, s.dataStartPos,
+		s.dataEndPos, 10e6, s.secondaryIndexCount, cb)
 
 	extr.do()
 
-	ind.countNetAdditions = countNet
+	s.countNetAdditions = countNet
 
 	if lastErr != nil {
 		return lastErr
 	}
 
-	if err := ind.storeCountNetOnDisk(); err != nil {
+	if err := s.storeCountNetOnDisk(); err != nil {
 		return fmt.Errorf("store count net additions on disk: %w", err)
 	}
 
 	return nil
 }
 
-func (ind *segment) storeCountNetOnDisk() error {
-	return storeCountNetOnDisk(ind.countNetPath(), ind.countNetAdditions)
+func (s *segment) storeCountNetOnDisk() error {
+	return storeCountNetOnDisk(s.countNetPath(), s.countNetAdditions)
 }
 
 // prefillCountNetAdditions is a helper function that can be used in
@@ -129,13 +129,13 @@ func storeCountNetOnDisk(path string, value int) error {
 	return writeWithChecksum(buf.Bytes(), path)
 }
 
-func (ind *segment) loadCountNetFromDisk() error {
-	data, err := loadWithChecksum(ind.countNetPath(), 12)
+func (s *segment) loadCountNetFromDisk() error {
+	data, err := loadWithChecksum(s.countNetPath(), 12)
 	if err != nil {
 		return err
 	}
 
-	ind.countNetAdditions = int(binary.LittleEndian.Uint64(data[0:8]))
+	s.countNetAdditions = int(binary.LittleEndian.Uint64(data[0:8]))
 
 	return nil
 }

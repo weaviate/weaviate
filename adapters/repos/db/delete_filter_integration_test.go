@@ -50,8 +50,8 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{{
 			Name:         "unrelatedProp",
-			DataType:     []string{string(schema.DataTypeString)},
-			Tokenization: "word",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
 		}, {
 			Name:     "boolProp",
 			DataType: []string{string(schema.DataTypeBoolean)},
@@ -103,7 +103,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 
 	t.Run("updating the first 5 elements", func(t *testing.T) {
 		// The idea is that the first 5 elements can be found with a boolProp==true
-		// search, however, the bug occured if those items all had received an
+		// search, however, the bug occurred if those items all had received an
 		// update
 
 		for i := 0; i < 5; i++ {
@@ -146,7 +146,7 @@ func mustNewUUID() strfmt.UUID {
 }
 
 func extractIDs(in []search.Result) []strfmt.UUID {
-	out := make([]strfmt.UUID, len(in), len(in))
+	out := make([]strfmt.UUID, len(in))
 	for i, res := range in {
 		out[i] = res.ID
 	}

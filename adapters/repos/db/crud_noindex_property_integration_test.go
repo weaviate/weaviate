@@ -37,6 +37,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
+	vFalse := false
 	logger, _ := test.NewNullLogger()
 	thingclass := &models.Class{
 		Class:               "ThingClassWithNoIndexProps",
@@ -44,13 +45,14 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{{
 			Name:         "stringProp",
-			DataType:     []string{string(schema.DataTypeString)},
-			Tokenization: "word",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
 		}, {
-			Name:          "hiddenStringProp",
-			DataType:      []string{string(schema.DataTypeString)},
-			Tokenization:  "word",
-			IndexInverted: ptBool(false),
+			Name:            "hiddenStringProp",
+			DataType:        schema.DataTypeText.PropString(),
+			Tokenization:    models.PropertyTokenizationWhitespace,
+			IndexFilterable: &vFalse,
+			IndexSearchable: &vFalse,
 		}},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
@@ -131,7 +133,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: 10,
 			},
-			Filters: buildFilter("hiddenStringProp", "hidden", eq, dtString),
+			Filters: buildFilter("hiddenStringProp", "hidden", eq, schema.DataTypeText),
 		})
 
 		require.NotNil(t, err)
@@ -145,7 +147,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: 10,
 			},
-			Filters: buildFilter("_creationTimeUnix", "1234567891011", eq, dtString),
+			Filters: buildFilter("_creationTimeUnix", "1234567891011", eq, schema.DataTypeText),
 		})
 
 		require.NotNil(t, err)
@@ -153,8 +155,4 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 			"timestamps must be indexed to be filterable! "+
 				"add `indexTimestamps: true` to the invertedIndexConfig")
 	})
-}
-
-func ptBool(in bool) *bool {
-	return &in
 }

@@ -213,7 +213,7 @@ func TestMapCollectionStrategy_InsertAndAppend(t *testing.T) {
 		})
 	})
 
-	t.Run("with flushes after initial and upate", func(t *testing.T) {
+	t.Run("with flushes after initial and update", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
@@ -474,6 +474,7 @@ func TestMapCollectionStrategy_InsertAndDelete(t *testing.T) {
 				Key:   []byte("row2-key2"),
 				Value: []byte("row2-key2-reinserted"),
 			})
+			require.Nil(t, err)
 		})
 
 		t.Run("validate the results", func(t *testing.T) {
@@ -571,6 +572,7 @@ func TestMapCollectionStrategy_InsertAndDelete(t *testing.T) {
 				Key:   []byte("row2-key2"),
 				Value: []byte("row2-key2-reinserted"),
 			})
+			require.Nil(t, err)
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
@@ -668,6 +670,7 @@ func TestMapCollectionStrategy_InsertAndDelete(t *testing.T) {
 				Key:   []byte("row2-key2"),
 				Value: []byte("row2-key2-reinserted"),
 			})
+			require.Nil(t, err)
 		})
 
 		t.Run("orderly shutdown", func(t *testing.T) {
@@ -850,7 +853,7 @@ func TestMapCollectionStrategy_Cursors(t *testing.T) {
 			row := []byte("row-002")
 			pair := MapPair{
 				Key:   []byte("row-002-key-1"),           // existing key
-				Value: []byte("row-002-value-1-updated"), // upadated value
+				Value: []byte("row-002-value-1-updated"), // updated value
 			}
 
 			require.Nil(t, b.MapSet(row, pair))
@@ -1131,7 +1134,7 @@ func TestMapCollectionStrategy_Cursors(t *testing.T) {
 			row := []byte("row-002")
 			pair := MapPair{
 				Key:   []byte("row-002-key-1"),           // existing key
-				Value: []byte("row-002-value-1-updated"), // upadated value
+				Value: []byte("row-002-value-1-updated"), // updated value
 			}
 
 			require.Nil(t, b.MapSet(row, pair))

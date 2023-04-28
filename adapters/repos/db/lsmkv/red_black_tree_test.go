@@ -210,7 +210,7 @@ func TestRBTreeMulti(t *testing.T) {
 }
 
 // add keys as a) normal keys b) tombstone keys and c) half tombstone, half normal.
-// The resulting (reblalanced) trees must have the same order and colors
+// The resulting (rebalanced) trees must have the same order and colors
 var tombstoneTests = []struct {
 	name string
 	keys []uint
