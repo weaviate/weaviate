@@ -57,7 +57,7 @@ func (m *Manager) IndexedInverted(className, propertyName string) bool {
 	if prop == nil {
 		return false
 	}
-	return inverted.IsIndexable(prop)
+	return inverted.HasInvertedIndex(prop)
 }
 
 func (m *Manager) GetClass(ctx context.Context, principal *models.Principal,
