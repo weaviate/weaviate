@@ -45,7 +45,6 @@ type BM25Searcher struct {
 	config        schema.BM25Config
 	store         *lsmkv.Store
 	schema        schema.Schema
-	rowCache      cacher
 	classSearcher ClassSearcher // to allow recursive searches on ref-props
 	propIndices   propertyspecific.Indices
 	deletedDocIDs DeletedDocIDChecker
@@ -58,8 +57,8 @@ type propLengthRetriever interface {
 	PropertyMean(prop string) (float32, error)
 }
 
-func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema.Schema,
-	rowCache cacher, propIndices propertyspecific.Indices,
+func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
+	schema schema.Schema, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker,
 	propLengths propLengthRetriever, logger logrus.FieldLogger,
 	shardVersion uint16,
@@ -68,7 +67,6 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema
 		config:        config,
 		store:         store,
 		schema:        schema,
-		rowCache:      rowCache,
 		propIndices:   propIndices,
 		classSearcher: classSearcher,
 		deletedDocIDs: deletedDocIDs,
