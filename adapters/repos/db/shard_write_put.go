@@ -133,13 +133,13 @@ func (s *Shard) putObjectLSM(object *storobj.Object, idBytes []byte,
 	// or an update. Afterwards the bucket is updates. To avoid races, only one goroutine can do this at once.
 	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
 	lock.Lock()
-	previous, err := bucket.Get(idBytes)
+	previous_object_bytes, err := bucket.Get(idBytes)
 	if err != nil {
 		lock.Unlock()
 		return objectInsertStatus{}, err
 	}
 
-	status, err := s.determineInsertStatus(previous, object)
+	status, err := s.determineInsertStatus(previous_object_bytes, object)
 	if err != nil {
 		lock.Unlock()
 		return status, errors.Wrap(err, "check insert/update status")
@@ -162,9 +162,10 @@ func (s *Shard) putObjectLSM(object *storobj.Object, idBytes []byte,
 	s.metrics.PutObjectUpsertObject(before)
 
 	before = time.Now()
-	if err := s.updateInvertedIndexLSM(object, status, previous); err != nil {
+	if err := s.updateInvertedIndexLSM(object, status, previous_object_bytes); err != nil {
 		return status, errors.Wrap(err, "update inverted indices")
 	}
+	
 	s.metrics.PutObjectUpdateInverted(before)
 
 	return status, nil
