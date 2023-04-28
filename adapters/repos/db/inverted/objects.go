@@ -68,7 +68,7 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 			return nil, fmt.Errorf("prop %q has no datatype", prop.Name)
 		}
 
-		if !IsIndexable(prop) {
+		if !HasInvertedIndex(prop) {
 			continue
 		}
 
@@ -106,8 +106,8 @@ func (a *Analyzer) analyzeIDProp(id strfmt.UUID) (*Property, error) {
 				Data: value,
 			},
 		},
-		IsFilterable: IsFilterableIdProp,
-		IsSearchable: IsSearchableIdProp,
+		HasFilterableIndex: HasFilterableIndexIdProp,
+		HasSearchableIndex: HasSearchableIndexIdProp,
 	}, nil
 }
 
@@ -122,10 +122,10 @@ func (a *Analyzer) analyzeTimestampProps(input map[string]any) ([]Property, erro
 			return nil, fmt.Errorf("analyze create timestamp prop: %w", err)
 		}
 		props = append(props, Property{
-			Name:         filters.InternalPropCreationTimeUnix,
-			Items:        []Countable{{Data: b}},
-			IsFilterable: IsFilterableTimestampProp,
-			IsSearchable: IsSearchableTimestampProp,
+			Name:               filters.InternalPropCreationTimeUnix,
+			Items:              []Countable{{Data: b}},
+			HasFilterableIndex: HasFilterableIndexTimestampProp,
+			HasSearchableIndex: HasSearchableIndexTimestampProp,
 		})
 	}
 
@@ -135,10 +135,10 @@ func (a *Analyzer) analyzeTimestampProps(input map[string]any) ([]Property, erro
 			return nil, fmt.Errorf("analyze update timestamp prop: %w", err)
 		}
 		props = append(props, Property{
-			Name:         filters.InternalPropLastUpdateTimeUnix,
-			Items:        []Countable{{Data: b}},
-			IsFilterable: IsFilterableTimestampProp,
-			IsSearchable: IsSearchableTimestampProp,
+			Name:               filters.InternalPropLastUpdateTimeUnix,
+			Items:              []Countable{{Data: b}},
+			HasFilterableIndex: HasFilterableIndexTimestampProp,
+			HasSearchableIndex: HasSearchableIndexTimestampProp,
 		})
 	}
 
@@ -205,12 +205,12 @@ func (a *Analyzer) extendPropertiesWithPrimitive(properties *[]Property,
 
 func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Property, error) {
 	var items []Countable
-	isFilterable := IsFilterable(prop)
-	isSearchable := IsSearchable(prop)
+	hasFilterableIndex := HasFilterableIndex(prop)
+	hasSearchableIndex := HasSearchableIndex(prop)
 
 	switch dt := schema.DataType(prop.DataType[0]); dt {
 	case schema.DataTypeTextArray:
-		isFilterable = isFilterable && !a.isFallbackToSearchable()
+		hasFilterableIndex = hasFilterableIndex && !a.isFallbackToSearchable()
 		in, err := stringsFromValues(prop, values)
 		if err != nil {
 			return nil, err
@@ -322,11 +322,11 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 	}
 
 	return &Property{
-		Name:         prop.Name,
-		Items:        items,
-		Length:       len(values),
-		IsFilterable: isFilterable,
-		IsSearchable: isSearchable,
+		Name:               prop.Name,
+		Items:              items,
+		Length:             len(values),
+		HasFilterableIndex: hasFilterableIndex,
+		HasSearchableIndex: hasSearchableIndex,
 	}, nil
 }
 
@@ -345,12 +345,12 @@ func stringsFromValues(prop *models.Property, values []any) ([]string, error) {
 func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Property, error) {
 	var items []Countable
 	propertyLength := -1 // will be overwritten for string/text, signals not to add the other types.
-	isFilterable := IsFilterable(prop)
-	isSearchable := IsSearchable(prop)
+	hasFilterableIndex := HasFilterableIndex(prop)
+	hasSearchableIndex := HasSearchableIndex(prop)
 
 	switch dt := schema.DataType(prop.DataType[0]); dt {
 	case schema.DataTypeText:
-		isFilterable = isFilterable && !a.isFallbackToSearchable()
+		hasFilterableIndex = hasFilterableIndex && !a.isFallbackToSearchable()
 		asString, ok := value.(string)
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
@@ -445,11 +445,11 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 	}
 
 	return &Property{
-		Name:         prop.Name,
-		Items:        items,
-		Length:       propertyLength,
-		IsFilterable: isFilterable,
-		IsSearchable: isSearchable,
+		Name:               prop.Name,
+		Items:              items,
+		Length:             propertyLength,
+		HasFilterableIndex: hasFilterableIndex,
+		HasSearchableIndex: hasSearchableIndex,
 	}, nil
 }
 
@@ -511,11 +511,11 @@ func (a *Analyzer) analyzeRefPropCount(prop *models.Property,
 	}
 
 	return &Property{
-		Name:         helpers.MetaCountProp(prop.Name),
-		Items:        items,
-		Length:       len(value),
-		IsFilterable: IsFilterable(prop),
-		IsSearchable: IsSearchable(prop),
+		Name:               helpers.MetaCountProp(prop.Name),
+		Items:              items,
+		Length:             len(value),
+		HasFilterableIndex: HasFilterableIndex(prop),
+		HasSearchableIndex: HasSearchableIndex(prop),
 	}, nil
 }
 
@@ -528,10 +528,10 @@ func (a *Analyzer) analyzeRefProp(prop *models.Property,
 	}
 
 	return &Property{
-		Name:         prop.Name,
-		Items:        items,
-		IsFilterable: IsFilterable(prop),
-		IsSearchable: IsSearchable(prop),
+		Name:               prop.Name,
+		Items:              items,
+		HasFilterableIndex: HasFilterableIndex(prop),
+		HasSearchableIndex: HasSearchableIndex(prop),
 	}, nil
 }
 
@@ -566,13 +566,13 @@ func convertToUntyped[T comparable](in []T) []any {
 }
 
 // Indicates whether property should be indexed
-// Index contains document ids having property of given value
-// and number of occurrences in the property
-// (index created with help of bucket of StrategyMapCollection)
-func IsSearchable(prop *models.Property) bool {
+// Index holds document ids with property of/containing particular value
+// and number of its occurrences in that property
+// (index created using bucket of StrategyMapCollection)
+func HasSearchableIndex(prop *models.Property) bool {
 	switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 	case schema.DataTypeText, schema.DataTypeTextArray:
-		// by default property is searchable only for text/text[] props
+		// by default property has searchable index only for text/text[] props
 		if prop.IndexSearchable == nil {
 			return true
 		}
@@ -583,40 +583,40 @@ func IsSearchable(prop *models.Property) bool {
 }
 
 // Indicates whether property should be indexed
-// Index contains only document ids having property of given value
-// (index created with help of bucket of StrategyRoaringSet)
-func IsFilterable(prop *models.Property) bool {
-	// by default property is filterable
+// Index holds document ids with property of/containing particular value
+// (index created using bucket of StrategyRoaringSet)
+func HasFilterableIndex(prop *models.Property) bool {
+	// by default property has filterable index
 	if prop.IndexFilterable == nil {
 		return true
 	}
 	return *prop.IndexFilterable
 }
 
-func IsIndexable(prop *models.Property) bool {
-	return IsFilterable(prop) || IsSearchable(prop)
+func HasInvertedIndex(prop *models.Property) bool {
+	return HasFilterableIndex(prop) || HasSearchableIndex(prop)
 }
 
 const (
 	// allways
-	IsFilterableIdProp = true
-	IsSearchableIdProp = false
+	HasFilterableIndexIdProp = true
+	HasSearchableIndexIdProp = false
 
 	// only if index.invertedIndexConfig.IndexTimestamps set
-	IsFilterableTimestampProp = true
-	IsSearchableTimestampProp = false
+	HasFilterableIndexTimestampProp = true
+	HasSearchableIndexTimestampProp = false
 
 	// only if property.indexFilterable or property.indexSearchable set
-	IsFilterableMetaCount = true
-	IsSearchableMetaCount = false
+	HasFilterableIndexMetaCount = true
+	HasSearchableIndexMetaCount = false
 
 	// only if index.invertedIndexConfig.IndexNullState set
 	// and either property.indexFilterable or property.indexSearchable set
-	IsFilterablePropNull = true
-	IsSearchablePropNull = false
+	HasFilterableIndexPropNull = true
+	HasSearchableIndexPropNull = false
 
 	// only if index.invertedIndexConfig.IndexPropertyLength set
 	// and either property.indexFilterable or property.indexSearchable set
-	IsFilterablePropLength = true
-	IsSearchablePropLength = false
+	HasFilterableIndexPropLength = true
+	HasSearchableIndexPropLength = false
 )

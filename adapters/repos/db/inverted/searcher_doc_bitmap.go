@@ -34,7 +34,7 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 	// all other operators perform operations on the inverted index which we
 	// can serve directly
 
-	if pv.isFilterable {
+	if pv.hasFilterableIndex {
 		// bucket with strategy roaring set serves bitmaps directly
 		if b.Strategy() == lsmkv.StrategyRoaringSet {
 			return s.docBitmapInvertedRoaringSet(ctx, b, limit, pv)
@@ -44,7 +44,7 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 		return s.docBitmapInvertedSet(ctx, b, limit, pv)
 	}
 
-	if pv.isSearchable {
+	if pv.hasSearchableIndex {
 		// bucket with strategy map serves docIds used to build bitmap
 		// and frequencies, which are ignored for filtering
 		return s.docBitmapInvertedMap(ctx, b, limit, pv)

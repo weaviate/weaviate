@@ -209,7 +209,7 @@ func (b *referencesBatcher) writeInvertedDeletions(
 		// in the references batcher we can only ever write ref count entire which
 		// are guaranteed to be not have a frequency, meaning they will use the
 		// "Set" strategy in the lsmkv store
-		if prop.IsFilterable {
+		if prop.HasFilterableIndex {
 			bucket := b.shard.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
 			if bucket == nil {
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
@@ -243,7 +243,7 @@ func (b *referencesBatcher) writeInvertedAdditions(
 		// in the references batcher we can only ever write ref count entire which
 		// are guaranteed to be not have a frequency, meaning they will use the
 		// "Set" strategy in the lsmkv store
-		if prop.IsFilterable {
+		if prop.HasFilterableIndex {
 			bucket := b.shard.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
 			if bucket == nil {
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
@@ -306,15 +306,15 @@ func (b *referencesBatcher) analyzeRef(obj *storobj.Object,
 	}
 
 	return []inverted.Property{{
-		Name:         helpers.MetaCountProp(ref.From.Property.String()),
-		Items:        countItems,
-		IsFilterable: inverted.IsFilterableMetaCount && inverted.IsIndexable(prop),
-		IsSearchable: inverted.IsSearchableMetaCount && inverted.IsIndexable(prop),
+		Name:               helpers.MetaCountProp(ref.From.Property.String()),
+		Items:              countItems,
+		HasFilterableIndex: inverted.HasFilterableIndexMetaCount && inverted.HasInvertedIndex(prop),
+		HasSearchableIndex: inverted.HasSearchableIndexMetaCount && inverted.HasInvertedIndex(prop),
 	}, {
-		Name:         ref.From.Property.String(),
-		Items:        valueItems,
-		IsFilterable: inverted.IsFilterable(prop),
-		IsSearchable: inverted.IsSearchable(prop),
+		Name:               ref.From.Property.String(),
+		Items:              valueItems,
+		HasFilterableIndex: inverted.HasFilterableIndex(prop),
+		HasSearchableIndex: inverted.HasSearchableIndex(prop),
 	}}, nil
 }
 

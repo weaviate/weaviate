@@ -425,7 +425,7 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 }
 
 func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *errgroup.Group) {
-	if !inverted.IsIndexable(prop) {
+	if !inverted.HasInvertedIndex(prop) {
 		return
 	}
 
@@ -466,7 +466,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		s.dynamicMemtableSizing(),
 	}
 
-	if inverted.IsFilterable(prop) {
+	if inverted.HasFilterableIndex(prop) {
 		if dt, _ := schema.AsPrimitive(prop.DataType); dt == schema.DataTypeGeoCoordinates {
 			return s.initGeoProp(prop)
 		}
@@ -502,7 +502,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		}
 	}
 
-	if inverted.IsSearchable(prop) {
+	if inverted.HasSearchableIndex(prop) {
 		searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
 		if s.versioner.Version() < 2 {
 			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
@@ -517,7 +517,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 
 		// create hash bucket only if it was not created before
 		// same hash bucket is used for both filterable and searchable indexes
-		if !inverted.IsFilterable(prop) {
+		if !inverted.HasFilterableIndex(prop) {
 			if err := s.store.CreateOrLoadBucket(ctx,
 				helpers.HashBucketFromPropNameLSM(prop.Name),
 				append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyReplace))...,

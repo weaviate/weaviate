@@ -165,7 +165,7 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 	shard2PropsToFix := map[string]map[string]struct{}{}
 	uniquePropsToFix := map[string]struct{}{}
 	for _, prop := range class.Properties {
-		if !(inverted.IsFilterable(prop) && inverted.IsSearchable(prop)) {
+		if !(inverted.HasFilterableIndex(prop) && inverted.HasSearchableIndex(prop)) {
 			continue
 		}
 

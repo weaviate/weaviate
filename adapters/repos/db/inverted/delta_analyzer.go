@@ -49,18 +49,18 @@ func Delta(previous, next []Property) DeltaResults {
 		toAdd, toDelete := countableDelta(prev.Items, nextProp.Items)
 		if len(toAdd) > 0 {
 			out.ToAdd = append(out.ToAdd, Property{
-				Name:         nextProp.Name,
-				Items:        toAdd,
-				IsFilterable: nextProp.IsFilterable,
-				IsSearchable: nextProp.IsSearchable,
+				Name:               nextProp.Name,
+				Items:              toAdd,
+				HasFilterableIndex: nextProp.HasFilterableIndex,
+				HasSearchableIndex: nextProp.HasSearchableIndex,
 			})
 		}
 		if len(toDelete) > 0 {
 			out.ToDelete = append(out.ToDelete, Property{
-				Name:         nextProp.Name,
-				Items:        toDelete,
-				IsFilterable: nextProp.IsFilterable,
-				IsSearchable: nextProp.IsSearchable,
+				Name:               nextProp.Name,
+				Items:              toDelete,
+				HasFilterableIndex: nextProp.HasFilterableIndex,
+				HasSearchableIndex: nextProp.HasSearchableIndex,
 			})
 		}
 	}
