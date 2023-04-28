@@ -34,7 +34,7 @@ func TestCorrectErrorForIsNullFilter(t *testing.T) {
 	class := &models.Class{
 		Class: className,
 		Properties: []*models.Property{
-			{Name: propName, DataType: []string{string(schema.DataTypeText)}, IndexInverted: truePointer()},
+			{Name: propName, DataType: []string{string(schema.DataTypeText)}, IndexInverted: &vTrue},
 		},
 		InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: true},
 		Vectorizer:          "none",
