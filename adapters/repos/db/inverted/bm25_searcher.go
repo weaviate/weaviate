@@ -79,7 +79,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 ) ([]*storobj.Object, []float32, error) {
 	// WEAVIATE-471 - If a property is not searchable, return an error
 	for _, property := range keywordRanking.Properties {
-		if !PropertyIsSearchable(b.schema.Objects, string(className), property) {
+		if !PropertyHasSearchableIndex(b.schema.Objects, string(className), property) {
 			return nil, nil, errors.New("Property " + property + " is not indexed.  Please choose another property or add an index to this property")
 		}
 	}
@@ -601,7 +601,7 @@ func (m AllMapPairsAndPropName) Swap(i, j int) {
 	m[i], m[j] = m[j], m[i]
 }
 
-func PropertyIsSearchable(schemaDefinition *models.Schema, className, tentativePropertyName string) bool {
+func PropertyHasSearchableIndex(schemaDefinition *models.Schema, className, tentativePropertyName string) bool {
 	propertyName := strings.Split(tentativePropertyName, "^")[0]
 	c, err := schema.GetClassByName(schemaDefinition, string(className))
 	if err != nil {
@@ -611,5 +611,5 @@ func PropertyIsSearchable(schemaDefinition *models.Schema, className, tentativeP
 	if err != nil {
 		return false
 	}
-	return IsSearchable(p)
+	return HasSearchableIndex(p)
 }

@@ -691,7 +691,7 @@ func TestBM25FCompare(t *testing.T) {
 	}
 }
 
-func Test_propertyIsSearchable(t *testing.T) {
+func Test_propertyHasSearchableIndex(t *testing.T) {
 	vFalse := false
 	vTrue := true
 
@@ -729,20 +729,20 @@ func Test_propertyIsSearchable(t *testing.T) {
 		Classes: []*models.Class{class},
 	}
 	t.Run("Property index", func(t *testing.T) {
-		if got := inverted.PropertyIsSearchable(ClassSchema, "MyClass", "description"); got != true {
-			t.Errorf("propertyIsSearchable() = %v, want %v", got, true)
+		if got := inverted.PropertyHasSearchableIndex(ClassSchema, "MyClass", "description"); got != true {
+			t.Errorf("PropertyHasSearchableIndex() = %v, want %v", got, true)
 		}
 
-		if got := inverted.PropertyIsSearchable(ClassSchema, "MyClass", "description^2"); got != true {
-			t.Errorf("propertyIsSearchable() = %v, want %v", got, true)
+		if got := inverted.PropertyHasSearchableIndex(ClassSchema, "MyClass", "description^2"); got != true {
+			t.Errorf("PropertyHasSearchableIndex() = %v, want %v", got, true)
 		}
 
-		if got := inverted.PropertyIsSearchable(ClassSchema, "MyClass", "textField"); got != false {
-			t.Errorf("propertyIsSearchable() = %v, want %v", got, false)
+		if got := inverted.PropertyHasSearchableIndex(ClassSchema, "MyClass", "textField"); got != false {
+			t.Errorf("PropertyHasSearchableIndex() = %v, want %v", got, false)
 		}
 
-		if got := inverted.PropertyIsSearchable(ClassSchema, "MyClass", "title"); got != true {
-			t.Errorf("propertyIsSearchable() = %v, want %v", got, true)
+		if got := inverted.PropertyHasSearchableIndex(ClassSchema, "MyClass", "title"); got != true {
+			t.Errorf("PropertyHasSearchableIndex() = %v, want %v", got, true)
 		}
 	})
 }

@@ -33,11 +33,11 @@ type propValuePair struct {
 
 	// only set if operator=OperatorWithinGeoRange, as that cannot be served by a
 	// byte value from an inverted index
-	valueGeoRange *filters.GeoRange
-	docIDs        docBitmap
-	children      []*propValuePair
-	isFilterable  bool
-	isSearchable  bool
+	valueGeoRange      *filters.GeoRange
+	docIDs             docBitmap
+	children           []*propValuePair
+	hasFilterableIndex bool
+	hasSearchableIndex bool
 }
 
 func newPropValuePair() propValuePair {
@@ -47,9 +47,9 @@ func newPropValuePair() propValuePair {
 func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 	if pv.operator.OnValue() {
 		var bucketName string
-		if pv.isFilterable {
+		if pv.hasFilterableIndex {
 			bucketName = helpers.BucketFromPropNameLSM(pv.prop)
-		} else if pv.isSearchable {
+		} else if pv.hasSearchableIndex {
 			bucketName = helpers.BucketSearchableFromPropNameLSM(pv.prop)
 		} else {
 			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)

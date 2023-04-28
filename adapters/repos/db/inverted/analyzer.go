@@ -28,11 +28,11 @@ type Countable struct {
 }
 
 type Property struct {
-	Name         string
-	Items        []Countable
-	Length       int
-	IsFilterable bool
-	IsSearchable bool
+	Name               string
+	Items              []Countable
+	Length             int
+	HasFilterableIndex bool // roaring set index
+	HasSearchableIndex bool // map index (with frequencies)
 }
 
 type Analyzer struct {

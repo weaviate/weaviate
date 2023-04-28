@@ -323,18 +323,18 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 		propLen := float32(len(property.Items))
 		for _, item := range property.Items {
 			key := item.Data
-			if reindexableHashPropValue && inverted.IsIndexable(schemaProp) {
+			if reindexableHashPropValue && inverted.HasInvertedIndex(schemaProp) {
 				if err := r.shard.addToPropertyHashBucket(hashBucketValue, key); err != nil {
 					return errors.Wrapf(err, "failed adding to prop '%s' value hash bucket", property.Name)
 				}
 			}
-			if reindexablePropSearchableValue && inverted.IsSearchable(schemaProp) {
+			if reindexablePropSearchableValue && inverted.HasSearchableIndex(schemaProp) {
 				pair := r.shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
 				if err := r.shard.addToPropertyMapBucket(bucketSearchableValue, pair, key); err != nil {
 					return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
 				}
 			}
-			if reindexablePropValue && inverted.IsFilterable(schemaProp) {
+			if reindexablePropValue && inverted.HasFilterableIndex(schemaProp) {
 				if err := r.shard.addToPropertySetBucket(bucketValue, docID, key); err != nil {
 					return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
 				}

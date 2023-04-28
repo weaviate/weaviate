@@ -788,7 +788,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		propHash := cl.Properties
 		// Get keys of hash
 		for _, v := range propHash {
-			if inverted.PropertyIsSearchable(i.getSchema.GetSchemaSkipAuth().Objects,
+			if inverted.PropertyHasSearchableIndex(i.getSchema.GetSchemaSkipAuth().Objects,
 				i.Config.ClassName.String(), v.Name) {
 				keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
 			}
