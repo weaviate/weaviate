@@ -261,7 +261,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	if err != nil {
 		appState.Logger.
 			WithError(err).
-			WithField("action", "startup").WithError(err).
+			WithField("action", "startup").
 			Fatal("db didn't start up")
 		os.Exit(1)
 	}
@@ -295,17 +295,34 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupBackupHandlers(api, backupScheduler)
 	setupNodesHandlers(api, schemaManager, repo, appState)
 
+	err = migrator.AdjustFilterablePropSettings(ctx)
+	if err != nil {
+		appState.Logger.
+			WithError(err).
+			WithField("action", "adjustFilterablePropSettings").
+			Fatal("migration failed")
+		os.Exit(1)
+	}
+
+	// FIXME to avoid import cycles, tasks are passed as strings
+	reindexTaskNames := []string{}
 	reindexCtx, reindexCtxCancel := context.WithCancel(context.Background())
-	reindexFinished := make(chan error)
+	reindexFinished := make(chan error, 1)
+
 	if appState.ServerConfig.Config.ReindexSetToRoaringsetAtStartup {
+		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTaskSetToRoaringSet")
+	}
+	if appState.ServerConfig.Config.IndexMissingTextFilterableAtStartup {
+		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTaskMissingTextFilterable")
+	}
+	if len(reindexTaskNames) > 0 {
 		// start reindexing inverted indexes (if requested by user) in the background
 		// allowing db to complete api configuration and start handling requests
 		go func() {
 			appState.Logger.
 				WithField("action", "startup").
-				Info("Reindexing sets to roaring sets")
-			// FIXME to avoid import cycles tasks are passed as strings
-			reindexFinished <- migrator.InvertedReindex(reindexCtx, "ShardInvertedReindexTaskSetToRoaringSet")
+				Info("Reindexing inverted indexes")
+			reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNames...)
 		}()
 	}
 

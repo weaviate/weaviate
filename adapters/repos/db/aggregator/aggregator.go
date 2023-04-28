@@ -33,17 +33,18 @@ type vectorIndex interface {
 }
 
 type Aggregator struct {
-	logger           logrus.FieldLogger
-	store            *lsmkv.Store
-	params           aggregation.Params
-	getSchema        schemaUC.SchemaGetter
-	invertedRowCache *inverted.RowCacher
-	classSearcher    inverted.ClassSearcher // to support ref-filters
-	deletedDocIDs    inverted.DeletedDocIDChecker
-	vectorIndex      vectorIndex
-	stopwords        stopwords.StopwordDetector
-	shardVersion     uint16
-	propLengths      *inverted.JsonPropertyLengthTracker
+	logger                 logrus.FieldLogger
+	store                  *lsmkv.Store
+	params                 aggregation.Params
+	getSchema              schemaUC.SchemaGetter
+	invertedRowCache       *inverted.RowCacher
+	classSearcher          inverted.ClassSearcher // to support ref-filters
+	deletedDocIDs          inverted.DeletedDocIDChecker
+	vectorIndex            vectorIndex
+	stopwords              stopwords.StopwordDetector
+	shardVersion           uint16
+	propLengths            *inverted.JsonPropertyLengthTracker
+	isFallbackToSearchable inverted.IsFallbackToSearchable
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,
@@ -51,20 +52,21 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	classSearcher inverted.ClassSearcher,
 	deletedDocIDs inverted.DeletedDocIDChecker, stopwords stopwords.StopwordDetector,
 	shardVersion uint16, vectorIndex vectorIndex, logger logrus.FieldLogger,
-	propLengths *inverted.JsonPropertyLengthTracker,
+	propLengths *inverted.JsonPropertyLengthTracker, isFallbackToSearchable inverted.IsFallbackToSearchable,
 ) *Aggregator {
 	return &Aggregator{
-		logger:           logger,
-		store:            store,
-		params:           params,
-		getSchema:        getSchema,
-		invertedRowCache: cache,
-		classSearcher:    classSearcher,
-		deletedDocIDs:    deletedDocIDs,
-		stopwords:        stopwords,
-		shardVersion:     shardVersion,
-		vectorIndex:      vectorIndex,
-		propLengths:      propLengths,
+		logger:                 logger,
+		store:                  store,
+		params:                 params,
+		getSchema:              getSchema,
+		invertedRowCache:       cache,
+		classSearcher:          classSearcher,
+		deletedDocIDs:          deletedDocIDs,
+		stopwords:              stopwords,
+		shardVersion:           shardVersion,
+		vectorIndex:            vectorIndex,
+		propLengths:            propLengths,
+		isFallbackToSearchable: isFallbackToSearchable,
 	}
 }
 

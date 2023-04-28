@@ -205,9 +205,12 @@ func (a *Analyzer) extendPropertiesWithPrimitive(properties *[]Property,
 
 func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Property, error) {
 	var items []Countable
-	dt := schema.DataType(prop.DataType[0])
-	switch dt {
+	isFilterable := IsFilterable(prop)
+	isSearchable := IsSearchable(prop)
+
+	switch dt := schema.DataType(prop.DataType[0]); dt {
 	case schema.DataTypeTextArray:
+		isFilterable = isFilterable && !a.isFallbackToSearchable()
 		in, err := stringsFromValues(prop, values)
 		if err != nil {
 			return nil, err
@@ -322,8 +325,8 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 		Name:         prop.Name,
 		Items:        items,
 		Length:       len(values),
-		IsFilterable: IsFilterable(prop),
-		IsSearchable: IsSearchable(prop),
+		IsFilterable: isFilterable,
+		IsSearchable: isSearchable,
 	}, nil
 }
 
@@ -342,9 +345,12 @@ func stringsFromValues(prop *models.Property, values []any) ([]string, error) {
 func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Property, error) {
 	var items []Countable
 	propertyLength := -1 // will be overwritten for string/text, signals not to add the other types.
-	dt := schema.DataType(prop.DataType[0])
-	switch dt {
+	isFilterable := IsFilterable(prop)
+	isSearchable := IsSearchable(prop)
+
+	switch dt := schema.DataType(prop.DataType[0]); dt {
 	case schema.DataTypeText:
+		isFilterable = isFilterable && !a.isFallbackToSearchable()
 		asString, ok := value.(string)
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
@@ -442,8 +448,8 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 		Name:         prop.Name,
 		Items:        items,
 		Length:       propertyLength,
-		IsFilterable: IsFilterable(prop),
-		IsSearchable: IsSearchable(prop),
+		IsFilterable: isFilterable,
+		IsSearchable: isSearchable,
 	}, nil
 }
 

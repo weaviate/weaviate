@@ -85,6 +85,6 @@ func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, []ni
 		schemaMap[filters.InternalPropLastUpdateTimeUnix] = object.Object.LastUpdateTimeUnix
 	}
 
-	props, err := inverted.NewAnalyzer(s.index.stopwords).Object(schemaMap, c.Properties, object.ID())
+	props, err := inverted.NewAnalyzer(s.isFallbackToSearchable).Object(schemaMap, c.Properties, object.ID())
 	return props, nilProps, err
 }

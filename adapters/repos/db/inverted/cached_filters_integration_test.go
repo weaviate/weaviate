@@ -91,7 +91,7 @@ func Test_CachedFilters_String(t *testing.T) {
 
 	rowCacher := newRowCacherSpy()
 	searcher := NewSearcher(logger, store, createSchema(), rowCacher,
-		nil, nil, nil, fakeStopwordDetector{}, 2)
+		nil, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false })
 
 	type test struct {
 		name                     string
@@ -417,7 +417,7 @@ func Test_CachedFilters_Int(t *testing.T) {
 
 	rowCacher := newRowCacherSpy()
 	searcher := NewSearcher(logger, store, createSchema(), rowCacher,
-		nil, nil, nil, fakeStopwordDetector{}, 2)
+		nil, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false })
 
 	type test struct {
 		name                     string
@@ -713,7 +713,7 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 
 	rowCacher := newRowCacherSpy()
 	searcher := NewSearcher(logger, store, createSchema(), rowCacher,
-		nil, nil, nil, fakeStopwordDetector{}, 2)
+		nil, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false })
 
 	type test struct {
 		name                     string
