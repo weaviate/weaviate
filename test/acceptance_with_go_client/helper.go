@@ -11,12 +11,7 @@
 
 package acceptance_with_go_client
 
-func truePointer() *bool {
-	t := true
-	return &t
-}
-
-func falsePointer() *bool {
-	t := false
-	return &t
-}
+var (
+	vFalse = false
+	vTrue  = true
+)
