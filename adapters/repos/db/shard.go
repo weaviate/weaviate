@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"golang.org/x/sync/errgroup"
 )
 
 const IdLockPoolSize = 128
@@ -362,58 +363,6 @@ func (s *Shard) addTimestampProperties(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) addPropertyLength(ctx context.Context, prop *models.Property) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
-	}
-	dt := schema.DataType(prop.DataType[0])
-	// some datatypes are not added to the inverted index, so we can skip them here
-	switch dt {
-	case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeInt,
-		schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
-		return nil
-	default:
-	}
-
-	err := s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(prop.Name+filters.InternalPropertyLength),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
-	if err != nil {
-		return err
-	}
-
-	err = s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameLSM(prop.Name+filters.InternalPropertyLength),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace))
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (s *Shard) addNullState(ctx context.Context, prop *models.Property) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
-	}
-
-	err := s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(prop.Name+filters.InternalNullIndex),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
-	if err != nil {
-		return err
-	}
-
-	err = s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameLSM(prop.Name+filters.InternalNullIndex),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace))
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
@@ -466,65 +415,152 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 	)
 }
 
-func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
+func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *errgroup.Group) {
+	if !inverted.IsIndexable(prop) {
+		return
+	}
+
+	eg.Go(func() error {
+		if err := s.createPropertyValueIndex(ctx, prop); err != nil {
+			return errors.Wrapf(err, "create property '%s' value index on shard '%s'", prop.Name, s.ID())
+		}
+
+		if s.index.invertedIndexConfig.IndexNullState {
+			eg.Go(func() error {
+				if err := s.createPropertyNullIndex(ctx, prop); err != nil {
+					return errors.Wrapf(err, "create property '%s' null index on shard '%s'", prop.Name, s.ID())
+				}
+				return nil
+			})
+		}
+
+		if s.index.invertedIndexConfig.IndexPropertyLength {
+			eg.Go(func() error {
+				if err := s.createPropertyLengthIndex(ctx, prop); err != nil {
+					return errors.Wrapf(err, "create property '%s' length index on shard '%s'", prop.Name, s.ID())
+				}
+				return nil
+			})
+		}
+
+		return nil
+	})
+}
+
+func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
-	}
-	if schema.IsRefDataType(prop.DataType) {
-		err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
-			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet), // ref props do not have frequencies -> Set
-			s.memtableIdleConfig(),
-			s.dynamicMemtableSizing(),
-		)
-		if err != nil {
-			return err
-		}
-
-		err = s.store.CreateOrLoadBucket(ctx,
-			helpers.HashBucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
-			lsmkv.WithStrategy(lsmkv.StrategyReplace),
-			s.memtableIdleConfig(),
-			s.dynamicMemtableSizing(),
-		)
-		if err != nil {
-			return err
-		}
-	}
-
-	if schema.DataType(prop.DataType[0]) == schema.DataTypeGeoCoordinates {
-		return s.initGeoProp(prop)
 	}
 
 	bucketOpts := []lsmkv.BucketOption{
 		s.memtableIdleConfig(),
 		s.dynamicMemtableSizing(),
 	}
-	if inverted.HasFrequency(schema.DataType(prop.DataType[0])) {
-		bucketOpts = append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
-		if s.versioner.Version() < 2 {
-			bucketOpts = append(bucketOpts, lsmkv.WithLegacyMapSorting())
+
+	if inverted.IsFilterable(prop) {
+		if dt, _ := schema.AsPrimitive(prop.DataType); dt == schema.DataTypeGeoCoordinates {
+			return s.initGeoProp(prop)
 		}
-	} else {
-		bucketOpts = append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+
+		if schema.IsRefDataType(prop.DataType) {
+			if err := s.store.CreateOrLoadBucket(ctx,
+				helpers.BucketFromPropNameMetaCountLSM(prop.Name),
+				append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
+			); err != nil {
+				return err
+			}
+
+			if err := s.store.CreateOrLoadBucket(ctx,
+				helpers.HashBucketFromPropNameMetaCountLSM(prop.Name),
+				append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyReplace))...,
+			); err != nil {
+				return err
+			}
+		}
+
+		if err := s.store.CreateOrLoadBucket(ctx,
+			helpers.BucketFromPropNameLSM(prop.Name),
+			append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
+		); err != nil {
+			return err
+		}
+
+		if err := s.store.CreateOrLoadBucket(ctx,
+			helpers.HashBucketFromPropNameLSM(prop.Name),
+			append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyReplace))...,
+		); err != nil {
+			return err
+		}
 	}
 
-	err := s.store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(prop.Name),
-		bucketOpts...)
-	if err != nil {
-		return err
-	}
+	if inverted.IsSearchable(prop) {
+		searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+		if s.versioner.Version() < 2 {
+			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
+		}
 
-	err = s.store.CreateOrLoadBucket(ctx, helpers.HashBucketFromPropNameLSM(prop.Name),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace),
-		s.memtableIdleConfig(),
-		s.dynamicMemtableSizing(),
-	)
-	if err != nil {
-		return err
+		if err := s.store.CreateOrLoadBucket(ctx,
+			helpers.BucketSearchableFromPropNameLSM(prop.Name),
+			searchableBucketOpts...,
+		); err != nil {
+			return err
+		}
+
+		// create hash bucket only if it was not created before
+		// same hash bucket is used for both filterable and searchable indexes
+		if !inverted.IsFilterable(prop) {
+			if err := s.store.CreateOrLoadBucket(ctx,
+				helpers.HashBucketFromPropNameLSM(prop.Name),
+				append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyReplace))...,
+			); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
+}
+
+func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
+	// some datatypes are not added to the inverted index, so we can skip them here
+	switch schema.DataType(prop.DataType[0]) {
+	case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeInt,
+		schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
+		return nil
+	default:
+	}
+
+	if err := s.store.CreateOrLoadBucket(ctx,
+		helpers.BucketFromPropNameLengthLSM(prop.Name),
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+	); err != nil {
+		return err
+	}
+
+	return s.store.CreateOrLoadBucket(ctx,
+		helpers.HashBucketFromPropNameLengthLSM(prop.Name),
+		lsmkv.WithStrategy(lsmkv.StrategyReplace))
+}
+
+func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
+	if err := s.store.CreateOrLoadBucket(ctx,
+		helpers.BucketFromPropNameNullLSM(prop.Name),
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+	); err != nil {
+		return err
+	}
+
+	return s.store.CreateOrLoadBucket(ctx,
+		helpers.HashBucketFromPropNameNullLSM(prop.Name),
+		lsmkv.WithStrategy(lsmkv.StrategyReplace))
 }
 
 func (s *Shard) updateVectorIndexConfig(ctx context.Context,

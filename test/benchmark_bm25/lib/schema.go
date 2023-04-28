@@ -35,9 +35,11 @@ func SchemaFromDataset(ds Dataset) *models.Class {
 		t := true
 		// all indexed props are indexed as text
 		prop := &models.Property{
-			Name:          SanitizePropName(prop),
-			DataType:      []string{"text"},
-			IndexInverted: &t,
+			Name:            SanitizePropName(prop),
+			DataType:        schema.DataTypeText.PropString(),
+			Tokenization:    models.PropertyTokenizationWord,
+			IndexFilterable: &t,
+			IndexSearchable: &t,
 		}
 
 		out.Properties = append(out.Properties, prop)
@@ -48,10 +50,11 @@ func SchemaFromDataset(ds Dataset) *models.Class {
 		// all indexed props are indexed as text
 		f := false
 		prop := &models.Property{
-			Name:          SanitizePropName(prop),
-			DataType:      []string{string(schema.DataTypeText)},
-			Tokenization:  models.PropertyTokenizationField,
-			IndexInverted: &f,
+			Name:            SanitizePropName(prop),
+			DataType:        schema.DataTypeText.PropString(),
+			Tokenization:    models.PropertyTokenizationField,
+			IndexFilterable: &f,
+			IndexSearchable: &f,
 		}
 
 		out.Properties = append(out.Properties, prop)

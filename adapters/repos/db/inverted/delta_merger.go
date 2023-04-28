@@ -31,7 +31,8 @@ func NewDeltaMerger() *DeltaMerger {
 func (dm *DeltaMerger) AddAdditions(props []Property, docID uint64) {
 	for _, prop := range props {
 		storedProp := dm.additions.getOrCreate(prop.Name)
-		storedProp.hasFrequency = prop.HasFrequency
+		storedProp.isFilterable = prop.IsFilterable
+		storedProp.isSearchable = prop.IsSearchable
 		for _, item := range prop.Items {
 			storedItem := storedProp.getOrCreateItem(item.Data)
 			storedItem.addDocIDAndFrequency(docID, item.TermFrequency)
@@ -51,7 +52,10 @@ func (dm *DeltaMerger) AddDeletions(props []Property, docID uint64) {
 			}
 
 			// this was not added by us, we need to remove it
-			deletionItem := dm.deletions.getOrCreate(prop.Name).getOrCreateItem(item.Data)
+			deletionProp := dm.deletions.getOrCreate(prop.Name)
+			deletionProp.isFilterable = prop.IsFilterable
+			deletionProp.isSearchable = prop.IsSearchable
+			deletionItem := deletionProp.getOrCreateItem(item.Data)
 			deletionItem.addDocIDAndFrequency(docID, 0) // frequency does not matter on deletion
 		}
 	}
@@ -71,8 +75,9 @@ type DeltaMergeResult struct {
 
 type MergeProperty struct {
 	Name         string
-	HasFrequency bool
 	MergeItems   []MergeItem
+	IsFilterable bool
+	IsSearchable bool
 }
 
 type MergeItem struct {
@@ -139,7 +144,8 @@ func (pbn propsByName) merge() []MergeProperty {
 type propWithDocIDs struct {
 	name         string
 	items        map[string]*countableWithDocIDs
-	hasFrequency bool
+	isFilterable bool
+	isSearchable bool
 }
 
 func (pwd *propWithDocIDs) getOrCreateItem(data []byte) *countableWithDocIDs {
@@ -176,8 +182,9 @@ func (pwd *propWithDocIDs) merge() *MergeProperty {
 
 	return &MergeProperty{
 		Name:         pwd.name,
-		HasFrequency: pwd.hasFrequency,
 		MergeItems:   items[:i],
+		IsFilterable: pwd.isFilterable,
+		IsSearchable: pwd.isSearchable,
 	}
 }
 

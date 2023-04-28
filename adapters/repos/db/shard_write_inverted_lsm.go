@@ -69,17 +69,34 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []n
 }
 
 func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property) error {
-	bucketValue := s.store.Bucket(helpers.BucketFromPropNameLSM(property.Name))
-	if bucketValue == nil {
-		return errors.Errorf("no bucket for prop '%s' found", property.Name)
-	}
-
 	hashBucketValue := s.store.Bucket(helpers.HashBucketFromPropNameLSM(property.Name))
 	if hashBucketValue == nil {
 		return errors.Errorf("no hash bucket for prop '%s' found", property.Name)
 	}
 
-	if property.HasFrequency {
+	if property.IsFilterable {
+		bucketValue := s.store.Bucket(helpers.BucketFromPropNameLSM(property.Name))
+		if bucketValue == nil {
+			return errors.Errorf("no bucket for prop '%s' found", property.Name)
+		}
+
+		for _, item := range property.Items {
+			key := item.Data
+			if err := s.addToPropertyHashBucket(hashBucketValue, key); err != nil {
+				return errors.Wrapf(err, "failed adding to prop '%s' value hash bucket", property.Name)
+			}
+			if err := s.addToPropertySetBucket(bucketValue, docID, key); err != nil {
+				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
+			}
+		}
+	}
+
+	if property.IsSearchable {
+		bucketValue := s.store.Bucket(helpers.BucketSearchableFromPropNameLSM(property.Name))
+		if bucketValue == nil {
+			return errors.Errorf("no bucket searchable for prop '%s' found", property.Name)
+		}
+
 		propLen := float32(len(property.Items))
 		for _, item := range property.Items {
 			key := item.Data
@@ -91,17 +108,8 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
 			}
 		}
-	} else {
-		for _, item := range property.Items {
-			key := item.Data
-			if err := s.addToPropertyHashBucket(hashBucketValue, key); err != nil {
-				return errors.Wrapf(err, "failed adding to prop '%s' value hash bucket", property.Name)
-			}
-			if err := s.addToPropertySetBucket(bucketValue, docID, key); err != nil {
-				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
-			}
-		}
 	}
+
 	return nil
 }
 
@@ -263,7 +271,7 @@ func (s *Shard) generateRowHash() ([]byte, error) {
 
 func (s *Shard) addPropLengths(props []inverted.Property) error {
 	for _, prop := range props {
-		if !prop.HasFrequency {
+		if !prop.IsSearchable {
 			continue
 		}
 

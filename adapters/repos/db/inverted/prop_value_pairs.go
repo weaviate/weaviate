@@ -14,12 +14,12 @@ package inverted
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/schema"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -34,9 +34,10 @@ type propValuePair struct {
 	// only set if operator=OperatorWithinGeoRange, as that cannot be served by a
 	// byte value from an inverted index
 	valueGeoRange *filters.GeoRange
-	hasFrequency  bool
 	docIDs        docBitmap
 	children      []*propValuePair
+	isFilterable  bool
+	isSearchable  bool
 }
 
 func newPropValuePair() propValuePair {
@@ -45,29 +46,19 @@ func newPropValuePair() propValuePair {
 
 func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int, skipChecksum bool) error {
 	if pv.operator.OnValue() {
-		id := helpers.BucketFromPropNameLSM(pv.prop)
-		if pv.prop == filters.InternalPropBackwardsCompatID {
-			// the user-specified ID is considered legacy. we
-			// support backwards compatibility with this prop
-			id = helpers.BucketFromPropNameLSM(filters.InternalPropID)
-			pv.prop = filters.InternalPropID
-			pv.hasFrequency = false
+		var bucketName string
+		if pv.isFilterable {
+			bucketName = helpers.BucketFromPropNameLSM(pv.prop)
+		} else if pv.isSearchable {
+			bucketName = helpers.BucketSearchableFromPropNameLSM(pv.prop)
+		} else {
+			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 		}
 
-		if pv.operator == filters.OperatorIsNull {
-			id += filters.InternalNullIndex
-		}
+		b := s.store.Bucket(bucketName)
 
-		// format of id for property with lengths is "property_len(*PROPNAME*)
-		propName, isPropLengthFilter := schema.IsPropertyLength(id, 9)
-		if isPropLengthFilter {
-			id = helpers.BucketFromPropNameLSM(propName + filters.InternalPropertyLength)
-			pv.prop = propName + filters.InternalPropertyLength
-		}
-
-		b := s.store.Bucket(id)
-
-		if b == nil && isPropLengthFilter {
+		// TODO text_rbm_inverted_index find better way check whether prop len
+		if b == nil && strings.HasSuffix(bucketName, filters.InternalPropertyLength) {
 			return errors.Errorf("Property length must be indexed to be filterable! " +
 				"add `IndexPropertyLength: true` to the invertedIndexConfig." +
 				"Geo-coordinates, phone numbers and data blobs are not supported by property length.")

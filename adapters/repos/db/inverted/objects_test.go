@@ -653,7 +653,7 @@ func TestAnalyzeObject(t *testing.T) {
 	})
 
 	t.Run("when objects are indexed by timestamps", func(t *testing.T) {
-		schema := map[string]interface{}{
+		sch := map[string]interface{}{
 			"description":         "pretty ok if you ask me",
 			"_creationTimeUnix":   1650551406404,
 			"_lastUpdateTimeUnix": 1650551406404,
@@ -663,12 +663,12 @@ func TestAnalyzeObject(t *testing.T) {
 		props := []*models.Property{
 			{
 				Name:         "description",
-				DataType:     []string{"text"},
-				Tokenization: "word",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWord,
 			},
 		}
 
-		res, err := a.Object(schema, props, uuid)
+		res, err := a.Object(sch, props, uuid)
 		require.Nil(t, err)
 		require.Len(t, res, 4)
 
@@ -683,25 +683,33 @@ func TestAnalyzeObject(t *testing.T) {
 					{Data: []byte("ask"), TermFrequency: 1},
 					{Data: []byte("me"), TermFrequency: 1},
 				},
-				HasFrequency: true,
+				IsFilterable: true,
+				IsSearchable: true,
 			},
 			{
-				Name:  "_id",
-				Items: []Countable{{Data: []byte("2609f1bc-7693-48f3-b531-6ddc52cd2501")}},
+				Name:         "_id",
+				Items:        []Countable{{Data: []byte("2609f1bc-7693-48f3-b531-6ddc52cd2501")}},
+				IsFilterable: true,
+				IsSearchable: false,
 			},
 			{
-				Name:  "_creationTimeUnix",
-				Items: []Countable{{Data: []byte("1650551406404")}},
+				Name:         "_creationTimeUnix",
+				Items:        []Countable{{Data: []byte("1650551406404")}},
+				IsFilterable: true,
+				IsSearchable: false,
 			},
 			{
-				Name:  "_lastUpdateTimeUnix",
-				Items: []Countable{{Data: []byte("1650551406404")}},
+				Name:         "_lastUpdateTimeUnix",
+				Items:        []Countable{{Data: []byte("1650551406404")}},
+				IsFilterable: true,
+				IsSearchable: false,
 			},
 		}
 
 		for i := range res {
 			assert.Equal(t, expected[i].Name, res[i].Name)
-			assert.Equal(t, expected[i].HasFrequency, res[i].HasFrequency)
+			assert.Equal(t, expected[i].IsFilterable, res[i].IsFilterable)
+			assert.Equal(t, expected[i].IsSearchable, res[i].IsSearchable)
 			assert.ElementsMatch(t, expected[i].Items, res[i].Items)
 		}
 	})
@@ -765,6 +773,145 @@ func TestConvertSliceToUntyped(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestIndexInverted(t *testing.T) {
+	vFalse := false
+	vTrue := true
+
+	t.Run("is filterable", func(t *testing.T) {
+		type testCase struct {
+			name         string
+			isFilterable *bool
+			dataType     schema.DataType
+
+			expextedFilterable bool
+		}
+
+		testCases := []testCase{
+			{
+				name:         "int, filterable null",
+				isFilterable: nil,
+				dataType:     schema.DataTypeInt,
+
+				expextedFilterable: true,
+			},
+			{
+				name:         "int, filterable false",
+				isFilterable: &vFalse,
+				dataType:     schema.DataTypeInt,
+
+				expextedFilterable: false,
+			},
+			{
+				name:         "int, filterable true",
+				isFilterable: &vTrue,
+				dataType:     schema.DataTypeInt,
+
+				expextedFilterable: true,
+			},
+			{
+				name:         "text, filterable null",
+				isFilterable: nil,
+				dataType:     schema.DataTypeText,
+
+				expextedFilterable: true,
+			},
+			{
+				name:         "text, filterable false",
+				isFilterable: &vFalse,
+				dataType:     schema.DataTypeText,
+
+				expextedFilterable: false,
+			},
+			{
+				name:         "text, filterable true",
+				isFilterable: &vTrue,
+				dataType:     schema.DataTypeText,
+
+				expextedFilterable: true,
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				isFilterable := IsFilterable(&models.Property{
+					Name:            "prop",
+					DataType:        tc.dataType.PropString(),
+					IndexFilterable: tc.isFilterable,
+				})
+
+				assert.Equal(t, tc.expextedFilterable, isFilterable)
+			})
+		}
+	})
+
+	t.Run("is searchable", func(t *testing.T) {
+		type testCase struct {
+			name         string
+			isSearchable *bool
+			dataType     schema.DataType
+
+			expextedSearchable bool
+		}
+
+		testCases := []testCase{
+			{
+				name:         "int, searchable null",
+				isSearchable: nil,
+				dataType:     schema.DataTypeInt,
+
+				expextedSearchable: false,
+			},
+			{
+				name:         "int, searchable false",
+				isSearchable: &vFalse,
+				dataType:     schema.DataTypeInt,
+
+				expextedSearchable: false,
+			},
+			{
+				name:         "int, searchable true",
+				isSearchable: &vTrue,
+				dataType:     schema.DataTypeInt,
+
+				expextedSearchable: false,
+			},
+			{
+				name:         "text, searchable null",
+				isSearchable: nil,
+				dataType:     schema.DataTypeText,
+
+				expextedSearchable: true,
+			},
+			{
+				name:         "text, searchable false",
+				isSearchable: &vFalse,
+				dataType:     schema.DataTypeText,
+
+				expextedSearchable: false,
+			},
+			{
+				name:         "text, searchable true",
+				isSearchable: &vTrue,
+				dataType:     schema.DataTypeText,
+
+				expextedSearchable: true,
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				isSearchable := IsSearchable(&models.Property{
+					Name:            "prop",
+					DataType:        tc.dataType.PropString(),
+					IndexSearchable: tc.isSearchable,
+				})
+
+				assert.Equal(t, tc.expextedSearchable, isSearchable)
+			})
+		}
+	})
 }
 
 func mustGetByteIntNumber(in int) []byte {

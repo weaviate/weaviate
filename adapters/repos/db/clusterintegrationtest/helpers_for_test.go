@@ -118,11 +118,6 @@ func multiShardState(nodeCount int) *sharding.State {
 	return s
 }
 
-func truePointer() *bool {
-	b := true
-	return &b
-}
-
 func class() *models.Class {
 	cfg := enthnsw.NewDefaultUserConfig()
 	cfg.EF = 500
@@ -132,31 +127,30 @@ func class() *models.Class {
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
-				Name:          "description",
-				DataType:      []string{string(schema.DataTypeText)},
-				Tokenization:  "word",
-				IndexInverted: truePointer(),
+				Name:         "description",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWord,
 			},
 			{
-				Name:          "other_property",
-				DataType:      []string{string(schema.DataTypeText)},
-				IndexInverted: truePointer(),
+				Name:         "other_property",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWord,
 			},
 			{
 				Name:     "date_property",
-				DataType: []string{string(schema.DataTypeDate)},
+				DataType: schema.DataTypeDate.PropString(),
 			},
 			{
 				Name:     "date_array_property",
-				DataType: []string{string(schema.DataTypeDateArray)},
+				DataType: schema.DataTypeDateArray.PropString(),
 			},
 			{
 				Name:     "int_property",
-				DataType: []string{string(schema.DataTypeInt)},
+				DataType: schema.DataTypeInt.PropString(),
 			},
 			{
 				Name:     "phone_property",
-				DataType: []string{string(schema.DataTypePhoneNumber)},
+				DataType: schema.DataTypePhoneNumber.PropString(),
 			},
 		},
 	}

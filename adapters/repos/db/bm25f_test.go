@@ -25,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -48,18 +49,11 @@ func BM25FinvertedConfig(k1, b float32, stopWordPreset string) *models.InvertedI
 	}
 }
 
-func truePointer() *bool {
-	t := true
-	return &t
-}
-
-func falsePointer() *bool {
-	t := false
-	return &t
-}
-
 func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32,
 ) {
+	vFalse := false
+	vTrue := true
+
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
@@ -67,51 +61,59 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 
 		Properties: []*models.Property{
 			{
-				Name:          "title",
-				DataType:      schema.DataTypeText.PropString(),
-				Tokenization:  models.PropertyTokenizationWord,
-				IndexInverted: truePointer(),
+				Name:            "title",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "description",
-				DataType:      schema.DataTypeText.PropString(),
-				Tokenization:  models.PropertyTokenizationWord,
-				IndexInverted: truePointer(),
+				Name:            "description",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "review",
-				DataType:      schema.DataTypeText.PropString(),
-				Tokenization:  models.PropertyTokenizationWord,
-				IndexInverted: truePointer(),
+				Name:            "review",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "textField",
-				DataType:      schema.DataTypeText.PropString(),
-				Tokenization:  models.PropertyTokenizationField,
-				IndexInverted: truePointer(),
+				Name:            "textField",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationField,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "textWhitespace",
-				DataType:      schema.DataTypeText.PropString(),
-				Tokenization:  models.PropertyTokenizationWhitespace,
-				IndexInverted: truePointer(),
+				Name:            "textWhitespace",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWhitespace,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "relatedToGolf",
-				DataType:      []string{string(schema.DataTypeBoolean)},
-				IndexInverted: truePointer(),
+				Name:            "relatedToGolf",
+				DataType:        schema.DataTypeBoolean.PropString(),
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "multiTitles",
-				DataType:      schema.DataTypeTextArray.PropString(),
-				Tokenization:  models.PropertyTokenizationWord,
-				IndexInverted: truePointer(),
+				Name:            "multiTitles",
+				DataType:        schema.DataTypeTextArray.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "multiTextWhitespace",
-				DataType:      schema.DataTypeTextArray.PropString(),
-				Tokenization:  models.PropertyTokenizationWhitespace,
-				IndexInverted: truePointer(),
+				Name:            "multiTextWhitespace",
+				DataType:        schema.DataTypeTextArray.PropString(),
+				Tokenization:    models.PropertyTokenizationWhitespace,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 		},
 	}
@@ -153,6 +155,9 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 // DuplicatedFrom SetupClass to make sure this new test does not alter the results of the existing one
 func SetupClassForFilterScoringTest(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32,
 ) {
+	vFalse := false
+	vTrue := true
+
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
@@ -160,15 +165,16 @@ func SetupClassForFilterScoringTest(t require.TestingT, repo *DB, schemaGetter *
 
 		Properties: []*models.Property{
 			{
-				Name:          "description",
-				DataType:      []string{string(schema.DataTypeText)},
-				Tokenization:  "word",
-				IndexInverted: truePointer(),
+				Name:            "description",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "relatedToGolf",
-				DataType:      []string{string(schema.DataTypeBoolean)},
-				IndexInverted: truePointer(),
+				Name:            "relatedToGolf",
+				DataType:        schema.DataTypeBoolean.PropString(),
+				IndexFilterable: &vTrue,
 			},
 		},
 	}
@@ -685,7 +691,10 @@ func TestBM25FCompare(t *testing.T) {
 	}
 }
 
-func Test_propertyIsIndexed(t *testing.T) {
+func Test_propertyIsSearchable(t *testing.T) {
+	vFalse := false
+	vTrue := true
+
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: BM25FinvertedConfig(1, 1, "none"),
@@ -693,22 +702,25 @@ func Test_propertyIsIndexed(t *testing.T) {
 
 		Properties: []*models.Property{
 			{
-				Name:          "title",
-				DataType:      schema.DataTypeText.PropString(),
-				Tokenization:  models.PropertyTokenizationWord,
-				IndexInverted: nil,
+				Name:            "title",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: nil,
 			},
 			{
-				Name:          "description",
-				DataType:      schema.DataTypeText.PropString(),
-				Tokenization:  models.PropertyTokenizationWord,
-				IndexInverted: truePointer(),
+				Name:            "description",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "textField",
-				DataType:      schema.DataTypeText.PropString(),
-				Tokenization:  models.PropertyTokenizationField,
-				IndexInverted: falsePointer(),
+				Name:            "textField",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationField,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vFalse,
 			},
 		},
 	}
@@ -717,26 +729,29 @@ func Test_propertyIsIndexed(t *testing.T) {
 		Classes: []*models.Class{class},
 	}
 	t.Run("Property index", func(t *testing.T) {
-		if got := schema.PropertyIsIndexed(ClassSchema, "MyClass", "description"); got != true {
-			t.Errorf("propertyIsIndexed() = %v, want %v", got, true)
+		if got := inverted.PropertyIsSearchable(ClassSchema, "MyClass", "description"); got != true {
+			t.Errorf("propertyIsSearchable() = %v, want %v", got, true)
 		}
 
-		if got := schema.PropertyIsIndexed(ClassSchema, "MyClass", "description^2"); got != true {
-			t.Errorf("propertyIsIndexed() = %v, want %v", got, true)
+		if got := inverted.PropertyIsSearchable(ClassSchema, "MyClass", "description^2"); got != true {
+			t.Errorf("propertyIsSearchable() = %v, want %v", got, true)
 		}
 
-		if got := schema.PropertyIsIndexed(ClassSchema, "MyClass", "textField"); got != false {
-			t.Errorf("propertyIsIndexed() = %v, want %v", got, false)
+		if got := inverted.PropertyIsSearchable(ClassSchema, "MyClass", "textField"); got != false {
+			t.Errorf("propertyIsSearchable() = %v, want %v", got, false)
 		}
 
-		if got := schema.PropertyIsIndexed(ClassSchema, "MyClass", "title"); got != true {
-			t.Errorf("propertyIsIndexed() = %v, want %v", got, true)
+		if got := inverted.PropertyIsSearchable(ClassSchema, "MyClass", "title"); got != true {
+			t.Errorf("propertyIsSearchable() = %v, want %v", got, true)
 		}
 	})
 }
 
 func SetupClassDocuments(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32, preset string,
 ) string {
+	vFalse := false
+	vTrue := true
+
 	className := "DocumentsPreset_" + preset
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
@@ -745,10 +760,11 @@ func SetupClassDocuments(t require.TestingT, repo *DB, schemaGetter *fakeSchemaG
 
 		Properties: []*models.Property{
 			{
-				Name:          "document",
-				DataType:      []string{string(schema.DataTypeText)},
-				Tokenization:  "word",
-				IndexInverted: truePointer(),
+				Name:            "document",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 		},
 	}
@@ -861,6 +877,9 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 }
 
 func MultiPropClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) string {
+	vFalse := false
+	vTrue := true
+
 	className := "MultiProps"
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
@@ -869,16 +888,18 @@ func MultiPropClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter
 
 		Properties: []*models.Property{
 			{
-				Name:          "document",
-				DataType:      []string{string(schema.DataTypeText)},
-				Tokenization:  "word",
-				IndexInverted: truePointer(),
+				Name:            "document",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "title",
-				DataType:      []string{string(schema.DataTypeText)},
-				Tokenization:  "word",
-				IndexInverted: truePointer(),
+				Name:            "title",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
 			},
 		},
 	}

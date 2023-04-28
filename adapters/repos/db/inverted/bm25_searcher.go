@@ -85,7 +85,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 ) ([]*storobj.Object, []float32, error) {
 	// WEAVIATE-471 - If a property is not searchable, return an error
 	for _, property := range keywordRanking.Properties {
-		if !schema.PropertyIsIndexed(b.schema.Objects, string(className), property) {
+		if !PropertyIsSearchable(b.schema.Objects, string(className), property) {
 			return nil, nil, errors.New("Property " + property + " is not indexed.  Please choose another property or add an index to this property")
 		}
 	}
@@ -117,9 +117,8 @@ func (b *BM25Searcher) Objects(ctx context.Context, filterDocIds helpers.AllowLi
 	if err != nil {
 		return nil, []float32{}, errors.Wrap(err, "read property from class")
 	}
-	indexed := p.IndexInverted
 
-	if indexed == nil || *indexed {
+	if IsSearchable(p) {
 		keywordRanking.Properties = keywordRanking.Properties[:1]
 		return b.wand(ctx, filterDocIds, class, keywordRanking, limit)
 	} else {
@@ -193,11 +192,12 @@ func (b *BM25Searcher) wand(
 		switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			if _, exists := propNamesByTokenization[prop.Tokenization]; !exists {
-				return nil, nil, fmt.Errorf("cannot handle tokenization %v", prop.Tokenization)
+				return nil, nil, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",
+					prop.Tokenization, prop.Name)
 			}
 			propNamesByTokenization[prop.Tokenization] = append(propNamesByTokenization[prop.Tokenization], property)
 		default:
-			return nil, nil, fmt.Errorf("cannot handle datatype %v", dt)
+			return nil, nil, fmt.Errorf("cannot handle datatype '%v' of property '%s'", dt, prop.Name)
 		}
 	}
 
@@ -364,7 +364,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	allMsAndProps := make(AllMapPairsAndPropName, 0, len(propertyNames))
 	for _, propName := range propertyNames {
 
-		bucket := b.store.Bucket(helpers.BucketFromPropNameLSM(propName))
+		bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
 		if bucket == nil {
 			return termResult, nil, fmt.Errorf("could not find bucket for property %v", propName)
 		}
@@ -629,4 +629,17 @@ func (m AllMapPairsAndPropName) Less(i, j int) bool {
 
 func (m AllMapPairsAndPropName) Swap(i, j int) {
 	m[i], m[j] = m[j], m[i]
+}
+
+func PropertyIsSearchable(schemaDefinition *models.Schema, className, tentativePropertyName string) bool {
+	propertyName := strings.Split(tentativePropertyName, "^")[0]
+	c, err := schema.GetClassByName(schemaDefinition, string(className))
+	if err != nil {
+		return false
+	}
+	p, err := schema.GetPropertyByName(c, propertyName)
+	if err != nil {
+		return false
+	}
+	return IsSearchable(p)
 }

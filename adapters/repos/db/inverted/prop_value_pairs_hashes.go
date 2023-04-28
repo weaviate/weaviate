@@ -13,13 +13,13 @@ package inverted
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func (pv *propValuePair) cacheable() bool {
@@ -46,20 +46,7 @@ func (pv *propValuePair) cacheable() bool {
 
 func (pv *propValuePair) fetchHashes(s *Searcher) error {
 	if pv.operator.OnValue() {
-		if pv.prop == filters.InternalPropBackwardsCompatID {
-			// the user-specified ID is considered legacy. we
-			// support backwards compatibility with this prop
-			pv.prop = filters.InternalPropID
-			pv.hasFrequency = false
-		}
-
 		bucketName := helpers.HashBucketFromPropNameLSM(pv.prop)
-		// format is hash_property_PROPERTY_NAME
-		propName, isPropLengthFilter := schema.IsPropertyLength(bucketName, 14)
-		if isPropLengthFilter {
-			bucketName = helpers.HashBucketFromPropNameLSM(propName + filters.InternalPropertyLength)
-			pv.prop = propName + filters.InternalPropertyLength
-		}
 
 		b := s.store.Bucket(bucketName)
 		if b == nil && pv.operator != filters.OperatorWithinGeoRange {
@@ -101,21 +88,33 @@ func (pv *propValuePair) fetchHashes(s *Searcher) error {
 func (pv *propValuePair) hashForNonEqualOp(store *lsmkv.Store,
 	hashBucket *lsmkv.Bucket, shardVersion uint16,
 ) ([]byte, error) {
-	bucketName := helpers.BucketFromPropNameLSM(pv.prop)
-	propBucket := store.Bucket(bucketName)
-	if propBucket == nil && pv.operator != filters.OperatorWithinGeoRange {
-		return nil, errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
+	if pv.isFilterable {
+		bucketName := helpers.BucketFromPropNameLSM(pv.prop)
+		bucket := store.Bucket(bucketName)
+
+		if bucket == nil && pv.operator != filters.OperatorWithinGeoRange {
+			return nil, errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
+		}
+
+		if bucket.Strategy() == lsmkv.StrategyRoaringSet {
+			return pv.hashForNonEqualOpWithoutFrequencyRoaringSet(bucket, hashBucket)
+		}
+
+		return pv.hashForNonEqualOpWithoutFrequencySet(bucket, hashBucket)
 	}
 
-	if pv.hasFrequency {
-		return pv.hashForNonEqualOpWithFrequency(propBucket, hashBucket, shardVersion)
+	if pv.isSearchable {
+		bucketName := helpers.BucketSearchableFromPropNameLSM(pv.prop)
+		bucket := store.Bucket(bucketName)
+
+		if bucket == nil && pv.operator != filters.OperatorWithinGeoRange {
+			return nil, errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
+		}
+
+		return pv.hashForNonEqualOpWithFrequency(bucket, hashBucket, shardVersion)
 	}
 
-	if propBucket.Strategy() == lsmkv.StrategyRoaringSet {
-		return pv.hashForNonEqualOpWithoutFrequencyRoaringSet(propBucket, hashBucket)
-	}
-
-	return pv.hashForNonEqualOpWithoutFrequencySet(propBucket, hashBucket)
+	return nil, fmt.Errorf("property '%s' is neither filterable nor searchable", pv.prop)
 }
 
 func (pv *propValuePair) hashForNonEqualOpWithoutFrequencySet(propBucket,
