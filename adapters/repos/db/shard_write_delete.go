@@ -14,7 +14,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -55,12 +54,6 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 		return errors.Wrap(err, "get existing doc id from object binary")
 	}
 
-	obj, err := storobj.FromBinary(existing)
-	if err != nil {
-		return errors.Wrap(err, "get existing object from binary")
-	}
-
-	s.subtractPropLengths(obj *storobj.Object)
 
 	err = bucket.Delete(idBytes)
 	if err != nil {
