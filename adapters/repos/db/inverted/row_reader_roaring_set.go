@@ -19,7 +19,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/notimplemented"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -87,8 +86,7 @@ func (rr *RowReaderRoaringSet) Read(ctx context.Context, readFn RoaringSetReadFn
 	case filters.OperatorLike:
 		return rr.like(ctx, readFn)
 	default:
-		return fmt.Errorf("operator not supported in standalone "+
-			"mode, see %s for details", notimplemented.Link)
+		return fmt.Errorf("operator %v not supported", rr.operator)
 	}
 }
 

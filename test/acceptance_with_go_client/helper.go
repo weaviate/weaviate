@@ -9,6 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package notimplemented
+package acceptance_with_go_client
 
-const Link = "https://www.semi.technology/documentation/weaviate/current/more-resources/architecture.html#standalone-mode-in-022x"
+var (
+	vFalse = false
+	vTrue  = true
+)

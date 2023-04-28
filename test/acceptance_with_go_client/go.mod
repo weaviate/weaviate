@@ -6,7 +6,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.8.2
 	github.com/weaviate/weaviate v1.19.0-beta.1.0.20230424082040-b053defd25ee
-	github.com/weaviate/weaviate-go-client/v4 v4.6.3-0.20230307175645-1e6af74af18b
+	github.com/weaviate/weaviate-go-client/v4 v4.7.1
 )
 
 require (
