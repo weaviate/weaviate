@@ -227,8 +227,9 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
 	sparseSearch := func() ([]*storobj.Object, []float32, error) {
 		params.KeywordRanking = &searchparams.KeywordRanking{
-			Query: params.HybridSearch.Query,
-			Type:  "bm25",
+			Query:      params.HybridSearch.Query,
+			Type:       "bm25",
+			Properties: params.HybridSearch.Properties,
 		}
 
 		res, dists, err := e.search.ClassObjectSearch(ctx, params)
