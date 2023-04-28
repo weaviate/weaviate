@@ -18,7 +18,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/notimplemented"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -76,8 +75,7 @@ func (rr *RowReaderFrequency) Read(ctx context.Context, readFn ReadFnFrequency) 
 	case filters.OperatorLike:
 		return rr.like(ctx, readFn)
 	default:
-		return fmt.Errorf("operator not supported in standalone "+
-			"mode, see %s for details", notimplemented.Link)
+		return fmt.Errorf("operator %v supported", rr.operator)
 	}
 }
 
