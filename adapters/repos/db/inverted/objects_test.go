@@ -683,33 +683,33 @@ func TestAnalyzeObject(t *testing.T) {
 					{Data: []byte("ask"), TermFrequency: 1},
 					{Data: []byte("me"), TermFrequency: 1},
 				},
-				IsFilterable: true,
-				IsSearchable: true,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
 			},
 			{
-				Name:         "_id",
-				Items:        []Countable{{Data: []byte("2609f1bc-7693-48f3-b531-6ddc52cd2501")}},
-				IsFilterable: true,
-				IsSearchable: false,
+				Name:               "_id",
+				Items:              []Countable{{Data: []byte("2609f1bc-7693-48f3-b531-6ddc52cd2501")}},
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
 			},
 			{
-				Name:         "_creationTimeUnix",
-				Items:        []Countable{{Data: []byte("1650551406404")}},
-				IsFilterable: true,
-				IsSearchable: false,
+				Name:               "_creationTimeUnix",
+				Items:              []Countable{{Data: []byte("1650551406404")}},
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
 			},
 			{
-				Name:         "_lastUpdateTimeUnix",
-				Items:        []Countable{{Data: []byte("1650551406404")}},
-				IsFilterable: true,
-				IsSearchable: false,
+				Name:               "_lastUpdateTimeUnix",
+				Items:              []Countable{{Data: []byte("1650551406404")}},
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
 			},
 		}
 
 		for i := range res {
 			assert.Equal(t, expected[i].Name, res[i].Name)
-			assert.Equal(t, expected[i].IsFilterable, res[i].IsFilterable)
-			assert.Equal(t, expected[i].IsSearchable, res[i].IsSearchable)
+			assert.Equal(t, expected[i].HasFilterableIndex, res[i].HasFilterableIndex)
+			assert.Equal(t, expected[i].HasSearchableIndex, res[i].HasSearchableIndex)
 			assert.ElementsMatch(t, expected[i].Items, res[i].Items)
 		}
 	})
@@ -779,55 +779,55 @@ func TestIndexInverted(t *testing.T) {
 	vFalse := false
 	vTrue := true
 
-	t.Run("is filterable", func(t *testing.T) {
+	t.Run("has filterable index", func(t *testing.T) {
 		type testCase struct {
-			name         string
-			isFilterable *bool
-			dataType     schema.DataType
+			name            string
+			indexFilterable *bool
+			dataType        schema.DataType
 
 			expextedFilterable bool
 		}
 
 		testCases := []testCase{
 			{
-				name:         "int, filterable null",
-				isFilterable: nil,
-				dataType:     schema.DataTypeInt,
+				name:            "int, filterable null",
+				indexFilterable: nil,
+				dataType:        schema.DataTypeInt,
 
 				expextedFilterable: true,
 			},
 			{
-				name:         "int, filterable false",
-				isFilterable: &vFalse,
-				dataType:     schema.DataTypeInt,
+				name:            "int, filterable false",
+				indexFilterable: &vFalse,
+				dataType:        schema.DataTypeInt,
 
 				expextedFilterable: false,
 			},
 			{
-				name:         "int, filterable true",
-				isFilterable: &vTrue,
-				dataType:     schema.DataTypeInt,
+				name:            "int, filterable true",
+				indexFilterable: &vTrue,
+				dataType:        schema.DataTypeInt,
 
 				expextedFilterable: true,
 			},
 			{
-				name:         "text, filterable null",
-				isFilterable: nil,
-				dataType:     schema.DataTypeText,
+				name:            "text, filterable null",
+				indexFilterable: nil,
+				dataType:        schema.DataTypeText,
 
 				expextedFilterable: true,
 			},
 			{
-				name:         "text, filterable false",
-				isFilterable: &vFalse,
-				dataType:     schema.DataTypeText,
+				name:            "text, filterable false",
+				indexFilterable: &vFalse,
+				dataType:        schema.DataTypeText,
 
 				expextedFilterable: false,
 			},
 			{
-				name:         "text, filterable true",
-				isFilterable: &vTrue,
-				dataType:     schema.DataTypeText,
+				name:            "text, filterable true",
+				indexFilterable: &vTrue,
+				dataType:        schema.DataTypeText,
 
 				expextedFilterable: true,
 			},
@@ -835,66 +835,66 @@ func TestIndexInverted(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				isFilterable := IsFilterable(&models.Property{
+				hasFilterableIndex := HasFilterableIndex(&models.Property{
 					Name:            "prop",
 					DataType:        tc.dataType.PropString(),
-					IndexFilterable: tc.isFilterable,
+					IndexFilterable: tc.indexFilterable,
 				})
 
-				assert.Equal(t, tc.expextedFilterable, isFilterable)
+				assert.Equal(t, tc.expextedFilterable, hasFilterableIndex)
 			})
 		}
 	})
 
-	t.Run("is searchable", func(t *testing.T) {
+	t.Run("has searchable index", func(t *testing.T) {
 		type testCase struct {
-			name         string
-			isSearchable *bool
-			dataType     schema.DataType
+			name            string
+			indexSearchable *bool
+			dataType        schema.DataType
 
 			expextedSearchable bool
 		}
 
 		testCases := []testCase{
 			{
-				name:         "int, searchable null",
-				isSearchable: nil,
-				dataType:     schema.DataTypeInt,
+				name:            "int, searchable null",
+				indexSearchable: nil,
+				dataType:        schema.DataTypeInt,
 
 				expextedSearchable: false,
 			},
 			{
-				name:         "int, searchable false",
-				isSearchable: &vFalse,
-				dataType:     schema.DataTypeInt,
+				name:            "int, searchable false",
+				indexSearchable: &vFalse,
+				dataType:        schema.DataTypeInt,
 
 				expextedSearchable: false,
 			},
 			{
-				name:         "int, searchable true",
-				isSearchable: &vTrue,
-				dataType:     schema.DataTypeInt,
+				name:            "int, searchable true",
+				indexSearchable: &vTrue,
+				dataType:        schema.DataTypeInt,
 
 				expextedSearchable: false,
 			},
 			{
-				name:         "text, searchable null",
-				isSearchable: nil,
-				dataType:     schema.DataTypeText,
+				name:            "text, searchable null",
+				indexSearchable: nil,
+				dataType:        schema.DataTypeText,
 
 				expextedSearchable: true,
 			},
 			{
-				name:         "text, searchable false",
-				isSearchable: &vFalse,
-				dataType:     schema.DataTypeText,
+				name:            "text, searchable false",
+				indexSearchable: &vFalse,
+				dataType:        schema.DataTypeText,
 
 				expextedSearchable: false,
 			},
 			{
-				name:         "text, searchable true",
-				isSearchable: &vTrue,
-				dataType:     schema.DataTypeText,
+				name:            "text, searchable true",
+				indexSearchable: &vTrue,
+				dataType:        schema.DataTypeText,
 
 				expextedSearchable: true,
 			},
@@ -902,13 +902,13 @@ func TestIndexInverted(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				isSearchable := IsSearchable(&models.Property{
+				hasSearchableIndex := HasSearchableIndex(&models.Property{
 					Name:            "prop",
 					DataType:        tc.dataType.PropString(),
-					IndexSearchable: tc.isSearchable,
+					IndexSearchable: tc.indexSearchable,
 				})
 
-				assert.Equal(t, tc.expextedSearchable, isSearchable)
+				assert.Equal(t, tc.expextedSearchable, hasSearchableIndex)
 			})
 		}
 	})

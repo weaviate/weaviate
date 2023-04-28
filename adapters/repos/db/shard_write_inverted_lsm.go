@@ -74,7 +74,7 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 		return errors.Errorf("no hash bucket for prop '%s' found", property.Name)
 	}
 
-	if property.IsFilterable {
+	if property.HasFilterableIndex {
 		bucketValue := s.store.Bucket(helpers.BucketFromPropNameLSM(property.Name))
 		if bucketValue == nil {
 			return errors.Errorf("no bucket for prop '%s' found", property.Name)
@@ -91,7 +91,7 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 		}
 	}
 
-	if property.IsSearchable {
+	if property.HasSearchableIndex {
 		bucketValue := s.store.Bucket(helpers.BucketSearchableFromPropNameLSM(property.Name))
 		if bucketValue == nil {
 			return errors.Errorf("no bucket searchable for prop '%s' found", property.Name)
@@ -271,7 +271,7 @@ func (s *Shard) generateRowHash() ([]byte, error) {
 
 func (s *Shard) addPropLengths(props []inverted.Property) error {
 	for _, prop := range props {
-		if !prop.IsSearchable {
+		if !prop.HasSearchableIndex {
 			continue
 		}
 

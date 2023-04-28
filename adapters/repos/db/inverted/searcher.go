@@ -297,11 +297,11 @@ func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.D
 	}
 
 	return &propValuePair{
-		value:        byteValue,
-		prop:         prop.Name,
-		operator:     operator,
-		isFilterable: IsFilterable(prop),
-		isSearchable: IsSearchable(prop),
+		value:              byteValue,
+		prop:               prop.Name,
+		operator:           operator,
+		hasFilterableIndex: HasFilterableIndex(prop),
+		hasSearchableIndex: HasSearchableIndex(prop),
 	}, nil
 }
 
@@ -314,11 +314,11 @@ func (s *Searcher) extractReferenceCount(prop *models.Property, value interface{
 	}
 
 	return &propValuePair{
-		value:        byteValue,
-		prop:         helpers.MetaCountProp(prop.Name),
-		operator:     operator,
-		isFilterable: IsFilterableMetaCount,
-		isSearchable: IsSearchableMetaCount,
+		value:              byteValue,
+		prop:               helpers.MetaCountProp(prop.Name),
+		operator:           operator,
+		hasFilterableIndex: HasFilterableIndexMetaCount,
+		hasSearchableIndex: HasSearchableIndexMetaCount,
 	}, nil
 }
 
@@ -333,12 +333,12 @@ func (s *Searcher) extractGeoFilter(prop *models.Property, value interface{},
 	parsed := value.(filters.GeoRange)
 
 	return &propValuePair{
-		value:         nil, // not going to be served by an inverted index
-		valueGeoRange: &parsed,
-		prop:          prop.Name,
-		operator:      operator,
-		isFilterable:  IsFilterable(prop),
-		isSearchable:  IsSearchable(prop),
+		value:              nil, // not going to be served by an inverted index
+		valueGeoRange:      &parsed,
+		prop:               prop.Name,
+		operator:           operator,
+		hasFilterableIndex: HasFilterableIndex(prop),
+		hasSearchableIndex: HasSearchableIndex(prop),
 	}, nil
 }
 
@@ -364,11 +364,11 @@ func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
 	}
 
 	return &propValuePair{
-		value:        byteValue,
-		prop:         prop.Name,
-		operator:     operator,
-		isFilterable: IsFilterable(prop),
-		isSearchable: IsSearchable(prop),
+		value:              byteValue,
+		prop:               prop.Name,
+		operator:           operator,
+		hasFilterableIndex: HasFilterableIndex(prop),
+		hasSearchableIndex: HasSearchableIndex(prop),
 	}, nil
 }
 
@@ -404,11 +404,11 @@ func (s *Searcher) extractIDProp(propName string, propType schema.DataType,
 	}
 
 	return &propValuePair{
-		value:        byteValue,
-		prop:         filters.InternalPropID,
-		operator:     operator,
-		isFilterable: IsFilterableIdProp,
-		isSearchable: IsSearchableIdProp,
+		value:              byteValue,
+		prop:               filters.InternalPropID,
+		operator:           operator,
+		hasFilterableIndex: HasFilterableIndexIdProp,
+		hasSearchableIndex: HasSearchableIndexIdProp,
 	}, nil
 }
 
@@ -443,11 +443,11 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 	}
 
 	return &propValuePair{
-		value:        byteValue,
-		prop:         propName,
-		operator:     operator,
-		isFilterable: IsFilterableTimestampProp, // TODO text_rbm_inverted_index & with settings
-		isSearchable: IsSearchableTimestampProp, // TODO text_rbm_inverted_index & with settings
+		value:              byteValue,
+		prop:               propName,
+		operator:           operator,
+		hasFilterableIndex: HasFilterableIndexTimestampProp, // TODO text_rbm_inverted_index & with settings
+		hasSearchableIndex: HasSearchableIndexTimestampProp, // TODO text_rbm_inverted_index & with settings
 	}, nil
 }
 
@@ -469,19 +469,19 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 		return nil, fmt.Errorf("expected value type to be text, got %v", propType)
 	}
 
-	isFilterable := IsFilterable(prop) && !s.isFallbackToSearchable()
-	isSearchable := IsSearchable(prop)
+	hasFilterableIndex := HasFilterableIndex(prop) && !s.isFallbackToSearchable()
+	hasSearchableIndex := HasSearchableIndex(prop)
 	propValuePairs := make([]*propValuePair, 0, len(terms))
 	for _, term := range terms {
 		if s.stopwords.IsStopword(term) {
 			continue
 		}
 		propValuePairs = append(propValuePairs, &propValuePair{
-			value:        []byte(term),
-			prop:         prop.Name,
-			operator:     operator,
-			isFilterable: isFilterable,
-			isSearchable: isSearchable,
+			value:              []byte(term),
+			prop:               prop.Name,
+			operator:           operator,
+			hasFilterableIndex: hasFilterableIndex,
+			hasSearchableIndex: hasSearchableIndex,
 		})
 	}
 
@@ -512,11 +512,11 @@ func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.
 	}
 
 	return &propValuePair{
-		value:        byteValue,
-		prop:         helpers.PropLength(prop.Name),
-		operator:     operator,
-		isFilterable: IsFilterablePropLength, // TODO text_rbm_inverted_index & with settings
-		isSearchable: IsSearchablePropLength, // TODO text_rbm_inverted_index & with settings
+		value:              byteValue,
+		prop:               helpers.PropLength(prop.Name),
+		operator:           operator,
+		hasFilterableIndex: HasFilterableIndexPropLength, // TODO text_rbm_inverted_index & with settings
+		hasSearchableIndex: HasSearchableIndexPropLength, // TODO text_rbm_inverted_index & with settings
 	}, nil
 }
 
@@ -538,11 +538,11 @@ func (s *Searcher) extractPropertyNull(prop *models.Property, propType schema.Da
 	}
 
 	return &propValuePair{
-		value:        valResult,
-		prop:         helpers.PropNull(prop.Name),
-		operator:     operator,
-		isFilterable: IsFilterablePropNull, // TODO text_rbm_inverted_index & with settings
-		isSearchable: IsSearchablePropNull, // TODO text_rbm_inverted_index & with settings
+		value:              valResult,
+		prop:               helpers.PropNull(prop.Name),
+		operator:           operator,
+		hasFilterableIndex: HasFilterableIndexPropNull, // TODO text_rbm_inverted_index & with settings
+		hasSearchableIndex: HasSearchableIndexPropNull, // TODO text_rbm_inverted_index & with settings
 	}, nil
 }
 

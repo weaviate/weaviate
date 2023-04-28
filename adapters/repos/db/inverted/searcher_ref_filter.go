@@ -145,11 +145,11 @@ func (r *refFilterExtractor) resultsToPropValuePairs(ids []classUUIDPair,
 
 func (r *refFilterExtractor) emptyPropValuePair() *propValuePair {
 	return &propValuePair{
-		prop:         r.property.Name,
-		value:        nil,
-		operator:     filters.OperatorEqual,
-		isFilterable: IsFilterable(r.property),
-		isSearchable: IsSearchable(r.property),
+		prop:               r.property.Name,
+		value:              nil,
+		operator:           filters.OperatorEqual,
+		hasFilterableIndex: HasFilterableIndex(r.property),
+		hasSearchableIndex: HasSearchableIndex(r.property),
 	}
 }
 
@@ -169,33 +169,33 @@ func (r *refFilterExtractor) backwardCompatibleIDToPropValuePair(p classUUIDPair
 }
 
 func (r *refFilterExtractor) idToPropValuePairWithValue(v []byte,
-	isFilterable, isSearchable bool,
+	hasFilterableIndex, hasSearchableIndex bool,
 ) (*propValuePair, error) {
 	return &propValuePair{
-		prop:         r.property.Name,
-		value:        v,
-		operator:     filters.OperatorEqual,
-		isFilterable: isFilterable,
-		isSearchable: isSearchable,
+		prop:               r.property.Name,
+		value:              v,
+		operator:           filters.OperatorEqual,
+		hasFilterableIndex: hasFilterableIndex,
+		hasSearchableIndex: hasSearchableIndex,
 	}, nil
 }
 
 // chain multiple alternatives using an OR operator
 func (r *refFilterExtractor) chainedIDsToPropValuePair(ids []classUUIDPair) (*propValuePair, error) {
-	isFilterable := IsFilterable(r.property)
-	isSearchable := IsSearchable(r.property)
+	hasFilterableIndex := HasFilterableIndex(r.property)
+	hasSearchableIndex := HasSearchableIndex(r.property)
 
-	children, err := r.idsToPropValuePairs(ids, isFilterable, isSearchable)
+	children, err := r.idsToPropValuePairs(ids, hasFilterableIndex, hasSearchableIndex)
 	if err != nil {
 		return nil, err
 	}
 
 	return &propValuePair{
-		prop:         r.property.Name,
-		operator:     filters.OperatorOr,
-		children:     children,
-		isFilterable: isFilterable,
-		isSearchable: isSearchable,
+		prop:               r.property.Name,
+		operator:           filters.OperatorOr,
+		children:           children,
+		hasFilterableIndex: hasFilterableIndex,
+		hasSearchableIndex: hasSearchableIndex,
 	}, nil
 }
 
@@ -207,7 +207,7 @@ func (r *refFilterExtractor) chainedIDsToPropValuePair(ids []classUUIDPair) (*pr
 // no more class-less beacons exist. Most likely this will be the case with the
 // next breaking change, such as v2.0.0.
 func (r *refFilterExtractor) idsToPropValuePairs(ids []classUUIDPair,
-	isFilterable, isSearchale bool,
+	hasFilterableIndex, hasSearchableIndex bool,
 ) ([]*propValuePair, error) {
 	// This makes it safe to access the first element later on without further
 	// checks
@@ -219,7 +219,7 @@ func (r *refFilterExtractor) idsToPropValuePairs(ids []classUUIDPair,
 	bb := crossref.NewBulkBuilderWithEstimates(len(ids)*2, ids[0].class, 1.25)
 	for i, id := range ids {
 		// future-proof way
-		pv, err := r.idToPropValuePairWithValue(bb.ClassAndID(id.class, id.id), isFilterable, isSearchale)
+		pv, err := r.idToPropValuePairWithValue(bb.ClassAndID(id.class, id.id), hasFilterableIndex, hasSearchableIndex)
 		if err != nil {
 			return nil, err
 		}
@@ -227,7 +227,7 @@ func (r *refFilterExtractor) idsToPropValuePairs(ids []classUUIDPair,
 		out[i*2] = pv
 
 		// backward-compatible way
-		pv, err = r.idToPropValuePairWithValue(bb.LegacyIDOnly(id.id), isFilterable, isSearchale)
+		pv, err = r.idToPropValuePairWithValue(bb.LegacyIDOnly(id.id), hasFilterableIndex, hasSearchableIndex)
 		if err != nil {
 			return nil, err
 		}
