@@ -35,8 +35,6 @@ func TestBm25(t *testing.T) {
 	require.Nil(t, err)
 
 	c.Schema().AllDeleter().Do(ctx)
-	vFalse := false
-	vTrue := true
 
 	cases := []struct{ datatype schema.DataType }{
 		{datatype: schema.DataTypeTextArray},
@@ -53,13 +51,13 @@ func TestBm25(t *testing.T) {
 						Name:            "contents",
 						DataType:        tt.datatype.PropString(),
 						Tokenization:    models.PropertyTokenizationWord,
-						IndexFilterable: &vFalse,
-						IndexSearchable: &vTrue,
+						IndexFilterable: falsePointer(),
+						IndexSearchable: truePointer(),
 					},
 					{
 						Name:            "num",
 						DataType:        schema.DataTypeInt.PropString(),
-						IndexFilterable: &vTrue,
+						IndexFilterable: truePointer(),
 					},
 				},
 				InvertedIndexConfig: &models.InvertedIndexConfig{Bm25: &models.BM25Config{K1: 1.2, B: 0.75}},
