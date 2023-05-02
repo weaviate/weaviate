@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestDiskSpace(t *testing.T) {
+func TestDiskSpaceMarshal(t *testing.T) {
 	for _, name := range []string{"", "host-12:1", "2", "00", "-jhd"} {
 		want := spaceMsg{
 			header{
@@ -33,6 +33,7 @@ func TestDiskSpace(t *testing.T) {
 				Total:     256,
 				Available: 3,
 			},
+			uint8(len(name)),
 			name,
 		}
 		bytes, err := want.marshal()
@@ -42,14 +43,39 @@ func TestDiskSpace(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, want, got)
 	}
+
+	// simulate old version
+	x := spaceMsg{
+		header{
+			ProtoVersion: uint8(1),
+			OpCode:       _OpCode(2),
+		},
+		DiskUsage{
+			Total:     256,
+			Available: 3,
+		},
+		uint8('0'),
+		"123",
+	}
+	bytes, err := x.marshal()
+	want := x
+	want.NodeLen = 4
+	want.Node = "0123"
+	assert.Nil(t, err)
+	got := spaceMsg{}
+	err = got.unmarshal(bytes)
+	assert.Nil(t, err)
+	assert.Equal(t, want, got)
 }
 
 func TestDelegateGetSet(t *testing.T) {
+	logger, _ := test.NewNullLogger()
 	now := time.Now().UnixMilli() - 1
 	st := State{
 		delegate: delegate{
 			Name:     "ABC",
 			dataPath: ".",
+			log:      logger,
 			Cache:    make(map[string]NodeInfo, 32),
 		},
 	}
@@ -58,12 +84,18 @@ func TestDelegateGetSet(t *testing.T) {
 	st.delegate.NodeMeta(0)
 	spaces := make([]spaceMsg, 32)
 	for i := range spaces {
+		node := fmt.Sprintf("N-%d", i+1)
 		spaces[i] = spaceMsg{
-			Node: fmt.Sprintf("N-%d", i+1),
+			header: header{
+				OpCode:       _OpCodeDisk,
+				ProtoVersion: _ProtoVersion + 2,
+			},
 			DiskUsage: DiskUsage{
 				uint64(i + 1),
 				uint64(i),
 			},
+			Node:    node,
+			NodeLen: uint8(len(node)),
 		}
 	}
 
@@ -82,7 +114,7 @@ func TestDelegateGetSet(t *testing.T) {
 	for _, x := range spaces {
 		space, ok := st.NodeInfo(x.Node)
 		if ok {
-			assert.Equal(t, x.DiskUsage, space)
+			assert.Equal(t, x.DiskUsage, space.DiskUsage)
 		}
 	}
 	<-done
@@ -103,6 +135,50 @@ func TestDelegateGetSet(t *testing.T) {
 	space, ok := st.NodeInfo(st.delegate.Name)
 	assert.True(t, ok)
 	assert.Greater(t, space.Total, space.Available)
+}
+
+func TestDelegateMergeRemoteState(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	var (
+		node = "N1"
+		d    = delegate{
+			Name:     node,
+			dataPath: ".",
+			log:      logger,
+			Cache:    make(map[string]NodeInfo, 32),
+		}
+		x = spaceMsg{
+			header{
+				OpCode:       _OpCodeDisk,
+				ProtoVersion: _ProtoVersion,
+			},
+			DiskUsage{2, 1},
+			uint8(len(node)),
+			node,
+		}
+	)
+	// valid operation payload
+	bytes, err := x.marshal()
+	assert.Nil(t, err)
+	d.MergeRemoteState(bytes, false)
+	_, ok := d.get(node)
+	assert.True(t, ok)
+
+	node = "N2"
+	// invalid payload => expect marshalling error
+	d.MergeRemoteState(bytes[:4], false)
+	assert.Nil(t, err)
+	_, ok = d.get(node)
+	assert.False(t, ok)
+
+	// valid payload but operation is not supported
+	node = "N2"
+	x.header.OpCode = _OpCodeDisk + 2
+	bytes, err = x.marshal()
+	d.MergeRemoteState(bytes, false)
+	assert.Nil(t, err)
+	_, ok = d.get(node)
+	assert.False(t, ok)
 }
 
 func TestDelegateSort(t *testing.T) {
