@@ -164,7 +164,7 @@ func (s *Shard) putObjectLSM(object *storobj.Object, idBytes []byte,
 	if err := s.updateInvertedIndexLSM(object, status, previous_object_bytes); err != nil {
 		return status, errors.Wrap(err, "update inverted indices")
 	}
-	
+
 	s.metrics.PutObjectUpdateInverted(before)
 
 	return status, nil
