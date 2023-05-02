@@ -286,7 +286,7 @@ func (s *Shard) addPropLengths(props []inverted.Property) error {
 
 func (s *Shard) subtractPropLengths(props []inverted.Property) error {
 	for _, prop := range props {
-		if !prop.HasFrequency {
+		if !prop.HasSearchableIndex {
 			continue
 		}
 
