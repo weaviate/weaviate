@@ -35,8 +35,8 @@ func groupByObjects(t *testing.T) {
 				additional := hit.(map[string]interface{})["_additional"].(map[string]interface{})
 				result = append(result, additional["id"].(string))
 			}
-			groupValue := group["groupValue"].(string)
-			return groupValue, result
+			groupedBy := group["groupedBy"].(string)
+			return groupedBy, result
 		}
 		query := `
 		{
@@ -54,7 +54,7 @@ func groupByObjects(t *testing.T) {
 					_additional{
 						id
 						group{
-							groupValue
+							groupedBy
 							count
 							maxDistance
 							minDistance
@@ -77,39 +77,39 @@ func groupByObjects(t *testing.T) {
 
 		expectedResults := map[string][]string{}
 
-		groupValue1 := `{"beacon":"weaviate://localhost/City/8f5f8e44-d348-459c-88b1-c1a44bb8f8be"}`
+		groupedBy1 := `weaviate://localhost/City/8f5f8e44-d348-459c-88b1-c1a44bb8f8be`
 		expectedGroup1 := []string{
 			"8615585a-2960-482d-b19d-8bee98ade52c",
 			"3ef44474-b5e5-455d-91dc-d917b5b76165",
 			"15d222c9-8c36-464b-bedb-113faa1c1e4c",
 		}
-		expectedResults[groupValue1] = expectedGroup1
+		expectedResults[groupedBy1] = expectedGroup1
 
-		groupValue2 := `{"beacon":"weaviate://localhost/City/9b9cbea5-e87e-4cd0-89af-e2f424fd52d6"}`
+		groupedBy2 := `weaviate://localhost/City/9b9cbea5-e87e-4cd0-89af-e2f424fd52d6`
 		expectedGroup2 := []string{
 			"3ef44474-b5e5-455d-91dc-d917b5b76165",
 			"15d222c9-8c36-464b-bedb-113faa1c1e4c",
 		}
-		expectedResults[groupValue2] = expectedGroup2
+		expectedResults[groupedBy2] = expectedGroup2
 
-		groupValue3 := `{"beacon":"weaviate://localhost/City/6ffb03f8-a853-4ec5-a5d8-302e45aaaf13"}`
+		groupedBy3 := `weaviate://localhost/City/6ffb03f8-a853-4ec5-a5d8-302e45aaaf13`
 		expectedGroup3 := []string{
 			"15d222c9-8c36-464b-bedb-113faa1c1e4c",
 		}
-		expectedResults[groupValue3] = expectedGroup3
+		expectedResults[groupedBy3] = expectedGroup3
 
-		groupValue4 := ""
+		groupedBy4 := ""
 		expectedGroup4 := []string{
 			"5d0fa6ee-21c4-4b46-a735-f0208717837d",
 		}
-		expectedResults[groupValue4] = expectedGroup4
+		expectedResults[groupedBy4] = expectedGroup4
 
-		groupsOrder := []string{groupValue1, groupValue2, groupValue4, groupValue3}
+		groupsOrder := []string{groupedBy1, groupedBy2, groupedBy4, groupedBy3}
 		for i, current := range groups {
 			group := getGroup(current)
-			groupValue, ids := getGroupHits(group)
-			assert.Equal(t, groupsOrder[i], groupValue)
-			assert.ElementsMatch(t, expectedResults[groupValue], ids)
+			groupedBy, ids := getGroupHits(group)
+			assert.Equal(t, groupsOrder[i], groupedBy)
+			assert.ElementsMatch(t, expectedResults[groupedBy], ids)
 		}
 	})
 

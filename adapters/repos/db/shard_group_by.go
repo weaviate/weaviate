@@ -14,12 +14,14 @@ package db
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -29,27 +31,43 @@ func (s *Shard) groupResults(ctx context.Context, ids []uint64,
 	additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	objsBucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	return newGrouper(ids, dists, params, objsBucket, additional).Do(ctx)
+	className := s.index.Config.ClassName
+	sch := s.index.getSchema.GetSchemaSkipAuth()
+	prop, err := sch.GetProperty(className, schema.PropertyName(params.Property))
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: unrecognized property: %s",
+			err, params.Property)
+	}
+	dt, err := sch.FindPropertyDataType(prop.DataType)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: unrecognized data type for property: %s",
+			err, params.Property)
+	}
+
+	return newGrouper(ids, dists, params, objsBucket, dt, additional).Do(ctx)
 }
 
 type grouper struct {
-	ids        []uint64
-	dists      []float32
-	params     *searchparams.GroupBy
-	additional additional.Properties
-	objBucket  *lsmkv.Bucket
+	ids              []uint64
+	dists            []float32
+	params           *searchparams.GroupBy
+	additional       additional.Properties
+	propertyDataType schema.PropertyDataType
+	objBucket        *lsmkv.Bucket
 }
 
 func newGrouper(ids []uint64, dists []float32,
 	params *searchparams.GroupBy, objBucket *lsmkv.Bucket,
+	propertyDataType schema.PropertyDataType,
 	additional additional.Properties,
 ) *grouper {
 	return &grouper{
-		ids:        ids,
-		dists:      dists,
-		params:     params,
-		objBucket:  objBucket,
-		additional: additional,
+		ids:              ids,
+		dists:            dists,
+		params:           params,
+		objBucket:        objBucket,
+		propertyDataType: propertyDataType,
+		additional:       additional,
 	}
 }
 
@@ -76,7 +94,12 @@ DOCS_LOOP:
 			continue
 		}
 
-		for _, val := range g.getValues(value) {
+		values, err := g.getValues(value)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		for _, val := range values {
 			current, groupExists := groups[val]
 			if len(current) >= g.params.ObjectsPerGroup {
 				continue
@@ -125,12 +148,13 @@ DOCS_LOOP:
 			props["_additional"] = &additional.GroupHitAdditional{
 				ID:       docIDObject[docID].ID().String(),
 				Distance: docIDDistance[docID],
+				Vector:   docIDObject[docID].Vector,
 			}
 			hits[j] = props
 		}
 		group := &additional.Group{
 			ID:          i,
-			GroupValue:  val,
+			GroupedBy:   val,
 			Count:       len(hits),
 			Hits:        hits,
 			MinDistance: docIDDistance[docIDs[0]],
@@ -179,9 +203,24 @@ func (g *grouper) getUnmarshalled(docID uint64,
 	return docIDObject[docID], nil
 }
 
-func (g *grouper) getValues(values []string) []string {
+func (g *grouper) getValues(values []string) ([]string, error) {
 	if len(values) == 0 {
-		return []string{""}
+		return []string{""}, nil
 	}
-	return values
+	if g.propertyDataType.IsReference() {
+		beacons := make([]string, len(values))
+		for i := range values {
+			if values[i] != "" {
+				var ref models.SingleRef
+				err := json.Unmarshal([]byte(values[i]), &ref)
+				if err != nil {
+					return nil, fmt.Errorf("%w: unmarshal grouped by value %s at position %d",
+						err, values[i], i)
+				}
+				beacons[i] = ref.Beacon.String()
+			}
+		}
+		return beacons, nil
+	}
+	return values, nil
 }

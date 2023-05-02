@@ -45,8 +45,8 @@ func (gm *groupMerger) Do() ([]*storobj.Object, []float32, error) {
 		if !ok {
 			return nil, nil, fmt.Errorf("wrong group type for object: %v", obj.ID())
 		}
-		groups[group.GroupValue] = append(groups[group.GroupValue], group)
-		objects[group.GroupValue] = append(objects[group.GroupValue], i)
+		groups[group.GroupedBy] = append(groups[group.GroupedBy], group)
+		objects[group.GroupedBy] = append(objects[group.GroupedBy], i)
 	}
 
 	getMinDistance := func(groups []*additional.Group) float32 {
@@ -106,7 +106,7 @@ func (gm *groupMerger) Do() ([]*storobj.Object, []float32, error) {
 		obj, dist := gm.objects[indx], gm.dists[indx]
 		obj.AdditionalProperties()["group"] = &additional.Group{
 			ID:          i,
-			GroupValue:  val,
+			GroupedBy:   val,
 			Count:       count,
 			Hits:        hits,
 			MaxDistance: hits[0]["_additional"].(*additional.GroupHitAdditional).Distance,

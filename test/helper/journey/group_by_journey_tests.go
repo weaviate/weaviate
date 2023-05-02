@@ -38,8 +38,8 @@ func GroupBySingleAndMultiShardTests(t *testing.T, weaviateEndpoint string) {
 			additional := hit.(map[string]interface{})["_additional"].(map[string]interface{})
 			result = append(result, additional["id"].(string))
 		}
-		groupValue := group["groupValue"].(string)
-		return groupValue, result
+		groupedBy := group["groupedBy"].(string)
+		return groupedBy, result
 	}
 	// test methods
 	create := func(t *testing.T, multishard bool) {
@@ -68,7 +68,7 @@ func GroupBySingleAndMultiShardTests(t *testing.T, weaviateEndpoint string) {
 					_additional{
 						id
 						group{
-							groupValue
+							groupedBy
 							count
 							maxDistance
 							minDistance
@@ -91,7 +91,7 @@ func GroupBySingleAndMultiShardTests(t *testing.T, weaviateEndpoint string) {
 
 		expectedResults := map[string][]string{}
 
-		groupValue1 := `{"beacon":"weaviate://localhost/Document/00000000-0000-0000-0000-000000000011"}`
+		groupedBy1 := `weaviate://localhost/Document/00000000-0000-0000-0000-000000000011`
 		expectedGroup1 := []string{
 			documents.PassageIDs[0].String(),
 			documents.PassageIDs[5].String(),
@@ -100,23 +100,23 @@ func GroupBySingleAndMultiShardTests(t *testing.T, weaviateEndpoint string) {
 			documents.PassageIDs[2].String(),
 			documents.PassageIDs[1].String(),
 		}
-		expectedResults[groupValue1] = expectedGroup1
+		expectedResults[groupedBy1] = expectedGroup1
 
-		groupValue2 := `{"beacon":"weaviate://localhost/Document/00000000-0000-0000-0000-000000000012"}`
+		groupedBy2 := `weaviate://localhost/Document/00000000-0000-0000-0000-000000000012`
 		expectedGroup2 := []string{
 			documents.PassageIDs[6].String(),
 			documents.PassageIDs[7].String(),
 		}
-		expectedResults[groupValue2] = expectedGroup2
+		expectedResults[groupedBy2] = expectedGroup2
 
-		groupsOrder := []string{groupValue1, groupValue2}
+		groupsOrder := []string{groupedBy1, groupedBy2}
 
 		for i, current := range groups {
 			group := getGroup(current)
-			groupValue, ids := getGroupHits(group)
-			assert.Equal(t, groupsOrder[i], groupValue)
+			groupedBy, ids := getGroupHits(group)
+			assert.Equal(t, groupsOrder[i], groupedBy)
 			for j := range ids {
-				assert.Equal(t, expectedResults[groupValue][j], ids[j])
+				assert.Equal(t, expectedResults[groupedBy][j], ids[j])
 			}
 		}
 	}

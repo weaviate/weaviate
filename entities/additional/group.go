@@ -13,7 +13,7 @@ package additional
 
 type Group struct {
 	ID          int                      `json:"id"`
-	GroupValue  string                   `json:"groupValue"`
+	GroupedBy   string                   `json:"groupedBy"`
 	MinDistance float32                  `json:"minDistance"`
 	MaxDistance float32                  `json:"maxDistance"`
 	Count       int                      `json:"count"`
