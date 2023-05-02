@@ -157,7 +157,6 @@ func TestUpdateJourney(t *testing.T) {
 				additional.Properties{})
 			require.Nil(t, err)
 
-			// time.Sleep(20*time.Second)
 			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil)
 			require.Nil(t, err)
 
@@ -222,7 +221,6 @@ func TestUpdateJourney(t *testing.T) {
 			require.Nil(t, err)
 
 			old.Schema.(map[string]interface{})["intProp"] = int64(21)
-			// time.Sleep(20*time.Second)
 			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil)
 			require.Nil(t, err)
 
