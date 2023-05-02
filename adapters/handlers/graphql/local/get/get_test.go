@@ -2254,7 +2254,7 @@ func TestGroupBy(t *testing.T) {
 					SomeAction(
 						groupBy:{path: ["path"] groups: 2 objectsPerGroup:3}
 					) {
-						_additional{group{count groupValue maxDistance minDistance hits {_additional{distance}}}
+						_additional{group{count groupedBy maxDistance minDistance hits {_additional{distance}}}
 						}
 					} } }`
 

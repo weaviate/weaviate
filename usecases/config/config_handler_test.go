@@ -143,4 +143,35 @@ func TestConfig(t *testing.T) {
 		assert.ElementsMatch(t, []string{"userA"}, config.Authorization.AdminList.Users)
 		assert.ElementsMatch(t, []string{"userA@read.only", "userB@read.only"}, config.Authorization.AdminList.ReadOnlyUsers)
 	})
+
+	t.Run("parse config.yaml file multiple keys and users", func(t *testing.T) {
+		configFileName := "config.yaml"
+		configYaml := `authentication:
+  apikey:
+    enabled: true
+    allowed_keys:
+      - api-key-1
+      - api-key-2
+      - api-key-3
+    users:
+      - user1@weaviate.io
+      - user2@weaviate.io`
+
+		filepath := fmt.Sprintf("%s/%s", t.TempDir(), configFileName)
+		f, err := os.Create(filepath)
+		require.Nil(t, err)
+		defer f.Close()
+		_, err2 := f.WriteString(configYaml)
+		require.Nil(t, err2)
+
+		file, err := os.ReadFile(filepath)
+		require.Nil(t, err)
+		weaviateConfig := &WeaviateConfig{}
+		config, err := weaviateConfig.parseConfigFile(file, configFileName)
+		require.Nil(t, err)
+
+		assert.True(t, config.Authentication.APIKey.Enabled)
+		assert.ElementsMatch(t, []string{"api-key-1", "api-key-2", "api-key-3"}, config.Authentication.APIKey.AllowedKeys)
+		assert.ElementsMatch(t, []string{"user1@weaviate.io", "user2@weaviate.io"}, config.Authentication.APIKey.Users)
+	})
 }

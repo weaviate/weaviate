@@ -255,7 +255,7 @@ func (b *classBuilder) additionalGroupField(classProperties graphql.Fields, clas
 			Name: fmt.Sprintf("%sAdditionalGroup", class.Class),
 			Fields: graphql.Fields{
 				"id":          &graphql.Field{Type: graphql.Int},
-				"groupValue":  &graphql.Field{Type: graphql.String},
+				"groupedBy":   &graphql.Field{Type: graphql.String},
 				"minDistance": &graphql.Field{Type: graphql.Float},
 				"maxDistance": &graphql.Field{Type: graphql.Float},
 				"count":       &graphql.Field{Type: graphql.Int},
