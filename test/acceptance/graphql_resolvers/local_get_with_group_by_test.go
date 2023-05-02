@@ -35,8 +35,9 @@ func groupByObjects(t *testing.T) {
 				additional := hit.(map[string]interface{})["_additional"].(map[string]interface{})
 				result = append(result, additional["id"].(string))
 			}
-			groupedBy := group["groupedBy"].(string)
-			return groupedBy, result
+			groupedBy := group["groupedBy"].(map[string]interface{})
+			groupedByValue := groupedBy["value"].(string)
+			return groupedByValue, result
 		}
 		query := `
 		{
@@ -54,7 +55,7 @@ func groupByObjects(t *testing.T) {
 					_additional{
 						id
 						group{
-							groupedBy
+							groupedBy{value}
 							count
 							maxDistance
 							minDistance

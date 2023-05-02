@@ -27,44 +27,44 @@ import (
 )
 
 func (s *Shard) groupResults(ctx context.Context, ids []uint64,
-	dists []float32, params *searchparams.GroupBy,
+	dists []float32, groupBy *searchparams.GroupBy,
 	additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	objsBucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	className := s.index.Config.ClassName
 	sch := s.index.getSchema.GetSchemaSkipAuth()
-	prop, err := sch.GetProperty(className, schema.PropertyName(params.Property))
+	prop, err := sch.GetProperty(className, schema.PropertyName(groupBy.Property))
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: unrecognized property: %s",
-			err, params.Property)
+			err, groupBy.Property)
 	}
 	dt, err := sch.FindPropertyDataType(prop.DataType)
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: unrecognized data type for property: %s",
-			err, params.Property)
+			err, groupBy.Property)
 	}
 
-	return newGrouper(ids, dists, params, objsBucket, dt, additional).Do(ctx)
+	return newGrouper(ids, dists, groupBy, objsBucket, dt, additional).Do(ctx)
 }
 
 type grouper struct {
 	ids              []uint64
 	dists            []float32
-	params           *searchparams.GroupBy
+	groupBy          *searchparams.GroupBy
 	additional       additional.Properties
 	propertyDataType schema.PropertyDataType
 	objBucket        *lsmkv.Bucket
 }
 
 func newGrouper(ids []uint64, dists []float32,
-	params *searchparams.GroupBy, objBucket *lsmkv.Bucket,
+	groupBy *searchparams.GroupBy, objBucket *lsmkv.Bucket,
 	propertyDataType schema.PropertyDataType,
 	additional additional.Properties,
 ) *grouper {
 	return &grouper{
 		ids:              ids,
 		dists:            dists,
-		params:           params,
+		groupBy:          groupBy,
 		objBucket:        objBucket,
 		propertyDataType: propertyDataType,
 		additional:       additional,
@@ -89,7 +89,7 @@ DOCS_LOOP:
 		if objData == nil {
 			continue
 		}
-		value, ok, _ := storobj.ParseAndExtractProperty(objData, g.params.Property)
+		value, ok, _ := storobj.ParseAndExtractProperty(objData, g.groupBy.Property)
 		if !ok {
 			continue
 		}
@@ -101,11 +101,11 @@ DOCS_LOOP:
 
 		for _, val := range values {
 			current, groupExists := groups[val]
-			if len(current) >= g.params.ObjectsPerGroup {
+			if len(current) >= g.groupBy.ObjectsPerGroup {
 				continue
 			}
 
-			if !groupExists && len(groups) >= g.params.Groups {
+			if !groupExists && len(groups) >= g.groupBy.Groups {
 				continue DOCS_LOOP
 			}
 
@@ -153,8 +153,11 @@ DOCS_LOOP:
 			hits[j] = props
 		}
 		group := &additional.Group{
-			ID:          i,
-			GroupedBy:   val,
+			ID: i,
+			GroupedBy: &additional.GroupedBy{
+				Value: val,
+				Path:  []string{g.groupBy.Property},
+			},
 			Count:       len(hits),
 			Hits:        hits,
 			MinDistance: docIDDistance[docIDs[0]],

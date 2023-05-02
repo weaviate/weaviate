@@ -414,8 +414,11 @@ func TestStorageObjectMarshallingWithGroup(t *testing.T) {
 					},
 				},
 				"group": &additional.Group{
-					ID:          100,
-					GroupedBy:   "group-by-some-property",
+					ID: 100,
+					GroupedBy: &additional.GroupedBy{
+						Value: "group-by-some-property",
+						Path:  []string{"property-path"},
+					},
 					MaxDistance: 0.1,
 					MinDistance: 0.2,
 					Count:       200,
@@ -479,7 +482,9 @@ func TestStorageObjectMarshallingWithGroup(t *testing.T) {
 		group, ok := after.AdditionalProperties()["group"].(*additional.Group)
 		require.True(t, ok)
 		assert.Equal(t, 100, group.ID)
-		assert.Equal(t, "group-by-some-property", group.GroupedBy)
+		assert.NotNil(t, group.GroupedBy)
+		assert.Equal(t, "group-by-some-property", group.GroupedBy.Value)
+		assert.Equal(t, []string{"property-path"}, group.GroupedBy.Path)
 		assert.Equal(t, 200, group.Count)
 		assert.Equal(t, float32(0.1), group.MaxDistance)
 		assert.Equal(t, float32(0.2), group.MinDistance)
