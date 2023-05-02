@@ -38,8 +38,9 @@ func GroupBySingleAndMultiShardTests(t *testing.T, weaviateEndpoint string) {
 			additional := hit.(map[string]interface{})["_additional"].(map[string]interface{})
 			result = append(result, additional["id"].(string))
 		}
-		groupedBy := group["groupedBy"].(string)
-		return groupedBy, result
+		groupedBy := group["groupedBy"].(map[string]interface{})
+		groupedByValue := groupedBy["value"].(string)
+		return groupedByValue, result
 	}
 	// test methods
 	create := func(t *testing.T, multishard bool) {
@@ -68,7 +69,7 @@ func GroupBySingleAndMultiShardTests(t *testing.T, weaviateEndpoint string) {
 					_additional{
 						id
 						group{
-							groupedBy
+							groupedBy{value}
 							count
 							maxDistance
 							minDistance

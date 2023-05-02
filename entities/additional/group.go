@@ -13,11 +13,16 @@ package additional
 
 type Group struct {
 	ID          int                      `json:"id"`
-	GroupedBy   string                   `json:"groupedBy"`
+	GroupedBy   *GroupedBy               `json:"groupedBy"`
 	MinDistance float32                  `json:"minDistance"`
 	MaxDistance float32                  `json:"maxDistance"`
 	Count       int                      `json:"count"`
 	Hits        []map[string]interface{} `json:"hits"`
+}
+
+type GroupedBy struct {
+	Value string   `json:"value"`
+	Path  []string `json:"path"`
 }
 
 type GroupHitAdditional struct {
