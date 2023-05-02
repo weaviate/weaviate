@@ -261,16 +261,18 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 
 	if status.docIDChanged {
 		oldObject, err := storobj.FromBinary(previous)
-
-		oldProps, _, err := s.analyzeObject(oldObject)
 		if err != nil {
-			s.index.logger.WithField("action", "subtractPropLengths").WithError(err).Error("could not subtract prop lengths")
-		}
 
-		if err := s.subtractPropLengths(oldProps); err != nil {
-			s.index.logger.WithField("action", "subtractPropLengths").WithError(err).Error("could not subtract prop lengths")
-		}
+			oldProps, _, err := s.analyzeObject(oldObject)
+			if err != nil {
+				s.index.logger.WithField("action", "subtractPropLengths").WithError(err).Error("could not analyse prop lengths")
+			}
 
+			if err := s.subtractPropLengths(oldProps); err != nil {
+				s.index.logger.WithField("action", "subtractPropLengths").WithError(err).Error("could not subtract prop lengths")
+			}
+
+		}
 	}
 
 	// TODO: metrics
