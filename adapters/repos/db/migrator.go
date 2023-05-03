@@ -234,11 +234,10 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 	for _, index := range m.db.indices {
 
 		// Clear the shards before counting
-		 index.IterateShards(ctx, func(index *Index, shard *Shard) error {
+		index.IterateShards(ctx, func(index *Index, shard *Shard) error {
 			shard.propLengths.Clear()
 			return nil
 		})
-
 
 		// Iterate over all shards
 		index.IterateObjects(ctx, func(index *Index, shard *Shard, object *storobj.Object) error {
@@ -258,7 +257,6 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 
 			return nil
 		})
-	
 
 		// Flush the propLengths to disk
 		err := index.IterateShards(ctx, func(index *Index, shard *Shard) error {
