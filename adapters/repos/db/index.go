@@ -148,6 +148,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	return index, nil
 }
 
+// Iterate over all objects in the index, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
 func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard *Shard, object *storobj.Object) error) error {
 	for _, shard := range i.Shards {
 		wrapper := func(object *storobj.Object) error {
@@ -161,6 +162,7 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 	return nil
 }
 
+// Iterate over all objects in the shard, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
 func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard *Shard) error) error {
 	for _, shard := range i.Shards {
 		if err := cb(i, shard); err != nil {
