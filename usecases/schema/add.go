@@ -260,9 +260,11 @@ func (m *Manager) setPropertyDefaultIndexing(prop *models.Property) {
 	}
 	if prop.IndexSearchable == nil {
 		switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
-		// string/string[] are migrated into text/text[] later,
-		// at this point they are still valid data type, therefore should be handled here
-		case schema.DataTypeString, schema.DataTypeStringArray, schema.DataTypeText, schema.DataTypeTextArray:
+		case schema.DataTypeString, schema.DataTypeStringArray:
+			// string/string[] are migrated to text/text[] later,
+			// at this point they are still valid data types, therefore should be handled here
+			fallthrough
+		case schema.DataTypeText, schema.DataTypeTextArray:
 			prop.IndexSearchable = &vTrue
 		default:
 			vFalse := false
@@ -388,7 +390,11 @@ func (m *Manager) validateProperty(
 		return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
 	}
 
-	if err := validatePropertyTokenization(property.Tokenization, propertyDataType); err != nil {
+	if err := m.validatePropertyTokenization(property.Tokenization, propertyDataType); err != nil {
+		return err
+	}
+
+	if err := m.validatePropertyIndexing(property); err != nil {
 		return err
 	}
 
