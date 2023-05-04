@@ -2,10 +2,15 @@ module acceptance_tests_with_client
 
 go 1.19
 
+replace (
+        github.com/weaviate/weaviate v1.19.0 => ../..
+)
+
+
 require (
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.8.2
-	github.com/weaviate/weaviate v1.19.0-beta.1.0.20230424082040-b053defd25ee
+	github.com/weaviate/weaviate v1.19.0
 	github.com/weaviate/weaviate-go-client/v4 v4.7.1
 )
 

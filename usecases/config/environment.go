@@ -42,6 +42,11 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	// Recount all property lengths at startup to support accurate BM25 scoring
+	if enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {
+		config.RecountPropertiesAtStartup = true
+	}
+
 	if enabled(os.Getenv("REINDEX_SET_TO_ROARINGSET_AT_STARTUP")) {
 		config.ReindexSetToRoaringsetAtStartup = true
 	}

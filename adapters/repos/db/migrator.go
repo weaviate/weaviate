@@ -222,6 +222,63 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	return nil
 }
 
+func (m *Migrator) RecountProperties(ctx context.Context) error {
+	count := 0
+	m.logger.
+		WithField("action", "recount").
+		Info("Recounting properties, this may take a while")
+
+	m.db.indexLock.Lock()
+	defer m.db.indexLock.Unlock()
+	// Iterate over all indexes
+	for _, index := range m.db.indices {
+
+		// Clear the shards before counting
+		index.IterateShards(ctx, func(index *Index, shard *Shard) error {
+			shard.propLengths.Clear()
+			return nil
+		})
+
+		// Iterate over all shards
+		index.IterateObjects(ctx, func(index *Index, shard *Shard, object *storobj.Object) error {
+			count = count + 1
+			props, _, err := shard.analyzeObject(object)
+			if err != nil {
+				m.logger.WithField("error", err).Error("could not analyze object")
+				return nil
+			}
+
+			if err := shard.addPropLengths(props); err != nil {
+				m.logger.WithField("error", err).Error("could not add prop lengths")
+				return nil
+			}
+
+			shard.propLengths.Flush(false)
+
+			return nil
+		})
+
+		// Flush the propLengths to disk
+		err := index.IterateShards(ctx, func(index *Index, shard *Shard) error {
+			return shard.propLengths.Flush(false)
+		})
+		if err != nil {
+			m.logger.WithField("error", err).Error("could not flush prop lengths")
+		}
+
+	}
+	go func() {
+		for {
+			m.logger.
+				WithField("action", "recount").
+				Warnf("Recounted %v objects. Recounting properties complete. Please remove environment variable 	RECOUNT_PROPERTIES_AT_STARTUP before next startup", count)
+			time.Sleep(5 * time.Minute)
+		}
+	}()
+
+	return nil
+}
+
 func (m *Migrator) InvertedReindex(ctx context.Context, taskNames ...string) error {
 	var errs errorcompounder.ErrorCompounder
 	errs.Add(m.doInvertedReindex(ctx, taskNames...))

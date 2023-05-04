@@ -2,6 +2,10 @@ module github.com/weaviate/weaviate/test/benchmark_bm25
 
 go 1.19
 
+replace (
+	github.com/weaviate/weaviate => ../..
+)
+
 require (
 	github.com/go-openapi/strfmt v0.21.3
 	github.com/google/uuid v1.3.0

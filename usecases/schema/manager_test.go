@@ -96,6 +96,10 @@ func (n *NilMigrator) AdjustFilterablePropSettings(ctx context.Context) error {
 	return nil
 }
 
+func (n *NilMigrator) RecountProperties(ctx context.Context) error {
+	return nil
+}
+
 var schemaTests = []struct {
 	name string
 	fn   func(*testing.T, *Manager)
