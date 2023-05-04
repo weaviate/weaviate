@@ -278,6 +278,22 @@ func (s *Shard) addPropLengths(props []inverted.Property) error {
 		if err := s.propLengths.TrackProperty(prop.Name, float32(len(prop.Items))); err != nil {
 			return err
 		}
+
+	}
+
+	return nil
+}
+
+func (s *Shard) subtractPropLengths(props []inverted.Property) error {
+	for _, prop := range props {
+		if !prop.HasSearchableIndex {
+			continue
+		}
+
+		if err := s.propLengths.UnTrackProperty(prop.Name, float32(len(prop.Items))); err != nil {
+			return err
+		}
+
 	}
 
 	return nil

@@ -441,6 +441,10 @@ func TestBM25FSingleProp(t *testing.T) {
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
 	addit := additional.Properties{}
 	res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
+	t.Log("--- Start results for singleprop search ---")
+	for _, r := range res {
+		t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+	}
 	require.Nil(t, err)
 	// Check results in correct order
 	require.Equal(t, uint64(3), res[0].DocID())
