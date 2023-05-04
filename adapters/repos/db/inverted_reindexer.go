@@ -292,21 +292,14 @@ func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexa
 func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *reindexablePropertyChecker,
 	docID uint64, property inverted.Property,
 ) error {
-	reindexableHashPropValue := checker.isReindexable(property.Name, IndexTypeHashPropValue)
 	reindexablePropValue := checker.isReindexable(property.Name, IndexTypePropValue)
 	reindexablePropSearchableValue := checker.isReindexable(property.Name, IndexTypePropSearchableValue)
 
-	if reindexableHashPropValue || reindexablePropValue || reindexablePropSearchableValue {
+	if reindexablePropValue || reindexablePropSearchableValue {
 		schemaProp := checker.getSchemaProp(property.Name)
 
-		var hashBucketValue, bucketValue, bucketSearchableValue *lsmkv.Bucket
+		var bucketValue, bucketSearchableValue *lsmkv.Bucket
 
-		if reindexableHashPropValue {
-			hashBucketValue = r.tempBucket(property.Name, IndexTypeHashPropValue)
-			if hashBucketValue == nil {
-				return fmt.Errorf("no hash bucket for prop '%s' value found", property.Name)
-			}
-		}
 		if reindexablePropValue {
 			bucketValue = r.tempBucket(property.Name, IndexTypePropValue)
 			if bucketValue == nil {
@@ -323,11 +316,6 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 		propLen := float32(len(property.Items))
 		for _, item := range property.Items {
 			key := item.Data
-			if reindexableHashPropValue && inverted.HasInvertedIndex(schemaProp) {
-				if err := r.shard.addToPropertyHashBucket(hashBucketValue, key); err != nil {
-					return errors.Wrapf(err, "failed adding to prop '%s' value hash bucket", property.Name)
-				}
-			}
 			if reindexablePropSearchableValue && inverted.HasSearchableIndex(schemaProp) {
 				pair := r.shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
 				if err := r.shard.addToPropertyMapBucket(bucketSearchableValue, pair, key); err != nil {
@@ -354,15 +342,6 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 		if err != nil {
 			return errors.Wrapf(err, "failed creating key for prop '%s' length", property.Name)
 		}
-		if checker.isReindexable(property.Name, IndexTypeHashPropLength) {
-			hashBucketLength := r.tempBucket(property.Name, IndexTypeHashPropLength)
-			if hashBucketLength == nil {
-				return fmt.Errorf("no hash bucket for prop '%s' length found", property.Name)
-			}
-			if err := r.shard.addToPropertyHashBucket(hashBucketLength, key); err != nil {
-				return errors.Wrapf(err, "failed adding to prop '%s' length hash bucket", property.Name)
-			}
-		}
 		if checker.isReindexable(property.Name, IndexTypePropLength) {
 			bucketLength := r.tempBucket(property.Name, IndexTypePropLength)
 			if bucketLength == nil {
@@ -378,15 +357,6 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 		key, err := r.shard.keyPropertyNull(property.Length == 0)
 		if err != nil {
 			return errors.Wrapf(err, "failed creating key for prop '%s' null", property.Name)
-		}
-		if checker.isReindexable(property.Name, IndexTypeHashPropNull) {
-			hashBucketNull := r.tempBucket(property.Name, IndexTypeHashPropNull)
-			if hashBucketNull == nil {
-				return fmt.Errorf("no hash bucket for prop '%s' null found", property.Name)
-			}
-			if err := r.shard.addToPropertyHashBucket(hashBucketNull, key); err != nil {
-				return errors.Wrapf(err, "failed adding to prop '%s' null hash bucket", property.Name)
-			}
 		}
 		if checker.isReindexable(property.Name, IndexTypePropNull) {
 			bucketNull := r.tempBucket(property.Name, IndexTypePropNull)
@@ -410,15 +380,6 @@ func (r *ShardInvertedReindexer) handleNilProperty(ctx context.Context, checker 
 		if err != nil {
 			return errors.Wrapf(err, "failed creating key for prop '%s' length", nilProperty.Name)
 		}
-		if checker.isReindexable(nilProperty.Name, IndexTypeHashPropLength) {
-			hashBucketLength := r.tempBucket(nilProperty.Name, IndexTypeHashPropLength)
-			if hashBucketLength == nil {
-				return fmt.Errorf("no hash bucket for prop '%s' length found", nilProperty.Name)
-			}
-			if err := r.shard.addToPropertyHashBucket(hashBucketLength, key); err != nil {
-				return errors.Wrapf(err, "failed adding to prop '%s' length hash bucket", nilProperty.Name)
-			}
-		}
 		if checker.isReindexable(nilProperty.Name, IndexTypePropLength) {
 			bucketLength := r.tempBucket(nilProperty.Name, IndexTypePropLength)
 			if bucketLength == nil {
@@ -434,15 +395,6 @@ func (r *ShardInvertedReindexer) handleNilProperty(ctx context.Context, checker 
 		key, err := r.shard.keyPropertyNull(true)
 		if err != nil {
 			return errors.Wrapf(err, "failed creating key for prop '%s' null", nilProperty.Name)
-		}
-		if checker.isReindexable(nilProperty.Name, IndexTypeHashPropNull) {
-			hashBucketNull := r.tempBucket(nilProperty.Name, IndexTypeHashPropNull)
-			if hashBucketNull == nil {
-				return fmt.Errorf("no hash bucket for prop '%s' null found", nilProperty.Name)
-			}
-			if err := r.shard.addToPropertyHashBucket(hashBucketNull, key); err != nil {
-				return errors.Wrapf(err, "failed adding to prop '%s' null hash bucket", nilProperty.Name)
-			}
 		}
 		if checker.isReindexable(nilProperty.Name, IndexTypePropNull) {
 			bucketNull := r.tempBucket(nilProperty.Name, IndexTypePropNull)
@@ -470,12 +422,6 @@ func (r *ShardInvertedReindexer) bucketName(propName string, indexType PropertyI
 		return helpers.BucketFromPropNameLengthLSM(propName)
 	case IndexTypePropNull:
 		return helpers.BucketFromPropNameNullLSM(propName)
-	case IndexTypeHashPropValue:
-		return helpers.HashBucketFromPropNameLSM(propName)
-	case IndexTypeHashPropLength:
-		return helpers.HashBucketFromPropNameLengthLSM(propName)
-	case IndexTypeHashPropNull:
-		return helpers.HashBucketFromPropNameNullLSM(propName)
 	default:
 		return ""
 	}

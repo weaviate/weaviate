@@ -215,14 +215,9 @@ func (b *referencesBatcher) writeInvertedDeletions(
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}
 
-			hashBucket := b.shard.store.Bucket(helpers.HashBucketFromPropNameLSM(prop.Name))
-			if hashBucket == nil {
-				return errors.Errorf("no hash bucket for prop '%s' found", prop.Name)
-			}
-
 			for _, item := range prop.MergeItems {
 				for _, id := range item.DocIDs {
-					err := b.shard.deleteInvertedIndexItemLSM(bucket, hashBucket,
+					err := b.shard.deleteInvertedIndexItemLSM(bucket,
 						inverted.Countable{Data: item.Data}, id.DocID)
 					if err != nil {
 						return err
@@ -249,14 +244,8 @@ func (b *referencesBatcher) writeInvertedAdditions(
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}
 
-			hashBucket := b.shard.store.Bucket(helpers.HashBucketFromPropNameLSM(prop.Name))
-			if hashBucket == nil {
-				return errors.Errorf("no hash bucket for prop '%s' found", prop.Name)
-			}
-
 			for _, item := range prop.MergeItems {
-				err := b.shard.batchExtendInvertedIndexItemsLSMNoFrequency(bucket, hashBucket,
-					item)
+				err := b.shard.batchExtendInvertedIndexItemsLSMNoFrequency(bucket, item)
 				if err != nil {
 					return err
 				}
