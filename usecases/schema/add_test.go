@@ -605,77 +605,92 @@ func TestAddClass_DefaultsAndMigration(t *testing.T) {
 
 		testCases := []testCase{}
 
-		for _, inverted := range allBoolPtrs {
-			for _, filterable := range allBoolPtrs {
-				for _, searchable := range allBoolPtrs {
-					dataType := schema.DataTypeText
-
-					if filterable == nil && searchable == nil && inverted != nil {
-						testCases = append(testCases, testCase{
-							propName:           propName(dataType, inverted, filterable, searchable),
-							dataType:           dataType,
-							indexInverted:      inverted,
-							indexFilterable:    filterable,
-							indexSearchable:    searchable,
-							expectedInverted:   nil,
-							expectedFilterable: inverted,
-							expectedSearchable: inverted,
-						})
-					} else {
-						expectedFilterable := filterable
-						if filterable == nil {
-							expectedFilterable = &vTrue
-						}
-						expectedSearchable := searchable
-						if searchable == nil {
-							expectedSearchable = &vTrue
+		for _, dataType := range []schema.DataType{schema.DataTypeText, schema.DataTypeInt} {
+			for _, inverted := range allBoolPtrs {
+				for _, filterable := range allBoolPtrs {
+					for _, searchable := range allBoolPtrs {
+						if inverted != nil {
+							if filterable != nil || searchable != nil {
+								// invalid combination, indexInverted can not be set
+								// together with indexFilterable or indexSearchable
+								continue
+							}
 						}
 
-						testCases = append(testCases, testCase{
-							propName:           propName(dataType, inverted, filterable, searchable),
-							dataType:           dataType,
-							indexInverted:      inverted,
-							indexFilterable:    filterable,
-							indexSearchable:    searchable,
-							expectedInverted:   nil,
-							expectedFilterable: expectedFilterable,
-							expectedSearchable: expectedSearchable,
-						})
-					}
-
-					dataType = schema.DataTypeInt
-
-					if filterable == nil && searchable == nil && inverted != nil {
-						testCases = append(testCases, testCase{
-							propName:           propName(dataType, inverted, filterable, searchable),
-							dataType:           dataType,
-							indexInverted:      inverted,
-							indexFilterable:    filterable,
-							indexSearchable:    searchable,
-							expectedInverted:   nil,
-							expectedFilterable: inverted,
-							expectedSearchable: &vFalse,
-						})
-					} else {
-						expectedFilterable := filterable
-						if filterable == nil {
-							expectedFilterable = &vTrue
-						}
-						expectedSearchable := searchable
-						if searchable == nil {
-							expectedSearchable = &vFalse
+						if searchable != nil && *searchable {
+							if dataType != schema.DataTypeText {
+								// invalid combination, indexSearchable can not be enabled
+								// for non text/text[] data type
+								continue
+							}
 						}
 
-						testCases = append(testCases, testCase{
-							propName:           propName(dataType, inverted, filterable, searchable),
-							dataType:           dataType,
-							indexInverted:      inverted,
-							indexFilterable:    filterable,
-							indexSearchable:    searchable,
-							expectedInverted:   nil,
-							expectedFilterable: expectedFilterable,
-							expectedSearchable: expectedSearchable,
-						})
+						switch dataType {
+						case schema.DataTypeText:
+							if inverted != nil {
+								testCases = append(testCases, testCase{
+									propName:           propName(dataType, inverted, filterable, searchable),
+									dataType:           dataType,
+									indexInverted:      inverted,
+									indexFilterable:    filterable,
+									indexSearchable:    searchable,
+									expectedInverted:   nil,
+									expectedFilterable: inverted,
+									expectedSearchable: inverted,
+								})
+							} else {
+								expectedFilterable := filterable
+								if filterable == nil {
+									expectedFilterable = &vTrue
+								}
+								expectedSearchable := searchable
+								if searchable == nil {
+									expectedSearchable = &vTrue
+								}
+								testCases = append(testCases, testCase{
+									propName:           propName(dataType, inverted, filterable, searchable),
+									dataType:           dataType,
+									indexInverted:      inverted,
+									indexFilterable:    filterable,
+									indexSearchable:    searchable,
+									expectedInverted:   nil,
+									expectedFilterable: expectedFilterable,
+									expectedSearchable: expectedSearchable,
+								})
+							}
+						default:
+							if inverted != nil {
+								testCases = append(testCases, testCase{
+									propName:           propName(dataType, inverted, filterable, searchable),
+									dataType:           dataType,
+									indexInverted:      inverted,
+									indexFilterable:    filterable,
+									indexSearchable:    searchable,
+									expectedInverted:   nil,
+									expectedFilterable: inverted,
+									expectedSearchable: &vFalse,
+								})
+							} else {
+								expectedFilterable := filterable
+								if filterable == nil {
+									expectedFilterable = &vTrue
+								}
+								expectedSearchable := searchable
+								if searchable == nil {
+									expectedSearchable = &vFalse
+								}
+								testCases = append(testCases, testCase{
+									propName:           propName(dataType, inverted, filterable, searchable),
+									dataType:           dataType,
+									indexInverted:      inverted,
+									indexFilterable:    filterable,
+									indexSearchable:    searchable,
+									expectedInverted:   nil,
+									expectedFilterable: expectedFilterable,
+									expectedSearchable: expectedSearchable,
+								})
+							}
+						}
 					}
 				}
 			}
