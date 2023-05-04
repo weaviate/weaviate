@@ -120,14 +120,8 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 				createBucket := shd.store.Bucket("property__creationTimeUnix")
 				assert.NotNil(t, createBucket)
 
-				createHashBucket := shd.store.Bucket("hash_property__creationTimeUnix")
-				assert.NotNil(t, createHashBucket)
-
 				updateBucket := shd.store.Bucket("property__lastUpdateTimeUnix")
 				assert.NotNil(t, updateBucket)
-
-				updateHashBucket := shd.store.Bucket("hash_property__lastUpdateTimeUnix")
-				assert.NotNil(t, updateHashBucket, "hash_property__creationTimeUnix bucket not found")
 
 				cases := []struct {
 					prop        string
@@ -142,10 +136,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 				}
 				for _, tt := range cases {
 					tt.compareFunc(t, shd.store.Bucket("property_"+tt.prop+filters.InternalNullIndex))
-					tt.compareFunc(t, shd.store.Bucket("hash_property_"+tt.prop+filters.InternalNullIndex))
-
 					tt.compareFunc(t, shd.store.Bucket("property_"+tt.prop+filters.InternalPropertyLength))
-					tt.compareFunc(t, shd.store.Bucket("hash_property_"+tt.prop+filters.InternalPropertyLength))
 				}
 			}
 		}
@@ -183,11 +174,8 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		for _, idx := range migrator.db.indices {
 			for _, shd := range idx.Shards {
 				require.Nil(t, shd.store.Bucket("property__creationTimeUnix"))
-				require.Nil(t, shd.store.Bucket("hash_property__creationTimeUnix"))
 				require.Nil(t, shd.store.Bucket("property_name"+filters.InternalNullIndex))
-				require.Nil(t, shd.store.Bucket("hash_property_name"+filters.InternalNullIndex))
 				require.Nil(t, shd.store.Bucket("property_name"+filters.InternalPropertyLength))
-				require.Nil(t, shd.store.Bucket("hash_property_name"+filters.InternalPropertyLength))
 			}
 		}
 	})

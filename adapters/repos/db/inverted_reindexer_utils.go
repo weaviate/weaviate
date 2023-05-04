@@ -42,18 +42,6 @@ func GetPropNameAndIndexTypeFromBucketName(bucketName string) (string, PropertyI
 			IndexTypePropValue,
 			helpers.BucketFromPropNameLSM,
 		},
-		{
-			IndexTypeHashPropNull,
-			helpers.HashBucketFromPropNameNullLSM,
-		},
-		{
-			IndexTypeHashPropLength,
-			helpers.HashBucketFromPropNameLengthLSM,
-		},
-		{
-			IndexTypeHashPropValue,
-			helpers.HashBucketFromPropNameLSM,
-		},
 	}
 
 	for _, t := range types {
