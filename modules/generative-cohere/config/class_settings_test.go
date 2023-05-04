@@ -21,93 +21,57 @@ import (
 
 func Test_classSettings_Validate(t *testing.T) {
 	tests := []struct {
-		name                 string
-		cfg                  moduletools.ClassConfig
-		wantModel            string
-		wantMaxTokens        float64
-		wantTemperature      float64
-		wantTopP             float64
-		wantFrequencyPenalty float64
-		wantPresencePenalty  float64
-		wantErr              error
+		name                  string
+		cfg                   moduletools.ClassConfig
+		wantModel             string
+		wantMaxTokens         int
+		wantTemperature       int
+		wantK                 int
+		wantStopSequences     []string
+		wantReturnLikelihoods string
+		wantErr               error
 	}{
 		{
-			name: "Happy flow",
+			name: "default settings",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},
-			wantModel:            "text-davinci-003",
-			wantMaxTokens:        1200,
-			wantTemperature:      0.0,
-			wantTopP:             1,
-			wantFrequencyPenalty: 0.0,
-			wantPresencePenalty:  0.0,
-			wantErr:              nil,
+			wantModel:             "command-xlarge-nightly",
+			wantMaxTokens:         2048,
+			wantTemperature:       0,
+			wantK:                 0,
+			wantStopSequences:     []string{},
+			wantReturnLikelihoods: "NONE",
+			wantErr:               nil,
 		},
 		{
-			name: "Everything non default configured",
+			name: "everything non default configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"model":            "text-davinci-003",
-					"maxTokens":        1200,
-					"temperature":      0.5,
-					"topP":             3,
-					"frequencyPenalty": 0.1,
-					"presencePenalty":  0.9,
+					"model":             "command-xlarge",
+					"maxTokens":         2048,
+					"temperature":       1,
+					"k":                 2,
+					"stopSequences":     []string{"stop1", "stop2"},
+					"returnLikelihoods": "NONE",
 				},
 			},
-			wantModel:            "text-davinci-003",
-			wantMaxTokens:        1200,
-			wantTemperature:      0.5,
-			wantTopP:             3,
-			wantFrequencyPenalty: 0.1,
-			wantPresencePenalty:  0.9,
-			wantErr:              nil,
+			wantModel:             "command-xlarge",
+			wantMaxTokens:         2048,
+			wantTemperature:       1,
+			wantK:                 2,
+			wantStopSequences:     []string{"stop1", "stop2"},
+			wantReturnLikelihoods: "NONE",
+			wantErr:               nil,
 		},
 		{
-			name: "Wrong maxTokens configured",
+			name: "wrong model configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"maxTokens": true,
+					"model": "wrong-model",
 				},
 			},
-			wantErr: errors.Errorf("Wrong maxTokens configuration, values are should have a minimal value of 1 and max is dependant on the model used"),
-		},
-		{
-			name: "Wrong temperature configured",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"temperature": true,
-				},
-			},
-			wantErr: errors.Errorf("Wrong temperature configuration, values are between 0.0 and 1.0"),
-		},
-		{
-			name: "Wrong frequencyPenalty configured",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"frequencyPenalty": true,
-				},
-			},
-			wantErr: errors.Errorf("Wrong frequencyPenalty configuration, values are between 0.0 and 1.0"),
-		},
-		{
-			name: "Wrong presencePenalty configured",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"presencePenalty": true,
-				},
-			},
-			wantErr: errors.Errorf("Wrong presencePenalty configuration, values are between 0.0 and 1.0"),
-		},
-		{
-			name: "Wrong topP configured",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"topP": true,
-				},
-			},
-			wantErr: errors.Errorf("Wrong topP configuration, values are should have a minimal value of 1 and max of 5"),
+			wantErr: errors.Errorf("wrong Cohere model name, available model names are: [command-xlarge-beta command-xlarge command-xlarge-nightly]"),
 		},
 	}
 	for _, tt := range tests {
@@ -119,9 +83,9 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantModel, ic.Model())
 				assert.Equal(t, tt.wantMaxTokens, ic.MaxTokens())
 				assert.Equal(t, tt.wantTemperature, ic.Temperature())
-				assert.Equal(t, tt.wantTopP, ic.TopP())
-				assert.Equal(t, tt.wantFrequencyPenalty, ic.FrequencyPenalty())
-				assert.Equal(t, tt.wantPresencePenalty, ic.PresencePenalty())
+				assert.Equal(t, tt.wantK, ic.K())
+				assert.Equal(t, tt.wantStopSequences, ic.StopSequences())
+				assert.Equal(t, tt.wantReturnLikelihoods, ic.ReturnLikelihoods())
 			}
 		})
 	}

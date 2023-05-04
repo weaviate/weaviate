@@ -59,7 +59,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	}
 	model := ic.getStringProperty(modelProperty, DefaultCohereModel)
 	if model == nil || !ic.validateModel(*model) {
-		return errors.Errorf("wrong OpenAI model name, available model names are: %v", availableCohereModels)
+		return errors.Errorf("wrong Cohere model name, available model names are: %v", availableCohereModels)
 	}
 
 	return nil
@@ -107,38 +107,6 @@ func (ic *classSettings) getIntProperty(name string, defaultValue *int) *int {
 			return &asInt
 		}
 		var wrongVal int = -1
-		return &wrongVal
-	}
-
-	if defaultValue != nil {
-		return defaultValue
-	}
-	return nil
-}
-
-func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *float64 {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	val, ok := ic.cfg.ClassByModuleName("generative-cohere")[name]
-	if ok {
-		asFloat, ok := val.(float64)
-		if ok {
-			return &asFloat
-		}
-		asNumber, ok := val.(json.Number)
-		if ok {
-			asFloat, _ := asNumber.Float64()
-			return &asFloat
-		}
-		asInt, ok := val.(int)
-		if ok {
-			asFloat := float64(asInt)
-			return &asFloat
-		}
-		var wrongVal float64 = -1.0
 		return &wrongVal
 	}
 
