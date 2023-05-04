@@ -37,6 +37,11 @@ func TestGetAnswer(t *testing.T) {
 		handler := &testAnswerHandler{
 			t: t,
 			answer: generateResponse{
+				Generations: []generation{
+					{
+						Text: "John",
+					},
+				},
 				Error: nil,
 			},
 		}
@@ -84,7 +89,7 @@ type testAnswerHandler struct {
 }
 
 func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	assert.Equal(f.t, "/v1/completions", r.URL.String())
+	assert.Equal(f.t, "/v1/generate", r.URL.String())
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
 	if f.answer.Error != nil && f.answer.Error.Message != "" {

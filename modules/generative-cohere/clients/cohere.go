@@ -69,11 +69,7 @@ func (v *cohere) GenerateAllResults(ctx context.Context, textProperties []map[st
 }
 
 func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*ent.GenerateResult, error) {
-	//Leave this
 	settings := config.NewClassSettings(cfg)
-	fmt.Sprintf("%v", settings)
-
-	//Create request
 
 	cohereUrl, err := url.JoinPath(v.host, v.path)
 	if err != nil {
@@ -94,7 +90,6 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Wrap(err, "marshal body")
 	}
 
-	//todo put body back
 	req, err := http.NewRequestWithContext(ctx, "POST", cohereUrl,
 		bytes.NewReader(body))
 	if err != nil {
@@ -123,14 +118,13 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
-	if res.StatusCode > 399 {
+	if res.StatusCode != 200 || resBody.Error != nil {
 		if resBody.Error != nil {
-			return nil, errors.Errorf("failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)
+			return nil, errors.Errorf("connection to Cohere API failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)
 		}
-		return nil, errors.Errorf("failed with status: %d", res.StatusCode)
+		return nil, errors.Errorf("connection to Cohere API failed with status: %d", res.StatusCode)
 	}
 
-	//call Cohere and parse response
 	textResponse := resBody.Generations[0].Text
 
 	return &ent.GenerateResult{
