@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/pkg/errors"
@@ -80,7 +81,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 	// WEAVIATE-471 - If a property is not searchable, return an error
 	for _, property := range keywordRanking.Properties {
 		if !PropertyHasSearchableIndex(b.schema.Objects, string(className), property) {
-			return nil, nil, errors.New("Property " + property + " is not indexed.  Please choose another property or add an index to this property")
+			return nil, nil, inverted.NewMissingSearchableIndexError(property)
 		}
 	}
 	class, err := schema.GetClassByName(b.schema.Objects, string(className))

@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -158,6 +159,10 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 
 	res, err := e.search.ClassSearch(ctx, params)
 	if err != nil {
+		var e inverted.MissingIndexError
+		if errors.As(err, &e) {
+			return nil, e
+		}
 		return nil, errors.Errorf("explorer: get class: vector search: %v", err)
 	}
 
@@ -310,6 +315,10 @@ func (e *Explorer) getClassList(ctx context.Context,
 	} else {
 		res, err = e.search.ClassSearch(ctx, params)
 		if err != nil {
+			var e inverted.MissingIndexError
+			if errors.As(err, &e) {
+				return nil, e
+			}
 			return nil, errors.Errorf("explorer: list class: search: %v", err)
 		}
 	}
