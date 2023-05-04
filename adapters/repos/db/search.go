@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -88,7 +89,7 @@ func (db *DB) ClassSearch(ctx context.Context,
 
 	return db.ResolveReferences(ctx,
 		storobj.SearchResults(db.getStoreObjects(res, params.Pagination), params.AdditionalProperties),
-		params.Properties, params.AdditionalProperties)
+		params.Properties, params.GroupBy, params.AdditionalProperties)
 }
 
 func (db *DB) VectorClassSearch(ctx context.Context,
@@ -110,7 +111,7 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 
 	targetDist := extractDistanceFromParams(params)
 	res, dists, err := idx.objectVectorSearch(ctx, params.SearchVector, targetDist,
-		totalLimit, params.Filters, params.Sort, params.AdditionalProperties)
+		totalLimit, params.Filters, params.Sort, params.GroupBy, params.AdditionalProperties)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
 	}
@@ -122,7 +123,7 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 	return db.ResolveReferences(ctx,
 		storobj.SearchResultsWithDists(db.getStoreObjects(res, params.Pagination),
 			params.AdditionalProperties, db.getDists(dists, params.Pagination)),
-		params.Properties, params.AdditionalProperties)
+		params.Properties, params.GroupBy, params.AdditionalProperties)
 }
 
 func extractDistanceFromParams(params dto.GetParams) float32 {
@@ -150,8 +151,9 @@ func (db *DB) ClassObjectVectorSearch(ctx context.Context, class string, vector 
 		return nil, nil, fmt.Errorf("tried to browse non-existing index for %s", class)
 	}
 
+	// TODO: groupBy think of this
 	objs, dist, err := index.objectVectorSearch(
-		ctx, vector, 0, totalLimit, filters, nil, addl)
+		ctx, vector, 0, totalLimit, filters, nil, nil, addl)
 	if err != nil {
 		return nil, nil, fmt.Errorf("search index %s: %w", index.ID(), err)
 	}
@@ -207,7 +209,7 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 			defer wg.Done()
 
 			objs, dist, err := index.objectVectorSearch(
-				ctx, vector, 0, totalLimit, filters, nil, additional.Properties{})
+				ctx, vector, 0, totalLimit, filters, nil, nil, additional.Properties{})
 			if err != nil {
 				mutex.Lock()
 				searchErrors = append(searchErrors, errors.Wrapf(err, "search index %s", index.ID()))
@@ -317,16 +319,26 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 // ResolveReferences takes a list of search results and enriches them
 // with any referenced objects
 func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
-	props search.SelectProperties, additional additional.Properties,
+	props search.SelectProperties, groupBy *searchparams.GroupBy,
+	addl additional.Properties,
 ) (search.Results, error) {
-	if additional.NoProps {
+	if addl.NoProps {
 		// If we have no props, there also can't be refs among them, so we can skip
 		// the refcache resolver
 		return objs, nil
 	}
 
+	if groupBy != nil {
+		res, err := refcache.NewResolverWithGroup(refcache.NewCacherWithGroup(db, db.logger)).
+			Do(ctx, objs, props, addl)
+		if err != nil {
+			return nil, fmt.Errorf("resolve cross-refs: %w", err)
+		}
+		return res, nil
+	}
+
 	res, err := refcache.NewResolver(refcache.NewCacher(db, db.logger)).
-		Do(ctx, objs, props, additional)
+		Do(ctx, objs, props, addl)
 	if err != nil {
 		return nil, fmt.Errorf("resolve cross-refs: %w", err)
 	}

@@ -222,7 +222,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 
 func (s *Shard) objectVectorSearch(ctx context.Context,
 	searchVector []float32, targetDist float32, limit int, filters *filters.LocalFilter,
-	sort []filters.Sort, additional additional.Properties,
+	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	var (
 		ids       []uint64
@@ -260,6 +260,10 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 
 	if filters != nil {
 		s.metrics.FilteredVectorVector(time.Since(beforeVector))
+	}
+
+	if groupBy != nil {
+		return s.groupResults(ctx, ids, dists, groupBy, additional)
 	}
 
 	if len(sort) > 0 {
