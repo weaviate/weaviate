@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -296,12 +297,19 @@ func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.D
 		return nil, err
 	}
 
+	hasFilterableIndex := HasFilterableIndex(prop)
+	hasSearchableIndex := HasSearchableIndex(prop)
+
+	if !hasFilterableIndex && !hasSearchableIndex {
+		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
+	}
+
 	return &propValuePair{
 		value:              byteValue,
 		prop:               prop.Name,
 		operator:           operator,
-		hasFilterableIndex: HasFilterableIndex(prop),
-		hasSearchableIndex: HasSearchableIndex(prop),
+		hasFilterableIndex: hasFilterableIndex,
+		hasSearchableIndex: hasSearchableIndex,
 	}, nil
 }
 
@@ -313,12 +321,19 @@ func (s *Searcher) extractReferenceCount(prop *models.Property, value interface{
 		return nil, err
 	}
 
+	hasFilterableIndex := HasFilterableIndexMetaCount && HasInvertedIndex(prop)
+	hasSearchableIndex := HasSearchableIndexMetaCount && HasInvertedIndex(prop)
+
+	if !hasFilterableIndex && !hasSearchableIndex {
+		return nil, inverted.NewMissingFilterableMetaCountIndexError(prop.Name)
+	}
+
 	return &propValuePair{
 		value:              byteValue,
 		prop:               helpers.MetaCountProp(prop.Name),
 		operator:           operator,
-		hasFilterableIndex: HasFilterableIndexMetaCount,
-		hasSearchableIndex: HasSearchableIndexMetaCount,
+		hasFilterableIndex: hasFilterableIndex,
+		hasSearchableIndex: hasSearchableIndex,
 	}, nil
 }
 
@@ -363,12 +378,19 @@ func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
 			"on must be specified as a string (e.g. valueText:<uuid>)", prop.Name)
 	}
 
+	hasFilterableIndex := HasFilterableIndex(prop)
+	hasSearchableIndex := HasSearchableIndex(prop)
+
+	if !hasFilterableIndex && !hasSearchableIndex {
+		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
+	}
+
 	return &propValuePair{
 		value:              byteValue,
 		prop:               prop.Name,
 		operator:           operator,
-		hasFilterableIndex: HasFilterableIndex(prop),
-		hasSearchableIndex: HasSearchableIndex(prop),
+		hasFilterableIndex: hasFilterableIndex,
+		hasSearchableIndex: hasSearchableIndex,
 	}, nil
 }
 
@@ -471,6 +493,11 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 
 	hasFilterableIndex := HasFilterableIndex(prop) && !s.isFallbackToSearchable()
 	hasSearchableIndex := HasSearchableIndex(prop)
+
+	if !hasFilterableIndex && !hasSearchableIndex {
+		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
+	}
+
 	propValuePairs := make([]*propValuePair, 0, len(terms))
 	for _, term := range terms {
 		if s.stopwords.IsStopword(term) {

@@ -137,8 +137,9 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 		})
 
 		require.NotNil(t, err)
-		assert.Contains(t, err.Error(),
-			"bucket for prop hiddenStringProp not found - is it indexed?")
+		assert.Contains(t, err.Error(), "Filtering by property 'hiddenStringProp' requires inverted index. "+
+			"Is `indexFilterable` option of property 'hiddenStringProp' enabled? "+
+			"Set it to `true` or leave empty")
 	})
 
 	t.Run("class search on timestamp prop with no timestamp indexing error", func(t *testing.T) {

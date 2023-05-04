@@ -441,8 +441,8 @@ func TestAddClass(t *testing.T) {
 	})
 }
 
-func TestAddClass_Migrate(t *testing.T) {
-	t.Run("migrate string|stringArray datatype and tokenization", func(t *testing.T) {
+func TestAddClass_DefaultsAndMigration(t *testing.T) {
+	t.Run("set defaults and migrate string|stringArray datatype and tokenization", func(t *testing.T) {
 		type testCase struct {
 			propName     string
 			dataType     schema.DataType
@@ -571,13 +571,14 @@ func TestAddClass_Migrate(t *testing.T) {
 		})
 	})
 
-	t.Run("migrate IndexInverted to IndexFilterable + IndexSearchable", func(t *testing.T) {
+	t.Run("set defaults and migrate IndexInverted to IndexFilterable + IndexSearchable", func(t *testing.T) {
 		vFalse := false
 		vTrue := true
 		allBoolPtrs := []*bool{nil, &vFalse, &vTrue}
 
 		type testCase struct {
 			propName        string
+			dataType        schema.DataType
 			indexInverted   *bool
 			indexFilterable *bool
 			indexSearchable *bool
@@ -593,9 +594,9 @@ func TestAddClass_Migrate(t *testing.T) {
 			}
 			return fmt.Sprintf("%v", *ptr)
 		}
-		propName := func(inverted, filterable, searchable *bool) string {
-			return fmt.Sprintf("inverted_%s_filterable_%s_searchable_%s",
-				boolPtrToStr(inverted), boolPtrToStr(filterable), boolPtrToStr(searchable))
+		propName := func(dt schema.DataType, inverted, filterable, searchable *bool) string {
+			return fmt.Sprintf("%s_inverted_%s_filterable_%s_searchable_%s",
+				dt.String(), boolPtrToStr(inverted), boolPtrToStr(filterable), boolPtrToStr(searchable))
 		}
 
 		mgr := newSchemaManager()
@@ -603,29 +604,93 @@ func TestAddClass_Migrate(t *testing.T) {
 		className := "MigrationClass"
 
 		testCases := []testCase{}
-		for _, inverted := range allBoolPtrs {
-			for _, filterable := range allBoolPtrs {
-				for _, searchable := range allBoolPtrs {
-					if filterable == nil && searchable == nil {
-						testCases = append(testCases, testCase{
-							propName:           propName(inverted, filterable, searchable),
-							indexInverted:      inverted,
-							indexFilterable:    filterable,
-							indexSearchable:    searchable,
-							expectedInverted:   nil,
-							expectedFilterable: inverted,
-							expectedSearchable: inverted,
-						})
-					} else {
-						testCases = append(testCases, testCase{
-							propName:           propName(inverted, filterable, searchable),
-							indexInverted:      inverted,
-							indexFilterable:    filterable,
-							indexSearchable:    searchable,
-							expectedInverted:   nil,
-							expectedFilterable: filterable,
-							expectedSearchable: searchable,
-						})
+
+		for _, dataType := range []schema.DataType{schema.DataTypeText, schema.DataTypeInt} {
+			for _, inverted := range allBoolPtrs {
+				for _, filterable := range allBoolPtrs {
+					for _, searchable := range allBoolPtrs {
+						if inverted != nil {
+							if filterable != nil || searchable != nil {
+								// invalid combination, indexInverted can not be set
+								// together with indexFilterable or indexSearchable
+								continue
+							}
+						}
+
+						if searchable != nil && *searchable {
+							if dataType != schema.DataTypeText {
+								// invalid combination, indexSearchable can not be enabled
+								// for non text/text[] data type
+								continue
+							}
+						}
+
+						switch dataType {
+						case schema.DataTypeText:
+							if inverted != nil {
+								testCases = append(testCases, testCase{
+									propName:           propName(dataType, inverted, filterable, searchable),
+									dataType:           dataType,
+									indexInverted:      inverted,
+									indexFilterable:    filterable,
+									indexSearchable:    searchable,
+									expectedInverted:   nil,
+									expectedFilterable: inverted,
+									expectedSearchable: inverted,
+								})
+							} else {
+								expectedFilterable := filterable
+								if filterable == nil {
+									expectedFilterable = &vTrue
+								}
+								expectedSearchable := searchable
+								if searchable == nil {
+									expectedSearchable = &vTrue
+								}
+								testCases = append(testCases, testCase{
+									propName:           propName(dataType, inverted, filterable, searchable),
+									dataType:           dataType,
+									indexInverted:      inverted,
+									indexFilterable:    filterable,
+									indexSearchable:    searchable,
+									expectedInverted:   nil,
+									expectedFilterable: expectedFilterable,
+									expectedSearchable: expectedSearchable,
+								})
+							}
+						default:
+							if inverted != nil {
+								testCases = append(testCases, testCase{
+									propName:           propName(dataType, inverted, filterable, searchable),
+									dataType:           dataType,
+									indexInverted:      inverted,
+									indexFilterable:    filterable,
+									indexSearchable:    searchable,
+									expectedInverted:   nil,
+									expectedFilterable: inverted,
+									expectedSearchable: &vFalse,
+								})
+							} else {
+								expectedFilterable := filterable
+								if filterable == nil {
+									expectedFilterable = &vTrue
+								}
+								expectedSearchable := searchable
+								if searchable == nil {
+									expectedSearchable = &vFalse
+								}
+								testCases = append(testCases, testCase{
+									propName:           propName(dataType, inverted, filterable, searchable),
+									dataType:           dataType,
+									indexInverted:      inverted,
+									indexFilterable:    filterable,
+									indexSearchable:    searchable,
+									expectedInverted:   nil,
+									expectedFilterable: expectedFilterable,
+									expectedSearchable: expectedSearchable,
+								})
+							}
+						}
 					}
 				}
 			}
@@ -636,8 +701,7 @@ func TestAddClass_Migrate(t *testing.T) {
 			for _, tc := range testCases {
 				properties = append(properties, &models.Property{
 					Name:            "created_" + tc.propName,
-					DataType:        schema.DataTypeText.PropString(),
-					Tokenization:    models.PropertyTokenizationWord,
+					DataType:        tc.dataType.PropString(),
 					IndexInverted:   tc.indexInverted,
 					IndexFilterable: tc.indexFilterable,
 					IndexSearchable: tc.indexSearchable,
@@ -660,8 +724,7 @@ func TestAddClass_Migrate(t *testing.T) {
 				t.Run("added_"+tc.propName, func(t *testing.T) {
 					err := mgr.addClassProperty(ctx, className, &models.Property{
 						Name:            "added_" + tc.propName,
-						DataType:        schema.DataTypeText.PropString(),
-						Tokenization:    models.PropertyTokenizationWord,
+						DataType:        tc.dataType.PropString(),
 						IndexInverted:   tc.indexInverted,
 						IndexFilterable: tc.indexFilterable,
 						IndexSearchable: tc.indexSearchable,
