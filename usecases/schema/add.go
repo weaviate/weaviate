@@ -225,6 +225,7 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 
 func (m *Manager) setPropertyDefaults(prop *models.Property) {
 	m.setPropertyDefaultTokenization(prop)
+	m.setPropertyDefaultIndexing(prop)
 }
 
 func (m *Manager) setPropertyDefaultTokenization(prop *models.Property) {
@@ -241,6 +242,32 @@ func (m *Manager) setPropertyDefaultTokenization(prop *models.Property) {
 		}
 	default:
 		// tokenization not supported for other data types
+	}
+}
+
+func (m *Manager) setPropertyDefaultIndexing(prop *models.Property) {
+	// if IndexInverted is set but IndexFilterable and IndexSearchable are not
+	// migrate IndexInverted later.
+	if prop.IndexInverted != nil &&
+		prop.IndexFilterable == nil &&
+		prop.IndexSearchable == nil {
+		return
+	}
+
+	vTrue := true
+	if prop.IndexFilterable == nil {
+		prop.IndexFilterable = &vTrue
+	}
+	if prop.IndexSearchable == nil {
+		switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
+		// string/string[] are migrated into text/text[] later,
+		// at this point they are still valid data type, therefore should be handled here
+		case schema.DataTypeString, schema.DataTypeStringArray, schema.DataTypeText, schema.DataTypeTextArray:
+			prop.IndexSearchable = &vTrue
+		default:
+			vFalse := false
+			prop.IndexSearchable = &vFalse
+		}
 	}
 }
 
@@ -283,10 +310,17 @@ func (m *Manager) migratePropertyDataTypeAndTokenization(prop *models.Property) 
 // therefore applicable only to text/text[] data types)
 func (m *Manager) migratePropertyIndexInverted(prop *models.Property) {
 	// if none of new options is set, use inverted settings
-	if prop.IndexFilterable == nil && prop.IndexSearchable == nil {
-		if prop.IndexInverted != nil {
-			prop.IndexFilterable = prop.IndexInverted
+	if prop.IndexInverted != nil &&
+		prop.IndexFilterable == nil &&
+		prop.IndexSearchable == nil {
+		prop.IndexFilterable = prop.IndexInverted
+		switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
+		// string/string[] are already migrated into text/text[], can be skipped here
+		case schema.DataTypeText, schema.DataTypeTextArray:
 			prop.IndexSearchable = prop.IndexInverted
+		default:
+			vFalse := false
+			prop.IndexSearchable = &vFalse
 		}
 	}
 	// new options have precedence so inverted can be reset
