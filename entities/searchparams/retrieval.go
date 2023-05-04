@@ -38,6 +38,7 @@ type HybridSearch struct {
 	Alpha       float64     `json:"alpha"`
 	Query       string      `json:"query"`
 	Vector      []float32   `json:"vector"`
+	Properties  []string    `json:"properties"`
 }
 
 type NearObject struct {
