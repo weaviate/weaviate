@@ -513,6 +513,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 		// zero it will constantly think it's full and needs to be deleted - even
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
+		PQ:                    ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "title", Distribution: "normal"}},
 	}
 
 	t.Run("import the test vectors", func(t *testing.T) {
@@ -541,9 +542,6 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 			err := vectorIndex.Add(uint64(i), vec)
 			require.Nil(t, err)
 		}
-		userConfig.PQ.Enabled = true
-		userConfig.PQ.Encoder.Type = "tile"
-		userConfig.PQ.Encoder.Distribution = "normal"
 		index.Compress(0, 256, false, int(ssdhelpers.UseTileEncoder), int(ssdhelpers.LogNormalEncoderDistribution))
 	})
 
@@ -642,6 +640,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 		// zero it will constantly think it's full and needs to be deleted - even
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
+		PQ:                    ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "title", Distribution: "normal"}},
 	}
 
 	t.Run("import the test vectors", func(t *testing.T) {
@@ -670,9 +669,6 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 			err := vectorIndex.Add(uint64(i), vec)
 			require.Nil(t, err)
 		}
-		userConfig.PQ.Enabled = true
-		userConfig.PQ.Encoder.Type = "tile"
-		userConfig.PQ.Encoder.Distribution = "normal"
 		index.Compress(0, 256, false, int(ssdhelpers.UseTileEncoder), int(ssdhelpers.LogNormalEncoderDistribution))
 		for i := len(vectors); i < 1000; i++ {
 			err := vectorIndex.Add(uint64(i), vectors[i%len(vectors)])
