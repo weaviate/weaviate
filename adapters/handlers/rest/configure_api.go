@@ -48,6 +48,7 @@ import (
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
+	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
 	modner "github.com/weaviate/weaviate/modules/ner-transformers"
@@ -60,6 +61,7 @@ import (
 	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
+	modtext2vecpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/backup"
@@ -590,6 +592,22 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modhuggingface.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativepalm.Name]; ok {
+		appState.Modules.Register(modgenerativepalm.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativepalm.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modtext2vecpalm.Name]; ok {
+		appState.Modules.Register(modtext2vecpalm.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modtext2vecpalm.Name).
 			Debug("enabled module")
 	}
 
