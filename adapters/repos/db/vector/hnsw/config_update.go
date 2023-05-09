@@ -91,7 +91,7 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 	atomic.StoreInt64(&h.efFactor, int64(parsed.DynamicEFFactor))
 	atomic.StoreInt64(&h.flatSearchCutoff, int64(parsed.FlatSearchCutoff))
 
-	if h.compressed.Load() {
+	if parsed.PQ.Enabled && h.compressed.Load() {
 		h.compressedVectorsCache.updateMaxSize(int64(parsed.VectorCacheMaxObjects))
 	} else {
 		h.cache.updateMaxSize(int64(parsed.VectorCacheMaxObjects))
