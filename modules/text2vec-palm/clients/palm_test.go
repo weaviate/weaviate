@@ -52,7 +52,7 @@ func TestClient(t *testing.T) {
 			ent.VectorizationConfig{
 				ApiEndpoint: "endpoint",
 				ProjectID:   "project",
-				ModelID:     "model",
+				Model:       "model",
 			})
 
 		assert.Nil(t, err)

@@ -14,5 +14,5 @@ package ent
 type VectorizationConfig struct {
 	ApiEndpoint string
 	ProjectID   string
-	ModelID     string
+	Model       string
 }
