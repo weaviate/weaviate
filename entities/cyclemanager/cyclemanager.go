@@ -28,7 +28,7 @@ type (
 type CycleManager struct {
 	sync.RWMutex
 
-	cycleFunc   CycleFunc
+	callbacks   callbacks
 	cycleTicker CycleTicker
 	running     bool
 	stopSignal  chan struct{}
@@ -37,13 +37,17 @@ type CycleManager struct {
 	stopResults  []chan bool
 }
 
-func New(cycleTicker CycleTicker, cycleFunc CycleFunc) *CycleManager {
+func NewMulti(cycleTicker CycleTicker) *CycleManager {
 	return &CycleManager{
-		cycleFunc:   cycleFunc,
+		callbacks:   newMultiCallbacks(),
 		cycleTicker: cycleTicker,
 		running:     false,
 		stopSignal:  make(chan struct{}, 1),
 	}
+}
+
+func (c *CycleManager) Register(cycleFunc CycleFunc) UnregisterFunc {
+	return c.callbacks.register(cycleFunc)
 }
 
 // Starts instance, does not block
@@ -72,7 +76,7 @@ func (c *CycleManager) Start() {
 				c.Unlock()
 				continue
 			}
-			c.cycleTicker.CycleExecuted(c.cycleFunc(c.shouldBreakCycleCallback))
+			c.cycleTicker.CycleExecuted(c.callbacks.execute(c.shouldBreakCycleCallback))
 		}
 	}()
 

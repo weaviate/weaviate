@@ -83,8 +83,10 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 		return nil, err
 	}
 
-	l.switchLogCycle = cyclemanager.New(l.cycleTicker(), l.startSwitchLogs)
-	l.condenseCycle = cyclemanager.New(l.cycleTicker(), l.startCombineAndCondenseLogs)
+	l.switchLogCycle = cyclemanager.NewMulti(l.cycleTicker())
+	l.switchLogCycle.Register(l.startSwitchLogs)
+	l.condenseCycle = cyclemanager.NewMulti(l.cycleTicker())
+	l.condenseCycle.Register(l.startCombineAndCondenseLogs)
 
 	l.commitLogger = commitlog.NewLoggerWithFile(fd)
 	l.Start()

@@ -156,9 +156,8 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		return nil, err
 	}
 
-	b.flushCycle = cyclemanager.New(
-		cyclemanager.MemtableFlushCycleTicker(),
-		b.flushAndSwitchIfThresholdsMet)
+	b.flushCycle = cyclemanager.NewMulti(cyclemanager.MemtableFlushCycleTicker())
+	b.flushCycle.Register(b.flushAndSwitchIfThresholdsMet)
 	b.flushCycle.Start()
 
 	b.metrics.TrackStartupBucket(beforeAll)
