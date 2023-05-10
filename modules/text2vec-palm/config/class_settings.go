@@ -120,17 +120,8 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if projectID == "" {
 		errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", projectIDProperty))
 	}
-	if model != "" {
-		validModelName := false
-		for _, availableModel := range availablePalmModels {
-			if availableModel == model {
-				validModelName = true
-				break
-			}
-		}
-		if !validModelName {
-			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available model names are: %v", modelProperty, availablePalmModels))
-		}
+	if model != "" && !ic.validatePalmSetting(model, availablePalmModels) {
+		errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available model names are: %v", modelProperty, availablePalmModels))
 	}
 
 	if len(errorMessages) > 0 {
@@ -168,17 +159,6 @@ func (ic *classSettings) getStringProperty(name, defaultValue string) string {
 		}
 	}
 	return defaultValue
-}
-
-func (ic *classSettings) getIntProperty(name string) *int {
-	val, ok := ic.cfg.Class()[name]
-	if ok {
-		asInt, ok := val.(*int)
-		if ok {
-			return asInt
-		}
-	}
-	return nil
 }
 
 func (cv *classSettings) validateIndexState(class *models.Class, settings vectorizer.ClassSettings) error {
