@@ -160,7 +160,6 @@ func (ic *classSettings) getIntProperty(name string, defaultValue int) int {
 }
 
 // PaLM params
-
 func (ic *classSettings) ApiEndpoint() string {
 	return ic.getStringProperty(apiEndpointProperty, "")
 }
@@ -193,13 +192,4 @@ func (ic *classSettings) TopK() int {
 // 0.0 - 1.0
 func (ic *classSettings) TopP() float64 {
 	return ic.getFloatProperty(topPProperty, DefaultPaLMTopP)
-}
-
-func contains[T comparable](s []T, e T) bool {
-	for _, v := range s {
-		if v == e {
-			return true
-		}
-	}
-	return false
 }

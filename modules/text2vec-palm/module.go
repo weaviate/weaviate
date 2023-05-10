@@ -13,9 +13,10 @@ package modpalm
 
 import (
 	"context"
-	"github.com/weaviate/weaviate/modules/text2vec-palm/config"
 	"net/http"
 	"os"
+
+	"github.com/weaviate/weaviate/modules/text2vec-palm/config"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"

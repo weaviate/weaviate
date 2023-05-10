@@ -75,9 +75,11 @@ func (f *fakeSettings) Truncate() string {
 func (f *fakeSettings) ApiEndpoint() string {
 	return f.truncateType
 }
+
 func (f *fakeSettings) ProjectID() string {
 	return f.truncateType
 }
+
 func (f *fakeSettings) Model() string {
 	return f.truncateType
 }

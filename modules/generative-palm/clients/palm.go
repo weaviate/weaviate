@@ -21,7 +21,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -146,14 +145,6 @@ func (v *palm) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt
 	}, nil
 }
 
-func determineTokens(maxTokensSetting float64, classSetting float64, prompt string) int {
-	tokens := float64(countWhitespace(prompt)+1) * 3
-	if tokens+classSetting > maxTokensSetting {
-		return int(maxTokensSetting - tokens)
-	}
-	return int(tokens)
-}
-
 func (v *palm) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
 	marshal, err := json.Marshal(textProperties)
 	if err != nil {
@@ -176,19 +167,6 @@ func (v *palm) generateForPrompt(textProperties map[string]string, prompt string
 		prompt = strings.ReplaceAll(prompt, originalProperty, value)
 	}
 	return prompt, nil
-}
-
-func countWhitespace(s string) int {
-	count := 0
-	for {
-		idx := strings.IndexFunc(s, unicode.IsSpace)
-		if idx == -1 {
-			break
-		}
-		count++
-		s = s[idx+1:]
-	}
-	return count
 }
 
 func (v *palm) getApiKey(ctx context.Context) (string, error) {
