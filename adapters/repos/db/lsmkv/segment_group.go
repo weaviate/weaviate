@@ -131,9 +131,8 @@ func newSegmentGroup(dir string, logger logrus.FieldLogger,
 		out.metrics.ObjectCount(out.count())
 	}
 
-	out.compactionCycle = cyclemanager.New(
-		cyclemanager.CompactionCycleTicker(),
-		out.compactIfLevelsMatch)
+	out.compactionCycle = cyclemanager.NewMulti(cyclemanager.CompactionCycleTicker())
+	out.compactionCycle.Register(out.compactIfLevelsMatch)
 	out.compactionCycle.Start()
 
 	return out, nil

@@ -261,9 +261,8 @@ func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
 		className:          cfg.ClassName,
 	}
 
-	index.tombstoneCleanupCycle = cyclemanager.New(
-		cyclemanager.NewFixedIntervalTicker(index.cleanupInterval),
-		index.tombstoneCleanup)
+	index.tombstoneCleanupCycle = cyclemanager.NewMulti(cyclemanager.NewFixedIntervalTicker(index.cleanupInterval))
+	index.tombstoneCleanupCycle.Register(index.tombstoneCleanup)
 	index.insertMetrics = newInsertMetrics(index.metrics)
 
 	if err := index.init(cfg); err != nil {
