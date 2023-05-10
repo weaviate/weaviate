@@ -25,9 +25,9 @@ import (
 	"github.com/weaviate/weaviate/modules/text2vec-palm/ent"
 )
 
-func buildURL(apiEndoint, projectID, modelID string) string {
+func buildURL(apiEndoint, projectID, model string) string {
 	urlTemplate := "https://%s/v1/projects/%s/locations/us-central1/endpoints/%s:predict"
-	return fmt.Sprintf(urlTemplate, apiEndoint, projectID, modelID)
+	return fmt.Sprintf(urlTemplate, apiEndoint, projectID, model)
 }
 
 type palm struct {
@@ -61,7 +61,7 @@ func (v *palm) VectorizeQuery(ctx context.Context, input []string,
 }
 
 func (v *palm) vectorize(ctx context.Context, input []string, config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
-	endpointURL := v.urlBuilderFn(v.getApiEndpoint(config), v.getProjectID(config), v.getModelID(config))
+	endpointURL := v.urlBuilderFn(v.getApiEndpoint(config), v.getProjectID(config), v.getModel(config))
 
 	body, err := json.Marshal(embeddingsRequest{
 		Instances: []instance{
@@ -144,8 +144,8 @@ func (v *palm) getProjectID(config ent.VectorizationConfig) string {
 	return config.ProjectID
 }
 
-func (v *palm) getModelID(config ent.VectorizationConfig) string {
-	return config.ModelID
+func (v *palm) getModel(config ent.VectorizationConfig) string {
+	return config.Model
 }
 
 type embeddingsRequest struct {

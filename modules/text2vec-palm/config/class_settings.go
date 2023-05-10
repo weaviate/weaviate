@@ -27,17 +27,17 @@ import (
 const (
 	apiEndpointProperty = "apiEndpoint"
 	projectIDProperty   = "projectId"
-	modelIDProperty     = "modelId"
+	modelProperty       = "model"
 )
 
 const (
 	DefaultVectorizeClassName    = false
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
-	DefaultModelId               = "textembedding-gecko-001"
+	DefaultModel                 = "textembedding-gecko-001"
 )
 
-var availablePalmModels = []string{DefaultModelId}
+var availablePalmModels = []string{DefaultModel}
 
 type classSettings struct {
 	cfg moduletools.ClassConfig
@@ -111,7 +111,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 
 	apiEndpoint := ic.ApiEndpoint()
 	projectID := ic.ProjectID()
-	modelID := ic.ModelID()
+	model := ic.Model()
 
 	var errorMessages []string
 	if apiEndpoint == "" {
@@ -120,16 +120,16 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if projectID == "" {
 		errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", projectIDProperty))
 	}
-	if modelID != "" {
+	if model != "" {
 		validModelName := false
-		for _, model := range availablePalmModels {
-			if model == modelID {
+		for _, availableModel := range availablePalmModels {
+			if availableModel == model {
 				validModelName = true
 				break
 			}
 		}
 		if !validModelName {
-			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available model names are: %v", modelIDProperty, availablePalmModels))
+			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available model names are: %v", modelProperty, availablePalmModels))
 		}
 	}
 
@@ -227,6 +227,6 @@ func (ic *classSettings) ProjectID() string {
 	return ic.getStringProperty(projectIDProperty, "")
 }
 
-func (ic *classSettings) ModelID() string {
-	return ic.getStringProperty(modelIDProperty, DefaultModelId)
+func (ic *classSettings) Model() string {
+	return ic.getStringProperty(modelProperty, DefaultModel)
 }

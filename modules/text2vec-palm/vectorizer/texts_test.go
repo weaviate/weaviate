@@ -103,7 +103,7 @@ func TestVectorizingTexts(t *testing.T) {
 			assert.Equal(t, test.expectedClientCall, strings.Join(client.lastInput, ","))
 			assert.Equal(t, test.expectedApiEndpoint, client.lastConfig.ApiEndpoint)
 			assert.Equal(t, test.expectedProjectID, client.lastConfig.ProjectID)
-			assert.Equal(t, test.expectedEndpointID, client.lastConfig.EndpointID)
+			assert.Equal(t, test.expectedEndpointID, client.lastConfig.Model)
 		})
 	}
 }
