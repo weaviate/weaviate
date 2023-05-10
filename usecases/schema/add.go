@@ -29,6 +29,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+var errInvalidTenantKey = "invalid multiTenancyConfig.tenantKey %q. " +
+	"tenantKey must be 'text' or 'uuid'"
+
 // AddClass to the schema
 func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 	class *models.Class,
@@ -87,6 +90,11 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 		return err
 	}
 
+	err = m.parseMultiTenancyConfig(ctx, class)
+	if err != nil {
+		return err
+	}
+
 	err = m.parseVectorIndexConfig(ctx, class)
 	if err != nil {
 		return err
@@ -133,6 +141,11 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 	m.migrateClassSettings(class)
 
 	err = m.parseShardingConfig(ctx, class)
+	if err != nil {
+		return nil, err
+	}
+
+	err = m.parseMultiTenancyConfig(ctx, class)
 	if err != nil {
 		return nil, err
 	}
@@ -361,6 +374,10 @@ func (m *Manager) validateCanAddClass(
 		return err
 	}
 
+	if class.ShardingConfig != nil && class.MultiTenancyConfig != nil {
+		return fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")
+	}
+
 	// all is fine!
 	return nil
 }
@@ -424,14 +441,45 @@ func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 func (m *Manager) parseShardingConfig(ctx context.Context,
 	class *models.Class,
 ) error {
-	parsed, err := sharding.ParseConfig(class.ShardingConfig,
-		m.clusterState.NodeCount())
-	if err != nil {
-		return errors.Wrap(err, "parse sharding config")
+	// multiTenancyConfig and shardingConfig are mutually exclusive
+	if class.MultiTenancyConfig == nil {
+		parsed, err := sharding.ParseConfig(class.ShardingConfig,
+			m.clusterState.NodeCount())
+		if err != nil {
+			return fmt.Errorf("parse sharding config: %w", err)
+		}
+
+		class.ShardingConfig = parsed
 	}
+	return nil
+}
 
-	class.ShardingConfig = parsed
-
+func (m *Manager) parseMultiTenancyConfig(ctx context.Context, class *models.Class) error {
+	if class.ShardingConfig == nil {
+		if class.MultiTenancyConfig.TenantKey == "" {
+			return fmt.Errorf("multiTenancyConfig.tenantKey is required")
+		}
+		for _, prop := range class.Properties {
+			if prop.Name == class.MultiTenancyConfig.TenantKey {
+				if len(prop.DataType) != 1 {
+					return fmt.Errorf(errInvalidTenantKey, prop.Name)
+				}
+				if prop.DataType[0] == schema.DataTypeText.String() ||
+					prop.DataType[0] == schema.DataTypeUUID.String() {
+					class.ShardingConfig = sharding.Config{
+						// tenant shards will be created dynamically
+						DesiredCount: 0,
+					}
+					return nil
+				} else {
+					return fmt.Errorf(errInvalidTenantKey, prop.Name)
+				}
+			}
+		}
+		return fmt.Errorf(
+			"no class property found for multiTenancyConfig.tenantKey %q",
+			class.MultiTenancyConfig.TenantKey)
+	}
 	return nil
 }
 
