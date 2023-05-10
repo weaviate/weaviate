@@ -496,7 +496,10 @@ func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 		return storagestate.ErrStatusReadOnly
 	}
 
-	s.updateStatus(storagestate.StatusReadOnly.String())
+	err := s.updateStatus(storagestate.StatusReadOnly.String())
+	if err != nil {
+		return fmt.Errorf("attempt to mark read-only: %w", err)
+	}
 	return s.vectorIndex.UpdateUserConfig(updated, func() {
 		s.updateStatus(storagestate.StatusReady.String())
 	})
