@@ -145,7 +145,7 @@ func addPreflight(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Access-Control-Allow-Methods", "*")
 			w.Header().Set("Access-Control-Allow-Headers",
-				"Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Cohere-Api-Key, X-Huggingface-Api-Key")
+				"Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Cohere-Api-Key, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Palm-Api-Key")
 			return
 		}
 
