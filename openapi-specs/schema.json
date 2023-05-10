@@ -412,6 +412,20 @@
       },
       "type": "object"
     },
+    "MultiTenancyConfig": {
+      "description": "Configuration related to multi-tenancy within a class",
+      "properties": {
+        "enabled": {
+          "description": "Whether or not multi-tenancy is enabled for this class",
+          "type": "boolean"
+        },
+        "tenantKey": {
+          "description": "The class property which is used to separate tenants",
+          "type": "string",
+          "enum": ["uuid", "text"]
+        }
+      }
+    },
     "JsonObject": {
       "description": "JSON object value.",
       "type": "object"
@@ -601,6 +615,9 @@
         },
         "invertedIndexConfig": {
           "$ref": "#/definitions/InvertedIndexConfig"
+        },
+        "multiTenancyConfig": {
+          "$ref": "#/definitions/MultiTenancyConfig"
         },
         "vectorizer": {
           "description": "Specify how the vectors for this class should be determined. The options are either 'none' - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as 'text2vec-contextionary'. If left empty, it will use the globally configured default which can itself either be 'none' or a specific module.",

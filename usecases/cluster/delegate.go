@@ -63,7 +63,7 @@ type DiskUsage struct {
 // NodeInfo disk space
 type NodeInfo struct {
 	DiskUsage
-	LastTimeMilli int64 // last update time in milli seconds
+	LastTimeMilli int64 // last update time in milliseconds
 }
 
 func (d *spaceMsg) marshal() (data []byte, err error) {
