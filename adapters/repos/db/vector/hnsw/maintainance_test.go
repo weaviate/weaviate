@@ -104,10 +104,10 @@ func Test_growIndexToAccomodateNode(t *testing.T) {
 		{
 			name: "panic case",
 			args: args{
-				id:    uint64(2*initialSize + 1),
+				id:    uint64(initialSize + minimumIndexGrowthDelta + 1),
 				index: createVertexSlice(initialSize + 1),
 			},
-			wantIndexSize: 2*initialSize + 1 + minimumIndexGrowthDelta,
+			wantIndexSize: initialSize + 1 + 2*minimumIndexGrowthDelta,
 			changed:       true,
 		},
 	}
