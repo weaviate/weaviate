@@ -199,7 +199,7 @@ func TestBackup_BucketLevel(t *testing.T) {
 		objBucket := shard.store.Bucket("objects")
 		require.NotNil(t, objBucket)
 
-		err := objBucket.PauseCompaction(ctx)
+		err := shard.store.PauseCompaction(ctx)
 		require.Nil(t, err)
 
 		err = objBucket.FlushMemtable(ctx)
@@ -242,7 +242,7 @@ func TestBackup_BucketLevel(t *testing.T) {
 			assert.Contains(t, exts, ".bloom") // matches both bloom filters (primary+secondary)
 		})
 
-		err = objBucket.ResumeCompaction(ctx)
+		err = shard.store.ResumeCompaction(ctx)
 		require.Nil(t, err)
 	})
 

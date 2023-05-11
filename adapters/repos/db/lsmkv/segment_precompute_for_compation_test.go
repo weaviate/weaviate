@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func TestPrecomputeSegmentMeta_Replace(t *testing.T) {
@@ -35,8 +36,8 @@ func TestPrecomputeSegmentMeta_Replace(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
-		WithStrategy(StrategyReplace),
-		WithSecondaryIndices(1))
+		cyclemanager.NewNoop(),
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
 
@@ -98,7 +99,7 @@ func TestPrecomputeSegmentMeta_Set(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
-		WithStrategy(StrategySetCollection))
+		cyclemanager.NewNoop(), WithStrategy(StrategySetCollection))
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
 

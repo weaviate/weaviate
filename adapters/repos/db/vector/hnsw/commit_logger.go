@@ -271,8 +271,8 @@ type hnswCommitLogger struct {
 	maxSizeCombining  int64
 	commitLogger      *commitlog.Logger
 
-	switchLogCycle *cyclemanager.CycleManager
-	condenseCycle  *cyclemanager.CycleManager
+	switchLogCycle cyclemanager.CycleManager
+	condenseCycle  cyclemanager.CycleManager
 	cycleTicker    cyclemanager.TickerProvider
 }
 

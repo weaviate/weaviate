@@ -229,11 +229,6 @@ func (r *ShardInvertedReindexer) createTempBucket(ctx context.Context, name stri
 	if err := r.shard.store.CreateBucket(ctx, tempName, bucketOptions...); err != nil {
 		return errors.Wrapf(err, "failed creating temp bucket '%s'", tempName)
 	}
-
-	// no point starting compaction until bucket successfully populated and plugged in
-	if err := r.shard.store.Bucket(tempName).PauseCompaction(ctx); err != nil {
-		return errors.Wrapf(err, "failed pausing compaction for temp bucket '%s'", tempName)
-	}
 	return nil
 }
 

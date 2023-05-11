@@ -17,31 +17,8 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/storagestate"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 )
-
-// PauseCompaction waits for all ongoing compactions to finish,
-// then makes sure that no new compaction can be started.
-//
-// This is a preparatory stage for creating backups.
-//
-// A timeout should be specified for the input context as some
-// compactions are long-running, in which case it may be better
-// to fail the backup attempt and retry later, than to block
-// indefinitely.
-func (b *Bucket) PauseCompaction(ctx context.Context) error {
-	metric, err := monitoring.GetMetrics().BucketPauseDurations.GetMetricWithLabelValues(b.dir)
-	if err == nil {
-		b.pauseTimer = prometheus.NewTimer(metric)
-	}
-
-	if err := b.disk.compactionCycle.StopAndWait(ctx); err != nil {
-		return errors.Wrap(err, "long-running compaction in progress")
-	}
-	return nil
-}
 
 // FlushMemtable flushes any active memtable and returns only once the memtable
 // has been fully flushed and a stable state on disk has been reached.
@@ -121,14 +98,4 @@ func (b *Bucket) ListFiles(ctx context.Context) ([]string, error) {
 	}
 
 	return files, nil
-}
-
-// ResumeCompaction starts the compaction cycle again.
-// It errors if compactions were not paused
-func (b *Bucket) ResumeCompaction(ctx context.Context) error {
-	b.disk.compactionCycle.Start()
-	if b.pauseTimer != nil {
-		b.pauseTimer.ObserveDuration()
-	}
-	return nil
 }

@@ -105,7 +105,7 @@ type hnsw struct {
 
 	// used for cancellation of the tombstone cleanup goroutine
 	cleanupInterval       time.Duration
-	tombstoneCleanupCycle *cyclemanager.CycleManager
+	tombstoneCleanupCycle cyclemanager.CycleManager
 
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
