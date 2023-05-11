@@ -513,7 +513,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 		// zero it will constantly think it's full and needs to be deleted - even
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
-		PQ:                    ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "title", Distribution: "normal"}},
+		PQ:                    ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "tile", Distribution: "normal"}},
 	}
 
 	t.Run("import the test vectors", func(t *testing.T) {
@@ -640,7 +640,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 		// zero it will constantly think it's full and needs to be deleted - even
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
-		PQ:                    ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "title", Distribution: "normal"}},
+		PQ:                    ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "tile", Distribution: "normal"}},
 	}
 
 	t.Run("import the test vectors", func(t *testing.T) {
