@@ -292,7 +292,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupSchemaHandlers(api, schemaManager)
 	setupObjectHandlers(api, objectsManager, appState.ServerConfig.Config, appState.Logger, appState.Modules)
 	setupObjectBatchHandlers(api, batchObjectsManager)
-	setupGraphQLHandlers(api, appState, schemaManager)
+	setupGraphQLHandlers(api, appState, schemaManager, appState.ServerConfig.Config.DisableGraphQL)
 	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Modules)
 	setupClassificationHandlers(api, classifier)
 	setupBackupHandlers(api, backupScheduler)
@@ -396,6 +396,15 @@ func startupRoutine(ctx context.Context) *state.State {
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).Error("could not load config")
 		logger.Exit(1)
+	}
+
+	if serverConfig.Config.DisableGraphQL {
+		logger.WithFields(logrus.Fields{
+			"action":          "startup",
+			"disable_graphql": true,
+		}).Warnf("GraphQL API disabled, relying only on gRPC API for querying. " +
+			"This is considered experimental and will likely experience breaking changes " +
+			"before reaching general availability")
 	}
 
 	logger.WithFields(logrus.Fields{

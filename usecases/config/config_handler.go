@@ -97,6 +97,7 @@ type Config struct {
 	RecountPropertiesAtStartup          bool           `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool           `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
 	IndexMissingTextFilterableAtStartup bool           `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
+	DisableGraphQL                      bool           `json:"disable_graphql" yaml:"disable_graphql"`
 }
 
 type moduleProvider interface {
