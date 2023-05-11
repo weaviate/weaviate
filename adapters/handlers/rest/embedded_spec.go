@@ -3543,11 +3543,7 @@ func init() {
         },
         "tenantKey": {
           "description": "The class property which is used to separate tenants",
-          "type": "string",
-          "enum": [
-            "uuid",
-            "text"
-          ]
+          "type": "string"
         }
       }
     },
@@ -8094,11 +8090,7 @@ func init() {
         },
         "tenantKey": {
           "description": "The class property which is used to separate tenants",
-          "type": "string",
-          "enum": [
-            "uuid",
-            "text"
-          ]
+          "type": "string"
         }
       }
     },
