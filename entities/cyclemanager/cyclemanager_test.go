@@ -67,14 +67,13 @@ func TestCycleManager_beforeTimeout(t *testing.T) {
 	stopTimeout := 12 * time.Millisecond
 
 	p := newProvider(cycleDuration, 1)
-	var cm *CycleManager
+	var cm CycleManager
 
 	t.Run("create new", func(t *testing.T) {
 		cm = NewMulti(NewFixedIntervalTicker(cycleInterval))
 		cm.Register(p.cycleFunc)
 
 		assert.False(t, cm.Running())
-		assert.NotNil(t, cm.stopSignal)
 	})
 
 	t.Run("start", func(t *testing.T) {
@@ -107,14 +106,13 @@ func TestCycleManager_beforeTimeoutWithWait(t *testing.T) {
 	stopTimeout := 12 * time.Millisecond
 
 	p := newProvider(cycleDuration, 1)
-	var cm *CycleManager
+	var cm CycleManager
 
 	t.Run("create new", func(t *testing.T) {
 		cm = NewMulti(NewFixedIntervalTicker(cycleInterval))
 		cm.Register(p.cycleFunc)
 
 		assert.False(t, cm.Running())
-		assert.NotNil(t, cm.stopSignal)
 	})
 
 	t.Run("start", func(t *testing.T) {

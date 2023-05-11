@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 // This test ensures that the WAL threshold is being adhered to, and that a
@@ -40,6 +41,7 @@ func TestWriteAheadLogThreshold_Replace(t *testing.T) {
 	tolerance := 4.
 
 	bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+		cyclemanager.NewNoop(),
 		WithStrategy(StrategyReplace),
 		WithMemtableThreshold(1024*1024*1024),
 		WithWalThreshold(walThreshold))
@@ -136,6 +138,7 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 	tolerance := 4.
 
 	bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+		cyclemanager.NewNoop(),
 		WithStrategy(StrategyReplace),
 		WithMemtableThreshold(memtableThreshold))
 	require.Nil(t, err)
@@ -223,6 +226,7 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 		dirName := t.TempDir()
 
 		bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+			cyclemanager.NewNoop(),
 			WithStrategy(StrategyReplace),
 			WithMemtableThreshold(1e12), // large enough to not affect this test
 			WithWalThreshold(1e12),      // large enough to not affect this test
@@ -261,6 +265,7 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 		dirName := t.TempDir()
 
 		bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+			cyclemanager.NewNoop(),
 			WithStrategy(StrategyReplace),
 			WithMemtableThreshold(1e12), // large enough to not affect this test
 			WithWalThreshold(1e12),      // large enough to not affect this test
@@ -303,6 +308,7 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 		dirName := t.TempDir()
 
 		bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+			cyclemanager.NewNoop(),
 			WithStrategy(StrategyReplace),
 			WithMemtableThreshold(1e12), // large enough to not affect this test
 			WithWalThreshold(1e12),      // large enough to not affect this test

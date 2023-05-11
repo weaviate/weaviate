@@ -15,7 +15,6 @@
 package lsmkv
 
 import (
-	"context"
 	"encoding/binary"
 	"math/rand"
 	"testing"
@@ -24,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func Test_CompactionRoaringSet(t *testing.T) {
@@ -40,11 +40,10 @@ func Test_CompactionRoaringSet(t *testing.T) {
 	control := controlFromInstructions(instr, maxID)
 
 	b, err := NewBucket(testCtx(), t.TempDir(), "", nullLogger(), nil,
+		cyclemanager.NewNoop(),
 		WithStrategy(StrategyRoaringSet))
 	require.Nil(t, err)
 
-	// stop default compaction to run one manually
-	b.disk.compactionCycle.StopAndWait(context.Background())
 	defer b.Shutdown(testCtx())
 
 	// so big it effectively never triggers as part of this test

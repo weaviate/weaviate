@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func TestCreateBloomOnFlush(t *testing.T) {
@@ -30,8 +31,8 @@ func TestCreateBloomOnFlush(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
-		WithStrategy(StrategyReplace),
-		WithSecondaryIndices(1))
+		cyclemanager.NewNoop(),
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
 
@@ -49,8 +50,8 @@ func TestCreateBloomOnFlush(t *testing.T) {
 	assert.True(t, ok)
 
 	b2, err := NewBucket(ctx, dirName, "", logger, nil,
-		WithStrategy(StrategyReplace),
-		WithSecondaryIndices(1))
+		cyclemanager.NewNoop(),
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
 
@@ -72,8 +73,8 @@ func TestCreateBloomInit(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
-		WithStrategy(StrategyReplace),
-		WithSecondaryIndices(1))
+		cyclemanager.NewNoop(),
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
 
@@ -99,7 +100,8 @@ func TestCreateBloomInit(t *testing.T) {
 	require.Nil(t, b.Shutdown(ctx))
 
 	// now create a new bucket and assert that the file is re-created on init
-	b2, err := NewBucket(ctx, dirName, "", logger, nil, WithStrategy(StrategyReplace))
+	b2, err := NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewNoop(), WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
 
@@ -117,7 +119,8 @@ func TestRepairCorruptedBloomOnInit(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	b, err := NewBucket(ctx, dirName, "", logger, nil, WithStrategy(StrategyReplace))
+	b, err := NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewNoop(), WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
 
@@ -134,7 +137,8 @@ func TestRepairCorruptedBloomOnInit(t *testing.T) {
 
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches
-	b2, err := NewBucket(ctx, dirName, "", logger, nil, WithStrategy(StrategyReplace))
+	b2, err := NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewNoop(), WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
 
@@ -150,8 +154,8 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
-		WithStrategy(StrategyReplace),
-		WithSecondaryIndices(1))
+		cyclemanager.NewNoop(),
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
 
@@ -170,6 +174,7 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches
 	b2, err := NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)

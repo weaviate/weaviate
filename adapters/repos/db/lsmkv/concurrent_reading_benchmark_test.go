@@ -25,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func BenchmarkConcurrentReading(b *testing.B) {
@@ -63,6 +64,7 @@ func prepareBucket(b *testing.B) (bucket *Bucket, cleanup func()) {
 	}()
 
 	bucket, err := NewBucket(testCtxB(), dirName, "", nullLoggerB(), nil,
+		cyclemanager.NewNoop(),
 		WithStrategy(StrategyMapCollection),
 		WithMemtableThreshold(5000))
 	require.Nil(b, err)

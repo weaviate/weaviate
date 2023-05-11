@@ -60,7 +60,7 @@ type Bucket struct {
 	// for backward compatibility
 	legacyMapSortingBeforeCompaction bool
 
-	flushCycle *cyclemanager.CycleManager
+	flushCycle cyclemanager.CycleManager
 
 	status     storagestate.Status
 	statusLock sync.RWMutex
@@ -82,7 +82,7 @@ type Bucket struct {
 // [Store]. In this case the [Store] can manage buckets for you, using methods
 // such as CreateOrLoadBucket().
 func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
-	metrics *Metrics, opts ...BucketOption,
+	metrics *Metrics, compactionCycle cyclemanager.CycleManager, opts ...BucketOption,
 ) (*Bucket, error) {
 	beforeAll := time.Now()
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
@@ -116,7 +116,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	}
 
 	sg, err := newSegmentGroup(dir, logger, b.legacyMapSortingBeforeCompaction,
-		metrics, b.strategy, b.monitorCount)
+		metrics, b.strategy, b.monitorCount, compactionCycle)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
 	}

@@ -24,56 +24,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
-
-func TestBackup_PauseCompaction(t *testing.T) {
-	t.Run("assert that context timeout works for long compactions", func(t *testing.T) {
-		ctx := context.Background()
-
-		dirName := makeTestDir(t)
-		defer removeTestDir(t, dirName)
-
-		b, err := NewBucket(ctx, dirName, "", logrus.New(), nil, WithStrategy(StrategyReplace))
-		require.Nil(t, err)
-
-		ctx, cancel := context.WithTimeout(ctx, time.Nanosecond)
-		defer cancel()
-
-		err = b.PauseCompaction(ctx)
-		require.NotNil(t, err)
-		assert.Equal(t, "long-running compaction in progress: context deadline exceeded", err.Error())
-
-		err = b.Shutdown(context.Background())
-		require.Nil(t, err)
-	})
-
-	t.Run("assert compaction is successfully paused", func(t *testing.T) {
-		ctx := context.Background()
-
-		dirName := makeTestDir(t)
-		defer removeTestDir(t, dirName)
-
-		b, err := NewBucket(ctx, dirName, "", logrus.New(), nil, WithStrategy(StrategyReplace))
-		require.Nil(t, err)
-
-		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		defer cancel()
-
-		t.Run("insert contents into bucket", func(t *testing.T) {
-			for i := 0; i < 10; i++ {
-				err := b.Put([]byte(fmt.Sprint(i)), []byte(fmt.Sprint(i)))
-				require.Nil(t, err)
-			}
-		})
-
-		err = b.PauseCompaction(ctx)
-		assert.Nil(t, err)
-
-		err = b.Shutdown(context.Background())
-		require.Nil(t, err)
-	})
-}
 
 func TestBackup_FlushMemtable(t *testing.T) {
 	t.Run("assert that context timeout works for long flushes", func(t *testing.T) {
@@ -82,7 +35,8 @@ func TestBackup_FlushMemtable(t *testing.T) {
 		dirName := makeTestDir(t)
 		defer removeTestDir(t, dirName)
 
-		b, err := NewBucket(ctx, dirName, "", logrus.New(), nil, WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", logrus.New(), nil,
+			cyclemanager.NewNoop(), WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		ctx, cancel := context.WithTimeout(ctx, time.Nanosecond)
@@ -102,7 +56,8 @@ func TestBackup_FlushMemtable(t *testing.T) {
 		dirName := makeTestDir(t)
 		defer removeTestDir(t, dirName)
 
-		b, err := NewBucket(ctx, dirName, "", logrus.New(), nil, WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", logrus.New(), nil,
+			cyclemanager.NewNoop(), WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		t.Run("insert contents into bucket", func(t *testing.T) {
@@ -128,7 +83,8 @@ func TestBackup_FlushMemtable(t *testing.T) {
 		dirName := makeTestDir(t)
 		defer removeTestDir(t, dirName)
 
-		b, err := NewBucket(ctx, dirName, "", logrus.New(), nil, WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", logrus.New(), nil,
+			cyclemanager.NewNoop(), WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		b.UpdateStatus(storagestate.StatusReadOnly)
@@ -153,7 +109,8 @@ func TestBackup_ListFiles(t *testing.T) {
 	dirName := makeTestDir(t)
 	defer removeTestDir(t, dirName)
 
-	b, err := NewBucket(ctx, dirName, "", logrus.New(), nil, WithStrategy(StrategyReplace))
+	b, err := NewBucket(ctx, dirName, "", logrus.New(), nil,
+		cyclemanager.NewNoop(), WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 
 	t.Run("insert contents into bucket", func(t *testing.T) {
@@ -176,40 +133,6 @@ func TestBackup_ListFiles(t *testing.T) {
 		assert.Contains(t, exts, ".db")    // the segment itself
 		assert.Contains(t, exts, ".bloom") // the segment's bloom filter
 		assert.Contains(t, exts, ".cna")   // the segment's count net additions
-	})
-
-	err = b.Shutdown(context.Background())
-	require.Nil(t, err)
-}
-
-func TestBackup_ResumeCompaction(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	dirName := makeTestDir(t)
-	defer removeTestDir(t, dirName)
-
-	b, err := NewBucket(ctx, dirName, "", logrus.New(), nil, WithStrategy(StrategyReplace))
-	require.Nil(t, err)
-
-	t.Run("insert contents into bucket", func(t *testing.T) {
-		for i := 0; i < 10; i++ {
-			err := b.Put([]byte(fmt.Sprint(i)), []byte(fmt.Sprint(i)))
-			require.Nil(t, err)
-		}
-	})
-
-	t.Run("assert compaction restarts after pausing", func(t *testing.T) {
-		err = b.PauseCompaction(ctx)
-		require.Nil(t, err)
-
-		err = b.ResumeCompaction(ctx)
-		assert.Nil(t, err)
-
-		t.Run("assert cycle restarts", func(t *testing.T) {
-			assert.True(t, b.flushCycle.Running())
-			assert.True(t, b.disk.compactionCycle.Running())
-		})
 	})
 
 	err = b.Shutdown(context.Background())
