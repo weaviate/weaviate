@@ -105,7 +105,7 @@ func searchResultsToProto(res []any, start time.Time, searchParams dto.GetParams
 
 		result := &pb.SearchResult{
 			Properties:           props,
-			AdditionalProperties: &pb.AdditionalProps{},
+			AdditionalProperties: &pb.ResultAdditionalProps{},
 		}
 
 		if searchParams.AdditionalProperties.ID {
@@ -127,8 +127,8 @@ func searchResultsToProto(res []any, start time.Time, searchParams dto.GetParams
 	return out
 }
 
-func extractPropertiesAnswer(results map[string]interface{}, properties search.SelectProperties, class string) (*pb.ReturnProperties, error) {
-	props := pb.ReturnProperties{}
+func extractPropertiesAnswer(results map[string]interface{}, properties search.SelectProperties, class string) (*pb.ResultProperties, error) {
+	props := pb.ResultProperties{}
 	nonRefProps := make(map[string]interface{}, 0)
 	refProps := make([]*pb.ReturnRefProperties, 0)
 	for _, prop := range properties {
@@ -144,7 +144,7 @@ func extractPropertiesAnswer(results map[string]interface{}, properties search.S
 		if !ok {
 			continue
 		}
-		extractedRefProps := make([]*pb.ReturnProperties, 0, len(refs))
+		extractedRefProps := make([]*pb.ResultProperties, 0, len(refs))
 		for _, ref := range refs {
 			refLocal, ok := ref.(search.LocalRef)
 			if !ok {
@@ -196,7 +196,7 @@ func extractPropertiesRequest(reqProps *pb.Properties) []search.SelectProperty {
 				Name:        prop.ReferenceProperty,
 				IsPrimitive: false,
 				Refs: []search.SelectClass{{
-					ClassName:     prop.ClassName,
+					ClassName:     prop.LinkedClass,
 					RefProperties: extractPropertiesRequest(prop.LinkedProperties),
 				}},
 			})
