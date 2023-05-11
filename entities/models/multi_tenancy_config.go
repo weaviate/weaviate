@@ -18,12 +18,9 @@ package models
 
 import (
 	"context"
-	"encoding/json"
 
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
-	"github.com/go-openapi/validate"
 )
 
 // MultiTenancyConfig Configuration related to multi-tenancy within a class
@@ -35,63 +32,11 @@ type MultiTenancyConfig struct {
 	Enabled bool `json:"enabled,omitempty"`
 
 	// The class property which is used to separate tenants
-	// Enum: [uuid text]
 	TenantKey string `json:"tenantKey,omitempty"`
 }
 
 // Validate validates this multi tenancy config
 func (m *MultiTenancyConfig) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if err := m.validateTenantKey(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-var multiTenancyConfigTypeTenantKeyPropEnum []interface{}
-
-func init() {
-	var res []string
-	if err := json.Unmarshal([]byte(`["uuid","text"]`), &res); err != nil {
-		panic(err)
-	}
-	for _, v := range res {
-		multiTenancyConfigTypeTenantKeyPropEnum = append(multiTenancyConfigTypeTenantKeyPropEnum, v)
-	}
-}
-
-const (
-
-	// MultiTenancyConfigTenantKeyUUID captures enum value "uuid"
-	MultiTenancyConfigTenantKeyUUID string = "uuid"
-
-	// MultiTenancyConfigTenantKeyText captures enum value "text"
-	MultiTenancyConfigTenantKeyText string = "text"
-)
-
-// prop value enum
-func (m *MultiTenancyConfig) validateTenantKeyEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, multiTenancyConfigTypeTenantKeyPropEnum, true); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (m *MultiTenancyConfig) validateTenantKey(formats strfmt.Registry) error {
-	if swag.IsZero(m.TenantKey) { // not required
-		return nil
-	}
-
-	// value enum
-	if err := m.validateTenantKeyEnum("tenantKey", "body", m.TenantKey); err != nil {
-		return err
-	}
-
 	return nil
 }
 
