@@ -14,6 +14,6 @@ package clients
 func (v *palm) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{
 		"name":              "Google PaLM Module",
-		"documentationHref": "",
+		"documentationHref": "https://developers.generativeai.google",
 	}, nil
 }

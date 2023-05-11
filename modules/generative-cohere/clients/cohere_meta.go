@@ -14,6 +14,6 @@ package clients
 func (v *cohere) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{
 		"name":              "Generative Search - Cohere",
-		"documentationHref": "",
+		"documentationHref": "https://docs.cohere.com/reference/generate",
 	}, nil
 }

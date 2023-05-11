@@ -29,12 +29,24 @@ func ClassContextionaryVectorizer() *models.Class {
 	return class(defaultClassName, "text2vec-contextionary")
 }
 
+func ClassContextionaryVectorizerWithSumTransformers() *models.Class {
+	return class(defaultClassName, "text2vec-contextionary", "sum-transformers")
+}
+
+func ClassContextionaryVectorizerWithQnATransformers() *models.Class {
+	return class(defaultClassName, "text2vec-contextionary", "qna-transformers")
+}
+
 func ClassTransformersVectorizer() *models.Class {
 	return class(defaultClassName, "text2vec-transformers")
 }
 
 func ClassTransformersVectorizerWithName(className string) *models.Class {
 	return class(className, "text2vec-transformers")
+}
+
+func ClassTransformersVectorizerWithQnATransformersWithName(className string) *models.Class {
+	return class(className, "text2vec-transformers", "qna-transformers")
 }
 
 func ClassCLIPVectorizer() *models.Class {
@@ -45,15 +57,21 @@ func ClassCLIPVectorizer() *models.Class {
 	return c
 }
 
-func class(className, vectorizer string) *models.Class {
-	return &models.Class{
-		Class:      className,
-		Vectorizer: vectorizer,
-		ModuleConfig: map[string]interface{}{
-			vectorizer: map[string]interface{}{
-				"vectorizeClassName": true,
-			},
+func class(className, vectorizer string, additionalModules ...string) *models.Class {
+	moduleConfig := map[string]interface{}{
+		vectorizer: map[string]interface{}{
+			"vectorizeClassName": true,
 		},
+	}
+	if len(additionalModules) > 0 {
+		for _, module := range additionalModules {
+			moduleConfig[module] = map[string]interface{}{}
+		}
+	}
+	return &models.Class{
+		Class:        className,
+		Vectorizer:   vectorizer,
+		ModuleConfig: moduleConfig,
 		Properties: []*models.Property{
 			{
 				Name:         "title",
