@@ -26,12 +26,12 @@ import (
 
 func Test_QnATransformers(t *testing.T) {
 	helper.SetupClient(os.Getenv(weaviateEndpoint))
-	booksClass := books.ClassContextionaryVectorizer()
+	booksClass := books.ClassContextionaryVectorizerWithQnATransformers()
 	helper.CreateClass(t, booksClass)
 	defer helper.DeleteClass(t, booksClass.Class)
 	// Text2VecTransformers
 	booksTransformers := "BooksTransformers"
-	booksTransformersClass := books.ClassTransformersVectorizerWithName(booksTransformers)
+	booksTransformersClass := books.ClassTransformersVectorizerWithQnATransformersWithName(booksTransformers)
 	helper.CreateClass(t, booksTransformersClass)
 	defer helper.DeleteClass(t, booksTransformersClass.Class)
 
