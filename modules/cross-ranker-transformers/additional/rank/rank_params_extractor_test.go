@@ -12,10 +12,11 @@
 package rank
 
 import (
-	"github.com/stretchr/testify/assert"
-	"github.com/tailor-inc/graphql/language/ast"
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/tailor-inc/graphql/language/ast"
 )
 
 func Test_parseCrossRankerArguments(t *testing.T) {
