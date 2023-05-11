@@ -22,8 +22,7 @@ import (
 	"github.com/weaviate/weaviate/modules/cross-ranker-transformers/ent"
 )
 
-//const maximumNumberOfGoroutines = 10
-
+// const maximumNumberOfGoroutines = 10
 type CrossRankerClient interface {
 	Rank(ctx context.Context, rankpropertyValue string, query string) (*ent.RankResult, error)
 }

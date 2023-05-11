@@ -13,17 +13,18 @@ package modcrossrankertransformers
 
 import (
 	"context"
+	"net/http"
+	"os"
+	"time"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	crossrankeradditional "github.com/weaviate/weaviate/modules/cross-ranker-transformers/additional"
 	crossrankeradditionalrank "github.com/weaviate/weaviate/modules/cross-ranker-transformers/additional/rank"
-	"github.com/weaviate/weaviate/modules/cross-ranker-transformers/clients"
+	client "github.com/weaviate/weaviate/modules/cross-ranker-transformers/clients"
 	"github.com/weaviate/weaviate/modules/cross-ranker-transformers/ent"
-	"net/http"
-	"os"
-	"time"
 )
 
 const Name = "cross-ranker-transformers"
