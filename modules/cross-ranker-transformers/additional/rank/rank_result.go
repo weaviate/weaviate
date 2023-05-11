@@ -42,7 +42,7 @@ func (p *CrossRankerProvider) getScore(ctx context.Context,
 
 		for i := range in { // for each result of the general GraphQL Query
 			// get text property
-			var rankPropertyValue = ""
+			rankPropertyValue := ""
 			schema := in[i].Object().Properties.(map[string]interface{})
 			for property, value := range schema {
 				if valueString, ok := value.(string); ok {
@@ -66,7 +66,7 @@ func (p *CrossRankerProvider) getScore(ctx context.Context,
 			in[i].AdditionalProperties = ap
 		}
 	}
-	//sort the list
+	// sort the list
 	sort.Slice(in, func(i, j int) bool {
 		apI := in[i].AdditionalProperties["crossrank"].([]*crossrankmodels.RankResult)
 		apJ := in[j].AdditionalProperties["crossrank"].([]*crossrankmodels.RankResult)
@@ -75,16 +75,4 @@ func (p *CrossRankerProvider) getScore(ctx context.Context,
 		return *apI[0].Score > *apJ[0].Score
 	})
 	return in, nil
-}
-
-func (p *CrossRankerProvider) containsProperty(property string, properties []string) bool {
-	if len(properties) == 0 {
-		return true
-	}
-	for i := range properties {
-		if properties[i] == property {
-			return true
-		}
-	}
-	return false
 }

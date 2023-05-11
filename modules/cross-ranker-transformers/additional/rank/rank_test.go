@@ -13,9 +13,9 @@ package rank
 
 import (
 	"context"
-	crossrankmodels "github.com/weaviate/weaviate/modules/cross-ranker-transformers/additional/models"
-	"github.com/weaviate/weaviate/modules/cross-ranker-transformers/ent"
 	"testing"
+
+	"github.com/weaviate/weaviate/modules/cross-ranker-transformers/ent"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -97,7 +97,7 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.True(t, answerOK)
 		assert.NotNil(t, answer)
 		answerAdditional, _ := answer.(ent.RankResult)
-		//assert.True(t, answerAdditionalOK)
+		// assert.True(t, answerAdditionalOK)
 		assert.Equal(t, float64(0), answerAdditional.Score)
 	})
 }
@@ -107,18 +107,11 @@ type fakeRankClient struct{}
 func (c *fakeRankClient) Rank(ctx context.Context, rankpropertyValue string, query string,
 ) (*ent.RankResult, error) {
 	score := 0.15
-	//rankResult := c.getRank(rankpropertyValue, query)
+	// rankResult := c.getRank(rankpropertyValue, query)
 	returnResult := ent.RankResult{
 		Score:             score,
 		Query:             query,
 		RankPropertyValue: rankpropertyValue,
 	}
 	return &returnResult, nil
-}
-
-func (c *fakeRankClient) getRank(rankpropertyValue string, query string) crossrankmodels.RankResult {
-	score := 0.15
-	return crossrankmodels.RankResult{
-		Score: &score,
-	}
 }
