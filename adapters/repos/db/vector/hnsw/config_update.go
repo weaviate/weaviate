@@ -91,14 +91,24 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 	atomic.StoreInt64(&h.efFactor, int64(parsed.DynamicEFFactor))
 	atomic.StoreInt64(&h.flatSearchCutoff, int64(parsed.FlatSearchCutoff))
 
-	if h.compressed.Load() {
-		h.compressedVectorsCache.updateMaxSize(int64(parsed.VectorCacheMaxObjects))
+	if !parsed.PQ.Enabled {
+		callback()
+		return nil
+	}
+
+	// compression got enabled in this update
+	if h.compressedVectorsCache == (*compressedShardedLockCache)(nil) {
+		h.compressedVectorsCache = newCompressedShardedLockCache(parsed.VectorCacheMaxObjects, h.logger)
 	} else {
-		h.cache.updateMaxSize(int64(parsed.VectorCacheMaxObjects))
+		if h.compressed.Load() {
+			h.compressedVectorsCache.updateMaxSize(int64(parsed.VectorCacheMaxObjects))
+		} else {
+			h.cache.updateMaxSize(int64(parsed.VectorCacheMaxObjects))
+		}
 	}
 
 	// ToDo: check atomic operation
-	if !h.compressed.Load() && parsed.PQ.Enabled {
+	if !h.compressed.Load() {
 		// the compression will fire the callback once it's complete
 		h.turnOnCompression(parsed, callback)
 	} else {
