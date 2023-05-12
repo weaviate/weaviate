@@ -103,28 +103,124 @@ func searchResultsToProto(res []any, start time.Time, searchParams dto.GetParams
 			continue
 		}
 
-		result := &pb.SearchResult{
-			Properties:           props,
-			AdditionalProperties: &pb.ResultAdditionalProps{},
+		additionalProps, err := extractAdditionalProps(asMap, searchParams)
+		if err != nil {
+			continue
 		}
 
-		if searchParams.AdditionalProperties.ID {
-			idRaw, ok := asMap["id"]
-			if !ok {
-				continue
-			}
-
-			idStrfmt, ok := idRaw.(strfmt.UUID)
-			if !ok {
-				continue
-			}
-			result.AdditionalProperties.Id = idStrfmt.String()
+		result := &pb.SearchResult{
+			Properties:           props,
+			AdditionalProperties: additionalProps,
 		}
 
 		out.Results[i] = result
 	}
 
 	return out
+}
+
+func extractAdditionalProps(asMap map[string]any, searchParams dto.GetParams) (*pb.ResultAdditionalProps, error) {
+	err := errors.New("could not extract additional prop")
+	additionalProps := &pb.ResultAdditionalProps{}
+	if searchParams.AdditionalProperties.ID {
+		idRaw, ok := asMap["id"]
+		if !ok {
+			return nil, err
+		}
+
+		idStrfmt, ok := idRaw.(strfmt.UUID)
+		if !ok {
+			return nil, err
+		}
+		additionalProps.Id = idStrfmt.String()
+	}
+
+	additionalPropertiesMap := asMap["_additional"].(map[string]interface{})
+
+	// additional properties are only present for certain searches/configs => don't return an error if not available
+	if searchParams.AdditionalProperties.Vector {
+		vector, ok := additionalPropertiesMap["vector"]
+		if ok {
+			vectorfmt, ok2 := vector.([]float32)
+			if ok2 {
+				additionalProps.Vector = vectorfmt
+			}
+		}
+	}
+
+	if searchParams.AdditionalProperties.Certainty {
+		additionalProps.CertaintyPresent = false
+		certainty, ok := additionalPropertiesMap["certainty"]
+		if ok {
+			certaintyfmt, ok2 := certainty.(float32)
+			if ok2 {
+				additionalProps.Certainty = certaintyfmt
+				additionalProps.CertaintyPresent = true
+			}
+		}
+	}
+
+	if searchParams.AdditionalProperties.Distance {
+		additionalProps.DistancePresent = false
+		distance, ok := additionalPropertiesMap["distance"]
+		if ok {
+			distancefmt, ok2 := distance.(float32)
+			if ok2 {
+				additionalProps.Distance = distancefmt
+				additionalProps.DistancePresent = true
+			}
+		}
+	}
+
+	if searchParams.AdditionalProperties.CreationTimeUnix {
+		additionalProps.CreationTimeUnixPresent = false
+		creationtime, ok := additionalPropertiesMap["creationTimeUnix"]
+		if ok {
+			creationtimefmt, ok2 := creationtime.(int64)
+			if ok2 {
+				additionalProps.CreationTimeUnix = creationtimefmt
+				additionalProps.CreationTimeUnixPresent = true
+			}
+		}
+	}
+
+	if searchParams.AdditionalProperties.LastUpdateTimeUnix {
+		additionalProps.LastUpdateTimeUnixPresent = false
+		lastUpdateTime, ok := additionalPropertiesMap["lastUpdateTimeUnix"]
+		if ok {
+			lastUpdateTimefmt, ok2 := lastUpdateTime.(int64)
+			if ok2 {
+				additionalProps.LastUpdateTimeUnix = lastUpdateTimefmt
+				additionalProps.LastUpdateTimeUnixPresent = true
+			}
+		}
+	}
+
+	if searchParams.AdditionalProperties.ExplainScore {
+		additionalProps.ExplainScorePresent = false
+		explainScore, ok := additionalPropertiesMap["explainScore"]
+		if ok {
+			explainScorefmt, ok2 := explainScore.(string)
+			if ok2 {
+				additionalProps.ExplainScore = explainScorefmt
+				additionalProps.ExplainScorePresent = true
+			}
+		}
+	}
+
+	if searchParams.AdditionalProperties.Score {
+		additionalProps.ScorePresent = false
+		score, ok := additionalPropertiesMap["score"]
+		if ok {
+			scorefmt, ok2 := score.(float32)
+			if ok2 {
+				additionalProps.Score = scorefmt
+				additionalProps.ScorePresent = true
+			}
+		}
+	}
+
+	return additionalProps, nil
 }
 
 func extractPropertiesAnswer(results map[string]interface{}, properties search.SelectProperties, class string) (*pb.ResultProperties, error) {
@@ -218,12 +314,16 @@ func searchParamsFromProto(req *pb.SearchRequest) (dto.GetParams, error) {
 		out.AdditionalProperties.NoProps = true
 	}
 
+	explainScore := false
 	if req.AdditionalProperties != nil {
-		for _, addProp := range req.AdditionalProperties {
-			if addProp == "id" {
-				out.AdditionalProperties.ID = true
-			}
-		}
+		out.AdditionalProperties.ID = req.AdditionalProperties.Uuid
+		out.AdditionalProperties.Vector = req.AdditionalProperties.Vector
+		out.AdditionalProperties.Distance = req.AdditionalProperties.Distance
+		out.AdditionalProperties.LastUpdateTimeUnix = req.AdditionalProperties.LastUpdateTimeUnix
+		out.AdditionalProperties.CreationTimeUnix = req.AdditionalProperties.Distance
+		out.AdditionalProperties.Score = req.AdditionalProperties.Score
+		out.AdditionalProperties.Certainty = req.AdditionalProperties.Certainty
+		explainScore = req.AdditionalProperties.ExplainScore
 	}
 
 	if hs := req.HybridSearch; hs != nil {
@@ -231,7 +331,7 @@ func searchParamsFromProto(req *pb.SearchRequest) (dto.GetParams, error) {
 	}
 
 	if bm25 := req.Bm25Search; bm25 != nil {
-		out.KeywordRanking = &searchparams.KeywordRanking{Query: bm25.Query, Properties: bm25.Properties, Type: "bm25"}
+		out.KeywordRanking = &searchparams.KeywordRanking{Query: bm25.Query, Properties: bm25.Properties, Type: "bm25", AdditionalExplanations: explainScore}
 	}
 
 	if nv := req.NearVector; nv != nil {
