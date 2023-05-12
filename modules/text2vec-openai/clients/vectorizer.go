@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -55,6 +56,10 @@ func buildUrl(config ent.VectorizationConfig) (string, error) {
 		path := "openai/deployments/" + config.DeploymentID + "/embeddings"
 		queryParam := "api-version=2022-12-01"
 		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil
+	}
+	if host, ok := os.LookupEnv("OPENAI_BASE_URL"); ok {
+		logrus.Info("Using Alternative OPENAI Base URL: %v", host)
+		return url.JoinPath(host, "/embeddings")
 	}
 	host := "https://api.openai.com"
 	path := "/v1/embeddings"
