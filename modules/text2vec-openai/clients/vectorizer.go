@@ -55,15 +55,15 @@ type openAIApiError struct {
 }
 
 func buildUrl(config ent.VectorizationConfig) (string, error) {
+	if host, ok := os.LookupEnv("OPENAI_BASE_URL"); ok {
+		logrus.Infof("Using Alternative OPENAI Base URL: %v", host)
+		return url.JoinPath(host, "/embeddings")
+	}
 	if config.IsAzure {
 		host := "https://" + config.ResourceName + ".openai.azure.com"
 		path := "openai/deployments/" + config.DeploymentID + "/embeddings"
 		queryParam := "api-version=2022-12-01"
 		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil
-	}
-	if host, ok := os.LookupEnv("OPENAI_BASE_URL"); ok {
-		logrus.Info("Using Alternative OPENAI Base URL: %v", host)
-		return url.JoinPath(host, "/embeddings")
 	}
 	host := "https://api.openai.com"
 	path := "/v1/embeddings"

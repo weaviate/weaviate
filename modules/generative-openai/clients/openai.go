@@ -42,11 +42,10 @@ func buildUrlFn(isLegacy bool, resourceName, deploymentID string) (string, error
 		queryParam := "api-version=2023-03-15-preview"
 		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil
 	}
-	if host, ok := os.LookupEnv("OPENAI_BASE_URL"); ok {
-		logrus.Info("Using Alternative OPENAI Base URL: %v", host)
-		return host, nil
+	host, ok := os.LookupEnv("OPENAI_BASE_URL")
+	if !ok {
+		host = "https://api.openai.com"
 	}
-	host := "https://api.openai.com"
 	path := "/v1/chat/completions"
 	if isLegacy {
 		path = "/v1/completions"
