@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -39,6 +40,27 @@ func fakeBuildUrl(serverURL string, isLegacy bool, resourceName, deploymentID st
 	}
 	endpoint = strings.Replace(endpoint, "https://api.openai.com", serverURL, 1)
 	return endpoint, nil
+}
+
+func TestBuildUrlFn(t *testing.T) {
+	t.Run("buildUrlFn returns default OpenAI Client", func(t *testing.T) {
+		url, err := buildUrlFn(false, "", "")
+		assert.Nil(t, err)
+		assert.Equal(t, "https://api.openai.com/v1/chat/completions", url)
+	})
+	t.Run("buildUrlFn returns Azure Client", func(t *testing.T) {
+		url, err := buildUrlFn(false, "resourceID", "deploymentID")
+		assert.Nil(t, err)
+		assert.Equal(t, "https://resourceID.openai.azure.com/openai/deployments/deploymentID/chat/completions?api-version=2023-03-15-preview", url)
+	})
+
+	t.Run("buildUrlFn loads from environment variable", func(t *testing.T) {
+		os.Setenv("OPENAI_BASE_URL", "https://foobar.some.proxy")
+		url, err := buildUrlFn(false, "", "")
+		assert.Nil(t, err)
+		assert.Equal(t, "https://foobar.some.proxy/v1/chat/completions", url)
+		os.Unsetenv("OPENAI_BASE_URL")
+	})
 }
 
 func TestGetAnswer(t *testing.T) {
