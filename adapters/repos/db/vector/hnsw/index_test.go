@@ -87,16 +87,16 @@ func TestHnswIndexGrow(t *testing.T) {
 		id := uint64(5*initialSize + 1)
 		err := index.Add(id, vector)
 		require.Nil(t, err)
-		// index should grow to 150001
+		// index should grow to 5001
 		assert.Equal(t, int(id)+minimumIndexGrowthDelta, len(index.nodes))
 		assert.Equal(t, int32(id+2*minimumIndexGrowthDelta), index.cache.len())
-		// try to add a vector with id: 170001
+		// try to add a vector with id: 8001
 		id = uint64(6*initialSize + minimumIndexGrowthDelta + 1)
 		err = index.Add(id, vector)
 		require.Nil(t, err)
-		// index should grow to at least 170001
-		assert.GreaterOrEqual(t, len(index.nodes), 17001)
-		assert.GreaterOrEqual(t, index.cache.len(), int32(17001))
+		// index should grow to at least 8001
+		assert.GreaterOrEqual(t, len(index.nodes), 8001)
+		assert.GreaterOrEqual(t, index.cache.len(), int32(8001))
 	})
 
 	t.Run("should grow index", func(t *testing.T) {
