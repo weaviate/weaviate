@@ -42,6 +42,10 @@ var configureServer func(*http.Server, string, string)
 
 func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State, traverser *traverser.Traverser) func(schema.Schema) {
 	return func(updatedSchema schema.Schema) {
+		if appState.ServerConfig.Config.DisableGraphQL {
+			return
+		}
+
 		// Note that this is thread safe; we're running in a single go-routine, because the event
 		// handlers are called when the SchemaLock is still held.
 
