@@ -18,12 +18,28 @@ message SearchRequest {
   NearVectorParams near_vector = 4;
   NearObjectParams near_object = 5;
   Properties properties = 6;
+  HybridSearchParams hybrid_search =7;
+  BM25SearchParams bm25_search =8;
 }
 
 message Properties {
   repeated string non_ref_properties = 1;
   repeated RefProperties ref_properties = 2;
 }
+
+message HybridSearchParams {
+  string query = 1;
+  repeated string properties = 2;
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated float vector = 3;
+  float alpha = 4;
+}
+
+message BM25SearchParams {
+  string query = 1;
+  repeated string properties = 2;
+}
+
 
 message RefProperties {
   string linked_class = 1;
