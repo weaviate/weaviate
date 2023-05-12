@@ -53,7 +53,7 @@ func NewLogger(fileName string) *Logger {
 }
 
 func NewLoggerWithFile(file *os.File) *Logger {
-	return &Logger{file: file, bufw: NewWriterSize(file, 1024*1024)}
+	return &Logger{file: file, bufw: NewWriterSize(file, 32*1024)}
 }
 
 func (l *Logger) SetEntryPointWithMaxLayer(id uint64, level int) error {
