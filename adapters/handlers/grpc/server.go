@@ -134,6 +134,10 @@ func extractAdditionalProps(asMap map[string]any, searchParams dto.GetParams) (*
 		}
 		additionalProps.Id = idStrfmt.String()
 	}
+	_, ok := asMap["_additional"]
+	if !ok {
+		return additionalProps, nil
+	}
 
 	additionalPropertiesMap := asMap["_additional"].(map[string]interface{})
 
