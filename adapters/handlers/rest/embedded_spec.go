@@ -3140,6 +3140,9 @@ func init() {
           "description": "Configuration specific to modules this Weaviate instance has installed",
           "type": "object"
         },
+        "multiTenancyConfig": {
+          "$ref": "#/definitions/MultiTenancyConfig"
+        },
         "properties": {
           "description": "The properties of the class.",
           "type": "array",
@@ -3527,6 +3530,19 @@ func init() {
         },
         "version": {
           "description": "Version of weaviate you are currently running",
+          "type": "string"
+        }
+      }
+    },
+    "MultiTenancyConfig": {
+      "description": "Configuration related to multi-tenancy within a class",
+      "properties": {
+        "enabled": {
+          "description": "Whether or not multi-tenancy is enabled for this class",
+          "type": "boolean"
+        },
+        "tenantKey": {
+          "description": "The class property which is used to separate tenants",
           "type": "string"
         }
       }
@@ -7645,6 +7661,9 @@ func init() {
           "description": "Configuration specific to modules this Weaviate instance has installed",
           "type": "object"
         },
+        "multiTenancyConfig": {
+          "$ref": "#/definitions/MultiTenancyConfig"
+        },
         "properties": {
           "description": "The properties of the class.",
           "type": "array",
@@ -8058,6 +8077,19 @@ func init() {
         },
         "version": {
           "description": "Version of weaviate you are currently running",
+          "type": "string"
+        }
+      }
+    },
+    "MultiTenancyConfig": {
+      "description": "Configuration related to multi-tenancy within a class",
+      "properties": {
+        "enabled": {
+          "description": "Whether or not multi-tenancy is enabled for this class",
+          "type": "boolean"
+        },
+        "tenantKey": {
+          "description": "The class property which is used to separate tenants",
           "type": "string"
         }
       }
