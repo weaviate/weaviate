@@ -263,7 +263,7 @@ func (m *Manager) setPropertyDefaultIndexing(prop *models.Property) {
 		case schema.DataTypeString, schema.DataTypeStringArray:
 			// string/string[] are migrated to text/text[] later,
 			// at this point they are still valid data types, therefore should be handled here
-			fallthrough
+			prop.IndexSearchable = &vTrue
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			prop.IndexSearchable = &vTrue
 		default:
