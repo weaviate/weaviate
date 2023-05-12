@@ -256,6 +256,7 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	config.DisableGraphQL = enabled(os.Getenv("DISABLE_GRAPHQL"))
 	return nil
 }
 

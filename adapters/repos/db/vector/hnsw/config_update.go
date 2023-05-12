@@ -91,38 +91,63 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 	atomic.StoreInt64(&h.efFactor, int64(parsed.DynamicEFFactor))
 	atomic.StoreInt64(&h.flatSearchCutoff, int64(parsed.FlatSearchCutoff))
 
-	if h.compressed.Load() {
-		h.compressedVectorsCache.updateMaxSize(int64(parsed.VectorCacheMaxObjects))
+	if !parsed.PQ.Enabled {
+		callback()
+		return nil
+	}
+
+	// compression got enabled in this update
+	if h.compressedVectorsCache == (*compressedShardedLockCache)(nil) {
+		h.compressedVectorsCache = newCompressedShardedLockCache(parsed.VectorCacheMaxObjects, h.logger)
 	} else {
-		h.cache.updateMaxSize(int64(parsed.VectorCacheMaxObjects))
+		if h.compressed.Load() {
+			h.compressedVectorsCache.updateMaxSize(int64(parsed.VectorCacheMaxObjects))
+		} else {
+			h.cache.updateMaxSize(int64(parsed.VectorCacheMaxObjects))
+		}
 	}
+
 	// ToDo: check atomic operation
-	if !h.compressed.Load() && parsed.PQ.Enabled {
-		h.logger.WithField("action", "compress").Info("switching to compressed vectors")
-
-		encoder, err := ent.ValidEncoder(parsed.PQ.Encoder.Type)
-		if err != nil {
-			callback()
-			return err
-		}
-		encoderDistribution, err := ent.ValidEncoderDistribution(parsed.PQ.Encoder.Distribution)
-		if err != nil {
-			callback()
-			return err
-		}
-
-		go func() {
-			if err := h.Compress(parsed.PQ.Segments, parsed.PQ.Centroids, parsed.PQ.BitCompression, int(encoder), int(encoderDistribution)); err != nil {
-				h.logger.Error(err)
-				h.logger.Error(err)
-				callback()
-				return
-			}
-			h.logger.WithField("action", "compress").Info("vector compression complete")
-			callback()
-		}()
+	if !h.compressed.Load() {
+		// the compression will fire the callback once it's complete
+		h.turnOnCompression(parsed, callback)
+	} else {
+		// without a compression we need to fire the callback right away
+		callback()
 	}
 
-	callback()
 	return nil
+}
+
+func (h *hnsw) turnOnCompression(cfg ent.UserConfig, callback func()) error {
+	h.logger.WithField("action", "compress").Info("switching to compressed vectors")
+
+	encoder, err := ent.ValidEncoder(cfg.PQ.Encoder.Type)
+	if err != nil {
+		callback()
+		return err
+	}
+
+	encoderDistribution, err := ent.ValidEncoderDistribution(cfg.PQ.Encoder.Distribution)
+	if err != nil {
+		callback()
+		return err
+	}
+
+	go h.compressThenCallback(cfg, callback, int(encoder), int(encoderDistribution))
+
+	return nil
+}
+
+func (h *hnsw) compressThenCallback(cfg ent.UserConfig, callback func(),
+	encoder int, encoderDistribution int,
+) {
+	defer callback()
+
+	if err := h.Compress(cfg.PQ.Segments, cfg.PQ.Centroids, cfg.PQ.BitCompression,
+		encoder, encoderDistribution); err != nil {
+		h.logger.Error(err)
+		return
+	}
+	h.logger.WithField("action", "compress").Info("vector compression complete")
 }
