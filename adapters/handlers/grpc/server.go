@@ -226,6 +226,14 @@ func searchParamsFromProto(req *pb.SearchRequest) (dto.GetParams, error) {
 		}
 	}
 
+	if hs := req.HybridSearch; hs != nil {
+		out.HybridSearch = &searchparams.HybridSearch{Query: hs.Query, Properties: hs.Properties, Vector: hs.Vector, Alpha: float64(hs.Alpha)}
+	}
+
+	if bm25 := req.Bm25Search; bm25 != nil {
+		out.KeywordRanking = &searchparams.KeywordRanking{Query: bm25.Query, Properties: bm25.Properties, Type: "bm25"}
+	}
+
 	if nv := req.NearVector; nv != nil {
 		out.NearVector = &searchparams.NearVector{
 			Vector: nv.Vector,
