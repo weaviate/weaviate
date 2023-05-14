@@ -16,6 +16,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 type PrometheusMetrics struct {
@@ -56,6 +57,8 @@ type PrometheusMetrics struct {
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.SummaryVec
 	StartupDiskIO    *prometheus.SummaryVec
+
+	GroupClasses bool
 }
 
 var (
@@ -63,16 +66,17 @@ var (
 	metrics   *PrometheusMetrics = nil
 )
 
-func init() {
-	metrics = newPrometheusMetrics()
+func Init(cfg config.Monitoring) {
+	metrics = newPrometheusMetrics(cfg)
 }
 
 func GetMetrics() *PrometheusMetrics {
 	return metrics
 }
 
-func newPrometheusMetrics() *PrometheusMetrics {
+func newPrometheusMetrics(cfg config.Monitoring) *PrometheusMetrics {
 	return &PrometheusMetrics{
+		GroupClasses: cfg.GroupClasses,
 		BatchTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "batch_durations_ms",
 			Help:    "Duration in ms of a single batch",
