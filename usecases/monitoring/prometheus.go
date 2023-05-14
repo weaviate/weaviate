@@ -66,17 +66,20 @@ var (
 	metrics   *PrometheusMetrics = nil
 )
 
-func Init(cfg config.Monitoring) {
-	metrics = newPrometheusMetrics(cfg)
+func init() {
+	metrics = newPrometheusMetrics()
+}
+
+func InitConfig(cfg config.Monitoring) {
+	metrics.GroupClasses = cfg.GroupClasses
 }
 
 func GetMetrics() *PrometheusMetrics {
 	return metrics
 }
 
-func newPrometheusMetrics(cfg config.Monitoring) *PrometheusMetrics {
+func newPrometheusMetrics() *PrometheusMetrics {
 	return &PrometheusMetrics{
-		GroupClasses: cfg.GroupClasses,
 		BatchTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "batch_durations_ms",
 			Help:    "Duration in ms of a single batch",
