@@ -49,7 +49,7 @@ func (m *GenerativeCohereModule) Name() string {
 }
 
 func (m *GenerativeCohereModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2Text
+	return modulecapabilities.Text2TextGenerative
 }
 
 func (m *GenerativeCohereModule) Init(ctx context.Context,

@@ -46,7 +46,7 @@ func (m *NERModule) Name() string {
 }
 
 func (m *NERModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2Text
+	return modulecapabilities.Text2TextNER
 }
 
 func (m *NERModule) Init(ctx context.Context,

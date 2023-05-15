@@ -53,7 +53,7 @@ func (m *QnAModule) Name() string {
 }
 
 func (m *QnAModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2Text
+	return modulecapabilities.Text2TextQnA
 }
 
 func (m *QnAModule) Init(ctx context.Context,

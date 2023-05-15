@@ -49,7 +49,7 @@ func (m *GenerativeOpenAIModule) Name() string {
 }
 
 func (m *GenerativeOpenAIModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2Text
+	return modulecapabilities.Text2TextGenerative
 }
 
 func (m *GenerativeOpenAIModule) Init(ctx context.Context,
