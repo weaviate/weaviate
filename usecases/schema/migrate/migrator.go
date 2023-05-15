@@ -34,6 +34,7 @@ type Migrator interface {
 		prop *models.Property) error
 	UpdateProperty(ctx context.Context, className string,
 		propName string, newName *string) error
+	AddPartitions(ctx context.Context, className string, names []string) error
 	ValidateVectorIndexConfigUpdate(ctx context.Context,
 		old, updated schema.VectorIndexConfig) error
 	UpdateVectorIndexConfig(ctx context.Context, className string,

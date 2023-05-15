@@ -80,9 +80,13 @@ func (m *Manager) getClassByName(name string) *models.Class {
 
 func (m *Manager) ShardingState(className string) *sharding.State {
 	m.shardingStateLock.RLock()
-	copiedState := m.state.ShardingState[className].DeepCopy()
+	pst := m.state.ShardingState[className]
+	if pst != nil {
+		st := pst.DeepCopy()
+		pst = &st
+	}
 	m.shardingStateLock.RUnlock()
-	return &copiedState
+	return pst
 }
 
 // ResolveParentNodes gets all replicas for a specific class shard and resolves their names
