@@ -49,7 +49,7 @@ func (m *GenerativePaLMModule) Name() string {
 }
 
 func (m *GenerativePaLMModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2Text
+	return modulecapabilities.Text2TextGenerative
 }
 
 func (m *GenerativePaLMModule) Init(ctx context.Context,
