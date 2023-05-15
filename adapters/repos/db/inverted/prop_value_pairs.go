@@ -83,7 +83,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 		}
 
 		ctx := context.TODO() // TODO: pass through instead of spawning new
-		dbm, err := s.docBitmap(ctx, b, limit, pv)
+		dbm, err := s.docBitmap(ctx, []byte(pv.prop), b, limit, pv)
 		if err != nil {
 			return err
 		}

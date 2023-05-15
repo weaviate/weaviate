@@ -24,6 +24,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -73,6 +74,8 @@ type Bucket struct {
 	monitorCount bool
 
 	pauseTimer *prometheus.Timer // Times the pause
+	RegisteredName string
+	PropertyTracker map[string]uint32
 }
 
 // NewBucket initializes a new bucket. It either loads the state from disk if
@@ -81,16 +84,15 @@ type Bucket struct {
 // You do not need to ever call NewBucket() yourself, if you are using a
 // [Store]. In this case the [Store] can manage buckets for you, using methods
 // such as CreateOrLoadBucket().
-func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
-	metrics *Metrics, compactionCycle cyclemanager.CycleManager,
-	flushCycle cyclemanager.CycleManager, opts ...BucketOption,
-) (*Bucket, error) {
+func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics, compactionCycle cyclemanager.CycleManager, flushCycle cyclemanager.CycleManager, opts ...BucketOption) (*Bucket, error) {
 	beforeAll := time.Now()
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
 	defaultFlushAfterIdle := 60 * time.Second
 	defaultStrategy := StrategyReplace
 
+
+	fmt.Printf("NewBucket dir: %s, rootDir: %s\n", dir, rootDir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
@@ -105,6 +107,8 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		logger:            logger,
 		metrics:           metrics,
 	}
+
+	fmt.Printf("NewBucket %+v\n", b)
 
 	for _, opt := range opts {
 		if err := opt(b); err != nil {
@@ -476,9 +480,10 @@ func MapListLegacySortingRequired() MapListOption {
 //
 // MapList is specific to the Map strategy, for Sets use [Bucket.SetList], for
 // Replace use [Bucket.Get].
-func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
+func (b *Bucket) MapList( key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
+
 
 	c := MapListOptionConfig{}
 	for _, cfg := range cfgs {
@@ -546,6 +551,25 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	}
 
 	return newSortedMapMerger().do(segments)
+}
+
+
+// MapListProp returns all map entries for a given row key and property id. The order of map pairs
+// has no specific meaning. For efficient merge operations, pair entries are
+// stored sorted on disk, however that is an implementation detail and not a
+// caller-facing guarantee.
+//
+// MapListProp is specific to the Map strategy, for Sets use [Bucket.SetList], for
+// Replace use [Bucket.Get].
+func (b *Bucket) MapListProp(propertyid []byte, keypart []byte, cfgs ...MapListOption) ([]MapPair, error) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	fmt.Printf("maplistprop: searching for propertyid %s, keypart %s\n", propertyid, keypart)
+
+	key := helpers.MakePropertyKey(propertyid, keypart)
+
+	return b.MapList(key, cfgs...)
 }
 
 // MapSet writes one [MapPair] into the map for the given row key. It is

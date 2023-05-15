@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	
 )
 
 type BM25Searcher struct {
@@ -50,6 +51,7 @@ type BM25Searcher struct {
 	propLengths   propLengthRetriever
 	logger        logrus.FieldLogger
 	shardVersion  uint16
+	propertyIds  *propertyspecific.JsonPropertyIdTracker
 }
 
 type propLengthRetriever interface {
@@ -60,7 +62,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	schema schema.Schema, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker,
 	propLengths propLengthRetriever, logger logrus.FieldLogger,
-	shardVersion uint16,
+	shardVersion uint16, propertyIds *propertyspecific.JsonPropertyIdTracker,
 ) *BM25Searcher {
 	return &BM25Searcher{
 		config:        config,
@@ -72,6 +74,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 		propLengths:   propLengths,
 		logger:        logger.WithField("action", "bm25_search"),
 		shardVersion:  shardVersion,
+		propertyIds:  propertyIds,
 	}
 }
 
@@ -333,11 +336,24 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	allMsAndProps := make(AllMapPairsAndPropName, 0, len(propertyNames))
 	for _, propName := range propertyNames {
 
-		bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
+		bucket := b.store.Bucket("searchable_properties")
 		if bucket == nil {
 			return termResult, nil, fmt.Errorf("could not find bucket for property %v", propName)
 		}
-		preM, err := bucket.MapList([]byte(query))
+
+
+		
+		propid, err := b.propertyIds.GetIdForProperty(string(propName))
+		if err != nil {
+			panic(fmt.Sprintf("property '%s' not found in propLengths", propName))
+		}
+		fmt.Printf("bm25f propid: %d\n", propid)
+		propid_bytes := make([]byte, 8)
+		binary.LittleEndian.PutUint64(propid_bytes, propid)
+	
+		
+
+		preM, err := bucket.MapListProp(propid_bytes,[]byte(query))
 		if err != nil {
 			return termResult, nil, err
 		}

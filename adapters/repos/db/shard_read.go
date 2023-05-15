@@ -168,6 +168,8 @@ func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 					"Weaviate which does not yet support BM25 search")
 		}
 
+		
+
 		var bm25objs []*storobj.Object
 		var bm25count []float32
 		var err error
@@ -189,7 +191,10 @@ func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 		className := s.index.Config.ClassName
 		bm25Config := s.index.getInvertedIndexConfig().BM25
-		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store, s.index.getSchema.GetSchemaSkipAuth(), s.propertyIndices, s.index.classSearcher, s.deletedDocIDs, s.propLengths, s.index.logger, s.versioner.Version())
+		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
+			s.index.getSchema.GetSchemaSkipAuth(),
+			s.propertyIndices, s.index.classSearcher, s.deletedDocIDs, s.propLengths,
+			s.index.logger, s.versioner.Version(), s.propIds)
 		bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, *keywordRanking)
 		if err != nil {
 			return nil, nil, err

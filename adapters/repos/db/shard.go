@@ -37,7 +37,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"golang.org/x/sync/errgroup"
 )
 
 const IdLockPoolSize = 128
@@ -55,6 +54,7 @@ type Shard struct {
 	promMetrics     *monitoring.PrometheusMetrics
 	propertyIndices propertyspecific.Indices
 	deletedDocIDs   *docid.InMemDeletedTracker
+	propIds         *propertyspecific.JsonPropertyIdTracker
 	propLengths     *inverted.JsonPropertyLengthTracker
 	versioner       *shardVersioner
 
@@ -84,9 +84,7 @@ type Shard struct {
 	geoPropsCycles *hnsw.MaintenanceCycles
 }
 
-func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
-	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-) (*Shard, error) {
+func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics, shardName string, index *Index, class *models.Class, jobQueueCh chan job) (*Shard, error) {
 	before := time.Now()
 
 	s := &Shard{
@@ -219,6 +217,13 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	}
 	s.propLengths = propLengths
 
+	piPath := path.Join(s.index.Config.RootPath, s.ID()+".propids")
+	propIds, err := propertyspecific.NewJsonPropertyIdTracker(piPath)
+	if err != nil {
+		return errors.Wrapf(err, "init shard %q: prop id tracker", s.ID())
+	}
+	s.propIds = propIds
+
 	if err := s.initProperties(class); err != nil {
 		return errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}
@@ -346,7 +351,6 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
-
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropID),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
@@ -413,36 +417,35 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 	)
 }
 
-func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *errgroup.Group) {
+func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property) error {
 	if !inverted.HasInvertedIndex(prop) {
-		return
+		return nil //FIXME nil or err?
 	}
 
-	eg.Go(func() error {
-		if err := s.createPropertyValueIndex(ctx, prop); err != nil {
-			return errors.Wrapf(err, "create property '%s' value index on shard '%s'", prop.Name, s.ID())
+	s.propIds.CreateProperty(prop.Name)
+	s.propIds.Flush(false)
+
+	if err := s.createPropertyValueIndex(ctx, prop); err != nil {
+		return errors.Wrapf(err, "create property '%s' value index on shard '%s'", prop.Name, s.ID())
+	}
+
+	if s.index.invertedIndexConfig.IndexNullState {
+
+		if err := s.createPropertyNullIndex(ctx, prop); err != nil {
+			return errors.Wrapf(err, "create property '%s' null index on shard '%s'", prop.Name, s.ID())
 		}
 
-		if s.index.invertedIndexConfig.IndexNullState {
-			eg.Go(func() error {
-				if err := s.createPropertyNullIndex(ctx, prop); err != nil {
-					return errors.Wrapf(err, "create property '%s' null index on shard '%s'", prop.Name, s.ID())
-				}
-				return nil
-			})
+	}
+
+	if s.index.invertedIndexConfig.IndexPropertyLength {
+
+		if err := s.createPropertyLengthIndex(ctx, prop); err != nil {
+			return errors.Wrapf(err, "create property '%s' length index on shard '%s'", prop.Name, s.ID())
 		}
 
-		if s.index.invertedIndexConfig.IndexPropertyLength {
-			eg.Go(func() error {
-				if err := s.createPropertyLengthIndex(ctx, prop); err != nil {
-					return errors.Wrapf(err, "create property '%s' length index on shard '%s'", prop.Name, s.ID())
-				}
-				return nil
-			})
-		}
+	}
 
-		return nil
-	})
+	return nil
 }
 
 func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property) error {
@@ -456,22 +459,25 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	}
 
 	if inverted.HasFilterableIndex(prop) {
+
 		if dt, _ := schema.AsPrimitive(prop.DataType); dt == schema.DataTypeGeoCoordinates {
 			return s.initGeoProp(prop)
 		}
 
 		if schema.IsRefDataType(prop.DataType) {
+			refOpts := append(bucketOpts, lsmkv.WithRegisteredName(helpers.BucketFromPropNameMetaCountLSM(prop.Name)))
 			if err := s.store.CreateOrLoadBucket(ctx,
-				helpers.BucketFromPropNameMetaCountLSM(prop.Name),
-				append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
+				"properties_meta_count",
+				append(refOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
 			); err != nil {
 				return err
 			}
 		}
 
+		filterableOpts := append(bucketOpts, lsmkv.WithRegisteredName(helpers.BucketFromPropNameLSM(prop.Name)))
 		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketFromPropNameLSM(prop.Name),
-			append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
+			"filterable_properties",
+			append(filterableOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
 		); err != nil {
 			return err
 		}
@@ -479,12 +485,13 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 
 	if inverted.HasSearchableIndex(prop) {
 		searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+		searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithRegisteredName(helpers.BucketSearchableFromPropNameLSM(prop.Name)))
 		if s.versioner.Version() < 2 {
 			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
 		}
 
 		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketSearchableFromPropNameLSM(prop.Name),
+			"searchable_properties",
 			searchableBucketOpts...,
 		); err != nil {
 			return err
@@ -508,8 +515,9 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 	}
 
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLengthLSM(prop.Name),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+		"property_length_index",
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithRegisteredName(helpers.BucketFromPropNameLengthLSM(prop.Name)))
 }
 
 func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property) error {
@@ -518,8 +526,10 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 	}
 
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameNullLSM(prop.Name),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+		"null_properties",
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithRegisteredName(helpers.BucketFromPropNameNullLSM(prop.Name)),
+	)
 }
 
 func (s *Shard) updateVectorIndexConfig(ctx context.Context,
