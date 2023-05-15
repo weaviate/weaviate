@@ -2603,6 +2603,9 @@ func init() {
     "/schema/{className}/tenants": {
       "post": {
         "description": "Create a new tenant for a specific class",
+        "tags": [
+          "schema"
+        ],
         "operationId": "tenants.create",
         "parameters": [
           {
@@ -2616,7 +2619,10 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/Tenant"
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
             }
           }
         ],
@@ -2624,7 +2630,10 @@ func init() {
           "200": {
             "description": "Added the new Object class to the schema.",
             "schema": {
-              "$ref": "#/definitions/Tenant"
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
             }
           },
           "401": {
@@ -7052,6 +7061,9 @@ func init() {
     "/schema/{className}/tenants": {
       "post": {
         "description": "Create a new tenant for a specific class",
+        "tags": [
+          "schema"
+        ],
         "operationId": "tenants.create",
         "parameters": [
           {
@@ -7065,7 +7077,10 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/Tenant"
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
             }
           }
         ],
@@ -7073,7 +7088,10 @@ func init() {
           "200": {
             "description": "Added the new Object class to the schema.",
             "schema": {
-              "$ref": "#/definitions/Tenant"
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
             }
           },
           "401": {

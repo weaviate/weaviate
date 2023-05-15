@@ -22,9 +22,7 @@ import (
 
 // AddTenants is used to add new tenants to a class
 // Class must exit and has partitioning enabled
-func (m *Manager) AddTenants(ctx context.Context, principal *models.Principal,
-	class string, tenants []string,
-) error {
+func (m *Manager) AddTenants(ctx context.Context, principal *models.Principal, class string, tenants []*models.Tenant) error {
 	err := m.Authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
@@ -42,13 +40,15 @@ func (m *Manager) AddTenants(ctx context.Context, principal *models.Principal,
 		rf = cls.ReplicationConfig.Factor
 	}
 
-	for _, name := range tenants {
-		if name == "" {
+	tenantNames := make([]string, len(tenants))
+	for i, tenant := range tenants {
+		if tenant.Name == "" {
 			return fmt.Errorf("found empty tenant key at index %d", rf)
 		}
 		// TODO: validate p.Name (length, charset, case sensitivity)
+		tenantNames[i] = tenant.Name
 	}
-	partitions, err := st.GetPartitions(m.clusterState, tenants, rf)
+	partitions, err := st.GetPartitions(m.clusterState, tenantNames, rf)
 	if err != nil {
 		return fmt.Errorf("get partitions: %w", err)
 	}
