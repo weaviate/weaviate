@@ -155,9 +155,7 @@ func (s *Searcher) objectsByDocID(it docIDsIterator,
 // If we already limited the allowList to 1, the vector search would be
 // pointless, as only the first element would be allowed, regardless of which
 // had the shortest distance
-func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
-	additional additional.Properties, className schema.ClassName,
-) (helpers.AllowList, error) {
+func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter, additional additional.Properties, className schema.ClassName) (helpers.AllowList, error) {
 	return s.docIDs(ctx, filter, additional, className, 0)
 }
 
