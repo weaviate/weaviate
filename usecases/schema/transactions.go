@@ -25,6 +25,9 @@ const (
 	// write-only
 	AddClass    cluster.TransactionType = "add_class"
 	AddProperty cluster.TransactionType = "add_property"
+	// AddPartitions to a specific class
+	AddPartitions cluster.TransactionType = "add_partitions"
+
 	DeleteClass cluster.TransactionType = "delete_class"
 	UpdateClass cluster.TransactionType = "update_class"
 
@@ -42,6 +45,18 @@ type AddClassPayload struct {
 type AddPropertyPayload struct {
 	ClassName string           `json:"className"`
 	Property  *models.Property `json:"property"`
+}
+
+// Partition represents properties of a specific partition (physical shard)
+type Partition struct {
+	Name  string   `json:"name"`
+	Nodes []string `json:"nodes"`
+}
+
+// AddPartitionsPayload allows for adding multiple partitions to a class
+type AddPartitionsPayload struct {
+	ClassName  string      `json:"className"`
+	Partitions []Partition `json:"partitions"`
 }
 
 type DeleteClassPayload struct {
@@ -67,69 +82,27 @@ func UnmarshalTransaction(txType cluster.TransactionType,
 	payload json.RawMessage,
 ) (interface{}, error) {
 	switch txType {
-
 	case AddClass:
-		return unmarshalAddClass(payload)
-
+		return unmarshalRawJson[AddClassPayload](payload)
 	case AddProperty:
-		return unmarshalAddProperty(payload)
-
+		return unmarshalRawJson[AddPropertyPayload](payload)
 	case DeleteClass:
-		return unmarshalDeleteClass(payload)
-
+		return unmarshalRawJson[DeleteClassPayload](payload)
 	case UpdateClass:
-		return unmarshalUpdateClass(payload)
-
+		return unmarshalRawJson[UpdateClassPayload](payload)
 	case ReadSchema:
-		return unmarshalReadSchema(payload)
-
+		return unmarshalRawJson[ReadSchemaPayload](payload)
+	case AddPartitions:
+		return unmarshalRawJson[AddPartitionsPayload](payload)
 	default:
 		return nil, errors.Errorf("unrecognized schema transaction type %q", txType)
 
 	}
 }
 
-func unmarshalAddClass(payload json.RawMessage) (interface{}, error) {
-	var pl AddClassPayload
-	if err := json.Unmarshal(payload, &pl); err != nil {
-		return nil, err
-	}
-
-	return pl, nil
-}
-
-func unmarshalAddProperty(payload json.RawMessage) (interface{}, error) {
-	var pl AddPropertyPayload
-	if err := json.Unmarshal(payload, &pl); err != nil {
-		return nil, err
-	}
-
-	return pl, nil
-}
-
-func unmarshalDeleteClass(payload json.RawMessage) (interface{}, error) {
-	var pl DeleteClassPayload
-	if err := json.Unmarshal(payload, &pl); err != nil {
-		return nil, err
-	}
-
-	return pl, nil
-}
-
-func unmarshalUpdateClass(payload json.RawMessage) (interface{}, error) {
-	var pl UpdateClassPayload
-	if err := json.Unmarshal(payload, &pl); err != nil {
-		return nil, err
-	}
-
-	return pl, nil
-}
-
-func unmarshalReadSchema(payload json.RawMessage) (interface{}, error) {
-	var pl ReadSchemaPayload
-	if err := json.Unmarshal(payload, &pl); err != nil {
-		return nil, err
-	}
-
-	return pl, nil
+// unmarshalRawJson returns the result of marshalling json payload
+func unmarshalRawJson[T any](payload json.RawMessage) (T, error) {
+	var v T
+	err := json.Unmarshal(payload, &v)
+	return v, err
 }

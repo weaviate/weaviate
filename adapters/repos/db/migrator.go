@@ -150,6 +150,26 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 	return idx.updateShardStatus(ctx, shardName, targetStatus)
 }
 
+func (m *Migrator) AddPartitions(ctx context.Context, className string, names []string) error {
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return fmt.Errorf("cannot add property to a non-existing index for %s", className)
+	}
+	shards := []string{}
+	for _, name := range names {
+		if err := idx.IncomingCreateShard(ctx, name); err != nil {
+			shards = append(shards, name)
+			m.logger.WithField("action", "add_partition").
+				WithField("class", className).
+				WithField("shard", name).Error(err)
+		}
+	}
+	if len(shards) > 0 {
+		return fmt.Errorf("could not create shards: %v", shards)
+	}
+	return nil
+}
+
 func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
 	return &Migrator{db: db, logger: logger}
 }

@@ -183,6 +183,10 @@ func (n *NilMigrator) AddProperty(ctx context.Context, className string, prop *m
 	return nil
 }
 
+func (n *NilMigrator) AddPartitions(ctx context.Context, className string, names []string) error {
+	return nil
+}
+
 func (n *NilMigrator) UpdateProperty(ctx context.Context, className string, propName string, newName *string) error {
 	return nil
 }

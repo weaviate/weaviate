@@ -118,12 +118,22 @@ type nodes interface {
 	LocalName() string
 }
 
-func InitState(id string, config Config, nodes nodes, replFactor int64) (*State, error) {
-	out := &State{Config: config, IndexID: id, localNodeName: nodes.LocalName()}
+func InitState(id string, config Config, nodes nodes, replFactor int64, partitioningEnabled bool) (*State, error) {
+	out := &State{
+		Config:        config,
+		IndexID:       id,
+		localNodeName: nodes.LocalName(),
+	}
+	if partitioningEnabled {
+		out.Physical = make(map[string]Physical, 128)
+		return out, nil
+	}
+
 	names := nodes.Candidates()
 	if f, n := replFactor, len(names); f > int64(n) {
 		return nil, fmt.Errorf("not enough replicas: found %d want %d", n, f)
 	}
+
 	if err := out.initPhysical(names, replFactor); err != nil {
 		return nil, err
 	}
@@ -256,6 +266,61 @@ func (s *State) initPhysical(names []string, replFactor int64) error {
 	}
 
 	return nil
+}
+
+// GetPartitions based on the specified shards, available nodes, and replFactor
+// It doesn't change the internal state
+func (s *State) GetPartitions(nodes nodes, shards []string, replFactor int64) (map[string][]string, error) {
+	names := nodes.Candidates()
+	if len(names) == 0 {
+		return nil, fmt.Errorf("list of node candidates is empty")
+	}
+	if f, n := replFactor, len(names); f > int64(n) {
+		return nil, fmt.Errorf("not enough replicas: found %d want %d", n, f)
+	}
+	it, err := cluster.NewNodeIterator(names, cluster.StartAfter)
+	if err != nil {
+		return nil, err
+	}
+	it.SetStartNode(names[len(names)-1])
+	partitions := make(map[string][]string, len(shards))
+	for _, name := range shards {
+		if _, ok := s.Physical[name]; ok {
+			continue
+		}
+		owners := make([]string, 1, replFactor)
+		node := it.Next()
+		owners[0] = node
+		if replFactor > 1 {
+			// create a second node iterator and start after the already assigned
+			// one, this way we can identify our next n right neighbors without
+			// affecting the root iterator which will determine the next shard
+			replicationIter, err := cluster.NewNodeIterator(names, cluster.StartAfter)
+			if err != nil {
+				return nil, fmt.Errorf("assign replication nodes: %w", err)
+			}
+
+			replicationIter.SetStartNode(node)
+			// the first node is already assigned, we only need to assign the
+			// additional nodes
+			for i := replFactor; i > 1; i-- {
+				owners = append(owners, replicationIter.Next())
+			}
+		}
+
+		partitions[name] = owners
+	}
+
+	return partitions, nil
+}
+
+// AddPartition to physical shards
+func (s *State) AddPartition(name string, nodes []string) {
+	s.Physical[name] = Physical{
+		Name:           name,
+		BelongsToNodes: nodes,
+		OwnsPercentage: 1.0,
+	}
 }
 
 func (s *State) initVirtual() {
