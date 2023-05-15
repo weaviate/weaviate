@@ -3891,6 +3891,9 @@
       "post": {
         "description": "Create a new tenant for a specific class",
         "operationId": "tenants.create",
+        "tags": [
+          "schema"
+        ],
         "parameters": [
           {
             "name": "className",
@@ -3903,7 +3906,10 @@
             "name": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/Tenant"
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
             }
           }
         ],
@@ -3911,7 +3917,10 @@
           "200": {
             "description": "Added the new Object class to the schema.",
             "schema": {
-              "$ref": "#/definitions/Tenant"
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
             }
           },
           "401": {
