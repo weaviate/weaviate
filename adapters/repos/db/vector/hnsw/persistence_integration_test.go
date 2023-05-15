@@ -38,7 +38,7 @@ func TestHnswPersistence(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	cl, clErr := NewCommitLogger(dirName, indexID, logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	makeCL := func() (CommitLogger, error) {
 		return cl, clErr
 	}
@@ -107,7 +107,7 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	cl, clErr := NewCommitLogger(dirName, indexID, logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	makeCL := func() (CommitLogger, error) {
 		return cl, clErr
 	}
@@ -212,7 +212,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	indexID := "integrationtest_deletion"
 	logger, _ := test.NewNullLogger()
 	cl, clErr := NewCommitLogger(dirName, indexID, logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	makeCL := func() (CommitLogger, error) {
 		return cl, clErr
 	}
@@ -292,7 +292,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	makeCL := func() (CommitLogger, error) {
 		return NewCommitLogger(dirName, indexID, logger,
-			WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+			cyclemanager.NewNoop())
 	}
 	index, err := New(Config{
 		RootPath:              dirName,

@@ -37,7 +37,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	original, err := NewCommitLogger(rootPath, "corrupt_test", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 
 	data := [][]float32{
