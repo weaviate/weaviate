@@ -13,6 +13,7 @@ package helpers
 
 import (
 	"github.com/weaviate/sroar"
+	"fmt"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
@@ -27,6 +28,14 @@ type AllowList interface {
 	Iterator() AllowListIterator
 	LimitedIterator(limit int) AllowListIterator
 }
+func MakePropertyKey(propName []byte, key []byte) []byte {
+	t := append([]byte(propName), byte('|'))
+	val := append(t, key...)
+	fmt.Printf("Property key: %s\n", val)
+	return val
+
+}
+
 
 type AllowListIterator interface {
 	Next() (uint64, bool)
