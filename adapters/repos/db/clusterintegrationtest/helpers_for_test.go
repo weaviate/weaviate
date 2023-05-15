@@ -110,7 +110,7 @@ func multiShardState(nodeCount int) *sharding.State {
 	}
 
 	s, err := sharding.InitState("multi-shard-test-index", config,
-		fakeNodes{nodeList}, 1)
+		fakeNodes{nodeList}, 1, false)
 	if err != nil {
 		panic(err)
 	}
