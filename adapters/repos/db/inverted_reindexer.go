@@ -144,7 +144,7 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 		}
 		tempBucketName := helpers.TempBucketFromBucketName(bucketsToReindex[i])
 		tempBucket := r.shard.store.Bucket(tempBucketName)
-		tempBucket.FlushMemtable(ctx)
+		tempBucket.FlushMemtable()
 		tempBucket.UpdateStatus(storagestate.StatusReadOnly)
 
 		if reindexProperties[i].NewIndex {

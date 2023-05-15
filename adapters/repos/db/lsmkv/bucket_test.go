@@ -25,7 +25,7 @@ func TestBucket_WasDeleted(t *testing.T) {
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	b, err := NewBucket(context.Background(), tmpDir, "", logger, nil,
-		cyclemanager.NewNoop())
+		cyclemanager.NewNoop(), cyclemanager.NewNoop())
 	require.Nil(t, err)
 
 	var (

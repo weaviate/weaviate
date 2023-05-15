@@ -38,7 +38,8 @@ func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 
 	t.Run("with some previous state", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategyReplace))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -72,7 +73,8 @@ func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 			// then recreate bucket
 			var err error
 			b, err = NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
-				cyclemanager.NewNoop(), WithStrategy(StrategyReplace))
+				cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+				WithStrategy(StrategyReplace))
 			require.Nil(t, err)
 		})
 
@@ -157,7 +159,8 @@ func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 
 		t.Run("create new bucket from existing state", func(t *testing.T) {
 			b, err := NewBucket(testCtx(), dirNameRecovered, "", nullLogger(), nil,
-				cyclemanager.NewNoop(), WithStrategy(StrategyReplace))
+				cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+				WithStrategy(StrategyReplace))
 			require.Nil(t, err)
 
 			// so big it effectively never triggers as part of this test
@@ -192,7 +195,8 @@ func TestReplaceStrategy_RecoverFromWALWithCorruptLastElement(t *testing.T) {
 
 	t.Run("without previous state", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategyReplace))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -299,7 +303,8 @@ func TestReplaceStrategy_RecoverFromWALWithCorruptLastElement(t *testing.T) {
 
 		t.Run("create new bucket from existing state", func(t *testing.T) {
 			b, err := NewBucket(testCtx(), dirNameRecovered, "", nullLogger(), nil,
-				cyclemanager.NewNoop(), WithStrategy(StrategyReplace))
+				cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+				WithStrategy(StrategyReplace))
 			require.Nil(t, err)
 
 			// so big it effectively never triggers as part of this test
@@ -339,7 +344,8 @@ func TestSetStrategy_RecoverFromWAL(t *testing.T) {
 
 	t.Run("without prior state", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategySetCollection))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -438,7 +444,8 @@ func TestSetStrategy_RecoverFromWAL(t *testing.T) {
 
 		t.Run("create new bucket from existing state", func(t *testing.T) {
 			b, err := NewBucket(testCtx(), dirNameRecovered, "", nullLogger(), nil,
-				cyclemanager.NewNoop(), WithStrategy(StrategySetCollection))
+				cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+				WithStrategy(StrategySetCollection))
 			require.Nil(t, err)
 
 			// so big it effectively never triggers as part of this test
@@ -480,7 +487,8 @@ func TestMapStrategy_RecoverFromWAL(t *testing.T) {
 
 	t.Run("without prior state", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategyMapCollection))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -617,7 +625,8 @@ func TestMapStrategy_RecoverFromWAL(t *testing.T) {
 
 		t.Run("create new bucket from existing state", func(t *testing.T) {
 			b, err := NewBucket(testCtx(), dirNameRecovered, "", nullLogger(), nil,
-				cyclemanager.NewNoop(), WithStrategy(StrategyMapCollection))
+				cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+				WithStrategy(StrategyMapCollection))
 			require.Nil(t, err)
 
 			// so big it effectively never triggers as part of this test

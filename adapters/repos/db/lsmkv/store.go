@@ -35,6 +35,7 @@ type Store struct {
 	logger          logrus.FieldLogger
 	metrics         *Metrics
 	compactionCycle cyclemanager.CycleManager
+	flushCycle      cyclemanager.CycleManager
 
 	// Prevent concurrent manipulations to the bucketsByNameMap, most notably
 	// when initializing buckets in parallel
@@ -54,6 +55,7 @@ func New(dir, rootDir string, logger logrus.FieldLogger,
 		logger:          logger,
 		metrics:         metrics,
 		compactionCycle: cyclemanager.NewMulti(cyclemanager.CompactionCycleTicker()),
+		flushCycle:      cyclemanager.NewMulti(cyclemanager.MemtableFlushCycleTicker()),
 	}
 
 	return s, s.init()
@@ -93,6 +95,7 @@ func (s *Store) init() error {
 		return err
 	}
 	s.compactionCycle.Start()
+	s.flushCycle.Start()
 	return nil
 }
 
@@ -119,7 +122,7 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 	}
 
 	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics,
-		s.compactionCycle, opts...)
+		s.compactionCycle, s.flushCycle, opts...)
 	if err != nil {
 		return err
 	}
@@ -178,15 +181,6 @@ func newBucketJobStatus() *bucketJobStatus {
 type jobFunc func(context.Context, *Bucket) (interface{}, error)
 
 type rollbackFunc func(context.Context, *Bucket) error
-
-func (s *Store) FlushMemtables(ctx context.Context) error {
-	flushMemtable := func(ctx context.Context, b *Bucket) (interface{}, error) {
-		return nil, b.FlushMemtable(ctx)
-	}
-
-	_, err := s.runJobOnBuckets(ctx, flushMemtable, nil)
-	return err
-}
 
 func (s *Store) ListFiles(ctx context.Context) ([]string, error) {
 	listFiles := func(ctx context.Context, b *Bucket) (interface{}, error) {
@@ -291,7 +285,7 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 	}
 
 	b, err := NewBucket(ctx, bucketDir, s.rootDir, s.logger, s.metrics,
-		s.compactionCycle, opts...)
+		s.compactionCycle, s.flushCycle, opts...)
 	if err != nil {
 		return err
 	}

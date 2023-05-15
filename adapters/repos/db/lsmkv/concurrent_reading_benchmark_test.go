@@ -64,7 +64,7 @@ func prepareBucket(b *testing.B) (bucket *Bucket, cleanup func()) {
 	}()
 
 	bucket, err := NewBucket(testCtxB(), dirName, "", nullLoggerB(), nil,
-		cyclemanager.NewNoop(),
+		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 		WithStrategy(StrategyMapCollection),
 		WithMemtableThreshold(5000))
 	require.Nil(b, err)
