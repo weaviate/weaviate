@@ -24,6 +24,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -478,9 +479,11 @@ func MapListLegacySortingRequired() MapListOption {
 //
 // MapList is specific to the Map strategy, for Sets use [Bucket.SetList], for
 // Replace use [Bucket.Get].
-func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
+func (b *Bucket) MapListProp(property []byte, keypart []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
+
+	key := helpers.MakePropertyKey(property, keypart)
 
 	c := MapListOptionConfig{}
 	for _, cfg := range cfgs {
