@@ -339,7 +339,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 		if bucket == nil {
 			return termResult, nil, fmt.Errorf("could not find bucket for property %v", propName)
 		}
-		preM, err := bucket.MapList([]byte(query))
+		preM, err := bucket.MapListProp([]byte(propName),[]byte(query))
 		if err != nil {
 			return termResult, nil, err
 		}
