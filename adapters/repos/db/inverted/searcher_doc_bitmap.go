@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
-func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
+func (s *Searcher) docBitmap(ctx context.Context, property []byte, b *lsmkv.Bucket, limit int,
 	pv *propValuePair,
 ) (docBitmap, error) {
 	// geo props cannot be served by the inverted index and they require an
@@ -37,23 +37,23 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 	if pv.hasFilterableIndex {
 		// bucket with strategy roaring set serves bitmaps directly
 		if b.Strategy() == lsmkv.StrategyRoaringSet {
-			return s.docBitmapInvertedRoaringSet(ctx, b, limit, pv)
+			return s.docBitmapInvertedRoaringSet(ctx,  b, limit, pv)
 		}
 
 		// bucket with strategy set serves docIds used to build bitmap
-		return s.docBitmapInvertedSet(ctx, b, limit, pv)
+		return s.docBitmapInvertedSet(ctx,  b, limit, pv)
 	}
 
 	if pv.hasSearchableIndex {
 		// bucket with strategy map serves docIds used to build bitmap
 		// and frequencies, which are ignored for filtering
-		return s.docBitmapInvertedMap(ctx, b, limit, pv)
+		return s.docBitmapInvertedMap(ctx,property,  b, limit, pv)
 	}
 
 	return docBitmap{}, fmt.Errorf("property '%s' is neither filterable nor searchable", pv.prop)
 }
 
-func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Bucket,
+func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context,  b *lsmkv.Bucket,
 	limit int, pv *propValuePair,
 ) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
@@ -83,7 +83,7 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 	return out, nil
 }
 
-func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
+func (s *Searcher) docBitmapInvertedSet(ctx context.Context,  b *lsmkv.Bucket,
 	limit int, pv *propValuePair,
 ) (docBitmap, error) {
 	out := newDocBitmap()
@@ -106,7 +106,7 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 	return out, nil
 }
 
-func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
+func (s *Searcher) docBitmapInvertedMap(ctx context.Context, property []byte, b *lsmkv.Bucket,
 	limit int, pv *propValuePair,
 ) (docBitmap, error) {
 	out := newDocBitmap()
@@ -127,7 +127,16 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 		return true, nil
 	}
 
-	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false, s.shardVersion)
+	
+	propid,err := s.propIds.GetIdForProperty(string(property))
+	if err != nil {
+		s.logger.Panicf("property '%s' not found in propLengths", property)
+	}
+	propid_bytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(propid_bytes, propid)
+	
+
+	rr := NewRowReaderFrequency( propid_bytes, b, pv.value, pv.operator, false, s.shardVersion)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, errors.Wrap(err, "read row")
 	}

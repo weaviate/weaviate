@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
@@ -46,6 +47,7 @@ type Searcher struct {
 	stopwords              stopwords.StopwordDetector
 	shardVersion           uint16
 	isFallbackToSearchable IsFallbackToSearchable
+	propIds 			  *propertyspecific.JsonPropertyIdTracker
 }
 
 type DeletedDocIDChecker interface {
@@ -155,9 +157,7 @@ func (s *Searcher) objectsByDocID(it docIDsIterator,
 // If we already limited the allowList to 1, the vector search would be
 // pointless, as only the first element would be allowed, regardless of which
 // had the shortest distance
-func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
-	additional additional.Properties, className schema.ClassName,
-) (helpers.AllowList, error) {
+func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter, additional additional.Properties, className schema.ClassName) (helpers.AllowList, error) {
 	return s.docIDs(ctx, filter, additional, className, 0)
 }
 

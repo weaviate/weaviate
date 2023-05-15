@@ -207,12 +207,13 @@ func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
 	eg := &errgroup.Group{}
 
 	i.ForEachShard(func(key string, shard *Shard) error {
-		shard.createPropertyIndex(ctx, prop, eg)
+		shard.createPropertyIndex(ctx, prop)
 		return nil
 	})
 	if err := eg.Wait(); err != nil {
 		return errors.Wrapf(err, "extend idx '%s' with property '%s", i.ID(), prop.Name)
 	}
+
 	return nil
 }
 
