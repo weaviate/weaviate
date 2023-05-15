@@ -25,13 +25,17 @@ import (
 )
 
 func (s *Shard) initGeoProp(prop *models.Property) error {
+	// safe to call Start() even if cycle is already running
+	// started only if at least one geo prop is indexed
+	s.geoCommitlogMaintenanceCycle.Start()
+
 	idx, err := geo.NewIndex(geo.Config{
 		ID:                 geoPropID(s.ID(), prop.Name),
 		RootPath:           s.index.Config.RootPath,
 		CoordinatesForID:   s.makeCoordinatesForID(prop.Name),
 		DisablePersistence: false,
 		Logger:             s.index.logger,
-	})
+	}, s.geoCommitlogMaintenanceCycle)
 	if err != nil {
 		return errors.Wrapf(err, "create geo index for prop %q", prop.Name)
 	}
