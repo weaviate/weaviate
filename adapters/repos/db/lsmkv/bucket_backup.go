@@ -25,20 +25,13 @@ import (
 //
 // This is a preparatory stage for creating backups.
 //
-// A timeout should be specified for the input context as some
-// flushes are long-running, in which case it may be better
-// to fail the backup attempt and retry later, than to block
-// indefinitely.
-func (b *Bucket) FlushMemtable(ctx context.Context) error {
+// Method should be run only if flushCycle is not running
+// (was not started, is stopped, or noop impl is provided)
+func (b *Bucket) FlushMemtable() error {
 	if b.isReadOnly() {
 		return errors.Wrap(storagestate.ErrStatusReadOnly, "flush memtable")
 	}
 
-	if err := b.flushCycle.StopAndWait(ctx); err != nil {
-		return errors.Wrap(ctx.Err(), "long-running memtable flush in progress")
-	}
-
-	defer b.flushCycle.Start()
 	// this lock does not currently _need_ to be
 	// obtained, as the only other place that
 	// grabs this lock is the flush cycle, which

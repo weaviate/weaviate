@@ -135,7 +135,8 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategyReplace))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -346,7 +347,7 @@ func Test_CompactionReplaceStrategy_WithSecondaryKeys(t *testing.T) {
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewNoop(),
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 			WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 		require.Nil(t, err)
 
@@ -462,7 +463,8 @@ func Test_CompactionReplaceStrategy_RemoveUnnecessaryDeletes(t *testing.T) {
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategyReplace))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -555,7 +557,8 @@ func Test_CompactionReplaceStrategy_RemoveUnnecessaryUpdates(t *testing.T) {
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategyReplace))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -818,7 +821,8 @@ func Test_CompactionSetStrategy(t *testing.T) {
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategySetCollection))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -937,7 +941,8 @@ func Test_CompactionSetStrategy_RemoveUnnecessary(t *testing.T) {
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategySetCollection))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -1283,7 +1288,8 @@ func Test_CompactionMapStrategy(t *testing.T) {
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategyMapCollection))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -1408,7 +1414,8 @@ func Test_CompactionMapStrategy_RemoveUnnecessary(t *testing.T) {
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategyMapCollection))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -1525,7 +1532,8 @@ func Test_CompactionReplaceStrategy_FrequentPutDeleteOperations(t *testing.T) {
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategyReplace))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -1593,7 +1601,7 @@ func Test_Compaction_FrequentPutDeleteOperations_WithSecondaryKeys(t *testing.T)
 
 			t.Run("init bucket", func(t *testing.T) {
 				b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-					cyclemanager.NewNoop(),
+					cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 					WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 				require.Nil(t, err)
 
@@ -1669,7 +1677,8 @@ func Test_CompactionSetStrategy_FrequentPutDeleteOperations(t *testing.T) {
 
 			t.Run("init bucket", func(t *testing.T) {
 				b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-					cyclemanager.NewNoop(), WithStrategy(StrategySetCollection))
+					cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+					WithStrategy(StrategySetCollection))
 				require.Nil(t, err)
 
 				// so big it effectively never triggers as part of this test
@@ -1756,7 +1765,8 @@ func Test_CompactionMapStrategy_FrequentPutDeleteOperations(t *testing.T) {
 
 			t.Run("init bucket", func(t *testing.T) {
 				b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-					cyclemanager.NewNoop(), WithStrategy(StrategyMapCollection))
+					cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+					WithStrategy(StrategyMapCollection))
 				require.Nil(t, err)
 
 				// so big it effectively never triggers as part of this test

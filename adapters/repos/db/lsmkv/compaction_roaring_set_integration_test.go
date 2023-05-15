@@ -40,7 +40,7 @@ func Test_CompactionRoaringSet(t *testing.T) {
 	control := controlFromInstructions(instr, maxID)
 
 	b, err := NewBucket(testCtx(), t.TempDir(), "", nullLogger(), nil,
-		cyclemanager.NewNoop(),
+		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 		WithStrategy(StrategyRoaringSet))
 	require.Nil(t, err)
 

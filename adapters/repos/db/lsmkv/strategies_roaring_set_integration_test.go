@@ -30,7 +30,8 @@ func TestRoaringSetStrategy_InsertAndSetAdd(t *testing.T) {
 
 	t.Run("memtable-only", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategyRoaringSet))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategyRoaringSet))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -105,7 +106,8 @@ func TestRoaringSetStrategy_InsertAndSetAdd(t *testing.T) {
 
 	t.Run("with a single flush in between updates", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategyRoaringSet))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategyRoaringSet))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test

@@ -32,7 +32,8 @@ func TestMapCollectionStrategy_InsertAndAppend(t *testing.T) {
 
 	t.Run("memtable-only", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategyMapCollection))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -122,7 +123,8 @@ func TestMapCollectionStrategy_InsertAndAppend(t *testing.T) {
 
 	t.Run("with a single flush between updates", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategyMapCollection))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -216,7 +218,8 @@ func TestMapCollectionStrategy_InsertAndAppend(t *testing.T) {
 
 	t.Run("with flushes after initial and update", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategyMapCollection))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -313,7 +316,8 @@ func TestMapCollectionStrategy_InsertAndAppend(t *testing.T) {
 
 	t.Run("update in memtable, then do an orderly shutdown, and re-init", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategyMapCollection))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -375,7 +379,8 @@ func TestMapCollectionStrategy_InsertAndAppend(t *testing.T) {
 
 		t.Run("init another bucket on the same files", func(t *testing.T) {
 			b2, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-				cyclemanager.NewNoop(), WithStrategy(StrategyMapCollection))
+				cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+				WithStrategy(StrategyMapCollection))
 			require.Nil(t, err)
 
 			row1Updated := []MapPair{
@@ -418,7 +423,8 @@ func TestMapCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 	t.Run("memtable-only", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategyMapCollection))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -512,7 +518,8 @@ func TestMapCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 	t.Run("with flushes between updates", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategyMapCollection))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -614,7 +621,8 @@ func TestMapCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 	t.Run("with memtable only, then an orderly shutdown and restart", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategyMapCollection))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -680,7 +688,8 @@ func TestMapCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 		t.Run("init another bucket on the same files", func(t *testing.T) {
 			b2, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-				cyclemanager.NewNoop(), WithStrategy(StrategyMapCollection))
+				cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+				WithStrategy(StrategyMapCollection))
 			require.Nil(t, err)
 
 			row1Updated := []MapPair{
@@ -721,7 +730,8 @@ func TestMapCollectionStrategy_Cursors(t *testing.T) {
 		dirName := t.TempDir()
 
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategyMapCollection))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -908,7 +918,8 @@ func TestMapCollectionStrategy_Cursors(t *testing.T) {
 		dirName := t.TempDir()
 
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewNoop(), WithStrategy(StrategyMapCollection))
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
