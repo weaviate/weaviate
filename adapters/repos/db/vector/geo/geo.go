@@ -98,8 +98,11 @@ func makeCommitLoggerFromConfig(config Config) hnsw.MakeCommitLogger {
 	makeCL := hnsw.MakeNoopCommitLogger
 	if !config.DisablePersistence {
 		makeCL = func() (hnsw.CommitLogger, error) {
-			return hnsw.NewCommitLogger(config.RootPath, config.ID, config.Logger,
-				hnsw.WithCommitlogCycleTicker(cyclemanager.GeoCommitLoggerCycleTicker))
+			// TODO common_cycle_manager make common
+			maintenanceCycle := cyclemanager.NewMulti(cyclemanager.GeoCommitLoggerCycleTicker())
+			maintenanceCycle.Start()
+
+			return hnsw.NewCommitLogger(config.RootPath, config.ID, config.Logger, maintenanceCycle)
 		}
 	}
 	return makeCL

@@ -104,8 +104,9 @@ type hnsw struct {
 	tombstones map[uint64]struct{}
 
 	// used for cancellation of the tombstone cleanup goroutine
-	cleanupInterval       time.Duration
-	tombstoneCleanupCycle cyclemanager.CycleManager
+	cleanupInterval           time.Duration
+	tombstoneCleanupCycle     cyclemanager.CycleManager
+	commitLogMaintenanceCycle cyclemanager.CycleManager
 
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
@@ -156,7 +157,6 @@ type hnsw struct {
 
 type CommitLogger interface {
 	ID() string
-	Start()
 	AddNode(node *vertex) error
 	SetEntryPointWithMaxLayer(id uint64, level int) error
 	AddLinkAtLevel(nodeid uint64, level int, target uint64) error
@@ -172,7 +172,6 @@ type CommitLogger interface {
 	Shutdown(ctx context.Context) error
 	RootPath() string
 	SwitchCommitLogs(bool) error
-	MaintenanceInProgress() bool
 	AddPQ(ssdhelpers.PQData) error
 }
 
@@ -260,9 +259,31 @@ func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
 		compressActionLock: &sync.RWMutex{},
 		className:          cfg.ClassName,
 	}
-
+	// Previously we had an interval of 10s in here, which was changed to
+	// 0.5s as part of gh-1867. There's really no way to wait so long in
+	// between checks: If you are running on a low-powered machine, the
+	// interval will simply find that there is no work and do nothing in
+	// each iteration. However, if you are running on a very powerful
+	// machine within 10s you could have potentially created two units of
+	// work, but we'll only be handling one every 10s. This means
+	// uncombined/uncondensed hnsw commit logs will keep piling up can only
+	// be processes long after the initial insert is complete. This also
+	// means that if there is a crash during importing a lot of work needs
+	// to be done at startup, since the commit logs still contain too many
+	// redundancies. So as of now it seems there are only advantages to
+	// running the cleanup checks and work much more often.
+	//
+	// update: switched to dynamic intervals with values between 500ms and 10s
+	// introduced to address https://github.com/weaviate/weaviate/issues/2783
+	index.commitLogMaintenanceCycle = cyclemanager.NewMulti(cyclemanager.HnswCommitLoggerCycleTicker())
 	index.tombstoneCleanupCycle = cyclemanager.NewMulti(cyclemanager.NewFixedIntervalTicker(index.cleanupInterval))
 	index.tombstoneCleanupCycle.Register(index.tombstoneCleanup)
+
+	if cfg.MakeCommitLoggerThunk == nil {
+		cfg.MakeCommitLoggerThunk = func() (CommitLogger, error) {
+			return NewCommitLogger(cfg.RootPath, cfg.ID, cfg.Logger, index.commitLogMaintenanceCycle)
+		}
+	}
 	index.insertMetrics = newInsertMetrics(index.metrics)
 
 	if err := index.init(cfg); err != nil {
@@ -630,11 +651,15 @@ func (h *hnsw) Drop(ctx context.Context) error {
 }
 
 func (h *hnsw) Shutdown(ctx context.Context) error {
-	if err := h.tombstoneCleanupCycle.StopAndWait(ctx); err != nil {
+	if err := h.commitLog.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "hnsw shutdown")
 	}
 
-	if err := h.commitLog.Shutdown(ctx); err != nil {
+	if err := h.commitLogMaintenanceCycle.StopAndWait(ctx); err != nil {
+		return errors.Wrap(err, "hnsw shutdown")
+	}
+
+	if err := h.tombstoneCleanupCycle.StopAndWait(ctx); err != nil {
 		return errors.Wrap(err, "hnsw shutdown")
 	}
 

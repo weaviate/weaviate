@@ -28,15 +28,15 @@ import (
 // If a Delete-Cleanup Cycle is running (TombstoneCleanupCycle), it is aborted,
 // as it's not feasible to wait for such a cycle to complete, as it can take hours.
 func (h *hnsw) PauseMaintenance(ctx context.Context) error {
-	commitLogShutdown := make(chan error)
+	maintenanceCycleStop := make(chan error)
 	cleanupCycleStop := make(chan error)
 
 	go func() {
-		if err := h.commitLog.Shutdown(ctx); err != nil {
-			commitLogShutdown <- errors.Wrap(ctx.Err(), "long-running commitlog shutdown in progress")
+		if err := h.commitLogMaintenanceCycle.StopAndWait(ctx); err != nil {
+			maintenanceCycleStop <- errors.Wrap(ctx.Err(), "long-running commitlog maintenance in progress")
 			return
 		}
-		commitLogShutdown <- nil
+		maintenanceCycleStop <- nil
 	}()
 
 	go func() {
@@ -47,24 +47,24 @@ func (h *hnsw) PauseMaintenance(ctx context.Context) error {
 		cleanupCycleStop <- nil
 	}()
 
-	commitLogShutdownErr := <-commitLogShutdown
+	maintenanceCycleStopErr := <-maintenanceCycleStop
 	cleanupCycleStopErr := <-cleanupCycleStop
 
-	if commitLogShutdownErr != nil && cleanupCycleStopErr != nil {
-		return errors.Errorf("%s, %s", commitLogShutdownErr, cleanupCycleStopErr)
+	if maintenanceCycleStopErr != nil && cleanupCycleStopErr != nil {
+		return errors.Errorf("%s, %s", maintenanceCycleStopErr, cleanupCycleStopErr)
 	}
 
-	if commitLogShutdownErr != nil {
+	if maintenanceCycleStopErr != nil {
 		// restart tombstone cleanup since it was successfully stopped.
 		// both of these cycles must be either stopped or running.
 		h.tombstoneCleanupCycle.Start()
-		return commitLogShutdownErr
+		return maintenanceCycleStopErr
 	}
 
 	if cleanupCycleStopErr != nil {
 		// restart commitlog cycle since it was successfully stopped.
 		// both of these cycles must be either stopped or running.
-		h.commitLog.Start()
+		h.commitLogMaintenanceCycle.Start()
 		return cleanupCycleStopErr
 	}
 
@@ -145,6 +145,6 @@ func (h *hnsw) ListFiles(ctx context.Context) ([]string, error) {
 // had not been paused prior.
 func (h *hnsw) ResumeMaintenance(ctx context.Context) error {
 	h.tombstoneCleanupCycle.Start()
-	h.commitLog.Start()
+	h.commitLogMaintenanceCycle.Start()
 	return nil
 }

@@ -152,11 +152,8 @@ func (s *Shard) initVectorIndex(
 		ShardName:         s.name,
 		ClassName:         s.index.Config.ClassName.String(),
 		PrometheusMetrics: s.promMetrics,
-		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), s.index.logger)
-		},
-		VectorForIDThunk: s.vectorByIndexID,
-		DistanceProvider: distProv,
+		VectorForIDThunk:  s.vectorByIndexID,
+		DistanceProvider:  distProv,
 	}, hnswUserConfig)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())

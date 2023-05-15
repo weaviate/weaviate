@@ -36,12 +36,12 @@ func TestCondensor(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer uncondensed.Shutdown(ctx)
 
 	perfect, err := NewCommitLogger(rootPath, "perfect", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer perfect.Shutdown(ctx)
 
@@ -152,17 +152,17 @@ func TestCondensorAppendNodeLinks(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer uncondensed1.Shutdown(ctx)
 
 	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer uncondensed2.Shutdown(ctx)
 
 	control, err := NewCommitLogger(rootPath, "control", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer control.Shutdown(ctx)
 
@@ -247,17 +247,17 @@ func TestCondensorReplaceNodeLinks(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer uncondensed1.Shutdown(ctx)
 
 	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer uncondensed2.Shutdown(ctx)
 
 	control, err := NewCommitLogger(rootPath, "control", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer control.Shutdown(ctx)
 
@@ -347,17 +347,17 @@ func TestCondensorClearLinksAtLevel(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer uncondensed1.Shutdown(ctx)
 
 	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer uncondensed2.Shutdown(ctx)
 
 	control, err := NewCommitLogger(rootPath, "control", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer control.Shutdown(ctx)
 
@@ -443,7 +443,7 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer uncondensed.Shutdown(ctx)
 

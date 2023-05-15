@@ -168,6 +168,7 @@ func (h *hnsw) tombstoneCleanup(shouldBreak cyclemanager.ShouldBreakFunc) bool {
 // getVectorForID.
 func (h *hnsw) PostStartup() {
 	h.tombstoneCleanupCycle.Start()
+	h.commitLogMaintenanceCycle.Start()
 	h.prefillCache()
 }
 

@@ -34,18 +34,17 @@ func TestBackup_Integration(t *testing.T) {
 
 	indexID := "backup-integration-test"
 
-	dirName := makeTestDir(t)
+	dirName := t.TempDir()
 
 	idx, err := New(Config{
-		RootPath: dirName,
-		ID:       indexID,
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logrus.New())
-		},
+		RootPath:         dirName,
+		ID:               indexID,
+		Logger:           logrus.New(),
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 	}, enthnsw.NewDefaultUserConfig())
 	require.Nil(t, err)
+	idx.PostStartup()
 
 	t.Run("insert vector into index", func(t *testing.T) {
 		for i := 0; i < 10; i++ {

@@ -14,7 +14,6 @@ package hnsw
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"os"
 	"path"
 	"regexp"
@@ -32,21 +31,20 @@ func TestBackup_PauseMaintenance(t *testing.T) {
 	t.Run("assert that context timeout works for long maintenance cycle", func(t *testing.T) {
 		indexID := "backup-pause-maintenance-test"
 
-		dirName := makeTestDir(t)
+		dirName := t.TempDir()
 
 		userConfig := enthnsw.NewDefaultUserConfig()
 		userConfig.CleanupIntervalSeconds = 1
 
 		idx, err := New(Config{
-			RootPath: "doesnt-matter-as-committlogger-is-mocked-out",
-			ID:       indexID,
-			MakeCommitLoggerThunk: func() (CommitLogger, error) {
-				return NewCommitLogger(dirName, indexID, logrus.New())
-			},
+			RootPath:         dirName, // doesnt-matter-as-committlogger-is-mocked-out,
+			ID:               indexID,
+			Logger:           logrus.New(),
 			DistanceProvider: distancer.NewCosineDistanceProvider(),
 			VectorForIDThunk: testVectorForID,
 		}, userConfig)
 		require.Nil(t, err)
+		idx.PostStartup()
 
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
@@ -54,7 +52,8 @@ func TestBackup_PauseMaintenance(t *testing.T) {
 		err = idx.PauseMaintenance(ctx)
 		require.NotNil(t, err)
 		assert.Equal(t,
-			"long-running commitlog shutdown in progress: context deadline exceeded",
+			"long-running commitlog maintenance in progress: context deadline exceeded, "+
+				"long-running tombstone cleanup in progress: context deadline exceeded",
 			err.Error())
 
 		err = idx.Shutdown(context.Background())
@@ -72,6 +71,7 @@ func TestBackup_PauseMaintenance(t *testing.T) {
 			VectorForIDThunk:      testVectorForID,
 		}, enthnsw.NewDefaultUserConfig())
 		require.Nil(t, err)
+		idx.PostStartup()
 
 		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
@@ -89,18 +89,17 @@ func TestBackup_SwitchCommitLogs(t *testing.T) {
 
 	indexID := "backup-switch-commitlogs-test"
 
-	dirName := makeTestDir(t)
+	dirName := t.TempDir()
 
 	idx, err := New(Config{
-		RootPath: dirName,
-		ID:       indexID,
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logrus.New())
-		},
+		RootPath:         dirName,
+		ID:               indexID,
+		Logger:           logrus.New(),
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 	}, enthnsw.NewDefaultUserConfig())
 	require.Nil(t, err)
+	idx.PostStartup()
 
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
@@ -115,20 +114,19 @@ func TestBackup_SwitchCommitLogs(t *testing.T) {
 func TestBackup_ListFiles(t *testing.T) {
 	ctx := context.Background()
 
-	dirName := makeTestDir(t)
+	dirName := t.TempDir()
 
 	indexID := "backup-list-files-test"
 
 	idx, err := New(Config{
-		RootPath: dirName,
-		ID:       indexID,
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logrus.New())
-		},
+		RootPath:         dirName,
+		ID:               indexID,
+		Logger:           logrus.New(),
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 	}, enthnsw.NewDefaultUserConfig())
 	require.Nil(t, err)
+	idx.PostStartup()
 
 	t.Run("assert expected index contents", func(t *testing.T) {
 		files, err := idx.ListFiles(ctx)
@@ -161,18 +159,17 @@ func TestBackup_ResumeMaintenance(t *testing.T) {
 
 	indexID := "backup-resume-maintenance-test"
 
-	dirName := makeTestDir(t)
+	dirName := t.TempDir()
 
 	idx, err := New(Config{
-		RootPath: dirName,
-		ID:       "backup-pause-maintenance-test",
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logrus.New())
-		},
+		RootPath:         dirName,
+		ID:               indexID,
+		Logger:           logrus.New(),
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 	}, enthnsw.NewDefaultUserConfig())
 	require.Nil(t, err)
+	idx.PostStartup()
 
 	t.Run("insert vector into index", func(t *testing.T) {
 		first := &vertex{level: 0, id: 0, connections: make([][]uint64, 1)}
@@ -187,14 +184,9 @@ func TestBackup_ResumeMaintenance(t *testing.T) {
 		err = idx.ResumeMaintenance(ctx)
 		assert.Nil(t, err)
 		assert.True(t, idx.tombstoneCleanupCycle.Running())
-		assert.True(t, idx.commitLog.MaintenanceInProgress())
+		assert.True(t, idx.commitLogMaintenanceCycle.Running())
 	})
 
 	err = idx.Shutdown(ctx)
 	require.Nil(t, err)
-}
-
-func makeTestDir(t *testing.T) string {
-	rand.Seed(time.Now().UnixNano())
-	return t.TempDir()
 }
