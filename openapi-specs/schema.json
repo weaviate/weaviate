@@ -1637,6 +1637,16 @@
           }
         }
       }
+    },
+    "Tenant": {
+      "type": "object",
+      "description": "attributes representing a single tenant within weaviate",
+      "properties": {
+        "name": {
+          "description": "name of the tenant",
+          "type": "string"
+        }
+      }
     }
   },
   "externalDocs": {
@@ -3864,6 +3874,57 @@
           },
           "404": {
             "description": "Shard to be updated does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/{className}/tenants": {
+      "post": {
+        "description": "Create a new tenant for a specific class",
+        "operationId": "tenants.create",
+        "parameters": [
+          {
+            "name": "className",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Tenant"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added the new Object class to the schema.",
+            "schema": {
+              "$ref": "#/definitions/Tenant"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid Tenant class",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

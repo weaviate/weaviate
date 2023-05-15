@@ -2599,6 +2599,57 @@ func init() {
           "weaviate.local.manipulate.meta"
         ]
       }
+    },
+    "/schema/{className}/tenants": {
+      "post": {
+        "description": "Create a new tenant for a specific class",
+        "operationId": "tenants.create",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Tenant"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added the new Object class to the schema.",
+            "schema": {
+              "$ref": "#/definitions/Tenant"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid Tenant class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
     }
   },
   "definitions": {
@@ -4120,6 +4171,16 @@ func init() {
           "items": {
             "type": "string"
           }
+        }
+      }
+    },
+    "Tenant": {
+      "description": "attributes representing a single tenant within weaviate",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "name of the tenant",
+          "type": "string"
         }
       }
     },
@@ -6987,6 +7048,57 @@ func init() {
           "weaviate.local.manipulate.meta"
         ]
       }
+    },
+    "/schema/{className}/tenants": {
+      "post": {
+        "description": "Create a new tenant for a specific class",
+        "operationId": "tenants.create",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Tenant"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added the new Object class to the schema.",
+            "schema": {
+              "$ref": "#/definitions/Tenant"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid Tenant class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
     }
   },
   "definitions": {
@@ -8685,6 +8797,16 @@ func init() {
           "items": {
             "type": "string"
           }
+        }
+      }
+    },
+    "Tenant": {
+      "description": "attributes representing a single tenant within weaviate",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "name of the tenant",
+          "type": "string"
         }
       }
     },
