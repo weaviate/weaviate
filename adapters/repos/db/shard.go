@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -78,6 +79,8 @@ type Shard struct {
 	// So despite property's IndexFilterable and IndexSearchable settings
 	// being enabled, only searchable bucket exists
 	fallbackToSearchable bool
+
+	geoCommitlogMaintenanceCycle cyclemanager.CycleManager
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -91,10 +94,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		promMetrics: promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
-		deletedDocIDs:   docid.NewInMemDeletedTracker(),
-		stopMetrics:     make(chan struct{}),
-		replicationMap:  pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
-		centralJobQueue: jobQueueCh,
+		deletedDocIDs:                docid.NewInMemDeletedTracker(),
+		stopMetrics:                  make(chan struct{}),
+		replicationMap:               pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue:              jobQueueCh,
+		geoCommitlogMaintenanceCycle: cyclemanager.NewMulti(cyclemanager.GeoCommitLoggerCycleTicker()),
 	}
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
@@ -260,6 +264,10 @@ func (s *Shard) drop() error {
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
+
+	if err := s.geoCommitlogMaintenanceCycle.StopAndWait(ctx); err != nil {
+		return errors.Wrap(err, "stop get commitlog maintenance cycle")
+	}
 
 	if err := s.store.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "stop lsmkv store")
@@ -526,7 +534,15 @@ func (s *Shard) shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "shut down vector index")
 	}
 
-	return s.store.Shutdown(ctx)
+	if err := s.geoCommitlogMaintenanceCycle.StopAndWait(ctx); err != nil {
+		return errors.Wrap(err, "stop get commitlog maintenance cycle")
+	}
+
+	if err := s.store.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "stop lsmkv store")
+	}
+
+	return nil
 }
 
 func (s *Shard) notifyReady() {

@@ -57,12 +57,13 @@ type Config struct {
 	Logger             logrus.FieldLogger
 }
 
-func NewIndex(config Config) (*Index, error) {
+func NewIndex(config Config, commitlogMaintenanceCycle cyclemanager.CycleManager,
+) (*Index, error) {
 	vi, err := hnsw.New(hnsw.Config{
 		VectorForIDThunk:      config.CoordinatesForID.VectorForID,
 		ID:                    config.ID,
 		RootPath:              config.RootPath,
-		MakeCommitLoggerThunk: makeCommitLoggerFromConfig(config),
+		MakeCommitLoggerThunk: makeCommitLoggerFromConfig(config, commitlogMaintenanceCycle),
 		DistanceProvider:      distancer.NewGeoProvider(),
 	}, hnswent.UserConfig{
 		MaxConnections:         64,
@@ -94,14 +95,11 @@ func (i *Index) PostStartup() {
 	i.vectorIndex.PostStartup()
 }
 
-func makeCommitLoggerFromConfig(config Config) hnsw.MakeCommitLogger {
+func makeCommitLoggerFromConfig(config Config, maintenanceCycle cyclemanager.CycleManager,
+) hnsw.MakeCommitLogger {
 	makeCL := hnsw.MakeNoopCommitLogger
 	if !config.DisablePersistence {
 		makeCL = func() (hnsw.CommitLogger, error) {
-			// TODO common_cycle_manager make common
-			maintenanceCycle := cyclemanager.NewMulti(cyclemanager.GeoCommitLoggerCycleTicker())
-			maintenanceCycle.Start()
-
 			return hnsw.NewCommitLogger(config.RootPath, config.ID, config.Logger, maintenanceCycle)
 		}
 	}
