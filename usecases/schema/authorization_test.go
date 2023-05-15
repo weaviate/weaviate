@@ -96,6 +96,12 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedVerb:     "update",
 			expectedResource: "schema/className/shards/shardName",
 		},
+		{
+			methodName:       "AddTenants",
+			additionalArgs:   []interface{}{"className", []string{"P1"}},
+			expectedVerb:     "update",
+			expectedResource: "schema/objects",
+		},
 	}
 
 	t.Run("verify that a test for every public method exists", func(t *testing.T) {

@@ -277,10 +277,10 @@ func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
 		if err := replica.ValidateConfig(c); err != nil {
 			return fmt.Errorf("validate replication config: %w", err)
 		}
-
 		shardState, err := sharding.InitState(c.Class,
 			c.ShardingConfig.(sharding.Config),
-			m.clusterState, c.ReplicationConfig.Factor)
+			m.clusterState, c.ReplicationConfig.Factor,
+			isMultiTenancyEnabled(c.MultiTenancyConfig))
 		if err != nil {
 			return errors.Wrap(err, "init sharding state")
 		}
