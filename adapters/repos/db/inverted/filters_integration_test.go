@@ -256,8 +256,7 @@ func Test_Filters_String(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Run("before update", func(t *testing.T) {
-				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, className)
+				res, err := searcher.DocIDs(context.Background(), test.filter, additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
 			})
