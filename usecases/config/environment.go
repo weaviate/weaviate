@@ -261,6 +261,17 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableGraphQL = enabled(os.Getenv("DISABLE_GRAPHQL"))
+
+	if v, ok := os.LookupEnv("SCHEMA_STORAGE_VERSION"); ok {
+		if v != "v1" && v != "v2" {
+			return fmt.Errorf("invalid value for SCHEMA_STORAGE_VERSION, supported values are: [v1 v2]")
+		}
+
+		config.SchemaStorageVersion = v
+	} else {
+		config.SchemaStorageVersion = "v1"
+	}
+
 	return nil
 }
 

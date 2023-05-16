@@ -98,6 +98,10 @@ type Config struct {
 	ReindexSetToRoaringsetAtStartup     bool           `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
 	IndexMissingTextFilterableAtStartup bool           `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
 	DisableGraphQL                      bool           `json:"disable_graphql" yaml:"disable_graphql"`
+
+	// v1 = monolithic, entire schema stored in one key (the default in v1.0-v1.19+)
+	// v2 = per class
+	SchemaStorageVersion string `json:"schema_storage_version" yaml:"schema_storage_version"`
 }
 
 type moduleProvider interface {

@@ -439,3 +439,32 @@ func TestEnvironmentPrometheusGroupClasses(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvironmentSchemaStorageVersion(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    string
+		expectedErr bool
+	}{
+		{"not given", []string{}, "v1", false},
+		{"explicit v1", []string{"v1"}, "v1", false},
+		{"explicit v2", []string{"v2"}, "v2", false},
+		{"invalid value", []string{"v7"}, "", true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("SCHEMA_STORAGE_VERSION", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.SchemaStorageVersion)
+			}
+		})
+	}
+}
