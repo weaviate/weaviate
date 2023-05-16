@@ -14,20 +14,23 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func (s *Shard) initGeoProp(prop *models.Property) error {
-	// safe to call Start() even if cycle is already running
-	// started only if at least one geo prop is indexed
-	s.geoCommitlogMaintenanceCycle.Start()
+	s.geoPropsCycles.Init(
+		cyclemanager.GeoCommitLoggerCycleTicker(),
+		cyclemanager.NewFixedIntervalTicker(hnsw.DefaultCleanupIntervalSeconds*time.Second))
 
 	idx, err := geo.NewIndex(geo.Config{
 		ID:                 geoPropID(s.ID(), prop.Name),
@@ -35,7 +38,7 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 		CoordinatesForID:   s.makeCoordinatesForID(prop.Name),
 		DisablePersistence: false,
 		Logger:             s.index.logger,
-	}, s.geoCommitlogMaintenanceCycle)
+	}, s.geoPropsCycles.TombstoneCleanup(), s.geoPropsCycles.CommitLogMaintenance())
 	if err != nil {
 		return errors.Wrapf(err, "create geo index for prop %q", prop.Name)
 	}

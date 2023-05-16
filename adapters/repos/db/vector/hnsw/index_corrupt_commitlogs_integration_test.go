@@ -69,7 +69,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 			MaxConnections:         100,
 			EFConstruction:         100,
 			CleanupIntervalSeconds: 0,
-		})
+		}, cyclemanager.NewNoop())
 		require.Nil(t, err)
 		index = idx
 	})
@@ -120,7 +120,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 			MaxConnections:         100,
 			EFConstruction:         100,
 			CleanupIntervalSeconds: 0,
-		})
+		}, cyclemanager.NewNoop())
 		require.Nil(t, err)
 		index = idx
 	})
