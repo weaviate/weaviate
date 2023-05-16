@@ -47,7 +47,7 @@ func startGCS(ctx context.Context, networkName string) (*DockerContainer, error)
 			Entrypoint: []string{"gcp-storage-emulator"},
 			Cmd:        []string{"start", "--host", "0.0.0.0", "--port", "9090"},
 			WaitingFor: wait.
-				ForHTTP("/").
+				ForHTTP("/storage/v1/b").
 				WithPort(nat.Port("9090")).
 				WithStartupTimeout(60 * time.Second),
 		},
