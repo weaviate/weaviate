@@ -37,86 +37,90 @@ import (
 // sake, but uses the same components on either side to make sure that it
 // would work in both directions.
 func TestComponentCluster(t *testing.T) {
-	t.Run("add class", func(t *testing.T) {
-		localManager, remoteManager := setupManagers(t)
+	for _, version := range []string{"v1", "v2"} {
+		t.Run("storage version "+version, func(t *testing.T) {
+			t.Run("add class", func(t *testing.T) {
+				localManager, remoteManager := setupManagers(t, version)
 
-		ctx := context.Background()
+				ctx := context.Background()
 
-		err := localManager.AddClass(ctx, nil, testClass())
-		require.Nil(t, err)
+				err := localManager.AddClass(ctx, nil, testClass())
+				require.Nil(t, err)
 
-		localClass, err := localManager.GetClass(ctx, nil, testClass().Class)
-		require.Nil(t, err)
-		remoteClass, err := remoteManager.GetClass(ctx, nil, testClass().Class)
-		require.Nil(t, err)
+				localClass, err := localManager.GetClass(ctx, nil, testClass().Class)
+				require.Nil(t, err)
+				remoteClass, err := remoteManager.GetClass(ctx, nil, testClass().Class)
+				require.Nil(t, err)
 
-		assert.Equal(t, localClass, remoteClass)
-	})
+				assert.Equal(t, localClass, remoteClass)
+			})
 
-	t.Run("add class and extend property", func(t *testing.T) {
-		localManager, remoteManager := setupManagers(t)
+			t.Run("add class and extend property", func(t *testing.T) {
+				localManager, remoteManager := setupManagers(t, version)
 
-		ctx := context.Background()
+				ctx := context.Background()
 
-		err := localManager.AddClass(ctx, nil, testClass())
-		require.Nil(t, err)
+				err := localManager.AddClass(ctx, nil, testClass())
+				require.Nil(t, err)
 
-		err = localManager.AddClassProperty(ctx, nil, testClass().Class, testProperty())
-		require.Nil(t, err)
+				err = localManager.AddClassProperty(ctx, nil, testClass().Class, testProperty())
+				require.Nil(t, err)
 
-		localClass, err := localManager.GetClass(ctx, nil, testClass().Class)
-		require.Nil(t, err)
-		remoteClass, err := remoteManager.GetClass(ctx, nil, testClass().Class)
-		require.Nil(t, err)
+				localClass, err := localManager.GetClass(ctx, nil, testClass().Class)
+				require.Nil(t, err)
+				remoteClass, err := remoteManager.GetClass(ctx, nil, testClass().Class)
+				require.Nil(t, err)
 
-		assert.Equal(t, localClass, remoteClass)
-	})
+				assert.Equal(t, localClass, remoteClass)
+			})
 
-	t.Run("delete class", func(t *testing.T) {
-		localManager, remoteManager := setupManagers(t)
+			t.Run("delete class", func(t *testing.T) {
+				localManager, remoteManager := setupManagers(t, version)
 
-		ctx := context.Background()
+				ctx := context.Background()
 
-		err := localManager.AddClass(ctx, nil, testClass())
-		require.Nil(t, err)
+				err := localManager.AddClass(ctx, nil, testClass())
+				require.Nil(t, err)
 
-		err = localManager.DeleteClass(ctx, nil, testClass().Class, false)
-		require.Nil(t, err)
+				err = localManager.DeleteClass(ctx, nil, testClass().Class, false)
+				require.Nil(t, err)
 
-		localSchema, err := localManager.GetSchema(nil)
-		require.Nil(t, err)
-		remoteSchema, err := remoteManager.GetSchema(nil)
-		require.Nil(t, err)
+				localSchema, err := localManager.GetSchema(nil)
+				require.Nil(t, err)
+				remoteSchema, err := remoteManager.GetSchema(nil)
+				require.Nil(t, err)
 
-		assert.Equal(t, localSchema, remoteSchema)
-	})
+				assert.Equal(t, localSchema, remoteSchema)
+			})
 
-	t.Run("add class update config", func(t *testing.T) {
-		localManager, remoteManager := setupManagers(t)
+			t.Run("add class update config", func(t *testing.T) {
+				localManager, remoteManager := setupManagers(t, version)
 
-		ctx := context.Background()
+				ctx := context.Background()
 
-		err := localManager.AddClass(ctx, nil, testClass())
-		require.Nil(t, err)
+				err := localManager.AddClass(ctx, nil, testClass())
+				require.Nil(t, err)
 
-		updated := testClass()
-		updated.VectorIndexConfig.(map[string]interface{})["secondKey"] = "added"
+				updated := testClass()
+				updated.VectorIndexConfig.(map[string]interface{})["secondKey"] = "added"
 
-		err = localManager.UpdateClass(ctx, nil, testClass().Class, updated)
-		require.Nil(t, err)
+				err = localManager.UpdateClass(ctx, nil, testClass().Class, updated)
+				require.Nil(t, err)
 
-		localClass, err := localManager.GetClass(ctx, nil, testClass().Class)
-		require.Nil(t, err)
-		remoteClass, err := remoteManager.GetClass(ctx, nil, testClass().Class)
-		require.Nil(t, err)
+				localClass, err := localManager.GetClass(ctx, nil, testClass().Class)
+				require.Nil(t, err)
+				remoteClass, err := remoteManager.GetClass(ctx, nil, testClass().Class)
+				require.Nil(t, err)
 
-		assert.Equal(t, localClass, remoteClass)
-	})
+				assert.Equal(t, localClass, remoteClass)
+			})
+		})
+	}
 }
 
-func setupManagers(t *testing.T) (*schemauc.Manager, *schemauc.Manager) {
+func setupManagers(t *testing.T, version string) (*schemauc.Manager, *schemauc.Manager) {
 	remoteManager := newSchemaManagerWithClusterStateAndClient(
-		&fakeClusterState{hosts: []string{"node1"}}, nil)
+		&fakeClusterState{hosts: []string{"node1"}}, nil, version)
 
 	schemaHandlers := clusterapi.NewSchema(remoteManager.TxManager())
 	mux := http.NewServeMux()
@@ -128,7 +132,7 @@ func setupManagers(t *testing.T) (*schemauc.Manager, *schemauc.Manager) {
 	parsedURL, err := url.Parse(server.URL)
 	require.Nil(t, err)
 	state := &fakeClusterState{hosts: []string{parsedURL.Host}}
-	localManager := newSchemaManagerWithClusterStateAndClient(state, client)
+	localManager := newSchemaManagerWithClusterStateAndClient(state, client, version)
 
 	return localManager, remoteManager
 }
@@ -155,14 +159,14 @@ func testProperty() *models.Property {
 
 // New Local Schema *Manager
 func newSchemaManagerWithClusterStateAndClient(clusterState *fakeClusterState,
-	client cluster.Client,
+	client cluster.Client, version string,
 ) *schemauc.Manager {
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
 		valid: []string{"text2vec-contextionary", "model1", "model2"},
 	}
 	sm, err := schemauc.NewManager(&NilMigrator{}, newFakeRepo(), logger, &fakeAuthorizer{},
-		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
+		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone, SchemaStorageVersion: version},
 		dummyParseVectorConfig, // only option for now
 		vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, clusterState, client, &fakeScaleOutManager{},

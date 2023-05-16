@@ -521,11 +521,21 @@ func TestSchema(t *testing.T) {
 	// (that can be run in parallel) have finished, before cleaning up the temp directory.
 	t.Run("group", func(t *testing.T) {
 		for _, testCase := range schemaTests {
-			// Create a test case, and inject the etcd schema manager in there
+			// Create a test case, and inject the schema manager in there
 			// to reduce boilerplate in each separate test.
-			t.Run(testCase.name, func(t *testing.T) {
-				sm := newSchemaManager()
-				testCase.fn(t, sm)
+			t.Run("storage v1", func(t *testing.T) {
+				t.Run(testCase.name, func(t *testing.T) {
+					sm := newSchemaManager()
+					sm.storageVersion = StorageVersion1
+					testCase.fn(t, sm)
+				})
+			})
+			t.Run("storage v1", func(t *testing.T) {
+				t.Run(testCase.name, func(t *testing.T) {
+					sm := newSchemaManager()
+					sm.storageVersion = StorageVersion2
+					testCase.fn(t, sm)
+				})
 			})
 		}
 	})
@@ -579,7 +589,7 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	repo := newFakeRepo()
-	repo.schema = &State{
+	repo.schemaV1 = &State{
 		ObjectSchema: &models.Schema{
 			Classes: []*models.Class{{
 				Class:             "Foo",
@@ -607,7 +617,7 @@ func Test_ExtendSchemaWithExistingPropName(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	repo := newFakeRepo()
-	repo.schema = &State{
+	repo.schemaV1 = &State{
 		ObjectSchema: &models.Schema{
 			Classes: []*models.Class{{
 				Class:             "Foo",

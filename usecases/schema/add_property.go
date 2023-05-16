@@ -127,9 +127,23 @@ func (m *Manager) addClassPropertyApplyChanges(ctx context.Context,
 	}
 
 	class.Properties = append(class.Properties, prop)
-	err = m.saveSchema(ctx)
-	if err != nil {
-		return err
+
+	if m.storageVersion == StorageVersion2 {
+		m.shardingStateLock.Lock()
+		shardState := m.state.ShardingState[class.Class]
+		m.shardingStateLock.Unlock()
+
+		err = m.saveClass(ctx, class, shardState)
+		if err != nil {
+			return err
+		}
+
+	} else {
+		err = m.saveSchema(ctx)
+		if err != nil {
+			return err
+		}
+
 	}
 
 	return m.migrator.AddProperty(ctx, className, prop)

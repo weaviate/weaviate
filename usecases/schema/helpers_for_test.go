@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"sort"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -22,34 +23,57 @@ import (
 )
 
 type fakeRepo struct {
-	schema *State
+	schemaV1   *State
+	v2Classes  map[string]*models.Class
+	v2Sharding map[string]*sharding.State
 }
 
 func newFakeRepo() *fakeRepo {
-	return &fakeRepo{}
+	return &fakeRepo{
+		v2Classes:  map[string]*models.Class{},
+		v2Sharding: map[string]*sharding.State{},
+	}
 }
 
 func (f *fakeRepo) V1LoadSchema(context.Context) (*State, error) {
-	return f.schema, nil
+	return f.schemaV1, nil
 }
 
 func (f *fakeRepo) V1SaveSchema(ctx context.Context, schema State) error {
-	f.schema = &schema
+	f.schemaV1 = &schema
 	return nil
 }
 
 func (f *fakeRepo) V2SaveClass(ctx context.Context, c *models.Class,
 	s *sharding.State,
 ) error {
-	panic("not implemented")
+	f.v2Classes[c.Class] = c
+	f.v2Sharding[c.Class] = s
+	return nil
 }
 
 func (f *fakeRepo) V2DeleteClass(ctx context.Context, className string) error {
-	panic("not implemented")
+	delete(f.v2Classes, className)
+	delete(f.v2Sharding, className)
+	return nil
 }
 
 func (f *fakeRepo) V2LoadAllClasses(ctx context.Context) (*State, error) {
-	panic("not implemented")
+	s := &State{
+		ObjectSchema:  &models.Schema{},
+		ShardingState: map[string]*sharding.State{},
+	}
+
+	for _, class := range f.v2Classes {
+		s.ObjectSchema.Classes = append(s.ObjectSchema.Classes, class)
+		s.ShardingState[class.Class] = f.v2Sharding[class.Class]
+	}
+
+	sort.Slice(s.ObjectSchema.Classes, func(a, b int) bool {
+		return s.ObjectSchema.Classes[a].Class < s.ObjectSchema.Classes[b].Class
+	})
+
+	return s, nil
 }
 
 type fakeAuthorizer struct{}

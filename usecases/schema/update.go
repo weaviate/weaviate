@@ -135,6 +135,12 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 		m.shardingStateLock.Unlock()
 	}
 
+	if m.storageVersion == StorageVersion2 {
+		m.shardingStateLock.Lock()
+		shardState := m.state.ShardingState[updated.Class]
+		m.shardingStateLock.Unlock()
+		return m.saveClass(ctx, updated, shardState)
+	}
 	return m.saveSchema(ctx)
 }
 

@@ -107,9 +107,16 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 	m.state.ShardingState[class.Class].SetLocalName(m.clusterState.LocalName())
 	m.shardingStateLock.Unlock()
 
-	err = m.saveSchema(ctx)
-	if err != nil {
-		return err
+	if m.storageVersion == StorageVersion2 {
+		err = m.saveClass(ctx, class, shardingState)
+		if err != nil {
+			return err
+		}
+	} else {
+		err = m.saveSchema(ctx)
+		if err != nil {
+			return err
+		}
 	}
 
 	out := m.migrator.AddClass(ctx, class, shardingState)
