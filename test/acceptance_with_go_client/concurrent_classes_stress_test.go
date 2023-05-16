@@ -15,8 +15,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	client "github.com/weaviate/weaviate-go-client/v4/weaviate"
@@ -30,52 +32,75 @@ func TestConcurrentClassAdd(t *testing.T) {
 
 	c := client.New(client.Config{Scheme: "http", Host: url})
 	_ = c.Schema().AllDeleter().Do(ctx)
-	parallelReqs := 200
-	wg := sync.WaitGroup{}
-	wgStartReqests := sync.WaitGroup{}
-	wgStartReqests.Add(parallelReqs)
-	wg.Add(parallelReqs)
 
-	for i := 0; i < parallelReqs; i++ {
-		go func(j int) {
-			classname := fmt.Sprintf("Test_%v", j)
+	for _, parallelReqs := range []int{50, 100, 200, 400} {
 
-			class := models.Class{
-				Class: classname,
-				Properties: []*models.Property{
-					{
-						Name:     "text",
-						DataType: []string{string(schema.DataTypeText)},
+		durCreateClass := make([]time.Duration, parallelReqs)
+		durDeleteClass := make([]time.Duration, parallelReqs)
+
+		wg := sync.WaitGroup{}
+		wgStartReqests := sync.WaitGroup{}
+		wgStartReqests.Add(parallelReqs)
+		wg.Add(parallelReqs)
+
+		for i := 0; i < parallelReqs; i++ {
+			i := i
+			go func(j int) {
+				classname := fmt.Sprintf("Test_%v", j)
+
+				class := models.Class{
+					Class: classname,
+					Properties: []*models.Property{
+						{
+							Name:     "text",
+							DataType: []string{string(schema.DataTypeText)},
+						},
 					},
-				},
-			}
-			c := client.New(client.Config{Scheme: "http", Host: url})
+				}
+				c := client.New(client.Config{Scheme: "http", Host: url})
 
-			err := c.Schema().ClassCreator().WithClass(&class).Do(ctx)
-			if err != nil {
-				log.Print(err)
-			}
-
-			for k := 0; k < 20; k++ {
-				_, err := c.Data().Creator().WithClassName(classname).WithProperties(
-					map[string]interface{}{"text": string(rune(k))},
-				).Do(ctx)
+				before := time.Now()
+				err := c.Schema().ClassCreator().WithClass(&class).Do(ctx)
 				if err != nil {
 					log.Print(err)
 				}
-			}
+				durCreateClass[i] = time.Since(before)
 
-			_ = c.Schema().ClassDeleter().WithClassName(class.Class).Do(ctx)
-			if err != nil {
-				log.Print(err)
-			}
+				for k := 0; k < 20; k++ {
+					_, err := c.Data().Creator().WithClassName(classname).WithProperties(
+						map[string]interface{}{"text": string(rune(k))},
+					).Do(ctx)
+					if err != nil {
+						log.Print(err)
+					}
+				}
 
-			wg.Done()
-		}(i)
+				before = time.Now()
+				err = c.Schema().ClassDeleter().WithClassName(class.Class).Do(ctx)
+				if err != nil {
+					log.Print(err)
+				}
+				durDeleteClass[i] = time.Since(before)
+
+				wg.Done()
+			}(i)
+		}
+		wg.Wait()
+
+		// test for deadlock
+		_, err := c.Schema().Getter().Do(ctx)
+		assert.Nil(t, err)
+
+		sort.Slice(durCreateClass, func(a, b int) bool {
+			return durCreateClass[a] < durCreateClass[b]
+		})
+
+		sort.Slice(durDeleteClass, func(a, b int) bool {
+			return durCreateClass[a] < durCreateClass[b]
+		})
+
+		fmt.Printf("%d parallel requests\n", parallelReqs)
+		fmt.Printf("create: p50=%s p90=%s, p99=%s\n", durCreateClass[parallelReqs*50/100], durCreateClass[parallelReqs*90/100], durCreateClass[parallelReqs*99/100])
+		fmt.Printf("delete: p50=%s p90=%s, p99=%s\n", durDeleteClass[parallelReqs*50/100], durDeleteClass[parallelReqs*90/100], durDeleteClass[parallelReqs*99/100])
 	}
-	wg.Wait()
-
-	// test for deadlock
-	_, err := c.Schema().Getter().Do(ctx)
-	assert.Nil(t, err)
 }
