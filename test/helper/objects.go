@@ -136,3 +136,9 @@ func DeleteReference(t *testing.T, object *models.Object, ref *models.SingleRef,
 	resp, err := Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }
+
+func CreateTenants(t *testing.T, class string, tenants []*models.Tenant) {
+	params := schema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
+	resp, err := Client(t).Schema.TenantsCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}

@@ -24,7 +24,7 @@ func TestAddTenants(t *testing.T) {
 	var (
 		ctx        = context.Background()
 		mt         = &models.MultiTenancyConfig{Enabled: true, TenantKey: "uUID"}
-		tenants    = []string{"USER1", "USER2"}
+		tenants    = []*models.Tenant{{"USER1"}, {"USER2"}}
 		cls        = "C1"
 		properties = []*models.Property{
 			{
@@ -38,7 +38,7 @@ func TestAddTenants(t *testing.T) {
 	type test struct {
 		name    string
 		Class   string
-		tenants []string
+		tenants []*models.Tenant
 		initial *models.Class
 		errMsg  string
 	}
@@ -81,7 +81,7 @@ func TestAddTenants(t *testing.T) {
 		{
 			name:    "EmptyTenantKeyValue",
 			Class:   "C1",
-			tenants: []string{"A", "", "B"},
+			tenants: []*models.Tenant{{"A"}, {""}, {"B"}},
 			initial: &models.Class{
 				Class:              cls,
 				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true, TenantKey: "uUID"},
@@ -93,7 +93,7 @@ func TestAddTenants(t *testing.T) {
 		{
 			name:    "Success",
 			Class:   "C1",
-			tenants: []string{"A", "B"},
+			tenants: []*models.Tenant{{"A"}, {"B"}},
 			initial: &models.Class{
 				Class:              cls,
 				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true, TenantKey: "uUID"},
