@@ -96,7 +96,7 @@ func TestConcurrentClassAdd(t *testing.T) {
 		})
 
 		sort.Slice(durDeleteClass, func(a, b int) bool {
-			return durCreateClass[a] < durCreateClass[b]
+			return durDeleteClass[a] < durDeleteClass[b]
 		})
 
 		fmt.Printf("%d parallel requests\n", parallelReqs)
