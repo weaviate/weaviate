@@ -98,7 +98,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "AddTenants",
-			additionalArgs:   []interface{}{"className", []string{"P1"}},
+			additionalArgs:   []interface{}{"className", []*models.Tenant{{"P1"}}},
 			expectedVerb:     "update",
 			expectedResource: "schema/objects",
 		},
