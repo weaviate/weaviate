@@ -230,6 +230,16 @@ func (p *Provider) moduleProvidesMultipleVectorizers(moduleType modulecapabiliti
 	return moduleType == modulecapabilities.Text2MultiVec
 }
 
+func (p *Provider) isOnlyOneModuleEnabledOfAGivenType(moduleType modulecapabilities.ModuleType) bool {
+	i := 0
+	for _, mod := range p.registered {
+		if mod.Type() == moduleType {
+			i++
+		}
+	}
+	return i == 1
+}
+
 func (p *Provider) shouldIncludeClassArgument(class *models.Class, module string,
 	moduleType modulecapabilities.ModuleType,
 ) bool {
@@ -237,9 +247,14 @@ func (p *Provider) shouldIncludeClassArgument(class *models.Class, module string
 		return true
 	}
 	if moduleConfig, ok := class.ModuleConfig.(map[string]interface{}); ok {
-		return moduleConfig[module] != nil
+		existsConfigForModule := moduleConfig[module] != nil
+		if existsConfigForModule {
+			return true
+		}
 	}
-	return false
+	// Allow Text2Text (Generative, QnA, Summarize, NER) modules to be registered to a given class
+	// only if there's no configuration present and there's only one module of a given type enabled
+	return p.isOnlyOneModuleEnabledOfAGivenType(moduleType)
 }
 
 func (p *Provider) shouldCrossClassIncludeClassArgument(class *models.Class, module string,
