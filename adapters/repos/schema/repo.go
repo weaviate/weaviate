@@ -85,17 +85,16 @@ func (r *Repo) init() error {
 	return nil
 }
 
-func (r *Repo) SaveSchema(ctx context.Context, schema schemauc.State) error {
-	panic("oh oh, looks like someone's still calling an old method")
-	// schemaJSON, err := json.Marshal(schema)
-	// if err != nil {
-	// 	return errors.Wrapf(err, "marshal schema state to json")
-	// }
+func (r *Repo) V1SaveSchema(ctx context.Context, schema schemauc.State) error {
+	schemaJSON, err := json.Marshal(schema)
+	if err != nil {
+		return errors.Wrapf(err, "marshal schema state to json")
+	}
 
-	// return r.db.Update(func(tx *bolt.Tx) error {
-	// 	b := tx.Bucket(schemaBucket)
-	// 	return b.Put(monolithicSchemaKey, schemaJSON)
-	// })
+	return r.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(schemaBucket)
+		return b.Put(monolithicSchemaKey, schemaJSON)
+	})
 }
 
 type classShardingTuple struct {
@@ -107,7 +106,7 @@ func keyFromClassName(in string) []byte {
 	return []byte(strings.ToLower(in))
 }
 
-func (r *Repo) SaveClass(ctx context.Context, c *models.Class,
+func (r *Repo) V2SaveClass(ctx context.Context, c *models.Class,
 	shardSt *sharding.State,
 ) error {
 	jsonBytes, err := json.Marshal(classShardingTuple{c, shardSt})
@@ -121,7 +120,7 @@ func (r *Repo) SaveClass(ctx context.Context, c *models.Class,
 	})
 }
 
-func (r *Repo) LoadAllClasses(ctx context.Context) (*schemauc.State, error) {
+func (r *Repo) V2LoadAllClasses(ctx context.Context) (*schemauc.State, error) {
 	out := &schemauc.State{
 		ObjectSchema:  &models.Schema{},
 		ShardingState: map[string]*sharding.State{},
@@ -149,26 +148,25 @@ func (r *Repo) LoadAllClasses(ctx context.Context) (*schemauc.State, error) {
 	return out, nil
 }
 
-func (r *Repo) LoadSchema(ctx context.Context) (*schemauc.State, error) {
-	panic("oh oh, looks like someone's still calling an old method")
-	// var schemaJSON []byte
-	// r.db.View(func(tx *bolt.Tx) error {
-	// 	b := tx.Bucket(schemaBucket)
-	// 	schemaJSON = b.Get(monolithicSchemaKey)
-	// 	return nil
-	// })
+func (r *Repo) V1LoadSchema(ctx context.Context) (*schemauc.State, error) {
+	var schemaJSON []byte
+	r.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(schemaBucket)
+		schemaJSON = b.Get(monolithicSchemaKey)
+		return nil
+	})
 
-	// if len(schemaJSON) == 0 {
-	// 	return nil, nil
-	// }
+	if len(schemaJSON) == 0 {
+		return nil, nil
+	}
 
-	// var state schemauc.State
-	// err := json.Unmarshal(schemaJSON, &state)
-	// if err != nil {
-	// 	return nil, errors.Wrapf(err, "parse schema state from JSON")
-	// }
+	var state schemauc.State
+	err := json.Unmarshal(schemaJSON, &state)
+	if err != nil {
+		return nil, errors.Wrapf(err, "parse schema state from JSON")
+	}
 
-	// return &state, nil
+	return &state, nil
 }
 
 var _ = schemauc.Repo(&Repo{})

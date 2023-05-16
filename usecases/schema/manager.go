@@ -50,7 +50,13 @@ type Manager struct {
 	RestoreError            sync.Map
 	sync.RWMutex
 	shardingStateLock sync.RWMutex
+	storageVersion    string
 }
+
+const (
+	StorageVersion1 = "v1"
+	StorageVersion2 = "v2"
+)
 
 type VectorConfigParser func(in interface{}) (schema.VectorIndexConfig, error)
 
@@ -78,14 +84,15 @@ type ModuleConfig interface {
 // Repo describes the requirements the schema manager has to a database to load
 // and persist the schema state
 type Repo interface {
-	SaveSchema(ctx context.Context, schema State) error
-	SaveClass(ctx context.Context, c *models.Class, s *sharding.State) error
-
+	// V1 methods are meant to store the schema monolithicly
+	V1SaveSchema(ctx context.Context, schema State) error
 	// should return nil (and no error) to indicate that no remote schema had
 	// been stored before
-	LoadSchema(ctx context.Context) (*State, error)
+	V1LoadSchema(ctx context.Context) (*State, error)
 
-	LoadAllClasses(ctx context.Context) (*State, error)
+	// V2 methods store the schema per class
+	V2LoadAllClasses(ctx context.Context) (*State, error)
+	V2SaveClass(ctx context.Context, c *models.Class, s *sharding.State) error
 }
 
 type clusterState interface {
@@ -134,6 +141,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		cluster:                 cluster.NewTxManager(txBroadcaster, logger),
 		clusterState:            clusterState,
 		scaleOut:                scaleoutManager,
+		storageVersion:          config.SchemaStorageVersion,
 	}
 
 	m.scaleOut.SetSchemaManager(m)
@@ -142,9 +150,16 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 	m.cluster.SetResponseFn(m.handleTxResponse)
 	txBroadcaster.SetConsensusFunction(newReadConsensus(m.parseConfigs, m.logger))
 
-	err := m.loadOrInitializeSchema(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("could not load or initialize schema: %v", err)
+	if m.storageVersion == StorageVersion2 {
+		err := m.loadOrInitializeSchemaV2(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("could not load or initialize schema (storage version 1): %v", err)
+		}
+	} else {
+		err := m.loadOrInitializeSchemaV1(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("could not load or initialize schema (storage version 2): %v", err)
+		}
 	}
 
 	return m, nil
@@ -170,7 +185,7 @@ func (m *Manager) saveSchema(ctx context.Context) error {
 		WithField("action", "schema_update").
 		Debug("saving updated schema to configuration store")
 
-	err := m.repo.SaveSchema(ctx, m.state)
+	err := m.repo.V1SaveSchema(ctx, m.state)
 	if err != nil {
 		return err
 	}
@@ -184,7 +199,7 @@ func (m *Manager) saveClass(ctx context.Context,
 ) error {
 	before := time.Now()
 
-	err := m.repo.SaveClass(ctx, c, s)
+	err := m.repo.V2SaveClass(ctx, c, s)
 	if err != nil {
 		return err
 	}
@@ -221,15 +236,15 @@ func (m *Manager) triggerSchemaUpdateCallbacks() {
 	}
 }
 
-func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
-	schema, err := m.repo.LoadAllClasses(ctx)
+func (m *Manager) loadOrInitializeSchemaV1(ctx context.Context) error {
+	schema, err := m.repo.V1LoadSchema(ctx)
 	if err != nil {
 		return fmt.Errorf("could not load schema:  %v", err)
 	}
 
-	// if schema == nil {
-	// 	schema = newSchema()
-	// }
+	if schema == nil {
+		schema = newSchema()
+	}
 
 	if err := m.parseConfigs(ctx, schema); err != nil {
 		return errors.Wrap(err, "load schema")
@@ -257,15 +272,52 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 		return errors.Wrap(err, "sync schema with other nodes in the cluster")
 	}
 
-	// // store in persistent storage
-	// if err := m.repo.SaveSchema(ctx, m.state); err != nil {
-	// 	return fmt.Errorf("initialized a new schema, but couldn't update remote: %v", err)
-	// }
+	// store in persistent storage
+	if err := m.repo.V1SaveSchema(ctx, m.state); err != nil {
+		return fmt.Errorf("initialized a new schema, but couldn't update remote: %v", err)
+	}
+
+	return nil
+}
+
+func (m *Manager) loadOrInitializeSchemaV2(ctx context.Context) error {
+	schema, err := m.repo.V2LoadAllClasses(ctx)
+	if err != nil {
+		return fmt.Errorf("could not load schema:  %v", err)
+	}
+
+	if err := m.parseConfigs(ctx, schema); err != nil {
+		return errors.Wrap(err, "load schema")
+	}
+
+	// store in local cache
+	m.state = *schema
+
+	if err := m.migrateSchemaIfNecessary(ctx); err != nil {
+		return fmt.Errorf("migrate schema: %w", err)
+	}
+
+	// There was a bug that allowed adding the same prop multiple times. This
+	// leads to a race at startup. If an instance is already affected by this,
+	// this step can remove the duplicate ones.
+	//
+	// See https://github.com/weaviate/weaviate/issues/2609
+	m.removeDuplicatePropsIfPresent()
+
+	// make sure that all migrations have completed before checking sync,
+	// otherwise two identical schemas might fail the check based on form rather
+	// than content
+
+	if err := m.startupClusterSync(ctx, schema); err != nil {
+		return errors.Wrap(err, "sync schema with other nodes in the cluster")
+	}
 
 	// TODO: The monolithic store all no longer makes sense. Here we might want
 	// to check if something actually changed, e.g. if a migration actually ran
 	// and only store those classes that were changed. Otherwise we'd have to
 	// save thousands of classes on every startup that didn't change at all
+	//
+	// Without this addition V2 does not have feature parity with V1 yet!
 
 	return nil
 }

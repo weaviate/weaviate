@@ -38,18 +38,18 @@ func Test_SchemaRepo(t *testing.T) {
 	require.Nil(t, err)
 
 	t.Run("asking for a schema before any has been imported", func(t *testing.T) {
-		res, err := r.LoadSchema(context.Background())
+		res, err := r.V1LoadSchema(context.Background())
 		require.Nil(t, err)
 		assert.Nil(t, res)
 	})
 
 	t.Run("storing a schema", func(t *testing.T) {
-		err := r.SaveSchema(context.Background(), exampleSchema())
+		err := r.V1SaveSchema(context.Background(), exampleSchema())
 		require.Nil(t, err)
 	})
 
 	t.Run("retrieving a stored schema", func(t *testing.T) {
-		res, err := r.LoadSchema(context.Background())
+		res, err := r.V1LoadSchema(context.Background())
 		require.Nil(t, err)
 		expected := exampleSchema()
 		assert.Equal(t, &expected, res)

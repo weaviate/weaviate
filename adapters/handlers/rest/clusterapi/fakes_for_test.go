@@ -29,13 +29,23 @@ func newFakeRepo() *fakeRepo {
 	return &fakeRepo{}
 }
 
-func (f *fakeRepo) LoadSchema(context.Context) (*schemauc.State, error) {
+func (f *fakeRepo) V1LoadSchema(context.Context) (*schemauc.State, error) {
 	return f.schema, nil
 }
 
-func (f *fakeRepo) SaveSchema(ctx context.Context, schema schemauc.State) error {
+func (f *fakeRepo) V1SaveSchema(ctx context.Context, schema schemauc.State) error {
 	f.schema = &schema
 	return nil
+}
+
+func (f *fakeRepo) V2SaveClass(ctx context.Context, c *models.Class,
+	s *sharding.State,
+) error {
+	panic("not implemented")
+}
+
+func (f *fakeRepo) V2LoadAllClasses(ctx context.Context) (*schemauc.State, error) {
+	panic("not implemented")
 }
 
 type fakeAuthorizer struct{}
