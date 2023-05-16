@@ -167,8 +167,8 @@ func (h *hnsw) tombstoneCleanup(shouldBreak cyclemanager.ShouldBreakFunc) bool {
 // vector cache, however, depend on the shard being ready as they will call
 // getVectorForID.
 func (h *hnsw) PostStartup() {
-	h.tombstoneCleanupCycle.Start()
-	h.commitLogMaintenanceCycle.Start()
+	// h.tombstoneCleanupCycle.Start()
+	// h.commitLogMaintenanceCycle.Start()
 	h.prefillCache()
 }
 

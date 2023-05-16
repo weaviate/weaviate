@@ -19,7 +19,6 @@ import (
 	"math/rand"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -104,9 +103,7 @@ type hnsw struct {
 	tombstones map[uint64]struct{}
 
 	// used for cancellation of the tombstone cleanup goroutine
-	cleanupInterval           time.Duration
-	tombstoneCleanupCycle     cyclemanager.CycleManager
-	commitLogMaintenanceCycle cyclemanager.CycleManager
+	unregisterTombstoneCleanup cyclemanager.UnregisterFunc
 
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
@@ -194,7 +191,8 @@ type (
 // criterium for the index to see if it has to recover from disk or if its a
 // truly new index. So instead the index is initialized, with un-biased disk
 // checks first and only then is the commit logger created
-func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
+func New(cfg Config, uc ent.UserConfig, tombstoneCleanupCycle cyclemanager.CycleManager,
+) (*hnsw, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
 	}
@@ -245,7 +243,7 @@ func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
 		resetCtx:               resetCtx,
 		resetCtxCancel:         resetCtxCancel,
 		initialInsertOnce:      &sync.Once{},
-		cleanupInterval:        time.Duration(uc.CleanupIntervalSeconds) * time.Second,
+		// cleanupInterval:        time.Duration(uc.CleanupIntervalSeconds) * time.Second,
 
 		ef:       int64(uc.EF),
 		efMin:    int64(uc.DynamicEFMin),
@@ -259,31 +257,9 @@ func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
 		compressActionLock: &sync.RWMutex{},
 		className:          cfg.ClassName,
 	}
-	// Previously we had an interval of 10s in here, which was changed to
-	// 0.5s as part of gh-1867. There's really no way to wait so long in
-	// between checks: If you are running on a low-powered machine, the
-	// interval will simply find that there is no work and do nothing in
-	// each iteration. However, if you are running on a very powerful
-	// machine within 10s you could have potentially created two units of
-	// work, but we'll only be handling one every 10s. This means
-	// uncombined/uncondensed hnsw commit logs will keep piling up can only
-	// be processes long after the initial insert is complete. This also
-	// means that if there is a crash during importing a lot of work needs
-	// to be done at startup, since the commit logs still contain too many
-	// redundancies. So as of now it seems there are only advantages to
-	// running the cleanup checks and work much more often.
-	//
-	// update: switched to dynamic intervals with values between 500ms and 10s
-	// introduced to address https://github.com/weaviate/weaviate/issues/2783
-	index.commitLogMaintenanceCycle = cyclemanager.NewMulti(cyclemanager.HnswCommitLoggerCycleTicker())
-	index.tombstoneCleanupCycle = cyclemanager.NewMulti(cyclemanager.NewFixedIntervalTicker(index.cleanupInterval))
-	index.tombstoneCleanupCycle.Register(index.tombstoneCleanup)
 
-	if cfg.MakeCommitLoggerThunk == nil {
-		cfg.MakeCommitLoggerThunk = func() (CommitLogger, error) {
-			return NewCommitLogger(cfg.RootPath, cfg.ID, cfg.Logger, index.commitLogMaintenanceCycle)
-		}
-	}
+	// TODO common_cycle_manager move to poststartup?
+	index.unregisterTombstoneCleanup = tombstoneCleanupCycle.Register(index.tombstoneCleanup)
 	index.insertMetrics = newInsertMetrics(index.metrics)
 
 	if err := index.init(cfg); err != nil {
@@ -620,7 +596,7 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 
 func (h *hnsw) Drop(ctx context.Context) error {
 	// cancel tombstone cleanup goroutine
-	if err := h.tombstoneCleanupCycle.StopAndWait(ctx); err != nil {
+	if err := h.unregisterTombstoneCleanup(ctx); err != nil {
 		return errors.Wrap(err, "hnsw drop")
 	}
 
@@ -646,11 +622,7 @@ func (h *hnsw) Shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "hnsw shutdown")
 	}
 
-	if err := h.commitLogMaintenanceCycle.StopAndWait(ctx); err != nil {
-		return errors.Wrap(err, "hnsw shutdown")
-	}
-
-	if err := h.tombstoneCleanupCycle.StopAndWait(ctx); err != nil {
+	if err := h.unregisterTombstoneCleanup(ctx); err != nil {
 		return errors.Wrap(err, "hnsw shutdown")
 	}
 

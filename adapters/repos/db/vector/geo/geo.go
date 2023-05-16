@@ -57,19 +57,20 @@ type Config struct {
 	Logger             logrus.FieldLogger
 }
 
-func NewIndex(config Config, commitlogMaintenanceCycle cyclemanager.CycleManager,
+func NewIndex(config Config, tombstoneCleanupCycle cyclemanager.CycleManager,
+	commitLogMaintenanceCycle cyclemanager.CycleManager,
 ) (*Index, error) {
 	vi, err := hnsw.New(hnsw.Config{
 		VectorForIDThunk:      config.CoordinatesForID.VectorForID,
 		ID:                    config.ID,
 		RootPath:              config.RootPath,
-		MakeCommitLoggerThunk: makeCommitLoggerFromConfig(config, commitlogMaintenanceCycle),
+		MakeCommitLoggerThunk: makeCommitLoggerFromConfig(config, commitLogMaintenanceCycle),
 		DistanceProvider:      distancer.NewGeoProvider(),
 	}, hnswent.UserConfig{
 		MaxConnections:         64,
 		EFConstruction:         128,
 		CleanupIntervalSeconds: hnswent.DefaultCleanupIntervalSeconds,
-	})
+	}, tombstoneCleanupCycle)
 	if err != nil {
 		return nil, errors.Wrap(err, "underlying hnsw index")
 	}

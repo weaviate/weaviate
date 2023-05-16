@@ -47,10 +47,12 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	rootPath := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	maintenanceCycle := cyclemanager.NewMulti(cyclemanager.NewFixedIntervalTicker(1))
-	maintenanceCycle.Start()
+	cycles := &MaintenanceCycles{}
+	cycles.Init(
+		cyclemanager.HnswCommitLoggerCycleTicker(),
+		cyclemanager.NewFixedIntervalTicker(1))
 
-	original, err := NewCommitLogger(rootPath, "too_many_links_test", logger, maintenanceCycle,
+	original, err := NewCommitLogger(rootPath, "too_many_links_test", logger, cycles.CommitLogMaintenance(),
 		WithCommitlogThreshold(1e5),
 		WithCommitlogThresholdForCombining(5e5))
 	require.Nil(t, err)
@@ -87,7 +89,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 2 * n,
-		})
+		}, cycles.TombstoneCleanup())
 		require.Nil(t, err)
 		idx.PostStartup()
 		index = idx
@@ -170,7 +172,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 2 * n,
-		})
+		}, cycles.TombstoneCleanup())
 		require.Nil(t, err)
 		idx.PostStartup()
 		index = idx
@@ -196,6 +198,6 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 
 	t.Run("destroy the index", func(t *testing.T) {
 		require.Nil(t, index.Drop(context.Background()))
-		require.Nil(t, maintenanceCycle.StopAndWait(context.Background()))
+		require.Nil(t, cycles.Shutdown(context.Background()))
 	})
 }

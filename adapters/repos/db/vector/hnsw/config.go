@@ -47,9 +47,9 @@ func (c Config) Validate() error {
 		ec.Addf("rootPath cannot be empty")
 	}
 
-	// if c.MakeCommitLoggerThunk == nil {
-	// 	ec.Addf("makeCommitLoggerThunk cannot be nil")
-	// }
+	if c.MakeCommitLoggerThunk == nil {
+		ec.Addf("makeCommitLoggerThunk cannot be nil")
+	}
 
 	if c.VectorForIDThunk == nil {
 		ec.Addf("vectorForIDThunk cannot be nil")

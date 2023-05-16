@@ -48,14 +48,14 @@ func Test_InValidConfig(t *testing.T) {
 			},
 			expectedErr: errors.Errorf("rootPath cannot be empty"),
 		},
-		// {
-		// 	config: func() Config {
-		// 		v := validConfig()
-		// 		v.MakeCommitLoggerThunk = nil
-		// 		return v
-		// 	},
-		// 	expectedErr: errors.Errorf("makeCommitLoggerThunk cannot be nil"),
-		// },
+		{
+			config: func() Config {
+				v := validConfig()
+				v.MakeCommitLoggerThunk = nil
+				return v
+			},
+			expectedErr: errors.Errorf("makeCommitLoggerThunk cannot be nil"),
+		},
 		{
 			config: func() Config {
 				v := validConfig()

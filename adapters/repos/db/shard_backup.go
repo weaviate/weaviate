@@ -38,7 +38,7 @@ func (s *Shard) beginBackup(ctx context.Context) (err error) {
 	if err = s.store.FlushMemtables(ctx); err != nil {
 		return errors.Wrap(err, "flush memtables")
 	}
-	if err = s.vectorIndex.PauseMaintenance(ctx); err != nil {
+	if err = s.vectorCycles.PauseMaintenance(ctx); err != nil {
 		return errors.Wrap(err, "pause maintenance")
 	}
 	if err = s.vectorIndex.SwitchCommitLogs(ctx); err != nil {
@@ -70,9 +70,8 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	g.Go(func() error {
 		return s.store.ResumeCompaction(ctx)
 	})
-
 	g.Go(func() error {
-		return s.vectorIndex.ResumeMaintenance(ctx)
+		return s.vectorCycles.ResumeMaintenance(ctx)
 	})
 
 	if err := g.Wait(); err != nil {
