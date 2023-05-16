@@ -85,12 +85,19 @@ func (m *Manager) deleteClassApplyChanges(ctx context.Context,
 		sch.Classes = sch.Classes[:len(sch.Classes)-1]
 	}
 
-	err := m.saveSchema(ctx)
-	if err != nil {
-		return err
+	if m.storageVersion == StorageVersion2 {
+		err := m.deleteClassFromStorage(ctx, className)
+		if err != nil {
+			return err
+		}
+	} else {
+		err := m.saveSchema(ctx)
+		if err != nil {
+			return err
+		}
 	}
 
-	err = m.migrator.DropClass(ctx, className)
+	err := m.migrator.DropClass(ctx, className)
 	if err != nil {
 		if !force {
 			return err
@@ -103,9 +110,17 @@ func (m *Manager) deleteClassApplyChanges(ctx context.Context,
 	m.shardingStateLock.Lock()
 	delete(m.state.ShardingState, className)
 	m.shardingStateLock.Unlock()
-	err = m.saveSchema(ctx)
-	if err != nil {
-		return err
+
+	if m.storageVersion == StorageVersion2 {
+		err := m.deleteClassFromStorage(ctx, className)
+		if err != nil {
+			return err
+		}
+	} else {
+		err := m.saveSchema(ctx)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil

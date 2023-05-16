@@ -44,6 +44,10 @@ func (f *fakeRepo) V2SaveClass(ctx context.Context, c *models.Class,
 	panic("not implemented")
 }
 
+func (f *fakeRepo) V2DeleteClass(ctx context.Context, className string) error {
+	panic("not implemented")
+}
+
 func (f *fakeRepo) V2LoadAllClasses(ctx context.Context) (*State, error) {
 	panic("not implemented")
 }

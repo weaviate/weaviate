@@ -93,6 +93,7 @@ type Repo interface {
 	// V2 methods store the schema per class
 	V2LoadAllClasses(ctx context.Context) (*State, error)
 	V2SaveClass(ctx context.Context, c *models.Class, s *sharding.State) error
+	V2DeleteClass(ctx context.Context, className string) error
 }
 
 type clusterState interface {
@@ -186,6 +187,16 @@ func (m *Manager) saveSchema(ctx context.Context) error {
 		Debug("saving updated schema to configuration store")
 
 	err := m.repo.V1SaveSchema(ctx, m.state)
+	if err != nil {
+		return err
+	}
+
+	m.triggerSchemaUpdateCallbacks()
+	return nil
+}
+
+func (m *Manager) deleteClassFromStorage(ctx context.Context, className string) error {
+	err := m.repo.V2DeleteClass(ctx, className)
 	if err != nil {
 		return err
 	}

@@ -120,6 +120,13 @@ func (r *Repo) V2SaveClass(ctx context.Context, c *models.Class,
 	})
 }
 
+func (r *Repo) V2DeleteClass(ctx context.Context, className string) error {
+	return r.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(schemaBucketV2)
+		return b.Delete(keyFromClassName(className))
+	})
+}
+
 func (r *Repo) V2LoadAllClasses(ctx context.Context) (*schemauc.State, error) {
 	out := &schemauc.State{
 		ObjectSchema:  &models.Schema{},
