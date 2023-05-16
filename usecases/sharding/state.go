@@ -30,7 +30,8 @@ type State struct {
 	Virtual  []Virtual           `json:"virtual"`
 
 	// different for each node, not to be serialized
-	localNodeName string
+	localNodeName       string
+	partitioningEnabled bool
 }
 
 // MigrateFromOldFormat checks if the old (pre-v1.17) format was used and
@@ -120,9 +121,10 @@ type nodes interface {
 
 func InitState(id string, config Config, nodes nodes, replFactor int64, partitioningEnabled bool) (*State, error) {
 	out := &State{
-		Config:        config,
-		IndexID:       id,
-		localNodeName: nodes.LocalName(),
+		Config:              config,
+		IndexID:             id,
+		localNodeName:       nodes.LocalName(),
+		partitioningEnabled: partitioningEnabled,
 	}
 	if partitioningEnabled {
 		out.Physical = make(map[string]Physical, 128)
@@ -141,6 +143,17 @@ func InitState(id string, config Config, nodes nodes, replFactor int64, partitio
 	out.distributeVirtualAmongPhysical()
 
 	return out, nil
+}
+
+// Shard returns the shard name if it exits and empty string otherwise
+func (s *State) Shard(partitionKey, objectID string) string {
+	if s.partitioningEnabled {
+		if _, ok := s.Physical[partitionKey]; ok {
+			return partitionKey // will change in the future
+		}
+		return ""
+	}
+	return s.PhysicalShard([]byte(objectID))
 }
 
 func (s *State) PhysicalShard(in []byte) string {

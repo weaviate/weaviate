@@ -66,6 +66,8 @@ type Index struct {
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
 
+	tenantKey string
+
 	// This lock should be used together with the db indexLock.
 	//
 	// The db indexlock locks the map that contains all indices against changes and should be used while iterating.
@@ -124,6 +126,9 @@ func NewIndex(ctx context.Context, config IndexConfig,
 			nodeResolver, remoteClient),
 		metrics:         NewMetrics(logger, promMetrics, config.ClassName.String(), "n/a"),
 		centralJobQueue: jobQueueCh,
+	}
+	if class.MultiTenancyConfig != nil {
+		index.tenantKey = class.MultiTenancyConfig.TenantKey
 	}
 
 	if err := index.checkSingleShardMigration(shardState); err != nil {
@@ -279,6 +284,34 @@ func (i *Index) shardFromUUID(in strfmt.UUID) (string, error) {
 		PhysicalShard(uuidBytes), nil
 }
 
+// tenantKeyValue extract the value of the tenant key if it exists
+func tenantKeyValue(tenantKeyName string, o *storobj.Object) string {
+	if props, _ := o.Properties().(map[string]interface{}); props != nil {
+		if rawVal := props[tenantKeyName]; rawVal != nil {
+			if key, _ := rawVal.(string); key != "" {
+				return key
+			}
+		}
+	}
+	return ""
+}
+
+// shardFromObject returns the name of shard to which o belongs
+func (i *Index) shardFromObject(o *storobj.Object) (string, error) {
+	if i.tenantKey == "" {
+		return i.shardFromUUID(o.ID())
+	}
+	keyVal := tenantKeyValue(i.tenantKey, o)
+	if keyVal == "" {
+		return "", fmt.Errorf("tenant key %q is required", i.tenantKey)
+	}
+	ss := i.getSchema.ShardingState(i.Config.ClassName.String())
+	if name := ss.Shard(keyVal, string(o.ID())); name != "" {
+		return name, nil
+	}
+	return "", fmt.Errorf("no tenant found with this key %q", keyVal)
+}
+
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	replProps *additional.ReplicationProperties,
 ) error {
@@ -286,9 +319,10 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		return errors.Errorf("cannot import object of class %s into index of class %s",
 			object.Class(), i.Config.ClassName)
 	}
+
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
-	shardName, err := i.shardFromUUID(object.ID())
+	shardName, err := i.shardFromObject(object)
 	if err != nil {
 		return err
 	}
