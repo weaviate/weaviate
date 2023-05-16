@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/journey"
+	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
 )
 
 const (
@@ -63,7 +64,7 @@ func Test_BackupJourney(t *testing.T) {
 		}()
 
 		t.Run("post-instance env setup", func(t *testing.T) {
-			createBucket(ctx, t, compose.GetMinIO().URI(), s3BackupJourneyRegion, s3BackupJourneyBucketName)
+			moduleshelper.CreateS3Bucket(ctx, t, compose.GetMinIO().URI(), s3BackupJourneyRegion, s3BackupJourneyBucketName)
 			helper.SetupClient(compose.GetWeaviate().URI())
 		})
 
@@ -95,7 +96,7 @@ func Test_BackupJourney(t *testing.T) {
 		}()
 
 		t.Run("post-instance env setup", func(t *testing.T) {
-			createBucket(ctx, t, compose.GetMinIO().URI(), s3BackupJourneyRegion, s3BackupJourneyBucketName)
+			moduleshelper.CreateS3Bucket(ctx, t, compose.GetMinIO().URI(), s3BackupJourneyRegion, s3BackupJourneyBucketName)
 			helper.SetupClient(compose.GetWeaviate().URI())
 		})
 

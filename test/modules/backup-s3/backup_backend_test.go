@@ -67,7 +67,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 	t.Setenv(envS3AccessKey, "aws_access_key")
 	t.Setenv(envS3SecretKey, "aws_secret_key")
 	t.Setenv(envS3Bucket, bucketName)
-	createBucket(testCtx, t, endpoint, region, bucketName)
+	moduleshelper.CreateS3Bucket(testCtx, t, endpoint, region, bucketName)
 
 	t.Run("store backup meta in s3", func(t *testing.T) {
 		t.Setenv(envS3UseSSL, "false")
@@ -146,7 +146,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 	t.Setenv(envS3AccessKey, "aws_access_key")
 	t.Setenv(envS3SecretKey, "aws_secret_key")
 	t.Setenv(envS3Bucket, bucketName)
-	createBucket(testCtx, t, endpoint, region, bucketName)
+	moduleshelper.CreateS3Bucket(testCtx, t, endpoint, region, bucketName)
 
 	t.Run("copy objects", func(t *testing.T) {
 		t.Setenv(envS3UseSSL, "false")
@@ -184,7 +184,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 	t.Setenv(envS3AccessKey, "aws_access_key")
 	t.Setenv(envS3SecretKey, "aws_secret_key")
 	t.Setenv(envS3Bucket, bucketName)
-	createBucket(testCtx, t, endpoint, region, bucketName)
+	moduleshelper.CreateS3Bucket(testCtx, t, endpoint, region, bucketName)
 
 	t.Run("copy files", func(t *testing.T) {
 		fpaths := moduleshelper.CreateTestFiles(t, dataDir)

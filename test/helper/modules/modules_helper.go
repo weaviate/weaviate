@@ -19,9 +19,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/storage"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
@@ -68,16 +71,45 @@ func CreateGCSBucket(ctx context.Context, t *testing.T, projectID, bucketName st
 	client, err := storage.NewClient(ctx, option.WithoutAuthentication())
 	require.Nil(t, err)
 
-	err = client.Bucket(bucketName).Create(ctx, projectID, nil)
-	gcsErr, ok := err.(*googleapi.Error)
-	if ok {
-		// the bucket persists from the previous test.
-		// if the bucket already exists, we can proceed
-		if gcsErr.Code == http.StatusConflict {
-			return
+	createBucket := func() error {
+		err = client.Bucket(bucketName).Create(ctx, projectID, nil)
+		gcsErr, ok := err.(*googleapi.Error)
+		if ok {
+			// the bucket persists from the previous test.
+			// if the bucket already exists, we can proceed
+			if gcsErr.Code == http.StatusConflict {
+				return nil
+			}
 		}
+		return err
 	}
+
+	err = helper.Retry(createBucket, 5, time.Millisecond*500)
+	require.Nil(t, err, "expected nil, got: %v", err)
+}
+
+func CreateS3Bucket(ctx context.Context, t *testing.T, endpoint, region, bucketName string) {
+	client, err := minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewEnvAWS(),
+		Region: region,
+		Secure: false,
+	})
 	require.Nil(t, err)
+
+	createBucket := func() error {
+		err = client.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{})
+		minioErr, ok := err.(minio.ErrorResponse)
+		if ok {
+			// the bucket persists from a previous test.
+			// if the bucket already exists, we can proceed
+			if minioErr.Code == "BucketAlreadyOwnedByYou" {
+				return nil
+			}
+		}
+		return err
+	}
+	err = helper.Retry(createBucket, 5, time.Millisecond*500)
+	require.Nil(t, err, "expected nil, got: %v", err)
 }
 
 func CreateAzureContainer(ctx context.Context, t *testing.T, endpoint, containerName string) {
