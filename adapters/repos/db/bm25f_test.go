@@ -328,7 +328,6 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(1), res[4].DocID())
 		require.Equal(t, uint64(2), res[5].DocID())
 		require.Equal(t, uint64(3), res[6].DocID())
-
 	})
 
 	t.Run("Check search with two terms", func(t *testing.T) {
