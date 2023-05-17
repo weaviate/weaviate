@@ -685,8 +685,6 @@ func TestBM25FCompare(t *testing.T) {
 			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), withBM25Fscores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
 
-		
-
 		t.Logf("------ BM25 --------\n")
 		kwr.Type = ""
 
@@ -717,7 +715,7 @@ func TestBM25FCompare(t *testing.T) {
 		require.Equal(t, uint64(1), withBM25Fobjs[3].DocID())
 		require.Equal(t, uint64(2), withBM25Fobjs[4].DocID())
 		require.Equal(t, uint64(0), withBM25Fobjs[5].DocID())
-		
+
 	}
 }
 
