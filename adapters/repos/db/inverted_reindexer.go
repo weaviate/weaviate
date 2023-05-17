@@ -226,6 +226,7 @@ func (r *ShardInvertedReindexer) createTempBucket(ctx context.Context, name stri
 	tempName := helpers.TempBucketFromBucketName(name)
 	bucketOptions := append(options, lsmkv.WithStrategy(strategy))
 
+	panic("Wat")
 	if err := r.shard.store.CreateBucket(ctx, tempName, bucketOptions...); err != nil {
 		return errors.Wrapf(err, "failed creating temp bucket '%s'", tempName)
 	}

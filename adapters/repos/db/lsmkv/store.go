@@ -60,6 +60,10 @@ func (s *Store) Bucket(name string) *Bucket {
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()
 
+	fmt.Printf("Bucket: Searching for %v in :\n", name)
+	for k := range s.bucketsByName {
+		fmt.Printf("  %v\n", k)
+	}
 	return s.bucketsByName[name]
 }
 
@@ -97,6 +101,14 @@ func (s *Store) bucketDir(bucketName string) string {
 	return path.Join(s.dir, bucketName)
 }
 
+func (s *Store) GetStrategyFromOpts(opts []BucketOption) string {
+	fb := &Bucket{}
+	for _, opt := range opts {
+		opt(fb)
+	}
+	return fb.strategy
+}
+
 // CreateOrLoadBucket registers a bucket with the given name. If state on disk
 // exists for this bucket it is loaded, otherwise created. Pass [BucketOptions]
 // to configure the strategy of a bucket. The strategy defaults to "replace".
@@ -108,27 +120,63 @@ func (s *Store) bucketDir(bucketName string) string {
 //
 //	// you can now access the bucket using store.Bucket()
 //	b := store.Bucket("my_bucket_name")
-func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
+func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string,
 	opts ...BucketOption,
 ) error {
-	if b := s.Bucket(bucketName); b != nil {
+
+	fmt.Println("Requested CreateOrLoadBucket", bucketFile, "in shard", s.dir)
+	fmt.Println("Existing buckets:")
+	for k := range s.bucketsByName {
+		fmt.Println(k)
+	}
+
+	if strings.Contains(bucketFile, "property_source") {
+		panic("here")
+	}
+	if b := s.Bucket(bucketFile); b != nil {
+		//If the merged bucket as bucketFile already exists, we don't need to create it, but we do need to register it to the "RegisteredName"
+		// So first we create a fake bucket to get the registered name :O
+		fb := &Bucket{}
+		for _, opt := range opts {
+			opt(fb)
+		}
+		registeredName := fb.RegisteredName
+		if registeredName != "" {
+			s.SetBucket(registeredName, b)
+		}
 		return nil
 	}
 
-	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics, opts...)
+	//fmt.Println("Calling newbucket in CreateOrLoadBucket", bucketFile, "in shard", s.dir)
+	/*
+		//Create a fake bucket to get the strategy
+		fb := &Bucket{}
+		for _, opt := range opts {
+			opt(fb)
+		}
+		strategy := fb.strategy
+	*/
+	b, err := NewBucket(ctx, s.bucketDir(bucketFile), s.rootDir, s.logger, s.metrics, opts...)
 	if err != nil {
 		return err
 	}
 
-	s.setBucket(bucketName, b)
+	s.SetBucket(bucketFile, b)
+
+	s.SetBucket(b.RegisteredName, b)
+
+	fmt.Printf("Registered %v as %v\n", bucketFile, b.RegisteredName)
+
 	return nil
 }
 
-func (s *Store) setBucket(name string, b *Bucket) {
+func (s *Store) SetBucket(name string, b *Bucket) {
 	s.bucketAccessLock.Lock()
 	defer s.bucketAccessLock.Unlock()
 
 	s.bucketsByName[name] = b
+
+	fmt.Println("Set bucket", name, "in shard", s.dir)
 }
 
 func (s *Store) Shutdown(ctx context.Context) error {
@@ -317,7 +365,7 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 		return err
 	}
 
-	s.setBucket(bucketName, b)
+	s.SetBucket(bucketName, b)
 	return nil
 }
 

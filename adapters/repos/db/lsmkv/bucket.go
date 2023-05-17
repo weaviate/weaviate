@@ -74,6 +74,7 @@ type Bucket struct {
 	monitorCount bool
 
 	pauseTimer *prometheus.Timer // Times the pause
+	RegisteredName string
 }
 
 // NewBucket initializes a new bucket. It either loads the state from disk if
@@ -82,9 +83,7 @@ type Bucket struct {
 // You do not need to ever call NewBucket() yourself, if you are using a
 // [Store]. In this case the [Store] can manage buckets for you, using methods
 // such as CreateOrLoadBucket().
-func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
-	metrics *Metrics, opts ...BucketOption,
-) (*Bucket, error) {
+func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics, opts ...BucketOption) (*Bucket, error) {
 	beforeAll := time.Now()
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
@@ -105,6 +104,8 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		logger:            logger,
 		metrics:           metrics,
 	}
+
+	fmt.Printf("NewBucket %+v\n", b)
 
 	for _, opt := range opts {
 		if err := opt(b); err != nil {

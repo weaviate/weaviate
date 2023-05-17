@@ -173,13 +173,14 @@ func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard *
 }
 
 func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
-	eg := &errgroup.Group{}
+	
 	for _, shard := range i.Shards {
-		shard.createPropertyIndex(ctx, prop, eg)
+		err := shard.createPropertyIndex(ctx, prop)
+		if err != nil {
+			return err
+		}
 	}
-	if err := eg.Wait(); err != nil {
-		return errors.Wrapf(err, "extend idx '%s' with property '%s", i.ID(), prop.Name)
-	}
+
 	return nil
 }
 
