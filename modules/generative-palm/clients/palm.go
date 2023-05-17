@@ -31,14 +31,14 @@ import (
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
-func buildURL(apiEndoint, projectID, endpointID string) string {
-	urlTemplate := "https://%s/v1/projects/%s/locations/us-central1/endpoints/%s:predict"
-	return fmt.Sprintf(urlTemplate, apiEndoint, projectID, endpointID)
+func buildURL(apiEndoint, projectID, modelID string) string {
+	urlTemplate := "https://%s/v1/projects/%s/locations/us-central1/publishers/google/models/%s:predict"
+	return fmt.Sprintf(urlTemplate, apiEndoint, projectID, modelID)
 }
 
 type palm struct {
 	apiKey     string
-	buildUrlFn func(apiEndoint, projectID, endpointID string) string
+	buildUrlFn func(apiEndoint, projectID, modelID string) string
 	httpClient *http.Client
 	logger     logrus.FieldLogger
 }
@@ -73,19 +73,29 @@ func (v *palm) GenerateAllResults(ctx context.Context, textProperties []map[stri
 func (v *palm) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*ent.GenerateResult, error) {
 	settings := config.NewClassSettings(cfg)
 
-	endpointURL := v.buildUrlFn(settings.ApiEndpoint(), settings.ProjectID(), settings.EndpointID())
+	modelID := settings.ModelID()
+	if settings.EndpointID() != "" {
+		modelID = settings.EndpointID()
+	}
+
+	endpointURL := v.buildUrlFn(settings.ApiEndpoint(), settings.ProjectID(), modelID)
 
 	input := generateInput{
 		Instances: []instance{
 			{
-				Content: prompt,
+				Messages: []message{
+					{
+						Author:  "user",
+						Content: prompt,
+					},
+				},
 			},
 		},
 		Parameters: parameters{
-			Temperature:    settings.Temperature(),
-			MaxDecodeSteps: settings.TokenLimit(),
-			TopP:           settings.TopP(),
-			TopK:           settings.TopK(),
+			Temperature:     settings.Temperature(),
+			MaxOutputTokens: settings.TokenLimit(),
+			TopP:            settings.TopP(),
+			TopK:            settings.TopK(),
 		},
 	}
 	body, err := json.Marshal(input)
@@ -130,8 +140,8 @@ func (v *palm) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt
 		return nil, fmt.Errorf("connection to Google PaLM failed with status: %d", res.StatusCode)
 	}
 
-	if len(resBody.Predictions) > 0 {
-		content := resBody.Predictions[0].Content
+	if len(resBody.Predictions) > 0 && len(resBody.Predictions[0].Candidates) > 0 {
+		content := resBody.Predictions[0].Candidates[0].Content
 		if content != "" {
 			trimmedResponse := strings.Trim(content, "\n")
 			return &ent.GenerateResult{
@@ -189,14 +199,26 @@ type generateInput struct {
 }
 
 type instance struct {
+	Context  string    `json:"context,omitempty"`
+	Messages []message `json:"messages,omitempty"`
+	Examples []example `json:"examples,omitempty"`
+}
+
+type message struct {
+	Author  string `json:"author"`
 	Content string `json:"content"`
 }
 
+type example struct {
+	Input  string `json:"input"`
+	Output string `json:"output"`
+}
+
 type parameters struct {
-	Temperature    float64 `json:"temperature"`
-	MaxDecodeSteps int     `json:"maxDecodeSteps"`
-	TopP           float64 `json:"topP"`
-	TopK           int     `json:"topK"`
+	Temperature     float64 `json:"temperature"`
+	MaxOutputTokens int     `json:"maxOutputTokens"`
+	TopP            float64 `json:"topP"`
+	TopK            int     `json:"topK"`
 }
 
 type generateResponse struct {
@@ -209,8 +231,13 @@ type generateResponse struct {
 }
 
 type prediction struct {
-	Content          string            `json:"content,omitempty"`
+	Candidates       []candidate       `json:"candidates,omitempty"`
 	SafetyAttributes *safetyAttributes `json:"safetyAttributes,omitempty"`
+}
+
+type candidate struct {
+	Author  string `json:"author"`
+	Content string `json:"content"`
 }
 
 type safetyAttributes struct {

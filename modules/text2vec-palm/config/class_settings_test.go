@@ -25,81 +25,63 @@ func Test_classSettings_Validate(t *testing.T) {
 		cfg             moduletools.ClassConfig
 		wantApiEndpoint string
 		wantProjectID   string
-		wantModel       string
+		wantModelID     string
 		wantErr         error
 	}{
 		{
 			name: "happy flow",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"apiEndpoint": "apiEndpoint",
-					"projectId":   "projectId",
+					"projectId": "projectId",
 				},
 			},
-			wantApiEndpoint: "apiEndpoint",
+			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
 			wantProjectID:   "projectId",
-			wantModel:       "textembedding-gecko-001",
+			wantModelID:     "textembedding-gecko",
 			wantErr:         nil,
 		},
 		{
 			name: "custom values",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"apiEndpoint": "apiEndpoint",
+					"apiEndpoint": "google.com",
 					"projectId":   "projectId",
-					"model":       "textembedding-gecko-001",
 				},
 			},
-			wantApiEndpoint: "apiEndpoint",
+			wantApiEndpoint: "google.com",
 			wantProjectID:   "projectId",
-			wantModel:       "textembedding-gecko-001",
+			wantModelID:     "textembedding-gecko",
 			wantErr:         nil,
-		},
-		{
-			name: "empty apiEndpoint",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"apiEndpoint": "",
-					"projectId":   "projectId",
-					"model":       "textembedding-gecko-001",
-				},
-			},
-			wantErr: errors.Errorf("apiEndpoint cannot be empty"),
 		},
 		{
 			name: "empty projectId",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"apiEndpoint": "apiEndpoint",
-					"projectId":   "",
-					"model":       "textembedding-gecko-001",
+					"projectId": "",
 				},
 			},
 			wantErr: errors.Errorf("projectId cannot be empty"),
 		},
 		{
-			name: "wrong model",
+			name: "wrong modelId",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"apiEndpoint": "apiEndpoint",
-					"projectId":   "projectId",
-					"model":       "wrong-model",
+					"projectId": "projectId",
+					"modelId":   "wrong-model",
 				},
 			},
-			wantErr: errors.Errorf("wrong model available model names are: [textembedding-gecko-001]"),
+			wantErr: errors.Errorf("wrong modelId available model names are: [textembedding-gecko]"),
 		},
 		{
 			name: "all wrong",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"apiEndpoint": "",
-					"projectId":   "",
-					"model":       "wrong-model",
+					"projectId": "",
+					"modelId":   "wrong-model",
 				},
 			},
-			wantErr: errors.Errorf("apiEndpoint cannot be empty, " +
-				"projectId cannot be empty, " +
-				"wrong model available model names are: [textembedding-gecko-001]"),
+			wantErr: errors.Errorf("projectId cannot be empty, " +
+				"wrong modelId available model names are: [textembedding-gecko]"),
 		},
 	}
 	for _, tt := range tests {
@@ -110,7 +92,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			} else {
 				assert.Equal(t, tt.wantApiEndpoint, ic.ApiEndpoint())
 				assert.Equal(t, tt.wantProjectID, ic.ProjectID())
-				assert.Equal(t, tt.wantModel, ic.Model())
+				assert.Equal(t, tt.wantModelID, ic.ModelID())
 			}
 		})
 	}
