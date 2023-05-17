@@ -3,7 +3,7 @@
 set -eo pipefail
 
 GIT_HASH=$(git rev-parse --short HEAD)
-VERSION="$(jq -r '.info.version' openapi-specs/schema.json)"
+VERSION="v$(jq -r '.info.version' openapi-specs/schema.json)"
 
 function main() {
   cd ./cmd/weaviate-server
@@ -44,12 +44,20 @@ function main() {
   rm -v LICENSE
   rm -v README.md
   step_complete
+
+  echo_purp_bold "${VERSION} artifacts available here: $(pwd)"
 }
 
 function echo_green() {
   green='\033[0;32m'
   nc='\033[0m'
   echo -e "${green}${*}${nc}"
+}
+
+function echo_purp_bold() {
+    purp='\033[1;35m'
+    nc='\033[0m'
+    echo -e "${purp}${*}${nc}"
 }
 
 function step_complete() {
