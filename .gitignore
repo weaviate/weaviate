@@ -87,6 +87,7 @@ graphqlapi/prototype/node_modules/
 docker-compose/runtime-stable/data
 docker-compose/runtime-unstable/data
 c.out
+/cmd/weaviate-server/build_artifacts/
 
 esbackups/
 **/testdata/
