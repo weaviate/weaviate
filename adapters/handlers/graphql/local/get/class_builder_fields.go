@@ -394,9 +394,6 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 				return nil, fmt.Errorf("failed to extract hybrid params: %w", err)
 			}
 			hybridParams = p
-			if pagination != nil {
-				hybridParams.Limit = pagination.Limit
-			}
 		}
 
 		var replProps *additional.ReplicationProperties

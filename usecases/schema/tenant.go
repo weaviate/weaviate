@@ -84,16 +84,24 @@ func (m *Manager) onAddPartitions(ctx context.Context,
 		}
 	}
 
+	st.SetLocalName(m.clusterState.LocalName())
+	m.shardingStateLock.Lock()
+	curState := m.state.ShardingState[request.ClassName]
+	m.state.ShardingState[request.ClassName] = st
+	m.shardingStateLock.Unlock()
+
 	if err := m.saveSchema(ctx); err != nil {
+		m.shardingStateLock.Lock() // rollback
+		m.state.ShardingState[request.ClassName] = curState
+		m.shardingStateLock.Unlock()
 		return err
 	}
 
-	m.shardingStateLock.Lock()
-	m.state.ShardingState[request.ClassName] = st
-	m.shardingStateLock.Unlock()
-	shards := make([]string, len(request.Partitions))
-	for i, p := range request.Partitions {
-		shards[i] = p.Name
+	shards := make([]string, 0, len(request.Partitions))
+	for _, p := range request.Partitions {
+		if st.IsShardLocal(p.Name) {
+			shards = append(shards, p.Name)
+		}
 	}
 	// this should actually not fail but just in case
 	// TODO: make sure AddPartitions() never fails

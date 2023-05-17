@@ -38,7 +38,11 @@ func TestGetAnswer(t *testing.T) {
 			answer: generateResponse{
 				Predictions: []prediction{
 					{
-						Content: "John",
+						Candidates: []candidate{
+							{
+								Content: "John",
+							},
+						},
 					},
 				},
 				Error: nil,
@@ -50,7 +54,7 @@ func TestGetAnswer(t *testing.T) {
 		c := &palm{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			buildUrlFn: func(apiEndoint, projectID, endpointID string) string {
+			buildUrlFn: func(apiEndoint, projectID, modelID string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -81,7 +85,7 @@ func TestGetAnswer(t *testing.T) {
 		c := &palm{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			buildUrlFn: func(apiEndoint, projectID, endpointID string) string {
+			buildUrlFn: func(apiEndoint, projectID, modelID string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -122,7 +126,8 @@ func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	require.Nil(f.t, json.Unmarshal(bodyBytes, &b))
 
 	require.Len(f.t, b.Instances, 1)
-	require.True(f.t, len(b.Instances[0].Content) > 0)
+	require.Len(f.t, b.Instances[0].Messages, 1)
+	require.True(f.t, len(b.Instances[0].Messages[0].Content) > 0)
 
 	outBytes, err := json.Marshal(f.answer)
 	require.Nil(f.t, err)
