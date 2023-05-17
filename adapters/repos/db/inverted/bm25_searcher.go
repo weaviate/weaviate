@@ -91,29 +91,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "wand")
 	}
-	type result struct {
-		object *storobj.Object
-		score  float32
-	}
-	var results []result = make([]result, len(objs))
-	for i, obj := range objs {
-		if obj == nil {
-			continue
-		}
-		results[i] = result{
-			object: obj,
-			score:  scores[i],
-		}
-	}
 
-	sort.Slice(results, func(i, j int) bool {
-		a_b := float64(results[i].score - results[j].score)
-		if a_b*a_b < 1e-14 {
-			return results[i].object.DocID() < results[j].object.DocID()
-		}
-
-		return results[i].score > results[j].score
-	})
 
 	return objs, scores, nil
 }
