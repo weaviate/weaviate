@@ -416,19 +416,23 @@ func generateShardName() string {
 }
 
 func (s State) DeepCopy() State {
-	physicalCopy := map[string]Physical{}
+	var virtualCopy []Virtual
+
+	physicalCopy := make(map[string]Physical, len(s.Physical))
 	for name, shard := range s.Physical {
 		physicalCopy[name] = shard.DeepCopy()
 	}
 
-	virtualCopy := make([]Virtual, len(s.Virtual))
+	if len(s.Virtual) > 0 {
+		virtualCopy = make([]Virtual, len(s.Virtual))
+	}
 	for i, virtual := range s.Virtual {
 		virtualCopy[i] = virtual.DeepCopy()
 	}
 
 	return State{
 		localNodeName: s.localNodeName,
-		IndexID:       s.localNodeName,
+		IndexID:       s.IndexID,
 		Config:        s.Config.DeepCopy(),
 		Physical:      physicalCopy,
 		Virtual:       virtualCopy,
@@ -449,8 +453,11 @@ func (c Config) DeepCopy() Config {
 }
 
 func (p Physical) DeepCopy() Physical {
-	ownsVirtualCopy := make([]string, len(p.OwnsVirtual))
-	copy(ownsVirtualCopy, p.OwnsVirtual)
+	var ownsVirtualCopy []string
+	if len(p.OwnsVirtual) > 0 {
+		ownsVirtualCopy = make([]string, len(p.OwnsVirtual))
+		copy(ownsVirtualCopy, p.OwnsVirtual)
+	}
 
 	belongsCopy := make([]string, len(p.BelongsToNodes))
 	copy(belongsCopy, p.BelongsToNodes)
