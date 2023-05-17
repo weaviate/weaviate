@@ -95,15 +95,15 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 		object *storobj.Object
 		score  float32
 	}
-	var results []result
+	var results []result = make([]result, len(objs))
 	for i, obj := range objs {
 		if obj == nil {
 			continue
 		}
-		results = append(results, result{
+		results[i] = result{
 			object: obj,
 			score:  scores[i],
-		})
+		}
 	}
 
 	sort.Slice(results, func(i, j int) bool {
