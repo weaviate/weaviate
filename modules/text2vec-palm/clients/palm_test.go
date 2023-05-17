@@ -35,10 +35,10 @@ func TestClient(t *testing.T) {
 		c := &palm{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilderFn: func(apiEndoint, projectID, endpointID string) string {
+			urlBuilderFn: func(apiEndoint, projectID, modelID string) string {
 				assert.Equal(t, "endpoint", apiEndoint)
 				assert.Equal(t, "project", projectID)
-				assert.Equal(t, "model", endpointID)
+				assert.Equal(t, "model", modelID)
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -65,7 +65,7 @@ func TestClient(t *testing.T) {
 		c := &palm{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilderFn: func(apiEndoint, projectID, endpointID string) string {
+			urlBuilderFn: func(apiEndoint, projectID, modelID string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -88,7 +88,7 @@ func TestClient(t *testing.T) {
 		c := &palm{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilderFn: func(apiEndoint, projectID, endpointID string) string {
+			urlBuilderFn: func(apiEndoint, projectID, modelID string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -106,7 +106,7 @@ func TestClient(t *testing.T) {
 		c := &palm{
 			apiKey:     "",
 			httpClient: &http.Client{},
-			urlBuilderFn: func(apiEndoint, projectID, endpointID string) string {
+			urlBuilderFn: func(apiEndoint, projectID, modelID string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -131,7 +131,7 @@ func TestClient(t *testing.T) {
 		c := &palm{
 			apiKey:     "",
 			httpClient: &http.Client{},
-			urlBuilderFn: func(apiEndoint, projectID, endpointID string) string {
+			urlBuilderFn: func(apiEndoint, projectID, modelID string) string {
 				return server.URL
 			},
 			logger: nullLogger(),

@@ -25,15 +25,15 @@ import (
 	"github.com/weaviate/weaviate/modules/text2vec-palm/ent"
 )
 
-func buildURL(apiEndoint, projectID, model string) string {
-	urlTemplate := "https://%s/v1/projects/%s/locations/us-central1/endpoints/%s:predict"
-	return fmt.Sprintf(urlTemplate, apiEndoint, projectID, model)
+func buildURL(apiEndoint, projectID, modelID string) string {
+	urlTemplate := "https://%s/v1/projects/%s/locations/us-central1/publishers/google/models/%s:predict"
+	return fmt.Sprintf(urlTemplate, apiEndoint, projectID, modelID)
 }
 
 type palm struct {
 	apiKey       string
 	httpClient   *http.Client
-	urlBuilderFn func(apiEndoint, projectID, endpointID string) string
+	urlBuilderFn func(apiEndoint, projectID, modelID string) string
 	logger       logrus.FieldLogger
 }
 
