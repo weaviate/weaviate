@@ -29,6 +29,10 @@ func ClassContextionaryVectorizer() *models.Class {
 	return class(defaultClassName, "text2vec-contextionary")
 }
 
+func ClassContextionaryVectorizerWithName(className string) *models.Class {
+	return class(className, "text2vec-contextionary")
+}
+
 func ClassContextionaryVectorizerWithSumTransformers() *models.Class {
 	return class(defaultClassName, "text2vec-contextionary", "sum-transformers")
 }

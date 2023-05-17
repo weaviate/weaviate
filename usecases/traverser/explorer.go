@@ -308,6 +308,9 @@ func (e *Explorer) getClassList(ctx context.Context,
 	var res []search.Result
 	var err error
 	if params.HybridSearch != nil {
+		if params.Pagination != nil {
+			params.HybridSearch.Limit = params.Pagination.Limit
+		}
 		res, err = e.Hybrid(ctx, params)
 		if err != nil {
 			return nil, err
