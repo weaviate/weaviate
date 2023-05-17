@@ -25,7 +25,7 @@ func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 	res, err := v.client.VectorizeQuery(ctx, []string{v.joinSentences(inputs)}, ent.VectorizationConfig{
 		ApiEndpoint: settings.ApiEndpoint(),
 		ProjectID:   settings.ProjectID(),
-		Model:       settings.Model(),
+		Model:       settings.ModelID(),
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "remote client vectorize")

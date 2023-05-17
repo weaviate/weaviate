@@ -80,6 +80,6 @@ func (f *fakeSettings) ProjectID() string {
 	return f.truncateType
 }
 
-func (f *fakeSettings) Model() string {
+func (f *fakeSettings) ModelID() string {
 	return f.truncateType
 }

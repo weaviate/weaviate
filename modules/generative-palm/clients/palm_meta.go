@@ -14,6 +14,6 @@ package clients
 func (v *palm) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{
 		"name":              "Generative Search - Google PaLM",
-		"documentationHref": "https://developers.generativeai.google",
+		"documentationHref": "https://cloud.google.com/vertex-ai/docs/generative-ai/chat/test-chat-prompts",
 	}, nil
 }

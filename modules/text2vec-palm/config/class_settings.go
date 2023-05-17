@@ -27,17 +27,18 @@ import (
 const (
 	apiEndpointProperty = "apiEndpoint"
 	projectIDProperty   = "projectId"
-	modelProperty       = "model"
+	modelIDProperty     = "modelId"
 )
 
 const (
 	DefaultVectorizeClassName    = false
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
-	DefaultModel                 = "textembedding-gecko-001"
+	DefaultApiEndpoint           = "us-central1-aiplatform.googleapis.com"
+	DefaultModelID               = "textembedding-gecko"
 )
 
-var availablePalmModels = []string{DefaultModel}
+var availablePalmModels = []string{DefaultModelID}
 
 type classSettings struct {
 	cfg moduletools.ClassConfig
@@ -109,19 +110,15 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.New("empty config")
 	}
 
-	apiEndpoint := ic.ApiEndpoint()
-	projectID := ic.ProjectID()
-	model := ic.Model()
-
 	var errorMessages []string
-	if apiEndpoint == "" {
-		errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", apiEndpointProperty))
-	}
+
+	projectID := ic.ProjectID()
 	if projectID == "" {
 		errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", projectIDProperty))
 	}
+	model := ic.ModelID()
 	if model != "" && !ic.validatePalmSetting(model, availablePalmModels) {
-		errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available model names are: %v", modelProperty, availablePalmModels))
+		errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available model names are: %v", modelIDProperty, availablePalmModels))
 	}
 
 	if len(errorMessages) > 0 {
@@ -200,13 +197,13 @@ func (cv *classSettings) validateIndexState(class *models.Class, settings vector
 
 // PaLM params
 func (ic *classSettings) ApiEndpoint() string {
-	return ic.getStringProperty(apiEndpointProperty, "")
+	return ic.getStringProperty(apiEndpointProperty, DefaultApiEndpoint)
 }
 
 func (ic *classSettings) ProjectID() string {
 	return ic.getStringProperty(projectIDProperty, "")
 }
 
-func (ic *classSettings) Model() string {
-	return ic.getStringProperty(modelProperty, DefaultModel)
+func (ic *classSettings) ModelID() string {
+	return ic.getStringProperty(modelIDProperty, DefaultModelID)
 }
