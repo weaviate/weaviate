@@ -25,6 +25,7 @@ const (
 	apiEndpointProperty = "apiEndpoint"
 	projectIDProperty   = "projectId"
 	endpointIDProperty  = "endpointId"
+	modelIDProperty     = "modelId"
 	temperatureProperty = "temperature"
 	tokenLimitProperty  = "tokenLimit"
 	topPProperty        = "topP"
@@ -32,6 +33,8 @@ const (
 )
 
 var (
+	DefaultPaLMApiEndpoint = "us-central1-aiplatform.googleapis.com"
+	DefaultPaLMModel       = "chat-bison"
 	DefaultPaLMTemperature = 0.2
 	DefaultTokenLimit      = 256
 	DefaultPaLMTopP        = 0.95
@@ -52,19 +55,11 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.New("empty config")
 	}
 
-	apiEndpoint := ic.ApiEndpoint()
-	projectID := ic.ProjectID()
-	endpointID := ic.EndpointID()
-
 	var errorMessages []string
-	if apiEndpoint == "" {
-		errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", apiEndpointProperty))
-	}
+
+	projectID := ic.ProjectID()
 	if projectID == "" {
 		errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", projectIDProperty))
-	}
-	if endpointID == "" {
-		errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", endpointIDProperty))
 	}
 	temperature := ic.Temperature()
 	if temperature < 0 || temperature > 1 {
@@ -161,7 +156,7 @@ func (ic *classSettings) getIntProperty(name string, defaultValue int) int {
 
 // PaLM params
 func (ic *classSettings) ApiEndpoint() string {
-	return ic.getStringProperty(apiEndpointProperty, "")
+	return ic.getStringProperty(apiEndpointProperty, DefaultPaLMApiEndpoint)
 }
 
 func (ic *classSettings) ProjectID() string {
@@ -170,6 +165,10 @@ func (ic *classSettings) ProjectID() string {
 
 func (ic *classSettings) EndpointID() string {
 	return ic.getStringProperty(endpointIDProperty, "")
+}
+
+func (ic *classSettings) ModelID() string {
+	return ic.getStringProperty(modelIDProperty, DefaultPaLMModel)
 }
 
 // parameters

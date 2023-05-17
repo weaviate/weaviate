@@ -25,7 +25,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		cfg             moduletools.ClassConfig
 		wantApiEndpoint string
 		wantProjectID   string
-		wantEndpointID  string
+		wantModelID     string
 		wantTemperature float64
 		wantTokenLimit  int
 		wantTopK        int
@@ -36,14 +36,12 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "happy flow",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"apiEndpoint": "apiEndpoint",
-					"projectId":   "projectId",
-					"endpointId":  "endpointId",
+					"projectId": "projectId",
 				},
 			},
-			wantApiEndpoint: "apiEndpoint",
+			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
 			wantProjectID:   "projectId",
-			wantEndpointID:  "endpointId",
+			wantModelID:     "chat-bison",
 			wantTemperature: 0.2,
 			wantTokenLimit:  256,
 			wantTopK:        40,
@@ -56,7 +54,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				classConfig: map[string]interface{}{
 					"apiEndpoint": "google.com",
 					"projectId":   "cloud-project",
-					"endpointId":  "endpoint-id",
+					"modelId":     "model-id",
 					"temperature": 0.25,
 					"tokenLimit":  254,
 					"topK":        30,
@@ -65,7 +63,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 			wantApiEndpoint: "google.com",
 			wantProjectID:   "cloud-project",
-			wantEndpointID:  "endpoint-id",
+			wantModelID:     "model-id",
 			wantTemperature: 0.25,
 			wantTokenLimit:  254,
 			wantTopK:        30,
@@ -76,9 +74,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "wrong temperature",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"apiEndpoint": "google.com",
 					"projectId":   "cloud-project",
-					"endpointId":  "endpoint-id",
 					"temperature": 2,
 				},
 			},
@@ -88,10 +84,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "wrong tokenLimit",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"apiEndpoint": "google.com",
-					"projectId":   "cloud-project",
-					"endpointId":  "endpoint-id",
-					"tokenLimit":  2000,
+					"projectId":  "cloud-project",
+					"tokenLimit": 2000,
 				},
 			},
 			wantErr: errors.Errorf("tokenLimit has to be an integer value between 1 and 1024"),
@@ -100,10 +94,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "wrong topK",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"apiEndpoint": "google.com",
-					"projectId":   "cloud-project",
-					"endpointId":  "endpoint-id",
-					"topK":        2000,
+					"projectId": "cloud-project",
+					"topK":      2000,
 				},
 			},
 			wantErr: errors.Errorf("topK has to be an integer value between 1 and 40"),
@@ -112,10 +104,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "wrong topP",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"apiEndpoint": "google.com",
-					"projectId":   "cloud-project",
-					"endpointId":  "endpoint-id",
-					"topP":        3,
+					"projectId": "cloud-project",
+					"topP":      3,
 				},
 			},
 			wantErr: errors.Errorf("topP has to be float value between 0 and 1"),
@@ -124,18 +114,14 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "wrong all",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"apiEndpoint": "",
 					"projectId":   "",
-					"endpointId":  "",
 					"temperature": 2,
 					"tokenLimit":  2000,
 					"topK":        2000,
 					"topP":        3,
 				},
 			},
-			wantErr: errors.Errorf("apiEndpoint cannot be empty, " +
-				"projectId cannot be empty, " +
-				"endpointId cannot be empty, " +
+			wantErr: errors.Errorf("projectId cannot be empty, " +
 				"temperature has to be float value between 0 and 1, " +
 				"tokenLimit has to be an integer value between 1 and 1024, " +
 				"topK has to be an integer value between 1 and 40, " +
@@ -150,7 +136,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			} else {
 				assert.Equal(t, tt.wantApiEndpoint, ic.ApiEndpoint())
 				assert.Equal(t, tt.wantProjectID, ic.ProjectID())
-				assert.Equal(t, tt.wantEndpointID, ic.EndpointID())
+				assert.Equal(t, tt.wantModelID, ic.ModelID())
 				assert.Equal(t, tt.wantTemperature, ic.Temperature())
 				assert.Equal(t, tt.wantTokenLimit, ic.TokenLimit())
 				assert.Equal(t, tt.wantTopK, ic.TopK())
