@@ -92,7 +92,6 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 		return nil, nil, errors.Wrap(err, "wand")
 	}
 
-
 	return objs, scores, nil
 }
 
