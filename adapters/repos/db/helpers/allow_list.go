@@ -28,7 +28,7 @@ type AllowList interface {
 	Iterator() AllowListIterator
 	LimitedIterator(limit int) AllowListIterator
 }
-func MakePropertyKey(propName []byte, key []byte) []byte {
+func MakePropertyKey(tracker map[string]uint32,propName []byte, key []byte) []byte {
 	t := append([]byte(propName), byte('|'))
 	val := append(t, key...)
 	fmt.Printf("Property key: %s\n", val)

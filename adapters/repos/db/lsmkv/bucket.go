@@ -75,6 +75,7 @@ type Bucket struct {
 
 	pauseTimer *prometheus.Timer // Times the pause
 	RegisteredName string
+	PropertyTracker map[string]uint32
 }
 
 // NewBucket initializes a new bucket. It either loads the state from disk if
@@ -484,7 +485,7 @@ func (b *Bucket) MapListProp(property []byte, keypart []byte, cfgs ...MapListOpt
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	key := helpers.MakePropertyKey(property, keypart)
+	key := helpers.MakePropertyKey(b.PropertyTracker,property, keypart)
 
 	c := MapListOptionConfig{}
 	for _, cfg := range cfgs {
