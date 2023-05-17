@@ -306,9 +306,7 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) e
 
 	errgrp := &errgroup.Group{}
 	for _, index := range m.db.indices {
-		for _, shard := range index.Shards {
-			shard := shard
-
+		index.ForEachShard(func(name string, shard *Shard) error {
 			errgrp.Go(func() error {
 				reindexer := NewShardInvertedReindexer(shard, m.logger)
 				for taskName, task := range tasks {
@@ -327,7 +325,8 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) e
 					Info("Finished inverted reindexing")
 				return nil
 			})
-		}
+			return nil
+		})
 	}
 	return errgrp.Wait()
 }
@@ -370,9 +369,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 
 		errgrpIndexes.Go(func() error {
 			errgrpShards := &errgroup.Group{}
-			for _, shard := range index.Shards {
-				shard := shard
-
+			index.ForEachShard(func(_ string, shard *Shard) error {
 				errgrpShards.Go(func() error {
 					m.logMissingFilterableShard(shard).
 						Info("starting filterable indexing on shard, this may take a while")
@@ -391,7 +388,8 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 						Info("finished filterable indexing on shard")
 					return nil
 				})
-			}
+				return nil
+			})
 
 			if err := errgrpShards.Wait(); err != nil {
 				m.logMissingFilterableIndex(index).

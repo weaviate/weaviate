@@ -661,7 +661,7 @@ func TestBM25FCompare(t *testing.T) {
 	shardNames := idx.getSchema.ShardingState(idx.Config.ClassName.String()).AllPhysicalShards()
 
 	for _, shardName := range shardNames {
-		shard := idx.Shards[shardName]
+		shard := idx.shards.Load(shardName)
 		t.Logf("------ BM25F --------\n")
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "journey"}
 		addit := additional.Properties{}

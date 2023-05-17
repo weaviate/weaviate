@@ -229,9 +229,11 @@ func Test_DimensionTracking(t *testing.T) {
 	})
 
 	t.Run("verify dimensions after initial import", func(t *testing.T) {
-		for _, shard := range repo.GetIndex("Test").Shards {
+		idx := repo.GetIndex("Test")
+		idx.ForEachShard(func(name string, shard *Shard) error {
 			assert.Equal(t, 12800, shard.Dimensions())
-		}
+			return nil
+		})
 	})
 
 	t.Run("delete 10 objects with d=128", func(t *testing.T) {
@@ -246,9 +248,11 @@ func Test_DimensionTracking(t *testing.T) {
 	})
 
 	t.Run("verify dimensions after delete", func(t *testing.T) {
-		for _, shard := range repo.GetIndex("Test").Shards {
+		idx := repo.GetIndex("Test")
+		idx.ForEachShard(func(name string, shard *Shard) error {
 			assert.Equal(t, 11520, shard.Dimensions())
-		}
+			return nil
+		})
 	})
 
 	t.Run("update some of the d=128 objects with a new vector", func(t *testing.T) {
@@ -286,10 +290,11 @@ func Test_DimensionTracking(t *testing.T) {
 	})
 
 	t.Run("verify dimensions after first set of updates", func(t *testing.T) {
-		for _, shard := range repo.GetIndex("Test").Shards {
-			// only half as many vectors as initially
+		idx := repo.GetIndex("Test")
+		idx.ForEachShard(func(name string, shard *Shard) error {
 			assert.Equal(t, 6400, shard.Dimensions())
-		}
+			return nil
+		})
 	})
 
 	t.Run("update some of the origin nil vector objects with a d=128 vector", func(t *testing.T) {
@@ -327,8 +332,10 @@ func Test_DimensionTracking(t *testing.T) {
 	})
 
 	t.Run("verify dimensions after more updates", func(t *testing.T) {
-		for _, shard := range repo.GetIndex("Test").Shards {
+		idx := repo.GetIndex("Test")
+		idx.ForEachShard(func(name string, shard *Shard) error {
 			assert.Equal(t, 12800, shard.Dimensions())
-		}
+			return nil
+		})
 	})
 }
