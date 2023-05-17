@@ -242,6 +242,10 @@ func TestBM25FJourney(t *testing.T) {
 		// Check results in correct order
 		require.Equal(t, uint64(4), res[0].DocID())
 		require.Equal(t, uint64(5), res[1].DocID())
+		require.Equal(t, uint64(6), res[2].DocID())
+		require.Equal(t, uint64(3), res[3].DocID())
+		require.Equal(t, uint64(0), res[4].DocID())
+		require.Equal(t, uint64(2), res[5].DocID())
 
 		// Without additionalExplanations no explainScore entry should be present
 		require.Contains(t, res[0].Object.Additional, "score")
@@ -298,6 +302,11 @@ func TestBM25FJourney(t *testing.T) {
 		// Check results in correct order
 		require.Equal(t, uint64(4), res[0].DocID())
 		require.Equal(t, uint64(5), res[1].DocID())
+		require.Equal(t, uint64(6), res[2].DocID())
+		require.Equal(t, uint64(2), res[3].DocID())
+		require.Equal(t, uint64(0), res[4].DocID())
+		require.Equal(t, uint64(3), res[5].DocID())
+		require.Equal(t, uint64(1), res[6].DocID())
 	})
 
 	t.Run("bm25f journey boosted", func(t *testing.T) {
@@ -316,6 +325,10 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(5), res[1].DocID())
 		require.Equal(t, uint64(6), res[2].DocID())
 		require.Equal(t, uint64(0), res[3].DocID())
+		require.Equal(t, uint64(1), res[4].DocID())
+		require.Equal(t, uint64(2), res[5].DocID())
+		require.Equal(t, uint64(3), res[6].DocID())
+
 	})
 
 	t.Run("Check search with two terms", func(t *testing.T) {

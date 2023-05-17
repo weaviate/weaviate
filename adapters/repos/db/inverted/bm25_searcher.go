@@ -75,9 +75,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	}
 }
 
-func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList, className schema.ClassName, limit int,
-	keywordRanking searchparams.KeywordRanking,
-) ([]*storobj.Object, []float32, error) {
+func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList, className schema.ClassName, limit int, keywordRanking searchparams.KeywordRanking) ([]*storobj.Object, []float32, error) {
 	// WEAVIATE-471 - If a property is not searchable, return an error
 	for _, property := range keywordRanking.Properties {
 		if !PropertyHasSearchableIndex(b.schema.Objects, string(className), property) {
@@ -93,6 +91,30 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "wand")
 	}
+type result struct {
+	object *storobj.Object
+	score  float32
+}
+var results []result
+for i, obj := range objs {
+		if obj == nil {
+			continue
+		}
+		results = append(results, result{
+			object: obj,
+			score:  scores[i],
+		})
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].score == results[j].score {
+			return results[i].object.DocID()< results[j].object.DocID()
+		}
+
+		return results[i].score > results[j].score
+	})
+
+
 
 	return objs, scores, nil
 }
