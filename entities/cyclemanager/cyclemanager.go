@@ -139,15 +139,11 @@ func (c *cycleManager) StopAndWait(ctx context.Context) error {
 			return ctx.Err()
 		}
 	case stopped := <-stop:
-		select {
-		case <-done:
-			if !stopped {
+		if !stopped {
+			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-		default:
-			if !stopped {
-				return fmt.Errorf("failed to stop cycle")
-			}
+			return fmt.Errorf("failed to stop cycle")
 		}
 	}
 	return nil

@@ -24,7 +24,10 @@ type callbacks interface {
 }
 
 type callbackState struct {
-	cycleFunc  CycleFunc
+	cycleFunc CycleFunc
+	// indicates whether callback is already running - context active
+	// or not running (already finished) - context expired
+	// or not running (not yet started) - context nil
 	runningCtx context.Context
 }
 
@@ -33,20 +36,14 @@ type multiCallbacks struct {
 	counter uint32
 	states  map[uint32]*callbackState
 	keys    []uint32
-
-	canceledCtx context.Context
 }
 
 func newMultiCallbacks() callbacks {
-	canceledCtx, cancel := context.WithCancel(context.Background())
-	cancel()
-
 	return &multiCallbacks{
-		lock:        new(sync.Mutex),
-		counter:     0,
-		states:      map[uint32]*callbackState{},
-		keys:        []uint32{},
-		canceledCtx: canceledCtx,
+		lock:    new(sync.Mutex),
+		counter: 0,
+		states:  map[uint32]*callbackState{},
+		keys:    []uint32{},
 	}
 }
 
@@ -58,7 +55,7 @@ func (c *multiCallbacks) register(cycleFunc CycleFunc) UnregisterFunc {
 	c.keys = append(c.keys, key)
 	c.states[key] = &callbackState{
 		cycleFunc:  cycleFunc,
-		runningCtx: c.canceledCtx,
+		runningCtx: nil,
 	}
 	c.counter++
 
@@ -69,7 +66,7 @@ func (c *multiCallbacks) register(cycleFunc CycleFunc) UnregisterFunc {
 
 func (c *multiCallbacks) unregister(ctx context.Context, key uint32) error {
 	for {
-		// remove from collection only if not running. wait if already running
+		// remove callback from collection only if not running (not yet started of finished)
 		c.lock.Lock()
 		state, ok := c.states[key]
 		if !ok {
@@ -77,28 +74,29 @@ func (c *multiCallbacks) unregister(ctx context.Context, key uint32) error {
 			return nil
 		}
 		runningCtx := state.runningCtx
-		if runningCtx.Err() != nil {
+		if runningCtx == nil || runningCtx.Err() != nil {
 			delete(c.states, key)
 			c.lock.Unlock()
 			return nil
 		}
 		c.lock.Unlock()
 
-		// wait until exec finished
+		// wait for callback to finish
 		select {
 		case <-runningCtx.Done():
-			// get back to the beginning of the loop
+			// get back to the beginning of the loop to make sure state.runningCtx
+			// was not changed. If not, loop will finish on runningCtx.Err() != nil check
 			continue
 		case <-ctx.Done():
-			// in case both context are ready, but incoming ctx was selected
+			// in case both contexts are ready, but incoming ctx was selected
 			// check again running ctx as priority one
-			select {
-			case <-runningCtx.Done():
-				// get back to the beginning of the loop
+			if runningCtx.Err() != nil {
+				// get back to the beginning of the loop to make sure state.runningCtx
+				// was not changed. If not, loop will finish on runningCtx.Err() != nil check
 				continue
-			default:
-				return ctx.Err()
 			}
+			// incoming ctx expired
+			return ctx.Err()
 		}
 	}
 }
@@ -119,14 +117,14 @@ func (c *multiCallbacks) execute(shouldBreak ShouldBreakFunc) bool {
 
 		key := c.keys[i]
 		state, ok := c.states[key]
-		if !ok { // key deleted in the meantime, adjust keys
+		if !ok { // callback deleted in the meantime, adjust keys and move to the next one
 			c.keys = append(c.keys[:i], c.keys[i+1:]...)
 			c.lock.Unlock()
 			continue
 		}
 
-		cancelableCtx, cancel := context.WithCancel(context.Background())
-		state.runningCtx = cancelableCtx
+		runningCtx, cancel := context.WithCancel(context.Background())
+		state.runningCtx = runningCtx
 		i++
 		c.lock.Unlock()
 
