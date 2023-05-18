@@ -387,7 +387,6 @@
       },
       "type": "object"
     },
-
     "StopwordConfig": {
       "description": "fine-grained control over stopword list usage",
       "properties": {
@@ -1634,7 +1633,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.19.4"
+    "version": "1.19.5"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
