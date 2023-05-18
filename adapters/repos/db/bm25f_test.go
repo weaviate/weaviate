@@ -433,8 +433,8 @@ func TestBM25FJourney(t *testing.T) {
 		require.EqualValues(t, 0.27547202, resNoAutoCut[4].Score())
 
 		require.Len(t, resAutoCut, 2)
-		require.EqualValues(t, 0.5868752, resNoAutoCut[0].Score())
-		require.EqualValues(t, 0.5450892, resNoAutoCut[1].Score())
+		require.EqualValues(t, 0.5868752, resAutoCut[0].Score())
+		require.EqualValues(t, 0.5450892, resAutoCut[1].Score())
 	})
 }
 
