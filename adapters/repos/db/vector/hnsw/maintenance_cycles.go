@@ -17,7 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"golang.org/x/sync/errgroup"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
 type MaintenanceCycles struct {
@@ -27,6 +27,10 @@ type MaintenanceCycles struct {
 	lock sync.Mutex
 }
 
+// Creates internal cycle managers and immediately starts them.
+//
+// Cycle managers are inited and started just once.
+// It is safe to call method multiple times
 func (c *MaintenanceCycles) Init(
 	commitlogMaintenanceTicker cyclemanager.CycleTicker,
 	tombstoneCleanupTicker cyclemanager.CycleTicker,
@@ -34,8 +38,7 @@ func (c *MaintenanceCycles) Init(
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	if c.commitLogMaintenance == nil &&
-		c.tombstoneCleanup == nil {
+	if !c.initedUnlocked() {
 		c.commitLogMaintenance = cyclemanager.NewMulti(commitlogMaintenanceTicker)
 		c.tombstoneCleanup = cyclemanager.NewMulti(tombstoneCleanupTicker)
 
@@ -58,89 +61,102 @@ func (c *MaintenanceCycles) TombstoneCleanup() cyclemanager.CycleManager {
 //
 // If a Delete-Cleanup Cycle is running (TombstoneCleanupCycle), it is aborted,
 // as it's not feasible to wait for such a cycle to complete, as it can take hours.
+//
+// PauseMaintenance is safe to call on uninitialized instance.
+// It returns immediately without doing anything.
 func (c *MaintenanceCycles) PauseMaintenance(ctx context.Context) error {
-	c.lock.Lock()
-	if c.commitLogMaintenance == nil &&
-		c.tombstoneCleanup == nil {
-		c.lock.Unlock()
+	if !c.inited() {
 		return nil
 	}
-	c.lock.Unlock()
 
-	commitlogMaintenanceStop := make(chan error)
-	tombstoneCleanupStop := make(chan error)
-	go func() {
-		if err := c.commitLogMaintenance.StopAndWait(ctx); err != nil {
-			commitlogMaintenanceStop <- errors.Wrap(err, "long-running commitlog maintenance in progress")
-			return
+	commitLogMaintenanceErr, tombstoneCleanupErr := c.stopCycleManagers(ctx)
+	len, err := c.combine(commitLogMaintenanceErr, tombstoneCleanupErr)
+
+	// only one failed on stop attempt. start the other one back
+	// if none or both failed, just return nil/error
+	if len == 1 {
+		if commitLogMaintenanceErr != nil {
+			// restart tombstone cleanup since it was successfully stopped.
+			// both of these cycles must be either stopped or running.
+			c.tombstoneCleanup.Start()
 		}
-		commitlogMaintenanceStop <- nil
-	}()
-	go func() {
-		if err := c.tombstoneCleanup.StopAndWait(ctx); err != nil {
-			tombstoneCleanupStop <- errors.Wrap(err, "long-running tombstone cleanup in progress")
-			return
+		if tombstoneCleanupErr != nil {
+			// restart commitlog cycle since it was successfully stopped.
+			// both of these cycles must be either stopped or running.
+			c.commitLogMaintenance.Start()
 		}
-		tombstoneCleanupStop <- nil
-	}()
-
-	commitlogMaintenanceStopErr := <-commitlogMaintenanceStop
-	tombstoneCleanupStopErr := <-tombstoneCleanupStop
-	if commitlogMaintenanceStopErr != nil && tombstoneCleanupStopErr != nil {
-		return errors.Errorf("%s, %s", commitlogMaintenanceStopErr, tombstoneCleanupStopErr)
 	}
-	if commitlogMaintenanceStopErr != nil {
-		// restart tombstone cleanup since it was successfully stopped.
-		// both of these cycles must be either stopped or running.
-		c.tombstoneCleanup.Start()
-		return commitlogMaintenanceStopErr
-	}
-	if tombstoneCleanupStopErr != nil {
-		// restart commitlog cycle since it was successfully stopped.
-		// both of these cycles must be either stopped or running.
-		c.commitLogMaintenance.Start()
-		return tombstoneCleanupStopErr
-	}
-
-	return nil
+	return err
 }
 
-// ResumeMaintenance starts all async cycles.
+// ResumeMaintenance starts all async cycle managers.
+//
+// ResumeMaintenance is safe to call on uninitialized instance.
+// It returns immediately without doing anything.
 func (c *MaintenanceCycles) ResumeMaintenance(ctx context.Context) error {
-	c.lock.Lock()
-	if c.commitLogMaintenance == nil &&
-		c.tombstoneCleanup == nil {
-		c.lock.Unlock()
+	if !c.inited() {
 		return nil
 	}
-	c.lock.Unlock()
 
 	c.commitLogMaintenance.Start()
 	c.tombstoneCleanup.Start()
 	return nil
 }
 
+// Shutdown stops internal cycle managers in parallel.
+// Method blocks until the operation has either finished
+// (all registered callbacks are stopped or finished)
+// or the context expired
+//
+// Shutdown is safe to call on uninitialized instance.
+// It returns immediately without doing anything.
 func (c *MaintenanceCycles) Shutdown(ctx context.Context) error {
-	c.lock.Lock()
-	if c.commitLogMaintenance == nil &&
-		c.tombstoneCleanup == nil {
-		c.lock.Unlock()
+	if !c.inited() {
 		return nil
 	}
-	c.lock.Unlock()
 
-	eg := errgroup.Group{}
-	eg.Go(func() error {
+	_, err := c.combine(c.stopCycleManagers(ctx))
+	return err
+}
+
+func (c *MaintenanceCycles) inited() bool {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	return c.initedUnlocked()
+}
+
+func (c *MaintenanceCycles) initedUnlocked() bool {
+	return c.commitLogMaintenance != nil &&
+		c.tombstoneCleanup != nil
+}
+
+func (c *MaintenanceCycles) stopCycleManagers(ctx context.Context,
+) (commitLogMaintenanceErr error, tombstoneCleanupErr error) {
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
+
+	go func() {
 		if err := c.commitLogMaintenance.StopAndWait(ctx); err != nil {
-			return errors.Wrap(err, "long-running commitlog maintenance in progress")
+			commitLogMaintenanceErr = errors.Wrap(err, "long-running commitlog maintenance in progress")
 		}
-		return nil
-	})
-	eg.Go(func() error {
+		wg.Done()
+	}()
+	go func() {
 		if err := c.tombstoneCleanup.StopAndWait(ctx); err != nil {
-			return errors.Wrap(err, "long-running tombstone cleanup in progress")
+			tombstoneCleanupErr = errors.Wrap(err, "long-running tombstone cleanup in progress")
 		}
-		return nil
-	})
-	return eg.Wait()
+		wg.Done()
+	}()
+
+	wg.Wait()
+	return
+}
+
+func (c *MaintenanceCycles) combine(errors ...error) (int, error) {
+	ec := &errorcompounder.ErrorCompounder{}
+	for _, err := range errors {
+		ec.Add(err)
+	}
+	return ec.Len(), ec.ToError()
 }

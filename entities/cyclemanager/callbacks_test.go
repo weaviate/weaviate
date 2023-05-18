@@ -390,7 +390,7 @@ func TestCallbacks_Multi(t *testing.T) {
 		assert.GreaterOrEqual(t, du, 50*time.Millisecond)
 	})
 
-	t.Run("unregister failes due to context timeout", func(t *testing.T) {
+	t.Run("unregister fails due to context timeout", func(t *testing.T) {
 		executedCounter := 0
 		callback := func(shouldBreak ShouldBreakFunc) bool {
 			time.Sleep(50 * time.Millisecond)
