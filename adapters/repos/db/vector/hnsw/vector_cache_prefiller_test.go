@@ -69,6 +69,7 @@ func TestVectorCachePrefilling(t *testing.T) {
 			20: {},
 		}, cache.store)
 	})
+
 }
 
 func newFakeCache() *fakeCache {

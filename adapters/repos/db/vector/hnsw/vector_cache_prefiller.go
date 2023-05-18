@@ -59,6 +59,7 @@ func (pf *vectorCachePrefiller[T]) Prefill(ctx context.Context, limit int) error
 		if !ok {
 			break
 		}
+
 	}
 
 	pf.logTotal(int(pf.cache.len()), limit, before)
@@ -78,6 +79,18 @@ func (pf *vectorCachePrefiller[T]) prefillLevel(ctx context.Context,
 	pf.index.Lock()
 	nodesLen := len(pf.index.nodes)
 	pf.index.Unlock()
+	
+	if nodesLen < limit {
+		for i := 0; i < nodesLen; i++ {
+			if err := ctx.Err(); err != nil {
+				return false, err
+			}
+			pf.cache.get(ctx, uint64(i))
+			layerCount++
+		}
+		pf.logLevel(level, layerCount, before)
+		return true, nil
+	}
 
 	for i := 0; i < nodesLen; i++ {
 		if int(pf.cache.len()) >= limit {

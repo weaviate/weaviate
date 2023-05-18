@@ -80,7 +80,7 @@ func (s *shardedLockCache) get(ctx context.Context, id uint64) ([]float32, error
 	if vec != nil {
 		return vec, nil
 	}
-
+	
 	return s.handleCacheMiss(ctx, id)
 }
 
