@@ -36,6 +36,8 @@ import (
 func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
+	vFalse := false
+	vTrue := true
 
 	class := &models.Class{
 		Class:             "TestClass",
@@ -56,16 +58,18 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 			{
-				Name:          "initialWithIITrue",
-				DataType:      schema.DataTypeText.PropString(),
-				Tokenization:  models.PropertyTokenizationWhitespace,
-				IndexInverted: truePointer(),
+				Name:            "initialWithIITrue",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWhitespace,
+				IndexFilterable: &vTrue,
+				IndexSearchable: &vTrue,
 			},
 			{
-				Name:          "initialWithoutII",
-				DataType:      schema.DataTypeText.PropString(),
-				Tokenization:  models.PropertyTokenizationWhitespace,
-				IndexInverted: falsePointer(),
+				Name:            "initialWithoutII",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWhitespace,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vFalse,
 			},
 		},
 	}
@@ -96,16 +100,18 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		Tokenization: models.PropertyTokenizationWhitespace,
 	}))
 	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, &models.Property{
-		Name:          "updateWithIITrue",
-		DataType:      schema.DataTypeText.PropString(),
-		Tokenization:  models.PropertyTokenizationWhitespace,
-		IndexInverted: truePointer(),
+		Name:            "updateWithIITrue",
+		DataType:        schema.DataTypeText.PropString(),
+		Tokenization:    models.PropertyTokenizationWhitespace,
+		IndexFilterable: &vTrue,
+		IndexSearchable: &vTrue,
 	}))
 	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, &models.Property{
-		Name:          "updateWithoutII",
-		DataType:      schema.DataTypeText.PropString(),
-		Tokenization:  models.PropertyTokenizationWhitespace,
-		IndexInverted: falsePointer(),
+		Name:            "updateWithoutII",
+		DataType:        schema.DataTypeText.PropString(),
+		Tokenization:    models.PropertyTokenizationWhitespace,
+		IndexFilterable: &vFalse,
+		IndexSearchable: &vFalse,
 	}))
 
 	t.Run("check for additional buckets", func(t *testing.T) {
@@ -114,14 +120,8 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 				createBucket := shd.store.Bucket("property__creationTimeUnix")
 				assert.NotNil(t, createBucket)
 
-				createHashBucket := shd.store.Bucket("hash_property__creationTimeUnix")
-				assert.NotNil(t, createHashBucket)
-
 				updateBucket := shd.store.Bucket("property__lastUpdateTimeUnix")
 				assert.NotNil(t, updateBucket)
-
-				updateHashBucket := shd.store.Bucket("hash_property__lastUpdateTimeUnix")
-				assert.NotNil(t, updateHashBucket, "hash_property__creationTimeUnix bucket not found")
 
 				cases := []struct {
 					prop        string
@@ -136,10 +136,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 				}
 				for _, tt := range cases {
 					tt.compareFunc(t, shd.store.Bucket("property_"+tt.prop+filters.InternalNullIndex))
-					tt.compareFunc(t, shd.store.Bucket("hash_property_"+tt.prop+filters.InternalNullIndex))
-
 					tt.compareFunc(t, shd.store.Bucket("property_"+tt.prop+filters.InternalPropertyLength))
-					tt.compareFunc(t, shd.store.Bucket("hash_property_"+tt.prop+filters.InternalPropertyLength))
 				}
 			}
 		}
@@ -177,11 +174,8 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		for _, idx := range migrator.db.indices {
 			for _, shd := range idx.Shards {
 				require.Nil(t, shd.store.Bucket("property__creationTimeUnix"))
-				require.Nil(t, shd.store.Bucket("hash_property__creationTimeUnix"))
 				require.Nil(t, shd.store.Bucket("property_name"+filters.InternalNullIndex))
-				require.Nil(t, shd.store.Bucket("hash_property_name"+filters.InternalNullIndex))
 				require.Nil(t, shd.store.Bucket("property_name"+filters.InternalPropertyLength))
-				require.Nil(t, shd.store.Bucket("hash_property_name"+filters.InternalPropertyLength))
 			}
 		}
 	})
@@ -260,10 +254,10 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		t.Run("test "+name+" directly on nullState property", func(t *testing.T) {
 			createTimeStringFilter := &filters.LocalFilter{
 				Root: &filters.Clause{
-					Operator: filters.OperatorEqual,
+					Operator: filters.OperatorIsNull,
 					On: &filters.Path{
 						Class:    "TestClass",
-						Property: "name_nullState",
+						Property: "name",
 					},
 					Value: &filters.Value{
 						Value: searchVal != testID1,
@@ -289,7 +283,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 				Operator: filters.OperatorEqual,
 				On: &filters.Path{
 					Class:    "TestClass",
-					Property: "name" + filters.InternalPropertyLength,
+					Property: "len(name)",
 				},
 				Value: &filters.Value{
 					Value: 12,

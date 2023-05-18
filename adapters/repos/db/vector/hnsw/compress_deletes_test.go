@@ -48,6 +48,7 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 	uc.EFConstruction = efConstruction
 	uc.EF = ef
 	uc.VectorCacheMaxObjects = 10e12
+	uc.PQ = ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "title", Distribution: "normal"}}
 
 	index, _ := hnsw.New(
 		hnsw.Config{

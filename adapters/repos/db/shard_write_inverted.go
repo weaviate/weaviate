@@ -66,9 +66,9 @@ func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, []ni
 
 			// Add props as nil props if
 			// 1. They are not in the schema map ( == nil)
-			// 2. Their inverted index is enabled (either nil or true)
+			// 2. Their inverted index is enabled
 			_, ok := schemaMap[prop.Name]
-			if !ok && !(prop.IndexInverted != nil && !*prop.IndexInverted) {
+			if !ok && inverted.HasInvertedIndex(prop) {
 				nilProps = append(nilProps, nilProp{
 					Name:                prop.Name,
 					AddToPropertyLength: isPropertyForLength(dt),
@@ -85,6 +85,6 @@ func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, []ni
 		schemaMap[filters.InternalPropLastUpdateTimeUnix] = object.Object.LastUpdateTimeUnix
 	}
 
-	props, err := inverted.NewAnalyzer(s.index.stopwords).Object(schemaMap, c.Properties, object.ID())
+	props, err := inverted.NewAnalyzer(s.isFallbackToSearchable).Object(schemaMap, c.Properties, object.ID())
 	return props, nilProps, err
 }

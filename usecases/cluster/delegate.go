@@ -40,7 +40,8 @@ const (
 type spaceMsg struct {
 	header
 	DiskUsage
-	Node string // node space
+	NodeLen uint8  // = len(Node) is required to marshal Node
+	Node    string // node space
 }
 
 // header of an operation
@@ -66,26 +67,43 @@ type NodeInfo struct {
 }
 
 func (d *spaceMsg) marshal() (data []byte, err error) {
-	buf := bytes.NewBuffer(make([]byte, 0, 20+len(d.Node)))
+	buf := bytes.NewBuffer(make([]byte, 0, 24+len(d.Node)))
 	if err := binary.Write(buf, binary.BigEndian, d.header); err != nil {
 		return nil, err
 	}
 	if err := binary.Write(buf, binary.BigEndian, d.DiskUsage); err != nil {
 		return nil, err
 	}
+	// code node name starting by its length
+	if err := buf.WriteByte(d.NodeLen); err != nil {
+		return nil, err
+	}
 	_, err = buf.Write([]byte(d.Node))
 	return buf.Bytes(), err
 }
 
-func (d *spaceMsg) unmarshal(data []byte) error {
+func (d *spaceMsg) unmarshal(data []byte) (err error) {
 	rd := bytes.NewReader(data)
-	if err := binary.Read(rd, binary.BigEndian, &d.header); err != nil {
-		return err
+	if err = binary.Read(rd, binary.BigEndian, &d.header); err != nil {
+		return
 	}
-	if err := binary.Read(rd, binary.BigEndian, &d.DiskUsage); err != nil {
-		return err
+	if err = binary.Read(rd, binary.BigEndian, &d.DiskUsage); err != nil {
+		return
 	}
-	d.Node = string(data[len(data)-rd.Len():])
+
+	// decode node name start by its length
+	if d.NodeLen, err = rd.ReadByte(); err != nil {
+		return
+	}
+	begin := len(data) - rd.Len()
+	end := begin + int(d.NodeLen)
+	// make sure this version is backward compatible
+	if _ProtoVersion <= 1 && begin+int(d.NodeLen) != len(data) {
+		begin-- // since previous version doesn't encode the length
+		end = len(data)
+		d.NodeLen = uint8(end - begin)
+	}
+	d.Node = string(data[begin:end])
 	return nil
 }
 
@@ -144,8 +162,12 @@ func (d *delegate) LocalState(join bool) []byte {
 	}
 
 	x := spaceMsg{
-		header{OpCode: _OpCodeDisk, ProtoVersion: _ProtoVersion},
+		header{
+			OpCode:       _OpCodeDisk,
+			ProtoVersion: _ProtoVersion,
+		},
 		info.DiskUsage,
+		uint8(len(d.Name)),
 		d.Name,
 	}
 	bytes, err := x.marshal()
@@ -161,6 +183,10 @@ func (d *delegate) LocalState(join bool) []byte {
 // remote side's LocalState call. The 'join'
 // boolean indicates this is for a join instead of a push/pull.
 func (d *delegate) MergeRemoteState(data []byte, join bool) {
+	// Does operation match _OpCodeDisk
+	if _OpCode(data[0]) != _OpCodeDisk {
+		return
+	}
 	var x spaceMsg
 	if err := x.unmarshal(data); err != nil || x.Node == "" {
 		d.log.WithField("action", "delegate.merge_remote.unmarshal").

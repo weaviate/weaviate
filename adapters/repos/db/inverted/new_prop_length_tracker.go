@@ -30,7 +30,7 @@ type PropLenData struct {
 
 type JsonPropertyLengthTracker struct {
 	path string
-	data PropLenData
+	data *PropLenData
 	sync.Mutex
 	UnlimitedBuckets bool
 }
@@ -62,7 +62,7 @@ type JsonPropertyLengthTracker struct {
 // NewJsonPropertyLengthTracker creates a new tracker and loads the data from the given path.  If the file is in the old format, it will be converted to the new format.
 func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, error) {
 	t := &JsonPropertyLengthTracker{
-		data:             PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)},
+		data:             &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)},
 		path:             path,
 		UnlimitedBuckets: false,
 	}
@@ -113,19 +113,25 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 
 					data.SumData[name] = data.SumData[name] + int(value)*int(count)
 					data.CountData[name] = data.CountData[name] + int(count)
-
 				}
 			}
-			t.data = data
+			t.data = &data
 			t.Flush(true)
 			plt.Close()
 			plt.Drop()
 			t.Flush(false)
 		}
 	}
-	t.data = data
+	t.data = &data
 
 	return t, nil
+}
+
+func (t *JsonPropertyLengthTracker) Clear() {
+	t.Lock()
+	defer t.Unlock()
+
+	t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
 }
 
 // Path to the file on disk

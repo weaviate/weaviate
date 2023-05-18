@@ -145,3 +145,10 @@ const (
 	SortPath  = "Specify the path from the Objects fields to the property name (e.g. ['Get', 'City', 'population'] leads to the 'population' property of a 'City' object)"
 	SortOrder = "Specify the sort order, either ascending (asc) which is default or descending (desc)"
 )
+
+const (
+	GroupByFilter          = "Specify the property of the class to group by"
+	GroupByPath            = "Specify the path from the objects fields to the property name (e.g. ['Things', 'City', 'population'] leads to the 'population' property of a 'City' object)"
+	GroupByGroups          = "Specify the number of groups to be created"
+	GroupByObjectsPerGroup = "Specify the number of max objects in group"
+)

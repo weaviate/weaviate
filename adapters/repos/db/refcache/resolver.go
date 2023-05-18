@@ -25,6 +25,9 @@ import (
 
 type Resolver struct {
 	cacher cacher
+	// for groupBy feature
+	withGroup                bool
+	getGroupSelectProperties func(properties search.SelectProperties) search.SelectProperties
 }
 
 type cacher interface {
@@ -34,6 +37,15 @@ type cacher interface {
 
 func NewResolver(cacher cacher) *Resolver {
 	return &Resolver{cacher: cacher}
+}
+
+func NewResolverWithGroup(cacher cacher) *Resolver {
+	return &Resolver{
+		cacher: cacher,
+		// for groupBy feature
+		withGroup:                true,
+		getGroupSelectProperties: getGroupSelectProperties,
+	}
 }
 
 func (r *Resolver) Do(ctx context.Context, objects []search.Result,
@@ -79,7 +91,33 @@ func (r *Resolver) parseObject(object search.Result, properties search.SelectPro
 	}
 
 	object.Schema = schema
+
+	if r.withGroup {
+		additionalProperties, err := r.parseAdditionalGroup(object.AdditionalProperties, properties)
+		if err != nil {
+			return object, err
+		}
+		object.AdditionalProperties = additionalProperties
+	}
 	return object, nil
+}
+
+func (r *Resolver) parseAdditionalGroup(
+	additionalProperties models.AdditionalProperties,
+	properties search.SelectProperties,
+) (models.AdditionalProperties, error) {
+	if additionalProperties != nil && additionalProperties["group"] != nil {
+		if group, ok := additionalProperties["group"].(*additional.Group); ok {
+			for j, hit := range group.Hits {
+				schema, err := r.parseSchema(hit, r.getGroupSelectProperties(properties))
+				if err != nil {
+					return additionalProperties, fmt.Errorf("resolve group hit: %w", err)
+				}
+				group.Hits[j] = schema
+			}
+		}
+	}
+	return additionalProperties, nil
 }
 
 func (r *Resolver) parseSchema(schema map[string]interface{},

@@ -46,7 +46,9 @@ import (
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
+	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
 	modner "github.com/weaviate/weaviate/modules/ner-transformers"
@@ -59,6 +61,7 @@ import (
 	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
+	modtext2vecpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/backup"
@@ -261,7 +264,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	if err != nil {
 		appState.Logger.
 			WithError(err).
-			WithField("action", "startup").WithError(err).
+			WithField("action", "startup").
 			Fatal("db didn't start up")
 		os.Exit(1)
 	}
@@ -289,23 +292,40 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupSchemaHandlers(api, schemaManager)
 	setupObjectHandlers(api, objectsManager, appState.ServerConfig.Config, appState.Logger, appState.Modules)
 	setupObjectBatchHandlers(api, batchObjectsManager)
-	setupGraphQLHandlers(api, appState, schemaManager)
+	setupGraphQLHandlers(api, appState, schemaManager, appState.ServerConfig.Config.DisableGraphQL)
 	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Modules)
 	setupClassificationHandlers(api, classifier)
 	setupBackupHandlers(api, backupScheduler)
 	setupNodesHandlers(api, schemaManager, repo, appState)
 
+	err = migrator.AdjustFilterablePropSettings(ctx)
+	if err != nil {
+		appState.Logger.
+			WithError(err).
+			WithField("action", "adjustFilterablePropSettings").
+			Fatal("migration failed")
+		os.Exit(1)
+	}
+
+	// FIXME to avoid import cycles, tasks are passed as strings
+	reindexTaskNames := []string{}
 	reindexCtx, reindexCtxCancel := context.WithCancel(context.Background())
-	reindexFinished := make(chan error)
+	reindexFinished := make(chan error, 1)
+
 	if appState.ServerConfig.Config.ReindexSetToRoaringsetAtStartup {
+		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTaskSetToRoaringSet")
+	}
+	if appState.ServerConfig.Config.IndexMissingTextFilterableAtStartup {
+		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTaskMissingTextFilterable")
+	}
+	if len(reindexTaskNames) > 0 {
 		// start reindexing inverted indexes (if requested by user) in the background
 		// allowing db to complete api configuration and start handling requests
 		go func() {
 			appState.Logger.
 				WithField("action", "startup").
-				Info("Reindexing sets to roaring sets")
-			// FIXME to avoid import cycles tasks are passed as strings
-			reindexFinished <- migrator.InvertedReindex(reindexCtx, "ShardInvertedReindexTaskSetToRoaringSet")
+				Info("Reindexing inverted indexes")
+			reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNames...)
 		}()
 	}
 
@@ -349,6 +369,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		migrator.RecalculateVectorDimensions(ctx)
 	}
 
+	// Add recount properties of all the objects in the database, if requested by the user
+	if appState.ServerConfig.Config.RecountPropertiesAtStartup {
+		migrator.RecountProperties(ctx)
+	}
+
 	setupGrpc(appState)
 
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
@@ -371,6 +396,15 @@ func startupRoutine(ctx context.Context) *state.State {
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).Error("could not load config")
 		logger.Exit(1)
+	}
+
+	if serverConfig.Config.DisableGraphQL {
+		logger.WithFields(logrus.Fields{
+			"action":          "startup",
+			"disable_graphql": true,
+		}).Warnf("GraphQL API disabled, relying only on gRPC API for querying. " +
+			"This is considered experimental and will likely experience breaking changes " +
+			"before reaching general availability")
 	}
 
 	logger.WithFields(logrus.Fields{
@@ -546,6 +580,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modgenerativecohere.Name]; ok {
+		appState.Modules.Register(modgenerativecohere.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativecohere.Name).
+			Debug("enabled module")
+	}
+
 	if _, ok := enabledModules[modgenerativeopenai.Name]; ok {
 		appState.Modules.Register(modgenerativeopenai.New())
 		appState.Logger.
@@ -559,6 +601,22 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modhuggingface.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativepalm.Name]; ok {
+		appState.Modules.Register(modgenerativepalm.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativepalm.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modtext2vecpalm.Name]; ok {
+		appState.Modules.Register(modtext2vecpalm.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modtext2vecpalm.Name).
 			Debug("enabled module")
 	}
 

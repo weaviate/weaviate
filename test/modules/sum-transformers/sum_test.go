@@ -23,7 +23,7 @@ import (
 
 func Test_SUMTransformers(t *testing.T) {
 	helper.SetupClient(os.Getenv(weaviateEndpoint))
-	booksClass := books.ClassContextionaryVectorizer()
+	booksClass := books.ClassContextionaryVectorizerWithSumTransformers()
 	helper.CreateClass(t, booksClass)
 	defer helper.DeleteClass(t, booksClass.Class)
 

@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"golang.org/x/sync/errgroup"
 )
 
 const IdLockPoolSize = 128
@@ -44,19 +45,17 @@ const IdLockPoolSize = 128
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
-	index            *Index // a reference to the underlying index, which in turn contains schema information
-	name             string
-	store            *lsmkv.Store
-	counter          *indexcounter.Counter
-	vectorIndex      VectorIndex
-	invertedRowCache *inverted.RowCacher
-	metrics          *Metrics
-	promMetrics      *monitoring.PrometheusMetrics
-	propertyIndices  propertyspecific.Indices
-	deletedDocIDs    *docid.InMemDeletedTracker
-	propLengths      *inverted.JsonPropertyLengthTracker
-	randomSource     *bufferedRandomGen
-	versioner        *shardVersioner
+	index           *Index // a reference to the underlying index, which in turn contains schema information
+	name            string
+	store           *lsmkv.Store
+	counter         *indexcounter.Counter
+	vectorIndex     VectorIndex
+	metrics         *Metrics
+	promMetrics     *monitoring.PrometheusMetrics
+	propertyIndices propertyspecific.Indices
+	deletedDocIDs   *docid.InMemDeletedTracker
+	propLengths     *inverted.JsonPropertyLengthTracker
+	versioner       *shardVersioner
 
 	status              storagestate.Status
 	statusLock          sync.Mutex
@@ -68,6 +67,17 @@ type Shard struct {
 	docIdLock []sync.Mutex
 	// replication
 	replicationMap pendingReplicaTasks
+
+	// Indicates whether searchable buckets should be used
+	// when filterable buckets are missing for text/text[] properties
+	// This can happen for db created before v1.19, where
+	// only map (now called searchable) buckets were created as inverted
+	// indexes for text/text[] props.
+	// Now roaring set (filterable) and map (searchable) buckets can
+	// coexists for text/text[] props, and by default both are enabled.
+	// So despite property's IndexFilterable and IndexSearchable settings
+	// being enabled, only searchable bucket exists
+	fallbackToSearchable bool
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -75,20 +85,13 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 ) (*Shard, error) {
 	before := time.Now()
 
-	rand, err := newBufferedRandomGen(64 * 1024)
-	if err != nil {
-		return nil, errors.Wrap(err, "init bufferend random generator")
-	}
-
 	s := &Shard{
-		index:            index,
-		name:             shardName,
-		invertedRowCache: inverted.NewRowCacher(500 * 1024 * 1024),
-		promMetrics:      promMetrics,
+		index:       index,
+		name:        shardName,
+		promMetrics: promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
 		deletedDocIDs:   docid.NewInMemDeletedTracker(),
-		randomSource:    rand,
 		stopMetrics:     make(chan struct{}),
 		replicationMap:  pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
 		centralJobQueue: jobQueueCh,
@@ -311,23 +314,10 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 		return storagestate.ErrStatusReadOnly
 	}
 
-	err := s.store.CreateOrLoadBucket(ctx,
+	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropID),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
-	if err != nil {
-		return err
-	}
-
-	err = s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameLSM(filters.InternalPropID),
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace))
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (s *Shard) addDimensionsProperty(ctx context.Context) error {
@@ -362,94 +352,18 @@ func (s *Shard) addTimestampProperties(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) addPropertyLength(ctx context.Context, prop *models.Property) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
-	}
-	dt := schema.DataType(prop.DataType[0])
-	// some datatypes are not added to the inverted index, so we can skip them here
-	switch dt {
-	case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeInt,
-		schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
-		return nil
-	default:
-	}
-
-	err := s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(prop.Name+filters.InternalPropertyLength),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
-	if err != nil {
-		return err
-	}
-
-	err = s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameLSM(prop.Name+filters.InternalPropertyLength),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace))
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (s *Shard) addNullState(ctx context.Context, prop *models.Property) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
-	}
-
-	err := s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(prop.Name+filters.InternalNullIndex),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
-	if err != nil {
-		return err
-	}
-
-	err = s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameLSM(prop.Name+filters.InternalNullIndex),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace))
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
-	err := s.store.CreateOrLoadBucket(ctx,
+	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
-	if err != nil {
-		return err
-	}
-	err = s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace))
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
-	err := s.store.CreateOrLoadBucket(ctx,
+	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
-	if err != nil {
-		return err
-	}
-	err = s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace))
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (s *Shard) memtableIdleConfig() lsmkv.BucketOption {
@@ -466,65 +380,113 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 	)
 }
 
-func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
+func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *errgroup.Group) {
+	if !inverted.HasInvertedIndex(prop) {
+		return
+	}
+
+	eg.Go(func() error {
+		if err := s.createPropertyValueIndex(ctx, prop); err != nil {
+			return errors.Wrapf(err, "create property '%s' value index on shard '%s'", prop.Name, s.ID())
+		}
+
+		if s.index.invertedIndexConfig.IndexNullState {
+			eg.Go(func() error {
+				if err := s.createPropertyNullIndex(ctx, prop); err != nil {
+					return errors.Wrapf(err, "create property '%s' null index on shard '%s'", prop.Name, s.ID())
+				}
+				return nil
+			})
+		}
+
+		if s.index.invertedIndexConfig.IndexPropertyLength {
+			eg.Go(func() error {
+				if err := s.createPropertyLengthIndex(ctx, prop); err != nil {
+					return errors.Wrapf(err, "create property '%s' length index on shard '%s'", prop.Name, s.ID())
+				}
+				return nil
+			})
+		}
+
+		return nil
+	})
+}
+
+func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
-	}
-	if schema.IsRefDataType(prop.DataType) {
-		err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
-			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet), // ref props do not have frequencies -> Set
-			s.memtableIdleConfig(),
-			s.dynamicMemtableSizing(),
-		)
-		if err != nil {
-			return err
-		}
-
-		err = s.store.CreateOrLoadBucket(ctx,
-			helpers.HashBucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
-			lsmkv.WithStrategy(lsmkv.StrategyReplace),
-			s.memtableIdleConfig(),
-			s.dynamicMemtableSizing(),
-		)
-		if err != nil {
-			return err
-		}
-	}
-
-	if schema.DataType(prop.DataType[0]) == schema.DataTypeGeoCoordinates {
-		return s.initGeoProp(prop)
 	}
 
 	bucketOpts := []lsmkv.BucketOption{
 		s.memtableIdleConfig(),
 		s.dynamicMemtableSizing(),
 	}
-	if inverted.HasFrequency(schema.DataType(prop.DataType[0])) {
-		bucketOpts = append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
-		if s.versioner.Version() < 2 {
-			bucketOpts = append(bucketOpts, lsmkv.WithLegacyMapSorting())
+
+	if inverted.HasFilterableIndex(prop) {
+		if dt, _ := schema.AsPrimitive(prop.DataType); dt == schema.DataTypeGeoCoordinates {
+			return s.initGeoProp(prop)
 		}
-	} else {
-		bucketOpts = append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+
+		if schema.IsRefDataType(prop.DataType) {
+			if err := s.store.CreateOrLoadBucket(ctx,
+				helpers.BucketFromPropNameMetaCountLSM(prop.Name),
+				append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
+			); err != nil {
+				return err
+			}
+		}
+
+		if err := s.store.CreateOrLoadBucket(ctx,
+			helpers.BucketFromPropNameLSM(prop.Name),
+			append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
+		); err != nil {
+			return err
+		}
 	}
 
-	err := s.store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(prop.Name),
-		bucketOpts...)
-	if err != nil {
-		return err
-	}
+	if inverted.HasSearchableIndex(prop) {
+		searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+		if s.versioner.Version() < 2 {
+			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
+		}
 
-	err = s.store.CreateOrLoadBucket(ctx, helpers.HashBucketFromPropNameLSM(prop.Name),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace),
-		s.memtableIdleConfig(),
-		s.dynamicMemtableSizing(),
-	)
-	if err != nil {
-		return err
+		if err := s.store.CreateOrLoadBucket(ctx,
+			helpers.BucketSearchableFromPropNameLSM(prop.Name),
+			searchableBucketOpts...,
+		); err != nil {
+			return err
+		}
 	}
 
 	return nil
+}
+
+func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
+	// some datatypes are not added to the inverted index, so we can skip them here
+	switch schema.DataType(prop.DataType[0]) {
+	case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeInt,
+		schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
+		return nil
+	default:
+	}
+
+	return s.store.CreateOrLoadBucket(ctx,
+		helpers.BucketFromPropNameLengthLSM(prop.Name),
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+}
+
+func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
+	return s.store.CreateOrLoadBucket(ctx,
+		helpers.BucketFromPropNameNullLSM(prop.Name),
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 }
 
 func (s *Shard) updateVectorIndexConfig(ctx context.Context,
@@ -534,7 +496,10 @@ func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 		return storagestate.ErrStatusReadOnly
 	}
 
-	s.updateStatus(storagestate.StatusReadOnly.String())
+	err := s.updateStatus(storagestate.StatusReadOnly.String())
+	if err != nil {
+		return fmt.Errorf("attempt to mark read-only: %w", err)
+	}
 	return s.vectorIndex.UpdateUserConfig(updated, func() {
 		s.updateStatus(storagestate.StatusReady.String())
 	})
@@ -581,4 +546,8 @@ func (s *Shard) objectCount() int {
 	}
 
 	return b.Count()
+}
+
+func (s *Shard) isFallbackToSearchable() bool {
+	return s.fallbackToSearchable
 }

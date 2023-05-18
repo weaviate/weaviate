@@ -26,7 +26,9 @@ import (
 
 func TestUpdatingPropertiesWithNil(t *testing.T) {
 	ctx := context.Background()
-	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	require.Nil(t, err)
+
 	className := "RandomPinkFlower"
 	upperPropName := "SomeProp"
 	lowerPropName := "someProp"

@@ -19,12 +19,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
 func TestAnalyzer(t *testing.T) {
-	a := NewAnalyzer(fakeStopwordDetector{})
+	a := NewAnalyzer(nil)
 
 	countable := func(data []string, freq []int) []Countable {
 		countable := make([]Countable, len(data))
@@ -330,7 +329,7 @@ func TestAnalyzer_DefaultEngPreset(t *testing.T) {
 		return countable
 	}
 
-	a := newTestAnalyzer(t, models.StopwordConfig{Preset: "en"})
+	a := NewAnalyzer(nil)
 	input := "Hello you-beautiful_World"
 
 	t.Run("with text", func(t *testing.T) {
@@ -456,11 +455,4 @@ type fakeStopwordDetector struct{}
 
 func (fsd fakeStopwordDetector) IsStopword(word string) bool {
 	return false
-}
-
-func newTestAnalyzer(t *testing.T, cfg models.StopwordConfig) *Analyzer {
-	sd, err := stopwords.NewDetectorFromConfig(cfg)
-	require.Nil(t, err)
-
-	return NewAnalyzer(sd)
 }

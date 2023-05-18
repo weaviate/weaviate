@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/pkg/errors"
@@ -34,8 +35,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -45,7 +44,6 @@ type BM25Searcher struct {
 	config        schema.BM25Config
 	store         *lsmkv.Store
 	schema        schema.Schema
-	rowCache      cacher
 	classSearcher ClassSearcher // to allow recursive searches on ref-props
 	propIndices   propertyspecific.Indices
 	deletedDocIDs DeletedDocIDChecker
@@ -58,8 +56,8 @@ type propLengthRetriever interface {
 	PropertyMean(prop string) (float32, error)
 }
 
-func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema.Schema,
-	rowCache cacher, propIndices propertyspecific.Indices,
+func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
+	schema schema.Schema, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker,
 	propLengths propLengthRetriever, logger logrus.FieldLogger,
 	shardVersion uint16,
@@ -68,7 +66,6 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema
 		config:        config,
 		store:         store,
 		schema:        schema,
-		rowCache:      rowCache,
 		propIndices:   propIndices,
 		classSearcher: classSearcher,
 		deletedDocIDs: deletedDocIDs,
@@ -80,13 +77,11 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema
 
 func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList, className schema.ClassName, limit int,
 	keywordRanking searchparams.KeywordRanking,
-	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
-	objectByIndexID func(index uint64) *storobj.Object,
 ) ([]*storobj.Object, []float32, error) {
 	// WEAVIATE-471 - If a property is not searchable, return an error
 	for _, property := range keywordRanking.Properties {
-		if !schema.PropertyIsIndexed(b.schema.Objects, string(className), property) {
-			return nil, nil, errors.New("Property " + property + " is not indexed.  Please choose another property or add an index to this property")
+		if !PropertyHasSearchableIndex(b.schema.Objects, string(className), property) {
+			return nil, nil, inverted.NewMissingSearchableIndexError(property)
 		}
 	}
 	class, err := schema.GetClassByName(b.schema.Objects, string(className))
@@ -100,31 +95,6 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 	}
 
 	return objs, scores, nil
-}
-
-// Objects returns a list of full objects
-func (b *BM25Searcher) Objects(ctx context.Context, filterDocIds helpers.AllowList, limit int,
-	keywordRanking searchparams.KeywordRanking,
-	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
-	className schema.ClassName,
-) ([]*storobj.Object, []float32, error) {
-	class, err := schema.GetClassByName(b.schema.Objects, string(className))
-	if err != nil {
-		return nil, []float32{}, errors.Wrap(err, "get class by name")
-	}
-	property := keywordRanking.Properties[0]
-	p, err := schema.GetPropertyByName(class, property)
-	if err != nil {
-		return nil, []float32{}, errors.Wrap(err, "read property from class")
-	}
-	indexed := p.IndexInverted
-
-	if indexed == nil || *indexed {
-		keywordRanking.Properties = keywordRanking.Properties[:1]
-		return b.wand(ctx, filterDocIds, class, keywordRanking, limit)
-	} else {
-		return []*storobj.Object{}, []float32{}, nil
-	}
 }
 
 func (b *BM25Searcher) wand(
@@ -193,11 +163,12 @@ func (b *BM25Searcher) wand(
 		switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			if _, exists := propNamesByTokenization[prop.Tokenization]; !exists {
-				return nil, nil, fmt.Errorf("cannot handle tokenization %v", prop.Tokenization)
+				return nil, nil, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",
+					prop.Tokenization, prop.Name)
 			}
 			propNamesByTokenization[prop.Tokenization] = append(propNamesByTokenization[prop.Tokenization], property)
 		default:
-			return nil, nil, fmt.Errorf("cannot handle datatype %v", dt)
+			return nil, nil, fmt.Errorf("cannot handle datatype '%v' of property '%s'", dt, prop.Name)
 		}
 	}
 
@@ -364,7 +335,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	allMsAndProps := make(AllMapPairsAndPropName, 0, len(propertyNames))
 	for _, propName := range propertyNames {
 
-		bucket := b.store.Bucket(helpers.BucketFromPropNameLSM(propName))
+		bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
 		if bucket == nil {
 			return termResult, nil, fmt.Errorf("could not find bucket for property %v", propName)
 		}
@@ -629,4 +600,17 @@ func (m AllMapPairsAndPropName) Less(i, j int) bool {
 
 func (m AllMapPairsAndPropName) Swap(i, j int) {
 	m[i], m[j] = m[j], m[i]
+}
+
+func PropertyHasSearchableIndex(schemaDefinition *models.Schema, className, tentativePropertyName string) bool {
+	propertyName := strings.Split(tentativePropertyName, "^")[0]
+	c, err := schema.GetClassByName(schemaDefinition, string(className))
+	if err != nil {
+		return false
+	}
+	p, err := schema.GetPropertyByName(c, propertyName)
+	if err != nil {
+		return false
+	}
+	return HasSearchableIndex(p)
 }

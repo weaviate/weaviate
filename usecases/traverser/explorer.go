@@ -14,6 +14,7 @@ package traverser
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -21,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -82,7 +84,8 @@ type vectorClassSearch interface {
 	ObjectsByID(ctx context.Context, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties) (search.Results, error)
 	ResolveReferences(ctx context.Context, objs search.Results,
-		props search.SelectProperties, additional additional.Properties,
+		props search.SelectProperties, groupBy *searchparams.GroupBy,
+		additional additional.Properties,
 	) (search.Results, error)
 }
 
@@ -156,6 +159,10 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 
 	res, err := e.search.ClassSearch(ctx, params)
 	if err != nil {
+		var e inverted.MissingIndexError
+		if errors.As(err, &e) {
+			return nil, e
+		}
 		return nil, errors.Errorf("explorer: get class: vector search: %v", err)
 	}
 
@@ -227,8 +234,9 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
 	sparseSearch := func() ([]*storobj.Object, []float32, error) {
 		params.KeywordRanking = &searchparams.KeywordRanking{
-			Query: params.HybridSearch.Query,
-			Type:  "bm25",
+			Query:      params.HybridSearch.Query,
+			Type:       "bm25",
+			Properties: params.HybridSearch.Properties,
 		}
 
 		res, dists, err := e.search.ClassObjectSearch(ctx, params)
@@ -255,7 +263,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 	postProcess := func(results hybrid.Results) ([]search.Result, error) {
 		res, err := e.search.ResolveReferences(ctx, results.SearchResults(),
-			params.Properties, params.AdditionalProperties)
+			params.Properties, nil, params.AdditionalProperties)
 		if err != nil {
 			return nil, err
 		}
@@ -300,6 +308,9 @@ func (e *Explorer) getClassList(ctx context.Context,
 	var res []search.Result
 	var err error
 	if params.HybridSearch != nil {
+		if params.Pagination != nil {
+			params.HybridSearch.Limit = params.Pagination.Limit
+		}
 		res, err = e.Hybrid(ctx, params)
 		if err != nil {
 			return nil, err
@@ -307,6 +318,10 @@ func (e *Explorer) getClassList(ctx context.Context,
 	} else {
 		res, err = e.search.ClassSearch(ctx, params)
 		if err != nil {
+			var e inverted.MissingIndexError
+			if errors.As(err, &e) {
+				return nil, e
+			}
 			return nil, errors.Errorf("explorer: list class: search: %v", err)
 		}
 	}
@@ -415,6 +430,9 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 		}
 
 		if len(additionalProperties) > 0 {
+			if additionalProperties["group"] != nil {
+				e.extractAdditionalPropertiesFromGroupRefs(additionalProperties["group"], params.Properties)
+			}
 			res.Schema.(map[string]interface{})["_additional"] = additionalProperties
 		}
 
@@ -424,6 +442,30 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 	}
 
 	return output, nil
+}
+
+func (e *Explorer) extractAdditionalPropertiesFromGroupRefs(
+	additionalGroup interface{},
+	params search.SelectProperties,
+) {
+	if group, ok := additionalGroup.(*additional.Group); ok {
+		if len(group.Hits) > 0 {
+			var groupSelectProperties search.SelectProperties
+			for _, selectProp := range params {
+				if strings.HasPrefix(selectProp.Name, "_additional:group:hits:") {
+					groupSelectProperties = append(groupSelectProperties, search.SelectProperty{
+						Name:            strings.Replace(selectProp.Name, "_additional:group:hits:", "", 1),
+						IsPrimitive:     selectProp.IsPrimitive,
+						IncludeTypeName: selectProp.IncludeTypeName,
+						Refs:            selectProp.Refs,
+					})
+				}
+			}
+			for _, hit := range group.Hits {
+				e.extractAdditionalPropertiesFromRefs(hit, groupSelectProperties)
+			}
+		}
+	}
 }
 
 func (e *Explorer) extractAdditionalPropertiesFromRefs(propertySchema interface{}, params search.SelectProperties) {

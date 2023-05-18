@@ -27,7 +27,7 @@ import (
 )
 
 func TestAnalyzeObject(t *testing.T) {
-	a := NewAnalyzer(fakeStopwordDetector{})
+	a := NewAnalyzer(nil)
 
 	t.Run("with multiple properties", func(t *testing.T) {
 		id1 := uuid.New()
@@ -653,7 +653,7 @@ func TestAnalyzeObject(t *testing.T) {
 	})
 
 	t.Run("when objects are indexed by timestamps", func(t *testing.T) {
-		schema := map[string]interface{}{
+		sch := map[string]interface{}{
 			"description":         "pretty ok if you ask me",
 			"_creationTimeUnix":   1650551406404,
 			"_lastUpdateTimeUnix": 1650551406404,
@@ -663,12 +663,12 @@ func TestAnalyzeObject(t *testing.T) {
 		props := []*models.Property{
 			{
 				Name:         "description",
-				DataType:     []string{"text"},
-				Tokenization: "word",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWord,
 			},
 		}
 
-		res, err := a.Object(schema, props, uuid)
+		res, err := a.Object(sch, props, uuid)
 		require.Nil(t, err)
 		require.Len(t, res, 4)
 
@@ -683,25 +683,33 @@ func TestAnalyzeObject(t *testing.T) {
 					{Data: []byte("ask"), TermFrequency: 1},
 					{Data: []byte("me"), TermFrequency: 1},
 				},
-				HasFrequency: true,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
 			},
 			{
-				Name:  "_id",
-				Items: []Countable{{Data: []byte("2609f1bc-7693-48f3-b531-6ddc52cd2501")}},
+				Name:               "_id",
+				Items:              []Countable{{Data: []byte("2609f1bc-7693-48f3-b531-6ddc52cd2501")}},
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
 			},
 			{
-				Name:  "_creationTimeUnix",
-				Items: []Countable{{Data: []byte("1650551406404")}},
+				Name:               "_creationTimeUnix",
+				Items:              []Countable{{Data: []byte("1650551406404")}},
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
 			},
 			{
-				Name:  "_lastUpdateTimeUnix",
-				Items: []Countable{{Data: []byte("1650551406404")}},
+				Name:               "_lastUpdateTimeUnix",
+				Items:              []Countable{{Data: []byte("1650551406404")}},
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
 			},
 		}
 
 		for i := range res {
 			assert.Equal(t, expected[i].Name, res[i].Name)
-			assert.Equal(t, expected[i].HasFrequency, res[i].HasFrequency)
+			assert.Equal(t, expected[i].HasFilterableIndex, res[i].HasFilterableIndex)
+			assert.Equal(t, expected[i].HasSearchableIndex, res[i].HasSearchableIndex)
 			assert.ElementsMatch(t, expected[i].Items, res[i].Items)
 		}
 	})
@@ -765,6 +773,145 @@ func TestConvertSliceToUntyped(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestIndexInverted(t *testing.T) {
+	vFalse := false
+	vTrue := true
+
+	t.Run("has filterable index", func(t *testing.T) {
+		type testCase struct {
+			name            string
+			indexFilterable *bool
+			dataType        schema.DataType
+
+			expextedFilterable bool
+		}
+
+		testCases := []testCase{
+			{
+				name:            "int, filterable null",
+				indexFilterable: nil,
+				dataType:        schema.DataTypeInt,
+
+				expextedFilterable: true,
+			},
+			{
+				name:            "int, filterable false",
+				indexFilterable: &vFalse,
+				dataType:        schema.DataTypeInt,
+
+				expextedFilterable: false,
+			},
+			{
+				name:            "int, filterable true",
+				indexFilterable: &vTrue,
+				dataType:        schema.DataTypeInt,
+
+				expextedFilterable: true,
+			},
+			{
+				name:            "text, filterable null",
+				indexFilterable: nil,
+				dataType:        schema.DataTypeText,
+
+				expextedFilterable: true,
+			},
+			{
+				name:            "text, filterable false",
+				indexFilterable: &vFalse,
+				dataType:        schema.DataTypeText,
+
+				expextedFilterable: false,
+			},
+			{
+				name:            "text, filterable true",
+				indexFilterable: &vTrue,
+				dataType:        schema.DataTypeText,
+
+				expextedFilterable: true,
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				hasFilterableIndex := HasFilterableIndex(&models.Property{
+					Name:            "prop",
+					DataType:        tc.dataType.PropString(),
+					IndexFilterable: tc.indexFilterable,
+				})
+
+				assert.Equal(t, tc.expextedFilterable, hasFilterableIndex)
+			})
+		}
+	})
+
+	t.Run("has searchable index", func(t *testing.T) {
+		type testCase struct {
+			name            string
+			indexSearchable *bool
+			dataType        schema.DataType
+
+			expextedSearchable bool
+		}
+
+		testCases := []testCase{
+			{
+				name:            "int, searchable null",
+				indexSearchable: nil,
+				dataType:        schema.DataTypeInt,
+
+				expextedSearchable: false,
+			},
+			{
+				name:            "int, searchable false",
+				indexSearchable: &vFalse,
+				dataType:        schema.DataTypeInt,
+
+				expextedSearchable: false,
+			},
+			{
+				name:            "int, searchable true",
+				indexSearchable: &vTrue,
+				dataType:        schema.DataTypeInt,
+
+				expextedSearchable: false,
+			},
+			{
+				name:            "text, searchable null",
+				indexSearchable: nil,
+				dataType:        schema.DataTypeText,
+
+				expextedSearchable: true,
+			},
+			{
+				name:            "text, searchable false",
+				indexSearchable: &vFalse,
+				dataType:        schema.DataTypeText,
+
+				expextedSearchable: false,
+			},
+			{
+				name:            "text, searchable true",
+				indexSearchable: &vTrue,
+				dataType:        schema.DataTypeText,
+
+				expextedSearchable: true,
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				hasSearchableIndex := HasSearchableIndex(&models.Property{
+					Name:            "prop",
+					DataType:        tc.dataType.PropString(),
+					IndexSearchable: tc.indexSearchable,
+				})
+
+				assert.Equal(t, tc.expextedSearchable, hasSearchableIndex)
+			})
+		}
+	})
 }
 
 func mustGetByteIntNumber(in int) []byte {

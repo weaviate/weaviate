@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	initialSize             = 25000
-	minimumIndexGrowthDelta = 25000
+	initialSize             = 1000
+	minimumIndexGrowthDelta = 2000
 	indexGrowthRate         = 1.25
 )
 

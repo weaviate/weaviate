@@ -18,7 +18,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/notimplemented"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -83,8 +82,7 @@ func (rr *RowReader) Read(ctx context.Context, readFn ReadFn) error {
 	case filters.OperatorIsNull: // we need to fetch a row with a given value (there is only nil and !nil) and can reuse equal to get the correct row
 		return rr.equal(ctx, readFn)
 	default:
-		return fmt.Errorf("operator not supported in standalone "+
-			"mode, see %s for details", notimplemented.Link)
+		return fmt.Errorf("operator %v not supported", rr.operator)
 	}
 }
 
