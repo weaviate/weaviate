@@ -30,7 +30,7 @@ func (m *Manager) AddTenants(ctx context.Context, principal *models.Principal, c
 
 	cls, st := m.getClassByName(class), m.ShardingState(class)
 	if cls == nil || st == nil {
-		return ErrNotFound
+		return fmt.Errorf("class %q: %w", class, ErrNotFound)
 	}
 	if !isMultiTenancyEnabled(cls.MultiTenancyConfig) {
 		return fmt.Errorf("multi-tenancy is not enabled for class %q", class)
@@ -103,9 +103,15 @@ func (m *Manager) onAddPartitions(ctx context.Context,
 			shards = append(shards, p.Name)
 		}
 	}
+
+	class := m.getClassByName(request.ClassName)
+	if class == nil {
+		return fmt.Errorf("class %q does not exist in schema", request.ClassName)
+	}
+
 	// this should actually not fail but just in case
 	// TODO: make sure AddPartitions() never fails
-	if err := m.migrator.AddPartitions(ctx, request.ClassName, shards); err != nil {
+	if err := m.migrator.AddPartitions(ctx, class, shards); err != nil {
 		m.logger.WithField("action", "add_partitions").
 			WithField("class", request.ClassName).Error(err)
 	}

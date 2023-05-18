@@ -11,6 +11,7 @@ function main() {
   echo_green "Building linux/arm64 binary..."
   GOOS=linux GOARCH=arm64 go build -o build_artifacts/weaviate_linux_arm64 -ldflags "-w -extldflags \"-static\" -X github.com/weaviate/weaviate/usecases/config.GitHash='${GIT_HASH}'"
   step_complete
+
   echo_green "Building linux/amd64 binary..."
   GOAMD64=v1 GOOS=linux GOARCH=amd64 go build -o build_artifacts/weaviate_linux_amd64 -ldflags "-w -extldflags \"-static\" -X github.com/weaviate/weaviate/usecases/config.GitHash='${GIT_HASH}'"
   step_complete
@@ -24,6 +25,7 @@ function main() {
   LINUX_ARM_DIST="weaviate-${VERSION}-linux-arm64.tar.gz"
   tar cvfz "$LINUX_ARM_DIST" weaviate_linux_arm64 LICENSE README.md
   step_complete
+
   echo_green "Calculating linux/arm64 checksums..."
   shasum -a 256 "$LINUX_ARM_DIST" | cut -d ' ' -f 1 > "${LINUX_ARM_DIST}.sha256"
   md5 "$LINUX_ARM_DIST" | cut -d ' ' -f 4 > "${LINUX_ARM_DIST}.md5"
@@ -33,6 +35,7 @@ function main() {
   LINUX_AMD_DIST="weaviate-${VERSION}-linux-amd.tar.gz"
   tar cvfz "$LINUX_AMD_DIST" weaviate_linux_amd64 LICENSE README.md
   step_complete
+
   echo_green "Calculating linux/amd64 checksums..."
   shasum -a 256 "$LINUX_AMD_DIST" | cut -d ' ' -f 1 > "${LINUX_AMD_DIST}.sha256"
   md5 "$LINUX_AMD_DIST" | cut -d ' ' -f 4 > "${LINUX_AMD_DIST}.md5"

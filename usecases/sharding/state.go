@@ -24,14 +24,14 @@ import (
 const shardNameLength = 12
 
 type State struct {
-	IndexID  string              `json:"indexID"` // for monitoring, reporting purposes. Does not influence the shard-calculations
-	Config   Config              `json:"config"`
-	Physical map[string]Physical `json:"physical"`
-	Virtual  []Virtual           `json:"virtual"`
+	IndexID             string              `json:"indexID"` // for monitoring, reporting purposes. Does not influence the shard-calculations
+	Config              Config              `json:"config"`
+	Physical            map[string]Physical `json:"physical"`
+	Virtual             []Virtual           `json:"virtual"`
+	PartitioningEnabled bool                `json:"partitioningEnabled"`
 
 	// different for each node, not to be serialized
-	localNodeName       string
-	partitioningEnabled bool
+	localNodeName string
 }
 
 // MigrateFromOldFormat checks if the old (pre-v1.17) format was used and
@@ -124,7 +124,7 @@ func InitState(id string, config Config, nodes nodes, replFactor int64, partitio
 		Config:              config,
 		IndexID:             id,
 		localNodeName:       nodes.LocalName(),
-		partitioningEnabled: partitioningEnabled,
+		PartitioningEnabled: partitioningEnabled,
 	}
 	if partitioningEnabled {
 		out.Physical = make(map[string]Physical, 128)
@@ -147,7 +147,7 @@ func InitState(id string, config Config, nodes nodes, replFactor int64, partitio
 
 // Shard returns the shard name if it exits and empty string otherwise
 func (s *State) Shard(partitionKey, objectID string) string {
-	if s.partitioningEnabled {
+	if s.PartitioningEnabled {
 		if _, ok := s.Physical[partitionKey]; ok {
 			return partitionKey // will change in the future
 		}
@@ -444,11 +444,12 @@ func (s State) DeepCopy() State {
 	}
 
 	return State{
-		localNodeName: s.localNodeName,
-		IndexID:       s.IndexID,
-		Config:        s.Config.DeepCopy(),
-		Physical:      physicalCopy,
-		Virtual:       virtualCopy,
+		localNodeName:       s.localNodeName,
+		IndexID:             s.IndexID,
+		Config:              s.Config.DeepCopy(),
+		Physical:            physicalCopy,
+		Virtual:             virtualCopy,
+		PartitioningEnabled: s.PartitioningEnabled,
 	}
 }
 

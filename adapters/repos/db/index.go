@@ -127,7 +127,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		metrics:         NewMetrics(logger, promMetrics, config.ClassName.String(), "n/a"),
 		centralJobQueue: jobQueueCh,
 	}
-	if class.MultiTenancyConfig != nil {
+	if class != nil && class.MultiTenancyConfig != nil {
 		index.tenantKey = class.MultiTenancyConfig.TenantKey
 	}
 
@@ -309,7 +309,7 @@ func (i *Index) shardFromObject(o *storobj.Object) (string, error) {
 	if name := ss.Shard(keyVal, string(o.ID())); name != "" {
 		return name, nil
 	}
-	return "", fmt.Errorf("no tenant found with this key %q", keyVal)
+	return "", fmt.Errorf("no tenant found with key: %q", keyVal)
 }
 
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
@@ -1517,4 +1517,23 @@ func objectSearchPreallocate(limit int, shards []string) ([]*storobj.Object, []f
 	scores := make([]float32, 0, capacity)
 
 	return objects, scores
+}
+
+func (i *Index) addNewShard(ctx context.Context,
+	class *models.Class, shardName string,
+) error {
+	// TODO: locking???
+	if _, ok := i.Shards[shardName]; ok {
+		return fmt.Errorf("shard %q exists already", shardName)
+	}
+
+	// TODO: metrics
+	s, err := NewShard(ctx, nil, shardName, i, class, i.centralJobQueue)
+	if err != nil {
+		return err
+	}
+
+	// TODO: locking???
+	i.Shards[shardName] = s
+	return nil
 }

@@ -1701,6 +1701,13 @@
       "required": false,
       "type": "string"
     },
+    "CommonTenantKeyParameterQuery": {
+      "description": "Specifies the tenant in a request targeting a multi-tenant class",
+      "in": "query",
+      "name": "tenant_key",
+      "required": false,
+      "type": "string"
+    },
     "CommonNodeNameParameterQuery": {
       "description": "The target node which should fulfill the request",
       "in": "query",
@@ -1918,6 +1925,9 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {

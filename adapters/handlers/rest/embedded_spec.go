@@ -1012,6 +1012,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -4362,6 +4365,12 @@ func init() {
       "description": "Sort parameter to pass an information about the names of the sort fields",
       "name": "sort",
       "in": "query"
+    },
+    "CommonTenantKeyParameterQuery": {
+      "type": "string",
+      "description": "Specifies the tenant in a request targeting a multi-tenant class",
+      "name": "tenant_key",
+      "in": "query"
     }
   },
   "securityDefinitions": {
@@ -5427,6 +5436,12 @@ func init() {
             "type": "string",
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant_key",
             "in": "query"
           }
         ],
@@ -9005,6 +9020,12 @@ func init() {
       "type": "string",
       "description": "Sort parameter to pass an information about the names of the sort fields",
       "name": "sort",
+      "in": "query"
+    },
+    "CommonTenantKeyParameterQuery": {
+      "type": "string",
+      "description": "Specifies the tenant in a request targeting a multi-tenant class",
+      "name": "tenant_key",
       "in": "query"
     }
   },
