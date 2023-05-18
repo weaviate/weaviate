@@ -12,6 +12,10 @@
 package autocut
 
 func Autocut(yValues []float32, cutOff int) int {
+	if len(yValues) <= 1 {
+		return len(yValues)
+	}
+
 	diff := make([]float32, len(yValues))
 	step := 1. / (float32(len(yValues)) - 1.)
 

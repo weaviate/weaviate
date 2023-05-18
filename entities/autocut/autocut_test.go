@@ -23,6 +23,8 @@ func TestAutoCut(t *testing.T) {
 		cutOff          int
 		expectedResults int
 	}{
+		{values: []float32{}, cutOff: 1, expectedResults: 0},
+		{values: []float32{2}, cutOff: 1, expectedResults: 1},
 		{values: []float32{2, 1.95, 1.9, 0.2, 0.1, 0.1, -1}, cutOff: 1, expectedResults: 3},
 		{values: []float32{2, 1.95, 1.9, 0.2, 0.1, 0.1, -2}, cutOff: 2, expectedResults: 6},
 		{values: []float32{5, 1, 1, 1, 1, 0, 0}, cutOff: 1, expectedResults: 1},
