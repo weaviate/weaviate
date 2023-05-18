@@ -240,11 +240,24 @@ func (p *Provider) isOnlyOneModuleEnabledOfAGivenType(moduleType modulecapabilit
 	return i == 1
 }
 
+func (p *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) bool {
+	switch moduleType {
+	case modulecapabilities.Text2Vec,
+		modulecapabilities.Img2Vec,
+		modulecapabilities.Multi2Vec,
+		modulecapabilities.Text2MultiVec,
+		modulecapabilities.Ref2Vec:
+		return true
+	default:
+		return false
+	}
+}
+
 func (p *Provider) shouldIncludeClassArgument(class *models.Class, module string,
 	moduleType modulecapabilities.ModuleType,
 ) bool {
-	if class.Vectorizer == module {
-		return true
+	if p.isVectorizerModule(moduleType) {
+		return class.Vectorizer == module
 	}
 	if moduleConfig, ok := class.ModuleConfig.(map[string]interface{}); ok {
 		existsConfigForModule := moduleConfig[module] != nil
