@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -40,6 +41,8 @@ func TestFailedCommits(t *testing.T) {
 	}
 
 	ctx := context.Background()
+	vTrue := true
+	vFalse := false
 
 	tests := []test{
 		{
@@ -84,15 +87,17 @@ func TestFailedCommits(t *testing.T) {
 			action: func(t *testing.T, sm *Manager) {
 				err := sm.AddClassProperty(ctx, nil, "MyClass", &models.Property{
 					Name:     "prop_1",
-					DataType: []string{"int"},
+					DataType: schema.DataTypeInt.PropString(),
 				})
 				assert.Nil(t, err)
 			},
 			expSchema: []*models.Class{
 				classWithDefaultsWithProps(t, "MyClass", []*models.Property{
 					{
-						Name:     "prop_1",
-						DataType: []string{"int"},
+						Name:            "prop_1",
+						DataType:        schema.DataTypeInt.PropString(),
+						IndexFilterable: &vTrue,
+						IndexSearchable: &vFalse,
 					},
 				}),
 			},

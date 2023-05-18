@@ -40,6 +40,7 @@ type HybridSearch struct {
 	Query       string      `json:"query"`
 	Vector      []float32   `json:"vector"`
 	AutoCut     int         `json:"autocut"`
+	Properties  []string    `json:"properties"`
 }
 
 type NearObject struct {
@@ -72,4 +73,10 @@ type NearTextParams struct {
 	WithDistance bool
 	Network      bool
 	Autocorrect  bool
+}
+
+type GroupBy struct {
+	Property        string
+	Groups          int
+	ObjectsPerGroup int
 }

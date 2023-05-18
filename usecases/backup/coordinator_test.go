@@ -148,6 +148,10 @@ func TestCoordinatedBackup(t *testing.T) {
 		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, ErrAny)
 		fc.backend.On("HomeDir", backupID).Return("bucket/" + backupID)
 		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
+
+		fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
+		fc.client.On("Abort", any, nodes[1], abortReq).Return(nil)
+
 		err := coordinator.Backup(ctx, store, &req)
 		assert.Nil(t, err)
 		<-fc.backend.doneChan
@@ -196,6 +200,10 @@ func TestCoordinatedBackup(t *testing.T) {
 		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
 		fc.backend.On("HomeDir", backupID).Return("bucket/" + backupID)
 		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
+
+		fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
+		fc.client.On("Abort", any, nodes[1], abortReq).Return(nil)
+
 		store := coordStore{objStore: objStore{fc.backend, req.ID}}
 		err := coordinator.Backup(ctx, store, &req)
 		assert.Nil(t, err)
@@ -216,7 +224,7 @@ func TestCoordinatedBackup(t *testing.T) {
 			Nodes: map[string]*backup.NodeDescriptor{
 				nodes[1]: {
 					Classes: classes,
-					Status:  backup.Success,
+					Status:  "",
 				},
 				nodes[0]: {
 					Classes: classes,

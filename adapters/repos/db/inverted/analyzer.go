@@ -17,9 +17,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/models"
 )
+
+type IsFallbackToSearchable func() bool
 
 type Countable struct {
 	Data          []byte
@@ -27,14 +28,15 @@ type Countable struct {
 }
 
 type Property struct {
-	Name         string
-	Items        []Countable
-	HasFrequency bool
-	Length       int
+	Name               string
+	Items              []Countable
+	Length             int
+	HasFilterableIndex bool // roaring set index
+	HasSearchableIndex bool // map index (with frequencies)
 }
 
 type Analyzer struct {
-	stopwords stopwords.StopwordDetector
+	isFallbackToSearchable IsFallbackToSearchable
 }
 
 // Text tokenizes given input according to selected tokenization,
@@ -211,6 +213,9 @@ func (a *Analyzer) Ref(in models.MultipleRef) ([]Countable, error) {
 	return out, nil
 }
 
-func NewAnalyzer(stopwords stopwords.StopwordDetector) *Analyzer {
-	return &Analyzer{stopwords: stopwords}
+func NewAnalyzer(isFallbackToSearchable IsFallbackToSearchable) *Analyzer {
+	if isFallbackToSearchable == nil {
+		isFallbackToSearchable = func() bool { return false }
+	}
+	return &Analyzer{isFallbackToSearchable: isFallbackToSearchable}
 }

@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -151,7 +152,8 @@ func (f *fakeVectorSearcher) ClassObjectVectorSearch(context.Context, string,
 }
 
 func (f *fakeVectorSearcher) ResolveReferences(ctx context.Context, objs search.Results,
-	props search.SelectProperties, additional additional.Properties,
+	props search.SelectProperties, groupBy *searchparams.GroupBy,
+	additional additional.Properties,
 ) (search.Results, error) {
 	return nil, nil
 }

@@ -214,7 +214,11 @@ func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
 	vectorCache := newShardedLockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
 		cfg.Logger, normalizeOnRead, defaultDeletionInterval)
 
-	compressedVectorsCache := newCompressedShardedLockCache(uc.VectorCacheMaxObjects, cfg.Logger)
+	var compressedVectorsCache *compressedShardedLockCache
+	if uc.PQ.Enabled {
+		compressedVectorsCache = newCompressedShardedLockCache(uc.VectorCacheMaxObjects, cfg.Logger)
+	}
+
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	index := &hnsw{
 		maximumConnections: uc.MaxConnections,

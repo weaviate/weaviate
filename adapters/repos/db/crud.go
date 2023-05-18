@@ -151,7 +151,7 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	}
 
 	return db.ResolveReferences(ctx,
-		storobj.SearchResults(result, additional), props, additional)
+		storobj.SearchResults(result, additional), props, nil, additional)
 }
 
 // Object gets object with id from index of specified class.

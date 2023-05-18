@@ -441,8 +441,8 @@ func TestAddClass(t *testing.T) {
 	})
 }
 
-func TestAddClass_Migrate(t *testing.T) {
-	t.Run("migrate string|stringArray datatype and tokenization", func(t *testing.T) {
+func TestAddClass_DefaultsAndMigration(t *testing.T) {
+	t.Run("set defaults and migrate string|stringArray datatype and tokenization", func(t *testing.T) {
 		type testCase struct {
 			propName     string
 			dataType     schema.DataType
@@ -566,6 +566,194 @@ func TestAddClass_Migrate(t *testing.T) {
 					require.Nil(t, err)
 					assert.Equal(t, tc.expectedDataType.PropString(), addedProperty.DataType)
 					assert.Equal(t, tc.expectedTokenization, addedProperty.Tokenization)
+				})
+			}
+		})
+	})
+
+	t.Run("set defaults and migrate IndexInverted to IndexFilterable + IndexSearchable", func(t *testing.T) {
+		vFalse := false
+		vTrue := true
+		allBoolPtrs := []*bool{nil, &vFalse, &vTrue}
+
+		type testCase struct {
+			propName        string
+			dataType        schema.DataType
+			indexInverted   *bool
+			indexFilterable *bool
+			indexSearchable *bool
+
+			expectedInverted   *bool
+			expectedFilterable *bool
+			expectedSearchable *bool
+		}
+
+		boolPtrToStr := func(ptr *bool) string {
+			if ptr == nil {
+				return "nil"
+			}
+			return fmt.Sprintf("%v", *ptr)
+		}
+		propName := func(dt schema.DataType, inverted, filterable, searchable *bool) string {
+			return fmt.Sprintf("%s_inverted_%s_filterable_%s_searchable_%s",
+				dt.String(), boolPtrToStr(inverted), boolPtrToStr(filterable), boolPtrToStr(searchable))
+		}
+
+		mgr := newSchemaManager()
+		ctx := context.Background()
+		className := "MigrationClass"
+
+		testCases := []testCase{}
+
+		for _, dataType := range []schema.DataType{schema.DataTypeText, schema.DataTypeInt} {
+			for _, inverted := range allBoolPtrs {
+				for _, filterable := range allBoolPtrs {
+					for _, searchable := range allBoolPtrs {
+						if inverted != nil {
+							if filterable != nil || searchable != nil {
+								// invalid combination, indexInverted can not be set
+								// together with indexFilterable or indexSearchable
+								continue
+							}
+						}
+
+						if searchable != nil && *searchable {
+							if dataType != schema.DataTypeText {
+								// invalid combination, indexSearchable can not be enabled
+								// for non text/text[] data type
+								continue
+							}
+						}
+
+						switch dataType {
+						case schema.DataTypeText:
+							if inverted != nil {
+								testCases = append(testCases, testCase{
+									propName:           propName(dataType, inverted, filterable, searchable),
+									dataType:           dataType,
+									indexInverted:      inverted,
+									indexFilterable:    filterable,
+									indexSearchable:    searchable,
+									expectedInverted:   nil,
+									expectedFilterable: inverted,
+									expectedSearchable: inverted,
+								})
+							} else {
+								expectedFilterable := filterable
+								if filterable == nil {
+									expectedFilterable = &vTrue
+								}
+								expectedSearchable := searchable
+								if searchable == nil {
+									expectedSearchable = &vTrue
+								}
+								testCases = append(testCases, testCase{
+									propName:           propName(dataType, inverted, filterable, searchable),
+									dataType:           dataType,
+									indexInverted:      inverted,
+									indexFilterable:    filterable,
+									indexSearchable:    searchable,
+									expectedInverted:   nil,
+									expectedFilterable: expectedFilterable,
+									expectedSearchable: expectedSearchable,
+								})
+							}
+						default:
+							if inverted != nil {
+								testCases = append(testCases, testCase{
+									propName:           propName(dataType, inverted, filterable, searchable),
+									dataType:           dataType,
+									indexInverted:      inverted,
+									indexFilterable:    filterable,
+									indexSearchable:    searchable,
+									expectedInverted:   nil,
+									expectedFilterable: inverted,
+									expectedSearchable: &vFalse,
+								})
+							} else {
+								expectedFilterable := filterable
+								if filterable == nil {
+									expectedFilterable = &vTrue
+								}
+								expectedSearchable := searchable
+								if searchable == nil {
+									expectedSearchable = &vFalse
+								}
+								testCases = append(testCases, testCase{
+									propName:           propName(dataType, inverted, filterable, searchable),
+									dataType:           dataType,
+									indexInverted:      inverted,
+									indexFilterable:    filterable,
+									indexSearchable:    searchable,
+									expectedInverted:   nil,
+									expectedFilterable: expectedFilterable,
+									expectedSearchable: expectedSearchable,
+								})
+							}
+						}
+					}
+				}
+			}
+		}
+
+		t.Run("create class with all properties", func(t *testing.T) {
+			properties := []*models.Property{}
+			for _, tc := range testCases {
+				properties = append(properties, &models.Property{
+					Name:            "created_" + tc.propName,
+					DataType:        tc.dataType.PropString(),
+					IndexInverted:   tc.indexInverted,
+					IndexFilterable: tc.indexFilterable,
+					IndexSearchable: tc.indexSearchable,
+				})
+			}
+
+			err := mgr.AddClass(ctx, nil, &models.Class{
+				Class:      className,
+				Properties: properties,
+			})
+
+			require.Nil(t, err)
+			require.NotNil(t, mgr.state.ObjectSchema)
+			require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
+			require.Equal(t, className, mgr.state.ObjectSchema.Classes[0].Class)
+		})
+
+		t.Run("add properties to existing class", func(t *testing.T) {
+			for _, tc := range testCases {
+				t.Run("added_"+tc.propName, func(t *testing.T) {
+					err := mgr.addClassProperty(ctx, className, &models.Property{
+						Name:            "added_" + tc.propName,
+						DataType:        tc.dataType.PropString(),
+						IndexInverted:   tc.indexInverted,
+						IndexFilterable: tc.indexFilterable,
+						IndexSearchable: tc.indexSearchable,
+					})
+
+					require.Nil(t, err)
+				})
+			}
+		})
+
+		t.Run("verify migration", func(t *testing.T) {
+			class := mgr.state.ObjectSchema.Classes[0]
+			for _, tc := range testCases {
+				t.Run("created_"+tc.propName, func(t *testing.T) {
+					createdProperty, err := schema.GetPropertyByName(class, "created_"+tc.propName)
+
+					require.Nil(t, err)
+					assert.Equal(t, tc.expectedInverted, createdProperty.IndexInverted)
+					assert.Equal(t, tc.expectedFilterable, createdProperty.IndexFilterable)
+					assert.Equal(t, tc.expectedSearchable, createdProperty.IndexSearchable)
+				})
+
+				t.Run("added_"+tc.propName, func(t *testing.T) {
+					addedProperty, err := schema.GetPropertyByName(class, "added_"+tc.propName)
+
+					require.Nil(t, err)
+					assert.Equal(t, tc.expectedInverted, addedProperty.IndexInverted)
+					assert.Equal(t, tc.expectedFilterable, addedProperty.IndexFilterable)
+					assert.Equal(t, tc.expectedSearchable, addedProperty.IndexSearchable)
 				})
 			}
 		})

@@ -174,7 +174,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 		bm25Config := s.index.getInvertedIndexConfig().BM25
 
 		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
-			s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
+			s.index.getSchema.GetSchemaSkipAuth(),
 			s.propertyIndices, s.index.classSearcher, s.deletedDocIDs, s.propLengths,
 			s.index.logger, s.versioner.Version())
 
@@ -186,9 +186,9 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 
 		if filters != nil {
 			objs, err = inverted.NewSearcher(s.index.logger, s.store,
-				s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
+				s.index.getSchema.GetSchemaSkipAuth(),
 				s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
-				s.index.stopwords, s.versioner.Version()).
+				s.index.stopwords, s.versioner.Version(), s.isFallbackToSearchable).
 				DocIDs(ctx, filters, additional, s.index.Config.ClassName)
 			if err != nil {
 				return nil, nil, err
@@ -197,26 +197,11 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 			filterDocIds = objs
 		}
 
-		searchFunc := func(index uint64) *storobj.Object {
-			v, _ := s.objectByIndexID(ctx, index, false)
-			return v
-		}
-
-		if keywordRanking.Type == "bm25" {
-			className := s.index.Config.ClassName
-			bm25objs, bm25count, err = bm25searcher.BM25F(ctx,
-				filterDocIds, className, limit, *keywordRanking,
-				filters, sort, additional, searchFunc)
-			if err != nil {
-				return nil, nil, err
-			}
-		} else {
-			bm25objs, bm25count, err = bm25searcher.Objects(ctx,
-				filterDocIds, limit, *keywordRanking, filters,
-				sort, additional, s.index.Config.ClassName)
-			if err != nil {
-				return nil, nil, err
-			}
+		className := s.index.Config.ClassName
+		bm25objs, bm25count, err = bm25searcher.BM25F(ctx,
+			filterDocIds, className, limit, *keywordRanking)
+		if err != nil {
+			return nil, nil, err
 		}
 
 		return bm25objs, bm25count, nil
@@ -228,16 +213,16 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 		return objs, nil, err
 	}
 	objs, err := inverted.NewSearcher(s.index.logger, s.store,
-		s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
+		s.index.getSchema.GetSchemaSkipAuth(),
 		s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
-		s.index.stopwords, s.versioner.Version()).
+		s.index.stopwords, s.versioner.Version(), s.isFallbackToSearchable).
 		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName)
 	return objs, nil, err
 }
 
 func (s *Shard) objectVectorSearch(ctx context.Context,
 	searchVector []float32, targetDist float32, limit int, filters *filters.LocalFilter,
-	sort []filters.Sort, additional additional.Properties,
+	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	var (
 		ids       []uint64
@@ -275,6 +260,10 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 
 	if filters != nil {
 		s.metrics.FilteredVectorVector(time.Since(beforeVector))
+	}
+
+	if groupBy != nil {
+		return s.groupResults(ctx, ids, dists, groupBy, additional)
 	}
 
 	if len(sort) > 0 {
@@ -393,9 +382,9 @@ func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter
 	addl additional.Properties,
 ) (helpers.AllowList, error) {
 	list, err := inverted.NewSearcher(s.index.logger, s.store,
-		s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
+		s.index.getSchema.GetSchemaSkipAuth(),
 		s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
-		s.index.stopwords, s.versioner.Version()).
+		s.index.stopwords, s.versioner.Version(), s.isFallbackToSearchable).
 		DocIDs(ctx, filters, addl, s.index.Config.ClassName)
 	if err != nil {
 		return nil, errors.Wrap(err, "build inverted filter allow list")

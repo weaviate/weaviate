@@ -215,6 +215,14 @@ func (n *NilMigrator) RecalculateVectorDimensions(ctx context.Context) error {
 	return nil
 }
 
+func (n *NilMigrator) RecountProperties(ctx context.Context) error {
+	return nil
+}
+
 func (n *NilMigrator) InvertedReindex(ctx context.Context, taskNames ...string) error {
+	return nil
+}
+
+func (n *NilMigrator) AdjustFilterablePropSettings(ctx context.Context) error {
 	return nil
 }

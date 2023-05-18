@@ -27,8 +27,11 @@ import (
 )
 
 var (
-	internalSearchers            = []string{"nearObject", "nearVector", "where", "group", "limit"}
-	internalAdditionalProperties = []string{"classification", "certainty", "id", "distance"}
+	internalSearchers = []string{
+		"nearObject", "nearVector", "where", "group", "limit", "offset",
+		"after", "groupBy", "bm25", "hybrid",
+	}
+	internalAdditionalProperties = []string{"classification", "certainty", "id", "distance", "group"}
 )
 
 type Provider struct {
@@ -223,19 +226,6 @@ func (p *Provider) validateModules(name string, properties map[string][]string, 
 	return errorMessages
 }
 
-func (p *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) bool {
-	switch moduleType {
-	case modulecapabilities.Text2Vec,
-		modulecapabilities.Img2Vec,
-		modulecapabilities.Multi2Vec,
-		modulecapabilities.Text2MultiVec,
-		modulecapabilities.Ref2Vec:
-		return true
-	default:
-		return false
-	}
-}
-
 func (p *Provider) moduleProvidesMultipleVectorizers(moduleType modulecapabilities.ModuleType) bool {
 	return moduleType == modulecapabilities.Text2MultiVec
 }
@@ -243,7 +233,13 @@ func (p *Provider) moduleProvidesMultipleVectorizers(moduleType modulecapabiliti
 func (p *Provider) shouldIncludeClassArgument(class *models.Class, module string,
 	moduleType modulecapabilities.ModuleType,
 ) bool {
-	return class.Vectorizer == module || !p.isVectorizerModule(moduleType)
+	if class.Vectorizer == module {
+		return true
+	}
+	if moduleConfig, ok := class.ModuleConfig.(map[string]interface{}); ok {
+		return moduleConfig[module] != nil
+	}
+	return false
 }
 
 func (p *Provider) shouldCrossClassIncludeClassArgument(class *models.Class, module string,

@@ -392,3 +392,110 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 
 	}
 }
+
+func TestStorageObjectMarshallingWithGroup(t *testing.T) {
+	before := FromObject(
+		&models.Object{
+			Class:              "MyFavoriteClass",
+			CreationTimeUnix:   123456,
+			LastUpdateTimeUnix: 56789,
+			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Additional: models.AdditionalProperties{
+				"classification": &additional.Classification{
+					BasedOn: []string{"some", "fields"},
+				},
+				"interpretation": map[string]interface{}{
+					"Source": []interface{}{
+						map[string]interface{}{
+							"concept":    "foo",
+							"occurrence": float64(7),
+							"weight":     float64(3),
+						},
+					},
+				},
+				"group": &additional.Group{
+					ID: 100,
+					GroupedBy: &additional.GroupedBy{
+						Value: "group-by-some-property",
+						Path:  []string{"property-path"},
+					},
+					MaxDistance: 0.1,
+					MinDistance: 0.2,
+					Count:       200,
+					Hits: []map[string]interface{}{
+						{
+							"property1": "value1",
+							"_additional": &additional.GroupHitAdditional{
+								ID:       "2c76ca18-2073-4c48-aa52-7f444d2f5b80",
+								Distance: 0.24,
+							},
+						},
+						{
+							"property1": "value2",
+						},
+					},
+				},
+			},
+			Properties: map[string]interface{}{
+				"name": "MyName",
+				"foo":  float64(17),
+			},
+		},
+		[]float32{1, 2, 0.7},
+	)
+	before.SetDocID(7)
+
+	asBinary, err := before.MarshalBinary()
+	require.Nil(t, err)
+
+	after, err := FromBinary(asBinary)
+	require.Nil(t, err)
+
+	t.Run("compare", func(t *testing.T) {
+		assert.Equal(t, before, after)
+	})
+
+	t.Run("extract only doc id and compare", func(t *testing.T) {
+		id, err := DocIDFromBinary(asBinary)
+		require.Nil(t, err)
+		assert.Equal(t, uint64(7), id)
+	})
+
+	t.Run("extract single text prop", func(t *testing.T) {
+		prop, ok, err := ParseAndExtractTextProp(asBinary, "name")
+		require.Nil(t, err)
+		require.True(t, ok)
+		require.NotEmpty(t, prop)
+		assert.Equal(t, "MyName", prop[0])
+	})
+
+	t.Run("extract non-existing text prop", func(t *testing.T) {
+		prop, ok, err := ParseAndExtractTextProp(asBinary, "IDoNotExist")
+		require.Nil(t, err)
+		require.True(t, ok)
+		require.Empty(t, prop)
+	})
+
+	t.Run("extract group additional property", func(t *testing.T) {
+		require.NotNil(t, after.AdditionalProperties())
+		require.NotNil(t, after.AdditionalProperties()["group"])
+		group, ok := after.AdditionalProperties()["group"].(*additional.Group)
+		require.True(t, ok)
+		assert.Equal(t, 100, group.ID)
+		assert.NotNil(t, group.GroupedBy)
+		assert.Equal(t, "group-by-some-property", group.GroupedBy.Value)
+		assert.Equal(t, []string{"property-path"}, group.GroupedBy.Path)
+		assert.Equal(t, 200, group.Count)
+		assert.Equal(t, float32(0.1), group.MaxDistance)
+		assert.Equal(t, float32(0.2), group.MinDistance)
+		require.Len(t, group.Hits, 2)
+		require.NotNil(t, group.Hits[0]["_additional"])
+		groupHitAdditional, ok := group.Hits[0]["_additional"].(*additional.GroupHitAdditional)
+		require.True(t, ok)
+		assert.Equal(t, "2c76ca18-2073-4c48-aa52-7f444d2f5b80", groupHitAdditional.ID)
+		assert.Equal(t, float32(0.24), groupHitAdditional.Distance)
+		assert.Equal(t, "value1", group.Hits[0]["property1"])
+		require.Nil(t, group.Hits[1]["_additional"])
+		assert.Equal(t, "value2", group.Hits[1]["property1"])
+	})
+}

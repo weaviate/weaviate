@@ -225,6 +225,7 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 
 func (m *Manager) setPropertyDefaults(prop *models.Property) {
 	m.setPropertyDefaultTokenization(prop)
+	m.setPropertyDefaultIndexing(prop)
 }
 
 func (m *Manager) setPropertyDefaultTokenization(prop *models.Property) {
@@ -244,6 +245,34 @@ func (m *Manager) setPropertyDefaultTokenization(prop *models.Property) {
 	}
 }
 
+func (m *Manager) setPropertyDefaultIndexing(prop *models.Property) {
+	// if IndexInverted is set but IndexFilterable and IndexSearchable are not
+	// migrate IndexInverted later.
+	if prop.IndexInverted != nil &&
+		prop.IndexFilterable == nil &&
+		prop.IndexSearchable == nil {
+		return
+	}
+
+	vTrue := true
+	if prop.IndexFilterable == nil {
+		prop.IndexFilterable = &vTrue
+	}
+	if prop.IndexSearchable == nil {
+		switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
+		case schema.DataTypeString, schema.DataTypeStringArray:
+			// string/string[] are migrated to text/text[] later,
+			// at this point they are still valid data types, therefore should be handled here
+			prop.IndexSearchable = &vTrue
+		case schema.DataTypeText, schema.DataTypeTextArray:
+			prop.IndexSearchable = &vTrue
+		default:
+			vFalse := false
+			prop.IndexSearchable = &vFalse
+		}
+	}
+}
+
 func (m *Manager) migrateClassSettings(class *models.Class) {
 	for _, prop := range class.Properties {
 		m.migratePropertySettings(prop)
@@ -252,6 +281,7 @@ func (m *Manager) migrateClassSettings(class *models.Class) {
 
 func (m *Manager) migratePropertySettings(prop *models.Property) {
 	m.migratePropertyDataTypeAndTokenization(prop)
+	m.migratePropertyIndexInverted(prop)
 }
 
 // as of v1.19 DataTypeString and DataTypeStringArray are deprecated
@@ -274,6 +304,29 @@ func (m *Manager) migratePropertyDataTypeAndTokenization(prop *models.Property) 
 	case models.PropertyTokenizationField:
 		// stays field
 	}
+}
+
+// as of v1.19 IndexInverted is deprecated and replaced with
+// IndexFilterable (set inverted index)
+// and IndexSearchable (map inverted index with term frequencies;
+// therefore applicable only to text/text[] data types)
+func (m *Manager) migratePropertyIndexInverted(prop *models.Property) {
+	// if none of new options is set, use inverted settings
+	if prop.IndexInverted != nil &&
+		prop.IndexFilterable == nil &&
+		prop.IndexSearchable == nil {
+		prop.IndexFilterable = prop.IndexInverted
+		switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
+		// string/string[] are already migrated into text/text[], can be skipped here
+		case schema.DataTypeText, schema.DataTypeTextArray:
+			prop.IndexSearchable = prop.IndexInverted
+		default:
+			vFalse := false
+			prop.IndexSearchable = &vFalse
+		}
+	}
+	// new options have precedence so inverted can be reset
+	prop.IndexInverted = nil
 }
 
 func (m *Manager) validateCanAddClass(
@@ -337,7 +390,11 @@ func (m *Manager) validateProperty(
 		return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
 	}
 
-	if err := validatePropertyTokenization(property.Tokenization, propertyDataType); err != nil {
+	if err := m.validatePropertyTokenization(property.Tokenization, propertyDataType); err != nil {
+		return err
+	}
+
+	if err := m.validatePropertyIndexing(property); err != nil {
 		return err
 	}
 

@@ -55,6 +55,10 @@ func hybridOperands(classObject *graphql.Object,
 			Description: "Vector search",
 			Type:        graphql.NewList(graphql.Float),
 		},
+		"properties": &graphql.InputObjectFieldConfig{
+			Description: "Which properties should be included in the sparse search",
+			Type:        graphql.NewList(graphql.String),
+		},
 	}
 
 	if os.Getenv("ENABLE_EXPERIMENTAL_HYBRID_OPERANDS") != "" {

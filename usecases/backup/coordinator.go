@@ -168,7 +168,7 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 	go func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
-		c.commit(ctx, &statusReq, nodes)
+		c.commit(ctx, &statusReq, nodes, false)
 		if err := store.PutMeta(ctx, GlobalBackupFile, c.descriptor); err != nil {
 			c.log.WithField("action", OpCreate).
 				WithField("backup_id", req.ID).Errorf("put_meta: %v", err)
@@ -208,7 +208,7 @@ func (c *coordinator) Restore(ctx context.Context, store coordStore, backend str
 	go func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
-		c.commit(ctx, &statusReq, nodes)
+		c.commit(ctx, &statusReq, nodes, true)
 		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor); err != nil {
 			c.log.WithField("action", OpRestore).
 				WithField("backup_id", desc.ID).Errorf("put_meta: %v", err)
@@ -321,17 +321,28 @@ func (c *coordinator) canCommit(ctx context.Context, method Op, backend string) 
 
 // commit tells each participant to commit its backup operation
 // It stores the final result in the provided backend
-func (c *coordinator) commit(ctx context.Context, req *StatusRequest, nodes map[string]string) {
-	c.commitAll(ctx, req, nodes)
+func (c *coordinator) commit(ctx context.Context,
+	req *StatusRequest,
+	node2Addr map[string]string,
+	toleratePartialFailure bool,
+) {
+	// create a new copy for commitAll and queryAll to mutate
+	node2Host := make(map[string]string, len(node2Addr))
+	for k, v := range node2Addr {
+		node2Host[k] = v
+	}
+	nFailures := c.commitAll(ctx, req, node2Host)
 	retryAfter := c.timeoutNextRound / 5 // 2s for first time
-	for len(nodes) > 0 {
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(retryAfter):
-			retryAfter = c.timeoutNextRound
-			c.queryAll(ctx, req, nodes)
-		}
+	canContinue := len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
+	for canContinue {
+		<-time.After(retryAfter)
+		retryAfter = c.timeoutNextRound
+		nFailures += c.queryAll(ctx, req, node2Host)
+		canContinue = len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
+	}
+	if !toleratePartialFailure && nFailures > 0 {
+		req := &AbortRequest{Method: req.Method, ID: req.ID, Backend: req.Backend}
+		c.abortAll(context.Background(), req, node2Addr)
 	}
 	c.descriptor.CompletedAt = time.Now().UTC()
 	status := backup.Success
@@ -352,7 +363,7 @@ func (c *coordinator) commit(ctx context.Context, req *StatusRequest, nodes map[
 
 // queryAll queries all participant and store their statuses internally
 //
-// It returns the number of remaining nodes to query in the next round
+// It returns the number of failed node backups
 func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes map[string]string) int {
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutQueryStatus)
 	defer cancel()
@@ -372,26 +383,32 @@ func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes ma
 		i++
 	}
 	g.Wait()
-	now := time.Now()
+	n, now := 0, time.Now()
 	for _, r := range rs {
 		st := c.Participants[r.node]
 		if r.err == nil {
 			st.LastTime, st.Status, st.Reason = now, r.Status, r.Err
-			if r.Status == backup.Success || r.Status == backup.Failed {
+			if r.Status == backup.Success {
 				delete(nodes, r.node)
 			}
+			if r.Status == backup.Failed {
+				delete(nodes, r.node)
+				n++
+			}
 		} else if now.Sub(st.LastTime) > c.timeoutNodeDown {
+			n++
 			st.Status = backup.Failed
 			st.Reason = "might be down:" + r.err.Error()
 			delete(nodes, r.node)
 		}
 		c.Participants[r.node] = st
 	}
-	return len(nodes)
+	return n
 }
 
 // commitAll tells all participants to proceed with their backup operations
-func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes map[string]string) {
+// It returns the number of failures
+func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes map[string]string) int {
 	type pair struct {
 		node string
 		err  error
@@ -415,7 +432,7 @@ func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes m
 			return nil
 		})
 	}
-
+	nFailures := 0
 	for x := range errChan {
 		st := c.Participants[x.node]
 		st.Status = backup.Failed
@@ -425,8 +442,10 @@ func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes m
 			WithField("backup_id", req.ID).
 			WithField("node", x.node).Error(x.err)
 		delete(nodes, x.node)
+		nFailures++
 		continue
 	}
+	return nFailures
 }
 
 // abortAll tells every node to abort transaction

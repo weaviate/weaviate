@@ -43,5 +43,7 @@ type Migrator interface {
 	UpdateInvertedIndexConfig(ctx context.Context, className string,
 		updated *models.InvertedIndexConfig) error
 	RecalculateVectorDimensions(ctx context.Context) error
+	RecountProperties(ctx context.Context) error
 	InvertedReindex(ctx context.Context, taskNames ...string) error
+	AdjustFilterablePropSettings(ctx context.Context) error
 }

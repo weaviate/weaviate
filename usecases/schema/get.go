@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -52,18 +53,11 @@ func (m *Manager) IndexedInverted(className, propertyName string) bool {
 	if class == nil {
 		return false
 	}
-
-	for _, prop := range class.Properties {
-		if prop.Name == propertyName {
-			if prop.IndexInverted == nil {
-				return true
-			}
-
-			return *prop.IndexInverted
-		}
+	prop, _ := schema.GetPropertyByName(class, propertyName)
+	if prop == nil {
+		return false
 	}
-
-	return false
+	return inverted.HasInvertedIndex(prop)
 }
 
 func (m *Manager) GetClass(ctx context.Context, principal *models.Principal,

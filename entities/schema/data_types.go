@@ -257,6 +257,11 @@ func AsPrimitive(dataType []string) (DataType, bool) {
 				return dt, true
 			}
 		}
+		if len(dataType[0]) == 0 {
+			return "", true
+		}
+
+		return "", unicode.IsLower(rune(dataType[0][0]))
 	}
 	return "", false
 }

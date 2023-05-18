@@ -14,12 +14,12 @@ package inverted
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/schema"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -33,41 +33,32 @@ type propValuePair struct {
 
 	// only set if operator=OperatorWithinGeoRange, as that cannot be served by a
 	// byte value from an inverted index
-	valueGeoRange *filters.GeoRange
-	hasFrequency  bool
-	docIDs        docBitmap
-	children      []*propValuePair
+	valueGeoRange      *filters.GeoRange
+	docIDs             docBitmap
+	children           []*propValuePair
+	hasFilterableIndex bool
+	hasSearchableIndex bool
 }
 
 func newPropValuePair() propValuePair {
 	return propValuePair{docIDs: newDocBitmap()}
 }
 
-func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int, skipChecksum bool) error {
+func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 	if pv.operator.OnValue() {
-		id := helpers.BucketFromPropNameLSM(pv.prop)
-		if pv.prop == filters.InternalPropBackwardsCompatID {
-			// the user-specified ID is considered legacy. we
-			// support backwards compatibility with this prop
-			id = helpers.BucketFromPropNameLSM(filters.InternalPropID)
-			pv.prop = filters.InternalPropID
-			pv.hasFrequency = false
+		var bucketName string
+		if pv.hasFilterableIndex {
+			bucketName = helpers.BucketFromPropNameLSM(pv.prop)
+		} else if pv.hasSearchableIndex {
+			bucketName = helpers.BucketSearchableFromPropNameLSM(pv.prop)
+		} else {
+			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 		}
 
-		if pv.operator == filters.OperatorIsNull {
-			id += filters.InternalNullIndex
-		}
+		b := s.store.Bucket(bucketName)
 
-		// format of id for property with lengths is "property_len(*PROPNAME*)
-		propName, isPropLengthFilter := schema.IsPropertyLength(id, 9)
-		if isPropLengthFilter {
-			id = helpers.BucketFromPropNameLSM(propName + filters.InternalPropertyLength)
-			pv.prop = propName + filters.InternalPropertyLength
-		}
-
-		b := s.store.Bucket(id)
-
-		if b == nil && isPropLengthFilter {
+		// TODO text_rbm_inverted_index find better way check whether prop len
+		if b == nil && strings.HasSuffix(bucketName, filters.InternalPropertyLength) {
 			return errors.Errorf("Property length must be indexed to be filterable! " +
 				"add `IndexPropertyLength: true` to the invertedIndexConfig." +
 				"Geo-coordinates, phone numbers and data blobs are not supported by property length.")
@@ -92,7 +83,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int, skipChecksum bool) 
 		}
 
 		ctx := context.TODO() // TODO: pass through instead of spawning new
-		dbm, err := s.docBitmap(ctx, b, limit, pv, skipChecksum)
+		dbm, err := s.docBitmap(ctx, b, limit, pv)
 		if err != nil {
 			return err
 		}
@@ -106,7 +97,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int, skipChecksum bool) 
 				// otherwise we run into situations where each subfilter on their own
 				// runs into the limit, possibly yielding in "less than limit" results
 				// after merging.
-				err := child.fetchDocIDs(s, 0, skipChecksum)
+				err := child.fetchDocIDs(s, 0)
 				if err != nil {
 					return errors.Wrapf(err, "nested child %d", i)
 				}
@@ -122,7 +113,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int, skipChecksum bool) 
 	return nil
 }
 
-func (pv *propValuePair) mergeDocIDs(useChecksums bool) (*docBitmap, error) {
+func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
 	if pv.operator.OnValue() {
 		return &pv.docIDs, nil
 	}
@@ -136,16 +127,11 @@ func (pv *propValuePair) mergeDocIDs(useChecksums bool) (*docBitmap, error) {
 
 	dbms := make([]*docBitmap, len(pv.children))
 	for i, child := range pv.children {
-		dbm, err := child.mergeDocIDs(useChecksums)
+		dbm, err := child.mergeDocIDs()
 		if err != nil {
 			return nil, errors.Wrapf(err, "retrieve doc bitmap of child %d", i)
 		}
 		dbms[i] = dbm
-	}
-
-	if useChecksums && checksumsIdenticalBM(dbms) {
-		// all children are identical, no need to merge, simply return the first
-		return dbms[0], nil
 	}
 
 	mergeRes := dbms[0].docIDs.Clone()
@@ -158,17 +144,7 @@ func (pv *propValuePair) mergeDocIDs(useChecksums bool) (*docBitmap, error) {
 		mergeFn(dbms[i].docIDs)
 	}
 
-	var checksum []byte
-	if useChecksums {
-		checksums := make([][]byte, len(pv.children))
-		for i := 0; i < len(dbms); i++ {
-			checksums[i] = dbms[i].checksum
-		}
-		checksum = combineChecksums(checksums, pv.operator)
-	}
-
 	return &docBitmap{
-		docIDs:   roaringset.Condense(mergeRes),
-		checksum: checksum,
+		docIDs: roaringset.Condense(mergeRes),
 	}, nil
 }

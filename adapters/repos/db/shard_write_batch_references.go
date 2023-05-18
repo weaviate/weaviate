@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -95,6 +97,13 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,
 	}
 
 	invertedMerger := inverted.NewDeltaMerger()
+	propsByName, err := b.getSchemaPropsByName()
+	if err != nil {
+		for i := range errs {
+			errs[i] = errors.Wrap(err, "getting schema properties")
+		}
+		return errs
+	}
 
 	// TODO: is there any benefit in having this parallelized? if so, don't forget to lock before assigning errors
 	// If we want them to run in parallel we need to look individual objects,
@@ -126,12 +135,17 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,
 			errLock.Unlock()
 		}
 
-		_ = res
+		prop, ok := propsByName[ref.From.Property.String()]
+		if !ok {
+			errLock.Lock()
+			errs[i] = fmt.Errorf("property '%s' not found in schema", ref.From.Property)
+			errLock.Unlock()
+		}
 
 		// generally the batch ref is an append only change which does not alter
 		// the vector position. There is however one inverted index link that needs
 		// to be cleanup: the ref count
-		if err := b.analyzeInverted(invertedMerger, res, ref); err != nil {
+		if err := b.analyzeInverted(invertedMerger, res, ref, prop); err != nil {
 			if err != nil {
 				errLock.Lock()
 				errs[i] = err
@@ -152,14 +166,14 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,
 
 func (b *referencesBatcher) analyzeInverted(
 	invertedMerger *inverted.DeltaMerger, mergeResult mutableMergeResult,
-	ref objects.BatchReference,
+	ref objects.BatchReference, prop *models.Property,
 ) error {
-	prevProps, err := b.analyzeRef(mergeResult.previous, ref)
+	prevProps, err := b.analyzeRef(mergeResult.previous, ref, prop)
 	if err != nil {
 		return err
 	}
 
-	nextProps, err := b.analyzeRef(mergeResult.next, ref)
+	nextProps, err := b.analyzeRef(mergeResult.next, ref, prop)
 	if err != nil {
 		return err
 	}
@@ -187,27 +201,51 @@ func (b *referencesBatcher) writeInverted(in inverted.DeltaMergeResult) error {
 	return nil
 }
 
+// TODO text_rbm_inverted_index unify bucket write
 func (b *referencesBatcher) writeInvertedDeletions(
 	in []inverted.MergeProperty,
 ) error {
-	// in the references batcher we can only ever write ref count entire which
-	// are guaranteed to be not have a frequency, meaning they will use the
-	// "Set" strategy in the lsmkv store
 	for _, prop := range in {
-		bucket := b.shard.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
-		if bucket == nil {
-			return errors.Errorf("no bucket for prop '%s' found", prop.Name)
-		}
+		// in the references batcher we can only ever write ref count entire which
+		// are guaranteed to be not have a frequency, meaning they will use the
+		// "Set" strategy in the lsmkv store
+		if prop.HasFilterableIndex {
+			bucket := b.shard.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
+			if bucket == nil {
+				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
+			}
 
-		hashBucket := b.shard.store.Bucket(helpers.HashBucketFromPropNameLSM(prop.Name))
-		if hashBucket == nil {
-			return errors.Errorf("no hash bucket for prop '%s' found", prop.Name)
+			for _, item := range prop.MergeItems {
+				for _, id := range item.DocIDs {
+					err := b.shard.deleteInvertedIndexItemLSM(bucket,
+						inverted.Countable{Data: item.Data}, id.DocID)
+					if err != nil {
+						return err
+					}
+				}
+			}
 		}
+	}
 
-		for _, item := range prop.MergeItems {
-			for _, id := range item.DocIDs {
-				err := b.shard.deleteInvertedIndexItemLSM(bucket, hashBucket,
-					inverted.Countable{Data: item.Data}, id.DocID)
+	return nil
+}
+
+// TODO text_rbm_inverted_index unify bucket write
+func (b *referencesBatcher) writeInvertedAdditions(
+	in []inverted.MergeProperty,
+) error {
+	for _, prop := range in {
+		// in the references batcher we can only ever write ref count entire which
+		// are guaranteed to be not have a frequency, meaning they will use the
+		// "Set" strategy in the lsmkv store
+		if prop.HasFilterableIndex {
+			bucket := b.shard.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
+			if bucket == nil {
+				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
+			}
+
+			for _, item := range prop.MergeItems {
+				err := b.shard.batchExtendInvertedIndexItemsLSMNoFrequency(bucket, item)
 				if err != nil {
 					return err
 				}
@@ -218,37 +256,8 @@ func (b *referencesBatcher) writeInvertedDeletions(
 	return nil
 }
 
-func (b *referencesBatcher) writeInvertedAdditions(
-	in []inverted.MergeProperty,
-) error {
-	// in the references batcher we can only ever write ref count entire which
-	// are guaranteed to be not have a frequency, meaning they will use the
-	// "Set" strategy in the lsmkv store
-	for _, prop := range in {
-		bucket := b.shard.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
-		if bucket == nil {
-			return errors.Errorf("no bucket for prop '%s' found", prop.Name)
-		}
-
-		hashBucket := b.shard.store.Bucket(helpers.HashBucketFromPropNameLSM(prop.Name))
-		if hashBucket == nil {
-			return errors.Errorf("no hash bucket for prop '%s' found", prop.Name)
-		}
-
-		for _, item := range prop.MergeItems {
-			err := b.shard.batchExtendInvertedIndexItemsLSMNoFrequency(bucket, hashBucket,
-				item)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
 func (b *referencesBatcher) analyzeRef(obj *storobj.Object,
-	ref objects.BatchReference,
+	ref objects.BatchReference, prop *models.Property,
 ) ([]inverted.Property, error) {
 	props := obj.Properties()
 	if props == nil {
@@ -286,13 +295,15 @@ func (b *referencesBatcher) analyzeRef(obj *storobj.Object,
 	}
 
 	return []inverted.Property{{
-		Name:         helpers.MetaCountProp(ref.From.Property.String()),
-		Items:        countItems,
-		HasFrequency: false,
+		Name:               helpers.MetaCountProp(ref.From.Property.String()),
+		Items:              countItems,
+		HasFilterableIndex: inverted.HasFilterableIndexMetaCount && inverted.HasInvertedIndex(prop),
+		HasSearchableIndex: inverted.HasSearchableIndexMetaCount && inverted.HasInvertedIndex(prop),
 	}, {
-		Name:         ref.From.Property.String(),
-		Items:        valueItems,
-		HasFrequency: false,
+		Name:               ref.From.Property.String(),
+		Items:              valueItems,
+		HasFilterableIndex: inverted.HasFilterableIndex(prop),
+		HasSearchableIndex: inverted.HasSearchableIndex(prop),
 	}}, nil
 }
 
@@ -325,4 +336,19 @@ func (b *referencesBatcher) flushWALs(ctx context.Context) {
 			b.setErrorAtIndex(err, i)
 		}
 	}
+}
+
+func (b *referencesBatcher) getSchemaPropsByName() (map[string]*models.Property, error) {
+	idx := b.shard.index
+	sch := idx.getSchema.GetSchemaSkipAuth().Objects
+	class, err := schema.GetClassByName(sch, idx.Config.ClassName.String())
+	if err != nil {
+		return nil, err
+	}
+
+	propsByName := map[string]*models.Property{}
+	for _, prop := range class.Properties {
+		propsByName[prop.Name] = prop
+	}
+	return propsByName, nil
 }

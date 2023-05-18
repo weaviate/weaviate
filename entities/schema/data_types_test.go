@@ -222,13 +222,15 @@ func Test_DataType_AsPrimitive(t *testing.T) {
 			})
 		}
 
-		inputDataType := []string{"non-existing"}
-		testCases = append(testCases, testCase{
-			name:                fmt.Sprintf("%v", inputDataType),
-			inputDataType:       inputDataType,
-			expectedDataType:    "",
-			expectedIsPrimitive: false,
-		})
+		for _, dtStr := range []string{"non-existing", ""} {
+			inputDataType := []string{dtStr}
+			testCases = append(testCases, testCase{
+				name:                fmt.Sprintf("%v", inputDataType),
+				inputDataType:       inputDataType,
+				expectedDataType:    "",
+				expectedIsPrimitive: true,
+			})
+		}
 
 		runTestCases(t, testCases)
 	})
