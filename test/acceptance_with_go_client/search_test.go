@@ -30,6 +30,48 @@ var paragraphs = []string{
 	"this has nothing to do with the rest",
 }
 
+var (
+	TRUE = true
+	ctx  = context.Background()
+)
+
+func AddClassAndObjects(t *testing.T, className string, datatype string, c *client.Client) {
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "contents", DataType: []string{datatype}, Tokenization: "word", IndexFilterable: &TRUE, IndexSearchable: &TRUE},
+			{Name: "num", DataType: []string{"int"}},
+		},
+		InvertedIndexConfig: &models.InvertedIndexConfig{Bm25: &models.BM25Config{K1: 1.2, B: 0.75}},
+		Vectorizer:          "none",
+	}
+	require.Nil(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+	creator := c.Data().Creator()
+	_, err := creator.WithClassName(className).WithProperties(
+		map[string]interface{}{"contents": []string{"nice", "what a rain day"}, "num": 0}).Do(ctx)
+	require.Nil(t, err)
+	_, err = creator.WithClassName(className).WithProperties(
+		map[string]interface{}{"contents": []string{"rain", "snow and sun at once? nice"}, "num": 1}).Do(ctx)
+	require.Nil(t, err)
+	_, err = creator.WithClassName(className).WithProperties(
+		map[string]interface{}{"contents": []string{
+			"super long text to get the score down",
+			"snow and sun at the same time? How nice",
+			"long text without any meaning",
+			"just ignore this",
+			"this too, it doesn't matter",
+		}, "num": 2}).Do(ctx)
+	_, err = creator.WithClassName(className).WithProperties(
+		map[string]interface{}{"contents": []string{
+			"super long text to get the score down",
+			"rain is necessary",
+			"long text without any meaning",
+			"just ignore this",
+			"this too, it doesn't matter",
+		}, "num": 3}).Do(ctx)
+}
+
 func TestSearchOnArrays(t *testing.T) {
 	ctx := context.Background()
 	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
