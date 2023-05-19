@@ -414,6 +414,28 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(6), res[0].DocID())
 		require.Equal(t, uint64(5), res[1].DocID())
 	})
+
+	t.Run("With autocut", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "journey", Properties: []string{"description"}}
+		resNoAutoCut, _, err := idx.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, nil)
+		require.Nil(t, err)
+
+		kwr.AutoCut = 1
+		resAutoCut, _, err := idx.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, nil)
+		require.Nil(t, err)
+
+		require.Less(t, len(resAutoCut), len(resNoAutoCut))
+
+		require.EqualValues(t, 0.5868752, resNoAutoCut[0].Score())
+		require.EqualValues(t, 0.5450892, resNoAutoCut[1].Score()) // <= autocut last element
+		require.EqualValues(t, 0.34149727, resNoAutoCut[2].Score())
+		require.EqualValues(t, 0.3049518, resNoAutoCut[3].Score())
+		require.EqualValues(t, 0.27547202, resNoAutoCut[4].Score())
+
+		require.Len(t, resAutoCut, 2)
+		require.EqualValues(t, 0.5868752, resAutoCut[0].Score())
+		require.EqualValues(t, 0.5450892, resAutoCut[1].Score())
+	})
 }
 
 func TestBM25FSingleProp(t *testing.T) {

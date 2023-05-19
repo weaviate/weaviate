@@ -36,7 +36,7 @@ require (
 	golang.org/x/oauth2 v0.0.0-20220822191816-0ebed06d0094
 	golang.org/x/sync v0.1.0
 	golang.org/x/sys v0.6.0
-	gonum.org/v1/gonum v0.9.1
+	gonum.org/v1/gonum v0.12.0
 	google.golang.org/api v0.85.0
 	google.golang.org/grpc v1.47.0
 	gopkg.in/yaml.v2 v2.4.0
