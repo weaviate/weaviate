@@ -23,6 +23,7 @@ type KeywordRanking struct {
 	Properties             []string `json:"properties"`
 	Query                  string   `json:"query"`
 	AdditionalExplanations bool     `json:"additionalExplanations"`
+	AutoCut                int      `json:"autocut"`
 }
 
 type WeightedSearchResult struct {
@@ -38,6 +39,7 @@ type HybridSearch struct {
 	Alpha       float64     `json:"alpha"`
 	Query       string      `json:"query"`
 	Vector      []float32   `json:"vector"`
+	AutoCut     int         `json:"autocut"`
 	Properties  []string    `json:"properties"`
 }
 
