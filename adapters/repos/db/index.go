@@ -308,10 +308,18 @@ func (i *Index) shardFromObject(o *storobj.Object) (string, error) {
 		return "", fmt.Errorf("tenant key %q is required", i.tenantKey)
 	}
 	ss := i.getSchema.ShardingState(i.Config.ClassName.String())
-	if name := ss.Shard(keyVal, string(o.ID())); name != "" {
+	if name := ss.Shard(keyVal, o.ID().String()); name != "" {
 		return name, nil
 	}
 	return "", fmt.Errorf("no tenant found with key: %q", keyVal)
+}
+
+func (i *Index) shardFromTenantKey(tenantKey string, id strfmt.UUID) (string, error) {
+	ss := i.getSchema.ShardingState(i.Config.ClassName.String())
+	if name := ss.Shard(tenantKey, id.String()); name != "" {
+		return name, nil
+	}
+	return "", fmt.Errorf("no tenant found with key: %q", tenantKey)
 }
 
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
@@ -628,11 +636,15 @@ func (i *Index) IncomingBatchAddReferences(ctx context.Context, shardName string
 
 func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, addl additional.Properties,
-	replProps *additional.ReplicationProperties,
+	replProps *additional.ReplicationProperties, tenantKey *string,
 ) (*storobj.Object, error) {
-	shardName, err := i.shardFromUUID(id)
+	if i.tenantKey != "" && tenantKey == nil {
+		return nil, fmt.Errorf("class %q has multi-tenancy enabled, tenant_key required", i.Config.ClassName)
+	}
+
+	shardName, err := i.shardForObjectRead(id, tenantKey)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to determine shard for object %q: %w", id, err)
 	}
 
 	var obj *storobj.Object
@@ -661,6 +673,21 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	}
 
 	return obj, err
+}
+
+func (i *Index) shardForObjectRead(id strfmt.UUID, tenantKey *string) (shardName string, err error) {
+	if tenantKey != nil {
+		shardName, err = i.shardFromTenantKey(*tenantKey, id)
+		if err != nil {
+			return
+		}
+	} else {
+		shardName, err = i.shardFromUUID(id)
+		if err != nil {
+			return
+		}
+	}
+	return
 }
 
 func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
@@ -770,10 +797,11 @@ func wrapIDsInMulti(in []strfmt.UUID) []multi.Identifier {
 	return out
 }
 
-func (i *Index) exists(ctx context.Context, id strfmt.UUID,
-	replProps *additional.ReplicationProperties,
-) (bool, error) {
-	shardName, err := i.shardFromUUID(id)
+func (i *Index) exists(ctx context.Context, id strfmt.UUID, replProps *additional.ReplicationProperties, tenantKey *string) (bool, error) {
+	if i.tenantKey != "" && tenantKey == nil {
+		return false, fmt.Errorf("class %q has multi-tenancy enabled, tenant_key required", i.Config.ClassName)
+	}
+	shardName, err := i.shardForObjectRead(id, tenantKey)
 	if err != nil {
 		return false, err
 	}

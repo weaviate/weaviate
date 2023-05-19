@@ -43,7 +43,8 @@ func (m *Manager) DeleteObjectReference(
 	defer m.metrics.DeleteReferenceDec()
 
 	deprecatedEndpoint := input.Class == ""
-	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID, additional.Properties{}, nil)
+	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID,
+		additional.Properties{}, nil, nil)
 	if err != nil {
 		errnf := ErrNotFound{}
 		if errors.As(err, &errnf) {

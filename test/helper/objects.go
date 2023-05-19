@@ -66,6 +66,12 @@ func CreateObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyL
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func CreateTenantObject(t *testing.T, object *models.Object, tenantKey string) {
+	params := objects.NewObjectsCreateParams().WithBody(object).WithTenantKey(&tenantKey)
+	resp, err := Client(t).Objects.ObjectsCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
 	params := batch.NewBatchObjectsCreateParams().
 		WithBody(batch.BatchObjectsCreateBody{

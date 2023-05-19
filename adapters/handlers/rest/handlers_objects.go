@@ -44,11 +44,10 @@ type ModulesProvider interface {
 }
 
 type objectsManager interface {
-	AddObject(context.Context, *models.Principal, *models.Object,
-		*additional.ReplicationProperties) (*models.Object, error)
+	AddObject(context.Context, *models.Principal, *models.Object, *additional.ReplicationProperties, *string) (*models.Object, error)
 	ValidateObject(context.Context, *models.Principal, *models.Object, *additional.ReplicationProperties) error
 	GetObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID,
-		_ additional.Properties, _ *additional.ReplicationProperties) (*models.Object, error)
+		_ additional.Properties, _ *additional.ReplicationProperties, _ *string) (*models.Object, error)
 	DeleteObject(_ context.Context, _ *models.Principal,
 		class string, _ strfmt.UUID, _ *additional.ReplicationProperties) error
 	UpdateObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID,
@@ -75,7 +74,8 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	object, err := h.manager.AddObject(params.HTTPRequest.Context(), principal, params.Body, repl)
+	object, err := h.manager.AddObject(params.HTTPRequest.Context(),
+		principal, params.Body, repl, params.TenantKey)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -152,7 +152,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 	}
 
 	object, err := h.manager.GetObject(params.HTTPRequest.Context(), principal,
-		params.ClassName, params.ID, additional, replProps)
+		params.ClassName, params.ID, additional, replProps, params.TenantKey)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:

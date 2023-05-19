@@ -1054,7 +1054,7 @@ func (f *fakeManager) HeadObject(context.Context, *models.Principal,
 }
 
 func (f *fakeManager) AddObject(_ context.Context, _ *models.Principal,
-	object *models.Object, _ *additional.ReplicationProperties,
+	object *models.Object, _ *additional.ReplicationProperties, _ *string,
 ) (*models.Object, error) {
 	return object, nil
 }
@@ -1066,7 +1066,7 @@ func (f *fakeManager) ValidateObject(_ context.Context, _ *models.Principal,
 }
 
 func (f *fakeManager) GetObject(_ context.Context, _ *models.Principal, class string,
-	_ strfmt.UUID, _ additional.Properties, _ *additional.ReplicationProperties,
+	_ strfmt.UUID, _ additional.Properties, _ *additional.ReplicationProperties, _ *string,
 ) (*models.Object, error) {
 	return f.getObjectReturn, f.getObjectErr
 }

@@ -2295,6 +2295,9 @@
           },
           {
             "$ref": "#/parameters/CommonNodeNameParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
