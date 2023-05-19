@@ -47,7 +47,8 @@ func (m *Manager) UpdateObjectReferences(
 	m.metrics.UpdateReferenceInc()
 	defer m.metrics.UpdateReferenceDec()
 
-	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID, additional.Properties{}, nil)
+	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID,
+		additional.Properties{}, nil, nil)
 	if err != nil {
 		errnf := ErrNotFound{}
 		if errors.As(err, &errnf) {

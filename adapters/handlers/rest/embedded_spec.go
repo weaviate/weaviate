@@ -1141,6 +1141,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonNodeNameParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -5577,6 +5580,12 @@ func init() {
             "type": "string",
             "description": "The target node which should fulfill the request",
             "name": "node_name",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant_key",
             "in": "query"
           }
         ],

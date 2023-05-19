@@ -49,7 +49,7 @@ func (m *Manager) DeleteObject(ctx context.Context, principal *models.Principal,
 		return m.deleteObjectFromRepo(ctx, id)
 	}
 
-	ok, err := m.vectorRepo.Exists(ctx, class, id, repl)
+	ok, err := m.vectorRepo.Exists(ctx, class, id, repl, nil)
 	if err != nil {
 		return NewErrInternal("check object existence: %v", err)
 	}
@@ -74,7 +74,7 @@ func (m *Manager) deleteObjectFromRepo(ctx context.Context, id strfmt.UUID) erro
 	// https://github.com/weaviate/weaviate/issues/1836
 	deleteCounter := 0
 	for {
-		objectRes, err := m.getObjectFromRepo(ctx, "", id, additional.Properties{}, nil)
+		objectRes, err := m.getObjectFromRepo(ctx, "", id, additional.Properties{}, nil, nil)
 		if err != nil {
 			_, ok := err.(ErrNotFound)
 			if ok {

@@ -117,7 +117,7 @@ func TestCRUD(t *testing.T) {
 	thingID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
 
 	t.Run("validating that the thing doesn't exist prior", func(t *testing.T) {
-		ok, err := repo.Exists(context.Background(), "TheBestThingClass", thingID, nil)
+		ok, err := repo.Exists(context.Background(), "TheBestThingClass", thingID, nil, nil)
 		require.Nil(t, err)
 		assert.False(t, ok)
 	})
@@ -169,7 +169,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("validating that the thing exists now", func(t *testing.T) {
-		ok, err := repo.Exists(context.Background(), "TheBestThingClass", thingID, nil)
+		ok, err := repo.Exists(context.Background(), "TheBestThingClass", thingID, nil, nil)
 		require.Nil(t, err)
 		assert.True(t, ok)
 	})
@@ -259,7 +259,7 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, expected, res.ObjectWithVector(false))
 
 		res, err = repo.Object(context.Background(), expected.Class, thingID, nil,
-			additional.Properties{}, nil)
+			additional.Properties{}, nil, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expected, res.ObjectWithVector(false))
 	})
@@ -625,7 +625,7 @@ func TestCRUD(t *testing.T) {
 	// Check the same, but with Object()
 	t.Run("searching a thing by ID", func(t *testing.T) {
 		item, err := repo.Object(context.Background(), "TheBestThingClass",
-			thingID, search.SelectProperties{}, additional.Properties{}, nil)
+			thingID, search.SelectProperties{}, additional.Properties{}, nil, nil)
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -2216,13 +2216,13 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}, nil))
 
 		res, err := repo.Object(context.Background(), classNameWithRefs, obj1ID, nil,
-			additional.Properties{}, nil)
+			additional.Properties{}, nil, nil)
 		require.Nil(t, err)
 		assert.NotNil(t, res)
 		assert.Equal(t, obj1.Properties, res.ObjectWithVector(false).Properties)
 
 		res, err = repo.Object(context.Background(), classNameWithRefs, obj2ID, nil,
-			additional.Properties{}, nil)
+			additional.Properties{}, nil, nil)
 		require.Nil(t, err)
 		assert.NotNil(t, res)
 		assert.Equal(t, obj2.Properties, res.ObjectWithVector(false).Properties)
@@ -2319,7 +2319,7 @@ func TestOverwriteObjects(t *testing.T) {
 
 	t.Run("assert data was overwritten", func(t *testing.T) {
 		found, err := repo.Object(context.Background(), stale.Class,
-			stale.ID, nil, additional.Properties{}, nil)
+			stale.ID, nil, additional.Properties{}, nil, nil)
 		assert.Nil(t, err)
 		assert.EqualValues(t, fresh, found.Object())
 	})
@@ -2496,7 +2496,8 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			Vector: nil,
 		}
 		require.Nil(t, repo.PutObject(context.Background(), objNil, objNil.Vector, nil))
-		found, err := repo.Object(context.Background(), class.Class, objNil.ID, nil, additional.Properties{}, nil)
+		found, err := repo.Object(context.Background(), class.Class, objNil.ID, nil,
+			additional.Properties{}, nil, nil)
 		require.Nil(t, err)
 		require.Equal(t, found.Vector, []float32{})
 		require.Equal(t, objNil.ID, found.ID)
@@ -2518,7 +2519,8 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			Vector: []float32{1, 2, 3, 4},
 		}
 		require.NotNil(t, repo.PutObject(context.Background(), obj2, obj2.Vector, nil))
-		found, err := repo.Object(context.Background(), class.Class, obj2.ID, nil, additional.Properties{}, nil)
+		found, err := repo.Object(context.Background(), class.Class, obj2.ID, nil,
+			additional.Properties{}, nil, nil)
 		require.Nil(t, err)
 		require.Nil(t, found)
 	})
@@ -2532,7 +2534,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			UpdateTime:      time.Now().UnixNano() / int64(time.Millisecond),
 		}, nil)
 		require.NotNil(t, err)
-		found, err := repo.Object(context.Background(), class.Class, obj1ID, nil, additional.Properties{}, nil)
+		found, err := repo.Object(context.Background(), class.Class, obj1ID, nil, additional.Properties{}, nil, nil)
 		require.Nil(t, err)
 		require.Len(t, found.Vector, 3)
 	})
@@ -2546,7 +2548,8 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			UpdateTime:      time.Now().UnixNano() / int64(time.Millisecond),
 		}, nil)
 		require.Nil(t, err)
-		found, err := repo.Object(context.Background(), class.Class, objNilID, nil, additional.Properties{}, nil)
+		found, err := repo.Object(context.Background(), class.Class, objNilID, nil,
+			additional.Properties{}, nil, nil)
 		require.Nil(t, err)
 		require.Len(t, found.Vector, 3)
 	})
@@ -2558,7 +2561,8 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			Vector: nil,
 		}
 		require.Nil(t, repo.PutObject(context.Background(), obj2Nil, obj2Nil.Vector, nil))
-		found, err := repo.Object(context.Background(), class.Class, obj2Nil.ID, nil, additional.Properties{}, nil)
+		found, err := repo.Object(context.Background(), class.Class, obj2Nil.ID, nil,
+			additional.Properties{}, nil, nil)
 		require.Nil(t, err)
 		require.Equal(t, obj2Nil.ID, found.ID)
 		require.Equal(t, []float32{}, found.Vector)

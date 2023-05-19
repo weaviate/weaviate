@@ -147,11 +147,11 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	require.Nil(t, err)
 
 	beforeDeleteObj1, err := index.objectByID(context.TODO(),
-		productsIds[0], nil, additional.Properties{}, nil)
+		productsIds[0], nil, additional.Properties{}, nil, nil)
 	require.Nil(t, err)
 
 	beforeDeleteObj2, err := index.objectByID(context.TODO(),
-		productsIds[1], nil, additional.Properties{}, nil)
+		productsIds[1], nil, additional.Properties{}, nil, nil)
 	require.Nil(t, err)
 
 	// drop the index
@@ -185,11 +185,11 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	require.Nil(t, err)
 
 	afterRecreateObj1, err := index.objectByID(context.TODO(),
-		productsIds[0], nil, additional.Properties{}, nil)
+		productsIds[0], nil, additional.Properties{}, nil, nil)
 	require.Nil(t, err)
 
 	afterRecreateObj2, err := index.objectByID(context.TODO(),
-		productsIds[1], nil, additional.Properties{}, nil)
+		productsIds[1], nil, additional.Properties{}, nil, nil)
 	require.Nil(t, err)
 
 	// insert some data in the recreated index
@@ -206,11 +206,11 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	}
 
 	afterRecreateAndInsertObj1, err := index.objectByID(context.TODO(),
-		productsIds[0], nil, additional.Properties{}, nil)
+		productsIds[0], nil, additional.Properties{}, nil, nil)
 	require.Nil(t, err)
 
 	afterRecreateAndInsertObj2, err := index.objectByID(context.TODO(),
-		productsIds[1], nil, additional.Properties{}, nil)
+		productsIds[1], nil, additional.Properties{}, nil, nil)
 	require.Nil(t, err)
 
 	assert.Equal(t, 6, len(indexFilesBeforeDelete))

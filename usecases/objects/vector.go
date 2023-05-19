@@ -15,10 +15,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 )
 
@@ -26,8 +25,8 @@ func (m *Manager) updateRefVector(ctx context.Context, principal *models.Princip
 	className string, id strfmt.UUID,
 ) error {
 	if m.modulesProvider.UsingRef2Vec(className) {
-		parent, err := m.vectorRepo.Object(ctx, className,
-			id, search.SelectProperties{}, additional.Properties{}, nil)
+		parent, err := m.vectorRepo.Object(ctx, className, id,
+			search.SelectProperties{}, additional.Properties{}, nil, nil)
 		if err != nil {
 			return fmt.Errorf("find parent '%s/%s': %w",
 				className, id, err)
@@ -67,7 +66,7 @@ func (m *Manager) findObject(ctx context.Context, class string,
 	if class == "" {
 		return m.vectorRepo.ObjectByID(ctx, id, props, addl)
 	}
-	return m.vectorRepo.Object(ctx, class, id, props, addl, nil)
+	return m.vectorRepo.Object(ctx, class, id, props, addl, nil, nil)
 }
 
 // TODO: remove this method and just pass b.vectorRepo.Object to
@@ -81,5 +80,5 @@ func (b *BatchManager) findObject(ctx context.Context, class string,
 	if class == "" {
 		return b.vectorRepo.ObjectByID(ctx, id, props, addl)
 	}
-	return b.vectorRepo.Object(ctx, class, id, props, addl, nil)
+	return b.vectorRepo.Object(ctx, class, id, props, addl, nil, nil)
 }

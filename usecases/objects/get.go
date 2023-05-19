@@ -26,8 +26,9 @@ import (
 )
 
 // GetObject Class from the connected DB
-func (m *Manager) GetObject(ctx context.Context, principal *models.Principal, class string,
-	id strfmt.UUID, additional additional.Properties, replProps *additional.ReplicationProperties,
+func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
+	class string, id strfmt.UUID, additional additional.Properties,
+	replProps *additional.ReplicationProperties, tenantKey *string,
 ) (*models.Object, error) {
 	path := fmt.Sprintf("objects/%s", id)
 	if class != "" {
@@ -47,7 +48,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal, cl
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
 
-	res, err := m.getObjectFromRepo(ctx, class, id, additional, replProps)
+	res, err := m.getObjectFromRepo(ctx, class, id, additional, replProps, tenantKey)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +97,7 @@ func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Princip
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
 
-	res, err := m.getObjectFromRepo(ctx, "", id, additional.Properties{}, nil)
+	res, err := m.getObjectFromRepo(ctx, "", id, additional.Properties{}, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -110,10 +111,10 @@ func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Princip
 }
 
 func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt.UUID,
-	adds additional.Properties, repl *additional.ReplicationProperties,
+	adds additional.Properties, repl *additional.ReplicationProperties, tenantKey *string,
 ) (res *search.Result, err error) {
 	if class != "" {
-		res, err = m.vectorRepo.Object(ctx, class, id, search.SelectProperties{}, adds, repl)
+		res, err = m.vectorRepo.Object(ctx, class, id, search.SelectProperties{}, adds, repl, tenantKey)
 	} else {
 		res, err = m.vectorRepo.ObjectByID(ctx, id, search.SelectProperties{}, adds)
 	}
