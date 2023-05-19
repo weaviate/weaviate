@@ -65,17 +65,18 @@ func (db *DB) localNodeStatus() *models.NodeStatus {
 	shards := []*models.NodeShardStatus{}
 	db.indexLock.RLock()
 	for _, index := range db.indices {
-		for shardName, shard := range index.Shards {
+		index.ForEachShard(func(name string, shard *Shard) error {
 			objectCount := int64(shard.objectCount())
 			shardStatus := &models.NodeShardStatus{
-				Name:        shardName,
+				Name:        name,
 				Class:       shard.index.Config.ClassName.String(),
 				ObjectCount: objectCount,
 			}
 			totalObjectCount += objectCount
 			shardCount++
 			shards = append(shards, shardStatus)
-		}
+			return nil
+		})
 	}
 	db.indexLock.RUnlock()
 
