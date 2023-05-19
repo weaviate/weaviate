@@ -228,7 +228,6 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 		vectorIndexUserConfig: enthnsw.UserConfig{Skip: true},
 		logger:                logrus.New(),
 		getSchema:             schemaGetter,
-		Shards:                map[string]*Shard{},
 		centralJobQueue:       queue,
 	}
 
@@ -243,7 +242,7 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 		panic(err)
 	}
 
-	idx.Shards[shardName] = shd
+	idx.shards.Store(shardName, shd)
 
 	return shd, idx
 }

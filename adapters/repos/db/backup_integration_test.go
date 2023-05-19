@@ -62,7 +62,7 @@ func TestBackup_DBLevel(t *testing.T) {
 			ShardingState(className).
 			AllPhysicalShards()[0]
 		testShd := db.GetIndex(schema.ClassName(className)).
-			Shards[expectedShardName]
+			shards.Load(expectedShardName)
 		expectedCounterPath := path.Base(testShd.counter.FileName())
 		expectedCounter, err := os.ReadFile(testShd.counter.FileName())
 		require.Nil(t, err)
