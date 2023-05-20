@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -484,6 +485,68 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: make([][]uint64, 4)})
 		assert.Equal(t, uint64(17), res.Entrypoint)
 		assert.Equal(t, uint16(3), res.Level)
+	})
+}
+
+func TestCondensorWithPQInformation(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	rootPath := t.TempDir()
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+	require.Nil(t, err)
+	defer uncondensed.Shutdown(ctx)
+
+	t.Run("add pq info", func(t *testing.T) {
+		uncondensed.AddPQ(ssdhelpers.PQData{
+			Ks:                  3,
+			M:                   0,
+			Dimensions:          5,
+			EncoderType:         ssdhelpers.UseKMeansEncoder,
+			EncoderDistribution: uint8(0),
+			UseBitsEncoding:     false,
+		})
+
+		require.Nil(t, uncondensed.Flush())
+	})
+
+	t.Run("condense the original and verify the PQ info is present", func(t *testing.T) {
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed", input))
+		require.Nil(t, err)
+
+		actual, ok, err := getCurrentCommitLogFileName(
+			commitLogDirectory(rootPath, "uncondensed"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		assert.True(t, strings.HasSuffix(actual, ".condensed"),
+			"commit log is now saved as condensed")
+
+		initialState := DeserializationResult{}
+		fd, err := os.Open(commitLogFileName(rootPath, "uncondensed", actual))
+		require.Nil(t, err)
+
+		bufr := bufio.NewReader(fd)
+		res, _, err := NewDeserializer(logger).Do(bufr, &initialState, false)
+		require.Nil(t, err)
+
+		assert.True(t, res.Compressed)
+		expected := ssdhelpers.PQData{
+			Ks:                  3,
+			M:                   0,
+			Dimensions:          5,
+			EncoderType:         ssdhelpers.UseKMeansEncoder,
+			EncoderDistribution: uint8(0),
+			UseBitsEncoding:     false,
+		}
+
+		assert.Equal(t, expected, res.PQData)
 	})
 }
 
