@@ -37,12 +37,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-func StartAndListen(state *state.State) error {
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d",
-		state.ServerConfig.Config.GRPC.Port))
-	if err != nil {
-		return err
-	}
+func CreateGRPCServer(state *state.State) *GRPCServer {
 	s := grpc.NewServer()
 
 	pb.RegisterWeaviateServer(s, &Server{
@@ -53,14 +48,27 @@ func StartAndListen(state *state.State) error {
 		allowAnonymousAccess: state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
 		schemaManager:        state.SchemaManager,
 	})
+
+	return &GRPCServer{s}
+}
+
+func StartAndListen(s *GRPCServer, state *state.State) error {
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d",
+		state.ServerConfig.Config.GRPC.Port))
+	if err != nil {
+		return err
+	}
 	state.Logger.WithField("action", "grpc_startup").
 		Infof("grpc server listening at %v", lis.Addr())
-
 	if err := s.Serve(lis); err != nil {
 		return fmt.Errorf("failed to serve: %v", err)
 	}
 
 	return nil
+}
+
+type GRPCServer struct {
+	*grpc.Server
 }
 
 type Server struct {

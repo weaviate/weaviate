@@ -329,9 +329,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}()
 	}
 
+	grpcServer := createGrpcServer(appState)
+
 	api.ServerShutdown = func() {
 		// stop reindexing on server shutdown
 		reindexCtxCancel()
+
+		// gracefully stop gRPC server
+		grpcServer.GracefulStop()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
@@ -374,7 +379,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		migrator.RecountProperties(ctx)
 	}
 
-	setupGrpc(appState)
+	startGrpcServer(grpcServer, appState)
 
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
