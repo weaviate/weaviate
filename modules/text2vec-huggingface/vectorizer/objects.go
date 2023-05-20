@@ -51,8 +51,6 @@ type ClassSettings interface {
 	OptionWaitForModel() bool
 	OptionUseGPU() bool
 	OptionUseCache() bool
-	Origin() string
-	PathMask() string
 }
 
 func sortStringKeys(schemaMap map[string]interface{}) []string {
@@ -143,8 +141,6 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 		WaitForModel: icheck.OptionWaitForModel(),
 		UseGPU:       icheck.OptionUseGPU(),
 		UseCache:     icheck.OptionUseCache(),
-		Origin:       icheck.Origin(),
-		PathMask:     icheck.PathMask(),
 	})
 	if err != nil {
 		return nil, err

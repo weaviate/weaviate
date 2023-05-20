@@ -65,21 +65,13 @@ func New(apiKey string, logger logrus.FieldLogger) *vectorizer {
 func (v *vectorizer) Vectorize(ctx context.Context, input string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	if v.url == "" {
-		v.url = v.getURL(config)
-	}
-
-	return v.vectorize(ctx, v.url, input, v.getOptions(config))
+	return v.vectorize(ctx, v.getURL(config), input, v.getOptions(config))
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	if v.url == "" {
-		v.url = v.getURL(config)
-	}
-
-	return v.vectorize(ctx, v.url, input, v.getOptions(config))
+	return v.vectorize(ctx, v.getURL(config), input, v.getOptions(config))
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, url string,
@@ -193,13 +185,11 @@ func (v *vectorizer) getApiKey(ctx context.Context) string {
 }
 
 func (v *vectorizer) getURL(config ent.VectorizationConfig) string {
-	if config.EndpointURL != "" {
-		return config.EndpointURL
+	if v.url == "" {
+		v.url = getHuggingFaceUrl(config)
 	}
 
-	urlBuilder := newHuggingFaceUrlBuilder(config)
-
-	return urlBuilder.url(config.Model)
+	return v.url
 }
 
 func (v *vectorizer) getOptions(config ent.VectorizationConfig) options {

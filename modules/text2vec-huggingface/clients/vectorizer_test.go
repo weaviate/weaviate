@@ -48,8 +48,7 @@ func TestClient(t *testing.T) {
 				WaitForModel: false,
 				UseGPU:       false,
 				UseCache:     true,
-				Origin:       server.URL,
-				PathMask:     "/pipeline/feature-extraction/%s",
+				EndpointURL:  server.URL,
 			})
 
 		assert.Nil(t, err)
@@ -68,8 +67,7 @@ func TestClient(t *testing.T) {
 		defer cancel()
 
 		_, err := c.Vectorize(ctx, "This is my text", ent.VectorizationConfig{
-			Origin:   server.URL,
-			PathMask: "/pipeline/feature-extraction/%s",
+			EndpointURL: server.URL,
 		})
 
 		require.NotNil(t, err)
@@ -89,8 +87,7 @@ func TestClient(t *testing.T) {
 		}
 		_, err := c.Vectorize(context.Background(), "This is my text",
 			ent.VectorizationConfig{
-				Origin:   server.URL,
-				PathMask: "/pipeline/feature-extraction/%s",
+				EndpointURL: server.URL,
 			})
 
 		require.NotNil(t, err)
@@ -119,8 +116,7 @@ func TestClient(t *testing.T) {
 				WaitForModel: true,
 				UseGPU:       false,
 				UseCache:     true,
-				Origin:       server.URL,
-				PathMask:     "/pipeline/feature-extraction/%s",
+				EndpointURL:  server.URL,
 			})
 
 		require.Nil(t, err)
@@ -143,9 +139,8 @@ func TestClient(t *testing.T) {
 
 		_, err := c.Vectorize(ctxWithValue, "This is my text",
 			ent.VectorizationConfig{
-				Model:    "sentence-transformers/gtr-t5-xxl",
-				Origin:   server.URL,
-				PathMask: "/pipeline/feature-extraction/%s",
+				Model:       "sentence-transformers/gtr-t5-xxl",
+				EndpointURL: server.URL,
 			})
 
 		require.NotNil(t, err)
@@ -165,8 +160,7 @@ func TestClient(t *testing.T) {
 		}
 		_, err := c.Vectorize(context.Background(), "This is my text",
 			ent.VectorizationConfig{
-				Origin:   server.URL,
-				PathMask: "/pipeline/feature-extraction/%s",
+				EndpointURL: server.URL,
 			})
 
 		require.NotNil(t, err)
