@@ -17,22 +17,20 @@ import (
 	"github.com/weaviate/weaviate/modules/text2vec-huggingface/ent"
 )
 
-type huggingFaceUrlBuilder struct {
-	origin   string
-	pathMask string
-}
+const (
+	DefaultOrigin = "https://api-inference.huggingface.co"
+	DefaultPath   = "pipeline/feature-extraction"
+)
 
-func newHuggingFaceUrlBuilder(config ent.VectorizationConfig) *huggingFaceUrlBuilder {
-	return &huggingFaceUrlBuilder{
-		origin:   config.Origin,
-		pathMask: config.PathMask,
+func getHuggingFaceUrl(config ent.VectorizationConfig) string {
+	url := config.EndpointURL
+	if url == "" {
+		url = fmtUrl(config)
 	}
+
+	return url
 }
 
-func (o *huggingFaceUrlBuilder) url(model string) string {
-	return fmt.Sprintf("%s%s", o.origin, o.getPath(model))
-}
-
-func (o *huggingFaceUrlBuilder) getPath(model string) string {
-	return fmt.Sprintf(o.pathMask, model)
+func fmtUrl(config ent.VectorizationConfig) string {
+	return fmt.Sprintf("%s/%s/%s", DefaultOrigin, DefaultPath, config.Model)
 }

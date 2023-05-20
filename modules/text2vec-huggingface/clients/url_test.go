@@ -16,34 +16,39 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/modules/text2vec-huggingface/ent"
-	class "github.com/weaviate/weaviate/modules/text2vec-huggingface/vectorizer"
 )
 
-func Test_huggingFaceUrlBuilder_url(t *testing.T) {
-	config := ent.VectorizationConfig{
-		Origin:   class.DefaultOrigin,
-		PathMask: class.DefaultPathMask,
-	}
-
+func Test_getHuggingFaceUrl(t *testing.T) {
 	tests := []struct {
-		name  string
-		model string
-		want  string
+		name   string
+		config ent.VectorizationConfig
+		want   string
 	}{
 		{
-			name:  "Facebook DPR model",
-			model: "sentence-transformers/facebook-dpr-ctx_encoder-multiset-base",
-			want:  "https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/facebook-dpr-ctx_encoder-multiset-base",
+			name: "Facebook DPR model",
+			config: ent.VectorizationConfig{
+				Model: "sentence-transformers/facebook-dpr-ctx_encoder-multiset-base",
+			},
+			want: "https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/facebook-dpr-ctx_encoder-multiset-base",
 		},
 		{
-			name:  "BERT base model (uncased)",
-			model: "bert-base-uncased",
-			want:  "https://api-inference.huggingface.co/pipeline/feature-extraction/bert-base-uncased",
+			name: "BERT base model (uncased)",
+			config: ent.VectorizationConfig{
+				Model: "bert-base-uncased",
+			},
+			want: "https://api-inference.huggingface.co/pipeline/feature-extraction/bert-base-uncased",
+		},
+		{
+			name: "BERT base model (uncased)",
+			config: ent.VectorizationConfig{
+				EndpointURL: "https://self-hosted-instance.com/bert-base-uncased",
+			},
+			want: "https://self-hosted-instance.com/bert-base-uncased",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, newHuggingFaceUrlBuilder(config).url(tt.model))
+			assert.Equal(t, tt.want, getHuggingFaceUrl(tt.config))
 		})
 	}
 }
