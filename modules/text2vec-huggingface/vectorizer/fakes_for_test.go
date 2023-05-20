@@ -53,8 +53,6 @@ type fakeSettings struct {
 	passageModel, queryModel       string
 	waitForModel, useGPU, useCache bool
 	endpointURL                    string
-	origin                         string
-	pathMask                       string
 }
 
 func (f *fakeSettings) PropertyIndexed(propName string) bool {
@@ -91,12 +89,4 @@ func (f *fakeSettings) OptionUseGPU() bool {
 
 func (f *fakeSettings) OptionUseCache() bool {
 	return f.useCache
-}
-
-func (f *fakeSettings) Origin() string {
-	return f.origin
-}
-
-func (f *fakeSettings) PathMask() string {
-	return f.pathMask
 }
