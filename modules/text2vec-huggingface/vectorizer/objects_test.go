@@ -35,6 +35,8 @@ func TestVectorizingObjects(t *testing.T) {
 		excludedClass            string // to simulate a schema where class names aren't vectorized
 		passageModel             string
 		endpointURL              string
+		origin                   string
+		pathMask                 string
 	}
 
 	tests := []testCase{
@@ -193,6 +195,8 @@ func TestVectorizingObjects(t *testing.T) {
 				vectorizeClassName: test.excludedClass != "Car",
 				passageModel:       test.passageModel,
 				endpointURL:        test.endpointURL,
+				origin:             test.origin,
+				pathMask:           test.pathMask,
 			}
 			err := v.Object(context.Background(), test.input, nil, ic)
 

@@ -35,11 +35,7 @@ func TestClient(t *testing.T) {
 		c := &vectorizer{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilder: &huggingFaceUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/pipeline/feature-extraction/%s",
-			},
-			logger: nullLogger(),
+			logger:     nullLogger(),
 		}
 		expected := &ent.VectorizationResult{
 			Text:       "This is my text",
@@ -52,6 +48,8 @@ func TestClient(t *testing.T) {
 				WaitForModel: false,
 				UseGPU:       false,
 				UseCache:     true,
+				Origin:       server.URL,
+				PathMask:     "/pipeline/feature-extraction/%s",
 			})
 
 		assert.Nil(t, err)
@@ -64,16 +62,15 @@ func TestClient(t *testing.T) {
 		c := &vectorizer{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilder: &huggingFaceUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/pipeline/feature-extraction/%s",
-			},
-			logger: nullLogger(),
+			logger:     nullLogger(),
 		}
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, "This is my text", ent.VectorizationConfig{})
+		_, err := c.Vectorize(ctx, "This is my text", ent.VectorizationConfig{
+			Origin:   server.URL,
+			PathMask: "/pipeline/feature-extraction/%s",
+		})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -88,14 +85,13 @@ func TestClient(t *testing.T) {
 		c := &vectorizer{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilder: &huggingFaceUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/pipeline/feature-extraction/%s",
-			},
-			logger: nullLogger(),
+			logger:     nullLogger(),
 		}
 		_, err := c.Vectorize(context.Background(), "This is my text",
-			ent.VectorizationConfig{})
+			ent.VectorizationConfig{
+				Origin:   server.URL,
+				PathMask: "/pipeline/feature-extraction/%s",
+			})
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "connection to HuggingFace failed with status: 500 error: nope, not gonna happen estimated time: 20")
@@ -107,11 +103,7 @@ func TestClient(t *testing.T) {
 		c := &vectorizer{
 			apiKey:     "",
 			httpClient: &http.Client{},
-			urlBuilder: &huggingFaceUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/pipeline/feature-extraction/%s",
-			},
-			logger: nullLogger(),
+			logger:     nullLogger(),
 		}
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Huggingface-Api-Key", []string{"some-key"})
@@ -127,6 +119,8 @@ func TestClient(t *testing.T) {
 				WaitForModel: true,
 				UseGPU:       false,
 				UseCache:     true,
+				Origin:       server.URL,
+				PathMask:     "/pipeline/feature-extraction/%s",
 			})
 
 		require.Nil(t, err)
@@ -142,18 +136,16 @@ func TestClient(t *testing.T) {
 		c := &vectorizer{
 			apiKey:     "",
 			httpClient: &http.Client{},
-			urlBuilder: &huggingFaceUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/pipeline/feature-extraction/%s",
-			},
-			logger: nullLogger(),
+			logger:     nullLogger(),
 		}
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Huggingface-Api-Key", []string{""})
 
 		_, err := c.Vectorize(ctxWithValue, "This is my text",
 			ent.VectorizationConfig{
-				Model: "sentence-transformers/gtr-t5-xxl",
+				Model:    "sentence-transformers/gtr-t5-xxl",
+				Origin:   server.URL,
+				PathMask: "/pipeline/feature-extraction/%s",
 			})
 
 		require.NotNil(t, err)
@@ -169,14 +161,13 @@ func TestClient(t *testing.T) {
 		c := &vectorizer{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilder: &huggingFaceUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/pipeline/feature-extraction/%s",
-			},
-			logger: nullLogger(),
+			logger:     nullLogger(),
 		}
 		_, err := c.Vectorize(context.Background(), "This is my text",
-			ent.VectorizationConfig{})
+			ent.VectorizationConfig{
+				Origin:   server.URL,
+				PathMask: "/pipeline/feature-extraction/%s",
+			})
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "connection to HuggingFace failed with status: 500 error: with warnings "+
