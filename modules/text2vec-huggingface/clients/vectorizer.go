@@ -48,7 +48,7 @@ type huggingFaceApiError struct {
 type vectorizer struct {
 	apiKey                string
 	httpClient            *http.Client
-	urlBuilder            *huggingFaceUrlBuilder
+	url                   string
 	bertEmbeddingsDecoder *bertEmbeddingsDecoder
 	logger                logrus.FieldLogger
 }
@@ -57,7 +57,6 @@ func New(apiKey string, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
 		apiKey:                apiKey,
 		httpClient:            &http.Client{},
-		urlBuilder:            newHuggingFaceUrlBuilder(),
 		bertEmbeddingsDecoder: newBertEmbeddingsDecoder(),
 		logger:                logger,
 	}
@@ -66,13 +65,21 @@ func New(apiKey string, logger logrus.FieldLogger) *vectorizer {
 func (v *vectorizer) Vectorize(ctx context.Context, input string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, v.getURL(config), input, v.getOptions(config))
+	if v.url == "" {
+		v.url = v.getURL(config)
+	}
+
+	return v.vectorize(ctx, v.url, input, v.getOptions(config))
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, v.getURL(config), input, v.getOptions(config))
+	if v.url == "" {
+		v.url = v.getURL(config)
+	}
+
+	return v.vectorize(ctx, v.url, input, v.getOptions(config))
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, url string,
@@ -189,11 +196,10 @@ func (v *vectorizer) getURL(config ent.VectorizationConfig) string {
 	if config.EndpointURL != "" {
 		return config.EndpointURL
 	}
-	return v.url(config.Model)
-}
 
-func (v *vectorizer) url(model string) string {
-	return v.urlBuilder.url(model)
+	urlBuilder := newHuggingFaceUrlBuilder(config)
+
+	return urlBuilder.url(config.Model)
 }
 
 func (v *vectorizer) getOptions(config ent.VectorizationConfig) options {

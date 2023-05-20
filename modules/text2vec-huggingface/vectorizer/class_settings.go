@@ -29,6 +29,8 @@ const (
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
+	DefaultOrigin                = "https://api-inference.huggingface.co"
+	DefaultPathMask              = "/pipeline/feature-extraction/%s"
 )
 
 type classSettings struct {
@@ -78,6 +80,14 @@ func (cs *classSettings) VectorizePropertyName(propName string) bool {
 
 func (cs *classSettings) EndpointURL() string {
 	return cs.getEndpointURL()
+}
+
+func (cs *classSettings) Origin() string {
+	return cs.getOrigin()
+}
+
+func (cs *classSettings) PathMask() string {
+	return cs.getPathMask()
 }
 
 func (cs *classSettings) PassageModel() string {
@@ -195,6 +205,26 @@ func (cs *classSettings) getEndpointURL() string {
 		endpointURL = cs.getProperty("endpointURL")
 	}
 	return endpointURL
+}
+
+func (cs *classSettings) getOrigin() string {
+	origin := cs.getProperty("origin")
+
+	if origin == "" {
+		return DefaultOrigin
+	}
+
+	return origin
+}
+
+func (cs *classSettings) getPathMask() string {
+	pathMask := cs.getProperty("pathMask")
+
+	if pathMask == "" {
+		return DefaultPathMask
+	}
+
+	return pathMask
 }
 
 func (cs *classSettings) getOption(option string) *bool {

@@ -11,17 +11,21 @@
 
 package clients
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/weaviate/weaviate/modules/text2vec-huggingface/ent"
+)
 
 type huggingFaceUrlBuilder struct {
 	origin   string
 	pathMask string
 }
 
-func newHuggingFaceUrlBuilder() *huggingFaceUrlBuilder {
+func newHuggingFaceUrlBuilder(config ent.VectorizationConfig) *huggingFaceUrlBuilder {
 	return &huggingFaceUrlBuilder{
-		origin:   "https://api-inference.huggingface.co",
-		pathMask: "/pipeline/feature-extraction/%s",
+		origin:   config.Origin,
+		pathMask: config.PathMask,
 	}
 }
 

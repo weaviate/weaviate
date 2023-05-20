@@ -15,9 +15,16 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/modules/text2vec-huggingface/ent"
+	class "github.com/weaviate/weaviate/modules/text2vec-huggingface/vectorizer"
 )
 
 func Test_huggingFaceUrlBuilder_url(t *testing.T) {
+	config := ent.VectorizationConfig{
+		Origin:   class.DefaultOrigin,
+		PathMask: class.DefaultPathMask,
+	}
+
 	tests := []struct {
 		name  string
 		model string
@@ -36,7 +43,7 @@ func Test_huggingFaceUrlBuilder_url(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, newHuggingFaceUrlBuilder().url(tt.model))
+			assert.Equal(t, tt.want, newHuggingFaceUrlBuilder(config).url(tt.model))
 		})
 	}
 }
