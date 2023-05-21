@@ -14,6 +14,7 @@ package ssdhelpers
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"math"
 	"math/rand"
 
@@ -32,6 +33,29 @@ type KMeans struct {
 	segment            int         // Segment where it operates
 
 	data KMeansPartitionData // Non persistent data used only during the fitting process
+}
+
+// String prints some minimal information about the encoder. This can be
+// used for viability checks to see if the encoder was initialized
+// correctly – for example after a restart.
+func (k *KMeans) String() string {
+	maxElem := 5
+	var firstCenters []float32
+	i := 0
+	for _, center := range k.centers {
+		for _, centerVal := range center {
+			if i == maxElem {
+				break
+			}
+
+			firstCenters = append(firstCenters, centerVal)
+			i++
+		}
+		if i == maxElem {
+			break
+		}
+	}
+	return fmt.Sprintf("KMeans Encoder: K=%d, dim=%d, segment=%d first_center_truncated=%v", k.K, k.dimensions, k.segment, firstCenters)
 }
 
 type KMeansPartitionData struct {
