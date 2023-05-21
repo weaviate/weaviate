@@ -15,7 +15,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"math"
-	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
@@ -28,29 +27,30 @@ const (
 )
 
 type DistanceLookUpTable struct {
-	calculated [][]atomic.Bool
-	distances  [][]float32
+	calculated []bool
+	distances  []float32
 	center     [][]float32
+	segments   int
+	centroids  int
 }
 
 func NewDistanceLookUpTable(segments int, centroids int, center []float32) *DistanceLookUpTable {
-	distances := make([][]float32, segments)
-	calculated := make([][]atomic.Bool, segments)
-	for m := 0; m < segments; m++ {
-		distances[m] = make([]float32, centroids)
-		calculated[m] = make([]atomic.Bool, centroids)
-	}
+	distances := make([]float32, segments*centroids)
+	calculated := make([]bool, segments*centroids)
 	parsedCenter := make([][]float32, segments)
 	ds := len(center) / segments
 	for c := 0; c < segments; c++ {
 		parsedCenter[c] = center[c*ds : (c+1)*ds]
 	}
 
-	return &DistanceLookUpTable{
+	dlt := &DistanceLookUpTable{
 		distances:  distances,
 		calculated: calculated,
 		center:     parsedCenter,
+		segments:   segments,
+		centroids:  centroids,
 	}
+	return dlt
 }
 
 func (lut *DistanceLookUpTable) LookUp(
@@ -61,17 +61,42 @@ func (lut *DistanceLookUpTable) LookUp(
 
 	for i := range pq.kms {
 		c := pq.ExtractCode(encoded, i)
-		if lut.calculated[i][c].Load() {
-			sum += lut.distances[i][c]
+		if lut.distCalculated(i, c) {
+			sum += lut.codeDist(i, c)
 		} else {
 			centroid := pq.kms[i].Centroid(c)
 			dist := pq.distance.Step(lut.center[i], centroid)
-			lut.distances[i][c] = dist
-			lut.calculated[i][c].Store(true)
+			lut.setCodeDist(i, c, dist)
+			lut.setDistCalculated(i, c)
 			sum += dist
 		}
 	}
 	return pq.distance.Wrap(sum)
+}
+
+// meant for better readability, rely on the fact that the compiler will inline this
+func (lut *DistanceLookUpTable) posForSegmentAndCode(segment int, code uint64) int {
+	return segment*lut.centroids + int(code)
+}
+
+// meant for better readability, rely on the fact that the compiler will inline this
+func (lut *DistanceLookUpTable) distCalculated(segment int, code uint64) bool {
+	return lut.calculated[lut.posForSegmentAndCode(segment, code)]
+}
+
+// meant for better readability, rely on the fact that the compiler will inline this
+func (lut *DistanceLookUpTable) setDistCalculated(segment int, code uint64) {
+	lut.calculated[lut.posForSegmentAndCode(segment, code)] = true
+}
+
+// meant for better readability, rely on the fact that the compiler will inline this
+func (lut *DistanceLookUpTable) codeDist(segment int, code uint64) float32 {
+	return lut.distances[lut.posForSegmentAndCode(segment, code)]
+}
+
+// meant for better readability, rely on the fact that the compiler will inline this
+func (lut *DistanceLookUpTable) setCodeDist(segment int, code uint64, dist float32) {
+	lut.distances[lut.posForSegmentAndCode(segment, code)] = dist
 }
 
 type ProductQuantizer struct {
