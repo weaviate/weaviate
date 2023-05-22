@@ -27,6 +27,8 @@ import (
 	"github.com/weaviate/weaviate/modules/text2vec-openai/vectorizer"
 )
 
+const Name = "text2vec-openai"
+
 func New() *OpenAIModule {
 	return &OpenAIModule{}
 }
@@ -58,7 +60,7 @@ type metaProvider interface {
 }
 
 func (m *OpenAIModule) Name() string {
-	return "text2vec-openai"
+	return Name
 }
 
 func (m *OpenAIModule) Type() modulecapabilities.ModuleType {
