@@ -139,7 +139,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		}
 
 		err := index.putObject(context.TODO(), storobj.FromObject(
-			&product, []float32{0.1, 0.2, 0.01, 0.2}), nil, nil)
+			&product, []float32{0.1, 0.2, 0.01, 0.2}), nil, "")
 		require.Nil(t, err)
 	}
 
@@ -147,11 +147,11 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	require.Nil(t, err)
 
 	beforeDeleteObj1, err := index.objectByID(context.TODO(),
-		productsIds[0], nil, additional.Properties{}, nil, nil)
+		productsIds[0], nil, additional.Properties{}, nil, "")
 	require.Nil(t, err)
 
 	beforeDeleteObj2, err := index.objectByID(context.TODO(),
-		productsIds[1], nil, additional.Properties{}, nil, nil)
+		productsIds[1], nil, additional.Properties{}, nil, "")
 	require.Nil(t, err)
 
 	// drop the index
@@ -185,11 +185,11 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	require.Nil(t, err)
 
 	afterRecreateObj1, err := index.objectByID(context.TODO(),
-		productsIds[0], nil, additional.Properties{}, nil, nil)
+		productsIds[0], nil, additional.Properties{}, nil, "")
 	require.Nil(t, err)
 
 	afterRecreateObj2, err := index.objectByID(context.TODO(),
-		productsIds[1], nil, additional.Properties{}, nil, nil)
+		productsIds[1], nil, additional.Properties{}, nil, "")
 	require.Nil(t, err)
 
 	// insert some data in the recreated index
@@ -201,16 +201,16 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		}
 
 		err := index.putObject(context.TODO(), storobj.FromObject(
-			&thing, []float32{0.1, 0.2, 0.01, 0.2}), nil, nil)
+			&thing, []float32{0.1, 0.2, 0.01, 0.2}), nil, "")
 		require.Nil(t, err)
 	}
 
 	afterRecreateAndInsertObj1, err := index.objectByID(context.TODO(),
-		productsIds[0], nil, additional.Properties{}, nil, nil)
+		productsIds[0], nil, additional.Properties{}, nil, "")
 	require.Nil(t, err)
 
 	afterRecreateAndInsertObj2, err := index.objectByID(context.TODO(),
-		productsIds[1], nil, additional.Properties{}, nil, nil)
+		productsIds[1], nil, additional.Properties{}, nil, "")
 	require.Nil(t, err)
 
 	assert.Equal(t, 6, len(indexFilesBeforeDelete))
@@ -298,7 +298,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		}
 
 		err := index.putObject(ctx, storobj.FromObject(
-			&product, []float32{0.1, 0.2, 0.01, 0.2}), nil, nil)
+			&product, []float32{0.1, 0.2, 0.01, 0.2}), nil, "")
 		require.Nil(t, err)
 	}
 

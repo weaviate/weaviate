@@ -44,7 +44,7 @@ func (m *Manager) DeleteObjectReference(
 
 	deprecatedEndpoint := input.Class == ""
 	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID,
-		additional.Properties{}, nil, nil)
+		additional.Properties{}, nil, "")
 	if err != nil {
 		errnf := ErrNotFound{}
 		if errors.As(err, &errnf) {
@@ -82,7 +82,7 @@ func (m *Manager) DeleteObjectReference(
 	}
 	obj.LastUpdateTimeUnix = m.timeSource.Now()
 
-	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, repl, nil)
+	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, repl, "")
 	if err != nil {
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}

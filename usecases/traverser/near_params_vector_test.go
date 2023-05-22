@@ -381,7 +381,7 @@ func (f *fakeNearParamsSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID
 
 func (f *fakeNearParamsSearcher) Object(ctx context.Context, className string, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
-	repl *additional.ReplicationProperties, tenantKey *string,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (*search.Result, error) {
 	if className == "SpecifiedClass" {
 		return &search.Result{

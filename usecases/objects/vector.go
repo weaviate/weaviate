@@ -26,7 +26,7 @@ func (m *Manager) updateRefVector(ctx context.Context, principal *models.Princip
 ) error {
 	if m.modulesProvider.UsingRef2Vec(className) {
 		parent, err := m.vectorRepo.Object(ctx, className, id,
-			search.SelectProperties{}, additional.Properties{}, nil, nil)
+			search.SelectProperties{}, additional.Properties{}, nil, "")
 		if err != nil {
 			return fmt.Errorf("find parent '%s/%s': %w",
 				className, id, err)
@@ -44,7 +44,7 @@ func (m *Manager) updateRefVector(ctx context.Context, principal *models.Princip
 				className, id, err)
 		}
 
-		if err := m.vectorRepo.PutObject(ctx, obj, obj.Vector, nil, nil); err != nil {
+		if err := m.vectorRepo.PutObject(ctx, obj, obj.Vector, nil, ""); err != nil {
 			return fmt.Errorf("put object: %w", err)
 		}
 
@@ -60,7 +60,7 @@ func (m *Manager) updateRefVector(ctx context.Context, principal *models.Princip
 // is finally removed
 func (m *Manager) findObject(ctx context.Context, class string,
 	id strfmt.UUID, props search.SelectProperties, addl additional.Properties,
-	tenantKey *string,
+	tenantKey string,
 ) (*search.Result, error) {
 	// to support backwards compat
 	if class == "" {
@@ -74,7 +74,7 @@ func (m *Manager) findObject(ctx context.Context, class string,
 // is finally removed
 func (b *BatchManager) findObject(ctx context.Context, class string,
 	id strfmt.UUID, props search.SelectProperties, addl additional.Properties,
-	tenantKey *string,
+	tenantKey string,
 ) (*search.Result, error) {
 	// to support backwards compat
 	if class == "" {

@@ -90,16 +90,16 @@ type authorizer interface {
 
 type VectorRepo interface {
 	PutObject(ctx context.Context, concept *models.Object, vector []float32,
-		repl *additional.ReplicationProperties, tenantKey *string) error
+		repl *additional.ReplicationProperties, tenantKey string) error
 	DeleteObject(ctx context.Context, className string, id strfmt.UUID,
-		repl *additional.ReplicationProperties, tenantKey *string) error
+		repl *additional.ReplicationProperties, tenantKey string) error
 	// Object returns object of the specified class giving by its id
 	Object(ctx context.Context, class string, id strfmt.UUID, props search.SelectProperties,
 		additional additional.Properties, repl *additional.ReplicationProperties,
-		tenantKey *string) (*search.Result, error)
+		tenantKey string) (*search.Result, error)
 	// Exists returns true if an object of a giving class exists
 	Exists(ctx context.Context, class string, id strfmt.UUID,
-		repl *additional.ReplicationProperties, tenantKey *string) (bool, error)
+		repl *additional.ReplicationProperties, tenantKey string) (bool, error)
 	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties,
 		additional additional.Properties) (*search.Result, error)
 	ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,

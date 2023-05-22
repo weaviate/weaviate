@@ -147,7 +147,7 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 		obj := &models.Object{Class: "MyClass", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 		vector := []float32{1, 3, 5, 0.4}
 		//{title: "Our journey to BM25F", description: " This is how we get to BM25F"}}
-		err := repo.PutObject(context.Background(), obj, vector, nil, nil)
+		err := repo.PutObject(context.Background(), obj, vector, nil, "")
 		require.Nil(t, err)
 	}
 }
@@ -199,7 +199,7 @@ func SetupClassForFilterScoringTest(t require.TestingT, repo *DB, schemaGetter *
 
 		obj := &models.Object{Class: "FilterClass", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 		vector := []float32{1, 3, 5, 0.4}
-		err := repo.PutObject(context.Background(), obj, vector, nil, nil)
+		err := repo.PutObject(context.Background(), obj, vector, nil, "")
 		require.Nil(t, err)
 	}
 }
@@ -815,7 +815,7 @@ func SetupClassDocuments(t require.TestingT, repo *DB, schemaGetter *fakeSchemaG
 		obj := &models.Object{Class: className, ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 		vector := []float32{1, 3, 5, 0.4}
 		//{title: "Our journey to BM25F", description: " This is how we get to BM25F"}}
-		err := repo.PutObject(context.Background(), obj, vector, nil, nil)
+		err := repo.PutObject(context.Background(), obj, vector, nil, "")
 		require.Nil(t, err)
 	}
 	return className
@@ -950,7 +950,7 @@ func MultiPropClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter
 
 		obj := &models.Object{Class: className, ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 		vector := []float32{1, 3, 5, 0.4}
-		err := repo.PutObject(context.Background(), obj, vector, nil, nil)
+		err := repo.PutObject(context.Background(), obj, vector, nil, "")
 		require.Nil(t, err)
 	}
 	return className

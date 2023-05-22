@@ -26,7 +26,7 @@ import (
 // This is due to backward compatibility reasons and should be removed in the future
 func (m *Manager) DeleteObject(ctx context.Context,
 	principal *models.Principal, class string, id strfmt.UUID,
-	repl *additional.ReplicationProperties, tenantKey *string,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) error {
 	path := fmt.Sprintf("objects/%s/%s", class, id)
 	if class == "" {
@@ -75,7 +75,7 @@ func (m *Manager) deleteObjectFromRepo(ctx context.Context, id strfmt.UUID) erro
 	// https://github.com/weaviate/weaviate/issues/1836
 	deleteCounter := 0
 	for {
-		objectRes, err := m.getObjectFromRepo(ctx, "", id, additional.Properties{}, nil, nil)
+		objectRes, err := m.getObjectFromRepo(ctx, "", id, additional.Properties{}, nil, "")
 		if err != nil {
 			_, ok := err.(ErrNotFound)
 			if ok {
@@ -88,7 +88,7 @@ func (m *Manager) deleteObjectFromRepo(ctx context.Context, id strfmt.UUID) erro
 		}
 
 		object := objectRes.Object()
-		err = m.vectorRepo.DeleteObject(ctx, object.Class, id, nil, nil)
+		err = m.vectorRepo.DeleteObject(ctx, object.Class, id, nil, "")
 		if err != nil {
 			return NewErrInternal("could not delete object from vector repo: %v", err)
 		}

@@ -162,7 +162,7 @@ type fakeObjectsRepo struct {
 
 func (r *fakeObjectsRepo) Object(ctx context.Context, class string,
 	id strfmt.UUID, props search.SelectProperties,
-	addl additional.Properties, tenantKey *string,
+	addl additional.Properties, tenantKey string,
 ) (*search.Result, error) {
 	args := r.Called(ctx, class, id)
 	if args.Get(0) == nil {

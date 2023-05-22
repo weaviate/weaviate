@@ -43,6 +43,6 @@ func testSchema() schema.Schema {
 	}
 }
 
-func fakeExists(context.Context, string, strfmt.UUID, *additional.ReplicationProperties, *string) (bool, error) {
+func fakeExists(context.Context, string, strfmt.UUID, *additional.ReplicationProperties, string) (bool, error) {
 	return true, nil
 }

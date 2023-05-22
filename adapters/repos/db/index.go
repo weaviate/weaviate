@@ -309,9 +309,9 @@ func (i *Index) shardFromUUID(in strfmt.UUID) (string, error) {
 		PhysicalShard(uuidBytes), nil
 }
 
-func (i *Index) determineObjectShard(id strfmt.UUID, tenantKey *string) (string, error) {
-	if tenantKey != nil {
-		return i.shardFromTenantKey(*tenantKey, id)
+func (i *Index) determineObjectShard(id strfmt.UUID, tenantKey string) (string, error) {
+	if tenantKey != "" {
+		return i.shardFromTenantKey(tenantKey, id)
 	}
 	return i.shardFromUUID(id)
 }
@@ -325,7 +325,7 @@ func (i *Index) shardFromTenantKey(tenantKey string, id strfmt.UUID) (string, er
 }
 
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
-	replProps *additional.ReplicationProperties, tenantKey *string,
+	replProps *additional.ReplicationProperties, tenantKey string,
 ) error {
 	if err := i.validateMultiTenancy(tenantKey); err != nil {
 		return err
@@ -645,7 +645,7 @@ func (i *Index) IncomingBatchAddReferences(ctx context.Context, shardName string
 
 func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, addl additional.Properties,
-	replProps *additional.ReplicationProperties, tenantKey *string,
+	replProps *additional.ReplicationProperties, tenantKey string,
 ) (*storobj.Object, error) {
 	if err := i.validateMultiTenancy(tenantKey); err != nil {
 		return nil, err
@@ -797,7 +797,9 @@ func wrapIDsInMulti(in []strfmt.UUID) []multi.Identifier {
 	return out
 }
 
-func (i *Index) exists(ctx context.Context, id strfmt.UUID, replProps *additional.ReplicationProperties, tenantKey *string) (bool, error) {
+func (i *Index) exists(ctx context.Context, id strfmt.UUID,
+	replProps *additional.ReplicationProperties, tenantKey string,
+) (bool, error) {
 	if err := i.validateMultiTenancy(tenantKey); err != nil {
 		return false, err
 	}
@@ -1169,7 +1171,9 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	return res, resDists, nil
 }
 
-func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID, replProps *additional.ReplicationProperties, tenantKey *string) error {
+func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
+	replProps *additional.ReplicationProperties, tenantKey string,
+) error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 	shardName, err := i.determineObjectShard(id, tenantKey)
@@ -1572,8 +1576,8 @@ func (i *Index) addNewShard(ctx context.Context,
 	return nil
 }
 
-func (i *Index) validateMultiTenancy(tenantKey *string) error {
-	if i.tenantKey != "" && tenantKey == nil {
+func (i *Index) validateMultiTenancy(tenantKey string) error {
+	if i.tenantKey != "" && tenantKey == "" {
 		return fmt.Errorf("class %q has multi-tenancy enabled, tenant_key %q required",
 			i.Config.ClassName, i.tenantKey)
 	}

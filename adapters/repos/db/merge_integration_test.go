@@ -149,7 +149,7 @@ func Test_MergingObjects(t *testing.T) {
 			},
 			CreationTimeUnix:   now,
 			LastUpdateTimeUnix: now,
-		}, []float32{0.5}, nil, nil)
+		}, []float32{0.5}, nil, "")
 		require.Nil(t, err)
 
 		targetDimensionsBefore := GetDimensionsFromRepo(repo, "MergeTestTarget")
@@ -163,7 +163,7 @@ func Test_MergingObjects(t *testing.T) {
 				Properties: map[string]interface{}{
 					"name": fmt.Sprintf("target item %d", i),
 				},
-			}, []float32{0.5}, nil, nil)
+			}, []float32{0.5}, nil, "")
 			require.Nil(t, err)
 		}
 
@@ -178,7 +178,7 @@ func Test_MergingObjects(t *testing.T) {
 			},
 			CreationTimeUnix:   now,
 			LastUpdateTimeUnix: now,
-		}, nil, nil, nil)
+		}, nil, nil, "")
 		require.Nil(t, err)
 
 		targetDimensionsAfterNoVec := GetDimensionsFromRepo(repo, "MergeTestTarget")
@@ -532,7 +532,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 			},
 			CreationTimeUnix:   int64(id),
 			LastUpdateTimeUnix: int64(id),
-		}, []float32{0.5}, nil, nil)
+		}, []float32{0.5}, nil, "")
 		require.Nil(t, err)
 	})
 

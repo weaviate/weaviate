@@ -81,7 +81,7 @@ func TestRestartJourney(t *testing.T) {
 			Properties: map[string]interface{}{
 				"description": "the band is just fantastic that is really what I think",
 			},
-		}, []float32{0.1, 0.2, 0.3}, nil, nil)
+		}, []float32{0.1, 0.2, 0.3}, nil, "")
 		require.Nil(t, err)
 
 		err = repo.PutObject(context.Background(), &models.Object{
@@ -90,7 +90,7 @@ func TestRestartJourney(t *testing.T) {
 			Properties: map[string]interface{}{
 				"description": "oh by the way, which one's pink?",
 			},
-		}, []float32{-0.1, 0.2, -0.3}, nil, nil)
+		}, []float32{-0.1, 0.2, -0.3}, nil, "")
 		require.Nil(t, err)
 	})
 

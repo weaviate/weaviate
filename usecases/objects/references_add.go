@@ -37,7 +37,7 @@ func (m *Manager) AddObjectReference(
 	deprecatedEndpoint := input.Class == ""
 	if deprecatedEndpoint { // for backward compatibility only
 		objectRes, err := m.getObjectFromRepo(ctx, "", input.ID,
-			additional.Properties{}, nil, nil)
+			additional.Properties{}, nil, "")
 		if err != nil {
 			errnf := ErrNotFound{} // treated as StatusBadRequest for backward comp
 			if errors.As(err, &errnf) {
@@ -63,7 +63,7 @@ func (m *Manager) AddObjectReference(
 		return &Error{"validate inputs", StatusBadRequest, err}
 	}
 	if !deprecatedEndpoint {
-		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl, nil)
+		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl, "")
 		if err != nil {
 			return &Error{"source object", StatusInternalServerError, err}
 		}

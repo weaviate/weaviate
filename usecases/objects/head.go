@@ -42,7 +42,7 @@ func (m *Manager) HeadObject(ctx context.Context,
 	m.metrics.HeadObjectInc()
 	defer m.metrics.HeadObjectDec()
 
-	ok, err := m.vectorRepo.Exists(ctx, class, id, repl, nil)
+	ok, err := m.vectorRepo.Exists(ctx, class, id, repl, "")
 	if err != nil {
 		return false, &Error{"repo.exists", StatusInternalServerError, err}
 	}

@@ -54,7 +54,7 @@ func TestBackup_DBLevel(t *testing.T) {
 				LastUpdateTimeUnix: now.UnixNano(),
 				Vector:             []float32{1, 2, 3},
 				VectorWeights:      nil,
-			}, []float32{1, 2, 3}, nil, nil))
+			}, []float32{1, 2, 3}, nil, ""))
 		})
 
 		expectedNodeName := "node1"
@@ -154,7 +154,7 @@ func TestBackup_DBLevel(t *testing.T) {
 				LastUpdateTimeUnix: now.UnixNano(),
 				Vector:             []float32{1, 2, 3},
 				VectorWeights:      nil,
-			}, []float32{1, 2, 3}, nil, nil))
+			}, []float32{1, 2, 3}, nil, ""))
 		})
 
 		t.Run("fail with expired context", func(t *testing.T) {

@@ -35,7 +35,7 @@ import (
 )
 
 const FindObjectFn = "func(context.Context, string, strfmt.UUID, " +
-	"search.SelectProperties, additional.Properties, *string) (*search.Result, error)"
+	"search.SelectProperties, additional.Properties, string) (*search.Result, error)"
 
 type fakeSchemaManager struct {
 	CalledWith struct {
@@ -139,14 +139,14 @@ type fakeVectorRepo struct {
 	mock.Mock
 }
 
-func (f *fakeVectorRepo) Exists(ctx context.Context, class string, id strfmt.UUID, repl *additional.ReplicationProperties, tenantKey *string) (bool, error) {
+func (f *fakeVectorRepo) Exists(ctx context.Context, class string, id strfmt.UUID, repl *additional.ReplicationProperties, tenantKey string) (bool, error) {
 	args := f.Called(class, id)
 	return args.Bool(0), args.Error(1)
 }
 
 func (f *fakeVectorRepo) Object(ctx context.Context, cls string, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
-	repl *additional.ReplicationProperties, tenantKey *string,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (*search.Result, error) {
 	args := f.Called(cls, id, props, additional)
 	if args.Get(0) != nil {
@@ -178,7 +178,9 @@ func (f *fakeVectorRepo) Query(ctx context.Context, q *QueryInput) (search.Resul
 	return res, err
 }
 
-func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, vector []float32, repl *additional.ReplicationProperties, tenantKey *string) error {
+func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, vector []float32,
+	repl *additional.ReplicationProperties, tenantKey string,
+) error {
 	args := f.Called(concept, vector)
 	return args.Error(0)
 }
@@ -212,7 +214,7 @@ func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument,
 }
 
 func (f *fakeVectorRepo) DeleteObject(ctx context.Context, className string,
-	id strfmt.UUID, repl *additional.ReplicationProperties, tenantKey *string,
+	id strfmt.UUID, repl *additional.ReplicationProperties, tenantKey string,
 ) error {
 	args := f.Called(className, id)
 	return args.Error(0)

@@ -72,7 +72,7 @@ func TestUpdateJourney(t *testing.T) {
 
 	t.Run("import some objects", func(t *testing.T) {
 		for _, res := range updateTestData() {
-			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil, nil)
+			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil, "")
 			require.Nil(t, err)
 		}
 
@@ -157,7 +157,7 @@ func TestUpdateJourney(t *testing.T) {
 				additional.Properties{})
 			require.Nil(t, err)
 
-			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil, nil)
+			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil, "")
 			require.Nil(t, err)
 
 			tracker := getTracker(repo, "UpdateTestClass")
@@ -221,7 +221,7 @@ func TestUpdateJourney(t *testing.T) {
 			require.Nil(t, err)
 
 			old.Schema.(map[string]interface{})["intProp"] = int64(21)
-			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil, nil)
+			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil, "")
 			require.Nil(t, err)
 
 			tracker := getTracker(repo, "UpdateTestClass")

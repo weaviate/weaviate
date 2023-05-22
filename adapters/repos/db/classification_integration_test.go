@@ -64,7 +64,7 @@ func TestClassifications(t *testing.T) {
 	t.Run("importing categories", func(t *testing.T) {
 		for _, res := range classificationTestCategories() {
 			thing := res.Object()
-			err := repo.PutObject(context.Background(), thing, res.Vector, nil, nil)
+			err := repo.PutObject(context.Background(), thing, res.Vector, nil, "")
 			require.Nil(t, err)
 		}
 	})
@@ -72,7 +72,7 @@ func TestClassifications(t *testing.T) {
 	t.Run("importing articles", func(t *testing.T) {
 		for _, res := range classificationTestArticles() {
 			thing := res.Object()
-			err := repo.PutObject(context.Background(), thing, res.Vector, nil, nil)
+			err := repo.PutObject(context.Background(), thing, res.Vector, nil, "")
 			require.Nil(t, err)
 		}
 	})

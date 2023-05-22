@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-type exists func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ *string) (bool, error)
+type exists func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error)
 
 const (
 	// ErrorMissingActionObjects message
@@ -109,7 +109,7 @@ func (v *Validator) ValidateSingleRef(ctx context.Context, cref *models.SingleRe
 	}
 
 	// locally check for object existence
-	ok, err := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, nil)
+	ok, err := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, "")
 	if err != nil {
 		return err
 	}

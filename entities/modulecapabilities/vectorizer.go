@@ -30,7 +30,7 @@ type Vectorizer interface {
 }
 
 type FindObjectFn = func(ctx context.Context, class string, id strfmt.UUID,
-	props search.SelectProperties, adds additional.Properties, tenantKey *string) (*search.Result, error)
+	props search.SelectProperties, adds additional.Properties, tenantKey string) (*search.Result, error)
 
 // ReferenceVectorizer is implemented by ref2vec modules, which calculate a target
 // object's vector based only on the vectors of its references. If the object has

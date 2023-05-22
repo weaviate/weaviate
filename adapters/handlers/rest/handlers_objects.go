@@ -45,14 +45,14 @@ type ModulesProvider interface {
 
 type objectsManager interface {
 	AddObject(context.Context, *models.Principal, *models.Object,
-		*additional.ReplicationProperties, *string) (*models.Object, error)
+		*additional.ReplicationProperties, string) (*models.Object, error)
 	ValidateObject(context.Context, *models.Principal, *models.Object, *additional.ReplicationProperties) error
 	GetObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID,
-		_ additional.Properties, _ *additional.ReplicationProperties, _ *string) (*models.Object, error)
+		_ additional.Properties, _ *additional.ReplicationProperties, _ string) (*models.Object, error)
 	DeleteObject(_ context.Context, _ *models.Principal, class string,
-		_ strfmt.UUID, _ *additional.ReplicationProperties, _ *string) error
+		_ strfmt.UUID, _ *additional.ReplicationProperties, _ string) error
 	UpdateObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID,
-		_ *models.Object, _ *additional.ReplicationProperties, tenantKey *string) (*models.Object, error)
+		_ *models.Object, _ *additional.ReplicationProperties, _ string) (*models.Object, error)
 	HeadObject(ctx context.Context, principal *models.Principal, class string,
 		id strfmt.UUID, repl *additional.ReplicationProperties) (bool, *uco.Error)
 	GetObjects(context.Context, *models.Principal, *int64, *int64,
@@ -76,8 +76,10 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
+	tenantKey := getTenantKey(params.TenantKey)
+
 	object, err := h.manager.AddObject(params.HTTPRequest.Context(),
-		principal, params.Body, repl, params.TenantKey)
+		principal, params.Body, repl, tenantKey)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -153,8 +155,10 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
+	tenantKey := getTenantKey(params.TenantKey)
+
 	object, err := h.manager.GetObject(params.HTTPRequest.Context(), principal,
-		params.ClassName, params.ID, additional, replProps, params.TenantKey)
+		params.ClassName, params.ID, additional, replProps, tenantKey)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -277,8 +281,10 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
+	tenantKey := getTenantKey(params.TenantKey)
+
 	err = h.manager.DeleteObject(params.HTTPRequest.Context(),
-		principal, params.ClassName, params.ID, repl, params.TenantKey)
+		principal, params.ClassName, params.ID, repl, tenantKey)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -304,8 +310,10 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
+	tenantKey := getTenantKey(params.TenantKey)
+
 	object, err := h.manager.UpdateObject(params.HTTPRequest.Context(),
-		principal, params.ClassName, params.ID, params.Body, repl, params.TenantKey)
+		principal, params.ClassName, params.ID, params.Body, repl, tenantKey)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -767,4 +775,11 @@ func getConsistencyLevel(lvl *string) (string, error) {
 	}
 
 	return "", nil
+}
+
+func getTenantKey(maybeKey *string) string {
+	if maybeKey != nil {
+		return *maybeKey
+	}
+	return ""
 }

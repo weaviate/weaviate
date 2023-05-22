@@ -103,7 +103,7 @@ func (v *Vectorizer) findReferenceObject(ctx context.Context, beacon strfmt.URI)
 	}
 
 	res, err = v.findObjectFn(ctx, ref.Class, ref.TargetID,
-		search.SelectProperties{}, additional.Properties{}, nil)
+		search.SelectProperties{}, additional.Properties{}, "")
 	if err != nil || res == nil {
 		if err == nil {
 			err = fmt.Errorf("not found")

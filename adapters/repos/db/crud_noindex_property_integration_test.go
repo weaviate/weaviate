@@ -95,7 +95,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 			},
 		}
 		vector := []float32{1, 3, 5, 0.4}
-		err := repo.PutObject(context.Background(), thing, vector, nil, nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, "")
 
 		assert.Nil(t, err)
 	})
@@ -116,7 +116,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 	// Same as above, but with Object()
 	t.Run("all props are present when getting by id and class", func(t *testing.T) {
 		res, err := repo.Object(context.Background(), "ThingClassWithNoIndexProps", thingID,
-			search.SelectProperties{}, additional.Properties{}, nil, nil)
+			search.SelectProperties{}, additional.Properties{}, nil, "")
 		expectedSchema := map[string]interface{}{
 			"stringProp":       "some value",
 			"hiddenStringProp": "some hidden value",

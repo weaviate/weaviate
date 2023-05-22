@@ -67,7 +67,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	if updates.Properties == nil {
 		updates.Properties = map[string]interface{}{}
 	}
-	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, nil)
+	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, "")
 	if err != nil {
 		return &Error{"repo.object", StatusInternalServerError, err}
 	}

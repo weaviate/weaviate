@@ -110,7 +110,7 @@ func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchem
 
 		data := map[string]interface{}{"document": doc.Document, "code": doc.DocID}
 		obj := &models.Object{Class: "StandardTest", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
-		err := repo.PutObject(context.Background(), obj, nil, nil, nil)
+		err := repo.PutObject(context.Background(), obj, nil, nil, "")
 		require.Nil(t, err)
 	}
 }
@@ -220,7 +220,7 @@ func addObj(repo *DB, i int, props map[string]interface{}, vec []float32) error 
 
 	obj := &models.Object{Class: "MyClass", ID: id, Properties: props, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 	vector := vec
-	err := repo.PutObject(context.Background(), obj, vector, nil, nil)
+	err := repo.PutObject(context.Background(), obj, vector, nil, "")
 	return err
 }
 

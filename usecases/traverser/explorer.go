@@ -80,7 +80,7 @@ type vectorClassSearch interface {
 		filters *filters.LocalFilter) ([]search.Result, error)
 	Object(ctx context.Context, className string, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties,
-		properties *additional.ReplicationProperties, tenantKey *string) (*search.Result, error)
+		properties *additional.ReplicationProperties, tenantKey string) (*search.Result, error)
 	ObjectsByID(ctx context.Context, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties) (search.Results, error)
 	ResolveReferences(ctx context.Context, objs search.Results,

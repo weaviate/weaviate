@@ -117,8 +117,8 @@ func TestNullArrayClass(t *testing.T) {
 			}
 
 			if name == names[0] {
-				assert.Nil(t, repo.PutObject(context.Background(), arrayObjNil, []float32{1}, nil, nil))
-				assert.Nil(t, repo.PutObject(context.Background(), arrayObjEmpty, []float32{1}, nil, nil))
+				assert.Nil(t, repo.PutObject(context.Background(), arrayObjNil, []float32{1}, nil, ""))
+				assert.Nil(t, repo.PutObject(context.Background(), arrayObjEmpty, []float32{1}, nil, ""))
 
 			} else {
 				batch := make([]objects.BatchObject, 2)
