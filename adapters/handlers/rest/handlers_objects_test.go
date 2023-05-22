@@ -1092,7 +1092,7 @@ func (f *fakeManager) Query(_ context.Context,
 }
 
 func (f *fakeManager) UpdateObject(_ context.Context, _ *models.Principal, _ string,
-	_ strfmt.UUID, updates *models.Object, _ *additional.ReplicationProperties,
+	_ strfmt.UUID, updates *models.Object, _ *additional.ReplicationProperties, _ *string,
 ) (*models.Object, error) {
 	return updates, f.updateObjectErr
 }

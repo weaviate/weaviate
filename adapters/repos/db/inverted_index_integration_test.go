@@ -150,7 +150,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 			Properties: map[string]interface{}{"initialWithIINil": "0", "initialWithIITrue": "0", "initialWithoutII": "1", "updateWithIINil": "2", "updateWithIITrue": "2", "updateWithoutII": "3"},
 		}
 		vec := []float32{1, 2, 3}
-		require.Nil(t, repo.PutObject(context.Background(), objWithProperty, vec, nil))
+		require.Nil(t, repo.PutObject(context.Background(), objWithProperty, vec, nil, nil))
 
 		testID2 := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a63")
 		objWithoutProperty := &models.Object{
@@ -158,7 +158,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 			Class:      "TestClass",
 			Properties: map[string]interface{}{},
 		}
-		require.Nil(t, repo.PutObject(context.Background(), objWithoutProperty, vec, nil))
+		require.Nil(t, repo.PutObject(context.Background(), objWithoutProperty, vec, nil, nil))
 
 		testID3 := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a64")
 		objWithNilProperty := &models.Object{
@@ -166,7 +166,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 			Class:      "TestClass",
 			Properties: map[string]interface{}{"initialWithIINil": nil, "initialWithIITrue": nil, "initialWithoutII": nil, "updateWithIINil": nil, "updateWithIITrue": nil, "updateWithoutII": nil},
 		}
-		require.Nil(t, repo.PutObject(context.Background(), objWithNilProperty, vec, nil))
+		require.Nil(t, repo.PutObject(context.Background(), objWithNilProperty, vec, nil, nil))
 	})
 
 	t.Run("delete class", func(t *testing.T) {
@@ -233,7 +233,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		Class:      "TestClass",
 		Properties: map[string]interface{}{"name": "objectarooni", "number array": []float64{0.5, 1.4}},
 	}
-	require.Nil(t, repo.PutObject(context.Background(), objWithProperty, []float32{1, 2, 3}, nil))
+	require.Nil(t, repo.PutObject(context.Background(), objWithProperty, []float32{1, 2, 3}, nil, nil))
 
 	testID2 := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a63")
 	objWithoutProperty := &models.Object{
@@ -241,7 +241,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		Class:      "TestClass",
 		Properties: map[string]interface{}{"name": nil, "number array": nil},
 	}
-	require.Nil(t, repo.PutObject(context.Background(), objWithoutProperty, []float32{1, 2, 4}, nil))
+	require.Nil(t, repo.PutObject(context.Background(), objWithoutProperty, []float32{1, 2, 4}, nil, nil))
 
 	require.Equal(t, 1, len(migrator.db.indices["testclass"].Shards))
 	for _, shd := range migrator.db.indices["testclass"].Shards {
@@ -361,7 +361,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			Properties:         map[string]interface{}{"name": "objectarooni"},
 		}
 		vec := []float32{1, 2, 3}
-		err := repo.PutObject(context.Background(), obj, vec, nil)
+		err := repo.PutObject(context.Background(), obj, vec, nil, nil)
 		require.Nil(t, err)
 	})
 

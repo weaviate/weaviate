@@ -35,7 +35,7 @@ import (
 )
 
 const FindObjectFn = "func(context.Context, string, strfmt.UUID, " +
-	"search.SelectProperties, additional.Properties) (*search.Result, error)"
+	"search.SelectProperties, additional.Properties, *string) (*search.Result, error)"
 
 type fakeSchemaManager struct {
 	CalledWith struct {
@@ -178,7 +178,7 @@ func (f *fakeVectorRepo) Query(ctx context.Context, q *QueryInput) (search.Resul
 	return res, err
 }
 
-func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, vector []float32, repl *additional.ReplicationProperties) error {
+func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, vector []float32, repl *additional.ReplicationProperties, tenantKey *string) error {
 	args := f.Called(concept, vector)
 	return args.Error(0)
 }

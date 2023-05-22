@@ -106,7 +106,7 @@ func prepareCarTestSchemaAndData(repo *DB,
 		for i, fixture := range cars {
 			t.Run(fmt.Sprintf("importing car %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), &fixture, carVectors[i], nil))
+					repo.PutObject(context.Background(), &fixture, carVectors[i], nil, nil))
 			})
 		}
 	}
@@ -926,7 +926,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 							Longitude: &coordinates[i][1],
 						},
 					},
-				}, []float32{0.5}, nil)
+				}, []float32{0.5}, nil, nil)
 			}
 		}
 	}
@@ -1068,7 +1068,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 		for i, obj := range objects {
 			t.Run(fmt.Sprintf("importing object %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), obj, obj.Vector, nil))
+					repo.PutObject(context.Background(), obj, obj.Vector, nil, nil))
 			})
 		}
 	})
@@ -1437,7 +1437,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 		for i, obj := range objects {
 			t.Run(fmt.Sprintf("importing object %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), obj, obj.Vector, nil))
+					repo.PutObject(context.Background(), obj, obj.Vector, nil, nil))
 			})
 		}
 	})

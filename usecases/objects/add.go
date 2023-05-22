@@ -117,7 +117,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		return nil, err
 	}
 
-	err = m.vectorRepo.PutObject(ctx, object, object.Vector, repl)
+	err = m.vectorRepo.PutObject(ctx, object, object.Vector, repl, tenantKey)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %s", err)
 	}

@@ -29,8 +29,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-func (db *DB) PutObject(ctx context.Context, obj *models.Object,
-	vector []float32, repl *additional.ReplicationProperties,
+func (db *DB) PutObject(ctx context.Context, obj *models.Object, vector []float32,
+	repl *additional.ReplicationProperties, tenantKey *string,
 ) error {
 	object := storobj.FromObject(obj, vector)
 	idx := db.GetIndex(object.Class())
@@ -38,7 +38,7 @@ func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 		return fmt.Errorf("import into non-existing index for %s", object.Class())
 	}
 
-	if err := idx.putObject(ctx, object, repl); err != nil {
+	if err := idx.putObject(ctx, object, repl, tenantKey); err != nil {
 		return errors.Wrapf(err, "import into index %s", idx.ID())
 	}
 

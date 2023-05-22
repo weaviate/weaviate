@@ -64,7 +64,7 @@ func TestAddTenantObjects(t *testing.T) {
 					tenantKey: name,
 				},
 			}
-			helper.CreateObject(t, &obj)
+			helper.CreateTenantObject(t, &obj, name)
 		}
 	})
 

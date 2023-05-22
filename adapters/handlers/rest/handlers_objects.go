@@ -51,7 +51,7 @@ type objectsManager interface {
 	DeleteObject(_ context.Context, _ *models.Principal,
 		class string, _ strfmt.UUID, _ *additional.ReplicationProperties) error
 	UpdateObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID,
-		_ *models.Object, _ *additional.ReplicationProperties) (*models.Object, error)
+		_ *models.Object, _ *additional.ReplicationProperties, tenantKey *string) (*models.Object, error)
 	HeadObject(ctx context.Context, principal *models.Principal, class string,
 		id strfmt.UUID, repl *additional.ReplicationProperties) (bool, *uco.Error)
 	GetObjects(context.Context, *models.Principal, *int64, *int64, *string, *string, *string, additional.Properties) ([]*models.Object, error)
@@ -302,9 +302,8 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	object, err := h.manager.UpdateObject(
-		params.HTTPRequest.Context(), principal,
-		params.ClassName, params.ID, params.Body, repl)
+	object, err := h.manager.UpdateObject(params.HTTPRequest.Context(),
+		principal, params.ClassName, params.ID, params.Body, repl, params.TenantKey)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:

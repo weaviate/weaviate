@@ -323,10 +323,14 @@ func (i *Index) shardFromTenantKey(tenantKey string, id strfmt.UUID) (string, er
 }
 
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
-	replProps *additional.ReplicationProperties,
+	replProps *additional.ReplicationProperties, tenantKey *string,
 ) error {
+	if i.tenantKey != "" && tenantKey == nil {
+		return fmt.Errorf("class %q has multi-tenancy enabled, tenant_key required", i.Config.ClassName)
+	}
+
 	if i.Config.ClassName != object.Class() {
-		return errors.Errorf("cannot import object of class %s into index of class %s",
+		return fmt.Errorf("cannot import object of class %s into index of class %s",
 			object.Class(), i.Config.ClassName)
 	}
 
