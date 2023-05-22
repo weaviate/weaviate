@@ -499,13 +499,35 @@ func TestCondensorWithPQInformation(t *testing.T) {
 	require.Nil(t, err)
 	defer uncondensed.Shutdown(ctx)
 
+	encoders := []ssdhelpers.PQEncoder{
+		ssdhelpers.NewKMeansWithCenters(
+			4,
+			2,
+			0,
+			[][]float32{{1, 2}, {3, 4}, {5, 6}, {7, 8}},
+		),
+		ssdhelpers.NewKMeansWithCenters(
+			4,
+			2,
+			1,
+			[][]float32{{8, 7}, {6, 5}, {4, 3}, {2, 1}},
+		),
+		ssdhelpers.NewKMeansWithCenters(
+			4,
+			2,
+			2,
+			[][]float32{{1, 2}, {3, 4}, {5, 6}, {7, 8}},
+		),
+	}
+
 	t.Run("add pq info", func(t *testing.T) {
 		uncondensed.AddPQ(ssdhelpers.PQData{
-			Ks:                  3,
-			M:                   0,
-			Dimensions:          5,
+			Ks:                  4,
+			M:                   3,
+			Dimensions:          6,
 			EncoderType:         ssdhelpers.UseKMeansEncoder,
 			EncoderDistribution: uint8(0),
+			Encoders:            encoders,
 			UseBitsEncoding:     false,
 		})
 
@@ -538,11 +560,12 @@ func TestCondensorWithPQInformation(t *testing.T) {
 
 		assert.True(t, res.Compressed)
 		expected := ssdhelpers.PQData{
-			Ks:                  3,
-			M:                   0,
-			Dimensions:          5,
+			Ks:                  4,
+			M:                   3,
+			Dimensions:          6,
 			EncoderType:         ssdhelpers.UseKMeansEncoder,
 			EncoderDistribution: uint8(0),
+			Encoders:            encoders,
 			UseBitsEncoding:     false,
 		}
 
