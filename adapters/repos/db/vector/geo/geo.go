@@ -57,18 +57,20 @@ type Config struct {
 	Logger             logrus.FieldLogger
 }
 
-func NewIndex(config Config) (*Index, error) {
+func NewIndex(config Config, tombstoneCleanupCycle cyclemanager.CycleManager,
+	commitLogMaintenanceCycle cyclemanager.CycleManager,
+) (*Index, error) {
 	vi, err := hnsw.New(hnsw.Config{
 		VectorForIDThunk:      config.CoordinatesForID.VectorForID,
 		ID:                    config.ID,
 		RootPath:              config.RootPath,
-		MakeCommitLoggerThunk: makeCommitLoggerFromConfig(config),
+		MakeCommitLoggerThunk: makeCommitLoggerFromConfig(config, commitLogMaintenanceCycle),
 		DistanceProvider:      distancer.NewGeoProvider(),
 	}, hnswent.UserConfig{
 		MaxConnections:         64,
 		EFConstruction:         128,
 		CleanupIntervalSeconds: hnswent.DefaultCleanupIntervalSeconds,
-	})
+	}, tombstoneCleanupCycle)
 	if err != nil {
 		return nil, errors.Wrap(err, "underlying hnsw index")
 	}
@@ -94,12 +96,12 @@ func (i *Index) PostStartup() {
 	i.vectorIndex.PostStartup()
 }
 
-func makeCommitLoggerFromConfig(config Config) hnsw.MakeCommitLogger {
+func makeCommitLoggerFromConfig(config Config, maintenanceCycle cyclemanager.CycleManager,
+) hnsw.MakeCommitLogger {
 	makeCL := hnsw.MakeNoopCommitLogger
 	if !config.DisablePersistence {
 		makeCL = func() (hnsw.CommitLogger, error) {
-			return hnsw.NewCommitLogger(config.RootPath, config.ID, config.Logger,
-				hnsw.WithCommitlogCycleTicker(cyclemanager.GeoCommitLoggerCycleTicker))
+			return hnsw.NewCommitLogger(config.RootPath, config.ID, config.Logger, maintenanceCycle)
 		}
 	}
 	return makeCL

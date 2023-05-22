@@ -116,7 +116,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 
 	t.Run("check for additional buckets", func(t *testing.T) {
 		for _, idx := range migrator.db.indices {
-			for _, shd := range idx.Shards {
+			idx.ForEachShard(func(_ string, shd *Shard) error {
 				createBucket := shd.store.Bucket("property__creationTimeUnix")
 				assert.NotNil(t, createBucket)
 
@@ -138,7 +138,8 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 					tt.compareFunc(t, shd.store.Bucket("property_"+tt.prop+filters.InternalNullIndex))
 					tt.compareFunc(t, shd.store.Bucket("property_"+tt.prop+filters.InternalPropertyLength))
 				}
-			}
+				return nil
+			})
 		}
 	})
 
@@ -172,11 +173,12 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 	t.Run("delete class", func(t *testing.T) {
 		require.Nil(t, migrator.DropClass(context.Background(), class.Class))
 		for _, idx := range migrator.db.indices {
-			for _, shd := range idx.Shards {
+			idx.ForEachShard(func(name string, shd *Shard) error {
 				require.Nil(t, shd.store.Bucket("property__creationTimeUnix"))
 				require.Nil(t, shd.store.Bucket("property_name"+filters.InternalNullIndex))
 				require.Nil(t, shd.store.Bucket("property_name"+filters.InternalPropertyLength))
-			}
+				return nil
+			})
 		}
 	})
 }
@@ -242,12 +244,15 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		Properties: map[string]interface{}{"name": nil, "number array": nil},
 	}
 	require.Nil(t, repo.PutObject(context.Background(), objWithoutProperty, []float32{1, 2, 4}, nil, nil))
-
-	require.Equal(t, 1, len(migrator.db.indices["testclass"].Shards))
-	for _, shd := range migrator.db.indices["testclass"].Shards {
-		bucket := shd.store.Bucket("property_name" + filters.InternalNullIndex)
+	index := migrator.db.indices["testclass"]
+	n := 0
+	index.ForEachShard(func(_ string, shard *Shard) error {
+		bucket := shard.store.Bucket("property_name" + filters.InternalNullIndex)
 		require.NotNil(t, bucket)
-	}
+		n++
+		return nil
+	})
+	require.Equal(t, 1, n)
 
 	tests := map[string]strfmt.UUID{"filterNull": testID1, "filterNonNull": testID2}
 	for name, searchVal := range tests {

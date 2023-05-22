@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -49,7 +50,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
-		})
+		}, cyclemanager.NewNoop())
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -142,7 +143,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
-		})
+		}, cyclemanager.NewNoop())
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -255,7 +256,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
-		})
+		}, cyclemanager.NewNoop())
 		// makes sure index is build only with level 0. To be removed after fixing WEAVIATE-179
 		index.randFunc = func() float64 { return 0.1 }
 
@@ -373,7 +374,7 @@ func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32)
 		// zero it will constantly think it's full and needs to be deleted - even
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
-	})
+	}, cyclemanager.NewNoop())
 	require.Nil(t, err)
 
 	// makes sure index is build only with level 0. To be removed after fixing WEAVIATE-179
@@ -532,9 +533,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-		},
-			userConfig,
-		)
+		}, userConfig, cyclemanager.NewNoop())
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -659,9 +658,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id%uint64(len(vectors)))], nil
 			},
-		},
-			userConfig,
-		)
+		}, userConfig, cyclemanager.NewNoop())
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -848,7 +845,7 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 		// zero it will constantly think it's full and needs to be deleted - even
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
-	})
+	}, cyclemanager.NewNoop())
 	require.Nil(t, err)
 
 	// manually build the index
@@ -991,7 +988,7 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		// zero it will constantly think it's full and needs to be deleted - even
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
-	})
+	}, cyclemanager.NewNoop())
 	require.Nil(t, err)
 
 	// manually build the index
@@ -1066,7 +1063,7 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 		// zero it will constantly think it's full and needs to be deleted - even
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
-	})
+	}, cyclemanager.NewNoop())
 	require.Nil(t, err)
 
 	objVec := []float32{0.1, 0.2}
@@ -1237,7 +1234,7 @@ func Test_DeleteEPVecInUnderlyingObjectStore(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
-		})
+		}, cyclemanager.NewNoop())
 		require.Nil(t, err)
 		vectorIndex = index
 

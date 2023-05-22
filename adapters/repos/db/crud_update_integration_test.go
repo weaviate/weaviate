@@ -380,11 +380,12 @@ func extractPropValues(in search.Results, propName string) []interface{} {
 }
 
 func getTracker(repo *DB, className string) *inverted.JsonPropertyLengthTracker {
-	shards := repo.GetIndex("UpdateTestClass").Shards
+	index := repo.GetIndex("UpdateTestClass")
 	var shard *Shard
-	for _, shardv := range shards {
+	index.ForEachShard(func(name string, shardv *Shard) error {
 		shard = shardv
-	}
+		return nil
+	})
 
 	tracker := shard.propLengths
 

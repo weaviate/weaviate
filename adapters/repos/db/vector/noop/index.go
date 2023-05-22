@@ -76,20 +76,12 @@ func (i *Index) Shutdown(context.Context) error {
 	return nil
 }
 
-func (i *Index) PauseMaintenance(context.Context) error {
-	return nil
-}
-
 func (i *Index) SwitchCommitLogs(context.Context) error {
 	return nil
 }
 
 func (i *Index) ListFiles(context.Context) ([]string, error) {
 	return nil, nil
-}
-
-func (i *Index) ResumeMaintenance(context.Context) error {
-	return nil
 }
 
 func (i *Index) ValidateBeforeInsert(vector []float32) error {

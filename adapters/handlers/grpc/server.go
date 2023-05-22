@@ -17,6 +17,9 @@ import (
 	"net"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/schema"
+	schemaManager "github.com/weaviate/weaviate/usecases/schema"
+
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/entities/search"
@@ -34,23 +37,29 @@ import (
 	"google.golang.org/grpc"
 )
 
-func StartAndListen(state *state.State) error {
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d",
-		state.ServerConfig.Config.GRPC.Port))
-	if err != nil {
-		return err
-	}
+func CreateGRPCServer(state *state.State) *GRPCServer {
 	s := grpc.NewServer()
+
 	pb.RegisterWeaviateServer(s, &Server{
 		traverser: state.Traverser,
 		authComposer: composer.New(
 			state.ServerConfig.Config.Authentication,
 			state.APIKey, state.OIDC),
 		allowAnonymousAccess: state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
+		schemaManager:        state.SchemaManager,
 	})
+
+	return &GRPCServer{s}
+}
+
+func StartAndListen(s *GRPCServer, state *state.State) error {
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d",
+		state.ServerConfig.Config.GRPC.Port))
+	if err != nil {
+		return err
+	}
 	state.Logger.WithField("action", "grpc_startup").
 		Infof("grpc server listening at %v", lis.Addr())
-
 	if err := s.Serve(lis); err != nil {
 		return fmt.Errorf("failed to serve: %v", err)
 	}
@@ -58,11 +67,16 @@ func StartAndListen(state *state.State) error {
 	return nil
 }
 
+type GRPCServer struct {
+	*grpc.Server
+}
+
 type Server struct {
 	pb.UnimplementedWeaviateServer
 	traverser            *traverser.Traverser
 	authComposer         composer.TokenFunc
 	allowAnonymousAccess bool
+	schemaManager        *schemaManager.Manager
 }
 
 func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
@@ -77,15 +91,37 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 	if err != nil {
 		return nil, fmt.Errorf("extract params: %w", err)
 	}
+
+	if err := s.validateClassAndProperty(searchParams); err != nil {
+		return nil, err
+	}
+
 	res, err := s.traverser.GetClass(ctx, principal, searchParams)
 	if err != nil {
 		return nil, err
 	}
 
-	return searchResultsToProto(res, before, searchParams), nil
+	return searchResultsToProto(res, before, searchParams)
 }
 
-func searchResultsToProto(res []any, start time.Time, searchParams dto.GetParams) *pb.SearchReply {
+func (s *Server) validateClassAndProperty(searchParams dto.GetParams) error {
+	scheme := s.schemaManager.GetSchemaSkipAuth()
+	class, err := schema.GetClassByName(scheme.Objects, searchParams.ClassName)
+	if err != nil {
+		return err
+	}
+
+	for _, prop := range searchParams.Properties {
+		_, err := schema.GetPropertyByName(class, prop.Name)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func searchResultsToProto(res []any, start time.Time, searchParams dto.GetParams) (*pb.SearchReply, error) {
 	tookSeconds := float64(time.Since(start)) / float64(time.Second)
 	out := &pb.SearchReply{
 		Took:    float32(tookSeconds),
@@ -116,7 +152,7 @@ func searchResultsToProto(res []any, start time.Time, searchParams dto.GetParams
 		out.Results[i] = result
 	}
 
-	return out
+	return out, nil
 }
 
 func extractAdditionalProps(asMap map[string]any, searchParams dto.GetParams) (*pb.ResultAdditionalProps, error) {
