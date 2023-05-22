@@ -132,7 +132,7 @@ func TestDeleteJourney(t *testing.T) {
 		func(t *testing.T) {
 			id := updateTestData()[0].ID
 
-			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil)
+			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil, nil)
 			require.Nil(t, err)
 		})
 
@@ -174,7 +174,7 @@ func TestDeleteJourney(t *testing.T) {
 		func(t *testing.T) {
 			id := updateTestData()[1].ID
 
-			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil)
+			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil, nil)
 			require.Nil(t, err)
 		})
 
@@ -228,7 +228,7 @@ func TestDeleteJourney(t *testing.T) {
 
 		id := updateTestData()[2].ID
 
-		err = repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil)
+		err = repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil, nil)
 		require.Nil(t, err)
 
 		index := repo.GetIndex("UpdateTestClass")

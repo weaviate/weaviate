@@ -212,7 +212,7 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 	})
 
 	t.Run("delete first object", func(t *testing.T) {
-		err := repo.DeleteObject(context.Background(), "Test", firstID, nil)
+		err := repo.DeleteObject(context.Background(), "Test", firstID, nil, nil)
 		require.Nil(t, err)
 	})
 

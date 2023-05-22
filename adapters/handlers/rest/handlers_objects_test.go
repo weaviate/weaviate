@@ -1104,12 +1104,14 @@ func (f *fakeManager) MergeObject(_ context.Context, _ *models.Principal,
 }
 
 func (f *fakeManager) DeleteObject(_ context.Context, _ *models.Principal,
-	class string, _ strfmt.UUID, _ *additional.ReplicationProperties,
+	class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ *string,
 ) error {
 	return f.deleteObjectReturn
 }
 
-func (f *fakeManager) AddObjectReference(context.Context, *models.Principal, *uco.AddReferenceInput, *additional.ReplicationProperties) *uco.Error {
+func (f *fakeManager) AddObjectReference(context.Context, *models.Principal,
+	*uco.AddReferenceInput, *additional.ReplicationProperties,
+) *uco.Error {
 	return f.addRefErr
 }
 

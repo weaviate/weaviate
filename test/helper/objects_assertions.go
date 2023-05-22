@@ -168,3 +168,10 @@ func DeleteClassObject(t *testing.T, class string) (*schema.SchemaObjectsDeleteO
 	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
 	return Client(t).Schema.SchemaObjectsDelete(delParams, nil)
 }
+
+func DeleteTenantObject(t *testing.T, class string, id strfmt.UUID, tenantKey string) {
+	params := objects.NewObjectsClassDeleteParams().
+		WithClassName(class).WithID(id).WithTenantKey(&tenantKey)
+	resp, err := Client(t).Objects.ObjectsClassDelete(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}

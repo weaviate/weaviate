@@ -212,7 +212,7 @@ func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument,
 }
 
 func (f *fakeVectorRepo) DeleteObject(ctx context.Context, className string,
-	id strfmt.UUID, repl *additional.ReplicationProperties,
+	id strfmt.UUID, repl *additional.ReplicationProperties, tenantKey *string,
 ) error {
 	args := f.Called(className, id)
 	return args.Error(0)

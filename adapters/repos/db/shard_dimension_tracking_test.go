@@ -238,7 +238,7 @@ func Test_DimensionTracking(t *testing.T) {
 		dimBefore := GetDimensionsFromRepo(repo, "Test")
 		for i := 0; i < 10; i++ {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
-			err := repo.DeleteObject(context.Background(), "Test", id, nil)
+			err := repo.DeleteObject(context.Background(), "Test", id, nil, nil)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")

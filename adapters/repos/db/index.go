@@ -286,32 +286,47 @@ func (i *Index) shardFromUUID(in strfmt.UUID) (string, error) {
 		PhysicalShard(uuidBytes), nil
 }
 
-// tenantKeyValue extract the value of the tenant key if it exists
-func tenantKeyValue(tenantKeyName string, o *storobj.Object) string {
-	if props, _ := o.Properties().(map[string]interface{}); props != nil {
-		if rawVal := props[tenantKeyName]; rawVal != nil {
-			if key, _ := rawVal.(string); key != "" {
-				return key
-			}
+//// tenantKeyValue extract the value of the tenant key if it exists
+//func tenantKeyValue(tenantKeyName string, o *storobj.Object) string {
+//	if props, _ := o.Properties().(map[string]interface{}); props != nil {
+//		if rawVal := props[tenantKeyName]; rawVal != nil {
+//			if key, _ := rawVal.(string); key != "" {
+//				return key
+//			}
+//		}
+//	}
+//	return ""
+//}
+//
+//// shardFromObject returns the name of shard to which o belongs
+//func (i *Index) shardFromObject(o *storobj.Object) (string, error) {
+//	if i.tenantKey == "" {
+//		return i.shardFromUUID(o.ID())
+//	}
+//	keyVal := tenantKeyValue(i.tenantKey, o)
+//	if keyVal == "" {
+//		return "", fmt.Errorf("tenant key %q is required", i.tenantKey)
+//	}
+//	ss := i.getSchema.ShardingState(i.Config.ClassName.String())
+//	if name := ss.Shard(keyVal, o.ID().String()); name != "" {
+//		return name, nil
+//	}
+//	return "", fmt.Errorf("no tenant found with key: %q", keyVal)
+//}
+
+func (i *Index) determineObjectShard(id strfmt.UUID, tenantKey *string) (shardName string, err error) {
+	if tenantKey != nil {
+		shardName, err = i.shardFromTenantKey(*tenantKey, id)
+		if err != nil {
+			return
+		}
+	} else {
+		shardName, err = i.shardFromUUID(id)
+		if err != nil {
+			return
 		}
 	}
-	return ""
-}
-
-// shardFromObject returns the name of shard to which o belongs
-func (i *Index) shardFromObject(o *storobj.Object) (string, error) {
-	if i.tenantKey == "" {
-		return i.shardFromUUID(o.ID())
-	}
-	keyVal := tenantKeyValue(i.tenantKey, o)
-	if keyVal == "" {
-		return "", fmt.Errorf("tenant key %q is required", i.tenantKey)
-	}
-	ss := i.getSchema.ShardingState(i.Config.ClassName.String())
-	if name := ss.Shard(keyVal, o.ID().String()); name != "" {
-		return name, nil
-	}
-	return "", fmt.Errorf("no tenant found with key: %q", keyVal)
+	return
 }
 
 func (i *Index) shardFromTenantKey(tenantKey string, id strfmt.UUID) (string, error) {
@@ -336,7 +351,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
-	shardName, err := i.shardFromObject(object)
+	shardName, err := i.determineObjectShard(object.ID(), tenantKey)
 	if err != nil {
 		return err
 	}
@@ -646,7 +661,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 		return nil, fmt.Errorf("class %q has multi-tenancy enabled, tenant_key required", i.Config.ClassName)
 	}
 
-	shardName, err := i.shardForObjectRead(id, tenantKey)
+	shardName, err := i.determineObjectShard(id, tenantKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine shard for object %q: %w", id, err)
 	}
@@ -677,21 +692,6 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	}
 
 	return obj, err
-}
-
-func (i *Index) shardForObjectRead(id strfmt.UUID, tenantKey *string) (shardName string, err error) {
-	if tenantKey != nil {
-		shardName, err = i.shardFromTenantKey(*tenantKey, id)
-		if err != nil {
-			return
-		}
-	} else {
-		shardName, err = i.shardFromUUID(id)
-		if err != nil {
-			return
-		}
-	}
-	return
 }
 
 func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
@@ -805,7 +805,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID, replProps *additiona
 	if i.tenantKey != "" && tenantKey == nil {
 		return false, fmt.Errorf("class %q has multi-tenancy enabled, tenant_key required", i.Config.ClassName)
 	}
-	shardName, err := i.shardForObjectRead(id, tenantKey)
+	shardName, err := i.determineObjectShard(id, tenantKey)
 	if err != nil {
 		return false, err
 	}
@@ -1172,12 +1172,10 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	return res, resDists, nil
 }
 
-func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
-	replProps *additional.ReplicationProperties,
-) error {
+func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID, replProps *additional.ReplicationProperties, tenantKey *string) error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
-	shardName, err := i.shardFromUUID(id)
+	shardName, err := i.determineObjectShard(id, tenantKey)
 	if err != nil {
 		return err
 	}
