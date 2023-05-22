@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
@@ -59,7 +60,7 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-		}, uc,
+		}, uc, cyclemanager.NewNoop(),
 	)
 	ssdhelpers.Concurrently(uint64(len(vectors)), func(id uint64) {
 		index.Add(uint64(id), vectors[id])

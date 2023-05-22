@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -49,14 +50,10 @@ func TestGraphIntegrity(t *testing.T) {
 
 	t.Run("importing into hnsw", func(t *testing.T) {
 		fmt.Printf("importing into hnsw\n")
-		cl := &NoopCommitLogger{}
-		makeCL := func() (CommitLogger, error) {
-			return cl, nil
-		}
 		index, err := New(Config{
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 			ID:                    "graphintegrity",
-			MakeCommitLoggerThunk: makeCL,
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
@@ -64,7 +61,7 @@ func TestGraphIntegrity(t *testing.T) {
 		}, ent.UserConfig{
 			MaxConnections: maxNeighbors,
 			EFConstruction: efConstruction,
-		})
+		}, cyclemanager.NewNoop())
 		require.Nil(t, err)
 		vectorIndex = index
 

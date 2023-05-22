@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -49,7 +50,7 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
-		})
+		}, cyclemanager.NewNoop())
 		require.Nil(t, err)
 		vectorIndex = index
 	})
