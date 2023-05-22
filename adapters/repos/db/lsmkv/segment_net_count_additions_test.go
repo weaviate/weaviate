@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func TestCreateCNAOnFlush(t *testing.T) {
@@ -31,12 +32,14 @@ func TestCreateCNAOnFlush(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	b, err := NewBucket(ctx, dirName, "", logger, nil, WithStrategy(StrategyReplace))
+	b, err := NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
-	require.Nil(t, b.FlushMemtable(ctx))
+	require.Nil(t, b.FlushMemtable())
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
@@ -53,12 +56,14 @@ func TestCreateCNAInit(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	b, err := NewBucket(ctx, dirName, "", logger, nil, WithStrategy(StrategyReplace))
+	b, err := NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
-	require.Nil(t, b.FlushMemtable(ctx))
+	require.Nil(t, b.FlushMemtable())
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
@@ -76,7 +81,9 @@ func TestCreateCNAInit(t *testing.T) {
 	require.Nil(t, b.Shutdown(ctx))
 
 	// now create a new bucket and assert that the file is re-created on init
-	b2, err := NewBucket(ctx, dirName, "", logger, nil, WithStrategy(StrategyReplace))
+	b2, err := NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
 
@@ -94,12 +101,14 @@ func TestRepairCorruptedCNAOnInit(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	b, err := NewBucket(ctx, dirName, "", logger, nil, WithStrategy(StrategyReplace))
+	b, err := NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
-	require.Nil(t, b.FlushMemtable(ctx))
+	require.Nil(t, b.FlushMemtable())
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
@@ -111,7 +120,9 @@ func TestRepairCorruptedCNAOnInit(t *testing.T) {
 
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches
-	b2, err := NewBucket(ctx, dirName, "", logger, nil, WithStrategy(StrategyReplace))
+	b2, err := NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
 
