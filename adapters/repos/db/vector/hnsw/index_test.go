@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -128,17 +129,16 @@ func createEmptyHnswIndexForTests(t *testing.T, vecForIDFn VectorForID) *hnsw {
 	// footprint. Commit logging and deserializing from a (condensed) commit log
 	// is tested in a separate integration test that takes care of providing and
 	// cleaning up the correct place on disk to write test files
-	makeCL := MakeNoopCommitLogger
 	index, err := New(Config{
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 		ID:                    "unittest",
-		MakeCommitLoggerThunk: makeCL,
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      vecForIDFn,
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	})
+	}, cyclemanager.NewNoop())
 	require.Nil(t, err)
 	return index
 }

@@ -27,6 +27,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 // This test continuously writes into a bucket with a small memtable threshold,
@@ -43,6 +44,7 @@ func TestConcurrentWriting_Replace(t *testing.T) {
 	values := make([][]byte, amount)
 
 	bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 		WithStrategy(StrategyReplace),
 		WithMemtableThreshold(10000))
 	require.Nil(t, err)
@@ -135,6 +137,7 @@ func TestConcurrentWriting_Set(t *testing.T) {
 	values := make([][][]byte, amount)
 
 	bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 		WithStrategy(StrategySetCollection),
 		WithMemtableThreshold(10000))
 	require.Nil(t, err)
@@ -225,6 +228,7 @@ func TestConcurrentWriting_Map(t *testing.T) {
 	values := make([][]MapPair, amount)
 
 	bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 		WithStrategy(StrategyMapCollection),
 		WithMemtableThreshold(5000))
 	require.Nil(t, err)

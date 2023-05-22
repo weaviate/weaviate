@@ -21,6 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
@@ -28,11 +29,13 @@ import (
 // Store groups multiple buckets together, it "owns" one folder on the file
 // system
 type Store struct {
-	dir           string
-	rootDir       string
-	bucketsByName map[string]*Bucket
-	logger        logrus.FieldLogger
-	metrics       *Metrics
+	dir             string
+	rootDir         string
+	bucketsByName   map[string]*Bucket
+	logger          logrus.FieldLogger
+	metrics         *Metrics
+	compactionCycle cyclemanager.CycleManager
+	flushCycle      cyclemanager.CycleManager
 
 	// Prevent concurrent manipulations to the bucketsByNameMap, most notably
 	// when initializing buckets in parallel
@@ -46,11 +49,13 @@ func New(dir, rootDir string, logger logrus.FieldLogger,
 	metrics *Metrics,
 ) (*Store, error) {
 	s := &Store{
-		dir:           dir,
-		rootDir:       rootDir,
-		bucketsByName: map[string]*Bucket{},
-		logger:        logger,
-		metrics:       metrics,
+		dir:             dir,
+		rootDir:         rootDir,
+		bucketsByName:   map[string]*Bucket{},
+		logger:          logger,
+		metrics:         metrics,
+		compactionCycle: cyclemanager.NewMulti(cyclemanager.CompactionCycleTicker()),
+		flushCycle:      cyclemanager.NewMulti(cyclemanager.MemtableFlushCycleTicker()),
 	}
 
 	return s, s.init()
@@ -89,7 +94,8 @@ func (s *Store) init() error {
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return err
 	}
-
+	s.compactionCycle.Start()
+	s.flushCycle.Start()
 	return nil
 }
 
@@ -115,7 +121,8 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 		return nil
 	}
 
-	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics, opts...)
+	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics,
+		s.compactionCycle, s.flushCycle, opts...)
 	if err != nil {
 		return err
 	}
@@ -175,28 +182,6 @@ type jobFunc func(context.Context, *Bucket) (interface{}, error)
 
 type rollbackFunc func(context.Context, *Bucket) error
 
-func (s *Store) PauseCompaction(ctx context.Context) error {
-	pauseCompaction := func(ctx context.Context, b *Bucket) (interface{}, error) {
-		return nil, b.PauseCompaction(ctx)
-	}
-
-	resumeCompaction := func(ctx context.Context, b *Bucket) error {
-		return b.ResumeCompaction(ctx)
-	}
-
-	_, err := s.runJobOnBuckets(ctx, pauseCompaction, resumeCompaction)
-	return err
-}
-
-func (s *Store) FlushMemtables(ctx context.Context) error {
-	flushMemtable := func(ctx context.Context, b *Bucket) (interface{}, error) {
-		return nil, b.FlushMemtable(ctx)
-	}
-
-	_, err := s.runJobOnBuckets(ctx, flushMemtable, nil)
-	return err
-}
-
 func (s *Store) ListFiles(ctx context.Context) ([]string, error) {
 	listFiles := func(ctx context.Context, b *Bucket) (interface{}, error) {
 		return b.ListFiles(ctx)
@@ -213,19 +198,6 @@ func (s *Store) ListFiles(ctx context.Context) ([]string, error) {
 	}
 
 	return files, nil
-}
-
-func (s *Store) ResumeCompaction(ctx context.Context) error {
-	resumeCompaction := func(ctx context.Context, b *Bucket) (interface{}, error) {
-		return nil, b.ResumeCompaction(ctx)
-	}
-
-	pauseCompaction := func(ctx context.Context, b *Bucket) error {
-		return b.PauseCompaction(ctx)
-	}
-
-	_, err := s.runJobOnBuckets(ctx, resumeCompaction, pauseCompaction)
-	return err
 }
 
 // runJobOnBuckets applies a jobFunc to each bucket in the store in parallel.
@@ -312,7 +284,8 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 		return errors.Wrapf(err, "failed removing bucket %s files", bucketName)
 	}
 
-	b, err := NewBucket(ctx, bucketDir, s.rootDir, s.logger, s.metrics, opts...)
+	b, err := NewBucket(ctx, bucketDir, s.rootDir, s.logger, s.metrics,
+		s.compactionCycle, s.flushCycle, opts...)
 	if err != nil {
 		return err
 	}

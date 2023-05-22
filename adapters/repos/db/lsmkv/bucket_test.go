@@ -18,12 +18,14 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func TestBucket_WasDeleted(t *testing.T) {
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
-	b, err := NewBucket(context.Background(), tmpDir, "", logger, nil)
+	b, err := NewBucket(context.Background(), tmpDir, "", logger, nil,
+		cyclemanager.NewNoop(), cyclemanager.NewNoop())
 	require.Nil(t, err)
 
 	var (

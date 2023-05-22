@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -78,6 +79,9 @@ type Shard struct {
 	// So despite property's IndexFilterable and IndexSearchable settings
 	// being enabled, only searchable bucket exists
 	fallbackToSearchable bool
+
+	vectorCycles   *hnsw.MaintenanceCycles
+	geoPropsCycles *hnsw.MaintenanceCycles
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -95,6 +99,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		stopMetrics:     make(chan struct{}),
 		replicationMap:  pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
 		centralJobQueue: jobQueueCh,
+		vectorCycles:    &hnsw.MaintenanceCycles{},
+		geoPropsCycles:  &hnsw.MaintenanceCycles{},
 	}
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
@@ -145,6 +151,26 @@ func (s *Shard) initVectorIndex(
 			"choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", hnswUserConfig.Distance)
 	}
 
+	s.vectorCycles.Init(
+		// Previously we had an interval of 10s in here, which was changed to
+		// 0.5s as part of gh-1867. There's really no way to wait so long in
+		// between checks: If you are running on a low-powered machine, the
+		// interval will simply find that there is no work and do nothing in
+		// each iteration. However, if you are running on a very powerful
+		// machine within 10s you could have potentially created two units of
+		// work, but we'll only be handling one every 10s. This means
+		// uncombined/uncondensed hnsw commit logs will keep piling up can only
+		// be processes long after the initial insert is complete. This also
+		// means that if there is a crash during importing a lot of work needs
+		// to be done at startup, since the commit logs still contain too many
+		// redundancies. So as of now it seems there are only advantages to
+		// running the cleanup checks and work much more often.
+		//
+		// update: switched to dynamic intervals with values between 500ms and 10s
+		// introduced to address https://github.com/weaviate/weaviate/issues/2783
+		cyclemanager.HnswCommitLoggerCycleTicker(),
+		cyclemanager.NewFixedIntervalTicker(time.Duration(hnswUserConfig.CleanupIntervalSeconds)*time.Second))
+
 	vi, err := hnsw.New(hnsw.Config{
 		Logger:            s.index.logger,
 		RootPath:          s.index.Config.RootPath,
@@ -152,12 +178,12 @@ func (s *Shard) initVectorIndex(
 		ShardName:         s.name,
 		ClassName:         s.index.Config.ClassName.String(),
 		PrometheusMetrics: s.promMetrics,
+		VectorForIDThunk:  s.vectorByIndexID,
+		DistanceProvider:  distProv,
 		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), s.index.logger)
+			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), s.index.logger, s.vectorCycles.CommitLogMaintenance())
 		},
-		VectorForIDThunk: s.vectorByIndexID,
-		DistanceProvider: distProv,
-	}, hnswUserConfig)
+	}, hnswUserConfig, s.vectorCycles.TombstoneCleanup())
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
 	}
@@ -263,6 +289,13 @@ func (s *Shard) drop() error {
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
+
+	if err := s.vectorCycles.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "shutdown vector cycles")
+	}
+	if err := s.geoPropsCycles.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "shutdown geo props cycles")
+	}
 
 	if err := s.store.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "stop lsmkv store")
@@ -529,7 +562,18 @@ func (s *Shard) shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "shut down vector index")
 	}
 
-	return s.store.Shutdown(ctx)
+	if err := s.vectorCycles.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "shutdown vector cycles")
+	}
+	if err := s.geoPropsCycles.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "shutdown geo props cycles")
+	}
+
+	if err := s.store.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "stop lsmkv store")
+	}
+
+	return nil
 }
 
 func (s *Shard) notifyReady() {

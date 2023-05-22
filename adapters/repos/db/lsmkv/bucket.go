@@ -60,7 +60,7 @@ type Bucket struct {
 	// for backward compatibility
 	legacyMapSortingBeforeCompaction bool
 
-	flushCycle *cyclemanager.CycleManager
+	unregisterFlush cyclemanager.UnregisterFunc
 
 	status     storagestate.Status
 	statusLock sync.RWMutex
@@ -82,7 +82,8 @@ type Bucket struct {
 // [Store]. In this case the [Store] can manage buckets for you, using methods
 // such as CreateOrLoadBucket().
 func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
-	metrics *Metrics, opts ...BucketOption,
+	metrics *Metrics, compactionCycle cyclemanager.CycleManager,
+	flushCycle cyclemanager.CycleManager, opts ...BucketOption,
 ) (*Bucket, error) {
 	beforeAll := time.Now()
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
@@ -116,7 +117,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	}
 
 	sg, err := newSegmentGroup(dir, logger, b.legacyMapSortingBeforeCompaction,
-		metrics, b.strategy, b.monitorCount)
+		metrics, b.strategy, b.monitorCount, compactionCycle)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
 	}
@@ -156,10 +157,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		return nil, err
 	}
 
-	b.flushCycle = cyclemanager.New(
-		cyclemanager.MemtableFlushCycleTicker(),
-		b.flushAndSwitchIfThresholdsMet)
-	b.flushCycle.Start()
+	b.unregisterFlush = flushCycle.Register(b.flushAndSwitchIfThresholdsMet)
 
 	b.metrics.TrackStartupBucket(beforeAll)
 
@@ -706,7 +704,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 		return err
 	}
 
-	if err := b.flushCycle.StopAndWait(ctx); err != nil {
+	if err := b.unregisterFlush(ctx); err != nil {
 		return errors.Wrap(ctx.Err(), "long-running flush in progress")
 	}
 

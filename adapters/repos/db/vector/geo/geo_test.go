@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -42,7 +43,7 @@ func TestGeoJourney(t *testing.T) {
 		CoordinatesForID:   getCoordinates,
 		DisablePersistence: true,
 		RootPath:           "doesnt-matter-persistence-is-off",
-	})
+	}, cyclemanager.NewNoop(), cyclemanager.NewNoop())
 	require.Nil(t, err)
 
 	t.Run("importing all", func(t *testing.T) {

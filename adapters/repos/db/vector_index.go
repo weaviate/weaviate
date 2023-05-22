@@ -31,10 +31,8 @@ type VectorIndex interface {
 	Drop(ctx context.Context) error
 	Shutdown(ctx context.Context) error
 	Flush() error
-	PauseMaintenance(ctx context.Context) error
 	SwitchCommitLogs(ctx context.Context) error
 	ListFiles(ctx context.Context) ([]string, error)
-	ResumeMaintenance(ctx context.Context) error
 	PostStartup()
 	ValidateBeforeInsert(vector []float32) error
 }
