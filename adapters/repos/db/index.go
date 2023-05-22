@@ -309,47 +309,11 @@ func (i *Index) shardFromUUID(in strfmt.UUID) (string, error) {
 		PhysicalShard(uuidBytes), nil
 }
 
-//// tenantKeyValue extract the value of the tenant key if it exists
-//func tenantKeyValue(tenantKeyName string, o *storobj.Object) string {
-//	if props, _ := o.Properties().(map[string]interface{}); props != nil {
-//		if rawVal := props[tenantKeyName]; rawVal != nil {
-//			if key, _ := rawVal.(string); key != "" {
-//				return key
-//			}
-//		}
-//	}
-//	return ""
-//}
-//
-//// shardFromObject returns the name of shard to which o belongs
-//func (i *Index) shardFromObject(o *storobj.Object) (string, error) {
-//	if i.tenantKey == "" {
-//		return i.shardFromUUID(o.ID())
-//	}
-//	keyVal := tenantKeyValue(i.tenantKey, o)
-//	if keyVal == "" {
-//		return "", fmt.Errorf("tenant key %q is required", i.tenantKey)
-//	}
-//	ss := i.getSchema.ShardingState(i.Config.ClassName.String())
-//	if name := ss.Shard(keyVal, o.ID().String()); name != "" {
-//		return name, nil
-//	}
-//	return "", fmt.Errorf("no tenant found with key: %q", keyVal)
-//}
-
-func (i *Index) determineObjectShard(id strfmt.UUID, tenantKey *string) (shardName string, err error) {
+func (i *Index) determineObjectShard(id strfmt.UUID, tenantKey *string) (string, error) {
 	if tenantKey != nil {
-		shardName, err = i.shardFromTenantKey(*tenantKey, id)
-		if err != nil {
-			return
-		}
-	} else {
-		shardName, err = i.shardFromUUID(id)
-		if err != nil {
-			return
-		}
+		return i.shardFromTenantKey(*tenantKey, id)
 	}
-	return
+	return i.shardFromUUID(id)
 }
 
 func (i *Index) shardFromTenantKey(tenantKey string, id strfmt.UUID) (string, error) {
@@ -363,8 +327,8 @@ func (i *Index) shardFromTenantKey(tenantKey string, id strfmt.UUID) (string, er
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	replProps *additional.ReplicationProperties, tenantKey *string,
 ) error {
-	if i.tenantKey != "" && tenantKey == nil {
-		return fmt.Errorf("class %q has multi-tenancy enabled, tenant_key required", i.Config.ClassName)
+	if err := i.validateMultiTenancy(tenantKey); err != nil {
+		return err
 	}
 
 	if i.Config.ClassName != object.Class() {
@@ -683,8 +647,8 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, addl additional.Properties,
 	replProps *additional.ReplicationProperties, tenantKey *string,
 ) (*storobj.Object, error) {
-	if i.tenantKey != "" && tenantKey == nil {
-		return nil, fmt.Errorf("class %q has multi-tenancy enabled, tenant_key required", i.Config.ClassName)
+	if err := i.validateMultiTenancy(tenantKey); err != nil {
+		return nil, err
 	}
 
 	shardName, err := i.determineObjectShard(id, tenantKey)
@@ -834,9 +798,10 @@ func wrapIDsInMulti(in []strfmt.UUID) []multi.Identifier {
 }
 
 func (i *Index) exists(ctx context.Context, id strfmt.UUID, replProps *additional.ReplicationProperties, tenantKey *string) (bool, error) {
-	if i.tenantKey != "" && tenantKey == nil {
-		return false, fmt.Errorf("class %q has multi-tenancy enabled, tenant_key required", i.Config.ClassName)
+	if err := i.validateMultiTenancy(tenantKey); err != nil {
+		return false, err
 	}
+
 	shardName, err := i.determineObjectShard(id, tenantKey)
 	if err != nil {
 		return false, err
@@ -1604,5 +1569,13 @@ func (i *Index) addNewShard(ctx context.Context,
 
 	i.shards.Store(shardName, s)
 
+	return nil
+}
+
+func (i *Index) validateMultiTenancy(tenantKey *string) error {
+	if i.tenantKey != "" && tenantKey == nil {
+		return fmt.Errorf("class %q has multi-tenancy enabled, tenant_key %q required",
+			i.Config.ClassName, i.tenantKey)
+	}
 	return nil
 }
