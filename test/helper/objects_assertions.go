@@ -149,6 +149,16 @@ func ObjectExistsCL(t *testing.T, class string, id strfmt.UUID, cl replica.Consi
 	return resp.IsCode(http.StatusNoContent), nil
 }
 
+func TenantObjectExists(t *testing.T, class string, id strfmt.UUID, tenantKey string) (bool, error) {
+	req := objects.NewObjectsClassHeadParams().
+		WithClassName(class).WithID(id).WithTenantKey(&tenantKey)
+	resp, err := Client(t).Objects.ObjectsClassHead(req, nil)
+	if err != nil {
+		return false, err
+	}
+	return resp.IsCode(http.StatusNoContent), nil
+}
+
 func GetObjectFromNode(t *testing.T, class string, uuid strfmt.UUID, nodename string) (*models.Object, error) {
 	req := objects.NewObjectsClassGetParams().WithID(uuid)
 	if class != "" {

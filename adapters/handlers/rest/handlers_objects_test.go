@@ -1048,7 +1048,7 @@ type fakeManager struct {
 }
 
 func (f *fakeManager) HeadObject(context.Context, *models.Principal,
-	string, strfmt.UUID, *additional.ReplicationProperties,
+	string, strfmt.UUID, *additional.ReplicationProperties, string,
 ) (bool, *uco.Error) {
 	return f.headObjectReturn, f.headObjectErr
 }

@@ -2576,6 +2576,9 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {

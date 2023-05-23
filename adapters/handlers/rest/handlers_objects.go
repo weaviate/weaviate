@@ -47,14 +47,14 @@ type objectsManager interface {
 	AddObject(context.Context, *models.Principal, *models.Object,
 		*additional.ReplicationProperties, string) (*models.Object, error)
 	ValidateObject(context.Context, *models.Principal, *models.Object, *additional.ReplicationProperties) error
-	GetObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID,
-		_ additional.Properties, _ *additional.ReplicationProperties, _ string) (*models.Object, error)
-	DeleteObject(_ context.Context, _ *models.Principal, class string,
-		_ strfmt.UUID, _ *additional.ReplicationProperties, _ string) error
-	UpdateObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID,
-		_ *models.Object, _ *additional.ReplicationProperties, _ string) (*models.Object, error)
-	HeadObject(ctx context.Context, principal *models.Principal, class string,
-		id strfmt.UUID, repl *additional.ReplicationProperties) (bool, *uco.Error)
+	GetObject(context.Context, *models.Principal, string, strfmt.UUID,
+		additional.Properties, *additional.ReplicationProperties, string) (*models.Object, error)
+	DeleteObject(context.Context, *models.Principal, string,
+		strfmt.UUID, *additional.ReplicationProperties, string) error
+	UpdateObject(context.Context, *models.Principal, string, strfmt.UUID,
+		*models.Object, *additional.ReplicationProperties, string) (*models.Object, error)
+	HeadObject(ctx context.Context, principal *models.Principal, class string, id strfmt.UUID,
+		repl *additional.ReplicationProperties, tenantKey string) (bool, *uco.Error)
 	GetObjects(context.Context, *models.Principal, *int64, *int64,
 		*string, *string, *string, additional.Properties) ([]*models.Object, error)
 	Query(ctx context.Context, principal *models.Principal, params *uco.QueryParams) ([]*models.Object, *uco.Error)
@@ -347,8 +347,10 @@ func (h *objectHandlers) headObject(params objects.ObjectsClassHeadParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
+	tenantKey := getTenantKey(params.TenantKey)
+
 	exists, objErr := h.manager.HeadObject(params.HTTPRequest.Context(),
-		principal, params.ClassName, params.ID, repl)
+		principal, params.ClassName, params.ID, repl, tenantKey)
 	if objErr != nil {
 		switch {
 		case objErr.Forbidden():
