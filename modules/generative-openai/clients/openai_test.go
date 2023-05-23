@@ -33,8 +33,8 @@ func nullLogger() logrus.FieldLogger {
 	return l
 }
 
-func fakeBuildUrl(serverURL string, isLegacy bool, resourceName, deploymentID string) (string, error) {
-	endpoint, err := buildUrlFn(isLegacy, resourceName, deploymentID)
+func fakeBuildUrl(serverURL string, isLegacy bool, resourceName, deploymentID, baseURL string) (string, error) {
+	endpoint, err := buildUrlFn(isLegacy, resourceName, deploymentID, baseURL)
 	if err != nil {
 		return "", err
 	}
@@ -44,19 +44,18 @@ func fakeBuildUrl(serverURL string, isLegacy bool, resourceName, deploymentID st
 
 func TestBuildUrlFn(t *testing.T) {
 	t.Run("buildUrlFn returns default OpenAI Client", func(t *testing.T) {
-		url, err := buildUrlFn(false, "", "")
+		url, err := buildUrlFn(false, "", "", "")
 		assert.Nil(t, err)
 		assert.Equal(t, "https://api.openai.com/v1/chat/completions", url)
 	})
 	t.Run("buildUrlFn returns Azure Client", func(t *testing.T) {
-		url, err := buildUrlFn(false, "resourceID", "deploymentID")
+		url, err := buildUrlFn(false, "resourceID", "deploymentID", "")
 		assert.Nil(t, err)
 		assert.Equal(t, "https://resourceID.openai.azure.com/openai/deployments/deploymentID/chat/completions?api-version=2023-03-15-preview", url)
 	})
 
 	t.Run("buildUrlFn loads from environment variable", func(t *testing.T) {
-		os.Setenv("OPENAI_BASE_URL", "https://foobar.some.proxy")
-		url, err := buildUrlFn(false, "", "")
+		url, err := buildUrlFn(false, "", "", "https://foobar.some.proxy")
 		assert.Nil(t, err)
 		assert.Equal(t, "https://foobar.some.proxy/v1/chat/completions", url)
 		os.Unsetenv("OPENAI_BASE_URL")
@@ -81,9 +80,9 @@ func TestGetAnswer(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		c := New("openAIApiKey", "", "", 0, nullLogger())
-		c.buildUrl = func(isLegacy bool, resourceName, deploymentID string) (string, error) {
-			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID)
+		c := New("", "openAIApiKey", "", "", 0, nullLogger())
+		c.buildUrl = func(isLegacy bool, resourceName, deploymentID, baseURL string) (string, error) {
+			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID, baseURL)
 		}
 
 		expected := generativemodels.GenerateResponse{
@@ -107,9 +106,9 @@ func TestGetAnswer(t *testing.T) {
 		})
 		defer server.Close()
 
-		c := New("openAIApiKey", "", "", 0, nullLogger())
-		c.buildUrl = func(isLegacy bool, resourceName, deploymentID string) (string, error) {
-			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID)
+		c := New("", "openAIApiKey", "", "", 0, nullLogger())
+		c.buildUrl = func(isLegacy bool, resourceName, deploymentID, baseURL string) (string, error) {
+			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID, baseURL)
 		}
 
 		_, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil)
