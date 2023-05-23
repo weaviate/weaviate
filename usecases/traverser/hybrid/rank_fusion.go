@@ -94,7 +94,7 @@ func FusionReciprocal(weights []float64, results [][]*Result) []*Result {
 	}
 
 	sort.Slice(concat, func(i, j int) bool {
-		if concat[j].Score == concat[i].Score{
+		if concat[j].Score == concat[i].Score {
 			return concat[i].SecondarySortValue > concat[j].SecondarySortValue
 		}
 		return float64(concat[i].Score) > float64(concat[j].Score)

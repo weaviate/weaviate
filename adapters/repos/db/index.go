@@ -930,7 +930,6 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties, shards []string,
 ) ([]*storobj.Object, []float32, error) {
-	
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
 	eg := errgroup.Group{}
@@ -1008,7 +1007,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			finalObjs[i] = result.object
 			finalScores[i] = result.score
 		}
-		
+
 		return finalObjs, finalScores, nil
 	}
 
