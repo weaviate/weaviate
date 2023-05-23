@@ -926,14 +926,11 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	return outObjects, outScores, nil
 }
 
-func (i *Index) objectSearchByShard(ctx context.Context, requested_limit int, filters *filters.LocalFilter,
+func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties, shards []string,
 ) ([]*storobj.Object, []float32, error) {
-	limit := requested_limit
-	if limit < 100 {
-		limit = 100
-	}
+	
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
 	eg := errgroup.Group{}
@@ -1011,11 +1008,8 @@ func (i *Index) objectSearchByShard(ctx context.Context, requested_limit int, fi
 			finalObjs[i] = result.object
 			finalScores[i] = result.score
 		}
-		last := requested_limit
-		if last > len(finalObjs) {
-			last = len(finalObjs)
-		}
-		return finalObjs[:last], finalScores[:last], nil
+		
+		return finalObjs, finalScores, nil
 	}
 
 	return resultObjects, resultScores, nil
