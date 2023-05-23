@@ -244,3 +244,40 @@ func nullLogger() logrus.FieldLogger {
 	l, _ := test.NewNullLogger()
 	return l
 }
+
+func Test_getURL(t *testing.T) {
+	v := &vectorizer{}
+
+	tests := []struct {
+		name   string
+		config ent.VectorizationConfig
+		want   string
+	}{
+		{
+			name: "Facebook DPR model",
+			config: ent.VectorizationConfig{
+				Model: "sentence-transformers/facebook-dpr-ctx_encoder-multiset-base",
+			},
+			want: "https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/facebook-dpr-ctx_encoder-multiset-base",
+		},
+		{
+			name: "BERT base model (uncased)",
+			config: ent.VectorizationConfig{
+				Model: "bert-base-uncased",
+			},
+			want: "https://api-inference.huggingface.co/pipeline/feature-extraction/bert-base-uncased",
+		},
+		{
+			name: "BERT base model (uncased)",
+			config: ent.VectorizationConfig{
+				EndpointURL: "https://self-hosted-instance.com/bert-base-uncased",
+			},
+			want: "https://self-hosted-instance.com/bert-base-uncased",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, v.getURL(tt.config))
+		})
+	}
+}
