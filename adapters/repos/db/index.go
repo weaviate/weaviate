@@ -1011,7 +1011,11 @@ func (i *Index) objectSearchByShard(ctx context.Context, requested_limit int, fi
 			finalObjs[i] = result.object
 			finalScores[i] = result.score
 		}
-		return finalObjs[:requested_limit], finalScores[:requested_limit], nil
+		last := requested_limit
+		if last > len(finalObjs) {
+			last = len(finalObjs)
+		}
+		return finalObjs[:last], finalScores[:last], nil
 	}
 
 	return resultObjects, resultScores, nil
