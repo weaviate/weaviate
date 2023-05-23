@@ -60,7 +60,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		}
 	}
 
-	if err := m.validateObjectAndNormalizeNames(ctx, principal, updates, repl, ""); err != nil {
+	if err := m.validateObjectAndNormalizeNames(ctx, principal, updates, repl, tenantKey); err != nil {
 		return &Error{"bad request", StatusBadRequest, err}
 	}
 
