@@ -218,9 +218,8 @@ func (f *fakeVectorRepo) DeleteObject(ctx context.Context, className string,
 	return args.Error(0)
 }
 
-func (f *fakeVectorRepo) AddReference(ctx context.Context, class string,
-	source strfmt.UUID, prop string, ref *models.SingleRef,
-	repl *additional.ReplicationProperties,
+func (f *fakeVectorRepo) AddReference(ctx context.Context, class string, source strfmt.UUID,
+	prop string, ref *models.SingleRef, repl *additional.ReplicationProperties, tenantKey string,
 ) error {
 	args := f.Called(class, source, prop, ref)
 	return args.Error(0)

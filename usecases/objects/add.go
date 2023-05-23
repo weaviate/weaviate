@@ -97,7 +97,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
-	err = m.validateObjectAndNormalizeNames(ctx, principal, object, repl)
+	err = m.validateObjectAndNormalizeNames(ctx, principal, object, repl, tenantKey)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
@@ -125,9 +125,8 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	return object, nil
 }
 
-func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context,
-	principal *models.Principal, object *models.Object,
-	repl *additional.ReplicationProperties,
+func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context, principal *models.Principal,
+	object *models.Object, repl *additional.ReplicationProperties, tenantKey string,
 ) error {
 	// Validate schema given in body with the weaviate schema
 	if _, err := uuid.Parse(object.ID.String()); err != nil {
@@ -139,5 +138,5 @@ func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context,
 		return err
 	}
 
-	return validation.New(m.vectorRepo.Exists, m.config, repl).Object(ctx, object, class)
+	return validation.New(m.vectorRepo.Exists, m.config, repl, tenantKey).Object(ctx, object, class)
 }

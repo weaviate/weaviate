@@ -15,11 +15,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
@@ -150,9 +152,27 @@ func AddReference(t *testing.T, object *models.Object, ref *models.SingleRef, pr
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func AddTenantReference(t *testing.T, object *models.Object, ref *models.SingleRef, prop string,
+	tenantKey string,
+) {
+	params := objects.NewObjectsClassReferencesCreateParams().
+		WithClassName(object.Class).WithID(object.ID).WithBody(ref).
+		WithPropertyName(prop).WithTenantKey(&tenantKey)
+	resp, err := Client(t).Objects.ObjectsClassReferencesCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func DeleteReference(t *testing.T, object *models.Object, ref *models.SingleRef, prop string) {
 	params := objects.NewObjectsClassReferencesDeleteParams().
 		WithClassName(object.Class).WithID(object.ID).WithBody(ref).WithPropertyName(prop)
+	resp, err := Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func DeleteTenantReference(t *testing.T, object *models.Object, ref *models.SingleRef, prop string, tenantKey string) {
+	params := objects.NewObjectsClassReferencesDeleteParams().
+		WithClassName(object.Class).WithID(object.ID).WithBody(ref).
+		WithPropertyName(prop).WithTenantKey(&tenantKey)
 	resp, err := Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }
@@ -161,4 +181,8 @@ func CreateTenants(t *testing.T, class string, tenants []*models.Tenant) {
 	params := schema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
 	resp, err := Client(t).Schema.TenantsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
+}
+
+func NewBeacon(className string, id strfmt.UUID) strfmt.URI {
+	return crossref.New("localhost", className, id).SingleRef().Beacon
 }

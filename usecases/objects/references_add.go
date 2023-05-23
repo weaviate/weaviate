@@ -25,11 +25,8 @@ import (
 // AddObjectReference to an existing object. If the class contains a network
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
-func (m *Manager) AddObjectReference(
-	ctx context.Context,
-	principal *models.Principal,
-	input *AddReferenceInput,
-	repl *additional.ReplicationProperties,
+func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Principal,
+	input *AddReferenceInput, repl *additional.ReplicationProperties, tenantKey string,
 ) *Error {
 	m.metrics.AddReferenceInc()
 	defer m.metrics.AddReferenceDec()
@@ -58,12 +55,12 @@ func (m *Manager) AddObjectReference(
 	}
 	defer unlock()
 
-	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
+	validator := validation.New(m.vectorRepo.Exists, m.config, repl, tenantKey)
 	if err := input.validate(ctx, principal, validator, m.schemaManager); err != nil {
 		return &Error{"validate inputs", StatusBadRequest, err}
 	}
 	if !deprecatedEndpoint {
-		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl, "")
+		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl, tenantKey)
 		if err != nil {
 			return &Error{"source object", StatusInternalServerError, err}
 		}
@@ -72,7 +69,8 @@ func (m *Manager) AddObjectReference(
 		}
 	}
 
-	if err := m.vectorRepo.AddReference(ctx, input.Class, input.ID, input.Property, &input.Ref, repl); err != nil {
+	if err := m.vectorRepo.AddReference(ctx, input.Class, input.ID,
+		input.Property, &input.Ref, repl, tenantKey); err != nil {
 		return &Error{"add reference to repo", StatusInternalServerError, err}
 	}
 
