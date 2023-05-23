@@ -56,7 +56,7 @@ func (n *NilMigrator) AddProperty(ctx context.Context, className string, prop *m
 	return nil
 }
 
-func (n *NilMigrator) AddPartitions(ctx context.Context, className string, names []string) error {
+func (n *NilMigrator) AddPartitions(ctx context.Context, class *models.Class, names []string) error {
 	return nil
 }
 

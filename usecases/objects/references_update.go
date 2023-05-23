@@ -47,7 +47,8 @@ func (m *Manager) UpdateObjectReferences(
 	m.metrics.UpdateReferenceInc()
 	defer m.metrics.UpdateReferenceDec()
 
-	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID, additional.Properties{}, nil)
+	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID,
+		additional.Properties{}, nil, "")
 	if err != nil {
 		errnf := ErrNotFound{}
 		if errors.As(err, &errnf) {
@@ -82,7 +83,7 @@ func (m *Manager) UpdateObjectReferences(
 		obj.Properties.(map[string]interface{})[input.Property] = input.Refs
 	}
 	obj.LastUpdateTimeUnix = m.timeSource.Now()
-	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, repl)
+	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, repl, "")
 	if err != nil {
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}

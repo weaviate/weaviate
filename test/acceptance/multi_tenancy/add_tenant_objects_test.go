@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-func TestCreateTenants(t *testing.T) {
+func TestAddTenantObjects(t *testing.T) {
 	tenantKey := "tenantName"
 	testClass := models.Class{
 		Class: "MultiTenantClass",
@@ -36,25 +36,39 @@ func TestCreateTenants(t *testing.T) {
 			},
 		},
 	}
+	tenantNames := []string{
+		"Tenant1", "Tenant2", "Tenant3",
+	}
 
 	defer func() {
 		helper.DeleteClass(t, testClass.Class)
 	}()
-	helper.CreateClass(t, &testClass)
 
-	expectedTenants := []string{
-		"Tenant1", "Tenant2", "Tenant3",
-	}
+	t.Run("create class with multi-tenancy enabled", func(t *testing.T) {
+		helper.CreateClass(t, &testClass)
+	})
 
 	t.Run("create tenants", func(t *testing.T) {
-		tenants := make([]*models.Tenant, len(expectedTenants))
+		tenants := make([]*models.Tenant, len(tenantNames))
 		for i := range tenants {
-			tenants[i] = &models.Tenant{expectedTenants[i]}
+			tenants[i] = &models.Tenant{tenantNames[i]}
 		}
 		helper.CreateTenants(t, testClass.Class, tenants)
 	})
 
-	t.Run("verify tenants creation", func(t *testing.T) {
+	t.Run("add tenant objects", func(t *testing.T) {
+		for _, name := range tenantNames {
+			obj := models.Object{
+				Class: testClass.Class,
+				Properties: map[string]interface{}{
+					tenantKey: name,
+				},
+			}
+			helper.CreateTenantObject(t, &obj, name)
+		}
+	})
+
+	t.Run("verify object creation", func(t *testing.T) {
 		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload)
@@ -65,8 +79,9 @@ func TestCreateTenants(t *testing.T) {
 		var foundTenants []string
 		for _, found := range resp.Payload.Nodes[0].Shards {
 			assert.Equal(t, testClass.Class, found.Class)
+			assert.Equal(t, int64(1), found.ObjectCount)
 			foundTenants = append(foundTenants, found.Name)
 		}
-		assert.ElementsMatch(t, expectedTenants, foundTenants)
+		assert.ElementsMatch(t, tenantNames, foundTenants)
 	})
 }

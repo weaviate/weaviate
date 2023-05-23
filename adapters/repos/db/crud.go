@@ -31,6 +31,7 @@ import (
 
 func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 	vector []float32, repl *additional.ReplicationProperties,
+	tenantKey string,
 ) error {
 	object := storobj.FromObject(obj, vector)
 	idx := db.GetIndex(object.Class())
@@ -38,7 +39,7 @@ func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 		return fmt.Errorf("import into non-existing index for %s", object.Class())
 	}
 
-	if err := idx.putObject(ctx, object, repl); err != nil {
+	if err := idx.putObject(ctx, object, repl, tenantKey); err != nil {
 		return errors.Wrapf(err, "import into index %s", idx.ID())
 	}
 
@@ -46,15 +47,15 @@ func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 }
 
 // DeleteObject from of a specific class giving its ID
-func (db *DB) DeleteObject(ctx context.Context, class string,
-	id strfmt.UUID, repl *additional.ReplicationProperties,
+func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) error {
 	idx := db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("delete from non-existing index for %s", class)
 	}
 
-	err := idx.deleteObject(ctx, id, repl)
+	err := idx.deleteObject(ctx, id, repl, tenantKey)
 	if err != nil {
 		return fmt.Errorf("delete from index %q: %w", idx.ID(), err)
 	}
@@ -134,7 +135,7 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	db.indexLock.RLock()
 
 	for _, index := range db.indices {
-		res, err := index.objectByID(ctx, id, props, additional, nil)
+		res, err := index.objectByID(ctx, id, props, additional, nil, "")
 		if err != nil {
 			db.indexLock.RUnlock()
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
@@ -155,27 +156,27 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 }
 
 // Object gets object with id from index of specified class.
-func (db *DB) Object(ctx context.Context, class string,
-	id strfmt.UUID, props search.SelectProperties,
-	adds additional.Properties, repl *additional.ReplicationProperties,
+func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID,
+	props search.SelectProperties, addl additional.Properties,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (*search.Result, error) {
 	idx := db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return nil, nil
 	}
 
-	obj, err := idx.objectByID(ctx, id, props, adds, repl)
+	obj, err := idx.objectByID(ctx, id, props, addl, repl, tenantKey)
 	if err != nil {
 		return nil, errors.Wrapf(err, "search index %s", idx.ID())
 	}
 	var r *search.Result
 	if obj != nil {
-		r = obj.SearchResult(adds)
+		r = obj.SearchResult(addl)
 	}
 	if r == nil {
 		return nil, nil
 	}
-	return db.enrichRefsForSingle(ctx, r, props, adds)
+	return db.enrichRefsForSingle(ctx, r, props, addl)
 }
 
 func (db *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
@@ -190,8 +191,8 @@ func (db *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
 	return &res[0], nil
 }
 
-func (db *DB) Exists(ctx context.Context, class string,
-	id strfmt.UUID, repl *additional.ReplicationProperties,
+func (db *DB) Exists(ctx context.Context, class string, id strfmt.UUID,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (bool, error) {
 	if class == "" {
 		return db.anyExists(ctx, id, repl)
@@ -200,7 +201,7 @@ func (db *DB) Exists(ctx context.Context, class string,
 	if index == nil {
 		return false, nil
 	}
-	return index.exists(ctx, id, repl)
+	return index.exists(ctx, id, repl, tenantKey)
 }
 
 func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
@@ -212,7 +213,7 @@ func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 	defer db.indexLock.RUnlock()
 
 	for _, index := range db.indices {
-		ok, err := index.exists(ctx, id, repl)
+		ok, err := index.exists(ctx, id, repl, "")
 		if err != nil {
 			return false, errors.Wrapf(err, "search index %s", index.ID())
 		}

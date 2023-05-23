@@ -109,6 +109,16 @@ func GetObject(t *testing.T, class string, uuid strfmt.UUID, include ...string) 
 	return getResp.Payload, nil
 }
 
+func TenantObject(t *testing.T, class string, id strfmt.UUID, tenantKey string) (*models.Object, error) {
+	req := objects.NewObjectsClassGetParams().
+		WithClassName(class).WithID(id).WithTenantKey(&tenantKey)
+	getResp, err := Client(t).Objects.ObjectsClassGet(req, nil)
+	if err != nil {
+		return nil, err
+	}
+	return getResp.Payload, nil
+}
+
 func GetObjectCL(t *testing.T, class string, uuid strfmt.UUID,
 	cl replica.ConsistencyLevel, include ...string,
 ) (*models.Object, error) {
@@ -157,4 +167,11 @@ func GetObjectFromNode(t *testing.T, class string, uuid strfmt.UUID, nodename st
 func DeleteClassObject(t *testing.T, class string) (*schema.SchemaObjectsDeleteOK, error) {
 	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
 	return Client(t).Schema.SchemaObjectsDelete(delParams, nil)
+}
+
+func DeleteTenantObject(t *testing.T, class string, id strfmt.UUID, tenantKey string) {
+	params := objects.NewObjectsClassDeleteParams().
+		WithClassName(class).WithID(id).WithTenantKey(&tenantKey)
+	resp, err := Client(t).Objects.ObjectsClassDelete(params, nil)
+	AssertRequestOk(t, resp, err, nil)
 }

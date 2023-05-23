@@ -31,6 +31,7 @@ type ObjectsClassPutURL struct {
 	ID        strfmt.UUID
 
 	ConsistencyLevel *string
+	TenantKey        *string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -86,6 +87,14 @@ func (o *ObjectsClassPutURL) Build() (*url.URL, error) {
 	}
 	if consistencyLevelQ != "" {
 		qs.Set("consistency_level", consistencyLevelQ)
+	}
+
+	var tenantKeyQ string
+	if o.TenantKey != nil {
+		tenantKeyQ = *o.TenantKey
+	}
+	if tenantKeyQ != "" {
+		qs.Set("tenant_key", tenantKeyQ)
 	}
 
 	_result.RawQuery = qs.Encode()

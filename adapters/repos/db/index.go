@@ -95,6 +95,8 @@ type Index struct {
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
 
+	tenantKey string
+
 	// This lock should be used together with the db indexLock.
 	//
 	// The db indexlock locks the map that contains all indices against changes and should be used while iterating.
@@ -152,6 +154,9 @@ func NewIndex(ctx context.Context, config IndexConfig,
 			nodeResolver, remoteClient),
 		metrics:         NewMetrics(logger, promMetrics, config.ClassName.String(), "n/a"),
 		centralJobQueue: jobQueueCh,
+	}
+	if class != nil && class.MultiTenancyConfig != nil {
+		index.tenantKey = class.MultiTenancyConfig.TenantKey
 	}
 
 	if err := index.checkSingleShardMigration(shardState); err != nil {
@@ -304,16 +309,36 @@ func (i *Index) shardFromUUID(in strfmt.UUID) (string, error) {
 		PhysicalShard(uuidBytes), nil
 }
 
+func (i *Index) determineObjectShard(id strfmt.UUID, tenantKey string) (string, error) {
+	if tenantKey != "" {
+		return i.shardFromTenantKey(tenantKey, id)
+	}
+	return i.shardFromUUID(id)
+}
+
+func (i *Index) shardFromTenantKey(tenantKey string, id strfmt.UUID) (string, error) {
+	ss := i.getSchema.ShardingState(i.Config.ClassName.String())
+	if name := ss.Shard(tenantKey, id.String()); name != "" {
+		return name, nil
+	}
+	return "", fmt.Errorf("no tenant found with key: %q", tenantKey)
+}
+
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
-	replProps *additional.ReplicationProperties,
+	replProps *additional.ReplicationProperties, tenantKey string,
 ) error {
+	if err := i.validateMultiTenancy(tenantKey); err != nil {
+		return err
+	}
+
 	if i.Config.ClassName != object.Class() {
-		return errors.Errorf("cannot import object of class %s into index of class %s",
+		return fmt.Errorf("cannot import object of class %s into index of class %s",
 			object.Class(), i.Config.ClassName)
 	}
+
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
-	shardName, err := i.shardFromUUID(object.ID())
+	shardName, err := i.determineObjectShard(object.ID(), tenantKey)
 	if err != nil {
 		return err
 	}
@@ -620,11 +645,15 @@ func (i *Index) IncomingBatchAddReferences(ctx context.Context, shardName string
 
 func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, addl additional.Properties,
-	replProps *additional.ReplicationProperties,
+	replProps *additional.ReplicationProperties, tenantKey string,
 ) (*storobj.Object, error) {
-	shardName, err := i.shardFromUUID(id)
-	if err != nil {
+	if err := i.validateMultiTenancy(tenantKey); err != nil {
 		return nil, err
+	}
+
+	shardName, err := i.determineObjectShard(id, tenantKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine shard for object %q: %w", id, err)
 	}
 
 	var obj *storobj.Object
@@ -769,9 +798,13 @@ func wrapIDsInMulti(in []strfmt.UUID) []multi.Identifier {
 }
 
 func (i *Index) exists(ctx context.Context, id strfmt.UUID,
-	replProps *additional.ReplicationProperties,
+	replProps *additional.ReplicationProperties, tenantKey string,
 ) (bool, error) {
-	shardName, err := i.shardFromUUID(id)
+	if err := i.validateMultiTenancy(tenantKey); err != nil {
+		return false, err
+	}
+
+	shardName, err := i.determineObjectShard(id, tenantKey)
 	if err != nil {
 		return false, err
 	}
@@ -1139,11 +1172,11 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 }
 
 func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
-	replProps *additional.ReplicationProperties,
+	replProps *additional.ReplicationProperties, tenantKey string,
 ) error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
-	shardName, err := i.shardFromUUID(id)
+	shardName, err := i.determineObjectShard(id, tenantKey)
 	if err != nil {
 		return err
 	}
@@ -1523,4 +1556,30 @@ func objectSearchPreallocate(limit int, shards []string) ([]*storobj.Object, []f
 	scores := make([]float32, 0, capacity)
 
 	return objects, scores
+}
+
+func (i *Index) addNewShard(ctx context.Context,
+	class *models.Class, shardName string,
+) error {
+	if shard := i.shards.Load(shardName); shard != nil {
+		return fmt.Errorf("shard %q exists already", shardName)
+	}
+
+	// TODO: metrics
+	s, err := NewShard(ctx, nil, shardName, i, class, i.centralJobQueue)
+	if err != nil {
+		return err
+	}
+
+	i.shards.Store(shardName, s)
+
+	return nil
+}
+
+func (i *Index) validateMultiTenancy(tenantKey string) error {
+	if i.tenantKey != "" && tenantKey == "" {
+		return fmt.Errorf("class %q has multi-tenancy enabled, tenant_key %q required",
+			i.Config.ClassName, i.tenantKey)
+	}
+	return nil
 }

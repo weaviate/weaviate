@@ -36,8 +36,8 @@ type schemaManager interface {
 }
 
 // AddObject Class Instance to the connected DB.
-func (m *Manager) AddObject(ctx context.Context, principal *models.Principal,
-	object *models.Object, repl *additional.ReplicationProperties,
+func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, object *models.Object,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (*models.Object, error) {
 	err := m.authorizer.Authorize(principal, "create", "objects")
 	if err != nil {
@@ -53,11 +53,11 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal,
 	m.metrics.AddObjectInc()
 	defer m.metrics.AddObjectDec()
 
-	return m.addObjectToConnectorAndSchema(ctx, principal, object, repl)
+	return m.addObjectToConnectorAndSchema(ctx, principal, object, repl, tenantKey)
 }
 
-func (m *Manager) checkIDOrAssignNew(ctx context.Context, class string,
-	id strfmt.UUID, repl *additional.ReplicationProperties,
+func (m *Manager) checkIDOrAssignNew(ctx context.Context, class string, id strfmt.UUID,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (strfmt.UUID, error) {
 	if id == "" {
 		newID, err := generateUUID()
@@ -75,7 +75,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, class string,
 	}
 
 	// only validate ID uniqueness if explicitly set
-	if ok, err := m.vectorRepo.Exists(ctx, class, id, repl); ok {
+	if ok, err := m.vectorRepo.Exists(ctx, class, id, repl, tenantKey); ok {
 		return "", NewErrInvalidUserInput("id '%s' already exists", id)
 	} else if err != nil {
 		return "", NewErrInternal(err.Error())
@@ -84,9 +84,9 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, class string,
 }
 
 func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,
-	object *models.Object, repl *additional.ReplicationProperties,
+	object *models.Object, repl *additional.ReplicationProperties, tenantKey string,
 ) (*models.Object, error) {
-	id, err := m.checkIDOrAssignNew(ctx, object.Class, object.ID, repl)
+	id, err := m.checkIDOrAssignNew(ctx, object.Class, object.ID, repl, tenantKey)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +117,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		return nil, err
 	}
 
-	err = m.vectorRepo.PutObject(ctx, object, object.Vector, repl)
+	err = m.vectorRepo.PutObject(ctx, object, object.Vector, repl, tenantKey)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %s", err)
 	}
