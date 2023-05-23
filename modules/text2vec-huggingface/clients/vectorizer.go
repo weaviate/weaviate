@@ -24,6 +24,11 @@ import (
 	"github.com/weaviate/weaviate/modules/text2vec-huggingface/ent"
 )
 
+const (
+	DefaultOrigin = "https://api-inference.huggingface.co"
+	DefaultPath   = "pipeline/feature-extraction"
+)
+
 type embeddingsRequest struct {
 	Inputs  []string `json:"inputs"`
 	Options *options `json:"options,omitempty"`
@@ -48,7 +53,6 @@ type huggingFaceApiError struct {
 type vectorizer struct {
 	apiKey                string
 	httpClient            *http.Client
-	url                   string
 	bertEmbeddingsDecoder *bertEmbeddingsDecoder
 	logger                logrus.FieldLogger
 }
@@ -184,18 +188,18 @@ func (v *vectorizer) getApiKey(ctx context.Context) string {
 	return ""
 }
 
-func (v *vectorizer) getURL(config ent.VectorizationConfig) string {
-	if v.url == "" {
-		v.url = getHuggingFaceUrl(config)
-	}
-
-	return v.url
-}
-
 func (v *vectorizer) getOptions(config ent.VectorizationConfig) options {
 	return options{
 		WaitForModel: config.WaitForModel,
 		UseGPU:       config.UseGPU,
 		UseCache:     config.UseCache,
 	}
+}
+
+func (v *vectorizer) getURL(config ent.VectorizationConfig) string {
+	if config.EndpointURL != "" {
+		return config.EndpointURL
+	}
+
+	return fmt.Sprintf("%s/%s/%s", DefaultOrigin, DefaultPath, config.Model)
 }
