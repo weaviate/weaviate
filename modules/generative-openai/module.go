@@ -67,8 +67,9 @@ func (m *GenerativeOpenAIModule) initAdditional(ctx context.Context,
 ) error {
 	openAIApiKey := os.Getenv("OPENAI_APIKEY")
 	azureApiKey := os.Getenv("AZURE_APIKEY")
+	openAIBaseUrl := os.Getenv("OPENAI_BASE_URL")
 
-	client := clients.New(openAIApiKey, azureApiKey, logger)
+	client := clients.New(openAIApiKey, azureApiKey, openAIBaseUrl, logger)
 
 	m.generative = client
 

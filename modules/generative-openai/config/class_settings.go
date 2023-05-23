@@ -71,6 +71,7 @@ type ClassSettings interface {
 	IsAzure() bool
 	GetMaxTokensForModel(model string) float64
 	Validate(class *models.Class) error
+	OpenAIBaesURL() string
 }
 
 type classSettings struct {
@@ -193,6 +194,10 @@ func (ic *classSettings) Model() string {
 
 func (ic *classSettings) MaxTokens() float64 {
 	return *ic.getFloatProperty(maxTokensProperty, &DefaultOpenAIMaxTokens)
+}
+
+func (ic *classSettings) OpenAIBaesURL() string {
+	return *ic.getStringProperty("openAIBaseURL", "")
 }
 
 func (ic *classSettings) Temperature() float64 {
