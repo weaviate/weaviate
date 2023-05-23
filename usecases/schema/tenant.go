@@ -72,16 +72,28 @@ func (m *Manager) AddTenants(ctx context.Context, principal *models.Principal, c
 		m.logger.WithError(err).Errorf("not every node was able to commit")
 	}
 
-	return m.onAddPartitions(ctx, st, request)
+	return m.onAddPartitions(ctx, st, cls, request)
 }
 
 func (m *Manager) onAddPartitions(ctx context.Context,
-	st *sharding.State, request AddPartitionsPayload,
+	st *sharding.State, class *models.Class, request AddPartitionsPayload,
 ) error {
 	for _, p := range request.Partitions {
 		if _, ok := st.Physical[p.Name]; !ok {
 			st.AddPartition(p.Name, p.Nodes)
 		}
+	}
+	shards := make([]string, 0, len(request.Partitions))
+	for _, p := range request.Partitions {
+		if st.IsShardLocal(p.Name) {
+			shards = append(shards, p.Name)
+		}
+	}
+
+	commit, err := m.migrator.NewPartitions(ctx, class, shards)
+	if err != nil {
+		m.logger.WithField("action", "add_partitions").
+			WithField("class", request.ClassName).Error(err)
 	}
 
 	st.SetLocalName(m.clusterState.LocalName())
@@ -93,28 +105,12 @@ func (m *Manager) onAddPartitions(ctx context.Context,
 	if err := m.saveSchema(ctx); err != nil {
 		m.shardingStateLock.Lock() // rollback
 		m.state.ShardingState[request.ClassName] = curState
+		commit(false)
 		m.shardingStateLock.Unlock()
 		return err
 	}
 
-	shards := make([]string, 0, len(request.Partitions))
-	for _, p := range request.Partitions {
-		if st.IsShardLocal(p.Name) {
-			shards = append(shards, p.Name)
-		}
-	}
-
-	class := m.getClassByName(request.ClassName)
-	if class == nil {
-		return fmt.Errorf("class %q does not exist in schema", request.ClassName)
-	}
-
-	// this should actually not fail but just in case
-	// TODO: make sure AddPartitions() never fails
-	if err := m.migrator.AddPartitions(ctx, class, shards); err != nil {
-		m.logger.WithField("action", "add_partitions").
-			WithField("class", request.ClassName).Error(err)
-	}
+	commit(true)
 	return nil
 }
 
