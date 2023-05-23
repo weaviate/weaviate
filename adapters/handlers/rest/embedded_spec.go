@@ -1415,6 +1415,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -5887,6 +5890,12 @@ func init() {
             "type": "string",
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant_key",
             "in": "query"
           }
         ],

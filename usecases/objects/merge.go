@@ -37,7 +37,7 @@ type MergeDocument struct {
 }
 
 func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
-	updates *models.Object, repl *additional.ReplicationProperties,
+	updates *models.Object, repl *additional.ReplicationProperties, tenantKey string,
 ) *Error {
 	if err := m.validateInputs(updates); err != nil {
 		return &Error{"bad request", StatusBadRequest, err}
@@ -67,19 +67,20 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	if updates.Properties == nil {
 		updates.Properties = map[string]interface{}{}
 	}
-	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, "")
+	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, tenantKey)
 	if err != nil {
 		return &Error{"repo.object", StatusInternalServerError, err}
 	}
 	if obj == nil {
 		return &Error{"not found", StatusNotFound, err}
 	}
-	return m.patchObject(ctx, principal, obj, updates, repl, propertiesToDelete)
+	return m.patchObject(ctx, principal, obj, updates, repl, propertiesToDelete, tenantKey)
 }
 
 // patchObject patches an existing object obj with updates
 func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
-	obj *search.Result, updates *models.Object, repl *additional.ReplicationProperties, propertiesToDelete []string,
+	obj *search.Result, updates *models.Object, repl *additional.ReplicationProperties,
+	propertiesToDelete []string, tenantKey string,
 ) *Error {
 	cls, id := updates.Class, updates.ID
 	primitive, refs := m.splitPrimitiveAndRefs(updates.Properties.(map[string]interface{}), cls, id)
@@ -102,7 +103,7 @@ func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
 		mergeDoc.AdditionalProperties = objWithVec.Additional
 	}
 
-	if err := m.vectorRepo.Merge(ctx, mergeDoc, repl); err != nil {
+	if err := m.vectorRepo.Merge(ctx, mergeDoc, repl, tenantKey); err != nil {
 		return &Error{"repo.merge", StatusInternalServerError, err}
 	}
 

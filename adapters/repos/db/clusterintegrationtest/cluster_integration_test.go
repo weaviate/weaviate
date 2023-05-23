@@ -376,7 +376,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			PrimitiveSchema: map[string]interface{}{
 				"other_property": "a-value-inserted-through-merge",
 			},
-		}, nil)
+		}, nil, "")
 
 		require.Nil(t, err)
 	})

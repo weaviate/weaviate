@@ -218,7 +218,7 @@ func Test_MergingObjects(t *testing.T) {
 			UpdateTime: time.Now().UnixNano() / int64(time.Millisecond),
 		}
 
-		err := repo.Merge(context.Background(), md, nil)
+		err := repo.Merge(context.Background(), md, nil, "")
 		assert.Nil(t, err)
 	})
 
@@ -262,7 +262,7 @@ func Test_MergingObjects(t *testing.T) {
 			},
 		}
 
-		err := repo.Merge(context.Background(), md, nil)
+		err := repo.Merge(context.Background(), md, nil, "")
 		assert.Equal(t, fmt.Errorf(
 			"merge from non-existing index for WrongClass"), err)
 	})
@@ -289,7 +289,7 @@ func Test_MergingObjects(t *testing.T) {
 			},
 			References: refs,
 		}
-		err = repo.Merge(context.Background(), md, nil)
+		err = repo.Merge(context.Background(), md, nil, "")
 		assert.Nil(t, err)
 	})
 
@@ -339,7 +339,7 @@ func Test_MergingObjects(t *testing.T) {
 			ID:         sourceID,
 			References: refs,
 		}
-		err = repo.Merge(context.Background(), md, nil)
+		err = repo.Merge(context.Background(), md, nil, "")
 		assert.Nil(t, err)
 	})
 
@@ -370,7 +370,7 @@ func Test_MergingObjects(t *testing.T) {
 			Class:           "MergeTestNoVector",
 			ID:              noVecID,
 			PrimitiveSchema: map[string]interface{}{"foo": "baz"},
-		}, nil)
+		}, nil, "")
 		require.Nil(t, err)
 
 		orig, err := repo.ObjectByID(context.Background(), noVecID, nil, additional.Properties{})
@@ -558,7 +558,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 			},
 			References: nil,
 		}
-		err = repo.Merge(context.Background(), md, nil)
+		err = repo.Merge(context.Background(), md, nil, "")
 		assert.Nil(t, err)
 	})
 

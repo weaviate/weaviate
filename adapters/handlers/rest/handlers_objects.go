@@ -46,7 +46,8 @@ type ModulesProvider interface {
 type objectsManager interface {
 	AddObject(context.Context, *models.Principal, *models.Object,
 		*additional.ReplicationProperties, string) (*models.Object, error)
-	ValidateObject(context.Context, *models.Principal, *models.Object, *additional.ReplicationProperties) error
+	ValidateObject(context.Context, *models.Principal,
+		*models.Object, *additional.ReplicationProperties) error
 	GetObject(context.Context, *models.Principal, string, strfmt.UUID,
 		additional.Properties, *additional.ReplicationProperties, string) (*models.Object, error)
 	DeleteObject(context.Context, *models.Principal, string,
@@ -57,9 +58,12 @@ type objectsManager interface {
 		repl *additional.ReplicationProperties, tenantKey string) (bool, *uco.Error)
 	GetObjects(context.Context, *models.Principal, *int64, *int64,
 		*string, *string, *string, additional.Properties) ([]*models.Object, error)
-	Query(ctx context.Context, principal *models.Principal, params *uco.QueryParams) ([]*models.Object, *uco.Error)
-	MergeObject(context.Context, *models.Principal, *models.Object, *additional.ReplicationProperties) *uco.Error
-	AddObjectReference(context.Context, *models.Principal, *uco.AddReferenceInput, *additional.ReplicationProperties) *uco.Error
+	Query(ctx context.Context, principal *models.Principal,
+		params *uco.QueryParams) ([]*models.Object, *uco.Error)
+	MergeObject(context.Context, *models.Principal, *models.Object,
+		*additional.ReplicationProperties, string) *uco.Error
+	AddObjectReference(context.Context, *models.Principal,
+		*uco.AddReferenceInput, *additional.ReplicationProperties) *uco.Error
 	UpdateObjectReferences(context.Context, *models.Principal,
 		*uco.PutReferenceInput, *additional.ReplicationProperties) *uco.Error
 	DeleteObjectReference(context.Context, *models.Principal,
@@ -379,7 +383,9 @@ func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, pri
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	objErr := h.manager.MergeObject(params.HTTPRequest.Context(), principal, updates, repl)
+	tenantKey := getTenantKey(params.TenantKey)
+
+	objErr := h.manager.MergeObject(params.HTTPRequest.Context(), principal, updates, repl, tenantKey)
 	if objErr != nil {
 		switch {
 		case objErr.NotFound():

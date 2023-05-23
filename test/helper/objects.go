@@ -111,6 +111,13 @@ func PatchObject(t *testing.T, object *models.Object) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func PatchTenantObject(t *testing.T, object *models.Object, tenantKey string) {
+	params := objects.NewObjectsClassPatchParams().WithClassName(object.Class).
+		WithID(object.ID).WithBody(object).WithTenantKey(&tenantKey)
+	resp, err := Client(t).Objects.ObjectsClassPatch(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func DeleteClass(t *testing.T, class string) {
 	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
 	delRes, err := Client(t).Schema.SchemaObjectsDelete(delParams, nil)

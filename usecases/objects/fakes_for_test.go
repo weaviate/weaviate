@@ -206,9 +206,7 @@ func (f *fakeVectorRepo) BatchDeleteObjects(ctx context.Context, params BatchDel
 	return args.Get(0).(BatchDeleteResult), args.Error(1)
 }
 
-func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument,
-	repl *additional.ReplicationProperties,
-) error {
+func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument, repl *additional.ReplicationProperties, tenantKey string) error {
 	args := f.Called(merge)
 	return args.Error(0)
 }

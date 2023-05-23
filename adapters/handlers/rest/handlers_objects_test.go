@@ -1098,7 +1098,7 @@ func (f *fakeManager) UpdateObject(_ context.Context, _ *models.Principal, _ str
 }
 
 func (f *fakeManager) MergeObject(_ context.Context, _ *models.Principal,
-	_ *models.Object, _ *additional.ReplicationProperties,
+	_ *models.Object, _ *additional.ReplicationProperties, _ string,
 ) *uco.Error {
 	return f.patchObjectReturn
 }

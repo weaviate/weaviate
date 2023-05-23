@@ -1228,11 +1228,12 @@ func (i *Index) isLocalShard(shard string) bool {
 }
 
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
-	replProps *additional.ReplicationProperties,
+	replProps *additional.ReplicationProperties, tenantKey string,
 ) error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
-	shardName, err := i.shardFromUUID(merge.ID)
+
+	shardName, err := i.determineObjectShard(merge.ID, tenantKey)
 	if err != nil {
 		return err
 	}

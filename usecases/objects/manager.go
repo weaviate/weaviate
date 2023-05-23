@@ -106,7 +106,7 @@ type VectorRepo interface {
 		sort []filters.Sort, additional additional.Properties) (search.Results, error)
 	AddReference(ctx context.Context, className string, source strfmt.UUID,
 		propName string, ref *models.SingleRef, repl *additional.ReplicationProperties) error
-	Merge(ctx context.Context, merge MergeDocument, repl *additional.ReplicationProperties) error
+	Merge(ctx context.Context, merge MergeDocument, repl *additional.ReplicationProperties, tenantKey string) error
 	Query(context.Context, *QueryInput) (search.Results, *Error)
 }
 
