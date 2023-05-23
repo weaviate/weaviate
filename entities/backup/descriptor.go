@@ -13,6 +13,7 @@ package backup
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -91,18 +92,52 @@ func (d *DistributedBackupDescriptor) Filter(pred func(s string) bool) {
 	}
 }
 
+// Check any inclusion/exclusion class names for wildcards
+func hasWildcards(classes []string) bool {
+	for _, cls := range classes {
+		if strings.ContainsAny(cls, "*?") {
+			return true
+		}
+	}
+	return false
+}
+
 // Include only these classes and remove everything else
 func (d *DistributedBackupDescriptor) Include(classes []string) {
 	if len(classes) == 0 {
 		return
 	}
-	set := make(map[string]struct{}, len(classes))
-	for _, cls := range classes {
-		set[cls] = struct{}{}
-	}
-	pred := func(s string) bool {
-		_, ok := set[s]
-		return ok
+	// if the inclusion list is using wildcards, we need to filter the classes using string comparison
+	// otherwise we can use the faster method of using a map to check if the class is in the set
+	var pred func(s string) bool
+	if hasWildcards(classes) {
+		pred = func(s string) bool {
+			for _, cls := range classes {
+				if cls == s {
+					return true
+				} else if strings.HasPrefix(cls, "*") {
+					// Check ends with
+					if strings.HasSuffix(s, cls[1:]) {
+						return true
+					}
+				} else if strings.HasSuffix(cls, "*") {
+					// Check starts with
+					if strings.HasPrefix(s, cls[:len(cls)-1]) {
+						return true
+					}
+				}
+			}
+			return false
+		}
+	} else {
+		set := make(map[string]struct{}, len(classes))
+		for _, cls := range classes {
+			set[cls] = struct{}{}
+		}
+		pred = func(s string) bool {
+			_, ok := set[s]
+			return ok
+		}
 	}
 	d.Filter(pred)
 }
@@ -112,13 +147,37 @@ func (d *DistributedBackupDescriptor) Exclude(classes []string) {
 	if len(classes) == 0 {
 		return
 	}
-	set := make(map[string]struct{}, len(classes))
-	for _, cls := range classes {
-		set[cls] = struct{}{}
-	}
-	pred := func(s string) bool {
-		_, ok := set[s]
-		return !ok
+	// if the exclusion list is using wildcards, we need to filter the classes using string comparison
+	// otherwise we can use the faster method of using a map to check if the class is in the set
+	var pred func(s string) bool
+	if hasWildcards(classes) {
+		pred = func(s string) bool {
+			for _, cls := range classes {
+				if cls == s {
+					return false
+				} else if strings.HasPrefix(cls, "*") {
+					// Check ends with
+					if strings.HasSuffix(s, cls[1:]) {
+						return false
+					}
+				} else if strings.HasSuffix(cls, "*") {
+					// Check starts with
+					if strings.HasPrefix(s, cls[:len(cls)-1]) {
+						return false
+					}
+				}
+			}
+			return true
+		}
+	} else {
+		set := make(map[string]struct{}, len(classes))
+		for _, cls := range classes {
+			set[cls] = struct{}{}
+		}
+		pred = func(s string) bool {
+			_, ok := set[s]
+			return !ok
+		}
 	}
 	d.Filter(pred)
 }
@@ -244,13 +303,37 @@ func (d *BackupDescriptor) Include(classes []string) {
 	if len(classes) == 0 {
 		return
 	}
-	set := make(map[string]struct{}, len(classes))
-	for _, cls := range classes {
-		set[cls] = struct{}{}
-	}
-	pred := func(s string) bool {
-		_, ok := set[s]
-		return ok
+	// if the inclusion list is using wildcards, we need to filter the classes using string comparison
+	// otherwise we can use the faster method of using a map to check if the class is in the set
+	var pred func(s string) bool
+	if hasWildcards(classes) {
+		pred = func(s string) bool {
+			for _, cls := range classes {
+				if cls == s {
+					return true
+				} else if strings.HasPrefix(cls, "*") {
+					// Check ends with
+					if strings.HasSuffix(s, cls[1:]) {
+						return true
+					}
+				} else if strings.HasSuffix(cls, "*") {
+					// Check starts with
+					if strings.HasPrefix(s, cls[:len(cls)-1]) {
+						return true
+					}
+				}
+			}
+			return false
+		}
+	} else {
+		set := make(map[string]struct{}, len(classes))
+		for _, cls := range classes {
+			set[cls] = struct{}{}
+		}
+		pred = func(s string) bool {
+			_, ok := set[s]
+			return ok
+		}
 	}
 	d.Filter(pred)
 }
@@ -260,13 +343,37 @@ func (d *BackupDescriptor) Exclude(classes []string) {
 	if len(classes) == 0 {
 		return
 	}
-	set := make(map[string]struct{}, len(classes))
-	for _, cls := range classes {
-		set[cls] = struct{}{}
-	}
-	pred := func(s string) bool {
-		_, ok := set[s]
-		return !ok
+	// if the exclusion list is using wildcards, we need to filter the classes using string comparison
+	// otherwise we can use the faster method of using a map to check if the class is in the set
+	var pred func(s string) bool
+	if hasWildcards(classes) {
+		pred = func(s string) bool {
+			for _, cls := range classes {
+				if cls == s {
+					return false
+				} else if strings.HasPrefix(cls, "*") {
+					// Check ends with
+					if strings.HasSuffix(s, cls[1:]) {
+						return false
+					}
+				} else if strings.HasSuffix(cls, "*") {
+					// Check starts with
+					if strings.HasPrefix(s, cls[:len(cls)-1]) {
+						return false
+					}
+				}
+			}
+			return true
+		}
+	} else {
+		set := make(map[string]struct{}, len(classes))
+		for _, cls := range classes {
+			set[cls] = struct{}{}
+		}
+		pred = func(s string) bool {
+			_, ok := set[s]
+			return !ok
+		}
 	}
 	d.Filter(pred)
 }
