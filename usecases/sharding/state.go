@@ -24,10 +24,11 @@ import (
 const shardNameLength = 12
 
 type State struct {
-	IndexID  string              `json:"indexID"` // for monitoring, reporting purposes. Does not influence the shard-calculations
-	Config   Config              `json:"config"`
-	Physical map[string]Physical `json:"physical"`
-	Virtual  []Virtual           `json:"virtual"`
+	IndexID             string              `json:"indexID"` // for monitoring, reporting purposes. Does not influence the shard-calculations
+	Config              Config              `json:"config"`
+	Physical            map[string]Physical `json:"physical"`
+	Virtual             []Virtual           `json:"virtual"`
+	PartitioningEnabled bool                `json:"partitioningEnabled"`
 
 	// different for each node, not to be serialized
 	localNodeName string
@@ -120,9 +121,10 @@ type nodes interface {
 
 func InitState(id string, config Config, nodes nodes, replFactor int64, partitioningEnabled bool) (*State, error) {
 	out := &State{
-		Config:        config,
-		IndexID:       id,
-		localNodeName: nodes.LocalName(),
+		Config:              config,
+		IndexID:             id,
+		localNodeName:       nodes.LocalName(),
+		PartitioningEnabled: partitioningEnabled,
 	}
 	if partitioningEnabled {
 		out.Physical = make(map[string]Physical, 128)
@@ -141,6 +143,17 @@ func InitState(id string, config Config, nodes nodes, replFactor int64, partitio
 	out.distributeVirtualAmongPhysical()
 
 	return out, nil
+}
+
+// Shard returns the shard name if it exits and empty string otherwise
+func (s *State) Shard(partitionKey, objectID string) string {
+	if s.PartitioningEnabled {
+		if _, ok := s.Physical[partitionKey]; ok {
+			return partitionKey // will change in the future
+		}
+		return ""
+	}
+	return s.PhysicalShard([]byte(objectID))
 }
 
 func (s *State) PhysicalShard(in []byte) string {
@@ -431,11 +444,12 @@ func (s State) DeepCopy() State {
 	}
 
 	return State{
-		localNodeName: s.localNodeName,
-		IndexID:       s.IndexID,
-		Config:        s.Config.DeepCopy(),
-		Physical:      physicalCopy,
-		Virtual:       virtualCopy,
+		localNodeName:       s.localNodeName,
+		IndexID:             s.IndexID,
+		Config:              s.Config.DeepCopy(),
+		Physical:            physicalCopy,
+		Virtual:             virtualCopy,
+		PartitioningEnabled: s.PartitioningEnabled,
 	}
 }
 

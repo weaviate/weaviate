@@ -150,17 +150,17 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 	return idx.updateShardStatus(ctx, shardName, targetStatus)
 }
 
-func (m *Migrator) AddPartitions(ctx context.Context, className string, names []string) error {
-	idx := m.db.GetIndex(schema.ClassName(className))
+func (m *Migrator) AddPartitions(ctx context.Context, class *models.Class, names []string) error {
+	idx := m.db.GetIndex(schema.ClassName(class.Class))
 	if idx == nil {
-		return fmt.Errorf("cannot add property to a non-existing index for %s", className)
+		return fmt.Errorf("cannot add property to a non-existing index for class %q", class.Class)
 	}
 	shards := []string{}
 	for _, name := range names {
-		if err := idx.IncomingCreateShard(ctx, name); err != nil {
+		if err := idx.addNewShard(ctx, class, name); err != nil {
 			shards = append(shards, name)
 			m.logger.WithField("action", "add_partition").
-				WithField("class", className).
+				WithField("class", class.Class).
 				WithField("shard", name).Error(err)
 		}
 	}

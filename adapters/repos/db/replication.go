@@ -247,18 +247,9 @@ func (i *Index) IncomingFilePutter(ctx context.Context, shardName,
 func (i *Index) IncomingCreateShard(ctx context.Context,
 	shardName string,
 ) error {
-	if shard := i.shards.Load(shardName); shard != nil {
-		return fmt.Errorf("shard %q exists already", shardName)
+	if err := i.addNewShard(ctx, nil, shardName); err != nil {
+		return fmt.Errorf("incoming create shard: %w", err)
 	}
-
-	// TODO: metrics
-	s, err := NewShard(ctx, nil, shardName, i, nil, i.centralJobQueue)
-	if err != nil {
-		return err
-	}
-
-	i.shards.Store(shardName, s)
-
 	return nil
 }
 
