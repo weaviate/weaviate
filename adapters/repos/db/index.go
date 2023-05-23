@@ -926,10 +926,14 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	return outObjects, outScores, nil
 }
 
-func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
+func (i *Index) objectSearchByShard(ctx context.Context, requested_limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties, shards []string,
 ) ([]*storobj.Object, []float32, error) {
+	limit := requested_limit
+	if limit < 100 {
+		limit = 100
+	}
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
 	eg := errgroup.Group{}
@@ -993,8 +997,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		}
 
 		golangSort.Slice(results, func(i, j int) bool {
-			a_b := float64(results[i].score - results[j].score)
-			if a_b*a_b < 1e-14 {
+			if results[i].score == results[j].score {
 				return results[i].object.Object.ID < results[j].object.Object.ID
 			}
 
@@ -1008,6 +1011,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			finalObjs[i] = result.object
 			finalScores[i] = result.score
 		}
+		return finalObjs[:requested_limit], finalScores[:requested_limit], nil
 	}
 
 	return resultObjects, resultScores, nil
