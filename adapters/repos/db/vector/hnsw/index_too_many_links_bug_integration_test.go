@@ -146,6 +146,57 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 		}
 	})
 
+	t.Run("delete 10 percent of data", func(t *testing.T) {
+		type tuple struct {
+			vec []float32
+			id  uint64
+		}
+
+		jobs := make(chan tuple, n)
+
+		wg := sync.WaitGroup{}
+		worker := func(jobs chan tuple) {
+			for job := range jobs {
+				index.Delete(job.id)
+			}
+
+			wg.Done()
+		}
+
+		for i := 0; i < runtime.GOMAXPROCS(0); i++ {
+			wg.Add(1)
+			go worker(jobs)
+		}
+
+		for i, vec := range data[:n/10] {
+			jobs <- tuple{id: uint64(i), vec: vec}
+		}
+
+		close(jobs)
+
+		wg.Wait()
+	})
+
+	index.Flush()
+
+	t.Run("verify there are no nodes with too many links - post deletion", func(t *testing.T) {
+		for i, node := range index.nodes {
+			if node == nil {
+				continue
+			}
+
+			for level, conns := range node.connections {
+				m := index.maximumConnections
+				if level == 0 {
+					m = index.maximumConnectionsLayerZero
+				}
+
+				assert.LessOrEqualf(t, len(conns), m, "node %d at level %d with %d conns",
+					i, level, len(conns))
+			}
+		}
+	})
+
 	t.Run("destroy the old index", func(t *testing.T) {
 		// kill the commit loger and index
 		require.Nil(t, original.Shutdown(context.Background()))
