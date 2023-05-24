@@ -86,7 +86,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 			methodName: "MergeObject",
 			additionalArgs: []interface{}{
 				&models.Object{Class: "class", ID: "foo"},
-				(*additional.ReplicationProperties)(nil),
+				(*additional.ReplicationProperties)(nil), "",
 			},
 			expectedVerb:     "update",
 			expectedResource: "objects/class/foo",

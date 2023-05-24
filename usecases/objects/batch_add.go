@@ -155,7 +155,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 		ec.Add(fmt.Errorf("class '%s' not present in schema", object.Class))
 	} else {
 		// not possible without the class being present
-		err = validation.New(b.vectorRepo.Exists, b.config, repl).Object(ctx, object, class)
+		err = validation.New(b.vectorRepo.Exists, b.config, repl, "").Object(ctx, object, class)
 		ec.Add(err)
 
 		err = b.modulesProvider.UpdateVector(ctx, object, class, nil, b.findObject, b.logger)

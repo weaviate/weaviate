@@ -2025,7 +2025,7 @@ func Test_PutPatchRestart(t *testing.T) {
 				},
 				Vector:     testVec,
 				UpdateTime: time.Now().UnixNano() / int64(time.Millisecond),
-			}, nil)
+			}, nil, "")
 			require.Nil(t, err)
 
 			require.Nil(t, repo.Shutdown(ctx))
@@ -2532,7 +2532,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			PrimitiveSchema: map[string]interface{}{},
 			Vector:          []float32{1, 2, 3, 4},
 			UpdateTime:      time.Now().UnixNano() / int64(time.Millisecond),
-		}, nil)
+		}, nil, "")
 		require.NotNil(t, err)
 		found, err := repo.Object(context.Background(), class.Class,
 			obj1ID, nil, additional.Properties{}, nil, "")
@@ -2547,7 +2547,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			PrimitiveSchema: map[string]interface{}{},
 			Vector:          []float32{1, 2, 3},
 			UpdateTime:      time.Now().UnixNano() / int64(time.Millisecond),
-		}, nil)
+		}, nil, "")
 		require.Nil(t, err)
 		found, err := repo.Object(context.Background(), class.Class, objNilID, nil,
 			additional.Properties{}, nil, "")

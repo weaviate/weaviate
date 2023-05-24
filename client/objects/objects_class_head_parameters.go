@@ -92,6 +92,12 @@ type ObjectsClassHeadParams struct {
 	*/
 	ID strfmt.UUID
 
+	/* TenantKey.
+
+	   Specifies the tenant in a request targeting a multi-tenant class
+	*/
+	TenantKey *string
+
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -178,6 +184,17 @@ func (o *ObjectsClassHeadParams) SetID(id strfmt.UUID) {
 	o.ID = id
 }
 
+// WithTenantKey adds the tenantKey to the objects class head params
+func (o *ObjectsClassHeadParams) WithTenantKey(tenantKey *string) *ObjectsClassHeadParams {
+	o.SetTenantKey(tenantKey)
+	return o
+}
+
+// SetTenantKey adds the tenantKey to the objects class head params
+func (o *ObjectsClassHeadParams) SetTenantKey(tenantKey *string) {
+	o.TenantKey = tenantKey
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsClassHeadParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -211,6 +228,23 @@ func (o *ObjectsClassHeadParams) WriteToRequest(r runtime.ClientRequest, reg str
 	// path param id
 	if err := r.SetPathParam("id", o.ID.String()); err != nil {
 		return err
+	}
+
+	if o.TenantKey != nil {
+
+		// query param tenant_key
+		var qrTenantKey string
+
+		if o.TenantKey != nil {
+			qrTenantKey = *o.TenantKey
+		}
+		qTenantKey := qrTenantKey
+		if qTenantKey != "" {
+
+			if err := r.SetQueryParam("tenant_key", qTenantKey); err != nil {
+				return err
+			}
+		}
 	}
 
 	if len(res) > 0 {
