@@ -495,7 +495,7 @@ func TestCondensorWithPQInformation(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer uncondensed.Shutdown(ctx)
 
