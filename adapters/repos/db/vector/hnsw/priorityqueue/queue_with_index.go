@@ -77,13 +77,18 @@ func (l *QueueWithIndex) heapify(i int) {
 	}
 }
 
-func (l *QueueWithIndex) Insert(id uint64, index uint64, dist float32) {
-	l.items = append(l.items, ItemWithIndex{id, index, dist})
+func (l *QueueWithIndex) ReSort(id uint64, distance float32) {
+	panic("Not implemented yet")
+}
+
+func (l *QueueWithIndex) Insert(id uint64, index uint64, distance float32) int {
+	l.items = append(l.items, ItemWithIndex{id, index, distance})
 	i := len(l.items) - 1
 	for i != 0 && l.less(l.items, i, l.parent(i)) {
 		l.swap(i, l.parent(i))
 		i = l.parent(i)
 	}
+	return i
 }
 
 func (l *QueueWithIndex) Pop() ItemWithIndex {
@@ -96,6 +101,14 @@ func (l *QueueWithIndex) Pop() ItemWithIndex {
 
 func (l *QueueWithIndex) Top() ItemWithIndex {
 	return l.items[0]
+}
+
+func (*QueueWithIndex) Last() (Item, bool) {
+	panic("Not implemented yet")
+}
+
+func (l *QueueWithIndex) Items(k int) ([]uint64, []float32) {
+	panic("Not implemented yet")
 }
 
 func (l *QueueWithIndex) Len() int {
