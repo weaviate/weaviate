@@ -305,11 +305,11 @@ func (h *hnsw) searchLayerByVectorWithoutToggableCorrections(queryVector []float
 
 				results.Insert(neighborID, distance)
 
-				if h.compressed.Load() {
+				/*if h.compressed.Load() {
 					h.compressedVectorsCache.prefetch(candidates.Top().ID)
 				} else {
 					h.cache.prefetch(candidates.Top().ID)
-				}
+				}*/
 
 				// +1 because we have added one node size calculating the len
 				if (!h.compressed.Load() || h.doNotRescore.Load()) && results.Len() > ef {
@@ -323,6 +323,159 @@ func (h *hnsw) searchLayerByVectorWithoutToggableCorrections(queryVector []float
 						wdist, _ := results.Last()
 						worstResultDistance = wdist.Dist
 					}
+				}
+			}
+		}
+	}
+
+	h.pools.pqCandidates.Put(candidates)
+
+	h.pools.visitedListsLock.Lock()
+	h.pools.visitedLists.Return(visited)
+	h.pools.visitedListsLock.Unlock()
+
+	// results are passed on, so it's in the callers responsibility to return the
+	// list to the pool after using it
+	return results, nil
+}
+
+func (h *hnsw) searchLayerByVectorWithCorrections(queryVector []float32,
+	entrypoints *priorityqueue.Queue, ef int, level int,
+	allowList helpers.AllowList) (*ssdhelpers.SortedSet, error,
+) {
+	h.pools.visitedListsLock.Lock()
+	visited := h.pools.visitedLists.Borrow()
+	h.pools.visitedListsLock.Unlock()
+
+	candidates := h.pools.pqCandidates.GetMin(ef)
+	results := ssdhelpers.NewSortedSet(ef)
+	var floatDistancer distancer.Distancer
+	var byteDistancer *ssdhelpers.PQDistancer
+	if h.compressed.Load() {
+		byteDistancer = h.pq.NewDistancer(queryVector)
+	} else {
+		floatDistancer = h.distancerProvider.New(queryVector)
+	}
+
+	h.insertViableEntrypointsAsCandidatesAndResultsWithCorrection(entrypoints, candidates,
+		results, level, visited, allowList)
+	var worstResultDistance float32
+	var err error
+	if h.compressed.Load() {
+		worstResultDistance, err = h.currentWorstResultDistanceToByteWithCorrection(results, byteDistancer)
+	} else {
+		panic("should not be here...")
+	}
+	if err != nil {
+		return nil, errors.Wrapf(err, "calculate distance of current last result")
+	}
+
+	for candidates.Len() > 0 {
+		var dist float32
+		candidate := candidates.Pop()
+		dist = candidate.Dist
+
+		if dist > worstResultDistance {
+			break
+		}
+		if h.compressed.Load() {
+			dist, _, _ = h.distanceFromBytesToFloatNode(byteDistancer, candidate.ID)
+			results.ReSort(candidate.ID, dist)
+		}
+		h.RLock()
+		candidateNode := h.nodes[candidate.ID]
+		h.RUnlock()
+		if candidateNode == nil {
+			// could have been a node that already had a tombstone attached and was
+			// just cleaned up while we were waiting for a read lock
+			continue
+		}
+
+		candidateNode.Lock()
+		if candidateNode.level < level {
+			// a node level could have been downgraded as part of a delete-reassign,
+			// but the connections pointing to it not yet cleaned up. In this case
+			// the node doesn't have any outgoing connections at this level and we
+			// must discard it.
+			candidateNode.Unlock()
+			continue
+		}
+
+		var connections *[]uint64
+		if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
+			// How is it possible that we could ever have more connections than the
+			// allowed maximum? It is not anymore, but there was a bug that allowed
+			// this to happen in versions prior to v1.12.0:
+			// https://github.com/weaviate/weaviate/issues/1868
+			//
+			// As a result the length of this slice is entirely unpredictable and we
+			// can no longer retrieve it from the pool. Instead we need to fallback
+			// to allocating a new slice.
+			//
+			// This was discovered as part of
+			// https://github.com/weaviate/weaviate/issues/1897
+			c := make([]uint64, len(candidateNode.connections[level]))
+			connections = &c
+		} else {
+			connections = h.pools.connList.Get(len(candidateNode.connections[level]))
+			defer h.pools.connList.Put(connections)
+		}
+		copy(*connections, candidateNode.connections[level])
+		candidateNode.Unlock()
+
+		for _, neighborID := range *connections {
+
+			if ok := visited.Visited(neighborID); ok {
+				// skip if we've already visited this neighbor
+				continue
+			}
+
+			// make sure we never visit this neighbor again
+			visited.Visit(neighborID)
+			var distance float32
+			var ok bool
+			var err error
+			if h.compressed.Load() {
+				distance, ok, err = h.distanceToByteNode(byteDistancer, neighborID)
+			} else {
+				distance, ok, err = h.distanceToFloatNode(floatDistancer, neighborID)
+			}
+			if err != nil {
+				return nil, errors.Wrap(err, "calculate distance between candidate and query")
+			}
+
+			if !ok {
+				// node was deleted in the underlying object store
+				continue
+			}
+
+			if distance < worstResultDistance || results.Len() < ef {
+				candidates.Insert(neighborID, distance)
+				if level == 0 && allowList != nil {
+					// we are on the lowest level containing the actual candidates and we
+					// have an allow list (i.e. the user has probably set some sort of a
+					// filter restricting this search further. As a result we have to
+					// ignore items not on the list
+					if !allowList.Contains(neighborID) {
+						continue
+					}
+				}
+
+				if h.hasTombstone(neighborID) {
+					continue
+				}
+
+				results.Add(neighborID, distance)
+
+				if h.compressed.Load() {
+					h.compressedVectorsCache.prefetch(candidates.Top().ID)
+				} else {
+					h.cache.prefetch(candidates.Top().ID)
+				}
+
+				if results.Len() > 0 {
+					wdist, _ := results.Last()
+					worstResultDistance = wdist.Distance
 				}
 			}
 		}
@@ -426,6 +579,31 @@ func (h *hnsw) currentWorstResultDistanceToByte(results priorityqueue.SortedQueu
 			last, _ := results.Last()
 			id = last.ID
 		}
+		d, ok, err := h.distanceToByteNode(distancer, id)
+		if err != nil {
+			return 0, errors.Wrap(err,
+				"calculated distance between worst result and query")
+		}
+
+		if !ok {
+			return math.MaxFloat32, nil
+		}
+		return d, nil
+	} else {
+		// if the entrypoint (which we received from a higher layer doesn't match
+		// the allow List the result list is empty. In this case we can just set
+		// the worstDistance to an arbitrarily large number, so that any
+		// (allowed) candidate will have a lower distance in comparison
+		return math.MaxFloat32, nil
+	}
+}
+
+func (h *hnsw) currentWorstResultDistanceToByteWithCorrection(results *ssdhelpers.SortedSet,
+	distancer *ssdhelpers.PQDistancer,
+) (float32, error) {
+	last, found := results.Last()
+	if !found {
+		id := last.Index
 		d, ok, err := h.distanceToByteNode(distancer, id)
 		if err != nil {
 			return 0, errors.Wrap(err,
