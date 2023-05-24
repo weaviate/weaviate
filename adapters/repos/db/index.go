@@ -994,7 +994,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 		golangSort.Slice(results, func(i, j int) bool {
 			if results[i].score == results[j].score {
-				return results[i].object.Object.ID < results[j].object.Object.ID
+				return results[i].object.Object.ID > results[j].object.Object.ID
 			}
 
 			return results[i].score > results[j].score
