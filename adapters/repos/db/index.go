@@ -1176,6 +1176,11 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 ) error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
+
+	if err := i.validateMultiTenancy(tenantKey); err != nil {
+		return err
+	}
+
 	shardName, err := i.determineObjectShard(id, tenantKey)
 	if err != nil {
 		return err
@@ -1232,6 +1237,10 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 ) error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
+
+	if err := i.validateMultiTenancy(tenantKey); err != nil {
+		return err
+	}
 
 	shardName, err := i.determineObjectShard(merge.ID, tenantKey)
 	if err != nil {
