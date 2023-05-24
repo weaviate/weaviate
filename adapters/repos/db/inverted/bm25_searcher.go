@@ -75,9 +75,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	}
 }
 
-func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList, className schema.ClassName, limit int,
-	keywordRanking searchparams.KeywordRanking,
-) ([]*storobj.Object, []float32, error) {
+func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList, className schema.ClassName, limit int, keywordRanking searchparams.KeywordRanking) ([]*storobj.Object, []float32, error) {
 	// WEAVIATE-471 - If a property is not searchable, return an error
 	for _, property := range keywordRanking.Properties {
 		if !PropertyHasSearchableIndex(b.schema.Objects, string(className), property) {

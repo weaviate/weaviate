@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	golangSort "sort"
 	"strings"
 	"sync"
 	"time"
@@ -971,6 +972,43 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
+	}
+
+	if len(resultObjects) == len(resultScores) {
+
+		// Force a stable sort order by UUID
+
+		type resultSortable struct {
+			object *storobj.Object
+			score  float32
+		}
+		objs := resultObjects
+		scores := resultScores
+		var results []resultSortable = make([]resultSortable, len(objs))
+		for i := range objs {
+			results[i] = resultSortable{
+				object: objs[i],
+				score:  scores[i],
+			}
+		}
+
+		golangSort.Slice(results, func(i, j int) bool {
+			if results[i].score == results[j].score {
+				return results[i].object.Object.ID > results[j].object.Object.ID
+			}
+
+			return results[i].score > results[j].score
+		})
+
+		var finalObjs []*storobj.Object = make([]*storobj.Object, len(results))
+		var finalScores []float32 = make([]float32, len(results))
+		for i, result := range results {
+
+			finalObjs[i] = result.object
+			finalScores[i] = result.score
+		}
+
+		return finalObjs, finalScores, nil
 	}
 
 	return resultObjects, resultScores, nil
