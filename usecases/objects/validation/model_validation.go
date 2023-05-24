@@ -65,15 +65,17 @@ type Validator struct {
 	exists           exists
 	config           *config.WeaviateConfig
 	replicationProps *additional.ReplicationProperties
+	tenantKey        string
 }
 
 func New(exists exists, config *config.WeaviateConfig,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) *Validator {
 	return &Validator{
 		exists:           exists,
 		config:           config,
 		replicationProps: repl,
+		tenantKey:        tenantKey,
 	}
 }
 
@@ -109,7 +111,7 @@ func (v *Validator) ValidateSingleRef(ctx context.Context, cref *models.SingleRe
 	}
 
 	// locally check for object existence
-	ok, err := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, "")
+	ok, err := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, v.tenantKey)
 	if err != nil {
 		return err
 	}

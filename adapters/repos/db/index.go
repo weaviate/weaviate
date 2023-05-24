@@ -1214,6 +1214,11 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 ) error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
+
+	if err := i.validateMultiTenancy(tenantKey); err != nil {
+		return err
+	}
+
 	shardName, err := i.determineObjectShard(id, tenantKey)
 	if err != nil {
 		return err
@@ -1266,11 +1271,16 @@ func (i *Index) isLocalShard(shard string) bool {
 }
 
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
-	replProps *additional.ReplicationProperties,
+	replProps *additional.ReplicationProperties, tenantKey string,
 ) error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
-	shardName, err := i.shardFromUUID(merge.ID)
+
+	if err := i.validateMultiTenancy(tenantKey); err != nil {
+		return err
+	}
+
+	shardName, err := i.determineObjectShard(merge.ID, tenantKey)
 	if err != nil {
 		return err
 	}

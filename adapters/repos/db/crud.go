@@ -225,9 +225,9 @@ func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 	return false, nil
 }
 
-func (db *DB) AddReference(ctx context.Context,
-	className string, source strfmt.UUID, propName string,
-	ref *models.SingleRef, repl *additional.ReplicationProperties,
+func (db *DB) AddReference(ctx context.Context, className string,
+	source strfmt.UUID, propName string, ref *models.SingleRef,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) error {
 	target, err := crossref.ParseSingleRef(ref)
 	if err != nil {
@@ -245,18 +245,18 @@ func (db *DB) AddReference(ctx context.Context,
 				To: target,
 			},
 		},
-	}, repl)
+	}, repl, tenantKey)
 }
 
 func (db *DB) Merge(ctx context.Context, merge objects.MergeDocument,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) error {
 	idx := db.GetIndex(schema.ClassName(merge.Class))
 	if idx == nil {
 		return fmt.Errorf("merge from non-existing index for %s", merge.Class)
 	}
 
-	err := idx.mergeObject(ctx, merge, repl)
+	err := idx.mergeObject(ctx, merge, repl, tenantKey)
 	if err != nil {
 		return errors.Wrapf(err, "merge into index %s", idx.ID())
 	}

@@ -1048,7 +1048,7 @@ type fakeManager struct {
 }
 
 func (f *fakeManager) HeadObject(context.Context, *models.Principal,
-	string, strfmt.UUID, *additional.ReplicationProperties,
+	string, strfmt.UUID, *additional.ReplicationProperties, string,
 ) (bool, *uco.Error) {
 	return f.headObjectReturn, f.headObjectErr
 }
@@ -1098,7 +1098,7 @@ func (f *fakeManager) UpdateObject(_ context.Context, _ *models.Principal, _ str
 }
 
 func (f *fakeManager) MergeObject(_ context.Context, _ *models.Principal,
-	_ *models.Object, _ *additional.ReplicationProperties,
+	_ *models.Object, _ *additional.ReplicationProperties, _ string,
 ) *uco.Error {
 	return f.patchObjectReturn
 }
@@ -1110,19 +1110,19 @@ func (f *fakeManager) DeleteObject(_ context.Context, _ *models.Principal,
 }
 
 func (f *fakeManager) AddObjectReference(context.Context, *models.Principal,
-	*uco.AddReferenceInput, *additional.ReplicationProperties,
+	*uco.AddReferenceInput, *additional.ReplicationProperties, string,
 ) *uco.Error {
 	return f.addRefErr
 }
 
 func (f *fakeManager) UpdateObjectReferences(context.Context, *models.Principal,
-	*uco.PutReferenceInput, *additional.ReplicationProperties,
+	*uco.PutReferenceInput, *additional.ReplicationProperties, string,
 ) *uco.Error {
 	return f.putRefErr
 }
 
 func (f *fakeManager) DeleteObjectReference(context.Context, *models.Principal,
-	*uco.DeleteReferenceInput, *additional.ReplicationProperties,
+	*uco.DeleteReferenceInput, *additional.ReplicationProperties, string,
 ) *uco.Error {
 	return f.deleteRefErr
 }
