@@ -242,6 +242,10 @@ func TestBM25FJourney(t *testing.T) {
 		// Check results in correct order
 		require.Equal(t, uint64(4), res[0].DocID())
 		require.Equal(t, uint64(5), res[1].DocID())
+		require.Equal(t, uint64(6), res[2].DocID())
+		require.Equal(t, uint64(3), res[3].DocID())
+		require.Equal(t, uint64(0), res[4].DocID())
+		require.Equal(t, uint64(2), res[5].DocID())
 
 		// Without additionalExplanations no explainScore entry should be present
 		require.Contains(t, res[0].Object.Additional, "score")
@@ -298,6 +302,11 @@ func TestBM25FJourney(t *testing.T) {
 		// Check results in correct order
 		require.Equal(t, uint64(4), res[0].DocID())
 		require.Equal(t, uint64(5), res[1].DocID())
+		require.Equal(t, uint64(6), res[2].DocID())
+		require.Equal(t, uint64(2), res[3].DocID())
+		require.Equal(t, uint64(3), res[4].DocID())
+		require.Equal(t, uint64(0), res[5].DocID())
+		require.Equal(t, uint64(1), res[6].DocID())
 	})
 
 	t.Run("bm25f journey boosted", func(t *testing.T) {
@@ -316,6 +325,9 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(5), res[1].DocID())
 		require.Equal(t, uint64(6), res[2].DocID())
 		require.Equal(t, uint64(0), res[3].DocID())
+		require.Equal(t, uint64(1), res[4].DocID())
+		require.Equal(t, uint64(2), res[5].DocID())
+		require.Equal(t, uint64(3), res[6].DocID())
 	})
 
 	t.Run("Check search with two terms", func(t *testing.T) {
@@ -712,8 +724,20 @@ func TestBM25FCompare(t *testing.T) {
 		}
 
 		// Not all the scores are unique and the search is not stable, so pick ones that don't move
-		require.Equal(t, withBM25Fobjs[2].DocID(), objs[2].DocID())
-		require.Equal(t, withBM25Fobjs[5].DocID(), objs[5].DocID())
+		require.Equal(t, uint64(4), objs[0].DocID())
+		require.Equal(t, uint64(5), objs[1].DocID())
+		require.Equal(t, uint64(6), objs[2].DocID())
+		require.Equal(t, uint64(1), objs[3].DocID())
+		require.Equal(t, uint64(2), objs[4].DocID())
+		require.Equal(t, uint64(0), objs[5].DocID())
+
+		require.Equal(t, uint64(4), withBM25Fobjs[0].DocID())
+		require.Equal(t, uint64(5), withBM25Fobjs[1].DocID())
+		require.Equal(t, uint64(6), withBM25Fobjs[2].DocID())
+		require.Equal(t, uint64(1), withBM25Fobjs[3].DocID())
+		require.Equal(t, uint64(2), withBM25Fobjs[4].DocID())
+		require.Equal(t, uint64(0), withBM25Fobjs[5].DocID())
+
 	}
 }
 

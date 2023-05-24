@@ -40,7 +40,7 @@ var importCmd = &cobra.Command{
 
 		ok, err := client.Misc().LiveChecker().Do(context.Background())
 		if err != nil {
-			return fmt.Errorf("weaviate is not ready: %w", err)
+			return fmt.Errorf("weaviate is not ready at %v: %w", Origin, err)
 		}
 
 		if !ok {
