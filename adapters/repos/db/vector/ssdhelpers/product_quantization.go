@@ -389,7 +389,7 @@ func (d *PQDistancer) Distance(x []byte) (float32, bool, error) {
 	return d.pq.Distance(x, d.lut), true, nil
 }
 
-func (d *PQDistancer) DistanceF(x []float32) (float32, bool, error) {
+func (d *PQDistancer) DistanceToFloat(x []float32) (float32, bool, error) {
 	return d.pq.distance.SingleDist(x, d.lut.flatCenter)
 }
 
