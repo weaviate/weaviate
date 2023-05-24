@@ -474,7 +474,7 @@ func (h *hnsw) distanceFromBytesToFloatNode(distancer *ssdhelpers.PQDistancer, n
 			return 0, false, errors.Wrapf(err, "get vector of docID %d", nodeID)
 		}
 	}
-	return distancer.DistanceF(vec)
+	return distancer.DistanceToFloat(vec)
 }
 
 func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer,
