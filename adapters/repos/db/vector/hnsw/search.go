@@ -171,6 +171,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	var byteDistancer *ssdhelpers.PQDistancer
 	if h.compressed.Load() {
 		byteDistancer = h.pq.NewDistancer(queryVector)
+		defer h.pq.ReturnDistancer(byteDistancer)
 	} else {
 		floatDistancer = h.distancerProvider.New(queryVector)
 	}

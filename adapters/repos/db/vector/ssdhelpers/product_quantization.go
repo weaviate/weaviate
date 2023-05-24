@@ -15,7 +15,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"math"
-	"sync/atomic"
+	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
@@ -28,28 +28,51 @@ const (
 )
 
 type DistanceLookUpTable struct {
-	calculated [][]atomic.Bool
-	distances  [][]float32
+	calculated []bool
+	distances  []float32
 	center     [][]float32
+	segments   int
+	centroids  int
 }
 
 func NewDistanceLookUpTable(segments int, centroids int, center []float32) *DistanceLookUpTable {
-	distances := make([][]float32, segments)
-	calculated := make([][]atomic.Bool, segments)
-	for m := 0; m < segments; m++ {
-		distances[m] = make([]float32, centroids)
-		calculated[m] = make([]atomic.Bool, centroids)
-	}
+	distances := make([]float32, segments*centroids)
+	calculated := make([]bool, segments*centroids)
 	parsedCenter := make([][]float32, segments)
 	ds := len(center) / segments
 	for c := 0; c < segments; c++ {
 		parsedCenter[c] = center[c*ds : (c+1)*ds]
 	}
 
-	return &DistanceLookUpTable{
+	dlt := &DistanceLookUpTable{
 		distances:  distances,
 		calculated: calculated,
 		center:     parsedCenter,
+		segments:   segments,
+		centroids:  centroids,
+	}
+	return dlt
+}
+
+func (lut *DistanceLookUpTable) Reset(segments int, centroids int, center []float32) {
+	elems := segments * centroids
+	lut.segments = segments
+	lut.centroids = centroids
+	if len(lut.distances) != elems ||
+		len(lut.calculated) != elems ||
+		len(lut.center) != segments {
+		lut.distances = make([]float32, segments*centroids)
+		lut.calculated = make([]bool, segments*centroids)
+		lut.center = make([][]float32, segments)
+	} else {
+		for i := range lut.calculated {
+			lut.calculated[i] = false
+		}
+	}
+
+	ds := len(center) / segments
+	for c := 0; c < segments; c++ {
+		lut.center[c] = center[c*ds : (c+1)*ds]
 	}
 }
 
@@ -61,17 +84,66 @@ func (lut *DistanceLookUpTable) LookUp(
 
 	for i := range pq.kms {
 		c := pq.ExtractCode(encoded, i)
-		if lut.calculated[i][c].Load() {
-			sum += lut.distances[i][c]
+		if lut.distCalculated(i, c) {
+			sum += lut.codeDist(i, c)
 		} else {
 			centroid := pq.kms[i].Centroid(c)
 			dist := pq.distance.Step(lut.center[i], centroid)
-			lut.distances[i][c] = dist
-			lut.calculated[i][c].Store(true)
+			lut.setCodeDist(i, c, dist)
+			lut.setDistCalculated(i, c)
 			sum += dist
 		}
 	}
 	return pq.distance.Wrap(sum)
+}
+
+// meant for better readability, rely on the fact that the compiler will inline this
+func (lut *DistanceLookUpTable) posForSegmentAndCode(segment int, code uint64) int {
+	return segment*lut.centroids + int(code)
+}
+
+// meant for better readability, rely on the fact that the compiler will inline this
+func (lut *DistanceLookUpTable) distCalculated(segment int, code uint64) bool {
+	return lut.calculated[lut.posForSegmentAndCode(segment, code)]
+}
+
+// meant for better readability, rely on the fact that the compiler will inline this
+func (lut *DistanceLookUpTable) setDistCalculated(segment int, code uint64) {
+	lut.calculated[lut.posForSegmentAndCode(segment, code)] = true
+}
+
+// meant for better readability, rely on the fact that the compiler will inline this
+func (lut *DistanceLookUpTable) codeDist(segment int, code uint64) float32 {
+	return lut.distances[lut.posForSegmentAndCode(segment, code)]
+}
+
+// meant for better readability, rely on the fact that the compiler will inline this
+func (lut *DistanceLookUpTable) setCodeDist(segment int, code uint64, dist float32) {
+	lut.distances[lut.posForSegmentAndCode(segment, code)] = dist
+}
+
+type DLUTPool struct {
+	pool sync.Pool
+}
+
+func NewDLUTPool() *DLUTPool {
+	return &DLUTPool{
+		pool: sync.Pool{
+			New: func() any {
+				return &DistanceLookUpTable{}
+			},
+		},
+	}
+}
+
+func (p *DLUTPool) Get(segments, centroids int, centers []float32) *DistanceLookUpTable {
+	dlt := p.pool.Get().(*DistanceLookUpTable)
+	dlt.Reset(segments, centroids, centers)
+	return dlt
+}
+
+func (p *DLUTPool) Return(dlt *DistanceLookUpTable) {
+	p.pool.Put(dlt)
 }
 
 type ProductQuantizer struct {
@@ -92,6 +164,7 @@ type ProductQuantizer struct {
 	useBitsEncoding     bool
 	ExtractCode         func(encoded []byte, index int) uint64
 	PutCode             func(code uint64, encoded []byte, index int)
+	dlutPool            *DLUTPool
 }
 
 type PQData struct {
@@ -131,6 +204,7 @@ func NewProductQuantizer(segments int, centroids int, useBitsEncoding bool, dist
 		encoderType:         encoderType,
 		encoderDistribution: encoderDistribution,
 		useBitsEncoding:     useBitsEncoding,
+		dlutPool:            NewDLUTPool(),
 	}
 	pq.sharpCodes = pq.bits%8 == 0
 	if pq.bits > 32 {
@@ -305,6 +379,10 @@ func (pq *ProductQuantizer) NewDistancer(a []float32) *PQDistancer {
 	}
 }
 
+func (pq *ProductQuantizer) ReturnDistancer(d *PQDistancer) {
+	pq.dlutPool.Return(d.lut)
+}
+
 func (d *PQDistancer) Distance(x []byte) (float32, bool, error) {
 	return d.pq.Distance(x, d.lut), true, nil
 }
@@ -362,7 +440,7 @@ func (pq *ProductQuantizer) Decode(code []byte) []float32 {
 }
 
 func (pq *ProductQuantizer) CenterAt(vec []float32) *DistanceLookUpTable {
-	return NewDistanceLookUpTable(int(pq.m), int(pq.ks), vec)
+	return pq.dlutPool.Get(int(pq.m), int(pq.ks), vec)
 }
 
 func (pq *ProductQuantizer) Distance(encoded []byte, lut *DistanceLookUpTable) float32 {
