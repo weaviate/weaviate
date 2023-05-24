@@ -182,10 +182,10 @@ func (h *hnsw) searchLayerByVectorWithoutToggableCorrections(queryVector []float
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	var results priorityqueue.SortedQueue
-	if h.doNotRescore.Load() {
-		results = ssdhelpers.NewSortedSet(ef)
-	} else {
+	if !h.compressed.Load() || h.doNotRescore.Load() {
 		results = h.pools.pqResults.GetMax(ef)
+	} else {
+		results = ssdhelpers.NewSortedSet(ef)
 	}
 	var floatDistancer distancer.Distancer
 	var byteDistancer *ssdhelpers.PQDistancer
@@ -312,12 +312,12 @@ func (h *hnsw) searchLayerByVectorWithoutToggableCorrections(queryVector []float
 				}
 
 				// +1 because we have added one node size calculating the len
-				if h.doNotRescore.Load() && results.Len() > ef {
+				if (!h.compressed.Load() || h.doNotRescore.Load()) && results.Len() > ef {
 					results.Pop()
 				}
 
 				if results.Len() > 0 {
-					if h.doNotRescore.Load() {
+					if !h.compressed.Load() || h.doNotRescore.Load() {
 						worstResultDistance = results.Top().Dist
 					} else {
 						wdist, _ := results.Last()
@@ -420,7 +420,7 @@ func (h *hnsw) currentWorstResultDistanceToByte(results priorityqueue.SortedQueu
 ) (float32, error) {
 	if results.Len() > 0 {
 		var id uint64
-		if h.doNotRescore.Load() {
+		if !h.compressed.Load() || h.doNotRescore.Load() {
 			id = results.Top().ID
 		} else {
 			last, _ := results.Last()
@@ -539,7 +539,12 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	for level := h.currentMaximumLayer; level >= 1; level-- {
 		eps := priorityqueue.NewMin(10)
 		eps.Insert(entryPointID, entryPointDistance)
-		res, err := h.searchLayerByVector(searchVec, eps, 1, level, nil)
+		var res priorityqueue.SortedQueue
+		if h.compressed.Load() {
+			res, err = h.searchLayerByVectorWithCorrections(searchVec, eps, 1, level, nil)
+		} else {
+			res, err = h.searchLayerByVector(searchVec, eps, 1, level, nil)
+		}
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
 		}
