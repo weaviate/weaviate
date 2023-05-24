@@ -35,11 +35,7 @@ func TestClient(t *testing.T) {
 		c := &vectorizer{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilder: &huggingFaceUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/pipeline/feature-extraction/%s",
-			},
-			logger: nullLogger(),
+			logger:     nullLogger(),
 		}
 		expected := &ent.VectorizationResult{
 			Text:       "This is my text",
@@ -52,6 +48,7 @@ func TestClient(t *testing.T) {
 				WaitForModel: false,
 				UseGPU:       false,
 				UseCache:     true,
+				EndpointURL:  server.URL,
 			})
 
 		assert.Nil(t, err)
@@ -64,16 +61,14 @@ func TestClient(t *testing.T) {
 		c := &vectorizer{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilder: &huggingFaceUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/pipeline/feature-extraction/%s",
-			},
-			logger: nullLogger(),
+			logger:     nullLogger(),
 		}
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, "This is my text", ent.VectorizationConfig{})
+		_, err := c.Vectorize(ctx, "This is my text", ent.VectorizationConfig{
+			EndpointURL: server.URL,
+		})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -88,14 +83,12 @@ func TestClient(t *testing.T) {
 		c := &vectorizer{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilder: &huggingFaceUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/pipeline/feature-extraction/%s",
-			},
-			logger: nullLogger(),
+			logger:     nullLogger(),
 		}
 		_, err := c.Vectorize(context.Background(), "This is my text",
-			ent.VectorizationConfig{})
+			ent.VectorizationConfig{
+				EndpointURL: server.URL,
+			})
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "connection to HuggingFace failed with status: 500 error: nope, not gonna happen estimated time: 20")
@@ -107,11 +100,7 @@ func TestClient(t *testing.T) {
 		c := &vectorizer{
 			apiKey:     "",
 			httpClient: &http.Client{},
-			urlBuilder: &huggingFaceUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/pipeline/feature-extraction/%s",
-			},
-			logger: nullLogger(),
+			logger:     nullLogger(),
 		}
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Huggingface-Api-Key", []string{"some-key"})
@@ -127,6 +116,7 @@ func TestClient(t *testing.T) {
 				WaitForModel: true,
 				UseGPU:       false,
 				UseCache:     true,
+				EndpointURL:  server.URL,
 			})
 
 		require.Nil(t, err)
@@ -142,18 +132,15 @@ func TestClient(t *testing.T) {
 		c := &vectorizer{
 			apiKey:     "",
 			httpClient: &http.Client{},
-			urlBuilder: &huggingFaceUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/pipeline/feature-extraction/%s",
-			},
-			logger: nullLogger(),
+			logger:     nullLogger(),
 		}
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Huggingface-Api-Key", []string{""})
 
 		_, err := c.Vectorize(ctxWithValue, "This is my text",
 			ent.VectorizationConfig{
-				Model: "sentence-transformers/gtr-t5-xxl",
+				Model:       "sentence-transformers/gtr-t5-xxl",
+				EndpointURL: server.URL,
 			})
 
 		require.NotNil(t, err)
@@ -169,14 +156,12 @@ func TestClient(t *testing.T) {
 		c := &vectorizer{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilder: &huggingFaceUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/pipeline/feature-extraction/%s",
-			},
-			logger: nullLogger(),
+			logger:     nullLogger(),
 		}
 		_, err := c.Vectorize(context.Background(), "This is my text",
-			ent.VectorizationConfig{})
+			ent.VectorizationConfig{
+				EndpointURL: server.URL,
+			})
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "connection to HuggingFace failed with status: 500 error: with warnings "+
@@ -258,4 +243,41 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func nullLogger() logrus.FieldLogger {
 	l, _ := test.NewNullLogger()
 	return l
+}
+
+func Test_getURL(t *testing.T) {
+	v := &vectorizer{}
+
+	tests := []struct {
+		name   string
+		config ent.VectorizationConfig
+		want   string
+	}{
+		{
+			name: "Facebook DPR model",
+			config: ent.VectorizationConfig{
+				Model: "sentence-transformers/facebook-dpr-ctx_encoder-multiset-base",
+			},
+			want: "https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/facebook-dpr-ctx_encoder-multiset-base",
+		},
+		{
+			name: "BERT base model (uncased)",
+			config: ent.VectorizationConfig{
+				Model: "bert-base-uncased",
+			},
+			want: "https://api-inference.huggingface.co/pipeline/feature-extraction/bert-base-uncased",
+		},
+		{
+			name: "BERT base model (uncased)",
+			config: ent.VectorizationConfig{
+				EndpointURL: "https://self-hosted-instance.com/bert-base-uncased",
+			},
+			want: "https://self-hosted-instance.com/bert-base-uncased",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, v.getURL(tt.config))
+		})
+	}
 }
