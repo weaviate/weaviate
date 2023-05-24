@@ -127,7 +127,7 @@ func (m *Manager) addClassPropertyApplyChanges(ctx context.Context,
 	}
 
 	class.Properties = append(class.Properties, prop)
-	err = m.saveSchema(ctx)
+	err = m.saveSchema(ctx, nil)
 	if err != nil {
 		return err
 	}

@@ -57,7 +57,7 @@ func (n *NilMigrator) AddProperty(ctx context.Context, className string, prop *m
 }
 
 func (n *NilMigrator) NewPartitions(ctx context.Context, class *models.Class, partitions []string) (commit func(success bool), err error) {
-	return nil, nil
+	return func(bool) {}, nil
 }
 
 func (n *NilMigrator) UpdateProperty(ctx context.Context, className string, propName string, newName *string) error {

@@ -102,16 +102,18 @@ func (m *Manager) onAddPartitions(ctx context.Context,
 	m.state.ShardingState[request.ClassName] = st
 	m.shardingStateLock.Unlock()
 
-	if err := m.saveSchema(ctx); err != nil {
-		m.shardingStateLock.Lock() // rollback
-		m.state.ShardingState[request.ClassName] = curState
-		commit(false)
-		m.shardingStateLock.Unlock()
-		return err
+	doAfter := func(err error) {
+		if err != nil { // rollback if schema cannot be saved
+			m.shardingStateLock.Lock()
+			m.state.ShardingState[request.ClassName] = curState // rollback
+			m.shardingStateLock.Unlock()
+			commit(false) // rollback new partitions
+			return
+		}
+		commit(true) // commit new partitions
 	}
 
-	commit(true)
-	return nil
+	return m.saveSchema(ctx, doAfter)
 }
 
 func isMultiTenancyEnabled(cfg *models.MultiTenancyConfig) bool {

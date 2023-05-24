@@ -150,7 +150,7 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 	return idx.updateShardStatus(ctx, shardName, targetStatus)
 }
 
-// CreatePartitions creates new partitions and returns a commit func
+// NewPartitions creates new partitions and returns a commit func
 // that can be used to either commit or rollback the partitions
 func (m *Migrator) NewPartitions(ctx context.Context, class *models.Class, partitions []string) (commit func(success bool), err error) {
 	idx := m.db.GetIndex(schema.ClassName(class.Class))
@@ -189,7 +189,7 @@ func (m *Migrator) NewPartitions(ctx context.Context, class *models.Class, parti
 		}
 		shard, err := NewShard(ctx, nil, name, idx, class, idx.centralJobQueue)
 		if err != nil {
-			return nil, fmt.Errorf("cannot create partition: %w", err)
+			return nil, fmt.Errorf("cannot create partition %q: %w", name, err)
 		}
 
 		shards[name] = shard
