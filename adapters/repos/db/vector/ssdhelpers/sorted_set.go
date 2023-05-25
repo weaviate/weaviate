@@ -13,9 +13,34 @@ package ssdhelpers
 
 import (
 	"math"
+	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 )
+
+type SortedSetPool struct {
+	pool *sync.Pool
+}
+
+func NewSortedSetPool() *SortedSetPool {
+	return &SortedSetPool{
+		pool: &sync.Pool{
+			New: func() any {
+				return &SortedSet{}
+			},
+		},
+	}
+}
+
+func (p *SortedSetPool) Get(capacity int) *SortedSet {
+	s := p.pool.Get().(*SortedSet)
+	s.Reset(capacity)
+	return s
+}
+
+func (p *SortedSetPool) Put(s *SortedSet) {
+	p.pool.Put(s)
+}
 
 type SortedSet struct {
 	items    []priorityqueue.Item
@@ -33,6 +58,17 @@ func NewSortedSet(capacity int) *SortedSet {
 		s.items[i].Dist = math.MaxFloat32
 	}
 	return &s
+}
+
+func (s *SortedSet) Reset(capacity int) {
+	if capacity > s.capacity {
+		s.items = make([]priorityqueue.Item, capacity)
+	}
+	s.capacity = capacity
+	s.last = -1
+	for i := 0; i < capacity; i++ {
+		s.items[i].Dist = math.MaxFloat32
+	}
 }
 
 func (s *SortedSet) Last() (priorityqueue.Item, bool) {
