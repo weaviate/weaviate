@@ -481,11 +481,11 @@ func MapListLegacySortingRequired() MapListOption {
 //
 // MapList is specific to the Map strategy, for Sets use [Bucket.SetList], for
 // Replace use [Bucket.Get].
-func (b *Bucket) MapListProp(property []byte, keypart []byte, cfgs ...MapListOption) ([]MapPair, error) {
+func (b *Bucket) MapListProp(propertyid []byte, keypart []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	key := helpers.MakePropertyKey(b.PropertyTracker,property, keypart)
+	key := helpers.MakePropertyKey(propertyid, keypart)
 
 	c := MapListOptionConfig{}
 	for _, cfg := range cfgs {

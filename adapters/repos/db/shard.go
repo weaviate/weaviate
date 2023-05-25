@@ -54,7 +54,8 @@ type Shard struct {
 	promMetrics     *monitoring.PrometheusMetrics
 	propertyIndices propertyspecific.Indices
 	deletedDocIDs   *docid.InMemDeletedTracker
-	propLengths     *inverted.JsonPropertyLengthTracker
+	propIds     	*propertyspecific.JsonPropertyIdTracker
+	propLengths	 *inverted.JsonPropertyLengthTracker
 	versioner       *shardVersioner
 
 	status              storagestate.Status
@@ -80,9 +81,7 @@ type Shard struct {
 	fallbackToSearchable bool
 }
 
-func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
-	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-) (*Shard, error) {
+func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,shardName string, index *Index, class *models.Class, jobQueueCh chan job,propLengths     *propertyspecific.JsonPropertyIdTracker) (*Shard, error) {
 	before := time.Now()
 
 	s := &Shard{
@@ -193,9 +192,12 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	}
 	s.propLengths = propLengths
 
-	if err := s.initProperties(class); err != nil {
-		return errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
+	piPath := path.Join(s.index.Config.RootPath, s.ID()+".propids")
+	propIds, err := propertyspecific.NewJsonPropertyIdTracker(piPath)
+	if err != nil {
+		return errors.Wrapf(err, "init shard %q: prop id tracker", s.ID())
 	}
+	s.propIds = propIds
 
 	s.initDimensionTracking()
 

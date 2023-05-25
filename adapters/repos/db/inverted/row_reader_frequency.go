@@ -29,6 +29,7 @@ type RowReaderFrequency struct {
 	keyOnly      bool
 	shardVersion uint16
 	PropPrefix   []byte
+	
 }
 
 func NewRowReaderFrequency(propPrefix []byte, bucket *lsmkv.Bucket, value []byte,
