@@ -76,6 +76,7 @@ func (lut *DistanceLookUpTable) Reset(segments int, centroids int, center []floa
 	for c := 0; c < segments; c++ {
 		lut.center[c] = center[c*ds : (c+1)*ds]
 	}
+	lut.flatCenter = center
 }
 
 func (lut *DistanceLookUpTable) LookUp(
