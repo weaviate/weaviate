@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -288,10 +289,8 @@ func (m *Manager) validateBackupRequest(ctx context.Context, store nodeStore, re
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
 		return nil, fmt.Errorf("malformed request: 'include' and 'exclude' cannot both contain values")
 	}
-	classes := req.Include
-	if len(classes) == 0 {
-		classes = m.backupper.sourcer.ListBackupable()
-	}
+	classes := resolveWildCard(req.Include, m.backupper.sourcer.ListBackupable())
+
 	if classes = filterClasses(classes, req.Exclude); len(classes) == 0 {
 		return nil, fmt.Errorf("empty class list: please choose from : %v", classes)
 	}
@@ -355,21 +354,50 @@ func filterClasses(classes, excludes []string) []string {
 	if len(excludes) == 0 {
 		return classes
 	}
+
 	m := make(map[string]struct{}, len(classes))
 	for _, c := range classes {
 		m[c] = struct{}{}
 	}
 	for _, x := range excludes {
-		delete(m, x)
-	}
-	if len(classes) != len(m) {
-		classes = classes[:len(m)]
-		i := 0
-		for k := range m {
-			classes[i] = k
-			i++
+		if strings.HasSuffix(x, "*") {
+			prefix := strings.TrimSuffix(x, "*")
+			for k := range m {
+				if strings.HasPrefix(k, prefix) {
+					delete(m, k)
+				}
+			}
+		} else {
+			delete(m, x)
 		}
 	}
 
-	return classes
+	filtered := make([]string, 0, len(m))
+	for k := range m {
+		filtered = append(filtered, k)
+	}
+
+	return filtered
+}
+
+// resolveWildCard
+func resolveWildCard(classes, listBackup []string) []string {
+	if len(listBackup) == 0 {
+		return classes
+	}
+	var resolvedClasses []string
+
+	for _, c := range classes {
+		if strings.HasSuffix(c, "*") {
+			prefix := c[:len(c)-1]
+			for _, class := range listBackup {
+				if strings.HasPrefix(class, prefix) {
+					resolvedClasses = append(resolvedClasses, class)
+				}
+			}
+		} else {
+			resolvedClasses = append(resolvedClasses, c)
+		}
+	}
+	return resolvedClasses
 }

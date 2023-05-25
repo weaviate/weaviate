@@ -254,10 +254,12 @@ func TestBackupRequestValidation(t *testing.T) {
 	t.Run("GetMetadataFails", func(t *testing.T) {
 		sourcer := &fakeSourcer{}
 		sourcer.On("Backupable", ctx, []string{cls}).Return(nil)
+		sourcer.On("ListBackupable").Return([]string{cls})
 		backend := &fakeBackend{}
 		backend.On("HomeDir", mock.Anything).Return(path)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errors.New("can not be read"))
 		backend.On("GetObject", ctx, id, BackupFile).Return(nil, errors.New("can not be read"))
+		sourcer.On("Backupable", ctx, []string{cls}).Return(nil)
 
 		bm := createManager(sourcer, nil, backend, nil)
 
@@ -275,6 +277,7 @@ func TestBackupRequestValidation(t *testing.T) {
 	t.Run("MetadataNotFound", func(t *testing.T) {
 		sourcer := &fakeSourcer{}
 		sourcer.On("Backupable", ctx, []string{cls}).Return(nil)
+		sourcer.On("ListBackupable").Return([]string{cls})
 		backend := &fakeBackend{}
 		backend.On("HomeDir", mock.Anything).Return(path)
 		bytes := marshalMeta(backup.BackupDescriptor{ID: id})
@@ -354,6 +357,7 @@ func TestManagerCreateBackup(t *testing.T) {
 		backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
 		backend.On("HomeDir", any).Return(path)
 		sourcer.On("Backupable", any, req1.Include).Return(nil)
+		sourcer.On("ListBackupable").Return([]string{cls})
 		backend.On("Initialize", ctx, nodeHome).Return(nil)
 		sourcer.On("CreateBackup", ctx, any).Return(nil, ErrAny)
 		sourcer.On("ReleaseBackup", ctx, any).Return(nil)
@@ -381,6 +385,7 @@ func TestManagerCreateBackup(t *testing.T) {
 
 		sourcer := &fakeSourcer{}
 		sourcer.On("Backupable", ctx, classes).Return(nil)
+		sourcer.On("ListBackupable").Return([]string{cls})
 		backend := &fakeBackend{}
 		backend.On("HomeDir", mock.Anything).Return(path)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, backup.NewErrNotFound(errors.New("not found")))
@@ -405,6 +410,7 @@ func TestManagerCreateBackup(t *testing.T) {
 		classes := []string{cls}
 		sourcer := &fakeSourcer{}
 		sourcer.On("Backupable", ctx, classes).Return(nil)
+		sourcer.On("ListBackupable").Return([]string{cls})
 		ch := fakeBackupDescriptor(genClassDescriptions(cls, cls2)...)
 		sourcer.On("BackupDescriptors", any, backupID, mock.Anything).Return(ch)
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
@@ -446,6 +452,7 @@ func TestManagerCreateBackup(t *testing.T) {
 		classes := []string{cls}
 		sourcer := &fakeSourcer{}
 		sourcer.On("Backupable", ctx, classes).Return(nil)
+		sourcer.On("ListBackupable").Return([]string{cls})
 		ch := fakeBackupDescriptor(genClassDescriptions(cls, cls2)...)
 		sourcer.On("BackupDescriptors", any, backupID, mock.Anything).Return(ch)
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
@@ -486,6 +493,7 @@ func TestManagerCreateBackup(t *testing.T) {
 		classes := []string{cls}
 		sourcer := &fakeSourcer{}
 		sourcer.On("Backupable", ctx, classes).Return(nil)
+		sourcer.On("ListBackupable").Return([]string{cls})
 		cs := genClassDescriptions(cls, cls2)
 		cs[1].Error = ErrAny
 		ch := fakeBackupDescriptor(cs...)

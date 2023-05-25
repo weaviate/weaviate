@@ -53,9 +53,26 @@ func TestFilterClasses(t *testing.T) {
 		{in: []string{"1", "2", "3", "4"}, xs: []string{"2", "3"}, out: []string{"1", "4"}},
 		{in: []string{"1", "2", "3"}, xs: []string{"1", "3"}, out: []string{"2"}},
 		{in: []string{"1", "2", "1", "3", "1", "3"}, xs: []string{"2"}, out: []string{"1", "3"}},
+		{in: []string{"data-20221122", "data-20221223", "data-20221224", "data-20221225"},
+			xs: []string{"data-20221224*"}, out: []string{"data-20221225", "data-20221122", "data-20221223"}},
 	}
 	for _, tc := range tests {
 		got := filterClasses(tc.in, tc.xs)
+		assert.ElementsMatch(t, tc.out, got)
+	}
+}
+
+func TestResolveWildCardClasses(t *testing.T) {
+	tests := []struct {
+		in  []string
+		xs  []string
+		out []string
+	}{
+		{in: []string{"data-20221122", "data-20221223", "data-20221224", "data-20221225"}, xs: []string{"data-202212*"},
+			out: []string{"data-20221223", "data-20221224", "data-20221225"}},
+	}
+	for _, tc := range tests {
+		got := resolveWildCard(tc.xs, tc.in)
 		assert.ElementsMatch(t, tc.out, got)
 	}
 }
