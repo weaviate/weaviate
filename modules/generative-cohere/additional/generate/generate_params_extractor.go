@@ -27,7 +27,19 @@ func (p *GenerateProvider) parseGenerateArguments(args []*ast.Argument) *Params 
 			out.Prompt = &obj[0].Value.(*ast.StringValue).Value
 		case "groupedResult":
 			obj := arg.Value.(*ast.ObjectValue).Fields
-			out.Task = &obj[0].Value.(*ast.StringValue).Value
+			for _, field := range obj {
+				switch field.Name.Value {
+				case "task":
+					out.Task = &field.Value.(*ast.StringValue).Value
+				case "properties":
+					inp := field.Value.GetValue().([]ast.Value)
+					out.Properties = make([]string, len(inp))
+
+					for i, value := range inp {
+						out.Properties[i] = value.(*ast.StringValue).Value
+					}
+				}
+			}
 
 		default:
 			// ignore what we don't recognize
