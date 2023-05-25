@@ -360,32 +360,6 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	}
 }
 
-func (h *hnsw) insertViableEntrypointsAsCandidatesAndResultsWithCorrection(
-	entrypoints, candidates *priorityqueue.Queue, results *ssdhelpers.SortedSet, level int,
-	visitedList visited.ListSet, allowList helpers.AllowList,
-) {
-	for entrypoints.Len() > 0 {
-		ep := entrypoints.Pop()
-		visitedList.Visit(ep.ID)
-		candidates.Insert(ep.ID, ep.Dist)
-		if level == 0 && allowList != nil {
-			// we are on the lowest level containing the actual candidates and we
-			// have an allow list (i.e. the user has probably set some sort of a
-			// filter restricting this search further. As a result we have to
-			// ignore items not on the list
-			if !allowList.Contains(ep.ID) {
-				continue
-			}
-		}
-
-		if h.hasTombstone(ep.ID) {
-			continue
-		}
-
-		results.Insert(ep.ID, ep.Dist)
-	}
-}
-
 func (h *hnsw) currentWorstResultDistanceToFloat(results priorityqueue.SortedQueue,
 	distancer distancer.Distancer,
 ) (float32, error) {
