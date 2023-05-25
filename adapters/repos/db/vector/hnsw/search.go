@@ -164,6 +164,8 @@ func (h *hnsw) shouldRescore() bool {
 func (h *hnsw) freeSortedQueue(sorted priorityqueue.SortedQueue) {
 	if !h.shouldRescore() {
 		h.pools.pqResults.Put(sorted.(*priorityqueue.Queue))
+	} else {
+		h.pools.pqSortedSetResults.Put(sorted.(*ssdhelpers.SortedSet))
 	}
 }
 
@@ -180,7 +182,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	if !h.shouldRescore() {
 		results = h.pools.pqResults.GetMax(ef)
 	} else {
-		results = ssdhelpers.NewSortedSet(ef)
+		results = h.pools.pqSortedSetResults.Get(ef)
 	}
 	var floatDistancer distancer.Distancer
 	var byteDistancer *ssdhelpers.PQDistancer
