@@ -310,6 +310,22 @@ func (i *Index) shardFromUUID(in strfmt.UUID) (string, error) {
 		PhysicalShard(uuidBytes), nil
 }
 
+// shardFromObject returns the name of shard to which o belongs
+func (i *Index) shardFromObject(o *storobj.Object) (string, error) {
+	if i.tenantKey == "" {
+		return i.shardFromUUID(o.ID())
+	}
+	keyVal := objects.ParseTenantKeyFromObject(i.tenantKey, &o.Object)
+	if keyVal == "" {
+		return "", fmt.Errorf("tenant key %q is required", i.tenantKey)
+	}
+	ss := i.getSchema.ShardingState(i.Config.ClassName.String())
+	if name := ss.Shard(keyVal, string(o.ID())); name != "" {
+		return name, nil
+	}
+	return "", fmt.Errorf("no tenant found with this key %q", keyVal)
+}
+
 func (i *Index) determineObjectShard(id strfmt.UUID, tenantKey string) (string, error) {
 	if tenantKey != "" {
 		return i.shardFromTenantKey(tenantKey, id)
@@ -500,7 +516,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	out := make([]error, len(objects))
 
 	for pos, obj := range objects {
-		shardName, err := i.shardFromUUID(obj.ID())
+		shardName, err := i.shardFromObject(obj)
 		if err != nil {
 			out[pos] = err
 			continue

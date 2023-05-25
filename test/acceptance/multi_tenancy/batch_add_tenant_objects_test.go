@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-func TestAddTenantObjects(t *testing.T) {
+func TestBatchAddTenantObjects(t *testing.T) {
 	tenantKey := "tenantName"
 	testClass := models.Class{
 		Class: "MultiTenantClass",
@@ -79,15 +79,14 @@ func TestAddTenantObjects(t *testing.T) {
 	})
 
 	t.Run("add tenant objects", func(t *testing.T) {
-		for i, obj := range tenantObjects {
-			helper.CreateTenantObject(t, obj, tenantNames[i])
-		}
+		helper.CreateObjectsBatch(t, tenantObjects)
 	})
 
-	t.Run("verify object creation", func(t *testing.T) {
+	t.Run("get tenant objects", func(t *testing.T) {
 		for i, obj := range tenantObjects {
 			resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenantNames[i])
 			require.Nil(t, err)
+			assert.Equal(t, obj.ID, resp.ID)
 			assert.Equal(t, obj.Class, resp.Class)
 			assert.Equal(t, obj.Properties, resp.Properties)
 		}
