@@ -39,7 +39,7 @@ func New(cohere cohereClient) *GenerateProvider {
 	return &GenerateProvider{cohere, maximumNumberOfGoroutines}
 }
 
-func (p *GenerateProvider) AdditonalPropertyDefaultValue() interface{} {
+func (p *GenerateProvider) AdditionalPropertyDefaultValue() interface{} {
 	return &Params{}
 }
 
