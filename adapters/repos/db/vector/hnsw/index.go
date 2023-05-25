@@ -404,7 +404,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 			}
 		}
 
-		h.pools.pqResults.Put(res)
+		h.freeSortedQueue(res)
 	}
 
 	return entryPointID, nil

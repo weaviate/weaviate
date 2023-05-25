@@ -99,7 +99,7 @@ func (s *SortedSet) Items(k int) ([]uint64, []float32) {
 func (s *SortedSet) Pop() priorityqueue.Item {
 	x := s.items[0]
 	copy(s.items, s.items[1:])
-	s.last = max(0, s.last-1)
+	s.last = max(-1, s.last-1)
 	return x
 }
 
