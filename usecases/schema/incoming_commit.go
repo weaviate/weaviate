@@ -151,10 +151,10 @@ func (m *Manager) handleAddPartitionsCommit(ctx context.Context,
 		return errors.Errorf("expected commit payload to be AddPartitions, but got %T",
 			tx.Payload)
 	}
-	st := m.ShardingState(req.ClassName)
-	if st == nil {
-		return fmt.Errorf("sharding state for class %q not found", req.ClassName)
+	cls, st := m.getClassByName(req.ClassName), m.ShardingState(req.ClassName)
+	if cls == nil || st == nil {
+		return fmt.Errorf("class %q: %w", req.ClassName, ErrNotFound)
 	}
 
-	return m.onAddPartitions(ctx, st, req)
+	return m.onAddPartitions(ctx, st, cls, req)
 }
