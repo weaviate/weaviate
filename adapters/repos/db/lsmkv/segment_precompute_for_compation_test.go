@@ -156,7 +156,9 @@ func TestPrecomputeSegmentMeta_UnhappyPaths(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		_, err := preComputeSegmentMeta("i-dont-exist.tmp", 7, logger)
 		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "no such file or directory")
+		unixErr := "no such file or directory"
+		windowsErr := "The system cannot find the file specified."
+		assert.True(t, strings.Contains(err.Error(), unixErr) || strings.Contains(err.Error(), windowsErr))
 	})
 
 	t.Run("segment header can't be parsed", func(t *testing.T) {

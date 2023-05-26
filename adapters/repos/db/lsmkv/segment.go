@@ -7,7 +7,6 @@
 //  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
-//
 
 package lsmkv
 
@@ -15,8 +14,8 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"syscall"
 
+	"github.com/edsrzf/mmap-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -76,7 +75,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, errors.Wrap(err, "stat file")
 	}
 
-	content, err := syscall.Mmap(int(file.Fd()), 0, int(fileInfo.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
+	content, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
 	if err != nil {
 		return nil, errors.Wrap(err, "mmap file")
 	}
@@ -145,7 +144,8 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 }
 
 func (s *segment) close() error {
-	return syscall.Munmap(s.contents)
+	mmmap := mmap.MMap(s.contents)
+	return mmmap.Unmap()
 }
 
 func (s *segment) drop() error {
