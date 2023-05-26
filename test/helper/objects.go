@@ -82,7 +82,10 @@ func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
 	resp, err := Client(t).Batch.BatchObjectsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 	for _, elem := range resp.Payload {
-		assert.Nil(t, elem.Result.Errors)
+		if !assert.Nil(t, elem.Result.Errors) {
+			t.Logf("expected nil, got: %v",
+				elem.Result.Errors.Error[0].Message)
+		}
 	}
 }
 
@@ -143,6 +146,25 @@ func AddReferences(t *testing.T, refs []*models.BatchReference) {
 	params := batch.NewBatchReferencesCreateParams().WithBody(refs)
 	resp, err := Client(t).Batch.BatchReferencesCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
+	for _, elem := range resp.Payload {
+		if !assert.Nil(t, elem.Result.Errors) {
+			t.Logf("expected nil, got: %v",
+				elem.Result.Errors.Error[0].Message)
+		}
+	}
+}
+
+func AddTenantReferences(t *testing.T, refs []*models.BatchReference, tenantKey string) {
+	params := batch.NewBatchReferencesCreateParams().
+		WithBody(refs).WithTenantKey(&tenantKey)
+	resp, err := Client(t).Batch.BatchReferencesCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	for _, elem := range resp.Payload {
+		if !assert.Nil(t, elem.Result.Errors) {
+			t.Logf("expected nil, got: %v",
+				elem.Result.Errors.Error[0].Message)
+		}
+	}
 }
 
 func AddReference(t *testing.T, object *models.Object, ref *models.SingleRef, prop string) {

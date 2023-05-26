@@ -19,8 +19,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/autocut"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -33,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/autocut"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -598,7 +597,7 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 
 // return value map[int]error gives the error for the index as it received it
 func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchReferences,
-	replProps *additional.ReplicationProperties,
+	replProps *additional.ReplicationProperties, tenantKey string,
 ) []error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
@@ -607,11 +606,15 @@ func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchRefere
 		pos  []int
 	}
 
+	if err := i.validateMultiTenancy(tenantKey); err != nil {
+		return []error{err}
+	}
+
 	byShard := map[string]refsAndPos{}
 	out := make([]error, len(refs))
 
 	for pos, ref := range refs {
-		shardName, err := i.shardFromUUID(ref.From.TargetID)
+		shardName, err := i.determineObjectShard(ref.From.TargetID, tenantKey)
 		if err != nil {
 			out[pos] = err
 			continue

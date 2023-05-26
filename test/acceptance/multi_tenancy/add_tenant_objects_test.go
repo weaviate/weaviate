@@ -21,9 +21,10 @@ import (
 )
 
 func TestAddTenantObjects(t *testing.T) {
+	className := "MultiTenantClass"
 	tenantKey := "tenantName"
 	testClass := models.Class{
-		Class: "MultiTenantClass",
+		Class: className,
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled:   true,
 			TenantKey: tenantKey,
@@ -41,21 +42,21 @@ func TestAddTenantObjects(t *testing.T) {
 	tenantObjects := []*models.Object{
 		{
 			ID:    "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
-			Class: testClass.Class,
+			Class: className,
 			Properties: map[string]interface{}{
 				tenantKey: tenantNames[0],
 			},
 		},
 		{
 			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
-			Class: testClass.Class,
+			Class: className,
 			Properties: map[string]interface{}{
 				tenantKey: tenantNames[1],
 			},
 		},
 		{
 			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
-			Class: testClass.Class,
+			Class: className,
 			Properties: map[string]interface{}{
 				tenantKey: tenantNames[2],
 			},
@@ -63,7 +64,7 @@ func TestAddTenantObjects(t *testing.T) {
 	}
 
 	defer func() {
-		helper.DeleteClass(t, testClass.Class)
+		helper.DeleteClass(t, className)
 	}()
 
 	t.Run("create class with multi-tenancy enabled", func(t *testing.T) {
@@ -75,7 +76,7 @@ func TestAddTenantObjects(t *testing.T) {
 		for i := range tenants {
 			tenants[i] = &models.Tenant{tenantNames[i]}
 		}
-		helper.CreateTenants(t, testClass.Class, tenants)
+		helper.CreateTenants(t, className, tenants)
 	})
 
 	t.Run("add tenant objects", func(t *testing.T) {
