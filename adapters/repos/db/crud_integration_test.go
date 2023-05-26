@@ -1152,7 +1152,7 @@ func TestCRUD(t *testing.T) {
 				}
 				refBatch[i] = ref
 			}
-			batchRefResp, err := repo.AddBatchReferences(context.Background(), refBatch, nil)
+			batchRefResp, err := repo.AddBatchReferences(context.Background(), refBatch, nil, "")
 			require.Nil(t, err)
 			require.Len(t, batchRefResp, numThings)
 			for _, r := range batchRefResp {

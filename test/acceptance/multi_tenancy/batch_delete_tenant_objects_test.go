@@ -16,11 +16,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/objects"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-func TestAddTenantObjects(t *testing.T) {
+func TestBatchDeleteTenantObjects(t *testing.T) {
 	className := "MultiTenantClass"
 	tenantKey := "tenantName"
 	testClass := models.Class{
@@ -80,17 +82,40 @@ func TestAddTenantObjects(t *testing.T) {
 	})
 
 	t.Run("add tenant objects", func(t *testing.T) {
-		for i, obj := range tenantObjects {
-			helper.CreateTenantObject(t, obj, tenantNames[i])
-		}
+		helper.CreateObjectsBatch(t, tenantObjects)
+
+		t.Run("verify tenant objects", func(t *testing.T) {
+			for i, obj := range tenantObjects {
+				resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenantNames[i])
+				require.Nil(t, err)
+				require.Equal(t, obj.ID, resp.ID)
+				require.Equal(t, obj.Class, resp.Class)
+				require.Equal(t, obj.Properties, resp.Properties)
+			}
+		})
 	})
 
-	t.Run("verify object creation", func(t *testing.T) {
-		for i, obj := range tenantObjects {
-			resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenantNames[i])
-			require.Nil(t, err)
-			assert.Equal(t, obj.Class, resp.Class)
-			assert.Equal(t, obj.Properties, resp.Properties)
+	t.Run("batch delete tenant objects", func(t *testing.T) {
+		glob := "*"
+		where := models.WhereFilter{
+			Operator:    filters.OperatorLike.Name(),
+			Path:        []string{"id"},
+			ValueString: &glob,
 		}
+		match := models.BatchDeleteMatch{
+			Class: className,
+			Where: &where,
+		}
+		batch := models.BatchDelete{Match: &match}
+		helper.DeleteObjectsBatch(t, &batch)
+
+		t.Run("verify tenant object deletion", func(t *testing.T) {
+			for i, obj := range tenantObjects {
+				resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenantNames[i])
+				assert.Nil(t, resp)
+				assert.NotNil(t, err)
+				assert.EqualError(t, objects.NewObjectsClassGetNotFound(), err.Error())
+			}
+		})
 	})
 }
