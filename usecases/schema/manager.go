@@ -161,16 +161,18 @@ type State struct {
 	ShardingState map[string]*sharding.State
 }
 
-func (m *Manager) saveSchema(ctx context.Context) error {
+func (m *Manager) saveSchema(ctx context.Context, doAfter func(err error)) error {
 	m.logger.
 		WithField("action", "schema_update").
 		Debug("saving updated schema to configuration store")
 
 	err := m.repo.SaveSchema(ctx, m.state)
+	if doAfter != nil {
+		doAfter(err)
+	}
 	if err != nil {
 		return err
 	}
-
 	m.triggerSchemaUpdateCallbacks()
 	return nil
 }
