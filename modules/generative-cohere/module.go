@@ -94,4 +94,5 @@ func (m *GenerativeCohereModule) AdditionalProperties() map[string]modulecapabil
 var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.AdditionalProperties(New())
+	_ = modulecapabilities.MetaProvider(New())
 )
