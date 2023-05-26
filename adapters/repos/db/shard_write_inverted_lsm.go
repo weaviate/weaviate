@@ -168,16 +168,16 @@ func (s *Shard) keyPropertyNull(isNull bool) ([]byte, error) {
 func (s *Shard) addToPropertyMapBucket(property []byte, bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
 	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
 
-	/*
+	
 	propid, err := s.propIds.GetIdForProperty(string(property))
 	if err != nil {
 		s.index.logger.Panicf("property '%s' not found in propLengths", property)
 	}
 	propid_bytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(propid_bytes, propid)
-	*/
+	
 
-	return bucket.MapSet(helpers.MakePropertyKey(property, key), pair)
+	return bucket.MapSet(helpers.MakePropertyKey(propid_bytes, key), pair)
 }
 
 func (s *Shard) addToPropertySetBucket(property []byte, bucket *lsmkv.Bucket, docID uint64, key []byte) error {
@@ -187,28 +187,28 @@ func (s *Shard) addToPropertySetBucket(property []byte, bucket *lsmkv.Bucket, do
 		docIDBytes := make([]byte, 8)
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
 
-/*
+
 		propid, err := s.propIds.GetIdForProperty(string(property))
 		if err != nil {
 			s.index.logger.Panicf("property '%s' not found in propLengths", property)
 		}
 		propid_bytes := make([]byte, 8)
 		binary.LittleEndian.PutUint64(propid_bytes, propid)
-*/
 
-		return bucket.SetAdd(helpers.MakePropertyKey(property, key), [][]byte{docIDBytes})
+
+		return bucket.SetAdd(helpers.MakePropertyKey(propid_bytes, key), [][]byte{docIDBytes})
 	}
 
-	/*
+	
 	propid, err := s.propIds.GetIdForProperty(string(property))
 	if err != nil {
 		s.index.logger.Panicf("property '%s' not found in propLengths", property)
 	}
 	propid_bytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(propid_bytes, propid)
-*/
 
-	return bucket.RoaringSetAddOne(helpers.MakePropertyKey(property, key), docID)
+
+	return bucket.RoaringSetAddOne(helpers.MakePropertyKey(propid_bytes, key), docID)
 }
 
 func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket,

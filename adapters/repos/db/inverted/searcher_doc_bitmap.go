@@ -127,16 +127,16 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, property []byte, b 
 		return true, nil
 	}
 
-	/*
+	
 	propid,err := s.propIds.GetIdForProperty(string(property))
 	if err != nil {
 		s.logger.Panicf("property '%s' not found in propLengths", property)
 	}
 	propid_bytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(propid_bytes, propid)
-	*/
+	
 
-	rr := NewRowReaderFrequency( property, b, pv.value, pv.operator, false, s.shardVersion)
+	rr := NewRowReaderFrequency( propid_bytes, b, pv.value, pv.operator, false, s.shardVersion)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, errors.Wrap(err, "read row")
 	}
