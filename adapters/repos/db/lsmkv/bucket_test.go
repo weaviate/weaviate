@@ -27,6 +27,9 @@ func TestBucket_WasDeleted(t *testing.T) {
 	b, err := NewBucket(context.Background(), tmpDir, "", logger, nil,
 		cyclemanager.NewNoop(), cyclemanager.NewNoop())
 	require.Nil(t, err)
+	t.Cleanup(func() {
+		require.Nil(t, b.Shutdown(context.Background()))
+	})
 
 	var (
 		key = []byte("key")

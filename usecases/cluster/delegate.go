@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"sort"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/hashicorp/memberlist"
@@ -264,16 +263,3 @@ func (e events) NotifyLeave(node *memberlist.Node) {
 // updated, usually involving the meta data. The Node argument
 // must not be modified.
 func (e events) NotifyUpdate(*memberlist.Node) {}
-
-// diskSpace return the disk space usage
-func diskSpace(path string) (DiskUsage, error) {
-	fs := syscall.Statfs_t{}
-	err := syscall.Statfs(path, &fs)
-	if err != nil {
-		return DiskUsage{}, err
-	}
-	return DiskUsage{
-		Total:     fs.Blocks * uint64(fs.Bsize),
-		Available: fs.Bavail * uint64(fs.Bsize),
-	}, nil
-}

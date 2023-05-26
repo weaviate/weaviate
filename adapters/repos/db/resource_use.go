@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"runtime"
 	"runtime/debug"
-	"syscall"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -63,23 +62,6 @@ func (d *DB) scanResourceUsage() {
 			}
 		}
 	}()
-}
-
-func (d *DB) getDiskUse(diskPath string) diskUse {
-	fs := syscall.Statfs_t{}
-
-	err := syscall.Statfs(diskPath, &fs)
-	if err != nil {
-		d.logger.WithField("action", "read_disk_use").
-			WithField("path", diskPath).
-			Errorf("failed to read disk usage: %s", err)
-	}
-
-	return diskUse{
-		total: fs.Blocks * uint64(fs.Bsize),
-		free:  fs.Bfree * uint64(fs.Bsize),
-		avail: fs.Bfree * uint64(fs.Bsize),
-	}
 }
 
 type resourceScanState struct {

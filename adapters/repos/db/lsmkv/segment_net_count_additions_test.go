@@ -78,6 +78,7 @@ func TestCreateCNAInit(t *testing.T) {
 	_, ok = findFileWithExt(files, ".cna")
 	require.False(t, ok, "verify the file is really gone")
 
+	// on Windows we have to shutdown the bucket before opening it again
 	require.Nil(t, b.Shutdown(ctx))
 
 	// now create a new bucket and assert that the file is re-created on init
@@ -118,6 +119,8 @@ func TestRepairCorruptedCNAOnInit(t *testing.T) {
 	// now corrupt the file by replacing the count value without adapting the checksum
 	require.Nil(t, corruptCNAFile(path.Join(dirName, fname), 12345))
 
+	// on Windows we have to shutdown the bucket before opening it again
+	require.Nil(t, b.Shutdown(ctx))
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches
 	b2, err := NewBucket(ctx, dirName, "", logger, nil,

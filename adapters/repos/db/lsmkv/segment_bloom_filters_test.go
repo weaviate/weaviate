@@ -34,7 +34,6 @@ func TestCreateBloomOnFlush(t *testing.T) {
 		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
-	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
 		WithSecondaryKey(0, []byte("bonjour"))))
@@ -48,6 +47,8 @@ func TestCreateBloomOnFlush(t *testing.T) {
 
 	_, ok = findFileWithExt(files, "secondary.0.bloom")
 	assert.True(t, ok)
+	// on Windows we have to shutdown the bucket before opening it again
+	require.Nil(t, b.Shutdown(ctx))
 
 	b2, err := NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
@@ -124,7 +125,6 @@ func TestRepairCorruptedBloomOnInit(t *testing.T) {
 		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
-	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
 	require.Nil(t, b.FlushMemtable())
@@ -136,6 +136,8 @@ func TestRepairCorruptedBloomOnInit(t *testing.T) {
 
 	// now corrupt the bloom filter by randomly overriding data
 	require.Nil(t, corruptBloomFile(path.Join(dirName, fname)))
+	// on Windows we have to shutdown the bucket before opening it again
+	require.Nil(t, b.Shutdown(ctx))
 
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches
@@ -160,7 +162,6 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
-	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
 		WithSecondaryKey(0, []byte("bonjour"))))
@@ -173,6 +174,8 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 
 	// now corrupt the file by replacing the count value without adapting the checksum
 	require.Nil(t, corruptBloomFile(path.Join(dirName, fname)))
+	// on Windows we have to shutdown the bucket before opening it again
+	require.Nil(t, b.Shutdown(ctx))
 
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches

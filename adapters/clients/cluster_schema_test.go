@@ -187,7 +187,7 @@ func TestOpenTransactionUnhappyPaths(t *testing.T) {
 			shutdownPrematurely: true,
 			handler: func(w http.ResponseWriter, r *http.Request) {
 			},
-			expectedErrContains: "connection refused",
+			expectedErrContains: "refused",
 		},
 		{
 			name: "tx id mismatch",
@@ -301,7 +301,7 @@ func TestAbortTransactionUnhappyPaths(t *testing.T) {
 			shutdownPrematurely: true,
 			handler: func(w http.ResponseWriter, r *http.Request) {
 			},
-			expectedErrContains: "connection refused",
+			expectedErrContains: "refused",
 		},
 	}
 
@@ -399,7 +399,7 @@ func TestCommitTransactionUnhappyPaths(t *testing.T) {
 			shutdownPrematurely: true,
 			handler: func(w http.ResponseWriter, r *http.Request) {
 			},
-			expectedErrContains: "connection refused",
+			expectedErrContains: "refused",
 		},
 	}
 

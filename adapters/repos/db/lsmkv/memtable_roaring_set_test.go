@@ -50,6 +50,8 @@ func TestMemtableRoaringSet(t *testing.T) {
 		assert.False(t, setKey2.Additions.Contains(2))
 		assert.True(t, setKey2.Additions.Contains(3))
 		assert.True(t, setKey2.Additions.Contains(4))
+
+		require.Nil(t, m.commitlog.close())
 	})
 
 	t.Run("inserting lists", func(t *testing.T) {
@@ -75,6 +77,8 @@ func TestMemtableRoaringSet(t *testing.T) {
 		assert.False(t, setKey2.Additions.Contains(2))
 		assert.True(t, setKey2.Additions.Contains(3))
 		assert.True(t, setKey2.Additions.Contains(4))
+
+		require.Nil(t, m.commitlog.close())
 	})
 
 	t.Run("inserting bitmaps", func(t *testing.T) {
@@ -102,6 +106,8 @@ func TestMemtableRoaringSet(t *testing.T) {
 		assert.False(t, setKey2.Additions.Contains(2))
 		assert.True(t, setKey2.Additions.Contains(3))
 		assert.True(t, setKey2.Additions.Contains(4))
+
+		require.Nil(t, m.commitlog.close())
 	})
 
 	t.Run("removing individual entries", func(t *testing.T) {
@@ -123,6 +129,8 @@ func TestMemtableRoaringSet(t *testing.T) {
 		require.Nil(t, err)
 		assert.False(t, setKey2.Additions.Contains(8))
 		assert.True(t, setKey2.Deletions.Contains(8))
+
+		require.Nil(t, m.commitlog.close())
 	})
 
 	t.Run("removing lists", func(t *testing.T) {
@@ -148,6 +156,8 @@ func TestMemtableRoaringSet(t *testing.T) {
 		assert.Equal(t, 2, setKey2.Deletions.GetCardinality())
 		assert.True(t, setKey2.Deletions.Contains(9))
 		assert.True(t, setKey2.Deletions.Contains(10))
+
+		require.Nil(t, m.commitlog.close())
 	})
 
 	t.Run("removing bitmaps", func(t *testing.T) {
@@ -173,6 +183,8 @@ func TestMemtableRoaringSet(t *testing.T) {
 		assert.Equal(t, 2, setKey2.Deletions.GetCardinality())
 		assert.True(t, setKey2.Deletions.Contains(9))
 		assert.True(t, setKey2.Deletions.Contains(10))
+
+		require.Nil(t, m.commitlog.close())
 	})
 
 	t.Run("adding/removing bitmaps", func(t *testing.T) {
@@ -204,5 +216,7 @@ func TestMemtableRoaringSet(t *testing.T) {
 		assert.Equal(t, 2, setKey2.Deletions.GetCardinality())
 		assert.True(t, setKey2.Deletions.Contains(9))
 		assert.True(t, setKey2.Deletions.Contains(10))
+
+		require.Nil(t, m.commitlog.close())
 	})
 }

@@ -42,29 +42,33 @@ func Test_PropertyLengthTracker(t *testing.T) {
 		tests := []test{
 			{
 				values:       []float32{2, 2, 3, 100, 100, 500, 7},
-				name:         "mixed values",
+				name:         "mixed_values",
 				floatCompare: true,
-			}, {
+			},
+			{
 				values: []float32{
 					1000, 1200, 1000, 1300, 800, 2000, 2050,
 					2070, 900,
 				},
-				name:         "high values",
+				name:         "high_values",
 				floatCompare: true,
-			}, {
+			},
+			{
 				values: []float32{
 					60000, 50000, 65000,
 				},
-				name:         "very high values",
+				name:         "very_high_values",
 				floatCompare: true,
-			}, {
+			},
+			{
 				values: []float32{
 					1, 2, 4, 3, 4, 2, 1, 5, 6, 7, 8, 2, 7, 2, 3, 5,
 					6, 3, 5, 9, 3, 4, 8,
 				},
-				name:         "very low values",
+				name:         "very_low_values",
 				floatCompare: true,
-			}, {
+			},
+			{
 				values:       []float32{0, 0},
 				name:         "zeros",
 				floatCompare: false,
@@ -73,7 +77,7 @@ func Test_PropertyLengthTracker(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				tracker, err := NewJsonPropertyLengthTracker(trackerPath)
+				tracker, err := NewJsonPropertyLengthTracker(trackerPath + test.name)
 				require.Nil(t, err)
 
 				actualMean := float32(0)
@@ -91,6 +95,7 @@ func Test_PropertyLengthTracker(t *testing.T) {
 				} else {
 					assert.Equal(t, actualMean, res)
 				}
+				require.Nil(t, tracker.Close())
 			})
 		}
 	})
@@ -123,6 +128,8 @@ func Test_PropertyLengthTracker(t *testing.T) {
 		assert.Equal(t, 3, sum)
 		assert.Equal(t, 1, count)
 		assert.InEpsilon(t, 3, mean, 0.1)
+
+		require.Nil(t, tracker.Close())
 	})
 
 	t.Run("multiple properties (can all fit on one page)", func(t *testing.T) {
@@ -171,6 +178,8 @@ func Test_PropertyLengthTracker(t *testing.T) {
 
 			assert.InEpsilon(t, actualMean, res, 0.1)
 		}
+
+		require.Nil(t, tracker.Close())
 	})
 
 	t.Run("with more properties that can fit on one page", func(t *testing.T) {
@@ -179,6 +188,8 @@ func Test_PropertyLengthTracker(t *testing.T) {
 		require.Nil(t, err)
 
 		create20PropsAndVerify(t, tracker)
+
+		require.Nil(t, tracker.Close())
 	})
 }
 
@@ -416,27 +427,27 @@ func TestOldPropertyLengthTracker(t *testing.T) {
 		tests := []test{
 			{
 				values:       []float32{2, 2, 3, 100, 100, 500, 7},
-				name:         "mixed values",
+				name:         "mixed_values",
 				floatCompare: true,
 			}, {
 				values: []float32{
 					1000, 1200, 1000, 1300, 800, 2000, 2050,
 					2070, 900,
 				},
-				name:         "high values",
+				name:         "high_values",
 				floatCompare: true,
 			}, {
 				values: []float32{
 					60000, 50000, 65000,
 				},
-				name:         "very high values",
+				name:         "very_high_values",
 				floatCompare: true,
 			}, {
 				values: []float32{
 					1, 2, 4, 3, 4, 2, 1, 5, 6, 7, 8, 2, 7, 2, 3, 5,
 					6, 3, 5, 9, 3, 4, 8,
 				},
-				name:         "very low values",
+				name:         "very_low_values",
 				floatCompare: true,
 			}, {
 				values:       []float32{0, 0},
@@ -447,7 +458,7 @@ func TestOldPropertyLengthTracker(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				tracker, err := NewPropertyLengthTracker(trackerPath)
+				tracker, err := NewPropertyLengthTracker(trackerPath + test.name)
 				require.Nil(t, err)
 
 				actualMean := float32(0)
@@ -465,6 +476,7 @@ func TestOldPropertyLengthTracker(t *testing.T) {
 				} else {
 					assert.Equal(t, actualMean, res)
 				}
+				require.Nil(t, tracker.Close())
 			})
 		}
 	})
@@ -497,6 +509,8 @@ func TestOldPropertyLengthTracker(t *testing.T) {
 		assert.Equal(t, 3, sum)
 		assert.Equal(t, 1, count)
 		assert.InEpsilon(t, 3, mean, 0.1)
+
+		require.Nil(t, tracker.Close())
 	})
 
 	t.Run("multiple properties (can all fit on one page)", func(t *testing.T) {
@@ -545,6 +559,8 @@ func TestOldPropertyLengthTracker(t *testing.T) {
 
 			assert.InEpsilon(t, actualMean, res, 0.1)
 		}
+
+		require.Nil(t, tracker.Close())
 	})
 
 	t.Run("with more properties that can fit on one page", func(t *testing.T) {
@@ -553,6 +569,8 @@ func TestOldPropertyLengthTracker(t *testing.T) {
 		require.Nil(t, err)
 
 		create20PropsAndVerify_old(t, tracker)
+
+		require.Nil(t, tracker.Close())
 	})
 }
 
@@ -602,6 +620,10 @@ func TestOldPropertyLengthTracker_Persistence(t *testing.T) {
 		require.Nil(t, err)
 		assert.InEpsilon(t, actualMeanForProp20, res, 0.1)
 	})
+
+	t.Run("shut down the second tracker", func(t *testing.T) {
+		require.Nil(t, secondTracker.Close())
+	})
 }
 
 func Test_PropertyLengthTracker_Overflow(t *testing.T) {
@@ -619,4 +641,6 @@ func Test_PropertyLengthTracker_Overflow(t *testing.T) {
 	// Check that property that would cause the internal counter to overflow is not added
 	err = tracker.TrackProperty("OVERFLOW", float32(123))
 	require.NotNil(t, err)
+
+	require.Nil(t, tracker.Close())
 }

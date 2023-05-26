@@ -46,6 +46,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.4.0
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.0.0
 	github.com/coreos/go-oidc/v3 v3.4.0
+	github.com/edsrzf/mmap-go v1.1.0
 	github.com/pkoukk/tiktoken-go v0.1.1
 	github.com/tailor-inc/graphql v0.1.0
 	github.com/weaviate/sroar v0.0.0-20230210105426-26108af5465d
