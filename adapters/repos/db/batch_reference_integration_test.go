@@ -179,7 +179,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				OriginalIndex: i,
 			}
 		}
-		_, err = repo.AddBatchReferences(context.Background(), refs, nil)
+		_, err = repo.AddBatchReferences(context.Background(), refs, nil, "")
 		assert.Nil(t, err)
 	})
 
@@ -232,7 +232,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				OriginalIndex: i,
 			}
 		}
-		_, err = repo.AddBatchReferences(context.Background(), refs, nil)
+		_, err = repo.AddBatchReferences(context.Background(), refs, nil, "")
 		assert.Nil(t, err)
 	})
 

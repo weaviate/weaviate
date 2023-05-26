@@ -92,7 +92,8 @@ func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principa
 	// Generate a goroutine for each separate request
 	for i, object := range classes {
 		wg.Add(1)
-		go b.validateObject(ctx, principal, wg, object, i, &c, fieldsToKeep, repl)
+		go b.validateObject(ctx, principal, wg,
+			object, i, &c, fieldsToKeep, repl)
 	}
 
 	wg.Wait()
@@ -126,7 +127,6 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 		id = concept.ID
 	}
 
-	// Create Action object
 	object := &models.Object{}
 	object.LastUpdateTimeUnix = 0
 	object.ID = id
@@ -154,8 +154,13 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	if class == nil {
 		ec.Add(fmt.Errorf("class '%s' not present in schema", object.Class))
 	} else {
-		// not possible without the class being present
-		err = validation.New(b.vectorRepo.Exists, b.config, repl, "").Object(ctx, object, class)
+		var tenantKey string
+		if class.MultiTenancyConfig != nil {
+			tenantKey = ParseTenantKeyFromObject(
+				class.MultiTenancyConfig.TenantKey, concept)
+		}
+
+		err = validation.New(b.vectorRepo.Exists, b.config, repl, tenantKey).Object(ctx, object, class)
 		ec.Add(err)
 
 		err = b.modulesProvider.UpdateVector(ctx, object, class, nil, b.findObject, b.logger)
