@@ -26,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
-	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -102,7 +101,6 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, class *models.Class, jobQueueCh chan job,
-	propertyIds *propertyspecific.JsonPropertyIdTracker,
 ) (*Index, error) {
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
 	if err != nil {
@@ -139,7 +137,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 			continue
 		}
 
-		shard, err := NewShard(ctx, promMetrics, shardName, index, class, jobQueueCh, propertyIds)
+		shard, err := NewShard(ctx, promMetrics, shardName, index, class, jobQueueCh)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %s of index %s", shardName, index.ID())
 		}

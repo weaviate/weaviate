@@ -91,6 +91,8 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	defaultFlushAfterIdle := 60 * time.Second
 	defaultStrategy := StrategyReplace
 
+
+	fmt.Printf("NewBucket dir: %s, rootDir: %s\n", dir, rootDir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}

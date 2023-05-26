@@ -60,10 +60,11 @@ func (s *Store) Bucket(name string) *Bucket {
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()
 
-	fmt.Printf("Bucket: Searching for %v in :\n", name)
-	for k := range s.bucketsByName {
-		fmt.Printf("  %v\n", k)
-	}
+	/*
+		fmt.Printf("Bucket: Searching for %v in :\n", name)
+		for k := range s.bucketsByName {
+
+	*/
 	return s.bucketsByName[name]
 }
 
@@ -130,7 +131,12 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string,
 		fmt.Println(k)
 	}
 
-	
+	/*
+	if strings.Contains(bucketFile, "searchable") {
+		fmt.Print("found")
+	}
+	*/
+
 	if b := s.Bucket(bucketFile); b != nil {
 		//If the merged bucket as bucketFile already exists, we don't need to create it, but we do need to register it to the "RegisteredName"
 		// So first we create a fake bucket to get the registered name :O
@@ -161,9 +167,11 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string,
 
 	s.SetBucket(bucketFile, b)
 
-	s.SetBucket(b.RegisteredName, b)
+	if b.RegisteredName != "" {
+		s.SetBucket(b.RegisteredName, b)
 
-	fmt.Printf("Registered %v as %v\n", bucketFile, b.RegisteredName)
+		fmt.Printf("Registered bucket %v as '%v'\n", bucketFile, b.RegisteredName)
+	}
 
 	return nil
 }
@@ -352,6 +360,8 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 	if b := s.Bucket(bucketName); b != nil {
 		return fmt.Errorf("bucket %s exists and is already in use", bucketName)
 	}
+
+	fmt.Printf("Creating bucket %s in CreateBucket\n", bucketName)
 
 	bucketDir := s.bucketDir(bucketName)
 	if err := os.RemoveAll(bucketDir); err != nil {
