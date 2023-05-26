@@ -343,7 +343,7 @@ func (i *Index) shardFromTenantKey(tenantKey string, id strfmt.UUID) (string, er
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	replProps *additional.ReplicationProperties, tenantKey string,
 ) error {
-	if err := i.validateMultiTenancy(tenantKey); err != nil {
+	if err := i.validateMultiTenancy(tenantKey, &object.Object); err != nil {
 		return err
 	}
 
@@ -606,7 +606,7 @@ func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchRefere
 		pos  []int
 	}
 
-	if err := i.validateMultiTenancy(tenantKey); err != nil {
+	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
 		return []error{err}
 	}
 
@@ -667,7 +667,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, addl additional.Properties,
 	replProps *additional.ReplicationProperties, tenantKey string,
 ) (*storobj.Object, error) {
-	if err := i.validateMultiTenancy(tenantKey); err != nil {
+	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
 		return nil, err
 	}
 
@@ -820,7 +820,7 @@ func wrapIDsInMulti(in []strfmt.UUID) []multi.Identifier {
 func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 	replProps *additional.ReplicationProperties, tenantKey string,
 ) (bool, error) {
-	if err := i.validateMultiTenancy(tenantKey); err != nil {
+	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
 		return false, err
 	}
 
@@ -1234,7 +1234,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 
-	if err := i.validateMultiTenancy(tenantKey); err != nil {
+	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
 		return err
 	}
 
@@ -1295,7 +1295,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 
-	if err := i.validateMultiTenancy(tenantKey); err != nil {
+	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
 		return err
 	}
 
@@ -1643,10 +1643,18 @@ func (i *Index) addNewShard(ctx context.Context,
 	return nil
 }
 
-func (i *Index) validateMultiTenancy(tenantKey string) error {
+func (i *Index) validateMultiTenancy(tenantKey string, object *models.Object) error {
 	if i.tenantKey != "" && tenantKey == "" {
 		return fmt.Errorf("class %q has multi-tenancy enabled, tenant_key %q required",
 			i.Config.ClassName, i.tenantKey)
+	}
+	if object != nil {
+		parsedTenantKey := objects.ParseTenantKeyFromObject(i.tenantKey, object)
+		if parsedTenantKey != tenantKey {
+			return fmt.Errorf(
+				"tenant_key query param value %q conflicts with object body value %q for class %q tenant key %q",
+				tenantKey, parsedTenantKey, i.Config.ClassName, i.tenantKey)
+		}
 	}
 	return nil
 }

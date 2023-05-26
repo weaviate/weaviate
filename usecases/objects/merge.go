@@ -51,6 +51,14 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	m.metrics.MergeObjectInc()
 	defer m.metrics.MergeObjectDec()
 
+	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, tenantKey)
+	if err != nil {
+		return &Error{"repo.object", StatusInternalServerError, err}
+	}
+	if obj == nil {
+		return &Error{"not found", StatusNotFound, err}
+	}
+
 	var propertiesToDelete []string
 	if updates.Properties != nil {
 		for key, val := range updates.Properties.(map[string]interface{}) {
@@ -60,20 +68,15 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		}
 	}
 
-	if err := m.validateObjectAndNormalizeNames(ctx, principal, updates, repl, tenantKey); err != nil {
+	if err := m.validateObjectAndNormalizeNames(
+		ctx, principal, repl, updates, obj.Object(), tenantKey); err != nil {
 		return &Error{"bad request", StatusBadRequest, err}
 	}
 
 	if updates.Properties == nil {
 		updates.Properties = map[string]interface{}{}
 	}
-	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, tenantKey)
-	if err != nil {
-		return &Error{"repo.object", StatusInternalServerError, err}
-	}
-	if obj == nil {
-		return &Error{"not found", StatusNotFound, err}
-	}
+
 	return m.patchObject(ctx, principal, obj, updates, repl, propertiesToDelete, tenantKey)
 }
 

@@ -160,7 +160,8 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 				class.MultiTenancyConfig.TenantKey, concept)
 		}
 
-		err = validation.New(b.vectorRepo.Exists, b.config, repl, tenantKey).Object(ctx, object, class)
+		err = validation.New(b.vectorRepo.Exists, b.config, repl, tenantKey).
+			Object(ctx, class, object, nil)
 		ec.Add(err)
 
 		err = b.modulesProvider.UpdateVector(ctx, object, class, nil, b.findObject, b.logger)
