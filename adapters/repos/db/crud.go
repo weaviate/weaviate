@@ -40,7 +40,7 @@ func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 	}
 
 	if err := idx.putObject(ctx, object, repl, tenantKey); err != nil {
-		return errors.Wrapf(err, "import into index %s", idx.ID())
+		return fmt.Errorf("import into index %s: %w", idx.ID(), err)
 	}
 
 	return nil

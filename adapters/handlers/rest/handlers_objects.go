@@ -13,6 +13,7 @@ package rest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -24,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -86,13 +87,17 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 		principal, params.Body, repl, tenantKey)
 	if err != nil {
 		switch err.(type) {
-		case errors.Forbidden:
+		case autherrs.Forbidden:
 			return objects.NewObjectsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case uco.ErrInvalidUserInput:
 			return objects.NewObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
+			if errors.As(err, &uco.ErrInvalidUserInput{}) {
+				return objects.NewObjectsCreateUnprocessableEntity().
+					WithPayload(errPayloadFromSingleErr(err))
+			}
 			return objects.NewObjectsCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
@@ -112,7 +117,7 @@ func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
 	err := h.manager.ValidateObject(params.HTTPRequest.Context(), principal, params.Body, nil)
 	if err != nil {
 		switch err.(type) {
-		case errors.Forbidden:
+		case autherrs.Forbidden:
 			return objects.NewObjectsValidateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case uco.ErrInvalidUserInput:
@@ -165,7 +170,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 		params.ClassName, params.ID, additional, replProps, tenantKey)
 	if err != nil {
 		switch err.(type) {
-		case errors.Forbidden:
+		case autherrs.Forbidden:
 			return objects.NewObjectsClassGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case uco.ErrNotFound:
@@ -202,7 +207,7 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 		params.Offset, params.Limit, params.Sort, params.Order, params.After, additional)
 	if err != nil {
 		switch err.(type) {
-		case errors.Forbidden:
+		case autherrs.Forbidden:
 			return objects.NewObjectsListForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -291,7 +296,7 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 		principal, params.ClassName, params.ID, repl, tenantKey)
 	if err != nil {
 		switch err.(type) {
-		case errors.Forbidden:
+		case autherrs.Forbidden:
 			return objects.NewObjectsClassDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case uco.ErrNotFound:
@@ -320,7 +325,7 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 		principal, params.ClassName, params.ID, params.Body, repl, tenantKey)
 	if err != nil {
 		switch err.(type) {
-		case errors.Forbidden:
+		case autherrs.Forbidden:
 			return objects.NewObjectsClassPutForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case uco.ErrInvalidUserInput:

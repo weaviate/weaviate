@@ -1651,7 +1651,7 @@ func (i *Index) validateMultiTenancy(tenantKey string, object *models.Object) er
 	if object != nil {
 		parsedTenantKey := objects.ParseTenantKeyFromObject(i.tenantKey, object)
 		if parsedTenantKey != tenantKey {
-			return fmt.Errorf(
+			return objects.NewErrInvalidUserInput(
 				"tenant_key query param value %q conflicts with object body value %q for class %q tenant key %q",
 				tenantKey, parsedTenantKey, i.Config.ClassName, i.tenantKey)
 		}
