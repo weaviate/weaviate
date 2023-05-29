@@ -92,7 +92,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 
 	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, repl, tenantKey)
 	if err != nil {
-		return nil, NewErrInternal("put object: %v", err)
+		return nil, fmt.Errorf("put object: %w", err)
 	}
 
 	return updates, nil

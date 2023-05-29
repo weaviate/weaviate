@@ -1645,7 +1645,7 @@ func (i *Index) addNewShard(ctx context.Context,
 
 func (i *Index) validateMultiTenancy(tenantKey string, object *models.Object) error {
 	if i.tenantKey != "" && tenantKey == "" {
-		return fmt.Errorf("class %q has multi-tenancy enabled, tenant_key %q required",
+		return objects.NewErrInvalidUserInput("class %q has multi-tenancy enabled, tenant_key %q required",
 			i.Config.ClassName, i.tenantKey)
 	}
 	if object != nil {
