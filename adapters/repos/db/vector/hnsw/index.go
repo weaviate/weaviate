@@ -410,6 +410,45 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 	return entryPointID, nil
 }
 
+func (h *hnsw) findBestEntrypointForCompressedNode(currentMaxLevel, targetLevel int,
+	entryPointID uint64, nodeVec []byte, originalVec []float32,
+) (uint64, error) {
+	// in case the new target is lower than the current max, we need to search
+	// each layer for a better candidate and update the candidate
+	for level := currentMaxLevel; level > targetLevel; level-- {
+		eps := priorityqueue.NewMin(1)
+		dist, ok, err := h.distBetweenNodeAndCompressedVec(entryPointID, nodeVec)
+		if err != nil {
+			return 0, errors.Wrapf(err,
+				"calculate distance between insert node and entry point at level %d", level)
+		}
+		if !ok {
+			continue
+		}
+
+		eps.Insert(entryPointID, dist)
+		res, err := h.searchLayerByCompressedVector(originalVec, nodeVec, eps, 1, level, nil)
+		if err != nil {
+			return 0,
+				errors.Wrapf(err, "update candidate: search layer at level %d", level)
+		}
+		if res.Len() > 0 {
+			// if we could find a new entrypoint, use it
+			// in case everything was tombstoned, stick with the existing one
+			elem := res.Pop()
+			n := h.nodeByID(elem.ID)
+			if n != nil && !n.isUnderMaintenance() {
+				// but not if the entrypoint is under maintenance
+				entryPointID = elem.ID
+			}
+		}
+
+		h.freeSortedQueue(res)
+	}
+
+	return entryPointID, nil
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a
@@ -538,6 +577,29 @@ func (h *hnsw) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, bool
 	}
 
 	return h.distancerProvider.SingleDist(vecA, vecB)
+}
+
+func (h *hnsw) distBetweenNodeAndCompressedVec(node uint64, vecB []byte) (float32, bool, error) {
+	if h.compressed.Load() {
+		v1, err := h.compressedVectorsCache.get(context.Background(), node)
+		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID)
+				return 0, false, nil
+			} else {
+				// not a typed error, we can recover from, return with err
+				return 0, false, errors.Wrapf(err,
+					"could not get vector of object at docID %d", node)
+			}
+		}
+		if len(v1) == 0 {
+			return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", node)
+		}
+
+		return h.pq.Distance(vecB, v1), true, nil
+	}
+	return 0, false, errors.New("Compression not enabled")
 }
 
 func (h *hnsw) Stats() {

@@ -68,9 +68,9 @@ func Test_NoRacePQKMeans(t *testing.T) {
 		truth := testinghelpers.BruteForce(vectors, query, k, distance(distanceProvider))
 		distances := make([]IndexAndDistance, len(vectors))
 
-		lut := pq.CenterAt(query)
+		c1 := pq.Encode(query)
 		for v := range vectors {
-			distances[v] = IndexAndDistance{index: uint64(v), distance: pq.Distance(encoded[v], lut)}
+			distances[v] = IndexAndDistance{index: uint64(v), distance: pq.Distance(encoded[v], c1)}
 		}
 		sort.Slice(distances, func(a, b int) bool {
 			return distances[a].distance < distances[b].distance

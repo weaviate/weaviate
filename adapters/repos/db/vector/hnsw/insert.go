@@ -163,8 +163,9 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 
 	// // make sure this new vec is immediately present in the cache, so we don't
 	// // have to read it from disk again
+	var compressed []byte
 	if h.compressed.Load() {
-		compressed := h.pq.Encode(nodeVec)
+		compressed = h.pq.Encode(nodeVec)
 		h.storeCompressedVector(node.id, compressed)
 		h.compressedVectorsCache.preload(node.id, compressed)
 	} else {
@@ -178,8 +179,13 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	h.insertMetrics.prepareAndInsertNode(before)
 	before = time.Now()
 
-	entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
-		entryPointID, nodeVec)
+	if h.compressed.Load() {
+		entryPointID, err = h.findBestEntrypointForCompressedNode(currentMaximumLayer, targetLevel,
+			entryPointID, compressed, nodeVec)
+	} else {
+		entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
+			entryPointID, nodeVec)
+	}
 	if err != nil {
 		return errors.Wrap(err, "find best entrypoint")
 	}
@@ -187,7 +193,7 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	h.insertMetrics.findEntrypoint(before)
 	before = time.Now()
 
-	if err := h.findAndConnectNeighbors(node, entryPointID, nodeVec,
+	if err := h.findAndConnectNeighbors(node, entryPointID, nodeVec, compressed,
 		targetLevel, currentMaximumLayer, helpers.NewAllowList()); err != nil {
 		return errors.Wrap(err, "find and connect neighbors")
 	}
