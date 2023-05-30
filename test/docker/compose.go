@@ -22,6 +22,13 @@ import (
 	modstgfilesystem "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
+	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
+	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
+	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
+	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
+	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
+	modpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 )
 
 const (
@@ -154,6 +161,41 @@ func (d *Compose) WithMulti2VecCLIP() *Compose {
 func (d *Compose) WithRef2VecCentroid() *Compose {
 	d.withCentroid = true
 	d.enableModules = append(d.enableModules, Ref2VecCentroid)
+	return d
+}
+
+func (d *Compose) WithText2VecOpenAI() *Compose {
+	d.enableModules = append(d.enableModules, modopenai.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecCohere() *Compose {
+	d.enableModules = append(d.enableModules, modcohere.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecPaLM() *Compose {
+	d.enableModules = append(d.enableModules, modpalm.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeOpenAI() *Compose {
+	d.enableModules = append(d.enableModules, modgenerativeopenai.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeCohere() *Compose {
+	d.enableModules = append(d.enableModules, modgenerativecohere.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativePaLM() *Compose {
+	d.enableModules = append(d.enableModules, modgenerativepalm.Name)
+	return d
+}
+
+func (d *Compose) WithQnAOpenAI() *Compose {
+	d.enableModules = append(d.enableModules, modqnaopenai.Name)
 	return d
 }
 

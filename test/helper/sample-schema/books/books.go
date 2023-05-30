@@ -76,6 +76,11 @@ func class(className, vectorizer string, additionalModules ...string) *models.Cl
 		Class:        className,
 		Vectorizer:   vectorizer,
 		ModuleConfig: moduleConfig,
+		InvertedIndexConfig: &models.InvertedIndexConfig{
+			IndexNullState:      true,
+			IndexTimestamps:     true,
+			IndexPropertyLength: true,
+		},
 		Properties: []*models.Property{
 			{
 				Name:         "title",
