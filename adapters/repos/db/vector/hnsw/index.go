@@ -144,12 +144,14 @@ type hnsw struct {
 	deleteVsInsertLock sync.RWMutex
 
 	compressed             atomic.Bool
+	doNotRescore           atomic.Bool
 	pq                     *ssdhelpers.ProductQuantizer
 	compressedVectorsCache cache[byte]
 	compressedStore        *lsmkv.Store
 	compressActionLock     *sync.RWMutex
 	className              string
 	shardName              string
+	VectorForIDThunk       VectorForID
 }
 
 type CommitLogger interface {
@@ -256,6 +258,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCleanupCycle cyclemanager.Cycle
 		randFunc:           rand.Float64,
 		compressActionLock: &sync.RWMutex{},
 		className:          cfg.ClassName,
+		VectorForIDThunk:   cfg.VectorForIDThunk,
 	}
 
 	// TODO common_cycle_manager move to poststartup?
@@ -401,7 +404,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 			}
 		}
 
-		h.pools.pqResults.Put(res)
+		h.freeSortedQueue(res)
 	}
 
 	return entryPointID, nil
