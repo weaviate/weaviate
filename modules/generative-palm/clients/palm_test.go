@@ -23,7 +23,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/modules/generative-palm/ent"
+	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
 func nullLogger() logrus.FieldLogger {
@@ -61,7 +61,7 @@ func TestGetAnswer(t *testing.T) {
 		}
 
 		textProperties := []map[string]string{{"prop": "My name is john"}}
-		expected := ent.GenerateResult{
+		expected := generativemodels.GenerateResponse{
 			Result: ptString("John"),
 		}
 
