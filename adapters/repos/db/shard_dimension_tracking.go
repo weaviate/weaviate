@@ -37,6 +37,14 @@ func (s *Shard) Dimensions() int {
 
 func (s *Shard) sendVectorDimensionsMetric(count int) {
 	if s.promMetrics != nil {
+		// Important: Never group classes/shards for this metric. We need the
+		// granularity here as this tracks an absolute value per shard that changes
+		// independently over time.
+		//
+		// If we need to reduce metrics further, an alternative could be to not
+		// make dimension tracking shard-centric, but rather make it node-centric.
+		// Then have a single metric that aggregates all dimensions first, then
+		// observes only the sum
 		metric, err := s.promMetrics.VectorDimensionsSum.
 			GetMetricWithLabelValues(s.index.Config.ClassName.String(), s.name)
 		if err == nil {
