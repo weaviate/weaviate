@@ -476,12 +476,12 @@ func MapListLegacySortingRequired() MapListOption {
 	}
 }
 
-// MapList returns all map entries for a given row key. The order of map pairs
+// MapListProp returns all map entries for a given row key and property id. The order of map pairs
 // has no specific meaning. For efficient merge operations, pair entries are
 // stored sorted on disk, however that is an implementation detail and not a
 // caller-facing guarantee.
 //
-// MapList is specific to the Map strategy, for Sets use [Bucket.SetList], for
+// MapListProp is specific to the Map strategy, for Sets use [Bucket.SetList], for
 // Replace use [Bucket.Get].
 func (b *Bucket) MapListProp(propertyid []byte, keypart []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	b.flushLock.RLock()
