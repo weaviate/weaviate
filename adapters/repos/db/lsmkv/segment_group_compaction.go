@@ -314,7 +314,7 @@ func (sg *SegmentGroup) Len() int {
 }
 
 func (sg *SegmentGroup) monitorSegments() {
-	if sg.metrics == nil {
+	if sg.metrics == nil || sg.metrics.groupClasses {
 		return
 	}
 
