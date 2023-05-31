@@ -48,6 +48,7 @@ func (s *Shard) putBatch(ctx context.Context,
 
 	// block until all objects of batch have been added
 	batcher.wg.Wait()
+	s.metrics.VectorIndex(batcher.batchStartTime)
 
 	return err
 }
@@ -57,12 +58,13 @@ func (s *Shard) putBatch(ctx context.Context,
 // operations)
 type objectsBatcher struct {
 	sync.Mutex
-	shard      *Shard
-	statuses   map[strfmt.UUID]objectInsertStatus
-	errs       []error
-	duplicates map[int]struct{}
-	objects    []*storobj.Object
-	wg         sync.WaitGroup
+	shard          *Shard
+	statuses       map[strfmt.UUID]objectInsertStatus
+	errs           []error
+	duplicates     map[int]struct{}
+	objects        []*storobj.Object
+	wg             sync.WaitGroup
+	batchStartTime time.Time
 }
 
 func newObjectsBatcher(s *Shard) *objectsBatcher {
@@ -208,7 +210,7 @@ func (ob *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context)
 		return
 	}
 
-	beforeVectorIndex := time.Now()
+	ob.batchStartTime = time.Now()
 
 	for i, object := range ob.objects {
 		if ob.shouldSkipInAdditionalStorage(i) {
@@ -225,8 +227,6 @@ func (ob *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context)
 			batcher: ob,
 		}
 	}
-
-	ob.shard.metrics.VectorIndex(beforeVectorIndex)
 }
 
 func (ob *objectsBatcher) shouldSkipInAdditionalStorage(i int) bool {

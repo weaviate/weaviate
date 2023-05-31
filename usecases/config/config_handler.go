@@ -169,9 +169,10 @@ type Contextionary struct {
 }
 
 type Monitoring struct {
-	Enabled bool   `json:"enabled" yaml:"enabled"`
-	Tool    string `json:"tool" yaml:"tool"`
-	Port    int    `json:"port" yaml:"port"`
+	Enabled      bool   `json:"enabled" yaml:"enabled"`
+	Tool         string `json:"tool" yaml:"tool"`
+	Port         int    `json:"port" yaml:"port"`
+	GroupClasses bool   `json:"group_classes" yaml:"group_classes"`
 }
 
 type GRPC struct {

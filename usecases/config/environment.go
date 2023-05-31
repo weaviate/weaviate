@@ -30,6 +30,10 @@ func FromEnv(config *Config) error {
 		config.Monitoring.Enabled = true
 		config.Monitoring.Tool = "prometheus"
 		config.Monitoring.Port = 2112
+
+		if enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) {
+			config.Monitoring.GroupClasses = true
+		}
 	}
 
 	if enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
