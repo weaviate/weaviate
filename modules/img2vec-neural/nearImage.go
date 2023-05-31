@@ -13,7 +13,7 @@ package modimage
 
 import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/modules/img2vec-neural/nearImage"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
 )
 
 func (m *ImageModule) initNearImage() error {
