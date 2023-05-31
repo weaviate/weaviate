@@ -176,7 +176,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
 			s.index.getSchema.GetSchemaSkipAuth(),
 			s.propertyIndices, s.index.classSearcher, s.deletedDocIDs, s.propLengths,
-			s.index.logger, s.versioner.Version())
+			s.index.logger, s.versioner.Version(), s.propIds)
 
 		var bm25objs []*storobj.Object
 		var bm25count []float32

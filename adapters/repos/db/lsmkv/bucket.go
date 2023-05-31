@@ -487,6 +487,8 @@ func (b *Bucket) MapListProp(propertyid []byte, keypart []byte, cfgs ...MapListO
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
+	fmt.Printf("maplistprop: searching for propertyid %s, keypart %s\n", propertyid, keypart)
+
 	key := helpers.MakePropertyKey(propertyid, keypart)
 
 	c := MapListOptionConfig{}

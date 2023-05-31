@@ -132,10 +132,11 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string,
 	}
 
 	/*
-	if strings.Contains(bucketFile, "searchable") {
+	if strings.Contains(bucketFile, "_id") {
 		fmt.Print("found")
 	}
 	*/
+	
 
 	if b := s.Bucket(bucketFile); b != nil {
 		//If the merged bucket as bucketFile already exists, we don't need to create it, but we do need to register it to the "RegisteredName"

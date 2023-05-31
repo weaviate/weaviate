@@ -12,8 +12,11 @@
 package helpers
 
 import (
+
+	"runtime/debug"
+	"log"
 	"github.com/weaviate/sroar"
-	"fmt"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
@@ -31,9 +34,11 @@ type AllowList interface {
 func MakePropertyKey(propName []byte, key []byte) []byte {
 	t := append([]byte(propName), byte('|'))
 	val := append(t, key...)
-	fmt.Printf("Property key: %s\n", val)
+	log.Printf("Property key: %s\n", val)
+	log.Printf("Property key bytes: %v\n", val)
+	//Print stack trace here
+	debug.PrintStack()
 	return val
-
 }
 
 
