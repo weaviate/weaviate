@@ -512,9 +512,7 @@ func TestRFJourney(t *testing.T) {
 		}
 		require.Nil(t, err)
 		require.True(t, len(hybridResults) > 0)
-
 	})
-
 
 	t.Run("Hybrid with offset", func(t *testing.T) {
 		params := dto.GetParams{
@@ -537,7 +535,7 @@ func TestRFJourney(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, metrics)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
-	
+
 		fmt.Println("--- Start results for hybrid with offset ---")
 		for _, r := range hybridResults {
 			schema := r.Schema.(map[string]interface{})
@@ -547,12 +545,9 @@ func TestRFJourney(t *testing.T) {
 		}
 
 		require.Nil(t, err)
-		require.True(t, len(hybridResults)  == 1)
-
-
+		require.True(t, len(hybridResults) == 1)
 	})
 }
-
 
 func TestRFJourneyWithFilters(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
