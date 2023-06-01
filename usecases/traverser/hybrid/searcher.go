@@ -150,13 +150,6 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 
 	fused := FusionReciprocal(weights, found)
 
-	if s.params.Limit >= 1 && (len(fused) > s.params.Limit) { //-1 is possible?
-		s.logger.Debugf("found more hybrid search results than limit, "+
-			"limiting %v results to %v\n",
-			len(fused), s.params.Limit)
-		fused = fused[:s.params.Limit]
-	}
-
 	if s.postProcFunc != nil {
 		sr, err := s.postProcFunc(fused)
 		if err != nil {

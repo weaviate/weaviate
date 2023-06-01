@@ -69,10 +69,6 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 	}
 
 	args.SubSearches = weightedSearchResults
-	limitI := source["limit"]
-	if limitI != nil {
-		args.Limit = int(limitI.(int))
-	}
 
 	alpha, ok := source["alpha"]
 	if ok {
