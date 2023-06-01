@@ -310,7 +310,7 @@ func (i *Index) shardFromUUID(in strfmt.UUID) (string, error) {
 }
 
 // shardFromObject returns the name of shard to which o belongs
-func (i *Index) shardFromObject(o *storobj.Object) (string, error) {
+func (i *Index) shardFromObject(o *storobj.Object, ss *sharding.State) (string, error) {
 	if i.tenantKey == "" {
 		return i.shardFromUUID(o.ID())
 	}
@@ -318,7 +318,6 @@ func (i *Index) shardFromObject(o *storobj.Object) (string, error) {
 	if keyVal == "" {
 		return "", fmt.Errorf("tenant key %q is required", i.tenantKey)
 	}
-	ss := i.getSchema.ShardingState(i.Config.ClassName.String())
 	if name := ss.Shard(keyVal, string(o.ID())); name != "" {
 		return name, nil
 	}
@@ -514,8 +513,18 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	byShard := map[string]objsAndPos{}
 	out := make([]error, len(objects))
 
+	className := string(i.Config.ClassName)
+	ss := i.getSchema.ShardingState(className)
+	if ss == nil {
+		err := fmt.Errorf("could not find sharding state for class %q", className)
+		for i := 0; i < len(out); i++ {
+			out[i] = err
+		}
+		return out
+	}
+
 	for pos, obj := range objects {
-		shardName, err := i.shardFromObject(obj)
+		shardName, err := i.shardFromObject(obj, ss)
 		if err != nil {
 			out[pos] = err
 			continue
