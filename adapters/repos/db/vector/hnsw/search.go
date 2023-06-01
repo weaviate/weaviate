@@ -437,8 +437,11 @@ func (h *hnsw) distanceToByteNode(distancer *ssdhelpers.PQDistancer,
 	return distancer.Distance(vec)
 }
 
-func (h *hnsw) distanceFromBytesToFloatNode(distancer *ssdhelpers.PQDistancer, nodeID uint64) (float32, bool, error) {
+func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer *ssdhelpers.PQDistancer, nodeID uint64) (float32, bool, error) {
 	vec, err := h.VectorForIDThunk(context.Background(), nodeID)
+	if h.distancerProvider.Type() == "cosine-dot" {
+		vec = distancer.Normalize(vec)
+	}
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
@@ -449,7 +452,7 @@ func (h *hnsw) distanceFromBytesToFloatNode(distancer *ssdhelpers.PQDistancer, n
 			return 0, false, errors.Wrapf(err, "get vector of docID %d", nodeID)
 		}
 	}
-	return distancer.DistanceToFloat(vec)
+	return concreteDistancer.DistanceToFloat(vec)
 }
 
 func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer,
