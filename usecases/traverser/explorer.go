@@ -284,8 +284,6 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 	res = res[params.Pagination.Offset:]
 
-	
-
 	return res.SearchResults(), nil
 }
 
