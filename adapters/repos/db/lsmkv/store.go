@@ -167,7 +167,7 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string,
 		}
 		strategy := fb.strategy
 	*/
-	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics,
+	b, err := NewBucket(ctx, s.bucketDir(bucketFile), s.rootDir, s.logger, s.metrics,
 		s.compactionCycle, s.flushCycle, opts...)
 	if err != nil {
 		return err
