@@ -724,6 +724,38 @@ func VectorFromBinary(in []byte) ([]float32, error) {
 	return out, nil
 }
 
+func DocIDAndVectorFromBinary(in []byte) (uint64, []float32, error) {
+	if len(in) == 0 {
+		return 0, nil, nil
+	}
+
+	version := in[0]
+	if version != 1 {
+		return 0, nil, errors.Errorf("unsupported marshaller version %d", version)
+	}
+
+	docID := binary.LittleEndian.Uint64(in[1:9])
+
+	// since we know the version and know that the blob is not len(0), we can
+	// assume that we can directly access the vector length field. The only
+	// situation where this is not accessible would be on corrupted data - where
+	// it would be acceptable to panic
+	vecLen := binary.LittleEndian.Uint16(in[42:44])
+
+	out := make([]float32, vecLen)
+	vecStart := 44
+	vecEnd := vecStart + int(vecLen*4)
+
+	i := 0
+	for start := vecStart; start < vecEnd; start += 4 {
+		asUint := binary.LittleEndian.Uint32(in[start : start+4])
+		out[i] = math.Float32frombits(asUint)
+		i++
+	}
+
+	return docID, out, nil
+}
+
 func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className string,
 	schemaB []byte, additionalB []byte, vectorWeightsB []byte,
 ) error {

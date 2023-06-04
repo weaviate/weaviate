@@ -179,6 +179,7 @@ func (s *Shard) initVectorIndex(
 		ClassName:         s.index.Config.ClassName.String(),
 		PrometheusMetrics: s.promMetrics,
 		VectorForIDThunk:  s.vectorByIndexID,
+		VectorIterator:    s.newVectorIterator,
 		DistanceProvider:  distProv,
 		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), s.index.logger, s.vectorCycles.CommitLogMaintenance())

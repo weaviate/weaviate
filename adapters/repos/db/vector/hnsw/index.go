@@ -91,6 +91,7 @@ type hnsw struct {
 
 	vectorForID      VectorForID
 	multiVectorForID MultiVectorForID
+	vectorIterator   VectorIteratorProvider[float32]
 
 	cache cache[float32]
 
@@ -183,9 +184,15 @@ type BufferedLinksLogger interface {
 type MakeCommitLogger func() (CommitLogger, error)
 
 type (
-	VectorForID      func(ctx context.Context, id uint64) ([]float32, error)
-	MultiVectorForID func(ctx context.Context, ids []uint64) ([][]float32, []error)
+	VectorForID                   func(ctx context.Context, id uint64) ([]float32, error)
+	MultiVectorForID              func(ctx context.Context, ids []uint64) ([][]float32, []error)
+	VectorIteratorProvider[T any] func() VectorIterator[T]
 )
+
+type VectorIterator[T any] interface {
+	Next() ([]T, uint64, error)
+	Close()
+}
 
 // New creates a new HNSW index, the commit logger is provided through a thunk
 // (a function which can be deferred). This is because creating a commit logger
@@ -232,6 +239,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCleanupCycle cyclemanager.Cycle
 		nodes:                  make([]*vertex, initialSize),
 		cache:                  vectorCache,
 		vectorForID:            vectorCache.get,
+		vectorIterator:         cfg.VectorIterator,
 		multiVectorForID:       vectorCache.multiGet,
 		compressedVectorsCache: compressedVectorsCache,
 		id:                     cfg.ID,

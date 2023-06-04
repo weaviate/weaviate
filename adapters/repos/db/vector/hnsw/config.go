@@ -27,6 +27,7 @@ type Config struct {
 	ID                    string
 	MakeCommitLoggerThunk MakeCommitLogger
 	VectorForIDThunk      VectorForID
+	VectorIterator        VectorIteratorProvider[float32]
 	Logger                logrus.FieldLogger
 	DistanceProvider      distancer.Provider
 	PrometheusMetrics     *monitoring.PrometheusMetrics

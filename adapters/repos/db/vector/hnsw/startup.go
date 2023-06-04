@@ -201,7 +201,9 @@ func (h *hnsw) prefillCache() {
 			}
 			cursor.Close()
 		} else {
-			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
+			it := h.vectorIterator()
+			defer it.Close()
+			err = newVectorCachePrefiller(h.cache, h, h.logger, it).Prefill(ctx, limit)
 		}
 
 		if err != nil {

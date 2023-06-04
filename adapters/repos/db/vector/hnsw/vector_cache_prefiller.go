@@ -19,9 +19,10 @@ import (
 )
 
 type vectorCachePrefiller[T any] struct {
-	cache  cache[T]
-	index  *hnsw
-	logger logrus.FieldLogger
+	cache    cache[T]
+	index    *hnsw
+	logger   logrus.FieldLogger
+	iterator VectorIterator[T]
 }
 
 type cache[T any] interface {
@@ -39,25 +40,37 @@ type cache[T any] interface {
 }
 
 func newVectorCachePrefiller[T any](cache cache[T], index *hnsw,
-	logger logrus.FieldLogger,
+	logger logrus.FieldLogger, iterator VectorIterator[T],
 ) *vectorCachePrefiller[T] {
 	return &vectorCachePrefiller[T]{
-		cache:  cache,
-		index:  index,
-		logger: logger,
+		cache:    cache,
+		index:    index,
+		logger:   logger,
+		iterator: iterator,
 	}
 }
 
 func (pf *vectorCachePrefiller[T]) Prefill(ctx context.Context, limit int) error {
 	before := time.Now()
-	for level := pf.maxLevel(); level >= 0; level-- {
-		ok, err := pf.prefillLevel(ctx, level, limit)
-		if err != nil {
-			return err
-		}
+	if pf.iterator != nil {
+		for v, id, err := pf.iterator.Next(); v != nil; v, id, err = pf.iterator.Next() {
+			if err != nil {
+				return err
+			}
 
-		if !ok {
-			break
+			pf.cache.preload(id, v)
+
+		}
+	} else {
+		for level := pf.maxLevel(); level >= 0; level-- {
+			ok, err := pf.prefillLevel(ctx, level, limit)
+			if err != nil {
+				return err
+			}
+
+			if !ok {
+				break
+			}
 		}
 	}
 
@@ -69,9 +82,6 @@ func (pf *vectorCachePrefiller[T]) Prefill(ctx context.Context, limit int) error
 func (pf *vectorCachePrefiller[T]) prefillLevel(ctx context.Context,
 	level, limit int,
 ) (bool, error) {
-	// TODO: this makes zero sense, just copy the lists, don't actually block
-	//  !!!!
-
 	before := time.Now()
 	layerCount := 0
 
