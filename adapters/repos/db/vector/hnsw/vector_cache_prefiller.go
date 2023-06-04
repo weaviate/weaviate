@@ -31,6 +31,7 @@ type cache[T any] interface {
 	countVectors() int64
 	delete(ctx context.Context, id uint64)
 	preload(id uint64, vec []T)
+	load(id uint64, vec []T)
 	prefetch(id uint64)
 	grow(size uint64)
 	drop()
@@ -58,7 +59,7 @@ func (pf *vectorCachePrefiller[T]) Prefill(ctx context.Context, limit int) error
 				return err
 			}
 
-			pf.cache.preload(id, v)
+			pf.cache.load(id, v)
 
 		}
 	} else {

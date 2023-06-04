@@ -137,6 +137,11 @@ func (c *compressedShardedLockCache) preload(id uint64, vec []byte) {
 }
 
 //nolint:unused
+func (c *compressedShardedLockCache) load(id uint64, vec []byte) {
+	panic("not implemented")
+}
+
+//nolint:unused
 func (c *compressedShardedLockCache) grow(node uint64) {
 	if node < uint64(len(c.cache)) {
 		return

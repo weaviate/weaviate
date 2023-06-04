@@ -28,7 +28,7 @@ func TestVectorCachePrefilling(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	pf := newVectorCachePrefiller[float32](cache, index, logger)
+	pf := newVectorCachePrefiller[float32](cache, index, logger, nil)
 
 	t.Run("prefill with limit >= graph size", func(t *testing.T) {
 		cache.reset()
@@ -99,6 +99,11 @@ func (f *fakeCache) delete(ctx context.Context, id uint64) {
 
 //nolint:unused
 func (f *fakeCache) preload(id uint64, vec []float32) {
+	panic("not implemented")
+}
+
+//nolint:unused
+func (f *fakeCache) load(id uint64, vec []float32) {
 	panic("not implemented")
 }
 

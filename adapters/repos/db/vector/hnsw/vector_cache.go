@@ -167,6 +167,22 @@ func (s *shardedLockCache) preload(id uint64, vec []float32) {
 	s.cache[id] = vec
 }
 
+// load is like preload, but obtains an actual write lock, so it's always safe
+// to use
+//
+//nolint:unused
+func (s *shardedLockCache) load(id uint64, vec []float32) {
+	s.shardedLocks[id%shardFactor].Lock()
+	defer s.shardedLocks[id%shardFactor].Unlock()
+
+	atomic.AddInt64(&s.count, 1)
+	s.trackDimensionsOnce.Do(func() {
+		atomic.StoreInt32(&s.dims, int32(len(vec)))
+	})
+
+	s.cache[id] = vec
+}
+
 //nolint:unused
 func (s *shardedLockCache) grow(node uint64) {
 	if node < uint64(len(s.cache)) {
