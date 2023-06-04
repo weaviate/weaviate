@@ -168,10 +168,16 @@ func (s *shardedLockCache) preload(id uint64, vec []float32) {
 }
 
 // load is like preload, but obtains an actual write lock, so it's always safe
-// to use
+// to use. In addition, it assumes that the vector has not been normalized yet.
+// Therefore it checks if normalization is required and then normalizes the
+// vector before storing it. Similar to how handleCacheMiss would do this.
 //
 //nolint:unused
 func (s *shardedLockCache) load(id uint64, vec []float32) {
+	if s.normalizeOnRead {
+		vec = distancer.Normalize(vec)
+	}
+
 	s.shardedLocks[id%shardFactor].Lock()
 	defer s.shardedLocks[id%shardFactor].Unlock()
 
