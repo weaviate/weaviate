@@ -205,6 +205,8 @@ func (h *hnsw) prefillCache() {
 			if h.vectorIterator != nil {
 				it = h.vectorIterator()
 				defer it.Close()
+			} else {
+				it = noopVectorIterator{}
 			}
 			err = newVectorCachePrefiller(h.cache, h, h.logger, it).Prefill(ctx, limit)
 		}
@@ -213,4 +215,11 @@ func (h *hnsw) prefillCache() {
 			h.logger.WithError(err).Error("prefill vector cache")
 		}
 	}()
+}
+
+type noopVectorIterator struct{}
+
+func (nvit noopVectorIterator) Close() {}
+func (nvit noopVectorIterator) Next() ([]float32, uint64, error) {
+	return nil, 0, nil
 }

@@ -21,14 +21,11 @@ import (
 
 func TestVectorCachePrefilling(t *testing.T) {
 	cache := newFakeCache()
-	index := &hnsw{
-		nodes:               generateDummyVertices(100),
-		currentMaximumLayer: 3,
-	}
+	index := &hnsw{}
 
 	logger, _ := test.NewNullLogger()
 
-	pf := newVectorCachePrefiller[float32](cache, index, logger, nil)
+	pf := newVectorCachePrefiller[float32](cache, index, logger, fakeIteratorProvider())
 
 	t.Run("prefill with limit >= graph size", func(t *testing.T) {
 		cache.reset()
@@ -36,39 +33,34 @@ func TestVectorCachePrefilling(t *testing.T) {
 		assert.Equal(t, allNumbersUpTo(100), cache.store)
 	})
 
-	t.Run("prefill with small limit so only the upper layer fits", func(t *testing.T) {
-		cache.reset()
-		pf.Prefill(context.Background(), 7)
-		assert.Equal(t, map[uint64]struct{}{
-			0:  {},
-			15: {},
-			30: {},
-			45: {},
-			60: {},
-			75: {},
-			90: {},
-		}, cache.store)
-	})
+	pf = newVectorCachePrefiller[float32](cache, index, logger, fakeIteratorProvider())
 
-	t.Run("limit where a layer partially fits", func(t *testing.T) {
+	t.Run("prefill with limit < graph size", func(t *testing.T) {
 		cache.reset()
-		pf.Prefill(context.Background(), 10)
-		assert.Equal(t, map[uint64]struct{}{
-			// layer 3
-			0:  {},
-			15: {},
-			30: {},
-			45: {},
-			60: {},
-			75: {},
-			90: {},
-
-			// additional layer 2
-			5:  {},
-			10: {},
-			20: {},
-		}, cache.store)
+		pf.Prefill(context.Background(), 50)
+		assert.Equal(t, allNumbersUpTo(50), cache.store)
 	})
+}
+
+func fakeIteratorProvider() VectorIterator[float32] {
+	return &fakeIterator{limit: 100}
+}
+
+type fakeIterator struct {
+	it    uint64
+	limit uint64
+}
+
+func (ip *fakeIterator) Close() {}
+func (ip *fakeIterator) Next() ([]float32, uint64, error) {
+	if ip.it == ip.limit {
+		return nil, 0, nil
+	}
+
+	id := ip.it
+	ip.it++
+
+	return []float32{1, 2, 3}, id, nil
 }
 
 func newFakeCache() *fakeCache {
@@ -88,8 +80,7 @@ type fakeCache struct {
 
 //nolint:unused
 func (f *fakeCache) get(ctx context.Context, id uint64) ([]float32, error) {
-	f.store[id] = struct{}{}
-	return nil, nil
+	panic("not implemented")
 }
 
 //nolint:unused
@@ -104,7 +95,7 @@ func (f *fakeCache) preload(id uint64, vec []float32) {
 
 //nolint:unused
 func (f *fakeCache) load(id uint64, vec []float32) {
-	panic("not implemented")
+	f.store[id] = struct{}{}
 }
 
 //nolint:unused
