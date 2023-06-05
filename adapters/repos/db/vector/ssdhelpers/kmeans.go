@@ -258,6 +258,6 @@ func (m *KMeans) Center(point []float32) []float32 {
 	return m.centers[m.Nearest(point)]
 }
 
-func (m *KMeans) Centroid(i uint64) []float32 {
+func (m *KMeans) Centroid(i byte) []float32 {
 	return m.centers[i]
 }
