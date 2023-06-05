@@ -13,10 +13,12 @@ package traverser
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
+	errObj "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -27,10 +29,7 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 
 	ok := t.ratelimiter.TryInc()
 	if !ok {
-		// we currently have no concept of error status code or typed errors in
-		// GraphQL, so there is no other way then to send a message containing what
-		// we want to convey
-		return nil, fmt.Errorf("429 Too many requests")
+		return nil, errObj.NewErrTooManyRequest(errors.New("Too many requests"))
 	}
 
 	defer t.ratelimiter.Dec()

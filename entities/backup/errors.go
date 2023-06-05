@@ -11,8 +11,15 @@
 
 package backup
 
+import "net/http"
+
+const (
+	StatusContextExpired = 499
+)
+
 type ErrUnprocessable struct {
-	err error
+	err  error
+	code int
 }
 
 func (e ErrUnprocessable) Error() string {
@@ -20,11 +27,12 @@ func (e ErrUnprocessable) Error() string {
 }
 
 func NewErrUnprocessable(err error) ErrUnprocessable {
-	return ErrUnprocessable{err}
+	return ErrUnprocessable{err, http.StatusUnprocessableEntity}
 }
 
 type ErrNotFound struct {
-	err error
+	err  error
+	code int
 }
 
 func (e ErrNotFound) Error() string {
@@ -35,11 +43,12 @@ func (e ErrNotFound) Error() string {
 }
 
 func NewErrNotFound(err error) ErrNotFound {
-	return ErrNotFound{err}
+	return ErrNotFound{err, http.StatusNotFound}
 }
 
 type ErrContextExpired struct {
-	err error
+	err  error
+	code int
 }
 
 func (e ErrContextExpired) Error() string {
@@ -47,11 +56,12 @@ func (e ErrContextExpired) Error() string {
 }
 
 func NewErrContextExpired(err error) ErrContextExpired {
-	return ErrContextExpired{err}
+	return ErrContextExpired{err, StatusContextExpired}
 }
 
 type ErrInternal struct {
-	err error
+	err  error
+	code int
 }
 
 func (e ErrInternal) Error() string {
@@ -59,5 +69,5 @@ func (e ErrInternal) Error() string {
 }
 
 func NewErrInternal(err error) ErrInternal {
-	return ErrInternal{err}
+	return ErrInternal{err, http.StatusInternalServerError}
 }

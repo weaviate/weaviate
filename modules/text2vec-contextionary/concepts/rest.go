@@ -71,6 +71,7 @@ func (h *RESTHandlers) getOne(w http.ResponseWriter, r *http.Request) {
 func (h *RESTHandlers) writeError(w http.ResponseWriter, err error, code int) {
 	res := &models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
 		Message: err.Error(),
+		Code:    code,
 	}}}
 
 	json, mErr := res.MarshalBinary()
