@@ -13,6 +13,7 @@ package ssdhelpers
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"sync"
 
@@ -171,7 +172,7 @@ type PQData struct {
 }
 
 type PQEncoder interface {
-	Encode(x []float32) uint64
+	Encode(x []float32) byte
 	Centroid(b byte) []float32
 	Add(x []float32)
 	Fit(data [][]float32) error
@@ -182,6 +183,9 @@ type PQEncoder interface {
 func NewProductQuantizer(segments int, centroids int, useBitsEncoding bool, distance distancer.Provider, dimensions int, encoderType Encoder, encoderDistribution EncoderDistribution) (*ProductQuantizer, error) {
 	if segments <= 0 {
 		return nil, errors.New("Segments cannot be 0 nor negative")
+	}
+	if centroids > 255 {
+		return nil, fmt.Errorf("Centroids should not be higher than 255. Attempting to use %d", centroids)
 	}
 	if dimensions%segments != 0 {
 		return nil, errors.New("Segments should be an integer divisor of dimensions")
@@ -216,8 +220,8 @@ func ExtractCode8(encoded []byte, index int) byte {
 }
 
 // Only made public for testing purposes... Not sure we need it outside
-func PutCode8(code uint64, buffer []byte, index int) {
-	buffer[index] = byte(code)
+func PutCode8(code byte, buffer []byte, index int) {
+	buffer[index] = code
 }
 
 func (pq *ProductQuantizer) ExposeFields() PQData {
