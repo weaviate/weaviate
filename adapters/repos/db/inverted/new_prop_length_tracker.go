@@ -13,10 +13,10 @@ package inverted
 
 import (
 	"encoding/json"
+	"log"
 	"math"
 	"os"
 	"sync"
-	"log"
 
 	"github.com/pkg/errors"
 )
@@ -80,10 +80,10 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 	t.path = path
 
 	if len(bytes) == 0 {
-		//Something created the file but left it empty?  Log it and return an empty tracker
+		// Something created the file but left it empty?  Log it and return an empty tracker
 		log.Printf("Property length tracker file %s was empty", path)
 
-		//Write an empty data structure to it
+		// Write an empty data structure to it
 		t.Flush(false)
 		return t, nil
 	}
@@ -265,9 +265,6 @@ func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
 	if err != nil {
 		return err
 	}
-
-	
-	
 
 	filename := t.path
 	if flushBackup {
