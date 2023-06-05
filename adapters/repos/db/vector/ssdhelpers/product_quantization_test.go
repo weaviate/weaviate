@@ -37,6 +37,20 @@ func distance(dp distancer.Provider) func(x, y []float32) float32 {
 	}
 }
 
+func Test_NoRacePQSettings(t *testing.T) {
+	distanceProvider := distancer.NewL2SquaredProvider()
+	_, err := ssdhelpers.NewProductQuantizer(
+		128,
+		512,
+		false,
+		distanceProvider,
+		128,
+		ssdhelpers.UseKMeansEncoder,
+		ssdhelpers.LogNormalEncoderDistribution,
+	)
+	assert.NotNil(t, err)
+}
+
 func Test_NoRacePQKMeans(t *testing.T) {
 	rand.Seed(0)
 	dimensions := 128
@@ -48,7 +62,7 @@ func Test_NoRacePQKMeans(t *testing.T) {
 
 	pq, _ := ssdhelpers.NewProductQuantizer(
 		dimensions,
-		512,
+		255,
 		false,
 		distanceProvider,
 		dimensions,
@@ -95,7 +109,7 @@ func Test_NoRacePQDecodeBytes(t *testing.T) {
 		}
 		for i := 0; i < amount; i++ {
 			code := ssdhelpers.ExtractCode8(values, i)
-			assert.Equal(t, code, uint64(i))
+			assert.Equal(t, code, uint8(i))
 		}
 	})
 }
@@ -105,11 +119,11 @@ func Test_NoRacePQEncodeBytes(t *testing.T) {
 		amount := 100
 		values := make([]byte, amount)
 		for i := 0; i < amount; i++ {
-			ssdhelpers.PutCode8(uint64(i), values, i)
+			ssdhelpers.PutCode8(uint8(i), values, i)
 		}
 		for i := 0; i < amount; i++ {
 			code := ssdhelpers.ExtractCode8(values, i)
-			assert.Equal(t, code, uint64(i))
+			assert.Equal(t, code, uint8(i))
 		}
 	})
 }

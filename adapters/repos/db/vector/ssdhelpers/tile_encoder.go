@@ -174,10 +174,10 @@ func (te *TileEncoder) Add(x []float32) {
 	te.stdDev = math.Sqrt((sum - prod) / te.size)
 }
 
-func (te *TileEncoder) Encode(x []float32) uint64 {
+func (te *TileEncoder) Encode(x []float32) byte {
 	cdf := te.distribution.CDF(float64(x[te.segment]))
 	intPart, _ := math.Modf(cdf * float64(te.bins))
-	return uint64(intPart)
+	return byte(intPart)
 }
 
 func (te *TileEncoder) centroid(b byte) []float32 {
