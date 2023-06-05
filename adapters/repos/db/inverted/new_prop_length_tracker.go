@@ -282,6 +282,9 @@ func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
 	}
 
 	err = os.Rename(tempfile, filename)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
