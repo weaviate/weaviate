@@ -200,19 +200,13 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 	}
 
 	tests := []testCase{
-		// testCase{
-		// 	methodName:       "AddActions",
-		// 	additionalArgs:   []interface{}{[]*models.Object{}, []*string{}},
-		// 	expectedVerb:     "create",
-		// 	expectedResource: "batch/actions",
-		// },
-
 		{
 			methodName: "AddObjects",
 			additionalArgs: []interface{}{
 				[]*models.Object{},
 				[]*string{},
 				&additional.ReplicationProperties{},
+				"",
 			},
 			expectedVerb:     "create",
 			expectedResource: "batch/objects",

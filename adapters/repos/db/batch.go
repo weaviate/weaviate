@@ -28,7 +28,7 @@ type batchQueue struct {
 }
 
 func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (objects.BatchObjects, error) {
 	objectByClass := make(map[string]batchQueue)
 	indexByClass := make(map[string]*Index)
@@ -63,7 +63,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 		if !ok {
 			continue
 		}
-		errs := index.putObjectBatch(ctx, queue.objects, repl)
+		errs := index.putObjectBatch(ctx, queue.objects, repl, tenantKey)
 		index.dropIndex.RUnlock()
 		for i, err := range errs {
 			if err != nil {

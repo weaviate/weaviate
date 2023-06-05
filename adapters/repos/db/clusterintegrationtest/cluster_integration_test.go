@@ -101,7 +101,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			node := nodes[rand.Intn(len(nodes))]
 
 			batchObjs := dataAsBatch(data)
-			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs, nil)
+			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs, nil, "")
 			require.Nil(t, err)
 			for _, ind := range res {
 				require.Nil(t, ind.Err)
@@ -113,7 +113,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			node := nodes[rand.Intn(len(nodes))]
 
 			batchObjs := dataAsBatchWithProps(refData, []string{"description"})
-			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs, nil)
+			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs, nil, "")
 			require.Nil(t, err)
 			for _, ind := range res {
 				require.Nil(t, ind.Err)

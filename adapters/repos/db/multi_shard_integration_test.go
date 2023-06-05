@@ -104,7 +104,7 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 			}
 		}
 
-		_, err := repo.BatchPutObjects(context.Background(), batch, nil)
+		_, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
 		require.Nil(t, err)
 	})
 
@@ -231,7 +231,7 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 			},
 		}
 
-		_, err := repo.BatchPutObjects(context.Background(), objs, nil)
+		_, err := repo.BatchPutObjects(context.Background(), objs, nil, "")
 		require.Nil(t, err)
 	})
 
