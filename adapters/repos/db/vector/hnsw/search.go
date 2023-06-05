@@ -560,21 +560,15 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 
 	eps := priorityqueue.NewMin(10)
 	eps.Insert(entryPointID, entryPointDistance)
-	if h.compressed.Load() {
-		eps := priorityqueue.NewMin(10)
-		eps.Insert(entryPointID, entryPointDistance)
-		res, err := h.searchLayerByVector(searchVec, eps, ef, 0, allowList)
-		if err != nil {
-			return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
-		}
-
-		ids, dists := res.Items(k)
-		return ids, dists, nil
-	}
-
 	res, err := h.searchLayerByVector(searchVec, eps, ef, 0, allowList)
+
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
+	}
+
+	if h.compressed.Load() && !h.doNotRescore.Load() {
+		ids, dists := res.Items(k)
+		return ids, dists, nil
 	}
 
 	for res.Len() > k {
