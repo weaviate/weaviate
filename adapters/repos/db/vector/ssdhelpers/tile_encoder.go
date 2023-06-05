@@ -180,11 +180,11 @@ func (te *TileEncoder) Encode(x []float32) uint64 {
 	return uint64(intPart)
 }
 
-func (te *TileEncoder) centroid(b uint64) []float32 {
+func (te *TileEncoder) centroid(b byte) []float32 {
 	res := make([]float32, 0, 1)
 	if b == 0 {
 		res = append(res, float32(te.distribution.Quantile(1/te.bins)))
-	} else if b == uint64(te.bins) {
+	} else if b == byte(te.bins) {
 		res = append(res, float32(te.distribution.Quantile((te.bins-1)/te.bins)))
 	} else {
 		b64 := float64(b)
@@ -194,7 +194,7 @@ func (te *TileEncoder) centroid(b uint64) []float32 {
 	return res
 }
 
-func (te *TileEncoder) Centroid(b uint64) []float32 {
+func (te *TileEncoder) Centroid(b byte) []float32 {
 	if te.centroids[b].Calculated.Load() {
 		return te.centroids[b].Center
 	}
