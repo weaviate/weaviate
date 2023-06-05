@@ -184,8 +184,8 @@ func NewProductQuantizer(segments int, centroids int, useBitsEncoding bool, dist
 	if segments <= 0 {
 		return nil, errors.New("Segments cannot be 0 nor negative")
 	}
-	if centroids > 255 {
-		return nil, fmt.Errorf("Centroids should not be higher than 255. Attempting to use %d", centroids)
+	if centroids > 256 {
+		return nil, fmt.Errorf("Centroids should not be higher than 256. Attempting to use %d", centroids)
 	}
 	if dimensions%segments != 0 {
 		return nil, errors.New("Segments should be an integer divisor of dimensions")
