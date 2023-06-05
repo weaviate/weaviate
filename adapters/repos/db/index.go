@@ -502,6 +502,16 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	byShard := map[string]objsAndPos{}
 	out := make([]error, len(objects))
 
+	className := string(i.Config.ClassName)
+	ss := i.getSchema.ShardingState(className)
+	if ss == nil {
+		err := fmt.Errorf("could not find sharding state for class %q", className)
+		for i := 0; i < len(out); i++ {
+			out[i] = err
+		}
+		return out
+	}
+
 	for pos, obj := range objects {
 		shardName, err := i.determineObjectShard(obj.ID(), tenantKey)
 		if err != nil {

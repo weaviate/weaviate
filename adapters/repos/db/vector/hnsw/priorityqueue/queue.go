@@ -11,6 +11,16 @@
 
 package priorityqueue
 
+type SortedQueue interface {
+	Len() int
+	Insert(id uint64, distance float32) int
+	ReSort(id uint64, distance float32)
+	Items(k int) ([]uint64, []float32)
+	Pop() Item
+	Top() Item
+	Last() (Item, bool)
+}
+
 type Item struct {
 	ID   uint64
 	Dist float32
@@ -73,13 +83,14 @@ func (l *Queue) heapify(i int) {
 	}
 }
 
-func (l *Queue) Insert(id uint64, dist float32) {
-	l.items = append(l.items, Item{id, dist})
+func (l *Queue) Insert(id uint64, distance float32) int {
+	l.items = append(l.items, Item{id, distance})
 	i := len(l.items) - 1
 	for i != 0 && l.less(l.items, i, l.parent(i)) {
 		l.swap(i, l.parent(i))
 		i = l.parent(i)
 	}
+	return i
 }
 
 func (l *Queue) Pop() Item {
@@ -90,8 +101,20 @@ func (l *Queue) Pop() Item {
 	return out
 }
 
+func (l *Queue) ReSort(id uint64, distance float32) {
+	panic("Not implemented yet")
+}
+
+func (l *Queue) Items(k int) ([]uint64, []float32) {
+	panic("Not implemented yet")
+}
+
 func (l *Queue) Top() Item {
 	return l.items[0]
+}
+
+func (*Queue) Last() (Item, bool) {
+	panic("Not implemented yet")
 }
 
 func (l *Queue) Len() int {

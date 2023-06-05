@@ -33,6 +33,7 @@ type DistanceLookUpTable struct {
 	center     [][]float32
 	segments   int
 	centroids  int
+	flatCenter []float32
 }
 
 func NewDistanceLookUpTable(segments int, centroids int, center []float32) *DistanceLookUpTable {
@@ -50,6 +51,7 @@ func NewDistanceLookUpTable(segments int, centroids int, center []float32) *Dist
 		center:     parsedCenter,
 		segments:   segments,
 		centroids:  centroids,
+		flatCenter: center,
 	}
 	return dlt
 }
@@ -74,6 +76,7 @@ func (lut *DistanceLookUpTable) Reset(segments int, centroids int, center []floa
 	for c := 0; c < segments; c++ {
 		lut.center[c] = center[c*ds : (c+1)*ds]
 	}
+	lut.flatCenter = center
 }
 
 func (lut *DistanceLookUpTable) LookUp(
@@ -385,6 +388,10 @@ func (pq *ProductQuantizer) ReturnDistancer(d *PQDistancer) {
 
 func (d *PQDistancer) Distance(x []byte) (float32, bool, error) {
 	return d.pq.Distance(x, d.lut), true, nil
+}
+
+func (d *PQDistancer) DistanceToFloat(x []float32) (float32, bool, error) {
+	return d.pq.distance.SingleDist(x, d.lut.flatCenter)
 }
 
 func (pq *ProductQuantizer) Fit(data [][]float32) {

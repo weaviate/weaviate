@@ -187,7 +187,7 @@ func (m *Migrator) NewPartitions(ctx context.Context, class *models.Class, parti
 		if shard := idx.shards.Load(name); shard != nil {
 			continue
 		}
-		shard, err := NewShard(ctx, nil, name, idx, class, idx.centralJobQueue)
+		shard, err := NewShard(ctx, m.db.promMetrics, name, idx, class, idx.centralJobQueue)
 		if err != nil {
 			return nil, fmt.Errorf("cannot create partition %q: %w", name, err)
 		}

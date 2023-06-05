@@ -41,6 +41,11 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		return &Metrics{enabled: false}
 	}
 
+	if prom.GroupClasses {
+		className = "_grouped"
+		shardName = "_grouped"
+	}
+
 	tombstones := prom.VectorIndexTombstones.With(prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,

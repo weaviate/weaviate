@@ -403,6 +403,8 @@ func startupRoutine(ctx context.Context) *state.State {
 		logger.Exit(1)
 	}
 
+	monitoring.InitConfig(serverConfig.Config.Monitoring)
+
 	if serverConfig.Config.DisableGraphQL {
 		logger.WithFields(logrus.Fields{
 			"action":          "startup",

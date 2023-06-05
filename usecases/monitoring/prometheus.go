@@ -16,6 +16,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 type PrometheusMetrics struct {
@@ -56,6 +57,8 @@ type PrometheusMetrics struct {
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.SummaryVec
 	StartupDiskIO    *prometheus.SummaryVec
+
+	GroupClasses bool
 }
 
 var (
@@ -65,6 +68,10 @@ var (
 
 func init() {
 	metrics = newPrometheusMetrics()
+}
+
+func InitConfig(cfg config.Monitoring) {
+	metrics.GroupClasses = cfg.GroupClasses
 }
 
 func GetMetrics() *PrometheusMetrics {

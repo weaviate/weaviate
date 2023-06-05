@@ -20,8 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-	generativemodels "github.com/weaviate/weaviate/modules/generative-openai/additional/models"
-	"github.com/weaviate/weaviate/modules/generative-openai/ent"
+	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
 func (p *GenerateProvider) generateResult(ctx context.Context, in []search.Result, params *Params, limit *int, argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig) ([]search.Result, error) {
@@ -106,7 +105,7 @@ func (p *GenerateProvider) getTextProperties(result search.Result, properties []
 	return textProperties
 }
 
-func (p *GenerateProvider) setCombinedResult(in []search.Result, i int, generateResult *ent.GenerateResult, err error) {
+func (p *GenerateProvider) setCombinedResult(in []search.Result, i int, generateResult *generativemodels.GenerateResponse, err error) {
 	ap := in[i].AdditionalProperties
 	if ap == nil {
 		ap = models.AdditionalProperties{}
@@ -125,7 +124,7 @@ func (p *GenerateProvider) setCombinedResult(in []search.Result, i int, generate
 	in[i].AdditionalProperties = ap
 }
 
-func (p *GenerateProvider) setIndividualResult(in []search.Result, i int, generateResult *ent.GenerateResult, err error) {
+func (p *GenerateProvider) setIndividualResult(in []search.Result, i int, generateResult *generativemodels.GenerateResponse, err error) {
 	var result *string
 	if generateResult != nil {
 		result = generateResult.Result
