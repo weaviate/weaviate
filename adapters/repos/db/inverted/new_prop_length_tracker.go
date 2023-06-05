@@ -16,6 +16,7 @@ import (
 	"math"
 	"os"
 	"sync"
+	"log"
 
 	"github.com/pkg/errors"
 )
@@ -77,6 +78,15 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 		return nil, err
 	}
 	t.path = path
+
+	if len(bytes) == 0 {
+		//Something created the file but left it empty?  Log it and return an empty tracker
+		log.Printf("Property length tracker file %s was empty", path)
+
+		//Write an empty data structure to it
+		t.Flush(false)
+		return t, nil
+	}
 
 	var data PropLenData
 	if err := json.Unmarshal(bytes, &data); err != nil {
@@ -256,15 +266,26 @@ func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
 		return err
 	}
 
+	
+	
+
 	filename := t.path
 	if flushBackup {
 		filename = t.path + ".bak"
 	}
 
-	err = os.WriteFile(filename, bytes, 0o666)
+	// Do a write+rename to avoid corrupting the file if we crash while writing
+	tempfile := filename + ".tmp"
+
+	os.Remove(tempfile)
+
+	err = os.WriteFile(tempfile, bytes, 0o666)
 	if err != nil {
 		return err
 	}
+
+	err = os.Rename(tempfile, filename)
+
 	return nil
 }
 
