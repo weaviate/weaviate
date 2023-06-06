@@ -98,7 +98,7 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 			}
 
 			propertyNames := plt.PropertyNames()
-			data = PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
+			data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
 			// Loop over every page and bucket in the old tracker and add it to the new tracker
 			for _, name := range propertyNames {
 				data.BucketedData[name] = make(map[int]int, MAX_BUCKETS)
@@ -125,7 +125,7 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 					data.CountData[name] = data.CountData[name] + int(count)
 				}
 			}
-			t.data = &data
+			t.data = data
 			t.Flush(true)
 			plt.Close()
 			plt.Drop()
