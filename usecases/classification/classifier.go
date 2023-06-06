@@ -111,7 +111,7 @@ type VectorRepo interface {
 
 type vectorRepo interface {
 	VectorRepo
-	BatchPutObjects(ctx context.Context, things objects.BatchObjects,
+	BatchPutObjects(ctx context.Context, objects objects.BatchObjects,
 		repl *additional.ReplicationProperties) (objects.BatchObjects, error)
 }
 

@@ -135,7 +135,7 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 		m.shardingStateLock.Unlock()
 	}
 
-	return m.saveSchema(ctx)
+	return m.saveSchema(ctx, nil)
 }
 
 func (m *Manager) validateImmutableFields(initial, updated *models.Class) error {
@@ -258,7 +258,7 @@ func (m *Manager) updateClass(ctx context.Context, className string,
 	// Validated! Now apply the changes.
 	class.Class = classNameAfterUpdate
 
-	err = m.saveSchema(ctx)
+	err = m.saveSchema(ctx, nil)
 
 	if err != nil {
 		return nil

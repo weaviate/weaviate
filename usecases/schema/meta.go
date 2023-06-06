@@ -24,5 +24,5 @@ func (m *Manager) UpdateMeta(ctx context.Context,
 	m.state.ObjectSchema.Maintainer = maintainer
 	m.state.ObjectSchema.Name = name
 
-	return m.saveSchema(ctx)
+	return m.saveSchema(ctx, nil)
 }

@@ -115,7 +115,7 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 	m.state.ShardingState[class.Class].SetLocalName(m.clusterState.LocalName())
 	m.shardingStateLock.Unlock()
 
-	err = m.saveSchema(ctx)
+	err = m.saveSchema(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -209,7 +209,7 @@ func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
 	m.shardingStateLock.Lock()
 	m.state.ShardingState[class.Class] = shardState
 	m.shardingStateLock.Unlock()
-	return m.saveSchema(ctx)
+	return m.saveSchema(ctx, nil)
 }
 
 func (m *Manager) setClassDefaults(class *models.Class) {

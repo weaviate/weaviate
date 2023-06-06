@@ -19,8 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-	generativemodels "github.com/weaviate/weaviate/modules/generative-openai/additional/models"
-	"github.com/weaviate/weaviate/modules/generative-openai/ent"
+	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
 func TestAdditionalAnswerProvider(t *testing.T) {
@@ -61,28 +60,28 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 
 type fakeOpenAIClient struct{}
 
-func (c *fakeOpenAIClient) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
+func (c *fakeOpenAIClient) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
 	return c.getResults(textProperties, task), nil
 }
 
-func (c *fakeOpenAIClient) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
+func (c *fakeOpenAIClient) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
 	return c.getResult(textProperties, prompt), nil
 }
 
-func (c *fakeOpenAIClient) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*ent.GenerateResult, error) {
-	return &ent.GenerateResult{
+func (c *fakeOpenAIClient) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
+	return &generativemodels.GenerateResponse{
 		Result: &prompt,
 	}, nil
 }
 
-func (c *fakeOpenAIClient) getResults(text []map[string]string, task string) *ent.GenerateResult {
-	return &ent.GenerateResult{
+func (c *fakeOpenAIClient) getResults(text []map[string]string, task string) *generativemodels.GenerateResponse {
+	return &generativemodels.GenerateResponse{
 		Result: &task,
 	}
 }
 
-func (c *fakeOpenAIClient) getResult(text map[string]string, task string) *ent.GenerateResult {
-	return &ent.GenerateResult{
+func (c *fakeOpenAIClient) getResult(text map[string]string, task string) *generativemodels.GenerateResponse {
+	return &generativemodels.GenerateResponse{
 		Result: &task,
 	}
 }

@@ -19,7 +19,15 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
+	generativegenerate "github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
+	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
+
+type generativeClient interface {
+	GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error)
+	GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error)
+	Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error)
+}
 
 type AdditionalProperty interface {
 	AdditionalPropertyFn(ctx context.Context,
@@ -34,8 +42,8 @@ type GraphQLAdditionalArgumentsProvider struct {
 	generateProvider AdditionalProperty
 }
 
-func New(generateProvider AdditionalProperty) *GraphQLAdditionalArgumentsProvider {
-	return &GraphQLAdditionalArgumentsProvider{generateProvider}
+func NewGenerativeProvider(client generativeClient) *GraphQLAdditionalArgumentsProvider {
+	return &GraphQLAdditionalArgumentsProvider{generativegenerate.New(client)}
 }
 
 func (p *GraphQLAdditionalArgumentsProvider) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {

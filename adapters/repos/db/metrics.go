@@ -32,7 +32,8 @@ type Metrics struct {
 	filteredVectorSort    prometheus.Observer
 }
 
-func NewMetrics(logger logrus.FieldLogger, prom *monitoring.PrometheusMetrics,
+func NewMetrics(
+	logger logrus.FieldLogger, prom *monitoring.PrometheusMetrics,
 	className, shardName string,
 ) *Metrics {
 	m := &Metrics{
@@ -41,6 +42,11 @@ func NewMetrics(logger logrus.FieldLogger, prom *monitoring.PrometheusMetrics,
 
 	if prom == nil {
 		return m
+	}
+
+	if prom.GroupClasses {
+		className = "_grouped"
+		shardName = "_grouped"
 	}
 
 	m.monitoring = true

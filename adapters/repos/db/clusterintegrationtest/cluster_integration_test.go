@@ -125,7 +125,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			node := nodes[rand.Intn(len(nodes))]
 
 			batch := refsAsBatch(refData, "toFirst")
-			res, err := node.repo.AddBatchReferences(context.Background(), batch, nil)
+			res, err := node.repo.AddBatchReferences(context.Background(), batch, nil, "")
 			require.Nil(t, err)
 			for _, ind := range res {
 				require.Nil(t, ind.Err)

@@ -19,24 +19,24 @@ import (
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/modules/generative-openai/ent"
+	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
 const maximumNumberOfGoroutines = 10
 
-type openAIClient interface {
-	GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error)
-	GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error)
-	Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*ent.GenerateResult, error)
+type generativeClient interface {
+	GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error)
+	GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error)
+	Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error)
 }
 
 type GenerateProvider struct {
-	client                    openAIClient
+	client                    generativeClient
 	maximumNumberOfGoroutines int
 }
 
-func New(openai openAIClient) *GenerateProvider {
-	return &GenerateProvider{openai, maximumNumberOfGoroutines}
+func New(client generativeClient) *GenerateProvider {
+	return &GenerateProvider{client, maximumNumberOfGoroutines}
 }
 
 func (p *GenerateProvider) AdditionalPropertyDefaultValue() interface{} {

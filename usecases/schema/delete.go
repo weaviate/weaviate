@@ -85,7 +85,7 @@ func (m *Manager) deleteClassApplyChanges(ctx context.Context,
 		sch.Classes = sch.Classes[:len(sch.Classes)-1]
 	}
 
-	err := m.saveSchema(ctx)
+	err := m.saveSchema(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -103,7 +103,7 @@ func (m *Manager) deleteClassApplyChanges(ctx context.Context,
 	m.shardingStateLock.Lock()
 	delete(m.state.ShardingState, className)
 	m.shardingStateLock.Unlock()
-	err = m.saveSchema(ctx)
+	err = m.saveSchema(ctx, nil)
 	if err != nil {
 		return err
 	}

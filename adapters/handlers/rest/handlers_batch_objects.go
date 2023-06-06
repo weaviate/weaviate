@@ -83,7 +83,10 @@ func (h *batchObjectHandlers) addReferences(params batch.BatchReferencesCreatePa
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	references, err := h.manager.AddReferences(params.HTTPRequest.Context(), principal, params.Body, repl)
+	tenantKey := getTenantKey(params.TenantKey)
+
+	references, err := h.manager.AddReferences(
+		params.HTTPRequest.Context(), principal, params.Body, repl, tenantKey)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:

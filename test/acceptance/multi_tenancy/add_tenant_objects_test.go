@@ -16,15 +16,15 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
 func TestAddTenantObjects(t *testing.T) {
+	className := "MultiTenantClass"
 	tenantKey := "tenantName"
 	testClass := models.Class{
-		Class: "MultiTenantClass",
+		Class: className,
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled:   true,
 			TenantKey: tenantKey,
@@ -39,9 +39,32 @@ func TestAddTenantObjects(t *testing.T) {
 	tenantNames := []string{
 		"Tenant1", "Tenant2", "Tenant3",
 	}
+	tenantObjects := []*models.Object{
+		{
+			ID:    "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
+			Class: className,
+			Properties: map[string]interface{}{
+				tenantKey: tenantNames[0],
+			},
+		},
+		{
+			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
+			Class: className,
+			Properties: map[string]interface{}{
+				tenantKey: tenantNames[1],
+			},
+		},
+		{
+			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
+			Class: className,
+			Properties: map[string]interface{}{
+				tenantKey: tenantNames[2],
+			},
+		},
+	}
 
 	defer func() {
-		helper.DeleteClass(t, testClass.Class)
+		helper.DeleteClass(t, className)
 	}()
 
 	t.Run("create class with multi-tenancy enabled", func(t *testing.T) {
@@ -53,35 +76,21 @@ func TestAddTenantObjects(t *testing.T) {
 		for i := range tenants {
 			tenants[i] = &models.Tenant{tenantNames[i]}
 		}
-		helper.CreateTenants(t, testClass.Class, tenants)
+		helper.CreateTenants(t, className, tenants)
 	})
 
 	t.Run("add tenant objects", func(t *testing.T) {
-		for _, name := range tenantNames {
-			obj := models.Object{
-				Class: testClass.Class,
-				Properties: map[string]interface{}{
-					tenantKey: name,
-				},
-			}
-			helper.CreateTenantObject(t, &obj, name)
+		for i, obj := range tenantObjects {
+			helper.CreateTenantObject(t, obj, tenantNames[i])
 		}
 	})
 
 	t.Run("verify object creation", func(t *testing.T) {
-		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
-		require.Nil(t, err)
-		require.NotNil(t, resp.Payload)
-		require.NotNil(t, resp.Payload.Nodes)
-		require.Len(t, resp.Payload.Nodes, 1)
-		require.Len(t, resp.Payload.Nodes[0].Shards, 3)
-
-		var foundTenants []string
-		for _, found := range resp.Payload.Nodes[0].Shards {
-			assert.Equal(t, testClass.Class, found.Class)
-			assert.Equal(t, int64(1), found.ObjectCount)
-			foundTenants = append(foundTenants, found.Name)
+		for i, obj := range tenantObjects {
+			resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenantNames[i])
+			require.Nil(t, err)
+			assert.Equal(t, obj.Class, resp.Class)
+			assert.Equal(t, obj.Properties, resp.Properties)
 		}
-		assert.ElementsMatch(t, tenantNames, foundTenants)
 	})
 }

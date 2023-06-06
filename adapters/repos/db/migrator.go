@@ -150,24 +150,52 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 	return idx.updateShardStatus(ctx, shardName, targetStatus)
 }
 
-func (m *Migrator) AddPartitions(ctx context.Context, class *models.Class, names []string) error {
+// NewPartitions creates new partitions and returns a commit func
+// that can be used to either commit or rollback the partitions
+func (m *Migrator) NewPartitions(ctx context.Context, class *models.Class, partitions []string) (commit func(success bool), err error) {
 	idx := m.db.GetIndex(schema.ClassName(class.Class))
 	if idx == nil {
-		return fmt.Errorf("cannot add property to a non-existing index for class %q", class.Class)
+		return nil, fmt.Errorf("cannot find index for %q", class.Class)
 	}
-	shards := []string{}
-	for _, name := range names {
-		if err := idx.addNewShard(ctx, class, name); err != nil {
-			shards = append(shards, name)
-			m.logger.WithField("action", "add_partition").
-				WithField("class", class.Class).
-				WithField("shard", name).Error(err)
+
+	shards := make(map[string]*Shard, len(partitions))
+	rollback := func() {
+		for name, shard := range shards {
+			if err := shard.drop(); err != nil {
+				m.logger.WithField("action", "add_partition").
+					WithField("class", class.Class).
+					Errorf("cannot drop self created shard %s: %v", name, err)
+			}
 		}
 	}
-	if len(shards) > 0 {
-		return fmt.Errorf("could not create shards: %v", shards)
+	commit = func(success bool) {
+		if success {
+			for name, shard := range shards {
+				idx.shards.Store(name, shard)
+			}
+			return
+		}
+		rollback()
 	}
-	return nil
+	defer func() {
+		if err != nil {
+			rollback()
+		}
+	}()
+
+	for _, name := range partitions {
+		if shard := idx.shards.Load(name); shard != nil {
+			continue
+		}
+		shard, err := NewShard(ctx, m.db.promMetrics, name, idx, class, idx.centralJobQueue)
+		if err != nil {
+			return nil, fmt.Errorf("cannot create partition %q: %w", name, err)
+		}
+
+		shards[name] = shard
+	}
+
+	return commit, nil
 }
 
 func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {

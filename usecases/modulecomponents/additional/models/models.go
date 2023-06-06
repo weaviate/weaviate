@@ -11,10 +11,14 @@
 
 package models
 
-// GenerateResult used in generative Cohere module to represent
+// GenerateResult used in generative OpenAI module to represent
 // the answer to a given question
 type GenerateResult struct {
 	SingleResult  *string `json:"singleResult,omitempty"`
 	GroupedResult *string `json:"groupedResult,omitempty"`
 	Error         error   `json:"error,omitempty"`
+}
+
+type GenerateResponse struct {
+	Result *string
 }

@@ -127,7 +127,7 @@ func (m *Manager) startupJoinCluster(ctx context.Context,
 
 	m.state = *pl.Schema
 
-	m.saveSchema(ctx)
+	m.saveSchema(ctx, nil)
 
 	return nil
 }

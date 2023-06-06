@@ -26,7 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-palm/config"
-	"github.com/weaviate/weaviate/modules/generative-palm/ent"
+	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
@@ -54,7 +54,7 @@ func New(apiKey string, logger logrus.FieldLogger) *palm {
 	}
 }
 
-func (v *palm) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
+func (v *palm) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
 	forPrompt, err := v.generateForPrompt(textProperties, prompt)
 	if err != nil {
 		return nil, err
@@ -62,7 +62,7 @@ func (v *palm) GenerateSingleResult(ctx context.Context, textProperties map[stri
 	return v.Generate(ctx, cfg, forPrompt)
 }
 
-func (v *palm) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
+func (v *palm) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
 	forTask, err := v.generatePromptForTask(textProperties, task)
 	if err != nil {
 		return nil, err
@@ -70,7 +70,7 @@ func (v *palm) GenerateAllResults(ctx context.Context, textProperties []map[stri
 	return v.Generate(ctx, cfg, forTask)
 }
 
-func (v *palm) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*ent.GenerateResult, error) {
+func (v *palm) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
 	settings := config.NewClassSettings(cfg)
 
 	modelID := settings.ModelID()
@@ -144,13 +144,13 @@ func (v *palm) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt
 		content := resBody.Predictions[0].Candidates[0].Content
 		if content != "" {
 			trimmedResponse := strings.Trim(content, "\n")
-			return &ent.GenerateResult{
+			return &generativemodels.GenerateResponse{
 				Result: &trimmedResponse,
 			}, nil
 		}
 	}
 
-	return &ent.GenerateResult{
+	return &generativemodels.GenerateResponse{
 		Result: nil,
 	}, nil
 }

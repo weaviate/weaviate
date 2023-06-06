@@ -49,14 +49,14 @@ services:
       - "9090:8080"
   t2v-transformers:
     image: semitechnologies/transformers-inference:distilbert-base-uncased-1.1.0
-    ports: 
+    ports:
       - "8000:8080"
   qna-transformers:
     image: semitechnologies/qna-transformers:bert-large-uncased-whole-word-masking-finetuned-squad
     ports:
       - "8001:8080"
   i2v-neural:
-    image: semitechnologies/img2vec-pytorch:resnet50-07dd697
+    image: semitechnologies/img2vec-pytorch:resnet50
     ports:
       - "8002:8080"
   ner-transformers:
@@ -77,11 +77,11 @@ services:
       - "8005:8080"
   t2v-transformers-passage:
     image: semitechnologies/transformers-inference:facebook-dpr-ctx_encoder-single-nq-base
-    ports: 
+    ports:
       - "8006:8080"
   t2v-transformers-query:
     image: semitechnologies/transformers-inference:facebook-dpr-question_encoder-single-nq-base
-    ports: 
+    ports:
       - "8007:8080"
   backup-s3:
     image: minio/minio

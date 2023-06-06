@@ -24,7 +24,7 @@ import (
 
 // AddReferences Class Instances in batch to the connected DB
 func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Principal,
-	refs []*models.BatchReference, repl *additional.ReplicationProperties,
+	refs []*models.BatchReference, repl *additional.ReplicationProperties, tenantKey string,
 ) (BatchReferences, error) {
 	err := b.authorizer.Authorize(principal, "update", "batch/*")
 	if err != nil {
@@ -40,18 +40,18 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 	b.metrics.BatchRefInc()
 	defer b.metrics.BatchRefDec()
 
-	return b.addReferences(ctx, refs, repl)
+	return b.addReferences(ctx, refs, repl, tenantKey)
 }
 
 func (b *BatchManager) addReferences(ctx context.Context, refs []*models.BatchReference,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (BatchReferences, error) {
 	if err := b.validateReferenceForm(refs); err != nil {
 		return nil, NewErrInvalidUserInput("invalid params: %v", err)
 	}
 
 	batchReferences := b.validateReferencesConcurrently(refs)
-	if res, err := b.vectorRepo.AddBatchReferences(ctx, batchReferences, repl); err != nil {
+	if res, err := b.vectorRepo.AddBatchReferences(ctx, batchReferences, repl, tenantKey); err != nil {
 		return nil, NewErrInternal("could not add batch request to connector: %v", err)
 	} else {
 		return res, nil

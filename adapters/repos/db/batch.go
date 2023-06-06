@@ -76,7 +76,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 }
 
 func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchReferences,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (objects.BatchReferences, error) {
 	refByClass := make(map[schema.ClassName]objects.BatchReferences)
 	indexByClass := make(map[schema.ClassName]*Index)
@@ -108,7 +108,7 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 		if !ok {
 			continue
 		}
-		errs := index.addReferencesBatch(ctx, queue, repl)
+		errs := index.addReferencesBatch(ctx, queue, repl, tenantKey)
 		index.dropIndex.RUnlock()
 		for i, err := range errs {
 			if err != nil {
