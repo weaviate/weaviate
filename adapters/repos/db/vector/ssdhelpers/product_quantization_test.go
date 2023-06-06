@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	testinghelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 type IndexAndDistance struct {
@@ -39,14 +40,21 @@ func distance(dp distancer.Provider) func(x, y []float32) float32 {
 
 func Test_NoRacePQSettings(t *testing.T) {
 	distanceProvider := distancer.NewL2SquaredProvider()
+
+	cfg := ent.PQConfig{
+		Enabled: true,
+		Encoder: ent.PQEncoder{
+			Type:         ent.PQEncoderTypeKMeans,
+			Distribution: ent.PQEncoderDistributionLogNormal,
+		},
+		Centroids: 512,
+		Segments:  128,
+	}
+
 	_, err := ssdhelpers.NewProductQuantizer(
-		128,
-		512,
-		false,
+		cfg,
 		distanceProvider,
 		128,
-		ssdhelpers.UseKMeansEncoder,
-		ssdhelpers.LogNormalEncoderDistribution,
 	)
 	assert.NotNil(t, err)
 }
@@ -60,14 +68,19 @@ func Test_NoRacePQKMeans(t *testing.T) {
 	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, int(dimensions))
 	distanceProvider := distancer.NewL2SquaredProvider()
 
+	cfg := ent.PQConfig{
+		Enabled: true,
+		Encoder: ent.PQEncoder{
+			Type:         ent.PQEncoderTypeKMeans,
+			Distribution: ent.PQEncoderDistributionLogNormal,
+		},
+		Centroids: 512,
+		Segments:  dimensions,
+	}
 	pq, _ := ssdhelpers.NewProductQuantizer(
-		dimensions,
-		255,
-		false,
+		cfg,
 		distanceProvider,
 		dimensions,
-		ssdhelpers.UseKMeansEncoder,
-		ssdhelpers.LogNormalEncoderDistribution,
 	)
 	pq.Fit(vectors)
 	encoded := make([][]byte, vectors_size)

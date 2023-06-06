@@ -146,6 +146,7 @@ type hnsw struct {
 	compressed             atomic.Bool
 	doNotRescore           atomic.Bool
 	pq                     *ssdhelpers.ProductQuantizer
+	pqConfig               ent.PQConfig
 	compressedVectorsCache cache[byte]
 	compressedStore        *lsmkv.Store
 	compressActionLock     *sync.RWMutex
@@ -259,6 +260,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCleanupCycle cyclemanager.Cycle
 		compressActionLock: &sync.RWMutex{},
 		className:          cfg.ClassName,
 		VectorForIDThunk:   cfg.VectorForIDThunk,
+		pqConfig:           uc.PQ,
 	}
 
 	// TODO common_cycle_manager move to poststartup?
