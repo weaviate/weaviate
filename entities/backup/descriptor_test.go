@@ -28,6 +28,7 @@ func TestExcludeClasses(t *testing.T) {
 		{in: BackupDescriptor{}, xs: []string{}, out: []string{}},
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "a"}}}, xs: []string{}, out: []string{"a"}},
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "a"}}}, xs: []string{"a"}, out: []string{}},
+		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "data-20221224"}, {Name: "data-20221223"}}}, xs: []string{"data-202212*"}, out: []string{}},
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "1"}, {Name: "2"}, {Name: "3"}, {Name: "4"}}}, xs: []string{"2", "3"}, out: []string{"1", "4"}},
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "1"}, {Name: "2"}, {Name: "3"}}}, xs: []string{"1", "3"}, out: []string{"2"}},
 
@@ -50,6 +51,7 @@ func TestIncludeClasses(t *testing.T) {
 		{in: BackupDescriptor{}, xs: []string{}, out: []string{}},
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "a"}}}, xs: []string{}, out: []string{"a"}},
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "a"}}}, xs: []string{"a"}, out: []string{"a"}},
+		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "data-20221224"}, {Name: "data-20221223"}}}, xs: []string{"data-202212*"}, out: []string{"data-20221224", "data-20221223"}},
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "1"}, {Name: "2"}, {Name: "3"}, {Name: "4"}}}, xs: []string{"2", "3"}, out: []string{"2", "3"}},
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "1"}, {Name: "2"}, {Name: "3"}}}, xs: []string{"1", "3"}, out: []string{"1", "3"}},
 	}

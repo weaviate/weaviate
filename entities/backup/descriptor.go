@@ -13,6 +13,7 @@ package backup
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -244,6 +245,8 @@ func (d *BackupDescriptor) Include(classes []string) {
 	if len(classes) == 0 {
 		return
 	}
+	classes = wildcardResolver(classes, d.List())
+
 	set := make(map[string]struct{}, len(classes))
 	for _, cls := range classes {
 		set[cls] = struct{}{}
@@ -260,6 +263,8 @@ func (d *BackupDescriptor) Exclude(classes []string) {
 	if len(classes) == 0 {
 		return
 	}
+	classes = wildcardResolver(classes, d.List())
+
 	set := make(map[string]struct{}, len(classes))
 	for _, cls := range classes {
 		set[cls] = struct{}{}
@@ -332,4 +337,23 @@ func (d *BackupDescriptor) ToDistributed() *DistributedBackupDescriptor {
 		result.Nodes = map[string]*NodeDescriptor{node: {Classes: cs}}
 	}
 	return result
+}
+
+// Wildcard Resolver
+func wildcardResolver(classes, list []string) []string {
+	var resolvedClasses []string
+
+	for _, c := range classes {
+		if strings.HasSuffix(c, "*") {
+			classPrefix := c[:len(c)-1]
+			for _, class := range list {
+				if strings.HasPrefix(class, classPrefix) {
+					resolvedClasses = append(resolvedClasses, class)
+				}
+			}
+		} else {
+			resolvedClasses = append(resolvedClasses, c)
+		}
+	}
+	return resolvedClasses
 }
