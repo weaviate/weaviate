@@ -89,7 +89,7 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 
 	var data *PropLenData = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
 
-	//We don't have data file versioning, so we try to parse it as json.  If the parse fails, it is probably the old format file, so we call the old format loader and copy everything across.
+	// We don't have data file versioning, so we try to parse it as json.  If the parse fails, it is probably the old format file, so we call the old format loader and copy everything across.
 	if err := json.Unmarshal(bytes, data); err != nil {
 		if bytes[0] != '{' {
 			// It's probably the old format file, load the old format and convert it to the new format
@@ -136,7 +136,7 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 	t.data = data
 	t.path = path
 
-	//Make really sure we aren't going to crash on a nil pointer
+	// Make really sure we aren't going to crash on a nil pointer
 	if t.data == nil {
 		t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
 	}
@@ -160,7 +160,7 @@ func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32
 	t.Lock()
 	defer t.Unlock()
 
-	//Remove this check once we are confident that all users have migrated to the new format
+	// Remove this check once we are confident that all users have migrated to the new format
 	if t.data == nil {
 		t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
 	}
@@ -184,7 +184,7 @@ func (t *JsonPropertyLengthTracker) UnTrackProperty(propName string, value float
 	t.Lock()
 	defer t.Unlock()
 
-	//Remove this check once we are confident that all users have migrated to the new format
+	// Remove this check once we are confident that all users have migrated to the new format
 	if t.data == nil {
 		t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
 	}
@@ -240,7 +240,6 @@ func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, erro
 	t.Lock()
 	defer t.Unlock()
 
-	
 	sum, ok := t.data.SumData[propName]
 	if !ok {
 		return 0, nil
