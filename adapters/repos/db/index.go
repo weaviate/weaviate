@@ -1493,13 +1493,22 @@ func (i *Index) notifyReady() {
 }
 
 func (i *Index) findDocIDs(ctx context.Context,
-	filters *filters.LocalFilter,
+	filters *filters.LocalFilter, tenantKey string,
 ) (map[string][]uint64, error) {
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "filter_total")
 
 	shardState := i.getSchema.ShardingState(i.Config.ClassName.String())
-	shardNames := shardState.AllPhysicalShards()
+	var shardNames []string
+
+	// If this index is multi-tenant-enabled, we are only
+	// interested in deleting objects from the target
+	// tenant's shard
+	if tenantKey != "" {
+		shardNames = []string{tenantKey}
+	} else {
+		shardNames = shardState.AllPhysicalShards()
+	}
 
 	results := make(map[string][]uint64)
 	for _, shardName := range shardNames {
@@ -1514,7 +1523,7 @@ func (i *Index) findDocIDs(ctx context.Context,
 			res, err = shard.findDocIDs(ctx, filters)
 		}
 		if err != nil {
-			return nil, errors.Wrapf(err, "shard %s", shardName)
+			return nil, fmt.Errorf("find matching doc ids in shard %q: %w", shardName, err)
 		}
 
 		results[shardName] = res

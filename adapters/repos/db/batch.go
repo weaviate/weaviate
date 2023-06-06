@@ -121,15 +121,18 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 }
 
 func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDeleteParams,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (objects.BatchDeleteResult, error) {
 	// get index for a given class
 	idx := db.GetIndex(params.ClassName)
 	if idx == nil {
 		return objects.BatchDeleteResult{}, errors.Errorf("cannot find index for class %v", params.ClassName)
 	}
+	if err := idx.validateMultiTenancy(tenantKey, nil); err != nil {
+		return objects.BatchDeleteResult{}, err
+	}
 	// find all DocIDs in all shards that match the filter
-	shardDocIDs, err := idx.findDocIDs(ctx, params.Filters)
+	shardDocIDs, err := idx.findDocIDs(ctx, params.Filters, tenantKey)
 	if err != nil {
 		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot find objects")
 	}

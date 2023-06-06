@@ -155,6 +155,15 @@ func DeleteObjectsBatch(t *testing.T, body *models.BatchDelete) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func DeleteTenantObjectsBatch(t *testing.T, body *models.BatchDelete,
+	tenantKey string,
+) (*models.BatchDeleteResponse, error) {
+	params := batch.NewBatchObjectsDeleteParams().
+		WithBody(body).WithTenantKey(&tenantKey)
+	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
+	return resp.Payload, err
+}
+
 func AddReferences(t *testing.T, refs []*models.BatchReference) {
 	params := batch.NewBatchReferencesCreateParams().WithBody(refs)
 	resp, err := Client(t).Batch.BatchReferencesCreate(params, nil)

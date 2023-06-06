@@ -12,12 +12,14 @@
 package rest
 
 import (
+	"errors"
+
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/batch"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -40,7 +42,7 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 		params.Body.Objects, params.Body.Fields, repl, tenantKey)
 	if err != nil {
 		switch err.(type) {
-		case errors.Forbidden:
+		case autherrs.Forbidden:
 			return batch.NewBatchObjectsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case objects.ErrInvalidUserInput:
@@ -91,7 +93,7 @@ func (h *batchObjectHandlers) addReferences(params batch.BatchReferencesCreatePa
 		params.HTTPRequest.Context(), principal, params.Body, repl, tenantKey)
 	if err != nil {
 		switch err.(type) {
-		case errors.Forbidden:
+		case autherrs.Forbidden:
 			return batch.NewBatchReferencesCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case objects.ErrInvalidUserInput:
@@ -143,17 +145,23 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	res, err := h.manager.DeleteObjects(params.HTTPRequest.Context(),
-		principal, params.Body.Match, params.Body.DryRun, params.Body.Output, repl)
+	tenantKey := getTenantKey(params.TenantKey)
+
+	res, err := h.manager.DeleteObjects(params.HTTPRequest.Context(), principal,
+		params.Body.Match, params.Body.DryRun, params.Body.Output, repl, tenantKey)
 	if err != nil {
 		switch err.(type) {
-		case errors.Forbidden:
+		case autherrs.Forbidden:
 			return batch.NewBatchObjectsDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case objects.ErrInvalidUserInput:
 			return batch.NewBatchObjectsDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
+			if errors.As(err, &objects.ErrInvalidUserInput{}) {
+				return batch.NewBatchObjectsDeleteUnprocessableEntity().
+					WithPayload(errPayloadFromSingleErr(err))
+			}
 			return batch.NewBatchObjectsDeleteInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}

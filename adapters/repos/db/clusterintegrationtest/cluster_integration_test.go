@@ -652,7 +652,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		beforeDelete := len(res)
 		require.True(t, beforeDelete > 0)
 		// dryRun == false, perform actual delete
-		batchDeleteRes, err := node.repo.BatchDeleteObjects(context.Background(), getParams(distributedClass, false), nil)
+		batchDeleteRes, err := node.repo.BatchDeleteObjects(context.Background(), getParams(distributedClass, false), nil, "")
 		require.Nil(t, err)
 		require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 		require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))

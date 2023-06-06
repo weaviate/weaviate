@@ -230,6 +230,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				(*bool)(nil),
 				(*string)(nil),
 				&additional.ReplicationProperties{},
+				"",
 			},
 			expectedVerb:     "delete",
 			expectedResource: "batch/objects",

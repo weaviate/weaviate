@@ -188,41 +188,40 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 }
 
 func delete2Objects(t *testing.T, repo *DB, className string) {
-	batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(),
-		objects.BatchDeleteParams{
-			ClassName: "ThingForBatching",
-			Filters: &filters.LocalFilter{
-				Root: &filters.Clause{
-					Operator: filters.OperatorOr,
-					Operands: []filters.Clause{
-						{
-							Operator: filters.OperatorEqual,
-							On: &filters.Path{
-								Class:    "ThingForBatching",
-								Property: schema.PropertyName("id"),
-							},
-							Value: &filters.Value{
-								Value: "8d5a3aa2-3c8d-4589-9ae1-3f638f506003",
-								Type:  schema.DataTypeText,
-							},
+	batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), objects.BatchDeleteParams{
+		ClassName: "ThingForBatching",
+		Filters: &filters.LocalFilter{
+			Root: &filters.Clause{
+				Operator: filters.OperatorOr,
+				Operands: []filters.Clause{
+					{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "ThingForBatching",
+							Property: schema.PropertyName("id"),
 						},
-						{
-							Operator: filters.OperatorEqual,
-							On: &filters.Path{
-								Class:    "ThingForBatching",
-								Property: schema.PropertyName("id"),
-							},
-							Value: &filters.Value{
-								Value: "8d5a3aa2-3c8d-4589-9ae1-3f638f506004",
-								Type:  schema.DataTypeText,
-							},
+						Value: &filters.Value{
+							Value: "8d5a3aa2-3c8d-4589-9ae1-3f638f506003",
+							Type:  schema.DataTypeText,
+						},
+					},
+					{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "ThingForBatching",
+							Property: schema.PropertyName("id"),
+						},
+						Value: &filters.Value{
+							Value: "8d5a3aa2-3c8d-4589-9ae1-3f638f506004",
+							Type:  schema.DataTypeText,
 						},
 					},
 				},
 			},
-			DryRun: false,
-			Output: "verbose",
-		}, nil)
+		},
+		DryRun: false,
+		Output: "verbose",
+	}, nil, "")
 	require.Nil(t, err)
 	require.Equal(t, 2, len(batchDeleteRes.Objects), "Objects deleted")
 }
@@ -977,7 +976,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 			beforeDelete := len(res)
 			require.True(t, beforeDelete > 0)
 			// dryRun == true, only test how many objects can be deleted
-			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(true, "verbose"), nil)
+			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(true, "verbose"), nil, "")
 			require.Nil(t, err)
 			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
@@ -996,7 +995,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 			beforeDelete := len(res)
 			require.True(t, beforeDelete > 0)
 			// dryRun == true, only test how many objects can be deleted
-			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(true, "minimal"), nil)
+			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(true, "minimal"), nil, "")
 			require.Nil(t, err)
 			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
@@ -1048,7 +1047,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 				},
 				DryRun: false,
 				Output: "verbose",
-			}, nil)
+			}, nil, "")
 			require.Nil(t, err)
 			require.Equal(t, int64(2), batchDeleteRes.Matches)
 			require.Equal(t, 2, len(batchDeleteRes.Objects))
@@ -1067,7 +1066,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 			beforeDelete := len(res)
 			require.True(t, beforeDelete > 0)
 			// dryRun == true, only test how many objects can be deleted
-			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(false, "verbose"), nil)
+			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(false, "verbose"), nil, "")
 			require.Nil(t, err)
 			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
@@ -1110,7 +1109,7 @@ func testBatchDeleteObjectsJourney(repo *DB, queryMaximumResults int64) func(t *
 		}
 		t.Run("batch delete journey", func(t *testing.T) {
 			// delete objects to limit
-			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(true, "verbose"), nil)
+			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(true, "verbose"), nil, "")
 			require.Nil(t, err)
 			objectsMatches := batchDeleteRes.Matches
 
@@ -1119,14 +1118,14 @@ func testBatchDeleteObjectsJourney(repo *DB, queryMaximumResults int64) func(t *
 			deletedObjectsCount := 0
 			for {
 				// delete objects to limit
-				batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(false, "verbose"), nil)
+				batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(false, "verbose"), nil, "")
 				require.Nil(t, err)
 				matches, deleted := batchDeleteRes.Matches, len(batchDeleteRes.Objects)
 				require.Equal(t, leftToDelete, matches)
 				require.True(t, deleted > 0)
 				deletedObjectsCount += deleted
 
-				batchDeleteRes, err = repo.BatchDeleteObjects(context.Background(), getParams(true, "verbose"), nil)
+				batchDeleteRes, err = repo.BatchDeleteObjects(context.Background(), getParams(true, "verbose"), nil, "")
 				require.Nil(t, err)
 				leftToDelete = batchDeleteRes.Matches
 
