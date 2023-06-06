@@ -88,8 +88,8 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 		return t, nil
 	}
 
-	var data PropLenData
-	if err := json.Unmarshal(bytes, &data); err != nil {
+	var data *PropLenData = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
+	if err := json.Unmarshal(bytes, data); err != nil {
 		if bytes[0] != '{' {
 			// It's probably the old format file, load the old format and convert it to the new format
 			plt, err := NewPropertyLengthTracker(path)
@@ -132,7 +132,7 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 			t.Flush(false)
 		}
 	}
-	t.data = &data
+	t.data = data
 
 	return t, nil
 }
