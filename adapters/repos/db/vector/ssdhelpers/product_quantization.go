@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 type Encoder byte
@@ -159,6 +160,7 @@ type ProductQuantizer struct {
 	encoderType         Encoder
 	encoderDistribution EncoderDistribution
 	dlutPool            *DLUTPool
+	trainingLimit       int
 }
 
 type PQData struct {
@@ -179,22 +181,31 @@ type PQEncoder interface {
 	ExposeDataForRestore() []byte
 }
 
-// ToDo: Add a settings struct. Already necessary!!
-func NewProductQuantizer(segments int, centroids int, useBitsEncoding bool, distance distancer.Provider, dimensions int, encoderType Encoder, encoderDistribution EncoderDistribution) (*ProductQuantizer, error) {
-	if segments <= 0 {
+func NewProductQuantizer(cfg ent.PQConfig, distance distancer.Provider, dimensions int) (*ProductQuantizer, error) {
+	if cfg.Segments <= 0 {
 		return nil, errors.New("Segments cannot be 0 nor negative")
 	}
-	if centroids > 256 {
+	if cfg.Centroids > 256 {
 		return nil, fmt.Errorf("Centroids should not be higher than 256. Attempting to use %d", centroids)
 	}
-	if dimensions%segments != 0 {
+	if dimensions%cfg.Segments != 0 {
 		return nil, errors.New("Segments should be an integer divisor of dimensions")
 	}
+	encoderType, err := parseEncoder(cfg.Encoder.Type)
+	if err != nil {
+		return nil, errors.New("Invalid encoder type")
+	}
+
+	encoderDistribution, err := parseEncoderDistribution(cfg.Encoder.Distribution)
+	if err != nil {
+		return nil, errors.New("Invalid encoder distribution")
+	}
 	pq := &ProductQuantizer{
-		ks:                  centroids,
-		m:                   segments,
-		ds:                  int(dimensions / segments),
+		ks:                  cfg.Centroids,
+		m:                   cfg.Segments,
+		ds:                  int(dimensions / cfg.Segments),
 		distance:            distance,
+		trainingLimit:       cfg.TrainingLimit,
 		dimensions:          dimensions,
 		encoderType:         encoderType,
 		encoderDistribution: encoderDistribution,
@@ -204,8 +215,8 @@ func NewProductQuantizer(segments int, centroids int, useBitsEncoding bool, dist
 	return pq, nil
 }
 
-func NewProductQuantizerWithEncoders(segments int, centroids int, useBitsEncoding bool, distance distancer.Provider, dimensions int, encoderType Encoder, encoders []PQEncoder) (*ProductQuantizer, error) {
-	pq, err := NewProductQuantizer(segments, centroids, useBitsEncoding, distance, dimensions, encoderType, LogNormalEncoderDistribution)
+func NewProductQuantizerWithEncoders(cfg ent.PQConfig, distance distancer.Provider, dimensions int, encoders []PQEncoder) (*ProductQuantizer, error) {
+	pq, err := NewProductQuantizer(cfg, distance, dimensions)
 	if err != nil {
 		return nil, err
 	}
@@ -217,6 +228,28 @@ func NewProductQuantizerWithEncoders(segments int, centroids int, useBitsEncodin
 // Only made public for testing purposes... Not sure we need it outside
 func ExtractCode8(encoded []byte, index int) byte {
 	return encoded[index]
+}
+
+func parseEncoder(encoder string) (Encoder, error) {
+	switch encoder {
+	case ent.PQEncoderTypeTile:
+		return UseTileEncoder, nil
+	case ent.PQEncoderTypeKMeans:
+		return UseKMeansEncoder, nil
+	default:
+		return 0, fmt.Errorf("invalid encoder type: %s", encoder)
+	}
+}
+
+func parseEncoderDistribution(distribution string) (EncoderDistribution, error) {
+	switch distribution {
+	case ent.PQEncoderDistributionLogNormal:
+		return LogNormalEncoderDistribution, nil
+	case ent.PQEncoderDistributionNormal:
+		return NormalEncoderDistribution, nil
+	default:
+		return 0, fmt.Errorf("invalid encoder distribution: %s", distribution)
+	}
 }
 
 // Only made public for testing purposes... Not sure we need it outside
@@ -284,6 +317,10 @@ func (d *PQDistancer) DistanceToFloat(x []float32) (float32, bool, error) {
 }
 
 func (pq *ProductQuantizer) Fit(data [][]float32) {
+	if pq.trainingLimit > 0 && len(data) > pq.trainingLimit {
+		data = data[:pq.trainingLimit]
+		fmt.Printf("pq: training limit reached, using %d vectors\n", pq.trainingLimit)
+	}
 	switch pq.encoderType {
 	case UseTileEncoder:
 		pq.kms = make([]PQEncoder, pq.m)
