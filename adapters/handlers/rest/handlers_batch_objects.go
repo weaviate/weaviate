@@ -150,18 +150,13 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 	res, err := h.manager.DeleteObjects(params.HTTPRequest.Context(), principal,
 		params.Body.Match, params.Body.DryRun, params.Body.Output, repl, tenantKey)
 	if err != nil {
-		switch err.(type) {
-		case autherrs.Forbidden:
-			return batch.NewBatchObjectsDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case objects.ErrInvalidUserInput:
+		if errors.As(err, &objects.ErrInvalidUserInput{}) {
 			return batch.NewBatchObjectsDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			if errors.As(err, &objects.ErrInvalidUserInput{}) {
-				return batch.NewBatchObjectsDeleteUnprocessableEntity().
-					WithPayload(errPayloadFromSingleErr(err))
-			}
+		} else if errors.As(err, &autherrs.Forbidden{}) {
+			return batch.NewBatchObjectsDeleteForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		} else {
 			return batch.NewBatchObjectsDeleteInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}

@@ -86,18 +86,13 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 	object, err := h.manager.AddObject(params.HTTPRequest.Context(),
 		principal, params.Body, repl, tenantKey)
 	if err != nil {
-		switch err.(type) {
-		case autherrs.Forbidden:
-			return objects.NewObjectsCreateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case uco.ErrInvalidUserInput:
+		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			if errors.As(err, &uco.ErrInvalidUserInput{}) {
-				return objects.NewObjectsCreateUnprocessableEntity().
-					WithPayload(errPayloadFromSingleErr(err))
-			}
+		} else if errors.As(err, &autherrs.Forbidden{}) {
+			return objects.NewObjectsCreateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		} else {
 			return objects.NewObjectsCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
@@ -324,20 +319,13 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 	object, err := h.manager.UpdateObject(params.HTTPRequest.Context(),
 		principal, params.ClassName, params.ID, params.Body, repl, tenantKey)
 	if err != nil {
-		switch err.(type) {
-		case autherrs.Forbidden:
-			return objects.NewObjectsClassPutForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case uco.ErrInvalidUserInput:
+		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsClassPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
-		case uco.ErrNotFound:
-			return objects.NewObjectsClassDeleteNotFound()
-		default:
-			if errors.As(err, &uco.ErrInvalidUserInput{}) {
-				return objects.NewObjectsClassPutUnprocessableEntity().
-					WithPayload(errPayloadFromSingleErr(err))
-			}
+		} else if errors.As(err, &autherrs.Forbidden{}) {
+			return objects.NewObjectsClassPutForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		} else {
 			return objects.NewObjectsClassPutInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
