@@ -62,7 +62,7 @@ type JsonPropertyLengthTracker struct {
 
 // NewJsonPropertyLengthTracker creates a new tracker and loads the data from the given path.  If the file is in the old format, it will be converted to the new format.
 func NewJsonPropertyLengthTracker(path string) (t *JsonPropertyLengthTracker, err error) {
-	//Recover and return empty tracker on panic
+	// Recover and return empty tracker on panic
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("Recovered from panic in NewJsonPropertyLengthTracker, returning empty tracker: %v", r)
@@ -83,7 +83,7 @@ func NewJsonPropertyLengthTracker(path string) (t *JsonPropertyLengthTracker, er
 	// read the file into memory
 	bytes, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {  //File doesn't exist, probably a new class(or a recount), return empty tracker
+		if os.IsNotExist(err) { // File doesn't exist, probably a new class(or a recount), return empty tracker
 			t.Flush(false)
 			return t, nil
 		}
@@ -94,49 +94,47 @@ func NewJsonPropertyLengthTracker(path string) (t *JsonPropertyLengthTracker, er
 		return nil, errors.Errorf("failed sanity check, empty prop len tracker file %s has length 0.  Delete file and set environment variable RECOUNT_PROPERTIES_AT_STARTUP to true", path)
 	}
 
-	
-
 	// We don't have data file versioning, so we try to parse it as json.  If the parse fails, it is probably the old format file, so we call the old format loader and copy everything across.
 	if err = json.Unmarshal(bytes, &t.data); err != nil {
-			// It's probably the old format file, load the old format and convert it to the new format
-			plt, err := NewPropertyLengthTracker(path)
-			if err != nil {
-				return nil, errors.Wrap(err, "convert old property length tracker")
-			}
+		// It's probably the old format file, load the old format and convert it to the new format
+		plt, err := NewPropertyLengthTracker(path)
+		if err != nil {
+			return nil, errors.Wrap(err, "convert old property length tracker")
+		}
 
-			propertyNames := plt.PropertyNames()
-			data := &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
-			// Loop over every page and bucket in the old tracker and add it to the new tracker
-			for _, name := range propertyNames {
-				data.BucketedData[name] = make(map[int]int, MAX_BUCKETS)
-				data.CountData[name] = 0
-				data.SumData[name] = 0
-				for i := 0; i <= MAX_BUCKETS; i++ {
-					fromBucket := i
-					if i == MAX_BUCKETS {
-						fromBucket = -1
-					}
-					count, err := plt.BucketCount(name, uint16(fromBucket))
-					if err != nil {
-						return nil, errors.Wrap(err, "convert old property length tracker")
-					}
-					data.BucketedData[name][fromBucket] = int(count)
-					value := float32(0)
-					if fromBucket == -1 {
-						value = 0
-					} else {
-						value = plt.valueFromBucket(uint16(fromBucket))
-					}
-
-					data.SumData[name] = data.SumData[name] + int(value)*int(count)
-					data.CountData[name] = data.CountData[name] + int(count)
+		propertyNames := plt.PropertyNames()
+		data := &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
+		// Loop over every page and bucket in the old tracker and add it to the new tracker
+		for _, name := range propertyNames {
+			data.BucketedData[name] = make(map[int]int, MAX_BUCKETS)
+			data.CountData[name] = 0
+			data.SumData[name] = 0
+			for i := 0; i <= MAX_BUCKETS; i++ {
+				fromBucket := i
+				if i == MAX_BUCKETS {
+					fromBucket = -1
 				}
+				count, err := plt.BucketCount(name, uint16(fromBucket))
+				if err != nil {
+					return nil, errors.Wrap(err, "convert old property length tracker")
+				}
+				data.BucketedData[name][fromBucket] = int(count)
+				value := float32(0)
+				if fromBucket == -1 {
+					value = 0
+				} else {
+					value = plt.valueFromBucket(uint16(fromBucket))
+				}
+
+				data.SumData[name] = data.SumData[name] + int(value)*int(count)
+				data.CountData[name] = data.CountData[name] + int(count)
 			}
-			t.data = data
-			t.Flush(true)
-			plt.Close()
-			plt.Drop()
-			t.Flush(false)
+		}
+		t.data = data
+		t.Flush(true)
+		plt.Close()
+		plt.Drop()
+		t.Flush(false)
 	}
 	t.path = path
 
