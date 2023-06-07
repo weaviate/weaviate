@@ -90,6 +90,18 @@ func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
 	}
 }
 
+func CreateTenantObjectsBatch(t *testing.T, objects []*models.Object,
+	tenantKey string,
+) ([]*models.ObjectsGetResponse, error) {
+	params := batch.NewBatchObjectsCreateParams().
+		WithBody(batch.BatchObjectsCreateBody{
+			Objects: objects,
+		}).WithTenantKey(&tenantKey)
+	resp, err := Client(t).Batch.BatchObjectsCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	return resp.Payload, err
+}
+
 func UpdateObject(t *testing.T, object *models.Object) {
 	params := objects.NewObjectsUpdateParams().WithID(object.ID).WithBody(object)
 	resp, err := Client(t).Objects.ObjectsUpdate(params, nil)
@@ -141,6 +153,15 @@ func DeleteObjectsBatch(t *testing.T, body *models.BatchDelete) {
 	params := batch.NewBatchObjectsDeleteParams().WithBody(body)
 	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
 	AssertRequestOk(t, resp, err, nil)
+}
+
+func DeleteTenantObjectsBatch(t *testing.T, body *models.BatchDelete,
+	tenantKey string,
+) (*models.BatchDeleteResponse, error) {
+	params := batch.NewBatchObjectsDeleteParams().
+		WithBody(body).WithTenantKey(&tenantKey)
+	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
+	return resp.Payload, err
 }
 
 func AddReferences(t *testing.T, refs []*models.BatchReference) {

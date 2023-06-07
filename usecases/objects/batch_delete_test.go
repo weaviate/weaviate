@@ -171,7 +171,7 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 		}
 
 		for _, test := range tests {
-			_, err := manager.DeleteObjects(ctx, nil, test.input.Match, test.input.DryRun, test.input.Output, nil)
+			_, err := manager.DeleteObjects(ctx, nil, test.input.Match, test.input.DryRun, test.input.Output, nil, "")
 			assert.Equal(t, test.expectedError, err.Error())
 		}
 	})

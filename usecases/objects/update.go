@@ -68,7 +68,8 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		WithField("id", id).
 		Debug("received update kind request")
 
-	err = m.validateObjectAndNormalizeNames(ctx, principal, updates, repl, tenantKey)
+	err = m.validateObjectAndNormalizeNames(
+		ctx, principal, repl, updates, obj.Object(), tenantKey)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
@@ -91,7 +92,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 
 	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, repl, tenantKey)
 	if err != nil {
-		return nil, NewErrInternal("put object: %v", err)
+		return nil, fmt.Errorf("put object: %w", err)
 	}
 
 	return updates, nil
