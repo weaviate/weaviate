@@ -1845,6 +1845,20 @@ func TestNearTextNoNoModules(t *testing.T) {
 	})
 }
 
+func TestBM25WithSort(t *testing.T) {
+	t.Parallel()
+	resolver := newMockResolverWithNoModules()
+	query := `{Get{SomeAction(bm25:{query:"apple",properties:["name"]},sort:[{path:["name"],order:desc}]){intField}}}`
+	resolver.AssertFailToResolve(t, query, "bm25 search is not compatible with sort")
+}
+
+func TestHybridWithSort(t *testing.T) {
+	t.Parallel()
+	resolver := newMockResolverWithNoModules()
+	query := `{Get{SomeAction(hybrid:{query:"apple"},sort:[{path:["name"],order:desc}]){intField}}}`
+	resolver.AssertFailToResolve(t, query, "hybrid search is not compatible with sort")
+}
+
 func TestNearObjectNoModules(t *testing.T) {
 	t.Parallel()
 
