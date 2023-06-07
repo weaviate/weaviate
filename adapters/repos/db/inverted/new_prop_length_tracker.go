@@ -91,7 +91,7 @@ func NewJsonPropertyLengthTracker(path string) (t *JsonPropertyLengthTracker, er
 	}
 
 	if len(bytes) == 0 {
-		return nil, errors.Errorf("failed sanity check, empty prop len tracker file %s has length 0", path)
+		return nil, errors.Errorf("failed sanity check, empty prop len tracker file %s has length 0.  Delete file and set environment variable RECOUNT_PROPERTIES_AT_STARTUP to true", path)
 	}
 
 	
