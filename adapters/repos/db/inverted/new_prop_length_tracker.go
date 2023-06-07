@@ -61,8 +61,20 @@ type JsonPropertyLengthTracker struct {
 // Note that some of the code in this file is forced by the need to be backwards-compatible with the old format.  Once we are confident that all users have migrated to the new format, we can remove the old format code and simplify this file.
 
 // NewJsonPropertyLengthTracker creates a new tracker and loads the data from the given path.  If the file is in the old format, it will be converted to the new format.
-func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, error) {
-	t := &JsonPropertyLengthTracker{
+func NewJsonPropertyLengthTracker(path string) (t *JsonPropertyLengthTracker, err error) {
+	//Recover and return empty tracker on panic
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Recovered from panic in NewJsonPropertyLengthTracker, returning empty tracker: %v", r)
+			t = &JsonPropertyLengthTracker{
+				data:             &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)},
+				path:             path,
+				UnlimitedBuckets: false,
+			}
+		}
+	}()
+
+	t = &JsonPropertyLengthTracker{
 		data:             &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)},
 		path:             path,
 		UnlimitedBuckets: false,
@@ -90,7 +102,7 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 	var data *PropLenData = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
 
 	// We don't have data file versioning, so we try to parse it as json.  If the parse fails, it is probably the old format file, so we call the old format loader and copy everything across.
-	if err := json.Unmarshal(bytes, data); err != nil {
+	if err = json.Unmarshal(bytes, data); err != nil {
 			// It's probably the old format file, load the old format and convert it to the new format
 			plt, err := NewPropertyLengthTracker(path)
 			if err != nil {
