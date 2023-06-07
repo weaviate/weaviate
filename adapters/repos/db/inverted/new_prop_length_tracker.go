@@ -83,26 +83,21 @@ func NewJsonPropertyLengthTracker(path string) (t *JsonPropertyLengthTracker, er
 	// read the file into memory
 	bytes, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if os.IsNotExist(err) {  //File doesn't exist, probably a new class(or a recount), return empty tracker
 			t.Flush(false)
 			return t, nil
 		}
-		return nil, err
+		return nil, errors.Wrap(err, "read property length tracker file:"+path)
 	}
 
 	if len(bytes) == 0 {
-		// Something created the file but left it empty?  Log it and return an empty tracker
-		log.Printf("Property length tracker file %s was empty", path)
-
-		// Write an empty data structure to it
-		t.Flush(false)
-		return t, nil
+		return nil, errors.Errorf("failed sanity check, empty prop len tracker file %s has length 0", path)
 	}
 
-	var data *PropLenData = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
+	
 
 	// We don't have data file versioning, so we try to parse it as json.  If the parse fails, it is probably the old format file, so we call the old format loader and copy everything across.
-	if err = json.Unmarshal(bytes, data); err != nil {
+	if err = json.Unmarshal(bytes, &t.data); err != nil {
 			// It's probably the old format file, load the old format and convert it to the new format
 			plt, err := NewPropertyLengthTracker(path)
 			if err != nil {
@@ -110,7 +105,7 @@ func NewJsonPropertyLengthTracker(path string) (t *JsonPropertyLengthTracker, er
 			}
 
 			propertyNames := plt.PropertyNames()
-			data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
+			data := &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
 			// Loop over every page and bucket in the old tracker and add it to the new tracker
 			for _, name := range propertyNames {
 				data.BucketedData[name] = make(map[int]int, MAX_BUCKETS)
@@ -143,12 +138,11 @@ func NewJsonPropertyLengthTracker(path string) (t *JsonPropertyLengthTracker, er
 			plt.Drop()
 			t.Flush(false)
 	}
-	t.data = data
 	t.path = path
 
 	// Make really sure we aren't going to crash on a nil pointer
 	if t.data == nil {
-		t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
+		return nil, errors.Errorf("failed sanity check, prop len tracker file %s has nil data.  Delete file and set environment variable RECOUNT_PROPERTIES_AT_STARTUP to true", path)
 	}
 	return t, nil
 }
