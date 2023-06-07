@@ -12,10 +12,13 @@
 package test
 
 import (
+	"fmt"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -92,5 +95,58 @@ func TestAddTenantObjects(t *testing.T) {
 			assert.Equal(t, obj.Class, resp.Class)
 			assert.Equal(t, obj.Properties, resp.Properties)
 		}
+	})
+}
+
+func TestAddTenantObjects_MissingTenantKey(t *testing.T) {
+	className := "MultiTenantClass"
+	tenantKey := "tenantName"
+	tenantName := "Tenant1"
+	testClass := models.Class{
+		Class: className,
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled:   true,
+			TenantKey: tenantKey,
+		},
+		Properties: []*models.Property{
+			{
+				Name:     tenantKey,
+				DataType: []string{"string"},
+			},
+		},
+	}
+	tenantObject := models.Object{
+		ID:    "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
+		Class: className,
+	}
+
+	defer func() {
+		helper.DeleteClass(t, className)
+	}()
+
+	t.Run("create class with multi-tenancy enabled", func(t *testing.T) {
+		helper.CreateClass(t, &testClass)
+	})
+
+	t.Run("create tenants", func(t *testing.T) {
+		helper.CreateTenants(t, className, []*models.Tenant{{tenantName}})
+	})
+
+	t.Run("add tenant object", func(t *testing.T) {
+		params := objects.NewObjectsCreateParams().
+			WithBody(&tenantObject).WithTenantKey(&tenantName)
+		resp, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
+		require.Nil(t, resp)
+		require.NotNil(t, err)
+		parsedErr, ok := err.(*objects.ObjectsCreateUnprocessableEntity)
+		require.True(t, ok)
+		expected := "put object: import into index multitenantclass: " +
+			"tenant_key query param value \"Tenant1\" conflicts with object " +
+			"body value \"\" for class \"MultiTenantClass\" tenant key \"tenantName\""
+		require.NotNil(t, parsedErr.Payload)
+		require.NotNil(t, parsedErr.Payload.Error)
+		require.Len(t, parsedErr.Payload.Error, 1)
+		assert.Contains(t, err.Error(), fmt.Sprint(http.StatusUnprocessableEntity))
+		assert.Equal(t, expected, parsedErr.Payload.Error[0].Message)
 	})
 }

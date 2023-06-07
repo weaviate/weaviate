@@ -112,7 +112,7 @@ type VectorRepo interface {
 type vectorRepo interface {
 	VectorRepo
 	BatchPutObjects(ctx context.Context, objects objects.BatchObjects,
-		repl *additional.ReplicationProperties) (objects.BatchObjects, error)
+		repl *additional.ReplicationProperties, tenantKey string) (objects.BatchObjects, error)
 }
 
 // NeighborRef is the result of an aggregation of the ref properties of k

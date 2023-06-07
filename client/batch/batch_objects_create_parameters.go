@@ -81,6 +81,12 @@ type BatchObjectsCreateParams struct {
 	*/
 	ConsistencyLevel *string
 
+	/* TenantKey.
+
+	   Specifies the tenant in a request targeting a multi-tenant class
+	*/
+	TenantKey *string
+
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -156,6 +162,17 @@ func (o *BatchObjectsCreateParams) SetConsistencyLevel(consistencyLevel *string)
 	o.ConsistencyLevel = consistencyLevel
 }
 
+// WithTenantKey adds the tenantKey to the batch objects create params
+func (o *BatchObjectsCreateParams) WithTenantKey(tenantKey *string) *BatchObjectsCreateParams {
+	o.SetTenantKey(tenantKey)
+	return o
+}
+
+// SetTenantKey adds the tenantKey to the batch objects create params
+func (o *BatchObjectsCreateParams) SetTenantKey(tenantKey *string) {
+	o.TenantKey = tenantKey
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *BatchObjectsCreateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -179,6 +196,23 @@ func (o *BatchObjectsCreateParams) WriteToRequest(r runtime.ClientRequest, reg s
 		if qConsistencyLevel != "" {
 
 			if err := r.SetQueryParam("consistency_level", qConsistencyLevel); err != nil {
+				return err
+			}
+		}
+	}
+
+	if o.TenantKey != nil {
+
+		// query param tenant_key
+		var qrTenantKey string
+
+		if o.TenantKey != nil {
+			qrTenantKey = *o.TenantKey
+		}
+		qTenantKey := qrTenantKey
+		if qTenantKey != "" {
+
+			if err := r.SetQueryParam("tenant_key", qTenantKey); err != nil {
 				return err
 			}
 		}
