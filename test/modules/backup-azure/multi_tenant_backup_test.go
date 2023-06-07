@@ -13,6 +13,7 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -24,21 +25,17 @@ import (
 )
 
 const (
-	envAzureEndpoint  = "AZURE_ENDPOINT"
-	envAzureContainer = "BACKUP_AZURE_CONTAINER"
-
-	envAzureStorageConnectionString = "AZURE_STORAGE_CONNECTION_STRING"
-	connectionString                = "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
-
-	azureBackupJourneyClassName          = "AzureBackup"
-	azureBackupJourneyBackupIDSingleNode = "azure-backup-single-node"
-	azureBackupJourneyBackupIDCluster    = "azure-backup-cluster"
-	azureBackupJourneyContainerName      = "backups"
+	numTenants = 50
 )
 
-func Test_BackupJourney(t *testing.T) {
+func Test_MultiTenantBackupJourney(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
+
+	tenantNames := make([]string, numTenants)
+	for i := range tenantNames {
+		tenantNames[i] = fmt.Sprintf("Tenant%d", i)
+	}
 
 	t.Run("single node", func(t *testing.T) {
 		t.Log("pre-instance env setup")
@@ -55,12 +52,11 @@ func Test_BackupJourney(t *testing.T) {
 		azuriteEndpoint := compose.GetAzurite().URI()
 		t.Setenv(envAzureEndpoint, azuriteEndpoint)
 		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
-		// defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-azure", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
-				"azure", azureBackupJourneyClassName, azureBackupJourneyBackupIDSingleNode, nil)
+				"azure", azureBackupJourneyClassName, azureBackupJourneyBackupIDSingleNode, tenantNames)
 		})
 
 		require.Nil(t, compose.Terminate(ctx))
@@ -81,12 +77,11 @@ func Test_BackupJourney(t *testing.T) {
 		azuriteEndpoint := compose.GetAzurite().URI()
 		t.Setenv(envAzureEndpoint, azuriteEndpoint)
 		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
-		// defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-azure", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "azure", azureBackupJourneyClassName,
-				azureBackupJourneyBackupIDCluster, nil, compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
+				azureBackupJourneyBackupIDCluster, tenantNames, compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
 		})
 
 		require.Nil(t, compose.Terminate(ctx))

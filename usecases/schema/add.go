@@ -132,6 +132,10 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 	class.Class = schema.UppercaseClassName(class.Class)
 	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
 
+	if class.ShardingConfig != nil && class.MultiTenancyConfig != nil {
+		return nil, fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")
+	}
+
 	m.setClassDefaults(class)
 	err := m.validateCanAddClass(ctx, class, false)
 	if err != nil {
@@ -373,10 +377,6 @@ func (m *Manager) validateCanAddClass(
 
 	if err := replica.ValidateConfig(class); err != nil {
 		return err
-	}
-
-	if class.ShardingConfig != nil && class.MultiTenancyConfig != nil {
-		return fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")
 	}
 
 	// all is fine!

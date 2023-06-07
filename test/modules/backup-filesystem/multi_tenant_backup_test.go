@@ -13,6 +13,7 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -21,13 +22,9 @@ import (
 	"github.com/weaviate/weaviate/test/helper/journey"
 )
 
-const (
-	fsBackupJourneyClassName          = "FileSystemBackup"
-	fsBackupJourneyBackupIDSingleNode = "fs-backup-single-node"
-	fsBackupJourneyBackupIDCluster    = "fs-backup-cluster"
-)
+const numTenants = 50
 
-func Test_BackupJourney(t *testing.T) {
+func Test_MultiTenantBackup(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
@@ -46,28 +43,14 @@ func Test_BackupJourney(t *testing.T) {
 		}()
 
 		t.Run("backup-filesystem", func(t *testing.T) {
-			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
-				"filesystem", fsBackupJourneyClassName, fsBackupJourneyBackupIDSingleNode, nil)
-		})
-	})
-
-	t.Run("multiple nodes", func(t *testing.T) {
-		compose, err := docker.New().
-			WithBackendFilesystem().
-			WithText2VecContextionary().
-			WithWeaviateCluster().
-			Start(ctx)
-		require.Nil(t, err)
-
-		defer func() {
-			if err := compose.Terminate(ctx); err != nil {
-				t.Fatalf("failed to terminte test containers: %s", err.Error())
+			tenantNames := make([]string, numTenants)
+			for i := range tenantNames {
+				tenantNames[i] = fmt.Sprintf("Tenant%d", i)
 			}
-		}()
 
-		t.Run("backup-filesystem", func(t *testing.T) {
-			journey.BackupJourneyTests_Cluster(t, "filesystem", fsBackupJourneyClassName,
-				fsBackupJourneyBackupIDCluster, nil, compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
+			journey.BackupJourneyTests_SingleNode(t,
+				compose.GetWeaviate().URI(), "filesystem", fsBackupJourneyClassName,
+				fsBackupJourneyBackupIDSingleNode, tenantNames)
 		})
 	})
 }
