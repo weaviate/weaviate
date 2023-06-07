@@ -91,7 +91,6 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 
 	// We don't have data file versioning, so we try to parse it as json.  If the parse fails, it is probably the old format file, so we call the old format loader and copy everything across.
 	if err := json.Unmarshal(bytes, data); err != nil {
-		if bytes[0] != '{' {
 			// It's probably the old format file, load the old format and convert it to the new format
 			plt, err := NewPropertyLengthTracker(path)
 			if err != nil {
@@ -131,7 +130,6 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 			plt.Close()
 			plt.Drop()
 			t.Flush(false)
-		}
 	}
 	t.data = data
 	t.path = path
