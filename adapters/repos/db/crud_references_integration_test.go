@@ -258,8 +258,7 @@ func TestNestedReferences(t *testing.T) {
 			"id":   strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
 		}
 
-		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			fullyNestedSelectProperties(), additional.Properties{})
+		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac", fullyNestedSelectProperties(), additional.Properties{}, "")
 		require.Nil(t, err)
 		assert.Equal(t, expectedSchema, res.Schema)
 	})
@@ -310,8 +309,7 @@ func TestNestedReferences(t *testing.T) {
 			"id":   strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
 		}
 
-		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			fullyNestedSelectPropertiesWithVector(), additional.Properties{})
+		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac", fullyNestedSelectPropertiesWithVector(), additional.Properties{}, "")
 		require.Nil(t, err)
 		assert.Equal(t, expectedSchema, res.Schema)
 	})
@@ -344,15 +342,13 @@ func TestNestedReferences(t *testing.T) {
 			"id":   strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
 		}
 
-		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			partiallyNestedSelectProperties(), additional.Properties{})
+		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac", partiallyNestedSelectProperties(), additional.Properties{}, "")
 		require.Nil(t, err)
 		assert.Equal(t, expectedSchema, res.Schema)
 	})
 
 	t.Run("resolving without any refs", func(t *testing.T) {
-		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			search.SelectProperties{}, additional.Properties{})
+		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac", search.SelectProperties{}, additional.Properties{}, "")
 
 		expectedSchema := map[string]interface{}{
 			"id": strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
@@ -640,8 +636,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	})
 
 	t.Run("check reference was added", func(t *testing.T) {
-		source, err := repo.ObjectByID(context.Background(), sourceID, nil,
-			additional.Properties{})
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 		require.NotNil(t, source)
 		require.NotNil(t, source.Object())
@@ -671,8 +666,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	})
 
 	t.Run("check both references are now present", func(t *testing.T) {
-		source, err := repo.ObjectByID(context.Background(), sourceID, nil,
-			additional.Properties{})
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 		require.NotNil(t, source)
 		require.NotNil(t, source.Object())

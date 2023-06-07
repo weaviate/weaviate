@@ -398,7 +398,7 @@ func testBatchImportObjectsNoVector(repo *DB) func(t *testing.T) {
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters:    nil,
 			}
-			_, err := repo.ClassSearch(context.Background(), params)
+			_, err := repo.Search(context.Background(), params)
 			require.Nil(t, err)
 		})
 	}
@@ -483,7 +483,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters:    nil,
 			}
-			res, err := repo.ClassSearch(context.Background(), params)
+			res, err := repo.Search(context.Background(), params)
 			require.Nil(t, err)
 
 			t.Run("contains first element", func(t *testing.T) {
@@ -505,7 +505,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 					Pagination: &filters.Pagination{Limit: 10},
 					Filters:    filter,
 				}
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
 
 				require.Len(t, res, 1)
@@ -570,7 +570,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters:    nil,
 			}
-			res, err := repo.ClassSearch(context.Background(), params)
+			res, err := repo.Search(context.Background(), params)
 			require.Nil(t, err)
 
 			t.Run("does not contain second element (validation error)", func(t *testing.T) {
@@ -624,8 +624,14 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				})
 
 				t.Run("a vector search returns the correct number of elements", func(t *testing.T) {
-					res, err := repo.ClassVectorSearch(context.Background(), "ThingForBatching",
-						[]float32{1, 2, 3}, 0, 100, nil)
+					res, err := repo.VectorSearch(context.Background(), dto.GetParams{
+						ClassName: "ThingForBatching",
+						Pagination: &filters.Pagination{
+							Offset: 0,
+							Limit:  10,
+						},
+						SearchVector: []float32{1, 2, 3},
+					})
 					require.Nil(t, err)
 					assert.Len(t, res, 2)
 				})
@@ -715,7 +721,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters:    nil,
 			}
-			res, err := repo.ClassSearch(context.Background(), params)
+			res, err := repo.Search(context.Background(), params)
 			require.Nil(t, err)
 
 			t.Run("does not contain second element (validation error)", func(t *testing.T) {
@@ -851,7 +857,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 						*queryGeo.Longitude,
 					}, maxDist*km)
 
-					res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+					res, err := repo.Search(context.Background(), dto.GetParams{
 						ClassName:  "ThingForBatching",
 						Pagination: &filters.Pagination{Limit: 500},
 						Filters: buildFilter("location", filters.GeoRange{
@@ -915,7 +921,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 						*queryGeo.Longitude,
 					}, maxDist*km)
 
-					res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+					res, err := repo.Search(context.Background(), dto.GetParams{
 						ClassName:  "ThingForBatching",
 						Pagination: &filters.Pagination{Limit: 500},
 						Filters: buildFilter("location", filters.GeoRange{
@@ -965,7 +971,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 			}
 		}
 		performClassSearch := func() ([]search.Result, error) {
-			return repo.ClassSearch(context.Background(), dto.GetParams{
+			return repo.Search(context.Background(), dto.GetParams{
 				ClassName:  "ThingForBatching",
 				Pagination: &filters.Pagination{Limit: 10000},
 			})
@@ -1103,7 +1109,7 @@ func testBatchDeleteObjectsJourney(repo *DB, queryMaximumResults int64) func(t *
 			}
 		}
 		performClassSearch := func() ([]search.Result, error) {
-			return repo.ClassSearch(context.Background(), dto.GetParams{
+			return repo.Search(context.Background(), dto.GetParams{
 				ClassName:  "ThingForBatching",
 				Pagination: &filters.Pagination{Limit: 20},
 			})

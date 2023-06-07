@@ -385,7 +385,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 
 					if td.expectedError == nil {
 						search.
-							On("VectorClassSearch", mock.Anything).
+							On("VectorSearch", mock.Anything).
 							Return(searchResults, nil)
 						res, err := explorer.GetClass(context.Background(), params)
 						assert.Nil(t, err)

@@ -64,7 +64,7 @@ func (m *Manager) findObject(ctx context.Context, class string,
 ) (*search.Result, error) {
 	// to support backwards compat
 	if class == "" {
-		return m.vectorRepo.ObjectByID(ctx, id, props, addl)
+		return m.vectorRepo.ObjectByID(ctx, id, props, addl, tenantKey)
 	}
 	return m.vectorRepo.Object(ctx, class, id, props, addl, nil, tenantKey)
 }
@@ -78,7 +78,7 @@ func (b *BatchManager) findObject(ctx context.Context, class string,
 ) (*search.Result, error) {
 	// to support backwards compat
 	if class == "" {
-		return b.vectorRepo.ObjectByID(ctx, id, props, addl)
+		return b.vectorRepo.ObjectByID(ctx, id, props, addl, tenantKey)
 	}
 	return b.vectorRepo.Object(ctx, class, id, props, addl, nil, tenantKey)
 }

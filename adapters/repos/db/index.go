@@ -877,10 +877,13 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
-	addlProps additional.Properties, replProps *additional.ReplicationProperties,
+	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenantKey string,
 ) ([]*storobj.Object, []float32, error) {
-	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
-		AllPhysicalShards()
+	if err := i.validateMultiTenancy(tenantKey); err != nil {
+		return nil, nil, err
+	}
+
+	shardNames := i.targetShardNames(tenantKey)
 
 	// If the request is a BM25F with no properties selected, use all possible properties
 	if keywordRanking != nil && keywordRanking.Type == "bm25" && len(keywordRanking.Properties) == 0 {
@@ -968,7 +971,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	// search, we should not limit the number of results.
 	// for example, if the query contains a where filter
 	// whose operator is `And`, and one of the operands
-	// contains a path to a reference prop, the ClassSearch
+	// contains a path to a reference prop, the Search
 	// caused by such a ref prop being limited can cause
 	// the `And` to return no results where results would
 	// be expected. we won't know that unless we search
@@ -1122,15 +1125,30 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 	return res, resDists, nil
 }
 
+func (i *Index) targetShardNames(tenantKey string) (shardNames []string) {
+	shardingState := i.getSchema.ShardingState(i.Config.ClassName.String())
+
+	if tenantKey != "" {
+		shardNames = []string{tenantKey}
+	} else {
+		shardNames = shardingState.AllPhysicalShards()
+	}
+
+	return
+}
+
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	dist float32, limit int, filters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy,
-	additional additional.Properties,
+	additional additional.Properties, tenantKey string,
 ) ([]*storobj.Object, []float32, error) {
-	shardingState := i.getSchema.ShardingState(i.Config.ClassName.String())
-	shardNames := shardingState.AllPhysicalShards()
+	if err := i.validateMultiTenancy(tenantKey); err != nil {
+		return nil, nil, err
+	}
 
-	if len(shardNames) == 1 && shardingState.IsShardLocal(shardNames[0]) {
+	shardNames := i.targetShardNames(tenantKey)
+
+	if len(shardNames) == 1 && i.isLocalShard(shardNames[0]) {
 		return i.singleLocalShardObjectVectorSearch(ctx, searchVector, dist, limit, filters,
 			sort, groupBy, additional, shardNames[0])
 	}
@@ -1152,7 +1170,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	for _, shardName := range shardNames {
 		shardName := shardName
 		errgrp.Go(func() error {
-			local := shardingState.IsShardLocal(shardName)
+			local := i.isLocalShard(shardName)
 
 			var res []*storobj.Object
 			var resDists []float32

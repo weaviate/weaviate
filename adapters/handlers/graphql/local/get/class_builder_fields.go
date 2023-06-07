@@ -212,7 +212,7 @@ func buildGetClassField(classObject *graphql.Object,
 				Type:        graphql.String,
 			},
 			"limit": &graphql.ArgumentConfig{
-				Description: descriptions.First,
+				Description: descriptions.Limit,
 				Type:        graphql.Int,
 			},
 			"offset": &graphql.ArgumentConfig{
@@ -241,6 +241,10 @@ func buildGetClassField(classObject *graphql.Object,
 
 	if replicationEnabled(class) {
 		field.Args["consistencyLevel"] = consistencyLevelArgument(class)
+	}
+
+	if multiTenancyEnabled(class) {
+		field.Args["tenantKey"] = tenantKeyArgument()
 	}
 
 	return field
@@ -411,6 +415,11 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			groupByParams = &p
 		}
 
+		var tenantKey string
+		if tk, ok := p.Args["tenantKey"]; ok {
+			tenantKey = tk.(string)
+		}
+
 		params := dto.GetParams{
 			Filters:               filters,
 			ClassName:             className,
@@ -427,6 +436,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			HybridSearch:          hybridParams,
 			ReplicationProperties: replProps,
 			GroupBy:               groupByParams,
+			TenantKey:             tenantKey,
 		}
 
 		// need to perform vector search by distance

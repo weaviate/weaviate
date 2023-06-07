@@ -165,8 +165,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		for _, obj := range data {
 			node := nodes[rand.Intn(len(nodes))]
 
-			res, err := node.repo.ObjectByID(context.Background(), obj.ID,
-				search.SelectProperties{}, additional.Properties{})
+			res, err := node.repo.ObjectByID(context.Background(), obj.ID, search.SelectProperties{}, additional.Properties{}, "")
 			require.Nil(t, err)
 			require.NotNil(t, res)
 
@@ -192,7 +191,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			groundTruth := bruteForceObjectsByQuery(data, query)
 
 			node := nodes[rand.Intn(len(nodes))]
-			res, err := node.repo.VectorClassSearch(context.Background(), dto.GetParams{
+			res, err := node.repo.VectorSearch(context.Background(), dto.GetParams{
 				SearchVector: query,
 				Pagination: &filters.Pagination{
 					Limit: 25,
@@ -208,7 +207,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		for _, obj := range data {
 			node := nodes[rand.Intn(len(nodes))]
 
-			res, err := node.repo.ObjectByID(context.Background(), obj.ID, search.SelectProperties{}, additional.Properties{})
+			res, err := node.repo.ObjectByID(context.Background(), obj.ID, search.SelectProperties{}, additional.Properties{}, "")
 			require.Nil(t, err)
 			require.NotNil(t, res)
 
@@ -226,24 +225,23 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			// }
 			node := nodes[rand.Intn(len(nodes))]
 
-			res, err := node.repo.ObjectByID(context.Background(), obj.ID,
-				search.SelectProperties{
-					search.SelectProperty{
-						Name:        "toFirst",
-						IsPrimitive: false,
-						Refs: []search.SelectClass{
-							{
-								ClassName: distributedClass,
-								RefProperties: search.SelectProperties{
-									search.SelectProperty{
-										Name:        "description",
-										IsPrimitive: true,
-									},
+			res, err := node.repo.ObjectByID(context.Background(), obj.ID, search.SelectProperties{
+				search.SelectProperty{
+					Name:        "toFirst",
+					IsPrimitive: false,
+					Refs: []search.SelectClass{
+						{
+							ClassName: distributedClass,
+							RefProperties: search.SelectProperties{
+								search.SelectProperty{
+									Name:        "description",
+									IsPrimitive: true,
 								},
 							},
 						},
 					},
-				}, additional.Properties{})
+				},
+			}, additional.Properties{}, "")
 			require.Nil(t, err)
 			require.NotNil(t, res)
 			props := res.Object().Properties.(map[string]interface{})
@@ -335,7 +333,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			}
 
 			node := nodes[rand.Intn(len(nodes))]
-			res, err := node.repo.ClassSearch(context.Background(), params)
+			res, err := node.repo.Search(context.Background(), params)
 			require.Nil(t, err)
 			require.NotEmpty(t, res)
 
@@ -385,8 +383,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		obj := data[0]
 
 		node := nodes[rand.Intn(len(nodes))]
-		res, err := node.repo.ObjectByID(context.Background(), obj.ID,
-			search.SelectProperties{}, additional.Properties{})
+		res, err := node.repo.ObjectByID(context.Background(), obj.ID, search.SelectProperties{}, additional.Properties{}, "")
 
 		require.Nil(t, err)
 		previousMap := obj.Properties.(map[string]interface{})
@@ -400,7 +397,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		count := len(data) / 2 // try to match half the data objects present
 		cutoff := time.Unix(0, 0).Add(time.Duration(count) * time.Hour)
 		node := nodes[rand.Intn(len(nodes))]
-		res, err := node.repo.ClassSearch(context.Background(), dto.GetParams{
+		res, err := node.repo.Search(context.Background(), dto.GetParams{
 			Filters: &filters.LocalFilter{
 				Root: &filters.Clause{
 					Operator: filters.OperatorLessThan,
@@ -430,7 +427,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		count := len(data) / 2 // try to match half the data objects present
 		cutoff := time.Unix(0, 0).Add(time.Duration(count) * time.Hour)
 		node := nodes[rand.Intn(len(nodes))]
-		res, err := node.repo.ClassSearch(context.Background(), dto.GetParams{
+		res, err := node.repo.Search(context.Background(), dto.GetParams{
 			Filters: &filters.LocalFilter{
 				Root: &filters.Clause{
 					Operator: filters.OperatorLessThan,
@@ -567,7 +564,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 				}
 
 				node := nodes[rand.Intn(len(nodes))]
-				res, err := node.repo.ClassSearch(context.Background(), params)
+				res, err := node.repo.Search(context.Background(), params)
 				require.Nil(t, err)
 				require.NotEmpty(t, res)
 
@@ -640,7 +637,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			}
 		}
 		performClassSearch := func(repo *db.DB, className string) ([]search.Result, error) {
-			return repo.ClassSearch(context.Background(), dto.GetParams{
+			return repo.Search(context.Background(), dto.GetParams{
 				ClassName:  className,
 				Pagination: &filters.Pagination{Limit: 10000},
 			})

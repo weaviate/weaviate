@@ -57,7 +57,7 @@ type objectsManager interface {
 	HeadObject(ctx context.Context, principal *models.Principal, class string, id strfmt.UUID,
 		repl *additional.ReplicationProperties, tenantKey string) (bool, *uco.Error)
 	GetObjects(context.Context, *models.Principal, *int64, *int64,
-		*string, *string, *string, additional.Properties) ([]*models.Object, error)
+		*string, *string, *string, additional.Properties, string) ([]*models.Object, error)
 	Query(ctx context.Context, principal *models.Principal,
 		params *uco.QueryParams) ([]*models.Object, *uco.Error)
 	MergeObject(context.Context, *models.Principal, *models.Object,
@@ -199,7 +199,7 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 	var deprecationsRes []*models.Deprecation
 
 	list, err := h.manager.GetObjects(params.HTTPRequest.Context(), principal,
-		params.Offset, params.Limit, params.Sort, params.Order, params.After, additional)
+		params.Offset, params.Limit, params.Sort, params.Order, params.After, additional, "")
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:

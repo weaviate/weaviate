@@ -271,7 +271,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 				},
 			}
 
-			res1, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res1, err := repo.VectorSearch(context.Background(), dto.GetParams{
 				ClassName:  "TestClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters:    createTimeStringFilter,
@@ -296,7 +296,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 				},
 			},
 		}
-		res1, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		res1, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName:  "TestClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters:    PropLengthFilter,
@@ -427,7 +427,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			},
 		}
 
-		res1, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		res1, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName:  "TestClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters:    createTimeStringFilter,
@@ -436,7 +436,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 		assert.Len(t, res1, 1)
 		assert.Equal(t, testID, res1[0].ID)
 
-		res2, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		res2, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName:  "TestClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters:    updateTimeStringFilter,
@@ -445,7 +445,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 		assert.Len(t, res2, 1)
 		assert.Equal(t, testID, res2[0].ID)
 
-		res3, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		res3, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName:  "TestClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters:    createTimeDateFilter,
@@ -454,7 +454,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 		assert.Len(t, res3, 1)
 		assert.Equal(t, testID, res3[0].ID)
 
-		res4, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		res4, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName:  "TestClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters:    updateTimeDateFilter,
@@ -499,7 +499,7 @@ func TestFilterPropertyLengthError(t *testing.T) {
 		Pagination:   &filters.Pagination{Limit: 5},
 		Filters:      LengthFilter,
 	}
-	_, err = repo.ClassSearch(context.Background(), params)
+	_, err = repo.Search(context.Background(), params)
 	require.NotNil(t, err)
 }
 

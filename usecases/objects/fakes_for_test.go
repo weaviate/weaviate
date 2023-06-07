@@ -155,8 +155,9 @@ func (f *fakeVectorRepo) Object(ctx context.Context, cls string, id strfmt.UUID,
 	return nil, args.Error(1)
 }
 
-func (f *fakeVectorRepo) ObjectByID(ctx context.Context,
-	id strfmt.UUID, props search.SelectProperties, additional additional.Properties,
+func (f *fakeVectorRepo) ObjectByID(ctx context.Context, id strfmt.UUID,
+	props search.SelectProperties, additional additional.Properties,
+	tenantKey string,
 ) (*search.Result, error) {
 	args := f.Called(id, props, additional)
 	if args.Get(0) != nil {
@@ -166,7 +167,7 @@ func (f *fakeVectorRepo) ObjectByID(ctx context.Context,
 }
 
 func (f *fakeVectorRepo) ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
-	sort []filters.Sort, additional additional.Properties,
+	sort []filters.Sort, additional additional.Properties, tenantKey string,
 ) (search.Results, error) {
 	args := f.Called(offset, limit, sort, filters, additional)
 	return args.Get(0).([]search.Result), args.Error(1)
