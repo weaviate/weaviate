@@ -13,11 +13,10 @@ package inverted
 
 import (
 	"encoding/json"
-	"log"
 	"math"
 	"os"
 	"sync"
-
+	"github.com/sirupsen/logrus"
 	"github.com/pkg/errors"
 )
 
@@ -34,6 +33,7 @@ type JsonPropertyLengthTracker struct {
 	data *PropLenData
 	sync.Mutex
 	UnlimitedBuckets bool
+	logger logrus.FieldLogger
 }
 
 // This class replaces the old PropertyLengthTracker.  It fixes a bug and provides a
@@ -61,16 +61,17 @@ type JsonPropertyLengthTracker struct {
 // Note that some of the code in this file is forced by the need to be backwards-compatible with the old format.  Once we are confident that all users have migrated to the new format, we can remove the old format code and simplify this file.
 
 // NewJsonPropertyLengthTracker creates a new tracker and loads the data from the given path.  If the file is in the old format, it will be converted to the new format.
-func NewJsonPropertyLengthTracker(path string) (t *JsonPropertyLengthTracker, err error) {
+func NewJsonPropertyLengthTracker(path string, logger logrus.FieldLogger) (t *JsonPropertyLengthTracker, err error) {
 	// Recover and return empty tracker on panic
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("Recovered from panic in NewJsonPropertyLengthTracker, returning empty tracker: %v", r)
+			t.logger.Printf("Recovered from panic in NewJsonPropertyLengthTracker, original error: %v", r)
 			t = &JsonPropertyLengthTracker{
 				data:             &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)},
 				path:             path,
 				UnlimitedBuckets: false,
 			}
+			err = errors.Errorf("Recovered from panic in NewJsonPropertyLengthTracker, original error: %v", r)
 		}
 	}()
 
@@ -78,6 +79,7 @@ func NewJsonPropertyLengthTracker(path string) (t *JsonPropertyLengthTracker, er
 		data:             &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)},
 		path:             path,
 		UnlimitedBuckets: false,
+		logger:           logger,
 	}
 
 	// read the file into memory
@@ -164,6 +166,7 @@ func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32
 
 	// Remove this check once we are confident that all users have migrated to the new format
 	if t.data == nil {
+		t.logger.Print("WARNING: t.data is nil in TrackProperty, initalizing to empty tracker")
 		t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
 	}
 	t.data.SumData[propName] = t.data.SumData[propName] + int(value)
@@ -188,6 +191,7 @@ func (t *JsonPropertyLengthTracker) UnTrackProperty(propName string, value float
 
 	// Remove this check once we are confident that all users have migrated to the new format
 	if t.data == nil {
+		t.logger.Print("WARNING: t.data is nil in TrackProperty, initalizing to empty tracker")
 		t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
 	}
 	t.data.SumData[propName] = t.data.SumData[propName] - int(value)
@@ -290,8 +294,6 @@ func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
 
 	// Do a write+rename to avoid corrupting the file if we crash while writing
 	tempfile := filename + ".tmp"
-
-	os.Remove(tempfile)
 
 	err = os.WriteFile(tempfile, bytes, 0o666)
 	if err != nil {
