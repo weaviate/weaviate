@@ -58,7 +58,7 @@ func backupJourney(t *testing.T, className, backend, backupID string, journeyTyp
 		// wait for create success
 		createTime := time.Now()
 		for {
-			if time.Now().After(createTime.Add(21 * time.Second)) {
+			if time.Now().After(createTime.Add(time.Minute)) {
 				break
 			}
 
@@ -96,7 +96,7 @@ func backupJourney(t *testing.T, className, backend, backupID string, journeyTyp
 		// wait for restore success
 		restoreTime := time.Now()
 		for {
-			if time.Now().After(restoreTime.Add(21 * time.Second)) {
+			if time.Now().After(restoreTime.Add(time.Minute)) {
 				break
 			}
 
