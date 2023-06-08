@@ -102,7 +102,7 @@ func Test_PropertyLengthTracker(t *testing.T) {
 		tracker.TrackProperty("test-prop", 1)
 		tracker.TrackProperty("test-prop", 2)
 		tracker.TrackProperty("test-prop", 3)
-		tracker.Flush()
+		tracker.Flush(false)
 
 		sum, count, mean, err := tracker.PropertyTally("test-prop")
 		require.Nil(t, err)
@@ -248,7 +248,7 @@ func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 	})
 
 	t.Run("commit the state to disk", func(t *testing.T) {
-		require.Nil(t, tracker.Flush())
+		require.Nil(t, tracker.Flush(false))
 	})
 
 	t.Run("shut down the tracker", func(t *testing.T) {
