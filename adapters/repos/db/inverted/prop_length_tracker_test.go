@@ -75,7 +75,7 @@ func Test_PropertyLengthTracker(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				tracker, err := NewJsonPropertyLengthTracker(trackerPath,  l)
+				tracker, err := NewJsonPropertyLengthTracker(trackerPath, l)
 				require.Nil(t, err)
 
 				actualMean := float32(0)
@@ -98,7 +98,7 @@ func Test_PropertyLengthTracker(t *testing.T) {
 	})
 
 	t.Run("test untrack", func(t *testing.T) {
-		tracker, err := NewJsonPropertyLengthTracker(trackerPath,l)
+		tracker, err := NewJsonPropertyLengthTracker(trackerPath, l)
 		require.Nil(t, err)
 
 		tracker.TrackProperty("test-prop", 1)
@@ -152,7 +152,7 @@ func Test_PropertyLengthTracker(t *testing.T) {
 		}
 
 		// This time we use a single tracker
-		tracker, err := NewJsonPropertyLengthTracker(trackerPath,l)
+		tracker, err := NewJsonPropertyLengthTracker(trackerPath, l)
 		require.Nil(t, err)
 
 		for _, prop := range props {
@@ -177,7 +177,7 @@ func Test_PropertyLengthTracker(t *testing.T) {
 
 	t.Run("with more properties that can fit on one page", func(t *testing.T) {
 		// This time we use a single tracker
-		tracker, err := NewJsonPropertyLengthTracker(trackerPath,l)
+		tracker, err := NewJsonPropertyLengthTracker(trackerPath, l)
 		require.Nil(t, err)
 
 		create20PropsAndVerify(t, tracker)
@@ -241,7 +241,7 @@ func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 	l := logrus.New()
 
 	t.Run("initializing an empty tracker, no file present", func(t *testing.T) {
-		tr, err := NewJsonPropertyLengthTracker(path,l)
+		tr, err := NewJsonPropertyLengthTracker(path, l)
 		require.Nil(t, err)
 		tracker = tr
 	})
@@ -260,7 +260,7 @@ func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 
 	var secondTracker *JsonPropertyLengthTracker
 	t.Run("initializing a new tracker from the same file", func(t *testing.T) {
-		tr, err := NewJsonPropertyLengthTracker(path,l)
+		tr, err := NewJsonPropertyLengthTracker(path, l)
 		require.Nil(t, err)
 		secondTracker = tr
 	})
@@ -311,7 +311,7 @@ func TestFormatConversion(t *testing.T) {
 	l := logrus.New()
 
 	t.Run("initializing a new tracker from the same file", func(t *testing.T) {
-		tr, err := NewJsonPropertyLengthTracker(path,l)
+		tr, err := NewJsonPropertyLengthTracker(path, l)
 		require.Nil(t, err)
 		newTracker = tr
 	})
