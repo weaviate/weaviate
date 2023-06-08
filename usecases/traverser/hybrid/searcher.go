@@ -102,9 +102,6 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 		weights []float64
 	)
 
-	fmt.Printf("s.params.Query: %v\n", s.params.Query)
-	fmt.Printf("s.params: %+v\n", s.params)
-
 	if s.params.Query != "" {
 		alpha := s.params.Alpha
 
