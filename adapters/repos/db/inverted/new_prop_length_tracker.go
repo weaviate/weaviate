@@ -138,7 +138,7 @@ func NewJsonPropertyLengthTracker(path string) (t *JsonPropertyLengthTracker, er
 	t.path = path
 
 	// Make really sure we aren't going to crash on a nil pointer
-	if t.data == nil  || t.data.BucketedData == nil || t.data.CountData == nil || t.data.SumData == nil{
+	if t.data == nil || t.data.BucketedData == nil || t.data.CountData == nil || t.data.SumData == nil {
 		return nil, errors.Errorf("failed sanity check, prop len tracker file %s has nil data.  Delete file and set environment variable RECOUNT_PROPERTIES_AT_STARTUP to true", path)
 	}
 	return t, nil
@@ -270,8 +270,6 @@ func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, fl
 
 // Writes the current state of the tracker to disk.  (flushBackup = true) will only write the backup file
 func (t *JsonPropertyLengthTracker) Flush() error {
-
-
 	t.Lock()
 	defer t.Unlock()
 
@@ -281,7 +279,6 @@ func (t *JsonPropertyLengthTracker) Flush() error {
 	}
 
 	filename := t.path
-
 
 	// Do a write+rename to avoid corrupting the file if we crash while writing
 	tempfile := filename + ".tmp"
