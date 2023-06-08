@@ -80,12 +80,7 @@ func TestBatchAddTenantObjects(t *testing.T) {
 	t.Run("add tenant objects", func(t *testing.T) {
 		resp, err := helper.CreateTenantObjectsBatch(t, tenantObjects, tenantName)
 		require.Nil(t, err)
-		for _, elem := range resp {
-			if !assert.Nil(t, elem.Result.Errors) {
-				t.Logf("expected nil, got: %v",
-					elem.Result.Errors.Error[0].Message)
-			}
-		}
+		helper.CheckObjectsBatchResponse(t, resp, err)
 	})
 
 	t.Run("get tenant objects", func(t *testing.T) {

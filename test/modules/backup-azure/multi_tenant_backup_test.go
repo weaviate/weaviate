@@ -29,7 +29,6 @@ const (
 )
 
 func Test_MultiTenantBackupJourney(t *testing.T) {
-	t.Skip("todo: fix me")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 

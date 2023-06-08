@@ -25,8 +25,6 @@ import (
 const numTenants = 50
 
 func Test_MultiTenantBackup(t *testing.T) {
-	t.Skip("todo: fix me")
-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
