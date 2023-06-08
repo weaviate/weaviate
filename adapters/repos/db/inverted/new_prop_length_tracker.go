@@ -167,7 +167,7 @@ func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32
 
 	// Remove this check once we are confident that all users have migrated to the new format
 	if t.data == nil {
-		t.logger.Print("WARNING: t.data is nil in TrackProperty, initalizing to empty tracker")
+		t.logger.Print("WARNING: t.data is nil in TrackProperty, initializing to empty tracker")
 		t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
 	}
 	t.data.SumData[propName] = t.data.SumData[propName] + int(value)
@@ -192,7 +192,7 @@ func (t *JsonPropertyLengthTracker) UnTrackProperty(propName string, value float
 
 	// Remove this check once we are confident that all users have migrated to the new format
 	if t.data == nil {
-		t.logger.Print("WARNING: t.data is nil in TrackProperty, initalizing to empty tracker")
+		t.logger.Print("WARNING: t.data is nil in TrackProperty, initializing to empty tracker")
 		t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
 	}
 	t.data.SumData[propName] = t.data.SumData[propName] - int(value)
