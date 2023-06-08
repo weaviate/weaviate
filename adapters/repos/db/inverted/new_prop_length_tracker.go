@@ -84,7 +84,7 @@ func NewJsonPropertyLengthTracker(path string) (t *JsonPropertyLengthTracker, er
 	bytes, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) { // File doesn't exist, probably a new class(or a recount), return empty tracker
-			t.Flush(false)
+			t.Flush()
 			return t, nil
 		}
 		return nil, errors.Wrap(err, "read property length tracker file:"+path)
@@ -130,16 +130,15 @@ func NewJsonPropertyLengthTracker(path string) (t *JsonPropertyLengthTracker, er
 				data.CountData[name] = data.CountData[name] + int(count)
 			}
 		}
-		t.data = data
-		t.Flush(true)
 		plt.Close()
 		plt.Drop()
-		t.Flush(false)
+		t.data = data
+		t.Flush()
 	}
 	t.path = path
 
 	// Make really sure we aren't going to crash on a nil pointer
-	if t.data == nil {
+	if t.data == nil  || t.data.BucketedData == nil || t.data.CountData == nil || t.data.SumData == nil{
 		return nil, errors.Errorf("failed sanity check, prop len tracker file %s has nil data.  Delete file and set environment variable RECOUNT_PROPERTIES_AT_STARTUP to true", path)
 	}
 	return t, nil
@@ -270,10 +269,8 @@ func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, fl
 }
 
 // Writes the current state of the tracker to disk.  (flushBackup = true) will only write the backup file
-func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
-	if !flushBackup { // Write the backup file first
-		t.Flush(true)
-	}
+func (t *JsonPropertyLengthTracker) Flush() error {
+
 
 	t.Lock()
 	defer t.Unlock()
@@ -284,9 +281,7 @@ func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
 	}
 
 	filename := t.path
-	if flushBackup {
-		filename = t.path + ".bak"
-	}
+
 
 	// Do a write+rename to avoid corrupting the file if we crash while writing
 	tempfile := filename + ".tmp"
@@ -308,7 +303,7 @@ func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
 
 // Closes the tracker and removes the backup file
 func (t *JsonPropertyLengthTracker) Close() error {
-	if err := t.Flush(false); err != nil {
+	if err := t.Flush(); err != nil {
 		return errors.Wrap(err, "flush before closing")
 	}
 
