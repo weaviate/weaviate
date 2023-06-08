@@ -183,22 +183,22 @@ type PQEncoder interface {
 
 func NewProductQuantizer(cfg ent.PQConfig, distance distancer.Provider, dimensions int) (*ProductQuantizer, error) {
 	if cfg.Segments <= 0 {
-		return nil, errors.New("Segments cannot be 0 nor negative")
+		return nil, errors.New("segments cannot be 0 nor negative")
 	}
 	if cfg.Centroids > 256 {
-		return nil, fmt.Errorf("Centroids should not be higher than 256. Attempting to use %d", centroids)
+		return nil, fmt.Errorf("centroids should not be higher than 256. Attempting to use %d", cfg.Centroids)
 	}
 	if dimensions%cfg.Segments != 0 {
-		return nil, errors.New("Segments should be an integer divisor of dimensions")
+		return nil, errors.New("segments should be an integer divisor of dimensions")
 	}
 	encoderType, err := parseEncoder(cfg.Encoder.Type)
 	if err != nil {
-		return nil, errors.New("Invalid encoder type")
+		return nil, errors.New("invalid encoder type")
 	}
 
 	encoderDistribution, err := parseEncoderDistribution(cfg.Encoder.Distribution)
 	if err != nil {
-		return nil, errors.New("Invalid encoder distribution")
+		return nil, errors.New("invalid encoder distribution")
 	}
 	pq := &ProductQuantizer{
 		ks:                  cfg.Centroids,
@@ -319,7 +319,6 @@ func (d *PQDistancer) DistanceToFloat(x []float32) (float32, bool, error) {
 func (pq *ProductQuantizer) Fit(data [][]float32) {
 	if pq.trainingLimit > 0 && len(data) > pq.trainingLimit {
 		data = data[:pq.trainingLimit]
-		fmt.Printf("pq: training limit reached, using %d vectors\n", pq.trainingLimit)
 	}
 	switch pq.encoderType {
 	case UseTileEncoder:

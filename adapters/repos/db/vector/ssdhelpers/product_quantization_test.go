@@ -74,7 +74,7 @@ func Test_NoRacePQKMeans(t *testing.T) {
 			Type:         ent.PQEncoderTypeKMeans,
 			Distribution: ent.PQEncoderDistributionLogNormal,
 		},
-		Centroids: 512,
+		Centroids: 255,
 		Segments:  dimensions,
 	}
 	pq, _ := ssdhelpers.NewProductQuantizer(
@@ -124,6 +124,77 @@ func Test_NoRacePQDecodeBytes(t *testing.T) {
 			code := ssdhelpers.ExtractCode8(values, i)
 			assert.Equal(t, code, uint8(i))
 		}
+	})
+}
+
+func Test_NoRacePQInvalidConfig(t *testing.T) {
+	t.Run("validate pq options", func(t *testing.T) {
+		amount := 100
+		centroids := 256
+		cfg := ent.PQConfig{
+			Enabled: true,
+			Encoder: ent.PQEncoder{
+				Type:         "lmeans",
+				Distribution: ent.PQEncoderDistributionLogNormal,
+			},
+			Centroids:     centroids,
+			TrainingLimit: 75,
+			Segments:      amount,
+		}
+		_, err := ssdhelpers.NewProductQuantizer(
+			cfg,
+			nil,
+			amount,
+		)
+		assert.ErrorContains(t, err, "invalid encoder type")
+		cfg = ent.PQConfig{
+			Enabled: true,
+			Encoder: ent.PQEncoder{
+				Type:         ent.DefaultPQEncoderType,
+				Distribution: "log",
+			},
+			Centroids:     centroids,
+			TrainingLimit: 75,
+			Segments:      amount,
+		}
+		_, err = ssdhelpers.NewProductQuantizer(
+			cfg,
+			nil,
+			amount,
+		)
+		assert.ErrorContains(t, err, "invalid encoder distribution")
+		cfg = ent.PQConfig{
+			Enabled: true,
+			Encoder: ent.PQEncoder{
+				Type:         ent.DefaultPQEncoderType,
+				Distribution: ent.DefaultPQEncoderDistribution,
+			},
+			Centroids:     centroids,
+			TrainingLimit: 75,
+			Segments:      0,
+		}
+		_, err = ssdhelpers.NewProductQuantizer(
+			cfg,
+			nil,
+			amount,
+		)
+		assert.ErrorContains(t, err, "segments cannot be 0 nor negative")
+		cfg = ent.PQConfig{
+			Enabled: true,
+			Encoder: ent.PQEncoder{
+				Type:         ent.DefaultPQEncoderType,
+				Distribution: ent.DefaultPQEncoderDistribution,
+			},
+			Centroids:     centroids,
+			TrainingLimit: 75,
+			Segments:      3,
+		}
+		_, err = ssdhelpers.NewProductQuantizer(
+			cfg,
+			nil,
+			4,
+		)
+		assert.ErrorContains(t, err, "segments should be an integer divisor of dimensions")
 	})
 }
 
