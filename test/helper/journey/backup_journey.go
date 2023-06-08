@@ -188,16 +188,10 @@ func addTestObjects(t *testing.T, className string, tenantKey string) {
 		}
 
 		if tenantKey != singleTenant {
-			helper.CreateObjectsBatch(t, batch)
+			resp, err := helper.CreateTenantObjectsBatch(t, batch, fmt.Sprintf("Tenant%d", i))
+			helper.CheckObjectsBatchResponse(t, resp, err)
 		} else {
-			resp, err := helper.CreateTenantObjectsBatch(t, batch, tenantKey)
-			require.Nil(t, err)
-			for _, elem := range resp {
-				if !assert.Nil(t, elem.Result.Errors) {
-					t.Logf("expected nil, got: %v",
-						elem.Result.Errors.Error[0].Message)
-				}
-			}
+			helper.CreateObjectsBatch(t, batch)
 		}
 	}
 }

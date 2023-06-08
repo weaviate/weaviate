@@ -82,7 +82,12 @@ func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
 		})
 	resp, err := Client(t).Batch.BatchObjectsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
-	for _, elem := range resp.Payload {
+	CheckObjectsBatchResponse(t, resp.Payload, err)
+}
+
+func CheckObjectsBatchResponse(t *testing.T, resp []*models.ObjectsGetResponse, err error) {
+	AssertRequestOk(t, resp, err, nil)
+	for _, elem := range resp {
 		if !assert.Nil(t, elem.Result.Errors) {
 			t.Logf("expected nil, got: %v",
 				elem.Result.Errors.Error[0].Message)
