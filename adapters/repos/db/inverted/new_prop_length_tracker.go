@@ -324,7 +324,9 @@ func (t *JsonPropertyLengthTracker) Drop() error {
 	if err := os.Remove(t.path); err != nil {
 		return errors.Wrap(err, "remove prop length tracker state from disk:"+t.path)
 	}
-
+	if err := os.Remove(t.path + ".bak"); err != nil {
+		return errors.Wrap(err, "remove prop length tracker state from disk:"+t.path+".bak")
+	}
 
 	return nil
 }
