@@ -16,8 +16,9 @@ import (
 	"math"
 	"os"
 	"sync"
-	"github.com/sirupsen/logrus"
+
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 var MAX_BUCKETS = 64
@@ -33,7 +34,7 @@ type JsonPropertyLengthTracker struct {
 	data *PropLenData
 	sync.Mutex
 	UnlimitedBuckets bool
-	logger logrus.FieldLogger
+	logger           logrus.FieldLogger
 }
 
 // This class replaces the old PropertyLengthTracker.  It fixes a bug and provides a
