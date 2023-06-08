@@ -259,6 +259,10 @@ func (b *referencesBatcher) writeInvertedAdditions(
 func (b *referencesBatcher) analyzeRef(obj *storobj.Object,
 	ref objects.BatchReference, prop *models.Property,
 ) ([]inverted.Property, error) {
+	if prop == nil {
+		return nil, fmt.Errorf("analyzeRef: property %q not found in schema", ref.From.Property)
+	}
+
 	props := obj.Properties()
 	if props == nil {
 		return nil, nil
