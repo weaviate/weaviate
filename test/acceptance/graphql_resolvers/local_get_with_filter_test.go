@@ -14,7 +14,9 @@ package test
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"testing"
+	"time"
 
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 
@@ -532,7 +534,14 @@ func gettingObjectsWithFilters(t *testing.T) {
 		targetCreationTime := additional.(map[string]interface{})["creationTimeUnix"].(string)
 		targetUpdateTime := additional.(map[string]interface{})["lastUpdateTimeUnix"].(string)
 
-		t.Run("creationTimeUnix", func(t *testing.T) {
+		creationTimestamp, err := strconv.ParseInt(targetCreationTime, 10, 64)
+		assert.Nil(t, err)
+		creationDate := time.UnixMilli(creationTimestamp).Format(time.RFC3339)
+		updateTimestamp, err := strconv.ParseInt(targetUpdateTime, 10, 64)
+		assert.Nil(t, err)
+		updateDate := time.UnixMilli(updateTimestamp).Format(time.RFC3339)
+
+		t.Run("creationTimeUnix as timestamp", func(t *testing.T) {
 			query := fmt.Sprintf(`
 				{
 					Get {
@@ -559,7 +568,34 @@ func gettingObjectsWithFilters(t *testing.T) {
 			assert.Equal(t, targetID, resultID)
 		})
 
-		t.Run("lastUpdateTimeUnix", func(t *testing.T) {
+		t.Run("creationTimeUnix as date", func(t *testing.T) {
+			query := fmt.Sprintf(`
+				{
+					Get {
+						Airport(
+							where: {
+								path: ["_creationTimeUnix"]
+								operator: GreaterThanEqual
+								valueDate: "%s"
+							}
+						)
+						{
+							_additional {
+								id
+							}
+						}
+					}
+				}
+			`, creationDate)
+
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+			airport := result.Get("Get", "Airport").AsSlice()[0]
+			additional := airport.(map[string]interface{})["_additional"]
+			resultID := additional.(map[string]interface{})["id"].(string)
+			assert.Equal(t, targetID, resultID)
+		})
+
+		t.Run("lastUpdateTimeUnix as timestamp", func(t *testing.T) {
 			query := fmt.Sprintf(`
 				{
 					Get {
@@ -578,6 +614,33 @@ func gettingObjectsWithFilters(t *testing.T) {
 					}
 				}
 			`, targetUpdateTime)
+
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+			airport := result.Get("Get", "Airport").AsSlice()[0]
+			additional := airport.(map[string]interface{})["_additional"]
+			resultID := additional.(map[string]interface{})["id"].(string)
+			assert.Equal(t, targetID, resultID)
+		})
+
+		t.Run("lastUpdateTimeUnix as date", func(t *testing.T) {
+			query := fmt.Sprintf(`
+				{
+					Get {
+						Airport(
+							where: {
+								path: ["_lastUpdateTimeUnix"]
+								operator: GreaterThanEqual
+								valueDate: "%s"
+							}
+						)
+						{
+							_additional {
+								id
+							}
+						}
+					}
+				}
+			`, updateDate)
 
 			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 			airport := result.Get("Get", "Airport").AsSlice()[0]
