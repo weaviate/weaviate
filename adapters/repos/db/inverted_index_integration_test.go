@@ -354,7 +354,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 	})
 
 	now := time.Now()
-	timestamp := now.UnixNano() / int64(time.Millisecond)
+	timestamp := now.UnixMilli()
 	testID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
 
 	t.Run("insert test object", func(t *testing.T) {
