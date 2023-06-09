@@ -118,6 +118,7 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,
 			errLock.Lock()
 			errs[i] = errors.Wrap(err, "invalid id")
 			errLock.Unlock()
+			continue
 		}
 
 		idBytes, err := uuidParsed.MarshalBinary()
@@ -125,6 +126,7 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,
 			errLock.Lock()
 			errs[i] = err
 			errLock.Unlock()
+			continue
 		}
 
 		mergeDoc := mergeDocFromBatchReference(ref)
@@ -133,6 +135,7 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,
 			errLock.Lock()
 			errs[i] = err
 			errLock.Unlock()
+			continue
 		}
 
 		prop, ok := propsByName[ref.From.Property.String()]
@@ -140,17 +143,17 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,
 			errLock.Lock()
 			errs[i] = fmt.Errorf("property '%s' not found in schema", ref.From.Property)
 			errLock.Unlock()
+			continue
 		}
 
 		// generally the batch ref is an append only change which does not alter
 		// the vector position. There is however one inverted index link that needs
 		// to be cleanup: the ref count
 		if err := b.analyzeInverted(invertedMerger, res, ref, prop); err != nil {
-			if err != nil {
-				errLock.Lock()
-				errs[i] = err
-				errLock.Unlock()
-			}
+			errLock.Lock()
+			errs[i] = err
+			errLock.Unlock()
+			continue
 		}
 	}
 
