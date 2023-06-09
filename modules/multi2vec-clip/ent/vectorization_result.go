@@ -12,6 +12,11 @@
 package ent
 
 type VectorizationResult struct {
-	TextVectors  [][]float32
-	ImageVectors [][]float32
+	TextVectors    [][]float32
+	ImageVectors   [][]float32
+	AudioVectors   [][]float32
+	VideoVectors   [][]float32
+	IMUVectors     [][]float32
+	ThermalVectors [][]float32
+	DepthVectors   [][]float32
 }
