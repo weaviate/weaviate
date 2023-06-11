@@ -32,7 +32,7 @@ const (
 
 var (
 	availableCohereModels    = []string{"embed-multilingual-v2.0", "embed-english-light-v2.0", "embed-english-v2.0"}
-// 	experimetnalCohereModels = []string{"multilingual-2210-alpha"}
+	experimetnalCohereModels = []string{}
 	availableTruncates       = []string{"NONE", "LEFT", "RIGHT"}
 )
 
