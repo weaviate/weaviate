@@ -19,11 +19,13 @@ type SortedQueue interface {
 	Pop() Item
 	Top() Item
 	Last() (Item, bool)
+	FirstUnRescored() int
 }
 
 type Item struct {
-	ID   uint64
-	Dist float32
+	ID       uint64
+	Dist     float32
+	Rescored bool
 }
 
 type Queue struct {
@@ -83,8 +85,15 @@ func (l *Queue) heapify(i int) {
 	}
 }
 
+func (l *Queue) FirstUnRescored() int {
+	return 0
+}
+
 func (l *Queue) Insert(id uint64, distance float32) int {
-	l.items = append(l.items, Item{id, distance})
+	l.items = append(l.items, Item{
+		ID:   id,
+		Dist: distance,
+	})
 	i := len(l.items) - 1
 	for i != 0 && l.less(l.items, i, l.parent(i)) {
 		l.swap(i, l.parent(i))
