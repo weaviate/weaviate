@@ -868,7 +868,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenantKey string,
 ) ([]*storobj.Object, []float32, error) {
-	if err := i.validateMultiTenancy(tenantKey); err != nil {
+	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
 		return nil, nil, err
 	}
 
@@ -1131,7 +1131,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	sort []filters.Sort, groupBy *searchparams.GroupBy,
 	additional additional.Properties, tenantKey string,
 ) ([]*storobj.Object, []float32, error) {
-	if err := i.validateMultiTenancy(tenantKey); err != nil {
+	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
 		return nil, nil, err
 	}
 
