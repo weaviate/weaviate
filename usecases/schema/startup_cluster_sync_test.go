@@ -385,7 +385,10 @@ func newManagerWithClusterAndTx(t *testing.T, clusterState clusterState,
 ) (*Manager, error) {
 	logger, _ := test.NewNullLogger()
 	repo := newFakeRepo()
-	repo.schema = initialSchema
+	if initialSchema == nil {
+		initialSchema = &State{}
+	}
+	repo.schema = *initialSchema
 	sm, err := NewManager(&NilMigrator{}, repo, logger, &fakeAuthorizer{},
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
 		dummyParseVectorConfig, // only option for now
