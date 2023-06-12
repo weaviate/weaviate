@@ -437,8 +437,11 @@ func (h *hnsw) distanceToByteNode(distancer *ssdhelpers.PQDistancer,
 	return distancer.Distance(vec)
 }
 
-func (h *hnsw) distanceFromBytesToFloatNode(distancer *ssdhelpers.PQDistancer, nodeID uint64) (float32, bool, error) {
+func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer *ssdhelpers.PQDistancer, nodeID uint64) (float32, bool, error) {
 	vec, err := h.VectorForIDThunk(context.Background(), nodeID)
+	if h.distancerProvider.Type() == "cosine-dot" {
+		vec = distancer.Normalize(vec)
+	}
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
@@ -449,7 +452,7 @@ func (h *hnsw) distanceFromBytesToFloatNode(distancer *ssdhelpers.PQDistancer, n
 			return 0, false, errors.Wrapf(err, "get vector of docID %d", nodeID)
 		}
 	}
-	return distancer.DistanceToFloat(vec)
+	return concreteDistancer.DistanceToFloat(vec)
 }
 
 func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer,
@@ -557,21 +560,14 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 
 	eps := priorityqueue.NewMin(10)
 	eps.Insert(entryPointID, entryPointDistance)
-	if h.compressed.Load() {
-		eps := priorityqueue.NewMin(10)
-		eps.Insert(entryPointID, entryPointDistance)
-		res, err := h.searchLayerByVector(searchVec, eps, ef, 0, allowList)
-		if err != nil {
-			return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
-		}
-
-		ids, dists := res.Items(k)
-		return ids, dists, nil
-	}
-
 	res, err := h.searchLayerByVector(searchVec, eps, ef, 0, allowList)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
+	}
+
+	if h.compressed.Load() && !h.doNotRescore.Load() {
+		ids, dists := res.Items(k)
+		return ids, dists, nil
 	}
 
 	for res.Len() > k {
