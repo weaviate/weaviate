@@ -215,10 +215,6 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		if dist > worstResultDistance {
 			break
 		}
-		if h.shouldRescore() {
-			dist, _, _ = h.distanceFromBytesToFloatNode(byteDistancer, candidate.ID)
-			results.ReSort(candidate.ID, dist)
-		}
 		h.RLock()
 		candidateNode := h.nodes[candidate.ID]
 		h.RUnlock()
@@ -333,6 +329,14 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 
 	// results are passed on, so it's in the callers responsibility to return the
 	// list to the pool after using it
+	if h.shouldRescore() {
+		index, id := results.FirstUnRescored()
+		for index >= 0 {
+			dist, _, _ := h.distanceFromBytesToFloatNode(byteDistancer, id)
+			results.ReSort(index, dist)
+			index, id = results.FirstUnRescored()
+		}
+	}
 	return results, nil
 }
 
