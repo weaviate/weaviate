@@ -77,6 +77,10 @@ func (l *QueueWithIndex) heapify(i int) {
 	}
 }
 
+func (l *QueueWithIndex) FirstUnRescored() int {
+	return 0
+}
+
 func (l *QueueWithIndex) ReSort(id uint64, distance float32) {
 	panic("Not implemented yet")
 }

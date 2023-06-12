@@ -43,9 +43,10 @@ func (p *SortedSetPool) Put(s *SortedSet) {
 }
 
 type SortedSet struct {
-	items    []priorityqueue.Item
-	last     int
-	capacity int
+	items           []priorityqueue.Item
+	last            int
+	capacity        int
+	firstUnRescored int
 }
 
 func NewSortedSet(capacity int) *SortedSet {
@@ -68,7 +69,9 @@ func (s *SortedSet) Reset(capacity int) {
 	s.last = -1
 	for i := 0; i < capacity; i++ {
 		s.items[i].Dist = math.MaxFloat32
+		s.items[i].Rescored = false
 	}
+	s.firstUnRescored = 0
 }
 
 func (s *SortedSet) Last() (priorityqueue.Item, bool) {
@@ -79,11 +82,24 @@ func (s *SortedSet) Last() (priorityqueue.Item, bool) {
 }
 
 func (s *SortedSet) Insert(id uint64, distance float32) int {
-	return s.add(priorityqueue.Item{ID: id, Dist: distance})
+	pos := s.add(priorityqueue.Item{ID: id, Dist: distance})
+	if pos < 0 {
+		return pos
+	}
+	if pos < s.firstUnRescored {
+		s.firstUnRescored = pos
+	}
+	return pos
 }
 
 func (s *SortedSet) Len() int {
 	return s.last + 1
+}
+
+func (s *SortedSet) updateRescored() {
+	for (s.firstUnRescored < s.capacity) && s.items[s.firstUnRescored].Rescored {
+		s.firstUnRescored++
+	}
 }
 
 func (s *SortedSet) ReSort(id uint64, distance float32) {
@@ -91,6 +107,11 @@ func (s *SortedSet) ReSort(id uint64, distance float32) {
 	if i == -1 {
 		return
 	}
+	if s.items[i].Rescored {
+		s.updateRescored()
+		return
+	}
+	s.items[i].Rescored = true
 	s.items[i].Dist = distance
 	if i > 0 && s.items[i].Dist < s.items[i-1].Dist {
 		j := i - 1
@@ -99,6 +120,7 @@ func (s *SortedSet) ReSort(id uint64, distance float32) {
 		}
 		if i-j == 1 {
 			s.items[i], s.items[j] = s.items[j], s.items[i]
+			s.updateRescored()
 			return
 		}
 		data := s.items[i]
@@ -111,12 +133,21 @@ func (s *SortedSet) ReSort(id uint64, distance float32) {
 		}
 		if j-i == 1 {
 			s.items[i], s.items[j] = s.items[j], s.items[i]
+			s.updateRescored()
 			return
 		}
 		data := s.items[i]
 		copy(s.items[i:j-1], s.items[i+1:j])
 		s.items[j-1] = data
 	}
+	s.updateRescored()
+}
+
+func (s *SortedSet) FirstUnRescored() int {
+	if s.firstUnRescored >= s.capacity {
+		return -1
+	}
+	return int(s.items[s.firstUnRescored].ID)
 }
 
 func (s *SortedSet) Items(k int) ([]uint64, []float32) {
