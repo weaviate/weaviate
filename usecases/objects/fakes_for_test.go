@@ -187,7 +187,7 @@ func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, 
 }
 
 func (f *fakeVectorRepo) BatchPutObjects(ctx context.Context, batch BatchObjects,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (BatchObjects, error) {
 	args := f.Called(batch)
 	return batch, args.Error(0)
@@ -201,7 +201,7 @@ func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchRefe
 }
 
 func (f *fakeVectorRepo) BatchDeleteObjects(ctx context.Context, params BatchDeleteParams,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (BatchDeleteResult, error) {
 	args := f.Called(params)
 	return args.Get(0).(BatchDeleteResult), args.Error(1)

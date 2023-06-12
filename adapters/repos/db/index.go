@@ -309,21 +309,6 @@ func (i *Index) shardFromUUID(in strfmt.UUID) (string, error) {
 		PhysicalShard(uuidBytes), nil
 }
 
-// shardFromObject returns the name of shard to which o belongs
-func (i *Index) shardFromObject(o *storobj.Object, ss *sharding.State) (string, error) {
-	if i.tenantKey == "" {
-		return i.shardFromUUID(o.ID())
-	}
-	keyVal := objects.ParseTenantKeyFromObject(i.tenantKey, &o.Object)
-	if keyVal == "" {
-		return "", fmt.Errorf("tenant key %q is required", i.tenantKey)
-	}
-	if name := ss.Shard(keyVal, string(o.ID())); name != "" {
-		return name, nil
-	}
-	return "", fmt.Errorf("no tenant found with this key %q", keyVal)
-}
-
 func (i *Index) determineObjectShard(id strfmt.UUID, tenantKey string) (string, error) {
 	if tenantKey != "" {
 		return i.shardFromTenantKey(tenantKey, id)
@@ -342,7 +327,7 @@ func (i *Index) shardFromTenantKey(tenantKey string, id strfmt.UUID) (string, er
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	replProps *additional.ReplicationProperties, tenantKey string,
 ) error {
-	if err := i.validateMultiTenancy(tenantKey); err != nil {
+	if err := i.validateMultiTenancy(tenantKey, &object.Object); err != nil {
 		return err
 	}
 
@@ -501,13 +486,17 @@ func parseAsStringToTime(in interface{}) (time.Time, error) {
 // return value []error gives the error for the index with the positions
 // matching the inputs
 func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
-	replProps *additional.ReplicationProperties,
+	replProps *additional.ReplicationProperties, tenantKey string,
 ) []error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 	type objsAndPos struct {
 		objects []*storobj.Object
 		pos     []int
+	}
+
+	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
+		return []error{err}
 	}
 
 	byShard := map[string]objsAndPos{}
@@ -524,7 +513,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	}
 
 	for pos, obj := range objects {
-		shardName, err := i.shardFromObject(obj, ss)
+		shardName, err := i.determineObjectShard(obj.ID(), tenantKey)
 		if err != nil {
 			out[pos] = err
 			continue
@@ -615,7 +604,7 @@ func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchRefere
 		pos  []int
 	}
 
-	if err := i.validateMultiTenancy(tenantKey); err != nil {
+	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
 		return []error{err}
 	}
 
@@ -676,7 +665,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, addl additional.Properties,
 	replProps *additional.ReplicationProperties, tenantKey string,
 ) (*storobj.Object, error) {
-	if err := i.validateMultiTenancy(tenantKey); err != nil {
+	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
 		return nil, err
 	}
 
@@ -829,7 +818,7 @@ func wrapIDsInMulti(in []strfmt.UUID) []multi.Identifier {
 func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 	replProps *additional.ReplicationProperties, tenantKey string,
 ) (bool, error) {
-	if err := i.validateMultiTenancy(tenantKey); err != nil {
+	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
 		return false, err
 	}
 
@@ -1261,7 +1250,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 
-	if err := i.validateMultiTenancy(tenantKey); err != nil {
+	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
 		return err
 	}
 
@@ -1322,7 +1311,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 
-	if err := i.validateMultiTenancy(tenantKey); err != nil {
+	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
 		return err
 	}
 
@@ -1522,13 +1511,22 @@ func (i *Index) notifyReady() {
 }
 
 func (i *Index) findDocIDs(ctx context.Context,
-	filters *filters.LocalFilter,
+	filters *filters.LocalFilter, tenantKey string,
 ) (map[string][]uint64, error) {
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "filter_total")
 
 	shardState := i.getSchema.ShardingState(i.Config.ClassName.String())
-	shardNames := shardState.AllPhysicalShards()
+	var shardNames []string
+
+	// If this index is multi-tenant-enabled, we are only
+	// interested in deleting objects from the target
+	// tenant's shard
+	if tenantKey != "" {
+		shardNames = []string{tenantKey}
+	} else {
+		shardNames = shardState.AllPhysicalShards()
+	}
 
 	results := make(map[string][]uint64)
 	for _, shardName := range shardNames {
@@ -1543,7 +1541,7 @@ func (i *Index) findDocIDs(ctx context.Context,
 			res, err = shard.findDocIDs(ctx, filters)
 		}
 		if err != nil {
-			return nil, errors.Wrapf(err, "shard %s", shardName)
+			return nil, fmt.Errorf("find matching doc ids in shard %q: %w", shardName, err)
 		}
 
 		results[shardName] = res
@@ -1670,10 +1668,18 @@ func (i *Index) addNewShard(ctx context.Context,
 	return nil
 }
 
-func (i *Index) validateMultiTenancy(tenantKey string) error {
+func (i *Index) validateMultiTenancy(tenantKey string, object *models.Object) error {
 	if i.tenantKey != "" && tenantKey == "" {
-		return fmt.Errorf("class %q has multi-tenancy enabled, tenant_key %q required",
+		return objects.NewErrInvalidUserInput("class %q has multi-tenancy enabled, tenant_key %q required",
 			i.Config.ClassName, i.tenantKey)
+	}
+	if object != nil {
+		parsedTenantKey := objects.ParseTenantKeyFromObject(i.tenantKey, object)
+		if parsedTenantKey != tenantKey {
+			return objects.NewErrInvalidUserInput(
+				"tenant_key query param value %q conflicts with object body value %q for class %q tenant key %q",
+				tenantKey, parsedTenantKey, i.Config.ClassName, i.tenantKey)
+		}
 	}
 	return nil
 }

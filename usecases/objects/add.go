@@ -97,7 +97,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
-	err = m.validateObjectAndNormalizeNames(ctx, principal, object, repl, tenantKey)
+	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, object, nil, tenantKey)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
@@ -119,24 +119,41 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 
 	err = m.vectorRepo.PutObject(ctx, object, object.Vector, repl, tenantKey)
 	if err != nil {
-		return nil, fmt.Errorf("put object: %s", err)
+		return nil, fmt.Errorf("put object: %w", err)
 	}
 
 	return object, nil
 }
 
-func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context, principal *models.Principal,
-	object *models.Object, repl *additional.ReplicationProperties, tenantKey string,
+func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context,
+	principal *models.Principal, repl *additional.ReplicationProperties,
+	incoming *models.Object, existing *models.Object, tenantKey string,
 ) error {
-	// Validate schema given in body with the weaviate schema
-	if _, err := uuid.Parse(object.ID.String()); err != nil {
-		return err
-	}
-
-	class, err := m.schemaManager.GetClass(ctx, principal, object.Class)
+	class, err := m.validateSchema(ctx, principal, incoming)
 	if err != nil {
 		return err
 	}
 
-	return validation.New(m.vectorRepo.Exists, m.config, repl, tenantKey).Object(ctx, object, class)
+	return validation.New(m.vectorRepo.Exists, m.config, repl, tenantKey).
+		Object(ctx, class, incoming, existing)
+}
+
+func (m *Manager) validateSchema(ctx context.Context,
+	principal *models.Principal, obj *models.Object,
+) (*models.Class, error) {
+	// Validate schema given in body with the weaviate schema
+	if _, err := uuid.Parse(obj.ID.String()); err != nil {
+		return nil, err
+	}
+
+	class, err := m.schemaManager.GetClass(ctx, principal, obj.Class)
+	if err != nil {
+		return nil, err
+	}
+
+	if class == nil {
+		return nil, fmt.Errorf("class %q not found in schema", obj.Class)
+	}
+
+	return class, nil
 }

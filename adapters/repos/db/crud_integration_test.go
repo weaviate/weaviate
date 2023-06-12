@@ -1097,7 +1097,7 @@ func TestCRUD(t *testing.T) {
 				}
 				createdActionIDs[i] = newID
 			}
-			batchObjResp, err := repo.BatchPutObjects(context.Background(), actionBatch, nil)
+			batchObjResp, err := repo.BatchPutObjects(context.Background(), actionBatch, nil, "")
 			require.Len(t, batchObjResp, numThings)
 			require.Nil(t, err)
 			for _, r := range batchObjResp {
@@ -1121,7 +1121,7 @@ func TestCRUD(t *testing.T) {
 				}
 				createdThingIDs[i] = newID
 			}
-			batchObjResp, err := repo.BatchPutObjects(context.Background(), thingBatch, nil)
+			batchObjResp, err := repo.BatchPutObjects(context.Background(), thingBatch, nil, "")
 			require.Len(t, batchObjResp, numThings)
 			require.Nil(t, err)
 			for _, r := range batchObjResp {
@@ -1595,7 +1595,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 			}
 		}
 
-		res, err := repo.BatchPutObjects(context.Background(), batch, nil)
+		res, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
 		require.Nil(t, err)
 
 		for _, obj := range res {

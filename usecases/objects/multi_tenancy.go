@@ -11,7 +11,12 @@
 
 package objects
 
-import "github.com/weaviate/weaviate/entities/models"
+import (
+	"fmt"
+
+	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/entities/models"
+)
 
 // ParseTenantKeyFromObject extract the value of the tenant key if it exists
 func ParseTenantKeyFromObject(tenantKeyName string, o *models.Object) string {
@@ -23,4 +28,21 @@ func ParseTenantKeyFromObject(tenantKeyName string, o *models.Object) string {
 		}
 	}
 	return ""
+}
+
+func validateSingleBatchObjectTenantKey(class *models.Class, obj *models.Object,
+	tk string, ec *errorcompounder.ErrorCompounder,
+) error {
+	var objTk string
+	if class.MultiTenancyConfig != nil {
+		if tk == "" {
+			return NewErrInvalidUserInput("class %q has multi-tenancy enabled, tenant_key %q required",
+				class.Class, class.MultiTenancyConfig.TenantKey)
+		}
+		objTk = ParseTenantKeyFromObject(class.MultiTenancyConfig.TenantKey, obj)
+		if objTk != tk {
+			ec.Add(fmt.Errorf("object does not belong to tenant %q", tk))
+		}
+	}
+	return nil
 }
