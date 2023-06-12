@@ -31,7 +31,7 @@ type State struct {
 	PartitioningEnabled bool                `json:"partitioningEnabled"`
 
 	// different for each node, not to be serialized
-	localNodeName string
+	localNodeName string // TODO: localNodeName is static it is better to store just once
 }
 
 // MigrateFromOldFormat checks if the old (pre-v1.17) format was used and
@@ -58,11 +58,11 @@ type Virtual struct {
 
 type Physical struct {
 	Name           string   `json:"name"`
-	OwnsVirtual    []string `json:"ownsVirtual"`
+	OwnsVirtual    []string `json:"ownsVirtual,omitempty"`
 	OwnsPercentage float64  `json:"ownsPercentage"`
 
 	LegacyBelongsToNodeForBackwardCompat string   `json:"belongsToNode,omitempty"`
-	BelongsToNodes                       []string `json:"belongsToNodes"`
+	BelongsToNodes                       []string `json:"belongsToNodes,omitempty"`
 }
 
 // BelongsToNode for backward-compatibility when there was no replication. It
@@ -328,12 +328,14 @@ func (s *State) GetPartitions(nodes nodes, shards []string, replFactor int64) (m
 }
 
 // AddPartition to physical shards
-func (s *State) AddPartition(name string, nodes []string) {
-	s.Physical[name] = Physical{
+func (s *State) AddPartition(name string, nodes []string) Physical {
+	p := Physical{
 		Name:           name,
 		BelongsToNodes: nodes,
 		OwnsPercentage: 1.0,
 	}
+	s.Physical[name] = p
+	return p
 }
 
 func (s *State) initVirtual() {

@@ -85,12 +85,7 @@ func (m *Manager) deleteClassApplyChanges(ctx context.Context,
 		sch.Classes = sch.Classes[:len(sch.Classes)-1]
 	}
 
-	err := m.saveSchema(ctx, nil)
-	if err != nil {
-		return err
-	}
-
-	err = m.migrator.DropClass(ctx, className)
+	err := m.migrator.DropClass(ctx, className)
 	if err != nil {
 		if !force {
 			return err
@@ -103,10 +98,14 @@ func (m *Manager) deleteClassApplyChanges(ctx context.Context,
 	m.shardingStateLock.Lock()
 	delete(m.state.ShardingState, className)
 	m.shardingStateLock.Unlock()
-	err = m.saveSchema(ctx, nil)
-	if err != nil {
+	if err := m.repo.DeleteClass(ctx, className); err != nil {
 		return err
 	}
+	m.logger.
+		WithField("action", "schema_delete_class").
+		Debugf("delete class %q from schema", className)
+
+	m.triggerSchemaUpdateCallbacks()
 
 	return nil
 }

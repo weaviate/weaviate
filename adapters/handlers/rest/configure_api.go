@@ -38,9 +38,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
-	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
@@ -99,12 +97,6 @@ type vectorRepo interface {
 	Shutdown(ctx context.Context) error
 }
 
-type explorer interface {
-	GetClass(ctx context.Context, params dto.GetParams) ([]interface{}, error)
-	CrossClassVectorSearch(ctx context.Context, params traverser.ExploreParams) ([]search.Result, error)
-	SetSchemaGetter(schemaUC.SchemaGetter)
-}
-
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
@@ -156,8 +148,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var vectorRepo vectorRepo
 	var vectorMigrator migrate.Migrator
 	var migrator migrate.Migrator
-	var explorer explorer
-	var schemaRepo schemaUC.Repo
+	// var explorer explorer
 	// var classifierRepo classification.Repo
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
@@ -194,10 +185,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	migrator = vectorMigrator
-	explorer = traverser.NewExplorer(repo, appState.Logger, appState.Modules, traverser.NewMetrics(appState.Metrics))
-	schemaRepo, err = schemarepo.NewRepo(
-		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
-	if err != nil {
+	explorer := traverser.NewExplorer(repo, appState.Logger, appState.Modules, traverser.NewMetrics(appState.Metrics))
+	schemaRepo := schemarepo.NewStore(appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
+	if err = schemaRepo.Open(); err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
 			Fatal("could not initialize schema repo")

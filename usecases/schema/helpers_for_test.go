@@ -21,19 +21,35 @@ import (
 )
 
 type fakeRepo struct {
-	schema *State
+	schema State
 }
 
 func newFakeRepo() *fakeRepo {
 	return &fakeRepo{}
 }
 
-func (f *fakeRepo) LoadSchema(context.Context) (*State, error) {
+func (f *fakeRepo) Save(ctx context.Context, schema State) error {
+	f.schema = schema
+	return nil
+}
+
+func (f *fakeRepo) Load(context.Context) (State, error) {
 	return f.schema, nil
 }
 
-func (f *fakeRepo) SaveSchema(ctx context.Context, schema State) error {
-	f.schema = &schema
+func (f *fakeRepo) NewClass(context.Context, ClassPayload) error {
+	return nil
+}
+
+func (f *fakeRepo) UpdateClass(context.Context, ClassPayload) error {
+	return nil
+}
+
+func (f *fakeRepo) DeleteClass(ctx context.Context, class string) error {
+	return nil
+}
+
+func (f *fakeRepo) NewShards(ctx context.Context, class string, shards []KeyValuePair) error {
 	return nil
 }
 

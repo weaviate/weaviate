@@ -9,6 +9,14 @@
 //  CONTACT: hello@weaviate.io
 //
 
+/* Remark:
+
+In the current implementation, there is no guarantee of consistent updates to the schema
+as updating the actual index and the schema itself is not an atomic operation.
+Resolving this issue is beyond the scope of this PR,
+but it will be addressed in a separate task specifically dedicated to it.
+*/
+
 package schema
 
 import (
@@ -110,15 +118,24 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 
 	shardingState.MigrateFromOldFormat()
 
+	payload, err := CreateClassPayload(class, shardingState)
+	if err != nil {
+		return err
+	}
+
 	m.shardingStateLock.Lock()
 	m.state.ShardingState[class.Class] = shardingState
 	m.state.ShardingState[class.Class].SetLocalName(m.clusterState.LocalName())
 	m.shardingStateLock.Unlock()
 
-	err = m.saveSchema(ctx, nil)
-	if err != nil {
+	// payload.Shards
+	if err := m.repo.NewClass(ctx, payload); err != nil {
 		return err
 	}
+	m.logger.
+		WithField("action", "schema_restore_class").
+		Debugf("restore class %q from schema", class.Class)
+	m.triggerSchemaUpdateCallbacks()
 
 	out := m.migrator.AddClass(ctx, class, shardingState)
 	return out
@@ -205,15 +222,29 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 }
 
 func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
-	shardState *sharding.State,
+	shardingState *sharding.State,
 ) error {
 	semanticSchema := m.state.ObjectSchema
 	semanticSchema.Classes = append(semanticSchema.Classes, class)
 
+	payload, err := CreateClassPayload(class, shardingState)
+	if err != nil {
+		return err
+	}
+	if err := m.repo.NewClass(ctx, payload); err != nil {
+		return err
+	}
+
+	m.logger.
+		WithField("action", "schema_add_class").
+		Debugf("add class %q from schema", class.Class)
+
 	m.shardingStateLock.Lock()
-	m.state.ShardingState[class.Class] = shardState
+	m.state.ShardingState[class.Class] = shardingState
 	m.shardingStateLock.Unlock()
-	return m.saveSchema(ctx, nil)
+
+	m.triggerSchemaUpdateCallbacks()
+	return nil
 }
 
 func (m *Manager) setClassDefaults(class *models.Class) {
@@ -505,4 +536,31 @@ func setInvertedConfigDefaults(class *models.Class) {
 			Preset: stopwords.EnglishPreset,
 		}
 	}
+}
+
+func CreateClassPayload(class *models.Class,
+	shardingState *sharding.State,
+) (pl ClassPayload, err error) {
+	pl.Name = class.Class
+	if pl.Metadata, err = json.Marshal(class); err != nil {
+		return pl, fmt.Errorf("marshal class %q metadata: %w", pl.Name, err)
+	}
+	if shardingState != nil {
+		ss := *shardingState
+		pl.Shards = make([]KeyValuePair, len(ss.Physical))
+		i := 0
+		for name, shard := range ss.Physical {
+			data, err := json.Marshal(shard)
+			if err != nil {
+				return pl, fmt.Errorf("marshal shard %q metadata: %w", name, err)
+			}
+			pl.Shards[i] = KeyValuePair{Key: name, Value: data}
+			i++
+		}
+		ss.Physical = nil
+		if pl.ShardingState, err = json.Marshal(&ss); err != nil {
+			return pl, fmt.Errorf("marshal class %q sharding state: %w", pl.Name, err)
+		}
+	}
+	return pl, nil
 }

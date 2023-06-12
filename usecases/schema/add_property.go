@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -127,10 +128,19 @@ func (m *Manager) addClassPropertyApplyChanges(ctx context.Context,
 	}
 
 	class.Properties = append(class.Properties, prop)
-	err = m.saveSchema(ctx, nil)
+	metadata, err := json.Marshal(&class)
+	if err != nil {
+		return fmt.Errorf("marshal class %s: %w", className, err)
+	}
+	m.logger.
+		WithField("action", "schema_update").
+		Debug("saving updated schema to configuration store")
+	err = m.repo.UpdateClass(ctx, ClassPayload{Name: className, Metadata: metadata})
 	if err != nil {
 		return err
 	}
+	m.triggerSchemaUpdateCallbacks()
 
+	// will result in a mismatch between schema and index if function below fails
 	return m.migrator.AddProperty(ctx, className, prop)
 }
