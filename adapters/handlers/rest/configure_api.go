@@ -46,7 +46,6 @@ import (
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
-	modcrossrankertransformers "github.com/weaviate/weaviate/modules/cross-ranker-transformers"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
@@ -56,6 +55,7 @@ import (
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modqna "github.com/weaviate/weaviate/modules/qna-transformers"
 	modcentroid "github.com/weaviate/weaviate/modules/ref2vec-centroid"
+	modrerankertransformers "github.com/weaviate/weaviate/modules/reranker-transformers"
 	modsum "github.com/weaviate/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/weaviate/weaviate/modules/text-spellcheck"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
@@ -524,11 +524,11 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["cross-ranker-transformers"]; ok {
-		appState.Modules.Register(modcrossrankertransformers.New())
+	if _, ok := enabledModules["reranker-transformers"]; ok {
+		appState.Modules.Register(modrerankertransformers.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "cross-ranker-transformers").
+			WithField("module", "reranker-transformers").
 			Debug("enabled module")
 	}
 
