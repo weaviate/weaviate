@@ -16,7 +16,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"math"
 	"math/rand"
 	"testing"
 	"time"
@@ -354,15 +353,16 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	now := time.Now().UnixNano() / int64(time.Millisecond)
+	now := time.Now()
+	timestamp := now.UnixMilli()
 	testID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
 
 	t.Run("insert test object", func(t *testing.T) {
 		obj := &models.Object{
 			ID:                 testID,
 			Class:              "TestClass",
-			CreationTimeUnix:   now,
-			LastUpdateTimeUnix: now,
+			CreationTimeUnix:   timestamp,
+			LastUpdateTimeUnix: timestamp,
 			Properties:         map[string]interface{}{"name": "objectarooni"},
 		}
 		vec := []float32{1, 2, 3}
@@ -379,7 +379,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 					Property: "_creationTimeUnix",
 				},
 				Value: &filters.Value{
-					Value: fmt.Sprint(now),
+					Value: fmt.Sprint(timestamp),
 					Type:  schema.DataTypeText,
 				},
 			},
@@ -393,7 +393,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 					Property: "_lastUpdateTimeUnix",
 				},
 				Value: &filters.Value{
-					Value: fmt.Sprint(now),
+					Value: fmt.Sprint(timestamp),
 					Type:  schema.DataTypeText,
 				},
 			},
@@ -401,28 +401,32 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 
 		createTimeDateFilter := &filters.LocalFilter{
 			Root: &filters.Clause{
-				Operator: filters.OperatorEqual,
+				// since RFC3339 is limited to seconds,
+				// >= operator is used to match object with timestamp containing milliseconds
+				Operator: filters.OperatorGreaterThanEqual,
 				On: &filters.Path{
 					Class:    "TestClass",
 					Property: "_creationTimeUnix",
 				},
 				Value: &filters.Value{
-					Value: msToRFC3339(now),
-					Type:  dtDate,
+					Value: now.Format(time.RFC3339),
+					Type:  schema.DataTypeDate,
 				},
 			},
 		}
 
 		updateTimeDateFilter := &filters.LocalFilter{
 			Root: &filters.Clause{
-				Operator: filters.OperatorEqual,
+				// since RFC3339 is limited to seconds,
+				// >= operator is used to match object with timestamp containing milliseconds
+				Operator: filters.OperatorGreaterThanEqual,
 				On: &filters.Path{
 					Class:    "TestClass",
 					Property: "_lastUpdateTimeUnix",
 				},
 				Value: &filters.Value{
-					Value: msToRFC3339(now),
-					Type:  dtDate,
+					Value: now.Format(time.RFC3339),
+					Type:  schema.DataTypeDate,
 				},
 			},
 		}
@@ -501,35 +505,4 @@ func TestFilterPropertyLengthError(t *testing.T) {
 	}
 	_, err = repo.ClassSearch(context.Background(), params)
 	require.NotNil(t, err)
-}
-
-func msToRFC3339(ms int64) time.Time {
-	sec, ns := splitMilliTimestamp(ms)
-	return time.Unix(sec, ns)
-}
-
-// splitMilliTimestamp allows us to take a timestamp
-// in unix epoch milliseconds, and split it into the
-// needed seconds/nanoseconds required by `time.Unix`.
-// once weaviate supports go version >= 1.17, we can
-// remove this func and just pass `ms` to `time.UnixMilli`
-func splitMilliTimestamp(ms int64) (sec int64, ns int64) {
-	// remove 3 least significant digits of `ms`
-	// so we end up with the seconds/nanoseconds
-	// needed to convert to RFC3339 formatted
-	// timestamp.
-	for i := int64(0); i < 3; i++ {
-		ns += int64(math.Pow(float64(10), float64(i))) * (ms % 10)
-		ms /= 10
-	}
-
-	// after removing 3 least significant digits,
-	// ms now represents the timestamp in seconds
-	sec = ms
-
-	// the least 3 significant digits only represent
-	// milliseconds, and need to be converted to nano
-	ns *= 1e6
-
-	return
 }

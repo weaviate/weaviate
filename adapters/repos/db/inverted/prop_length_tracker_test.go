@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,6 +27,7 @@ func Test_PropertyLengthTracker(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	trackerPath := path.Join(dirName, "my_test_shard")
+	l := logrus.New()
 
 	// This test suite doesn't actually test persistence, there is a separate
 	// one. However, we still need to supply a valid path. Since nothing is ever
@@ -73,7 +75,7 @@ func Test_PropertyLengthTracker(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				tracker, err := NewJsonPropertyLengthTracker(trackerPath)
+				tracker, err := NewJsonPropertyLengthTracker(trackerPath, l)
 				require.Nil(t, err)
 
 				actualMean := float32(0)
@@ -96,7 +98,7 @@ func Test_PropertyLengthTracker(t *testing.T) {
 	})
 
 	t.Run("test untrack", func(t *testing.T) {
-		tracker, err := NewJsonPropertyLengthTracker(trackerPath)
+		tracker, err := NewJsonPropertyLengthTracker(trackerPath, l)
 		require.Nil(t, err)
 
 		tracker.TrackProperty("test-prop", 1)
@@ -150,7 +152,7 @@ func Test_PropertyLengthTracker(t *testing.T) {
 		}
 
 		// This time we use a single tracker
-		tracker, err := NewJsonPropertyLengthTracker(trackerPath)
+		tracker, err := NewJsonPropertyLengthTracker(trackerPath, l)
 		require.Nil(t, err)
 
 		for _, prop := range props {
@@ -175,7 +177,7 @@ func Test_PropertyLengthTracker(t *testing.T) {
 
 	t.Run("with more properties that can fit on one page", func(t *testing.T) {
 		// This time we use a single tracker
-		tracker, err := NewJsonPropertyLengthTracker(trackerPath)
+		tracker, err := NewJsonPropertyLengthTracker(trackerPath, l)
 		require.Nil(t, err)
 
 		create20PropsAndVerify(t, tracker)
@@ -236,9 +238,10 @@ func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 	path := path.Join(dirName, "my_test_shard")
 
 	var tracker *JsonPropertyLengthTracker
+	l := logrus.New()
 
 	t.Run("initializing an empty tracker, no file present", func(t *testing.T) {
-		tr, err := NewJsonPropertyLengthTracker(path)
+		tr, err := NewJsonPropertyLengthTracker(path, l)
 		require.Nil(t, err)
 		tracker = tr
 	})
@@ -257,7 +260,7 @@ func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 
 	var secondTracker *JsonPropertyLengthTracker
 	t.Run("initializing a new tracker from the same file", func(t *testing.T) {
-		tr, err := NewJsonPropertyLengthTracker(path)
+		tr, err := NewJsonPropertyLengthTracker(path, l)
 		require.Nil(t, err)
 		secondTracker = tr
 	})
@@ -305,8 +308,10 @@ func TestFormatConversion(t *testing.T) {
 	})
 
 	var newTracker *JsonPropertyLengthTracker
+	l := logrus.New()
+
 	t.Run("initializing a new tracker from the same file", func(t *testing.T) {
-		tr, err := NewJsonPropertyLengthTracker(path)
+		tr, err := NewJsonPropertyLengthTracker(path, l)
 		require.Nil(t, err)
 		newTracker = tr
 	})
