@@ -14,12 +14,12 @@ package priorityqueue
 type SortedQueue interface {
 	Len() int
 	Insert(id uint64, distance float32) int
-	ReSort(id uint64, distance float32)
+	ReSort(index int, distance float32)
 	Items(k int) ([]uint64, []float32)
 	Pop() Item
 	Top() Item
 	Last() (Item, bool)
-	FirstUnRescored() int
+	FirstUnRescored() (int, uint64)
 }
 
 type Item struct {
@@ -85,8 +85,8 @@ func (l *Queue) heapify(i int) {
 	}
 }
 
-func (l *Queue) FirstUnRescored() int {
-	return 0
+func (l *Queue) FirstUnRescored() (int, uint64) {
+	return -1, 0
 }
 
 func (l *Queue) Insert(id uint64, distance float32) int {
@@ -110,7 +110,7 @@ func (l *Queue) Pop() Item {
 	return out
 }
 
-func (l *Queue) ReSort(id uint64, distance float32) {
+func (l *Queue) ReSort(index int, distance float32) {
 	panic("Not implemented yet")
 }
 

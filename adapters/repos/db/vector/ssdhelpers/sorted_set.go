@@ -102,8 +102,7 @@ func (s *SortedSet) updateRescored() {
 	}
 }
 
-func (s *SortedSet) ReSort(id uint64, distance float32) {
-	i := s.find(id)
+func (s *SortedSet) ReSort(i int, distance float32) {
 	if i == -1 {
 		return
 	}
@@ -143,11 +142,11 @@ func (s *SortedSet) ReSort(id uint64, distance float32) {
 	s.updateRescored()
 }
 
-func (s *SortedSet) FirstUnRescored() int {
+func (s *SortedSet) FirstUnRescored() (int, uint64) {
 	if s.firstUnRescored >= s.capacity {
-		return -1
+		return -1, 0
 	}
-	return int(s.items[s.firstUnRescored].ID)
+	return s.firstUnRescored, s.items[s.firstUnRescored].ID
 }
 
 func (s *SortedSet) Items(k int) ([]uint64, []float32) {

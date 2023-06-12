@@ -80,7 +80,7 @@ func Test_NoRaceSorteSetReSorts(t *testing.T) {
 		last = x
 	}
 	for i := 0; i < 100; i++ {
-		set.ReSort(uint64(i), rand.Float32())
+		set.ReSort(i, rand.Float32())
 	}
 	last = float32(0)
 	_, distances = set.Items(100)
