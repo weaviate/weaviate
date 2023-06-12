@@ -30,13 +30,13 @@ const (
 
 var availableCohereModels = []string{
 	"command-xlarge-beta",
-	"command-xlarge",
-	"command-xlarge-nightly",
+	"command-xlarge", "command-medium", "command-xlarge-nightly", "command-medium-nightly", "xlarge", "medium",
+	"command", "command-light", "command-nightly", "command-light-nightly", "base", "base-light",
 }
 
 // note it might not like this -- might want int values for e.g. MaxTokens
 var (
-	DefaultCohereModel             = "command-xlarge-nightly"
+	DefaultCohereModel             = "command-nightly"
 	DefaultCohereTemperature       = 0
 	DefaultCohereMaxTokens         = 2048
 	DefaultCohereK                 = 0
