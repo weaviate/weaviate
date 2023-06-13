@@ -1,9 +1,8 @@
 #!/bin/bash
-#
-# run from weaviate Root
+# run from Weaviate Root
 
 export GIT_HASH=$(git rev-parse --short HEAD)
-goreleaser build  --clean --snapshot
+goreleaser build --clean
 
 codesign -f -o runtime --timestamp -s "Developer ID Application: Weaviate B.V. (QUZ8SKLS6R)" dist/weaviate_darwin_all/weaviate
 
