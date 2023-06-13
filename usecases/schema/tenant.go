@@ -29,7 +29,7 @@ func (m *Manager) AddTenants(ctx context.Context, principal *models.Principal, c
 		return err
 	}
 
-	cls, st := m.getClassByName(class), m.ShardingState(class)
+	cls, st := m.getClassByName(class), m.ShardingState(class) // m.ShardingState returns a copy
 	if cls == nil || st == nil {
 		return fmt.Errorf("class %q: %w", class, ErrNotFound)
 	}

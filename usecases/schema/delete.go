@@ -65,24 +65,29 @@ func (m *Manager) deleteClass(ctx context.Context, className string, force bool)
 func (m *Manager) deleteClassApplyChanges(ctx context.Context,
 	className string, force bool,
 ) error {
-	sch := m.state.ObjectSchema
 	classIdx := -1
+	m.shardingStateLock.RLock()
+	sch := m.state.ObjectSchema
 	for idx, class := range sch.Classes {
 		if class.Class == className {
 			classIdx = idx
 			break
 		}
 	}
+	m.shardingStateLock.RUnlock()
 
 	if classIdx == -1 && !force {
 		return fmt.Errorf("could not find class '%s'", className)
 	}
 
 	if classIdx > -1 {
+		m.shardingStateLock.Lock()
 		// make sure not to delete another class if the force flag is set, but the class does not exist
 		sch.Classes[classIdx] = sch.Classes[len(sch.Classes)-1]
 		sch.Classes[len(sch.Classes)-1] = nil // to prevent leaking this pointer.
 		sch.Classes = sch.Classes[:len(sch.Classes)-1]
+		m.shardingStateLock.Unlock()
+
 	}
 
 	err := m.migrator.DropClass(ctx, className)

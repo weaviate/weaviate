@@ -65,10 +65,9 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 	if err := json.Unmarshal(d.Schema, &class); err != nil {
 		return fmt.Errorf("marshal class schema: %w", err)
 	}
-	var shardingState *sharding.State
+	var shardingState sharding.State
 	if d.ShardingState != nil {
-		shardingState = &sharding.State{}
-		err := json.Unmarshal(d.ShardingState, shardingState)
+		err := json.Unmarshal(d.ShardingState, &shardingState)
 		if err != nil {
 			return fmt.Errorf("marshal sharding state: %w", err)
 		}
@@ -118,14 +117,13 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 
 	shardingState.MigrateFromOldFormat()
 
-	payload, err := CreateClassPayload(class, shardingState)
+	payload, err := CreateClassPayload(class, &shardingState)
 	if err != nil {
 		return err
 	}
-
+	shardingState.SetLocalName(m.clusterState.LocalName())
 	m.shardingStateLock.Lock()
-	m.state.ShardingState[class.Class] = shardingState
-	m.state.ShardingState[class.Class].SetLocalName(m.clusterState.LocalName())
+	m.state.ShardingState[class.Class] = &shardingState
 	m.shardingStateLock.Unlock()
 
 	// payload.Shards
@@ -137,7 +135,7 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 		Debugf("restore class %q from schema", class.Class)
 	m.triggerSchemaUpdateCallbacks()
 
-	out := m.migrator.AddClass(ctx, class, shardingState)
+	out := m.migrator.AddClass(ctx, class, &shardingState)
 	return out
 }
 
@@ -224,9 +222,6 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
 	shardingState *sharding.State,
 ) error {
-	semanticSchema := m.state.ObjectSchema
-	semanticSchema.Classes = append(semanticSchema.Classes, class)
-
 	payload, err := CreateClassPayload(class, shardingState)
 	if err != nil {
 		return err
@@ -240,6 +235,7 @@ func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
 		Debugf("add class %q from schema", class.Class)
 
 	m.shardingStateLock.Lock()
+	m.state.ObjectSchema.Classes = append(m.state.ObjectSchema.Classes, class)
 	m.state.ShardingState[class.Class] = shardingState
 	m.shardingStateLock.Unlock()
 
@@ -266,18 +262,18 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 
 	setInvertedConfigDefaults(class)
 	for _, prop := range class.Properties {
-		m.setPropertyDefaults(prop)
+		setPropertyDefaults(prop)
 	}
 
 	m.moduleConfig.SetClassDefaults(class)
 }
 
-func (m *Manager) setPropertyDefaults(prop *models.Property) {
-	m.setPropertyDefaultTokenization(prop)
-	m.setPropertyDefaultIndexing(prop)
+func setPropertyDefaults(prop *models.Property) {
+	setPropertyDefaultTokenization(prop)
+	setPropertyDefaultIndexing(prop)
 }
 
-func (m *Manager) setPropertyDefaultTokenization(prop *models.Property) {
+func setPropertyDefaultTokenization(prop *models.Property) {
 	switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
 	case schema.DataTypeString, schema.DataTypeStringArray:
 		// deprecated as of v1.19, default tokenization was word
@@ -294,7 +290,7 @@ func (m *Manager) setPropertyDefaultTokenization(prop *models.Property) {
 	}
 }
 
-func (m *Manager) setPropertyDefaultIndexing(prop *models.Property) {
+func setPropertyDefaultIndexing(prop *models.Property) {
 	// if IndexInverted is set but IndexFilterable and IndexSearchable are not
 	// migrate IndexInverted later.
 	if prop.IndexInverted != nil &&
@@ -324,19 +320,19 @@ func (m *Manager) setPropertyDefaultIndexing(prop *models.Property) {
 
 func (m *Manager) migrateClassSettings(class *models.Class) {
 	for _, prop := range class.Properties {
-		m.migratePropertySettings(prop)
+		migratePropertySettings(prop)
 	}
 }
 
-func (m *Manager) migratePropertySettings(prop *models.Property) {
-	m.migratePropertyDataTypeAndTokenization(prop)
-	m.migratePropertyIndexInverted(prop)
+func migratePropertySettings(prop *models.Property) {
+	migratePropertyDataTypeAndTokenization(prop)
+	migratePropertyIndexInverted(prop)
 }
 
 // as of v1.19 DataTypeString and DataTypeStringArray are deprecated
 // here both are changed to Text/TextArray
 // and proper, backward compatible tokenization
-func (m *Manager) migratePropertyDataTypeAndTokenization(prop *models.Property) {
+func migratePropertyDataTypeAndTokenization(prop *models.Property) {
 	switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
 	case schema.DataTypeString:
 		prop.DataType = schema.DataTypeText.PropString()
@@ -359,7 +355,7 @@ func (m *Manager) migratePropertyDataTypeAndTokenization(prop *models.Property) 
 // IndexFilterable (set inverted index)
 // and IndexSearchable (map inverted index with term frequencies;
 // therefore applicable only to text/text[] data types)
-func (m *Manager) migratePropertyIndexInverted(prop *models.Property) {
+func migratePropertyIndexInverted(prop *models.Property) {
 	// if none of new options is set, use inverted settings
 	if prop.IndexInverted != nil &&
 		prop.IndexFilterable == nil &&

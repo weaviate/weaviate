@@ -117,12 +117,18 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 		return errors.Wrap(err, "inverted index config")
 	}
 
+	m.shardingStateLock.RLock()
 	initial := m.getClassByName(className)
+	m.shardingStateLock.RUnlock()
+
 	if initial == nil {
 		return ErrNotFound
 	}
 
+	m.shardingStateLock.Lock()
 	*initial = *updated
+	m.shardingStateLock.Unlock()
+
 	payload, err := CreateClassPayload(updated, updatedShardingState)
 	if err != nil {
 		return err
