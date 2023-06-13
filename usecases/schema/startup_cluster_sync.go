@@ -127,7 +127,9 @@ func (m *Manager) startupJoinCluster(ctx context.Context,
 
 	m.state = *pl.Schema
 
-	m.saveSchema(ctx, nil)
+	if err := m.saveSchema(ctx, nil); err != nil {
+		return fmt.Errorf("save schema: %w", err)
+	}
 
 	return nil
 }
