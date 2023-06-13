@@ -232,10 +232,6 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 		return nil, err
 	}
 
-	if filter.Operator == filters.OperatorIsNull {
-		return s.extractPropertyNull(property, filter.Value.Type, filter.Value.Value, filter.Operator)
-	}
-
 	if s.onRefProp(property) && len(props) != 1 {
 		return s.extractReferenceFilter(property, filter)
 	}
@@ -244,6 +240,10 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 		// ref prop and int type is a special case, the user is looking for the
 		// reference count as opposed to the content
 		return s.extractReferenceCount(property, filter.Value.Value, filter.Operator)
+	}
+
+	if filter.Operator == filters.OperatorIsNull {
+		return s.extractPropertyNull(property, filter.Value.Type, filter.Value.Value, filter.Operator)
 	}
 
 	if s.onGeoProp(property) {
