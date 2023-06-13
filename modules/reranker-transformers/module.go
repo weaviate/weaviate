@@ -48,7 +48,7 @@ func (m *ReRankerModule) Name() string {
 }
 
 func (m *ReRankerModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2Text
+	return modulecapabilities.Text2TextReranker
 }
 
 func (m *ReRankerModule) Init(ctx context.Context,
