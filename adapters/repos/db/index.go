@@ -297,7 +297,7 @@ func indexID(class schema.ClassName) string {
 	return strings.ToLower(string(class))
 }
 
-func (i *Index) shardFromUUID(in strfmt.UUID) (string, error) {
+func (i *Index) shardFromUUID(in strfmt.UUID, ss *sharding.State) (string, error) {
 	uuid, err := uuid.Parse(in.String())
 	if err != nil {
 		return "", errors.Wrap(err, "parse id as uuid")
@@ -305,19 +305,23 @@ func (i *Index) shardFromUUID(in strfmt.UUID) (string, error) {
 
 	uuidBytes, _ := uuid.MarshalBinary() // cannot error
 
-	return i.getSchema.ShardingState(i.Config.ClassName.String()).
-		PhysicalShard(uuidBytes), nil
+	return ss.PhysicalShard(uuidBytes), nil
 }
 
-func (i *Index) determineObjectShard(id strfmt.UUID, tenantKey string) (string, error) {
-	if tenantKey != "" {
-		return i.shardFromTenantKey(tenantKey, id)
+func (i *Index) determineObjectShard(id strfmt.UUID, tenantKey string, ss *sharding.State) (string, error) {
+	if ss == nil {
+		ss = i.getSchema.ShardingState(i.Config.ClassName.String())
+		if ss == nil {
+			return "", fmt.Errorf("cannot find sharding state for class %q", i.Config.ClassName.String())
+		}
 	}
-	return i.shardFromUUID(id)
+	if tenantKey != "" {
+		return i.shardFromTenantKey(tenantKey, id, ss)
+	}
+	return i.shardFromUUID(id, ss)
 }
 
-func (i *Index) shardFromTenantKey(tenantKey string, id strfmt.UUID) (string, error) {
-	ss := i.getSchema.ShardingState(i.Config.ClassName.String())
+func (i *Index) shardFromTenantKey(tenantKey string, id strfmt.UUID, ss *sharding.State) (string, error) {
 	if name := ss.Shard(tenantKey, id.String()); name != "" {
 		return name, nil
 	}
@@ -338,7 +342,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
-	shardName, err := i.determineObjectShard(object.ID(), tenantKey)
+	shardName, err := i.determineObjectShard(object.ID(), tenantKey, nil)
 	if err != nil {
 		return err
 	}
@@ -494,14 +498,15 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 		objects []*storobj.Object
 		pos     []int
 	}
-
+	out := make([]error, len(objects))
 	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
-		return []error{err}
+		for i := 0; i < len(out); i++ {
+			out[i] = err
+		}
+		return out
 	}
 
 	byShard := map[string]objsAndPos{}
-	out := make([]error, len(objects))
-
 	className := string(i.Config.ClassName)
 	ss := i.getSchema.ShardingState(className)
 	if ss == nil {
@@ -513,7 +518,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	}
 
 	for pos, obj := range objects {
-		shardName, err := i.determineObjectShard(obj.ID(), tenantKey)
+		shardName, err := i.determineObjectShard(obj.ID(), tenantKey, ss)
 		if err != nil {
 			out[pos] = err
 			continue
@@ -610,9 +615,18 @@ func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchRefere
 
 	byShard := map[string]refsAndPos{}
 	out := make([]error, len(refs))
+	className := i.Config.ClassName.String()
+	ss := i.getSchema.ShardingState(className)
+	if ss == nil {
+		err := fmt.Errorf("could not find sharding state for class %q", className)
+		for i := 0; i < len(out); i++ {
+			out[i] = err
+		}
+		return out
+	}
 
 	for pos, ref := range refs {
-		shardName, err := i.determineObjectShard(ref.From.TargetID, tenantKey)
+		shardName, err := i.determineObjectShard(ref.From.TargetID, tenantKey, ss)
 		if err != nil {
 			out[pos] = err
 			continue
@@ -669,7 +683,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 		return nil, err
 	}
 
-	shardName, err := i.determineObjectShard(id, tenantKey)
+	shardName, err := i.determineObjectShard(id, tenantKey, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine shard for object %q: %w", id, err)
 	}
@@ -747,9 +761,13 @@ func (i *Index) multiObjectByID(ctx context.Context,
 	}
 
 	byShard := map[string]idsAndPos{}
+	ss := i.getSchema.ShardingState(i.Config.ClassName.String())
+	if ss == nil {
+		return nil, fmt.Errorf("cannot find sharding state for class %q", i.Config.ClassName.String())
+	}
 
 	for pos, id := range query {
-		shardName, err := i.shardFromUUID(strfmt.UUID(id.ID))
+		shardName, err := i.shardFromUUID(strfmt.UUID(id.ID), ss)
 		if err != nil {
 			return nil, err
 		}
@@ -822,7 +840,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 		return false, err
 	}
 
-	shardName, err := i.determineObjectShard(id, tenantKey)
+	shardName, err := i.determineObjectShard(id, tenantKey, nil)
 	if err != nil {
 		return false, err
 	}
@@ -1236,7 +1254,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 		return err
 	}
 
-	shardName, err := i.determineObjectShard(id, tenantKey)
+	shardName, err := i.determineObjectShard(id, tenantKey, nil)
 	if err != nil {
 		return err
 	}
@@ -1297,7 +1315,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 		return err
 	}
 
-	shardName, err := i.determineObjectShard(merge.ID, tenantKey)
+	shardName, err := i.determineObjectShard(merge.ID, tenantKey, nil)
 	if err != nil {
 		return err
 	}
