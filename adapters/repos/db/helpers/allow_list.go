@@ -13,7 +13,7 @@ package helpers
 
 import (
 
-	"runtime/debug"
+	//"runtime/debug"
 	"log"
 	"github.com/weaviate/sroar"
 
@@ -37,7 +37,7 @@ func MakePropertyKey(propName []byte, key []byte) []byte {
 	log.Printf("Property key: %s\n", val)
 	log.Printf("Property key bytes: %v\n", val)
 	//Print stack trace here
-	debug.PrintStack()
+	//debug.PrintStack()
 	return val
 }
 
