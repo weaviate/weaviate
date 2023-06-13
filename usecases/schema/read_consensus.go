@@ -12,10 +12,11 @@
 package schema
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"sort"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -72,11 +73,30 @@ func newReadConsensus(parser parserFn,
 	}
 }
 
-// Equal checks if both schemas are the same by first marshalling, then
-// comparing their byte-representation
-func Equal(s1, s2 *State) bool {
-	s1JSON, _ := json.Marshal(s1)
-	s2JSON, _ := json.Marshal(s2)
+// Equal compares two schema states for equality
+// First the object classes are sorted, because
+// they are unordered. Then we can make the comparison
+// using DeepEqual
+func Equal(first, second *State) bool {
+	if first.ObjectSchema == nil && second.ObjectSchema == nil {
+		return true
+	} else if first.ObjectSchema == nil || second.ObjectSchema == nil {
+		return false
+	}
 
-	return bytes.Equal(s1JSON, s2JSON)
+	if len(first.ObjectSchema.Classes) != len(second.ObjectSchema.Classes) {
+		return false
+	}
+
+	if len(first.ObjectSchema.Classes) != 0 && len(second.ObjectSchema.Classes) != 0 {
+		sort.Slice(first.ObjectSchema.Classes, func(i, j int) bool {
+			return first.ObjectSchema.Classes[i].Class < first.ObjectSchema.Classes[j].Class
+		})
+
+		sort.Slice(second.ObjectSchema.Classes, func(i, j int) bool {
+			return second.ObjectSchema.Classes[i].Class < second.ObjectSchema.Classes[j].Class
+		})
+	}
+
+	return reflect.DeepEqual(first, second)
 }
