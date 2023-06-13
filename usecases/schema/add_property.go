@@ -59,7 +59,7 @@ func (m *Manager) addClassProperty(ctx context.Context,
 		return err
 	}
 	// migrate only after validation in completed
-	m.migratePropertySettings(prop)
+	migratePropertySettings(prop)
 
 	tx, err := m.cluster.BeginTransaction(ctx, AddProperty,
 		AddPropertyPayload{className, prop}, DefaultTxTTL)
@@ -91,7 +91,7 @@ func (m *Manager) addClassProperty(ctx context.Context,
 }
 
 func (m *Manager) setNewPropDefaults(class *models.Class, prop *models.Property) error {
-	m.setPropertyDefaults(prop)
+	setPropertyDefaults(prop)
 	if err := validateUserProp(class, prop); err != nil {
 		return err
 	}
