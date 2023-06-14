@@ -44,7 +44,7 @@ func (m *Metrics) QueriesAggregateInc(className string) {
 	}
 
 	if m.groupClasses {
-		className = "_grouped"
+		className = "n/a"
 	}
 
 	m.queriesCount.With(prometheus.Labels{
@@ -59,7 +59,7 @@ func (m *Metrics) QueriesAggregateDec(className string) {
 	}
 
 	if m.groupClasses {
-		className = "_grouped"
+		className = "n/a"
 	}
 
 	m.queriesCount.With(prometheus.Labels{
@@ -74,7 +74,7 @@ func (m *Metrics) QueriesGetInc(className string) {
 	}
 
 	if m.groupClasses {
-		className = "_grouped"
+		className = "n/a"
 	}
 
 	m.queriesCount.With(prometheus.Labels{
@@ -89,7 +89,7 @@ func (m *Metrics) QueriesObserveDuration(className string, startMs int64) {
 	}
 
 	if m.groupClasses {
-		className = "_grouped"
+		className = "n/a"
 	}
 
 	took := float64(time.Now().UnixMilli() - startMs)
@@ -106,7 +106,7 @@ func (m *Metrics) QueriesGetDec(className string) {
 	}
 
 	if m.groupClasses {
-		className = "_grouped"
+		className = "n/a"
 	}
 
 	m.queriesCount.With(prometheus.Labels{
@@ -121,7 +121,7 @@ func (m *Metrics) AddUsageDimensions(className, queryType, operation string, dim
 	}
 
 	if m.groupClasses {
-		className = "_grouped"
+		className = "n/a"
 	}
 
 	m.dimensions.With(prometheus.Labels{
