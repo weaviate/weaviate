@@ -14,16 +14,23 @@ package test
 import (
 	"bufio"
 	"context"
+	"encoding/binary"
 	"fmt"
+	"math"
 	"math/rand"
 	"net/http"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/test/helper"
+	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
 func metricsCount(t *testing.T) {
@@ -39,7 +46,7 @@ func createImportQueryMetricsClasses(t *testing.T, start, end int) {
 	for i := start; i < end; i++ {
 		createMetricsClass(t, i)
 		importMetricsClass(t, i)
-		// queryMetricsClass(t, i)
+		queryMetricsClass(t, i)
 	}
 }
 
@@ -61,6 +68,56 @@ func createMetricsClass(t *testing.T, classIndex int) {
 	})
 }
 
+func queryMetricsClass(t *testing.T, classIndex int) {
+	// object by ID which exists
+	resp, err := helper.Client(t).Objects.
+		ObjectsClassGet(
+			objects.NewObjectsClassGetParams().
+				WithID(intToUUID(1)).
+				WithClassName(metricsClassName(classIndex)),
+			nil)
+
+	require.Nil(t, err)
+	assert.NotNil(t, resp.Payload)
+
+	// object by ID which doesn't exist
+	// ignore any return values
+	helper.Client(t).Objects.
+		ObjectsClassGet(
+			objects.NewObjectsClassGetParams().
+				WithID(intToUUID(math.MaxUint64)).
+				WithClassName(metricsClassName(classIndex)),
+			nil)
+
+	// vector search
+	result := graphqlhelper.AssertGraphQL(t, helper.RootAuth,
+		fmt.Sprintf(
+			"{  Get { %s(nearVector:{vector: [0.3,0.3,0.7,0.7]}, limit:5) { some_text } } }",
+			metricsClassName(classIndex),
+		),
+	)
+	objs := result.Get("Get", metricsClassName(classIndex)).AsSlice()
+	assert.Len(t, objs, 5)
+
+	// filtered vector search (which has specific metrics)
+	// vector search
+	result = graphqlhelper.AssertGraphQL(t, helper.RootAuth,
+		fmt.Sprintf(
+			"{  Get { %s(nearVector:{vector:[0.3,0.3,0.7,0.7]}, limit:5, where: %s) { some_text } } }",
+			metricsClassName(classIndex),
+			`{operator:Equal, valueText: "individually", path:["some_text"]}`,
+		),
+	)
+	objs = result.Get("Get", metricsClassName(classIndex)).AsSlice()
+	assert.Len(t, objs, 1)
+}
+
+func intToUUID(in uint64) strfmt.UUID {
+	id := [16]byte{}
+	binary.BigEndian.PutUint64(id[8:16], in)
+	return strfmt.UUID(uuid.UUID(id).String())
+}
+
 // make sure that we use both individual as well as batch imports, as they
 // might produce different metrics
 func importMetricsClass(t *testing.T, classIndex int) {
@@ -70,6 +127,7 @@ func importMetricsClass(t *testing.T, classIndex int) {
 		Properties: map[string]interface{}{
 			"some_text": "this object was created individually",
 		},
+		ID:     intToUUID(1),
 		Vector: randomVector(4),
 	})
 
