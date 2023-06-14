@@ -33,7 +33,7 @@ const (
 	// _OpCodeDisk operation code for getting disk space
 	_OpCodeDisk _OpCode = 1
 	// _ProtoTTL used to decide when to update the cache
-	_ProtoTTL = time.Second * 3
+	_ProtoTTL = time.Second * 8
 )
 
 // spaceMsg is used to notify other nodes about current disk usage
@@ -109,24 +109,44 @@ func (d *spaceMsg) unmarshal(data []byte) (err error) {
 
 // delegate implements the memberList delegate interface
 type delegate struct {
-	Name      string
-	dataPath  string
-	diskUsage func(path string) (DiskUsage, error)
-	log       logrus.FieldLogger
+	Name     string
+	dataPath string
+	log      logrus.FieldLogger
 	sync.Mutex
 	Cache map[string]NodeInfo
+
+	mutex    sync.Mutex
+	hostInfo NodeInfo
+}
+
+func (d *delegate) setOwnSpace(x DiskUsage) {
+	d.mutex.Lock()
+	d.hostInfo = NodeInfo{DiskUsage: x, LastTimeMilli: time.Now().UnixMilli()}
+	d.mutex.Unlock()
+}
+
+func (d *delegate) ownInfo() NodeInfo {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+	return d.hostInfo
 }
 
 // init must be called first to initialize the cache
-func (d *delegate) init() error {
+func (d *delegate) init(diskSpace func(path string) (DiskUsage, error)) error {
 	d.Cache = make(map[string]NodeInfo, 32)
-	d.diskUsage = diskSpace
+	if diskSpace == nil {
+		return fmt.Errorf("function calculating disk space cannot be empty")
+	}
 	space, err := diskSpace(d.dataPath)
 	if err != nil {
 		return fmt.Errorf("disk_space: %w", err)
 	}
 
+	d.setOwnSpace(space)
 	d.set(d.Name, NodeInfo{space, time.Now().UnixMilli()}) // cache
+
+	// delegate remains alive throughout the entire program.
+	go d.updater(_ProtoTTL, time.Second+_ProtoTTL/3, diskSpace)
 	return nil
 }
 
@@ -142,24 +162,12 @@ func (d *delegate) NodeMeta(limit int) (meta []byte) {
 // data can be sent here. See MergeRemoteState as well. The `join`
 // boolean indicates this is for a join instead of a push/pull.
 func (d *delegate) LocalState(join bool) []byte {
-	prv, _ := d.get(d.Name) // value from cache
 	var (
-		info NodeInfo = prv
+		info = d.ownInfo()
 		err  error
 	)
-	// renew cached value if ttl expires
-	if prv.Available == 0 || time.Since(time.UnixMilli(prv.LastTimeMilli)) >= _ProtoTTL {
-		info.DiskUsage, err = d.diskUsage(d.dataPath)
-		if err != nil {
-			d.log.WithField("action", "delegate.local_state.disk_usage").Error(err)
-			return nil
-		}
-		info.LastTimeMilli = time.Now().UnixMilli()
-	}
 
-	if prv.LastTimeMilli != info.LastTimeMilli {
-		d.set(d.Name, info) // cache new value
-	}
+	d.set(d.Name, info) // cache new value
 
 	x := spaceMsg{
 		header{
@@ -239,6 +247,25 @@ func (d *delegate) sortCandidates(names []string) []string {
 		return (m[names[j]].Available >> 12) < (m[names[i]].Available >> 12)
 	})
 	return names
+}
+
+// updater a function which updates node information periodically
+func (d *delegate) updater(period, minPeriod time.Duration, du func(path string) (DiskUsage, error)) {
+	t := time.NewTicker(period)
+	defer t.Stop()
+	curTime := time.Now()
+	for range t.C {
+		if time.Since(curTime) < minPeriod { // too short
+			continue // wait for next cycle to avoid overwhelming the disk
+		}
+		space, err := du(d.dataPath)
+		if err != nil {
+			d.log.WithField("action", "delegate.local_state.disk_usage").Error(err)
+		} else {
+			d.setOwnSpace(space)
+		}
+		curTime = time.Now()
+	}
 }
 
 // events implement memberlist.EventDelegate interface
