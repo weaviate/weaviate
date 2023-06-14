@@ -52,8 +52,16 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 		for class, queue := range objectByClass {
 			index, ok := db.indices[indexID(schema.ClassName(class))]
 			if !ok {
-				for _, ind := range queue.originalIndex {
-					objs[queue.originalIndex[ind]].Err = fmt.Errorf("could not find index for class %v. It might have been deleted in the meantime", class)
+				msg := fmt.Sprintf("could not find index for class %v. It might have been deleted in the meantime", class)
+				db.logger.Warn(msg)
+				for _, origIdx := range queue.originalIndex {
+					if origIdx >= len(objs) {
+						db.logger.Errorf(
+							"batch add queue index out of bounds. len(objs) == %d, queue.originalIndex == %d",
+							len(objs), origIdx)
+						break
+					}
+					objs[origIdx].Err = fmt.Errorf(msg)
 				}
 				continue
 			}
