@@ -157,14 +157,14 @@ func (m *Manager) validateSchemaCorruption(ctx context.Context,
 		return fmt.Errorf("unrecognized tx response payload: %T", tx.Payload)
 	}
 
-	if !Equal(localSchema, pl.Schema) {
+	if err := Equal(localSchema, pl.Schema); err != nil {
 		diff := Diff("local", localSchema, "cluster", pl.Schema)
 		m.logger.WithFields(logrusStartupSyncFields()).WithFields(logrus.Fields{
 			"diff": diff,
 		}).Errorf("mismatch between local schema and remote (other nodes consensus) schema")
 
-		return fmt.Errorf("corrupt cluster: other nodes have consensus on schema, " +
-			"but local node has a different (non-null) schema")
+		return fmt.Errorf("corrupt cluster: other nodes have consensus on schema, "+
+			"but local node has a different (non-null) schema: %w", err)
 	}
 
 	return nil
