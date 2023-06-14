@@ -145,7 +145,7 @@ func TestHybrid(t *testing.T) {
 	for _, query := range queries {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: query.Query}
 		addit := additional.Properties{}
-		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
+		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "")
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
 
@@ -182,7 +182,7 @@ func TestBIER(t *testing.T) {
 	for _, query := range queries {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: query.Query}
 		addit := additional.Properties{}
-		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
+		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "")
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
 		// fmt.Printf("Results: %v\n", res)
@@ -388,7 +388,7 @@ func TestRFJourney(t *testing.T) {
 	})
 
 	// Check basic search with one property
-	results_set_1, err := repo.VectorClassSearch(context.TODO(), dto.GetParams{
+	results_set_1, err := repo.VectorSearch(context.TODO(), dto.GetParams{
 		ClassName:    "MyClass",
 		SearchVector: peanutsVector(),
 		Pagination: &filters.Pagination{
@@ -398,7 +398,7 @@ func TestRFJourney(t *testing.T) {
 	})
 
 	require.Nil(t, err)
-	results_set_2, err := repo.VectorClassSearch(context.TODO(), dto.GetParams{
+	results_set_2, err := repo.VectorSearch(context.TODO(), dto.GetParams{
 		ClassName:    "MyClass",
 		SearchVector: journeyVector(),
 		Pagination: &filters.Pagination{

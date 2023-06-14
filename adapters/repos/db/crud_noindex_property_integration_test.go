@@ -101,8 +101,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 	})
 
 	t.Run("all props are present when getting by id", func(t *testing.T) {
-		res, err := repo.ObjectByID(context.Background(), thingID,
-			search.SelectProperties{}, additional.Properties{})
+		res, err := repo.ObjectByID(context.Background(), thingID, search.SelectProperties{}, additional.Properties{}, "")
 		expectedSchema := map[string]interface{}{
 			"stringProp":       "some value",
 			"hiddenStringProp": "some hidden value",
@@ -128,7 +127,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 	})
 
 	t.Run("class search on the noindex prop errors", func(t *testing.T) {
-		_, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		_, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName: "ThingClassWithNoIndexProps",
 			Pagination: &filters.Pagination{
 				Limit: 10,
@@ -143,7 +142,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 	})
 
 	t.Run("class search on timestamp prop with no timestamp indexing error", func(t *testing.T) {
-		_, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		_, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName: "ThingClassWithNoIndexProps",
 			Pagination: &filters.Pagination{
 				Limit: 10,

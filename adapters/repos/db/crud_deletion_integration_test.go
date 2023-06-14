@@ -72,7 +72,7 @@ func TestDeleteJourney(t *testing.T) {
 
 	t.Run("verify vector search results are initially as expected",
 		func(t *testing.T) {
-			res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 				ClassName:    "UpdateTestClass",
 				SearchVector: searchVector,
 				Pagination: &filters.Pagination{
@@ -103,7 +103,7 @@ func TestDeleteJourney(t *testing.T) {
 						Value: value,
 					},
 				},
-			}, nil, additional.Properties{})
+			}, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 		return extractPropValues(res, "name")
 	}
@@ -137,7 +137,7 @@ func TestDeleteJourney(t *testing.T) {
 		})
 
 	t.Run("verify new vector search results are as expected", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
 			Pagination: &filters.Pagination{
@@ -179,7 +179,7 @@ func TestDeleteJourney(t *testing.T) {
 		})
 
 	t.Run("verify new vector search results are as expected", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
 			Pagination: &filters.Pagination{
@@ -210,7 +210,7 @@ func TestDeleteJourney(t *testing.T) {
 	})
 
 	t.Run("delete the index", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
 			Pagination: &filters.Pagination{

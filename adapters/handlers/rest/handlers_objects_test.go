@@ -1081,7 +1081,7 @@ func (f *fakeManager) GetObjectsClass(ctx context.Context,
 	return class, nil
 }
 
-func (f *fakeManager) GetObjects(_ context.Context, _ *models.Principal, _ *int64, _ *int64, after *string, _ *string, _ *string, _ additional.Properties) ([]*models.Object, error) {
+func (f *fakeManager) GetObjects(ctx context.Context, principal *models.Principal, offset *int64, limit *int64, sort *string, order *string, after *string, addl additional.Properties, tenantKey string) ([]*models.Object, error) {
 	return f.queryResult, nil
 }
 

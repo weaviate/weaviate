@@ -109,10 +109,10 @@ func (db *DB) MultiGet(ctx context.Context,
 //
 // @warning: this function is deprecated by Object()
 func (db *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
-	props search.SelectProperties,
-	additional additional.Properties,
+	props search.SelectProperties, additional additional.Properties,
+	tenantKey string,
 ) (*search.Result, error) {
-	results, err := db.ObjectsByID(ctx, id, props, additional)
+	results, err := db.ObjectsByID(ctx, id, props, additional, tenantKey)
 	if err != nil {
 		return nil, err
 	}
@@ -126,8 +126,8 @@ func (db *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 // this method is only used for Explore queries where we don't have
 // a class context
 func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
-	props search.SelectProperties,
-	additional additional.Properties,
+	props search.SelectProperties, additional additional.Properties,
+	tenantKey string,
 ) (search.Results, error) {
 	var result []*storobj.Object
 	// TODO: Search in parallel, rather than sequentially or this will be
@@ -135,7 +135,7 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	db.indexLock.RLock()
 
 	for _, index := range db.indices {
-		res, err := index.objectByID(ctx, id, props, additional, nil, "")
+		res, err := index.objectByID(ctx, id, props, additional, nil, tenantKey)
 		if err != nil {
 			db.indexLock.RUnlock()
 			return nil, errors.Wrapf(err, "search index %s", index.ID())

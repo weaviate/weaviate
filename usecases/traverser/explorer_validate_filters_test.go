@@ -390,7 +390,7 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 
 				if test.expectedError == nil {
 					search.
-						On("VectorClassSearch", mock.Anything).
+						On("VectorSearch", mock.Anything).
 						Return(searchResults, nil)
 
 					res, err := explorer.GetClass(context.Background(), params)

@@ -190,7 +190,7 @@ func Test_MergingObjects(t *testing.T) {
 	t.Run("fetch original object's update timestamp", func(t *testing.T) {
 		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{
 			LastUpdateTimeUnix: true,
-		})
+		}, "")
 		require.Nil(t, err)
 
 		lastUpdateTimeUnix = source.Object().LastUpdateTimeUnix
@@ -225,14 +225,14 @@ func Test_MergingObjects(t *testing.T) {
 	t.Run("compare merge object's update time with original", func(t *testing.T) {
 		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{
 			LastUpdateTimeUnix: true,
-		})
+		}, "")
 		require.Nil(t, err)
 
 		assert.Greater(t, source.Object().LastUpdateTimeUnix, lastUpdateTimeUnix)
 	})
 
 	t.Run("check that the object was successfully merged", func(t *testing.T) {
-		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{})
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 
 		sch := source.Object().Properties.(map[string]interface{})
@@ -294,7 +294,7 @@ func Test_MergingObjects(t *testing.T) {
 	})
 
 	t.Run("check that the object was successfully merged", func(t *testing.T) {
-		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{})
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 
 		ref, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s", target1))
@@ -344,7 +344,7 @@ func Test_MergingObjects(t *testing.T) {
 	})
 
 	t.Run("check all references are now present", func(t *testing.T) {
-		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{})
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 
 		refs := source.Object().Properties.(map[string]interface{})["toTarget"]
@@ -373,7 +373,7 @@ func Test_MergingObjects(t *testing.T) {
 		}, nil, "")
 		require.Nil(t, err)
 
-		orig, err := repo.ObjectByID(context.Background(), noVecID, nil, additional.Properties{})
+		orig, err := repo.ObjectByID(context.Background(), noVecID, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 
 		expectedSchema := map[string]interface{}{
@@ -658,7 +658,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 							Pagination: &filters.Pagination{Limit: 5},
 							Filters:    tc.filter,
 						}
-						res, err := repo.ClassSearch(context.Background(), params)
+						res, err := repo.VectorSearch(context.Background(), params)
 						require.Nil(t, err)
 						require.Len(t, res, 1)
 

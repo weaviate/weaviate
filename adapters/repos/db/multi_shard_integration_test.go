@@ -256,7 +256,7 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 		}
 
 		for _, test := range tests {
-			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.Search(context.Background(), dto.GetParams{
 				ClassName:      className,
 				Pagination:     &filters.Pagination{Limit: 10},
 				KeywordRanking: test.rankingParams,
@@ -323,8 +323,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 	return func(t *testing.T) {
 		t.Run("retrieve all individually", func(t *testing.T) {
 			for _, desired := range data {
-				res, err := repo.ObjectByID(context.Background(), desired.ID,
-					search.SelectProperties{}, additional.Properties{})
+				res, err := repo.ObjectByID(context.Background(), desired.ID, search.SelectProperties{}, additional.Properties{}, "")
 				assert.Nil(t, err)
 
 				require.NotNil(t, res)
@@ -349,7 +348,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 					},
 				}
 				res, err := repo.ObjectSearch(context.Background(), 0, limit, filters, nil,
-					additional.Properties{})
+					additional.Properties{}, "")
 				assert.Nil(t, err)
 
 				assert.Len(t, res, expected)
@@ -381,7 +380,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 						},
 					},
 				}
-				res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+				res, err := repo.Search(context.Background(), dto.GetParams{
 					Filters: filter,
 					Pagination: &filters.Pagination{
 						Limit: limit,
@@ -407,7 +406,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 
 		t.Run("retrieve through class-level vector search", func(t *testing.T) {
 			do := func(t *testing.T, limit, expected int) {
-				res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+				res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 					SearchVector: queryVec,
 					Pagination: &filters.Pagination{
 						Limit: limit,
@@ -432,7 +431,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 
 		t.Run("retrieve through inter-class vector search", func(t *testing.T) {
 			do := func(t *testing.T, limit, expected int) {
-				res, err := repo.VectorSearch(context.Background(), queryVec, 0, limit, nil)
+				res, err := repo.CrossClassVectorSearch(context.Background(), queryVec, 0, limit, nil)
 				assert.Nil(t, err)
 				assert.Len(t, res, expected)
 				for i, obj := range res {
@@ -455,20 +454,19 @@ func makeTestRetrieveRefClass(repo *DB, data, refData []*models.Object) func(t *
 	return func(t *testing.T) {
 		t.Run("retrieve ref data individually with select props", func(t *testing.T) {
 			for _, desired := range refData {
-				res, err := repo.ObjectByID(context.Background(), desired.ID,
-					search.SelectProperties{
-						search.SelectProperty{
-							IsPrimitive: false,
-							Name:        "toOther",
-							Refs: []search.SelectClass{{
-								ClassName: "TestClass",
-								RefProperties: search.SelectProperties{{
-									Name:        "index",
-									IsPrimitive: true,
-								}},
+				res, err := repo.ObjectByID(context.Background(), desired.ID, search.SelectProperties{
+					search.SelectProperty{
+						IsPrimitive: false,
+						Name:        "toOther",
+						Refs: []search.SelectClass{{
+							ClassName: "TestClass",
+							RefProperties: search.SelectProperties{{
+								Name:        "index",
+								IsPrimitive: true,
 							}},
-						},
-					}, additional.Properties{})
+						}},
+					},
+				}, additional.Properties{}, "")
 				assert.Nil(t, err)
 				refs := res.Schema.(map[string]interface{})["toOther"].([]interface{})
 				assert.Len(t, refs, len(data))
@@ -606,7 +604,7 @@ func makeTestSortingClass(repo *DB) func(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name, func(t *testing.T) {
 					res, err := repo.ObjectSearch(context.Background(), 0, 1000, nil, test.sort,
-						additional.Properties{})
+						additional.Properties{}, "")
 					if len(test.constainsErrorMsgs) > 0 {
 						require.NotNil(t, err)
 						for _, errorMsg := range test.constainsErrorMsgs {
@@ -698,7 +696,7 @@ func makeTestBatchDeleteAllObjects(repo *DB) func(t *testing.T) {
 				}
 			}
 			performClassSearch := func(className string) ([]search.Result, error) {
-				return repo.ClassSearch(context.Background(), dto.GetParams{
+				return repo.Search(context.Background(), dto.GetParams{
 					ClassName:  className,
 					Pagination: &filters.Pagination{Limit: 10000},
 				})
