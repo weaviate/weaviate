@@ -48,8 +48,8 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	shardName string,
 ) *Metrics {
 	if promMetrics.GroupClasses {
-		className = "_grouped"
-		shardName = "_grouped"
+		className = "n/a"
+		shardName = "n/a"
 	}
 
 	replace := promMetrics.AsyncOperations.MustCurryWith(prometheus.Labels{
@@ -147,7 +147,7 @@ func (m *Metrics) MemtableOpObserver(path, strategy, op string) NsObserver {
 	}
 
 	if m.groupClasses {
-		path = "_grouped"
+		path = "n/a"
 	}
 
 	curried := m.memtableDurations.With(prometheus.Labels{

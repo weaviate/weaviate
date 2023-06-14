@@ -45,8 +45,8 @@ func NewMetrics(
 	}
 
 	if prom.GroupClasses {
-		className = "_grouped"
-		shardName = "_grouped"
+		className = "n/a"
+		shardName = "n/a"
 	}
 
 	m.monitoring = true

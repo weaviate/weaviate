@@ -132,7 +132,7 @@ func (sg *SegmentGroup) compactOnce() error {
 
 	strategy := sg.segmentAtPos(pair[0]).strategy
 
-	pathLabel := "_grouped"
+	pathLabel := "n/a"
 	if sg.metrics != nil && !sg.metrics.groupClasses {
 		pathLabel = sg.dir
 	}

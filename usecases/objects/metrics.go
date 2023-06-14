@@ -176,7 +176,7 @@ func (m *Metrics) AddUsageDimensions(className, queryType, operation string, dim
 	}
 
 	if m.groupClasses {
-		className = "_grouped"
+		className = "n/a"
 	}
 
 	m.dimensions.With(prometheus.Labels{
