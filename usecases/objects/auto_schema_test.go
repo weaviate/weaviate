@@ -281,6 +281,19 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			},
 			want: []schema.DataType{schema.DataTypeStringArray},
 		},
+		{
+			name: "determine error type that is not recognized",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled:       true,
+					DefaultString: schema.DataTypeText.String(),
+				},
+			},
+			args: args{
+				value: []interface{}{[]interface{}{"panic"}},
+			},
+			want: []schema.DataType{schema.DataTypeText},
+		},
 	}
 	for _, tt := range tests {
 		vectorRepo := &fakeVectorRepo{}
