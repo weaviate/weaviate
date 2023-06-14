@@ -1380,8 +1380,12 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 func (i *Index) aggregate(ctx context.Context,
 	params aggregation.Params,
 ) (*aggregation.Result, error) {
+	if err := i.validateMultiTenancy(params.TenantKey, nil); err != nil {
+		return nil, err
+	}
+
 	shardState := i.getSchema.ShardingState(i.Config.ClassName.String())
-	shardNames := shardState.AllPhysicalShards()
+	shardNames := i.targetShardNames(params.TenantKey)
 
 	results := make([]*aggregation.Result, len(shardNames))
 	for j, shardName := range shardNames {
