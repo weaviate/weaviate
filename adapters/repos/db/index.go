@@ -89,8 +89,6 @@ type Index struct {
 	stopwords             *stopwords.Detector
 	replicator            *replica.Replicator
 
-	configLock sync.Mutex
-
 	backupState     BackupState
 	backupStateLock sync.RWMutex
 
@@ -404,8 +402,6 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) replicationEnabled() bool {
-	i.configLock.Lock()
-	defer i.configLock.Unlock()
 	return i.Config.ReplicationFactor > 1
 }
 
