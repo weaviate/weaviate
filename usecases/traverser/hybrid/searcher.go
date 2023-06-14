@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/autocut"
+
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/search"
@@ -147,8 +149,12 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 			weights = append(weights, weight)
 		}
 	}
-
-	fused := FusionReciprocal(weights, found)
+	var fused []*Result
+	if s.params.FusionAlgorithm == 0 {
+		fused = FusionRanked(weights, found)
+	} else {
+		fused = FusionRelativeScore(weights, found)
+	}
 
 	if s.postProcFunc != nil {
 		sr, err := s.postProcFunc(fused)
@@ -159,7 +165,14 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 			fused[i].Result = &(sr[i])
 		}
 	}
-
+	if s.params.AutoCut > 0 {
+		scores := make([]float32, len(fused))
+		for i := range fused {
+			scores[i] = fused[i].Score
+		}
+		cutOff := autocut.Autocut(scores, s.params.AutoCut)
+		fused = fused[:cutOff]
+	}
 	return fused, nil
 }
 

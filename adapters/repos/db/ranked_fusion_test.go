@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -43,30 +42,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
 )
 
-/*
-  {
-        "document": "BACKGROUND: Common warts (verruca vulgaris) are benign epithelial proliferations associated with human papillomavirus (HPV) infection. Salicylic acid and cryotherapy are the most frequent treatments for common warts, but can be painful and cause scarring, and have high failure and recrudescence rates. Topical vitamin A has been shown to be a successful treatment of common warts in prior informal studies. CASE: The subject is a healthy, physically-active 30 old female with a 9 year history of common warts on the back of the right hand. The warts resisted treatment with salicylic acid, apple cider vinegar and an over-the-counter blend of essential oils marketed for the treatment of warts. Daily topical application of natural vitamin A derived from fish liver oil (25,000 IU) led to replacement of all the warts with normal skin. Most of the smaller warts had been replaced by 70 days. A large wart on the middle knuckle required 6 months of vitamin A treatment to resolve completely. CONCLUSION: Retinoids should be further investigated in controlled studies to determine their effectiveness in treating common warts and the broad range of other benign and cancerous lesions induced by HPVs.",
-        "DocID": "MED-941"
-    },
-
-*/
-
 type TestDoc struct {
 	DocID    string
 	Document string
 }
 
-/*
-	{
-	    "queryID": "PLAIN-4",
-	    "query": "Using Diet to Treat Asthma and Eczema",
-	    "matchingDocIDs": [
-	        "MED-2441",
-	        "MED-2472",
-	        "MED-2444"
-	    ]
-	},
-*/
 type TestQuery struct {
 	QueryID        string
 	Query          string
@@ -201,21 +181,6 @@ func TestBIER(t *testing.T) {
 	}
 }
 
-func FusionConfig(k1, b float32) *models.InvertedIndexConfig {
-	return &models.InvertedIndexConfig{
-		Bm25: &models.BM25Config{
-			K1: k1,
-			B:  b,
-		},
-		CleanupIntervalSeconds: 60,
-		Stopwords: &models.StopwordConfig{
-			Preset: "none",
-		},
-		IndexNullState:      true,
-		IndexPropertyLength: true,
-	}
-}
-
 func addObj(repo *DB, i int, props map[string]interface{}, vec []float32) error {
 	id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 
@@ -324,7 +289,7 @@ func TestRFJourney(t *testing.T) {
 	resultSet2 := []*hybrid.Result{doc2, doc1, doc3}
 
 	t.Run("Fusion Reciprocal", func(t *testing.T) {
-		results := hybrid.FusionReciprocal([]float64{0.4, 0.6},
+		results := hybrid.FusionRanked([]float64{0.4, 0.6},
 			[][]*hybrid.Result{resultSet1, resultSet2})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
@@ -340,7 +305,7 @@ func TestRFJourney(t *testing.T) {
 	})
 
 	t.Run("Fusion Reciprocal 2", func(t *testing.T) {
-		results := hybrid.FusionReciprocal([]float64{0.8, 0.2},
+		results := hybrid.FusionRanked([]float64{0.8, 0.2},
 			[][]*hybrid.Result{resultSet1, resultSet2})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
@@ -356,7 +321,7 @@ func TestRFJourney(t *testing.T) {
 	})
 
 	t.Run("Vector Only", func(t *testing.T) {
-		results := hybrid.FusionReciprocal([]float64{0.0, 1.0},
+		results := hybrid.FusionRanked([]float64{0.0, 1.0},
 			[][]*hybrid.Result{resultSet1, resultSet2})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
@@ -372,7 +337,7 @@ func TestRFJourney(t *testing.T) {
 	})
 
 	t.Run("BM25 only", func(t *testing.T) {
-		results := hybrid.FusionReciprocal([]float64{1.0, 0.0},
+		results := hybrid.FusionRanked([]float64{1.0, 0.0},
 			[][]*hybrid.Result{resultSet1, resultSet2})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
@@ -437,7 +402,7 @@ func TestRFJourney(t *testing.T) {
 		})
 	}
 
-	res := hybrid.FusionReciprocal([]float64{0.2, 0.8}, [][]*hybrid.Result{results_set_1_hybrid, results_set_2_hybrid})
+	res := hybrid.FusionRanked([]float64{0.2, 0.8}, [][]*hybrid.Result{results_set_1_hybrid, results_set_2_hybrid})
 	fmt.Println("--- Start results for Fusion Reciprocal (", len(res), ")---")
 	for _, r := range res {
 
@@ -819,7 +784,7 @@ func TestStability(t *testing.T) {
 	resultSet2 := []*hybrid.Result{doc2, doc1, doc3}
 
 	t.Run("Fusion Reciprocal", func(t *testing.T) {
-		results := hybrid.FusionReciprocal([]float64{0.4, 0.6},
+		results := hybrid.FusionRanked([]float64{0.4, 0.6},
 			[][]*hybrid.Result{resultSet1, resultSet2})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {

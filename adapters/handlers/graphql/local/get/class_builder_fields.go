@@ -201,7 +201,7 @@ func newPhoneNumberObject(className string, propertyName string) *graphql.Object
 }
 
 func buildGetClassField(classObject *graphql.Object,
-	class *models.Class, modulesProvider ModulesProvider,
+	class *models.Class, modulesProvider ModulesProvider, fusionEnum *graphql.Enum,
 ) graphql.Field {
 	field := graphql.Field{
 		Type:        graphql.NewList(classObject),
@@ -231,7 +231,7 @@ func buildGetClassField(classObject *graphql.Object,
 	}
 
 	field.Args["bm25"] = bm25Argument(class.Class)
-	field.Args["hybrid"] = hybridArgument(classObject, class, modulesProvider)
+	field.Args["hybrid"] = hybridArgument(classObject, class, modulesProvider, fusionEnum)
 
 	if modulesProvider != nil {
 		for name, argument := range modulesProvider.GetArguments(class) {

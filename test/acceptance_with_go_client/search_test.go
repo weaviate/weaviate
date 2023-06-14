@@ -201,7 +201,7 @@ func TestSearchOnSomeProperties(t *testing.T) {
 	}
 }
 
-func TestBm25Autocut(t *testing.T) {
+func TestAutocut(t *testing.T) {
 	ctx := context.Background()
 	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
 	c.Schema().AllDeleter().Do(ctx)
@@ -210,6 +210,7 @@ func TestBm25Autocut(t *testing.T) {
 	AddClassAndObjects(t, className, string(schema.DataTypeTextArray), c)
 	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
+	searchQuery := []string{"hybrid:{query:\"rain nice\", alpha: 0, fusion_type: relative_score_fusion", "bm25:{query:\"rain nice\""}
 	cases := []struct {
 		autocut    int
 		numResults int
@@ -217,13 +218,15 @@ func TestBm25Autocut(t *testing.T) {
 		{autocut: 1, numResults: 2}, {autocut: 2, numResults: 4}, {autocut: -1, numResults: 4 /*disabled*/},
 	}
 	for _, tt := range cases {
-		t.Run("autocut "+fmt.Sprint(tt.autocut), func(t *testing.T) {
-			results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(bm25:{query:\"rain nice\", autocut: %d, properties: [\"contents\"]}){num}}}", className, tt.autocut)).Do(ctx)
-			require.Nil(t, err)
-			result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
-			require.Len(t, result, tt.numResults)
-			require.Equal(t, 0., result[0].(map[string]interface{})["num"])
-			require.Equal(t, 1., result[1].(map[string]interface{})["num"])
-		})
+		for _, search := range searchQuery {
+			t.Run("autocut "+fmt.Sprint(tt.autocut, " ", search), func(t *testing.T) {
+				results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(%s, autocut: %d, properties: [\"contents\"]}){num}}}", className, search, tt.autocut)).Do(ctx)
+				require.Nil(t, err)
+				result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
+				require.Len(t, result, tt.numResults)
+				require.Equal(t, 0., result[0].(map[string]interface{})["num"])
+				require.Equal(t, 1., result[1].(map[string]interface{})["num"])
+			})
+		}
 	}
 }
