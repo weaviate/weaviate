@@ -495,7 +495,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 					Pagination:   &filters.Pagination{Limit: test.limit},
 					Filters:      test.filter,
 				}
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				if len(test.ErrMsg) > 0 {
 					require.Contains(t, err.Error(), test.ErrMsg)
 				} else {
@@ -525,7 +525,7 @@ func testPrimitivePropsWithLimit(repo *DB) func(t *testing.T) {
 				Pagination:   &filters.Pagination{Limit: limit},
 				Filters:      buildFilter("horsepower", 2, gt, dtInt), // would otherwise return 3 results
 			}
-			res, err := repo.ClassSearch(context.Background(), params)
+			res, err := repo.Search(context.Background(), params)
 			require.Nil(t, err)
 			assert.Len(t, res, limit)
 		})
@@ -539,7 +539,7 @@ func testPrimitivePropsWithLimit(repo *DB) func(t *testing.T) {
 				Pagination:   &filters.Pagination{Limit: limit},
 				Filters:      buildFilter("horsepower", 20000, lt, dtInt), // would otherwise return 3 results
 			}
-			res, err := repo.ClassSearch(context.Background(), params)
+			res, err := repo.Search(context.Background(), params)
 			require.Nil(t, err)
 			assert.Len(t, res, limit)
 		})
@@ -621,7 +621,7 @@ func testChainedPrimitiveProps(repo *DB,
 					Pagination: &filters.Pagination{Limit: 100},
 					Filters:    test.filter,
 				}
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
 				require.Len(t, res, len(test.expectedIDs))
 
@@ -937,7 +937,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 	}))
 
 	t.Run("verify 1st object found", func(t *testing.T) {
-		res, err := repo.ClassSearch(context.Background(),
+		res, err := repo.Search(context.Background(),
 			getParamsWithFilter("GeoUpdateTestClass", buildFilter(
 				"location", searchQuery, wgr, schema.DataTypeGeoCoordinates,
 			)))
@@ -954,7 +954,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 	}))
 
 	t.Run("verify 2nd object found", func(t *testing.T) {
-		res, err := repo.ClassSearch(context.Background(),
+		res, err := repo.Search(context.Background(),
 			getParamsWithFilter("GeoUpdateTestClass", buildFilter(
 				"location", searchQuery, wgr, schema.DataTypeGeoCoordinates,
 			)))
@@ -1182,7 +1182,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 					Pagination: &filters.Pagination{Limit: test.limit},
 					Filters:    test.filter,
 				}
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
 				require.Len(t, res, len(test.expectedNames))
 
@@ -1351,7 +1351,7 @@ func testSortProperties(repo *DB) func(t *testing.T) {
 					Pagination: &filters.Pagination{Limit: 100},
 					Sort:       test.sort,
 				}
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				if test.wantErr {
 					require.NotNil(t, err)
 					require.Contains(t, err.Error(), test.errMessage)
@@ -1449,7 +1449,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 			Pagination: &filters.Pagination{Limit: 2},
 			Filters:    filterNil,
 		}
-		resNil, err := repo.ClassSearch(context.Background(), paramsNil)
+		resNil, err := repo.Search(context.Background(), paramsNil)
 		assert.Nil(t, err)
 		assert.Equal(t, 1, len(resNil))
 		assert.Equal(t, UUID2, resNil[0].ID)
@@ -1460,7 +1460,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 			Pagination: &filters.Pagination{Limit: 2},
 			Filters:    filterLen,
 		}
-		resLen, err := repo.ClassSearch(context.Background(), paramsLen)
+		resLen, err := repo.Search(context.Background(), paramsLen)
 		assert.Nil(t, err)
 		assert.Equal(t, 1, len(resLen))
 		assert.Equal(t, UUID2, resLen[0].ID)
@@ -1475,7 +1475,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 			Pagination: &filters.Pagination{Limit: 2},
 			Filters:    filterNil,
 		}
-		resNil, err := repo.ClassSearch(context.Background(), paramsNil)
+		resNil, err := repo.Search(context.Background(), paramsNil)
 		assert.Nil(t, err)
 		assert.Equal(t, 0, len(resNil))
 
@@ -1485,7 +1485,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 			Pagination: &filters.Pagination{Limit: 2},
 			Filters:    filterLen,
 		}
-		resLen, err := repo.ClassSearch(context.Background(), paramsLen)
+		resLen, err := repo.Search(context.Background(), paramsLen)
 		assert.Nil(t, err)
 		assert.Equal(t, 0, len(resLen))
 	})

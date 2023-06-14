@@ -361,7 +361,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+				res, err := repo.Search(context.Background(), dto.GetParams{
 					ClassName:  "TestClass",
 					Pagination: &filters.Pagination{Limit: 10},
 					Filters:    tc.filter,
@@ -426,7 +426,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+				res, err := repo.Search(context.Background(), dto.GetParams{
 					ClassName:  "RefClass",
 					Pagination: &filters.Pagination{Limit: 10},
 					Filters:    tc.filter,
@@ -664,7 +664,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+				res, err := repo.Search(context.Background(), dto.GetParams{
 					ClassName:  "TestClass",
 					Pagination: &filters.Pagination{Limit: 10},
 					Filters:    tc.filter,
@@ -771,7 +771,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+				res, err := repo.Search(context.Background(), dto.GetParams{
 					ClassName:  "RefClass",
 					Pagination: &filters.Pagination{Limit: 10},
 					Filters:    tc.filter,
@@ -1089,7 +1089,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+				res, err := repo.Search(context.Background(), dto.GetParams{
 					ClassName:  "TestClass",
 					Pagination: &filters.Pagination{Limit: 10},
 					Filters:    tc.filter,
@@ -1289,7 +1289,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+				res, err := repo.Search(context.Background(), dto.GetParams{
 					ClassName:  "RefClass",
 					Pagination: &filters.Pagination{Limit: 10},
 					Filters:    tc.filter,
@@ -1341,6 +1341,6 @@ func TestFilterPropertyLengthError(t *testing.T) {
 		Pagination:   &filters.Pagination{Limit: 5},
 		Filters:      LengthFilter,
 	}
-	_, err = repo.ClassSearch(context.Background(), params)
+	_, err = repo.Search(context.Background(), params)
 	require.NotNil(t, err)
 }

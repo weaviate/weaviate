@@ -180,7 +180,7 @@ func (f *fakeVectorRepoKNN) ZeroShotSearch(ctx context.Context, vector []float32
 	return []search.Result{}, nil
 }
 
-func (f *fakeVectorRepoKNN) VectorClassSearch(ctx context.Context,
+func (f *fakeVectorRepoKNN) VectorSearch(ctx context.Context,
 	params dto.GetParams,
 ) ([]search.Result, error) {
 	f.Lock()
@@ -270,7 +270,7 @@ func (f *fakeVectorRepoContextual) BatchPutObjects(ctx context.Context, objects 
 	return objects, nil
 }
 
-func (f *fakeVectorRepoContextual) VectorClassSearch(ctx context.Context,
+func (f *fakeVectorRepoContextual) VectorSearch(ctx context.Context,
 	params dto.GetParams,
 ) ([]search.Result, error) {
 	if params.SearchVector == nil {

@@ -87,13 +87,7 @@ type fakeVectorSearcher struct {
 	results          []search.Result
 }
 
-func (f *fakeVectorSearcher) ClassVectorSearch(ctx context.Context, class string, vector []float32, offset, limit int,
-	filters *filters.LocalFilter,
-) ([]search.Result, error) {
-	panic("not implemented")
-}
-
-func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
+func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
 	vector []float32, offset, limit int, filters *filters.LocalFilter,
 ) ([]search.Result, error) {
 	f.calledWithVector = vector
@@ -109,14 +103,14 @@ func (f *fakeVectorSearcher) Aggregate(ctx context.Context,
 	return args.Get(0).(*aggregation.Result), args.Error(1)
 }
 
-func (f *fakeVectorSearcher) VectorClassSearch(ctx context.Context,
+func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
 	params dto.GetParams,
 ) ([]search.Result, error) {
 	args := f.Called(params)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 
-func (f *fakeVectorSearcher) ClassSearch(ctx context.Context,
+func (f *fakeVectorSearcher) Search(ctx context.Context,
 	params dto.GetParams,
 ) ([]search.Result, error) {
 	args := f.Called(params)
@@ -133,20 +127,20 @@ func (f *fakeVectorSearcher) Object(ctx context.Context,
 }
 
 func (f *fakeVectorSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID,
-	props search.SelectProperties, additional additional.Properties,
+	props search.SelectProperties, additional additional.Properties, tenantKey string,
 ) (search.Results, error) {
 	args := f.Called(id)
 	return args.Get(0).(search.Results), args.Error(1)
 }
 
-func (f *fakeVectorSearcher) ClassObjectSearch(ctx context.Context,
+func (f *fakeVectorSearcher) SparseObjectSearch(ctx context.Context,
 	params dto.GetParams,
 ) ([]*storobj.Object, []float32, error) {
 	return nil, nil, nil
 }
 
-func (f *fakeVectorSearcher) ClassObjectVectorSearch(context.Context, string,
-	[]float32, int, int, *filters.LocalFilter, additional.Properties,
+func (f *fakeVectorSearcher) DenseObjectSearch(context.Context, string,
+	[]float32, int, int, *filters.LocalFilter, additional.Properties, string,
 ) ([]*storobj.Object, []float32, error) {
 	return nil, nil, nil
 }
@@ -168,8 +162,9 @@ type fakeVectorRepo struct {
 	mock.Mock
 }
 
-func (f *fakeVectorRepo) ObjectsByID(ctx context.Context, id strfmt.UUID,
-	props search.SelectProperties, additional additional.Properties,
+func (f *fakeVectorRepo) ObjectsByID(ctx context.Context,
+	id strfmt.UUID, props search.SelectProperties,
+	additional additional.Properties, tenantKey string,
 ) (search.Results, error) {
 	return nil, nil
 }
@@ -178,18 +173,6 @@ func (f *fakeVectorRepo) Object(ctx context.Context, className string, id strfmt
 	props search.SelectProperties, additional additional.Properties,
 	repl *additional.ReplicationProperties, tenantKey string,
 ) (*search.Result, error) {
-	return nil, nil
-}
-
-func (f *fakeVectorRepo) PutObject(ctx context.Context, index string,
-	concept *models.Object, vector []float32,
-) error {
-	return nil
-}
-
-func (f *fakeVectorRepo) VectorSearch(ctx context.Context,
-	vector []float32, offset, limit int, filters *filters.LocalFilter,
-) ([]search.Result, error) {
 	return nil, nil
 }
 

@@ -161,7 +161,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 					},
 				},
 			}
-			res, err := vrepo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := vrepo.Search(context.Background(), dto.GetParams{
 				ClassName: "Article",
 				Filters:   &filter,
 				Pagination: &filters.Pagination{
@@ -278,7 +278,7 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 					},
 				},
 			}
-			res, err := vrepo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := vrepo.Search(context.Background(), dto.GetParams{
 				ClassName: "Recipes",
 				Filters:   &filter,
 				Pagination: &filters.Pagination{

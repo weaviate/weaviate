@@ -36,7 +36,7 @@ func (db *DB) GetUnclassified(ctx context.Context, class string,
 ) ([]search.Result, error) {
 	mergedFilter := mergeUserFilterWithRefCountFilter(filter, class, properties,
 		libfilters.OperatorEqual, 0)
-	res, err := db.ClassSearch(ctx, dto.GetParams{
+	res, err := db.Search(ctx, dto.GetParams{
 		ClassName: class,
 		Filters:   mergedFilter,
 		Pagination: &libfilters.Pagination{
@@ -60,7 +60,7 @@ func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32,
 	class string, properties []string,
 	filter *libfilters.LocalFilter,
 ) ([]search.Result, error) {
-	res, err := db.VectorClassSearch(ctx, dto.GetParams{
+	res, err := db.VectorSearch(ctx, dto.GetParams{
 		ClassName:    class,
 		SearchVector: vector,
 		Pagination: &filters.Pagination{
@@ -83,7 +83,7 @@ func (db *DB) AggregateNeighbors(ctx context.Context, vector []float32,
 ) ([]classification.NeighborRef, error) {
 	mergedFilter := mergeUserFilterWithRefCountFilter(filter, class, properties,
 		libfilters.OperatorGreaterThan, 0)
-	res, err := db.VectorClassSearch(ctx, dto.GetParams{
+	res, err := db.VectorSearch(ctx, dto.GetParams{
 		ClassName:    class,
 		SearchVector: vector,
 		Pagination: &filters.Pagination{
