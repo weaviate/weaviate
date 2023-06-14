@@ -38,7 +38,9 @@ const (
 	multiTenant  = "tenantID"
 )
 
-func backupJourney(t *testing.T, className, backend, backupID string, journeyType journeyType) {
+func backupJourney(t *testing.T, className, backend, backupID string,
+	journeyType journeyType, tenantNames []string,
+) {
 	if journeyType == clusterJourney && backend == "filesystem" {
 		t.Run("should fail backup/restore with local filesystem backend", func(t *testing.T) {
 			backupResp, err := helper.CreateBackup(t, className, backend, backupID)
@@ -125,8 +127,15 @@ func backupJourney(t *testing.T, className, backend, backupID string, journeyTyp
 	})
 
 	// assert class exists again it its entirety
-	count := moduleshelper.GetClassCount(t, className)
-	assert.Equal(t, int64(500), count)
+	if tenantNames != nil {
+		for _, name := range tenantNames {
+			count := moduleshelper.GetClassCount(t, className, name)
+			assert.Equal(t, int64(500/len(tenantNames)), count)
+		}
+	} else {
+		count := moduleshelper.GetClassCount(t, className, singleTenant)
+		assert.Equal(t, int64(500), count)
+	}
 }
 
 func addTestClass(t *testing.T, className string, tenantKey string) {
