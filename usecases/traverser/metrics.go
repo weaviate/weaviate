@@ -22,6 +22,7 @@ type Metrics struct {
 	queriesCount     *prometheus.GaugeVec
 	queriesDurations *prometheus.HistogramVec
 	dimensions       *prometheus.CounterVec
+	groupClasses     bool
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
@@ -33,12 +34,17 @@ func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
 		queriesCount:     prom.QueriesCount,
 		queriesDurations: prom.QueriesDurations,
 		dimensions:       prom.QueryDimensions,
+		groupClasses:     prom.GroupClasses,
 	}
 }
 
 func (m *Metrics) QueriesAggregateInc(className string) {
 	if m == nil {
 		return
+	}
+
+	if m.groupClasses {
+		className = "_grouped"
 	}
 
 	m.queriesCount.With(prometheus.Labels{
@@ -52,6 +58,10 @@ func (m *Metrics) QueriesAggregateDec(className string) {
 		return
 	}
 
+	if m.groupClasses {
+		className = "_grouped"
+	}
+
 	m.queriesCount.With(prometheus.Labels{
 		"class_name": className,
 		"query_type": "aggregate",
@@ -63,6 +73,10 @@ func (m *Metrics) QueriesGetInc(className string) {
 		return
 	}
 
+	if m.groupClasses {
+		className = "_grouped"
+	}
+
 	m.queriesCount.With(prometheus.Labels{
 		"class_name": className,
 		"query_type": "get_graphql",
@@ -72,6 +86,10 @@ func (m *Metrics) QueriesGetInc(className string) {
 func (m *Metrics) QueriesObserveDuration(className string, startMs int64) {
 	if m == nil {
 		return
+	}
+
+	if m.groupClasses {
+		className = "_grouped"
 	}
 
 	took := float64(time.Now().UnixMilli() - startMs)
@@ -87,6 +105,10 @@ func (m *Metrics) QueriesGetDec(className string) {
 		return
 	}
 
+	if m.groupClasses {
+		className = "_grouped"
+	}
+
 	m.queriesCount.With(prometheus.Labels{
 		"class_name": className,
 		"query_type": "get_graphql",
@@ -96,6 +118,10 @@ func (m *Metrics) QueriesGetDec(className string) {
 func (m *Metrics) AddUsageDimensions(className, queryType, operation string, dims int) {
 	if m == nil {
 		return
+	}
+
+	if m.groupClasses {
+		className = "_grouped"
 	}
 
 	m.dimensions.With(prometheus.Labels{
