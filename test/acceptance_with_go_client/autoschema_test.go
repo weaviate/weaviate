@@ -17,6 +17,7 @@ import (
 
 	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	client "github.com/weaviate/weaviate-go-client/v4/weaviate"
@@ -149,4 +150,31 @@ func TestAutoschemaCasingUpdateProps(t *testing.T) {
 			require.Nil(t, c.Schema().ClassDeleter().WithClassName(className).Do(ctx))
 		})
 	}
+}
+
+func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
+	ctx := context.Background()
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	require.Nil(t, err)
+
+	resp, err := c.Data().
+		Creator().
+		WithClassName("BeautifulWeather").
+		WithProperties(map[string]interface{}{
+			"panicProperty": []interface{}{
+				[]interface{}{
+					[]interface{}{
+						"panic",
+					},
+				},
+			},
+		}).
+		Do(ctx)
+
+	assert.Nil(t, resp)
+	assert.NotNil(t, err)
+	assert.ErrorContains(t, err, "invalid text property 'panicProperty' on class 'BeautifulWeather'")
+
+	err = c.Schema().ClassDeleter().WithClassName("BeautifulWeather").Do(ctx)
+	require.Nil(t, err)
 }
