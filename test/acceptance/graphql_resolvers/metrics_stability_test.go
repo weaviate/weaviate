@@ -14,7 +14,6 @@ package test
 import (
 	"bufio"
 	"context"
-	"encoding/binary"
 	"fmt"
 	"math"
 	"math/rand"
@@ -22,8 +21,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/objects"
@@ -73,7 +70,7 @@ func queryMetricsClass(t *testing.T, classIndex int) {
 	resp, err := helper.Client(t).Objects.
 		ObjectsClassGet(
 			objects.NewObjectsClassGetParams().
-				WithID(intToUUID(1)).
+				WithID(helper.IntToUUID(1)).
 				WithClassName(metricsClassName(classIndex)),
 			nil)
 
@@ -85,7 +82,7 @@ func queryMetricsClass(t *testing.T, classIndex int) {
 	helper.Client(t).Objects.
 		ObjectsClassGet(
 			objects.NewObjectsClassGetParams().
-				WithID(intToUUID(math.MaxUint64)).
+				WithID(helper.IntToUUID(math.MaxUint64)).
 				WithClassName(metricsClassName(classIndex)),
 			nil)
 
@@ -112,12 +109,6 @@ func queryMetricsClass(t *testing.T, classIndex int) {
 	assert.Len(t, objs, 1)
 }
 
-func intToUUID(in uint64) strfmt.UUID {
-	id := [16]byte{}
-	binary.BigEndian.PutUint64(id[8:16], in)
-	return strfmt.UUID(uuid.UUID(id).String())
-}
-
 // make sure that we use both individual as well as batch imports, as they
 // might produce different metrics
 func importMetricsClass(t *testing.T, classIndex int) {
@@ -127,7 +118,7 @@ func importMetricsClass(t *testing.T, classIndex int) {
 		Properties: map[string]interface{}{
 			"some_text": "this object was created individually",
 		},
-		ID:     intToUUID(1),
+		ID:     helper.IntToUUID(1),
 		Vector: randomVector(4),
 	})
 
