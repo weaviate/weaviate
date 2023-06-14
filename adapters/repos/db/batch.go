@@ -44,26 +44,38 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 		objectByClass[item.Object.Class] = queue
 	}
 
-	db.indexLock.RLock()
-	for class, queue := range objectByClass {
-		index, ok := db.indices[indexID(schema.ClassName(class))]
-		if !ok {
-			for _, ind := range queue.originalIndex {
-				objs[queue.originalIndex[ind]].Err = fmt.Errorf("could not find index for class %v. It might have been deleted in the meantime", class)
-			}
-			continue
-		}
-		index.dropIndex.RLock()
-		indexByClass[class] = index
-	}
-	db.indexLock.RUnlock()
+	// wrapped by func to acquire and safely release indexLock only for duration of loop
+	func() {
+		db.indexLock.RLock()
+		defer db.indexLock.RUnlock()
 
-	for class, queue := range objectByClass {
-		index, ok := indexByClass[class]
-		if !ok {
-			continue
+		for class, queue := range objectByClass {
+			index, ok := db.indices[indexID(schema.ClassName(class))]
+			if !ok {
+				for _, ind := range queue.originalIndex {
+					objs[queue.originalIndex[ind]].Err = fmt.Errorf("could not find index for class %v. It might have been deleted in the meantime", class)
+				}
+				continue
+			}
+			index.dropIndex.RLock()
+			indexByClass[class] = index
 		}
+	}()
+
+	// safely release remaining locks (in case of panic)
+	defer func() {
+		for _, index := range indexByClass {
+			if index != nil {
+				index.dropIndex.RUnlock()
+			}
+		}
+	}()
+
+	for class, index := range indexByClass {
+		queue := objectByClass[class]
 		errs := index.putObjectBatch(ctx, queue.objects, repl, tenantKey)
+		// remove index from map to skip releasing its lock in defer
+		indexByClass[class] = nil
 		index.dropIndex.RUnlock()
 		for i, err := range errs {
 			if err != nil {
@@ -89,26 +101,38 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 		refByClass[item.From.Class] = append(refByClass[item.From.Class], item)
 	}
 
-	db.indexLock.RLock()
-	for class, queue := range refByClass {
-		index, ok := db.indices[indexID(class)]
-		if !ok {
-			for _, item := range queue {
-				references[item.OriginalIndex].Err = fmt.Errorf("could not find index for class %v. It might have been deleted in the meantime", class)
-			}
-			continue
-		}
-		index.dropIndex.RLock()
-		indexByClass[class] = index
-	}
-	db.indexLock.RUnlock()
+	// wrapped by func to acquire and safely release indexLock only for duration of loop
+	func() {
+		db.indexLock.RLock()
+		defer db.indexLock.RUnlock()
 
-	for class, queue := range refByClass {
-		index, ok := indexByClass[class]
-		if !ok {
-			continue
+		for class, queue := range refByClass {
+			index, ok := db.indices[indexID(class)]
+			if !ok {
+				for _, item := range queue {
+					references[item.OriginalIndex].Err = fmt.Errorf("could not find index for class %v. It might have been deleted in the meantime", class)
+				}
+				continue
+			}
+			index.dropIndex.RLock()
+			indexByClass[class] = index
 		}
+	}()
+
+	// safely release remaining locks (in case of panic)
+	defer func() {
+		for _, index := range indexByClass {
+			if index != nil {
+				index.dropIndex.RUnlock()
+			}
+		}
+	}()
+
+	for class, index := range indexByClass {
+		queue := refByClass[class]
 		errs := index.addReferencesBatch(ctx, queue, repl, tenantKey)
+		// remove index from map to skip releasing its lock in defer
+		indexByClass[class] = nil
 		index.dropIndex.RUnlock()
 		for i, err := range errs {
 			if err != nil {

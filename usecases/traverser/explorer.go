@@ -248,7 +248,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 
 	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
-		hybridSearchLimit := params.Pagination.Limit
+		hybridSearchLimit := params.Pagination.Limit + params.Pagination.Offset
 		if hybridSearchLimit == 0 {
 			hybridSearchLimit = hybrid.DefaultLimit
 		}
@@ -282,7 +282,27 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return nil, err
 	}
 
-	return res.SearchResults(), nil
+	var out hybrid.Results
+
+	if params.Pagination.Limit <= 0 {
+		params.Pagination.Limit = hybrid.DefaultLimit
+	}
+
+	if params.Pagination.Offset < 0 {
+		params.Pagination.Offset = 0
+	}
+
+	if len(res) >= params.Pagination.Limit+params.Pagination.Offset {
+		out = res[params.Pagination.Offset : params.Pagination.Limit+params.Pagination.Offset]
+	}
+	if len(res) < params.Pagination.Limit+params.Pagination.Offset && len(res) > params.Pagination.Offset {
+		out = res[params.Pagination.Offset:]
+	}
+	if len(res) <= params.Pagination.Offset {
+		out = hybrid.Results{}
+	}
+
+	return out.SearchResults(), nil
 }
 
 func (e *Explorer) getClassList(ctx context.Context,
@@ -308,9 +328,6 @@ func (e *Explorer) getClassList(ctx context.Context,
 	var res []search.Result
 	var err error
 	if params.HybridSearch != nil {
-		if params.Pagination != nil {
-			params.HybridSearch.Limit = params.Pagination.Limit
-		}
 		res, err = e.Hybrid(ctx, params)
 		if err != nil {
 			return nil, err
