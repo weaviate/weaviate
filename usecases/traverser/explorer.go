@@ -282,14 +282,27 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return nil, err
 	}
 
-	if params.Pagination.Limit > 0 && params.Pagination.Offset >= 0 && len(res) > params.Pagination.Offset {
-		if len(res) > params.Pagination.Limit+params.Pagination.Offset {
-			res = res[:params.Pagination.Limit+params.Pagination.Offset]
-		}
-		res = res[params.Pagination.Offset:]
+	var out hybrid.Results
+
+	if params.Pagination.Limit <= 0 {
+		params.Pagination.Limit = hybrid.DefaultLimit
 	}
 
-	return res.SearchResults(), nil
+	if params.Pagination.Offset < 0 {
+		params.Pagination.Offset = 0
+	}
+
+	if len(res) >= params.Pagination.Limit+params.Pagination.Offset {
+		out = res[params.Pagination.Offset : params.Pagination.Limit+params.Pagination.Offset]
+	}
+	if len(res) < params.Pagination.Limit+params.Pagination.Offset && len(res) > params.Pagination.Offset {
+		out = res[params.Pagination.Offset:]
+	}
+	if len(res) <= params.Pagination.Offset {
+		out = hybrid.Results{}
+	}
+
+	return out.SearchResults(), nil
 }
 
 func (e *Explorer) getClassList(ctx context.Context,

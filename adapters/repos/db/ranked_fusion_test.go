@@ -546,6 +546,7 @@ func TestRFJourney(t *testing.T) {
 
 		require.Nil(t, err)
 		require.True(t, len(hybridResults) == 1)
+		require.True(t, hybridResults[0].ID == "00000000-0000-0000-0000-000000000001")
 	})
 }
 
