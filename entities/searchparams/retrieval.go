@@ -34,7 +34,6 @@ type WeightedSearchResult struct {
 type HybridSearch struct {
 	SubSearches interface{} `json:"subSearches"`
 	Type        string      `json:"type"`
-	Limit       int         `json:"limit"`
 	Alpha       float64     `json:"alpha"`
 	Query       string      `json:"query"`
 	Vector      []float32   `json:"vector"`
