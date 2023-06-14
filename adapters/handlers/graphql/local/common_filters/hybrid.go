@@ -86,6 +86,16 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 		args.Query = query.(string)
 	}
 
+	autocut, ok := source["autocut"]
+	if ok {
+		args.AutoCut = autocut.(int)
+	}
+
+	// there is a default value in graphql, this value should always be present
+	fusionType, ok := source["fusion_type"]
+	if ok {
+		args.FusionAlgorithm = fusionType.(int)
+	}
 	if _, ok := source["vector"]; ok {
 		vector := source["vector"].([]interface{})
 		args.Vector = make([]float32, len(vector))

@@ -65,10 +65,21 @@ func (b *classBuilder) objects() (*graphql.Object, error) {
 }
 
 func (b *classBuilder) kinds(kindSchema *models.Schema) (*graphql.Object, error) {
+	// needs to be defined outside the individual class as there can only be one definition of an enum
+	fusionAlgoEnum := graphql.NewEnum(graphql.EnumConfig{
+		Name: "FusionEnum",
+		Values: graphql.EnumValueConfigMap{
+			"ranked_fusion": &graphql.EnumValueConfig{
+				Value: 0,
+			},
+			"relative_score_fusion": &graphql.EnumValueConfig{
+				Value: 1,
+			},
+		},
+	})
 	classFields := graphql.Fields{}
-
 	for _, class := range kindSchema.Classes {
-		classField, err := b.classField(class)
+		classField, err := b.classField(class, fusionAlgoEnum)
 		if err != nil {
 			return nil, fmt.Errorf("Could not build class for %s", class.Class)
 		}
@@ -84,10 +95,10 @@ func (b *classBuilder) kinds(kindSchema *models.Schema) (*graphql.Object, error)
 	return classes, nil
 }
 
-func (b *classBuilder) classField(class *models.Class) (*graphql.Field, error) {
+func (b *classBuilder) classField(class *models.Class, fusionEnum *graphql.Enum) (*graphql.Field, error) {
 	classObject := b.classObject(class)
 	b.knownClasses[class.Class] = classObject
-	classField := buildGetClassField(classObject, class, b.modulesProvider)
+	classField := buildGetClassField(classObject, class, b.modulesProvider, fusionEnum)
 	return &classField, nil
 }
 

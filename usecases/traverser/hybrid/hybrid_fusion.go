@@ -16,41 +16,9 @@ import (
 	"sort"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/entities/search"
 )
 
-func FusionScoreCombSUM(results [][]search.Result) []search.Result {
-	allDocs := map[strfmt.UUID]*search.Result{}
-	// Loop over each array of results and add the score of each document to the totals
-	totals := map[strfmt.UUID]float32{}
-	for _, resultSet := range results {
-		for i, doc := range resultSet {
-			allDocs[doc.ID] = &resultSet[i]
-			score := doc.Score
-			if _, ok := totals[doc.ID]; ok {
-				totals[doc.ID] = totals[doc.ID] + score
-			} else {
-				totals[doc.ID] = score
-			}
-
-		}
-	}
-
-	out := []search.Result{}
-	for docID, score := range totals {
-		doc := *allDocs[docID]
-		doc.Score = score
-		out = append(out, doc)
-	}
-
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].Score > out[j].Score
-	})
-
-	return out
-}
-
-func FusionReciprocal(weights []float64, results [][]*Result) []*Result {
+func FusionRanked(weights []float64, results [][]*Result) []*Result {
 	mapResults := map[strfmt.UUID]*Result{}
 	for resultSetIndex, result := range results {
 		for i, res := range result {
@@ -102,19 +70,53 @@ func FusionReciprocal(weights []float64, results [][]*Result) []*Result {
 	return concat
 }
 
-func FusionScoreConcatenate(results [][]*search.Result) []*search.Result {
-	// Concatenate the results
-	concatenatedResults := []*search.Result{}
-	for _, result := range results {
-		concatenatedResults = append(concatenatedResults, result...)
+func FusionRelativeScore(weights []float64, results [][]*Result) []*Result {
+	maximum := []float32{-100000, -100000}
+	minimum := []float32{100000, 100000}
+
+	for i := range results {
+		for _, res := range results[i] {
+			if res.SecondarySortValue > maximum[i] {
+				maximum[i] = res.SecondarySortValue
+			}
+
+			if res.SecondarySortValue < minimum[i] {
+				minimum[i] = res.SecondarySortValue
+			}
+
+		}
 	}
 
-	sort.Slice(concatenatedResults, func(i, j int) bool {
-		a := concatenatedResults[i].Score
+	// normalize scores
+	mapResults := make(map[strfmt.UUID]*Result)
 
-		b := concatenatedResults[j].Score
+	for i := range results {
+		weight := float32(weights[i])
+		for _, res := range results[i] {
+			tempResult := res
+			score := weight * (res.SecondarySortValue - minimum[i]) / (maximum[i] - minimum[i])
 
-		return a > b
+			previousResult, ok := mapResults[res.ID]
+			if ok {
+				score += previousResult.Score
+			}
+			tempResult.Score = score
+
+			mapResults[res.ID] = tempResult
+		}
+	}
+
+	concat := make([]*Result, 0, len(mapResults))
+	for _, res := range mapResults {
+		concat = append(concat, res)
+	}
+
+	sort.Slice(concat, func(i, j int) bool {
+		a_b := float64(concat[j].Score - concat[i].Score)
+		if a_b*a_b < 1e-14 {
+			return concat[i].SecondarySortValue > concat[j].SecondarySortValue
+		}
+		return float64(concat[i].Score) > float64(concat[j].Score)
 	})
-	return concatenatedResults
+	return concat
 }

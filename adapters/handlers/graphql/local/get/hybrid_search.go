@@ -21,14 +21,14 @@ import (
 )
 
 func hybridArgument(classObject *graphql.Object,
-	class *models.Class, modulesProvider ModulesProvider,
+	class *models.Class, modulesProvider ModulesProvider, fusionEnum *graphql.Enum,
 ) *graphql.ArgumentConfig {
 	prefix := fmt.Sprintf("GetObjects%s", class.Class)
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name:        fmt.Sprintf("%sHybridInpObj", prefix),
-				Fields:      hybridOperands(classObject, class, modulesProvider),
+				Fields:      hybridOperands(classObject, class, modulesProvider, fusionEnum),
 				Description: "Hybrid search",
 			},
 		),
@@ -36,12 +36,13 @@ func hybridArgument(classObject *graphql.Object,
 }
 
 func hybridOperands(classObject *graphql.Object,
-	class *models.Class, modulesProvider ModulesProvider,
+	class *models.Class, modulesProvider ModulesProvider, fusionEnum *graphql.Enum,
 ) graphql.InputObjectConfigFieldMap {
 	ss := graphql.NewInputObject(graphql.InputObjectConfig{
 		Name:   class.Class + "SubSearch",
 		Fields: hybridSubSearch(classObject, class, modulesProvider),
 	})
+
 	fieldMap := graphql.InputObjectConfigFieldMap{
 		"query": &graphql.InputObjectFieldConfig{
 			Description: "Query string",
@@ -55,9 +56,18 @@ func hybridOperands(classObject *graphql.Object,
 			Description: "Vector search",
 			Type:        graphql.NewList(graphql.Float),
 		},
+		"autocut": &graphql.InputObjectFieldConfig{
+			Description: "Cut off number of results after the Nth extrema. Off by default, negative numbers mean off",
+			Type:        graphql.Int,
+		},
 		"properties": &graphql.InputObjectFieldConfig{
 			Description: "Which properties should be included in the sparse search",
 			Type:        graphql.NewList(graphql.String),
+		},
+		"fusion_type": &graphql.InputObjectFieldConfig{
+			Description:  "Algorithm used for fusing results from vector and keyword search",
+			DefaultValue: "ranked_fusion",
+			Type:         fusionEnum,
 		},
 	}
 
