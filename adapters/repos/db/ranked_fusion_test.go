@@ -549,8 +549,6 @@ func TestRFJourney(t *testing.T) {
 		require.True(t, hybridResults[0].ID == "00000000-0000-0000-0000-000000000001")
 	})
 
-
-
 	t.Run("Hybrid with offset", func(t *testing.T) {
 		params := dto.GetParams{
 			ClassName: "MyClass",
