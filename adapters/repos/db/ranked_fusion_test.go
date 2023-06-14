@@ -548,6 +548,42 @@ func TestRFJourney(t *testing.T) {
 		require.True(t, len(hybridResults) == 1)
 		require.True(t, hybridResults[0].ID == "00000000-0000-0000-0000-000000000001")
 	})
+
+
+
+	t.Run("Hybrid with offset", func(t *testing.T) {
+		params := dto.GetParams{
+			ClassName: "MyClass",
+			HybridSearch: &searchparams.HybridSearch{
+				Query:  "Elephant Parade",
+				Vector: elephantVector(),
+				Alpha:  0.5,
+			},
+			Pagination: &filters.Pagination{
+				Offset: 4,
+				Limit:  1,
+			},
+		}
+
+		prov := modules.NewProvider()
+		prov.SetClassDefaults(class)
+
+		metrics := &fakeMetrics{}
+		log, _ := test.NewNullLogger()
+		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		hybridResults, err := explorer.Hybrid(context.TODO(), params)
+
+		fmt.Println("--- Start results for hybrid with offset ---")
+		for _, r := range hybridResults {
+			schema := r.Schema.(map[string]interface{})
+			title := schema["title"].(string)
+			description := schema["description"].(string)
+			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
+		}
+
+		require.Nil(t, err)
+		require.True(t, len(hybridResults) == 0)
+	})
 }
 
 func TestRFJourneyWithFilters(t *testing.T) {
