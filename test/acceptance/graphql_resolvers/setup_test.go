@@ -89,6 +89,8 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("aggregates with hybrid search", aggregationWithHybridSearch)
 	t.Run("expected aggregate failures with invalid conditions", aggregatesWithExpectedFailures)
 
+	t.Run("metrics count is stable when more classes are added", metricsCount)
+
 	// tear down
 	deleteObjectClass(t, "Person")
 	deleteObjectClass(t, "Pizza")
