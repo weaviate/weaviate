@@ -205,7 +205,7 @@ func FromBinaryOptional(data []byte,
 }
 
 type bucket interface {
-	GetBySecondary(int, []byte) ([]byte, error)
+	GetBySecondary(int, []byte, ...[]byte) ([]byte, error)
 }
 
 func ObjectsByDocID(bucket bucket, ids []uint64,
@@ -694,7 +694,8 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	)
 }
 
-func VectorFromBinary(in []byte) ([]float32, error) {
+func VectorFromBinary(in []byte, buffers ...[]float32) ([]float32, error) {
+
 	if len(in) == 0 {
 		return nil, nil
 	}
@@ -710,7 +711,12 @@ func VectorFromBinary(in []byte) ([]float32, error) {
 	// it would be acceptable to panic
 	vecLen := binary.LittleEndian.Uint16(in[42:44])
 
-	out := make([]float32, vecLen)
+	var out []float32
+	if len(buffers) > 0 && len(buffers[0]) >= int(vecLen) {
+		out = buffers[0]
+	} else {
+		out = make([]float32, vecLen)
+	}
 	vecStart := 44
 	vecEnd := vecStart + int(vecLen*4)
 

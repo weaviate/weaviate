@@ -25,9 +25,9 @@ import (
 func Test_NoRaceSorteSetSorts(t *testing.T) {
 	set := ssdhelpers.NewSortedSet(100)
 	for i := 0; i < 100; i++ {
-		set.Insert(uint64(i), rand.Float32())
+		set.Insert(uint64(i), 10000*rand.Float32()-10000)
 	}
-	last := float32(0)
+	last := float32(-100000)
 	_, distances := set.Items(100)
 	for _, x := range distances {
 		assert.True(t, last <= x)

@@ -78,7 +78,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	eps.Insert(n.entryPointID, n.entryPointDist)
 
 	results, err := n.graph.searchLayerByVector(n.nodeVec, eps, n.graph.efConstruction,
-		level, nil)
+		level, nil, false)
 	if err != nil {
 		return errors.Wrapf(err, "search layer at level %d", level)
 	}
@@ -104,7 +104,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		neighbors = append(neighbors, id)
 	}
 
-	n.graph.freeSortedQueue(results)
+	n.graph.freeSortedQueue(results, false)
 
 	// set all outoing in one go
 	n.node.setConnectionsAtLevel(level, neighbors)

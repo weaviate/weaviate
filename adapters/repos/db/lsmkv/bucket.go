@@ -248,7 +248,7 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 // Similar to [Bucket.Get], GetBySecondary is limited to ReplaceStrategy. No
 // equivalent exists for Set and Map, as those do not support secondary
 // indexes.
-func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
+func (b *Bucket) GetBySecondary(pos int, key []byte, buffers ...[]byte) ([]byte, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -286,7 +286,7 @@ func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
 		}
 	}
 
-	return b.disk.getBySecondary(pos, key)
+	return b.disk.getBySecondary(pos, key, buffers...)
 }
 
 // SetList returns all Set entries for a given key.

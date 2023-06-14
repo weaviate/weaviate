@@ -15,6 +15,7 @@ type SortedQueue interface {
 	Len() int
 	Insert(id uint64, distance float32) int
 	ReSort(index int, distance float32)
+	ReSortById(id uint64, distance float32)
 	Items(k int) ([]uint64, []float32)
 	Pop() Item
 	Top() Item
@@ -111,6 +112,10 @@ func (l *Queue) Pop() Item {
 }
 
 func (l *Queue) ReSort(index int, distance float32) {
+	panic("Not implemented yet")
+}
+
+func (l *Queue) ReSortById(id uint64, distance float32) {
 	panic("Not implemented yet")
 }
 

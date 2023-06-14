@@ -62,7 +62,7 @@ func (s *segment) get(key []byte) ([]byte, error) {
 	return s.replaceStratParseData(contentsCopy)
 }
 
-func (s *segment) getBySecondary(pos int, key []byte) ([]byte, error) {
+func (s *segment) getBySecondary(pos int, key []byte, buffers ...[]byte) ([]byte, error) {
 	if s.strategy != segmentindex.StrategyReplace {
 		return nil, errors.Errorf("get only possible for strategy %q", StrategyReplace)
 	}
@@ -91,7 +91,12 @@ func (s *segment) getBySecondary(pos int, key []byte) ([]byte, error) {
 	// invalid memory without the copy, thus leading to a SEGFAULT.
 	// Similar approach was used to fix SEGFAULT in collection strategy
 	// https://github.com/weaviate/weaviate/issues/1837
-	contentsCopy := make([]byte, node.End-node.Start)
+	var contentsCopy []byte
+	if len(buffers) > 0 && uint64(len(buffers[0])) >= node.End-node.Start {
+		contentsCopy = buffers[0]
+	} else {
+		contentsCopy = make([]byte, node.End-node.Start)
+	}
 	copy(contentsCopy, s.contents[node.Start:node.End])
 
 	return s.replaceStratParseData(contentsCopy)

@@ -28,9 +28,11 @@ type pools struct {
 	pqResults          *pqMaxPool
 	pqSortedSetResults *ssdhelpers.SortedSetPool
 	pqCandidates       *pqMinPool
+
+	tempVectors *tempVectorsPool
 }
 
-func newPools(maxConnectionsLayerZero int) *pools {
+func newPools(maxConnectionsLayerZero int, tempVectorsSize int32) *pools {
 	return &pools{
 		visitedLists:     visited.NewPool(1, initialSize+500),
 		visitedListsLock: &sync.Mutex{},
@@ -43,7 +45,47 @@ func newPools(maxConnectionsLayerZero int) *pools {
 		pqResults:          newPqMaxPool(maxConnectionsLayerZero),
 		pqSortedSetResults: ssdhelpers.NewSortedSetPool(),
 		pqCandidates:       newPqMinPool(maxConnectionsLayerZero),
+		tempVectors:        newTempVectorsPool(),
 	}
+}
+
+type tempVectorsPool struct {
+	pool *sync.Pool
+}
+
+type vectorSlice struct {
+	slice  []float32
+	mem    []float32
+	buf8   []byte
+	buf700 []byte
+	temp   uint32
+}
+
+func newTempVectorsPool() *tempVectorsPool {
+	return &tempVectorsPool{
+		pool: &sync.Pool{
+			New: func() interface{} {
+				return &vectorSlice{
+					mem:    make([]float32, 1600),
+					buf8:   make([]byte, 8),
+					buf700: make([]byte, 70000),
+					slice:  nil,
+				}
+			},
+		},
+	}
+}
+
+func (pool *tempVectorsPool) Get(capacity int) *vectorSlice {
+	container := pool.pool.Get().(*vectorSlice)
+	if len(container.slice) != capacity {
+		container.slice = container.mem[:capacity]
+	}
+	return container
+}
+
+func (pool *tempVectorsPool) Put(container *vectorSlice) {
+	pool.pool.Put(container)
 }
 
 type pqMinPool struct {
