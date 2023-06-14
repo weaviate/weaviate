@@ -230,6 +230,9 @@ func (m *autoSchemaManager) determineType(value interface{}) []schema.DataType {
 					return []schema.DataType{schema.DataTypeBooleanArray}
 				}
 			}
+			if len(dataType) == 0 {
+				return fallbackDataType
+			}
 			return dataType
 		}
 		return fallbackDataType

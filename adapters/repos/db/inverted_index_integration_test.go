@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -183,289 +184,1126 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 }
 
 func TestIndexNullState_GetClass(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
-	class := &models.Class{
-		Class:             "TestClass",
-		VectorIndexConfig: hnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: &models.InvertedIndexConfig{
-			CleanupIntervalSeconds: 60,
-			IndexTimestamps:        true,
-			IndexNullState:         true,
-			IndexPropertyLength:    true,
-		},
-		Properties: []*models.Property{
-			{
-				Name:         "name",
-				DataType:     schema.DataTypeText.PropString(),
-				Tokenization: models.PropertyTokenizationWhitespace,
-			},
-			{
-				Name:     "number array",
-				DataType: []string{"number[]"},
-			},
-		},
-	}
-
-	shardState := singleShardState()
-	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: shardState, schema: schema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{class},
-		},
-	}}
-	repo, err := New(logger, Config{
-		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(testCtx()))
-	defer repo.Shutdown(testCtx())
-	migrator := NewMigrator(repo, logger)
-
-	require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
-
 	testID1 := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
-	objWithProperty := &models.Object{
-		ID:         testID1,
-		Class:      "TestClass",
-		Properties: map[string]interface{}{"name": "objectarooni", "number array": []float64{0.5, 1.4}},
-	}
-	require.Nil(t, repo.PutObject(context.Background(), objWithProperty, []float32{1, 2, 3}, nil, ""))
+	testID2 := strfmt.UUID("65be32cc-bb74-49c7-833e-afb14f957eae")
+	refID1 := strfmt.UUID("f2e42a9f-e0b5-46bd-8a9c-e70b6330622c")
+	refID2 := strfmt.UUID("92d5920c-1c20-49da-9cdc-b765813e175b")
 
-	testID2 := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a63")
-	objWithoutProperty := &models.Object{
-		ID:         testID2,
-		Class:      "TestClass",
-		Properties: map[string]interface{}{"name": nil, "number array": nil},
-	}
-	require.Nil(t, repo.PutObject(context.Background(), objWithoutProperty, []float32{1, 2, 4}, nil, ""))
-	index := migrator.db.indices["testclass"]
-	n := 0
-	index.ForEachShard(func(_ string, shard *Shard) error {
-		bucket := shard.store.Bucket("property_name" + filters.InternalNullIndex)
-		require.NotNil(t, bucket)
-		n++
-		return nil
+	var repo *DB
+	var schemaGetter *fakeSchemaGetter
+
+	t.Run("init repo", func(t *testing.T) {
+		schemaGetter = &fakeSchemaGetter{
+			shardState: singleShardState(),
+			schema: schema.Schema{
+				Objects: &models.Schema{},
+			},
+		}
+		var err error
+		repo, err = New(logrus.New(), Config{
+			MemtablesFlushIdleAfter:   60,
+			RootPath:                  dirName,
+			QueryMaximumResults:       10000,
+			MaxImportGoroutinesFactor: 1,
+		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+		require.Nil(t, err)
+		repo.SetSchemaGetter(schemaGetter)
+		require.Nil(t, repo.WaitForStartup(testCtx()))
 	})
-	require.Equal(t, 1, n)
 
-	tests := map[string]strfmt.UUID{"filterNull": testID1, "filterNonNull": testID2}
-	for name, searchVal := range tests {
-		t.Run("test "+name+" directly on nullState property", func(t *testing.T) {
-			createTimeStringFilter := &filters.LocalFilter{
-				Root: &filters.Clause{
-					Operator: filters.OperatorIsNull,
-					On: &filters.Path{
-						Class:    "TestClass",
-						Property: "name",
-					},
-					Value: &filters.Value{
-						Value: searchVal != testID1,
-						Type:  "boolean",
-					},
-				},
-			}
+	defer repo.Shutdown(testCtx())
 
-			res1, err := repo.VectorSearch(context.Background(), dto.GetParams{
-				ClassName:  "TestClass",
-				Pagination: &filters.Pagination{Limit: 10},
-				Filters:    createTimeStringFilter,
-			})
-			require.Nil(t, err)
-			assert.Len(t, res1, 1)
-			assert.Equal(t, searchVal, res1[0].ID)
-		})
-	}
-
-	t.Run("test properly length directly on bucket", func(t *testing.T) {
-		PropLengthFilter := &filters.LocalFilter{
-			Root: &filters.Clause{
-				Operator: filters.OperatorEqual,
-				On: &filters.Path{
-					Class:    "TestClass",
-					Property: "len(name)",
-				},
-				Value: &filters.Value{
-					Value: 12,
-					Type:  dtInt,
+	t.Run("add classes", func(t *testing.T) {
+		class := &models.Class{
+			Class:             "TestClass",
+			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: &models.InvertedIndexConfig{
+				IndexNullState: true,
+			},
+			Properties: []*models.Property{
+				{
+					Name:         "name",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationField,
 				},
 			},
 		}
-		res1, err := repo.Search(context.Background(), dto.GetParams{
-			ClassName:  "TestClass",
-			Pagination: &filters.Pagination{Limit: 10},
-			Filters:    PropLengthFilter,
-		})
+
+		refClass := &models.Class{
+			Class:               "RefClass",
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: &models.InvertedIndexConfig{},
+			Properties: []*models.Property{
+				{
+					Name:         "name",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationField,
+				},
+				{
+					Name:     "toTest",
+					DataType: []string{"TestClass"},
+				},
+			},
+		}
+
+		migrator := NewMigrator(repo, repo.logger)
+		err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 		require.Nil(t, err)
-		assert.Len(t, res1, 1)
-		assert.Equal(t, testID1, res1[0].ID)
+		err = migrator.AddClass(context.Background(), refClass, schemaGetter.shardState)
+		require.Nil(t, err)
+		schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class, refClass)
+	})
+
+	t.Run("insert test objects", func(t *testing.T) {
+		vec := []float32{1, 2, 3}
+		for _, obj := range []*models.Object{
+			{
+				ID:    testID1,
+				Class: "TestClass",
+				Properties: map[string]interface{}{
+					"name": "object1",
+				},
+			},
+			{
+				ID:    testID2,
+				Class: "TestClass",
+				Properties: map[string]interface{}{
+					"name": nil,
+				},
+			},
+			{
+				ID:    refID1,
+				Class: "RefClass",
+				Properties: map[string]interface{}{
+					"name": "ref1",
+					"toTest": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/TestClass/%s", testID1)),
+						},
+					},
+				},
+			},
+			{
+				ID:    refID2,
+				Class: "RefClass",
+				Properties: map[string]interface{}{
+					"name": "ref2",
+					"toTest": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/TestClass/%s", testID2)),
+						},
+					},
+				},
+			},
+		} {
+			err := repo.PutObject(context.Background(), obj, vec, nil, "")
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("check buckets exist", func(t *testing.T) {
+		index := repo.indices["testclass"]
+		n := 0
+		index.ForEachShard(func(_ string, shard *Shard) error {
+			bucketNull := shard.store.Bucket(helpers.BucketFromPropNameNullLSM("name"))
+			require.NotNil(t, bucketNull)
+			n++
+			return nil
+		})
+		require.Equal(t, 1, n)
+	})
+
+	type testCase struct {
+		name        string
+		filter      *filters.LocalFilter
+		expectedIds []strfmt.UUID
+	}
+
+	t.Run("get object with null filters", func(t *testing.T) {
+		testCases := []testCase{
+			{
+				name: "is null",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorIsNull,
+						On: &filters.Path{
+							Class:    "TestClass",
+							Property: "name",
+						},
+						Value: &filters.Value{
+							Value: false,
+							Type:  schema.DataTypeBoolean,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{testID1},
+			},
+			{
+				name: "is not null",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorIsNull,
+						On: &filters.Path{
+							Class:    "TestClass",
+							Property: "name",
+						},
+						Value: &filters.Value{
+							Value: true,
+							Type:  schema.DataTypeBoolean,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{testID2},
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				res, err := repo.Search(context.Background(), dto.GetParams{
+					ClassName:  "TestClass",
+					Pagination: &filters.Pagination{Limit: 10},
+					Filters:    tc.filter,
+				})
+				require.Nil(t, err)
+				require.Len(t, res, len(tc.expectedIds))
+
+				ids := make([]strfmt.UUID, len(res))
+				for i := range res {
+					ids[i] = res[i].ID
+				}
+				assert.ElementsMatch(t, ids, tc.expectedIds)
+			})
+		}
+	})
+
+	t.Run("get referencing object with null filters", func(t *testing.T) {
+		testCases := []testCase{
+			{
+				name: "is null",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorIsNull,
+						On: &filters.Path{
+							Class:    "RefClass",
+							Property: "toTest",
+							Child: &filters.Path{
+								Class:    "TestClass",
+								Property: "name",
+							},
+						},
+						Value: &filters.Value{
+							Value: false,
+							Type:  schema.DataTypeBoolean,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{refID1},
+			},
+			{
+				name: "is not null",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorIsNull,
+						On: &filters.Path{
+							Class:    "RefClass",
+							Property: "toTest",
+							Child: &filters.Path{
+								Class:    "TestClass",
+								Property: "name",
+							},
+						},
+						Value: &filters.Value{
+							Value: true,
+							Type:  schema.DataTypeBoolean,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{refID2},
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				res, err := repo.Search(context.Background(), dto.GetParams{
+					ClassName:  "RefClass",
+					Pagination: &filters.Pagination{Limit: 10},
+					Filters:    tc.filter,
+				})
+				require.Nil(t, err)
+				require.Len(t, res, len(tc.expectedIds))
+
+				ids := make([]strfmt.UUID, len(res))
+				for i := range res {
+					ids[i] = res[i].ID
+				}
+				assert.ElementsMatch(t, ids, tc.expectedIds)
+			})
+		}
+	})
+}
+
+func TestIndexPropLength_GetClass(t *testing.T) {
+	dirName := t.TempDir()
+
+	testID1 := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
+	testID2 := strfmt.UUID("65be32cc-bb74-49c7-833e-afb14f957eae")
+	refID1 := strfmt.UUID("f2e42a9f-e0b5-46bd-8a9c-e70b6330622c")
+	refID2 := strfmt.UUID("92d5920c-1c20-49da-9cdc-b765813e175b")
+
+	var repo *DB
+	var schemaGetter *fakeSchemaGetter
+
+	t.Run("init repo", func(t *testing.T) {
+		schemaGetter = &fakeSchemaGetter{
+			shardState: singleShardState(),
+			schema: schema.Schema{
+				Objects: &models.Schema{},
+			},
+		}
+		var err error
+		repo, err = New(logrus.New(), Config{
+			MemtablesFlushIdleAfter:   60,
+			RootPath:                  dirName,
+			QueryMaximumResults:       10000,
+			MaxImportGoroutinesFactor: 1,
+		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+		require.Nil(t, err)
+		repo.SetSchemaGetter(schemaGetter)
+		require.Nil(t, repo.WaitForStartup(testCtx()))
+	})
+
+	defer repo.Shutdown(testCtx())
+
+	t.Run("add classes", func(t *testing.T) {
+		class := &models.Class{
+			Class:             "TestClass",
+			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: &models.InvertedIndexConfig{
+				IndexPropertyLength: true,
+			},
+			Properties: []*models.Property{
+				{
+					Name:         "name",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationField,
+				},
+				{
+					Name:     "int_array",
+					DataType: schema.DataTypeIntArray.PropString(),
+				},
+			},
+		}
+
+		refClass := &models.Class{
+			Class:               "RefClass",
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: &models.InvertedIndexConfig{},
+			Properties: []*models.Property{
+				{
+					Name:         "name",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationField,
+				},
+				{
+					Name:     "toTest",
+					DataType: []string{"TestClass"},
+				},
+			},
+		}
+
+		migrator := NewMigrator(repo, repo.logger)
+		err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+		require.Nil(t, err)
+		err = migrator.AddClass(context.Background(), refClass, schemaGetter.shardState)
+		require.Nil(t, err)
+		schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class, refClass)
+	})
+
+	t.Run("insert test objects", func(t *testing.T) {
+		vec := []float32{1, 2, 3}
+		for _, obj := range []*models.Object{
+			{
+				ID:    testID1,
+				Class: "TestClass",
+				Properties: map[string]interface{}{
+					"name":      "short",
+					"int_array": []float64{},
+				},
+			},
+			{
+				ID:    testID2,
+				Class: "TestClass",
+				Properties: map[string]interface{}{
+					"name":      "muchLongerName",
+					"int_array": []float64{1, 2, 3},
+				},
+			},
+			{
+				ID:    refID1,
+				Class: "RefClass",
+				Properties: map[string]interface{}{
+					"name": "ref1",
+					"toTest": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/TestClass/%s", testID1)),
+						},
+					},
+				},
+			},
+			{
+				ID:    refID2,
+				Class: "RefClass",
+				Properties: map[string]interface{}{
+					"name": "ref2",
+					"toTest": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/TestClass/%s", testID2)),
+						},
+					},
+				},
+			},
+		} {
+			err := repo.PutObject(context.Background(), obj, vec, nil, "")
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("check buckets exist", func(t *testing.T) {
+		index := repo.indices["testclass"]
+		n := 0
+		index.ForEachShard(func(_ string, shard *Shard) error {
+			bucketPropLengthName := shard.store.Bucket(helpers.BucketFromPropNameLengthLSM("name"))
+			require.NotNil(t, bucketPropLengthName)
+			bucketPropLengthIntArray := shard.store.Bucket(helpers.BucketFromPropNameLengthLSM("int_array"))
+			require.NotNil(t, bucketPropLengthIntArray)
+			n++
+			return nil
+		})
+		require.Equal(t, 1, n)
+	})
+
+	type testCase struct {
+		name        string
+		filter      *filters.LocalFilter
+		expectedIds []strfmt.UUID
+	}
+
+	t.Run("get object with prop length filters", func(t *testing.T) {
+		testCases := []testCase{
+			{
+				name: "name length = 5",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "TestClass",
+							Property: "len(name)",
+						},
+						Value: &filters.Value{
+							Value: 5,
+							Type:  schema.DataTypeInt,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{testID1},
+			},
+			{
+				name: "name length >= 6",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorGreaterThanEqual,
+						On: &filters.Path{
+							Class:    "TestClass",
+							Property: "len(name)",
+						},
+						Value: &filters.Value{
+							Value: 6,
+							Type:  schema.DataTypeInt,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{testID2},
+			},
+			{
+				name: "array length = 0",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "TestClass",
+							Property: "len(int_array)",
+						},
+						Value: &filters.Value{
+							Value: 0,
+							Type:  schema.DataTypeInt,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{testID1},
+			},
+			{
+				name: "array length < 4",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorLessThan,
+						On: &filters.Path{
+							Class:    "TestClass",
+							Property: "len(int_array)",
+						},
+						Value: &filters.Value{
+							Value: 4,
+							Type:  schema.DataTypeInt,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{testID1, testID2},
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				res, err := repo.Search(context.Background(), dto.GetParams{
+					ClassName:  "TestClass",
+					Pagination: &filters.Pagination{Limit: 10},
+					Filters:    tc.filter,
+				})
+				require.Nil(t, err)
+				require.Len(t, res, len(tc.expectedIds))
+
+				ids := make([]strfmt.UUID, len(res))
+				for i := range res {
+					ids[i] = res[i].ID
+				}
+				assert.ElementsMatch(t, ids, tc.expectedIds)
+			})
+		}
+	})
+
+	t.Run("get referencing object with prop length filters", func(t *testing.T) {
+		testCases := []testCase{
+			{
+				name: "name length = 5",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "RefClass",
+							Property: "toTest",
+							Child: &filters.Path{
+								Class:    "TestClass",
+								Property: "len(name)",
+							},
+						},
+						Value: &filters.Value{
+							Value: 5,
+							Type:  schema.DataTypeInt,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{refID1},
+			},
+			{
+				name: "name length >= 6",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorGreaterThanEqual,
+						On: &filters.Path{
+							Class:    "RefClass",
+							Property: "toTest",
+							Child: &filters.Path{
+								Class:    "TestClass",
+								Property: "len(name)",
+							},
+						},
+						Value: &filters.Value{
+							Value: 6,
+							Type:  schema.DataTypeInt,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{refID2},
+			},
+			{
+				name: "array length = 0",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "RefClass",
+							Property: "toTest",
+							Child: &filters.Path{
+								Class:    "TestClass",
+								Property: "len(int_array)",
+							},
+						},
+						Value: &filters.Value{
+							Value: 0,
+							Type:  schema.DataTypeInt,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{refID1},
+			},
+			{
+				name: "array length < 4",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorLessThan,
+						On: &filters.Path{
+							Class:    "RefClass",
+							Property: "toTest",
+							Child: &filters.Path{
+								Class:    "TestClass",
+								Property: "len(int_array)",
+							},
+						},
+						Value: &filters.Value{
+							Value: 4,
+							Type:  schema.DataTypeInt,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{refID1, refID2},
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				res, err := repo.Search(context.Background(), dto.GetParams{
+					ClassName:  "RefClass",
+					Pagination: &filters.Pagination{Limit: 10},
+					Filters:    tc.filter,
+				})
+				require.Nil(t, err)
+				require.Len(t, res, len(tc.expectedIds))
+
+				ids := make([]strfmt.UUID, len(res))
+				for i := range res {
+					ids[i] = res[i].ID
+				}
+				assert.ElementsMatch(t, ids, tc.expectedIds)
+			})
+		}
 	})
 }
 
 func TestIndexByTimestamps_GetClass(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
-	class := &models.Class{
-		Class:             "TestClass",
-		VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: &models.InvertedIndexConfig{
-			CleanupIntervalSeconds: 60,
-			Stopwords: &models.StopwordConfig{
-				Preset: "none",
-			},
-			IndexTimestamps: true,
-		},
-		Properties: []*models.Property{
-			{
-				Name:         "name",
-				DataType:     schema.DataTypeText.PropString(),
-				Tokenization: models.PropertyTokenizationWhitespace,
-			},
-		},
-	}
+	time1 := time.Now()
+	time2 := time1.Add(-time.Hour)
+	timestamp1 := time1.UnixMilli()
+	timestamp2 := time2.UnixMilli()
 
-	shardState := singleShardState()
-	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: shardState, schema: schema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{class},
-		},
-	}}
-	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
-		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(testCtx()))
+	testID1 := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
+	testID2 := strfmt.UUID("65be32cc-bb74-49c7-833e-afb14f957eae")
+	refID1 := strfmt.UUID("f2e42a9f-e0b5-46bd-8a9c-e70b6330622c")
+	refID2 := strfmt.UUID("92d5920c-1c20-49da-9cdc-b765813e175b")
+
+	var repo *DB
+	var schemaGetter *fakeSchemaGetter
+
+	t.Run("init repo", func(t *testing.T) {
+		schemaGetter = &fakeSchemaGetter{
+			shardState: singleShardState(),
+			schema: schema.Schema{
+				Objects: &models.Schema{},
+			},
+		}
+		var err error
+		repo, err = New(logrus.New(), Config{
+			MemtablesFlushIdleAfter:   60,
+			RootPath:                  dirName,
+			QueryMaximumResults:       10000,
+			MaxImportGoroutinesFactor: 1,
+		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+		require.Nil(t, err)
+		repo.SetSchemaGetter(schemaGetter)
+		require.Nil(t, repo.WaitForStartup(testCtx()))
+	})
+
 	defer repo.Shutdown(testCtx())
-	migrator := NewMigrator(repo, logger)
 
-	t.Run("add class", func(t *testing.T) {
+	t.Run("add classes", func(t *testing.T) {
+		class := &models.Class{
+			Class:             "TestClass",
+			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: &models.InvertedIndexConfig{
+				IndexTimestamps: true,
+			},
+			Properties: []*models.Property{
+				{
+					Name:         "name",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationField,
+				},
+			},
+		}
+
+		refClass := &models.Class{
+			Class:               "RefClass",
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: &models.InvertedIndexConfig{},
+			Properties: []*models.Property{
+				{
+					Name:         "name",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationField,
+				},
+				{
+					Name:     "toTest",
+					DataType: []string{"TestClass"},
+				},
+			},
+		}
+
+		migrator := NewMigrator(repo, repo.logger)
 		err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 		require.Nil(t, err)
+		err = migrator.AddClass(context.Background(), refClass, schemaGetter.shardState)
+		require.Nil(t, err)
+		schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class, refClass)
 	})
 
-	now := time.Now()
-	timestamp := now.UnixMilli()
-	testID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
-
-	t.Run("insert test object", func(t *testing.T) {
-		obj := &models.Object{
-			ID:                 testID,
-			Class:              "TestClass",
-			CreationTimeUnix:   timestamp,
-			LastUpdateTimeUnix: timestamp,
-			Properties:         map[string]interface{}{"name": "objectarooni"},
-		}
+	t.Run("insert test objects", func(t *testing.T) {
 		vec := []float32{1, 2, 3}
-		err := repo.PutObject(context.Background(), obj, vec, nil, "")
-		require.Nil(t, err)
+		for _, obj := range []*models.Object{
+			{
+				ID:                 testID1,
+				Class:              "TestClass",
+				CreationTimeUnix:   timestamp1,
+				LastUpdateTimeUnix: timestamp1,
+				Properties: map[string]interface{}{
+					"name": "object1",
+				},
+			},
+			{
+				ID:                 testID2,
+				Class:              "TestClass",
+				CreationTimeUnix:   timestamp2,
+				LastUpdateTimeUnix: timestamp2,
+				Properties: map[string]interface{}{
+					"name": "object2",
+				},
+			},
+			{
+				ID:    refID1,
+				Class: "RefClass",
+				Properties: map[string]interface{}{
+					"name": "ref1",
+					"toTest": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/TestClass/%s", testID1)),
+						},
+					},
+				},
+			},
+			{
+				ID:    refID2,
+				Class: "RefClass",
+				Properties: map[string]interface{}{
+					"name": "ref2",
+					"toTest": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/TestClass/%s", testID2)),
+						},
+					},
+				},
+			},
+		} {
+			err := repo.PutObject(context.Background(), obj, vec, nil, "")
+			require.Nil(t, err)
+		}
 	})
 
-	t.Run("get testObject with timestamp filters", func(t *testing.T) {
-		createTimeStringFilter := &filters.LocalFilter{
-			Root: &filters.Clause{
-				Operator: filters.OperatorEqual,
-				On: &filters.Path{
-					Class:    "TestClass",
-					Property: "_creationTimeUnix",
+	t.Run("check buckets exist", func(t *testing.T) {
+		index := repo.indices["testclass"]
+		n := 0
+		index.ForEachShard(func(_ string, shard *Shard) error {
+			bucketCreated := shard.store.Bucket("property_" + filters.InternalPropCreationTimeUnix)
+			require.NotNil(t, bucketCreated)
+			bucketUpdated := shard.store.Bucket("property_" + filters.InternalPropLastUpdateTimeUnix)
+			require.NotNil(t, bucketUpdated)
+			n++
+			return nil
+		})
+		require.Equal(t, 1, n)
+	})
+
+	type testCase struct {
+		name        string
+		filter      *filters.LocalFilter
+		expectedIds []strfmt.UUID
+	}
+
+	t.Run("get object with timestamp filters", func(t *testing.T) {
+		testCases := []testCase{
+			{
+				name: "by creation timestamp 1",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "TestClass",
+							Property: "_creationTimeUnix",
+						},
+						Value: &filters.Value{
+							Value: fmt.Sprint(timestamp1),
+							Type:  schema.DataTypeText,
+						},
+					},
 				},
-				Value: &filters.Value{
-					Value: fmt.Sprint(timestamp),
-					Type:  schema.DataTypeText,
+				expectedIds: []strfmt.UUID{testID1},
+			},
+			{
+				name: "by creation timestamp 2",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "TestClass",
+							Property: "_creationTimeUnix",
+						},
+						Value: &filters.Value{
+							Value: fmt.Sprint(timestamp2),
+							Type:  schema.DataTypeText,
+						},
+					},
 				},
+				expectedIds: []strfmt.UUID{testID2},
+			},
+			{
+				name: "by creation date 1",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						// since RFC3339 is limited to seconds,
+						// >= operator is used to match object with timestamp containing milliseconds
+						Operator: filters.OperatorGreaterThanEqual,
+						On: &filters.Path{
+							Class:    "TestClass",
+							Property: "_creationTimeUnix",
+						},
+						Value: &filters.Value{
+							Value: time1.Format(time.RFC3339),
+							Type:  schema.DataTypeDate,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{testID1},
+			},
+			{
+				name: "by creation date 2",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						// since RFC3339 is limited to seconds,
+						// >= operator is used to match object with timestamp containing milliseconds
+						Operator: filters.OperatorGreaterThanEqual,
+						On: &filters.Path{
+							Class:    "TestClass",
+							Property: "_creationTimeUnix",
+						},
+						Value: &filters.Value{
+							Value: time2.Format(time.RFC3339),
+							Type:  schema.DataTypeDate,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{testID1, testID2},
+			},
+
+			{
+				name: "by updated timestamp 1",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "TestClass",
+							Property: "_lastUpdateTimeUnix",
+						},
+						Value: &filters.Value{
+							Value: fmt.Sprint(timestamp1),
+							Type:  schema.DataTypeText,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{testID1},
+			},
+			{
+				name: "by updated timestamp 2",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "TestClass",
+							Property: "_lastUpdateTimeUnix",
+						},
+						Value: &filters.Value{
+							Value: fmt.Sprint(timestamp2),
+							Type:  schema.DataTypeText,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{testID2},
+			},
+			{
+				name: "by updated date 1",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						// since RFC3339 is limited to seconds,
+						// >= operator is used to match object with timestamp containing milliseconds
+						Operator: filters.OperatorGreaterThanEqual,
+						On: &filters.Path{
+							Class:    "TestClass",
+							Property: "_lastUpdateTimeUnix",
+						},
+						Value: &filters.Value{
+							Value: time1.Format(time.RFC3339),
+							Type:  schema.DataTypeDate,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{testID1},
+			},
+			{
+				name: "by updated date 2",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						// since RFC3339 is limited to seconds,
+						// >= operator is used to match object with timestamp containing milliseconds
+						Operator: filters.OperatorGreaterThanEqual,
+						On: &filters.Path{
+							Class:    "TestClass",
+							Property: "_lastUpdateTimeUnix",
+						},
+						Value: &filters.Value{
+							Value: time2.Format(time.RFC3339),
+							Type:  schema.DataTypeDate,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{testID1, testID2},
 			},
 		}
 
-		updateTimeStringFilter := &filters.LocalFilter{
-			Root: &filters.Clause{
-				Operator: filters.OperatorEqual,
-				On: &filters.Path{
-					Class:    "TestClass",
-					Property: "_lastUpdateTimeUnix",
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				res, err := repo.Search(context.Background(), dto.GetParams{
+					ClassName:  "TestClass",
+					Pagination: &filters.Pagination{Limit: 10},
+					Filters:    tc.filter,
+				})
+				require.Nil(t, err)
+				require.Len(t, res, len(tc.expectedIds))
+
+				ids := make([]strfmt.UUID, len(res))
+				for i := range res {
+					ids[i] = res[i].ID
+				}
+				assert.ElementsMatch(t, ids, tc.expectedIds)
+			})
+		}
+	})
+
+	t.Run("get referencing object with timestamp filters", func(t *testing.T) {
+		testCases := []testCase{
+			{
+				name: "by creation timestamp 1",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "RefClass",
+							Property: "toTest",
+							Child: &filters.Path{
+								Class:    "TestClass",
+								Property: "_creationTimeUnix",
+							},
+						},
+						Value: &filters.Value{
+							Value: fmt.Sprint(timestamp1),
+							Type:  schema.DataTypeText,
+						},
+					},
 				},
-				Value: &filters.Value{
-					Value: fmt.Sprint(timestamp),
-					Type:  schema.DataTypeText,
+				expectedIds: []strfmt.UUID{refID1},
+			},
+			{
+				name: "by creation timestamp 2",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "RefClass",
+							Property: "toTest",
+							Child: &filters.Path{
+								Class:    "TestClass",
+								Property: "_creationTimeUnix",
+							},
+						},
+						Value: &filters.Value{
+							Value: fmt.Sprint(timestamp2),
+							Type:  schema.DataTypeText,
+						},
+					},
 				},
+				expectedIds: []strfmt.UUID{refID2},
+			},
+			{
+				name: "by creation date 1",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						// since RFC3339 is limited to seconds,
+						// >= operator is used to match object with timestamp containing milliseconds
+						Operator: filters.OperatorGreaterThanEqual,
+						On: &filters.Path{
+							Class:    "RefClass",
+							Property: "toTest",
+							Child: &filters.Path{
+								Class:    "TestClass",
+								Property: "_creationTimeUnix",
+							},
+						},
+						Value: &filters.Value{
+							Value: time1.Format(time.RFC3339),
+							Type:  schema.DataTypeDate,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{refID1},
+			},
+			{
+				name: "by creation date 2",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						// since RFC3339 is limited to seconds,
+						// >= operator is used to match object with timestamp containing milliseconds
+						Operator: filters.OperatorGreaterThanEqual,
+						On: &filters.Path{
+							Class:    "RefClass",
+							Property: "toTest",
+							Child: &filters.Path{
+								Class:    "TestClass",
+								Property: "_creationTimeUnix",
+							},
+						},
+						Value: &filters.Value{
+							Value: time2.Format(time.RFC3339),
+							Type:  schema.DataTypeDate,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{refID1, refID2},
+			},
+
+			{
+				name: "by updated timestamp 1",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "RefClass",
+							Property: "toTest",
+							Child: &filters.Path{
+								Class:    "TestClass",
+								Property: "_lastUpdateTimeUnix",
+							},
+						},
+						Value: &filters.Value{
+							Value: fmt.Sprint(timestamp1),
+							Type:  schema.DataTypeText,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{refID1},
+			},
+			{
+				name: "by updated timestamp 2",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "RefClass",
+							Property: "toTest",
+							Child: &filters.Path{
+								Class:    "TestClass",
+								Property: "_lastUpdateTimeUnix",
+							},
+						},
+						Value: &filters.Value{
+							Value: fmt.Sprint(timestamp2),
+							Type:  schema.DataTypeText,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{refID2},
+			},
+			{
+				name: "by updated date 1",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						// since RFC3339 is limited to seconds,
+						// >= operator is used to match object with timestamp containing milliseconds
+						Operator: filters.OperatorGreaterThanEqual,
+						On: &filters.Path{
+							Class:    "RefClass",
+							Property: "toTest",
+							Child: &filters.Path{
+								Class:    "TestClass",
+								Property: "_lastUpdateTimeUnix",
+							},
+						},
+						Value: &filters.Value{
+							Value: time1.Format(time.RFC3339),
+							Type:  schema.DataTypeDate,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{refID1},
+			},
+			{
+				name: "by updated date 2",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						// since RFC3339 is limited to seconds,
+						// >= operator is used to match object with timestamp containing milliseconds
+						Operator: filters.OperatorGreaterThanEqual,
+						On: &filters.Path{
+							Class:    "RefClass",
+							Property: "toTest",
+							Child: &filters.Path{
+								Class:    "TestClass",
+								Property: "_lastUpdateTimeUnix",
+							},
+						},
+						Value: &filters.Value{
+							Value: time2.Format(time.RFC3339),
+							Type:  schema.DataTypeDate,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{refID1, refID2},
 			},
 		}
 
-		createTimeDateFilter := &filters.LocalFilter{
-			Root: &filters.Clause{
-				// since RFC3339 is limited to seconds,
-				// >= operator is used to match object with timestamp containing milliseconds
-				Operator: filters.OperatorGreaterThanEqual,
-				On: &filters.Path{
-					Class:    "TestClass",
-					Property: "_creationTimeUnix",
-				},
-				Value: &filters.Value{
-					Value: now.Format(time.RFC3339),
-					Type:  schema.DataTypeDate,
-				},
-			},
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				res, err := repo.Search(context.Background(), dto.GetParams{
+					ClassName:  "RefClass",
+					Pagination: &filters.Pagination{Limit: 10},
+					Filters:    tc.filter,
+				})
+				require.Nil(t, err)
+				require.Len(t, res, len(tc.expectedIds))
+
+				ids := make([]strfmt.UUID, len(res))
+				for i := range res {
+					ids[i] = res[i].ID
+				}
+				assert.ElementsMatch(t, ids, tc.expectedIds)
+			})
 		}
-
-		updateTimeDateFilter := &filters.LocalFilter{
-			Root: &filters.Clause{
-				// since RFC3339 is limited to seconds,
-				// >= operator is used to match object with timestamp containing milliseconds
-				Operator: filters.OperatorGreaterThanEqual,
-				On: &filters.Path{
-					Class:    "TestClass",
-					Property: "_lastUpdateTimeUnix",
-				},
-				Value: &filters.Value{
-					Value: now.Format(time.RFC3339),
-					Type:  schema.DataTypeDate,
-				},
-			},
-		}
-
-		res1, err := repo.Search(context.Background(), dto.GetParams{
-			ClassName:  "TestClass",
-			Pagination: &filters.Pagination{Limit: 10},
-			Filters:    createTimeStringFilter,
-		})
-		require.Nil(t, err)
-		assert.Len(t, res1, 1)
-		assert.Equal(t, testID, res1[0].ID)
-
-		res2, err := repo.Search(context.Background(), dto.GetParams{
-			ClassName:  "TestClass",
-			Pagination: &filters.Pagination{Limit: 10},
-			Filters:    updateTimeStringFilter,
-		})
-		require.Nil(t, err)
-		assert.Len(t, res2, 1)
-		assert.Equal(t, testID, res2[0].ID)
-
-		res3, err := repo.Search(context.Background(), dto.GetParams{
-			ClassName:  "TestClass",
-			Pagination: &filters.Pagination{Limit: 10},
-			Filters:    createTimeDateFilter,
-		})
-		require.Nil(t, err)
-		assert.Len(t, res3, 1)
-		assert.Equal(t, testID, res3[0].ID)
-
-		res4, err := repo.Search(context.Background(), dto.GetParams{
-			ClassName:  "TestClass",
-			Pagination: &filters.Pagination{Limit: 10},
-			Filters:    updateTimeDateFilter,
-		})
-		require.Nil(t, err)
-		assert.Len(t, res4, 1)
-		assert.Equal(t, testID, res4[0].ID)
 	})
 }
 

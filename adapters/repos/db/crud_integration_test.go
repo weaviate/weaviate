@@ -2304,7 +2304,7 @@ func TestOverwriteObjects(t *testing.T) {
 		}
 
 		idx := repo.GetIndex(schema.ClassName(class.Class))
-		shd, err := idx.shardFromUUID(fresh.ID)
+		shd, err := idx.determineObjectShard(fresh.ID, "", nil)
 		require.Nil(t, err)
 
 		received, err := idx.overwriteObjects(context.Background(), shd, input)
@@ -2397,7 +2397,7 @@ func TestIndexDigestObjects(t *testing.T) {
 
 	t.Run("get digest object", func(t *testing.T) {
 		idx := repo.GetIndex(schema.ClassName(class.Class))
-		shd, err := idx.shardFromUUID(obj1.ID)
+		shd, err := idx.determineObjectShard(obj1.ID, "", nil)
 		require.Nil(t, err)
 
 		input := []strfmt.UUID{obj1.ID, obj2.ID}
