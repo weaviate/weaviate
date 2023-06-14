@@ -160,6 +160,23 @@ func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32,
 	return storobj.VectorFromBinary(bytes)
 }
 
+func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, out []float32, keyBuf []byte, buff []byte) ([]float32, error) {
+	binary.LittleEndian.PutUint64(keyBuf, indexID)
+
+	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).
+		GetBySecondary(0, keyBuf, buff)
+	if err != nil {
+		return nil, err
+	}
+
+	if bytes == nil {
+		return nil, storobj.NewErrNotFoundf(indexID,
+			"no object for doc id, it could have been deleted")
+	}
+
+	return storobj.VectorFromBinary(bytes, out)
+}
+
 func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {

@@ -89,8 +89,11 @@ type hnsw struct {
 
 	nodes []*vertex
 
-	vectorForID      VectorForID
-	multiVectorForID MultiVectorForID
+	vectorForID          VectorForID
+	TempVectorForIDThunk TempVectorForID
+	multiVectorForID     MultiVectorForID
+	trackDimensionsOnce  sync.Once
+	dims                 int32
 
 	cache cache[float32]
 
@@ -184,6 +187,7 @@ type MakeCommitLogger func() (CommitLogger, error)
 
 type (
 	VectorForID      func(ctx context.Context, id uint64) ([]float32, error)
+	TempVectorForID  func(ctx context.Context, id uint64, out []float32, buf8 []byte, biff []byte) ([]float32, error)
 	MultiVectorForID func(ctx context.Context, ids []uint64) ([][]float32, []error)
 )
 
@@ -255,10 +259,11 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCleanupCycle cyclemanager.Cycle
 		metrics:   NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 		shardName: cfg.ShardName,
 
-		randFunc:           rand.Float64,
-		compressActionLock: &sync.RWMutex{},
-		className:          cfg.ClassName,
-		VectorForIDThunk:   cfg.VectorForIDThunk,
+		randFunc:             rand.Float64,
+		compressActionLock:   &sync.RWMutex{},
+		className:            cfg.ClassName,
+		VectorForIDThunk:     cfg.VectorForIDThunk,
+		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 	}
 
 	// TODO common_cycle_manager move to poststartup?
@@ -388,7 +393,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 		}
 
 		eps.Insert(entryPointID, dist)
-		res, err := h.searchLayerByVector(nodeVec, eps, 1, level, nil)
+		res, err := h.searchLayerByVector(nodeVec, eps, 1, level, nil, false)
 		if err != nil {
 			return 0,
 				errors.Wrapf(err, "update candidate: search layer at level %d", level)
@@ -404,7 +409,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 			}
 		}
 
-		h.freeSortedQueue(res)
+		h.freeSortedQueue(res, false)
 	}
 
 	return entryPointID, nil

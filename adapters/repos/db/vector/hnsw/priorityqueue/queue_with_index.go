@@ -85,6 +85,10 @@ func (l *QueueWithIndex) ReSort(id uint64, distance float32) {
 	panic("Not implemented yet")
 }
 
+func (l *QueueWithIndex) ReSortById(id uint64, distance float32) {
+	panic("Not implemented yet")
+}
+
 func (l *QueueWithIndex) Insert(id uint64, index uint64, distance float32) int {
 	l.items = append(l.items, ItemWithIndex{id, index, distance})
 	i := len(l.items) - 1

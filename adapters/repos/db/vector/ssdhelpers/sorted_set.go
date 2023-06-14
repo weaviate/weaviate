@@ -102,6 +102,10 @@ func (s *SortedSet) updateRescored() {
 	}
 }
 
+func (s *SortedSet) ReSortById(id uint64, distance float32) {
+	s.ReSort(s.find(id), distance)
+}
+
 func (s *SortedSet) ReSort(i int, distance float32) {
 	if i == -1 {
 		return

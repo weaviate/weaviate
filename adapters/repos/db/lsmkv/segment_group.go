@@ -203,7 +203,7 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, topMostSegment i
 	return nil, nil
 }
 
-func (sg *SegmentGroup) getBySecondary(pos int, key []byte) ([]byte, error) {
+func (sg *SegmentGroup) getBySecondary(pos int, key []byte, buffers ...[]byte) ([]byte, error) {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 
@@ -212,7 +212,7 @@ func (sg *SegmentGroup) getBySecondary(pos int, key []byte) ([]byte, error) {
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
 	for i := len(sg.segments) - 1; i >= 0; i-- {
-		v, err := sg.segments[i].getBySecondary(pos, key)
+		v, err := sg.segments[i].getBySecondary(pos, key, buffers...)
 		if err != nil {
 			if err == lsmkv.NotFound {
 				continue
