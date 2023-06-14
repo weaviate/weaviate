@@ -128,7 +128,7 @@ func TestDelegateGetSet(t *testing.T) {
 
 	}
 	assert.Empty(t, st.delegate.Cache)
-	st.delegate.init()
+	st.delegate.init(diskSpace)
 	assert.Equal(t, 1, len(st.delegate.Cache))
 
 	st.delegate.MergeRemoteState(st.delegate.LocalState(false), false)
@@ -218,7 +218,10 @@ func TestDelegateCleanUp(t *testing.T) {
 			dataPath: ".",
 		},
 	}
-	st.delegate.init()
+	diskSpace := func(path string) (DiskUsage, error) {
+		return DiskUsage{100, 50}, nil
+	}
+	st.delegate.init(diskSpace)
 	_, ok := st.delegate.get("N0")
 	assert.True(t, ok, "N0 must exist")
 	st.delegate.set("N1", NodeInfo{LastTimeMilli: 1})
@@ -236,32 +239,75 @@ func TestDelegateLocalState(t *testing.T) {
 	now := time.Now().UnixMilli() - 1
 	errAny := errors.New("any error")
 	logger, _ := test.NewNullLogger()
-	d := delegate{
-		Name:      "N0",
-		dataPath:  ".",
-		log:       logger,
-		Cache:     map[string]NodeInfo{},
-		diskUsage: func(path string) (DiskUsage, error) { return DiskUsage{}, errAny },
-	}
-	// error reading disk space
-	d.LocalState(true)
-	assert.Empty(t, d.Cache)
-	d.diskUsage = func(path string) (DiskUsage, error) { return DiskUsage{5, 1}, nil }
 
-	// successful case
+	t.Run("FirstError", func(t *testing.T) {
+		d := delegate{
+			Name:     "N0",
+			dataPath: ".",
+			log:      logger,
+			Cache:    map[string]NodeInfo{},
+		}
+		du := func(path string) (DiskUsage, error) { return DiskUsage{}, errAny }
+		d.init(du)
+
+		// error reading disk space
+		d.LocalState(true)
+		assert.Len(t, d.Cache, 1)
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		d := delegate{
+			Name:     "N0",
+			dataPath: ".",
+			log:      logger,
+			Cache:    map[string]NodeInfo{},
+		}
+		du := func(path string) (DiskUsage, error) { return DiskUsage{5, 1}, nil }
+		d.init(du)
+		// successful case
+		d.LocalState(true)
+		got, ok := d.get("N0")
+		assert.True(t, ok)
+		assert.Greater(t, got.LastTimeMilli, now)
+		assert.Equal(t, DiskUsage{5, 1}, got.DiskUsage)
+	})
+}
+
+func TestDelegateUpdater(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	now := time.Now().UnixMilli() - 1
+
+	d := delegate{
+		Name:     "N0",
+		dataPath: ".",
+		log:      logger,
+		Cache:    map[string]NodeInfo{},
+	}
+	err := d.init(nil)
+	assert.NotNil(t, err)
+	doneCh := make(chan bool)
+	nCalls := uint64(0)
+	du := func(path string) (DiskUsage, error) {
+		nCalls++
+		if nCalls == 1 || nCalls == 3 {
+			return DiskUsage{2 * nCalls, nCalls}, nil
+		}
+		if nCalls == 2 {
+			return DiskUsage{}, fmt.Errorf("any")
+		}
+		if nCalls == 4 {
+			close(doneCh)
+		}
+		return DiskUsage{}, fmt.Errorf("any")
+	}
+	go d.updater(time.Millisecond, 5*time.Millisecond, du)
+
+	<-doneCh
+
+	// error reading disk space
 	d.LocalState(true)
 	got, ok := d.get("N0")
 	assert.True(t, ok)
 	assert.Greater(t, got.LastTimeMilli, now)
-	assert.Equal(t, DiskUsage{5, 1}, got.DiskUsage)
-
-	// renew cache
-	got.LastTimeMilli = got.LastTimeMilli - _ProtoTTL.Milliseconds()
-	d.Cache["N0"] = got
-	d.diskUsage = func(path string) (DiskUsage, error) { return DiskUsage{6, 2}, nil }
-	d.LocalState(true)
-	got, ok = d.get("N0")
-	assert.True(t, ok)
-	assert.Greater(t, got.LastTimeMilli, now)
-	assert.Equal(t, DiskUsage{6, 2}, got.DiskUsage)
+	assert.Equal(t, DiskUsage{3 * 2, 3}, got.DiskUsage)
 }
