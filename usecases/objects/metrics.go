@@ -22,6 +22,7 @@ type Metrics struct {
 	queriesCount *prometheus.GaugeVec
 	batchTime    *prometheus.HistogramVec
 	dimensions   *prometheus.CounterVec
+	groupClasses bool
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
@@ -33,6 +34,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
 		queriesCount: prom.QueriesCount,
 		batchTime:    prom.BatchTime,
 		dimensions:   prom.QueryDimensions,
+		groupClasses: prom.GroupClasses,
 	}
 }
 
@@ -171,6 +173,10 @@ func (m *Metrics) BatchOp(op string, startNs int64) {
 func (m *Metrics) AddUsageDimensions(className, queryType, operation string, dims int) {
 	if m == nil {
 		return
+	}
+
+	if m.groupClasses {
+		className = "_grouped"
 	}
 
 	m.dimensions.With(prometheus.Labels{

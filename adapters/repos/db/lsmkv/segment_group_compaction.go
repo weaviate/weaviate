@@ -132,6 +132,10 @@ func (sg *SegmentGroup) compactOnce() error {
 
 	strategy := sg.segmentAtPos(pair[0]).strategy
 
+	pathLabel := "_grouped"
+	if sg.metrics != nil && !sg.metrics.groupClasses {
+		pathLabel = sg.dir
+	}
 	switch strategy {
 
 	// TODO: call metrics just once with variable strategy label
@@ -141,8 +145,8 @@ func (sg *SegmentGroup) compactOnce() error {
 			sg.segmentAtPos(pair[1]).newCursor(), level, secondaryIndices, scratchSpacePath)
 
 		if sg.metrics != nil {
-			sg.metrics.CompactionReplace.With(prometheus.Labels{"path": sg.dir}).Set(1)
-			defer sg.metrics.CompactionReplace.With(prometheus.Labels{"path": sg.dir}).Set(0)
+			sg.metrics.CompactionReplace.With(prometheus.Labels{"path": pathLabel}).Inc()
+			defer sg.metrics.CompactionReplace.With(prometheus.Labels{"path": pathLabel}).Dec()
 		}
 
 		if err := c.do(); err != nil {
@@ -154,8 +158,8 @@ func (sg *SegmentGroup) compactOnce() error {
 			scratchSpacePath)
 
 		if sg.metrics != nil {
-			sg.metrics.CompactionSet.With(prometheus.Labels{"path": sg.dir}).Set(1)
-			defer sg.metrics.CompactionSet.With(prometheus.Labels{"path": sg.dir}).Set(0)
+			sg.metrics.CompactionSet.With(prometheus.Labels{"path": pathLabel}).Inc()
+			defer sg.metrics.CompactionSet.With(prometheus.Labels{"path": pathLabel}).Dec()
 		}
 
 		if err := c.do(); err != nil {
@@ -168,8 +172,8 @@ func (sg *SegmentGroup) compactOnce() error {
 			level, secondaryIndices, scratchSpacePath, sg.mapRequiresSorting)
 
 		if sg.metrics != nil {
-			sg.metrics.CompactionMap.With(prometheus.Labels{"path": sg.dir}).Set(1)
-			defer sg.metrics.CompactionMap.With(prometheus.Labels{"path": sg.dir}).Set(0)
+			sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
+			defer sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Dec()
 		}
 
 		if err := c.do(); err != nil {
