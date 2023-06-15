@@ -25,7 +25,7 @@ type fakeRepo struct {
 }
 
 func newFakeRepo() *fakeRepo {
-	return &fakeRepo{}
+	return &fakeRepo{schema: NewState(2)}
 }
 
 func (f *fakeRepo) Save(ctx context.Context, schema State) error {
