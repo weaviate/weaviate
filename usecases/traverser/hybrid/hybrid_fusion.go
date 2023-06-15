@@ -85,8 +85,13 @@ func FusionRelativeScore(weights []float64, results [][]*Result) []*Result {
 		return []*Result{}
 	}
 
-	maximum := []float32{results[0][0].SecondarySortValue, results[1][0].SecondarySortValue}
-	minimum := []float32{results[0][0].SecondarySortValue, results[1][0].SecondarySortValue}
+	maximum := []float32{results[0][0].SecondarySortValue}
+	minimum := []float32{results[0][0].SecondarySortValue}
+
+	if len(results) > 1 {
+		maximum = append(maximum, results[1][0].SecondarySortValue)
+		minimum = append(minimum, results[1][0].SecondarySortValue)
+	}
 
 	for i := range results {
 		for _, res := range results[i] {
