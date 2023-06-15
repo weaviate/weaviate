@@ -157,7 +157,7 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 	} else if s.params.FusionAlgorithm != get.HybridRelativeScoreFusion {
 		fused = FusionRelativeScore(weights, found)
 	} else {
-		return nil, fmt.Errorf("unknown ranking alogrithm %v for hybrid search", s.params.FusionAlgorithm)
+		return nil, fmt.Errorf("unknown ranking algorithm %v for hybrid search", s.params.FusionAlgorithm)
 	}
 
 	if s.postProcFunc != nil {
