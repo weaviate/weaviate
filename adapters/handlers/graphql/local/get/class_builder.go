@@ -70,10 +70,10 @@ func (b *classBuilder) kinds(kindSchema *models.Schema) (*graphql.Object, error)
 		Name: "FusionEnum",
 		Values: graphql.EnumValueConfigMap{
 			"ranked_fusion": &graphql.EnumValueConfig{
-				Value: 0,
+				Value: HybridRankedFusion,
 			},
 			"relative_score_fusion": &graphql.EnumValueConfig{
-				Value: 1,
+				Value: HybridRelativeScoreFusion,
 			},
 		},
 	})

@@ -30,6 +30,8 @@ func TestFusionRelativeScore(t *testing.T) {
 		{weights: []float64{0.5, 0.5}, inputScores: [][]float32{{1, 2, 3}, {0, 1, 2}}, expectedScores: []float32{1, 0.5, 0}, expectedOrder: []uint64{2, 1, 0}},
 		{weights: []float64{0.5, 0.5}, inputScores: [][]float32{{0, 2, 0.1}, {0, 0.2, 2}}, expectedScores: []float32{0.55, 0.525, 0}, expectedOrder: []uint64{1, 2, 0}},
 		{weights: []float64{0.75, 0.25}, inputScores: [][]float32{{0.5, 0.5, 0}, {0, 0.01, 0.001}}, expectedScores: []float32{1, 0.75, 0.025}, expectedOrder: []uint64{1, 0, 2}},
+		{weights: []float64{0.75, 0.25}, inputScores: [][]float32{{}, {}}, expectedScores: []float32{}, expectedOrder: []uint64{}},
+		{weights: []float64{0.75, 0.25}, inputScores: [][]float32{{1, 1}, {1, 2}}, expectedScores: []float32{0.25, 0}, expectedOrder: []uint64{1, 0}},
 	}
 	for _, tt := range cases {
 		t.Run("hybrid fusion", func(t *testing.T) {
@@ -42,8 +44,8 @@ func TestFusionRelativeScore(t *testing.T) {
 				results = append(results, result)
 			}
 			fused := FusionRelativeScore(tt.weights, results)
-			var fusedScores []float32
-			var fusedOrder []uint64
+			fusedScores := []float32{} // don't use nil slice declaration, should be explicitly empty
+			fusedOrder := []uint64{}
 
 			for _, score := range fused {
 				fusedScores = append(fusedScores, score.Score)
