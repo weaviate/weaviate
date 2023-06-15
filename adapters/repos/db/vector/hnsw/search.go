@@ -593,7 +593,6 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	}
 	h.pools.pqResults.Put(res)
 	return ids, dists, nil
-
 }
 
 func newSearchByDistParams(maxLimit int64) *searchByDistParams {

@@ -695,7 +695,6 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 }
 
 func VectorFromBinary(in []byte, buffer []float32) ([]float32, error) {
-
 	if len(in) == 0 {
 		return nil, nil
 	}

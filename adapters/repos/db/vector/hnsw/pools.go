@@ -60,7 +60,6 @@ type vectorSlice struct {
 	mem   []float32
 	buf8  []byte
 	buf   []byte
-	temp  uint32
 }
 
 func newTempVectorsPool() *tempVectorsPool {
