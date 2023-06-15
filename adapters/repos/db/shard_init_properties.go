@@ -17,7 +17,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/entities/models"
-	
 )
 
 func (s *Shard) initProperties(class *models.Class) error {
@@ -26,36 +25,28 @@ func (s *Shard) initProperties(class *models.Class) error {
 		return nil
 	}
 
-	
 	for _, prop := range class.Properties {
 		s.createPropertyIndex(context.TODO(), prop)
 	}
 
-	
-		if err := s.addIDProperty(context.TODO()); err != nil {
-			return errors.Wrap(err, "create id property index")
-		}
-		
-
+	if err := s.addIDProperty(context.TODO()); err != nil {
+		return errors.Wrap(err, "create id property index")
+	}
 
 	if s.index.invertedIndexConfig.IndexTimestamps {
-		
-			if err := s.addTimestampProperties(context.TODO()); err != nil {
-				return errors.Wrap(err, "create timestamp properties indexes")
-			}
-			
-		
+		if err := s.addTimestampProperties(context.TODO()); err != nil {
+			return errors.Wrap(err, "create timestamp properties indexes")
+		}
 	}
 
 	if s.index.Config.TrackVectorDimensions {
-	
-			if err := s.addDimensionsProperty(context.TODO()); err != nil {
-				return errors.Wrap(err, "crreate dimensions property index")
-			}
-			return nil
-		
+
+		if err := s.addDimensionsProperty(context.TODO()); err != nil {
+			return errors.Wrap(err, "crreate dimensions property index")
+		}
+		return nil
+
 	}
 
-	
 	return nil
 }

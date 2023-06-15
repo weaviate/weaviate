@@ -73,8 +73,8 @@ type Bucket struct {
 	// is that of the bucket that holds objects
 	monitorCount bool
 
-	pauseTimer *prometheus.Timer // Times the pause
-	RegisteredName string
+	pauseTimer      *prometheus.Timer // Times the pause
+	RegisteredName  string
 	PropertyTracker map[string]uint32
 }
 
@@ -90,7 +90,6 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
 	defaultFlushAfterIdle := 60 * time.Second
 	defaultStrategy := StrategyReplace
-
 
 	fmt.Printf("NewBucket dir: %s, rootDir: %s\n", dir, rootDir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -480,10 +479,9 @@ func MapListLegacySortingRequired() MapListOption {
 //
 // MapList is specific to the Map strategy, for Sets use [Bucket.SetList], for
 // Replace use [Bucket.Get].
-func (b *Bucket) MapList( key []byte, cfgs ...MapListOption) ([]MapPair, error) {
+func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
-
 
 	c := MapListOptionConfig{}
 	for _, cfg := range cfgs {
@@ -552,7 +550,6 @@ func (b *Bucket) MapList( key []byte, cfgs ...MapListOption) ([]MapPair, error) 
 
 	return newSortedMapMerger().do(segments)
 }
-
 
 // MapListProp returns all map entries for a given row key and property id. The order of map pairs
 // has no specific meaning. For efficient merge operations, pair entries are

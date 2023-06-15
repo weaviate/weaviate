@@ -204,8 +204,6 @@ func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard *
 }
 
 func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
-	
-
 	return i.ForEachShard(func(key string, shard *Shard) error {
 		err := shard.createPropertyIndex(ctx, prop)
 		if err != nil {
@@ -213,10 +211,6 @@ func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
 		}
 		return nil
 	})
-	
-		
-	
-
 }
 
 func (i *Index) addUUIDProperty(ctx context.Context) error {

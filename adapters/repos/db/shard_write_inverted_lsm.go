@@ -13,8 +13,8 @@ package db
 
 import (
 	"encoding/binary"
-	"math"
 	"fmt"
+	"math"
 
 	"github.com/weaviate/weaviate/entities/filters"
 
@@ -113,7 +113,7 @@ func (s *Shard) addToPropertyLengthIndex(propName string, docID uint64, length i
 	if err != nil {
 		return errors.Wrapf(err, "failed creating key for prop '%s' length", propName)
 	}
-	if err := s.addToPropertySetBucket([]byte(propName),bucketLength, docID, key); err != nil {
+	if err := s.addToPropertySetBucket([]byte(propName), bucketLength, docID, key); err != nil {
 		return errors.Wrapf(err, "failed adding to prop '%s' length bucket", propName)
 	}
 	return nil
@@ -129,7 +129,7 @@ func (s *Shard) addToPropertyNullIndex(propName string, docID uint64, isNull boo
 	if err != nil {
 		return errors.Wrapf(err, "failed creating key for prop '%s' null", propName)
 	}
-	if err := s.addToPropertySetBucket([]byte(propName),bucketNull, docID, key); err != nil {
+	if err := s.addToPropertySetBucket([]byte(propName), bucketNull, docID, key); err != nil {
 		return errors.Wrapf(err, "failed adding to prop '%s' null bucket", propName)
 	}
 	return nil
@@ -169,7 +169,6 @@ func (s *Shard) keyPropertyNull(isNull bool) ([]byte, error) {
 func (s *Shard) addToPropertyMapBucket(property []byte, bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
 	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
 
-	
 	propid, err := s.propIds.GetIdForProperty(string(property))
 	if err != nil {
 		s.index.logger.Panicf("property '%s' not found in propLengths", property)
@@ -177,7 +176,6 @@ func (s *Shard) addToPropertyMapBucket(property []byte, bucket *lsmkv.Bucket, pa
 	fmt.Printf("propid: %d\n", propid)
 	propid_bytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(propid_bytes, propid)
-	
 
 	return bucket.MapSet(helpers.MakePropertyKey(propid_bytes, key), pair)
 }
@@ -189,7 +187,6 @@ func (s *Shard) addToPropertySetBucket(property []byte, bucket *lsmkv.Bucket, do
 		docIDBytes := make([]byte, 8)
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
 
-
 		propid, err := s.propIds.GetIdForProperty(string(property))
 		if err != nil {
 			s.index.logger.Panicf("property '%s' not found in propLengths", property)
@@ -197,18 +194,15 @@ func (s *Shard) addToPropertySetBucket(property []byte, bucket *lsmkv.Bucket, do
 		propid_bytes := make([]byte, 8)
 		binary.LittleEndian.PutUint64(propid_bytes, propid)
 
-
 		return bucket.SetAdd(helpers.MakePropertyKey(propid_bytes, key), [][]byte{docIDBytes})
 	}
 
-	
 	propid, err := s.propIds.GetIdForProperty(string(property))
 	if err != nil {
 		s.index.logger.Panicf("property '%s' not found in propLengths", property)
 	}
 	propid_bytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(propid_bytes, propid)
-
 
 	return bucket.RoaringSetAddOne(helpers.MakePropertyKey(propid_bytes, key), docID)
 }

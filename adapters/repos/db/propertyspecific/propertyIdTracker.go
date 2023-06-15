@@ -1,12 +1,22 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package propertyspecific
 
 import (
 	"encoding/json"
+	"fmt"
+	"log"
 	"os"
 	"sync"
-	"log"
-
-	"fmt"
 )
 
 type JsonPropertyIdTracker struct {
@@ -18,8 +28,7 @@ type JsonPropertyIdTracker struct {
 
 func NewJsonPropertyIdTracker(path string) (*JsonPropertyIdTracker, error) {
 	t := &JsonPropertyIdTracker{
-
-		path: path,
+		path:        path,
 		PropertyIds: make(map[string]uint64),
 	}
 
@@ -35,7 +44,7 @@ func NewJsonPropertyIdTracker(path string) (*JsonPropertyIdTracker, error) {
 		return nil, err
 	}
 
-	//Unmarshal the data
+	// Unmarshal the data
 
 	if err := json.Unmarshal(bytes, &t); err != nil {
 		return nil, err
@@ -111,11 +120,12 @@ func (t *JsonPropertyIdTracker) GetIdForProperty(property string) (uint64, error
 		return id, nil
 	}
 
-	//panic(fmt.Sprintf("property %v not found\n", property))
+	// panic(fmt.Sprintf("property %v not found\n", property))
 	log.Printf("FIXME: property %v not created before use!\n", property)
 	return t._createProperty(property)
-	//return 0, fmt.Errorf("property %v not found\n", property)
+	// return 0, fmt.Errorf("property %v not found\n", property)
 }
+
 func (t *JsonPropertyIdTracker) CreateProperty(property string) (uint64, error) {
 	t.Lock()
 	defer t.Unlock()
@@ -124,10 +134,7 @@ func (t *JsonPropertyIdTracker) CreateProperty(property string) (uint64, error) 
 }
 
 func (t *JsonPropertyIdTracker) _createProperty(property string) (uint64, error) {
-
-
 	fmt.Printf("Creating property %v\n", property)
-
 
 	if _, ok := t.PropertyIds[property]; ok {
 		return 0, fmt.Errorf("property %v already exists\n", property)
@@ -135,7 +142,6 @@ func (t *JsonPropertyIdTracker) _createProperty(property string) (uint64, error)
 
 	t.LastId++
 	t.PropertyIds[property] = t.LastId
-	
 
 	return t.LastId, nil
 }

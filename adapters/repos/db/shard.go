@@ -419,7 +419,7 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 
 func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property) error {
 	if !inverted.HasInvertedIndex(prop) {
-		return nil //FIXME nil or err?
+		return nil // FIXME nil or err?
 	}
 
 	s.propIds.CreateProperty(prop.Name)
@@ -430,19 +430,15 @@ func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property) 
 	}
 
 	if s.index.invertedIndexConfig.IndexNullState {
-
 		if err := s.createPropertyNullIndex(ctx, prop); err != nil {
 			return errors.Wrapf(err, "create property '%s' null index on shard '%s'", prop.Name, s.ID())
 		}
-
 	}
 
 	if s.index.invertedIndexConfig.IndexPropertyLength {
-
 		if err := s.createPropertyLengthIndex(ctx, prop); err != nil {
 			return errors.Wrapf(err, "create property '%s' length index on shard '%s'", prop.Name, s.ID())
 		}
-
 	}
 
 	return nil

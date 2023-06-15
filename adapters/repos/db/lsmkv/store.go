@@ -130,7 +130,6 @@ func (s *Store) GetStrategyFromOpts(opts []BucketOption) string {
 func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string,
 	opts ...BucketOption,
 ) error {
-
 	fmt.Println("Requested CreateOrLoadBucket", bucketFile, "in shard", s.dir)
 	fmt.Println("Existing buckets:")
 	for k := range s.bucketsByName {
@@ -138,14 +137,13 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string,
 	}
 
 	/*
-	if strings.Contains(bucketFile, "_id") {
-		fmt.Print("found")
-	}
+		if strings.Contains(bucketFile, "_id") {
+			fmt.Print("found")
+		}
 	*/
-	
 
 	if b := s.Bucket(bucketFile); b != nil {
-		//If the merged bucket as bucketFile already exists, we don't need to create it, but we do need to register it to the "RegisteredName"
+		// If the merged bucket as bucketFile already exists, we don't need to create it, but we do need to register it to the "RegisteredName"
 		// So first we create a fake bucket to get the registered name :O
 		fb := &Bucket{}
 		for _, opt := range opts {

@@ -12,9 +12,9 @@
 package helpers
 
 import (
+	"log"
 
 	//"runtime/debug"
-	"log"
 	"github.com/weaviate/sroar"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
@@ -31,16 +31,16 @@ type AllowList interface {
 	Iterator() AllowListIterator
 	LimitedIterator(limit int) AllowListIterator
 }
+
 func MakePropertyKey(propName []byte, key []byte) []byte {
 	t := append([]byte(propName), byte('|'))
 	val := append(t, key...)
 	log.Printf("Property key: %s\n", val)
 	log.Printf("Property key bytes: %v\n", val)
-	//Print stack trace here
-	//debug.PrintStack()
+	// Print stack trace here
+	// debug.PrintStack()
 	return val
 }
-
 
 type AllowListIterator interface {
 	Next() (uint64, bool)

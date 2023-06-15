@@ -168,8 +168,6 @@ func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 					"Weaviate which does not yet support BM25 search")
 		}
 
-		
-
 		var bm25objs []*storobj.Object
 		var bm25count []float32
 		var err error

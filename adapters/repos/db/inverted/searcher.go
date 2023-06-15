@@ -24,7 +24,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
-	
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
@@ -47,7 +47,7 @@ type Searcher struct {
 	stopwords              stopwords.StopwordDetector
 	shardVersion           uint16
 	isFallbackToSearchable IsFallbackToSearchable
-	propIds 			  *propertyspecific.JsonPropertyIdTracker
+	propIds                *propertyspecific.JsonPropertyIdTracker
 }
 
 type DeletedDocIDChecker interface {
