@@ -157,13 +157,25 @@ func (h *hnsw) SearchByVectorDistance(vector []float32, targetDistance float32, 
 	return resultIDs, resultDist, nil
 }
 
-func (h *hnsw) shouldRescore(isSearch bool) bool {
-	return /*isSearch &&*/ h.compressed.Load() && !h.doNotRescore
+func (h *hnsw) shouldRescore() bool {
+	return h.compressed.Load() && !h.doNotRescore
 }
 
 func (h *hnsw) searchLayerByVector(queryVector []float32,
 	entrypoints *priorityqueue.Queue, ef int, level int,
-	allowList helpers.AllowList, isSearch bool) (*priorityqueue.Queue, error,
+	allowList helpers.AllowList) (*priorityqueue.Queue, error,
+) {
+	var byteDistancer *ssdhelpers.PQDistancer
+	if h.compressed.Load() {
+		byteDistancer = h.pq.NewDistancer(queryVector)
+		defer h.pq.ReturnDistancer(byteDistancer)
+	}
+	return h.searchLayerByVectorWithDistancer(queryVector, entrypoints, ef, level, allowList, byteDistancer)
+}
+
+func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
+	entrypoints *priorityqueue.Queue, ef int, level int,
+	allowList helpers.AllowList, byteDistancer *ssdhelpers.PQDistancer) (*priorityqueue.Queue, error,
 ) {
 	h.pools.visitedListsLock.Lock()
 	visited := h.pools.visitedLists.Borrow()
@@ -172,7 +184,6 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
 	var floatDistancer distancer.Distancer
-	var byteDistancer *ssdhelpers.PQDistancer
 	if h.compressed.Load() {
 		byteDistancer = h.pq.NewDistancer(queryVector)
 		defer h.pq.ReturnDistancer(byteDistancer)
@@ -186,7 +197,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	var worstResultDistance float32
 	var err error
 	if h.compressed.Load() {
-		worstResultDistance, err = h.currentWorstResultDistanceToByte(results, byteDistancer, isSearch)
+		worstResultDistance, err = h.currentWorstResultDistanceToByte(results, byteDistancer)
 	} else {
 		worstResultDistance, err = h.currentWorstResultDistanceToFloat(results, floatDistancer)
 	}
@@ -310,22 +321,6 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	h.pools.visitedLists.Return(visited)
 	h.pools.visitedListsLock.Unlock()
 
-	// results are passed on, so it's in the callers responsibility to return the
-	// list to the pool after using it
-	if h.shouldRescore(isSearch) {
-		ids := make([]uint64, results.Len())
-		i := len(ids) - 1
-		for results.Len() > 0 {
-			res := results.Pop()
-			ids[i] = res.ID
-			i--
-		}
-		results.Reset()
-		for _, id := range ids {
-			dist, _, _ := h.distanceFromBytesToFloatNode(byteDistancer, id)
-			results.Insert(id, dist)
-		}
-	}
 	return results, nil
 }
 
@@ -381,7 +376,7 @@ func (h *hnsw) currentWorstResultDistanceToFloat(results *priorityqueue.Queue,
 }
 
 func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue,
-	distancer *ssdhelpers.PQDistancer, isSearch bool,
+	distancer *ssdhelpers.PQDistancer,
 ) (float32, error) {
 	if results.Len() > 0 {
 		id := results.Top().ID
@@ -499,11 +494,17 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
 	}
 
+	var byteDistancer *ssdhelpers.PQDistancer
+	if h.compressed.Load() {
+		byteDistancer = h.pq.NewDistancer(searchVec)
+		defer h.pq.ReturnDistancer(byteDistancer)
+	}
 	// stop at layer 1, not 0!
 	for level := h.currentMaximumLayer; level >= 1; level-- {
 		eps := priorityqueue.NewMin(10)
 		eps.Insert(entryPointID, entryPointDistance)
-		res, err := h.searchLayerByVector(searchVec, eps, 1, level, nil, true)
+
+		res, err := h.searchLayerByVectorWithDistancer(searchVec, eps, 1, level, nil, byteDistancer)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
 		}
@@ -546,9 +547,28 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 
 	eps := priorityqueue.NewMin(10)
 	eps.Insert(entryPointID, entryPointDistance)
-	res, err := h.searchLayerByVector(searchVec, eps, ef, 0, allowList, true)
+	res, err := h.searchLayerByVectorWithDistancer(searchVec, eps, ef, 0, allowList, byteDistancer)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
+	}
+
+	if h.shouldRescore() {
+		ids := make([]uint64, res.Len())
+		i := len(ids) - 1
+		for res.Len() > 0 {
+			res := res.Pop()
+			ids[i] = res.ID
+			i--
+		}
+		res.Reset()
+		for _, id := range ids {
+			dist, _, _ := h.distanceFromBytesToFloatNode(byteDistancer, id)
+			res.Insert(id, dist)
+			if res.Len() > ef {
+				res.Pop()
+			}
+		}
+
 	}
 
 	for res.Len() > k {
@@ -567,10 +587,9 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		dists[i] = res.Dist
 		i--
 	}
-
 	h.pools.pqResults.Put(res)
-
 	return ids, dists, nil
+
 }
 
 func newSearchByDistParams(maxLimit int64) *searchByDistParams {
