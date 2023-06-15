@@ -39,9 +39,9 @@ func Test_NoRaceKMeansNNearest(t *testing.T) {
 		0,
 	)
 	kmeans.Fit(vectors)
-	centers := make([]uint64, 6)
+	centers := make([]byte, 6)
 	for i := range centers {
-		centers[i] = kmeans.Nearest(vectors[i])
+		centers[i] = byte(kmeans.Nearest(vectors[i]))
 	}
 	for v := range vectors {
 		min, _, _ := distanceProvider.SingleDist(vectors[v], kmeans.Centroid(centers[v]))
