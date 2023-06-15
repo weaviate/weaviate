@@ -8,12 +8,12 @@ set -eou pipefail
 export GIT_HASH=$(git rev-parse --short HEAD)
 VERSION="v$(jq -r '.info.version' openapi-specs/schema.json)"
 
-goreleaser build --clean --snapshot # add --snapshot to this commandline to build from non-tagged commit or with unclean directory
+goreleaser build --clean # add --snapshot to this commandline to build from non-tagged commit or with unclean directory
 
 codesign -f -o runtime --timestamp -s "Developer ID Application: Weaviate B.V. (QUZ8SKLS6R)" dist/weaviate_darwin_all/weaviate
 
 DARWIN_DIST="dist/weaviate-${VERSION}-darwin-all.zip"
-zip "$DARWIN_DIST" dist/weaviate_darwin_all/weaviate LICENSE README.md
+zip -j "$DARWIN_DIST" dist/weaviate_darwin_all/weaviate LICENSE README.md
 
 codesign -f -o runtime --timestamp -s "Developer ID Application: Weaviate B.V. (QUZ8SKLS6R)" "$DARWIN_DIST"
 
