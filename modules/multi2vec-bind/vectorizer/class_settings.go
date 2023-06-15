@@ -45,6 +45,46 @@ func (ic *classSettings) TextFieldsWeights() ([]float32, error) {
 	return ic.getFieldsWeights("text")
 }
 
+func (ic *classSettings) AudioField(property string) bool {
+	return ic.field("audioFields", property)
+}
+
+func (ic *classSettings) AudioFieldsWeights() ([]float32, error) {
+	return ic.getFieldsWeights("audio")
+}
+
+func (ic *classSettings) VideoField(property string) bool {
+	return ic.field("videoFields", property)
+}
+
+func (ic *classSettings) VideoFieldsWeights() ([]float32, error) {
+	return ic.getFieldsWeights("video")
+}
+
+func (ic *classSettings) IMUField(property string) bool {
+	return ic.field("imuFields", property)
+}
+
+func (ic *classSettings) IMUFieldsWeights() ([]float32, error) {
+	return ic.getFieldsWeights("imu")
+}
+
+func (ic *classSettings) ThermalField(property string) bool {
+	return ic.field("thermalFields", property)
+}
+
+func (ic *classSettings) ThermalFieldsWeights() ([]float32, error) {
+	return ic.getFieldsWeights("thermal")
+}
+
+func (ic *classSettings) DepthField(property string) bool {
+	return ic.field("depthFields", property)
+}
+
+func (ic *classSettings) DepthFieldsWeights() ([]float32, error) {
+	return ic.getFieldsWeights("depth")
+}
+
 func (ic *classSettings) field(name, property string) bool {
 	if ic.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
@@ -83,32 +123,66 @@ func (ic *classSettings) Validate() error {
 
 	imageFields, imageFieldsOk := ic.cfg.Class()["imageFields"]
 	textFields, textFieldsOk := ic.cfg.Class()["textFields"]
-	if !imageFieldsOk && !textFieldsOk {
-		return errors.New("textFields or imageFields setting needs to be present")
+	audioFields, audioFieldsOk := ic.cfg.Class()["audioFields"]
+	videoFields, videoFieldsOk := ic.cfg.Class()["videoFields"]
+	imuFields, imuFieldsOk := ic.cfg.Class()["imuFields"]
+	thermalFields, thermalFieldsOk := ic.cfg.Class()["thermalFields"]
+	depthFields, depthFieldsOk := ic.cfg.Class()["depthFields"]
+
+	if !imageFieldsOk && !textFieldsOk && !audioFieldsOk && !videoFieldsOk &&
+		!imuFieldsOk && !thermalFieldsOk && !depthFieldsOk {
+		return errors.New("textFields or imageFields or audioFields or videoFields " +
+			"or imuFields or thermalFields or depthFields setting needs to be present")
 	}
 
 	if imageFieldsOk {
-		imageFieldsCount, err := ic.validateFields("image", imageFields)
-		if err != nil {
-			return err
-		}
-		err = ic.validateWeights("image", imageFieldsCount)
-		if err != nil {
+		if err := ic.validateWeightFieldCount("image", imageFields.([]interface{})); err != nil {
 			return err
 		}
 	}
-
 	if textFieldsOk {
-		textFieldsCount, err := ic.validateFields("text", textFields)
-		if err != nil {
+		if err := ic.validateWeightFieldCount("text", textFields.([]interface{})); err != nil {
 			return err
 		}
-		err = ic.validateWeights("text", textFieldsCount)
-		if err != nil {
+	}
+	if audioFieldsOk {
+		if err := ic.validateWeightFieldCount("audio", audioFields.([]interface{})); err != nil {
+			return err
+		}
+	}
+	if videoFieldsOk {
+		if err := ic.validateWeightFieldCount("video", videoFields.([]interface{})); err != nil {
+			return err
+		}
+	}
+	if imuFieldsOk {
+		if err := ic.validateWeightFieldCount("imu", imuFields.([]interface{})); err != nil {
+			return err
+		}
+	}
+	if thermalFieldsOk {
+		if err := ic.validateWeightFieldCount("thermal", thermalFields.([]interface{})); err != nil {
+			return err
+		}
+	}
+	if depthFieldsOk {
+		if err := ic.validateWeightFieldCount("depth", depthFields.([]interface{})); err != nil {
 			return err
 		}
 	}
 
+	return nil
+}
+
+func (ic *classSettings) validateWeightFieldCount(name string, fields []interface{}) error {
+	imageFieldsCount, err := ic.validateFields(name, fields)
+	if err != nil {
+		return err
+	}
+	err = ic.validateWeights(name, imageFieldsCount)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -181,7 +255,7 @@ func (ic *classSettings) getWeightsArray(weights []interface{}) ([]float32, erro
 }
 
 func (ic *classSettings) getFieldsWeights(name string) ([]float32, error) {
-	weights, ok := ic.getWeights("image")
+	weights, ok := ic.getWeights(name)
 	if ok {
 		return ic.getWeightsArray(weights)
 	}
