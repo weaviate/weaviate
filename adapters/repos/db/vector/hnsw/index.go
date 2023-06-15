@@ -147,7 +147,7 @@ type hnsw struct {
 	deleteVsInsertLock sync.RWMutex
 
 	compressed             atomic.Bool
-	doNotRescore           atomic.Bool
+	doNotRescore           bool
 	pq                     *ssdhelpers.ProductQuantizer
 	compressedVectorsCache cache[byte]
 	compressedStore        *lsmkv.Store
@@ -409,7 +409,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 			}
 		}
 
-		h.freeSortedQueue(res, false)
+		h.pools.pqResults.Put(res)
 	}
 
 	return entryPointID, nil

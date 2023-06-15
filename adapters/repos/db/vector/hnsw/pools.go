@@ -19,6 +19,8 @@ import (
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
+const bigBuffSize = 7000
+
 type pools struct {
 	visitedLists     *visited.Pool
 	visitedListsLock *sync.Mutex
@@ -54,11 +56,11 @@ type tempVectorsPool struct {
 }
 
 type vectorSlice struct {
-	slice  []float32
-	mem    []float32
-	buf8   []byte
-	buf700 []byte
-	temp   uint32
+	slice []float32
+	mem   []float32
+	buf8  []byte
+	buf   []byte
+	temp  uint32
 }
 
 func newTempVectorsPool() *tempVectorsPool {
@@ -66,10 +68,10 @@ func newTempVectorsPool() *tempVectorsPool {
 		pool: &sync.Pool{
 			New: func() interface{} {
 				return &vectorSlice{
-					mem:    make([]float32, 1600),
-					buf8:   make([]byte, 8),
-					buf700: make([]byte, 70000),
-					slice:  nil,
+					mem:   nil,
+					buf8:  make([]byte, 8),
+					buf:   make([]byte, bigBuffSize),
+					slice: nil,
 				}
 			},
 		},
@@ -78,7 +80,10 @@ func newTempVectorsPool() *tempVectorsPool {
 
 func (pool *tempVectorsPool) Get(capacity int) *vectorSlice {
 	container := pool.pool.Get().(*vectorSlice)
-	if len(container.slice) != capacity {
+	if len(container.slice) >= capacity {
+		container.slice = container.mem[:capacity]
+	} else {
+		container.mem = make([]float32, capacity)
 		container.slice = container.mem[:capacity]
 	}
 	return container

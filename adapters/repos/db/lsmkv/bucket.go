@@ -248,7 +248,23 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 // Similar to [Bucket.Get], GetBySecondary is limited to ReplaceStrategy. No
 // equivalent exists for Set and Map, as those do not support secondary
 // indexes.
-func (b *Bucket) GetBySecondary(pos int, key []byte, buffers ...[]byte) ([]byte, error) {
+func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
+	return b.GetBySecondaryIntoMemory(pos, key, nil)
+}
+
+// GetBySecondaryIntoMemory copies into the specified memory, and retrieves
+// an object using one of its secondary keys. A bucket
+// can have an infinite number of secondary keys. Specify the secondary key
+// position as the first argument.
+//
+// A real-life example of secondary keys is the Weaviate object store. Objects
+// are stored with the user-facing ID as their primary key and with the doc-id
+// (an ever-increasing uint64) as the secondary key.
+//
+// Similar to [Bucket.Get], GetBySecondary is limited to ReplaceStrategy. No
+// equivalent exists for Set and Map, as those do not support secondary
+// indexes.
+func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -286,7 +302,7 @@ func (b *Bucket) GetBySecondary(pos int, key []byte, buffers ...[]byte) ([]byte,
 		}
 	}
 
-	return b.disk.getBySecondary(pos, key, buffers...)
+	return b.disk.getBySecondaryIntoMemory(pos, key, buffer)
 }
 
 // SetList returns all Set entries for a given key.
