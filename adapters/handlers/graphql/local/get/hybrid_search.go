@@ -20,6 +20,11 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
+const (
+	HybridRankedFusion = iota
+	HybridRelativeScoreFusion
+)
+
 func hybridArgument(classObject *graphql.Object,
 	class *models.Class, modulesProvider ModulesProvider, fusionEnum *graphql.Enum,
 ) *graphql.ArgumentConfig {
@@ -66,7 +71,7 @@ func hybridOperands(classObject *graphql.Object,
 		},
 		"fusion_type": &graphql.InputObjectFieldConfig{
 			Description:  "Algorithm used for fusing results from vector and keyword search",
-			DefaultValue: fusionEnum.Values()[0].Value,
+			DefaultValue: fusionEnum.Values()[HybridRankedFusion].Value,
 			Type:         fusionEnum,
 		},
 	}

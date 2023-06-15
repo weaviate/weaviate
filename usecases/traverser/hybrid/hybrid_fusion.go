@@ -70,9 +70,23 @@ func FusionRanked(weights []float64, results [][]*Result) []*Result {
 	return concat
 }
 
+// FusionRelativeScore uses the relative differences in the scores from keyword and vector search to combine the
+// results. This method retains more information than ranked fusion and should result in better results.
+//
+// The scores from each result are normalized between 0 and 1, e.g. the maximum score becomes 1 and the minimum 0 and the
+// other scores are inbetween, keeping their relative distance to the other scores.
+// Example:
+//
+//	Input score = [1, 8, 6, 11] => [0, 0.7, 0.5, 1]
+//
+// The normalized scores are then combined using their respective weight and the combined scores are sorted
 func FusionRelativeScore(weights []float64, results [][]*Result) []*Result {
-	maximum := []float32{-100000, -100000}
-	minimum := []float32{100000, 100000}
+	if len(results[0]) == 0 {
+		return []*Result{}
+	}
+
+	maximum := []float32{results[0][0].SecondarySortValue, results[1][0].SecondarySortValue}
+	minimum := []float32{results[0][0].SecondarySortValue, results[1][0].SecondarySortValue}
 
 	for i := range results {
 		for _, res := range results[i] {
@@ -83,26 +97,28 @@ func FusionRelativeScore(weights []float64, results [][]*Result) []*Result {
 			if res.SecondarySortValue < minimum[i] {
 				minimum[i] = res.SecondarySortValue
 			}
-
 		}
 	}
 
-	// normalize scores
+	// normalize scores between 0 and 1
 	mapResults := make(map[strfmt.UUID]*Result)
-
 	for i := range results {
 		weight := float32(weights[i])
 		for _, res := range results[i] {
-			tempResult := res
-			score := weight * (res.SecondarySortValue - minimum[i]) / (maximum[i] - minimum[i])
+			var score float32
+			if maximum[i] != minimum[i] {
+				score = weight * (res.SecondarySortValue - minimum[i]) / (maximum[i] - minimum[i])
+			} else {
+				score = 0
+			}
 
 			previousResult, ok := mapResults[res.ID]
 			if ok {
 				score += previousResult.Score
 			}
-			tempResult.Score = score
+			res.Score = score
 
-			mapResults[res.ID] = tempResult
+			mapResults[res.ID] = res
 		}
 	}
 
