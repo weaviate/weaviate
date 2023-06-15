@@ -42,6 +42,10 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
+			TempVectorForIDThunk: func(ctx context.Context, id uint64, out []float32, buf8, biff []byte) ([]float32, error) {
+				copy(out, vectors[int(id)])
+				return vectors[int(id)], nil
+			},
 		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
@@ -133,6 +137,10 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewCosineDistanceProvider(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id)], nil
+			},
+			TempVectorForIDThunk: func(ctx context.Context, id uint64, out []float32, buf8, biff []byte) ([]float32, error) {
+				copy(out, vectors[int(id)])
 				return vectors[int(id)], nil
 			},
 		}, ent.UserConfig{
@@ -246,6 +254,10 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewCosineDistanceProvider(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id)], nil
+			},
+			TempVectorForIDThunk: func(ctx context.Context, id uint64, out []float32, buf8, biff []byte) ([]float32, error) {
+				copy(out, vectors[int(id)])
 				return vectors[int(id)], nil
 			},
 		}, ent.UserConfig{
@@ -364,6 +376,10 @@ func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32)
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[int(id)], nil
+		},
+		TempVectorForIDThunk: func(ctx context.Context, id uint64, out []float32, buf8, biff []byte) ([]float32, error) {
+			copy(out, vectors[int(id)])
 			return vectors[int(id)], nil
 		},
 	}, ent.UserConfig{
@@ -533,6 +549,10 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
+			TempVectorForIDThunk: func(ctx context.Context, id uint64, out []float32, buf8, biff []byte) ([]float32, error) {
+				copy(out, vectors[int(id)])
+				return vectors[int(id)], nil
+			},
 		}, userConfig, cyclemanager.NewNoop())
 		require.Nil(t, err)
 		vectorIndex = index
@@ -658,6 +678,10 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 			DistanceProvider:      distancer.NewCosineDistanceProvider(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id%uint64(len(vectors)))], nil
+			},
+			TempVectorForIDThunk: func(ctx context.Context, id uint64, out []float32, buf8, biff []byte) ([]float32, error) {
+				copy(out, vectors[int(id)])
+				return vectors[int(id)], nil
 			},
 		}, userConfig, cyclemanager.NewNoop())
 		require.Nil(t, err)
@@ -957,6 +981,10 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 	vecForID := func(ctx context.Context, id uint64) ([]float32, error) {
 		return vectors[int(id)], nil
 	}
+	tempVecForID := func(ctx context.Context, id uint64, out []float32, buf8, biff []byte) ([]float32, error) {
+		copy(out, vectors[int(id)])
+		return vectors[int(id)], nil
+	}
 	// This test is motivated by flakyness of other tests. We seemed to have
 	// experienced a failure with the following structure
 	//
@@ -981,6 +1009,7 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewGeoProvider(),
 		VectorForIDThunk:      vecForID,
+		TempVectorForIDThunk:  tempVecForID,
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
@@ -1048,12 +1077,17 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 		// always return same vec  for all elements
 		return []float32{0.1, 0.2}, nil
 	}
+	tempVecForID := func(ctx context.Context, id uint64, out []float32, buf8, biff []byte) ([]float32, error) {
+		copy(out, []float32{0.1, 0.2})
+		return out, nil
+	}
 	index, err := New(Config{
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 		ID:                    "tombstoned-entrypoint-test",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      vecForID,
+		TempVectorForIDThunk:  tempVecForID,
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
@@ -1226,6 +1260,10 @@ func Test_DeleteEPVecInUnderlyingObjectStore(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				fmt.Printf("vec for pos=%d is %v\n", id, vectors[int(id)])
 				return vectors[int(id)], vectorErrors[int(id)]
+			},
+			TempVectorForIDThunk: func(ctx context.Context, id uint64, out []float32, buf8, biff []byte) ([]float32, error) {
+				copy(out, vectors[int(id)])
+				return vectors[int(id)], nil
 			},
 		}, ent.UserConfig{
 			MaxConnections: 30,
