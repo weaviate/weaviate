@@ -144,27 +144,14 @@ func (s *Shard) objectByIndexID(ctx context.Context,
 
 func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32, error) {
 	keyBuf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(keyBuf, indexID)
-
-	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).
-		GetBySecondary(0, keyBuf)
-	if err != nil {
-		return nil, err
-	}
-
-	if bytes == nil {
-		return nil, storobj.NewErrNotFoundf(indexID,
-			"no object for doc id, it could have been deleted")
-	}
-
-	return storobj.VectorFromBinary(bytes)
+	return s.readVectorByIndexIDIntoSlice(ctx, indexID, nil, keyBuf, nil)
 }
 
 func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, out []float32, keyBuf []byte, buff []byte) ([]float32, error) {
 	binary.LittleEndian.PutUint64(keyBuf, indexID)
 
 	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).
-		GetBySecondary(0, keyBuf, buff)
+		GetBySecondaryIntoMemory(0, keyBuf, buff)
 	if err != nil {
 		return nil, err
 	}
