@@ -154,7 +154,7 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 	var fused []*Result
 	if s.params.FusionAlgorithm == get.HybridRankedFusion {
 		fused = FusionRanked(weights, found)
-	} else if s.params.FusionAlgorithm != get.HybridRelativeScoreFusion {
+	} else if s.params.FusionAlgorithm == get.HybridRelativeScoreFusion {
 		fused = FusionRelativeScore(weights, found)
 	} else {
 		return nil, fmt.Errorf("unknown ranking algorithm %v for hybrid search", s.params.FusionAlgorithm)
