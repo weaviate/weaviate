@@ -379,7 +379,11 @@ func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue,
 	distancer *ssdhelpers.PQDistancer,
 ) (float32, error) {
 	if results.Len() > 0 {
-		id := results.Top().ID
+		item := results.Top()
+		if item.Dist != 0 {
+			return item.Dist, nil
+		}
+		id := item.ID
 		d, ok, err := h.distanceToByteNode(distancer, id)
 		if err != nil {
 			return 0, errors.Wrap(err,
