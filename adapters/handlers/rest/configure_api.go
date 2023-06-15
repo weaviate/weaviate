@@ -148,8 +148,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var vectorRepo vectorRepo
 	var vectorMigrator migrate.Migrator
 	var migrator migrate.Migrator
-	// var explorer explorer
-	// var classifierRepo classification.Repo
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		promMetrics := monitoring.GetMetrics()

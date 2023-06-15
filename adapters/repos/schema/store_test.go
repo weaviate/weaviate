@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 
-	schemauc "github.com/weaviate/weaviate/usecases/schema"
+	ucs "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -35,7 +35,7 @@ func TestRepositoryMigrate(t *testing.T) {
 		canceledCtx, cancel = context.WithCancel(ctx)
 	)
 	cancel()
-	schema := schemauc.State{}
+	schema := ucs.NewState(3)
 	addClass(&schema, "C1", 0, 1, 0)
 	addClass(&schema, "C2", 0, 3, 3)
 	t.Run("SaveOldSchema", func(t *testing.T) {
@@ -94,12 +94,12 @@ func TestRepositorySaveLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loading schema from empty file: %v", err)
 	}
-	if len(res.ShardingState) != 0 || res.ObjectSchema.Classes != nil {
+	if len(res.ShardingState) != 0 || len(res.ObjectSchema.Classes) != 0 {
 		t.Fatalf("expected empty schema got %v", res)
 	}
 
 	// save and load non empty schema
-	schema := schemauc.State{}
+	schema := ucs.NewState(3)
 	addClass(&schema, "C1", 0, 1, 0)
 	addClass(&schema, "C2", 0, 3, 3)
 	err = repo.Save(canceledCtx, schema)
@@ -139,9 +139,9 @@ func TestRepositoryUpdateClass(t *testing.T) {
 	}
 
 	// save and load non empty schema
-	schema := schemauc.State{}
+	schema := ucs.NewState(3)
 	cls, ss := addClass(&schema, "C1", 0, 1, 0)
-	payload, err := schemauc.CreateClassPayload(cls, ss)
+	payload, err := ucs.CreateClassPayload(cls, ss)
 	assert.Nil(t, err)
 	if err := repo.NewClass(ctx, payload); err != nil {
 		t.Fatalf("create new class: %v", err)
@@ -155,7 +155,7 @@ func TestRepositoryUpdateClass(t *testing.T) {
 	deleteClass(&schema, "C1")
 	cls, ss = addClass(&schema, "C1", 0, 2, 1)
 
-	payload, err = schemauc.CreateClassPayload(cls, ss)
+	payload, err = ucs.CreateClassPayload(cls, ss)
 	assert.Nil(t, err)
 	payload.Name = "C3"
 	if err := repo.UpdateClass(ctx, payload); err == nil {
@@ -182,7 +182,7 @@ func TestRepositoryUpdateClass(t *testing.T) {
 	// overwrite class
 	deleteClass(&schema, "C1")
 	cls, ss = addClass(&schema, "C1", 2, 2, 3)
-	payload, err = schemauc.CreateClassPayload(cls, ss)
+	payload, err = ucs.CreateClassPayload(cls, ss)
 	assert.Nil(t, err)
 	payload.ReplaceShards = true
 	if err := repo.UpdateClass(ctx, payload); err != nil {
@@ -224,7 +224,7 @@ func createClass(name string, start, nProps, nShards int) (models.Class, shardin
 	return cls, ss
 }
 
-func addClass(schema *schemauc.State, name string, start, nProps, nShards int) (*models.Class, *sharding.State) {
+func addClass(schema *ucs.State, name string, start, nProps, nShards int) (*models.Class, *sharding.State) {
 	cls, ss := createClass(name, start, nProps, nShards)
 	if schema.ObjectSchema == nil {
 		schema.ObjectSchema = &models.Schema{}
@@ -237,7 +237,7 @@ func addClass(schema *schemauc.State, name string, start, nProps, nShards int) (
 	return &cls, &ss
 }
 
-func deleteClass(schema *schemauc.State, name string) {
+func deleteClass(schema *ucs.State, name string) {
 	idx := -1
 	for i, cls := range schema.ObjectSchema.Classes {
 		if cls.Class == name {
@@ -249,13 +249,10 @@ func deleteClass(schema *schemauc.State, name string) {
 		return
 	}
 	schema.ObjectSchema.Classes = append(schema.ObjectSchema.Classes[:idx], schema.ObjectSchema.Classes[idx+1:]...)
-	if len(schema.ObjectSchema.Classes) == 0 {
-		schema.ObjectSchema.Classes = nil
-	}
 	delete(schema.ShardingState, name)
 }
 
-func (r *store) asserEqualSchema(t *testing.T, expected schemauc.State, msg string) {
+func (r *store) asserEqualSchema(t *testing.T, expected ucs.State, msg string) {
 	t.Helper()
 	actual, err := r.Load(context.Background())
 	if err != nil {
@@ -264,11 +261,11 @@ func (r *store) asserEqualSchema(t *testing.T, expected schemauc.State, msg stri
 	assert.Equal(t, expected, actual)
 }
 
-func serializeShards(ss sharding.State) []schemauc.KeyValuePair {
-	xs := make([]schemauc.KeyValuePair, 0, len(ss.Physical))
+func serializeShards(ss sharding.State) []ucs.KeyValuePair {
+	xs := make([]ucs.KeyValuePair, 0, len(ss.Physical))
 	for k, v := range ss.Physical {
 		val, _ := json.Marshal(&v)
-		xs = append(xs, schemauc.KeyValuePair{Key: k, Value: val})
+		xs = append(xs, ucs.KeyValuePair{Key: k, Value: val})
 	}
 	return xs
 }

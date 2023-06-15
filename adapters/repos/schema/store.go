@@ -301,10 +301,7 @@ func (r *store) NewShards(_ context.Context, class string, shards []ucs.KeyValue
 
 // Load loads the complete schema from the persistent storage
 func (r *store) Load(ctx context.Context) (ucs.State, error) {
-	state := ucs.State{
-		ObjectSchema:  &models.Schema{}, // TODO retrieve Schema.Maintainer nad Schema.Name
-		ShardingState: make(map[string]*sharding.State, 16),
-	}
+	state := ucs.NewState(32)
 	for data := range r.load(ctx) {
 		if data.Error != nil {
 			return state, data.Error

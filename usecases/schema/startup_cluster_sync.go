@@ -175,15 +175,7 @@ func logrusStartupSyncFields() logrus.Fields {
 }
 
 func isEmpty(schema *State) bool {
-	if schema.ObjectSchema == nil {
-		return true
-	}
-
-	if len(schema.ObjectSchema.Classes) == 0 {
-		return true
-	}
-
-	return false
+	return schema.ObjectSchema == nil || len(schema.ObjectSchema.Classes) == 0
 }
 
 func (m *Manager) clusterSyncImpossibleBecauseRemoteNodeTooOld(err error) bool {

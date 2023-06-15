@@ -386,7 +386,8 @@ func newManagerWithClusterAndTx(t *testing.T, clusterState clusterState,
 	logger, _ := test.NewNullLogger()
 	repo := newFakeRepo()
 	if initialSchema == nil {
-		initialSchema = &State{}
+		initState := NewState(1)
+		initialSchema = &initState
 	}
 	repo.schema = *initialSchema
 	sm, err := NewManager(&NilMigrator{}, repo, logger, &fakeAuthorizer{},

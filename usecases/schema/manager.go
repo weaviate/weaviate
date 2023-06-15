@@ -189,6 +189,16 @@ type State struct {
 	ShardingState map[string]*sharding.State
 }
 
+// NewState returns a new state with room for nClasses classes
+func NewState(nClasses int) State {
+	return State{
+		ObjectSchema: &models.Schema{
+			Classes: make([]*models.Class, 0, nClasses),
+		},
+		ShardingState: make(map[string]*sharding.State, nClasses),
+	}
+}
+
 func (m *Manager) saveSchema(ctx context.Context, doAfter func(err error)) error {
 	m.logger.
 		WithField("action", "schema_update").
@@ -225,11 +235,6 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("could not load schema:  %v", err)
 	}
-
-	if schema.ObjectSchema == nil {
-		schema = *newSchema()
-	}
-
 	if err := m.parseConfigs(ctx, &schema); err != nil {
 		return errors.Wrap(err, "load schema")
 	}
