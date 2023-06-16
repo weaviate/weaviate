@@ -29,8 +29,12 @@ import (
 	"google.golang.org/api/option"
 )
 
-func GetClassCount(t *testing.T, className string) int64 {
-	query := fmt.Sprintf("{ Aggregate { %s { meta { count}}}}", className)
+func GetClassCount(t *testing.T, className string, tenantKey string) int64 {
+	query := fmt.Sprintf("{Aggregate{%s", className)
+	if tenantKey != "" {
+		query += fmt.Sprintf("(tenantKey:%q)", tenantKey)
+	}
+	query += " { meta { count}}}}"
 	resp := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 
 	class := resp.Get("Aggregate", className).Result.([]interface{})

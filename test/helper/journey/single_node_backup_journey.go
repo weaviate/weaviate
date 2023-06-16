@@ -44,7 +44,7 @@ func singleNodeBackupJourneyTest(t *testing.T,
 	}
 
 	t.Run("single node backup", func(t *testing.T) {
-		backupJourney(t, className, backend, backupID, singleNodeJourney)
+		backupJourney(t, className, backend, backupID, singleNodeJourney, tenantNames)
 	})
 
 	t.Run("cleanup", func(t *testing.T) {
