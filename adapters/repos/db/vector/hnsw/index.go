@@ -187,7 +187,7 @@ type MakeCommitLogger func() (CommitLogger, error)
 
 type (
 	VectorForID      func(ctx context.Context, id uint64) ([]float32, error)
-	TempVectorForID  func(ctx context.Context, id uint64, out []float32, buf8 []byte, biff []byte) ([]float32, error)
+	TempVectorForID  func(ctx context.Context, id uint64, container *VectorSlice) ([]float32, error)
 	MultiVectorForID func(ctx context.Context, ids []uint64) ([][]float32, []error)
 )
 

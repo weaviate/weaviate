@@ -86,9 +86,9 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 					return vectors[int(id)], nil
 				},
-				TempVectorForIDThunk: func(ctx context.Context, id uint64, out []float32, buf8 []byte, buf700 []byte) ([]float32, error) {
-					copy(out, vectors[int(id)])
-					return out, nil
+				TempVectorForIDThunk: func(ctx context.Context, id uint64, container *hnsw.VectorSlice) ([]float32, error) {
+					copy(container.Slice, vectors[int(id)])
+					return container.Slice, nil
 				},
 			}, uc, cyclemanager.NewNoop(),
 		)
