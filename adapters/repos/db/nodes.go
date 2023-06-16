@@ -18,13 +18,14 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// GetNodeStatuses returns the status of all Weaviate nodes.
-func (db *DB) GetNodeStatuses(ctx context.Context) ([]*models.NodeStatus, error) {
+// GetNodeStatus returns the status of all Weaviate nodes.
+func (db *DB) GetNodeStatus(ctx context.Context, className string) ([]*models.NodeStatus, error) {
 	nodeStatuses := make([]*models.NodeStatus, len(db.schemaGetter.Nodes()))
 	for i, nodeName := range db.schemaGetter.Nodes() {
-		status, err := db.getNodeStatus(ctx, nodeName)
+		status, err := db.getNodeStatus(ctx, nodeName, className)
 		if err != nil {
 			return nil, fmt.Errorf("node: %v: %w", nodeName, err)
 		}
@@ -37,11 +38,11 @@ func (db *DB) GetNodeStatuses(ctx context.Context) ([]*models.NodeStatus, error)
 	return nodeStatuses, nil
 }
 
-func (db *DB) getNodeStatus(ctx context.Context, nodeName string) (*models.NodeStatus, error) {
+func (db *DB) getNodeStatus(ctx context.Context, nodeName string, className string) (*models.NodeStatus, error) {
 	if db.schemaGetter.NodeName() == nodeName {
-		return db.localNodeStatus(), nil
+		return db.localNodeStatus(className), nil
 	}
-	status, err := db.remoteNode.GetNodeStatus(ctx, nodeName)
+	status, err := db.remoteNode.GetNodeStatus(ctx, nodeName, "")
 	if err != nil {
 		switch err.(type) {
 		case enterrors.ErrOpenHttpRequest, enterrors.ErrSendHttpRequest:
@@ -55,30 +56,21 @@ func (db *DB) getNodeStatus(ctx context.Context, nodeName string) (*models.NodeS
 }
 
 // IncomingGetNodeStatus returns the index if it exists or nil if it doesn't
-func (db *DB) IncomingGetNodeStatus(ctx context.Context) (*models.NodeStatus, error) {
-	return db.localNodeStatus(), nil
+func (db *DB) IncomingGetNodeStatus(ctx context.Context, className string) (*models.NodeStatus, error) {
+	return db.localNodeStatus(className), nil
 }
 
-func (db *DB) localNodeStatus() *models.NodeStatus {
-	var totalObjectCount int64
-	var shardCount int64
-	shards := []*models.NodeShardStatus{}
-	db.indexLock.RLock()
-	for _, index := range db.indices {
-		index.ForEachShard(func(name string, shard *Shard) error {
-			objectCount := int64(shard.objectCount())
-			shardStatus := &models.NodeShardStatus{
-				Name:        name,
-				Class:       shard.index.Config.ClassName.String(),
-				ObjectCount: objectCount,
-			}
-			totalObjectCount += objectCount
-			shardCount++
-			shards = append(shards, shardStatus)
-			return nil
-		})
+func (db *DB) localNodeStatus(className string) *models.NodeStatus {
+	var (
+		objectCount int64
+		shards      []*models.NodeShardStatus
+	)
+
+	if className == "" {
+		objectCount = db.localNodeStatusAll(&shards)
+	} else {
+		objectCount = db.localNodeStatusForClass(&shards, className)
 	}
-	db.indexLock.RUnlock()
 
 	clusterHealthStatus := models.NodeStatusStatusHEALTHY
 	if db.schemaGetter.ClusterHealthScore() > 0 {
@@ -92,9 +84,40 @@ func (db *DB) localNodeStatus() *models.NodeStatus {
 		Status:  &clusterHealthStatus,
 		Shards:  shards,
 		Stats: &models.NodeStats{
-			ShardCount:  shardCount,
-			ObjectCount: totalObjectCount,
+			ShardCount:  int64(len(shards)),
+			ObjectCount: objectCount,
 		},
 	}
 	return status
+}
+
+func (db *DB) localNodeStatusAll(status *[]*models.NodeShardStatus) (totalCount int64) {
+	db.indexLock.RLock()
+	for _, index := range db.indices {
+		totalCount += index.getShardsNodeStatus(status)
+	}
+	db.indexLock.RUnlock()
+	return
+}
+
+func (db *DB) localNodeStatusForClass(status *[]*models.NodeShardStatus, className string) (
+	totalCount int64,
+) {
+	idx := db.GetIndex(schema.ClassName(className))
+	return idx.getShardsNodeStatus(status)
+}
+
+func (i *Index) getShardsNodeStatus(status *[]*models.NodeShardStatus) (totalCount int64) {
+	i.ForEachShard(func(name string, shard *Shard) error {
+		objectCount := int64(shard.objectCount())
+		shardStatus := &models.NodeShardStatus{
+			Name:        name,
+			Class:       shard.index.Config.ClassName.String(),
+			ObjectCount: objectCount,
+		}
+		totalCount += objectCount
+		*status = append(*status, shardStatus)
+		return nil
+	})
+	return
 }
