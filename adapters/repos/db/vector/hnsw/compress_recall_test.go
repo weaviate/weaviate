@@ -9,6 +9,8 @@
 //  CONTACT: hello@weaviate.io
 //
 
+//go:build !race
+
 package hnsw_test
 
 import (
@@ -36,7 +38,7 @@ func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	}
 }
 
-func Test_CompressionRecall(t *testing.T) {
+func Test_NoRaceCompressionRecall(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	path := t.TempDir()
 
