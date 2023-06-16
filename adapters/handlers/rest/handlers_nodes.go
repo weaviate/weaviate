@@ -29,7 +29,7 @@ type nodesHandlers struct {
 }
 
 func (s *nodesHandlers) getNodesStatus(params nodes.NodesGetParams, principal *models.Principal) middleware.Responder {
-	nodeStatuses, err := s.manager.GetNodeStatuses(params.HTTPRequest.Context(), principal)
+	nodeStatuses, err := s.manager.GetNodeStatus(params.HTTPRequest.Context(), principal, "")
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -54,6 +54,32 @@ func (s *nodesHandlers) getNodesStatus(params nodes.NodesGetParams, principal *m
 	return nodes.NewNodesGetOK().WithPayload(status)
 }
 
+func (s *nodesHandlers) getNodesStatusByClass(params nodes.NodesGetClassParams, principal *models.Principal) middleware.Responder {
+	nodeStatuses, err := s.manager.GetNodeStatus(params.HTTPRequest.Context(), principal, params.ClassName)
+	if err != nil {
+		switch err.(type) {
+		case errors.Forbidden:
+			return nodes.NewNodesGetClassForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case enterrors.ErrUnprocessable:
+			return nodes.NewNodesGetClassUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		case enterrors.ErrNotFound:
+			return nodes.NewNodesGetClassNotFound().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return nodes.NewNodesGetClassInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	status := &models.NodesStatusResponse{
+		Nodes: nodeStatuses,
+	}
+
+	return nodes.NewNodesGetOK().WithPayload(status)
+}
+
 func setupNodesHandlers(api *operations.WeaviateAPI,
 	schemaManger *schemaUC.Manager, repo *db.DB, appState *state.State,
 ) {
@@ -63,4 +89,6 @@ func setupNodesHandlers(api *operations.WeaviateAPI,
 	h := &nodesHandlers{nodesManager}
 	api.NodesNodesGetHandler = nodes.
 		NodesGetHandlerFunc(h.getNodesStatus)
+	api.NodesNodesGetClassHandler = nodes.
+		NodesGetClassHandlerFunc(h.getNodesStatusByClass)
 }
