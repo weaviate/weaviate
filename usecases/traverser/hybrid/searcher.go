@@ -151,6 +151,10 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 			weights = append(weights, weight)
 		}
 	}
+	if len(weights) != len(found) {
+		return nil, fmt.Errorf("length of weights and results do not match for hybrid search %v vs. %v", len(weights), len(found))
+	}
+
 	var fused []*Result
 	if s.params.FusionAlgorithm == get.HybridRankedFusion {
 		fused = FusionRanked(weights, found)
