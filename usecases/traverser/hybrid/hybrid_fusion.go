@@ -81,19 +81,21 @@ func FusionRanked(weights []float64, results [][]*Result) []*Result {
 //
 // The normalized scores are then combined using their respective weight and the combined scores are sorted
 func FusionRelativeScore(weights []float64, results [][]*Result) []*Result {
-	if len(results[0]) == 0 {
+	if len(results[0]) == 0 && len(results[1]) == 0 {
 		return []*Result{}
 	}
 
-	maximum := []float32{results[0][0].SecondarySortValue}
-	minimum := []float32{results[0][0].SecondarySortValue}
-
-	if len(results) > 1 {
-		maximum = append(maximum, results[1][0].SecondarySortValue)
-		minimum = append(minimum, results[1][0].SecondarySortValue)
-	}
+	var maximum []float32
+	var minimum []float32
 
 	for i := range results {
+		if len(results[i]) > 0 {
+			maximum = append(maximum, results[i][0].SecondarySortValue)
+			minimum = append(minimum, results[i][0].SecondarySortValue)
+		} else { // dummy values so the indices match
+			maximum = append(maximum, 0)
+			minimum = append(minimum, 0)
+		}
 		for _, res := range results[i] {
 			if res.SecondarySortValue > maximum[i] {
 				maximum[i] = res.SecondarySortValue
