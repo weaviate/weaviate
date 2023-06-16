@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/documents"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/multishard"
 )
 
@@ -124,6 +125,75 @@ func Test_NodesAPI(t *testing.T) {
 		require.NotNil(t, nodeStatus.Stats)
 		assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)
 		assert.Equal(t, int64(2), nodeStatus.Stats.ShardCount)
+	})
+
+	t.Run("with class name: DB with Books and Documents, 1 shard, 1 node", func(t *testing.T) {
+		booksClass := books.ClassContextionaryVectorizer()
+		helper.CreateClass(t, booksClass)
+		defer helper.DeleteClass(t, booksClass.Class)
+
+		t.Run("insert and check books", func(t *testing.T) {
+			for _, book := range books.Objects() {
+				helper.CreateObject(t, book)
+				helper.AssertGetObjectEventually(t, book.Class, book.ID)
+			}
+
+			resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+			require.Nil(t, err)
+
+			nodeStatusResp := resp.GetPayload()
+			require.NotNil(t, nodeStatusResp)
+
+			respNodes := nodeStatusResp.Nodes
+			require.NotNil(t, respNodes)
+			require.Len(t, respNodes, 1)
+
+			nodeStatus := respNodes[0]
+
+			require.NotNil(t, nodeStatus.Stats)
+			assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)
+			assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
+		})
+
+		t.Run("insert and check documents", func(t *testing.T) {
+			docsClasses := documents.ClassesContextionaryVectorizer(false)
+			helper.CreateClass(t, docsClasses[0])
+			helper.CreateClass(t, docsClasses[1])
+			defer helper.DeleteClass(t, docsClasses[0].Class)
+			defer helper.DeleteClass(t, docsClasses[1].Class)
+
+			for _, doc := range documents.Objects() {
+				helper.CreateObject(t, doc)
+				helper.AssertGetObjectEventually(t, doc.Class, doc.ID)
+			}
+
+			docsClass := docsClasses[0]
+			params := nodes.NewNodesGetClassParams().WithClassName(docsClass.Class)
+			classResp, err := helper.Client(t).Nodes.NodesGetClass(params, nil)
+			require.Nil(t, err)
+
+			nodeStatusResp := classResp.GetPayload()
+			require.NotNil(t, nodeStatusResp)
+
+			respNodes := nodeStatusResp.Nodes
+			require.NotNil(t, respNodes)
+			require.Len(t, respNodes, 1)
+
+			nodeStatus := respNodes[0]
+			require.NotNil(t, nodeStatus)
+			assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeStatus.Status)
+			assert.True(t, len(nodeStatus.Name) > 0)
+			assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
+			assert.Len(t, nodeStatus.Shards, 1)
+			shard := nodeStatus.Shards[0]
+			assert.True(t, len(shard.Name) > 0)
+			assert.Equal(t, docsClass.Class, shard.Class)
+			assert.Equal(t, int64(2), shard.ObjectCount)
+
+			require.NotNil(t, nodeStatus.Stats)
+			assert.Equal(t, int64(2), nodeStatus.Stats.ObjectCount)
+			assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
+		})
 	})
 
 	// This test prevents a regression of

@@ -77,7 +77,7 @@ func (db *DB) localNodeStatus(className string) *models.NodeStatus {
 		clusterHealthStatus = models.NodeStatusStatusUNHEALTHY
 	}
 
-	status := &models.NodeStatus{
+	return &models.NodeStatus{
 		Name:    db.schemaGetter.NodeName(),
 		Version: db.config.ServerVersion,
 		GitHash: db.config.GitHash,
@@ -88,22 +88,32 @@ func (db *DB) localNodeStatus(className string) *models.NodeStatus {
 			ObjectCount: objectCount,
 		},
 	}
-	return status
 }
 
 func (db *DB) localNodeStatusAll(status *[]*models.NodeShardStatus) (totalCount int64) {
 	db.indexLock.RLock()
-	for _, index := range db.indices {
-		totalCount += index.getShardsNodeStatus(status)
+	for name, idx := range db.indices {
+		if idx == nil {
+			db.logger.WithField("action", "local_node_status_for_all").
+				Warningf("no resource found for index %q", name)
+			continue
+		}
+		totalCount += idx.getShardsNodeStatus(status)
 	}
 	db.indexLock.RUnlock()
 	return
 }
 
-func (db *DB) localNodeStatusForClass(status *[]*models.NodeShardStatus, className string) (
-	totalCount int64,
-) {
+func (db *DB) localNodeStatusForClass(status *[]*models.NodeShardStatus,
+	className string,
+) (totalCount int64) {
 	idx := db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		db.logger.WithField("action", "local_node_status_for_class").
+			Warningf("no index found for class %q", className)
+		// Fallback to returning all classes
+		return db.localNodeStatusAll(status)
+	}
 	return idx.getShardsNodeStatus(status)
 }
 
