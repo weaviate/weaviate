@@ -106,7 +106,7 @@ func (m *Manager) onAddPartitions(ctx context.Context,
 	st.SetLocalName(m.clusterState.LocalName())
 
 	m.logger.
-		WithField("action", "schema_update").
+		WithField("action", "schema.add_tenants").
 		Debug("saving updated schema to configuration store")
 
 	if err := m.repo.NewShards(ctx, class.Class, pairs); err != nil {
