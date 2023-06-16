@@ -133,7 +133,7 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 	if err != nil {
 		return err
 	}
-	payload.ReplaceShards = true
+	payload.ReplaceShards = updatedShardingState != nil
 	// can be improved by updating the diff
 
 	if updatedShardingState != nil {
@@ -147,7 +147,7 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 		m.shardingStateLock.Unlock()
 	}
 	m.logger.
-		WithField("action", "schema_update").
+		WithField("action", "schema.update_class").
 		Debug("saving updated schema to configuration store")
 
 	// payload.Shards

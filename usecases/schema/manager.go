@@ -201,7 +201,7 @@ func NewState(nClasses int) State {
 
 func (m *Manager) saveSchema(ctx context.Context, doAfter func(err error)) error {
 	m.logger.
-		WithField("action", "schema_update").
+		WithField("action", "schema.save").
 		Debug("saving updated schema to configuration store")
 
 	err := m.repo.Save(ctx, m.state)

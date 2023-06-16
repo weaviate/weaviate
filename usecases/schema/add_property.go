@@ -133,7 +133,7 @@ func (m *Manager) addClassPropertyApplyChanges(ctx context.Context,
 		return fmt.Errorf("marshal class %s: %w", className, err)
 	}
 	m.logger.
-		WithField("action", "schema_update").
+		WithField("action", "schema.add_property").
 		Debug("saving updated schema to configuration store")
 	err = m.repo.UpdateClass(ctx, ClassPayload{Name: className, Metadata: metadata})
 	if err != nil {
