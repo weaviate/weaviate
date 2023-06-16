@@ -112,7 +112,7 @@ func RandomVecs(size int, queriesSize int, dimensions int) ([][]float32, [][]flo
 func genVector(dimensions int) []float32 {
 	vector := make([]float32, 0, dimensions)
 	for i := 0; i < dimensions; i++ {
-		vector = append(vector, rand.Float32())
+		vector = append(vector, rand.Float32()*2-1)
 	}
 	return vector
 }
