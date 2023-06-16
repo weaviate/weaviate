@@ -782,7 +782,7 @@ func getConsistencyLevel(lvl *string) (string, error) {
 		case replica.One, replica.Quorum, replica.All:
 			return *lvl, nil
 		default:
-			return "", fmt.Errorf("unrecognized consistency level %q, "+
+			return "", fmt.Errorf("unrecognized consistency level '%v', "+
 				"try one of the following: ['ONE', 'QUORUM', 'ALL']", *lvl)
 		}
 	}
