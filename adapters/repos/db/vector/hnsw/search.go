@@ -423,7 +423,7 @@ func (h *hnsw) distanceToByteNode(distancer *ssdhelpers.PQDistancer,
 func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer *ssdhelpers.PQDistancer, nodeID uint64) (float32, bool, error) {
 	slice := h.pools.tempVectors.Get(int(h.dims))
 	defer h.pools.tempVectors.Put(slice)
-	vec, err := h.TempVectorForIDThunk(context.Background(), nodeID, slice.slice, slice.buf8, slice.buf)
+	vec, err := h.TempVectorForIDThunk(context.Background(), nodeID, slice)
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {

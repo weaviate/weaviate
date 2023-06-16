@@ -249,7 +249,8 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 // equivalent exists for Set and Map, as those do not support secondary
 // indexes.
 func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
-	return b.GetBySecondaryIntoMemory(pos, key, nil)
+	bytes, err, _ := b.GetBySecondaryIntoMemory(pos, key, nil)
+	return bytes, err
 }
 
 // GetBySecondaryIntoMemory copies into the specified memory, and retrieves
@@ -264,7 +265,7 @@ func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
 // Similar to [Bucket.Get], GetBySecondary is limited to ReplaceStrategy. No
 // equivalent exists for Set and Map, as those do not support secondary
 // indexes.
-func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, error) {
+func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, error, []byte) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -272,12 +273,12 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 	if err == nil {
 		// item found and no error, return and stop searching, since the strategy
 		// is replace
-		return v, nil
+		return v, nil, buffer
 	}
 	if err == lsmkv.Deleted {
 		// deleted in the mem-table (which is always the latest) means we don't
 		// have to check the disk segments, return nil now
-		return nil, nil
+		return nil, nil, buffer
 	}
 
 	if err != lsmkv.NotFound {
@@ -289,12 +290,12 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 		if err == nil {
 			// item found and no error, return and stop searching, since the strategy
 			// is replace
-			return v, nil
+			return v, nil, buffer
 		}
 		if err == lsmkv.Deleted {
 			// deleted in the now most recent memtable  means we don't have to check
 			// the disk segments, return nil now
-			return nil, nil
+			return nil, nil, buffer
 		}
 
 		if err != lsmkv.NotFound {
