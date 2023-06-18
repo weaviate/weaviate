@@ -81,7 +81,7 @@ func FusionRanked(weights []float64, results [][]*Result) []*Result {
 //
 // The normalized scores are then combined using their respective weight and the combined scores are sorted
 func FusionRelativeScore(weights []float64, results [][]*Result) []*Result {
-	if len(results[0]) == 0 && len(results[1]) == 0 {
+	if len(results[0]) == 0 && (len(results) == 1 || len(results[1]) == 0) {
 		return []*Result{}
 	}
 
@@ -107,8 +107,14 @@ func FusionRelativeScore(weights []float64, results [][]*Result) []*Result {
 		}
 	}
 
-	// normalize scores between 0 and 1
-	mapResults := make(map[strfmt.UUID]*Result)
+	// normalize scores between 0 and 1 and sum uo the normalized scores from different sources
+	// pre-allocate map, at this stage we do not know how many total, combined results there are, but it is at least the
+	// length of the longer input list
+	numResults := len(results[0])
+	if len(results) > 1 && len(results[1]) > numResults {
+		numResults = len(results[1])
+	}
+	mapResults := make(map[strfmt.UUID]*Result, numResults)
 	for i := range results {
 		weight := float32(weights[i])
 		for _, res := range results[i] {
