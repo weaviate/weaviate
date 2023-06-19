@@ -19,6 +19,8 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
@@ -69,8 +71,23 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		}
 	}
 
-	if err := m.vectorRepo.AddReference(ctx, input.Class, input.ID,
-		input.Property, &input.Ref, repl, tenantKey); err != nil {
+	source := crossref.NewSource(schema.ClassName(input.Class),
+		schema.PropertyName(input.Property), input.ID)
+
+	target, err := crossref.ParseSingleRef(&input.Ref)
+	if err != nil {
+		return &Error{"parse target ref", StatusBadRequest, err}
+	}
+
+	if tenantKey != "" {
+		err = validateReferenceMultiTenancy(ctx, principal,
+			m.schemaManager, m.vectorRepo, source, target, tenantKey)
+		if err != nil {
+			return &Error{"multi-tenancy violation", StatusInternalServerError, err}
+		}
+	}
+
+	if err := m.vectorRepo.AddReference(ctx, source, target, repl, tenantKey); err != nil {
 		return &Error{"add reference to repo", StatusInternalServerError, err}
 	}
 

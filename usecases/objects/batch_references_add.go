@@ -115,7 +115,8 @@ func (b *BatchManager) validateReference(ctx context.Context, principal *models.
 
 	if tenantKey != "" && err == nil {
 		// can only validate multi-tenancy when everything above succeeds
-		err = b.validateReferenceMultiTenancy(ctx, principal, source, target, tenantKey)
+		err = validateReferenceMultiTenancy(ctx, principal,
+			b.schemaManager, b.vectorRepo, source, target, tenantKey)
 	}
 
 	*resultsC <- BatchReference{
@@ -126,16 +127,17 @@ func (b *BatchManager) validateReference(ctx context.Context, principal *models.
 	}
 }
 
-func (b *BatchManager) validateReferenceMultiTenancy(ctx context.Context,
-	principal *models.Principal, source *crossref.RefSource,
-	target *crossref.Ref, tenantKey string,
+func validateReferenceMultiTenancy(ctx context.Context,
+	principal *models.Principal, schemaManager schemaManager,
+	repo VectorRepo, source *crossref.RefSource, target *crossref.Ref,
+	tenantKey string,
 ) error {
 	if source == nil || target == nil {
 		return fmt.Errorf("can't validate multi-tenancy for nil refs")
 	}
 
-	sourceClass, targetClass, err := b.getReferenceClasses(
-		ctx, principal, source.Class.String(), target.Class)
+	sourceClass, targetClass, err := getReferenceClasses(
+		ctx, principal, schemaManager, source.Class.String(), target.Class)
 	if err != nil {
 		return err
 	}
@@ -149,7 +151,8 @@ func (b *BatchManager) validateReferenceMultiTenancy(ctx context.Context,
 				targetClass.Class, targetClass.MultiTenancyConfig.TenantKey)
 		}
 
-		err = b.validateTenantRefObjects(ctx, sourceClass, targetClass, source, target, tenantKey)
+		err = validateTenantRefObjects(ctx, repo,
+			sourceClass, targetClass, source, target, tenantKey)
 		if err != nil {
 			return err
 		}
@@ -165,8 +168,9 @@ func (b *BatchManager) validateReferenceMultiTenancy(ctx context.Context,
 	return nil
 }
 
-func (b *BatchManager) getReferenceClasses(ctx context.Context,
-	principal *models.Principal, classFrom, classTo string,
+func getReferenceClasses(ctx context.Context,
+	principal *models.Principal, schemaManager schemaManager,
+	classFrom, classTo string,
 ) (sourceClass *models.Class, targetClass *models.Class, err error) {
 	if classFrom == "" || classTo == "" {
 		err = fmt.Errorf("references involving a multi-tenancy enabled class " +
@@ -174,7 +178,7 @@ func (b *BatchManager) getReferenceClasses(ctx context.Context,
 		return
 	}
 
-	sourceClass, err = b.schemaManager.GetClass(ctx, principal, classFrom)
+	sourceClass, err = schemaManager.GetClass(ctx, principal, classFrom)
 	if err != nil {
 		err = fmt.Errorf("get source class %q: %w", classFrom, err)
 		return
@@ -184,7 +188,7 @@ func (b *BatchManager) getReferenceClasses(ctx context.Context,
 		return
 	}
 
-	targetClass, err = b.schemaManager.GetClass(ctx, principal, classTo)
+	targetClass, err = schemaManager.GetClass(ctx, principal, classTo)
 	if err != nil {
 		err = fmt.Errorf("get target class %q: %w", classTo, err)
 		return
@@ -200,11 +204,11 @@ func (b *BatchManager) getReferenceClasses(ctx context.Context,
 // exist for the given tenant key. This asserts that no cross-tenant
 // references can occur, as a class+id which belongs to a different
 // tenant will not be found in the searched tenant shard
-func (b *BatchManager) validateTenantRefObjects(ctx context.Context,
+func validateTenantRefObjects(ctx context.Context, repo VectorRepo,
 	sourceClass, targetClass *models.Class, source *crossref.RefSource,
 	target *crossref.Ref, tenantKey string,
 ) error {
-	exists, err := b.vectorRepo.Exists(ctx, sourceClass.Class,
+	exists, err := repo.Exists(ctx, sourceClass.Class,
 		source.TargetID, nil, tenantKey)
 	if err != nil {
 		return fmt.Errorf("get source object %s/%s: %w", sourceClass.Class, source.TargetID, err)
@@ -214,7 +218,7 @@ func (b *BatchManager) validateTenantRefObjects(ctx context.Context,
 			source.Class, source.TargetID, tenantKey)
 	}
 
-	exists, err = b.vectorRepo.Exists(ctx, targetClass.Class,
+	exists, err = repo.Exists(ctx, targetClass.Class,
 		target.TargetID, nil, tenantKey)
 	if err != nil {
 		return fmt.Errorf("get target object %s/%s: %w", targetClass.Class, target.TargetID, err)

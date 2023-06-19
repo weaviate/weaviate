@@ -225,24 +225,17 @@ func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 	return false, nil
 }
 
-func (db *DB) AddReference(ctx context.Context, className string,
-	source strfmt.UUID, propName string, ref *models.SingleRef,
+func (db *DB) AddReference(ctx context.Context, source *crossref.RefSource, target *crossref.Ref,
 	repl *additional.ReplicationProperties, tenantKey string,
 ) error {
-	target, err := crossref.ParseSingleRef(ref)
-	if err != nil {
-		return err
-	}
-
 	return db.Merge(ctx, objects.MergeDocument{
-		Class:      className,
-		ID:         source,
+		Class:      source.Class.String(),
+		ID:         source.TargetID,
 		UpdateTime: time.Now().UnixMilli(),
 		References: objects.BatchReferences{
 			objects.BatchReference{
-				From: crossref.NewSource(schema.ClassName(className),
-					schema.PropertyName(propName), source),
-				To: target,
+				From: source,
+				To:   target,
 			},
 		},
 	}, repl, tenantKey)

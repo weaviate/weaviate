@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -104,8 +105,8 @@ type VectorRepo interface {
 		additional additional.Properties, tenantKey string) (*search.Result, error)
 	ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
 		sort []filters.Sort, additional additional.Properties, tenantKey string) (search.Results, error)
-	AddReference(ctx context.Context, className string, source strfmt.UUID, propName string,
-		ref *models.SingleRef, repl *additional.ReplicationProperties, tenantKey string) error
+	AddReference(ctx context.Context, source *crossref.RefSource,
+		target *crossref.Ref, repl *additional.ReplicationProperties, tenantKey string) error
 	Merge(ctx context.Context, merge MergeDocument, repl *additional.ReplicationProperties, tenantKey string) error
 	Query(context.Context, *QueryInput) (search.Results, *Error)
 }
