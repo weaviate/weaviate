@@ -16,10 +16,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/sirupsen/logrus"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
@@ -30,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -219,10 +219,10 @@ func (f *fakeVectorRepo) DeleteObject(ctx context.Context, className string,
 	return args.Error(0)
 }
 
-func (f *fakeVectorRepo) AddReference(ctx context.Context, class string, source strfmt.UUID,
-	prop string, ref *models.SingleRef, repl *additional.ReplicationProperties, tenantKey string,
+func (f *fakeVectorRepo) AddReference(ctx context.Context, source *crossref.RefSource,
+	target *crossref.Ref, repl *additional.ReplicationProperties, tenantKey string,
 ) error {
-	args := f.Called(class, source, prop, ref)
+	args := f.Called(source, target)
 	return args.Error(0)
 }
 
