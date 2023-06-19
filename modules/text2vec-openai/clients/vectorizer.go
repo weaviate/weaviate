@@ -19,7 +19,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -51,18 +50,14 @@ type openAIApiError struct {
 }
 
 func buildUrl(config ent.VectorizationConfig) (string, error) {
-	if host, ok := os.LookupEnv("OPENAI_BASE_URL"); ok {
-		logrus.Infof("Using Alternative OPENAI Base URL: %v", host)
-		return url.JoinPath(host, "/embeddings")
-	}
 	if config.IsAzure {
 		host := "https://" + config.ResourceName + ".openai.azure.com"
 		path := "openai/deployments/" + config.DeploymentID + "/embeddings"
 		queryParam := "api-version=2022-12-01"
 		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil
 	}
-	host := "https://api.openai.com"
-	path := "/v1/embeddings"
+	host := config.BaseURL
+	path := "/embeddings"
 	return url.JoinPath(host, path)
 }
 

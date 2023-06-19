@@ -47,6 +47,7 @@ var (
 	DefaultOpenAIFrequencyPenalty = 0.0
 	DefaultOpenAIPresencePenalty  = 0.0
 	DefaultOpenAITopP             = 1.0
+	DefaultOpenAIBaseURL          = "https://api.openai.com"
 )
 
 // todo Need to parse the tokenLimits in a smarter way, as the prompt defines the max length
@@ -71,7 +72,7 @@ type ClassSettings interface {
 	IsAzure() bool
 	GetMaxTokensForModel(model string) float64
 	Validate(class *models.Class) error
-	OpenAIBaesURL() string
+	BaseURL() string
 }
 
 type classSettings struct {
@@ -196,8 +197,8 @@ func (ic *classSettings) MaxTokens() float64 {
 	return *ic.getFloatProperty(maxTokensProperty, &DefaultOpenAIMaxTokens)
 }
 
-func (ic *classSettings) OpenAIBaesURL() string {
-	return *ic.getStringProperty("openAIBaseURL", "")
+func (ic *classSettings) BaseURL() string {
+	return *ic.getStringProperty("baseURL", DefaultOpenAIBaseURL)
 }
 
 func (ic *classSettings) Temperature() float64 {

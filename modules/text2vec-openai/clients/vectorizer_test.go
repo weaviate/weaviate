@@ -17,7 +17,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
@@ -37,6 +36,7 @@ func TestBuildUrlFn(t *testing.T) {
 			ModelVersion: "",
 			ResourceName: "",
 			DeploymentID: "",
+			BaseURL:      "https://api.openai.com/v1",
 			IsAzure:      false,
 		}
 		url, err := buildUrl(config)
@@ -50,6 +50,7 @@ func TestBuildUrlFn(t *testing.T) {
 			ModelVersion: "",
 			ResourceName: "resourceID",
 			DeploymentID: "deploymentID",
+			BaseURL:      "",
 			IsAzure:      true,
 		}
 		url, err := buildUrl(config)
@@ -58,24 +59,22 @@ func TestBuildUrlFn(t *testing.T) {
 	})
 
 	t.Run("buildUrlFn loads from environment variable", func(t *testing.T) {
-		os.Setenv("OPENAI_BASE_URL", "https://foobar.some.proxy")
 		config := ent.VectorizationConfig{
 			Type:         "",
 			Model:        "",
 			ModelVersion: "",
 			ResourceName: "resourceID",
 			DeploymentID: "deploymentID",
-			IsAzure:      true,
+			BaseURL:      "https://foobar.some.proxy",
+			IsAzure:      false,
 		}
 		url, err := buildUrl(config)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://foobar.some.proxy/embeddings", url)
-		os.Unsetenv("OPENAI_BASE_URL")
 	})
 }
 
 func TestClient(t *testing.T) {
-
 	t.Run("when all is fine", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()

@@ -204,6 +204,34 @@ func TestVectorizingObjects(t *testing.T) {
 	}
 }
 
+func TestClassSettings(t *testing.T) {
+	type testCase struct {
+		expectedBaseURL string
+		cfg             moduletools.ClassConfig
+	}
+	tests := []testCase{
+		{
+			cfg: fakeClassConfig{
+				classConfig: make(map[string]interface{}),
+			},
+			expectedBaseURL: DefaultBaseURL,
+		},
+		{
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"baseURL": "https://proxy.weaviate.dev",
+				},
+			},
+			expectedBaseURL: "https://proxy.weaviate.dev",
+		},
+	}
+
+	for _, tt := range tests {
+		ic := NewClassSettings(tt.cfg)
+		assert.Equal(t, tt.expectedBaseURL, ic.BaseURL())
+	}
+}
+
 func TestVectorizingObjectWithDiff(t *testing.T) {
 	type testCase struct {
 		name              string

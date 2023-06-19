@@ -33,9 +33,6 @@ import (
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 func buildUrlFn(isLegacy bool, resourceName, deploymentID, baseURL string) (string, error) {
-	if baseURL == "" {
-		baseURL = "https://api.openai.com"
-	}
 	if resourceName != "" && deploymentID != "" {
 		host := "https://" + resourceName + ".openai.azure.com"
 		path := "openai/deployments/" + deploymentID + "/chat/completions"
@@ -90,7 +87,7 @@ func (v *openai) GenerateAllResults(ctx context.Context, textProperties []map[st
 func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*ent.GenerateResult, error) {
 	settings := config.NewClassSettings(cfg)
 
-	oaiUrl, err := v.buildUrl(settings.IsLegacy(), settings.ResourceName(), settings.DeploymentID(), settings.OpenAIBaesURL())
+	oaiUrl, err := v.buildUrl(settings.IsLegacy(), settings.ResourceName(), settings.DeploymentID(), settings.BaseURL())
 	if err != nil {
 		return nil, errors.Wrap(err, "url join path")
 	}
