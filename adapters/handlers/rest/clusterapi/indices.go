@@ -51,29 +51,29 @@ type indices struct {
 
 const (
 	urlPatternObjects = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/objects`
+		`\/shards\/([A-Za-z0-9\-]+)\/objects`
 	urlPatternObjectsOverwrite = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/objects:overwrite`
+		`\/shards\/([A-Za-z0-9\-]+)\/objects:overwrite`
 	urlPatternObjectsDigest = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/objects:digest`
+		`\/shards\/([A-Za-z0-9\-]+)\/objects:digest`
 	urlPatternObjectsSearch = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/objects\/_search`
+		`\/shards\/([A-Za-z0-9\-]+)\/objects\/_search`
 	urlPatternObjectsFind = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/objects\/_find`
+		`\/shards\/([A-Za-z0-9\-]+)\/objects\/_find`
 	urlPatternObjectsAggregations = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/objects\/_aggregations`
+		`\/shards\/([A-Za-z0-9\-]+)\/objects\/_aggregations`
 	urlPatternObject = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/objects\/([A-Za-z0-9_+-]+)`
+		`\/shards\/([A-Za-z0-9\-]+)\/objects\/([A-Za-z0-9_+-]+)`
 	urlPatternReferences = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/references`
+		`\/shards\/([A-Za-z0-9\-]+)\/references`
 	urlPatternShardsStatus = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/status`
+		`\/shards\/([A-Za-z0-9\-]+)\/status`
 	urlPatternShardFiles = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/files/(.*)`
+		`\/shards\/([A-Za-z0-9\-]+)\/files/(.*)`
 	urlPatternShard = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)$`
+		`\/shards\/([A-Za-z0-9\-]+)$`
 	urlPatternShardReinit = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+):reinit`
+		`\/shards\/([A-Za-z0-9\-]+):reinit`
 )
 
 type shards interface {

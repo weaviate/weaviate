@@ -14,9 +14,11 @@ package schema
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	uco "github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -25,6 +27,10 @@ import (
 func (m *Manager) AddTenants(ctx context.Context, principal *models.Principal, class string, tenants []*models.Tenant) error {
 	err := m.Authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
+		return err
+	}
+
+	if err := validateTenantNames(tenants); err != nil {
 		return err
 	}
 
@@ -73,6 +79,18 @@ func (m *Manager) AddTenants(ctx context.Context, principal *models.Principal, c
 	}
 
 	return m.onAddPartitions(ctx, st, cls, request)
+}
+
+func validateTenantNames(tenants []*models.Tenant) error {
+	pattern := regexp.MustCompile(`[A-Za-z0-9\-]+`)
+	for _, tenant := range tenants {
+		// currently only support alphanumeric or uuid
+		valid := pattern.MatchString(tenant.Name)
+		if !valid {
+			return uco.NewErrInvalidUserInput("invalid tenant name %q", tenant.Name)
+		}
+	}
+	return nil
 }
 
 func (m *Manager) onAddPartitions(ctx context.Context,

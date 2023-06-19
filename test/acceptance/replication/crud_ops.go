@@ -12,6 +12,7 @@
 package replication
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -48,9 +49,19 @@ func createObjectCL(t *testing.T, host string, obj *models.Object, cl replica.Co
 	helper.CreateObjectCL(t, obj, cl)
 }
 
+func createTenantObject(t *testing.T, host string, obj *models.Object, tenantKey string) {
+	helper.SetupClient(host)
+	helper.CreateTenantObject(t, obj, tenantKey)
+}
+
 func createObjects(t *testing.T, host string, batch []*models.Object) {
 	helper.SetupClient(host)
 	helper.CreateObjectsBatch(t, batch)
+}
+
+func createTenantObjects(t *testing.T, host string, batch []*models.Object, tenantKey string) {
+	helper.SetupClient(host)
+	helper.CreateTenantObjectsBatch(t, batch, tenantKey)
 }
 
 func getObject(t *testing.T, host, class string, id strfmt.UUID) (*models.Object, error) {
@@ -136,6 +147,27 @@ func gqlGet(t *testing.T, host, class string, cl replica.ConsistencyLevel, field
 
 	result := resp.Get("Get").Get(class)
 	return result.Result.([]interface{})
+}
+
+func countTenantObjects(t *testing.T, host, class string,
+	cl replica.ConsistencyLevel, tenantKey string,
+) int64 {
+	helper.SetupClient(host)
+
+	if cl == "" {
+		cl = replica.Quorum
+	}
+
+	q := fmt.Sprintf(`{Aggregate{%s(tenantKey: %q){meta{count}}}}`, class, tenantKey)
+
+	resp := graphqlhelper.AssertGraphQL(t, helper.RootAuth, q)
+
+	result := resp.Get("Aggregate").Get(class).AsSlice()
+	require.Len(t, result, 1)
+	meta := result[0].(map[string]interface{})["meta"].(map[string]interface{})
+	count, err := meta["count"].(json.Number).Int64()
+	require.Nil(t, err)
+	return count
 }
 
 func getNodes(t *testing.T, host string) *models.NodesStatusResponse {
