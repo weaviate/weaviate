@@ -33,6 +33,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantDeploymentID     string
 		wantIsAzure          bool
 		wantErr              error
+		wantBaseURL          string
 	}{
 		{
 			name: "Happy flow",
@@ -46,6 +47,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantFrequencyPenalty: 0.0,
 			wantPresencePenalty:  0.0,
 			wantErr:              nil,
+			wantBaseURL:          "https://api.openai.com",
 		},
 		{
 			name: "Everything non default configured",
@@ -59,6 +61,29 @@ func Test_classSettings_Validate(t *testing.T) {
 					"presencePenalty":  0.9,
 				},
 			},
+			wantModel:            "gpt-3.5-turbo",
+			wantMaxTokens:        4097,
+			wantTemperature:      0.5,
+			wantTopP:             3,
+			wantFrequencyPenalty: 0.1,
+			wantPresencePenalty:  0.9,
+			wantErr:              nil,
+			wantBaseURL:          "https://api.openai.com",
+		},
+		{
+			name: "OpenAI Proxy",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"model":            "gpt-3.5-turbo",
+					"maxTokens":        4097,
+					"temperature":      0.5,
+					"topP":             3,
+					"frequencyPenalty": 0.1,
+					"presencePenalty":  0.9,
+					"baseURL":          "https://proxy.weaviate.dev/",
+				},
+			},
+			wantBaseURL:          "https://proxy.weaviate.dev/",
 			wantModel:            "gpt-3.5-turbo",
 			wantMaxTokens:        4097,
 			wantTemperature:      0.5,
@@ -86,6 +111,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantFrequencyPenalty: 0.1,
 			wantPresencePenalty:  0.9,
 			wantErr:              nil,
+			wantBaseURL:          "https://api.openai.com",
 		},
 		{
 			name: "Azure OpenAI config",
@@ -110,6 +136,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantFrequencyPenalty: 0.1,
 			wantPresencePenalty:  0.9,
 			wantErr:              nil,
+			wantBaseURL:          "https://api.openai.com",
 		},
 		{
 			name: "With gpt-3.5-turbo-16k model",
@@ -210,6 +237,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantResourceName, ic.ResourceName())
 				assert.Equal(t, tt.wantDeploymentID, ic.DeploymentID())
 				assert.Equal(t, tt.wantIsAzure, ic.IsAzure())
+				assert.Equal(t, tt.wantBaseURL, ic.BaseURL())
 			}
 		})
 	}
