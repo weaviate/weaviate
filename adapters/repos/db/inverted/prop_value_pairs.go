@@ -17,7 +17,6 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 	"golang.org/x/sync/errgroup"
@@ -48,9 +47,9 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 	if pv.operator.OnValue() {
 		var bucketName string
 		if pv.hasFilterableIndex {
-			bucketName = helpers.BucketFromPropNameLSM(pv.prop)
+			bucketName = "filterable_properties"
 		} else if pv.hasSearchableIndex {
-			bucketName = helpers.BucketSearchableFromPropNameLSM(pv.prop)
+			bucketName = "searchable_properties"
 		} else {
 			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 		}

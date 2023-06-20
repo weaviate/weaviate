@@ -85,7 +85,7 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 	}
 
 	if property.HasSearchableIndex {
-		bucketValue := s.store.Bucket(helpers.BucketSearchableFromPropNameLSM(property.Name))
+		bucketValue := s.store.Bucket("searchable_properties")
 		if bucketValue == nil {
 			return errors.Errorf("no bucket searchable for prop '%s' found", property.Name)
 		}

@@ -42,7 +42,7 @@ func Test_Filters_String(t *testing.T) {
 	require.Nil(t, err)
 
 	propName := "inverted-with-frequency"
-	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+	bucketName := "searchable_properties"
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
 		bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
 	bWithFrequency := store.Bucket(bucketName)
@@ -500,7 +500,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	require.Nil(t, err)
 
 	propName := "inverted-with-frequency"
-	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+	bucketName := "searchable_properties"
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
 		bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
 	bWithFrequency := store.Bucket(bucketName)
