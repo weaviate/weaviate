@@ -91,7 +91,7 @@ type hybridSearcher interface {
 	DenseObjectSearch(context.Context, string, []float32, int, int,
 		*filters.LocalFilter, additional.Properties, string) ([]*storobj.Object, []float32, error)
 	ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties,
-		groupBy *searchparams.GroupBy, additional additional.Properties) (search.Results, error)
+		groupBy *searchparams.GroupBy, additional additional.Properties, tenantKey string) (search.Results, error)
 }
 
 // NewExplorer with search and connector repo
@@ -269,7 +269,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 	postProcess := func(results hybrid.Results) ([]search.Result, error) {
 		res, err := e.searcher.ResolveReferences(ctx, results.SearchResults(),
-			params.Properties, nil, params.AdditionalProperties)
+			params.Properties, nil, params.AdditionalProperties, "")
 		if err != nil {
 			return nil, err
 		}
