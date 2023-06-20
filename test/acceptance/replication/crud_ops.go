@@ -96,7 +96,8 @@ func updateObjectCL(t *testing.T, host string, obj *models.Object, cl replica.Co
 
 func addReferences(t *testing.T, host string, refs []*models.BatchReference) {
 	helper.SetupClient(host)
-	helper.AddReferences(t, refs)
+	resp, err := helper.AddReferences(t, refs)
+	helper.CheckReferencesBatchResponse(t, resp, err)
 }
 
 func deleteObject(t *testing.T, host, class string, id strfmt.UUID) {

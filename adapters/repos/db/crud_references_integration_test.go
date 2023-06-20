@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -622,9 +623,10 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		sourceShardDimension := GetDimensionsFromRepo(repo, "AddingReferencesTestSource")
 		targetShardDimension := GetDimensionsFromRepo(repo, "AddingReferencesTestTarget")
 
-		err := repo.AddReference(context.Background(), "AddingReferencesTestSource", sourceID, "toTarget", &models.SingleRef{
-			Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", targetID)),
-		}, nil, "")
+		source := crossref.NewSource("AddingReferencesTestSource", "toTarget", sourceID)
+		target := crossref.New("localhost", "", targetID)
+
+		err := repo.AddReference(context.Background(), source, target, nil, "")
 		assert.Nil(t, err)
 
 		// Check dimensions after adding reference
@@ -659,9 +661,10 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	})
 
 	t.Run("reference a second target", func(t *testing.T) {
-		err := repo.AddReference(context.Background(), "AddingReferencesTestSource", sourceID, "toTarget", &models.SingleRef{
-			Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", target2ID)),
-		}, nil, "")
+		source := crossref.NewSource("AddingReferencesTestSource", "toTarget", sourceID)
+		target := crossref.New("localhost", "", target2ID)
+
+		err := repo.AddReference(context.Background(), source, target, nil, "")
 		assert.Nil(t, err)
 	})
 
