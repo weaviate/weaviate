@@ -79,7 +79,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		return &Error{"parse target ref", StatusBadRequest, err}
 	}
 
-	if tenantKey != "" {
+	if shouldValidateMultiTenantRef(tenantKey, source, target) {
 		err = validateReferenceMultiTenancy(ctx, principal,
 			m.schemaManager, m.vectorRepo, source, target, tenantKey)
 		if err != nil {
@@ -96,6 +96,10 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 
 	return nil
+}
+
+func shouldValidateMultiTenantRef(tenantKey string, source *crossref.RefSource, target *crossref.Ref) bool {
+	return tenantKey != "" || (source != nil && target != nil && source.Class != "" && target.Class != "")
 }
 
 // AddReferenceInput represents required inputs to add a reference to an existing object.
