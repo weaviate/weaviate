@@ -210,7 +210,7 @@ func TestAutocut(t *testing.T) {
 	AddClassAndObjects(t, className, string(schema.DataTypeTextArray), c)
 	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
-	searchQuery := []string{"hybrid:{query:\"rain nice\", alpha: 0, fusion_type: relative_score_fusion", "bm25:{query:\"rain nice\""}
+	searchQuery := []string{"hybrid:{query:\"rain nice\", alpha: 0, fusionType: relativeScoreFusion", "bm25:{query:\"rain nice\""}
 	cases := []struct {
 		autocut    int
 		numResults int

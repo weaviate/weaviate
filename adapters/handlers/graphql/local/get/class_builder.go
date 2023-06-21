@@ -69,10 +69,10 @@ func (b *classBuilder) kinds(kindSchema *models.Schema) (*graphql.Object, error)
 	fusionAlgoEnum := graphql.NewEnum(graphql.EnumConfig{
 		Name: "FusionEnum",
 		Values: graphql.EnumValueConfigMap{
-			"ranked_fusion": &graphql.EnumValueConfig{
+			"rankedFusion": &graphql.EnumValueConfig{
 				Value: HybridRankedFusion,
 			},
-			"relative_score_fusion": &graphql.EnumValueConfig{
+			"relativeScoreFusion": &graphql.EnumValueConfig{
 				Value: HybridRelativeScoreFusion,
 			},
 		},
