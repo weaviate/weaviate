@@ -133,7 +133,6 @@ type ErrorResponseErrorItems0 struct {
 
 	// message
 	Message string `json:"message,omitempty"`
-	Code int `json:"code,omitempty"`
 }
 
 // Validate validates this error response error items0
