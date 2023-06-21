@@ -142,7 +142,8 @@ func validateReferenceMultiTenancy(ctx context.Context,
 		return err
 	}
 
-	// if both classes have MT enabled, no cross-tenant references can be made
+	// if both classes have MT enabled but different tenant keys,
+	// no cross-tenant references can be made
 	if sourceClass.MultiTenancyConfig != nil && targetClass.MultiTenancyConfig != nil {
 		if sourceClass.MultiTenancyConfig.TenantKey != targetClass.MultiTenancyConfig.TenantKey {
 			return fmt.Errorf("invalid reference: source class %q tenant key %q "+
