@@ -100,8 +100,8 @@ func (m *KMeans) Centers() [][]float32 {
 	return m.centers
 }
 
-func (m *KMeans) Encode(point []float32) uint64 {
-	return m.Nearest(point)
+func (m *KMeans) Encode(point []float32) byte {
+	return byte(m.Nearest(point))
 }
 
 func (m *KMeans) Nearest(point []float32) uint64 {
@@ -258,6 +258,6 @@ func (m *KMeans) Center(point []float32) []float32 {
 	return m.centers[m.Nearest(point)]
 }
 
-func (m *KMeans) Centroid(i uint64) []float32 {
+func (m *KMeans) Centroid(i byte) []float32 {
 	return m.centers[i]
 }

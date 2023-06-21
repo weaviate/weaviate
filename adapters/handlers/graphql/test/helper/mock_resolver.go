@@ -21,6 +21,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/gqlerrors"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -75,12 +76,15 @@ func (mr *MockResolver) AssertResolve(t *testing.T, query string) *GraphQLResult
 	return &GraphQLResult{Result: result.Data}
 }
 
-func (mr *MockResolver) AssertFailToResolve(t *testing.T, query string) {
+func (mr *MockResolver) AssertFailToResolve(t *testing.T, query string, errors ...string) {
 	result := mr.Resolve(query)
 	if len(result.Errors) == 0 {
 		t.Fatalf("Expected to not resolve; %#v", result.Errors)
 	} else {
 		t.Log("Resolve failed, as expected, with error", result.Errors)
+	}
+	if len(errors) > 0 {
+		require.Equal(t, errors[0], result.Errors[0].Error())
 	}
 }
 

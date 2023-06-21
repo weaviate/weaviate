@@ -253,8 +253,7 @@ func TestCRUD(t *testing.T) {
 			},
 			Additional: models.AdditionalProperties{},
 		}
-		res, err := repo.ObjectByID(context.Background(), thingID, nil,
-			additional.Properties{})
+		res, err := repo.ObjectByID(context.Background(), thingID, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 		assert.Equal(t, expected, res.ObjectWithVector(false))
 
@@ -267,7 +266,7 @@ func TestCRUD(t *testing.T) {
 	t.Run("finding the updated object by querying for an updated value",
 		func(t *testing.T) {
 			// This is to verify the inverted index was updated correctly
-			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.Search(context.Background(), dto.GetParams{
 				ClassName:  "TheBestThingClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -294,7 +293,7 @@ func TestCRUD(t *testing.T) {
 	t.Run("NOT finding the previous version by querying for an outdated value",
 		func(t *testing.T) {
 			// This is to verify the inverted index was cleaned up correctly
-			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.Search(context.Background(), dto.GetParams{
 				ClassName:  "TheBestThingClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -320,7 +319,7 @@ func TestCRUD(t *testing.T) {
 			// This is to verify that while we're adding new links and cleaning up
 			// old ones, we don't actually touch those that were present and still
 			// should be
-			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.Search(context.Background(), dto.GetParams{
 				ClassName:  "TheBestThingClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -422,7 +421,7 @@ func TestCRUD(t *testing.T) {
 		// somewhat far from the thing. So it should match the action closer
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 
-		res, err := repo.VectorSearch(context.Background(), searchVector, 0, 10, nil)
+		res, err := repo.CrossClassVectorSearch(context.Background(), searchVector, 0, 10, nil)
 
 		require.Nil(t, err)
 		require.Equal(t, true, len(res) >= 2)
@@ -449,7 +448,7 @@ func TestCRUD(t *testing.T) {
 			Pagination:   &filters.Pagination{Limit: 10},
 			Filters:      nil,
 		}
-		res, err := repo.VectorClassSearch(context.Background(), params)
+		res, err := repo.VectorSearch(context.Background(), params)
 
 		require.Nil(t, err)
 		require.Len(t, res, 1, "got exactly one result")
@@ -478,7 +477,7 @@ func TestCRUD(t *testing.T) {
 			Pagination:   &filters.Pagination{Limit: 10},
 			Filters:      nil,
 		}
-		res, err := repo.ClassSearch(context.Background(), params)
+		res, err := repo.Search(context.Background(), params)
 
 		require.Nil(t, err)
 		require.Len(t, res, 1, "got exactly one result")
@@ -538,7 +537,7 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("searching all things", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, nil, additional.Properties{})
+		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -555,7 +554,7 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("searching all things with Vector additional props", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, nil, additional.Properties{Vector: true})
+		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, nil, additional.Properties{Vector: true}, "")
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -578,7 +577,7 @@ func TestCRUD(t *testing.T) {
 				"interpretation": true,
 			},
 		}
-		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, nil, params)
+		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, nil, params, "")
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -610,7 +609,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching a thing by ID", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), thingID, search.SelectProperties{}, additional.Properties{})
+		item, err := repo.ObjectByID(context.Background(), thingID, search.SelectProperties{}, additional.Properties{}, "")
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -664,7 +663,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching an action by ID without meta", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), actionID, search.SelectProperties{}, additional.Properties{})
+		item, err := repo.ObjectByID(context.Background(), actionID, search.SelectProperties{}, additional.Properties{}, "")
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -683,8 +682,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching an action by ID with Classification and Vector additional properties", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), actionID, search.SelectProperties{},
-			additional.Properties{Classification: true, Vector: true, RefMeta: true})
+		item, err := repo.ObjectByID(context.Background(), actionID, search.SelectProperties{}, additional.Properties{Classification: true, Vector: true, RefMeta: true}, "")
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -724,7 +722,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching an action by ID with only Vector additional property", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), actionID, search.SelectProperties{}, additional.Properties{Vector: true})
+		item, err := repo.ObjectByID(context.Background(), actionID, search.SelectProperties{}, additional.Properties{Vector: true}, "")
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -736,7 +734,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching all actions", func(t *testing.T) {
-		res, err := repo.ObjectSearch(context.Background(), 0, 10, nil, nil, additional.Properties{})
+		res, err := repo.ObjectSearch(context.Background(), 0, 10, nil, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 
 		item, ok := findID(res, actionID)
@@ -892,7 +890,7 @@ func TestCRUD(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, tt.sort, additional.Properties{Vector: true})
+				res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, tt.sort, additional.Properties{Vector: true}, "")
 				if len(tt.constainsErrorMsgs) > 0 {
 					require.NotNil(t, err)
 					for _, errorMsg := range tt.constainsErrorMsgs {
@@ -925,7 +923,7 @@ func TestCRUD(t *testing.T) {
 	t.Run("verifying the thing is indexed in the inverted index", func(t *testing.T) {
 		// This is a control for the upcoming deletion, after the deletion it should not
 		// be indexed anymore.
-		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName:  "TheBestThingClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters: &filters.LocalFilter{
@@ -949,7 +947,7 @@ func TestCRUD(t *testing.T) {
 	t.Run("verifying the action is indexed in the inverted index", func(t *testing.T) {
 		// This is a control for the upcoming deletion, after the deletion it should not
 		// be indexed anymore.
-		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName:  "TheBestActionClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters: &filters.LocalFilter{
@@ -991,7 +989,7 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("verifying the thing is NOT indexed in the inverted index",
 		func(t *testing.T) {
-			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.Search(context.Background(), dto.GetParams{
 				ClassName:  "TheBestThingClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -1014,7 +1012,7 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("verifying the action is NOT indexed in the inverted index",
 		func(t *testing.T) {
-			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.Search(context.Background(), dto.GetParams{
 				ClassName:  "TheBestActionClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -1036,15 +1034,13 @@ func TestCRUD(t *testing.T) {
 		})
 
 	t.Run("trying to get the deleted thing by ID", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), thingID,
-			search.SelectProperties{}, additional.Properties{})
+		item, err := repo.ObjectByID(context.Background(), thingID, search.SelectProperties{}, additional.Properties{}, "")
 		require.Nil(t, err)
 		require.Nil(t, item, "must not have a result")
 	})
 
 	t.Run("trying to get the deleted action by ID", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), actionID,
-			search.SelectProperties{}, additional.Properties{})
+		item, err := repo.ObjectByID(context.Background(), actionID, search.SelectProperties{}, additional.Properties{}, "")
 		require.Nil(t, err)
 		require.Nil(t, item, "must not have a result")
 	})
@@ -1059,7 +1055,7 @@ func TestCRUD(t *testing.T) {
 				Filters:      nil,
 			}
 
-			res, err := repo.VectorClassSearch(context.Background(), params)
+			res, err := repo.VectorSearch(context.Background(), params)
 
 			require.Nil(t, err)
 			assert.Len(t, res, 0)
@@ -1074,7 +1070,7 @@ func TestCRUD(t *testing.T) {
 			Filters:      nil,
 		}
 
-		res, err := repo.VectorClassSearch(context.Background(), params)
+		res, err := repo.VectorSearch(context.Background(), params)
 
 		require.Nil(t, err)
 		assert.Len(t, res, 0)
@@ -1101,7 +1097,7 @@ func TestCRUD(t *testing.T) {
 				}
 				createdActionIDs[i] = newID
 			}
-			batchObjResp, err := repo.BatchPutObjects(context.Background(), actionBatch, nil)
+			batchObjResp, err := repo.BatchPutObjects(context.Background(), actionBatch, nil, "")
 			require.Len(t, batchObjResp, numThings)
 			require.Nil(t, err)
 			for _, r := range batchObjResp {
@@ -1125,7 +1121,7 @@ func TestCRUD(t *testing.T) {
 				}
 				createdThingIDs[i] = newID
 			}
-			batchObjResp, err := repo.BatchPutObjects(context.Background(), thingBatch, nil)
+			batchObjResp, err := repo.BatchPutObjects(context.Background(), thingBatch, nil, "")
 			require.Len(t, batchObjResp, numThings)
 			require.Nil(t, err)
 			for _, r := range batchObjResp {
@@ -1162,7 +1158,7 @@ func TestCRUD(t *testing.T) {
 
 		t.Run("query every action for its referenced thing", func(t *testing.T) {
 			for i := range createdActionIDs {
-				resp, err := repo.ClassSearch(context.Background(), dto.GetParams{
+				resp, err := repo.Search(context.Background(), dto.GetParams{
 					ClassName:            "TheBestActionClass",
 					Pagination:           &filters.Pagination{Limit: 5},
 					AdditionalProperties: additional.Properties{ID: true},
@@ -1238,7 +1234,7 @@ func TestCRUD(t *testing.T) {
 		})
 
 		t.Run("perform search with id filter", func(t *testing.T) {
-			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.Search(context.Background(), dto.GetParams{
 				Pagination: &filters.Pagination{Limit: 10},
 				ClassName:  "TheBestActionClass",
 				Filters: &filters.LocalFilter{
@@ -1599,7 +1595,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 			}
 		}
 
-		res, err := repo.BatchPutObjects(context.Background(), batch, nil)
+		res, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
 		require.Nil(t, err)
 
 		for _, obj := range res {
@@ -1608,7 +1604,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	})
 
 	t.Run("verify inverted index works correctly", func(t *testing.T) {
-		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.Search(context.Background(), dto.GetParams{
 			Filters:   buildFilter("int_prop", total+1, lte, dtInt),
 			ClassName: className,
 			Pagination: &filters.Pagination{
@@ -1621,7 +1617,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	})
 
 	t.Run("perform unfiltered vector search and verify there are no matches", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			Filters:   nil,
 			ClassName: className,
 			Pagination: &filters.Pagination{
@@ -1647,7 +1643,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	})
 
 	t.Run("perform unfiltered vector search and verify correct matches", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			Filters:   nil,
 			ClassName: className,
 			Pagination: &filters.Pagination{
@@ -1661,7 +1657,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	})
 
 	t.Run("perform filtered vector search and verify correct matches", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			Filters:   buildFilter("int_prop", 50, lt, dtInt),
 			ClassName: className,
 			Pagination: &filters.Pagination{
@@ -1761,7 +1757,7 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 	})
 
 	t.Run("perform nearVector search by distance", func(t *testing.T) {
-		results, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		results, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			ClassName:  className,
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
@@ -1787,7 +1783,7 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 	})
 
 	t.Run("perform nearObject search by distance", func(t *testing.T) {
-		results, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		results, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			ClassName:  className,
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearObject: &searchparams.NearObject{
@@ -1898,7 +1894,7 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 	})
 
 	t.Run("perform nearVector search by distance", func(t *testing.T) {
-		results, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		results, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			ClassName:  className,
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
@@ -1924,7 +1920,7 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 	})
 
 	t.Run("perform nearObject search by distance", func(t *testing.T) {
-		results, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		results, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			ClassName:  className,
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearObject: &searchparams.NearObject{
@@ -2048,7 +2044,7 @@ func Test_PutPatchRestart(t *testing.T) {
 			},
 		}
 		res, err := repo.ObjectSearch(ctx, 0, 10, findByIDFilter,
-			nil, additional.Properties{})
+			nil, additional.Properties{}, "")
 		require.Nil(t, err)
 		assert.Len(t, res, 1)
 
@@ -2162,8 +2158,7 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 		assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}, nil, ""))
 		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}, nil, ""))
 
-		res, err := repo.ObjectByID(context.Background(), objID, nil,
-			additional.Properties{})
+		res, err := repo.ObjectByID(context.Background(), objID, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 		assert.Equal(t, obj2.Properties, res.ObjectWithVector(false).Properties)
 	})
@@ -2309,7 +2304,7 @@ func TestOverwriteObjects(t *testing.T) {
 		}
 
 		idx := repo.GetIndex(schema.ClassName(class.Class))
-		shd, err := idx.shardFromUUID(fresh.ID)
+		shd, err := idx.determineObjectShard(fresh.ID, "", nil)
 		require.Nil(t, err)
 
 		received, err := idx.overwriteObjects(context.Background(), shd, input)
@@ -2402,7 +2397,7 @@ func TestIndexDigestObjects(t *testing.T) {
 
 	t.Run("get digest object", func(t *testing.T) {
 		idx := repo.GetIndex(schema.ClassName(class.Class))
-		shd, err := idx.shardFromUUID(obj1.ID)
+		shd, err := idx.determineObjectShard(obj1.ID, "", nil)
 		require.Nil(t, err)
 
 		input := []strfmt.UUID{obj1.ID, obj2.ID}

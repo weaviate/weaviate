@@ -74,7 +74,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{0.8, 0.2, 0.7}
 		search.
-			On("VectorClassSearch", expectedParamsToSearch).
+			On("VectorSearch", expectedParamsToSearch).
 			Return(searchResults, nil)
 
 		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 128)
@@ -219,7 +219,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					On("Object", "BestClass", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
 					Return(&searchRes, nil)
 				search.
-					On("VectorClassSearch", expectedParamsToSearch).
+					On("VectorSearch", expectedParamsToSearch).
 					Return(searchResults, nil)
 				metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearObject", 128)
 
@@ -295,7 +295,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				On("Object", "BestClass", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
 				Return(&searchRes, nil)
 			search.
-				On("VectorClassSearch", expectedParamsToSearch).
+				On("VectorSearch", expectedParamsToSearch).
 				Return(searchResults, nil)
 			metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearObject", 128)
 
@@ -372,7 +372,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				On("Object", "BestClass", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
 				Return(&searchRes, nil)
 			search.
-				On("VectorClassSearch", expectedParamsToSearch).
+				On("VectorSearch", expectedParamsToSearch).
 				Return(searchResults, nil)
 			metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearObject", 128)
 
@@ -447,7 +447,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				On("Object", "BestClass", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
 				Return(&searchRes, nil)
 			search.
-				On("VectorClassSearch", expectedParamsToSearch).
+				On("VectorSearch", expectedParamsToSearch).
 				Return(searchResults, nil)
 			metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearObject", 128)
 
@@ -511,7 +511,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				expectedParamsToSearch := params
 				expectedParamsToSearch.SearchVector = []float32{0.8, 0.2, 0.7}
 				search.
-					On("VectorClassSearch", expectedParamsToSearch).
+					On("VectorSearch", expectedParamsToSearch).
 					Return(searchResults, nil)
 				metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 128)
 
@@ -563,7 +563,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				expectedParamsToSearch := params
 				expectedParamsToSearch.SearchVector = []float32{0.8, 0.2, 0.7}
 				search.
-					On("VectorClassSearch", expectedParamsToSearch).
+					On("VectorSearch", expectedParamsToSearch).
 					Return(searchResults, nil)
 				metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 128)
 
@@ -641,7 +641,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
-			On("ClassSearch", expectedParamsToSearch).
+			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
 
 		res, err := explorer.GetClass(context.Background(), params)
@@ -701,7 +701,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		expectedParamsToSearch.SearchVector = []float32{0.8, 0.2, 0.7}
 		expectedParamsToSearch.AdditionalProperties.Vector = true
 		search.
-			On("VectorClassSearch", expectedParamsToSearch).
+			On("VectorSearch", expectedParamsToSearch).
 			Return(searchResults, nil)
 		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 128)
 
@@ -756,7 +756,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
-			On("ClassSearch", expectedParamsToSearch).
+			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
 
 		res, err := explorer.GetClass(context.Background(), params)
@@ -813,7 +813,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
-			On("ClassSearch", expectedParamsToSearch).
+			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
 
 		res, err := explorer.GetClass(context.Background(), params)
@@ -894,7 +894,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
-			On("ClassSearch", expectedParamsToSearch).
+			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
 
 		res, err := explorer.GetClass(context.Background(), params)
@@ -961,7 +961,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
-			On("ClassSearch", expectedParamsToSearch).
+			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
 		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "_additional.vector", 128)
 
@@ -1018,7 +1018,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
-			On("ClassSearch", expectedParamsToSearch).
+			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
 
 		res, err := explorer.GetClass(context.Background(), params)
@@ -1074,7 +1074,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
-			On("ClassSearch", expectedParamsToSearch).
+			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
 
 		res, err := explorer.GetClass(context.Background(), params)
@@ -1170,7 +1170,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		searcher.
-			On("ClassSearch", expectedParamsToSearch).
+			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
 
 		res, err := explorer.GetClass(context.Background(), params)
@@ -1277,7 +1277,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		searcher.
-			On("ClassSearch", expectedParamsToSearch).
+			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
 
 		res, err := explorer.GetClass(context.Background(), params)
@@ -1388,7 +1388,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		fakeSearch.
-			On("ClassSearch", expectedParamsToSearch).
+			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
 
 		res, err := explorer.GetClass(context.Background(), params)
@@ -1547,7 +1547,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		fakeSearch.
-			On("ClassSearch", expectedParamsToSearch).
+			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
 
 		res, err := explorer.GetClass(context.Background(), params)
@@ -1777,7 +1777,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		fakeSearch.
-			On("ClassSearch", expectedParamsToSearch).
+			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
 
 		res, err := explorer.GetClass(context.Background(), params)
@@ -2034,7 +2034,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		searcher.
-			On("ClassSearch", expectedParamsToSearch).
+			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
 
 		res, err := explorer.GetClass(context.Background(), params)
@@ -2146,7 +2146,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 		search.
-			On("VectorClassSearch", expectedParamsToSearch).
+			On("VectorSearch", expectedParamsToSearch).
 			Return(searchResults, nil)
 		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
@@ -2209,7 +2209,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			expectedParamsToSearch := params
 			expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 			search.
-				On("VectorClassSearch", expectedParamsToSearch).
+				On("VectorSearch", expectedParamsToSearch).
 				Return(searchResults, nil)
 			metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
@@ -2264,7 +2264,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			expectedParamsToSearch := params
 			expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 			search.
-				On("VectorClassSearch", expectedParamsToSearch).
+				On("VectorSearch", expectedParamsToSearch).
 				Return(searchResults, nil)
 			metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
@@ -2476,7 +2476,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		expectedParamsToSearch.SearchVector = []float32{1.0, 2.0, 3.0}
 		// expectedParamsToSearch.SearchVector = nil
 		search.
-			On("VectorClassSearch", expectedParamsToSearch).
+			On("VectorSearch", expectedParamsToSearch).
 			Return(searchResults, nil)
 		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
@@ -2546,7 +2546,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		expectedParamsToSearch.SearchVector = []float32{1.0, 2.0, 3.0}
 		// expectedParamsToSearch.SearchVector = nil
 		search.
-			On("VectorClassSearch", expectedParamsToSearch).
+			On("VectorSearch", expectedParamsToSearch).
 			Return(searchResults, nil)
 		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
@@ -2674,7 +2674,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 		expectedParamsToSearch.AdditionalProperties.Vector = true // any custom additional params will trigger vector
 		searcher.
-			On("VectorClassSearch", expectedParamsToSearch).
+			On("VectorSearch", expectedParamsToSearch).
 			Return(searchResults, nil)
 		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 

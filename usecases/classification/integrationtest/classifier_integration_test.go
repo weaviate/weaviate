@@ -81,7 +81,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 				}
 			}
 
-			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil)
+			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil, "")
 			require.Nil(t, err)
 			for _, elem := range res {
 				require.Nil(t, elem.Err)
@@ -98,7 +98,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 					Object:        elem.Object(),
 				}
 			}
-			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil)
+			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil, "")
 			require.Nil(t, err)
 			for _, elem := range res {
 				require.Nil(t, elem.Err)
@@ -161,7 +161,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 					},
 				},
 			}
-			res, err := vrepo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := vrepo.Search(context.Background(), dto.GetParams{
 				ClassName: "Article",
 				Filters:   &filter,
 				Pagination: &filters.Pagination{
@@ -217,7 +217,7 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 				}
 			}
 
-			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil)
+			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil, "")
 			require.Nil(t, err)
 			for _, elem := range res {
 				require.Nil(t, elem.Err)
@@ -278,7 +278,7 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 					},
 				},
 			}
-			res, err := vrepo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := vrepo.Search(context.Background(), dto.GetParams{
 				ClassName: "Recipes",
 				Filters:   &filter,
 				Pagination: &filters.Pagination{

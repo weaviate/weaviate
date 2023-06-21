@@ -28,9 +28,9 @@ func Test_NoRaceTileEncoderEncode(t *testing.T) {
 		encoder.Add([]float32{float32(rand.NormFloat64() + 100)})
 	}
 	encoder.Fit([][]float32{})
-	assert.Equal(t, encoder.Encode([]float32{0.1}), uint64(0))
-	assert.Equal(t, encoder.Encode([]float32{100}), uint64(8))
-	assert.Equal(t, encoder.Encode([]float32{1000}), uint64(16))
+	assert.Equal(t, encoder.Encode([]float32{0.1}), byte(0))
+	assert.Equal(t, encoder.Encode([]float32{100}), byte(8))
+	assert.Equal(t, encoder.Encode([]float32{1000}), byte(16))
 }
 
 func Test_NoRaceTileEncoderCentroids(t *testing.T) {
@@ -50,9 +50,9 @@ func Test_NoRaceNormalTileEncoderEncode(t *testing.T) {
 		encoder.Add([]float32{float32(rand.NormFloat64())})
 	}
 	encoder.Fit([][]float32{})
-	assert.Equal(t, encoder.Encode([]float32{0.1}), uint64(8))
-	assert.Equal(t, encoder.Encode([]float32{100}), uint64(16))
-	assert.Equal(t, encoder.Encode([]float32{1000}), uint64(16))
+	assert.Equal(t, encoder.Encode([]float32{0.1}), byte(8))
+	assert.Equal(t, encoder.Encode([]float32{100}), byte(16))
+	assert.Equal(t, encoder.Encode([]float32{1000}), byte(16))
 }
 
 func Test_NoRaceNormalTileEncoderCentroids(t *testing.T) {

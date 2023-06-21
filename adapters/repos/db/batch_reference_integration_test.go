@@ -133,7 +133,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	t.Run("verify ref count through filters", func(t *testing.T) {
 		t.Run("count==0 should return the source", func(t *testing.T) {
 			filter := buildFilter("toTarget", 0, eq, schema.DataTypeInt)
-			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.Search(context.Background(), dto.GetParams{
 				Filters:   filter,
 				ClassName: "AddingBatchReferencesTestSource",
 				Pagination: &filters.Pagination{
@@ -148,7 +148,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 
 		t.Run("count>0 should not return anything", func(t *testing.T) {
 			filter := buildFilter("toTarget", 0, gt, schema.DataTypeInt)
-			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.Search(context.Background(), dto.GetParams{
 				Filters:   filter,
 				ClassName: "AddingBatchReferencesTestSource",
 				Pagination: &filters.Pagination{
@@ -187,7 +187,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		// so far we have imported two refs (!)
 		t.Run("count==2 should return the source", func(t *testing.T) {
 			filter := buildFilter("toTarget", 2, eq, schema.DataTypeInt)
-			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.Search(context.Background(), dto.GetParams{
 				Filters:   filter,
 				ClassName: "AddingBatchReferencesTestSource",
 				Pagination: &filters.Pagination{
@@ -202,7 +202,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 
 		t.Run("count==0 should not return anything", func(t *testing.T) {
 			filter := buildFilter("toTarget", 0, eq, schema.DataTypeInt)
-			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.Search(context.Background(), dto.GetParams{
 				Filters:   filter,
 				ClassName: "AddingBatchReferencesTestSource",
 				Pagination: &filters.Pagination{
@@ -215,29 +215,58 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		})
 	})
 
-	t.Run("add reference between them - second batch", func(t *testing.T) {
+	t.Run("add reference between them - second batch including errors", func(t *testing.T) {
 		source, err := crossref.ParseSource(fmt.Sprintf(
 			"weaviate://localhost/AddingBatchReferencesTestSource/%s/toTarget",
 			sourceID))
 		require.Nil(t, err)
+		sourceNonExistingClass, err := crossref.ParseSource(fmt.Sprintf(
+			"weaviate://localhost/NonExistingClass/%s/toTarget",
+			sourceID))
+		require.Nil(t, err)
+		sourceNonExistingProp, err := crossref.ParseSource(fmt.Sprintf(
+			"weaviate://localhost/AddingBatchReferencesTestSource/%s/nonExistingProp",
+			sourceID))
+		require.Nil(t, err)
+
 		targets := []strfmt.UUID{target3, target4}
-		refs := make(objects.BatchReferences, len(targets))
+		refs := make(objects.BatchReferences, 3*len(targets))
 		for i, target := range targets {
 			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s", target))
 			require.Nil(t, err)
-			refs[i] = objects.BatchReference{
+
+			refs[3*i] = objects.BatchReference{
 				Err:           nil,
 				From:          source,
 				To:            to,
-				OriginalIndex: i,
+				OriginalIndex: 3 * i,
+			}
+			refs[3*i+1] = objects.BatchReference{
+				Err:           nil,
+				From:          sourceNonExistingClass,
+				To:            to,
+				OriginalIndex: 3*i + 1,
+			}
+			refs[3*i+2] = objects.BatchReference{
+				Err:           nil,
+				From:          sourceNonExistingProp,
+				To:            to,
+				OriginalIndex: 3*i + 2,
 			}
 		}
-		_, err = repo.AddBatchReferences(context.Background(), refs, nil, "")
+		batchRefs, err := repo.AddBatchReferences(context.Background(), refs, nil, "")
 		assert.Nil(t, err)
+		require.Len(t, batchRefs, 6)
+		assert.Nil(t, batchRefs[0].Err)
+		assert.Nil(t, batchRefs[3].Err)
+		assert.Contains(t, batchRefs[1].Err.Error(), "NonExistingClass")
+		assert.Contains(t, batchRefs[4].Err.Error(), "NonExistingClass")
+		assert.Contains(t, batchRefs[2].Err.Error(), "nonExistingProp")
+		assert.Contains(t, batchRefs[5].Err.Error(), "nonExistingProp")
 	})
 
 	t.Run("check all references are now present", func(t *testing.T) {
-		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{})
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 
 		refs := source.Object().Properties.(map[string]interface{})["toTarget"]
@@ -262,7 +291,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		// so far we have imported two refs (!)
 		t.Run("count==4 should return the source", func(t *testing.T) {
 			filter := buildFilter("toTarget", 4, eq, schema.DataTypeInt)
-			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.Search(context.Background(), dto.GetParams{
 				Filters:   filter,
 				ClassName: "AddingBatchReferencesTestSource",
 				Pagination: &filters.Pagination{
@@ -277,7 +306,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 
 		t.Run("count==0 should not return anything", func(t *testing.T) {
 			filter := buildFilter("toTarget", 0, eq, schema.DataTypeInt)
-			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.Search(context.Background(), dto.GetParams{
 				Filters:   filter,
 				ClassName: "AddingBatchReferencesTestSource",
 				Pagination: &filters.Pagination{
@@ -291,7 +320,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 
 		t.Run("count==2 should not return anything", func(t *testing.T) {
 			filter := buildFilter("toTarget", 2, eq, schema.DataTypeInt)
-			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.Search(context.Background(), dto.GetParams{
 				Filters:   filter,
 				ClassName: "AddingBatchReferencesTestSource",
 				Pagination: &filters.Pagination{
@@ -322,7 +351,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				},
 			},
 		}
-		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.Search(context.Background(), dto.GetParams{
 			Filters:   filter,
 			ClassName: "AddingBatchReferencesTestSource",
 			Pagination: &filters.Pagination{
@@ -347,7 +376,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			// correct. However, this test still adds value, since we were now able
 			// to remove the additional storage updates. By still including this
 			// test we verify that such an update is indeed no longer necessary
-			res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 				ClassName:    "AddingBatchReferencesTestSource",
 				SearchVector: []float32{0.49},
 				Pagination: &filters.Pagination{
@@ -359,4 +388,16 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			require.Len(t, res, 1)
 			assert.Equal(t, sourceID, res[0].ID)
 		})
+
+	t.Run("remove source and target classes", func(t *testing.T) {
+		err := repo.DeleteIndex("AddingBatchReferencesTestSource")
+		assert.Nil(t, err)
+		err = repo.DeleteIndex("AddingBatchReferencesTestTarget")
+		assert.Nil(t, err)
+
+		t.Run("verify classes do not exist", func(t *testing.T) {
+			assert.False(t, repo.IndexExists("AddingBatchReferencesTestSource"))
+			assert.False(t, repo.IndexExists("AddingBatchReferencesTestTarget"))
+		})
+	})
 }

@@ -31,7 +31,7 @@ const (
 // DeleteObjects deletes objects in batch based on the match filter
 func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Principal,
 	match *models.BatchDeleteMatch, dryRun *bool, output *string,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (*BatchDeleteResponse, error) {
 	err := b.authorizer.Authorize(principal, "delete", "batch/objects")
 	if err != nil {
@@ -47,21 +47,21 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 
-	return b.deleteObjects(ctx, principal, match, dryRun, output, repl)
+	return b.deleteObjects(ctx, principal, match, dryRun, output, repl, tenantKey)
 }
 
 func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Principal,
 	match *models.BatchDeleteMatch, dryRun *bool, output *string,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (*BatchDeleteResponse, error) {
 	params, err := b.validateBatchDelete(ctx, principal, match, dryRun, output)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("validate: %v", err)
 	}
 
-	result, err := b.vectorRepo.BatchDeleteObjects(ctx, *params, repl)
+	result, err := b.vectorRepo.BatchDeleteObjects(ctx, *params, repl, tenantKey)
 	if err != nil {
-		return nil, NewErrInternal("batch delete objects: %#v", err)
+		return nil, fmt.Errorf("batch delete objects: %w", err)
 	}
 
 	return b.toResponse(match, params.Output, result)

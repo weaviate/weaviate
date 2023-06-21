@@ -20,19 +20,20 @@ import (
 )
 
 type Params struct {
-	Filters          *filters.LocalFilter `json:"filters"`
-	ClassName        schema.ClassName     `json:"className"`
-	Properties       []ParamProperty      `json:"properties"`
-	GroupBy          *filters.Path        `json:"groupBy"`
-	IncludeMetaCount bool                 `json:"includeMetaCount"`
-	Limit            *int                 `json:"limit"`
-	ObjectLimit      *int                 `json:"objectLimit"`
-	SearchVector     []float32
-	Certainty        float64
-	NearVector       *searchparams.NearVector
-	NearObject       *searchparams.NearObject
-	Hybrid           *searchparams.HybridSearch
-	ModuleParams     map[string]interface{}
+	Filters          *filters.LocalFilter       `json:"filters"`
+	ClassName        schema.ClassName           `json:"className"`
+	Properties       []ParamProperty            `json:"properties"`
+	GroupBy          *filters.Path              `json:"groupBy"`
+	IncludeMetaCount bool                       `json:"includeMetaCount"`
+	Limit            *int                       `json:"limit"`
+	ObjectLimit      *int                       `json:"objectLimit"`
+	SearchVector     []float32                  `json:"searchVector"`
+	Certainty        float64                    `json:"certainty"`
+	TenantKey        string                     `json:"tenantKey"`
+	ModuleParams     map[string]interface{}     `json:"moduleParams"`
+	NearVector       *searchparams.NearVector   `json:"nearVector"`
+	NearObject       *searchparams.NearObject   `json:"nearObject"`
+	Hybrid           *searchparams.HybridSearch `json:"hybrid"`
 }
 
 type ParamProperty struct {

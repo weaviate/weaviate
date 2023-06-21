@@ -91,7 +91,7 @@ func TestUpdateJourney(t *testing.T) {
 
 	t.Run("verify vector search results are initially as expected",
 		func(t *testing.T) {
-			res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 				ClassName:    "UpdateTestClass",
 				SearchVector: searchVector,
 				Pagination: &filters.Pagination{
@@ -122,7 +122,7 @@ func TestUpdateJourney(t *testing.T) {
 						Value: value,
 					},
 				},
-			}, nil, additional.Properties{})
+			}, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 		return extractPropValues(res, "name")
 	}
@@ -153,8 +153,7 @@ func TestUpdateJourney(t *testing.T) {
 			updatedVec := []float32{-0.1, -0.12, -0.105}
 			id := updateTestData()[0].ID
 
-			old, err := repo.ObjectByID(context.Background(), id, search.SelectProperties{},
-				additional.Properties{})
+			old, err := repo.ObjectByID(context.Background(), id, search.SelectProperties{}, additional.Properties{}, "")
 			require.Nil(t, err)
 
 			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil, "")
@@ -172,7 +171,7 @@ func TestUpdateJourney(t *testing.T) {
 		})
 
 	t.Run("verify new vector search results are as expected", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
 			Pagination: &filters.Pagination{
@@ -216,8 +215,7 @@ func TestUpdateJourney(t *testing.T) {
 			updatedVec := []float32{-0.1, -0.12, -0.105123}
 			id := updateTestData()[2].ID
 
-			old, err := repo.ObjectByID(context.Background(), id, search.SelectProperties{},
-				additional.Properties{})
+			old, err := repo.ObjectByID(context.Background(), id, search.SelectProperties{}, additional.Properties{}, "")
 			require.Nil(t, err)
 
 			old.Schema.(map[string]interface{})["intProp"] = int64(21)
@@ -236,7 +234,7 @@ func TestUpdateJourney(t *testing.T) {
 		})
 
 	t.Run("verify new vector search results are as expected", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
 			Pagination: &filters.Pagination{

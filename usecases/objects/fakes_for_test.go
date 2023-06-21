@@ -155,8 +155,9 @@ func (f *fakeVectorRepo) Object(ctx context.Context, cls string, id strfmt.UUID,
 	return nil, args.Error(1)
 }
 
-func (f *fakeVectorRepo) ObjectByID(ctx context.Context,
-	id strfmt.UUID, props search.SelectProperties, additional additional.Properties,
+func (f *fakeVectorRepo) ObjectByID(ctx context.Context, id strfmt.UUID,
+	props search.SelectProperties, additional additional.Properties,
+	tenantKey string,
 ) (*search.Result, error) {
 	args := f.Called(id, props, additional)
 	if args.Get(0) != nil {
@@ -166,7 +167,7 @@ func (f *fakeVectorRepo) ObjectByID(ctx context.Context,
 }
 
 func (f *fakeVectorRepo) ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
-	sort []filters.Sort, additional additional.Properties,
+	sort []filters.Sort, additional additional.Properties, tenantKey string,
 ) (search.Results, error) {
 	args := f.Called(offset, limit, sort, filters, additional)
 	return args.Get(0).([]search.Result), args.Error(1)
@@ -186,7 +187,7 @@ func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, 
 }
 
 func (f *fakeVectorRepo) BatchPutObjects(ctx context.Context, batch BatchObjects,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (BatchObjects, error) {
 	args := f.Called(batch)
 	return batch, args.Error(0)
@@ -200,7 +201,7 @@ func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchRefe
 }
 
 func (f *fakeVectorRepo) BatchDeleteObjects(ctx context.Context, params BatchDeleteParams,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (BatchDeleteResult, error) {
 	args := f.Called(params)
 	return args.Get(0).(BatchDeleteResult), args.Error(1)

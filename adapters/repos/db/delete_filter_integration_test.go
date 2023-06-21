@@ -115,7 +115,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 	})
 
 	t.Run("searching for boolProp == true with a strict limit", func(t *testing.T) {
-		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName: className,
 			Pagination: &filters.Pagination{
 				// important as the first 5 doc ids we encounter now should all be
@@ -231,7 +231,7 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 	})
 
 	t.Run("query with high limit", func(t *testing.T) {
-		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.Search(context.Background(), dto.GetParams{
 			Filters:   buildFilter("author", "Simon", eq, dtText),
 			ClassName: "Test",
 			Pagination: &filters.Pagination{
@@ -246,7 +246,7 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 	})
 
 	t.Run("query with limit 1", func(t *testing.T) {
-		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.Search(context.Background(), dto.GetParams{
 			Filters:   buildFilter("author", "Simon", eq, dtText),
 			ClassName: "Test",
 			Pagination: &filters.Pagination{

@@ -145,7 +145,7 @@ func TestHybrid(t *testing.T) {
 	for _, query := range queries {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: query.Query}
 		addit := additional.Properties{}
-		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
+		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "")
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
 
@@ -182,7 +182,7 @@ func TestBIER(t *testing.T) {
 	for _, query := range queries {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: query.Query}
 		addit := additional.Properties{}
-		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
+		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "")
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
 		// fmt.Printf("Results: %v\n", res)
@@ -388,20 +388,22 @@ func TestRFJourney(t *testing.T) {
 	})
 
 	// Check basic search with one property
-	results_set_1, err := repo.VectorClassSearch(context.TODO(), dto.GetParams{
+	results_set_1, err := repo.VectorSearch(context.TODO(), dto.GetParams{
 		ClassName:    "MyClass",
 		SearchVector: peanutsVector(),
 		Pagination: &filters.Pagination{
-			Limit: 100,
+			Offset: 0,
+			Limit:  6,
 		},
 	})
 
 	require.Nil(t, err)
-	results_set_2, err := repo.VectorClassSearch(context.TODO(), dto.GetParams{
+	results_set_2, err := repo.VectorSearch(context.TODO(), dto.GetParams{
 		ClassName:    "MyClass",
 		SearchVector: journeyVector(),
 		Pagination: &filters.Pagination{
-			Limit: 100,
+			Offset: 0,
+			Limit:  6,
 		},
 	})
 	require.Nil(t, err)
@@ -453,12 +455,11 @@ func TestRFJourney(t *testing.T) {
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "elephant",
 				Vector: elephantVector(),
-				Limit:  100,
 				Alpha:  0.5,
 			},
 			Pagination: &filters.Pagination{
 				Offset: 0,
-				Limit:  100,
+				Limit:  6,
 			},
 		}
 
@@ -486,7 +487,6 @@ func TestRFJourney(t *testing.T) {
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "Elephant Parade",
 				Vector: elephantVector(),
-				Limit:  100,
 				Alpha:  0.5,
 			},
 			Pagination: &filters.Pagination{
@@ -502,16 +502,85 @@ func TestRFJourney(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, metrics)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
-		require.Nil(t, err)
-		require.True(t, len(hybridResults) > 0)
 
-		fmt.Println("--- Start results for hybrid ---")
+		fmt.Println("--- Start results for hybrid with negative limit ---")
 		for _, r := range hybridResults {
 			schema := r.Schema.(map[string]interface{})
 			title := schema["title"].(string)
 			description := schema["description"].(string)
 			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
 		}
+		require.Nil(t, err)
+		require.True(t, len(hybridResults) > 0)
+	})
+
+	t.Run("Hybrid with offset", func(t *testing.T) {
+		params := dto.GetParams{
+			ClassName: "MyClass",
+			HybridSearch: &searchparams.HybridSearch{
+				Query:  "Elephant Parade",
+				Vector: elephantVector(),
+				Alpha:  0.5,
+			},
+			Pagination: &filters.Pagination{
+				Offset: 2,
+				Limit:  1,
+			},
+		}
+
+		prov := modules.NewProvider()
+		prov.SetClassDefaults(class)
+
+		metrics := &fakeMetrics{}
+		log, _ := test.NewNullLogger()
+		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		hybridResults, err := explorer.Hybrid(context.TODO(), params)
+
+		fmt.Println("--- Start results for hybrid with offset ---")
+		for _, r := range hybridResults {
+			schema := r.Schema.(map[string]interface{})
+			title := schema["title"].(string)
+			description := schema["description"].(string)
+			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
+		}
+
+		require.Nil(t, err)
+		require.True(t, len(hybridResults) == 1)
+		require.True(t, hybridResults[0].ID == "00000000-0000-0000-0000-000000000001")
+	})
+
+	t.Run("Hybrid with offset", func(t *testing.T) {
+		params := dto.GetParams{
+			ClassName: "MyClass",
+			HybridSearch: &searchparams.HybridSearch{
+				Query:  "Elephant Parade",
+				Vector: elephantVector(),
+				Alpha:  0.5,
+			},
+			Pagination: &filters.Pagination{
+				Offset: 4,
+				Limit:  1,
+			},
+		}
+
+		prov := modules.NewProvider()
+		prov.SetClassDefaults(class)
+
+		metrics := &fakeMetrics{}
+		log, _ := test.NewNullLogger()
+		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		hybridResults, err := explorer.Hybrid(context.TODO(), params)
+
+		fmt.Println("--- Start results for hybrid with offset ---")
+		for _, r := range hybridResults {
+			schema := r.Schema.(map[string]interface{})
+			title := schema["title"].(string)
+			description := schema["description"].(string)
+			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
+		}
+
+		require.Nil(t, err)
+		require.True(t, len(hybridResults) == 0)
 	})
 }
 
@@ -602,7 +671,6 @@ func TestRFJourneyWithFilters(t *testing.T) {
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "elephant",
 				Vector: elephantVector(),
-				Limit:  100,
 				Alpha:  0.5,
 			},
 			Pagination: &filters.Pagination{
@@ -629,7 +697,6 @@ func TestRFJourneyWithFilters(t *testing.T) {
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "elephant",
 				Vector: elephantVector(),
-				Limit:  100,
 				Alpha:  0.5,
 			},
 			Pagination: &filters.Pagination{
@@ -664,7 +731,6 @@ func TestRFJourneyWithFilters(t *testing.T) {
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "elephant",
 				Vector: elephantVector(),
-				Limit:  100,
 				Alpha:  0.5,
 			},
 			Pagination: &filters.Pagination{

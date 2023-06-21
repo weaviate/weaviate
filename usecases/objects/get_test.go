@@ -184,7 +184,7 @@ func Test_GetAction(t *testing.T) {
 			},
 		}
 
-		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, nil, nil, nil, nil, additional.Properties{})
+		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, nil, nil, nil, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -217,7 +217,7 @@ func Test_GetAction(t *testing.T) {
 			},
 		}
 
-		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, nil, nil, nil, nil, additional.Properties{Vector: true})
+		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, nil, nil, nil, nil, additional.Properties{Vector: true}, "")
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -245,8 +245,7 @@ func Test_GetAction(t *testing.T) {
 			},
 		}
 
-		res, err := manager.GetObjects(context.Background(), &models.Principal{},
-			ptInt64(7), ptInt64(2), nil, nil, nil, additional.Properties{})
+		res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(7), ptInt64(2), nil, nil, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -254,8 +253,7 @@ func Test_GetAction(t *testing.T) {
 	t.Run("with an offset greater than the maximum", func(t *testing.T) {
 		reset()
 
-		_, err := manager.GetObjects(context.Background(), &models.Principal{},
-			ptInt64(201), ptInt64(2), nil, nil, nil, additional.Properties{})
+		_, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(201), ptInt64(2), nil, nil, nil, additional.Properties{}, "")
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "query maximum results exceeded")
 	})
@@ -263,8 +261,7 @@ func Test_GetAction(t *testing.T) {
 	t.Run("with a limit greater than the minimum", func(t *testing.T) {
 		reset()
 
-		_, err := manager.GetObjects(context.Background(), &models.Principal{},
-			ptInt64(0), ptInt64(202), nil, nil, nil, additional.Properties{})
+		_, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(0), ptInt64(202), nil, nil, nil, additional.Properties{}, "")
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "query maximum results exceeded")
 	})
@@ -272,8 +269,7 @@ func Test_GetAction(t *testing.T) {
 	t.Run("with limit and offset individually smaller, but combined greater", func(t *testing.T) {
 		reset()
 
-		_, err := manager.GetObjects(context.Background(), &models.Principal{},
-			ptInt64(150), ptInt64(150), nil, nil, nil, additional.Properties{})
+		_, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(150), ptInt64(150), nil, nil, nil, additional.Properties{}, "")
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "query maximum results exceeded")
 	})
@@ -425,12 +421,11 @@ func Test_GetAction(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, nil, nil,
-					additional.Properties{
-						ModuleParams: map[string]interface{}{
-							"nearestNeighbors": true,
-						},
-					})
+				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, nil, nil, additional.Properties{
+					ModuleParams: map[string]interface{}{
+						"nearestNeighbors": true,
+					},
+				}, "")
 				require.Nil(t, err)
 				assert.Equal(t, expected, res)
 			})
@@ -475,12 +470,11 @@ func Test_GetAction(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, nil, nil,
-					additional.Properties{
-						ModuleParams: map[string]interface{}{
-							"featureProjection": getDefaultParam("featureProjection"),
-						},
-					})
+				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, nil, nil, additional.Properties{
+					ModuleParams: map[string]interface{}{
+						"featureProjection": getDefaultParam("featureProjection"),
+					},
+				}, "")
 				require.Nil(t, err)
 				assert.Equal(t, expected, res)
 			})
@@ -533,8 +527,7 @@ func Test_GetAction(t *testing.T) {
 				},
 			}
 
-			res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
-				&sort, &asc, nil, additional.Properties{})
+			res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), &sort, &asc, nil, additional.Properties{}, "")
 			require.Nil(t, err)
 			assert.Equal(t, expected, res)
 		})
@@ -586,8 +579,7 @@ func Test_GetAction(t *testing.T) {
 				},
 			}
 
-			res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
-				&sort, &asc, nil, additional.Properties{})
+			res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), &sort, &asc, nil, additional.Properties{}, "")
 			require.Nil(t, err)
 			assert.Equal(t, expected, res)
 		})
@@ -613,8 +605,7 @@ func Test_GetAction(t *testing.T) {
 			vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, expectedSort, mock.Anything, mock.Anything,
 				mock.Anything).Return(result, nil).Once()
 
-			_, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
-				&sort, nil, nil, additional.Properties{})
+			_, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), &sort, nil, nil, additional.Properties{}, "")
 			require.Nil(t, err)
 		})
 
@@ -640,8 +631,7 @@ func Test_GetAction(t *testing.T) {
 			vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, expectedSort, mock.Anything, mock.Anything,
 				mock.Anything).Return(result, nil).Once()
 
-			_, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
-				&sort, nil, nil, additional.Properties{})
+			_, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), &sort, nil, nil, additional.Properties{}, "")
 			require.Nil(t, err)
 		})
 
@@ -663,8 +653,7 @@ func Test_GetAction(t *testing.T) {
 			vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, expectedSort, mock.Anything, mock.Anything,
 				mock.Anything).Return(result, nil).Once()
 
-			_, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
-				nil, &order, nil, additional.Properties{})
+			_, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, &order, nil, additional.Properties{}, "")
 			require.Nil(t, err)
 		})
 	})
@@ -765,8 +754,7 @@ func Test_GetThing(t *testing.T) {
 			},
 		}
 
-		res, err := manager.GetObjects(context.Background(), &models.Principal{},
-			nil, nil, nil, nil, nil, additional.Properties{})
+		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, nil, nil, nil, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -899,12 +887,11 @@ func Test_GetThing(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, nil, nil,
-					additional.Properties{
-						ModuleParams: map[string]interface{}{
-							"nearestNeighbors": true,
-						},
-					})
+				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, nil, nil, additional.Properties{
+					ModuleParams: map[string]interface{}{
+						"nearestNeighbors": true,
+					},
+				}, "")
 				require.Nil(t, err)
 				assert.Equal(t, expected, res)
 			})
@@ -949,12 +936,11 @@ func Test_GetThing(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, nil, nil,
-					additional.Properties{
-						ModuleParams: map[string]interface{}{
-							"featureProjection": getDefaultParam("featureProjection"),
-						},
-					})
+				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, nil, nil, additional.Properties{
+					ModuleParams: map[string]interface{}{
+						"featureProjection": getDefaultParam("featureProjection"),
+					},
+				}, "")
 				require.Nil(t, err)
 				assert.Equal(t, expected, res)
 			})
