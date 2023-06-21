@@ -18,6 +18,8 @@ import (
 	"log"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/weaviate/weaviate-go-client/v4/weaviate/filters"
 
 	"github.com/spf13/cobra"
@@ -30,6 +32,8 @@ func init() {
 	queryCmd.PersistentFlags().IntVarP(&BatchSize, "batch-size", "b", DefaultBatchSize, "number of objects in a single import batch")
 	queryCmd.PersistentFlags().IntVarP(&QueriesCount, "count", "c", DefaultQueriesCount, "run only the specified amount of queries, negative numbers mean unlimited")
 	queryCmd.PersistentFlags().IntVarP(&FilterObjectPercentage, "filter", "f", DefaultFilterObjectPercentage, "The given percentage of objects are filtered out. Off by default, use <=0 to disable")
+	queryCmd.PersistentFlags().Float32VarP(&Alpha, "alpha", "a", DefaultAlpha, "Weighting for keyword vs vector search. Alpha = 0 (Default) is pure BM25 search.")
+	queryCmd.PersistentFlags().StringVarP(&Ranking, "ranking´", "r", DefaultRanking, "Which ranking algorithm should be used for hybrid search, rankedFusion (default) and  relativeScoreFusion.")
 }
 
 var queryCmd = &cobra.Command{
@@ -74,21 +78,30 @@ var queryCmd = &cobra.Command{
 		className := lib.ClassNameFromDatasetID(ds.ID)
 		for i, query := range q {
 			before := time.Now()
-			bm25 := &graphql.BM25ArgumentBuilder{}
-			bm25.WithQuery(query.Query)
+			var err error
+			var result *models.GraphQLResponse
 
-			bm25Query := client.GraphQL().Get().WithClassName(className).
-				WithLimit(100).WithBM25(bm25).WithFields(graphql.Field{Name: "_additional { id }"}, graphql.Field{Name: propNameWithId})
+			if Alpha == 0 {
+				bm25 := &graphql.BM25ArgumentBuilder{}
+				bm25.WithQuery(query.Query)
 
-			if FilterObjectPercentage > 0 {
-				filter := filters.Where()
-				filter.WithPath([]string{"modulo_100"})
-				filter.WithOperator(filters.GreaterThan)
-				filter.WithValueInt(int64(FilterObjectPercentage))
-				bm25Query = bm25Query.WithWhere(filter)
+				queryBuilder := client.GraphQL().Get().WithClassName(className).
+					WithLimit(100).WithBM25(bm25).WithFields(graphql.Field{Name: "_additional { id }"}, graphql.Field{Name: propNameWithId})
+
+				if FilterObjectPercentage > 0 {
+					filter := filters.Where()
+					filter.WithPath([]string{"modulo_100"})
+					filter.WithOperator(filters.GreaterThan)
+					filter.WithValueInt(int64(FilterObjectPercentage))
+					queryBuilder = queryBuilder.WithWhere(filter)
+				}
+				result, err = queryBuilder.Do(context.Background())
+			} else {
+				// use raw as go client does not support ranking for hybrid
+				rawQuery := fmt.Sprintf("{Get{%s(hybrid:{query: %q, alpha: %v, fusionType: %s}){%s _additional { id }}}}", className, query.Query, Alpha, Ranking, propNameWithId)
+				result, err = client.GraphQL().Raw().WithQuery(rawQuery).Do(context.Background())
 			}
 
-			result, err := bm25Query.Do(context.Background())
 			if err != nil {
 				return err
 			}
