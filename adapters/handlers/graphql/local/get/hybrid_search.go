@@ -69,7 +69,7 @@ func hybridOperands(classObject *graphql.Object,
 			Description: "Which properties should be included in the sparse search",
 			Type:        graphql.NewList(graphql.String),
 		},
-		"fusion_type": &graphql.InputObjectFieldConfig{
+		"fusionType": &graphql.InputObjectFieldConfig{
 			Description:  "Algorithm used for fusing results from vector and keyword search",
 			DefaultValue: fusionEnum.Values()[HybridRankedFusion].Value,
 			Type:         fusionEnum,
