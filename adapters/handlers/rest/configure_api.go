@@ -55,6 +55,7 @@ import (
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modqna "github.com/weaviate/weaviate/modules/qna-transformers"
 	modcentroid "github.com/weaviate/weaviate/modules/ref2vec-centroid"
+	modrerankertransformers "github.com/weaviate/weaviate/modules/reranker-transformers"
 	modsum "github.com/weaviate/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/weaviate/weaviate/modules/text-spellcheck"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
@@ -520,6 +521,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", "text2vec-transformers").
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modrerankertransformers.Name]; ok {
+		appState.Modules.Register(modrerankertransformers.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modrerankertransformers.Name).
 			Debug("enabled module")
 	}
 

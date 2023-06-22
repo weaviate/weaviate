@@ -474,6 +474,20 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
+  local-reranker-transformers)
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      RERANKER_INFERENCE_API="http://localhost:8008" \
+      ENABLE_MODULES="text2vec-contextionary,reranker-transformers" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
   *) 
     echo "Invalid config" 2>&1
     exit 1
