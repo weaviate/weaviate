@@ -129,7 +129,7 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, property []byte, b 
 
 	propid, err := s.propIds.GetIdForProperty(string(property))
 	if err != nil {
-		s.logger.Panicf("property '%s' not found in propLengths", property)
+		return out, fmt.Errorf("property '%s' not found in propLengths", property)
 	}
 	propid_bytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(propid_bytes, propid)

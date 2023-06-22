@@ -53,17 +53,13 @@ type DeletedDocIDChecker interface {
 	Contains(id uint64) bool
 }
 
-func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
-	schema schema.Schema,
-	propIndices propertyspecific.Indices, classSearcher ClassSearcher,
-	deletedDocIDs DeletedDocIDChecker, stopwords stopwords.StopwordDetector,
-	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
-) *Searcher {
+func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store, schema schema.Schema, propIndices propertyspecific.Indices, propIds *propertyspecific.JsonPropertyIdTracker, classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker, stopwords stopwords.StopwordDetector, shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable) *Searcher {
 	return &Searcher{
 		logger:                 logger,
 		store:                  store,
 		schema:                 schema,
 		propIndices:            propIndices,
+		propIds: 			    propIds,
 		classSearcher:          classSearcher,
 		deletedDocIDs:          deletedDocIDs,
 		stopwords:              stopwords,

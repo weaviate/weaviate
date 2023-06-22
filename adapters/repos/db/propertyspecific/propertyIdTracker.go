@@ -113,6 +113,9 @@ func (t *JsonPropertyIdTracker) Drop() error {
 }
 
 func (t *JsonPropertyIdTracker) GetIdForProperty(property string) (uint64, error) {
+	if t == nil {
+		return 0, fmt.Errorf("property id tracker not initialised\n")
+	}
 	t.Lock()
 	defer t.Unlock()
 
