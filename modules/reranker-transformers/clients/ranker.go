@@ -71,9 +71,12 @@ func (v *client) Rank(ctx context.Context,
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
-	if res.StatusCode > 399 {
-		return nil, errors.Errorf("fail with status %d: %s", res.StatusCode,
-			resBody.Error)
+	if res.StatusCode != 200 {
+		if resBody.Error != "" {
+			return nil, errors.Errorf("fail with status %d: %s", res.StatusCode,
+				resBody.Error)
+		}
+		return nil, errors.Errorf("fail with status %d", res.StatusCode)
 	}
 
 	return &ent.RankResult{
@@ -88,13 +91,13 @@ func (v *client) url(path string) string {
 }
 
 type RankInput struct {
-	RankPropertyValue string `json:"Property"`
-	Query             string `json:"Query"`
+	RankPropertyValue string `json:"property"`
+	Query             string `json:"query"`
 }
 
 type RankResponse struct {
-	RankPropertyValue string  `json:"RankPropertyValue"`
-	Query             string  `json:"Query"`
-	Score             float64 `json:"Score"`
-	Error             string  `json:"Error"`
+	RankPropertyValue string  `json:"property"`
+	Query             string  `json:"query"`
+	Score             float64 `json:"score"`
+	Error             string  `json:"error"`
 }

@@ -27,7 +27,7 @@ func Test_additionalCrossRankerField(t *testing.T) {
 	crossRanker := crossRankerProvider.additionalReRankerField(classname)
 
 	assert.NotNil(t, crossRanker)
-	assert.Equal(t, "ClassAdditionalSummary", crossRanker.Type.Name())
+	assert.Equal(t, "ClassAdditionalReranker", crossRanker.Type.Name())
 	assert.NotNil(t, crossRanker.Type)
 	crossRankerObjectList, crossRankerObjectListOK := crossRanker.Type.(*graphql.List)
 	assert.True(t, crossRankerObjectListOK)

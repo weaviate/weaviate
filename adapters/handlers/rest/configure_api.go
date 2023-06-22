@@ -524,11 +524,11 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["reranker-transformers"]; ok {
+	if _, ok := enabledModules[modrerankertransformers.Name]; ok {
 		appState.Modules.Register(modrerankertransformers.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "reranker-transformers").
+			WithField("module", modrerankertransformers.Name).
 			Debug("enabled module")
 	}
 
