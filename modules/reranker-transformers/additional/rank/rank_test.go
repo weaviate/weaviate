@@ -97,7 +97,6 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.True(t, answerOK)
 		assert.NotNil(t, answer)
 		answerAdditional, _ := answer.(ent.RankResult)
-		// assert.True(t, answerAdditionalOK)
 		assert.Equal(t, float64(0), answerAdditional.Score)
 	})
 }
@@ -107,7 +106,6 @@ type fakeRankClient struct{}
 func (c *fakeRankClient) Rank(ctx context.Context, rankpropertyValue string, query string,
 ) (*ent.RankResult, error) {
 	score := 0.15
-	// rankResult := c.getRank(rankpropertyValue, query)
 	returnResult := ent.RankResult{
 		Score:             score,
 		Query:             query,

@@ -32,7 +32,7 @@ func (p *ReRankerProvider) additionalReRankerField(classname string) *graphql.Fi
 			},
 		},
 		Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
-			Name: fmt.Sprintf("%sAdditionalSummary", classname),
+			Name: fmt.Sprintf("%sAdditionalReranker", classname),
 			Fields: graphql.Fields{
 				"score": &graphql.Field{Type: graphql.Float},
 			},
