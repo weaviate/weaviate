@@ -127,7 +127,9 @@ func (m *Manager) startupJoinCluster(ctx context.Context,
 
 	m.state = *pl.Schema
 
-	m.saveSchema(ctx, nil)
+	if err := m.saveSchema(ctx, nil); err != nil {
+		return fmt.Errorf("save schema: %w", err)
+	}
 
 	return nil
 }
@@ -155,14 +157,14 @@ func (m *Manager) validateSchemaCorruption(ctx context.Context,
 		return fmt.Errorf("unrecognized tx response payload: %T", tx.Payload)
 	}
 
-	if !Equal(localSchema, pl.Schema) {
+	if err := Equal(localSchema, pl.Schema); err != nil {
 		diff := Diff("local", localSchema, "cluster", pl.Schema)
 		m.logger.WithFields(logrusStartupSyncFields()).WithFields(logrus.Fields{
 			"diff": diff,
 		}).Errorf("mismatch between local schema and remote (other nodes consensus) schema")
 
-		return fmt.Errorf("corrupt cluster: other nodes have consensus on schema, " +
-			"but local node has a different (non-null) schema")
+		return fmt.Errorf("corrupt cluster: other nodes have consensus on schema, "+
+			"but local node has a different (non-null) schema: %w", err)
 	}
 
 	return nil
@@ -173,15 +175,7 @@ func logrusStartupSyncFields() logrus.Fields {
 }
 
 func isEmpty(schema *State) bool {
-	if schema.ObjectSchema == nil {
-		return true
-	}
-
-	if len(schema.ObjectSchema.Classes) == 0 {
-		return true
-	}
-
-	return false
+	return schema.ObjectSchema == nil || len(schema.ObjectSchema.Classes) == 0
 }
 
 func (m *Manager) clusterSyncImpossibleBecauseRemoteNodeTooOld(err error) bool {
