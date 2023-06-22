@@ -17,24 +17,42 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaent "github.com/weaviate/weaviate/entities/schema"
-	schemauc "github.com/weaviate/weaviate/usecases/schema"
+	ucs "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type fakeRepo struct {
-	schema *schemauc.State
+	schema ucs.State
 }
 
 func newFakeRepo() *fakeRepo {
-	return &fakeRepo{}
+	return &fakeRepo{
+		schema: ucs.NewState(1),
+	}
 }
 
-func (f *fakeRepo) LoadSchema(context.Context) (*schemauc.State, error) {
+func (f *fakeRepo) Save(ctx context.Context, schema ucs.State) error {
+	f.schema = schema
+	return nil
+}
+
+func (f *fakeRepo) Load(context.Context) (ucs.State, error) {
 	return f.schema, nil
 }
 
-func (f *fakeRepo) SaveSchema(ctx context.Context, schema schemauc.State) error {
-	f.schema = &schema
+func (f *fakeRepo) NewClass(context.Context, ucs.ClassPayload) error {
+	return nil
+}
+
+func (f *fakeRepo) UpdateClass(context.Context, ucs.ClassPayload) error {
+	return nil
+}
+
+func (f *fakeRepo) DeleteClass(ctx context.Context, class string) error {
+	return nil
+}
+
+func (f *fakeRepo) NewShards(ctx context.Context, class string, shards []ucs.KeyValuePair) error {
 	return nil
 }
 
