@@ -18,6 +18,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +30,8 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
+
+const metricClassPrefix = "MetricsClassPrefix"
 
 func metricsCount(t *testing.T) {
 	defer cleanupMetricsClasses(t, 0, 20)
@@ -49,7 +52,7 @@ func createImportQueryMetricsClasses(t *testing.T, start, end int) {
 
 func createMetricsClass(t *testing.T, classIndex int) {
 	createObjectClass(t, &models.Class{
-		Class:      fmt.Sprintf("MetricsClass_%d", classIndex),
+		Class:      metricsClassName(classIndex),
 		Vectorizer: "none",
 		Properties: []*models.Property{
 			{
@@ -146,7 +149,7 @@ func importMetricsClass(t *testing.T, classIndex int) {
 
 func cleanupMetricsClasses(t *testing.T, start, end int) {
 	for i := start; i < end; i++ {
-		deleteObjectClass(t, fmt.Sprintf("MetricsClass_%d", i))
+		deleteObjectClass(t, metricsClassName(i))
 	}
 }
 
@@ -176,6 +179,11 @@ func countMetricsLines(t *testing.T) int {
 	scanner := bufio.NewScanner(res.Body)
 	lineCount := 0
 	for scanner.Scan() {
+		require.NotContains(
+			t,
+			strings.ToLower(scanner.Text()),
+			strings.ToLower(metricClassPrefix),
+		)
 		lineCount++
 	}
 
@@ -185,5 +193,5 @@ func countMetricsLines(t *testing.T) int {
 }
 
 func metricsClassName(classIndex int) string {
-	return fmt.Sprintf("MetricsClass_%d", classIndex)
+	return fmt.Sprintf("%s_%d", metricClassPrefix, classIndex)
 }
