@@ -102,3 +102,11 @@ func TestLimiterCantGoNegative(t *testing.T) {
 	}
 	assert.False(t, l.TryInc())
 }
+
+func BenchmarkLimiter(b *testing.B) {
+	l := New(-1)
+	for i := 0; i < b.N; i++ {
+		l.TryInc()
+		l.Dec()
+	}
+}
