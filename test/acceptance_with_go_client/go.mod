@@ -5,8 +5,9 @@ go 1.19
 replace github.com/weaviate/weaviate v1.19.0 => ../..
 
 require (
+	github.com/google/uuid v1.3.0
 	github.com/pkg/errors v0.9.1
-	github.com/stretchr/testify v1.8.2
+	github.com/stretchr/testify v1.8.4
 	github.com/weaviate/weaviate v1.19.0
 	github.com/weaviate/weaviate-go-client/v4 v4.7.1
 )
@@ -53,7 +54,6 @@ require (
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/btree v1.0.1 // indirect
 	github.com/google/go-cmp v0.5.9 // indirect
-	github.com/google/uuid v1.3.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.1.0 // indirect
 	github.com/googleapis/gax-go/v2 v2.4.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
@@ -94,12 +94,11 @@ require (
 	github.com/rs/xid v1.2.1 // indirect
 	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 // indirect
 	github.com/sirupsen/logrus v1.9.0 // indirect
-	github.com/tailor-inc/graphql v0.1.0 // indirect
+	github.com/tailor-inc/graphql v0.4.1 // indirect
 	github.com/testcontainers/testcontainers-go v0.19.0 // indirect
 	go.mongodb.org/mongo-driver v1.11.3 // indirect
 	go.opencensus.io v0.23.0 // indirect
 	golang.org/x/crypto v0.0.0-20220622213112-05595931fe9d // indirect
-	golang.org/x/exp v0.0.0-20200224162631-6cc2880d07d6 // indirect
 	golang.org/x/net v0.7.0 // indirect
 	golang.org/x/oauth2 v0.0.0-20220822191816-0ebed06d0094 // indirect
 	golang.org/x/sync v0.1.0 // indirect

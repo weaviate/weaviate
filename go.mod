@@ -27,7 +27,7 @@ require (
 	github.com/sirupsen/logrus v1.9.0
 	github.com/spaolacci/murmur3 v1.1.0
 	github.com/square/go-jose v2.3.0+incompatible
-	github.com/stretchr/testify v1.8.2
+	github.com/stretchr/testify v1.8.4
 	github.com/testcontainers/testcontainers-go v0.19.0
 	github.com/weaviate/contextionary v1.2.1
 	github.com/willf/bloom v2.0.3+incompatible
@@ -47,7 +47,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.0.0
 	github.com/coreos/go-oidc/v3 v3.4.0
 	github.com/pkoukk/tiktoken-go v0.1.1
-	github.com/tailor-inc/graphql v0.1.0
+	github.com/tailor-inc/graphql v0.4.1
 	github.com/weaviate/sroar v0.0.0-20230210105426-26108af5465d
 	golang.org/x/text v0.7.0
 	google.golang.org/protobuf v1.30.0

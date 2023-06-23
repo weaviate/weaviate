@@ -78,7 +78,12 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, class string, id strfm
 	if ok, err := m.vectorRepo.Exists(ctx, class, id, repl, tenant); ok {
 		return "", NewErrInvalidUserInput("id '%s' already exists", id)
 	} else if err != nil {
-		return "", NewErrInternal(err.Error())
+		switch err.(type) {
+		case ErrInvalidUserInput:
+			return "", err
+		default:
+			return "", NewErrInternal(err.Error())
+		}
 	}
 	return id, nil
 }

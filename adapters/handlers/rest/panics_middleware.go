@@ -12,6 +12,7 @@
 package rest
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"runtime/debug"
@@ -21,16 +22,16 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func makeCatchPanics(logger logrus.FieldLogger) func(http.Handler) http.Handler {
+func makeCatchPanics(logger logrus.FieldLogger, metricRequestsTotal restApiRequestsTotal) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			defer handlePanics(logger, r)
+			defer handlePanics(logger, metricRequestsTotal, r)
 			next.ServeHTTP(w, r)
 		})
 	}
 }
 
-func handlePanics(logger logrus.FieldLogger, r *http.Request) {
+func handlePanics(logger logrus.FieldLogger, metricRequestsTotal restApiRequestsTotal, r *http.Request) {
 	recovered := recover()
 	if recovered == nil {
 		return
@@ -48,11 +49,13 @@ func handlePanics(logger logrus.FieldLogger, r *http.Request) {
 
 		// This was not expected, so we want to print the stack, this will help us
 		// find the source of the issue if the user sends their logs
+		metricRequestsTotal.logServerError("", fmt.Errorf("%v", recovered))
 		debug.PrintStack()
 		return
 	}
 
 	if errors.Is(err, syscall.EPIPE) {
+		metricRequestsTotal.logUserError("")
 		handleBrokenPipe(err, logger, r)
 		return
 	}
@@ -60,6 +63,7 @@ func handlePanics(logger logrus.FieldLogger, r *http.Request) {
 	var netErr net.Error
 	if errors.As(err, &netErr) {
 		if netErr.Timeout() {
+			metricRequestsTotal.logUserError("")
 			handleTimeout(netErr, logger, r)
 			return
 		}
@@ -72,6 +76,7 @@ func handlePanics(logger logrus.FieldLogger, r *http.Request) {
 	}).Errorf(err.Error())
 	// This was not expected, so we want to print the stack, this will help us
 	// find the source of the issue if the user sends their logs
+	metricRequestsTotal.logServerError("", err)
 	debug.PrintStack()
 }
 
