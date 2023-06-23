@@ -113,7 +113,7 @@ func (b *BatchManager) validateReference(ctx context.Context, principal *models.
 		err = joinErrors(errors)
 	}
 
-	if shouldValidateMultiTenantRef(tenantKey, source, target) && err == nil {
+	if err == nil && shouldValidateMultiTenantRef(tenantKey, source, target) {
 		// can only validate multi-tenancy when everything above succeeds
 		err = validateReferenceMultiTenancy(ctx, principal,
 			b.schemaManager, b.vectorRepo, source, target, tenantKey)
