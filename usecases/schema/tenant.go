@@ -22,6 +22,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+var regexTenantName = regexp.MustCompile(`[A-Za-z0-9\-]+`)
+
 // AddTenants is used to add new tenants to a class
 // Class must exit and has partitioning enabled
 func (m *Manager) AddTenants(ctx context.Context, principal *models.Principal, class string, tenants []*models.Tenant) error {
@@ -82,10 +84,9 @@ func (m *Manager) AddTenants(ctx context.Context, principal *models.Principal, c
 }
 
 func validateTenantNames(tenants []*models.Tenant) error {
-	pattern := regexp.MustCompile(`[A-Za-z0-9\-]+`)
 	for _, tenant := range tenants {
 		// currently only support alphanumeric or uuid
-		valid := pattern.MatchString(tenant.Name)
+		valid := regexTenantName.MatchString(tenant.Name)
 		if !valid {
 			return uco.NewErrInvalidUserInput("invalid tenant name %q", tenant.Name)
 		}
