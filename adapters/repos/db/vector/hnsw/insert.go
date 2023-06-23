@@ -198,7 +198,7 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	if targetLevel > h.currentMaximumLayer {
 		h.RUnlock()
 		h.Lock()
-		//check again to avoid changes from RUnlock to Lock again
+		// check again to avoid changes from RUnlock to Lock again
 		if targetLevel > h.currentMaximumLayer {
 			// before = time.Now()
 			// m.addBuildingLocking(before)
