@@ -53,8 +53,12 @@ func int32FromBytes(bytes []byte) int {
 }
 
 func BenchmarkHnswStress(b *testing.B) {
+	siftFile := "siftsmall/siftsmall_base.fvecs"
+	if _, err := os.Stat(siftFile); err != nil {
+		b.Skip("Sift data needs to be present")
+	}
 	wg := sync.WaitGroup{}
-	vectors := readSiftFloat("siftsmall_base.fvecs", parallelGoroutines*vectorsToAdd)
+	vectors := readSiftFloat(siftFile, parallelGoroutines*vectorsToAdd)
 
 	for n := 0; n < b.N; n++ {
 		index, err := New(Config{
@@ -87,7 +91,7 @@ func BenchmarkHnswStress(b *testing.B) {
 func readSiftFloat(file string, maxObjects int) [][]float32 {
 	var vectors [][]float32
 
-	f, err := os.Open("siftsmall/" + file)
+	f, err := os.Open(file)
 	if err != nil {
 		panic(errors.Wrap(err, "Could not open SIFT file"))
 	}

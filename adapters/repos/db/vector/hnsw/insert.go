@@ -155,6 +155,14 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 
 	nodeId := node.id
 
+	// There are 3 different things going on in this block:
+	// 1) A global read lock to check if we need to grow the index and only upgrade to a RW lock if yes
+	// 2) The write to the nodes-slice needs to be behind a Rlock to secure it against growing from another thread. A
+	//    RW-lock is not necessary as the node is not discoverable until the connections with the neighboring nodes have
+	//	  been established.
+	// 3) The sharded-lock secures against searches with an allowList. An object can already be added to the object
+	//    store before this insert completes and cause a race between writing to the nodes-slice and reading all nodes
+	//	  from the allowlist.
 	h.RLock()
 	previousSize := uint64(len(h.nodes))
 	if nodeId >= previousSize {
@@ -167,13 +175,16 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 				return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
 			}
 		}
+		h.shardedNodeLocks[nodeId%NodeLockStride].Lock()
+		h.nodes[nodeId] = node
+		h.shardedNodeLocks[nodeId%NodeLockStride].Unlock()
 		h.Unlock()
 	} else {
+		h.shardedNodeLocks[nodeId%NodeLockStride].Lock()
+		h.nodes[nodeId] = node
+		h.shardedNodeLocks[nodeId%NodeLockStride].Unlock()
 		h.RUnlock()
 	}
-	h.shardedNodeLocks[nodeId%NodeLockStride].Lock()
-	h.nodes[nodeId] = node
-	h.shardedNodeLocks[nodeId%NodeLockStride].Unlock()
 
 	// make sure this new vec is immediately present in the cache, so we don't
 	// have to read it from disk again
