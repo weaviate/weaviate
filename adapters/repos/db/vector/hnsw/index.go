@@ -162,6 +162,7 @@ type CommitLogger interface {
 	AddNode(node *vertex) error
 	SetEntryPointWithMaxLayer(id uint64, level int) error
 	AddLinkAtLevel(nodeid uint64, level int, target uint64) error
+	AddLinksAtLevel(nodeid uint64, level int, targets []uint64) error
 	ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error
 	AddTombstone(nodeid uint64) error
 	RemoveTombstone(nodeid uint64) error

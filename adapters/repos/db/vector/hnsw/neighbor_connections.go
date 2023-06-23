@@ -196,13 +196,13 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			return err
 		}
 
+		ids := make([]uint64, 0, candidates.Len())
 		for candidates.Len() > 0 {
 			id := candidates.Pop().ID
+			ids = append(ids, id)
 			neighbor.appendConnectionAtLevelNoLock(level, id, maximumConnections)
-			if err := n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, id); err != nil {
-				return err
-			}
 		}
+		return n.graph.commitLog.AddLinksAtLevel(neighbor.id, level, ids)
 	}
 
 	return nil
