@@ -170,6 +170,10 @@ func TestBatchAddTenantReferences(t *testing.T) {
 			resp, err = helper.GetObject(t, stObject1.Class, stObject1.ID)
 			require.Nil(t, err)
 			require.Equal(t, stObject1.Class, resp.Class)
+
+			resp, err = helper.GetObject(t, stObject2.Class, stObject2.ID)
+			require.Nil(t, err)
+			require.Equal(t, stObject2.Class, resp.Class)
 		})
 	})
 
