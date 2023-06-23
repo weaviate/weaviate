@@ -156,8 +156,8 @@ func (s *shardedLockCache) prefetch(id uint64) {
 
 //nolint:unused
 func (s *shardedLockCache) preload(id uint64, vec []float32) {
-	s.shardedLocks[id%shardFactor].RLock()
-	defer s.shardedLocks[id%shardFactor].RUnlock()
+	s.shardedLocks[id%shardFactor].Lock()
+	defer s.shardedLocks[id%shardFactor].Unlock()
 
 	atomic.AddInt64(&s.count, 1)
 	s.trackDimensionsOnce.Do(func() {
