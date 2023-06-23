@@ -173,9 +173,9 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	entrypoints priorityqueue.SortedQueue, ef int, level int,
 	allowList helpers.AllowList) (priorityqueue.SortedQueue, error,
 ) {
-	h.pools.visitedListsLock.Lock()
+	// h.pools.visitedListsLock.Lock()
 	visited := h.pools.visitedLists.Borrow()
-	h.pools.visitedListsLock.Unlock()
+	// h.pools.visitedListsLock.Unlock()
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	var results priorityqueue.SortedQueue
@@ -228,13 +228,13 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 			continue
 		}
 
-		candidateNode.Lock()
+		candidateNode.RLock()
 		if candidateNode.level < level {
 			// a node level could have been downgraded as part of a delete-reassign,
 			// but the connections pointing to it not yet cleaned up. In this case
 			// the node doesn't have any outgoing connections at this level and we
 			// must discard it.
-			candidateNode.Unlock()
+			candidateNode.RUnlock()
 			continue
 		}
 
@@ -256,7 +256,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		}
 
 		copy(connectionsReusable, candidateNode.connections[level])
-		candidateNode.Unlock()
+		candidateNode.RUnlock()
 
 		for _, neighborID := range connectionsReusable {
 
@@ -327,9 +327,9 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 
 	h.pools.pqCandidates.Put(candidates)
 
-	h.pools.visitedListsLock.Lock()
+	// h.pools.visitedListsLock.Lock()
 	h.pools.visitedLists.Return(visited)
-	h.pools.visitedListsLock.Unlock()
+	// h.pools.visitedListsLock.Unlock()
 
 	// results are passed on, so it's in the callers responsibility to return the
 	// list to the pool after using it

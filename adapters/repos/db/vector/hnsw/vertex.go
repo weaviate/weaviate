@@ -17,7 +17,7 @@ import (
 
 type vertex struct {
 	id uint64
-	sync.Mutex
+	sync.RWMutex
 	level       int
 	connections [][]uint64
 	maintenance bool
@@ -36,9 +36,9 @@ func (v *vertex) unmarkAsMaintenance() {
 }
 
 func (v *vertex) isUnderMaintenance() bool {
-	v.Lock()
+	v.RLock()
 	m := v.maintenance
-	v.Unlock()
+	v.RUnlock()
 	return m
 }
 
