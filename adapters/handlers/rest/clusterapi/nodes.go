@@ -35,7 +35,7 @@ func NewNodes(manager nodesManager) *nodes {
 
 var (
 	regxNodes      = regexp.MustCompile(`/status`)
-	regxNodesClass = regexp.MustCompile(`/status/([A-Za-z]+)`)
+	regxNodesClass = regexp.MustCompile(`/status/([A-Za-z_-]+)`)
 )
 
 func (s *nodes) Nodes() http.Handler {

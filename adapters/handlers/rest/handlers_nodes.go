@@ -12,6 +12,8 @@
 package rest
 
 import (
+	"errors"
+
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
@@ -19,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	nodesUC "github.com/weaviate/weaviate/usecases/nodes"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
@@ -31,20 +33,7 @@ type nodesHandlers struct {
 func (s *nodesHandlers) getNodesStatus(params nodes.NodesGetParams, principal *models.Principal) middleware.Responder {
 	nodeStatuses, err := s.manager.GetNodeStatus(params.HTTPRequest.Context(), principal, "")
 	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return nodes.NewNodesGetForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case enterrors.ErrUnprocessable:
-			return nodes.NewNodesGetUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
-		case enterrors.ErrNotFound:
-			return nodes.NewNodesGetNotFound().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return nodes.NewNodesGetInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
+		return handleGetNodesError(err)
 	}
 
 	status := &models.NodesStatusResponse{
@@ -57,20 +46,7 @@ func (s *nodesHandlers) getNodesStatus(params nodes.NodesGetParams, principal *m
 func (s *nodesHandlers) getNodesStatusByClass(params nodes.NodesGetClassParams, principal *models.Principal) middleware.Responder {
 	nodeStatuses, err := s.manager.GetNodeStatus(params.HTTPRequest.Context(), principal, params.ClassName)
 	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return nodes.NewNodesGetClassForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case enterrors.ErrUnprocessable:
-			return nodes.NewNodesGetClassUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
-		case enterrors.ErrNotFound:
-			return nodes.NewNodesGetClassNotFound().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return nodes.NewNodesGetClassInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
+		return handleGetNodesError(err)
 	}
 
 	status := &models.NodesStatusResponse{
@@ -78,6 +54,23 @@ func (s *nodesHandlers) getNodesStatusByClass(params nodes.NodesGetClassParams, 
 	}
 
 	return nodes.NewNodesGetOK().WithPayload(status)
+}
+
+func handleGetNodesError(err error) middleware.Responder {
+	if errors.As(err, &enterrors.ErrNotFound{}) {
+		return nodes.NewNodesGetClassNotFound().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+	if errors.As(err, &autherrs.Forbidden{}) {
+		return nodes.NewNodesGetClassForbidden().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+	if errors.As(err, &enterrors.ErrUnprocessable{}) {
+		return nodes.NewNodesGetClassUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+	return nodes.NewNodesGetClassInternalServerError().
+		WithPayload(errPayloadFromSingleErr(err))
 }
 
 func setupNodesHandlers(api *operations.WeaviateAPI,
