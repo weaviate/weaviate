@@ -45,6 +45,10 @@ func (n *NoopCommitLogger) AddLinkAtLevel(nodeid uint64, level int, target uint6
 	return nil
 }
 
+func (n *NoopCommitLogger) AddLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
+	return nil
+}
+
 func (n *NoopCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
 	return nil
 }

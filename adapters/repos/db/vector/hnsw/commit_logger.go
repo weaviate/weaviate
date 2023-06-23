@@ -344,6 +344,19 @@ func (l *hnswCommitLogger) AddLinkAtLevel(nodeid uint64, level int,
 	return l.commitLogger.AddLinkAtLevel(nodeid, level, target)
 }
 
+func (l *hnswCommitLogger) AddLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
+	l.Lock()
+	defer l.Unlock()
+
+	for _, target := range targets {
+		err := l.commitLogger.AddLinkAtLevel(nodeid, level, target)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (l *hnswCommitLogger) AddTombstone(nodeid uint64) error {
 	l.Lock()
 	defer l.Unlock()
