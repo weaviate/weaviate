@@ -29,6 +29,10 @@ func (db *DB) GetNodeStatus(ctx context.Context, className string) ([]*models.No
 		if err != nil {
 			return nil, fmt.Errorf("node: %v: %w", nodeName, err)
 		}
+		if status.Status == nil {
+			return nil, enterrors.NewErrNotFound(
+				fmt.Errorf("class %q not found", className))
+		}
 		nodeStatuses[i] = status
 	}
 
@@ -42,7 +46,7 @@ func (db *DB) getNodeStatus(ctx context.Context, nodeName string, className stri
 	if db.schemaGetter.NodeName() == nodeName {
 		return db.localNodeStatus(className), nil
 	}
-	status, err := db.remoteNode.GetNodeStatus(ctx, nodeName, "")
+	status, err := db.remoteNode.GetNodeStatus(ctx, nodeName, className)
 	if err != nil {
 		switch err.(type) {
 		case enterrors.ErrOpenHttpRequest, enterrors.ErrSendHttpRequest:
@@ -65,6 +69,11 @@ func (db *DB) localNodeStatus(className string) *models.NodeStatus {
 		objectCount int64
 		shards      []*models.NodeShardStatus
 	)
+
+	if className != "" && db.GetIndex(schema.ClassName(className)) == nil {
+		// class not found
+		return &models.NodeStatus{}
+	}
 
 	if className == "" {
 		objectCount = db.localNodeStatusAll(&shards)
@@ -92,6 +101,7 @@ func (db *DB) localNodeStatus(className string) *models.NodeStatus {
 
 func (db *DB) localNodeStatusAll(status *[]*models.NodeShardStatus) (totalCount int64) {
 	db.indexLock.RLock()
+	defer db.indexLock.RUnlock()
 	for name, idx := range db.indices {
 		if idx == nil {
 			db.logger.WithField("action", "local_node_status_for_all").
@@ -100,7 +110,6 @@ func (db *DB) localNodeStatusAll(status *[]*models.NodeShardStatus) (totalCount 
 		}
 		totalCount += idx.getShardsNodeStatus(status)
 	}
-	db.indexLock.RUnlock()
 	return
 }
 
@@ -111,8 +120,7 @@ func (db *DB) localNodeStatusForClass(status *[]*models.NodeShardStatus,
 	if idx == nil {
 		db.logger.WithField("action", "local_node_status_for_class").
 			Warningf("no index found for class %q", className)
-		// Fallback to returning all classes
-		return db.localNodeStatusAll(status)
+		return 0
 	}
 	return idx.getShardsNodeStatus(status)
 }
