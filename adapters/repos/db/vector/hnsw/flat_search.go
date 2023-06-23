@@ -33,6 +33,9 @@ func (h *hnsw) flatSearch(queryVector []float32, limit int,
 			h.RUnlock()
 			continue
 		}
+		if len(h.nodes) < int(candidate) { // if index hasn't grown yet for a newly inserted node
+			continue
+		}
 		c := h.nodes[candidate]
 		if c == nil || h.hasTombstone(candidate) {
 			h.RUnlock()
