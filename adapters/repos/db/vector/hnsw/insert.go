@@ -155,18 +155,16 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 
 	nodeId := node.id
 
-	// before = time.Now()
 	h.Lock()
-	// m.addBuildingLocking(before)
 	err := h.growIndexToAccomodateNode(node.id, h.logger)
 	if err != nil {
 		h.Unlock()
 		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
 	}
+	h.nodes[nodeId] = node
 	h.Unlock()
-
-	// // make sure this new vec is immediately present in the cache, so we don't
-	// // have to read it from disk again
+	// make sure this new vec is immediately present in the cache, so we don't
+	// have to read it from disk again
 	if h.compressed.Load() {
 		compressed := h.pq.Encode(nodeVec)
 		h.storeCompressedVector(node.id, compressed)
@@ -174,10 +172,6 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	} else {
 		h.cache.preload(node.id, nodeVec)
 	}
-
-	h.Lock()
-	h.nodes[nodeId] = node
-	h.Unlock()
 
 	h.insertMetrics.prepareAndInsertNode(before)
 	before = time.Now()
