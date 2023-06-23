@@ -155,14 +155,23 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 
 	nodeId := node.id
 
-	h.Lock()
-	err := h.growIndexToAccomodateNode(node.id, h.logger)
-	if err != nil {
+	h.RLock()
+	previousSize := uint64(len(h.nodes))
+	if nodeId >= previousSize {
+		h.RUnlock()
+		h.Lock()
+		if nodeId >= previousSize {
+			err := h.growIndexToAccomodateNode(node.id, h.logger)
+			if err != nil {
+				h.Unlock()
+				return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
+			}
+		}
 		h.Unlock()
-		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
+	} else {
+		h.RUnlock()
 	}
 	h.nodes[nodeId] = node
-	h.Unlock()
 
 	// make sure this new vec is immediately present in the cache, so we don't
 	// have to read it from disk again
@@ -177,6 +186,7 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	h.insertMetrics.prepareAndInsertNode(before)
 	before = time.Now()
 
+	var err error
 	entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
 		entryPointID, nodeVec)
 	if err != nil {
