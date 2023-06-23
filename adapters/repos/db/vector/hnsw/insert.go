@@ -161,6 +161,9 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	h.Unlock()
 	// make sure this new vec is immediately present in the cache, so we don't
 	// have to read it from disk again
+
+	h.nodes[nodeId] = node
+	h.Unlock()
 	if h.compressed.Load() {
 		compressed := h.pq.Encode(nodeVec)
 		h.storeCompressedVector(node.id, compressed)
@@ -193,19 +196,26 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	// go h.insertHook(nodeId, targetLevel, neighborsAtLevel)
 	node.unmarkAsMaintenance()
 
-	h.Lock()
+	h.RLock()
 	if targetLevel > h.currentMaximumLayer {
-		// before = time.Now()
-		// m.addBuildingLocking(before)
-		if err := h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel); err != nil {
-			h.Unlock()
-			return err
-		}
+		h.RUnlock()
+		h.Lock()
+		//check again to avoid changes from RUnlock to Lock again
+		if targetLevel > h.currentMaximumLayer {
+			// before = time.Now()
+			// m.addBuildingLocking(before)
+			if err := h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel); err != nil {
+				h.Unlock()
+				return err
+			}
 
-		h.entryPointID = nodeId
-		h.currentMaximumLayer = targetLevel
+			h.entryPointID = nodeId
+			h.currentMaximumLayer = targetLevel
+		}
+		h.Unlock()
+	} else {
+		h.RUnlock()
 	}
-	h.Unlock()
 
 	return nil
 }
