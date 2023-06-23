@@ -31,6 +31,8 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+const NodeLockStride = uint64(512)
+
 type hnsw struct {
 	// global lock to prevent concurrent map read/write, etc.
 	sync.RWMutex
@@ -156,6 +158,7 @@ type hnsw struct {
 	className              string
 	shardName              string
 	VectorForIDThunk       VectorForID
+	shardedNodeLocks       []sync.RWMutex
 }
 
 type CommitLogger interface {
@@ -266,6 +269,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCleanupCycle cyclemanager.Cycle
 		VectorForIDThunk:     cfg.VectorForIDThunk,
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 		pqConfig:             uc.PQ,
+		shardedNodeLocks:     make([]sync.RWMutex, NodeLockStride),
 	}
 
 	// TODO common_cycle_manager move to poststartup?
@@ -274,6 +278,10 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCleanupCycle cyclemanager.Cycle
 
 	if err := index.init(cfg); err != nil {
 		return nil, errors.Wrapf(err, "init index %q", index.id)
+	}
+
+	for i := uint64(0); i < NodeLockStride; i++ {
+		index.shardedNodeLocks[i] = sync.RWMutex{}
 	}
 
 	return index, nil
