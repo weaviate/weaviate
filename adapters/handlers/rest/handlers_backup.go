@@ -13,16 +13,19 @@ package rest
 
 import (
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/backups"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type backupHandlers struct {
-	manager *ubak.Scheduler
+	manager             *ubak.Scheduler
+	metricRequestsTotal restApiRequestsTotal
 }
 
 func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
@@ -36,6 +39,7 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 	}
 	meta, err := s.manager.Backup(params.HTTPRequest.Context(), principal, &req)
 	if err != nil {
+		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
 		case errors.Forbidden:
 			return backups.NewBackupsCreateForbidden().
@@ -49,6 +53,7 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 		}
 	}
 
+	s.metricRequestsTotal.logOk("")
 	return backups.NewBackupsCreateOK().WithPayload(meta)
 }
 
@@ -57,6 +62,7 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 ) middleware.Responder {
 	status, err := s.manager.BackupStatus(params.HTTPRequest.Context(), principal, params.Backend, params.ID)
 	if err != nil {
+		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
 		case errors.Forbidden:
 			return backups.NewBackupsCreateStatusForbidden().
@@ -81,6 +87,7 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 		Backend: params.Backend,
 		Error:   status.Err,
 	}
+	s.metricRequestsTotal.logOk("")
 	return backups.NewBackupsCreateStatusOK().WithPayload(&payload)
 }
 
@@ -95,6 +102,7 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 	}
 	meta, err := s.manager.Restore(params.HTTPRequest.Context(), principal, &req)
 	if err != nil {
+		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
 		case errors.Forbidden:
 			return backups.NewBackupsRestoreForbidden().
@@ -111,6 +119,7 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 		}
 	}
 
+	s.metricRequestsTotal.logOk("")
 	return backups.NewBackupsRestoreOK().WithPayload(meta)
 }
 
@@ -120,6 +129,7 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 	status, err := s.manager.RestorationStatus(
 		params.HTTPRequest.Context(), principal, params.Backend, params.ID)
 	if err != nil {
+		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
 		case errors.Forbidden:
 			return backups.NewBackupsRestoreForbidden().
@@ -143,13 +153,14 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 		Backend: params.Backend,
 		Error:   status.Err,
 	}
+	s.metricRequestsTotal.logOk("")
 	return backups.NewBackupsRestoreStatusOK().WithPayload(&payload)
 }
 
 func setupBackupHandlers(api *operations.WeaviateAPI,
-	scheduler *ubak.Scheduler,
+	scheduler *ubak.Scheduler, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
 ) {
-	h := &backupHandlers{scheduler}
+	h := &backupHandlers{scheduler, newBackupRequestsTotal(metrics, logger)}
 	api.BackupsBackupsCreateHandler = backups.
 		BackupsCreateHandlerFunc(h.createBackup)
 	api.BackupsBackupsCreateStatusHandler = backups.
@@ -158,4 +169,25 @@ func setupBackupHandlers(api *operations.WeaviateAPI,
 		BackupsRestoreHandlerFunc(h.restoreBackup)
 	api.BackupsBackupsRestoreStatusHandler = backups.
 		BackupsRestoreStatusHandlerFunc(h.restoreBackupStatus)
+}
+
+type backupRequestsTotal struct {
+	*restApiRequestsTotalImpl
+}
+
+func newBackupRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger) restApiRequestsTotal {
+	return &backupRequestsTotal{
+		restApiRequestsTotalImpl: &restApiRequestsTotalImpl{newRequestsTotalMetric(metrics, "rest"), "rest", "backup", logger},
+	}
+}
+
+func (e *backupRequestsTotal) logError(className string, err error) {
+	switch err.(type) {
+	case errors.Forbidden:
+		e.logUserError(className)
+	case backup.ErrUnprocessable, backup.ErrNotFound:
+		e.logUserError(className)
+	default:
+		e.logServerError(className, err)
+	}
 }

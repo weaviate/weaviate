@@ -13,10 +13,10 @@ package traverser
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -30,7 +30,7 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 		// we currently have no concept of error status code or typed errors in
 		// GraphQL, so there is no other way then to send a message containing what
 		// we want to convey
-		return nil, fmt.Errorf("429 Too many requests")
+		return nil, enterrors.NewErrRateLimit()
 	}
 
 	defer t.ratelimiter.Dec()
@@ -46,7 +46,7 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 
 	unlock, err := t.locks.LockConnector()
 	if err != nil {
-		return nil, fmt.Errorf("could not acquire lock: %v", err)
+		return nil, enterrors.NewErrLockConnector(err)
 	}
 	defer unlock()
 

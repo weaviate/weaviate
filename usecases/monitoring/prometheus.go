@@ -40,6 +40,7 @@ type PrometheusMetrics struct {
 	VectorIndexMaintenanceDurations    *prometheus.SummaryVec
 	ObjectCount                        *prometheus.GaugeVec
 	QueriesCount                       *prometheus.GaugeVec
+	RequestsTotal                      *prometheus.GaugeVec
 	QueriesDurations                   *prometheus.HistogramVec
 	QueriesFilteredVectorDurations     *prometheus.SummaryVec
 	QueryDimensions                    *prometheus.CounterVec
@@ -103,6 +104,11 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "concurrent_queries_count",
 			Help: "Number of concurrently running query operations",
 		}, []string{"class_name", "query_type"}),
+
+		RequestsTotal: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "requests_total",
+			Help: "Number of all requests made",
+		}, []string{"status", "class_name", "api", "query_type"}),
 
 		QueriesDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "queries_durations_ms",

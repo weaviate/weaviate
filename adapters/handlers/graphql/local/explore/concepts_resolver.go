@@ -18,6 +18,7 @@ import (
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -66,6 +67,14 @@ func newResolver(modulesProvider ModulesProvider) *resolver {
 }
 
 func (r *resolver) resolve(p graphql.ResolveParams) (interface{}, error) {
+	result, err := r.resolveExplore(p)
+	if err != nil {
+		return result, enterrors.NewErrGraphQLUser(err, "Explore", "")
+	}
+	return result, nil
+}
+
+func (r *resolver) resolveExplore(p graphql.ResolveParams) (interface{}, error) {
 	resources, err := newResources(p.Source)
 	if err != nil {
 		return nil, err
