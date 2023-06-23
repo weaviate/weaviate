@@ -163,11 +163,9 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	}
 	h.nodes[nodeId] = node
 	h.Unlock()
+
 	// make sure this new vec is immediately present in the cache, so we don't
 	// have to read it from disk again
-
-	h.nodes[nodeId] = node
-	h.Unlock()
 	if h.compressed.Load() {
 		compressed := h.pq.Encode(nodeVec)
 		h.storeCompressedVector(node.id, compressed)
