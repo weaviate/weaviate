@@ -167,7 +167,9 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	} else {
 		h.RUnlock()
 	}
+	h.shardedNodeLocks[nodeId%NodeLockStride].Lock()
 	h.nodes[nodeId] = node
+	h.shardedNodeLocks[nodeId%NodeLockStride].Unlock()
 
 	// make sure this new vec is immediately present in the cache, so we don't
 	// have to read it from disk again
