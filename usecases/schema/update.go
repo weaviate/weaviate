@@ -117,12 +117,24 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 		return errors.Wrap(err, "inverted index config")
 	}
 
+	m.shardingStateLock.RLock()
 	initial := m.getClassByName(className)
+	m.shardingStateLock.RUnlock()
+
 	if initial == nil {
 		return ErrNotFound
 	}
 
+	m.shardingStateLock.Lock()
 	*initial = *updated
+	m.shardingStateLock.Unlock()
+
+	payload, err := CreateClassPayload(updated, updatedShardingState)
+	if err != nil {
+		return err
+	}
+	payload.ReplaceShards = updatedShardingState != nil
+	// can be improved by updating the diff
 
 	if updatedShardingState != nil {
 		// do not override if transaction does not contain an updated state
@@ -134,8 +146,17 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 		m.state.ShardingState[className] = updatedShardingState
 		m.shardingStateLock.Unlock()
 	}
+	m.logger.
+		WithField("action", "schema.update_class").
+		Debug("saving updated schema to configuration store")
 
-	return m.saveSchema(ctx, nil)
+	// payload.Shards
+	if err := m.repo.UpdateClass(ctx, payload); err != nil {
+		return err
+	}
+	m.triggerSchemaUpdateCallbacks()
+
+	return nil
 }
 
 func (m *Manager) validateImmutableFields(initial, updated *models.Class) error {
@@ -202,67 +223,4 @@ func (m *Manager) UpdateShardStatus(ctx context.Context, principal *models.Princ
 	}
 
 	return m.migrator.UpdateShardStatus(ctx, className, shardName, targetStatus)
-}
-
-// Below here is old - to be deleted
-
-// UpdateObject which exists
-func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
-	name string, class *models.Class,
-) error {
-	err := m.Authorizer.Authorize(principal, "update", "schema/objects")
-	if err != nil {
-		return err
-	}
-
-	return m.updateClass(ctx, name, class)
-}
-
-// TODO: gh-832: Implement full capabilities, not just keywords/naming
-func (m *Manager) updateClass(ctx context.Context, className string,
-	class *models.Class,
-) error {
-	m.Lock()
-	defer m.Unlock()
-
-	var newName *string
-
-	if class.Class != className {
-		// the name in the URI and body don't match, so we assume the user wants to rename
-		n := schema.UppercaseClassName(class.Class)
-		newName = &n
-	}
-
-	var err error
-	class, err = schema.GetClassByName(m.state.ObjectSchema, className)
-	if err != nil {
-		return err
-	}
-
-	classNameAfterUpdate := className
-
-	// First validate the request
-	if newName != nil {
-		err = m.validateClassNameUniqueness(*newName)
-		classNameAfterUpdate = *newName
-		if err != nil {
-			return err
-		}
-	}
-
-	// Validate name / keywords in contextionary
-	if err = m.validateClassName(ctx, classNameAfterUpdate); err != nil {
-		return err
-	}
-
-	// Validated! Now apply the changes.
-	class.Class = classNameAfterUpdate
-
-	err = m.saveSchema(ctx, nil)
-
-	if err != nil {
-		return nil
-	}
-
-	return m.migrator.UpdateClass(ctx, className, newName)
 }

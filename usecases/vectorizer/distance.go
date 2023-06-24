@@ -44,5 +44,5 @@ func cosineSim(a, b []float32) (float32, error) {
 		sumBSquare += float64(b[i] * b[i])
 	}
 
-	return float32(sumProduct / (math.Sqrt(sumASquare) * math.Sqrt(sumBSquare))), nil
+	return float32(sumProduct / (math.Sqrt(sumASquare * sumBSquare))), nil
 }
