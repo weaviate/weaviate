@@ -131,6 +131,11 @@ func makeResolveClass(modulesProvider ModulesProvider, class *models.Class) grap
 			hybridParams = p
 		}
 
+		var tenantKey string
+		if tk, ok := p.Args["tenantKey"]; ok {
+			tenantKey = tk.(string)
+		}
+
 		params := &aggregation.Params{
 			Filters:          filters,
 			ClassName:        className,
@@ -143,6 +148,7 @@ func makeResolveClass(modulesProvider ModulesProvider, class *models.Class) grap
 			NearObject:       nearObjectParams,
 			ModuleParams:     moduleParams,
 			Hybrid:           hybridParams,
+			TenantKey:        tenantKey,
 		}
 
 		// we might support objectLimit without nearMedia filters later, e.g. with sort

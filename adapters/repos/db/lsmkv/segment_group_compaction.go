@@ -190,8 +190,8 @@ func (sg *SegmentGroup) compactOnce() error {
 			level, scratchSpacePath)
 
 		if sg.metrics != nil {
-			sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": sg.dir}).Set(1)
-			defer sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": sg.dir}).Set(0)
+			sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(1)
+			defer sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(0)
 		}
 
 		if err := c.Do(); err != nil {
