@@ -9,16 +9,13 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package get
+package schema
 
-import (
-	"github.com/tailor-inc/graphql"
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
-)
+import "github.com/weaviate/weaviate/entities/models"
 
-func tenantKeyArgument() *graphql.ArgumentConfig {
-	return &graphql.ArgumentConfig{
-		Description: descriptions.TenantKey,
-		Type:        graphql.String,
+func MultiTenancyEnabled(class *models.Class) bool {
+	if class.MultiTenancyConfig != nil {
+		return class.MultiTenancyConfig.Enabled
 	}
+	return false
 }

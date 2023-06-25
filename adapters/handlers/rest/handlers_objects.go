@@ -197,7 +197,8 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 	var deprecationsRes []*models.Deprecation
 
 	list, err := h.manager.GetObjects(params.HTTPRequest.Context(), principal,
-		params.Offset, params.Limit, params.Sort, params.Order, params.After, additional, "")
+		params.Offset, params.Limit, params.Sort, params.Order, params.After, additional,
+		getTenantKey(params.Tenant))
 	if err != nil {
 		switch err.(type) {
 		case autherrs.Forbidden:
@@ -239,6 +240,7 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 		After:      params.After,
 		Sort:       params.Sort,
 		Order:      params.Order,
+		TenantKey:  params.Tenant,
 		Additional: additional,
 	}
 	resultSet, rerr := h.manager.Query(params.HTTPRequest.Context(), principal, &req)

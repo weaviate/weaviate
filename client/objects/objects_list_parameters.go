@@ -119,6 +119,12 @@ type ObjectsListParams struct {
 	*/
 	Sort *string
 
+	/* Tenant.
+
+	   Specifies the tenant in a request targeting a multi-tenant class
+	*/
+	Tenant *string
+
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -260,6 +266,17 @@ func (o *ObjectsListParams) SetSort(sort *string) {
 	o.Sort = sort
 }
 
+// WithTenant adds the tenant to the objects list params
+func (o *ObjectsListParams) WithTenant(tenant *string) *ObjectsListParams {
+	o.SetTenant(tenant)
+	return o
+}
+
+// SetTenant adds the tenant to the objects list params
+func (o *ObjectsListParams) SetTenant(tenant *string) {
+	o.Tenant = tenant
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -382,6 +399,23 @@ func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.R
 		if qSort != "" {
 
 			if err := r.SetQueryParam("sort", qSort); err != nil {
+				return err
+			}
+		}
+	}
+
+	if o.Tenant != nil {
+
+		// query param tenant
+		var qrTenant string
+
+		if o.Tenant != nil {
+			qrTenant = *o.Tenant
+		}
+		qTenant := qrTenant
+		if qTenant != "" {
+
+			if err := r.SetQueryParam("tenant", qTenant); err != nil {
 				return err
 			}
 		}

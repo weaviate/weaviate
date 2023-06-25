@@ -1898,6 +1898,9 @@
           },
           {
             "$ref": "#/parameters/CommonClassParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {

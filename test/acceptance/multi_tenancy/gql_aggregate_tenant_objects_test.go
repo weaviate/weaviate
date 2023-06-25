@@ -167,7 +167,7 @@ func TestGQLAggregateTenantObjects_InvalidTenantKey(t *testing.T) {
 
 	t.Run("non-existent tenant key", func(t *testing.T) {
 		query := fmt.Sprintf(`{Aggregate{%s(tenantKey:"DNE"){meta{count}}}}`, testClass.Class)
-		expected := `shard DNE: class MultiTenantClass has no physical shard "DNE"`
+		expected := `no tenant found with key: "DNE"`
 		testAggregateTenantFailure(t, testClass.Class, query, expected)
 	})
 }
