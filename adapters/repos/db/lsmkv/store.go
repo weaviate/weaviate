@@ -131,10 +131,10 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string,
 	opts ...BucketOption,
 ) error {
 	fmt.Println("Requested CreateOrLoadBucket", bucketFile, "in shard", s.dir)
-	fmt.Println("Existing buckets:")
-	for k := range s.bucketsByName {
-		fmt.Println(k)
-	}
+	//fmt.Println("Existing buckets:")
+	//for k := range s.bucketsByName {
+	//	fmt.Println(k)
+	//}
 
 	/*
 		if strings.Contains(bucketFile, "_id") {

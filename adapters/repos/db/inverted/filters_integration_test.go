@@ -28,6 +28,8 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 )
 
 const (
@@ -37,11 +39,23 @@ const (
 func Test_Filters_String(t *testing.T) {
 	dirName := t.TempDir()
 
+	
 	logger, _ := test.NewNullLogger()
+	//propLengths, err:= NewJsonPropertyLengthTracker("tempfile_propertyLengths", logger)
+	//require.Nil(t, err)
 	store, err := lsmkv.New(dirName, "", logger, nil)
 	require.Nil(t, err)
 
+	propIds, err := propertyspecific.NewJsonPropertyIdTracker("tempfile_propertyIds")
+	require.Nil(t, err)
 	propName := "inverted-with-frequency"
+	propId, err := propIds.CreateProperty(propName)
+	require.Nil(t, err)
+
+
+
+
+
 	bucketName := "searchable_properties"
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
 		bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
@@ -71,7 +85,9 @@ func Test_Filters_String(t *testing.T) {
 		for value, ids := range fakeInvertedIndex {
 			idsMapValues := idsToBinaryMapValues(ids)
 			for _, pair := range idsMapValues {
-				require.Nil(t, bWithFrequency.MapSet([]byte(value), pair))
+				propid_bytes := make([]byte, 8)
+				binary.LittleEndian.PutUint64(propid_bytes, propId)
+				require.Nil(t, bWithFrequency.MapSetProp(propid_bytes, []byte(value), pair))
 			}
 		}
 
@@ -79,7 +95,7 @@ func Test_Filters_String(t *testing.T) {
 	})
 
 	searcher := NewSearcher(logger, store, createSchema(),
-		nil, nil,  nil, nil, fakeStopwordDetector{}, 2, func() bool { return false })
+		nil, propIds, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false })
 
 	type test struct {
 		name                     string
@@ -305,7 +321,7 @@ func Test_Filters_Int(t *testing.T) {
 	require.Nil(t, err)
 
 	propName := "inverted-without-frequency"
-	bucketName := helpers.BucketFromPropNameLSM(propName)
+	bucketName := "filterable_properties"
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
 		bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
 	bucket := store.Bucket(bucketName)
@@ -523,7 +539,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	})
 
 	searcher := NewSearcher(logger, store, createSchema(),
-		nil,nil,  nil, nil, fakeStopwordDetector{}, 2, func() bool { return false })
+		nil, nil, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false })
 
 	type test struct {
 		name                     string
@@ -572,8 +588,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Run("before update", func(t *testing.T) {
-				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, className)
+				res, err := searcher.DocIDs(context.Background(), test.filter, additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
 			})

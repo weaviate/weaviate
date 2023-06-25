@@ -13,7 +13,6 @@ package db
 
 import (
 	"encoding/binary"
-	"fmt"
 	"math"
 
 	"github.com/weaviate/weaviate/entities/filters"
@@ -173,7 +172,6 @@ func (s *Shard) addToPropertyMapBucket(property []byte, bucket *lsmkv.Bucket, pa
 	if err != nil {
 		s.index.logger.Panicf("property '%s' not found in propLengths", property)
 	}
-	fmt.Printf("propid: %d\n", propid)
 	propid_bytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(propid_bytes, propid)
 

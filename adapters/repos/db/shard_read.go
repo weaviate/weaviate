@@ -176,8 +176,8 @@ func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 		if filters != nil {
 			objs, err = inverted.NewSearcher(s.index.logger, s.store,
-				s.index.getSchema.GetSchemaSkipAuth(),
-				s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
+				s.index.getSchema.GetSchemaSkipAuth(), 
+				s.propertyIndices,s.propIds, s.index.classSearcher, s.deletedDocIDs,
 				s.index.stopwords, s.versioner.Version(), s.isFallbackToSearchable).
 				DocIDs(ctx, filters, additional, s.index.Config.ClassName)
 			if err != nil {
@@ -208,7 +208,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 	objs, err := inverted.NewSearcher(s.index.logger, s.store,
 		s.index.getSchema.GetSchemaSkipAuth(),
-		s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
+		s.propertyIndices, s.propIds,s.index.classSearcher, s.deletedDocIDs,
 		s.index.stopwords, s.versioner.Version(), s.isFallbackToSearchable).
 		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName)
 	return objs, nil, err
@@ -377,7 +377,7 @@ func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter
 ) (helpers.AllowList, error) {
 	list, err := inverted.NewSearcher(s.index.logger, s.store,
 		s.index.getSchema.GetSchemaSkipAuth(),
-		s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
+		s.propertyIndices, s.propIds, s.index.classSearcher, s.deletedDocIDs,
 		s.index.stopwords, s.versioner.Version(), s.isFallbackToSearchable).
 		DocIDs(ctx, filters, addl, s.index.Config.ClassName)
 	if err != nil {

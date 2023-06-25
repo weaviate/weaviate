@@ -344,7 +344,6 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 		if err != nil {
 			panic(fmt.Sprintf("property '%s' not found in propLengths", propName))
 		}
-		fmt.Printf("bm25f propid: %d\n", propid)
 		propid_bytes := make([]byte, 8)
 		binary.LittleEndian.PutUint64(propid_bytes, propid)
 

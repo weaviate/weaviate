@@ -562,7 +562,7 @@ func (b *Bucket) MapListProp(propertyid []byte, keypart []byte, cfgs ...MapListO
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	fmt.Printf("maplistprop: searching for propertyid %s, keypart %s\n", propertyid, keypart)
+	//fmt.Printf("maplistprop: searching for propertyid %s, keypart %s\n", propertyid, keypart)
 
 	key := helpers.MakePropertyKey(propertyid, keypart)
 
@@ -586,6 +586,29 @@ func (b *Bucket) MapListProp(propertyid []byte, keypart []byte, cfgs ...MapListO
 func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
+
+	return b.active.appendMapSorted(rowKey, kv)
+}
+
+// MapSetProp writes one [MapPair] into the map for the given row key and property. It is
+// agnostic of whether the row key already exists, as well as agnostic of
+// whether the map key already exists. In both cases it will create the entry
+// if it does not exist or override if it does.
+//
+// Example to add a new MapPair:
+//
+//	pair := MapPair{Key: []byte("Jane"), Value: []byte("Backend")}
+//	err := bucket.MapSet([]byte("developers"), pair)
+//	if err != nil {
+//		/* do something */
+//	}
+//
+// MapSet is specific to the Map Strategy, for Replace use [Bucket.Put], and for Set use [Bucket.SetAdd] instead.
+func (b *Bucket) MapSetProp(property, keyBytes []byte, kv MapPair) error {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	rowKey := helpers.MakePropertyKey(property, keyBytes)
 
 	return b.active.appendMapSorted(rowKey, kv)
 }

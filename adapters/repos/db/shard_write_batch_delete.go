@@ -146,7 +146,7 @@ func (s *Shard) findDocIDs(ctx context.Context,
 	filters *filters.LocalFilter,
 ) ([]uint64, error) {
 	allowList, err := inverted.NewSearcher(s.index.logger, s.store,
-		s.index.getSchema.GetSchemaSkipAuth(), nil,
+		s.index.getSchema.GetSchemaSkipAuth(), s.propertyIndices, s.propIds,
 		s.index.classSearcher, s.deletedDocIDs, s.index.stopwords,
 		s.versioner.version, s.isFallbackToSearchable).
 		DocIDs(ctx, filters, additional.Properties{}, s.index.Config.ClassName)
