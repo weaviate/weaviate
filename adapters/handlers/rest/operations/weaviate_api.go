@@ -108,6 +108,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		NodesNodesGetHandler: nodes.NodesGetHandlerFunc(func(params nodes.NodesGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation nodes.NodesGet has not yet been implemented")
 		}),
+		NodesNodesGetClassHandler: nodes.NodesGetClassHandlerFunc(func(params nodes.NodesGetClassParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation nodes.NodesGetClass has not yet been implemented")
+		}),
 		ObjectsObjectsClassDeleteHandler: objects.ObjectsClassDeleteHandlerFunc(func(params objects.ObjectsClassDeleteParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation objects.ObjectsClassDelete has not yet been implemented")
 		}),
@@ -281,6 +284,8 @@ type WeaviateAPI struct {
 	MetaMetaGetHandler meta.MetaGetHandler
 	// NodesNodesGetHandler sets the operation handler for the nodes get operation
 	NodesNodesGetHandler nodes.NodesGetHandler
+	// NodesNodesGetClassHandler sets the operation handler for the nodes get class operation
+	NodesNodesGetClassHandler nodes.NodesGetClassHandler
 	// ObjectsObjectsClassDeleteHandler sets the operation handler for the objects class delete operation
 	ObjectsObjectsClassDeleteHandler objects.ObjectsClassDeleteHandler
 	// ObjectsObjectsClassGetHandler sets the operation handler for the objects class get operation
@@ -468,6 +473,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.NodesNodesGetHandler == nil {
 		unregistered = append(unregistered, "nodes.NodesGetHandler")
+	}
+	if o.NodesNodesGetClassHandler == nil {
+		unregistered = append(unregistered, "nodes.NodesGetClassHandler")
 	}
 	if o.ObjectsObjectsClassDeleteHandler == nil {
 		unregistered = append(unregistered, "objects.ObjectsClassDeleteHandler")
@@ -718,6 +726,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/nodes"] = nodes.NewNodesGet(o.context, o.NodesNodesGetHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/nodes/{className}"] = nodes.NewNodesGetClass(o.context, o.NodesNodesGetClassHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}

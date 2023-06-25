@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
@@ -86,6 +87,42 @@ func TestGQLAggregateTenantObjects(t *testing.T) {
 	t.Run("GQL Aggregate tenant objects", func(t *testing.T) {
 		testAggregateTenantSuccess(t, testClass.Class, tenantName1, numTenantObjs1)
 		testAggregateTenantSuccess(t, testClass.Class, tenantName2, numTenantObjs2)
+	})
+
+	t.Run("Get global tenant objects count", func(t *testing.T) {
+		params := nodes.NewNodesGetClassParams().WithClassName(testClass.Class)
+		resp, err := helper.Client(t).Nodes.NodesGetClass(params, nil)
+		require.Nil(t, err)
+
+		payload := resp.GetPayload()
+		require.NotNil(t, payload)
+		require.NotNil(t, payload.Nodes)
+		require.Len(t, payload.Nodes, 1)
+
+		node := payload.Nodes[0]
+		require.NotNil(t, node)
+		assert.Equal(t, models.NodeStatusStatusHEALTHY, *node.Status)
+		assert.True(t, len(node.Name) > 0)
+		assert.True(t, node.GitHash != "" && node.GitHash != "unknown")
+		assert.Len(t, node.Shards, 2)
+
+		shardCount := map[string]int64{
+			tenantName1: int64(numTenantObjs1),
+			tenantName2: int64(numTenantObjs2),
+		}
+
+		for _, shard := range node.Shards {
+			count, ok := shardCount[shard.Name]
+			require.True(t, ok, "expected shard %q to be in %+v",
+				shard.Name, []string{tenantName1, tenantName2})
+
+			assert.Equal(t, testClass.Class, shard.Class)
+			assert.Equal(t, count, shard.ObjectCount)
+		}
+
+		require.NotNil(t, node.Stats)
+		assert.Equal(t, int64(numTenantObjs1+numTenantObjs2), node.Stats.ObjectCount)
+		assert.Equal(t, int64(2), node.Stats.ShardCount)
 	})
 }
 
