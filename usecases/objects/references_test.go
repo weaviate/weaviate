@@ -24,16 +24,17 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func Test_ReferencesAddDeprecated(t *testing.T) {
 	cls := "Zoo"
-
+	id := strfmt.UUID("my-id")
 	t.Run("without prior refs", func(t *testing.T) {
 		req := AddReferenceInput{
-			ID:       strfmt.UUID("my-id"),
+			ID:       id,
 			Property: "hasAnimals",
 			Ref: models.SingleRef{
 				Beacon: strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
@@ -47,11 +48,10 @@ func Test_ReferencesAddDeprecated(t *testing.T) {
 				"name": "MyZoo",
 			},
 		}, nil)
-		expectedRef := &models.SingleRef{
-			Beacon: strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
-		}
 		expectedRefProperty := "hasAnimals"
-		m.repo.On("AddReference", cls, mock.Anything, expectedRefProperty, expectedRef).Return(nil)
+		source := crossref.NewSource(schema.ClassName(cls), schema.PropertyName(expectedRefProperty), id)
+		target := crossref.New("localhost", "", "d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
+		m.repo.On("AddReference", source, target).Return(nil)
 		m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 
 		err := m.AddObjectReference(context.Background(), nil, &req, nil, "")
@@ -95,20 +95,21 @@ func Test_ReferencesAddDeprecated(t *testing.T) {
 func Test_ReferenceAdd(t *testing.T) {
 	t.Parallel()
 	var (
-		cls         = "Zoo"
-		prop        = "hasAnimals"
-		id          = strfmt.UUID("d18c8e5e-000-0000-0000-56b0cfe33ce7")
-		refID       = strfmt.UUID("d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
-		uri         = strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
-		anyErr      = errors.New("any")
-		ref         = models.SingleRef{Beacon: uri}
-		expectedRef = models.SingleRef{Beacon: uri}
-		req         = AddReferenceInput{
+		cls    = "Zoo"
+		prop   = "hasAnimals"
+		id     = strfmt.UUID("d18c8e5e-000-0000-0000-56b0cfe33ce7")
+		refID  = strfmt.UUID("d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
+		uri    = strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
+		anyErr = errors.New("any")
+		ref    = models.SingleRef{Beacon: uri}
+		req    = AddReferenceInput{
 			Class:    cls,
 			ID:       id,
 			Property: prop,
 			Ref:      ref,
 		}
+		source = crossref.NewSource(schema.ClassName(cls), schema.PropertyName(prop), id)
+		target = crossref.New("localhost", "", refID)
 	)
 
 	tests := []struct {
@@ -216,7 +217,7 @@ func Test_ReferenceAdd(t *testing.T) {
 				m.repo.On("Exists", tc.Req.Class, tc.Req.ID).Return(!tc.SrcNotFound, tc.ErrSrcExists).Once()
 			}
 			if tc.Stage >= 4 {
-				m.repo.On("AddReference", cls, id, prop, &expectedRef).Return(tc.ErrAddRef).Once()
+				m.repo.On("AddReference", source, target).Return(tc.ErrAddRef).Once()
 			}
 
 			err := m.AddObjectReference(context.Background(), nil, &tc.Req, nil, "")
@@ -597,6 +598,9 @@ func Test_ReferenceAdd_Ref2Vec(t *testing.T) {
 		},
 	}
 
+	source := crossref.NewSource(schema.ClassName(req.Class), schema.PropertyName(req.Property), req.ID)
+	target := crossref.New("localhost", "Paragraph", "494a2fe5-3e4c-4e9a-a47e-afcd9814f5ea")
+
 	parent := &search.Result{
 		ID:        strfmt.UUID("e1a60252-c38c-496d-8e54-306e1cedc5c4"),
 		ClassName: "Article",
@@ -613,7 +617,7 @@ func Test_ReferenceAdd_Ref2Vec(t *testing.T) {
 	m.repo.On("Exists", "Paragraph", ref1.ID).Return(true, nil)
 	m.repo.On("Object", "Article", parent.ID, search.SelectProperties{}, additional.Properties{}).Return(parent, nil)
 	m.repo.On("Object", "Paragraph", ref1.ID, search.SelectProperties{}, additional.Properties{}).Return(ref1, nil)
-	m.repo.On("AddReference", req.Class, req.ID, req.Property, &req.Ref).Return(nil)
+	m.repo.On("AddReference", source, target).Return(nil)
 	m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(true)
 	m.modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
 		Return(ref1.Vector, nil)
