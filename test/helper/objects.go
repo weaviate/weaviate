@@ -166,7 +166,10 @@ func DeleteTenantObjectsBatch(t *testing.T, body *models.BatchDelete,
 	params := batch.NewBatchObjectsDeleteParams().
 		WithBody(body).WithTenantKey(&tenantKey)
 	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
-	return resp.Payload, err
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
 }
 
 func AddReferences(t *testing.T, refs []*models.BatchReference) ([]*models.BatchReferenceResponse, error) {

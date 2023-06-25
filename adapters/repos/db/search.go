@@ -89,7 +89,7 @@ func (db *DB) Search(ctx context.Context,
 
 	return db.ResolveReferences(ctx,
 		storobj.SearchResults(db.getStoreObjects(res, params.Pagination), params.AdditionalProperties),
-		params.Properties, params.GroupBy, params.AdditionalProperties)
+		params.Properties, params.GroupBy, params.AdditionalProperties, params.TenantKey)
 }
 
 func (db *DB) VectorSearch(ctx context.Context,
@@ -124,7 +124,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 	return db.ResolveReferences(ctx,
 		storobj.SearchResultsWithDists(db.getStoreObjects(res, params.Pagination),
 			params.AdditionalProperties, db.getDists(dists, params.Pagination)),
-		params.Properties, params.GroupBy, params.AdditionalProperties)
+		params.Properties, params.GroupBy, params.AdditionalProperties, params.TenantKey)
 }
 
 func extractDistanceFromParams(params dto.GetParams) float32 {
@@ -292,7 +292,7 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 // with any referenced objects
 func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 	props search.SelectProperties, groupBy *searchparams.GroupBy,
-	addl additional.Properties,
+	addl additional.Properties, tenantKey string,
 ) (search.Results, error) {
 	if addl.NoProps {
 		// If we have no props, there also can't be refs among them, so we can skip
@@ -309,7 +309,7 @@ func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 		return res, nil
 	}
 
-	res, err := refcache.NewResolver(refcache.NewCacher(db, db.logger)).
+	res, err := refcache.NewResolver(refcache.NewCacher(db, db.logger, tenantKey)).
 		Do(ctx, objs, props, addl)
 	if err != nil {
 		return nil, fmt.Errorf("resolve cross-refs: %w", err)
