@@ -43,7 +43,7 @@ func (m *Manager) AddTenants(ctx context.Context, principal *models.Principal, c
 	if cls == nil || st == nil {
 		return fmt.Errorf("class %q: %w", class, ErrNotFound)
 	}
-	if !isMultiTenancyEnabled(cls.MultiTenancyConfig) {
+	if !schema.MultiTenancyEnabled(cls) {
 		return fmt.Errorf("multi-tenancy is not enabled for class %q", class)
 	}
 
@@ -154,7 +154,7 @@ func (m *Manager) DeleteTenants(ctx context.Context, principal *models.Principal
 	if cls == nil {
 		return fmt.Errorf("class %q: %w", class, ErrNotFound)
 	}
-	if !isMultiTenancyEnabled(cls.MultiTenancyConfig) {
+	if !schema.MultiTenancyEnabled(cls) {
 		return fmt.Errorf("multi-tenancy is not enabled for class %q", class)
 	}
 
@@ -212,8 +212,4 @@ func (m *Manager) onDeleteTenants(ctx context.Context, class *models.Class, req 
 	m.triggerSchemaUpdateCallbacks()
 
 	return nil
-}
-
-func isMultiTenancyEnabled(cfg *models.MultiTenancyConfig) bool {
-	return cfg != nil && cfg.Enabled
 }
