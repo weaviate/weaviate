@@ -256,6 +256,7 @@ func (p *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) 
 func (p *Provider) shouldIncludeClassArgument(class *models.Class, module string,
 	moduleType modulecapabilities.ModuleType,
 ) bool {
+	fmt.Printf("-- module: %v vectorizer: %v className: %v\n", module, class.Vectorizer, class.Class)
 	if p.isVectorizerModule(moduleType) {
 		return class.Vectorizer == module
 	}

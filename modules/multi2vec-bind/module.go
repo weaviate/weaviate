@@ -22,9 +22,11 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/multi2vec-clip/clients"
-	"github.com/weaviate/weaviate/modules/multi2vec-clip/vectorizer"
+	"github.com/weaviate/weaviate/modules/multi2vec-bind/clients"
+	"github.com/weaviate/weaviate/modules/multi2vec-bind/vectorizer"
 )
+
+const Name = "multi2vec-bind"
 
 func New() *BindModule {
 	return &BindModule{}
@@ -34,6 +36,10 @@ type BindModule struct {
 	imageVectorizer          imageVectorizer
 	nearImageGraphqlProvider modulecapabilities.GraphQLArguments
 	nearImageSearcher        modulecapabilities.Searcher
+	nearAudioGraphqlProvider modulecapabilities.GraphQLArguments
+	nearAudioSearcher        modulecapabilities.Searcher
+	nearVideoGraphqlProvider modulecapabilities.GraphQLArguments
+	nearVideoSearcher        modulecapabilities.Searcher
 	textVectorizer           textVectorizer
 	nearTextGraphqlProvider  modulecapabilities.GraphQLArguments
 	nearTextSearcher         modulecapabilities.Searcher
@@ -49,6 +55,9 @@ type imageVectorizer interface {
 	Object(ctx context.Context, object *models.Object, objDiff *moduletools.ObjectDiff,
 		settings vectorizer.ClassSettings) error
 	VectorizeImage(ctx context.Context, image string) ([]float32, error)
+	Vectorize(ctx context.Context,
+		texts, images, audio, video, imu, thermal, depth []string,
+	) ([]float32, error)
 }
 
 type textVectorizer interface {
@@ -60,7 +69,7 @@ type textVectorizer interface {
 }
 
 func (m *BindModule) Name() string {
-	return "multi2vec-clip"
+	return Name
 }
 
 func (m *BindModule) Type() modulecapabilities.ModuleType {
@@ -75,7 +84,15 @@ func (m *BindModule) Init(ctx context.Context,
 	}
 
 	if err := m.initNearImage(); err != nil {
-		return errors.Wrap(err, "init near text")
+		return errors.Wrap(err, "init near image")
+	}
+
+	if err := m.initNearAudio(); err != nil {
+		return errors.Wrap(err, "init near audio")
+	}
+
+	if err := m.initNearVideo(); err != nil {
+		return errors.Wrap(err, "init near video")
 	}
 
 	return nil
@@ -104,9 +121,9 @@ func (m *BindModule) initVectorizer(ctx context.Context,
 	logger logrus.FieldLogger,
 ) error {
 	// TODO: proper config management
-	uri := os.Getenv("CLIP_INFERENCE_API")
+	uri := os.Getenv("BIND_INFERENCE_API")
 	if uri == "" {
-		return errors.Errorf("required variable CLIP_INFERENCE_API is not set")
+		return errors.Errorf("required variable BIND_INFERENCE_API is not set")
 	}
 
 	client := clients.New(uri, logger)

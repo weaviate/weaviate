@@ -21,7 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/multi2vec-clip/ent"
+	"github.com/weaviate/weaviate/modules/multi2vec-bind/ent"
 )
 
 type vectorizer struct {
@@ -60,6 +60,7 @@ func (v *vectorizer) Vectorize(ctx context.Context,
 		return nil, errors.Wrap(err, "create POST request")
 	}
 
+	fmt.Printf("--bind url: %v\n", v.url("/vectorize"))
 	res, err := v.httpClient.Do(req)
 	if err != nil {
 		return nil, errors.Wrap(err, "send POST request")

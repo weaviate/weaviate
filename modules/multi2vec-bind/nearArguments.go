@@ -13,13 +13,27 @@ package modbind
 
 import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/modules/multi2vec-clip/nearImage"
-	"github.com/weaviate/weaviate/modules/multi2vec-clip/neartext"
+	"github.com/weaviate/weaviate/modules/multi2vec-bind/nearAudio"
+	"github.com/weaviate/weaviate/modules/multi2vec-bind/nearImage"
+	"github.com/weaviate/weaviate/modules/multi2vec-bind/nearVideo"
+	"github.com/weaviate/weaviate/modules/multi2vec-bind/neartext"
 )
 
 func (m *BindModule) initNearImage() error {
 	m.nearImageSearcher = nearImage.NewSearcher(m.imageVectorizer)
 	m.nearImageGraphqlProvider = nearImage.New()
+	return nil
+}
+
+func (m *BindModule) initNearAudio() error {
+	m.nearAudioSearcher = nearAudio.NewSearcher(m.imageVectorizer)
+	m.nearAudioGraphqlProvider = nearAudio.New()
+	return nil
+}
+
+func (m *BindModule) initNearVideo() error {
+	m.nearVideoSearcher = nearVideo.NewSearcher(m.imageVectorizer)
+	m.nearVideoGraphqlProvider = nearVideo.New()
 	return nil
 }
 
@@ -37,6 +51,12 @@ func (m *BindModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
 	for name, arg := range m.nearTextGraphqlProvider.Arguments() {
 		arguments[name] = arg
 	}
+	for name, arg := range m.nearAudioGraphqlProvider.Arguments() {
+		arguments[name] = arg
+	}
+	for name, arg := range m.nearVideoGraphqlProvider.Arguments() {
+		arguments[name] = arg
+	}
 	return arguments
 }
 
@@ -46,6 +66,12 @@ func (m *BindModule) VectorSearches() map[string]modulecapabilities.VectorForPar
 		vectorSearches[name] = arg
 	}
 	for name, arg := range m.nearTextSearcher.VectorSearches() {
+		vectorSearches[name] = arg
+	}
+	for name, arg := range m.nearAudioSearcher.VectorSearches() {
+		vectorSearches[name] = arg
+	}
+	for name, arg := range m.nearVideoSearcher.VectorSearches() {
 		vectorSearches[name] = arg
 	}
 	return vectorSearches

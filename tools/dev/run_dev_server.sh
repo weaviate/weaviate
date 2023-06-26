@@ -219,6 +219,19 @@ case $CONFIG in
         --read-timeout=600s \
         --write-timeout=600s
     ;;
+  local-bind)
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=multi2vec-bind \
+      BIND_INFERENCE_API="http://localhost:8009" \
+      ENABLE_MODULES="multi2vec-bind" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
   local-oidc)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=false \
@@ -277,6 +290,18 @@ case $CONFIG in
       TRANSFORMERS_INFERENCE_API=http://localhost:8000 \
       CLIP_INFERENCE_API=http://localhost:8005 \
       ENABLE_MODULES=text2vec-contextionary,text2vec-transformers,multi2vec-clip \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080
+    ;;
+
+  local-multi-bind)
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=multi2vec-bind \
+      BIND_INFERENCE_API=http://localhost:8009 \
+      ENABLE_MODULES=text2vec-contextionary,multi2vec-bind \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
