@@ -139,25 +139,19 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		return nil
 	}
 
-	var currentConnections []uint64 = nil
-	neighbor.RLock()
-	if level <= neighbor.level {
-		currentConnections = neighbor.connections[level]
+	neighbor.Lock()
+	defer neighbor.Unlock()
+	if level > neighbor.level {
+		// upgrade neighbor level if the level is out of sync due to a delete re-assign
+		neighbor.upgradeToLevelNoLock(level)
 	}
-	maximumConnections := n.maximumConnections(level)
-	neighbor.RUnlock()
+	currentConnections := neighbor.connectionsAtLevelNoLock(level)
 
+	maximumConnections := n.maximumConnections(level)
 	if len(currentConnections) < maximumConnections {
 		// we can simply append
 		// updatedConnections = append(currentConnections, n.node.id)
-		currentConnections = appendConnectionToMemoryAtLevelNoLock(currentConnections, n.node.id, maximumConnections)
-		neighbor.Lock()
-		if level > neighbor.level {
-			// upgrade neighbor level if the level is out of sync due to a delete re-assign
-			neighbor.upgradeToLevelNoLock(level)
-		}
-		neighbor.connections[level] = currentConnections
-		neighbor.Unlock()
+		neighbor.appendConnectionAtLevelNoLock(level, n.node.id, maximumConnections)
 		if err := n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, n.node.id); err != nil {
 			return err
 		}
@@ -197,24 +191,16 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			return errors.Wrap(err, "connect neighbors")
 		}
 
+		neighbor.resetConnectionsAtLevelNoLock(level)
+		if err := n.graph.commitLog.ClearLinksAtLevel(neighbor.id, uint16(level)); err != nil {
+			return err
+		}
+
 		ids := make([]uint64, 0, candidates.Len())
 		for candidates.Len() > 0 {
 			id := candidates.Pop().ID
 			ids = append(ids, id)
 			neighbor.appendConnectionAtLevelNoLock(level, id, maximumConnections)
-		}
-		neighbor.Lock()
-		if level > neighbor.level {
-			// upgrade neighbor level if the level is out of sync due to a delete re-assign
-			neighbor.upgradeToLevelNoLock(level)
-		}
-		neighbor.resetConnectionsAtLevelNoLock(level)
-		for _, id := range ids {
-			neighbor.appendConnectionAtLevelNoLock(level, id, maximumConnections)
-		}
-		neighbor.Unlock()
-		if err := n.graph.commitLog.ClearLinksAtLevel(neighbor.id, uint16(level)); err != nil {
-			return err
 		}
 		return n.graph.commitLog.AddLinksAtLevel(neighbor.id, level, ids)
 	}

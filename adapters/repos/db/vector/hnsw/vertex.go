@@ -77,8 +77,8 @@ func (v *vertex) setConnectionsAtLevel(level int, connections []uint64) {
 	copy(v.connections[level], connections)
 }
 
-func appendConnectionToMemoryAtLevelNoLock(connections []uint64, connection uint64, maxConns int) []uint64 {
-	if len(connections) == cap(connections) {
+func (v *vertex) appendConnectionAtLevelNoLock(level int, connection uint64, maxConns int) {
+	if len(v.connections[level]) == cap(v.connections[level]) {
 		// if the len is the capacity, this  means a new array needs to be
 		// allocated to back this slice. The go runtime would do this
 		// automatically, if we just use 'append', but it wouldn't do it very
@@ -88,7 +88,7 @@ func appendConnectionToMemoryAtLevelNoLock(connections []uint64, connection uint
 		// mean we would double to 2*(maxConns-1) which would be way too large.
 		//
 		// Instead let's grow in 4 steps: 25%, 50%, 75% or full capacity
-		ratio := float64(len(connections)) / float64(maxConns)
+		ratio := float64(len(v.connections[level])) / float64(maxConns)
 
 		target := 0
 		switch {
@@ -103,21 +103,16 @@ func appendConnectionToMemoryAtLevelNoLock(connections []uint64, connection uint
 		}
 
 		// handle rounding errors on maxConns not cleanly divisible by 4
-		if target < len(connections)+1 {
-			target = len(connections) + 1
+		if target < len(v.connections[level])+1 {
+			target = len(v.connections[level]) + 1
 		}
 
-		newConns := make([]uint64, len(connections), target)
-		copy(newConns, connections)
-		connections = newConns
+		newConns := make([]uint64, len(v.connections[level]), target)
+		copy(newConns, v.connections[level])
+		v.connections[level] = newConns
 	}
 
-	connections = append(connections, connection)
-	return connections
-}
-
-func (v *vertex) appendConnectionAtLevelNoLock(level int, connection uint64, maxConns int) {
-	v.connections[level] = appendConnectionToMemoryAtLevelNoLock(v.connections[level], connection, maxConns)
+	v.connections[level] = append(v.connections[level], connection)
 }
 
 func (v *vertex) resetConnectionsAtLevelNoLock(level int) {
