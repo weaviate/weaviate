@@ -33,13 +33,14 @@ type WeightedSearchResult struct {
 }
 
 type HybridSearch struct {
-	SubSearches interface{} `json:"subSearches"`
-	Type        string      `json:"type"`
-	Alpha       float64     `json:"alpha"`
-	Query       string      `json:"query"`
-	Vector      []float32   `json:"vector"`
-	AutoCut     int         `json:"autocut"`
-	Properties  []string    `json:"properties"`
+	SubSearches     interface{} `json:"subSearches"`
+	Type            string      `json:"type"`
+	Alpha           float64     `json:"alpha"`
+	Query           string      `json:"query"`
+	Vector          []float32   `json:"vector"`
+	AutoCut         int         `json:"autocut"`
+	Properties      []string    `json:"properties"`
+	FusionAlgorithm int         `json:"fusionalgorithm"`
 }
 
 type NearObject struct {
