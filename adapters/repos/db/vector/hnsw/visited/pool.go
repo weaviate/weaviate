@@ -11,12 +11,7 @@
 
 package visited
 
-import (
-	"sync"
-)
-
 type Pool struct {
-	sync.Mutex
 	listSetSize int
 	listSets    []ListSet
 }
@@ -38,9 +33,6 @@ func NewPool(size int, listSetSize int) *Pool {
 
 // Borrow return a free list
 func (p *Pool) Borrow() ListSet {
-	p.Lock()
-	defer p.Unlock()
-
 	if n := len(p.listSets); n > 0 {
 		l := p.listSets[n-1]
 		p.listSets[n-1].free() // prevent memory leak
@@ -54,9 +46,6 @@ func (p *Pool) Borrow() ListSet {
 // Return list l to the pool
 // The list l might be thrown if l.Len() > listSetSize*1.10
 func (p *Pool) Return(l ListSet) {
-	p.Lock()
-	defer p.Unlock()
-
 	if n := l.Len(); n < p.listSetSize || n > p.listSetSize*11/10 { // 11/10 could be tuned
 		return // discard this list, it does not match our current criteria
 	}
@@ -67,8 +56,6 @@ func (p *Pool) Return(l ListSet) {
 
 // Destroy and empty pool
 func (p *Pool) Destroy() {
-	p.Lock()
-	defer p.Unlock()
 	for i := range p.listSets {
 		p.listSets[i].free()
 	}

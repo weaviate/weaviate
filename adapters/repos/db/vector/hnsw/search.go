@@ -173,9 +173,9 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	entrypoints priorityqueue.SortedQueue, ef int, level int,
 	allowList helpers.AllowList) (priorityqueue.SortedQueue, error,
 ) {
-	// h.pools.visitedListsLock.Lock()
+	h.pools.visitedListsLock.Lock()
 	visited := h.pools.visitedLists.Borrow()
-	// h.pools.visitedListsLock.Unlock()
+	h.pools.visitedListsLock.Unlock()
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	var results priorityqueue.SortedQueue
@@ -327,9 +327,9 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 
 	h.pools.pqCandidates.Put(candidates)
 
-	// h.pools.visitedListsLock.Lock()
+	h.pools.visitedListsLock.Lock()
 	h.pools.visitedLists.Return(visited)
-	// h.pools.visitedListsLock.Unlock()
+	h.pools.visitedListsLock.Unlock()
 
 	// results are passed on, so it's in the callers responsibility to return the
 	// list to the pool after using it
