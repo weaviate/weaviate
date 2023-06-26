@@ -299,6 +299,21 @@ func (r *store) NewShards(_ context.Context, class string, shards []ucs.KeyValue
 	return r.db.Update(f)
 }
 
+// DeleteShards of a specific class
+//
+//	If the class or a shard does not exist then nothing is done and a nil error is returned
+func (r *store) DeleteShards(_ context.Context, class string, shards []string) error {
+	classKey := encodeClassName(class)
+	f := func(tx *bolt.Tx) error {
+		b := tx.Bucket(schemaBucket).Bucket(classKey)
+		if b == nil {
+			return nil
+		}
+		return deleteShards(b, shards, make([]byte, 1, 68))
+	}
+	return r.db.Update(f)
+}
+
 // Load loads the complete schema from the persistent storage
 func (r *store) Load(ctx context.Context) (ucs.State, error) {
 	state := ucs.NewState(32)
@@ -454,6 +469,19 @@ func appendShards(b *bolt.Bucket, shards []ucs.KeyValuePair, key []byte) error {
 			return err
 		}
 		key = key[:1]
+	}
+	return nil
+}
+
+func deleteShards(b *bolt.Bucket, shards []string, keyBuf []byte) error {
+	keyBuf[0] = eTypeShard
+	for _, name := range shards {
+		kLen := len(name) + 1
+		keyBuf = append(keyBuf, name...)
+		if err := b.Delete(keyBuf[:kLen]); err != nil {
+			return err
+		}
+		keyBuf = keyBuf[:1]
 	}
 	return nil
 }
