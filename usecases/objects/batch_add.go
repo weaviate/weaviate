@@ -156,7 +156,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	if class == nil {
 		ec.Add(fmt.Errorf("class '%s' not present in schema", object.Class))
 	} else {
-		err = validateSingleBatchObjectTenantKey(class, concept, tenantKey, ec)
+		err = validateSingleBatchObjectTenantKey(class, concept, tenantKey, ec, b.logger)
 		ec.Add(err)
 
 		err = validation.New(b.vectorRepo.Exists, b.config, repl, tenantKey).

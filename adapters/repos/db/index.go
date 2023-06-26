@@ -753,8 +753,12 @@ func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 }
 
 func (i *Index) multiObjectByID(ctx context.Context,
-	query []multi.Identifier,
+	query []multi.Identifier, tenantKey string,
 ) ([]*storobj.Object, error) {
+	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
+		return nil, err
+	}
+
 	type idsAndPos struct {
 		ids []multi.Identifier
 		pos []int
@@ -767,7 +771,7 @@ func (i *Index) multiObjectByID(ctx context.Context,
 	}
 
 	for pos, id := range query {
-		shardName, err := i.shardFromUUID(strfmt.UUID(id.ID), ss)
+		shardName, err := i.determineObjectShard(strfmt.UUID(id.ID), tenantKey, ss)
 		if err != nil {
 			return nil, err
 		}
@@ -1696,7 +1700,7 @@ func (i *Index) validateMultiTenancy(tenantKey string, object *models.Object) er
 			i.Config.ClassName, i.tenantKey)
 	}
 	if object != nil {
-		parsedTenantKey := objects.ParseTenantKeyFromObject(i.tenantKey, object)
+		parsedTenantKey := objects.ParseTenantKeyFromObject(i.tenantKey, object, i.logger)
 		if parsedTenantKey != tenantKey {
 			return objects.NewErrInvalidUserInput(
 				"tenant_key query param value %q conflicts with object body value %q for class %q tenant key %q",
