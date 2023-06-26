@@ -197,3 +197,29 @@ func DeleteTenantObject(t *testing.T, class string, id strfmt.UUID, tenantKey st
 	resp, err := Client(t).Objects.ObjectsClassDelete(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }
+
+func ListObjects(t *testing.T, class string) (*models.ObjectsListResponse, error) {
+	params := objects.NewObjectsListParams()
+	if class != "" {
+		params.WithClass(&class)
+	}
+
+	resp, err := Client(t).Objects.ObjectsList(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
+func TenantListObjects(t *testing.T, class string, tenantKey string) (*models.ObjectsListResponse, error) {
+	params := objects.NewObjectsListParams().WithTenantKey(&tenantKey)
+	if class != "" {
+		params.WithClass(&class)
+	}
+
+	resp, err := Client(t).Objects.ObjectsList(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}

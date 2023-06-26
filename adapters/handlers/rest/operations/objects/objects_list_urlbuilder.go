@@ -26,13 +26,14 @@ import (
 
 // ObjectsListURL generates an URL for the objects list operation
 type ObjectsListURL struct {
-	After   *string
-	Class   *string
-	Include *string
-	Limit   *int64
-	Offset  *int64
-	Order   *string
-	Sort    *string
+	After     *string
+	Class     *string
+	Include   *string
+	Limit     *int64
+	Offset    *int64
+	Order     *string
+	Sort      *string
+	TenantKey *string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -122,6 +123,14 @@ func (o *ObjectsListURL) Build() (*url.URL, error) {
 	}
 	if sortQ != "" {
 		qs.Set("sort", sortQ)
+	}
+
+	var tenantKeyQ string
+	if o.TenantKey != nil {
+		tenantKeyQ = *o.TenantKey
+	}
+	if tenantKeyQ != "" {
+		qs.Set("tenant_key", tenantKeyQ)
 	}
 
 	_result.RawQuery = qs.Encode()

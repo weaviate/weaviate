@@ -1012,6 +1012,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonClassParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -5539,6 +5542,12 @@ func init() {
             "type": "string",
             "description": "Class parameter specifies the class from which to query objects",
             "name": "class",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant_key",
             "in": "query"
           }
         ],
