@@ -137,11 +137,14 @@ func (m *Manager) ClusterStatus(ctx context.Context) (*models.SchemaClusterStatu
 	m.RLock()
 	defer m.RLock()
 
-	out := &models.SchemaClusterStatus{IgnoreSchemaSync: m.clusterState.SchemaSyncIgnored()}
+	out := &models.SchemaClusterStatus{
+		Hostname:         m.clusterState.LocalName(),
+		IgnoreSchemaSync: m.clusterState.SchemaSyncIgnored(),
+	}
 
 	nodes := m.clusterState.AllNames()
+	out.NodeCount = int64(len(nodes))
 	if len(nodes) < 2 {
-		out.NodeCount = int64(len(nodes))
 		out.Healthy = true
 		return out, nil
 	}
