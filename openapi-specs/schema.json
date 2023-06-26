@@ -590,6 +590,10 @@
           "type": "string",
           "x-omitempty": true
         },
+        "hostname": {
+          "description": "Hostname of the coordinating node, i.e. the one that received the cluster. This can be useful information if the error message contains phrases such as 'other nodes agree, but local does not', etc.",
+          "type": "string"
+        },
         "nodeCount": {
           "description": "Number of nodes that participated in the sync check",
           "type": "number",

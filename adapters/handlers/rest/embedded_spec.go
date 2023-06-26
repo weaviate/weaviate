@@ -4058,6 +4058,10 @@ func init() {
           "type": "boolean",
           "x-omitempty": false
         },
+        "hostname": {
+          "description": "Hostname of the coordinating node, i.e. the one that received the cluster. This can be useful information if the error message contains phrases such as 'other nodes agree, but local does not', etc.",
+          "type": "string"
+        },
         "ignoreSchemaSync": {
           "description": "The cluster check at startup can be ignored (to recover from an out-of-sync situation).",
           "type": "boolean",
@@ -8654,6 +8658,10 @@ func init() {
           "description": "True if the cluster is in sync, false if there is an issue (see error).",
           "type": "boolean",
           "x-omitempty": false
+        },
+        "hostname": {
+          "description": "Hostname of the coordinating node, i.e. the one that received the cluster. This can be useful information if the error message contains phrases such as 'other nodes agree, but local does not', etc.",
+          "type": "string"
         },
         "ignoreSchemaSync": {
           "description": "The cluster check at startup can be ignored (to recover from an out-of-sync situation).",
