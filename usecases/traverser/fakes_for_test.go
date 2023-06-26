@@ -147,7 +147,7 @@ func (f *fakeVectorSearcher) DenseObjectSearch(context.Context, string,
 
 func (f *fakeVectorSearcher) ResolveReferences(ctx context.Context, objs search.Results,
 	props search.SelectProperties, groupBy *searchparams.GroupBy,
-	additional additional.Properties,
+	additional additional.Properties, tenantKey string,
 ) (search.Results, error) {
 	return nil, nil
 }

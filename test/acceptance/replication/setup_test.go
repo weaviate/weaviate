@@ -19,4 +19,5 @@ func TestReplication(t *testing.T) {
 	t.Run("multishard scale out", multiShardScaleOut)
 	t.Run("read repair", readRepair)
 	t.Run("graphql search", graphqlSearch)
+	t.Run("multi-tenancy enabled", multiTenancyEnabled)
 }
