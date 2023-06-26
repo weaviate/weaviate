@@ -2270,6 +2270,9 @@ func init() {
     },
     "/schema/cluster-status": {
       "get": {
+        "tags": [
+          "schema"
+        ],
         "operationId": "schema.cluster.status",
         "responses": {
           "200": {
@@ -4047,20 +4050,23 @@ func init() {
       "properties": {
         "error": {
           "description": "Contains the sync check error if one occurred",
-          "type": "string"
+          "type": "string",
+          "x-omitempty": true
         },
         "healthy": {
           "description": "True if the cluster is in sync, false if there is an issue (see error).",
-          "type": "boolean"
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "ignoreSchemaSync": {
+          "description": "The cluster check at startup can be ignored (to recover from an out-of-sync situation).",
+          "type": "boolean",
+          "x-omitempty": false
         },
         "nodeCount": {
           "description": "Number of nodes that participated in the sync check",
           "type": "number",
           "format": "int"
-        },
-        "startupCheckSkipped": {
-          "description": "The cluster check at startup can be skipped (to recover from an out-of-sync situation).",
-          "type": "boolean"
         }
       }
     },
@@ -6684,6 +6690,9 @@ func init() {
     },
     "/schema/cluster-status": {
       "get": {
+        "tags": [
+          "schema"
+        ],
         "operationId": "schema.cluster.status",
         "responses": {
           "200": {
@@ -8638,20 +8647,23 @@ func init() {
       "properties": {
         "error": {
           "description": "Contains the sync check error if one occurred",
-          "type": "string"
+          "type": "string",
+          "x-omitempty": true
         },
         "healthy": {
           "description": "True if the cluster is in sync, false if there is an issue (see error).",
-          "type": "boolean"
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "ignoreSchemaSync": {
+          "description": "The cluster check at startup can be ignored (to recover from an out-of-sync situation).",
+          "type": "boolean",
+          "x-omitempty": false
         },
         "nodeCount": {
           "description": "Number of nodes that participated in the sync check",
           "type": "number",
           "format": "int"
-        },
-        "startupCheckSkipped": {
-          "description": "The cluster check at startup can be skipped (to recover from an out-of-sync situation).",
-          "type": "boolean"
         }
       }
     },
