@@ -167,18 +167,6 @@ func TestRepositoryUpdateClass(t *testing.T) {
 	}
 	repo.asserEqualSchema(t, schema, "update class")
 
-	// add two shards
-	deleteClass(&schema, "C1")
-	_, ss = addClass(&schema, "C1", 0, 2, 3)
-	shards := serializeShards(*ss)
-	if err := repo.NewShards(ctx, "C1", shards); err != nil {
-		t.Fatalf("add new shards: %v", err)
-	}
-	if err := repo.NewShards(ctx, "C3", shards); err == nil {
-		t.Fatal("adding shards to non existing class must fail")
-	}
-	repo.asserEqualSchema(t, schema, "add two shards")
-
 	// overwrite class
 	deleteClass(&schema, "C1")
 	cls, ss = addClass(&schema, "C1", 2, 2, 3)
@@ -197,6 +185,49 @@ func TestRepositoryUpdateClass(t *testing.T) {
 		t.Errorf("delete bucket: %v", err)
 	}
 	repo.asserEqualSchema(t, schema, "delete class")
+}
+
+func TestRepositoryUpdateShards(t *testing.T) {
+	var (
+		ctx       = context.Background()
+		logger, _ = test.NewNullLogger()
+		dirName   = t.TempDir()
+	)
+	repo, err := newRepo(dirName, -1, logger)
+	if err != nil {
+		t.Fatalf("create new repo: %v", err)
+	}
+
+	schema := ucs.NewState(2)
+	cls, ss := addClass(&schema, "C1", 0, 2, 1)
+	payload, err := ucs.CreateClassPayload(cls, ss)
+	assert.Nil(t, err)
+	if err := repo.NewClass(ctx, payload); err != nil {
+		t.Errorf("update class: %v", err)
+	}
+	repo.asserEqualSchema(t, schema, "update class")
+
+	// add two shards
+	deleteClass(&schema, "C1")
+	_, ss = addClass(&schema, "C1", 0, 2, 5)
+	shards := serializeShards(*ss)
+	if err := repo.NewShards(ctx, "C1", shards); err != nil {
+		t.Fatalf("add new shards: %v", err)
+	}
+	if err := repo.NewShards(ctx, "C3", shards); err == nil {
+		t.Fatal("add new shards to a non existing class must fail")
+	}
+	repo.asserEqualSchema(t, schema, "adding new shards")
+
+	xset := removeShards(ss, []int{0, 3, 4})
+	if err := repo.DeleteShards(ctx, "C1", xset); err != nil {
+		t.Fatalf("delete shards: %v", err)
+	}
+	repo.asserEqualSchema(t, schema, "remove shards")
+
+	if err := repo.DeleteShards(ctx, "C3", xset); err != nil {
+		t.Fatalf("delete shards from unknown class: %v", err)
+	}
 }
 
 func createClass(name string, start, nProps, nShards int) (models.Class, sharding.State) {
@@ -222,6 +253,16 @@ func createClass(name string, start, nProps, nShards int) (models.Class, shardin
 		}
 	}
 	return cls, ss
+}
+
+func removeShards(ss *sharding.State, shards []int) []string {
+	res := make([]string, len(shards))
+	for i, j := range shards {
+		name := fmt.Sprintf("shard-%d", j)
+		delete(ss.Physical, name)
+		res[i] = name
+	}
+	return res
 }
 
 func addClass(schema *ucs.State, name string, start, nProps, nShards int) (*models.Class, *sharding.State) {

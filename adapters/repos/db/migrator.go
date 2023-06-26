@@ -150,19 +150,19 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 	return idx.updateShardStatus(ctx, shardName, targetStatus)
 }
 
-// NewPartitions creates new partitions and returns a commit func
+// NewTenants creates new partitions and returns a commit func
 // that can be used to either commit or rollback the partitions
-func (m *Migrator) NewPartitions(ctx context.Context, class *models.Class, partitions []string) (commit func(success bool), err error) {
+func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, tenants []string) (commit func(success bool), err error) {
 	idx := m.db.GetIndex(schema.ClassName(class.Class))
 	if idx == nil {
 		return nil, fmt.Errorf("cannot find index for %q", class.Class)
 	}
 
-	shards := make(map[string]*Shard, len(partitions))
+	shards := make(map[string]*Shard, len(tenants))
 	rollback := func() {
 		for name, shard := range shards {
 			if err := shard.drop(); err != nil {
-				m.logger.WithField("action", "add_partition").
+				m.logger.WithField("action", "drop_shard").
 					WithField("class", class.Class).
 					Errorf("cannot drop self created shard %s: %v", name, err)
 			}
@@ -183,7 +183,7 @@ func (m *Migrator) NewPartitions(ctx context.Context, class *models.Class, parti
 		}
 	}()
 
-	for _, name := range partitions {
+	for _, name := range tenants {
 		if shard := idx.shards.Load(name); shard != nil {
 			continue
 		}
@@ -193,6 +193,49 @@ func (m *Migrator) NewPartitions(ctx context.Context, class *models.Class, parti
 		}
 
 		shards[name] = shard
+	}
+
+	return commit, nil
+}
+
+// DeleteTenants deletes tenants and returns a commit func
+// that can be used to either commit or rollback deletion
+func (m *Migrator) DeleteTenants(ctx context.Context, class *models.Class, tenants []string) (commit func(success bool), err error) {
+	idx := m.db.GetIndex(schema.ClassName(class.Class))
+	if idx == nil {
+		return func(bool) {}, nil
+	}
+
+	shards := make(map[string]*Shard, len(tenants))
+	for _, name := range tenants {
+		prev, ok := idx.shards.Swap(name, nil)
+		if !ok { // shard doesn't exits
+			idx.shards.LoadAndDelete(name) // rollback created key-value = {name, nil}
+		}
+		if prev != nil {
+			shards[name] = prev
+			idx.shards.Store(name, nil) // prevent update during deletion
+		}
+	}
+
+	rollback := func() {
+		for name, shard := range shards {
+			idx.shards.CompareAndSwap(name, nil, shard)
+		}
+	}
+	commit = func(success bool) {
+		if !success {
+			rollback()
+			return
+		}
+
+		for name, shard := range shards {
+			idx.shards.LoadAndDelete(name)
+			if err := shard.drop(); err != nil {
+				m.logger.WithField("action", "drop_shard").
+					WithField("class", class.Class).WithField("shard", name).Error(err)
+			}
+		}
 	}
 
 	return commit, nil
