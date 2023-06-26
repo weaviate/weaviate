@@ -196,6 +196,33 @@ func Test_NoRacePQInvalidConfig(t *testing.T) {
 		)
 		assert.ErrorContains(t, err, "segments should be an integer divisor of dimensions")
 	})
+	t.Run("validate training limit applied", func(t *testing.T) {
+		amount := 64
+		centroids := 256
+		vectors_size := 400
+		vectors, _ := testinghelpers.RandomVecs(vectors_size, vectors_size, amount)
+		distanceProvider := distancer.NewL2SquaredProvider()
+
+		cfg := ent.PQConfig{
+			Enabled: true,
+			Encoder: ent.PQEncoder{
+				Type:         "kmeans",
+				Distribution: ent.PQEncoderDistributionLogNormal,
+			},
+			Centroids:     centroids,
+			TrainingLimit: 260,
+			Segments:      amount,
+		}
+		pq, err := ssdhelpers.NewProductQuantizer(
+			cfg,
+			distanceProvider,
+			amount,
+		)
+		assert.NoError(t, err)
+		pq.Fit(vectors)
+		pqdata := pq.ExposeFields()
+		assert.Equal(t, pqdata.TrainingLimit, 260)
+	})
 }
 
 func Test_NoRacePQEncodeBytes(t *testing.T) {

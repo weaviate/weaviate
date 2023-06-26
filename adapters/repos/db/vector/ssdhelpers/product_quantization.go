@@ -171,6 +171,7 @@ type PQData struct {
 	EncoderDistribution byte
 	Encoders            []PQEncoder
 	UseBitsEncoding     bool
+	TrainingLimit       int
 }
 
 type PQEncoder interface {
@@ -265,6 +266,7 @@ func (pq *ProductQuantizer) ExposeFields() PQData {
 		M:                   uint16(pq.m),
 		EncoderDistribution: byte(pq.encoderDistribution),
 		Encoders:            pq.kms,
+		TrainingLimit:       pq.trainingLimit,
 	}
 }
 
