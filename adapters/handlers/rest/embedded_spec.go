@@ -2268,6 +2268,25 @@ func init() {
         ]
       }
     },
+    "/schema/cluster-status": {
+      "get": {
+        "operationId": "schema.cluster.status",
+        "responses": {
+          "200": {
+            "description": "The schema in the cluster is in sync.",
+            "schema": {
+              "$ref": "#/definitions/SchemaClusterStatus"
+            }
+          },
+          "500": {
+            "description": "The schema is either out of sync (see response body) or the sync check could not be completed.",
+            "schema": {
+              "$ref": "#/definitions/SchemaClusterStatus"
+            }
+          }
+        }
+      }
+    },
     "/schema/{className}": {
       "get": {
         "tags": [
@@ -4019,6 +4038,29 @@ func init() {
         "name": {
           "description": "Name of the schema.",
           "type": "string"
+        }
+      }
+    },
+    "SchemaClusterStatus": {
+      "description": "Indicates the health of the schema in a cluster.",
+      "type": "object",
+      "properties": {
+        "error": {
+          "description": "Contains the sync check error if one occurred",
+          "type": "string"
+        },
+        "healthy": {
+          "description": "True if the cluster is in sync, false if there is an issue (see error).",
+          "type": "boolean"
+        },
+        "nodeCount": {
+          "description": "Number of nodes that participated in the sync check",
+          "type": "number",
+          "format": "int"
+        },
+        "startupCheckSkipped": {
+          "description": "The cluster check at startup can be skipped (to recover from an out-of-sync situation).",
+          "type": "boolean"
         }
       }
     },
@@ -6640,6 +6682,25 @@ func init() {
         ]
       }
     },
+    "/schema/cluster-status": {
+      "get": {
+        "operationId": "schema.cluster.status",
+        "responses": {
+          "200": {
+            "description": "The schema in the cluster is in sync.",
+            "schema": {
+              "$ref": "#/definitions/SchemaClusterStatus"
+            }
+          },
+          "500": {
+            "description": "The schema is either out of sync (see response body) or the sync check could not be completed.",
+            "schema": {
+              "$ref": "#/definitions/SchemaClusterStatus"
+            }
+          }
+        }
+      }
+    },
     "/schema/{className}": {
       "get": {
         "tags": [
@@ -8568,6 +8629,29 @@ func init() {
         "name": {
           "description": "Name of the schema.",
           "type": "string"
+        }
+      }
+    },
+    "SchemaClusterStatus": {
+      "description": "Indicates the health of the schema in a cluster.",
+      "type": "object",
+      "properties": {
+        "error": {
+          "description": "Contains the sync check error if one occurred",
+          "type": "string"
+        },
+        "healthy": {
+          "description": "True if the cluster is in sync, false if there is an issue (see error).",
+          "type": "boolean"
+        },
+        "nodeCount": {
+          "description": "Number of nodes that participated in the sync check",
+          "type": "number",
+          "format": "int"
+        },
+        "startupCheckSkipped": {
+          "description": "The cluster check at startup can be skipped (to recover from an out-of-sync situation).",
+          "type": "boolean"
         }
       }
     },
