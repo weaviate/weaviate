@@ -165,8 +165,8 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ObjectsObjectsValidateHandler: objects.ObjectsValidateHandlerFunc(func(params objects.ObjectsValidateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation objects.ObjectsValidate has not yet been implemented")
 		}),
-		SchemaClusterStatusHandler: SchemaClusterStatusHandlerFunc(func(params SchemaClusterStatusParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation SchemaClusterStatus has not yet been implemented")
+		SchemaSchemaClusterStatusHandler: schema.SchemaClusterStatusHandlerFunc(func(params schema.SchemaClusterStatusParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.SchemaClusterStatus has not yet been implemented")
 		}),
 		SchemaSchemaDumpHandler: schema.SchemaDumpHandlerFunc(func(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaDump has not yet been implemented")
@@ -319,8 +319,8 @@ type WeaviateAPI struct {
 	ObjectsObjectsUpdateHandler objects.ObjectsUpdateHandler
 	// ObjectsObjectsValidateHandler sets the operation handler for the objects validate operation
 	ObjectsObjectsValidateHandler objects.ObjectsValidateHandler
-	// SchemaClusterStatusHandler sets the operation handler for the schema cluster status operation
-	SchemaClusterStatusHandler SchemaClusterStatusHandler
+	// SchemaSchemaClusterStatusHandler sets the operation handler for the schema cluster status operation
+	SchemaSchemaClusterStatusHandler schema.SchemaClusterStatusHandler
 	// SchemaSchemaDumpHandler sets the operation handler for the schema dump operation
 	SchemaSchemaDumpHandler schema.SchemaDumpHandler
 	// SchemaSchemaObjectsCreateHandler sets the operation handler for the schema objects create operation
@@ -526,8 +526,8 @@ func (o *WeaviateAPI) Validate() error {
 	if o.ObjectsObjectsValidateHandler == nil {
 		unregistered = append(unregistered, "objects.ObjectsValidateHandler")
 	}
-	if o.SchemaClusterStatusHandler == nil {
-		unregistered = append(unregistered, "SchemaClusterStatusHandler")
+	if o.SchemaSchemaClusterStatusHandler == nil {
+		unregistered = append(unregistered, "schema.SchemaClusterStatusHandler")
 	}
 	if o.SchemaSchemaDumpHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaDumpHandler")
@@ -797,7 +797,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/schema/cluster-status"] = NewSchemaClusterStatus(o.context, o.SchemaClusterStatusHandler)
+	o.handlers["GET"]["/schema/cluster-status"] = schema.NewSchemaClusterStatus(o.context, o.SchemaSchemaClusterStatusHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

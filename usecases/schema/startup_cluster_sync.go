@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // startupClusterSync tries to determine what - if any - schema migration is
@@ -130,6 +131,30 @@ func (m *Manager) startupJoinCluster(ctx context.Context,
 	m.saveSchema(ctx)
 
 	return nil
+}
+
+func (m *Manager) ClusterStatus(ctx context.Context) (*models.SchemaClusterStatus, error) {
+	m.RLock()
+	defer m.RLock()
+
+	out := &models.SchemaClusterStatus{IgnoreSchemaSync: m.clusterState.SchemaSyncIgnored()}
+
+	nodes := m.clusterState.AllNames()
+	if len(nodes) < 2 {
+		out.NodeCount = int64(len(nodes))
+		out.Healthy = true
+		return out, nil
+	}
+
+	err := m.validateSchemaCorruption(ctx, &m.state)
+	if err != nil {
+		out.Error = err.Error()
+		out.Healthy = false
+		return out, err
+	}
+
+	out.Healthy = true
+	return out, nil
 }
 
 // validateSchemaCorruption makes sure that - given that all nodes in the
