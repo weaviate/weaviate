@@ -14,7 +14,7 @@ package vectorizer
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/modules/multi2vec-clip/ent"
+	"github.com/weaviate/weaviate/modules/multi2vec-bind/ent"
 )
 
 type builder struct {

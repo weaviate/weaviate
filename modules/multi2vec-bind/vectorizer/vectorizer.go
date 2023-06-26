@@ -19,7 +19,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/multi2vec-clip/ent"
+	"github.com/weaviate/weaviate/modules/multi2vec-bind/ent"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
@@ -35,7 +35,8 @@ func New(client Client) *Vectorizer {
 
 type Client interface {
 	Vectorize(ctx context.Context,
-		texts, images []string) (*ent.VectorizationResult, error)
+		texts, images, audio, video, imu, thermal, depth []string,
+	) (*ent.VectorizationResult, error)
 }
 
 type ClassSettings interface {
@@ -57,8 +58,22 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 	return nil
 }
 
+func (v *Vectorizer) Vectorize(ctx context.Context,
+	texts, images, audio, video, imu, thermal, depth []string,
+) ([]float32, error) {
+	res, err := v.client.Vectorize(ctx, texts, images, audio, video, imu, thermal, depth)
+	if err != nil {
+		return nil, err
+	}
+	if len(res.ImageVectors) != 1 {
+		return nil, errors.New("empty vector")
+	}
+
+	return res.ImageVectors[0], nil
+}
+
 func (v *Vectorizer) VectorizeImage(ctx context.Context, image string) ([]float32, error) {
-	res, err := v.client.Vectorize(ctx, []string{}, []string{image})
+	res, err := v.client.Vectorize(ctx, []string{}, []string{image}, []string{}, []string{}, []string{}, []string{}, []string{})
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +118,7 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 
 	vectors := [][]float32{}
 	if len(texts) > 0 || len(images) > 0 {
-		res, err := v.client.Vectorize(ctx, texts, images)
+		res, err := v.client.Vectorize(ctx, texts, images, []string{}, []string{}, []string{}, []string{}, []string{})
 		if err != nil {
 			return nil, err
 		}

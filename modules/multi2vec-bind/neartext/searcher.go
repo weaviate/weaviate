@@ -19,7 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
-	localvectorizer "github.com/weaviate/weaviate/modules/multi2vec-clip/vectorizer"
+	localvectorizer "github.com/weaviate/weaviate/modules/multi2vec-bind/vectorizer"
 )
 
 type Searcher struct {
@@ -69,7 +69,7 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 	moveTo := params.MoveTo
 	if moveTo.Force > 0 && (len(moveTo.Values) > 0 || len(moveTo.Objects) > 0) {
 		moveToVector, err := s.vectorFromValuesAndObjects(ctx, moveTo.Values,
-			moveTo.Objects, className, findVectorFn, settings)
+			moveTo.Objects, className, findVectorFn, settings, cfg)
 		if err != nil {
 			return nil, errors.Errorf("vectorize move to: %v", err)
 		}
@@ -84,7 +84,7 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 	moveAway := params.MoveAwayFrom
 	if moveAway.Force > 0 && (len(moveAway.Values) > 0 || len(moveAway.Objects) > 0) {
 		moveAwayVector, err := s.vectorFromValuesAndObjects(ctx, moveAway.Values,
-			moveAway.Objects, className, findVectorFn, settings)
+			moveAway.Objects, className, findVectorFn, settings, cfg)
 		if err != nil {
 			return nil, errors.Errorf("vectorize move away from: %v", err)
 		}
@@ -104,6 +104,7 @@ func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
 	className string,
 	findVectorFn modulecapabilities.FindVectorFn,
 	settings localvectorizer.ClassSettings,
+	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	var objectVectors [][]float32
 
@@ -129,7 +130,7 @@ func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
 				id = ref.TargetID
 			}
 
-			vector, err := findVectorFn(ctx, className, id)
+			vector, err := findVectorFn(ctx, className, id, cfg.Tenant())
 			if err != nil {
 				return nil, err
 			}
