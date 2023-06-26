@@ -70,7 +70,7 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []n
 
 func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property) error {
 	if property.HasFilterableIndex {
-		bucketValue := s.store.Bucket(helpers.BucketFromPropNameLSM(property.Name))
+		bucketValue := s.store.Bucket("filterable_properties")
 		if bucketValue == nil {
 			return errors.Errorf("no bucket for prop '%s' found", property.Name)
 		}
@@ -181,19 +181,11 @@ func (s *Shard) addToPropertyMapBucket(property []byte, bucket *lsmkv.Bucket, pa
 func (s *Shard) addToPropertySetBucket(property []byte, bucket *lsmkv.Bucket, docID uint64, key []byte) error {
 	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
 
-	if bucket.Strategy() == lsmkv.StrategySetCollection {
-		docIDBytes := make([]byte, 8)
-		binary.LittleEndian.PutUint64(docIDBytes, docID)
-
-		propid, err := s.propIds.GetIdForProperty(string(property))
-		if err != nil {
-			s.index.logger.Panicf("property '%s' not found in propLengths", property)
-		}
-		propid_bytes := make([]byte, 8)
-		binary.LittleEndian.PutUint64(propid_bytes, propid)
-
-		return bucket.SetAdd(helpers.MakePropertyKey(propid_bytes, key), [][]byte{docIDBytes})
-	}
+	/*err := schema.ValidateReservedPropertyName(string(property))
+	if err != nil {
+		panic("Nope")
+		return err
+	}*/
 
 	propid, err := s.propIds.GetIdForProperty(string(property))
 	if err != nil {
@@ -201,6 +193,13 @@ func (s *Shard) addToPropertySetBucket(property []byte, bucket *lsmkv.Bucket, do
 	}
 	propid_bytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(propid_bytes, propid)
+
+	if bucket.Strategy() == lsmkv.StrategySetCollection {
+		docIDBytes := make([]byte, 8)
+		binary.LittleEndian.PutUint64(docIDBytes, docID)
+
+		return bucket.SetAdd(helpers.MakePropertyKey(propid_bytes, key), [][]byte{docIDBytes})
+	}
 
 	return bucket.RoaringSetAddOne(helpers.MakePropertyKey(propid_bytes, key), docID)
 }
