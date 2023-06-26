@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/lsmkv"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -562,12 +561,6 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 func (b *Bucket) MapListProp(propertyid []byte, keypart []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
-
-	err := schema.ValidateReservedPropertyName(string(keypart))
-	if err != nil {
-		panic("Can't add _id here")
-		return nil, err
-	}
 
 	//fmt.Printf("maplistprop: searching for propertyid %s, keypart %s\n", propertyid, keypart)
 

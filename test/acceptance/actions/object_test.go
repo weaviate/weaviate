@@ -30,7 +30,7 @@ import (
 )
 
 func TestFindObject(t *testing.T) {
-	t.Parallel()
+	//t.Parallel()
 	var (
 		cls           = "TestObjectHTTPGet"
 		first_friend  = "TestObjectHTTPGetFriendFirst"

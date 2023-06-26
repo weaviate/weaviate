@@ -17,8 +17,6 @@ import (
 	"log"
 	"os"
 	"sync"
-
-	"github.com/weaviate/weaviate/entities/schema"
 )
 
 type JsonPropertyIdTracker struct {
@@ -117,11 +115,6 @@ func (t *JsonPropertyIdTracker) Drop() error {
 func (t *JsonPropertyIdTracker) GetIdForProperty(property string) (uint64, error) {
 	if t == nil {
 		return 0, fmt.Errorf("property id tracker not initialised\n")
-	}
-	err := schema.ValidateReservedPropertyName(property)
-	if err != nil {
-		panic("Can't add _id here")
-		return 0, err
 	}
 
 	t.Lock()

@@ -454,6 +454,28 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		s.dynamicMemtableSizing(),
 	}
 
+	//Force creation of filterable properties database file
+	filterableOpts := append(bucketOpts, lsmkv.WithRegisteredName(helpers.BucketFromPropNameLSM("_id")))
+	if err := s.store.CreateOrLoadBucket(ctx,
+		"filterable_properties",
+		append(filterableOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
+	); err != nil {
+		return err
+	}
+
+	//Force creation of searchable properties database file
+	searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+	if s.versioner.Version() < 2 {
+		searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
+	}
+
+	if err := s.store.CreateOrLoadBucket(ctx,
+		"searchable_properties",
+		searchableBucketOpts...,
+	); err != nil {
+		return err
+	}
+
 	if inverted.HasFilterableIndex(prop) {
 
 		if dt, _ := schema.AsPrimitive(prop.DataType); dt == schema.DataTypeGeoCoordinates {

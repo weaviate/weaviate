@@ -72,13 +72,13 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 	if property.HasFilterableIndex {
 		bucketValue := s.store.Bucket("filterable_properties")
 		if bucketValue == nil {
-			return errors.Errorf("no bucket for prop '%s' found", property.Name)
+			return errors.Errorf("no bucket for prop '%s' (filterable properties) found", property.Name)
 		}
 
 		for _, item := range property.Items {
 			key := item.Data
 			if err := s.addToPropertySetBucket([]byte(property.Name), bucketValue, docID, key); err != nil {
-				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
+				return errors.Wrapf(err, "failed adding to prop '%s' value bucket (filterable properties)", property.Name)
 			}
 		}
 	}
@@ -94,7 +94,7 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 			key := item.Data
 			pair := s.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
 			if err := s.addToPropertyMapBucket([]byte(property.Name), bucketValue, pair, key); err != nil {
-				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
+				return errors.Wrapf(err, "failed adding to prop '%s' value bucket (searchable properties)", property.Name)
 			}
 		}
 	}
