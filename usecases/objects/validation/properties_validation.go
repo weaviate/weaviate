@@ -61,7 +61,10 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 		return nil
 	}
 
-	inputSchema := isp.(map[string]interface{})
+	inputSchema, ok := isp.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("could not recognize object's properties: %v", isp)
+	}
 	returnSchema := map[string]interface{}{}
 
 	for propertyKey, propertyValue := range inputSchema {
