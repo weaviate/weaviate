@@ -12,7 +12,6 @@
 package commitlog
 
 import (
-	"io"
 	"os"
 	"unicode/utf8"
 )
@@ -72,9 +71,9 @@ func (b *bufWriter) Flush() error {
 		return nil
 	}
 	n, err := b.wr.Write(b.buf[0:b.n])
-	if n < b.n && err == nil {
+	/*if n < b.n && err == nil {
 		err = io.ErrShortWrite
-	}
+	}*/
 	if err != nil {
 		if n > 0 && n < b.n {
 			copy(b.buf[0:b.n-n], b.buf[n:b.n])

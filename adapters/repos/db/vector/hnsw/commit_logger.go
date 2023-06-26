@@ -307,47 +307,29 @@ func (l *hnswCommitLogger) ID() string {
 }
 
 func (l *hnswCommitLogger) AddPQ(data ssdhelpers.PQData) error {
-	l.Lock()
-	defer l.Unlock()
-
 	return l.commitLogger.AddPQ(data)
 }
 
 // AddNode adds an empty node
 func (l *hnswCommitLogger) AddNode(node *vertex) error {
-	l.Lock()
-	defer l.Unlock()
-
 	return l.commitLogger.AddNode(node.id, node.level)
 }
 
 func (l *hnswCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) error {
-	l.Lock()
-	defer l.Unlock()
-
 	return l.commitLogger.SetEntryPointWithMaxLayer(id, level)
 }
 
 func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
-	l.Lock()
-	defer l.Unlock()
-
 	return l.commitLogger.ReplaceLinksAtLevel(nodeid, level, targets)
 }
 
 func (l *hnswCommitLogger) AddLinkAtLevel(nodeid uint64, level int,
 	target uint64,
 ) error {
-	l.Lock()
-	defer l.Unlock()
-
 	return l.commitLogger.AddLinkAtLevel(nodeid, level, target)
 }
 
 func (l *hnswCommitLogger) AddLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
-	l.Lock()
-	defer l.Unlock()
-
 	for _, target := range targets {
 		err := l.commitLogger.AddLinkAtLevel(nodeid, level, target)
 		if err != nil {
@@ -358,44 +340,26 @@ func (l *hnswCommitLogger) AddLinksAtLevel(nodeid uint64, level int, targets []u
 }
 
 func (l *hnswCommitLogger) AddTombstone(nodeid uint64) error {
-	l.Lock()
-	defer l.Unlock()
-
 	return l.commitLogger.AddTombstone(nodeid)
 }
 
 func (l *hnswCommitLogger) RemoveTombstone(nodeid uint64) error {
-	l.Lock()
-	defer l.Unlock()
-
 	return l.commitLogger.RemoveTombstone(nodeid)
 }
 
 func (l *hnswCommitLogger) ClearLinks(nodeid uint64) error {
-	l.Lock()
-	defer l.Unlock()
-
 	return l.commitLogger.ClearLinks(nodeid)
 }
 
 func (l *hnswCommitLogger) ClearLinksAtLevel(nodeid uint64, level uint16) error {
-	l.Lock()
-	defer l.Unlock()
-
 	return l.commitLogger.ClearLinksAtLevel(nodeid, level)
 }
 
 func (l *hnswCommitLogger) DeleteNode(nodeid uint64) error {
-	l.Lock()
-	defer l.Unlock()
-
 	return l.commitLogger.DeleteNode(nodeid)
 }
 
 func (l *hnswCommitLogger) Reset() error {
-	l.Lock()
-	defer l.Unlock()
-
 	return l.commitLogger.Reset()
 }
 

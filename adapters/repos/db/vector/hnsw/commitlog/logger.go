@@ -14,14 +14,24 @@ package commitlog
 import (
 	"encoding/binary"
 	"os"
+	"sync"
 
-	"github.com/pkg/errors"
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
+type linkedBuff struct {
+	buffer []byte
+	next   *linkedBuff
+}
+
 type Logger struct {
-	file *os.File
-	bufw *bufWriter
+	file     *os.File
+	bufw     *bufWriter
+	buffers  chan bool
+	currBuff *linkedBuff
+	lastBuff *linkedBuff
+	lock     sync.Mutex
+	writing  bool
 }
 
 // TODO: these are duplicates with the hnsw package, unify them
@@ -49,11 +59,37 @@ func NewLogger(fileName string) *Logger {
 		panic(err)
 	}
 
-	return &Logger{file: file, bufw: NewWriter(file)}
+	logger := &Logger{file: file, bufw: NewWriter(file)}
+	logger.initWriterWorker()
+	return logger
 }
 
 func NewLoggerWithFile(file *os.File) *Logger {
-	return &Logger{file: file, bufw: NewWriterSize(file, 32*1024)}
+	logger := &Logger{file: file, bufw: NewWriterSize(file, 32*1024)}
+	logger.initWriterWorker()
+	return logger
+}
+
+func (l *Logger) initWriterWorker() {
+	l.buffers = make(chan bool)
+	l.currBuff = &linkedBuff{}
+	l.lastBuff = l.currBuff
+	go func() {
+		for {
+			<-l.buffers
+			l.bufw.Write(l.currBuff.buffer)
+			l.currBuff = l.currBuff.next
+		}
+	}()
+}
+
+func (l *Logger) addData(buff []byte) {
+	l.lock.Lock()
+	l.lastBuff.buffer = buff
+	l.lastBuff.next = &linkedBuff{}
+	l.lastBuff = l.lastBuff.next
+	l.lock.Unlock()
+	l.buffers <- true
 }
 
 func (l *Logger) SetEntryPointWithMaxLayer(id uint64, level int) error {
@@ -61,8 +97,9 @@ func (l *Logger) SetEntryPointWithMaxLayer(id uint64, level int) error {
 	toWrite[0] = byte(SetEntryPointMaxLevel)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(level))
-	_, err := l.bufw.Write(toWrite)
-	return err
+
+	l.addData(toWrite)
+	return nil
 }
 
 func (l *Logger) AddNode(id uint64, level int) error {
@@ -70,8 +107,8 @@ func (l *Logger) AddNode(id uint64, level int) error {
 	toWrite[0] = byte(AddNode)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(level))
-	_, err := l.bufw.Write(toWrite)
-	return err
+	l.addData(toWrite)
+	return nil
 }
 
 func (l *Logger) AddPQ(data ssdhelpers.PQData) error {
@@ -91,8 +128,8 @@ func (l *Logger) AddPQ(data ssdhelpers.PQData) error {
 	for _, encoder := range data.Encoders {
 		toWrite = append(toWrite, encoder.ExposeDataForRestore()...)
 	}
-	_, err := l.bufw.Write(toWrite)
-	return err
+	l.addData(toWrite)
+	return nil
 }
 
 func (l *Logger) AddLinkAtLevel(id uint64, level int, target uint64) error {
@@ -101,8 +138,8 @@ func (l *Logger) AddLinkAtLevel(id uint64, level int, target uint64) error {
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(level))
 	binary.LittleEndian.PutUint64(toWrite[11:19], target)
-	_, err := l.bufw.Write(toWrite)
-	return err
+	l.addData(toWrite)
+	return nil
 }
 
 func (l *Logger) AddLinksAtLevel(id uint64, level int, targets []uint64) error {
@@ -116,8 +153,8 @@ func (l *Logger) AddLinksAtLevel(id uint64, level int, targets []uint64) error {
 		offsetEnd := offsetStart + 8
 		binary.LittleEndian.PutUint64(toWrite[offsetStart:offsetEnd], target)
 	}
-	_, err := l.bufw.Write(toWrite)
-	return err
+	l.addData(toWrite)
+	return nil
 }
 
 // chunks links in increments of 8, so that we never have to allocate a dynamic
@@ -128,19 +165,14 @@ func (l *Logger) ReplaceLinksAtLevel(id uint64, level int, targets []uint64) err
 	binary.LittleEndian.PutUint64(headers[1:9], id)
 	binary.LittleEndian.PutUint16(headers[9:11], uint16(level))
 	binary.LittleEndian.PutUint16(headers[11:13], uint16(len(targets)))
-	_, err := l.bufw.Write(headers)
-	if err != nil {
-		return errors.Wrap(err, "write headers")
-	}
+	l.addData(headers)
 
 	i := 0
 	// chunks of 8
 	buf := make([]byte, 64)
 	for i < len(targets) {
 		if i != 0 && i%8 == 0 {
-			if _, err := l.bufw.Write(buf); err != nil {
-				return errors.Wrap(err, "write link chunk")
-			}
+			l.addData(buf)
 		}
 
 		pos := i % 8
@@ -159,9 +191,7 @@ func (l *Logger) ReplaceLinksAtLevel(id uint64, level int, targets []uint64) err
 			end = 64
 		}
 
-		if _, err := l.bufw.Write(buf[start:end]); err != nil {
-			return errors.Wrap(err, "write link remainder")
-		}
+		l.addData(buf[start:end])
 	}
 
 	return nil
@@ -171,24 +201,24 @@ func (l *Logger) AddTombstone(id uint64) error {
 	toWrite := make([]byte, 9)
 	toWrite[0] = byte(AddTombstone)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
-	_, err := l.bufw.Write(toWrite)
-	return err
+	l.addData(toWrite)
+	return nil
 }
 
 func (l *Logger) RemoveTombstone(id uint64) error {
 	toWrite := make([]byte, 9)
 	toWrite[0] = byte(RemoveTombstone)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
-	_, err := l.bufw.Write(toWrite)
-	return err
+	l.addData(toWrite)
+	return nil
 }
 
 func (l *Logger) ClearLinks(id uint64) error {
 	toWrite := make([]byte, 9)
 	toWrite[0] = byte(ClearLinks)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
-	_, err := l.bufw.Write(toWrite)
-	return err
+	l.addData(toWrite)
+	return nil
 }
 
 func (l *Logger) ClearLinksAtLevel(id uint64, level uint16) error {
@@ -196,23 +226,23 @@ func (l *Logger) ClearLinksAtLevel(id uint64, level uint16) error {
 	toWrite[0] = byte(ClearLinksAtLevel)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	binary.LittleEndian.PutUint16(toWrite[9:11], level)
-	_, err := l.bufw.Write(toWrite)
-	return err
+	l.addData(toWrite)
+	return nil
 }
 
 func (l *Logger) DeleteNode(id uint64) error {
 	toWrite := make([]byte, 9)
 	toWrite[0] = byte(DeleteNode)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
-	_, err := l.bufw.Write(toWrite)
-	return err
+	l.addData(toWrite)
+	return nil
 }
 
 func (l *Logger) Reset() error {
 	toWrite := make([]byte, 1)
 	toWrite[0] = byte(ResetIndex)
-	_, err := l.bufw.Write(toWrite)
-	return err
+	l.addData(toWrite)
+	return nil
 }
 
 func (l *Logger) FileSize() (int64, error) {
