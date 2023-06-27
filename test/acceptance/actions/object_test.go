@@ -29,6 +29,8 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
+var HostURL = "http://localhost:8080"
+
 func TestFindObject(t *testing.T) {
 	//t.Parallel()
 	var (
@@ -62,11 +64,11 @@ func TestFindObject(t *testing.T) {
 	defer helper.DeleteClassObject(t, cls)
 	link1 := map[string]interface{}{
 		"beacon": crossref.NewLocalhost("", first_uuid).String(),
-		"href":   fmt.Sprintf("/v1/objects/%s", first_uuid),
+		"href":   fmt.Sprintf("%s/v1/objects/%s", HostURL, first_uuid),
 	}
 	link2 := map[string]interface{}{
 		"beacon": crossref.NewLocalhost(second_friend, second_uuid).String(),
-		"href":   fmt.Sprintf("/v1/objects/%s/%s", second_friend, second_uuid),
+		"href":   fmt.Sprintf("%s/v1/objects/%s/%s", HostURL, second_friend, second_uuid),
 	}
 	expected := map[string]interface{}{
 		"number": json.Number("2"),
@@ -176,11 +178,11 @@ func TestPutObject(t *testing.T) {
 
 	link1 := map[string]interface{}{
 		"beacon": crossref.NewLocalhost("", friend_uuid).String(),
-		"href":   fmt.Sprintf("/v1/objects/%s", friend_uuid),
+		"href":   fmt.Sprintf("%s/v1/objects/%s", HostURL, friend_uuid),
 	}
 	link2 := map[string]interface{}{
 		"beacon": crossref.NewLocalhost(friend_cls, friend_uuid).String(),
-		"href":   fmt.Sprintf("/v1/objects/%s/%s", friend_cls, friend_uuid),
+		"href":   fmt.Sprintf("%s/v1/objects/%s/%s", HostURL, friend_cls, friend_uuid),
 	}
 	expected := map[string]interface{}{
 		"testNumber":    json.Number("2"),
@@ -254,11 +256,11 @@ func TestPatchObject(t *testing.T) {
 	friendID := helper.AssertCreateObject(t, friend_cls, nil)
 	link1 := map[string]interface{}{
 		"beacon": fmt.Sprintf("weaviate://localhost/%s", friendID),
-		"href":   fmt.Sprintf("/v1/objects/%s", friendID),
+		"href":   fmt.Sprintf("%s/v1/objects/%s", HostURL, friendID),
 	}
 	link2 := map[string]interface{}{
 		"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", friend_cls, friendID),
-		"href":   fmt.Sprintf("/v1/objects/%s/%s", friend_cls, friendID),
+		"href":   fmt.Sprintf("%s/v1/objects/%s/%s", HostURL, friend_cls, friendID),
 	}
 	expected := map[string]interface{}{
 		"integer1": json.Number("2"),
@@ -446,7 +448,7 @@ func TestPostReference(t *testing.T) {
 		"friend": []interface{}{
 			map[string]interface{}{
 				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", friend_cls, friendID),
-				"href":   fmt.Sprintf("/v1/objects/%s/%s", friend_cls, friendID),
+				"href":   fmt.Sprintf("%s/v1/objects/%s/%s", HostURL, friend_cls, friendID),
 			},
 		},
 	}
@@ -527,11 +529,11 @@ func TestPutReferences(t *testing.T) {
 		"friend": []interface{}{
 			map[string]interface{}{
 				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", first_friend, first_friendID),
-				"href":   fmt.Sprintf("/v1/objects/%s/%s", first_friend, first_friendID),
+				"href":   fmt.Sprintf("%s/v1/objects/%s/%s", HostURL, first_friend, first_friendID),
 			},
 			map[string]interface{}{
 				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", second_friend, second_friendID),
-				"href":   fmt.Sprintf("/v1/objects/%s/%s", second_friend, second_friendID),
+				"href":   fmt.Sprintf("%s/v1/objects/%s/%s", HostURL, second_friend, second_friendID),
 			},
 		},
 	}
@@ -638,11 +640,11 @@ func TestDeleteReference(t *testing.T) {
 		"friend": []interface{}{
 			map[string]interface{}{
 				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", first_friend, first_friendID),
-				"href":   fmt.Sprintf("/v1/objects/%s/%s", first_friend, first_friendID),
+				"href":   fmt.Sprintf("%s/v1/objects/%s/%s", HostURL, first_friend, first_friendID),
 			},
 			map[string]interface{}{
 				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", second_friend, second_friendID),
-				"href":   fmt.Sprintf("/v1/objects/%s/%s", second_friend, second_friendID),
+				"href":   fmt.Sprintf("%s/v1/objects/%s/%s", HostURL, second_friend, second_friendID),
 			},
 		},
 	})
@@ -651,7 +653,7 @@ func TestDeleteReference(t *testing.T) {
 		"friend": []interface{}{
 			map[string]interface{}{
 				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", first_friend, first_friendID),
-				"href":   fmt.Sprintf("/v1/objects/%s/%s", first_friend, first_friendID),
+				"href":   fmt.Sprintf("%s/v1/objects/%s/%s", HostURL, first_friend, first_friendID),
 			},
 		},
 	}

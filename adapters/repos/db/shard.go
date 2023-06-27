@@ -351,10 +351,18 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
+
+	bucketOpts := []lsmkv.BucketOption{
+		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter) * time.Second),
+		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
+		lsmkv.WithRegisteredName(helpers.BucketFromPropNameLSM(filters.InternalPropID)),
+	}
+
+	
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(filters.InternalPropID),
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+		"filterable_properties",
+		bucketOpts...,
+	)
 }
 
 func (s *Shard) addDimensionsProperty(ctx context.Context) error {

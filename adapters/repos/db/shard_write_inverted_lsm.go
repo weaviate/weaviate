@@ -12,6 +12,7 @@
 package db
 
 import (
+	
 	"encoding/binary"
 	"math"
 
@@ -69,6 +70,7 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []n
 }
 
 func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property) error {
+	
 	if property.HasFilterableIndex {
 		bucketValue := s.store.Bucket("filterable_properties")
 		if bucketValue == nil {

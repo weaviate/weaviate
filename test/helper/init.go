@@ -40,6 +40,10 @@ func init() {
 		ServerScheme = "http"
 	}
 
+	if ServerHost == "" {
+		ServerHost = "localhost"
+	}
+
 	if ServerPort == "" {
 		ServerPort = "8080"
 	}

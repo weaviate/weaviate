@@ -259,6 +259,9 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		return errors.Wrap(err, "analyze next object")
 	}
 
+
+
+	
 	if status.docIDChanged {
 		oldObject, err := storobj.FromBinary(previous)
 		if err == nil {
