@@ -52,7 +52,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 
 	// check nodes api response on empty DB
-	nodeStatues, err := repo.GetNodeStatuses(context.Background())
+	nodeStatues, err := repo.GetNodeStatus(context.Background(), "")
 	require.Nil(t, err)
 	require.NotNil(t, nodeStatues)
 
@@ -120,7 +120,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 	assert.Nil(t, batchRes[1].Err)
 
 	// check nodes api after importing 2 objects to DB
-	nodeStatues, err = repo.GetNodeStatuses(context.Background())
+	nodeStatues, err = repo.GetNodeStatus(context.Background(), "")
 	require.Nil(t, err)
 	require.NotNil(t, nodeStatues)
 

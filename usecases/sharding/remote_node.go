@@ -19,7 +19,7 @@ import (
 )
 
 type RemoteNodeClient interface {
-	GetNodeStatus(ctx context.Context, hostName string) (*models.NodeStatus, error)
+	GetNodeStatus(ctx context.Context, hostName string, className string) (*models.NodeStatus, error)
 }
 
 type RemoteNode struct {
@@ -34,10 +34,10 @@ func NewRemoteNode(nodeResolver nodeResolver, client RemoteNodeClient) *RemoteNo
 	}
 }
 
-func (rn *RemoteNode) GetNodeStatus(ctx context.Context, nodeName string) (*models.NodeStatus, error) {
+func (rn *RemoteNode) GetNodeStatus(ctx context.Context, nodeName string, className string) (*models.NodeStatus, error) {
 	host, ok := rn.nodeResolver.NodeHostname(nodeName)
 	if !ok {
 		return nil, fmt.Errorf("resolve node name %q to host", nodeName)
 	}
-	return rn.client.GetNodeStatus(ctx, host)
+	return rn.client.GetNodeStatus(ctx, host, className)
 }
