@@ -271,6 +271,11 @@ func (l *Logger) FileName() (string, error) {
 func (l *Logger) Flush() error {
 	l.closeLock.Lock()
 	defer l.closeLock.Unlock()
+
+	for l.currBuff.next != nil {
+		time.Sleep(100)
+	}
+
 	return l.bufw.Flush()
 }
 
@@ -278,9 +283,10 @@ func (l *Logger) Close() error {
 	l.closeLock.Lock()
 	defer l.closeLock.Unlock()
 
-	for l.currBuff != l.lastBuff {
+	for l.currBuff.next != nil {
 		time.Sleep(100)
 	}
+
 	if err := l.bufw.Flush(); err != nil {
 		return err
 	}
