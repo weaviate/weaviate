@@ -39,7 +39,6 @@ const (
 func Test_Filters_String(t *testing.T) {
 	dirName := t.TempDir()
 
-	
 	logger, _ := test.NewNullLogger()
 	//propLengths, err:= NewJsonPropertyLengthTracker("tempfile_propertyLengths", logger)
 	//require.Nil(t, err)
@@ -47,18 +46,14 @@ func Test_Filters_String(t *testing.T) {
 	require.Nil(t, err)
 
 	propIds, err := propertyspecific.NewJsonPropertyIdTracker("tempfile_propertyIds")
+	defer propIds.Drop()
 	require.Nil(t, err)
 	propName := "inverted-with-frequency"
 	propId, err := propIds.CreateProperty(propName)
 	require.Nil(t, err)
 
-
-
-
-
 	bucketName := "searchable_properties"
-	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
-		bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
+	require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection), lsmkv.WithRegisteredName(helpers.BucketFromPropNameLSM(propName))))
 	bWithFrequency := store.Bucket(bucketName)
 
 	defer store.Shutdown(context.Background())
@@ -94,8 +89,7 @@ func Test_Filters_String(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-	searcher := NewSearcher(logger, store, createSchema(),
-		nil, propIds, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false })
+	searcher := NewSearcher(logger, store, createSchema(), nil, propIds, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false })
 
 	type test struct {
 		name                     string
@@ -275,6 +269,7 @@ func Test_Filters_String(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter, additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
+				res, err = searcher.DocIDs(context.Background(), test.filter, additional.Properties{}, className)
 			})
 
 			t.Run("update", func(t *testing.T) {
@@ -322,9 +317,20 @@ func Test_Filters_Int(t *testing.T) {
 
 	propName := "inverted-without-frequency"
 	bucketName := "filterable_properties"
-	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
-		bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
+	require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
 	bucket := store.Bucket(bucketName)
+
+	propIds , err:= propertyspecific.NewJsonPropertyIdTracker("temp_propIds")
+	defer propIds.Drop()
+	if err != nil {
+		t.Fail()
+	}
+	
+
+	_,err = propIds.CreateProperty(propName)
+	if err != nil {
+		t.Fail()
+	}
 
 	defer store.Shutdown(context.Background())
 
@@ -351,7 +357,17 @@ func Test_Filters_Int(t *testing.T) {
 			idValues := idsToBinaryList(ids)
 			valueBytes, err := LexicographicallySortableInt64(value)
 			require.Nil(t, err)
-			require.Nil(t, bucket.SetAdd(valueBytes, idValues))
+
+			propid, err := propIds.GetIdForProperty(string(propName))
+			if err != nil {
+				t.Fail()
+			}
+			propid_bytes := make([]byte, 8)
+			binary.LittleEndian.PutUint64(propid_bytes, propid)
+
+			keyBytes := helpers.MakePropertyKey(propid_bytes, valueBytes)
+
+			require.Nil(t, bucket.SetAdd(keyBytes, idValues))
 		}
 
 		require.Nil(t, bucket.FlushAndSwitch())

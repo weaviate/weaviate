@@ -43,6 +43,10 @@ func newPropValuePair() propValuePair {
 	return propValuePair{docIDs: newDocBitmap()}
 }
 
+func (pv *propValuePair) DocIds() []uint64 {
+	return pv.docIDs.IDs()
+} 
+
 func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 	if pv.operator.OnValue() {
 		var bucketName string
