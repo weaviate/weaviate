@@ -82,7 +82,7 @@ func TestAddTenants(t *testing.T) {
 		{
 			name:    "EmptyTenantKeyValue",
 			Class:   "C1",
-			tenants: []*models.Tenant{{Name: "A"}, {Name: ""}, {Name: "B"}},
+			tenants: []*models.Tenant{{Name: "Aaaa"}, {Name: ""}, {Name: "Bbbb"}},
 			initial: &models.Class{
 				Class:              cls,
 				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
@@ -94,7 +94,7 @@ func TestAddTenants(t *testing.T) {
 		{
 			name:    "Success",
 			Class:   "C1",
-			tenants: []*models.Tenant{{Name: "A"}, {Name: "B"}},
+			tenants: []*models.Tenant{{Name: "Aaaa"}, {Name: "Bbbb"}},
 			initial: &models.Class{
 				Class:              cls,
 				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
@@ -192,7 +192,7 @@ func TestDeleteTenants(t *testing.T) {
 		{
 			name:    "EmptyTenantKeyValue",
 			Class:   "C1",
-			tenants: []*models.Tenant{{Name: "A"}, {Name: ""}, {Name: "B"}},
+			tenants: []*models.Tenant{{Name: "Aaaa"}, {Name: ""}, {Name: "Bbbb"}},
 			initial: &models.Class{
 				Class:              cls,
 				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},

@@ -23,8 +23,13 @@ var (
 	reservedPropertyNames     []string
 )
 
+const (
+	ClassNameRegexCore = `[A-Z][_0-9A-Za-z]*`
+	ShardNameRegexCore = `[A-Za-z0-9\-\_]{4,64}`
+)
+
 func init() {
-	validateClassNameRegex = regexp.MustCompile(`^[A-Z][_0-9A-Za-z]*$`)
+	validateClassNameRegex = regexp.MustCompile(`^` + ClassNameRegexCore + `$`)
 	validatePropertyNameRegex = regexp.MustCompile(`^[_A-Za-z][_0-9A-Za-z]*$`)
 	validateNetworkClassRegex = regexp.MustCompile(`^([A-Za-z]+)+/([A-Z][a-z]+)+$`)
 	reservedPropertyNames = []string{"_additional", "_id", "id"}
