@@ -16,8 +16,8 @@ package lsmkv
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
-	"math/rand"
 	"sync"
 	"testing"
 	"time"

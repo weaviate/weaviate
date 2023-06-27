@@ -17,11 +17,9 @@ package hnsw
 import (
 	"bufio"
 	"context"
-	"math/rand"
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -31,7 +29,6 @@ import (
 )
 
 func TestCondensor(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	rootPath := t.TempDir()
 	ctx := context.Background()
 
@@ -147,7 +144,6 @@ func TestCondensor(t *testing.T) {
 }
 
 func TestCondensorAppendNodeLinks(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	rootPath := t.TempDir()
 	ctx := context.Background()
 
@@ -242,7 +238,6 @@ func TestCondensorAppendNodeLinks(t *testing.T) {
 // a potential cause as well and by having this test, we can prevent a
 // regression.
 func TestCondensorReplaceNodeLinks(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	rootPath := t.TempDir()
 	ctx := context.Background()
 
@@ -342,7 +337,6 @@ func TestCondensorReplaceNodeLinks(t *testing.T) {
 // makes sure that the bug is gone and prevents regressions, this test was
 // still added to test the broken (now fixed) behavior in relative isolation.
 func TestCondensorClearLinksAtLevel(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	rootPath := t.TempDir()
 	ctx := context.Background()
 
@@ -438,7 +432,6 @@ func TestCondensorClearLinksAtLevel(t *testing.T) {
 }
 
 func TestCondensorWithoutEntrypoint(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	rootPath := t.TempDir()
 	ctx := context.Background()
 
@@ -489,7 +482,6 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 }
 
 func TestCondensorWithPQInformation(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	rootPath := t.TempDir()
 	ctx := context.Background()
 

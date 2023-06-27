@@ -12,11 +12,9 @@
 package hnsw
 
 import (
-	"math/rand"
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -27,7 +25,6 @@ import (
 func TestMmapCondensor(t *testing.T) {
 	t.Skip() // TODO
 
-	rand.Seed(time.Now().UnixNano())
 	rootPath := t.TempDir()
 
 	logger, _ := test.NewNullLogger()

@@ -16,9 +16,7 @@ package db
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -671,7 +669,6 @@ func EqualFloats(t *testing.T, expected, actual float32, significantFigures int)
 
 // Compare with previous BM25 version to ensure the algorithm functions correctly
 func TestBM25FCompare(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()

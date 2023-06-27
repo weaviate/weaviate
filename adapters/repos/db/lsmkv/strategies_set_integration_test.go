@@ -17,9 +17,7 @@ package lsmkv
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,7 +25,6 @@ import (
 )
 
 func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
@@ -309,7 +306,6 @@ func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 }
 
 func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
@@ -695,7 +691,7 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 func TestSetCollectionStrategy_Cursors(t *testing.T) {
 	t.Run("memtable-only", func(t *testing.T) {
-		rand.Seed(time.Now().UnixNano())
+		r := getRandomSeed()
 		dirName := t.TempDir()
 
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -721,8 +717,7 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			}
 
 			// shuffle to make sure the BST isn't accidentally in order
-			rand.Seed(time.Now().UnixNano())
-			rand.Shuffle(len(keys), func(i, j int) {
+			r.Shuffle(len(keys), func(i, j int) {
 				keys[i], keys[j] = keys[j], keys[i]
 				values[i], values[j] = values[j], values[i]
 			})
@@ -824,7 +819,7 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 	})
 
 	t.Run("with flushes", func(t *testing.T) {
-		rand.Seed(time.Now().UnixNano())
+		r := getRandomSeed()
 		dirName := t.TempDir()
 
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -854,8 +849,7 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			}
 
 			// shuffle to make sure the BST isn't accidentally in order
-			rand.Seed(time.Now().UnixNano())
-			rand.Shuffle(len(keys), func(i, j int) {
+			r.Shuffle(len(keys), func(i, j int) {
 				keys[i], keys[j] = keys[j], keys[i]
 				values[i], values[j] = values[j], values[i]
 			})
@@ -889,8 +883,7 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			}
 
 			// shuffle to make sure the BST isn't accidentally in order
-			rand.Seed(time.Now().UnixNano())
-			rand.Shuffle(len(keys), func(i, j int) {
+			r.Shuffle(len(keys), func(i, j int) {
 				keys[i], keys[j] = keys[j], keys[i]
 				values[i], values[j] = values[j], values[i]
 			})
@@ -924,8 +917,7 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			}
 
 			// shuffle to make sure the BST isn't accidentally in order
-			rand.Seed(time.Now().UnixNano())
-			rand.Shuffle(len(keys), func(i, j int) {
+			r.Shuffle(len(keys), func(i, j int) {
 				keys[i], keys[j] = keys[j], keys[i]
 				values[i], values[j] = values[j], values[i]
 			})

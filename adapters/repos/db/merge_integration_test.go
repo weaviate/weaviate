@@ -17,7 +17,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"testing"
 	"time"
 
@@ -37,7 +36,6 @@ import (
 )
 
 func Test_MergingObjects(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()

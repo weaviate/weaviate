@@ -13,8 +13,8 @@ package lsmkv
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
-	"math/rand"
 	"os"
 	"sync"
 	"testing"
@@ -55,8 +55,7 @@ func BenchmarkConcurrentReading(b *testing.B) {
 }
 
 func prepareBucket(b *testing.B) (bucket *Bucket, cleanup func()) {
-	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	dirName := fmt.Sprintf("./testdata/%d", mustRandIntn(10000000))
 	os.MkdirAll(dirName, 0o777)
 	defer func() {
 		err := os.RemoveAll(dirName)
