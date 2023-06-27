@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 
@@ -97,9 +98,15 @@ func validateTenantNames(tenants []*models.Tenant) error {
 func (m *Manager) onAddPartitions(ctx context.Context,
 	st *sharding.State, class *models.Class, request AddPartitionsPayload,
 ) error {
+	pairs := make([]KeyValuePair, 0, len(request.Partitions))
 	for _, p := range request.Partitions {
 		if _, ok := st.Physical[p.Name]; !ok {
-			st.AddPartition(p.Name, p.Nodes)
+			p := st.AddPartition(p.Name, p.Nodes)
+			data, err := json.Marshal(p)
+			if err != nil {
+				return fmt.Errorf("cannot marshal partition %s: %w", p.Name, err)
+			}
+			pairs = append(pairs, KeyValuePair{p.Name, data})
 		}
 	}
 	shards := make([]string, 0, len(request.Partitions))
@@ -116,23 +123,22 @@ func (m *Manager) onAddPartitions(ctx context.Context,
 	}
 
 	st.SetLocalName(m.clusterState.LocalName())
+
+	m.logger.
+		WithField("action", "schema.add_tenants").
+		Debug("saving updated schema to configuration store")
+
+	if err := m.repo.NewShards(ctx, class.Class, pairs); err != nil {
+		commit(false) // rollback new partitions
+		return err
+	}
+	commit(true) // commit new partitions
 	m.shardingStateLock.Lock()
-	curState := m.state.ShardingState[request.ClassName]
 	m.state.ShardingState[request.ClassName] = st
 	m.shardingStateLock.Unlock()
+	m.triggerSchemaUpdateCallbacks()
 
-	doAfter := func(err error) {
-		if err != nil { // rollback if schema cannot be saved
-			m.shardingStateLock.Lock()
-			m.state.ShardingState[request.ClassName] = curState // rollback
-			m.shardingStateLock.Unlock()
-			commit(false) // rollback new partitions
-			return
-		}
-		commit(true) // commit new partitions
-	}
-
-	return m.saveSchema(ctx, doAfter)
+	return nil
 }
 
 func isMultiTenancyEnabled(cfg *models.MultiTenancyConfig) bool {
