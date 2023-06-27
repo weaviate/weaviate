@@ -647,7 +647,7 @@ func TestCRUD(t *testing.T) {
 				ClassName: "TheBestThingClass",
 			},
 		}
-		res, err := repo.MultiGet(context.Background(), query, additional.Properties{})
+		res, err := repo.MultiGet(context.Background(), query, additional.Properties{}, "")
 		require.Nil(t, err)
 		require.Len(t, res, 2, "length must match even with nil-items")
 

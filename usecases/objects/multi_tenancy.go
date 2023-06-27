@@ -14,16 +14,24 @@ package objects
 import (
 	"fmt"
 
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
 // ParseTenantKeyFromObject extract the value of the tenant key if it exists
-func ParseTenantKeyFromObject(tenantKeyName string, o *models.Object) string {
+func ParseTenantKeyFromObject(tenantKeyName string, o *models.Object, logger logrus.FieldLogger) string {
 	if props, _ := o.Properties.(map[string]interface{}); props != nil {
 		if rawVal := props[tenantKeyName]; rawVal != nil {
-			if key, _ := rawVal.(string); key != "" {
-				return key
+			switch typed := rawVal.(type) {
+			case string:
+				return typed
+			case uuid.UUID:
+				return typed.String()
+			default:
+				logger.WithField("action", "parse_object_tenant_key").
+					Warnf("unsupported tenant key %+v of type %T", rawVal, rawVal)
 			}
 		}
 	}
@@ -31,7 +39,7 @@ func ParseTenantKeyFromObject(tenantKeyName string, o *models.Object) string {
 }
 
 func validateSingleBatchObjectTenantKey(class *models.Class, obj *models.Object,
-	tk string, ec *errorcompounder.ErrorCompounder,
+	tk string, ec *errorcompounder.ErrorCompounder, logger logrus.FieldLogger,
 ) error {
 	var objTk string
 	if class.MultiTenancyConfig != nil {
@@ -39,7 +47,7 @@ func validateSingleBatchObjectTenantKey(class *models.Class, obj *models.Object,
 			return NewErrInvalidUserInput("class %q has multi-tenancy enabled, tenant_key %q required",
 				class.Class, class.MultiTenancyConfig.TenantKey)
 		}
-		objTk = ParseTenantKeyFromObject(class.MultiTenancyConfig.TenantKey, obj)
+		objTk = ParseTenantKeyFromObject(class.MultiTenancyConfig.TenantKey, obj, logger)
 		if objTk != tk {
 			ec.Add(fmt.Errorf("object does not belong to tenant %q", tk))
 		}

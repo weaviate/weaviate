@@ -166,27 +166,36 @@ func DeleteTenantObjectsBatch(t *testing.T, body *models.BatchDelete,
 	params := batch.NewBatchObjectsDeleteParams().
 		WithBody(body).WithTenantKey(&tenantKey)
 	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
-	return resp.Payload, err
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
 }
 
-func AddReferences(t *testing.T, refs []*models.BatchReference) {
+func AddReferences(t *testing.T, refs []*models.BatchReference) ([]*models.BatchReferenceResponse, error) {
 	params := batch.NewBatchReferencesCreateParams().WithBody(refs)
 	resp, err := Client(t).Batch.BatchReferencesCreate(params, nil)
-	AssertRequestOk(t, resp, err, nil)
-	for _, elem := range resp.Payload {
-		if !assert.Nil(t, elem.Result.Errors) {
-			t.Logf("expected nil, got: %v",
-				elem.Result.Errors.Error[0].Message)
-		}
+	if err != nil {
+		return nil, err
 	}
+	return resp.Payload, nil
 }
 
-func AddTenantReferences(t *testing.T, refs []*models.BatchReference, tenantKey string) {
+func AddTenantReferences(t *testing.T, refs []*models.BatchReference,
+	tenantKey string,
+) ([]*models.BatchReferenceResponse, error) {
 	params := batch.NewBatchReferencesCreateParams().
 		WithBody(refs).WithTenantKey(&tenantKey)
 	resp, err := Client(t).Batch.BatchReferencesCreate(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
+func CheckReferencesBatchResponse(t *testing.T, resp []*models.BatchReferenceResponse, err error) {
 	AssertRequestOk(t, resp, err, nil)
-	for _, elem := range resp.Payload {
+	for _, elem := range resp {
 		if !assert.Nil(t, elem.Result.Errors) {
 			t.Logf("expected nil, got: %v",
 				elem.Result.Errors.Error[0].Message)
