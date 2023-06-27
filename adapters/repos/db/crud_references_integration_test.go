@@ -18,9 +18,7 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
@@ -35,7 +33,6 @@ import (
 )
 
 func TestNestedReferences(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	refSchema := schema.Schema{
@@ -524,7 +521,6 @@ func GetDimensionsFromRepo(repo *DB, className string) int {
 }
 
 func Test_AddingReferenceOneByOne(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	sch := schema.Schema{

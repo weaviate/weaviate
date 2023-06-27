@@ -12,9 +12,10 @@
 package lsmkv
 
 import (
+	"crypto/rand"
 	"fmt"
 	"math"
-	"math/rand"
+	"math/big"
 	"reflect"
 	"testing"
 
@@ -263,17 +264,24 @@ type void struct{}
 
 var member void
 
+func mustRandIntn(max int64) int {
+	randInt, err := rand.Int(rand.Reader, big.NewInt(max))
+	if err != nil {
+		panic(fmt.Sprintf("mustRandIntn error: %v", err))
+	}
+	return int(randInt.Int64())
+}
+
 func TestRBTrees_Random(t *testing.T) {
-	setSeed(t)
 	tree := &binarySearchTree{}
-	amount := rand.Intn(100000)
-	keySize := rand.Intn(100)
+	amount := mustRandIntn(100000)
+	keySize := mustRandIntn(100)
 	uniqueKeys := make(map[string]void)
 	for i := 0; i < amount; i++ {
 		key := make([]byte, keySize)
 		rand.Read(key)
 		uniqueKeys[fmt.Sprint(key)] = member
-		if rand.Intn(5) == 1 { // add 20% of all entries as tombstone
+		if mustRandIntn(5) == 1 { // add 20% of all entries as tombstone
 			tree.setTombstone(key, nil)
 		} else {
 			tree.insert(key, key, nil)
@@ -291,10 +299,9 @@ func TestRBTrees_Random(t *testing.T) {
 }
 
 func TestRBTreesMap_Random(t *testing.T) {
-	setSeed(t)
 	tree := &binarySearchTreeMap{}
-	amount := rand.Intn(100000)
-	keySize := rand.Intn(100)
+	amount := mustRandIntn(100000)
+	keySize := mustRandIntn(100)
 	uniqueKeys := make(map[string]void)
 	for i := 0; i < amount; i++ {
 		key := make([]byte, keySize)
@@ -317,10 +324,9 @@ func TestRBTreesMap_Random(t *testing.T) {
 }
 
 func TestRBTreesMulti_Random(t *testing.T) {
-	setSeed(t)
 	tree := &binarySearchTreeMulti{}
-	amount := rand.Intn(100000)
-	keySize := rand.Intn(100)
+	amount := mustRandIntn(100000)
+	keySize := mustRandIntn(100)
 	uniqueKeys := make(map[string]void)
 	for i := 0; i < amount; i++ {
 		key := make([]byte, keySize)

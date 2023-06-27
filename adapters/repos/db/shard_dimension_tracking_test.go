@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -35,7 +34,7 @@ func Benchmark_Migration(b *testing.B) {
 	fmt.Printf("Running benchmark %v times\n", b.N)
 	for i := 0; i < b.N; i++ {
 		func() {
-			rand.Seed(time.Now().UnixNano())
+			r := getRandomSeed()
 			dirName := b.TempDir()
 
 			shardState := singleShardState()
@@ -75,7 +74,7 @@ func Benchmark_Migration(b *testing.B) {
 			for i := 0; i < 100; i++ {
 				vec := make([]float32, dim)
 				for j := range vec {
-					vec[j] = rand.Float32()
+					vec[j] = r.Float32()
 				}
 
 				id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
@@ -97,7 +96,7 @@ func Benchmark_Migration(b *testing.B) {
 
 // Rebuild dimensions at startup
 func Test_Migration(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
+	r := getRandomSeed()
 	dirName := t.TempDir()
 
 	shardState := singleShardState()
@@ -141,7 +140,7 @@ func Test_Migration(t *testing.T) {
 		for i := 0; i < 100; i++ {
 			vec := make([]float32, dim)
 			for j := range vec {
-				vec[j] = rand.Float32()
+				vec[j] = r.Float32()
 			}
 
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
@@ -162,7 +161,7 @@ func Test_Migration(t *testing.T) {
 }
 
 func Test_DimensionTracking(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
+	r := getRandomSeed()
 	dirName := t.TempDir()
 
 	shardState := singleShardState()
@@ -204,7 +203,7 @@ func Test_DimensionTracking(t *testing.T) {
 		for i := 0; i < 100; i++ {
 			vec := make([]float32, dim)
 			for j := range vec {
-				vec[j] = rand.Float32()
+				vec[j] = r.Float32()
 			}
 
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())

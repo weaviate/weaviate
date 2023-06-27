@@ -17,9 +17,7 @@ package db
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -34,7 +32,6 @@ import (
 )
 
 func TestRefFilters(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -456,7 +453,6 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 	// operator, which was discovered through a journey test as part of gh-1286.
 	// The schema is modelled after the journey test, as the regular tests suites
 	// above do not seem to run into this issue on their own
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()

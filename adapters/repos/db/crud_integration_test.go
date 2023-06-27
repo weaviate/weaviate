@@ -40,7 +40,6 @@ import (
 )
 
 func TestCRUD(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -1273,7 +1272,6 @@ func TestCRUD(t *testing.T) {
 }
 
 func TestCRUD_Query(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -1515,13 +1513,13 @@ func TestCRUD_Query(t *testing.T) {
 }
 
 func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
+	r := getRandomSeed()
 	total := 100
 	individual := total / 4
 	className := "DeferredVector"
 	var data []*models.Object
 	var class *models.Class
 
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
@@ -1624,7 +1622,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 				Offset: 0,
 				Limit:  total,
 			},
-			SearchVector: randomVector(7),
+			SearchVector: randomVector(r, 7),
 		})
 		require.Nil(t, err)
 		assert.Len(t, res, 0) // we skipped the vector on half the elements, so we should now match half
@@ -1636,7 +1634,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 				continue
 			}
 
-			data[i].Vector = randomVector(7)
+			data[i].Vector = randomVector(r, 7)
 			err := repo.PutObject(context.Background(), data[i], data[i].Vector, nil, "")
 			require.Nil(t, err)
 		}
@@ -1650,7 +1648,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 				Offset: 0,
 				Limit:  total,
 			},
-			SearchVector: randomVector(7),
+			SearchVector: randomVector(r, 7),
 		})
 		require.Nil(t, err)
 		assert.Len(t, res, total/2) // we skipped the vector on half the elements, so we should now match half
@@ -1664,7 +1662,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 				Offset: 0,
 				Limit:  total,
 			},
-			SearchVector: randomVector(7),
+			SearchVector: randomVector(r, 7),
 		})
 		require.Nil(t, err)
 		// we skipped the vector on half the elements, and cut the list in half with
@@ -1677,7 +1675,6 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 	className := "SomeClass"
 	var class *models.Class
 
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
@@ -1814,7 +1811,6 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 	className := "SomeClass"
 	var class *models.Class
 
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
@@ -1948,7 +1944,6 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 }
 
 func Test_PutPatchRestart(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -2055,7 +2050,6 @@ func Test_PutPatchRestart(t *testing.T) {
 }
 
 func TestCRUDWithEmptyArrays(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -2225,7 +2219,6 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 }
 
 func TestOverwriteObjects(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	class := &models.Class{
@@ -2321,7 +2314,6 @@ func TestOverwriteObjects(t *testing.T) {
 }
 
 func TestIndexDigestObjects(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	class := &models.Class{
@@ -2437,10 +2429,10 @@ func ptFloat64(in float64) *float64 {
 	return &in
 }
 
-func randomVector(dim int) []float32 {
+func randomVector(r *rand.Rand, dim int) []float32 {
 	out := make([]float32, dim)
 	for i := range out {
-		out[i] = rand.Float32()
+		out[i] = r.Float32()
 	}
 
 	return out

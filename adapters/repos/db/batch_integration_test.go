@@ -38,7 +38,6 @@ import (
 )
 
 func TestBatchPutObjectsWithDimensions(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -69,7 +68,6 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 }
 
 func TestBatchPutObjects(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -95,7 +93,6 @@ func TestBatchPutObjects(t *testing.T) {
 }
 
 func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -127,7 +124,6 @@ func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
 }
 
 func TestBatchPutObjectsNoVectors(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -152,7 +148,6 @@ func TestBatchPutObjectsNoVectors(t *testing.T) {
 
 func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 	className := "ThingForBatching"
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -227,7 +222,6 @@ func delete2Objects(t *testing.T, repo *DB, className string) {
 }
 
 func TestBatchDeleteObjects(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -253,7 +247,6 @@ func TestBatchDeleteObjects(t *testing.T) {
 }
 
 func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	queryMaximumResults := int64(200)
@@ -289,7 +282,6 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 }
 
 func TestBatchDeleteObjects_Journey(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	queryMaximumResults := int64(20)
@@ -788,6 +780,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 // that they work with batches at scale adds value beyond the regular batch
 // import tests
 func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
+	r := getRandomSeed()
 	return func(t *testing.T) {
 		size := 500
 		batchSize := 50
@@ -801,7 +794,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 					Class: "ThingForBatching",
 					ID:    strfmt.UUID(id.String()),
 					Properties: map[string]interface{}{
-						"location": randGeoCoordinates(),
+						"location": randGeoCoordinates(r),
 					},
 					Vector: []float32{0.123, 0.234, rand.Float32()}, // does not matter for this test
 				}
@@ -844,7 +837,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 		}
 
 		t.Run("query for expected results", func(t *testing.T) {
-			queryGeo := randGeoCoordinates()
+			queryGeo := randGeoCoordinates(r)
 
 			for _, maxDist := range distances {
 				t.Run(fmt.Sprintf("with maxDist=%f", maxDist), func(t *testing.T) {
@@ -884,7 +877,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 		t.Run("renew vector positions to test batch geo updates", func(t *testing.T) {
 			for i, obj := range objs {
 				obj.Properties = map[string]interface{}{
-					"location": randGeoCoordinates(),
+					"location": randGeoCoordinates(r),
 				}
 				objs[i] = obj
 			}
@@ -908,7 +901,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 		})
 
 		t.Run("query again to verify updates worked", func(t *testing.T) {
-			queryGeo := randGeoCoordinates()
+			queryGeo := randGeoCoordinates(r)
 
 			for _, maxDist := range distances {
 				t.Run(fmt.Sprintf("with maxDist=%f", maxDist), func(t *testing.T) {
@@ -1199,14 +1192,14 @@ func bruteForceMaxDist(inputs []*models.Object, query []float32, maxDist float32
 	return out[:i]
 }
 
-func randGeoCoordinates() *models.GeoCoordinates {
+func randGeoCoordinates(r *rand.Rand) *models.GeoCoordinates {
 	maxLat := float32(90.0)
 	minLat := float32(-90.0)
 	maxLon := float32(180)
 	minLon := float32(-180)
 
-	lat := minLat + (maxLat-minLat)*rand.Float32()
-	lon := minLon + (maxLon-minLon)*rand.Float32()
+	lat := minLat + (maxLat-minLat)*r.Float32()
+	lon := minLon + (maxLon-minLon)*r.Float32()
 	return &models.GeoCoordinates{
 		Latitude:  &lat,
 		Longitude: &lon,

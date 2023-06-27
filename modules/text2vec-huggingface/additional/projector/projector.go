@@ -14,7 +14,6 @@ package projector
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"time"
 
 	"github.com/danaugrs/go-tsne/tsne"
@@ -77,7 +76,6 @@ func (f *FeatureProjector) Reduce(in []search.Result, params *Params) ([]search.
 	if err != nil {
 		return nil, err
 	}
-	rand.Seed(f.fixedSeed) // TODO: don't use global random function
 	t := tsne.NewTSNE(*params.Dimensions, float64(*params.Perplexity),
 		float64(*params.LearningRate), *params.Iterations, false)
 	t.EmbedData(matrix, nil)

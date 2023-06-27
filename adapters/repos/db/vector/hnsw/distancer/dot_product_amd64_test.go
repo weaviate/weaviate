@@ -14,9 +14,7 @@ package distancer
 import (
 	"fmt"
 	"math"
-	"math/rand"
 	"testing"
-	"time"
 	"unsafe"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
@@ -55,6 +53,7 @@ func testDotProductFixedValue(t *testing.T, size uint) {
 }
 
 func testDotProductRandomValue(t *testing.T, size uint) {
+	r := getRandomSeed()
 	count := 10000
 	countFailed := 0
 
@@ -65,8 +64,8 @@ func testDotProductRandomValue(t *testing.T, size uint) {
 		vec1 := make([]float32, size)
 		vec2 := make([]float32, size)
 		for j := range vec1 {
-			vec1[j] = rand.Float32()
-			vec2[j] = rand.Float32()
+			vec1[j] = r.Float32()
+			vec2[j] = r.Float32()
 		}
 		vec1s[i] = Normalize(vec1)
 		vec2s[i] = Normalize(vec2)
@@ -94,7 +93,6 @@ func testDotProductRandomValue(t *testing.T, size uint) {
 }
 
 func TestCompareDotProductImplementations(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	sizes := []uint{
 		8,
 		16,

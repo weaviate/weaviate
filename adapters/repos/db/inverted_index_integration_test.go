@@ -16,7 +16,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"testing"
 	"time"
 
@@ -34,7 +33,6 @@ import (
 )
 
 func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	vFalse := false
 	vTrue := true

@@ -18,7 +18,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"testing"
 	"time"
 
@@ -34,6 +33,7 @@ var backend *fakeBackupBackend
 func TestDistributedBackups(t *testing.T) {
 	var (
 		dirName  = setupDirectory(t)
+		rnd      = getRandomSeed()
 		numObjs  = 100
 		numNodes = 3
 		backupID = "new-backup"
@@ -80,7 +80,7 @@ func TestDistributedBackups(t *testing.T) {
 	t.Run("import data", func(t *testing.T) {
 		t.Run("import first class into random node", func(t *testing.T) {
 			for _, obj := range data {
-				node := nodes[rand.Intn(len(nodes))]
+				node := nodes[rnd.Intn(len(nodes))]
 
 				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil, "")
 				require.Nil(t, err)
@@ -89,7 +89,7 @@ func TestDistributedBackups(t *testing.T) {
 
 		t.Run("import second class into random node", func(t *testing.T) {
 			for _, obj := range refData {
-				node := nodes[rand.Intn(len(nodes))]
+				node := nodes[rnd.Intn(len(nodes))]
 
 				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil, "")
 				require.Nil(t, err)

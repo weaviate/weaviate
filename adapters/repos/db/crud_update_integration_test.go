@@ -16,9 +16,7 @@ package db
 
 import (
 	"context"
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -41,7 +39,6 @@ import (
 // needs to be tested extensively because there's a lot of room for error
 // regarding the clean up of Doc ID pointers in the inverted indices, etc.
 func TestUpdateJourney(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()

@@ -17,9 +17,7 @@ package db
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -37,7 +35,6 @@ import (
 // It reuses the company-schema from the regular filters test, but runs them in
 // isolation as to not interfere with the existing tests
 func Test_LimitsOnChainedFilters(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -134,7 +131,6 @@ func chainedFilterCompanies(size int) []*models.Object {
 // It reuses the company-schema from the regular filters test, but runs them in
 // isolation as to not interfere with the existing tests
 func Test_FilterLimitsAfterUpdates(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -260,7 +256,6 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 // It reuses the company-schema from the regular filters test, but runs them in
 // isolation as to not interfere with the existing tests
 func Test_AggregationsAfterUpdates(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
