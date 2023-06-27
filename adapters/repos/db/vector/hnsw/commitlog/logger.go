@@ -170,14 +170,19 @@ func (l *Logger) ReplaceLinksAtLevel(id uint64, level int, targets []uint64) err
 	binary.LittleEndian.PutUint64(headers[1:9], id)
 	binary.LittleEndian.PutUint16(headers[9:11], uint16(level))
 	binary.LittleEndian.PutUint16(headers[11:13], uint16(len(targets)))
-	l.addData(headers)
+	//l.addData(headers)
+	toWrite := headers
 
 	i := 0
 	// chunks of 8
 	buf := make([]byte, 64)
 	for i < len(targets) {
 		if i != 0 && i%8 == 0 {
-			l.addData(buf)
+			bufCopy := make([]byte, len(toWrite)+64)
+			copy(bufCopy, toWrite)
+			copy(bufCopy[len(toWrite):], buf)
+			toWrite = bufCopy
+			//l.addData(buf)
 		}
 
 		pos := i % 8
@@ -195,10 +200,13 @@ func (l *Logger) ReplaceLinksAtLevel(id uint64, level int, targets []uint64) err
 		if end == 0 {
 			end = 64
 		}
-
-		l.addData(buf[start:end])
+		bufCopy := make([]byte, len(toWrite)+end-start)
+		copy(bufCopy, toWrite)
+		copy(bufCopy[len(toWrite):], buf[start:end])
+		toWrite = bufCopy
+		//l.addData(buf[start:end])
 	}
-
+	l.addData(toWrite)
 	return nil
 }
 
