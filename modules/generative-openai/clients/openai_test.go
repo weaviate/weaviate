@@ -25,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/modules/generative-openai/config"
 	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
@@ -44,7 +45,7 @@ func fakeBuildUrl(serverURL string, isLegacy bool, resourceName, deploymentID, b
 
 func TestBuildUrlFn(t *testing.T) {
 	t.Run("buildUrlFn returns default OpenAI Client", func(t *testing.T) {
-		url, err := buildUrlFn(false, "", "", "")
+		url, err := buildUrlFn(false, "", "", config.DefaultOpenAIBaseURL)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://api.openai.com/v1/chat/completions", url)
 	})
