@@ -24,7 +24,7 @@ type authorizer interface {
 }
 
 type db interface {
-	GetNodeStatuses(ctx context.Context) ([]*models.NodeStatus, error)
+	GetNodeStatus(ctx context.Context, className string) ([]*models.NodeStatus, error)
 }
 
 type Manager struct {
@@ -40,11 +40,11 @@ func NewManager(logger logrus.FieldLogger, authorizer authorizer,
 	return &Manager{logger, authorizer, db, schemaManager}
 }
 
-func (m *Manager) GetNodeStatuses(ctx context.Context,
-	principal *models.Principal,
+func (m *Manager) GetNodeStatus(ctx context.Context,
+	principal *models.Principal, className string,
 ) ([]*models.NodeStatus, error) {
 	if err := m.authorizer.Authorize(principal, "list", "nodes"); err != nil {
 		return nil, err
 	}
-	return m.db.GetNodeStatuses(ctx)
+	return m.db.GetNodeStatus(ctx, className)
 }
