@@ -36,7 +36,7 @@ func TestCacher(t *testing.T) {
 	t.Run("with empty results", func(t *testing.T) {
 		repo := newFakeRepo()
 		logger, _ := test.NewNullLogger()
-		cr := NewCacher(repo, logger)
+		cr := NewCacher(repo, logger, "")
 		err := cr.Build(context.Background(), nil, nil, additional.Properties{})
 		assert.Nil(t, err)
 	})
@@ -44,7 +44,7 @@ func TestCacher(t *testing.T) {
 	t.Run("with results with nil-schemas", func(t *testing.T) {
 		repo := newFakeRepo()
 		logger, _ := test.NewNullLogger()
-		cr := NewCacher(repo, logger)
+		cr := NewCacher(repo, logger, "")
 		input := []search.Result{
 			{
 				ID:        "foo",
@@ -58,7 +58,7 @@ func TestCacher(t *testing.T) {
 	t.Run("with results without refs in the schema", func(t *testing.T) {
 		repo := newFakeRepo()
 		logger, _ := test.NewNullLogger()
-		cr := NewCacher(repo, logger)
+		cr := NewCacher(repo, logger, "")
 		input := []search.Result{
 			{
 				ID:        "foo",
@@ -76,7 +76,7 @@ func TestCacher(t *testing.T) {
 	t.Run("with a single ref, but no selectprops", func(t *testing.T) {
 		repo := newFakeRepo()
 		logger, _ := test.NewNullLogger()
-		cr := NewCacher(repo, logger)
+		cr := NewCacher(repo, logger, "")
 		input := []search.Result{
 			{
 				ID:        "foo",
@@ -106,7 +106,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 		logger, _ := test.NewNullLogger()
-		cr := NewCacher(repo, logger)
+		cr := NewCacher(repo, logger, "")
 		input := []search.Result{
 			{
 				ID:        "foo",
@@ -180,7 +180,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 		logger, _ := test.NewNullLogger()
-		cr := NewCacher(repo, logger)
+		cr := NewCacher(repo, logger, "")
 		input := []search.Result{
 			{
 				ID:        "foo",
@@ -288,7 +288,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 		logger, _ := test.NewNullLogger()
-		cr := NewCacher(repo, logger)
+		cr := NewCacher(repo, logger, "")
 
 		// contains three items, all pointing to the same inner class
 		input := []search.Result{
@@ -446,7 +446,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 		logger, _ := test.NewNullLogger()
-		cr := NewCacher(repo, logger)
+		cr := NewCacher(repo, logger, "")
 		input := []search.Result{
 			{
 				ID:        "foo",
@@ -1044,7 +1044,7 @@ func newFakeRepo() *fakeRepo {
 	}
 }
 
-func (f *fakeRepo) MultiGet(ctx context.Context, query []multi.Identifier, additional additional.Properties) ([]search.Result, error) {
+func (f *fakeRepo) MultiGet(ctx context.Context, query []multi.Identifier, additional additional.Properties, tenantKey string) ([]search.Result, error) {
 	f.counter++
 	f.objectCounter += len(query)
 	out := make([]search.Result, len(query))

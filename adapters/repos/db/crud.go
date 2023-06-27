@@ -63,9 +63,8 @@ func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
 	return nil
 }
 
-func (db *DB) MultiGet(ctx context.Context,
-	query []multi.Identifier,
-	additional additional.Properties,
+func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
+	additional additional.Properties, tenantKey string,
 ) ([]search.Result, error) {
 	byIndex := map[string][]multi.Identifier{}
 	db.indexLock.RLock()
@@ -88,7 +87,7 @@ func (db *DB) MultiGet(ctx context.Context,
 
 	out := make(search.Results, len(query))
 	for indexID, queries := range byIndex {
-		indexRes, err := db.indices[indexID].multiObjectByID(ctx, queries)
+		indexRes, err := db.indices[indexID].multiObjectByID(ctx, queries, tenantKey)
 		if err != nil {
 			return nil, errors.Wrapf(err, "index %q", indexID)
 		}
@@ -152,7 +151,7 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	}
 
 	return db.ResolveReferences(ctx,
-		storobj.SearchResults(result, additional), props, nil, additional)
+		storobj.SearchResults(result, additional), props, nil, additional, tenantKey)
 }
 
 // Object gets object with id from index of specified class.
@@ -176,13 +175,13 @@ func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID,
 	if r == nil {
 		return nil, nil
 	}
-	return db.enrichRefsForSingle(ctx, r, props, addl)
+	return db.enrichRefsForSingle(ctx, r, props, addl, tenantKey)
 }
 
 func (db *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
-	props search.SelectProperties, additional additional.Properties,
+	props search.SelectProperties, additional additional.Properties, tenantKey string,
 ) (*search.Result, error) {
-	res, err := refcache.NewResolver(refcache.NewCacher(db, db.logger)).
+	res, err := refcache.NewResolver(refcache.NewCacher(db, db.logger, tenantKey)).
 		Do(ctx, []search.Result{*obj}, props, additional)
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve cross-refs")
@@ -225,24 +224,17 @@ func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 	return false, nil
 }
 
-func (db *DB) AddReference(ctx context.Context, className string,
-	source strfmt.UUID, propName string, ref *models.SingleRef,
+func (db *DB) AddReference(ctx context.Context, source *crossref.RefSource, target *crossref.Ref,
 	repl *additional.ReplicationProperties, tenantKey string,
 ) error {
-	target, err := crossref.ParseSingleRef(ref)
-	if err != nil {
-		return err
-	}
-
 	return db.Merge(ctx, objects.MergeDocument{
-		Class:      className,
-		ID:         source,
+		Class:      source.Class.String(),
+		ID:         source.TargetID,
 		UpdateTime: time.Now().UnixMilli(),
 		References: objects.BatchReferences{
 			objects.BatchReference{
-				From: crossref.NewSource(schema.ClassName(className),
-					schema.PropertyName(propName), source),
-				To: target,
+				From: source,
+				To:   target,
 			},
 		},
 	}, repl, tenantKey)

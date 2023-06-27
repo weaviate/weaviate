@@ -174,6 +174,18 @@ func GetObjectFromNode(t *testing.T, class string, uuid strfmt.UUID, nodename st
 	return getResp.Payload, nil
 }
 
+func GetTenantObjectFromNode(t *testing.T, class string, uuid strfmt.UUID, nodename, tenantKey string) (*models.Object, error) {
+	req := objects.NewObjectsClassGetParams().WithID(uuid).
+		WithClassName(class).
+		WithNodeName(&nodename).
+		WithTenantKey(&tenantKey)
+	getResp, err := Client(t).Objects.ObjectsClassGet(req, nil)
+	if err != nil {
+		return nil, err
+	}
+	return getResp.Payload, nil
+}
+
 func DeleteClassObject(t *testing.T, class string) (*schema.SchemaObjectsDeleteOK, error) {
 	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
 	return Client(t).Schema.SchemaObjectsDelete(delParams, nil)
