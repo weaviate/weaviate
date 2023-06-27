@@ -529,18 +529,21 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 		group.pos = append(group.pos, pos)
 		byShard[shardName] = group
 	}
+	if i.replicationEnabled() {
+		if replProps == nil {
+			replProps = defaultConsistency()
+		}
+	} else {
+		replProps = nil
+	}
 
 	wg := &sync.WaitGroup{}
-
 	for shardName, group := range byShard {
 		wg.Add(1)
 		go func(shardName string, group objsAndPos) {
 			defer wg.Done()
 			var errs []error
-			if i.replicationEnabled() {
-				if replProps == nil {
-					replProps = defaultConsistency()
-				}
+			if replProps != nil {
 				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
 					replica.ConsistencyLevel(replProps.ConsistencyLevel))
 			} else if !i.isLocalShard(shardName) {

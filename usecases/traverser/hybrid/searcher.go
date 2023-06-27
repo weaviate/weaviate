@@ -15,6 +15,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
+
+	"github.com/weaviate/weaviate/entities/autocut"
+
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/search"
@@ -147,8 +151,18 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 			weights = append(weights, weight)
 		}
 	}
+	if len(weights) != len(found) {
+		return nil, fmt.Errorf("length of weights and results do not match for hybrid search %v vs. %v", len(weights), len(found))
+	}
 
-	fused := FusionReciprocal(weights, found)
+	var fused []*Result
+	if s.params.FusionAlgorithm == get.HybridRankedFusion {
+		fused = FusionRanked(weights, found)
+	} else if s.params.FusionAlgorithm == get.HybridRelativeScoreFusion {
+		fused = FusionRelativeScore(weights, found)
+	} else {
+		return nil, fmt.Errorf("unknown ranking algorithm %v for hybrid search", s.params.FusionAlgorithm)
+	}
 
 	if s.postProcFunc != nil {
 		sr, err := s.postProcFunc(fused)
@@ -159,7 +173,14 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 			fused[i].Result = &(sr[i])
 		}
 	}
-
+	if s.params.AutoCut > 0 {
+		scores := make([]float32, len(fused))
+		for i := range fused {
+			scores[i] = fused[i].Score
+		}
+		cutOff := autocut.Autocut(scores, s.params.AutoCut)
+		fused = fused[:cutOff]
+	}
 	return fused, nil
 }
 

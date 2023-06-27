@@ -11,19 +11,18 @@
 
 package ratelimiter
 
-import "sync"
+import "sync/atomic"
 
 // Limiter is a thread-safe counter that can be used for rate-limiting requests
 type Limiter struct {
-	lock    sync.Mutex
-	max     int
-	current int
+	max     int64
+	current int64
 }
 
 // New creates a [Limiter] with the specified maximum concurrent requests
 func New(maxRequests int) *Limiter {
 	return &Limiter{
-		max: maxRequests,
+		max: int64(maxRequests),
 	}
 }
 
@@ -35,15 +34,14 @@ func (l *Limiter) TryInc() bool {
 		return true
 	}
 
-	l.lock.Lock()
-	defer l.lock.Unlock()
+	new := atomic.AddInt64(&l.current, 1)
 
-	if l.current < l.max {
-		l.current++
+	if new <= l.max {
 		return true
-
 	}
 
+	// undo unsuccessful increment
+	atomic.AddInt64(&l.current, -1)
 	return false
 }
 
@@ -52,11 +50,11 @@ func (l *Limiter) Dec() {
 		return
 	}
 
-	l.lock.Lock()
-	defer l.lock.Unlock()
-
-	l.current--
-	if l.current < 0 {
-		l.current = 0
+	new := atomic.AddInt64(&l.current, -1)
+	if new < 0 {
+		// Should not happen unless some client called Dec multiple times.
+		// Try to reset current to 0. It's ok if swap doesn't happen, since
+		// someone else must've succeeded at fixing current value.
+		atomic.CompareAndSwapInt64(&l.current, new, 0)
 	}
 }
