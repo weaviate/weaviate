@@ -29,7 +29,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-var HostURL = "http://localhost:8080"
+var HostURL = ""
 
 func TestFindObject(t *testing.T) {
 	//t.Parallel()
