@@ -12,10 +12,8 @@
 package aggregator
 
 import (
-	"fmt"
 	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -100,7 +98,6 @@ type TestStructNumbers struct {
 }
 
 func TestShardCombinerMergeNumerical(t *testing.T) {
-	setSeed(t)
 	tests := []TestStructNumbers{
 		{
 			name:     "Uneven number of elements for both",
@@ -249,10 +246,4 @@ func createRandomSlice() []float64 {
 		array[i] = rand.Float64() * 1000
 	}
 	return array
-}
-
-func setSeed(t *testing.T) {
-	time := time.Now().UnixNano()
-	t.Log("Seed is", fmt.Sprint(time))
-	rand.Seed(time)
 }

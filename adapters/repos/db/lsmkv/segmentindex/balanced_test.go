@@ -12,13 +12,22 @@
 package segmentindex
 
 import (
+	"crypto/rand"
 	"fmt"
 	"math"
-	"math/rand"
+	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func mustRandUint64() uint64 {
+	randInt, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
+	if err != nil {
+		panic(fmt.Sprintf("mustRandUint64 error: %v", err))
+	}
+	return randInt.Uint64()
+}
 
 func TestBuildBalancedTree(t *testing.T) {
 	size := 2000
@@ -33,8 +42,8 @@ func TestBuildBalancedTree(t *testing.T) {
 			nodes[i].Key = make([]byte, 8)
 			rand.Read(nodes[i].Key)
 
-			nodes[i].Start = rand.Uint64()
-			nodes[i].End = rand.Uint64()
+			nodes[i].Start = mustRandUint64()
+			nodes[i].End = mustRandUint64()
 		}
 	})
 

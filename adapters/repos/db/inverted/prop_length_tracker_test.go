@@ -13,10 +13,8 @@ package inverted
 
 import (
 	"fmt"
-	"math/rand"
 	"path"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -24,7 +22,6 @@ import (
 )
 
 func Test_PropertyLengthTracker(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	trackerPath := path.Join(dirName, "my_test_shard")
 	l := logrus.New()
@@ -232,7 +229,6 @@ func create20PropsAndVerify(t *testing.T, tracker *JsonPropertyLengthTracker) {
 }
 
 func Test_PropertyLengthTracker_Persistence(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	path := path.Join(dirName, "my_test_shard")
@@ -282,7 +278,6 @@ func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 
 // Testing the switch from the old property length tracker to the new one
 func TestFormatConversion(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	path := path.Join(dirName, "my_test_shard")
@@ -402,7 +397,6 @@ func create20PropsAndVerify_old(t *testing.T, tracker *PropertyLengthTracker) {
 // Test the old property length tracker
 
 func TestOldPropertyLengthTracker(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	trackerPath := path.Join(dirName, "my_test_shard")
 
@@ -562,7 +556,6 @@ func TestOldPropertyLengthTracker(t *testing.T) {
 }
 
 func TestOldPropertyLengthTracker_Persistence(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	path := path.Join(dirName, "my_test_shard")

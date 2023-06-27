@@ -17,11 +17,9 @@ package hnsw
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"os"
 	"path"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -32,7 +30,6 @@ import (
 )
 
 func TestStartupWithCorruptCondenseFiles(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	rootPath := t.TempDir()
 
 	logger, _ := test.NewNullLogger()

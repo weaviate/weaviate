@@ -17,7 +17,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"testing"
 	"time"
 
@@ -33,7 +32,6 @@ import (
 )
 
 func Test_Aggregations(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	shardState := singleShardState()
@@ -76,7 +74,6 @@ func Test_Aggregations(t *testing.T) {
 }
 
 func Test_Aggregations_MultiShard(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	shardState := fixedMultiShardState()

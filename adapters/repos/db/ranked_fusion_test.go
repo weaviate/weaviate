@@ -17,11 +17,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"os"
 	"strconv"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -97,7 +95,6 @@ func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchem
 }
 
 func TestHybrid(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
@@ -133,7 +130,6 @@ func TestHybrid(t *testing.T) {
 }
 
 func TestBIER(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -232,7 +228,6 @@ func SetupFusionClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGett
 }
 
 func TestRFJourney(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -550,7 +545,6 @@ func TestRFJourney(t *testing.T) {
 }
 
 func TestRFJourneyWithFilters(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -727,7 +721,6 @@ func TestRFJourneyWithFilters(t *testing.T) {
 }
 
 func TestStability(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()

@@ -16,9 +16,7 @@ package db
 
 import (
 	"context"
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -40,7 +38,6 @@ import (
 // and returning the next ones
 func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 	className := "DeletedDocIDLimitTestClass"
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -158,7 +155,6 @@ func extractIDs(in []search.Result) []strfmt.UUID {
 // https://github.com/weaviate/weaviate/issues/1765
 func TestLimitOneAfterDeletion(t *testing.T) {
 	className := "Test"
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()

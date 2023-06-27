@@ -13,21 +13,19 @@ package distancer
 
 import (
 	"fmt"
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 )
 
 func benchmarkDotGo(b *testing.B, dims int) {
-	rand.Seed(time.Now().UnixNano())
+	r := getRandomSeed()
 
 	vec1 := make([]float32, dims)
 	vec2 := make([]float32, dims)
 	for i := range vec1 {
-		vec1[i] = rand.Float32()
-		vec2[i] = rand.Float32()
+		vec1[i] = r.Float32()
+		vec2[i] = r.Float32()
 	}
 
 	b.ResetTimer()
@@ -37,13 +35,13 @@ func benchmarkDotGo(b *testing.B, dims int) {
 }
 
 func benchmarkDotAVX(b *testing.B, dims int) {
-	rand.Seed(time.Now().UnixNano())
+	r := getRandomSeed()
 
 	vec1 := make([]float32, dims)
 	vec2 := make([]float32, dims)
 	for i := range vec1 {
-		vec1[i] = rand.Float32()
-		vec2[i] = rand.Float32()
+		vec1[i] = r.Float32()
+		vec2[i] = r.Float32()
 	}
 
 	b.ResetTimer()

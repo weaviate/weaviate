@@ -17,7 +17,6 @@ package hnsw
 import (
 	"fmt"
 	"io"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"testing"
@@ -32,7 +31,6 @@ import (
 )
 
 func TestHnswPersistence(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	indexID := "integrationtest"
 
@@ -101,7 +99,6 @@ func TestHnswPersistence(t *testing.T) {
 }
 
 func TestHnswPersistence_CorruptWAL(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	indexID := "integrationtest_corrupt"
 
@@ -207,7 +204,6 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 }
 
 func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	indexID := "integrationtest_deletion"
 	logger, _ := test.NewNullLogger()
@@ -285,7 +281,6 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 }
 
 func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	indexID := "integrationtest_tombstonecleanup"
 

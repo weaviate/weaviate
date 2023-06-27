@@ -15,7 +15,6 @@ package ssdhelpers_test
 
 import (
 	"fmt"
-	"math/rand"
 	"sort"
 	"testing"
 
@@ -52,7 +51,6 @@ func Test_NoRacePQSettings(t *testing.T) {
 }
 
 func Test_NoRacePQKMeans(t *testing.T) {
-	rand.Seed(0)
 	dimensions := 128
 	vectors_size := 1000
 	queries_size := 100

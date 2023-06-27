@@ -38,8 +38,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+func getRandomSeed() *rand.Rand {
+	return rand.New(rand.NewSource(time.Now().UnixNano()))
+}
+
 func setupDirectory(t *testing.T) string {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	return dirName
 }
