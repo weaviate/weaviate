@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"math/rand"
 	"sort"
 	"time"
 
@@ -107,7 +106,6 @@ func (pb *PathBuilder) calculatePathPerObject(obj search.Result, allObjects []se
 		return nil, err
 	}
 
-	rand.Seed(pb.fixedSeed) // TODO: don't use global random function
 	inputRows := matrix.RawMatrix().Rows
 	t := tsne.NewTSNE(2, float64(inputRows/2), 100, 100, false)
 	res := t.EmbedData(matrix, nil)

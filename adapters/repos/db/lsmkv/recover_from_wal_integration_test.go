@@ -19,12 +19,10 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,7 +30,6 @@ import (
 )
 
 func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirNameOriginal := t.TempDir()
 	dirNameRecovered := t.TempDir()
 
@@ -189,7 +186,6 @@ func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 }
 
 func TestReplaceStrategy_RecoverFromWALWithCorruptLastElement(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirNameOriginal := t.TempDir()
 	dirNameRecovered := t.TempDir()
 
@@ -338,7 +334,6 @@ func TestReplaceStrategy_RecoverFromWALWithCorruptLastElement(t *testing.T) {
 }
 
 func TestSetStrategy_RecoverFromWAL(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirNameOriginal := t.TempDir()
 	dirNameRecovered := t.TempDir()
 
@@ -481,7 +476,6 @@ func TestSetStrategy_RecoverFromWAL(t *testing.T) {
 }
 
 func TestMapStrategy_RecoverFromWAL(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirNameOriginal := t.TempDir()
 	dirNameRecovered := t.TempDir()
 

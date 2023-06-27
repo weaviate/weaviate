@@ -21,7 +21,6 @@ import (
 	"math/rand"
 	"sort"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -44,6 +43,7 @@ import (
 )
 
 func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
+	r := getRandomSeed()
 	repo, logger := setupMultiShardTest(t)
 	defer func() {
 		repo.Shutdown(context.Background())
@@ -51,10 +51,10 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 
 	t.Run("prepare", makeTestMultiShardSchema(repo, logger, false, testClassesForImporting()...))
 
-	data := multiShardTestData()
-	queryVec := exampleQueryVec()
+	data := multiShardTestData(r)
+	queryVec := exampleQueryVec(r)
 	groundTruth := bruteForceObjectsByQuery(data, queryVec)
-	refData := multiShardRefClassData(data)
+	refData := multiShardRefClassData(r, data)
 
 	t.Run("import all individually", func(t *testing.T) {
 		for _, obj := range data {
@@ -81,6 +81,7 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 }
 
 func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
+	r := getRandomSeed()
 	repo, logger := setupMultiShardTest(t)
 	defer func() {
 		repo.Shutdown(context.Background())
@@ -88,10 +89,10 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 
 	t.Run("prepare", makeTestMultiShardSchema(repo, logger, false, testClassesForImporting()...))
 
-	data := multiShardTestData()
-	queryVec := exampleQueryVec()
+	data := multiShardTestData(r)
+	queryVec := exampleQueryVec(r)
 	groundTruth := bruteForceObjectsByQuery(data, queryVec)
-	refData := multiShardRefClassData(data)
+	refData := multiShardRefClassData(r, data)
 
 	t.Run("import in a batch", func(t *testing.T) {
 		batch := make(objects.BatchObjects, len(data))
@@ -272,7 +273,6 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 }
 
 func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -740,23 +740,23 @@ func makeTestBatchDeleteAllObjects(repo *DB) func(t *testing.T) {
 	}
 }
 
-func exampleQueryVec() []float32 {
+func exampleQueryVec(r *rand.Rand) []float32 {
 	dim := 10
 	vec := make([]float32, dim)
 	for j := range vec {
-		vec[j] = rand.Float32()
+		vec[j] = r.Float32()
 	}
 	return vec
 }
 
-func multiShardTestData() []*models.Object {
+func multiShardTestData(r *rand.Rand) []*models.Object {
 	size := 20
 	dim := 10
 	out := make([]*models.Object, size)
 	for i := range out {
 		vec := make([]float32, dim)
 		for j := range vec {
-			vec[j] = rand.Float32()
+			vec[j] = r.Float32()
 		}
 
 		out[i] = &models.Object{
@@ -776,7 +776,7 @@ func multiShardTestData() []*models.Object {
 	return out
 }
 
-func multiShardRefClassData(targets []*models.Object) []*models.Object {
+func multiShardRefClassData(r *rand.Rand, targets []*models.Object) []*models.Object {
 	// each class will link to all possible targets, so that we can be sure that
 	// we hit cross-shard links
 	targetLinks := make(models.MultipleRef, len(targets))
@@ -792,7 +792,7 @@ func multiShardRefClassData(targets []*models.Object) []*models.Object {
 	for i := range out {
 		vec := make([]float32, dim)
 		for j := range vec {
-			vec[j] = rand.Float32()
+			vec[j] = r.Float32()
 		}
 
 		out[i] = &models.Object{

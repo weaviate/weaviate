@@ -17,7 +17,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"testing"
 	"time"
 
@@ -34,7 +33,6 @@ import (
 )
 
 func TestFilters(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -864,7 +862,6 @@ var carVectors = [][]float32{
 }
 
 func TestGeoPropUpdateJourney(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -970,7 +967,6 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 // This test prevents a regression on
 // https://github.com/weaviate/weaviate/issues/1426
 func TestCasingOfOperatorCombinations(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -1371,7 +1367,6 @@ func testSortProperties(repo *DB) func(t *testing.T) {
 }
 
 func TestFilteringAfterDeletion(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()

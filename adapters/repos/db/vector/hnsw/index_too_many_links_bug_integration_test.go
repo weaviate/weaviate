@@ -16,11 +16,9 @@ package hnsw
 
 import (
 	"context"
-	"math/rand"
 	"runtime"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -43,7 +41,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	dim := 16
 	m := 8
 
-	rand.Seed(time.Now().UnixNano())
+	r := getRandomSeed()
 	rootPath := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -61,7 +59,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	for i := range data {
 		data[i] = make([]float32, dim)
 		for j := range data[i] {
-			data[i][j] = rand.Float32()
+			data[i][j] = r.Float32()
 		}
 
 	}
