@@ -228,13 +228,13 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 			continue
 		}
 
-		candidateNode.RLock()
+		candidateNode.Lock()
 		if candidateNode.level < level {
 			// a node level could have been downgraded as part of a delete-reassign,
 			// but the connections pointing to it not yet cleaned up. In this case
 			// the node doesn't have any outgoing connections at this level and we
 			// must discard it.
-			candidateNode.RUnlock()
+			candidateNode.Unlock()
 			continue
 		}
 
@@ -256,7 +256,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		}
 
 		copy(connectionsReusable, candidateNode.connections[level])
-		candidateNode.RUnlock()
+		candidateNode.Unlock()
 
 		for _, neighborID := range connectionsReusable {
 
