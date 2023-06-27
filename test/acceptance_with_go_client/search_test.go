@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/stretchr/testify/require"
 	client "github.com/weaviate/weaviate-go-client/v4/weaviate"
 	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
@@ -229,4 +231,61 @@ func TestAutocut(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestNearVectorAndObjectAutocut(t *testing.T) {
+	ctx := context.Background()
+	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c.Schema().AllDeleter().Do(ctx)
+	className := "YellowAndBlueTrain"
+
+	class := &models.Class{
+		Class:      className,
+		Vectorizer: "none",
+	}
+	require.Nil(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+	var uuids []string
+	creator := c.Data().Creator()
+	vectorNumbers := []float32{1, 1.1, 1.2, 2.0, 2.1, 2.2, 3.1, 3.2, 3.2}
+	for _, vectorNumber := range vectorNumbers {
+		uuids = append(uuids, uuid.New().String())
+		_, err := creator.WithClassName(className).WithVector([]float32{1, 1, 1, 1, 1, vectorNumber}).WithID(uuids[len(uuids)-1]).Do(ctx)
+		require.Nil(t, err)
+	}
+
+	t.Run("near vector", func(t *testing.T) {
+		cases := []struct {
+			autocut    int
+			numResults int
+		}{
+			{autocut: 1, numResults: 3}, {autocut: 2, numResults: 6}, {autocut: -1, numResults: 9 /*disabled*/},
+		}
+		for _, tt := range cases {
+			t.Run("autocut "+fmt.Sprint(tt.autocut), func(t *testing.T) {
+				results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(nearVector:{vector:[1, 1, 1, 1, 1, 1], autocut: %d}){_additional{vector}}}}", className, tt.autocut)).Do(ctx)
+				require.Nil(t, err)
+				result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
+				require.Len(t, result, tt.numResults)
+			})
+		}
+	})
+
+	t.Run("near object", func(t *testing.T) {
+		cases := []struct {
+			autocut    int
+			numResults int
+		}{
+			{autocut: 1, numResults: 3}, {autocut: 2, numResults: 6}, {autocut: -1, numResults: 9 /*disabled*/},
+		}
+		for _, tt := range cases {
+			t.Run("autocut "+fmt.Sprint(tt.autocut), func(t *testing.T) {
+				results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(nearObject:{id:%q, autocut: %d}){_additional{vector}}}}", className, uuids[0], tt.autocut)).Do(ctx)
+				require.Nil(t, err)
+				result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
+				require.Len(t, result, tt.numResults)
+			})
+		}
+	})
 }

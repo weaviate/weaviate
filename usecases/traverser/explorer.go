@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/autocut"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -212,6 +214,16 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	res, err := e.searcher.VectorSearch(ctx, params)
 	if err != nil {
 		return nil, errors.Errorf("explorer: get class: vector search: %v", err)
+	}
+
+	autoCut := e.nearParamsVector.autocutFromParams(params.NearVector, params.NearObject)
+	if autoCut > 0 {
+		scores := make([]float32, len(res))
+		for i := range res {
+			scores[i] = res[i].Dist
+		}
+		cutOff := autocut.Autocut(scores, autoCut)
+		res = res[:cutOff]
 	}
 
 	if params.Group != nil {
