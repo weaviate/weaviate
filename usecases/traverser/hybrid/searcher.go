@@ -15,9 +15,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
-
 	"github.com/weaviate/weaviate/entities/autocut"
+
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -32,6 +32,7 @@ type Params struct {
 	*searchparams.HybridSearch
 	Keyword *searchparams.KeywordRanking
 	Class   string
+	Autocut int
 }
 
 // Result facilitates the pairing of a search result with its internal doc id.
@@ -173,12 +174,12 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 			fused[i].Result = &(sr[i])
 		}
 	}
-	if s.params.AutoCut > 0 {
+	if s.params.Autocut > 0 {
 		scores := make([]float32, len(fused))
 		for i := range fused {
 			scores[i] = fused[i].Score
 		}
-		cutOff := autocut.Autocut(scores, s.params.AutoCut)
+		cutOff := autocut.Autocut(scores, s.params.Autocut)
 		fused = fused[:cutOff]
 	}
 	return fused, nil

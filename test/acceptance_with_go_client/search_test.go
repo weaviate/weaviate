@@ -210,7 +210,7 @@ func TestAutocut(t *testing.T) {
 	className := "Paragraph453745"
 
 	AddClassAndObjects(t, className, string(schema.DataTypeTextArray), c)
-	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+	// defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
 	searchQuery := []string{"hybrid:{query:\"rain nice\", alpha: 0, fusionType: relativeScoreFusion", "bm25:{query:\"rain nice\""}
 	cases := []struct {
@@ -222,7 +222,7 @@ func TestAutocut(t *testing.T) {
 	for _, tt := range cases {
 		for _, search := range searchQuery {
 			t.Run("autocut "+fmt.Sprint(tt.autocut, " ", search), func(t *testing.T) {
-				results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(%s, autocut: %d, properties: [\"contents\"]}){num}}}", className, search, tt.autocut)).Do(ctx)
+				results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(%s, properties: [\"contents\"]}, autocut: %d){num}}}", className, search, tt.autocut)).Do(ctx)
 				require.Nil(t, err)
 				result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
 				require.Len(t, result, tt.numResults)
@@ -264,7 +264,7 @@ func TestNearVectorAndObjectAutocut(t *testing.T) {
 		}
 		for _, tt := range cases {
 			t.Run("autocut "+fmt.Sprint(tt.autocut), func(t *testing.T) {
-				results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(nearVector:{vector:[1, 1, 1, 1, 1, 1], autocut: %d}){_additional{vector}}}}", className, tt.autocut)).Do(ctx)
+				results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(nearVector:{vector:[1, 1, 1, 1, 1, 1]}, autocut: %d){_additional{vector}}}}", className, tt.autocut)).Do(ctx)
 				require.Nil(t, err)
 				result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
 				require.Len(t, result, tt.numResults)
@@ -281,7 +281,7 @@ func TestNearVectorAndObjectAutocut(t *testing.T) {
 		}
 		for _, tt := range cases {
 			t.Run("autocut "+fmt.Sprint(tt.autocut), func(t *testing.T) {
-				results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(nearObject:{id:%q, autocut: %d}){_additional{vector}}}}", className, uuids[0], tt.autocut)).Do(ctx)
+				results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(nearObject:{id:%q}, autocut: %d){_additional{vector}}}}", className, uuids[0], tt.autocut)).Do(ctx)
 				require.Nil(t, err)
 				result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
 				require.Len(t, result, tt.numResults)

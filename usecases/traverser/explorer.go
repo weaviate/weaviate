@@ -216,13 +216,12 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		return nil, errors.Errorf("explorer: get class: vector search: %v", err)
 	}
 
-	autoCut := e.nearParamsVector.autocutFromParams(params.NearVector, params.NearObject)
-	if autoCut > 0 {
+	if params.Pagination.Autocut > 0 {
 		scores := make([]float32, len(res))
 		for i := range res {
 			scores[i] = res[i].Dist
 		}
-		cutOff := autocut.Autocut(scores, autoCut)
+		cutOff := autocut.Autocut(scores, params.Pagination.Autocut)
 		res = res[:cutOff]
 	}
 
@@ -292,6 +291,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		HybridSearch: params.HybridSearch,
 		Keyword:      params.KeywordRanking,
 		Class:        params.ClassName,
+		Autocut:      params.Pagination.Autocut,
 	}, e.logger, sparseSearch, denseSearch,
 		postProcess, e.modulesProvider)
 

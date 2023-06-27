@@ -39,11 +39,6 @@ func ExtractNearVector(source map[string]interface{}) (searchparams.NearVector, 
 		args.WithDistance = true
 	}
 
-	autocut, autocutOK := source["autocut"]
-	if autocutOK {
-		args.AutoCut = autocut.(int)
-	}
-
 	if certaintyOK && distanceOK {
 		return searchparams.NearVector{},
 			fmt.Errorf("cannot provide distance and certainty")
