@@ -219,6 +219,10 @@ func buildGetClassField(classObject *graphql.Object,
 				Description: descriptions.After,
 				Type:        graphql.Int,
 			},
+			"autocut": &graphql.ArgumentConfig{
+				Description: "Cut off number of results after the Nth extrema. Off by default, negative numbers mean off.",
+				Type:        graphql.Int,
+			},
 
 			"sort":       sortArgument(class.Class),
 			"nearVector": nearVectorArgument(class.Class),

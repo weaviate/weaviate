@@ -16,7 +16,6 @@ type NearVector struct {
 	Certainty    float64   `json:"certainty"`
 	Distance     float64   `json:"distance"`
 	WithDistance bool      `json:"-"`
-	AutoCut      int       `json:"autocut"`
 }
 
 type KeywordRanking struct {
@@ -24,7 +23,6 @@ type KeywordRanking struct {
 	Properties             []string `json:"properties"`
 	Query                  string   `json:"query"`
 	AdditionalExplanations bool     `json:"additionalExplanations"`
-	AutoCut                int      `json:"autocut"`
 }
 
 type WeightedSearchResult struct {
@@ -39,7 +37,6 @@ type HybridSearch struct {
 	Alpha           float64     `json:"alpha"`
 	Query           string      `json:"query"`
 	Vector          []float32   `json:"vector"`
-	AutoCut         int         `json:"autocut"`
 	Properties      []string    `json:"properties"`
 	FusionAlgorithm int         `json:"fusionalgorithm"`
 }
@@ -50,7 +47,6 @@ type NearObject struct {
 	Certainty    float64 `json:"certainty"`
 	Distance     float64 `json:"distance"`
 	WithDistance bool    `json:"-"`
-	AutoCut      int     `json:"autocut"`
 }
 
 type ObjectMove struct {
@@ -75,7 +71,6 @@ type NearTextParams struct {
 	WithDistance bool
 	Network      bool
 	Autocorrect  bool
-	AutoCut      int
 }
 
 type GroupBy struct {

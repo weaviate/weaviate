@@ -43,18 +43,6 @@ func newNearParamsVector(modulesProvider ModulesProvider, search nearParamsSearc
 	return &nearParamsVector{modulesProvider, search}
 }
 
-func (v *nearParamsVector) autocutFromParams(nearVector *searchparams.NearVector, nearObject *searchparams.NearObject) int {
-	if nearVector != nil {
-		return nearVector.AutoCut
-	}
-
-	if nearObject != nil {
-		return nearObject.AutoCut
-	}
-
-	return -1 // no autocut
-}
-
 func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 	nearVector *searchparams.NearVector, nearObject *searchparams.NearObject,
 	moduleParams map[string]interface{}, className string,
