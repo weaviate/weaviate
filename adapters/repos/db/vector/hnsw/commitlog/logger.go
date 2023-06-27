@@ -15,6 +15,7 @@ import (
 	"encoding/binary"
 	"os"
 	"sync"
+	"time"
 
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
@@ -25,13 +26,13 @@ type linkedBuff struct {
 }
 
 type Logger struct {
-	file     *os.File
-	bufw     *bufWriter
-	buffers  chan bool
-	currBuff *linkedBuff
-	lastBuff *linkedBuff
-	lock     sync.Mutex
-	writing  bool
+	file      *os.File
+	bufw      *bufWriter
+	buffers   chan bool
+	currBuff  *linkedBuff
+	lastBuff  *linkedBuff
+	lock      *sync.Mutex
+	closeLock *sync.RWMutex
 }
 
 // TODO: these are duplicates with the hnsw package, unify them
@@ -74,6 +75,8 @@ func (l *Logger) initWriterWorker() {
 	l.buffers = make(chan bool)
 	l.currBuff = &linkedBuff{}
 	l.lastBuff = l.currBuff
+	l.lock = &sync.Mutex{}
+	l.closeLock = &sync.RWMutex{}
 	go func() {
 		for {
 			<-l.buffers
@@ -84,6 +87,8 @@ func (l *Logger) initWriterWorker() {
 }
 
 func (l *Logger) addData(buff []byte) {
+	l.closeLock.RLock()
+	defer l.closeLock.RUnlock()
 	l.lock.Lock()
 	l.lastBuff.buffer = buff
 	l.lastBuff.next = &linkedBuff{}
@@ -264,10 +269,18 @@ func (l *Logger) FileName() (string, error) {
 }
 
 func (l *Logger) Flush() error {
+	l.closeLock.Lock()
+	defer l.closeLock.Unlock()
 	return l.bufw.Flush()
 }
 
 func (l *Logger) Close() error {
+	l.closeLock.Lock()
+	defer l.closeLock.Unlock()
+
+	for l.currBuff != l.lastBuff {
+		time.Sleep(100)
+	}
 	if err := l.bufw.Flush(); err != nil {
 		return err
 	}
