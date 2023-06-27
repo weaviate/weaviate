@@ -45,6 +45,10 @@ func nearVectorFields(prefix string) graphql.InputObjectConfigFieldMap {
 			Description: descriptions.Distance,
 			Type:        graphql.Float,
 		},
+		"autocut": &graphql.InputObjectFieldConfig{
+			Description: "Cut off number of results after the Nth extrema. Off by default, negative numbers mean off",
+			Type:        graphql.Int,
+		},
 	}
 }
 
@@ -77,6 +81,10 @@ func nearObjectFields(prefix string) graphql.InputObjectConfigFieldMap {
 		"distance": &graphql.InputObjectFieldConfig{
 			Description: descriptions.Distance,
 			Type:        graphql.Float,
+		},
+		"autocut": &graphql.InputObjectFieldConfig{
+			Description: "Cut off number of results after the Nth extrema. Off by default, negative numbers mean off",
+			Type:        graphql.Int,
 		},
 	}
 }

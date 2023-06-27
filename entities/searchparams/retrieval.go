@@ -16,6 +16,7 @@ type NearVector struct {
 	Certainty    float64   `json:"certainty"`
 	Distance     float64   `json:"distance"`
 	WithDistance bool      `json:"-"`
+	AutoCut      int       `json:"autocut"`
 }
 
 type KeywordRanking struct {
@@ -49,6 +50,7 @@ type NearObject struct {
 	Certainty    float64 `json:"certainty"`
 	Distance     float64 `json:"distance"`
 	WithDistance bool    `json:"-"`
+	AutoCut      int     `json:"autocut"`
 }
 
 type ObjectMove struct {
@@ -73,6 +75,7 @@ type NearTextParams struct {
 	WithDistance bool
 	Network      bool
 	Autocorrect  bool
+	AutoCut      int
 }
 
 type GroupBy struct {

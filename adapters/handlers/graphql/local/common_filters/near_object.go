@@ -42,6 +42,11 @@ func ExtractNearObject(source map[string]interface{}) (searchparams.NearObject, 
 		args.WithDistance = true
 	}
 
+	autocut, autocutOK := source["autocut"]
+	if autocutOK {
+		args.AutoCut = autocut.(int)
+	}
+
 	if certaintyOK && distanceOK {
 		return searchparams.NearObject{},
 			fmt.Errorf("cannot provide distance and certainty")
