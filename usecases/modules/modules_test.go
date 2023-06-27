@@ -222,6 +222,12 @@ func TestModulesProvider(t *testing.T) {
 			withExtractFn("nearVector").
 			withExtractFn("nearObject").
 			withExtractFn("group").
+			withExtractFn("groupBy").
+			withExtractFn("hybrid").
+			withExtractFn("bm25").
+			withExtractFn("offset").
+			withExtractFn("after").
+			withGraphQLArg("group", []string{"group"}).
 			withGraphQLArg("classification", []string{"classification"}).
 			withRestApiArg("classification", []string{"classification"}).
 			withGraphQLArg("certainty", []string{"certainty"}).
@@ -240,7 +246,12 @@ func TestModulesProvider(t *testing.T) {
 		assert.Contains(t, err.Error(), "searcher: nearVector conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "searcher: where conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "searcher: group conflicts with weaviate's internal searcher in modules: [mod3]")
+		assert.Contains(t, err.Error(), "searcher: groupBy conflicts with weaviate's internal searcher in modules: [mod3]")
+		assert.Contains(t, err.Error(), "searcher: hybrid conflicts with weaviate's internal searcher in modules: [mod3]")
+		assert.Contains(t, err.Error(), "searcher: bm25 conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "searcher: limit conflicts with weaviate's internal searcher in modules: [mod3]")
+		assert.Contains(t, err.Error(), "searcher: offset conflicts with weaviate's internal searcher in modules: [mod3]")
+		assert.Contains(t, err.Error(), "searcher: after conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "rest api additional property: classification conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "rest api additional property: certainty conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "rest api additional property: distance conflicts with weaviate's internal searcher in modules: [mod3]")
@@ -249,6 +260,7 @@ func TestModulesProvider(t *testing.T) {
 		assert.Contains(t, err.Error(), "graphql additional property: certainty conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "graphql additional property: distance conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "graphql additional property: id conflicts with weaviate's internal searcher in modules: [mod3]")
+		assert.Contains(t, err.Error(), "graphql additional property: group conflicts with weaviate's internal searcher in modules: [mod3]")
 	})
 
 	t.Run("should not register additional property modules providing faulty params", func(t *testing.T) {

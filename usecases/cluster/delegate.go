@@ -33,14 +33,15 @@ const (
 	// _OpCodeDisk operation code for getting disk space
 	_OpCodeDisk _OpCode = 1
 	// _ProtoTTL used to decide when to update the cache
-	_ProtoTTL = time.Second * 3
+	_ProtoTTL = time.Second * 8
 )
 
 // spaceMsg is used to notify other nodes about current disk usage
 type spaceMsg struct {
 	header
 	DiskUsage
-	Node string // node space
+	NodeLen uint8  // = len(Node) is required to marshal Node
+	Node    string // node space
 }
 
 // header of an operation
@@ -62,53 +63,90 @@ type DiskUsage struct {
 // NodeInfo disk space
 type NodeInfo struct {
 	DiskUsage
-	LastTimeMilli int64 // last update time in milli seconds
+	LastTimeMilli int64 // last update time in milliseconds
 }
 
 func (d *spaceMsg) marshal() (data []byte, err error) {
-	buf := bytes.NewBuffer(make([]byte, 0, 20+len(d.Node)))
+	buf := bytes.NewBuffer(make([]byte, 0, 24+len(d.Node)))
 	if err := binary.Write(buf, binary.BigEndian, d.header); err != nil {
 		return nil, err
 	}
 	if err := binary.Write(buf, binary.BigEndian, d.DiskUsage); err != nil {
 		return nil, err
 	}
+	// code node name starting by its length
+	if err := buf.WriteByte(d.NodeLen); err != nil {
+		return nil, err
+	}
 	_, err = buf.Write([]byte(d.Node))
 	return buf.Bytes(), err
 }
 
-func (d *spaceMsg) unmarshal(data []byte) error {
+func (d *spaceMsg) unmarshal(data []byte) (err error) {
 	rd := bytes.NewReader(data)
-	if err := binary.Read(rd, binary.BigEndian, &d.header); err != nil {
-		return err
+	if err = binary.Read(rd, binary.BigEndian, &d.header); err != nil {
+		return
 	}
-	if err := binary.Read(rd, binary.BigEndian, &d.DiskUsage); err != nil {
-		return err
+	if err = binary.Read(rd, binary.BigEndian, &d.DiskUsage); err != nil {
+		return
 	}
-	d.Node = string(data[len(data)-rd.Len():])
+
+	// decode node name start by its length
+	if d.NodeLen, err = rd.ReadByte(); err != nil {
+		return
+	}
+	begin := len(data) - rd.Len()
+	end := begin + int(d.NodeLen)
+	// make sure this version is backward compatible
+	if _ProtoVersion <= 1 && begin+int(d.NodeLen) != len(data) {
+		begin-- // since previous version doesn't encode the length
+		end = len(data)
+		d.NodeLen = uint8(end - begin)
+	}
+	d.Node = string(data[begin:end])
 	return nil
 }
 
 // delegate implements the memberList delegate interface
 type delegate struct {
-	Name      string
-	dataPath  string
-	diskUsage func(path string) (DiskUsage, error)
-	log       logrus.FieldLogger
+	Name     string
+	dataPath string
+	log      logrus.FieldLogger
 	sync.Mutex
 	Cache map[string]NodeInfo
+
+	mutex    sync.Mutex
+	hostInfo NodeInfo
+}
+
+func (d *delegate) setOwnSpace(x DiskUsage) {
+	d.mutex.Lock()
+	d.hostInfo = NodeInfo{DiskUsage: x, LastTimeMilli: time.Now().UnixMilli()}
+	d.mutex.Unlock()
+}
+
+func (d *delegate) ownInfo() NodeInfo {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+	return d.hostInfo
 }
 
 // init must be called first to initialize the cache
-func (d *delegate) init() error {
+func (d *delegate) init(diskSpace func(path string) (DiskUsage, error)) error {
 	d.Cache = make(map[string]NodeInfo, 32)
-	d.diskUsage = diskSpace
+	if diskSpace == nil {
+		return fmt.Errorf("function calculating disk space cannot be empty")
+	}
 	space, err := diskSpace(d.dataPath)
 	if err != nil {
 		return fmt.Errorf("disk_space: %w", err)
 	}
 
+	d.setOwnSpace(space)
 	d.set(d.Name, NodeInfo{space, time.Now().UnixMilli()}) // cache
+
+	// delegate remains alive throughout the entire program.
+	go d.updater(_ProtoTTL, time.Second+_ProtoTTL/3, diskSpace)
 	return nil
 }
 
@@ -124,28 +162,20 @@ func (d *delegate) NodeMeta(limit int) (meta []byte) {
 // data can be sent here. See MergeRemoteState as well. The `join`
 // boolean indicates this is for a join instead of a push/pull.
 func (d *delegate) LocalState(join bool) []byte {
-	prv, _ := d.get(d.Name) // value from cache
 	var (
-		info NodeInfo = prv
+		info = d.ownInfo()
 		err  error
 	)
-	// renew cached value if ttl expires
-	if prv.Available == 0 || time.Since(time.UnixMilli(prv.LastTimeMilli)) >= _ProtoTTL {
-		info.DiskUsage, err = d.diskUsage(d.dataPath)
-		if err != nil {
-			d.log.WithField("action", "delegate.local_state.disk_usage").Error(err)
-			return nil
-		}
-		info.LastTimeMilli = time.Now().UnixMilli()
-	}
 
-	if prv.LastTimeMilli != info.LastTimeMilli {
-		d.set(d.Name, info) // cache new value
-	}
+	d.set(d.Name, info) // cache new value
 
 	x := spaceMsg{
-		header{OpCode: _OpCodeDisk, ProtoVersion: _ProtoVersion},
+		header{
+			OpCode:       _OpCodeDisk,
+			ProtoVersion: _ProtoVersion,
+		},
 		info.DiskUsage,
+		uint8(len(d.Name)),
 		d.Name,
 	}
 	bytes, err := x.marshal()
@@ -161,6 +191,10 @@ func (d *delegate) LocalState(join bool) []byte {
 // remote side's LocalState call. The 'join'
 // boolean indicates this is for a join instead of a push/pull.
 func (d *delegate) MergeRemoteState(data []byte, join bool) {
+	// Does operation match _OpCodeDisk
+	if _OpCode(data[0]) != _OpCodeDisk {
+		return
+	}
 	var x spaceMsg
 	if err := x.unmarshal(data); err != nil || x.Node == "" {
 		d.log.WithField("action", "delegate.merge_remote.unmarshal").
@@ -213,6 +247,25 @@ func (d *delegate) sortCandidates(names []string) []string {
 		return (m[names[j]].Available >> 12) < (m[names[i]].Available >> 12)
 	})
 	return names
+}
+
+// updater a function which updates node information periodically
+func (d *delegate) updater(period, minPeriod time.Duration, du func(path string) (DiskUsage, error)) {
+	t := time.NewTicker(period)
+	defer t.Stop()
+	curTime := time.Now()
+	for range t.C {
+		if time.Since(curTime) < minPeriod { // too short
+			continue // wait for next cycle to avoid overwhelming the disk
+		}
+		space, err := du(d.dataPath)
+		if err != nil {
+			d.log.WithField("action", "delegate.local_state.disk_usage").Error(err)
+		} else {
+			d.setOwnSpace(space)
+		}
+		curTime = time.Now()
+	}
 }
 
 // events implement memberlist.EventDelegate interface

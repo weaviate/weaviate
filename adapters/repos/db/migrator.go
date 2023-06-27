@@ -150,6 +150,54 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 	return idx.updateShardStatus(ctx, shardName, targetStatus)
 }
 
+// NewPartitions creates new partitions and returns a commit func
+// that can be used to either commit or rollback the partitions
+func (m *Migrator) NewPartitions(ctx context.Context, class *models.Class, partitions []string) (commit func(success bool), err error) {
+	idx := m.db.GetIndex(schema.ClassName(class.Class))
+	if idx == nil {
+		return nil, fmt.Errorf("cannot find index for %q", class.Class)
+	}
+
+	shards := make(map[string]*Shard, len(partitions))
+	rollback := func() {
+		for name, shard := range shards {
+			if err := shard.drop(); err != nil {
+				m.logger.WithField("action", "add_partition").
+					WithField("class", class.Class).
+					Errorf("cannot drop self created shard %s: %v", name, err)
+			}
+		}
+	}
+	commit = func(success bool) {
+		if success {
+			for name, shard := range shards {
+				idx.shards.Store(name, shard)
+			}
+			return
+		}
+		rollback()
+	}
+	defer func() {
+		if err != nil {
+			rollback()
+		}
+	}()
+
+	for _, name := range partitions {
+		if shard := idx.shards.Load(name); shard != nil {
+			continue
+		}
+		shard, err := NewShard(ctx, m.db.promMetrics, name, idx, class, idx.centralJobQueue)
+		if err != nil {
+			return nil, fmt.Errorf("cannot create partition %q: %w", name, err)
+		}
+
+		shards[name] = shard
+	}
+
+	return commit, nil
+}
+
 func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
 	return &Migrator{db: db, logger: logger}
 }
@@ -222,6 +270,63 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	return nil
 }
 
+func (m *Migrator) RecountProperties(ctx context.Context) error {
+	count := 0
+	m.logger.
+		WithField("action", "recount").
+		Info("Recounting properties, this may take a while")
+
+	m.db.indexLock.Lock()
+	defer m.db.indexLock.Unlock()
+	// Iterate over all indexes
+	for _, index := range m.db.indices {
+
+		// Clear the shards before counting
+		index.IterateShards(ctx, func(index *Index, shard *Shard) error {
+			shard.propLengths.Clear()
+			return nil
+		})
+
+		// Iterate over all shards
+		index.IterateObjects(ctx, func(index *Index, shard *Shard, object *storobj.Object) error {
+			count = count + 1
+			props, _, err := shard.analyzeObject(object)
+			if err != nil {
+				m.logger.WithField("error", err).Error("could not analyze object")
+				return nil
+			}
+
+			if err := shard.addPropLengths(props); err != nil {
+				m.logger.WithField("error", err).Error("could not add prop lengths")
+				return nil
+			}
+
+			shard.propLengths.Flush(false)
+
+			return nil
+		})
+
+		// Flush the propLengths to disk
+		err := index.IterateShards(ctx, func(index *Index, shard *Shard) error {
+			return shard.propLengths.Flush(false)
+		})
+		if err != nil {
+			m.logger.WithField("error", err).Error("could not flush prop lengths")
+		}
+
+	}
+	go func() {
+		for {
+			m.logger.
+				WithField("action", "recount").
+				Warnf("Recounted %v objects. Recounting properties complete. Please remove environment variable 	RECOUNT_PROPERTIES_AT_STARTUP before next startup", count)
+			time.Sleep(5 * time.Minute)
+		}
+	}()
+
+	return nil
+}
+
 func (m *Migrator) InvertedReindex(ctx context.Context, taskNames ...string) error {
 	var errs errorcompounder.ErrorCompounder
 	errs.Add(m.doInvertedReindex(ctx, taskNames...))
@@ -249,9 +354,7 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) e
 
 	errgrp := &errgroup.Group{}
 	for _, index := range m.db.indices {
-		for _, shard := range index.Shards {
-			shard := shard
-
+		index.ForEachShard(func(name string, shard *Shard) error {
 			errgrp.Go(func() error {
 				reindexer := NewShardInvertedReindexer(shard, m.logger)
 				for taskName, task := range tasks {
@@ -270,7 +373,8 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) e
 					Info("Finished inverted reindexing")
 				return nil
 			})
-		}
+			return nil
+		})
 	}
 	return errgrp.Wait()
 }
@@ -313,9 +417,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 
 		errgrpIndexes.Go(func() error {
 			errgrpShards := &errgroup.Group{}
-			for _, shard := range index.Shards {
-				shard := shard
-
+			index.ForEachShard(func(_ string, shard *Shard) error {
 				errgrpShards.Go(func() error {
 					m.logMissingFilterableShard(shard).
 						Info("starting filterable indexing on shard, this may take a while")
@@ -334,7 +436,8 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 						Info("finished filterable indexing on shard")
 					return nil
 				})
-			}
+				return nil
+			})
 
 			if err := errgrpShards.Wait(); err != nil {
 				m.logMissingFilterableIndex(index).

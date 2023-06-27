@@ -17,9 +17,7 @@ package db
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -37,7 +35,6 @@ import (
 // It reuses the company-schema from the regular filters test, but runs them in
 // isolation as to not interfere with the existing tests
 func Test_LimitsOnChainedFilters(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -79,7 +76,7 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil))
+					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil, ""))
 			})
 		}
 	})
@@ -92,7 +89,7 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 			buildFilter("price", 100, lt, dtInt),
 		)
 
-		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName: companyClass.Class,
 			Filters:   filter,
 			Pagination: &filters.Pagination{
@@ -134,7 +131,6 @@ func chainedFilterCompanies(size int) []*models.Object {
 // It reuses the company-schema from the regular filters test, but runs them in
 // isolation as to not interfere with the existing tests
 func Test_FilterLimitsAfterUpdates(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -176,7 +172,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil))
+					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil, ""))
 			})
 		}
 	})
@@ -184,7 +180,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 	t.Run("verify all with ref count 0 are found", func(t *testing.T) {
 		limit := 100
 		filter := buildFilter("makesProduct", 0, eq, dtInt)
-		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName: companyClass.Class,
 			Filters:   filter,
 			Pagination: &filters.Pagination{
@@ -199,7 +195,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 	t.Run("verify a non refcount prop", func(t *testing.T) {
 		limit := 100
 		filter := buildFilter("price", float64(0), gte, dtNumber)
-		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName: companyClass.Class,
 			Filters:   filter,
 			Pagination: &filters.Pagination{
@@ -218,7 +214,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), company, []float32{0.1, 0.21, 0.01, 0.2}, nil))
+					repo.PutObject(context.Background(), company, []float32{0.1, 0.21, 0.01, 0.2}, nil, ""))
 			})
 		}
 	})
@@ -226,7 +222,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 	t.Run("verify all with ref count 0 are found", func(t *testing.T) {
 		limit := 100
 		filter := buildFilter("makesProduct", 0, eq, dtInt)
-		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName: companyClass.Class,
 			Filters:   filter,
 			Pagination: &filters.Pagination{
@@ -241,7 +237,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 	t.Run("verify a non refcount prop", func(t *testing.T) {
 		limit := 100
 		filter := buildFilter("price", float64(0), gte, dtNumber)
-		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName: companyClass.Class,
 			Filters:   filter,
 			Pagination: &filters.Pagination{
@@ -260,7 +256,6 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 // It reuses the company-schema from the regular filters test, but runs them in
 // isolation as to not interfere with the existing tests
 func Test_AggregationsAfterUpdates(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -302,7 +297,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil))
+					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil, ""))
 			})
 		}
 	})
@@ -329,7 +324,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), company, []float32{0.1, 0.21, 0.01, 0.2}, nil))
+					repo.PutObject(context.Background(), company, []float32{0.1, 0.21, 0.01, 0.2}, nil, ""))
 			})
 		}
 	})

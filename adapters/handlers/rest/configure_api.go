@@ -38,27 +38,29 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
-	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
+	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
 	modner "github.com/weaviate/weaviate/modules/ner-transformers"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modqna "github.com/weaviate/weaviate/modules/qna-transformers"
 	modcentroid "github.com/weaviate/weaviate/modules/ref2vec-centroid"
+	modrerankertransformers "github.com/weaviate/weaviate/modules/reranker-transformers"
 	modsum "github.com/weaviate/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/weaviate/weaviate/modules/text-spellcheck"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
+	modtext2vecpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/backup"
@@ -94,12 +96,6 @@ type vectorRepo interface {
 	SetSchemaGetter(schemaUC.SchemaGetter)
 	WaitForStartup(ctx context.Context) error
 	Shutdown(ctx context.Context) error
-}
-
-type explorer interface {
-	GetClass(ctx context.Context, params dto.GetParams) ([]interface{}, error)
-	CrossClassVectorSearch(ctx context.Context, params traverser.ExploreParams) ([]search.Result, error)
-	SetSchemaGetter(schemaUC.SchemaGetter)
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
@@ -153,9 +149,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var vectorRepo vectorRepo
 	var vectorMigrator migrate.Migrator
 	var migrator migrate.Migrator
-	var explorer explorer
-	var schemaRepo schemaUC.Repo
-	// var classifierRepo classification.Repo
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		promMetrics := monitoring.GetMetrics()
@@ -191,10 +184,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	migrator = vectorMigrator
-	explorer = traverser.NewExplorer(repo, appState.Logger, appState.Modules, traverser.NewMetrics(appState.Metrics))
-	schemaRepo, err = schemarepo.NewRepo(
-		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
-	if err != nil {
+	explorer := traverser.NewExplorer(repo, appState.Logger, appState.Modules, traverser.NewMetrics(appState.Metrics))
+	schemaRepo := schemarepo.NewStore(appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
+	if err = schemaRepo.Open(); err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
 			Fatal("could not initialize schema repo")
@@ -289,7 +281,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupSchemaHandlers(api, schemaManager)
 	setupObjectHandlers(api, objectsManager, appState.ServerConfig.Config, appState.Logger, appState.Modules)
 	setupObjectBatchHandlers(api, batchObjectsManager)
-	setupGraphQLHandlers(api, appState, schemaManager)
+	setupGraphQLHandlers(api, appState, schemaManager, appState.ServerConfig.Config.DisableGraphQL)
 	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Modules)
 	setupClassificationHandlers(api, classifier)
 	setupBackupHandlers(api, backupScheduler)
@@ -326,9 +318,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}()
 	}
 
+	grpcServer := createGrpcServer(appState)
+
 	api.ServerShutdown = func() {
 		// stop reindexing on server shutdown
 		reindexCtxCancel()
+
+		// gracefully stop gRPC server
+		grpcServer.GracefulStop()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
@@ -366,7 +363,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		migrator.RecalculateVectorDimensions(ctx)
 	}
 
-	setupGrpc(appState)
+	// Add recount properties of all the objects in the database, if requested by the user
+	if appState.ServerConfig.Config.RecountPropertiesAtStartup {
+		migrator.RecountProperties(ctx)
+	}
+
+	startGrpcServer(grpcServer, appState)
 
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
@@ -388,6 +390,17 @@ func startupRoutine(ctx context.Context) *state.State {
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).Error("could not load config")
 		logger.Exit(1)
+	}
+
+	monitoring.InitConfig(serverConfig.Config.Monitoring)
+
+	if serverConfig.Config.DisableGraphQL {
+		logger.WithFields(logrus.Fields{
+			"action":          "startup",
+			"disable_graphql": true,
+		}).Warnf("GraphQL API disabled, relying only on gRPC API for querying. " +
+			"This is considered experimental and will likely experience breaking changes " +
+			"before reaching general availability")
 	}
 
 	logger.WithFields(logrus.Fields{
@@ -499,6 +512,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modrerankertransformers.Name]; ok {
+		appState.Modules.Register(modrerankertransformers.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modrerankertransformers.Name).
+			Debug("enabled module")
+	}
+
 	if _, ok := enabledModules["qna-transformers"]; ok {
 		appState.Modules.Register(modqna.New())
 		appState.Logger.
@@ -563,6 +584,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modgenerativecohere.Name]; ok {
+		appState.Modules.Register(modgenerativecohere.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativecohere.Name).
+			Debug("enabled module")
+	}
+
 	if _, ok := enabledModules[modgenerativeopenai.Name]; ok {
 		appState.Modules.Register(modgenerativeopenai.New())
 		appState.Logger.
@@ -576,6 +605,22 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modhuggingface.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativepalm.Name]; ok {
+		appState.Modules.Register(modgenerativepalm.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativepalm.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modtext2vecpalm.Name]; ok {
+		appState.Modules.Register(modtext2vecpalm.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modtext2vecpalm.Name).
 			Debug("enabled module")
 	}
 

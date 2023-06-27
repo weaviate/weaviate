@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -55,7 +56,6 @@ type Shard struct {
 	propertyIndices propertyspecific.Indices
 	deletedDocIDs   *docid.InMemDeletedTracker
 	propLengths     *inverted.JsonPropertyLengthTracker
-	randomSource    *bufferedRandomGen
 	versioner       *shardVersioner
 
 	status              storagestate.Status
@@ -79,17 +79,15 @@ type Shard struct {
 	// So despite property's IndexFilterable and IndexSearchable settings
 	// being enabled, only searchable bucket exists
 	fallbackToSearchable bool
+
+	vectorCycles   *hnsw.MaintenanceCycles
+	geoPropsCycles *hnsw.MaintenanceCycles
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 ) (*Shard, error) {
 	before := time.Now()
-
-	rand, err := newBufferedRandomGen(64 * 1024)
-	if err != nil {
-		return nil, errors.Wrap(err, "init bufferend random generator")
-	}
 
 	s := &Shard{
 		index:       index,
@@ -98,10 +96,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
 		deletedDocIDs:   docid.NewInMemDeletedTracker(),
-		randomSource:    rand,
 		stopMetrics:     make(chan struct{}),
 		replicationMap:  pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
 		centralJobQueue: jobQueueCh,
+		vectorCycles:    &hnsw.MaintenanceCycles{},
+		geoPropsCycles:  &hnsw.MaintenanceCycles{},
 	}
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
@@ -152,6 +151,26 @@ func (s *Shard) initVectorIndex(
 			"choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", hnswUserConfig.Distance)
 	}
 
+	s.vectorCycles.Init(
+		// Previously we had an interval of 10s in here, which was changed to
+		// 0.5s as part of gh-1867. There's really no way to wait so long in
+		// between checks: If you are running on a low-powered machine, the
+		// interval will simply find that there is no work and do nothing in
+		// each iteration. However, if you are running on a very powerful
+		// machine within 10s you could have potentially created two units of
+		// work, but we'll only be handling one every 10s. This means
+		// uncombined/uncondensed hnsw commit logs will keep piling up can only
+		// be processes long after the initial insert is complete. This also
+		// means that if there is a crash during importing a lot of work needs
+		// to be done at startup, since the commit logs still contain too many
+		// redundancies. So as of now it seems there are only advantages to
+		// running the cleanup checks and work much more often.
+		//
+		// update: switched to dynamic intervals with values between 500ms and 10s
+		// introduced to address https://github.com/weaviate/weaviate/issues/2783
+		cyclemanager.HnswCommitLoggerCycleTicker(),
+		cyclemanager.NewFixedIntervalTicker(time.Duration(hnswUserConfig.CleanupIntervalSeconds)*time.Second))
+
 	vi, err := hnsw.New(hnsw.Config{
 		Logger:            s.index.logger,
 		RootPath:          s.index.Config.RootPath,
@@ -159,12 +178,12 @@ func (s *Shard) initVectorIndex(
 		ShardName:         s.name,
 		ClassName:         s.index.Config.ClassName.String(),
 		PrometheusMetrics: s.promMetrics,
+		VectorForIDThunk:  s.vectorByIndexID,
+		DistanceProvider:  distProv,
 		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), s.index.logger)
+			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), s.index.logger, s.vectorCycles.CommitLogMaintenance())
 		},
-		VectorForIDThunk: s.vectorByIndexID,
-		DistanceProvider: distProv,
-	}, hnswUserConfig)
+	}, hnswUserConfig, s.vectorCycles.TombstoneCleanup())
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
 	}
@@ -194,7 +213,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	s.versioner = versioner
 
 	plPath := path.Join(s.index.Config.RootPath, s.ID()+".proplengths")
-	propLengths, err := inverted.NewJsonPropertyLengthTracker(plPath)
+	propLengths, err := inverted.NewJsonPropertyLengthTracker(plPath, s.index.logger)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
 	}
@@ -271,6 +290,13 @@ func (s *Shard) drop() error {
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
 
+	if err := s.vectorCycles.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "shutdown vector cycles")
+	}
+	if err := s.geoPropsCycles.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "shutdown geo props cycles")
+	}
+
 	if err := s.store.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "stop lsmkv store")
 	}
@@ -321,23 +347,10 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 		return storagestate.ErrStatusReadOnly
 	}
 
-	err := s.store.CreateOrLoadBucket(ctx,
+	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropID),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
-	if err != nil {
-		return err
-	}
-
-	err = s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameLSM(filters.InternalPropID),
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace))
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (s *Shard) addDimensionsProperty(ctx context.Context) error {
@@ -373,41 +386,17 @@ func (s *Shard) addTimestampProperties(ctx context.Context) error {
 }
 
 func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
-	err := s.store.CreateOrLoadBucket(ctx,
+	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
-	if err != nil {
-		return err
-	}
-	err = s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace))
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
-	err := s.store.CreateOrLoadBucket(ctx,
+	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
-	if err != nil {
-		return err
-	}
-	err = s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace))
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (s *Shard) memtableIdleConfig() lsmkv.BucketOption {
@@ -478,25 +467,11 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			); err != nil {
 				return err
 			}
-
-			if err := s.store.CreateOrLoadBucket(ctx,
-				helpers.HashBucketFromPropNameMetaCountLSM(prop.Name),
-				append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyReplace))...,
-			); err != nil {
-				return err
-			}
 		}
 
 		if err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketFromPropNameLSM(prop.Name),
 			append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
-		); err != nil {
-			return err
-		}
-
-		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.HashBucketFromPropNameLSM(prop.Name),
-			append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyReplace))...,
 		); err != nil {
 			return err
 		}
@@ -513,17 +488,6 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			searchableBucketOpts...,
 		); err != nil {
 			return err
-		}
-
-		// create hash bucket only if it was not created before
-		// same hash bucket is used for both filterable and searchable indexes
-		if !inverted.HasFilterableIndex(prop) {
-			if err := s.store.CreateOrLoadBucket(ctx,
-				helpers.HashBucketFromPropNameLSM(prop.Name),
-				append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyReplace))...,
-			); err != nil {
-				return err
-			}
 		}
 	}
 
@@ -543,16 +507,9 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 	default:
 	}
 
-	if err := s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLengthLSM(prop.Name),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
-	); err != nil {
-		return err
-	}
-
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameLengthLSM(prop.Name),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace))
+		helpers.BucketFromPropNameLengthLSM(prop.Name),
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 }
 
 func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property) error {
@@ -560,16 +517,9 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 		return storagestate.ErrStatusReadOnly
 	}
 
-	if err := s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameNullLSM(prop.Name),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
-	); err != nil {
-		return err
-	}
-
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameNullLSM(prop.Name),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace))
+		helpers.BucketFromPropNameNullLSM(prop.Name),
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 }
 
 func (s *Shard) updateVectorIndexConfig(ctx context.Context,
@@ -579,7 +529,10 @@ func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 		return storagestate.ErrStatusReadOnly
 	}
 
-	s.updateStatus(storagestate.StatusReadOnly.String())
+	err := s.updateStatus(storagestate.StatusReadOnly.String())
+	if err != nil {
+		return fmt.Errorf("attempt to mark read-only: %w", err)
+	}
 	return s.vectorIndex.UpdateUserConfig(updated, func() {
 		s.updateStatus(storagestate.StatusReady.String())
 	})
@@ -609,7 +562,18 @@ func (s *Shard) shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "shut down vector index")
 	}
 
-	return s.store.Shutdown(ctx)
+	if err := s.vectorCycles.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "shutdown vector cycles")
+	}
+	if err := s.geoPropsCycles.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "shutdown geo props cycles")
+	}
+
+	if err := s.store.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "stop lsmkv store")
+	}
+
+	return nil
 }
 
 func (s *Shard) notifyReady() {

@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -58,7 +59,7 @@ func (m *Manager) addClassProperty(ctx context.Context,
 		return err
 	}
 	// migrate only after validation in completed
-	m.migratePropertySettings(prop)
+	migratePropertySettings(prop)
 
 	tx, err := m.cluster.BeginTransaction(ctx, AddProperty,
 		AddPropertyPayload{className, prop}, DefaultTxTTL)
@@ -90,7 +91,7 @@ func (m *Manager) addClassProperty(ctx context.Context,
 }
 
 func (m *Manager) setNewPropDefaults(class *models.Class, prop *models.Property) error {
-	m.setPropertyDefaults(prop)
+	setPropertyDefaults(prop)
 	if err := validateUserProp(class, prop); err != nil {
 		return err
 	}
@@ -127,10 +128,19 @@ func (m *Manager) addClassPropertyApplyChanges(ctx context.Context,
 	}
 
 	class.Properties = append(class.Properties, prop)
-	err = m.saveSchema(ctx)
+	metadata, err := json.Marshal(&class)
+	if err != nil {
+		return fmt.Errorf("marshal class %s: %w", className, err)
+	}
+	m.logger.
+		WithField("action", "schema.add_property").
+		Debug("saving updated schema to configuration store")
+	err = m.repo.UpdateClass(ctx, ClassPayload{Name: className, Metadata: metadata})
 	if err != nil {
 		return err
 	}
+	m.triggerSchemaUpdateCallbacks()
 
+	// will result in a mismatch between schema and index if function below fails
 	return m.migrator.AddProperty(ctx, className, prop)
 }

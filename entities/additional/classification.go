@@ -34,6 +34,7 @@ type Properties struct {
 	Score              bool                   `json:"score"`
 	ExplainScore       bool                   `json:"explainScore"`
 	IsConsistent       bool                   `json:"isConsistent"`
+	Group              bool                   `json:"group"`
 
 	// The User is not interested in returning props, we can skip any costly
 	// operation that isn't required.
@@ -47,7 +48,7 @@ type Properties struct {
 	// its own props.
 	//
 	// The reason we need this indication is that
-	// without it, the sub-ClassSearch which is
+	// without it, the sub-Search which is
 	// conducted to extract the reference propValuePair
 	// is conducted with the pagination set to whatever
 	// the QueryMaximumResults. if this value is set low

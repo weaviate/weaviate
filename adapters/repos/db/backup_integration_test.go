@@ -54,7 +54,7 @@ func TestBackup_DBLevel(t *testing.T) {
 				LastUpdateTimeUnix: now.UnixNano(),
 				Vector:             []float32{1, 2, 3},
 				VectorWeights:      nil,
-			}, []float32{1, 2, 3}, nil))
+			}, []float32{1, 2, 3}, nil, ""))
 		})
 
 		expectedNodeName := "node1"
@@ -62,7 +62,7 @@ func TestBackup_DBLevel(t *testing.T) {
 			ShardingState(className).
 			AllPhysicalShards()[0]
 		testShd := db.GetIndex(schema.ClassName(className)).
-			Shards[expectedShardName]
+			shards.Load(expectedShardName)
 		expectedCounterPath := path.Base(testShd.counter.FileName())
 		expectedCounter, err := os.ReadFile(testShd.counter.FileName())
 		require.Nil(t, err)
@@ -154,7 +154,7 @@ func TestBackup_DBLevel(t *testing.T) {
 				LastUpdateTimeUnix: now.UnixNano(),
 				Vector:             []float32{1, 2, 3},
 				VectorWeights:      nil,
-			}, []float32{1, 2, 3}, nil))
+			}, []float32{1, 2, 3}, nil, ""))
 		})
 
 		t.Run("fail with expired context", func(t *testing.T) {
@@ -199,10 +199,10 @@ func TestBackup_BucketLevel(t *testing.T) {
 		objBucket := shard.store.Bucket("objects")
 		require.NotNil(t, objBucket)
 
-		err := objBucket.PauseCompaction(ctx)
+		err := shard.store.PauseCompaction(ctx)
 		require.Nil(t, err)
 
-		err = objBucket.FlushMemtable(ctx)
+		err = objBucket.FlushMemtable()
 		require.Nil(t, err)
 
 		files, err := objBucket.ListFiles(ctx)
@@ -242,7 +242,7 @@ func TestBackup_BucketLevel(t *testing.T) {
 			assert.Contains(t, exts, ".bloom") // matches both bloom filters (primary+secondary)
 		})
 
-		err = objBucket.ResumeCompaction(ctx)
+		err = shard.store.ResumeCompaction(ctx)
 		require.Nil(t, err)
 	})
 

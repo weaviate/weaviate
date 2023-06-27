@@ -60,7 +60,7 @@ func Test_BackupJourney(t *testing.T) {
 
 		t.Run("backup-azure", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
-				"azure", azureBackupJourneyClassName, azureBackupJourneyBackupIDSingleNode)
+				"azure", azureBackupJourneyClassName, azureBackupJourneyBackupIDSingleNode, nil)
 		})
 
 		require.Nil(t, compose.Terminate(ctx))
@@ -86,7 +86,7 @@ func Test_BackupJourney(t *testing.T) {
 
 		t.Run("backup-azure", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "azure", azureBackupJourneyClassName,
-				azureBackupJourneyBackupIDCluster, compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
+				azureBackupJourneyBackupIDCluster, nil, compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
 		})
 
 		require.Nil(t, compose.Terminate(ctx))

@@ -40,11 +40,18 @@ type Metrics struct {
 	memtableDurations    prometheus.ObserverVec
 	memtableSize         *prometheus.GaugeVec
 	DimensionSum         *prometheus.GaugeVec
+
+	groupClasses bool
 }
 
 func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	shardName string,
 ) *Metrics {
+	if promMetrics.GroupClasses {
+		className = "n/a"
+		shardName = "n/a"
+	}
+
 	replace := promMetrics.AsyncOperations.MustCurryWith(prometheus.Labels{
 		"operation":  "compact_lsm_segments_stratreplace",
 		"class_name": className,
@@ -70,6 +77,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	})
 
 	return &Metrics{
+		groupClasses:         promMetrics.GroupClasses,
 		CompactionReplace:    replace,
 		CompactionSet:        set,
 		CompactionMap:        stratMap,
@@ -138,6 +146,10 @@ func (m *Metrics) MemtableOpObserver(path, strategy, op string) NsObserver {
 		return noOpNsObserver
 	}
 
+	if m.groupClasses {
+		path = "n/a"
+	}
+
 	curried := m.memtableDurations.With(prometheus.Labels{
 		"operation": op,
 		"path":      path,
@@ -151,7 +163,9 @@ func (m *Metrics) MemtableOpObserver(path, strategy, op string) NsObserver {
 }
 
 func (m *Metrics) MemtableSizeSetter(path, strategy string) Setter {
-	if m == nil {
+	if m == nil || m.groupClasses {
+		// this metric would set absolute values, that's not possible in
+		// grouped mode, each call would essentially overwrite the last
 		return noOpSetter
 	}
 

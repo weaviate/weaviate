@@ -12,11 +12,9 @@
 package hnsw
 
 import (
-	"math/rand"
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -27,16 +25,15 @@ import (
 func TestMmapCondensor(t *testing.T) {
 	t.Skip() // TODO
 
-	rand.Seed(time.Now().UnixNano())
 	rootPath := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 
 	perfect, err := NewCommitLogger(rootPath, "perfect", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 
 	t.Run("add redundant data to the original log", func(t *testing.T) {
@@ -145,7 +142,7 @@ func TestMmapCondensor(t *testing.T) {
 
 // 	logger, _ := test.NewNullLogger()
 // 	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
-// 		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+// 		cyclemanager.NewNoop())
 // 	require.Nil(t, err)
 
 // 	t.Run("add data, but do not set an entrypoint", func(t *testing.T) {

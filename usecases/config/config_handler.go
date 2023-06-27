@@ -94,8 +94,10 @@ type Config struct {
 	MaximumConcurrentGetRequests        int            `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
 	TrackVectorDimensions               bool           `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	ReindexVectorDimensionsAtStartup    bool           `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
+	RecountPropertiesAtStartup          bool           `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool           `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
 	IndexMissingTextFilterableAtStartup bool           `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
+	DisableGraphQL                      bool           `json:"disable_graphql" yaml:"disable_graphql"`
 }
 
 type moduleProvider interface {
@@ -167,9 +169,10 @@ type Contextionary struct {
 }
 
 type Monitoring struct {
-	Enabled bool   `json:"enabled" yaml:"enabled"`
-	Tool    string `json:"tool" yaml:"tool"`
-	Port    int    `json:"port" yaml:"port"`
+	Enabled      bool   `json:"enabled" yaml:"enabled"`
+	Tool         string `json:"tool" yaml:"tool"`
+	Port         int    `json:"port" yaml:"port"`
+	GroupClasses bool   `json:"group_classes" yaml:"group_classes"`
 }
 
 type GRPC struct {

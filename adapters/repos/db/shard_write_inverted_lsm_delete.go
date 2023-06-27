@@ -25,11 +25,6 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 	docID uint64,
 ) error {
 	for _, prop := range props {
-		hashBucket := s.store.Bucket(helpers.HashBucketFromPropNameLSM(prop.Name))
-		if hashBucket == nil {
-			return fmt.Errorf("no hash bucket for prop '%s' found", prop.Name)
-		}
-
 		if prop.HasFilterableIndex {
 			bucket := s.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
 			if bucket == nil {
@@ -37,7 +32,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 			}
 
 			for _, item := range prop.Items {
-				if err := s.deleteInvertedIndexItemLSM(bucket, hashBucket, item,
+				if err := s.deleteInvertedIndexItemLSM(bucket, item,
 					docID); err != nil {
 					return errors.Wrapf(err, "delete item '%s' from index",
 						string(item.Data))
@@ -52,7 +47,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 			}
 
 			for _, item := range prop.Items {
-				if err := s.deleteInvertedIndexItemWithFrequencyLSM(bucket, hashBucket, item,
+				if err := s.deleteInvertedIndexItemWithFrequencyLSM(bucket, item,
 					docID); err != nil {
 					return errors.Wrapf(err, "delete item '%s' from index",
 						string(item.Data))
@@ -64,19 +59,10 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 	return nil
 }
 
-func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket, hashBucket *lsmkv.Bucket,
+func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket *lsmkv.Bucket,
 	item inverted.Countable, docID uint64,
 ) error {
 	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
-
-	hash, err := s.generateRowHash()
-	if err != nil {
-		return err
-	}
-
-	if err := hashBucket.Put(item.Data, hash); err != nil {
-		return err
-	}
 
 	docIDBytes := make([]byte, 8)
 	// Shard Index version 2 requires BigEndian for sorting, if the shard was
@@ -90,19 +76,10 @@ func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket, hashBucket *lsmk
 	return bucket.MapDeleteKey(item.Data, docIDBytes)
 }
 
-func (s *Shard) deleteInvertedIndexItemLSM(bucket, hashBucket *lsmkv.Bucket,
+func (s *Shard) deleteInvertedIndexItemLSM(bucket *lsmkv.Bucket,
 	item inverted.Countable, docID uint64,
 ) error {
 	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
-
-	hash, err := s.generateRowHash()
-	if err != nil {
-		return err
-	}
-
-	if err := hashBucket.Put(item.Data, hash); err != nil {
-		return err
-	}
 
 	if bucket.Strategy() == lsmkv.StrategyRoaringSet {
 		return bucket.RoaringSetRemoveOne(item.Data, docID)

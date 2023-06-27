@@ -52,34 +52,16 @@ func BucketFromPropNameLSM(propName string) string {
 	return fmt.Sprintf("property_%s", propName)
 }
 
-// HashBucketFromPropName creates string used as the bucket name
-// for the status information of a particular prop in the inverted index
-func HashBucketFromPropNameLSM(propName string) string {
-	return fmt.Sprintf("hash_property_%s", propName)
-}
-
 func BucketFromPropNameLengthLSM(propName string) string {
-	return BucketFromPropNameLSM(propName + filters.InternalPropertyLength)
-}
-
-func HashBucketFromPropNameLengthLSM(propName string) string {
-	return HashBucketFromPropNameLSM(propName + filters.InternalPropertyLength)
+	return BucketFromPropNameLSM(PropLength(propName))
 }
 
 func BucketFromPropNameNullLSM(propName string) string {
-	return BucketFromPropNameLSM(propName + filters.InternalNullIndex)
-}
-
-func HashBucketFromPropNameNullLSM(propName string) string {
-	return HashBucketFromPropNameLSM(propName + filters.InternalNullIndex)
+	return BucketFromPropNameLSM(PropNull(propName))
 }
 
 func BucketFromPropNameMetaCountLSM(propName string) string {
 	return BucketFromPropNameLSM(MetaCountProp(propName))
-}
-
-func HashBucketFromPropNameMetaCountLSM(propName string) string {
-	return HashBucketFromPropNameLSM(MetaCountProp(propName))
 }
 
 func TempBucketFromBucketName(bucketName string) string {

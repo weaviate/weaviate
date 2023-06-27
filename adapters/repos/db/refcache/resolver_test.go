@@ -395,6 +395,138 @@ func TestResolver(t *testing.T) {
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
+
+	t.Run("with single ref with vector and matching select prop and group", func(t *testing.T) {
+		getInput := func() []search.Result {
+			return []search.Result{
+				{
+					ID:        "foo",
+					ClassName: "BestClass",
+					Schema: map[string]interface{}{
+						"refProp": models.MultipleRef{
+							&models.SingleRef{
+								Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id1)),
+							},
+						},
+					},
+					AdditionalProperties: models.AdditionalProperties{
+						"group": &additional.Group{
+							Hits: []map[string]interface{}{
+								{
+									"nestedRef": models.MultipleRef{
+										&models.SingleRef{
+											Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/SomeNestedClass/%s", id2)),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+		}
+		getResolver := func() *Resolver {
+			cacher := newFakeCacher()
+			r := NewResolverWithGroup(cacher)
+			cacher.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = search.Result{
+				ClassName: "SomeClass",
+				ID:        strfmt.UUID(id1),
+				Schema: map[string]interface{}{
+					"bar": "some string",
+				},
+				Vector: []float32{0.1, 0.2},
+			}
+			cacher.lookup[multi.Identifier{ID: id2, ClassName: "SomeNestedClass"}] = search.Result{
+				ClassName: "SomeNestedClass",
+				ID:        strfmt.UUID(id2),
+				Schema: map[string]interface{}{
+					"name": "John Doe",
+				},
+			}
+			return r
+		}
+		getSelectProps := func(withVector bool) search.SelectProperties {
+			return search.SelectProperties{
+				search.SelectProperty{
+					Name: "refProp",
+					Refs: []search.SelectClass{
+						{
+							ClassName: "SomeClass",
+							RefProperties: search.SelectProperties{
+								search.SelectProperty{
+									Name:        "bar",
+									IsPrimitive: true,
+								},
+							},
+							AdditionalProperties: additional.Properties{
+								Vector: withVector,
+							},
+						},
+					},
+				},
+				search.SelectProperty{
+					Name: "_additional:group:hits:nestedRef",
+					Refs: []search.SelectClass{
+						{
+							ClassName: "SomeNestedClass",
+							RefProperties: []search.SelectProperty{
+								{
+									Name:        "name",
+									IsPrimitive: true,
+								},
+							},
+						},
+					},
+				},
+			}
+		}
+		getExpectedResult := func(withVector bool) []search.Result {
+			fields := map[string]interface{}{
+				"bar": "some string",
+			}
+			if withVector {
+				fields["vector"] = []float32{0.1, 0.2}
+			}
+			return []search.Result{
+				{
+					ID:        "foo",
+					ClassName: "BestClass",
+					Schema: map[string]interface{}{
+						"refProp": []interface{}{
+							search.LocalRef{
+								Class:  "SomeClass",
+								Fields: fields,
+							},
+						},
+					},
+					AdditionalProperties: models.AdditionalProperties{
+						"group": &additional.Group{
+							Hits: []map[string]interface{}{
+								{
+									"nestedRef": []interface{}{
+										search.LocalRef{
+											Class: "SomeNestedClass",
+											Fields: map[string]interface{}{
+												"name": "John Doe",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+		}
+		// ask for vector in ref property
+		res, err := getResolver().Do(context.Background(), getInput(), getSelectProps(true), additional.Properties{})
+		require.Nil(t, err)
+		assert.Equal(t, getExpectedResult(true), res)
+		// don't ask for vector in ref property
+		res, err = getResolver().Do(context.Background(), getInput(), getSelectProps(false), additional.Properties{})
+		require.Nil(t, err)
+		assert.Equal(t, getExpectedResult(false), res)
+	})
 }
 
 func newFakeCacher() *fakeCacher {

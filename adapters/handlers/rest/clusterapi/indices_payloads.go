@@ -342,7 +342,8 @@ type searchParamsPayload struct{}
 
 func (p searchParamsPayload) Marshal(vector []float32, limit int,
 	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
-	sort []filters.Sort, cursor *filters.Cursor, addP additional.Properties,
+	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
+	addP additional.Properties,
 ) ([]byte, error) {
 	type params struct {
 		SearchVector   []float32                    `json:"searchVector"`
@@ -351,16 +352,17 @@ func (p searchParamsPayload) Marshal(vector []float32, limit int,
 		KeywordRanking *searchparams.KeywordRanking `json:"keywordRanking"`
 		Sort           []filters.Sort               `json:"sort"`
 		Cursor         *filters.Cursor              `json:"cursor"`
+		GroupBy        *searchparams.GroupBy        `json:"groupBy"`
 		Additional     additional.Properties        `json:"additional"`
 	}
 
-	par := params{vector, limit, filter, keywordRanking, sort, cursor, addP}
+	par := params{vector, limit, filter, keywordRanking, sort, cursor, groupBy, addP}
 	return json.Marshal(par)
 }
 
 func (p searchParamsPayload) Unmarshal(in []byte) ([]float32, float32, int,
 	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort,
-	*filters.Cursor, additional.Properties, error,
+	*filters.Cursor, *searchparams.GroupBy, additional.Properties, error,
 ) {
 	type searchParametersPayload struct {
 		SearchVector   []float32                    `json:"searchVector"`
@@ -370,12 +372,13 @@ func (p searchParamsPayload) Unmarshal(in []byte) ([]float32, float32, int,
 		KeywordRanking *searchparams.KeywordRanking `json:"keywordRanking"`
 		Sort           []filters.Sort               `json:"sort"`
 		Cursor         *filters.Cursor              `json:"cursor"`
+		GroupBy        *searchparams.GroupBy        `json:"groupBy"`
 		Additional     additional.Properties        `json:"additional"`
 	}
 	var par searchParametersPayload
 	err := json.Unmarshal(in, &par)
 	return par.SearchVector, par.Distance, par.Limit,
-		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.Additional, err
+		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.GroupBy, par.Additional, err
 }
 
 func (p searchParamsPayload) MIME() string {

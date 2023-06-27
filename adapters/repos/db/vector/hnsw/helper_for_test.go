@@ -13,7 +13,9 @@ package hnsw
 
 import (
 	"fmt"
+	"math/rand"
 	"strings"
+	"time"
 )
 
 func dumpIndex(index *hnsw, labels ...string) {
@@ -39,4 +41,8 @@ func dumpIndex(index *hnsw, labels ...string) {
 	}
 
 	fmt.Printf("--------------------------------------------------\n")
+}
+
+func getRandomSeed() *rand.Rand {
+	return rand.New(rand.NewSource(time.Now().UnixNano()))
 }

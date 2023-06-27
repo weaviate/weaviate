@@ -25,10 +25,18 @@ type (
 	CycleFunc func(shouldBreak ShouldBreakFunc) bool
 )
 
-type CycleManager struct {
+type CycleManager interface {
+	Register(cycleFunc CycleFunc) UnregisterFunc
+	Start()
+	Stop(ctx context.Context) chan bool
+	StopAndWait(ctx context.Context) error
+	Running() bool
+}
+
+type cycleManager struct {
 	sync.RWMutex
 
-	cycleFunc   CycleFunc
+	callbacks   callbacks
 	cycleTicker CycleTicker
 	running     bool
 	stopSignal  chan struct{}
@@ -37,18 +45,22 @@ type CycleManager struct {
 	stopResults  []chan bool
 }
 
-func New(cycleTicker CycleTicker, cycleFunc CycleFunc) *CycleManager {
-	return &CycleManager{
-		cycleFunc:   cycleFunc,
+func NewMulti(cycleTicker CycleTicker) CycleManager {
+	return &cycleManager{
+		callbacks:   newMultiCallbacks(),
 		cycleTicker: cycleTicker,
 		running:     false,
 		stopSignal:  make(chan struct{}, 1),
 	}
 }
 
+func (c *cycleManager) Register(cycleFunc CycleFunc) UnregisterFunc {
+	return c.callbacks.register(cycleFunc)
+}
+
 // Starts instance, does not block
 // Does nothing if instance is already started
-func (c *CycleManager) Start() {
+func (c *cycleManager) Start() {
 	c.Lock()
 	defer c.Unlock()
 
@@ -72,7 +84,7 @@ func (c *CycleManager) Start() {
 				c.Unlock()
 				continue
 			}
-			c.cycleTicker.CycleExecuted(c.cycleFunc(c.shouldBreakCycleCallback))
+			c.cycleTicker.CycleExecuted(c.callbacks.execute(c.shouldBreakCycleCallback))
 		}
 	}()
 
@@ -86,7 +98,7 @@ func (c *CycleManager) Start() {
 // If called multiple times, all contexts have to be cancelled to cancel stop
 // (any valid will result in stopping instance)
 // stopResult is the same (consistent) for multiple calls
-func (c *CycleManager) Stop(ctx context.Context) (stopResult chan bool) {
+func (c *cycleManager) Stop(ctx context.Context) (stopResult chan bool) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -110,7 +122,7 @@ func (c *CycleManager) Stop(ctx context.Context) (stopResult chan bool) {
 
 // Stops running instance, waits for stop to occur or context to expire (which comes first)
 // Returns error if instance was not stopped
-func (c *CycleManager) StopAndWait(ctx context.Context) error {
+func (c *cycleManager) StopAndWait(ctx context.Context) error {
 	// if both channels are ready, chan is selected randomly, therefore regardless of
 	// channel selected first, second one is also checked
 	stop := c.Stop(ctx)
@@ -127,28 +139,24 @@ func (c *CycleManager) StopAndWait(ctx context.Context) error {
 			return ctx.Err()
 		}
 	case stopped := <-stop:
-		select {
-		case <-done:
-			if !stopped {
+		if !stopped {
+			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-		default:
-			if !stopped {
-				return fmt.Errorf("failed to stop cycle")
-			}
+			return fmt.Errorf("failed to stop cycle")
 		}
 	}
 	return nil
 }
 
-func (c *CycleManager) Running() bool {
+func (c *cycleManager) Running() bool {
 	c.RLock()
 	defer c.RUnlock()
 
 	return c.running
 }
 
-func (c *CycleManager) shouldStop() bool {
+func (c *cycleManager) shouldStop() bool {
 	for _, ctx := range c.stopContexts {
 		if ctx.Err() == nil {
 			return true
@@ -157,14 +165,14 @@ func (c *CycleManager) shouldStop() bool {
 	return false
 }
 
-func (c *CycleManager) shouldBreakCycleCallback() bool {
+func (c *cycleManager) shouldBreakCycleCallback() bool {
 	c.RLock()
 	defer c.RUnlock()
 
 	return c.shouldStop()
 }
 
-func (c *CycleManager) isStopRequested() bool {
+func (c *cycleManager) isStopRequested() bool {
 	select {
 	case <-c.stopSignal:
 	case <-c.cycleTicker.C():
@@ -179,7 +187,7 @@ func (c *CycleManager) isStopRequested() bool {
 	return true
 }
 
-func (c *CycleManager) handleStopRequest(stopped bool) {
+func (c *cycleManager) handleStopRequest(stopped bool) {
 	for _, stopResult := range c.stopResults {
 		stopResult <- stopped
 		close(stopResult)
@@ -187,4 +195,52 @@ func (c *CycleManager) handleStopRequest(stopped bool) {
 	c.running = !stopped
 	c.stopContexts = nil
 	c.stopResults = nil
+}
+
+func NewNoop() CycleManager {
+	return &noopCycleManager{running: false}
+}
+
+type noopCycleManager struct {
+	running bool
+}
+
+func (c *noopCycleManager) Register(cycleFunc CycleFunc) UnregisterFunc {
+	return func(ctx context.Context) error {
+		return nil
+	}
+}
+
+func (c *noopCycleManager) Start() {
+	c.running = true
+}
+
+func (c *noopCycleManager) Stop(ctx context.Context) chan bool {
+	if !c.running {
+		return c.closedChan(true)
+	}
+	if ctx.Err() != nil {
+		return c.closedChan(false)
+	}
+
+	c.running = false
+	return c.closedChan(true)
+}
+
+func (c *noopCycleManager) StopAndWait(ctx context.Context) error {
+	if <-c.Stop(ctx) {
+		return nil
+	}
+	return ctx.Err()
+}
+
+func (c *noopCycleManager) Running() bool {
+	return c.running
+}
+
+func (c *noopCycleManager) closedChan(val bool) chan bool {
+	ch := make(chan bool, 1)
+	ch <- val
+	close(ch)
+	return ch
 }

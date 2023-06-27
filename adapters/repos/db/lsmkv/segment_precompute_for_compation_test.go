@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func TestPrecomputeSegmentMeta_Replace(t *testing.T) {
@@ -35,14 +36,14 @@ func TestPrecomputeSegmentMeta_Replace(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
-		WithStrategy(StrategyReplace),
-		WithSecondaryIndices(1))
+		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
 		WithSecondaryKey(0, []byte("bonjour"))))
-	require.Nil(t, b.FlushMemtable(ctx))
+	require.Nil(t, b.FlushMemtable())
 
 	for _, ext := range []string{".secondary.0.bloom", ".bloom", ".cna"} {
 		files, err := os.ReadDir(dirName)
@@ -98,13 +99,14 @@ func TestPrecomputeSegmentMeta_Set(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 		WithStrategy(StrategySetCollection))
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
 
 	err = b.SetAdd([]byte("greetings"), [][]byte{[]byte("hello"), []byte("hola")})
 	require.Nil(t, err)
-	require.Nil(t, b.FlushMemtable(ctx))
+	require.Nil(t, b.FlushMemtable())
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)

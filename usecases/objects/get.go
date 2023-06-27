@@ -26,8 +26,9 @@ import (
 )
 
 // GetObject Class from the connected DB
-func (m *Manager) GetObject(ctx context.Context, principal *models.Principal, class string,
-	id strfmt.UUID, additional additional.Properties, replProps *additional.ReplicationProperties,
+func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
+	class string, id strfmt.UUID, additional additional.Properties,
+	replProps *additional.ReplicationProperties, tenantKey string,
 ) (*models.Object, error) {
 	path := fmt.Sprintf("objects/%s", id)
 	if class != "" {
@@ -47,7 +48,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal, cl
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
 
-	res, err := m.getObjectFromRepo(ctx, class, id, additional, replProps)
+	res, err := m.getObjectFromRepo(ctx, class, id, additional, replProps, tenantKey)
 	if err != nil {
 		return nil, err
 	}
@@ -61,8 +62,8 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal, cl
 
 // GetObjects Class from the connected DB
 func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
-	offset, limit *int64, sort, order *string, after *string,
-	additional additional.Properties,
+	offset *int64, limit *int64, sort *string, order *string, after *string,
+	addl additional.Properties, tenantKey string,
 ) ([]*models.Object, error) {
 	err := m.authorizer.Authorize(principal, "list", "objects")
 	if err != nil {
@@ -77,7 +78,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
-	return m.getObjectsFromRepo(ctx, offset, limit, sort, order, after, additional)
+	return m.getObjectsFromRepo(ctx, offset, limit, sort, order, after, addl, tenantKey)
 }
 
 func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Principal,
@@ -96,7 +97,7 @@ func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Princip
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
 
-	res, err := m.getObjectFromRepo(ctx, "", id, additional.Properties{}, nil)
+	res, err := m.getObjectFromRepo(ctx, "", id, additional.Properties{}, nil, "")
 	if err != nil {
 		return nil, err
 	}
@@ -110,12 +111,12 @@ func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Princip
 }
 
 func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt.UUID,
-	adds additional.Properties, repl *additional.ReplicationProperties,
+	adds additional.Properties, repl *additional.ReplicationProperties, tenantKey string,
 ) (res *search.Result, err error) {
 	if class != "" {
-		res, err = m.vectorRepo.Object(ctx, class, id, search.SelectProperties{}, adds, repl)
+		res, err = m.vectorRepo.Object(ctx, class, id, search.SelectProperties{}, adds, repl, tenantKey)
 	} else {
-		res, err = m.vectorRepo.ObjectByID(ctx, id, search.SelectProperties{}, adds)
+		res, err = m.vectorRepo.ObjectByID(ctx, id, search.SelectProperties{}, adds, tenantKey)
 	}
 	if err != nil {
 		return nil, NewErrInternal("repo: object by id: %v", err)
@@ -137,7 +138,7 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 
 func (m *Manager) getObjectsFromRepo(ctx context.Context,
 	offset, limit *int64, sort, order *string, after *string,
-	additional additional.Properties,
+	additional additional.Properties, tenantKey string,
 ) ([]*models.Object, error) {
 	smartOffset, smartLimit, err := m.localOffsetLimit(offset, limit)
 	if err != nil {
@@ -147,7 +148,7 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context,
 		return nil, NewErrInternal("list objects: after parameter not allowed, cursor must be specific to one class, set class query param")
 	}
 	res, err := m.vectorRepo.ObjectSearch(ctx, smartOffset, smartLimit,
-		nil, m.getSort(sort, order), additional)
+		nil, m.getSort(sort, order), additional, tenantKey)
 	if err != nil {
 		return nil, NewErrInternal("list objects: %v", err)
 	}

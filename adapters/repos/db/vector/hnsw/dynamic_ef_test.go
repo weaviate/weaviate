@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -90,7 +91,7 @@ func Test_DynamicEF(t *testing.T) {
 				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 					return nil, errors.Errorf("not implemented")
 				},
-			}, test.config)
+			}, test.config, cyclemanager.NewNoop())
 			require.Nil(t, err)
 
 			actualEF := index.searchTimeEF(test.limit)

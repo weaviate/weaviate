@@ -12,7 +12,9 @@
 package byte_operations
 
 import (
-	"math/rand"
+	"crypto/rand"
+	"fmt"
+	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,10 +24,18 @@ import (
 
 const MaxUint32 = ^uint32(0)
 
+func mustRandIntn(max int64) int {
+	randInt, err := rand.Int(rand.Reader, big.NewInt(max))
+	if err != nil {
+		panic(fmt.Sprintf("mustRandIntn error: %v", err))
+	}
+	return int(randInt.Int64())
+}
+
 // Create a buffer with space for several values and first write into it and then test that the values can be read again
 func TestReadAnWrite(t *testing.T) {
 	valuesNumbers := []uint64{234, 78, 23, 66, 8, 9, 2, 346745, 1}
-	valuesByteArray := make([]byte, rand.Intn(500))
+	valuesByteArray := make([]byte, mustRandIntn(500))
 	rand.Read(valuesByteArray)
 
 	writeBuffer := make([]byte, 2*uint64Len+2*uint32Len+2*uint16Len+len(valuesByteArray))
@@ -80,7 +90,7 @@ func TestReadAnWriteLargeBuffer(t *testing.T) {
 
 func TestWritingAndReadingBufferOfDynamicLength(t *testing.T) {
 	t.Run("uint64 length indicator", func(t *testing.T) {
-		bufLen := uint64(rand.Intn(1024))
+		bufLen := uint64(mustRandIntn(1024))
 		buf := make([]byte, bufLen)
 		rand.Read(buf)
 
@@ -106,7 +116,7 @@ func TestWritingAndReadingBufferOfDynamicLength(t *testing.T) {
 	})
 
 	t.Run("uint32 length indicator", func(t *testing.T) {
-		bufLen := uint32(rand.Intn(1024))
+		bufLen := uint32(mustRandIntn(1024))
 		buf := make([]byte, bufLen)
 		rand.Read(buf)
 

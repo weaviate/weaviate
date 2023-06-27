@@ -46,7 +46,7 @@ func (m *SUMModule) Name() string {
 }
 
 func (m *SUMModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2Text
+	return modulecapabilities.Text2TextSummarize
 }
 
 func (m *SUMModule) Init(ctx context.Context,

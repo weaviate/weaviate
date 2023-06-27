@@ -26,26 +26,33 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func TestBackup_Integration(t *testing.T) {
 	ctx := context.Background()
 
+	dirName := t.TempDir()
 	indexID := "backup-integration-test"
 
-	dirName := makeTestDir(t)
+	cycles := &MaintenanceCycles{}
+	cycles.Init(
+		cyclemanager.HnswCommitLoggerCycleTicker(),
+		cyclemanager.NewFixedIntervalTicker(enthnsw.DefaultCleanupIntervalSeconds*time.Second))
 
 	idx, err := New(Config{
-		RootPath: dirName,
-		ID:       indexID,
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logrus.New())
-		},
+		RootPath:         dirName,
+		ID:               indexID,
+		Logger:           logrus.New(),
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
-	}, enthnsw.NewDefaultUserConfig())
+		MakeCommitLoggerThunk: func() (CommitLogger, error) {
+			return NewCommitLogger(dirName, indexID, logrus.New(), cycles.CommitLogMaintenance())
+		},
+	}, enthnsw.NewDefaultUserConfig(), cycles.TombstoneCleanup())
 	require.Nil(t, err)
+	idx.PostStartup()
 
 	t.Run("insert vector into index", func(t *testing.T) {
 		for i := 0; i < 10; i++ {
@@ -61,7 +68,7 @@ func TestBackup_Integration(t *testing.T) {
 	time.Sleep(time.Second)
 
 	t.Run("pause maintenance", func(t *testing.T) {
-		err = idx.PauseMaintenance(ctx)
+		err = cycles.PauseMaintenance(ctx)
 		require.Nil(t, err)
 	})
 
@@ -107,10 +114,13 @@ func TestBackup_Integration(t *testing.T) {
 	})
 
 	t.Run("resume maintenance", func(t *testing.T) {
-		err = idx.ResumeMaintenance(ctx)
+		err = cycles.ResumeMaintenance(ctx)
 		require.Nil(t, err)
 	})
 
 	err = idx.Shutdown(ctx)
+	require.Nil(t, err)
+
+	err = cycles.Shutdown(ctx)
 	require.Nil(t, err)
 }

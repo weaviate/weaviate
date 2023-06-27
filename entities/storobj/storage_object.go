@@ -366,6 +366,9 @@ func (ko *Object) SearchResult(additional additional.Properties) *search.Result 
 		if additional.Classification {
 			additionalProperties["classification"] = ko.AdditionalProperties()["classification"]
 		}
+		if additional.Group {
+			additionalProperties["group"] = ko.AdditionalProperties()["group"]
+		}
 	}
 	if ko.ExplainScore() != "" {
 		additionalProperties["explainScore"] = ko.ExplainScore()
@@ -751,6 +754,37 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 					return err
 				}
 				additionalProperties["classification"] = &classification
+			}
+		}
+
+		if prop, ok := additionalProperties["group"]; ok {
+			if groupMap, ok := prop.(map[string]interface{}); ok {
+				marshalled, err := json.Marshal(groupMap)
+				if err != nil {
+					return err
+				}
+				var group additional.Group
+				err = json.Unmarshal(marshalled, &group)
+				if err != nil {
+					return err
+				}
+
+				for i, hit := range group.Hits {
+					if groupHitAdditionalMap, ok := hit["_additional"].(map[string]interface{}); ok {
+						marshalled, err := json.Marshal(groupHitAdditionalMap)
+						if err != nil {
+							return err
+						}
+						var groupHitsAdditional additional.GroupHitAdditional
+						err = json.Unmarshal(marshalled, &groupHitsAdditional)
+						if err != nil {
+							return err
+						}
+						group.Hits[i]["_additional"] = &groupHitsAdditional
+					}
+				}
+
+				additionalProperties["group"] = &group
 			}
 		}
 	}

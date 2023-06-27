@@ -353,9 +353,13 @@ func (d *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult,
 		return err
 	}
 
-	if int(id) >= len(res.Nodes) {
-		// node is out of bounds, so it can't exist, nothing to do here
-		return nil
+	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, id, d.logger)
+	if err != nil {
+		return err
+	}
+
+	if changed {
+		res.Nodes = newNodes
 	}
 
 	if res.Nodes[id] == nil {
@@ -380,9 +384,13 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 		return err
 	}
 
-	if int(id) >= len(res.Nodes) {
-		// node is out of bounds, so it can't exist, nothing to do here
-		return nil
+	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, id, d.logger)
+	if err != nil {
+		return err
+	}
+
+	if changed {
+		res.Nodes = newNodes
 	}
 
 	if keepReplaceInfo {
@@ -439,9 +447,13 @@ func (d *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult) e
 		return err
 	}
 
-	if int(id) >= len(res.Nodes) {
-		// node is out of bounds, so it can't exist, nothing to do here
-		return nil
+	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, id, d.logger)
+	if err != nil {
+		return err
+	}
+
+	if changed {
+		res.Nodes = newNodes
 	}
 
 	res.Nodes[id] = nil

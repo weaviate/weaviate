@@ -101,6 +101,12 @@ type ObjectsClassGetParams struct {
 	*/
 	NodeName *string
 
+	/* TenantKey.
+
+	   Specifies the tenant in a request targeting a multi-tenant class
+	*/
+	TenantKey *string
+
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -209,6 +215,17 @@ func (o *ObjectsClassGetParams) SetNodeName(nodeName *string) {
 	o.NodeName = nodeName
 }
 
+// WithTenantKey adds the tenantKey to the objects class get params
+func (o *ObjectsClassGetParams) WithTenantKey(tenantKey *string) *ObjectsClassGetParams {
+	o.SetTenantKey(tenantKey)
+	return o
+}
+
+// SetTenantKey adds the tenantKey to the objects class get params
+func (o *ObjectsClassGetParams) SetTenantKey(tenantKey *string) {
+	o.TenantKey = tenantKey
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsClassGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -273,6 +290,23 @@ func (o *ObjectsClassGetParams) WriteToRequest(r runtime.ClientRequest, reg strf
 		if qNodeName != "" {
 
 			if err := r.SetQueryParam("node_name", qNodeName); err != nil {
+				return err
+			}
+		}
+	}
+
+	if o.TenantKey != nil {
+
+		// query param tenant_key
+		var qrTenantKey string
+
+		if o.TenantKey != nil {
+			qrTenantKey = *o.TenantKey
+		}
+		qTenantKey := qrTenantKey
+		if qTenantKey != "" {
+
+			if err := r.SetQueryParam("tenant_key", qTenantKey); err != nil {
 				return err
 			}
 		}

@@ -16,9 +16,9 @@ package db
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"os"
 	"path"
 	"sync"
@@ -168,9 +168,10 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 // tests adding multiple larger batches in parallel using different settings of the goroutine factor.
 // In all cases all objects should be added
 func TestShard_ParallelBatches(t *testing.T) {
+	r := getRandomSeed()
 	batches := make([][]*storobj.Object, 4)
 	for i := range batches {
-		batches[i] = createRandomObjects("TestClass", 1000)
+		batches[i] = createRandomObjects(r, "TestClass", 1000)
 	}
 	totalObjects := 1000 * len(batches)
 	ctx := testCtx()

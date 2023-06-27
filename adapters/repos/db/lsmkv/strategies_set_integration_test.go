@@ -17,20 +17,19 @@ package lsmkv
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 			WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
@@ -90,6 +89,7 @@ func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 
 	t.Run("with a single flush between updates", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 			WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
@@ -153,6 +153,7 @@ func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 
 	t.Run("with flushes after initial and update", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 			WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
@@ -218,6 +219,7 @@ func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 
 	t.Run("update in memtable, then do an orderly shutdown, and re-init", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 			WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
@@ -280,6 +282,7 @@ func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 
 		t.Run("init another bucket on the same files", func(t *testing.T) {
 			b2, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+				cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 				WithStrategy(StrategySetCollection))
 			require.Nil(t, err)
 
@@ -303,11 +306,11 @@ func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 }
 
 func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 			WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
@@ -404,6 +407,7 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 	t.Run("with a single flush between updates", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 			WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
@@ -504,6 +508,7 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 	t.Run("with flushes in between and after the update", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 			WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
@@ -613,6 +618,7 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 	t.Run("update in memtable, make orderly shutdown, then create a new bucket from disk",
 		func(t *testing.T) {
 			b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+				cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 				WithStrategy(StrategySetCollection))
 			require.Nil(t, err)
 
@@ -661,7 +667,9 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 			})
 
 			t.Run("init another bucket on the same files", func(t *testing.T) {
-				b2, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil, WithStrategy(StrategySetCollection))
+				b2, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+					cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+					WithStrategy(StrategySetCollection))
 				require.Nil(t, err)
 
 				expected1 := [][]byte{[]byte("value 1.1"), []byte("value 1.2")} // unchanged
@@ -683,10 +691,11 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 func TestSetCollectionStrategy_Cursors(t *testing.T) {
 	t.Run("memtable-only", func(t *testing.T) {
-		rand.Seed(time.Now().UnixNano())
+		r := getRandomSeed()
 		dirName := t.TempDir()
 
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 			WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
@@ -708,8 +717,7 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			}
 
 			// shuffle to make sure the BST isn't accidentally in order
-			rand.Seed(time.Now().UnixNano())
-			rand.Shuffle(len(keys), func(i, j int) {
+			r.Shuffle(len(keys), func(i, j int) {
 				keys[i], keys[j] = keys[j], keys[i]
 				values[i], values[j] = values[j], values[i]
 			})
@@ -811,10 +819,11 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 	})
 
 	t.Run("with flushes", func(t *testing.T) {
-		rand.Seed(time.Now().UnixNano())
+		r := getRandomSeed()
 		dirName := t.TempDir()
 
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 			WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
@@ -840,8 +849,7 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			}
 
 			// shuffle to make sure the BST isn't accidentally in order
-			rand.Seed(time.Now().UnixNano())
-			rand.Shuffle(len(keys), func(i, j int) {
+			r.Shuffle(len(keys), func(i, j int) {
 				keys[i], keys[j] = keys[j], keys[i]
 				values[i], values[j] = values[j], values[i]
 			})
@@ -875,8 +883,7 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			}
 
 			// shuffle to make sure the BST isn't accidentally in order
-			rand.Seed(time.Now().UnixNano())
-			rand.Shuffle(len(keys), func(i, j int) {
+			r.Shuffle(len(keys), func(i, j int) {
 				keys[i], keys[j] = keys[j], keys[i]
 				values[i], values[j] = values[j], values[i]
 			})
@@ -910,8 +917,7 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			}
 
 			// shuffle to make sure the BST isn't accidentally in order
-			rand.Seed(time.Now().UnixNano())
-			rand.Shuffle(len(keys), func(i, j int) {
+			r.Shuffle(len(keys), func(i, j int) {
 				keys[i], keys[j] = keys[j], keys[i]
 				values[i], values[j] = values[j], values[i]
 			})

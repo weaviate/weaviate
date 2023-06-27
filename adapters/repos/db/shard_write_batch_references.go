@@ -118,6 +118,7 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,
 			errLock.Lock()
 			errs[i] = errors.Wrap(err, "invalid id")
 			errLock.Unlock()
+			continue
 		}
 
 		idBytes, err := uuidParsed.MarshalBinary()
@@ -125,6 +126,7 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,
 			errLock.Lock()
 			errs[i] = err
 			errLock.Unlock()
+			continue
 		}
 
 		mergeDoc := mergeDocFromBatchReference(ref)
@@ -133,6 +135,7 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,
 			errLock.Lock()
 			errs[i] = err
 			errLock.Unlock()
+			continue
 		}
 
 		prop, ok := propsByName[ref.From.Property.String()]
@@ -140,17 +143,17 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,
 			errLock.Lock()
 			errs[i] = fmt.Errorf("property '%s' not found in schema", ref.From.Property)
 			errLock.Unlock()
+			continue
 		}
 
 		// generally the batch ref is an append only change which does not alter
 		// the vector position. There is however one inverted index link that needs
 		// to be cleanup: the ref count
 		if err := b.analyzeInverted(invertedMerger, res, ref, prop); err != nil {
-			if err != nil {
-				errLock.Lock()
-				errs[i] = err
-				errLock.Unlock()
-			}
+			errLock.Lock()
+			errs[i] = err
+			errLock.Unlock()
+			continue
 		}
 	}
 
@@ -215,14 +218,9 @@ func (b *referencesBatcher) writeInvertedDeletions(
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}
 
-			hashBucket := b.shard.store.Bucket(helpers.HashBucketFromPropNameLSM(prop.Name))
-			if hashBucket == nil {
-				return errors.Errorf("no hash bucket for prop '%s' found", prop.Name)
-			}
-
 			for _, item := range prop.MergeItems {
 				for _, id := range item.DocIDs {
-					err := b.shard.deleteInvertedIndexItemLSM(bucket, hashBucket,
+					err := b.shard.deleteInvertedIndexItemLSM(bucket,
 						inverted.Countable{Data: item.Data}, id.DocID)
 					if err != nil {
 						return err
@@ -249,14 +247,8 @@ func (b *referencesBatcher) writeInvertedAdditions(
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}
 
-			hashBucket := b.shard.store.Bucket(helpers.HashBucketFromPropNameLSM(prop.Name))
-			if hashBucket == nil {
-				return errors.Errorf("no hash bucket for prop '%s' found", prop.Name)
-			}
-
 			for _, item := range prop.MergeItems {
-				err := b.shard.batchExtendInvertedIndexItemsLSMNoFrequency(bucket, hashBucket,
-					item)
+				err := b.shard.batchExtendInvertedIndexItemsLSMNoFrequency(bucket, item)
 				if err != nil {
 					return err
 				}
@@ -270,6 +262,10 @@ func (b *referencesBatcher) writeInvertedAdditions(
 func (b *referencesBatcher) analyzeRef(obj *storobj.Object,
 	ref objects.BatchReference, prop *models.Property,
 ) ([]inverted.Property, error) {
+	if prop == nil {
+		return nil, fmt.Errorf("analyzeRef: property %q not found in schema", ref.From.Property)
+	}
+
 	props := obj.Properties()
 	if props == nil {
 		return nil, nil

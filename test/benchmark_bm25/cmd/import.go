@@ -27,6 +27,7 @@ func init() {
 	rootCmd.AddCommand(importCmd)
 	importCmd.PersistentFlags().IntVarP(&BatchSize, "batch-size", "b", DefaultBatchSize, "number of objects in a single import batch")
 	importCmd.PersistentFlags().IntVarP(&MultiplyProperties, "multiply-properties", "m", DefaultMultiplyProperties, "create artifical copies of real properties by setting a value larger than 1. The properties have identical contents, so it won't alter results, but leads to many more calculations.")
+	importCmd.PersistentFlags().BoolVarP(&Vectorizer, "vectorizer", "v", DefaultVectorizer, "Vectorize import data with default vectorizer")
 }
 
 var importCmd = &cobra.Command{
@@ -40,7 +41,7 @@ var importCmd = &cobra.Command{
 
 		ok, err := client.Misc().LiveChecker().Do(context.Background())
 		if err != nil {
-			return fmt.Errorf("weaviate is not ready: %w", err)
+			return fmt.Errorf("weaviate is not ready at %v: %w", Origin, err)
 		}
 
 		if !ok {
@@ -62,7 +63,7 @@ var importCmd = &cobra.Command{
 		}
 
 		if err := client.Schema().ClassCreator().
-			WithClass(lib.SchemaFromDataset(datasets.Datasets[0])).
+			WithClass(lib.SchemaFromDataset(datasets.Datasets[0], Vectorizer)).
 			Do(context.Background()); err != nil {
 			return fmt.Errorf("create schema for %s: %w", datasets.Datasets[0], err)
 		}

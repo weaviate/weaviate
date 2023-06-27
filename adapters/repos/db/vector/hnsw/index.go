@@ -19,7 +19,6 @@ import (
 	"math/rand"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -104,8 +103,7 @@ type hnsw struct {
 	tombstones map[uint64]struct{}
 
 	// used for cancellation of the tombstone cleanup goroutine
-	cleanupInterval       time.Duration
-	tombstoneCleanupCycle *cyclemanager.CycleManager
+	unregisterTombstoneCleanup cyclemanager.UnregisterFunc
 
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
@@ -146,17 +144,18 @@ type hnsw struct {
 	deleteVsInsertLock sync.RWMutex
 
 	compressed             atomic.Bool
+	doNotRescore           atomic.Bool
 	pq                     *ssdhelpers.ProductQuantizer
 	compressedVectorsCache cache[byte]
 	compressedStore        *lsmkv.Store
 	compressActionLock     *sync.RWMutex
 	className              string
 	shardName              string
+	VectorForIDThunk       VectorForID
 }
 
 type CommitLogger interface {
 	ID() string
-	Start()
 	AddNode(node *vertex) error
 	SetEntryPointWithMaxLayer(id uint64, level int) error
 	AddLinkAtLevel(nodeid uint64, level int, target uint64) error
@@ -172,7 +171,6 @@ type CommitLogger interface {
 	Shutdown(ctx context.Context) error
 	RootPath() string
 	SwitchCommitLogs(bool) error
-	MaintenanceInProgress() bool
 	AddPQ(ssdhelpers.PQData) error
 }
 
@@ -195,7 +193,8 @@ type (
 // criterium for the index to see if it has to recover from disk or if its a
 // truly new index. So instead the index is initialized, with un-biased disk
 // checks first and only then is the commit logger created
-func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
+func New(cfg Config, uc ent.UserConfig, tombstoneCleanupCycle cyclemanager.CycleManager,
+) (*hnsw, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
 	}
@@ -214,7 +213,11 @@ func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
 	vectorCache := newShardedLockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
 		cfg.Logger, normalizeOnRead, defaultDeletionInterval)
 
-	compressedVectorsCache := newCompressedShardedLockCache(uc.VectorCacheMaxObjects, cfg.Logger)
+	var compressedVectorsCache *compressedShardedLockCache
+	if uc.PQ.Enabled {
+		compressedVectorsCache = newCompressedShardedLockCache(uc.VectorCacheMaxObjects, cfg.Logger)
+	}
+
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	index := &hnsw{
 		maximumConnections: uc.MaxConnections,
@@ -242,7 +245,7 @@ func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
 		resetCtx:               resetCtx,
 		resetCtxCancel:         resetCtxCancel,
 		initialInsertOnce:      &sync.Once{},
-		cleanupInterval:        time.Duration(uc.CleanupIntervalSeconds) * time.Second,
+		// cleanupInterval:        time.Duration(uc.CleanupIntervalSeconds) * time.Second,
 
 		ef:       int64(uc.EF),
 		efMin:    int64(uc.DynamicEFMin),
@@ -255,11 +258,11 @@ func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
 		randFunc:           rand.Float64,
 		compressActionLock: &sync.RWMutex{},
 		className:          cfg.ClassName,
+		VectorForIDThunk:   cfg.VectorForIDThunk,
 	}
 
-	index.tombstoneCleanupCycle = cyclemanager.New(
-		cyclemanager.NewFixedIntervalTicker(index.cleanupInterval),
-		index.tombstoneCleanup)
+	// TODO common_cycle_manager move to poststartup?
+	index.unregisterTombstoneCleanup = tombstoneCleanupCycle.Register(index.tombstoneCleanup)
 	index.insertMetrics = newInsertMetrics(index.metrics)
 
 	if err := index.init(cfg); err != nil {
@@ -401,7 +404,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 			}
 		}
 
-		h.pools.pqResults.Put(res)
+		h.freeSortedQueue(res)
 	}
 
 	return entryPointID, nil
@@ -596,17 +599,8 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 
 func (h *hnsw) Drop(ctx context.Context) error {
 	// cancel tombstone cleanup goroutine
-
-	// if the interval is 0 we never started a cleanup cycle, therefore there is
-	// no loop running that could receive our cancel and we would be stuck. Thus,
-	// only cancel if we know it's been started.
-	if h.cleanupInterval != 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-
-		if err := h.tombstoneCleanupCycle.StopAndWait(ctx); err != nil {
-			return errors.Wrap(err, "hnsw drop")
-		}
+	if err := h.unregisterTombstoneCleanup(ctx); err != nil {
+		return errors.Wrap(err, "hnsw drop")
 	}
 
 	if h.compressed.Load() {
@@ -627,11 +621,11 @@ func (h *hnsw) Drop(ctx context.Context) error {
 }
 
 func (h *hnsw) Shutdown(ctx context.Context) error {
-	if err := h.tombstoneCleanupCycle.StopAndWait(ctx); err != nil {
+	if err := h.commitLog.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "hnsw shutdown")
 	}
 
-	if err := h.commitLog.Shutdown(ctx); err != nil {
+	if err := h.unregisterTombstoneCleanup(ctx); err != nil {
 		return errors.Wrap(err, "hnsw shutdown")
 	}
 

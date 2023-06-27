@@ -140,11 +140,11 @@ func (m *filterableToSearchableMigrator) switchShardsToFallbackMode(ctx context.
 		if _, ok := migrationState.MissingFilterableClass2Props[index.Config.ClassName.String()]; !ok {
 			continue
 		}
-
-		for _, shard := range index.Shards {
+		index.ForEachShard(func(name string, shard *Shard) error {
 			m.logShard(shard).Debug("setting fallback mode for shard")
 			shard.fallbackToSearchable = true
-		}
+			return nil
+		})
 	}
 
 	m.log().Debug("finished switching fallback mode")
@@ -168,8 +168,7 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 		if !(inverted.HasFilterableIndex(prop) && inverted.HasSearchableIndex(prop)) {
 			continue
 		}
-
-		for _, shard := range index.Shards {
+		if err := index.ForEachShard(func(name string, shard *Shard) error {
 			if toFix, err := m.isPropToFix(prop, shard); toFix {
 				if _, ok := shard2PropsToFix[shard.name]; !ok {
 					shard2PropsToFix[shard.name] = map[string]struct{}{}
@@ -178,8 +177,11 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 				uniquePropsToFix[prop.Name] = struct{}{}
 			} else if err != nil {
 				m.logShard(shard).WithError(err).Error("failed discovering props to fix")
-				return nil, errors.Wrap(err, "failed discovering props to fix")
+				return errors.Wrap(err, "failed discovering props to fix")
 			}
+			return nil
+		}); err != nil {
+			return nil, err
 		}
 	}
 
@@ -194,7 +196,7 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 
 	errgrp := &errgroup.Group{}
 	for shardName, props := range shard2PropsToFix {
-		shard := index.Shards[shardName]
+		shard := index.shards.Load(shardName)
 		props := props
 
 		errgrp.Go(func() error {

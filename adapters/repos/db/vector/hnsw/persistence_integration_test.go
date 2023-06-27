@@ -17,7 +17,6 @@ package hnsw
 import (
 	"fmt"
 	"io"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"testing"
@@ -32,13 +31,12 @@ import (
 )
 
 func TestHnswPersistence(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	indexID := "integrationtest"
 
 	logger, _ := test.NewNullLogger()
 	cl, clErr := NewCommitLogger(dirName, indexID, logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	makeCL := func() (CommitLogger, error) {
 		return cl, clErr
 	}
@@ -51,7 +49,7 @@ func TestHnswPersistence(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	})
+	}, cyclemanager.NewNoop())
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
@@ -88,7 +86,7 @@ func TestHnswPersistence(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	})
+	}, cyclemanager.NewNoop())
 	require.Nil(t, err)
 
 	t.Run("verify that the results match after rebuiling from disk",
@@ -101,13 +99,12 @@ func TestHnswPersistence(t *testing.T) {
 }
 
 func TestHnswPersistence_CorruptWAL(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	indexID := "integrationtest_corrupt"
 
 	logger, _ := test.NewNullLogger()
 	cl, clErr := NewCommitLogger(dirName, indexID, logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	makeCL := func() (CommitLogger, error) {
 		return cl, clErr
 	}
@@ -120,7 +117,7 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	})
+	}, cyclemanager.NewNoop())
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
@@ -191,7 +188,7 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	})
+	}, cyclemanager.NewNoop())
 	require.Nil(t, err)
 
 	// the minor corruption (just one missing link) will most likely not render
@@ -207,12 +204,11 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 }
 
 func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	indexID := "integrationtest_deletion"
 	logger, _ := test.NewNullLogger()
 	cl, clErr := NewCommitLogger(dirName, indexID, logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	makeCL := func() (CommitLogger, error) {
 		return cl, clErr
 	}
@@ -225,7 +221,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	})
+	}, cyclemanager.NewNoop())
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
@@ -271,7 +267,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	})
+	}, cyclemanager.NewNoop())
 	require.Nil(t, err)
 
 	dumpIndex(secondIndex, "without_cleanup_after_rebuild")
@@ -285,14 +281,13 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 }
 
 func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	indexID := "integrationtest_tombstonecleanup"
 
 	logger, _ := test.NewNullLogger()
 	makeCL := func() (CommitLogger, error) {
 		return NewCommitLogger(dirName, indexID, logger,
-			WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+			cyclemanager.NewNoop())
 	}
 	index, err := New(Config{
 		RootPath:              dirName,
@@ -303,7 +298,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	})
+	}, cyclemanager.NewNoop())
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
@@ -355,7 +350,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	})
+	}, cyclemanager.NewNoop())
 	require.Nil(t, err)
 	dumpIndex(secondIndex, "with cleanup second index")
 
@@ -397,7 +392,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	})
+	}, cyclemanager.NewNoop())
 	require.Nil(t, err)
 
 	dumpIndex(thirdIndex)
@@ -435,7 +430,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	})
+	}, cyclemanager.NewNoop())
 	require.Nil(t, err)
 
 	t.Run("load from disk and try to insert again", func(t *testing.T) {

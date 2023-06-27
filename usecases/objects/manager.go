@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -89,20 +90,24 @@ type authorizer interface {
 }
 
 type VectorRepo interface {
-	PutObject(ctx context.Context, concept *models.Object,
-		vector []float32, repl *additional.ReplicationProperties) error
-	DeleteObject(ctx context.Context, className string, id strfmt.UUID, repl *additional.ReplicationProperties) error
+	PutObject(ctx context.Context, concept *models.Object, vector []float32,
+		repl *additional.ReplicationProperties, tenantKey string) error
+	DeleteObject(ctx context.Context, className string, id strfmt.UUID,
+		repl *additional.ReplicationProperties, tenantKey string) error
 	// Object returns object of the specified class giving by its id
 	Object(ctx context.Context, class string, id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties, repl *additional.ReplicationProperties) (*search.Result, error)
+		additional additional.Properties, repl *additional.ReplicationProperties,
+		tenantKey string) (*search.Result, error)
 	// Exists returns true if an object of a giving class exists
-	Exists(ctx context.Context, class string, id strfmt.UUID, repl *additional.ReplicationProperties) (bool, error)
+	Exists(ctx context.Context, class string, id strfmt.UUID,
+		repl *additional.ReplicationProperties, tenantKey string) (bool, error)
 	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties) (*search.Result, error)
+		additional additional.Properties, tenantKey string) (*search.Result, error)
 	ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
-		sort []filters.Sort, additional additional.Properties) (search.Results, error)
-	AddReference(ctx context.Context, className string, source strfmt.UUID, propName string, ref *models.SingleRef, repl *additional.ReplicationProperties) error
-	Merge(ctx context.Context, merge MergeDocument, repl *additional.ReplicationProperties) error
+		sort []filters.Sort, additional additional.Properties, tenantKey string) (search.Results, error)
+	AddReference(ctx context.Context, source *crossref.RefSource,
+		target *crossref.Ref, repl *additional.ReplicationProperties, tenantKey string) error
+	Merge(ctx context.Context, merge MergeDocument, repl *additional.ReplicationProperties, tenantKey string) error
 	Query(context.Context, *QueryInput) (search.Results, *Error)
 }
 
@@ -112,8 +117,9 @@ type ModulesProvider interface {
 	ListObjectsAdditionalExtend(ctx context.Context, in search.Results,
 		moduleParams map[string]interface{}) (search.Results, error)
 	UsingRef2Vec(className string) bool
-	UpdateVector(ctx context.Context, object *models.Object, class *models.Class, objectDiff *moduletools.ObjectDiff,
-		repo modulecapabilities.FindObjectFn, logger logrus.FieldLogger) error
+	UpdateVector(ctx context.Context, object *models.Object, class *models.Class,
+		objectDiff *moduletools.ObjectDiff, repo modulecapabilities.FindObjectFn,
+		logger logrus.FieldLogger) error
 	VectorizerName(className string) (string, error)
 }
 

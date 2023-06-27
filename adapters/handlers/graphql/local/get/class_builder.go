@@ -65,10 +65,21 @@ func (b *classBuilder) objects() (*graphql.Object, error) {
 }
 
 func (b *classBuilder) kinds(kindSchema *models.Schema) (*graphql.Object, error) {
+	// needs to be defined outside the individual class as there can only be one definition of an enum
+	fusionAlgoEnum := graphql.NewEnum(graphql.EnumConfig{
+		Name: "FusionEnum",
+		Values: graphql.EnumValueConfigMap{
+			"rankedFusion": &graphql.EnumValueConfig{
+				Value: HybridRankedFusion,
+			},
+			"relativeScoreFusion": &graphql.EnumValueConfig{
+				Value: HybridRelativeScoreFusion,
+			},
+		},
+	})
 	classFields := graphql.Fields{}
-
 	for _, class := range kindSchema.Classes {
-		classField, err := b.classField(class)
+		classField, err := b.classField(class, fusionAlgoEnum)
 		if err != nil {
 			return nil, fmt.Errorf("Could not build class for %s", class.Class)
 		}
@@ -84,10 +95,10 @@ func (b *classBuilder) kinds(kindSchema *models.Schema) (*graphql.Object, error)
 	return classes, nil
 }
 
-func (b *classBuilder) classField(class *models.Class) (*graphql.Field, error) {
+func (b *classBuilder) classField(class *models.Class, fusionEnum *graphql.Enum) (*graphql.Field, error) {
 	classObject := b.classObject(class)
 	b.knownClasses[class.Class] = classObject
-	classField := buildGetClassField(classObject, class, b.modulesProvider)
+	classField := buildGetClassField(classObject, class, b.modulesProvider, fusionEnum)
 	return &classField, nil
 }
 
@@ -96,9 +107,6 @@ func (b *classBuilder) classObject(class *models.Class) *graphql.Object {
 		Name: class.Class,
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
 			classProperties := graphql.Fields{}
-
-			b.additionalFields(classProperties, class)
-
 			for _, property := range class.Properties {
 				propertyType, err := b.schema.FindPropertyDataType(property.DataType)
 				if err != nil {
@@ -128,6 +136,8 @@ func (b *classBuilder) classObject(class *models.Class) *graphql.Object {
 				}
 			}
 
+			b.additionalFields(classProperties, class)
+
 			return classProperties
 		}),
 		Description: class.Description,
@@ -145,6 +155,7 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties["lastUpdateTimeUnix"] = b.additionalLastUpdateTimeUnix()
 	additionalProperties["score"] = b.additionalScoreField()
 	additionalProperties["explainScore"] = b.additionalExplainScoreField()
+	additionalProperties["group"] = b.additionalGroupField(classProperties, class)
 	if replicationEnabled(class) {
 		additionalProperties["isConsistent"] = b.isConsistentField()
 	}
@@ -229,5 +240,58 @@ func (b *classBuilder) additionalLastUpdateTimeUnix() *graphql.Field {
 func (b *classBuilder) isConsistentField() *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.Boolean,
+	}
+}
+
+func (b *classBuilder) additionalGroupField(classProperties graphql.Fields, class *models.Class) *graphql.Field {
+	hitsFields := graphql.Fields{
+		"_additional": &graphql.Field{
+			Type: graphql.NewObject(
+				graphql.ObjectConfig{
+					Name: fmt.Sprintf("%sAdditionalGroupHitsAdditional", class.Class),
+					Fields: graphql.Fields{
+						"id":       &graphql.Field{Type: graphql.String},
+						"vector":   &graphql.Field{Type: graphql.NewList(graphql.Float)},
+						"distance": &graphql.Field{Type: graphql.Float},
+					},
+				},
+			),
+		},
+	}
+	for name, field := range classProperties {
+		hitsFields[name] = field
+	}
+	return &graphql.Field{
+		Type: graphql.NewObject(graphql.ObjectConfig{
+			Name: fmt.Sprintf("%sAdditionalGroup", class.Class),
+			Fields: graphql.Fields{
+				"id": &graphql.Field{Type: graphql.Int},
+				"groupedBy": &graphql.Field{
+					Type: graphql.NewObject(graphql.ObjectConfig{
+						Name: fmt.Sprintf("%sAdditionalGroupGroupedBy", class.Class),
+						Fields: graphql.Fields{
+							"path": &graphql.Field{
+								Type: graphql.NewList(graphql.String),
+							},
+							"value": &graphql.Field{
+								Type: graphql.String,
+							},
+						},
+					}),
+				},
+
+				"minDistance": &graphql.Field{Type: graphql.Float},
+				"maxDistance": &graphql.Field{Type: graphql.Float},
+				"count":       &graphql.Field{Type: graphql.Int},
+				"hits": &graphql.Field{
+					Type: graphql.NewList(graphql.NewObject(
+						graphql.ObjectConfig{
+							Name:   fmt.Sprintf("%sAdditionalGroupHits", class.Class),
+							Fields: hitsFields,
+						},
+					)),
+				},
+			},
+		}),
 	}
 }

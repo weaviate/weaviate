@@ -38,8 +38,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+func getRandomSeed() *rand.Rand {
+	return rand.New(rand.NewSource(time.Now().UnixNano()))
+}
+
 func setupDirectory(t *testing.T) string {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	return dirName
 }
@@ -110,7 +113,7 @@ func multiShardState(nodeCount int) *sharding.State {
 	}
 
 	s, err := sharding.InitState("multi-shard-test-index", config,
-		fakeNodes{nodeList}, 1)
+		fakeNodes{nodeList}, 1, false)
 	if err != nil {
 		panic(err)
 	}
@@ -310,7 +313,7 @@ func manuallyResolveRef(t *testing.T, obj *models.Object,
 			// find referenced object to get his actual vector from DB
 			require.NotNil(t, repo)
 			res, err := repo.Object(context.Background(), parsed.Class, parsed.TargetID,
-				nil, additional.Properties{Vector: true}, nil)
+				nil, additional.Properties{Vector: true}, nil, "")
 			require.Nil(t, err)
 			require.NotNil(t, res)
 			out[i] = map[string]interface{}{

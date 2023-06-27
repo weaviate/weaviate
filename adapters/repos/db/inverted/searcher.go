@@ -14,8 +14,8 @@ package inverted
 import (
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -231,10 +232,6 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 		return nil, err
 	}
 
-	if filter.Operator == filters.OperatorIsNull {
-		return s.extractPropertyNull(property, filter.Value.Type, filter.Value.Value, filter.Operator)
-	}
-
 	if s.onRefProp(property) && len(props) != 1 {
 		return s.extractReferenceFilter(property, filter)
 	}
@@ -243,6 +240,10 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 		// ref prop and int type is a special case, the user is looking for the
 		// reference count as opposed to the content
 		return s.extractReferenceCount(property, filter.Value.Value, filter.Operator)
+	}
+
+	if filter.Operator == filters.OperatorIsNull {
+		return s.extractPropertyNull(property, filter.Value.Type, filter.Value.Value, filter.Operator)
 	}
 
 	if s.onGeoProp(property) {
@@ -296,12 +297,19 @@ func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.D
 		return nil, err
 	}
 
+	hasFilterableIndex := HasFilterableIndex(prop)
+	hasSearchableIndex := HasSearchableIndex(prop)
+
+	if !hasFilterableIndex && !hasSearchableIndex {
+		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
+	}
+
 	return &propValuePair{
 		value:              byteValue,
 		prop:               prop.Name,
 		operator:           operator,
-		hasFilterableIndex: HasFilterableIndex(prop),
-		hasSearchableIndex: HasSearchableIndex(prop),
+		hasFilterableIndex: hasFilterableIndex,
+		hasSearchableIndex: hasSearchableIndex,
 	}, nil
 }
 
@@ -313,12 +321,19 @@ func (s *Searcher) extractReferenceCount(prop *models.Property, value interface{
 		return nil, err
 	}
 
+	hasFilterableIndex := HasFilterableIndexMetaCount && HasInvertedIndex(prop)
+	hasSearchableIndex := HasSearchableIndexMetaCount && HasInvertedIndex(prop)
+
+	if !hasFilterableIndex && !hasSearchableIndex {
+		return nil, inverted.NewMissingFilterableMetaCountIndexError(prop.Name)
+	}
+
 	return &propValuePair{
 		value:              byteValue,
 		prop:               helpers.MetaCountProp(prop.Name),
 		operator:           operator,
-		hasFilterableIndex: HasFilterableIndexMetaCount,
-		hasSearchableIndex: HasSearchableIndexMetaCount,
+		hasFilterableIndex: hasFilterableIndex,
+		hasSearchableIndex: hasSearchableIndex,
 	}, nil
 }
 
@@ -363,12 +378,19 @@ func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
 			"on must be specified as a string (e.g. valueText:<uuid>)", prop.Name)
 	}
 
+	hasFilterableIndex := HasFilterableIndex(prop)
+	hasSearchableIndex := HasSearchableIndex(prop)
+
+	if !hasFilterableIndex && !hasSearchableIndex {
+		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
+	}
+
 	return &propValuePair{
 		value:              byteValue,
 		prop:               prop.Name,
 		operator:           operator,
-		hasFilterableIndex: HasFilterableIndex(prop),
-		hasSearchableIndex: HasSearchableIndex(prop),
+		hasFilterableIndex: hasFilterableIndex,
+		hasSearchableIndex: hasSearchableIndex,
 	}, nil
 }
 
@@ -423,20 +445,25 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 		if !ok {
 			return nil, fmt.Errorf("expected value to be string, got '%T'", value)
 		}
+		_, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("expected value to be timestamp, got '%s'", v)
+		}
 		byteValue = []byte(v)
 	case schema.DataTypeDate:
+		v, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("expected value to be string, got '%T'", value)
+		}
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			return nil, errors.Wrap(err, "trying parse time as RFC3339 string")
+		}
+
 		// if propType is a `valueDate`, we need to convert
 		// it to ms before fetching. this is the format by
 		// which our timestamps are indexed
-		v, ok := value.(time.Time)
-		if !ok {
-			return nil, fmt.Errorf("expected value to be time.Time, got '%T'", value)
-		}
-		b, err := json.Marshal(v.UnixNano() / int64(time.Millisecond))
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to extract timestamp prop '%s", propName)
-		}
-		byteValue = b
+		byteValue = []byte(strconv.FormatInt(t.UnixMilli(), 10))
 	default:
 		return nil, fmt.Errorf(
 			"failed to extract timestamp prop, unsupported type '%T' for prop '%s'", propType, propName)
@@ -471,6 +498,11 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 
 	hasFilterableIndex := HasFilterableIndex(prop) && !s.isFallbackToSearchable()
 	hasSearchableIndex := HasSearchableIndex(prop)
+
+	if !hasFilterableIndex && !hasSearchableIndex {
+		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
+	}
+
 	propValuePairs := make([]*propValuePair, 0, len(terms))
 	for _, term := range terms {
 		if s.stopwords.IsStopword(term) {

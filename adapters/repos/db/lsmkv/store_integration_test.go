@@ -16,16 +16,13 @@ package lsmkv
 
 import (
 	"context"
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestStoreLifecycle(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	t.Run("cycle 1", func(t *testing.T) {

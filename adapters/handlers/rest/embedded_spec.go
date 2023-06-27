@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.19.0-beta.1"
+    "version": "1.20.0-prealpha"
   },
   "basePath": "/v1",
   "paths": {
@@ -437,6 +437,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -502,6 +505,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -570,6 +576,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -919,6 +928,61 @@ func init() {
         ]
       }
     },
+    "/nodes/{className}": {
+      "get": {
+        "description": "Returns status of Weaviate DB.",
+        "tags": [
+          "nodes"
+        ],
+        "operationId": "nodes.get.class",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Nodes status successfully returned",
+            "schema": {
+              "$ref": "#/definitions/NodesStatusResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Backup does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup restoration status attempt.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.nodes.status.get.class"
+        ]
+      }
+    },
     "/objects": {
       "get": {
         "description": "Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.",
@@ -1012,6 +1076,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1138,6 +1205,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonNodeNameParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1210,6 +1280,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1274,6 +1347,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1336,6 +1412,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1400,6 +1479,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1482,6 +1564,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1565,6 +1650,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1648,6 +1736,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1782,6 +1873,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1841,6 +1935,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1946,6 +2043,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2599,6 +2699,66 @@ func init() {
           "weaviate.local.manipulate.meta"
         ]
       }
+    },
+    "/schema/{className}/tenants": {
+      "post": {
+        "description": "Create a new tenant for a specific class",
+        "tags": [
+          "schema"
+        ],
+        "operationId": "tenants.create",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added the new Object class to the schema.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid Tenant class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
     }
   },
   "definitions": {
@@ -3140,6 +3300,9 @@ func init() {
           "description": "Configuration specific to modules this Weaviate instance has installed",
           "type": "object"
         },
+        "multiTenancyConfig": {
+          "$ref": "#/definitions/MultiTenancyConfig"
+        },
         "properties": {
           "description": "The properties of the class.",
           "type": "array",
@@ -3527,6 +3690,19 @@ func init() {
         },
         "version": {
           "description": "Version of weaviate you are currently running",
+          "type": "string"
+        }
+      }
+    },
+    "MultiTenancyConfig": {
+      "description": "Configuration related to multi-tenancy within a class",
+      "properties": {
+        "enabled": {
+          "description": "Whether or not multi-tenancy is enabled for this class",
+          "type": "boolean"
+        },
+        "tenantKey": {
+          "description": "The class property which is used to separate tenants",
           "type": "string"
         }
       }
@@ -4107,6 +4283,16 @@ func init() {
         }
       }
     },
+    "Tenant": {
+      "description": "attributes representing a single tenant within weaviate",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "name of the tenant",
+          "type": "string"
+        }
+      }
+    },
     "VectorWeights": {
       "description": "Allow custom overrides of vector weights as math expressions. E.g. \"pancake\": \"7\" will set the weight for the word pancake to 7 in the vectorization, whereas \"w * 3\" would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
       "type": "object"
@@ -4276,6 +4462,12 @@ func init() {
       "description": "Sort parameter to pass an information about the names of the sort fields",
       "name": "sort",
       "in": "query"
+    },
+    "CommonTenantKeyParameterQuery": {
+      "type": "string",
+      "description": "Specifies the tenant in a request targeting a multi-tenant class",
+      "name": "tenant_key",
+      "in": "query"
     }
   },
   "securityDefinitions": {
@@ -4342,7 +4534,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.19.0-beta.1"
+    "version": "1.20.0-prealpha"
   },
   "basePath": "/v1",
   "paths": {
@@ -4734,6 +4926,12 @@ func init() {
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
             "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant_key",
+            "in": "query"
           }
         ],
         "responses": {
@@ -4801,6 +4999,12 @@ func init() {
             "type": "string",
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant_key",
             "in": "query"
           }
         ],
@@ -4872,6 +5076,12 @@ func init() {
             "type": "string",
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant_key",
             "in": "query"
           }
         ],
@@ -5222,6 +5432,61 @@ func init() {
         ]
       }
     },
+    "/nodes/{className}": {
+      "get": {
+        "description": "Returns status of Weaviate DB.",
+        "tags": [
+          "nodes"
+        ],
+        "operationId": "nodes.get.class",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Nodes status successfully returned",
+            "schema": {
+              "$ref": "#/definitions/NodesStatusResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Backup does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup restoration status attempt.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.nodes.status.get.class"
+        ]
+      }
+    },
     "/objects": {
       "get": {
         "description": "Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.",
@@ -5341,6 +5606,12 @@ func init() {
             "type": "string",
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant_key",
             "in": "query"
           }
         ],
@@ -5477,6 +5748,12 @@ func init() {
             "description": "The target node which should fulfill the request",
             "name": "node_name",
             "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant_key",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5552,6 +5829,12 @@ func init() {
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
             "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant_key",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5619,6 +5902,12 @@ func init() {
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
             "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant_key",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5683,6 +5972,12 @@ func init() {
             "type": "string",
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant_key",
             "in": "query"
           }
         ],
@@ -5750,6 +6045,12 @@ func init() {
             "type": "string",
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant_key",
             "in": "query"
           }
         ],
@@ -5835,6 +6136,12 @@ func init() {
             "type": "string",
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant_key",
             "in": "query"
           }
         ],
@@ -5922,6 +6229,12 @@ func init() {
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
             "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant_key",
+            "in": "query"
           }
         ],
         "responses": {
@@ -6007,6 +6320,12 @@ func init() {
             "type": "string",
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant_key",
             "in": "query"
           }
         ],
@@ -6148,6 +6467,12 @@ func init() {
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
             "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant_key",
+            "in": "query"
           }
         ],
         "responses": {
@@ -6209,6 +6534,12 @@ func init() {
             "type": "string",
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant_key",
             "in": "query"
           }
         ],
@@ -6317,6 +6648,12 @@ func init() {
             "type": "string",
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant_key",
             "in": "query"
           }
         ],
@@ -6970,6 +7307,66 @@ func init() {
         "x-serviceIds": [
           "weaviate.local.manipulate.meta"
         ]
+      }
+    },
+    "/schema/{className}/tenants": {
+      "post": {
+        "description": "Create a new tenant for a specific class",
+        "tags": [
+          "schema"
+        ],
+        "operationId": "tenants.create",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added the new Object class to the schema.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid Tenant class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
       }
     }
   },
@@ -7645,6 +8042,9 @@ func init() {
           "description": "Configuration specific to modules this Weaviate instance has installed",
           "type": "object"
         },
+        "multiTenancyConfig": {
+          "$ref": "#/definitions/MultiTenancyConfig"
+        },
         "properties": {
           "description": "The properties of the class.",
           "type": "array",
@@ -8058,6 +8458,19 @@ func init() {
         },
         "version": {
           "description": "Version of weaviate you are currently running",
+          "type": "string"
+        }
+      }
+    },
+    "MultiTenancyConfig": {
+      "description": "Configuration related to multi-tenancy within a class",
+      "properties": {
+        "enabled": {
+          "description": "Whether or not multi-tenancy is enabled for this class",
+          "type": "boolean"
+        },
+        "tenantKey": {
+          "description": "The class property which is used to separate tenants",
           "type": "string"
         }
       }
@@ -8656,6 +9069,16 @@ func init() {
         }
       }
     },
+    "Tenant": {
+      "description": "attributes representing a single tenant within weaviate",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "name of the tenant",
+          "type": "string"
+        }
+      }
+    },
     "VectorWeights": {
       "description": "Allow custom overrides of vector weights as math expressions. E.g. \"pancake\": \"7\" will set the weight for the word pancake to 7 in the vectorization, whereas \"w * 3\" would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
       "type": "object"
@@ -8833,6 +9256,12 @@ func init() {
       "type": "string",
       "description": "Sort parameter to pass an information about the names of the sort fields",
       "name": "sort",
+      "in": "query"
+    },
+    "CommonTenantKeyParameterQuery": {
+      "type": "string",
+      "description": "Specifies the tenant in a request targeting a multi-tenant class",
+      "name": "tenant_key",
       "in": "query"
     }
   },

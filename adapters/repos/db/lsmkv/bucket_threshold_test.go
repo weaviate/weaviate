@@ -16,14 +16,15 @@ package lsmkv
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
-	"math/rand"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 // This test ensures that the WAL threshold is being adhered to, and that a
@@ -39,7 +40,11 @@ func TestWriteAheadLogThreshold_Replace(t *testing.T) {
 	walThreshold := uint64(4096)
 	tolerance := 4.
 
+	flushCycle := cyclemanager.NewMulti(cyclemanager.MemtableFlushCycleTicker())
+	flushCycle.Start()
+
 	bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+		cyclemanager.NewNoop(), flushCycle,
 		WithStrategy(StrategyReplace),
 		WithMemtableThreshold(1024*1024*1024),
 		WithWalThreshold(walThreshold))
@@ -118,6 +123,7 @@ func TestWriteAheadLogThreshold_Replace(t *testing.T) {
 	defer cancel()
 
 	require.Nil(t, bucket.Shutdown(ctx))
+	require.Nil(t, flushCycle.StopAndWait(ctx))
 }
 
 // This test ensures that the Memtable threshold is being adhered to, and
@@ -135,7 +141,11 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 	memtableThreshold := uint64(4096)
 	tolerance := 4.
 
+	flushCycle := cyclemanager.NewMulti(cyclemanager.MemtableFlushCycleTicker())
+	flushCycle.Start()
+
 	bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+		cyclemanager.NewNoop(), flushCycle,
 		WithStrategy(StrategyReplace),
 		WithMemtableThreshold(memtableThreshold))
 	require.Nil(t, err)
@@ -212,6 +222,7 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 	defer cancel()
 
 	require.Nil(t, bucket.Shutdown(ctx))
+	require.Nil(t, flushCycle.StopAndWait(ctx))
 }
 
 func isSizeWithinTolerance(t *testing.T, detectedSize uint64, threshold uint64, tolerance float64) bool {
@@ -222,7 +233,11 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 	t.Run("an empty memtable is not flushed", func(t *testing.T) {
 		dirName := t.TempDir()
 
+		flushCycle := cyclemanager.NewMulti(cyclemanager.MemtableFlushCycleTicker())
+		flushCycle.Start()
+
 		bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+			cyclemanager.NewNoop(), flushCycle,
 			WithStrategy(StrategyReplace),
 			WithMemtableThreshold(1e12), // large enough to not affect this test
 			WithWalThreshold(1e12),      // large enough to not affect this test
@@ -254,13 +269,18 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 			defer cancel()
 			require.Nil(t, bucket.Shutdown(ctx))
+			require.Nil(t, flushCycle.StopAndWait(ctx))
 		})
 	})
 
 	t.Run("a dirty memtable is flushed once the idle period is over", func(t *testing.T) {
 		dirName := t.TempDir()
 
+		flushCycle := cyclemanager.NewMulti(cyclemanager.MemtableFlushCycleTicker())
+		flushCycle.Start()
+
 		bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+			cyclemanager.NewNoop(), flushCycle,
 			WithStrategy(StrategyReplace),
 			WithMemtableThreshold(1e12), // large enough to not affect this test
 			WithWalThreshold(1e12),      // large enough to not affect this test
@@ -296,13 +316,18 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 			defer cancel()
 			require.Nil(t, bucket.Shutdown(ctx))
+			require.Nil(t, flushCycle.StopAndWait(ctx))
 		})
 	})
 
 	t.Run("a dirty memtable is not flushed as long as the next write occurs before the idle threshold", func(t *testing.T) {
 		dirName := t.TempDir()
 
+		flushCycle := cyclemanager.NewMulti(cyclemanager.MemtableFlushCycleTicker())
+		flushCycle.Start()
+
 		bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+			cyclemanager.NewNoop(), flushCycle,
 			WithStrategy(StrategyReplace),
 			WithMemtableThreshold(1e12), // large enough to not affect this test
 			WithWalThreshold(1e12),      // large enough to not affect this test
@@ -359,6 +384,7 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 			defer cancel()
 			require.Nil(t, bucket.Shutdown(ctx))
+			require.Nil(t, flushCycle.StopAndWait(ctx))
 		})
 	})
 }

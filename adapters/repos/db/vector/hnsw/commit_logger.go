@@ -41,7 +41,7 @@ func commitLogDirectory(rootPath, name string) string {
 }
 
 func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
-	opts ...CommitlogOption,
+	maintenanceCycle cyclemanager.CycleManager, opts ...CommitlogOption,
 ) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
 		rootPath:  rootPath,
@@ -52,24 +52,6 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 		// both can be overwritten using functional options
 		maxSizeIndividual: defaultCommitLogSize / 5,
 		maxSizeCombining:  defaultCommitLogSize,
-
-		// Previously we had an interval of 10s in here, which was changed to
-		// 0.5s as part of gh-1867. There's really no way to wait so long in
-		// between checks: If you are running on a low-powered machine, the
-		// interval will simply find that there is no work and do nothing in
-		// each iteration. However, if you are running on a very powerful
-		// machine within 10s you could have potentially created two units of
-		// work, but we'll only be handling one every 10s. This means
-		// uncombined/uncondensed hnsw commit logs will keep piling up can only
-		// be processes long after the initial insert is complete. This also
-		// means that if there is a crash during importing a lot of work needs
-		// to be done at startup, since the commit logs still contain too many
-		// redundancies. So as of now it seems there are only advantages to
-		// running the cleanup checks and work much more often.
-		//
-		// update: switched to dynamic intervals with values between 500ms and 10s
-		// introduced to address https://github.com/weaviate/weaviate/issues/2783
-		cycleTicker: cyclemanager.HnswCommitLoggerCycleTicker,
 	}
 
 	for _, o := range opts {
@@ -83,11 +65,11 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 		return nil, err
 	}
 
-	l.switchLogCycle = cyclemanager.New(l.cycleTicker(), l.startSwitchLogs)
-	l.condenseCycle = cyclemanager.New(l.cycleTicker(), l.startCombineAndCondenseLogs)
+	l.unregisterSwitchLogs = maintenanceCycle.Register(l.startSwitchLogs)
+	l.unregisterCondenseLogs = maintenanceCycle.Register(l.startCombineAndCondenseLogs)
 
 	l.commitLogger = commitlog.NewLoggerWithFile(fd)
-	l.Start()
+
 	return l, nil
 }
 
@@ -269,9 +251,8 @@ type hnswCommitLogger struct {
 	maxSizeCombining  int64
 	commitLogger      *commitlog.Logger
 
-	switchLogCycle *cyclemanager.CycleManager
-	condenseCycle  *cyclemanager.CycleManager
-	cycleTicker    cyclemanager.TickerProvider
+	unregisterSwitchLogs   cyclemanager.UnregisterFunc
+	unregisterCondenseLogs cyclemanager.UnregisterFunc
 }
 
 type HnswCommitType uint8 // 256 options, plenty of room for future extensions
@@ -405,55 +386,16 @@ func (l *hnswCommitLogger) Reset() error {
 	return l.commitLogger.Reset()
 }
 
-func (l *hnswCommitLogger) Start() {
-	l.switchLogCycle.Start()
-	l.condenseCycle.Start()
-}
-
 // Shutdown waits for ongoing maintenance processes to stop, then cancels their
 // scheduling. The caller can be sure that state on disk is immutable after
 // calling Shutdown().
 func (l *hnswCommitLogger) Shutdown(ctx context.Context) error {
-	switchLogCycleStop := make(chan error)
-	condenseCycleStop := make(chan error)
-
-	go func() {
-		if err := l.switchLogCycle.StopAndWait(ctx); err != nil {
-			switchLogCycleStop <- errors.Wrap(err, "failed to stop commitlog switch cycle")
-			return
-		}
-		switchLogCycleStop <- nil
-	}()
-
-	go func() {
-		if err := l.condenseCycle.StopAndWait(ctx); err != nil {
-			condenseCycleStop <- errors.Wrap(err, "failed to stop commitlog condense cycle")
-			return
-		}
-		condenseCycleStop <- nil
-	}()
-
-	switchLogCycleStopErr := <-switchLogCycleStop
-	condenseCycleStopErr := <-condenseCycleStop
-
-	if switchLogCycleStopErr != nil && condenseCycleStopErr != nil {
-		return errors.Errorf("%s, %s", switchLogCycleStopErr, condenseCycleStopErr)
+	if err := l.unregisterSwitchLogs(ctx); err != nil {
+		return errors.Wrap(err, "failed to unregister commitlog switch from maintenance cycle")
 	}
-
-	if switchLogCycleStopErr != nil {
-		// restart condense cycle since it was successfully stopped.
-		// both of these cycles work together, and need to work in sync
-		l.condenseCycle.Start()
-		return switchLogCycleStopErr
+	if err := l.unregisterCondenseLogs(ctx); err != nil {
+		return errors.Wrap(err, "failed to unregister commitlog condense from maintenance cycle")
 	}
-
-	if condenseCycleStopErr != nil {
-		// restart switch log cycle since it was successfully stopped.
-		// both of these cycles work together, and need to work in sync
-		l.switchLogCycle.Start()
-		return condenseCycleStopErr
-	}
-
 	return nil
 }
 
@@ -608,8 +550,4 @@ func (l *hnswCommitLogger) Flush() error {
 	defer l.Unlock()
 
 	return l.commitLogger.Flush()
-}
-
-func (l *hnswCommitLogger) MaintenanceInProgress() bool {
-	return l.condenseCycle.Running() && l.switchLogCycle.Running()
 }

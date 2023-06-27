@@ -31,6 +31,7 @@ import (
 
 func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 	vector []float32, repl *additional.ReplicationProperties,
+	tenantKey string,
 ) error {
 	object := storobj.FromObject(obj, vector)
 	idx := db.GetIndex(object.Class())
@@ -38,23 +39,23 @@ func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 		return fmt.Errorf("import into non-existing index for %s", object.Class())
 	}
 
-	if err := idx.putObject(ctx, object, repl); err != nil {
-		return errors.Wrapf(err, "import into index %s", idx.ID())
+	if err := idx.putObject(ctx, object, repl, tenantKey); err != nil {
+		return fmt.Errorf("import into index %s: %w", idx.ID(), err)
 	}
 
 	return nil
 }
 
 // DeleteObject from of a specific class giving its ID
-func (db *DB) DeleteObject(ctx context.Context, class string,
-	id strfmt.UUID, repl *additional.ReplicationProperties,
+func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) error {
 	idx := db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("delete from non-existing index for %s", class)
 	}
 
-	err := idx.deleteObject(ctx, id, repl)
+	err := idx.deleteObject(ctx, id, repl, tenantKey)
 	if err != nil {
 		return fmt.Errorf("delete from index %q: %w", idx.ID(), err)
 	}
@@ -62,9 +63,8 @@ func (db *DB) DeleteObject(ctx context.Context, class string,
 	return nil
 }
 
-func (db *DB) MultiGet(ctx context.Context,
-	query []multi.Identifier,
-	additional additional.Properties,
+func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
+	additional additional.Properties, tenantKey string,
 ) ([]search.Result, error) {
 	byIndex := map[string][]multi.Identifier{}
 	db.indexLock.RLock()
@@ -87,7 +87,7 @@ func (db *DB) MultiGet(ctx context.Context,
 
 	out := make(search.Results, len(query))
 	for indexID, queries := range byIndex {
-		indexRes, err := db.indices[indexID].multiObjectByID(ctx, queries)
+		indexRes, err := db.indices[indexID].multiObjectByID(ctx, queries, tenantKey)
 		if err != nil {
 			return nil, errors.Wrapf(err, "index %q", indexID)
 		}
@@ -108,10 +108,10 @@ func (db *DB) MultiGet(ctx context.Context,
 //
 // @warning: this function is deprecated by Object()
 func (db *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
-	props search.SelectProperties,
-	additional additional.Properties,
+	props search.SelectProperties, additional additional.Properties,
+	tenantKey string,
 ) (*search.Result, error) {
-	results, err := db.ObjectsByID(ctx, id, props, additional)
+	results, err := db.ObjectsByID(ctx, id, props, additional, tenantKey)
 	if err != nil {
 		return nil, err
 	}
@@ -125,8 +125,8 @@ func (db *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 // this method is only used for Explore queries where we don't have
 // a class context
 func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
-	props search.SelectProperties,
-	additional additional.Properties,
+	props search.SelectProperties, additional additional.Properties,
+	tenantKey string,
 ) (search.Results, error) {
 	var result []*storobj.Object
 	// TODO: Search in parallel, rather than sequentially or this will be
@@ -134,7 +134,7 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	db.indexLock.RLock()
 
 	for _, index := range db.indices {
-		res, err := index.objectByID(ctx, id, props, additional, nil)
+		res, err := index.objectByID(ctx, id, props, additional, nil, tenantKey)
 		if err != nil {
 			db.indexLock.RUnlock()
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
@@ -151,37 +151,37 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	}
 
 	return db.ResolveReferences(ctx,
-		storobj.SearchResults(result, additional), props, additional)
+		storobj.SearchResults(result, additional), props, nil, additional, tenantKey)
 }
 
 // Object gets object with id from index of specified class.
-func (db *DB) Object(ctx context.Context, class string,
-	id strfmt.UUID, props search.SelectProperties,
-	adds additional.Properties, repl *additional.ReplicationProperties,
+func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID,
+	props search.SelectProperties, addl additional.Properties,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (*search.Result, error) {
 	idx := db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return nil, nil
 	}
 
-	obj, err := idx.objectByID(ctx, id, props, adds, repl)
+	obj, err := idx.objectByID(ctx, id, props, addl, repl, tenantKey)
 	if err != nil {
 		return nil, errors.Wrapf(err, "search index %s", idx.ID())
 	}
 	var r *search.Result
 	if obj != nil {
-		r = obj.SearchResult(adds)
+		r = obj.SearchResult(addl)
 	}
 	if r == nil {
 		return nil, nil
 	}
-	return db.enrichRefsForSingle(ctx, r, props, adds)
+	return db.enrichRefsForSingle(ctx, r, props, addl, tenantKey)
 }
 
 func (db *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
-	props search.SelectProperties, additional additional.Properties,
+	props search.SelectProperties, additional additional.Properties, tenantKey string,
 ) (*search.Result, error) {
-	res, err := refcache.NewResolver(refcache.NewCacher(db, db.logger)).
+	res, err := refcache.NewResolver(refcache.NewCacher(db, db.logger, tenantKey)).
 		Do(ctx, []search.Result{*obj}, props, additional)
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve cross-refs")
@@ -190,8 +190,8 @@ func (db *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
 	return &res[0], nil
 }
 
-func (db *DB) Exists(ctx context.Context, class string,
-	id strfmt.UUID, repl *additional.ReplicationProperties,
+func (db *DB) Exists(ctx context.Context, class string, id strfmt.UUID,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (bool, error) {
 	if class == "" {
 		return db.anyExists(ctx, id, repl)
@@ -200,7 +200,7 @@ func (db *DB) Exists(ctx context.Context, class string,
 	if index == nil {
 		return false, nil
 	}
-	return index.exists(ctx, id, repl)
+	return index.exists(ctx, id, repl, tenantKey)
 }
 
 func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
@@ -212,7 +212,7 @@ func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 	defer db.indexLock.RUnlock()
 
 	for _, index := range db.indices {
-		ok, err := index.exists(ctx, id, repl)
+		ok, err := index.exists(ctx, id, repl, "")
 		if err != nil {
 			return false, errors.Wrapf(err, "search index %s", index.ID())
 		}
@@ -224,38 +224,31 @@ func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 	return false, nil
 }
 
-func (db *DB) AddReference(ctx context.Context,
-	className string, source strfmt.UUID, propName string,
-	ref *models.SingleRef, repl *additional.ReplicationProperties,
+func (db *DB) AddReference(ctx context.Context, source *crossref.RefSource, target *crossref.Ref,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) error {
-	target, err := crossref.ParseSingleRef(ref)
-	if err != nil {
-		return err
-	}
-
 	return db.Merge(ctx, objects.MergeDocument{
-		Class:      className,
-		ID:         source,
+		Class:      source.Class.String(),
+		ID:         source.TargetID,
 		UpdateTime: time.Now().UnixMilli(),
 		References: objects.BatchReferences{
 			objects.BatchReference{
-				From: crossref.NewSource(schema.ClassName(className),
-					schema.PropertyName(propName), source),
-				To: target,
+				From: source,
+				To:   target,
 			},
 		},
-	}, repl)
+	}, repl, tenantKey)
 }
 
 func (db *DB) Merge(ctx context.Context, merge objects.MergeDocument,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) error {
 	idx := db.GetIndex(schema.ClassName(merge.Class))
 	if idx == nil {
 		return fmt.Errorf("merge from non-existing index for %s", merge.Class)
 	}
 
-	err := idx.mergeObject(ctx, merge, repl)
+	err := idx.mergeObject(ctx, merge, repl, tenantKey)
 	if err != nil {
 		return errors.Wrapf(err, "merge into index %s", idx.ID())
 	}

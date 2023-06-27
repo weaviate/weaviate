@@ -750,7 +750,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 
 	t.Run("for actions", func(t *testing.T) {
 		query := `{ Get { SomeAction(nearCustomText: {
-                concepts: ["c1", "c2", "c3"],
+								concepts: ["c1", "c2", "c3"],
 								moveTo: {
 									concepts:["positive"],
 									force: 0.5
@@ -787,7 +787,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 
 	t.Run("for a class that does not have a text2vec module", func(t *testing.T) {
 		query := `{ Get { CustomVectorClass(nearCustomText: {
-	            concepts: ["c1", "c2", "c3"],
+							concepts: ["c1", "c2", "c3"],
 								moveTo: {
 									concepts:["positive"],
 									force: 0.5
@@ -796,7 +796,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 									concepts:["epic"]
 									force: 0.25
 								}
-	    			}) { intField } } }`
+						}) { intField } } }`
 
 		res := resolver.Resolve(query)
 		require.Len(t, res.Errors, 1)
@@ -805,7 +805,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 
 	t.Run("for things with optional distance set", func(t *testing.T) {
 		query := `{ Get { SomeThing(nearCustomText: {
-	            concepts: ["c1", "c2", "c3"],
+							concepts: ["c1", "c2", "c3"],
 								distance: 0.6,
 								moveTo: {
 									concepts:["positive"],
@@ -815,7 +815,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 									concepts:["epic"]
 									force: 0.25
 								}
-	    			}) { intField } } }`
+						}) { intField } } }`
 
 		expectedParams := dto.GetParams{
 			ClassName:  "SomeThing",
@@ -844,7 +844,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 
 	t.Run("for things with optional certainty set", func(t *testing.T) {
 		query := `{ Get { SomeThing(nearCustomText: {
-	            concepts: ["c1", "c2", "c3"],
+							concepts: ["c1", "c2", "c3"],
 								certainty: 0.4,
 								moveTo: {
 									concepts:["positive"],
@@ -854,7 +854,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 									concepts:["epic"]
 									force: 0.25
 								}
-	    			}) { intField } } }`
+						}) { intField } } }`
 
 		expectedParams := dto.GetParams{
 			ClassName:  "SomeThing",
@@ -1019,7 +1019,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 		query := `{ Get { SomeThing(
 							limit: 6
 							nearCustomText: {
-	            				concepts: ["c1", "c2", "c3"],
+											concepts: ["c1", "c2", "c3"],
 								distance: 0.4,
 								moveTo: {
 									concepts:["positive"],
@@ -1029,7 +1029,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 									concepts:["epic"]
 									force: 0.25
 								}
-	    			}) { intField } } }`
+						}) { intField } } }`
 
 		expectedParams := dto.GetParams{
 			ClassName:  "SomeThing",
@@ -1060,7 +1060,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 		query := `{ Get { SomeThing(
 							limit: 6
 							nearCustomText: {
-	            				concepts: ["c1", "c2", "c3"],
+											concepts: ["c1", "c2", "c3"],
 								certainty: 0.4,
 								moveTo: {
 									concepts:["positive"],
@@ -1070,7 +1070,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 									concepts:["epic"]
 									force: 0.25
 								}
-	    			}) { intField } } }`
+						}) { intField } } }`
 
 		expectedParams := dto.GetParams{
 			ClassName:  "SomeThing",
@@ -1101,7 +1101,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 		query := `{ Get { SomeThing(
 							limit: -1
 							nearCustomText: {
-	            				concepts: ["c1", "c2", "c3"],
+											concepts: ["c1", "c2", "c3"],
 								distance: 0.4,
 								moveTo: {
 									concepts:["positive"],
@@ -1111,7 +1111,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 									concepts:["epic"]
 									force: 0.25
 								}
-	    			}) { intField } } }`
+						}) { intField } } }`
 
 		expectedParams := dto.GetParams{
 			ClassName:  "SomeThing",
@@ -1142,7 +1142,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 		query := `{ Get { SomeThing(
 							limit: -1
 							nearCustomText: {
-	            				concepts: ["c1", "c2", "c3"],
+											concepts: ["c1", "c2", "c3"],
 								certainty: 0.4,
 								moveTo: {
 									concepts:["positive"],
@@ -1152,7 +1152,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 									concepts:["epic"]
 									force: 0.25
 								}
-	    			}) { intField } } }`
+						}) { intField } } }`
 
 		expectedParams := dto.GetParams{
 			ClassName:  "SomeThing",
@@ -1187,8 +1187,8 @@ func TestNearVectorRanker(t *testing.T) {
 
 	t.Run("for actions", func(t *testing.T) {
 		query := `{ Get { SomeAction(nearVector: {
-							  vector: [0.123, 0.984] 
-        			}) { intField } } }`
+								vector: [0.123, 0.984]
+							}) { intField } } }`
 
 		expectedParams := dto.GetParams{
 			ClassName:  "SomeAction",
@@ -1206,9 +1206,9 @@ func TestNearVectorRanker(t *testing.T) {
 
 	t.Run("for things with optional distance set", func(t *testing.T) {
 		query := `{ Get { SomeThing(nearVector: {
-							  vector: [0.123, 0.984] 
-							  distance: 0.4
-        			}) { intField } } }`
+								vector: [0.123, 0.984]
+								distance: 0.4
+							}) { intField } } }`
 
 		expectedParams := dto.GetParams{
 			ClassName:  "SomeThing",
@@ -1228,9 +1228,9 @@ func TestNearVectorRanker(t *testing.T) {
 
 	t.Run("for things with optional certainty set", func(t *testing.T) {
 		query := `{ Get { SomeThing(nearVector: {
-							  vector: [0.123, 0.984] 
+								vector: [0.123, 0.984]
 								certainty: 0.4
-        			}) { intField } } }`
+							}) { intField } } }`
 
 		expectedParams := dto.GetParams{
 			ClassName:  "SomeThing",
@@ -1250,10 +1250,10 @@ func TestNearVectorRanker(t *testing.T) {
 	t.Run("for things with optional distance and limit set", func(t *testing.T) {
 		query := `{ Get { SomeThing(
 					limit: 4  
-    				nearVector: {
-					  vector: [0.123, 0.984] 
-					  distance: 0.1
-        			}) { intField } } }`
+						nearVector: {
+						vector: [0.123, 0.984]
+						distance: 0.1
+							}) { intField } } }`
 
 		expectedParams := dto.GetParams{
 			ClassName:  "SomeThing",
@@ -1275,10 +1275,10 @@ func TestNearVectorRanker(t *testing.T) {
 	t.Run("for things with optional certainty and limit set", func(t *testing.T) {
 		query := `{ Get { SomeThing(
 					limit: 4  
-    				nearVector: {
-					  vector: [0.123, 0.984] 
-					  certainty: 0.1
-        			}) { intField } } }`
+						nearVector: {
+						vector: [0.123, 0.984]
+						certainty: 0.1
+							}) { intField } } }`
 
 		expectedParams := dto.GetParams{
 			ClassName:  "SomeThing",
@@ -1299,10 +1299,10 @@ func TestNearVectorRanker(t *testing.T) {
 	t.Run("for things with optional distance and negative limit set", func(t *testing.T) {
 		query := `{ Get { SomeThing(
 					limit: -1  
-    				nearVector: {
-					  vector: [0.123, 0.984] 
-					  distance: 0.1
-        			}) { intField } } }`
+						nearVector: {
+						vector: [0.123, 0.984]
+						distance: 0.1
+							}) { intField } } }`
 
 		expectedParams := dto.GetParams{
 			ClassName:  "SomeThing",
@@ -1324,10 +1324,10 @@ func TestNearVectorRanker(t *testing.T) {
 	t.Run("for things with optional certainty and negative limit set", func(t *testing.T) {
 		query := `{ Get { SomeThing(
 					limit: -1  
-    				nearVector: {
-					  vector: [0.123, 0.984] 
-					  certainty: 0.1
-        			}) { intField } } }`
+						nearVector: {
+						vector: [0.123, 0.984]
+						certainty: 0.1
+							}) { intField } } }`
 
 		expectedParams := dto.GetParams{
 			ClassName:  "SomeThing",
@@ -1724,8 +1724,8 @@ func TestNearObject(t *testing.T) {
 		query := `{ Get { SomeThing(
 						limit: 5
 						nearObject: {
-						  id: "some-other-uuid"
-						  distance: 0.7
+							id: "some-other-uuid"
+							distance: 0.7
 						}) { intField } } }`
 
 		expectedParams := dto.GetParams{
@@ -1748,8 +1748,8 @@ func TestNearObject(t *testing.T) {
 		query := `{ Get { SomeThing(
 						limit: 5
 						nearObject: {
-						  id: "some-other-uuid"
-						  certainty: 0.7
+							id: "some-other-uuid"
+							certainty: 0.7
 						}) { intField } } }`
 
 		expectedParams := dto.GetParams{
@@ -1771,8 +1771,8 @@ func TestNearObject(t *testing.T) {
 		query := `{ Get { SomeThing(
 						limit: -1
 						nearObject: {
-						  id: "some-other-uuid"
-						  distance: 0.7
+							id: "some-other-uuid"
+							distance: 0.7
 						}) { intField } } }`
 
 		expectedParams := dto.GetParams{
@@ -1795,8 +1795,8 @@ func TestNearObject(t *testing.T) {
 		query := `{ Get { SomeThing(
 						limit: -1
 						nearObject: {
-						  id: "some-other-uuid"
-						  certainty: 0.7
+							id: "some-other-uuid"
+							certainty: 0.7
 						}) { intField } } }`
 
 		expectedParams := dto.GetParams{
@@ -1822,7 +1822,7 @@ func TestNearTextNoNoModules(t *testing.T) {
 
 	t.Run("for nearText that is not available", func(t *testing.T) {
 		query := `{ Get { SomeAction(nearText: {
-	              concepts: ["c1", "c2", "c3"],
+								concepts: ["c1", "c2", "c3"],
 								moveTo: {
 									concepts:["positive"],
 									force: 0.5
@@ -1831,7 +1831,7 @@ func TestNearTextNoNoModules(t *testing.T) {
 									concepts:["epic"],
 									force: 0.25
 								}
-	      			}) { intField } } }`
+							}) { intField } } }`
 
 		expectedParams := dto.GetParams{
 			ClassName:  "SomeAction",
@@ -1843,6 +1843,20 @@ func TestNearTextNoNoModules(t *testing.T) {
 
 		resolver.AssertFailToResolve(t, query)
 	})
+}
+
+func TestBM25WithSort(t *testing.T) {
+	t.Parallel()
+	resolver := newMockResolverWithNoModules()
+	query := `{Get{SomeAction(bm25:{query:"apple",properties:["name"]},sort:[{path:["name"],order:desc}]){intField}}}`
+	resolver.AssertFailToResolve(t, query, "bm25 search is not compatible with sort")
+}
+
+func TestHybridWithSort(t *testing.T) {
+	t.Parallel()
+	resolver := newMockResolverWithNoModules()
+	query := `{Get{SomeAction(hybrid:{query:"apple"},sort:[{path:["name"],order:desc}]){intField}}}`
+	resolver.AssertFailToResolve(t, query, "hybrid search is not compatible with sort")
 }
 
 func TestNearObjectNoModules(t *testing.T) {
@@ -2023,8 +2037,8 @@ func TestNearVectorNoModules(t *testing.T) {
 
 	t.Run("for actions", func(t *testing.T) {
 		query := `{ Get { SomeAction(nearVector: {
-							  vector: [0.123, 0.984] 
-        			}) { intField } } }`
+								vector: [0.123, 0.984]
+							}) { intField } } }`
 
 		expectedParams := dto.GetParams{
 			ClassName:  "SomeAction",
@@ -2042,9 +2056,9 @@ func TestNearVectorNoModules(t *testing.T) {
 
 	t.Run("for things with optional distance set", func(t *testing.T) {
 		query := `{ Get { SomeThing(nearVector: {
-							  vector: [0.123, 0.984] 
+								vector: [0.123, 0.984]
 								distance: 0.4
-        			}) { intField } } }`
+							}) { intField } } }`
 
 		expectedParams := dto.GetParams{
 			ClassName:  "SomeThing",
@@ -2064,9 +2078,9 @@ func TestNearVectorNoModules(t *testing.T) {
 
 	t.Run("for things with optional certainty set", func(t *testing.T) {
 		query := `{ Get { SomeThing(nearVector: {
-							  vector: [0.123, 0.984] 
+								vector: [0.123, 0.984]
 								certainty: 0.4
-        			}) { intField } } }`
+							}) { intField } } }`
 
 		expectedParams := dto.GetParams{
 			ClassName:  "SomeThing",
@@ -2087,9 +2101,9 @@ func TestNearVectorNoModules(t *testing.T) {
 		query := `{ Get { SomeThing(
 						limit: 4
 						nearVector: {
-						  vector: [0.123, 0.984] 
-						  certainty: 0.4
-        				}) { intField } } }`
+							vector: [0.123, 0.984]
+							certainty: 0.4
+								}) { intField } } }`
 
 		expectedParams := dto.GetParams{
 			ClassName:  "SomeThing",
@@ -2110,9 +2124,9 @@ func TestNearVectorNoModules(t *testing.T) {
 		query := `{ Get { SomeThing(
 						limit: -1
 						nearVector: {
-						  vector: [0.123, 0.984] 
-						  distance: 0.4
-        				}) { intField } } }`
+							vector: [0.123, 0.984]
+							distance: 0.4
+								}) { intField } } }`
 
 		expectedParams := dto.GetParams{
 			ClassName:  "SomeThing",
@@ -2134,9 +2148,9 @@ func TestNearVectorNoModules(t *testing.T) {
 		query := `{ Get { SomeThing(
 						limit: -1
 						nearVector: {
-						  vector: [0.123, 0.984] 
-						  certainty: 0.4
-        				}) { intField } } }`
+							vector: [0.123, 0.984]
+							certainty: 0.4
+								}) { intField } } }`
 
 		expectedParams := dto.GetParams{
 			ClassName:  "SomeThing",
@@ -2220,6 +2234,48 @@ func TestSort(t *testing.T) {
 						{Path: []string{"first1", "first2", "first3", "first4"}, Order: "asc"},
 						{Path: []string{"second1"}, Order: "desc"},
 					},
+				}
+
+				tt.resolver.On("GetClass", expectedParams).
+					Return([]interface{}{}, nil).Once()
+
+				tt.resolver.AssertResolve(t, query)
+			})
+		})
+	}
+}
+
+func TestGroupBy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		resolver *mockResolver
+	}{
+		{
+			name:     "with modules",
+			resolver: newMockResolver(),
+		},
+		{
+			name:     "with no modules",
+			resolver: newMockResolverWithNoModules(),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Run("simple groupBy", func(t *testing.T) {
+				query := `{ Get {
+					SomeAction(
+						groupBy:{path: ["path"] groups: 2 objectsPerGroup:3}
+					) {
+						_additional{group{count groupedBy {value path} maxDistance minDistance hits {_additional{distance}}}
+						}
+					} } }`
+
+				expectedParams := dto.GetParams{
+					ClassName:            "SomeAction",
+					GroupBy:              &searchparams.GroupBy{Property: "path", Groups: 2, ObjectsPerGroup: 3},
+					AdditionalProperties: additional.Properties{Group: true},
 				}
 
 				tt.resolver.On("GetClass", expectedParams).

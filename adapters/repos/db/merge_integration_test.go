@@ -17,7 +17,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"testing"
 	"time"
 
@@ -37,7 +36,6 @@ import (
 )
 
 func Test_MergingObjects(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -149,7 +147,7 @@ func Test_MergingObjects(t *testing.T) {
 			},
 			CreationTimeUnix:   now,
 			LastUpdateTimeUnix: now,
-		}, []float32{0.5}, nil)
+		}, []float32{0.5}, nil, "")
 		require.Nil(t, err)
 
 		targetDimensionsBefore := GetDimensionsFromRepo(repo, "MergeTestTarget")
@@ -163,7 +161,7 @@ func Test_MergingObjects(t *testing.T) {
 				Properties: map[string]interface{}{
 					"name": fmt.Sprintf("target item %d", i),
 				},
-			}, []float32{0.5}, nil)
+			}, []float32{0.5}, nil, "")
 			require.Nil(t, err)
 		}
 
@@ -178,7 +176,7 @@ func Test_MergingObjects(t *testing.T) {
 			},
 			CreationTimeUnix:   now,
 			LastUpdateTimeUnix: now,
-		}, nil, nil)
+		}, nil, nil, "")
 		require.Nil(t, err)
 
 		targetDimensionsAfterNoVec := GetDimensionsFromRepo(repo, "MergeTestTarget")
@@ -190,7 +188,7 @@ func Test_MergingObjects(t *testing.T) {
 	t.Run("fetch original object's update timestamp", func(t *testing.T) {
 		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{
 			LastUpdateTimeUnix: true,
-		})
+		}, "")
 		require.Nil(t, err)
 
 		lastUpdateTimeUnix = source.Object().LastUpdateTimeUnix
@@ -218,21 +216,21 @@ func Test_MergingObjects(t *testing.T) {
 			UpdateTime: time.Now().UnixNano() / int64(time.Millisecond),
 		}
 
-		err := repo.Merge(context.Background(), md, nil)
+		err := repo.Merge(context.Background(), md, nil, "")
 		assert.Nil(t, err)
 	})
 
 	t.Run("compare merge object's update time with original", func(t *testing.T) {
 		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{
 			LastUpdateTimeUnix: true,
-		})
+		}, "")
 		require.Nil(t, err)
 
 		assert.Greater(t, source.Object().LastUpdateTimeUnix, lastUpdateTimeUnix)
 	})
 
 	t.Run("check that the object was successfully merged", func(t *testing.T) {
-		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{})
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 
 		sch := source.Object().Properties.(map[string]interface{})
@@ -262,7 +260,7 @@ func Test_MergingObjects(t *testing.T) {
 			},
 		}
 
-		err := repo.Merge(context.Background(), md, nil)
+		err := repo.Merge(context.Background(), md, nil, "")
 		assert.Equal(t, fmt.Errorf(
 			"merge from non-existing index for WrongClass"), err)
 	})
@@ -289,12 +287,12 @@ func Test_MergingObjects(t *testing.T) {
 			},
 			References: refs,
 		}
-		err = repo.Merge(context.Background(), md, nil)
+		err = repo.Merge(context.Background(), md, nil, "")
 		assert.Nil(t, err)
 	})
 
 	t.Run("check that the object was successfully merged", func(t *testing.T) {
-		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{})
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 
 		ref, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s", target1))
@@ -339,12 +337,12 @@ func Test_MergingObjects(t *testing.T) {
 			ID:         sourceID,
 			References: refs,
 		}
-		err = repo.Merge(context.Background(), md, nil)
+		err = repo.Merge(context.Background(), md, nil, "")
 		assert.Nil(t, err)
 	})
 
 	t.Run("check all references are now present", func(t *testing.T) {
-		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{})
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 
 		refs := source.Object().Properties.(map[string]interface{})["toTarget"]
@@ -370,10 +368,10 @@ func Test_MergingObjects(t *testing.T) {
 			Class:           "MergeTestNoVector",
 			ID:              noVecID,
 			PrimitiveSchema: map[string]interface{}{"foo": "baz"},
-		}, nil)
+		}, nil, "")
 		require.Nil(t, err)
 
-		orig, err := repo.ObjectByID(context.Background(), noVecID, nil, additional.Properties{})
+		orig, err := repo.ObjectByID(context.Background(), noVecID, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 
 		expectedSchema := map[string]interface{}{
@@ -532,7 +530,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 			},
 			CreationTimeUnix:   int64(id),
 			LastUpdateTimeUnix: int64(id),
-		}, []float32{0.5}, nil)
+		}, []float32{0.5}, nil, "")
 		require.Nil(t, err)
 	})
 
@@ -558,7 +556,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 			},
 			References: nil,
 		}
-		err = repo.Merge(context.Background(), md, nil)
+		err = repo.Merge(context.Background(), md, nil, "")
 		assert.Nil(t, err)
 	})
 
@@ -658,7 +656,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 							Pagination: &filters.Pagination{Limit: 5},
 							Filters:    tc.filter,
 						}
-						res, err := repo.ClassSearch(context.Background(), params)
+						res, err := repo.VectorSearch(context.Background(), params)
 						require.Nil(t, err)
 						require.Len(t, res, 1)
 

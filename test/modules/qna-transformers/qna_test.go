@@ -26,19 +26,32 @@ import (
 
 func Test_QnATransformers(t *testing.T) {
 	helper.SetupClient(os.Getenv(weaviateEndpoint))
-	booksClass := books.ClassContextionaryVectorizer()
+	// Contextionary with QnA module config present
+	booksClass := books.ClassContextionaryVectorizerWithQnATransformers()
 	helper.CreateClass(t, booksClass)
 	defer helper.DeleteClass(t, booksClass.Class)
-	// Text2VecTransformers
+	// Contextionary without QnA module config present
+	booksWithoutQnAConfig := "BooksWithoutConfig"
+	booksWithoutQnAConfigClass := books.ClassContextionaryVectorizerWithName(booksWithoutQnAConfig)
+	helper.CreateClass(t, booksWithoutQnAConfigClass)
+	defer helper.DeleteClass(t, booksWithoutQnAConfigClass.Class)
+	// Text2VecTransformers with QnA module config present
 	booksTransformers := "BooksTransformers"
-	booksTransformersClass := books.ClassTransformersVectorizerWithName(booksTransformers)
+	booksTransformersClass := books.ClassTransformersVectorizerWithQnATransformersWithName(booksTransformers)
 	helper.CreateClass(t, booksTransformersClass)
 	defer helper.DeleteClass(t, booksTransformersClass.Class)
+	// Text2VecTransformers without QnA module config present
+	booksTransformersWithoutQnAConfig := "BooksTransformersWithoutConfig"
+	booksTransformersWithoutQnAConfigClass := books.ClassTransformersVectorizerWithName(booksTransformersWithoutQnAConfig)
+	helper.CreateClass(t, booksTransformersWithoutQnAConfigClass)
+	defer helper.DeleteClass(t, booksTransformersWithoutQnAConfigClass.Class)
 
 	t.Run("add data to Books schema", func(t *testing.T) {
 		bookObjects := []*models.Object{}
 		bookObjects = append(bookObjects, books.Objects()...)
+		bookObjects = append(bookObjects, books.ObjectsWithName(booksWithoutQnAConfig)...)
 		bookObjects = append(bookObjects, books.ObjectsWithName(booksTransformers)...)
+		bookObjects = append(bookObjects, books.ObjectsWithName(booksTransformersWithoutQnAConfig)...)
 		for _, book := range bookObjects {
 			helper.CreateObject(t, book)
 			helper.AssertGetObjectEventually(t, book.Class, book.ID)
@@ -46,7 +59,7 @@ func Test_QnATransformers(t *testing.T) {
 	})
 
 	t.Run("ask", func(t *testing.T) {
-		for _, class := range []*models.Class{booksClass, booksTransformersClass} {
+		for _, class := range []*models.Class{booksClass, booksWithoutQnAConfigClass, booksTransformersClass, booksTransformersWithoutQnAConfigClass} {
 			t.Run(class.Class, func(t *testing.T) {
 				query := `
 					{

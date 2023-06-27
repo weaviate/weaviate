@@ -26,14 +26,28 @@ import (
 )
 
 type repo interface {
-	MultiGet(ctx context.Context, query []multi.Identifier, additional additional.Properties) ([]search.Result, error)
+	MultiGet(ctx context.Context, query []multi.Identifier,
+		additional additional.Properties, tenantKey string) ([]search.Result, error)
 }
 
-func NewCacher(repo repo, logger logrus.FieldLogger) *Cacher {
+func NewCacher(repo repo, logger logrus.FieldLogger, tenantKey string) *Cacher {
+	return &Cacher{
+		logger:    logger,
+		repo:      repo,
+		store:     map[multi.Identifier]search.Result{},
+		withGroup: false,
+		tenantKey: tenantKey,
+	}
+}
+
+func NewCacherWithGroup(repo repo, logger logrus.FieldLogger) *Cacher {
 	return &Cacher{
 		logger: logger,
 		repo:   repo,
 		store:  map[multi.Identifier]search.Result{},
+		// for groupBy feature
+		withGroup:                true,
+		getGroupSelectProperties: getGroupSelectProperties,
 	}
 }
 
@@ -50,6 +64,10 @@ type Cacher struct {
 	repo       repo
 	store      map[multi.Identifier]search.Result
 	additional additional.Properties // meta is immutable for the lifetime of the request cacher, so we can safely store it
+	// for groupBy feature
+	withGroup                bool
+	getGroupSelectProperties func(properties search.SelectProperties) search.SelectProperties
+	tenantKey                string
 }
 
 func (c *Cacher) Get(si multi.Identifier) (search.Result, bool) {
@@ -122,30 +140,56 @@ func (c *Cacher) findJobsFromResponse(objects []search.Result, properties search
 			return fmt.Errorf("object schema is present, but not a map: %T", obj)
 		}
 
-		for key, value := range schemaMap {
-			selectProp := propertiesReplaced.FindProperty(key)
-			skip, unresolved := c.skipProperty(key, value, selectProp)
-			if skip {
-				continue
-			}
+		if err := c.parseSchemaMap(schemaMap, propertiesReplaced); err != nil {
+			return err
+		}
 
-			for _, selectPropRef := range selectProp.Refs {
-				innerProperties := selectPropRef.RefProperties
-
-				for _, item := range unresolved {
-					ref, err := c.extractAndParseBeacon(item)
-					if err != nil {
-						return err
-					}
-					c.addJob(multi.Identifier{
-						ID:        ref.TargetID.String(),
-						ClassName: selectPropRef.ClassName,
-					}, innerProperties)
-				}
+		if c.withGroup {
+			if err := c.parseAdditionalGroup(obj, properties); err != nil {
+				return err
 			}
 		}
 	}
 
+	return nil
+}
+
+func (c *Cacher) parseAdditionalGroup(obj search.Result, properties search.SelectProperties) error {
+	if obj.AdditionalProperties != nil && obj.AdditionalProperties["group"] != nil {
+		if group, ok := obj.AdditionalProperties["group"].(*additional.Group); ok {
+			for _, hitMap := range group.Hits {
+				if err := c.parseSchemaMap(hitMap, c.getGroupSelectProperties(properties)); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (c *Cacher) parseSchemaMap(schemaMap map[string]interface{}, propertiesReplaced search.SelectProperties) error {
+	for key, value := range schemaMap {
+		selectProp := propertiesReplaced.FindProperty(key)
+		skip, unresolved := c.skipProperty(key, value, selectProp)
+		if skip {
+			continue
+		}
+
+		for _, selectPropRef := range selectProp.Refs {
+			innerProperties := selectPropRef.RefProperties
+
+			for _, item := range unresolved {
+				ref, err := c.extractAndParseBeacon(item)
+				if err != nil {
+					return err
+				}
+				c.addJob(multi.Identifier{
+					ID:        ref.TargetID.String(),
+					ClassName: selectPropRef.ClassName,
+				}, innerProperties)
+			}
+		}
+	}
 	return nil
 }
 
@@ -290,7 +334,7 @@ func (c *Cacher) fetchJobs(ctx context.Context) error {
 	}
 
 	query := jobListToMultiGetQuery(jobs)
-	res, err := c.repo.MultiGet(ctx, query, c.additional)
+	res, err := c.repo.MultiGet(ctx, query, c.additional, c.tenantKey)
 	if err != nil {
 		return errors.Wrap(err, "fetch job list")
 	}

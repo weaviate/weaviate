@@ -153,8 +153,8 @@ func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResp
 }
 
 func (i *Index) writableShard(name string) (*Shard, *replica.SimpleResponse) {
-	localShard, ok := i.Shards[name]
-	if !ok {
+	localShard := i.shards.Load(name)
+	if localShard == nil {
 		return nil, &replica.SimpleResponse{Errors: []replica.Error{
 			{Code: replica.StatusShardNotFound, Msg: name},
 		}}
@@ -216,16 +216,16 @@ func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string
 }
 
 func (i *Index) CommitReplication(shard, requestID string) interface{} {
-	localShard, ok := i.Shards[shard]
-	if !ok {
+	localShard := i.shards.Load(shard)
+	if localShard == nil {
 		return nil
 	}
 	return localShard.commit(context.Background(), requestID, &i.backupStateLock)
 }
 
 func (i *Index) AbortReplication(shard, requestID string) interface{} {
-	localShard, ok := i.Shards[shard]
-	if !ok {
+	localShard := i.shards.Load(shard)
+	if localShard == nil {
 		return replica.SimpleResponse{Errors: []replica.Error{
 			{Code: replica.StatusShardNotFound, Msg: shard},
 		}}
@@ -236,8 +236,8 @@ func (i *Index) AbortReplication(shard, requestID string) interface{} {
 func (i *Index) IncomingFilePutter(ctx context.Context, shardName,
 	filePath string,
 ) (io.WriteCloser, error) {
-	localShard, ok := i.Shards[shardName]
-	if !ok {
+	localShard := i.shards.Load(shardName)
+	if localShard == nil {
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
@@ -247,28 +247,17 @@ func (i *Index) IncomingFilePutter(ctx context.Context, shardName,
 func (i *Index) IncomingCreateShard(ctx context.Context,
 	shardName string,
 ) error {
-	// TODO: locking???
-	if _, ok := i.Shards[shardName]; ok {
-		return fmt.Errorf("shard %q exists already", shardName)
+	if err := i.addNewShard(ctx, nil, shardName); err != nil {
+		return fmt.Errorf("incoming create shard: %w", err)
 	}
-
-	// TODO: metrics
-	s, err := NewShard(ctx, nil, shardName, i, nil, i.centralJobQueue)
-	if err != nil {
-		return err
-	}
-
-	// TODO: locking???
-	i.Shards[shardName] = s
-
 	return nil
 }
 
 func (i *Index) IncomingReinitShard(ctx context.Context,
 	shardName string,
 ) error {
-	shard, ok := i.Shards[shardName]
-	if !ok {
+	shard := i.shards.Load(shardName)
+	if shard == nil {
 		return fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
@@ -336,7 +325,7 @@ func (i *Index) overwriteObjects(ctx context.Context,
 	shard string, updates []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
 	result := make([]replica.RepairResponse, 0, len(updates)/2)
-	s := i.Shards[shard]
+	s := i.shards.Load(shard)
 	if s == nil {
 		return nil, fmt.Errorf("shard %q not found locally", shard)
 	}
@@ -397,7 +386,7 @@ func (i *Index) digestObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
 ) (result []replica.RepairResponse, err error) {
 	result = make([]replica.RepairResponse, len(ids))
-	s := i.Shards[shardName]
+	s := i.shards.Load(shardName)
 	if s == nil {
 		return nil, fmt.Errorf("shard %q not found locally", shardName)
 	}
@@ -453,8 +442,8 @@ func (db *DB) FetchObject(ctx context.Context,
 func (i *Index) readRepairGetObject(ctx context.Context,
 	shardName string, id strfmt.UUID,
 ) (objects.Replica, error) {
-	shard, ok := i.Shards[shardName]
-	if !ok {
+	shard := i.shards.Load(shardName)
+	if shard == nil {
 		return objects.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
@@ -490,8 +479,8 @@ func (db *DB) FetchObjects(ctx context.Context,
 func (i *Index) fetchObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
 ) ([]objects.Replica, error) {
-	shard, ok := i.Shards[shardName]
-	if !ok {
+	shard := i.shards.Load(shardName)
+	if shard == nil {
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 

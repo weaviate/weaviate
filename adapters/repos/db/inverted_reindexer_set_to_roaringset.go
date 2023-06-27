@@ -43,12 +43,6 @@ func (t *ShardInvertedReindexTaskSetToRoaringSet) GetPropertiesToReindex(ctx con
 						DesiredStrategy: lsmkv.StrategyRoaringSet,
 						BucketOptions:   bucketOptions,
 					},
-					ReindexableProperty{
-						PropertyName:    propName,
-						IndexType:       IndexTypeHashPropValue,
-						DesiredStrategy: lsmkv.StrategyReplace,
-						BucketOptions:   bucketOptions,
-					},
 				)
 			case IndexTypePropLength:
 				reindexableProperties = append(reindexableProperties,
@@ -58,12 +52,6 @@ func (t *ShardInvertedReindexTaskSetToRoaringSet) GetPropertiesToReindex(ctx con
 						DesiredStrategy: lsmkv.StrategyRoaringSet,
 						BucketOptions:   bucketOptions,
 					},
-					ReindexableProperty{
-						PropertyName:    propName,
-						IndexType:       IndexTypeHashPropLength,
-						DesiredStrategy: lsmkv.StrategyReplace,
-						BucketOptions:   bucketOptions,
-					},
 				)
 			case IndexTypePropNull:
 				reindexableProperties = append(reindexableProperties,
@@ -71,12 +59,6 @@ func (t *ShardInvertedReindexTaskSetToRoaringSet) GetPropertiesToReindex(ctx con
 						PropertyName:    propName,
 						IndexType:       IndexTypePropNull,
 						DesiredStrategy: lsmkv.StrategyRoaringSet,
-						BucketOptions:   bucketOptions,
-					},
-					ReindexableProperty{
-						PropertyName:    propName,
-						IndexType:       IndexTypeHashPropNull,
-						DesiredStrategy: lsmkv.StrategyReplace,
 						BucketOptions:   bucketOptions,
 					},
 				)

@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestDiskSpace(t *testing.T) {
+func TestDiskSpaceMarshal(t *testing.T) {
 	for _, name := range []string{"", "host-12:1", "2", "00", "-jhd"} {
 		want := spaceMsg{
 			header{
@@ -33,6 +33,7 @@ func TestDiskSpace(t *testing.T) {
 				Total:     256,
 				Available: 3,
 			},
+			uint8(len(name)),
 			name,
 		}
 		bytes, err := want.marshal()
@@ -42,14 +43,39 @@ func TestDiskSpace(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, want, got)
 	}
+
+	// simulate old version
+	x := spaceMsg{
+		header{
+			ProtoVersion: uint8(1),
+			OpCode:       _OpCode(2),
+		},
+		DiskUsage{
+			Total:     256,
+			Available: 3,
+		},
+		uint8('0'),
+		"123",
+	}
+	bytes, err := x.marshal()
+	want := x
+	want.NodeLen = 4
+	want.Node = "0123"
+	assert.Nil(t, err)
+	got := spaceMsg{}
+	err = got.unmarshal(bytes)
+	assert.Nil(t, err)
+	assert.Equal(t, want, got)
 }
 
 func TestDelegateGetSet(t *testing.T) {
+	logger, _ := test.NewNullLogger()
 	now := time.Now().UnixMilli() - 1
 	st := State{
 		delegate: delegate{
 			Name:     "ABC",
 			dataPath: ".",
+			log:      logger,
 			Cache:    make(map[string]NodeInfo, 32),
 		},
 	}
@@ -58,12 +84,18 @@ func TestDelegateGetSet(t *testing.T) {
 	st.delegate.NodeMeta(0)
 	spaces := make([]spaceMsg, 32)
 	for i := range spaces {
+		node := fmt.Sprintf("N-%d", i+1)
 		spaces[i] = spaceMsg{
-			Node: fmt.Sprintf("N-%d", i+1),
+			header: header{
+				OpCode:       _OpCodeDisk,
+				ProtoVersion: _ProtoVersion + 2,
+			},
 			DiskUsage: DiskUsage{
 				uint64(i + 1),
 				uint64(i),
 			},
+			Node:    node,
+			NodeLen: uint8(len(node)),
 		}
 	}
 
@@ -82,7 +114,7 @@ func TestDelegateGetSet(t *testing.T) {
 	for _, x := range spaces {
 		space, ok := st.NodeInfo(x.Node)
 		if ok {
-			assert.Equal(t, x.DiskUsage, space)
+			assert.Equal(t, x.DiskUsage, space.DiskUsage)
 		}
 	}
 	<-done
@@ -96,13 +128,57 @@ func TestDelegateGetSet(t *testing.T) {
 
 	}
 	assert.Empty(t, st.delegate.Cache)
-	st.delegate.init()
+	st.delegate.init(diskSpace)
 	assert.Equal(t, 1, len(st.delegate.Cache))
 
 	st.delegate.MergeRemoteState(st.delegate.LocalState(false), false)
 	space, ok := st.NodeInfo(st.delegate.Name)
 	assert.True(t, ok)
 	assert.Greater(t, space.Total, space.Available)
+}
+
+func TestDelegateMergeRemoteState(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	var (
+		node = "N1"
+		d    = delegate{
+			Name:     node,
+			dataPath: ".",
+			log:      logger,
+			Cache:    make(map[string]NodeInfo, 32),
+		}
+		x = spaceMsg{
+			header{
+				OpCode:       _OpCodeDisk,
+				ProtoVersion: _ProtoVersion,
+			},
+			DiskUsage{2, 1},
+			uint8(len(node)),
+			node,
+		}
+	)
+	// valid operation payload
+	bytes, err := x.marshal()
+	assert.Nil(t, err)
+	d.MergeRemoteState(bytes, false)
+	_, ok := d.get(node)
+	assert.True(t, ok)
+
+	node = "N2"
+	// invalid payload => expect marshalling error
+	d.MergeRemoteState(bytes[:4], false)
+	assert.Nil(t, err)
+	_, ok = d.get(node)
+	assert.False(t, ok)
+
+	// valid payload but operation is not supported
+	node = "N2"
+	x.header.OpCode = _OpCodeDisk + 2
+	bytes, err = x.marshal()
+	d.MergeRemoteState(bytes, false)
+	assert.Nil(t, err)
+	_, ok = d.get(node)
+	assert.False(t, ok)
 }
 
 func TestDelegateSort(t *testing.T) {
@@ -142,7 +218,10 @@ func TestDelegateCleanUp(t *testing.T) {
 			dataPath: ".",
 		},
 	}
-	st.delegate.init()
+	diskSpace := func(path string) (DiskUsage, error) {
+		return DiskUsage{100, 50}, nil
+	}
+	st.delegate.init(diskSpace)
 	_, ok := st.delegate.get("N0")
 	assert.True(t, ok, "N0 must exist")
 	st.delegate.set("N1", NodeInfo{LastTimeMilli: 1})
@@ -160,32 +239,75 @@ func TestDelegateLocalState(t *testing.T) {
 	now := time.Now().UnixMilli() - 1
 	errAny := errors.New("any error")
 	logger, _ := test.NewNullLogger()
-	d := delegate{
-		Name:      "N0",
-		dataPath:  ".",
-		log:       logger,
-		Cache:     map[string]NodeInfo{},
-		diskUsage: func(path string) (DiskUsage, error) { return DiskUsage{}, errAny },
-	}
-	// error reading disk space
-	d.LocalState(true)
-	assert.Empty(t, d.Cache)
-	d.diskUsage = func(path string) (DiskUsage, error) { return DiskUsage{5, 1}, nil }
 
-	// successful case
+	t.Run("FirstError", func(t *testing.T) {
+		d := delegate{
+			Name:     "N0",
+			dataPath: ".",
+			log:      logger,
+			Cache:    map[string]NodeInfo{},
+		}
+		du := func(path string) (DiskUsage, error) { return DiskUsage{}, errAny }
+		d.init(du)
+
+		// error reading disk space
+		d.LocalState(true)
+		assert.Len(t, d.Cache, 1)
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		d := delegate{
+			Name:     "N0",
+			dataPath: ".",
+			log:      logger,
+			Cache:    map[string]NodeInfo{},
+		}
+		du := func(path string) (DiskUsage, error) { return DiskUsage{5, 1}, nil }
+		d.init(du)
+		// successful case
+		d.LocalState(true)
+		got, ok := d.get("N0")
+		assert.True(t, ok)
+		assert.Greater(t, got.LastTimeMilli, now)
+		assert.Equal(t, DiskUsage{5, 1}, got.DiskUsage)
+	})
+}
+
+func TestDelegateUpdater(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	now := time.Now().UnixMilli() - 1
+
+	d := delegate{
+		Name:     "N0",
+		dataPath: ".",
+		log:      logger,
+		Cache:    map[string]NodeInfo{},
+	}
+	err := d.init(nil)
+	assert.NotNil(t, err)
+	doneCh := make(chan bool)
+	nCalls := uint64(0)
+	du := func(path string) (DiskUsage, error) {
+		nCalls++
+		if nCalls == 1 || nCalls == 3 {
+			return DiskUsage{2 * nCalls, nCalls}, nil
+		}
+		if nCalls == 2 {
+			return DiskUsage{}, fmt.Errorf("any")
+		}
+		if nCalls == 4 {
+			close(doneCh)
+		}
+		return DiskUsage{}, fmt.Errorf("any")
+	}
+	go d.updater(time.Millisecond, 5*time.Millisecond, du)
+
+	<-doneCh
+
+	// error reading disk space
 	d.LocalState(true)
 	got, ok := d.get("N0")
 	assert.True(t, ok)
 	assert.Greater(t, got.LastTimeMilli, now)
-	assert.Equal(t, DiskUsage{5, 1}, got.DiskUsage)
-
-	// renew cache
-	got.LastTimeMilli = got.LastTimeMilli - _ProtoTTL.Milliseconds()
-	d.Cache["N0"] = got
-	d.diskUsage = func(path string) (DiskUsage, error) { return DiskUsage{6, 2}, nil }
-	d.LocalState(true)
-	got, ok = d.get("N0")
-	assert.True(t, ok)
-	assert.Greater(t, got.LastTimeMilli, now)
-	assert.Equal(t, DiskUsage{6, 2}, got.DiskUsage)
+	assert.Equal(t, DiskUsage{3 * 2, 3}, got.DiskUsage)
 }

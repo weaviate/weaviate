@@ -8,7 +8,7 @@
 version: '3.4'
 services:
   contextionary:
-    image: semitechnologies/contextionary:en0.16.0-v1.2.0
+    image: semitechnologies/contextionary:en0.16.0-v1.2.1
     ports:
       - "9999:9999"
     environment:
@@ -48,15 +48,15 @@ services:
     ports:
       - "9090:8080"
   t2v-transformers:
-    image: semitechnologies/transformers-inference:distilbert-base-uncased-1.1.0
-    ports: 
+    image: semitechnologies/transformers-inference:distilbert-base-uncased
+    ports:
       - "8000:8080"
   qna-transformers:
     image: semitechnologies/qna-transformers:bert-large-uncased-whole-word-masking-finetuned-squad
     ports:
       - "8001:8080"
   i2v-neural:
-    image: semitechnologies/img2vec-pytorch:resnet50-07dd697
+    image: semitechnologies/img2vec-pytorch:resnet50
     ports:
       - "8002:8080"
   ner-transformers:
@@ -64,25 +64,29 @@ services:
     ports:
       - "8003:8080"
   sum-transformers:
-    image: semitechnologies/sum-transformers:facebook-bart-large-cnn-1.0.0
+    image: semitechnologies/sum-transformers:facebook-bart-large-cnn
     ports:
       - "8008:8080"
   text-spellcheck:
-    image: semitechnologies/text-spellcheck-model:pyspellchecker-d933122
+    image: semitechnologies/text-spellcheck-model:pyspellchecker-en
     ports:
       - "8004:8080"
   multi2vec-clip:
-    image: semitechnologies/multi2vec-clip:sentence-transformers-clip-ViT-B-32-multilingual-v1-783f3f9
+    image: semitechnologies/multi2vec-clip:sentence-transformers-clip-ViT-B-32-multilingual-v1
     ports:
       - "8005:8080"
   t2v-transformers-passage:
     image: semitechnologies/transformers-inference:facebook-dpr-ctx_encoder-single-nq-base
-    ports: 
+    ports:
       - "8006:8080"
   t2v-transformers-query:
     image: semitechnologies/transformers-inference:facebook-dpr-question_encoder-single-nq-base
-    ports: 
+    ports:
       - "8007:8080"
+  reranker-transformers:
+    image: semitechnologies/reranker-transformers:cross-encoder-ms-marco-MiniLM-L-6-v2
+    ports:
+      - "8008:8080"
   backup-s3:
     image: minio/minio
     ports:

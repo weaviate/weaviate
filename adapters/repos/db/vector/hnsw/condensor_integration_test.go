@@ -17,31 +17,29 @@ package hnsw
 import (
 	"bufio"
 	"context"
-	"math/rand"
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func TestCondensor(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	rootPath := t.TempDir()
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
 	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer uncondensed.Shutdown(ctx)
 
 	perfect, err := NewCommitLogger(rootPath, "perfect", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer perfect.Shutdown(ctx)
 
@@ -146,23 +144,22 @@ func TestCondensor(t *testing.T) {
 }
 
 func TestCondensorAppendNodeLinks(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	rootPath := t.TempDir()
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
 	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer uncondensed1.Shutdown(ctx)
 
 	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer uncondensed2.Shutdown(ctx)
 
 	control, err := NewCommitLogger(rootPath, "control", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer control.Shutdown(ctx)
 
@@ -241,23 +238,22 @@ func TestCondensorAppendNodeLinks(t *testing.T) {
 // a potential cause as well and by having this test, we can prevent a
 // regression.
 func TestCondensorReplaceNodeLinks(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	rootPath := t.TempDir()
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
 	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer uncondensed1.Shutdown(ctx)
 
 	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer uncondensed2.Shutdown(ctx)
 
 	control, err := NewCommitLogger(rootPath, "control", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer control.Shutdown(ctx)
 
@@ -341,23 +337,22 @@ func TestCondensorReplaceNodeLinks(t *testing.T) {
 // makes sure that the bug is gone and prevents regressions, this test was
 // still added to test the broken (now fixed) behavior in relative isolation.
 func TestCondensorClearLinksAtLevel(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	rootPath := t.TempDir()
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
 	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer uncondensed1.Shutdown(ctx)
 
 	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer uncondensed2.Shutdown(ctx)
 
 	control, err := NewCommitLogger(rootPath, "control", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer control.Shutdown(ctx)
 
@@ -437,13 +432,12 @@ func TestCondensorClearLinksAtLevel(t *testing.T) {
 }
 
 func TestCondensorWithoutEntrypoint(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	rootPath := t.TempDir()
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
 	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
-		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
+		cyclemanager.NewNoop())
 	require.Nil(t, err)
 	defer uncondensed.Shutdown(ctx)
 
@@ -484,6 +478,90 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: make([][]uint64, 4)})
 		assert.Equal(t, uint64(17), res.Entrypoint)
 		assert.Equal(t, uint16(3), res.Level)
+	})
+}
+
+func TestCondensorWithPQInformation(t *testing.T) {
+	rootPath := t.TempDir()
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
+		cyclemanager.NewNoop())
+	require.Nil(t, err)
+	defer uncondensed.Shutdown(ctx)
+
+	encoders := []ssdhelpers.PQEncoder{
+		ssdhelpers.NewKMeansWithCenters(
+			4,
+			2,
+			0,
+			[][]float32{{1, 2}, {3, 4}, {5, 6}, {7, 8}},
+		),
+		ssdhelpers.NewKMeansWithCenters(
+			4,
+			2,
+			1,
+			[][]float32{{8, 7}, {6, 5}, {4, 3}, {2, 1}},
+		),
+		ssdhelpers.NewKMeansWithCenters(
+			4,
+			2,
+			2,
+			[][]float32{{1, 2}, {3, 4}, {5, 6}, {7, 8}},
+		),
+	}
+
+	t.Run("add pq info", func(t *testing.T) {
+		uncondensed.AddPQ(ssdhelpers.PQData{
+			Ks:                  4,
+			M:                   3,
+			Dimensions:          6,
+			EncoderType:         ssdhelpers.UseKMeansEncoder,
+			EncoderDistribution: uint8(0),
+			Encoders:            encoders,
+			UseBitsEncoding:     false,
+		})
+
+		require.Nil(t, uncondensed.Flush())
+	})
+
+	t.Run("condense the original and verify the PQ info is present", func(t *testing.T) {
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed", input))
+		require.Nil(t, err)
+
+		actual, ok, err := getCurrentCommitLogFileName(
+			commitLogDirectory(rootPath, "uncondensed"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		assert.True(t, strings.HasSuffix(actual, ".condensed"),
+			"commit log is now saved as condensed")
+
+		initialState := DeserializationResult{}
+		fd, err := os.Open(commitLogFileName(rootPath, "uncondensed", actual))
+		require.Nil(t, err)
+
+		bufr := bufio.NewReader(fd)
+		res, _, err := NewDeserializer(logger).Do(bufr, &initialState, false)
+		require.Nil(t, err)
+
+		assert.True(t, res.Compressed)
+		expected := ssdhelpers.PQData{
+			Ks:                  4,
+			M:                   3,
+			Dimensions:          6,
+			EncoderType:         ssdhelpers.UseKMeansEncoder,
+			EncoderDistribution: uint8(0),
+			Encoders:            encoders,
+			UseBitsEncoding:     false,
+		}
+
+		assert.Equal(t, expected, res.PQData)
 	})
 }
 

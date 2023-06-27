@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -121,7 +122,7 @@ func NewFromJSONDump(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
-	})
+	}, cyclemanager.NewNoop())
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +158,7 @@ func NewFromJSONDumpMap(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
-	})
+	}, cyclemanager.NewNoop())
 	if err != nil {
 		return nil, err
 	}

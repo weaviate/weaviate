@@ -102,75 +102,6 @@ func Test_Validation_ClassNames(t *testing.T) {
 			}
 		})
 	})
-
-	t.Run("updating an existing class", func(t *testing.T) {
-		t.Run("different class names without keywords or properties", func(t *testing.T) {
-			for _, test := range tests {
-				originalName := "ValidOriginalName"
-				t.Run(test.name+" as thing class", func(t *testing.T) {
-					class := &models.Class{
-						Vectorizer: "text2vec-contextionary",
-						Class:      originalName,
-					}
-
-					m := newSchemaManager()
-					err := m.AddClass(context.Background(), nil, class)
-					require.Nil(t, err)
-
-					// now try to update
-					updatedClass := &models.Class{
-						Vectorizer: "text2vec-contextionary",
-						Class:      test.input,
-					}
-
-					err = m.UpdateObject(context.Background(), nil, originalName, updatedClass)
-					assert.Equal(t, test.valid, err == nil)
-
-					// only proceed if input was supposed to be valid
-					if test.valid == false {
-						return
-					}
-
-					classNames := testGetClassNames(m)
-					assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
-				})
-
-			}
-		})
-
-		t.Run("different class names with valid keywords", func(t *testing.T) {
-			for _, test := range tests {
-				originalName := "ValidOriginalName"
-
-				t.Run(test.name+" as thing class", func(t *testing.T) {
-					class := &models.Class{
-						Vectorizer: "text2vec-contextionary",
-						Class:      originalName,
-					}
-
-					m := newSchemaManager()
-					err := m.AddClass(context.Background(), nil, class)
-					require.Nil(t, err)
-
-					// now update
-					updatedClass := &models.Class{
-						Vectorizer: "text2vec-contextionary",
-						Class:      test.input,
-					}
-					err = m.UpdateObject(context.Background(), nil, originalName, updatedClass)
-					assert.Equal(t, test.valid, err == nil)
-
-					// only proceed if input was supposed to be valid
-					if test.valid == false {
-						return
-					}
-
-					classNames := testGetClassNames(m)
-					assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
-				})
-			}
-		})
-	})
 }
 
 func Test_Validation_PropertyNames(t *testing.T) {
@@ -372,7 +303,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 	})
 }
 
-func Test_Validation_Tokenization(t *testing.T) {
+func Test_Validation_PropertyTokenization(t *testing.T) {
 	type testCase struct {
 		name             string
 		tokenization     string
@@ -381,9 +312,10 @@ func Test_Validation_Tokenization(t *testing.T) {
 	}
 
 	runTestCases := func(t *testing.T, testCases []testCase) {
+		m := newSchemaManager()
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				err := validatePropertyTokenization(tc.tokenization, tc.propertyDataType)
+				err := m.validatePropertyTokenization(tc.tokenization, tc.propertyDataType)
 				if tc.expectedErrMsg == "" {
 					assert.Nil(t, err)
 				} else {
@@ -497,6 +429,103 @@ func Test_Validation_Tokenization(t *testing.T) {
 		}
 
 		runTestCases(t, testCases)
+	})
+}
+
+func Test_Validation_PropertyIndexing(t *testing.T) {
+	t.Run("validates indexInverted / indexFilterable / indexSearchable combinations", func(t *testing.T) {
+		vFalse := false
+		vTrue := true
+		allBoolPtrs := []*bool{nil, &vFalse, &vTrue}
+
+		type testCase struct {
+			propName        string
+			dataType        schema.DataType
+			indexInverted   *bool
+			indexFilterable *bool
+			indexSearchable *bool
+
+			expectedErrMsg string
+		}
+
+		boolPtrToStr := func(ptr *bool) string {
+			if ptr == nil {
+				return "nil"
+			}
+			return fmt.Sprintf("%v", *ptr)
+		}
+		propName := func(dt schema.DataType, inverted, filterable, searchable *bool) string {
+			return fmt.Sprintf("%s_inverted_%s_filterable_%s_searchable_%s",
+				dt.String(), boolPtrToStr(inverted), boolPtrToStr(filterable), boolPtrToStr(searchable))
+		}
+
+		testCases := []testCase{}
+
+		for _, dataType := range []schema.DataType{schema.DataTypeText, schema.DataTypeInt} {
+			for _, inverted := range allBoolPtrs {
+				for _, filterable := range allBoolPtrs {
+					for _, searchable := range allBoolPtrs {
+						if inverted != nil {
+							if filterable != nil || searchable != nil {
+								testCases = append(testCases, testCase{
+									propName:        propName(dataType, inverted, filterable, searchable),
+									dataType:        dataType,
+									indexInverted:   inverted,
+									indexFilterable: filterable,
+									indexSearchable: searchable,
+									expectedErrMsg:  "`indexInverted` is deprecated and can not be set together with `indexFilterable` or `indexSearchable`.",
+								})
+								continue
+							}
+						}
+
+						if searchable != nil && *searchable {
+							if dataType != schema.DataTypeText {
+								testCases = append(testCases, testCase{
+									propName:        propName(dataType, inverted, filterable, searchable),
+									dataType:        dataType,
+									indexInverted:   inverted,
+									indexFilterable: filterable,
+									indexSearchable: searchable,
+									expectedErrMsg: "`indexSearchable` is allowed only for text/text[] data types. " +
+										"For other data types set false or leave empty",
+								})
+								continue
+							}
+						}
+
+						testCases = append(testCases, testCase{
+							propName:        propName(dataType, inverted, filterable, searchable),
+							dataType:        dataType,
+							indexInverted:   inverted,
+							indexFilterable: filterable,
+							indexSearchable: searchable,
+							expectedErrMsg:  "",
+						})
+					}
+				}
+			}
+		}
+
+		mgr := newSchemaManager()
+		for _, tc := range testCases {
+			t.Run(tc.propName, func(t *testing.T) {
+				err := mgr.validatePropertyIndexing(&models.Property{
+					Name:            tc.propName,
+					DataType:        tc.dataType.PropString(),
+					IndexInverted:   tc.indexInverted,
+					IndexFilterable: tc.indexFilterable,
+					IndexSearchable: tc.indexSearchable,
+				})
+
+				if tc.expectedErrMsg != "" {
+					require.NotNil(t, err)
+					assert.EqualError(t, err, tc.expectedErrMsg)
+				} else {
+					require.Nil(t, err)
+				}
+			})
+		}
 	})
 }
 

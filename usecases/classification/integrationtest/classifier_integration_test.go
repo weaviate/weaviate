@@ -17,7 +17,6 @@ package classification_integration_test
 import (
 	"context"
 	"encoding/json"
-	"math/rand"
 	"testing"
 	"time"
 
@@ -36,7 +35,6 @@ import (
 )
 
 func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	var id strfmt.UUID
@@ -81,7 +79,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 				}
 			}
 
-			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil)
+			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil, "")
 			require.Nil(t, err)
 			for _, elem := range res {
 				require.Nil(t, elem.Err)
@@ -98,7 +96,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 					Object:        elem.Object(),
 				}
 			}
-			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil)
+			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil, "")
 			require.Nil(t, err)
 			for _, elem := range res {
 				require.Nil(t, elem.Err)
@@ -161,7 +159,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 					},
 				},
 			}
-			res, err := vrepo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := vrepo.Search(context.Background(), dto.GetParams{
 				ClassName: "Article",
 				Filters:   &filter,
 				Pagination: &filters.Pagination{
@@ -177,7 +175,6 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 
 func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 	t.Skip()
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -217,7 +214,7 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 				}
 			}
 
-			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil)
+			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil, "")
 			require.Nil(t, err)
 			for _, elem := range res {
 				require.Nil(t, elem.Err)
@@ -278,7 +275,7 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 					},
 				},
 			}
-			res, err := vrepo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := vrepo.Search(context.Background(), dto.GetParams{
 				ClassName: "Recipes",
 				Filters:   &filter,
 				Pagination: &filters.Pagination{

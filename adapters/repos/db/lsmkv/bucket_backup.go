@@ -17,51 +17,21 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/storagestate"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 )
-
-// PauseCompaction waits for all ongoing compactions to finish,
-// then makes sure that no new compaction can be started.
-//
-// This is a preparatory stage for creating backups.
-//
-// A timeout should be specified for the input context as some
-// compactions are long-running, in which case it may be better
-// to fail the backup attempt and retry later, than to block
-// indefinitely.
-func (b *Bucket) PauseCompaction(ctx context.Context) error {
-	metric, err := monitoring.GetMetrics().BucketPauseDurations.GetMetricWithLabelValues(b.dir)
-	if err == nil {
-		b.pauseTimer = prometheus.NewTimer(metric)
-	}
-
-	if err := b.disk.compactionCycle.StopAndWait(ctx); err != nil {
-		return errors.Wrap(err, "long-running compaction in progress")
-	}
-	return nil
-}
 
 // FlushMemtable flushes any active memtable and returns only once the memtable
 // has been fully flushed and a stable state on disk has been reached.
 //
 // This is a preparatory stage for creating backups.
 //
-// A timeout should be specified for the input context as some
-// flushes are long-running, in which case it may be better
-// to fail the backup attempt and retry later, than to block
-// indefinitely.
-func (b *Bucket) FlushMemtable(ctx context.Context) error {
+// Method should be run only if flushCycle is not running
+// (was not started, is stopped, or noop impl is provided)
+func (b *Bucket) FlushMemtable() error {
 	if b.isReadOnly() {
 		return errors.Wrap(storagestate.ErrStatusReadOnly, "flush memtable")
 	}
 
-	if err := b.flushCycle.StopAndWait(ctx); err != nil {
-		return errors.Wrap(ctx.Err(), "long-running memtable flush in progress")
-	}
-
-	defer b.flushCycle.Start()
 	// this lock does not currently _need_ to be
 	// obtained, as the only other place that
 	// grabs this lock is the flush cycle, which
@@ -121,14 +91,4 @@ func (b *Bucket) ListFiles(ctx context.Context) ([]string, error) {
 	}
 
 	return files, nil
-}
-
-// ResumeCompaction starts the compaction cycle again.
-// It errors if compactions were not paused
-func (b *Bucket) ResumeCompaction(ctx context.Context) error {
-	b.disk.compactionCycle.Start()
-	if b.pauseTimer != nil {
-		b.pauseTimer.ObserveDuration()
-	}
-	return nil
 }

@@ -21,56 +21,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-// PauseMaintenance makes sure that no new background processes can be started.
-// If a Combining or Condensing operation is already ongoing, the method blocks
-// until the operation has either finished or the context expired
-//
-// If a Delete-Cleanup Cycle is running (TombstoneCleanupCycle), it is aborted,
-// as it's not feasible to wait for such a cycle to complete, as it can take hours.
-func (h *hnsw) PauseMaintenance(ctx context.Context) error {
-	commitLogShutdown := make(chan error)
-	cleanupCycleStop := make(chan error)
-
-	go func() {
-		if err := h.commitLog.Shutdown(ctx); err != nil {
-			commitLogShutdown <- errors.Wrap(ctx.Err(), "long-running commitlog shutdown in progress")
-			return
-		}
-		commitLogShutdown <- nil
-	}()
-
-	go func() {
-		if err := h.tombstoneCleanupCycle.StopAndWait(ctx); err != nil {
-			cleanupCycleStop <- errors.Wrap(err, "long-running tombstone cleanup in progress")
-			return
-		}
-		cleanupCycleStop <- nil
-	}()
-
-	commitLogShutdownErr := <-commitLogShutdown
-	cleanupCycleStopErr := <-cleanupCycleStop
-
-	if commitLogShutdownErr != nil && cleanupCycleStopErr != nil {
-		return errors.Errorf("%s, %s", commitLogShutdownErr, cleanupCycleStopErr)
-	}
-
-	if commitLogShutdownErr != nil {
-		// restart tombstone cleanup since it was successfully stopped.
-		// both of these cycles must be either stopped or running.
-		h.tombstoneCleanupCycle.Start()
-		return commitLogShutdownErr
-	}
-
-	if cleanupCycleStopErr != nil {
-		// restart commitlog cycle since it was successfully stopped.
-		// both of these cycles must be either stopped or running.
-		h.commitLog.Start()
-		return cleanupCycleStopErr
-	}
-
-	return nil
-}
-
 // SwitchCommitLogs makes sure that the previously writeable commitlog is
 // switched to a new one, thus making the existing file read-only.
 func (h *hnsw) SwitchCommitLogs(ctx context.Context) error {
@@ -139,12 +89,4 @@ func (h *hnsw) ListFiles(ctx context.Context) ([]string, error) {
 	}
 
 	return files, nil
-}
-
-// ResumeMaintenance starts all async cycles. It errors if the operations
-// had not been paused prior.
-func (h *hnsw) ResumeMaintenance(ctx context.Context) error {
-	h.tombstoneCleanupCycle.Start()
-	h.commitLog.Start()
-	return nil
 }

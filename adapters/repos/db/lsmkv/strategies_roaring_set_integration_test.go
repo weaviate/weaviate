@@ -15,20 +15,19 @@
 package lsmkv
 
 import (
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func TestRoaringSetStrategy_InsertAndSetAdd(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 			WithStrategy(StrategyRoaringSet))
 		require.Nil(t, err)
 
@@ -104,6 +103,7 @@ func TestRoaringSetStrategy_InsertAndSetAdd(t *testing.T) {
 
 	t.Run("with a single flush in between updates", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 			WithStrategy(StrategyRoaringSet))
 		require.Nil(t, err)
 

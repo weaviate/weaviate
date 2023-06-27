@@ -160,23 +160,13 @@ func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32,
 	return storobj.VectorFromBinary(bytes)
 }
 
-func (s *Shard) objectSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
-	sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties,
-) ([]*storobj.Object, []float32, error) {
+func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
 			return nil, nil, errors.Errorf(
 				"shard was built with an older version of " +
 					"Weaviate which does not yet support BM25 search")
 		}
-
-		bm25Config := s.index.getInvertedIndexConfig().BM25
-
-		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
-			s.index.getSchema.GetSchemaSkipAuth(),
-			s.propertyIndices, s.index.classSearcher, s.deletedDocIDs, s.propLengths,
-			s.index.logger, s.versioner.Version())
 
 		var bm25objs []*storobj.Object
 		var bm25count []float32
@@ -198,8 +188,9 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 		}
 
 		className := s.index.Config.ClassName
-		bm25objs, bm25count, err = bm25searcher.BM25F(ctx,
-			filterDocIds, className, limit, *keywordRanking)
+		bm25Config := s.index.getInvertedIndexConfig().BM25
+		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store, s.index.getSchema.GetSchemaSkipAuth(), s.propertyIndices, s.index.classSearcher, s.deletedDocIDs, s.propLengths, s.index.logger, s.versioner.Version())
+		bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, *keywordRanking)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -222,7 +213,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 
 func (s *Shard) objectVectorSearch(ctx context.Context,
 	searchVector []float32, targetDist float32, limit int, filters *filters.LocalFilter,
-	sort []filters.Sort, additional additional.Properties,
+	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	var (
 		ids       []uint64
@@ -260,6 +251,10 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 
 	if filters != nil {
 		s.metrics.FilteredVectorVector(time.Since(beforeVector))
+	}
+
+	if groupBy != nil {
+		return s.groupResults(ctx, ids, dists, groupBy, additional)
 	}
 
 	if len(sort) > 0 {

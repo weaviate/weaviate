@@ -14,15 +14,22 @@ package hnsw
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	testhelper "github.com/weaviate/weaviate/test/helper"
 )
 
 func TestPeriodicTombstoneRemoval(t *testing.T) {
+	cleanupIntervalSeconds := 1
+	tombstoneCleanupCycle := cyclemanager.NewMulti(
+		cyclemanager.NewFixedIntervalTicker(time.Duration(cleanupIntervalSeconds) * time.Second))
+	tombstoneCleanupCycle.Start()
+
 	index, err := New(Config{
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 		ID:                    "automatic-tombstone-removal",
@@ -30,10 +37,10 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
 	}, ent.UserConfig{
-		CleanupIntervalSeconds: 1,
+		CleanupIntervalSeconds: cleanupIntervalSeconds,
 		MaxConnections:         30,
 		EFConstruction:         128,
-	})
+	}, tombstoneCleanupCycle)
 	index.PostStartup()
 
 	require.Nil(t, err)
@@ -71,6 +78,9 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 	})
 
 	if err := index.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := tombstoneCleanupCycle.StopAndWait(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }

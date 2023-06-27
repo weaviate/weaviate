@@ -30,11 +30,13 @@ func TestCacher(t *testing.T) {
 	// some ids to be used in the tests, they carry no meaning outside each test
 	id1 := "132bdf92-ffec-4a52-9196-73ea7cbb5a5e"
 	id2 := "a60a26dc-791a-41fc-8dda-c0f21f90cc98"
+	id3 := "a60a26dc-791a-41fc-8dda-c0f21f90cc99"
+	id4 := "a60a26dc-791a-41fc-8dda-c0f21f90cc97"
 
 	t.Run("with empty results", func(t *testing.T) {
 		repo := newFakeRepo()
 		logger, _ := test.NewNullLogger()
-		cr := NewCacher(repo, logger)
+		cr := NewCacher(repo, logger, "")
 		err := cr.Build(context.Background(), nil, nil, additional.Properties{})
 		assert.Nil(t, err)
 	})
@@ -42,7 +44,7 @@ func TestCacher(t *testing.T) {
 	t.Run("with results with nil-schemas", func(t *testing.T) {
 		repo := newFakeRepo()
 		logger, _ := test.NewNullLogger()
-		cr := NewCacher(repo, logger)
+		cr := NewCacher(repo, logger, "")
 		input := []search.Result{
 			{
 				ID:        "foo",
@@ -56,7 +58,7 @@ func TestCacher(t *testing.T) {
 	t.Run("with results without refs in the schema", func(t *testing.T) {
 		repo := newFakeRepo()
 		logger, _ := test.NewNullLogger()
-		cr := NewCacher(repo, logger)
+		cr := NewCacher(repo, logger, "")
 		input := []search.Result{
 			{
 				ID:        "foo",
@@ -74,7 +76,7 @@ func TestCacher(t *testing.T) {
 	t.Run("with a single ref, but no selectprops", func(t *testing.T) {
 		repo := newFakeRepo()
 		logger, _ := test.NewNullLogger()
-		cr := NewCacher(repo, logger)
+		cr := NewCacher(repo, logger, "")
 		input := []search.Result{
 			{
 				ID:        "foo",
@@ -104,7 +106,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 		logger, _ := test.NewNullLogger()
-		cr := NewCacher(repo, logger)
+		cr := NewCacher(repo, logger, "")
 		input := []search.Result{
 			{
 				ID:        "foo",
@@ -178,7 +180,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 		logger, _ := test.NewNullLogger()
-		cr := NewCacher(repo, logger)
+		cr := NewCacher(repo, logger, "")
 		input := []search.Result{
 			{
 				ID:        "foo",
@@ -286,7 +288,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 		logger, _ := test.NewNullLogger()
-		cr := NewCacher(repo, logger)
+		cr := NewCacher(repo, logger, "")
 
 		// contains three items, all pointing to the same inner class
 		input := []search.Result{
@@ -444,7 +446,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 		logger, _ := test.NewNullLogger()
-		cr := NewCacher(repo, logger)
+		cr := NewCacher(repo, logger, "")
 		input := []search.Result{
 			{
 				ID:        "foo",
@@ -600,6 +602,434 @@ func TestCacher(t *testing.T) {
 		assert.Equal(t, expectedInnerInner, res)
 		assert.Equal(t, 4, repo.counter, "required the expected amount of lookups")
 	})
+
+	t.Run("with group and with a additional group lookup", func(t *testing.T) {
+		repo := newFakeRepo()
+		repo.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = search.Result{
+			ClassName: "SomeClass",
+			ID:        strfmt.UUID(id1),
+			Schema: map[string]interface{}{
+				"primitive": "foobar",
+			},
+			AdditionalProperties: models.AdditionalProperties{
+				"group": &additional.Group{
+					Hits: []map[string]interface{}{
+						{
+							"primitive": "foobar",
+							"ignoredRef": models.MultipleRef{
+								&models.SingleRef{
+									Beacon: strfmt.URI("weaviate://localhost/ignoreMe"),
+								},
+							},
+							"nestedRef": models.MultipleRef{
+								&models.SingleRef{
+									Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id2)),
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		repo.lookup[multi.Identifier{ID: id2, ClassName: "SomeNestedClass"}] = search.Result{
+			ClassName: "SomeNestedClass",
+			ID:        strfmt.UUID(id2),
+			Schema: map[string]interface{}{
+				"name": "John Doe",
+			},
+		}
+		logger, _ := test.NewNullLogger()
+		cr := NewCacherWithGroup(repo, logger)
+		input := []search.Result{
+			{
+				ID:        "foo",
+				ClassName: "BestClass",
+				Schema: map[string]interface{}{
+					"refProp": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id1)),
+						},
+					},
+				},
+				AdditionalProperties: models.AdditionalProperties{
+					"group": &additional.Group{
+						Hits: []map[string]interface{}{
+							{
+								"primitive": "foobar",
+								"ignoredRef": models.MultipleRef{
+									&models.SingleRef{
+										Beacon: strfmt.URI("weaviate://localhost/ignoreMe"),
+									},
+								},
+								"nestedRef": models.MultipleRef{
+									&models.SingleRef{
+										Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id2)),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		selectProps := search.SelectProperties{
+			search.SelectProperty{
+				Name: "_additional:group:hits:nestedRef",
+				Refs: []search.SelectClass{
+					{
+						ClassName: "SomeNestedClass",
+						RefProperties: []search.SelectProperty{
+							{
+								Name:        "name",
+								IsPrimitive: true,
+							},
+						},
+					},
+				},
+			},
+		}
+
+		expectedInner := search.Result{
+			ClassName: "SomeNestedClass",
+			ID:        strfmt.UUID(id2),
+			Schema: map[string]interface{}{
+				"name": "John Doe",
+			},
+		}
+
+		err := cr.Build(context.Background(), input, selectProps, additional.Properties{})
+		require.Nil(t, err)
+		res, ok := cr.Get(multi.Identifier{ID: id2, ClassName: "SomeNestedClass"})
+		require.True(t, ok)
+		assert.Equal(t, expectedInner, res)
+		assert.Equal(t, 1, repo.counter, "required the expected amount of lookups")
+	})
+
+	t.Run("with group and with 2 additional group lookups", func(t *testing.T) {
+		repo := newFakeRepo()
+		repo.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = search.Result{
+			ClassName: "SomeClass",
+			ID:        strfmt.UUID(id1),
+			Schema: map[string]interface{}{
+				"primitive": "foobar",
+			},
+			AdditionalProperties: models.AdditionalProperties{
+				"group": &additional.Group{
+					Hits: []map[string]interface{}{
+						{
+							"primitive": "foobar",
+							"ignoredRef": models.MultipleRef{
+								&models.SingleRef{
+									Beacon: strfmt.URI("weaviate://localhost/ignoreMe"),
+								},
+							},
+							"nestedRef": models.MultipleRef{
+								&models.SingleRef{
+									Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id2)),
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		repo.lookup[multi.Identifier{ID: id2, ClassName: "SomeNestedClass"}] = search.Result{
+			ClassName: "SomeNestedClass",
+			ID:        strfmt.UUID(id2),
+			Schema: map[string]interface{}{
+				"name": "John Doe",
+			},
+		}
+		repo.lookup[multi.Identifier{ID: id3, ClassName: "OtherNestedClass"}] = search.Result{
+			ClassName: "OtherNestedClass",
+			ID:        strfmt.UUID(id3),
+			Schema: map[string]interface{}{
+				"name": "John Doe",
+			},
+		}
+		logger, _ := test.NewNullLogger()
+		cr := NewCacherWithGroup(repo, logger)
+		input := []search.Result{
+			{
+				ID:        "foo",
+				ClassName: "BestClass",
+				Schema: map[string]interface{}{
+					"refProp": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id1)),
+						},
+					},
+				},
+				AdditionalProperties: models.AdditionalProperties{
+					"group": &additional.Group{
+						Hits: []map[string]interface{}{
+							{
+								"primitive": "foobar",
+								"nestedRef": models.MultipleRef{
+									&models.SingleRef{
+										Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id2)),
+									},
+								},
+								"otherNestedRef": models.MultipleRef{
+									&models.SingleRef{
+										Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id3)),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		selectProps := search.SelectProperties{
+			search.SelectProperty{
+				Name: "_additional:group:hits:nestedRef",
+				Refs: []search.SelectClass{
+					{
+						ClassName: "SomeNestedClass",
+						RefProperties: []search.SelectProperty{
+							{
+								Name:        "name",
+								IsPrimitive: true,
+							},
+						},
+					},
+				},
+			},
+			search.SelectProperty{
+				Name: "_additional:group:hits:otherNestedRef",
+				Refs: []search.SelectClass{
+					{
+						ClassName: "OtherNestedClass",
+						RefProperties: []search.SelectProperty{
+							{
+								Name:        "name",
+								IsPrimitive: true,
+							},
+						},
+					},
+				},
+			},
+		}
+
+		expectedSomeNestedClass := search.Result{
+			ClassName: "SomeNestedClass",
+			ID:        strfmt.UUID(id2),
+			Schema: map[string]interface{}{
+				"name": "John Doe",
+			},
+		}
+
+		expectedOtherNestedClass := search.Result{
+			ClassName: "OtherNestedClass",
+			ID:        strfmt.UUID(id3),
+			Schema: map[string]interface{}{
+				"name": "John Doe",
+			},
+		}
+
+		err := cr.Build(context.Background(), input, selectProps, additional.Properties{})
+		require.Nil(t, err)
+		res, ok := cr.Get(multi.Identifier{ID: id2, ClassName: "SomeNestedClass"})
+		require.True(t, ok)
+		assert.Equal(t, expectedSomeNestedClass, res)
+		res, ok = cr.Get(multi.Identifier{ID: id3, ClassName: "OtherNestedClass"})
+		require.True(t, ok)
+		assert.Equal(t, expectedOtherNestedClass, res)
+		assert.Equal(t, 1, repo.counter, "required the expected amount of lookups")
+	})
+
+	t.Run("with group with a nested lookup and with 2 additional group lookups", func(t *testing.T) {
+		repo := newFakeRepo()
+		repo.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = search.Result{
+			ClassName: "SomeClass",
+			ID:        strfmt.UUID(id1),
+			Schema: map[string]interface{}{
+				"primitive": "foobar",
+				"ignoredRef": models.MultipleRef{
+					&models.SingleRef{
+						Beacon: strfmt.URI("weaviate://localhost/ignoreMe"),
+					},
+				},
+				"nestedRef": models.MultipleRef{
+					&models.SingleRef{
+						Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id2)),
+					},
+				},
+			},
+		}
+		repo.lookup[multi.Identifier{ID: id2, ClassName: "SomeNestedClass"}] = search.Result{
+			ClassName: "SomeNestedClass",
+			ID:        strfmt.UUID(id2),
+			Schema: map[string]interface{}{
+				"name": "John Doe",
+			},
+		}
+		repo.lookup[multi.Identifier{ID: id3, ClassName: "InnerNestedClass"}] = search.Result{
+			ClassName: "InnerNestedClass",
+			ID:        strfmt.UUID(id3),
+			Schema: map[string]interface{}{
+				"name": "John Doe",
+			},
+		}
+		repo.lookup[multi.Identifier{ID: id4, ClassName: "OtherNestedClass"}] = search.Result{
+			ClassName: "OtherNestedClass",
+			ID:        strfmt.UUID(id4),
+			Schema: map[string]interface{}{
+				"name": "John Doe",
+			},
+		}
+		logger, _ := test.NewNullLogger()
+		cr := NewCacherWithGroup(repo, logger)
+		input := []search.Result{
+			{
+				ID:        "foo",
+				ClassName: "BestClass",
+				Schema: map[string]interface{}{
+					"refProp": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id1)),
+						},
+					},
+				},
+				AdditionalProperties: models.AdditionalProperties{
+					"group": &additional.Group{
+						Hits: []map[string]interface{}{
+							{
+								"primitive": "foobar",
+								"innerNestedRef": models.MultipleRef{
+									&models.SingleRef{
+										Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id3)),
+									},
+								},
+								"otherNestedRef": models.MultipleRef{
+									&models.SingleRef{
+										Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id4)),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		selectProps := search.SelectProperties{
+			search.SelectProperty{
+				Name: "refProp",
+				Refs: []search.SelectClass{
+					{
+						ClassName: "SomeClass",
+						RefProperties: search.SelectProperties{
+							search.SelectProperty{
+								Name:        "primitive",
+								IsPrimitive: true,
+							},
+							search.SelectProperty{
+								Name: "nestedRef",
+								Refs: []search.SelectClass{
+									{
+										ClassName: "SomeNestedClass",
+										RefProperties: []search.SelectProperty{
+											{
+												Name:        "name",
+												IsPrimitive: true,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			search.SelectProperty{
+				Name: "_additional:group:hits:innerNestedRef",
+				Refs: []search.SelectClass{
+					{
+						ClassName: "InnerNestedClass",
+						RefProperties: []search.SelectProperty{
+							{
+								Name:        "name",
+								IsPrimitive: true,
+							},
+						},
+					},
+				},
+			},
+			search.SelectProperty{
+				Name: "_additional:group:hits:otherNestedRef",
+				Refs: []search.SelectClass{
+					{
+						ClassName: "OtherNestedClass",
+						RefProperties: []search.SelectProperty{
+							{
+								Name:        "name",
+								IsPrimitive: true,
+							},
+						},
+					},
+				},
+			},
+		}
+
+		expectedOuter := search.Result{
+			ID:        strfmt.UUID(id1),
+			ClassName: "SomeClass",
+			Schema: map[string]interface{}{
+				"primitive": "foobar",
+				"ignoredRef": models.MultipleRef{
+					&models.SingleRef{
+						Beacon: strfmt.URI("weaviate://localhost/ignoreMe"),
+					},
+				},
+				"nestedRef": models.MultipleRef{
+					&models.SingleRef{
+						Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id2)),
+					},
+				},
+			},
+		}
+
+		expectedInner := search.Result{
+			ClassName: "SomeNestedClass",
+			ID:        strfmt.UUID(id2),
+			Schema: map[string]interface{}{
+				"name": "John Doe",
+			},
+		}
+
+		expectedInnerNestedClass := search.Result{
+			ClassName: "InnerNestedClass",
+			ID:        strfmt.UUID(id3),
+			Schema: map[string]interface{}{
+				"name": "John Doe",
+			},
+		}
+
+		expectedOtherNestedClass := search.Result{
+			ClassName: "OtherNestedClass",
+			ID:        strfmt.UUID(id4),
+			Schema: map[string]interface{}{
+				"name": "John Doe",
+			},
+		}
+
+		err := cr.Build(context.Background(), input, selectProps, additional.Properties{})
+		require.Nil(t, err)
+		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
+		require.True(t, ok)
+		assert.Equal(t, expectedOuter, res)
+		res, ok = cr.Get(multi.Identifier{ID: id2, ClassName: "SomeNestedClass"})
+		require.True(t, ok)
+		assert.Equal(t, expectedInner, res)
+		res, ok = cr.Get(multi.Identifier{ID: id3, ClassName: "InnerNestedClass"})
+		require.True(t, ok)
+		assert.Equal(t, expectedInnerNestedClass, res)
+		res, ok = cr.Get(multi.Identifier{ID: id4, ClassName: "OtherNestedClass"})
+		require.True(t, ok)
+		assert.Equal(t, expectedOtherNestedClass, res)
+		assert.Equal(t, 2, repo.counter, "required the expected amount of lookups")
+	})
 }
 
 type fakeRepo struct {
@@ -614,7 +1044,7 @@ func newFakeRepo() *fakeRepo {
 	}
 }
 
-func (f *fakeRepo) MultiGet(ctx context.Context, query []multi.Identifier, additional additional.Properties) ([]search.Result, error) {
+func (f *fakeRepo) MultiGet(ctx context.Context, query []multi.Identifier, additional additional.Properties, tenantKey string) ([]search.Result, error) {
 	f.counter++
 	f.objectCounter += len(query)
 	out := make([]search.Result, len(query))

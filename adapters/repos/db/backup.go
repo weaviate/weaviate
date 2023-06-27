@@ -97,8 +97,8 @@ func (db *DB) ShardsBackup(
 	}()
 	sm := make(map[string]*Shard, len(shards))
 	for _, shardName := range shards {
-		shard, ok := idx.Shards[shardName]
-		if !ok {
+		shard := idx.shards.Load(shardName)
+		if shard == nil {
 			return cd, fmt.Errorf("no shard %q for class %q", shardName, class)
 		}
 		sm[shardName] = shard
@@ -174,7 +174,8 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 			go i.ReleaseBackup(ctx, backupID)
 		}
 	}()
-	for _, s := range i.Shards {
+
+	if err = i.ForEachShard(func(name string, s *Shard) error {
 		if err = s.beginBackup(ctx); err != nil {
 			return fmt.Errorf("pause compaction and flush: %w", err)
 		}
@@ -184,6 +185,9 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 		}
 
 		desc.Shards = append(desc.Shards, ddesc)
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	if desc.ShardingState, err = i.marshalShardingState(); err != nil {
@@ -233,13 +237,12 @@ func (i *Index) resetBackupState() {
 
 func (i *Index) resumeMaintenanceCycles(ctx context.Context) error {
 	var g errgroup.Group
-
-	for _, shard := range i.Shards {
-		s := shard
+	i.ForEachShard(func(_ string, shard *Shard) error {
 		g.Go(func() error {
-			return s.resumeMaintenanceCycles(ctx)
+			return shard.resumeMaintenanceCycles(ctx)
 		})
-	}
+		return nil
+	})
 
 	if err := g.Wait(); err != nil {
 		return errors.Wrap(err, "resume maintenance cycles")

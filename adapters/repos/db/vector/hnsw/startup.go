@@ -167,7 +167,6 @@ func (h *hnsw) tombstoneCleanup(shouldBreak cyclemanager.ShouldBreakFunc) bool {
 // vector cache, however, depend on the shard being ready as they will call
 // getVectorForID.
 func (h *hnsw) PostStartup() {
-	h.tombstoneCleanupCycle.Start()
 	h.prefillCache()
 }
 
@@ -189,7 +188,16 @@ func (h *hnsw) prefillCache() {
 			for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 				id := binary.LittleEndian.Uint64(k)
 				h.compressedVectorsCache.grow(id)
-				h.compressedVectorsCache.preload(id, v)
+
+				// Make sure to copy the vector. The cursor only guarantees that
+				// the underlying memory won't change until we hit .Next(). Since
+				// we want to keep this around in the cache "forever", we need to
+				// alloc some new memory and copy the vector.
+				//
+				// https://github.com/weaviate/weaviate/issues/3049
+				vc := make([]byte, len(v))
+				copy(vc, v)
+				h.compressedVectorsCache.preload(id, vc)
 			}
 			cursor.Close()
 		} else {

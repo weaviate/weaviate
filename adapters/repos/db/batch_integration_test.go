@@ -38,7 +38,6 @@ import (
 )
 
 func TestBatchPutObjectsWithDimensions(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -69,7 +68,6 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 }
 
 func TestBatchPutObjects(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -95,7 +93,6 @@ func TestBatchPutObjects(t *testing.T) {
 }
 
 func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -127,7 +124,6 @@ func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
 }
 
 func TestBatchPutObjectsNoVectors(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -152,7 +148,6 @@ func TestBatchPutObjectsNoVectors(t *testing.T) {
 
 func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 	className := "ThingForBatching"
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -188,47 +183,45 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 }
 
 func delete2Objects(t *testing.T, repo *DB, className string) {
-	batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(),
-		objects.BatchDeleteParams{
-			ClassName: "ThingForBatching",
-			Filters: &filters.LocalFilter{
-				Root: &filters.Clause{
-					Operator: filters.OperatorOr,
-					Operands: []filters.Clause{
-						{
-							Operator: filters.OperatorEqual,
-							On: &filters.Path{
-								Class:    "ThingForBatching",
-								Property: schema.PropertyName("id"),
-							},
-							Value: &filters.Value{
-								Value: "8d5a3aa2-3c8d-4589-9ae1-3f638f506003",
-								Type:  schema.DataTypeText,
-							},
+	batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), objects.BatchDeleteParams{
+		ClassName: "ThingForBatching",
+		Filters: &filters.LocalFilter{
+			Root: &filters.Clause{
+				Operator: filters.OperatorOr,
+				Operands: []filters.Clause{
+					{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "ThingForBatching",
+							Property: schema.PropertyName("id"),
 						},
-						{
-							Operator: filters.OperatorEqual,
-							On: &filters.Path{
-								Class:    "ThingForBatching",
-								Property: schema.PropertyName("id"),
-							},
-							Value: &filters.Value{
-								Value: "8d5a3aa2-3c8d-4589-9ae1-3f638f506004",
-								Type:  schema.DataTypeText,
-							},
+						Value: &filters.Value{
+							Value: "8d5a3aa2-3c8d-4589-9ae1-3f638f506003",
+							Type:  schema.DataTypeText,
+						},
+					},
+					{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "ThingForBatching",
+							Property: schema.PropertyName("id"),
+						},
+						Value: &filters.Value{
+							Value: "8d5a3aa2-3c8d-4589-9ae1-3f638f506004",
+							Type:  schema.DataTypeText,
 						},
 					},
 				},
 			},
-			DryRun: false,
-			Output: "verbose",
-		}, nil)
+		},
+		DryRun: false,
+		Output: "verbose",
+	}, nil, "")
 	require.Nil(t, err)
 	require.Equal(t, 2, len(batchDeleteRes.Objects), "Objects deleted")
 }
 
 func TestBatchDeleteObjects(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -254,7 +247,6 @@ func TestBatchDeleteObjects(t *testing.T) {
 }
 
 func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	queryMaximumResults := int64(200)
@@ -290,7 +282,6 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 }
 
 func TestBatchDeleteObjects_Journey(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	queryMaximumResults := int64(20)
@@ -386,7 +377,7 @@ func testBatchImportObjectsNoVector(repo *DB) func(t *testing.T) {
 			}
 
 			t.Run("can import", func(t *testing.T) {
-				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
+				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
 				require.Nil(t, err)
 
 				assert.Nil(t, batchRes[0].Err)
@@ -398,7 +389,7 @@ func testBatchImportObjectsNoVector(repo *DB) func(t *testing.T) {
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters:    nil,
 			}
-			_, err := repo.ClassSearch(context.Background(), params)
+			_, err := repo.Search(context.Background(), params)
 			require.Nil(t, err)
 		})
 	}
@@ -422,7 +413,7 @@ func simpleInsertObjects(t *testing.T, repo *DB, class string, count int) {
 		}
 	}
 
-	repo.BatchPutObjects(context.Background(), batch, nil)
+	repo.BatchPutObjects(context.Background(), batch, nil, "")
 }
 
 func testBatchImportObjects(repo *DB) func(t *testing.T) {
@@ -471,7 +462,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 			}
 
 			t.Run("can import", func(t *testing.T) {
-				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
+				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
 				require.Nil(t, err)
 
 				assert.Nil(t, batchRes[0].Err)
@@ -483,7 +474,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters:    nil,
 			}
-			res, err := repo.ClassSearch(context.Background(), params)
+			res, err := repo.Search(context.Background(), params)
 			require.Nil(t, err)
 
 			t.Run("contains first element", func(t *testing.T) {
@@ -505,7 +496,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 					Pagination: &filters.Pagination{Limit: 10},
 					Filters:    filter,
 				}
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
 
 				require.Len(t, res, 1)
@@ -555,7 +546,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 			}
 
 			t.Run("can import", func(t *testing.T) {
-				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
+				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
 				require.Nil(t, err, "there shouldn't be an overall error, only inividual ones")
 
 				t.Run("element errors are marked correctly", func(t *testing.T) {
@@ -570,7 +561,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters:    nil,
 			}
-			res, err := repo.ClassSearch(context.Background(), params)
+			res, err := repo.Search(context.Background(), params)
 			require.Nil(t, err)
 
 			t.Run("does not contain second element (validation error)", func(t *testing.T) {
@@ -616,7 +607,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				}
 
 				t.Run("can import", func(t *testing.T) {
-					batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
+					batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
 					require.Nil(t, err)
 
 					assert.Nil(t, batchRes[0].Err)
@@ -624,8 +615,14 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				})
 
 				t.Run("a vector search returns the correct number of elements", func(t *testing.T) {
-					res, err := repo.ClassVectorSearch(context.Background(), "ThingForBatching",
-						[]float32{1, 2, 3}, 0, 100, nil)
+					res, err := repo.VectorSearch(context.Background(), dto.GetParams{
+						ClassName: "ThingForBatching",
+						Pagination: &filters.Pagination{
+							Offset: 0,
+							Limit:  10,
+						},
+						SearchVector: []float32{1, 2, 3},
+					})
 					require.Nil(t, err)
 					assert.Len(t, res, 2)
 				})
@@ -701,7 +698,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 			}
 
 			t.Run("can import", func(t *testing.T) {
-				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
+				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
 				require.Nil(t, err, "there shouldn't be an overall error, only inividual ones")
 
 				t.Run("element errors are marked correctly", func(t *testing.T) {
@@ -715,7 +712,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters:    nil,
 			}
-			res, err := repo.ClassSearch(context.Background(), params)
+			res, err := repo.Search(context.Background(), params)
 			require.Nil(t, err)
 
 			t.Run("does not contain second element (validation error)", func(t *testing.T) {
@@ -758,7 +755,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 				defer cancel()
 
-				batchRes, err := repo.BatchPutObjects(ctx, batch, nil)
+				batchRes, err := repo.BatchPutObjects(ctx, batch, nil, "")
 				require.Nil(t, err, "there shouldn't be an overall error, only inividual ones")
 
 				t.Run("some elements have error'd due to context", func(t *testing.T) {
@@ -783,6 +780,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 // that they work with batches at scale adds value beyond the regular batch
 // import tests
 func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
+	r := getRandomSeed()
 	return func(t *testing.T) {
 		size := 500
 		batchSize := 50
@@ -796,7 +794,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 					Class: "ThingForBatching",
 					ID:    strfmt.UUID(id.String()),
 					Properties: map[string]interface{}{
-						"location": randGeoCoordinates(),
+						"location": randGeoCoordinates(r),
 					},
 					Vector: []float32{0.123, 0.234, rand.Float32()}, // does not matter for this test
 				}
@@ -814,7 +812,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 					}
 				}
 
-				res, err := repo.BatchPutObjects(context.Background(), batch, nil)
+				res, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
 				require.Nil(t, err)
 				assertAllItemsErrorFree(t, res)
 			}
@@ -839,7 +837,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 		}
 
 		t.Run("query for expected results", func(t *testing.T) {
-			queryGeo := randGeoCoordinates()
+			queryGeo := randGeoCoordinates(r)
 
 			for _, maxDist := range distances {
 				t.Run(fmt.Sprintf("with maxDist=%f", maxDist), func(t *testing.T) {
@@ -851,7 +849,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 						*queryGeo.Longitude,
 					}, maxDist*km)
 
-					res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+					res, err := repo.Search(context.Background(), dto.GetParams{
 						ClassName:  "ThingForBatching",
 						Pagination: &filters.Pagination{Limit: 500},
 						Filters: buildFilter("location", filters.GeoRange{
@@ -879,7 +877,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 		t.Run("renew vector positions to test batch geo updates", func(t *testing.T) {
 			for i, obj := range objs {
 				obj.Properties = map[string]interface{}{
-					"location": randGeoCoordinates(),
+					"location": randGeoCoordinates(r),
 				}
 				objs[i] = obj
 			}
@@ -896,14 +894,14 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 					}
 				}
 
-				res, err := repo.BatchPutObjects(context.Background(), batch, nil)
+				res, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
 				require.Nil(t, err)
 				assertAllItemsErrorFree(t, res)
 			}
 		})
 
 		t.Run("query again to verify updates worked", func(t *testing.T) {
-			queryGeo := randGeoCoordinates()
+			queryGeo := randGeoCoordinates(r)
 
 			for _, maxDist := range distances {
 				t.Run(fmt.Sprintf("with maxDist=%f", maxDist), func(t *testing.T) {
@@ -915,7 +913,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 						*queryGeo.Longitude,
 					}, maxDist*km)
 
-					res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+					res, err := repo.Search(context.Background(), dto.GetParams{
 						ClassName:  "ThingForBatching",
 						Pagination: &filters.Pagination{Limit: 500},
 						Filters: buildFilter("location", filters.GeoRange{
@@ -965,7 +963,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 			}
 		}
 		performClassSearch := func() ([]search.Result, error) {
-			return repo.ClassSearch(context.Background(), dto.GetParams{
+			return repo.Search(context.Background(), dto.GetParams{
 				ClassName:  "ThingForBatching",
 				Pagination: &filters.Pagination{Limit: 10000},
 			})
@@ -977,7 +975,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 			beforeDelete := len(res)
 			require.True(t, beforeDelete > 0)
 			// dryRun == true, only test how many objects can be deleted
-			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(true, "verbose"), nil)
+			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(true, "verbose"), nil, "")
 			require.Nil(t, err)
 			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
@@ -996,7 +994,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 			beforeDelete := len(res)
 			require.True(t, beforeDelete > 0)
 			// dryRun == true, only test how many objects can be deleted
-			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(true, "minimal"), nil)
+			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(true, "minimal"), nil, "")
 			require.Nil(t, err)
 			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
@@ -1048,7 +1046,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 				},
 				DryRun: false,
 				Output: "verbose",
-			}, nil)
+			}, nil, "")
 			require.Nil(t, err)
 			require.Equal(t, int64(2), batchDeleteRes.Matches)
 			require.Equal(t, 2, len(batchDeleteRes.Objects))
@@ -1067,7 +1065,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 			beforeDelete := len(res)
 			require.True(t, beforeDelete > 0)
 			// dryRun == true, only test how many objects can be deleted
-			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(false, "verbose"), nil)
+			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(false, "verbose"), nil, "")
 			require.Nil(t, err)
 			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
@@ -1103,14 +1101,14 @@ func testBatchDeleteObjectsJourney(repo *DB, queryMaximumResults int64) func(t *
 			}
 		}
 		performClassSearch := func() ([]search.Result, error) {
-			return repo.ClassSearch(context.Background(), dto.GetParams{
+			return repo.Search(context.Background(), dto.GetParams{
 				ClassName:  "ThingForBatching",
 				Pagination: &filters.Pagination{Limit: 20},
 			})
 		}
 		t.Run("batch delete journey", func(t *testing.T) {
 			// delete objects to limit
-			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(true, "verbose"), nil)
+			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(true, "verbose"), nil, "")
 			require.Nil(t, err)
 			objectsMatches := batchDeleteRes.Matches
 
@@ -1119,14 +1117,14 @@ func testBatchDeleteObjectsJourney(repo *DB, queryMaximumResults int64) func(t *
 			deletedObjectsCount := 0
 			for {
 				// delete objects to limit
-				batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(false, "verbose"), nil)
+				batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(false, "verbose"), nil, "")
 				require.Nil(t, err)
 				matches, deleted := batchDeleteRes.Matches, len(batchDeleteRes.Objects)
 				require.Equal(t, leftToDelete, matches)
 				require.True(t, deleted > 0)
 				deletedObjectsCount += deleted
 
-				batchDeleteRes, err = repo.BatchDeleteObjects(context.Background(), getParams(true, "verbose"), nil)
+				batchDeleteRes, err = repo.BatchDeleteObjects(context.Background(), getParams(true, "verbose"), nil, "")
 				require.Nil(t, err)
 				leftToDelete = batchDeleteRes.Matches
 
@@ -1194,14 +1192,14 @@ func bruteForceMaxDist(inputs []*models.Object, query []float32, maxDist float32
 	return out[:i]
 }
 
-func randGeoCoordinates() *models.GeoCoordinates {
+func randGeoCoordinates(r *rand.Rand) *models.GeoCoordinates {
 	maxLat := float32(90.0)
 	minLat := float32(-90.0)
 	maxLon := float32(180)
 	minLon := float32(-180)
 
-	lat := minLat + (maxLat-minLat)*rand.Float32()
-	lon := minLon + (maxLon-minLon)*rand.Float32()
+	lat := minLat + (maxLat-minLat)*r.Float32()
+	lon := minLon + (maxLon-minLon)*r.Float32()
 	return &models.GeoCoordinates{
 		Latitude:  &lat,
 		Longitude: &lon,

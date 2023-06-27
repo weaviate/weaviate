@@ -201,7 +201,7 @@ func newPhoneNumberObject(className string, propertyName string) *graphql.Object
 }
 
 func buildGetClassField(classObject *graphql.Object,
-	class *models.Class, modulesProvider ModulesProvider,
+	class *models.Class, modulesProvider ModulesProvider, fusionEnum *graphql.Enum,
 ) graphql.Field {
 	field := graphql.Field{
 		Type:        graphql.NewList(classObject),
@@ -212,7 +212,7 @@ func buildGetClassField(classObject *graphql.Object,
 				Type:        graphql.String,
 			},
 			"limit": &graphql.ArgumentConfig{
-				Description: descriptions.First,
+				Description: descriptions.Limit,
 				Type:        graphql.Int,
 			},
 			"offset": &graphql.ArgumentConfig{
@@ -225,12 +225,13 @@ func buildGetClassField(classObject *graphql.Object,
 			"nearObject": nearObjectArgument(class.Class),
 			"where":      whereArgument(class.Class),
 			"group":      groupArgument(class.Class),
+			"groupBy":    groupByArgument(class.Class),
 		},
 		Resolve: newResolver(modulesProvider).makeResolveGetClass(class.Class),
 	}
 
 	field.Args["bm25"] = bm25Argument(class.Class)
-	field.Args["hybrid"] = hybridArgument(classObject, class, modulesProvider)
+	field.Args["hybrid"] = hybridArgument(classObject, class, modulesProvider, fusionEnum)
 
 	if modulesProvider != nil {
 		for name, argument := range modulesProvider.GetArguments(class) {
@@ -240,6 +241,10 @@ func buildGetClassField(classObject *graphql.Object,
 
 	if replicationEnabled(class) {
 		field.Args["consistencyLevel"] = consistencyLevelArgument(class)
+	}
+
+	if multiTenancyEnabled(class) {
+		field.Args["tenantKey"] = tenantKeyArgument()
 	}
 
 	return field
@@ -379,6 +384,9 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 		// extracts bm25 (sparseSearch) from the query
 		var keywordRankingParams *searchparams.KeywordRanking
 		if bm25, ok := p.Args["bm25"]; ok {
+			if len(sort) > 0 {
+				return nil, fmt.Errorf("bm25 search is not compatible with sort")
+			}
 			p := common_filters.ExtractBM25(bm25.(map[string]interface{}), addlProps.ExplainScore)
 			keywordRankingParams = &p
 		}
@@ -388,14 +396,14 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 		// refactored
 		var hybridParams *searchparams.HybridSearch
 		if hybrid, ok := p.Args["hybrid"]; ok {
+			if len(sort) > 0 {
+				return nil, fmt.Errorf("hybrid search is not compatible with sort")
+			}
 			p, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}), addlProps.ExplainScore)
 			if err != nil {
 				return nil, fmt.Errorf("failed to extract hybrid params: %w", err)
 			}
 			hybridParams = p
-			if pagination != nil {
-				hybridParams.Limit = pagination.Limit
-			}
 		}
 
 		var replProps *additional.ReplicationProperties
@@ -406,6 +414,17 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 		}
 
 		group := extractGroup(p.Args)
+
+		var groupByParams *searchparams.GroupBy
+		if groupBy, ok := p.Args["groupBy"]; ok {
+			p := common_filters.ExtractGroupBy(groupBy.(map[string]interface{}))
+			groupByParams = &p
+		}
+
+		var tenantKey string
+		if tk, ok := p.Args["tenantKey"]; ok {
+			tenantKey = tk.(string)
+		}
 
 		params := dto.GetParams{
 			Filters:               filters,
@@ -422,6 +441,8 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			KeywordRanking:        keywordRankingParams,
 			HybridSearch:          hybridParams,
 			ReplicationProperties: replProps,
+			GroupBy:               groupByParams,
+			TenantKey:             tenantKey,
 		}
 
 		// need to perform vector search by distance
@@ -526,7 +547,8 @@ func (ac *additionalCheck) isAdditional(name string) bool {
 	if name == "classification" || name == "certainty" ||
 		name == "distance" || name == "id" || name == "vector" ||
 		name == "creationTimeUnix" || name == "lastUpdateTimeUnix" ||
-		name == "score" || name == "explainScore" || name == "isConsistent" {
+		name == "score" || name == "explainScore" || name == "isConsistent" ||
+		name == "group" {
 		return true
 	}
 	if ac.isModuleAdditional(name) {
@@ -595,12 +617,10 @@ func extractProperties(className string, selections *ast.SelectionSet,
 							additionalProps.Certainty = true
 							continue
 						}
-
 						if additionalProperty == "distance" {
 							additionalProps.Distance = true
 							continue
 						}
-
 						if additionalProperty == "id" {
 							additionalProps.ID = true
 							continue
@@ -627,6 +647,15 @@ func extractProperties(className string, selections *ast.SelectionSet,
 						}
 						if additionalProperty == "isConsistent" {
 							additionalProps.IsConsistent = true
+							continue
+						}
+						if additionalProperty == "group" {
+							additionalProps.Group = true
+							additionalGroupHitProperties, err := extractGroupHitProperties(className, additionalProps, subSelection, fragments, modulesProvider)
+							if err != nil {
+								return nil, additionalProps, err
+							}
+							properties = append(properties, additionalGroupHitProperties...)
 							continue
 						}
 						if modulesProvider != nil {
@@ -670,6 +699,47 @@ func extractProperties(className string, selections *ast.SelectionSet,
 	}
 
 	return properties, additionalProps, nil
+}
+
+func extractGroupHitProperties(
+	className string,
+	additionalProps additional.Properties,
+	subSelection ast.Selection,
+	fragments map[string]ast.Definition,
+	modulesProvider ModulesProvider,
+) ([]search.SelectProperty, error) {
+	additionalGroupProperties := []search.SelectProperty{}
+	if subSelection != nil {
+		if selectionSet := subSelection.GetSelectionSet(); selectionSet != nil {
+			for _, groupSubSelection := range selectionSet.Selections {
+				if groupSubSelection != nil {
+					if groupSubSelectionField, ok := groupSubSelection.(*ast.Field); ok {
+						if groupSubSelectionField.Name.Value == "hits" && groupSubSelectionField.SelectionSet != nil {
+							for _, groupHitsSubSelection := range groupSubSelectionField.SelectionSet.Selections {
+								if hf, ok := groupHitsSubSelection.(*ast.Field); ok {
+									if hf.SelectionSet != nil {
+										for _, ss := range hf.SelectionSet.Selections {
+											if inlineFrag, ok := ss.(*ast.InlineFragment); ok {
+												ref, err := extractInlineFragment(className, inlineFrag, fragments, modulesProvider)
+												if err != nil {
+													return nil, err
+												}
+
+												additionalGroupHitProp := search.SelectProperty{Name: fmt.Sprintf("_additional:group:hits:%v", hf.Name.Value)}
+												additionalGroupHitProp.Refs = append(additionalGroupHitProp.Refs, ref)
+												additionalGroupProperties = append(additionalGroupProperties, additionalGroupHitProp)
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return additionalGroupProperties, nil
 }
 
 func getModuleParams(moduleParams map[string]interface{}) map[string]interface{} {

@@ -17,8 +17,8 @@ package lsmkv
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"fmt"
-	"math/rand"
 	"reflect"
 	"sync"
 	"testing"
@@ -27,13 +27,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 // This test continuously writes into a bucket with a small memtable threshold,
 // so that a lot of flushing is happening while writing. This is to ensure that
 // there will be no lost writes or other inconsistencies under load
 func TestConcurrentWriting_Replace(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	amount := 2000
@@ -43,6 +43,7 @@ func TestConcurrentWriting_Replace(t *testing.T) {
 	values := make([][]byte, amount)
 
 	bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 		WithStrategy(StrategyReplace),
 		WithMemtableThreshold(10000))
 	require.Nil(t, err)
@@ -124,7 +125,6 @@ func TestConcurrentWriting_Replace(t *testing.T) {
 // so that a lot of flushing is happening while writing. This is to ensure that
 // there will be no lost writes or other inconsistencies under load
 func TestConcurrentWriting_Set(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	amount := 2000
@@ -135,6 +135,7 @@ func TestConcurrentWriting_Set(t *testing.T) {
 	values := make([][][]byte, amount)
 
 	bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 		WithStrategy(StrategySetCollection),
 		WithMemtableThreshold(10000))
 	require.Nil(t, err)
@@ -213,7 +214,6 @@ func TestConcurrentWriting_Set(t *testing.T) {
 // so that a lot of flushing is happening while writing. This is to ensure that
 // there will be no lost writes or other inconsistencies under load
 func TestConcurrentWriting_Map(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	amount := 2000
@@ -225,6 +225,7 @@ func TestConcurrentWriting_Map(t *testing.T) {
 	values := make([][]MapPair, amount)
 
 	bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
 		WithStrategy(StrategyMapCollection),
 		WithMemtableThreshold(5000))
 	require.Nil(t, err)

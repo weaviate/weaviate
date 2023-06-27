@@ -132,7 +132,7 @@ func Test_MergeObject(t *testing.T) {
 					},
 				},
 			},
-			wantCode:  StatusBadRequest,
+			wantCode:  StatusNotFound,
 			errExists: errAny,
 			stage:     stageAuthorization,
 		},
@@ -438,7 +438,7 @@ func Test_MergeObject(t *testing.T) {
 						ClassName: tc.previous.Class,
 						Vector:    tc.previous.Vector,
 					}, nil)
-			} else if tc.stage >= stageUpdateValidation {
+			} else if tc.stage >= stageAuthorization {
 				m.repo.On("Object", cls, uuid, search.SelectProperties(nil), additional.Properties{}).
 					Return((*search.Result)(nil), tc.errGetObject)
 			}
@@ -465,7 +465,7 @@ func Test_MergeObject(t *testing.T) {
 			// called during validation of cross-refs only.
 			m.repo.On("Exists", mock.Anything, mock.Anything).Maybe().Return(true, tc.errExists)
 
-			err := m.MergeObject(context.Background(), nil, tc.updated, nil)
+			err := m.MergeObject(context.Background(), nil, tc.updated, nil, "")
 			code := 0
 			if err != nil {
 				code = err.Code

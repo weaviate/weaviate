@@ -70,6 +70,10 @@ type ObjectsClassReferencesDeleteParams struct {
 	  In: path
 	*/
 	PropertyName string
+	/*Specifies the tenant in a request targeting a multi-tenant class
+	  In: query
+	*/
+	TenantKey *string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -128,6 +132,11 @@ func (o *ObjectsClassReferencesDeleteParams) BindRequest(r *http.Request, route 
 
 	rPropertyName, rhkPropertyName, _ := route.Params.GetOK("propertyName")
 	if err := o.bindPropertyName(rPropertyName, rhkPropertyName, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qTenantKey, qhkTenantKey, _ := qs.GetOK("tenant_key")
+	if err := o.bindTenantKey(qTenantKey, qhkTenantKey, route.Formats); err != nil {
 		res = append(res, err)
 	}
 	if len(res) > 0 {
@@ -211,6 +220,24 @@ func (o *ObjectsClassReferencesDeleteParams) bindPropertyName(rawData []string, 
 	// Required: true
 	// Parameter is provided by construction from the route
 	o.PropertyName = raw
+
+	return nil
+}
+
+// bindTenantKey binds and validates parameter TenantKey from query.
+func (o *ObjectsClassReferencesDeleteParams) bindTenantKey(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+	o.TenantKey = &raw
 
 	return nil
 }

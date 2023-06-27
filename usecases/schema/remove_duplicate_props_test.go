@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func TestStartupWithDuplicateProps(t *testing.T) {
@@ -30,7 +31,7 @@ func TestStartupWithDuplicateProps(t *testing.T) {
 					Properties: []*models.Property{
 						{
 							Name:     "prop_1",
-							DataType: []string{"int"},
+							DataType: schema.DataTypeInt.PropString(),
 						},
 						{
 							Name:     "prop_2",
@@ -54,7 +55,7 @@ func TestStartupWithDuplicateProps(t *testing.T) {
 						},
 						{
 							Name:     "prop_4",
-							DataType: []string{"boolean"},
+							DataType: schema.DataTypeBoolean.PropString(),
 						},
 					},
 				},
@@ -70,25 +71,35 @@ func TestStartupWithDuplicateProps(t *testing.T) {
 	actual, err := m.GetClass(context.Background(), nil, "MyClass")
 	require.Nil(t, err)
 
+	vTrue := true
+	vFalse := false
 	expected := &models.Class{
 		Class:           "MyClass",
 		VectorIndexType: "hnsw",
 		Properties: []*models.Property{
 			{
-				Name:     "prop_1",
-				DataType: []string{"int"},
+				Name:            "prop_1",
+				DataType:        schema.DataTypeInt.PropString(),
+				IndexFilterable: &vTrue,
+				IndexSearchable: &vFalse,
 			},
 			{
-				Name:     "prop_2",
-				DataType: []string{"Ref"},
+				Name:            "prop_2",
+				DataType:        []string{"Ref"},
+				IndexFilterable: &vTrue,
+				IndexSearchable: &vFalse,
 			},
 			{
-				Name:     "prop_3",
-				DataType: []string{"Ref"},
+				Name:            "prop_3",
+				DataType:        []string{"Ref"},
+				IndexFilterable: &vTrue,
+				IndexSearchable: &vFalse,
 			},
 			{
-				Name:     "prop_4",
-				DataType: []string{"boolean"},
+				Name:            "prop_4",
+				DataType:        schema.DataTypeBoolean.PropString(),
+				IndexFilterable: &vTrue,
+				IndexSearchable: &vFalse,
 			},
 		},
 	}

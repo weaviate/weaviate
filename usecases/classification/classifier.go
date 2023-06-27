@@ -103,7 +103,7 @@ type VectorRepo interface {
 	AggregateNeighbors(ctx context.Context, vector []float32,
 		class string, properties []string, k int,
 		filter *libfilters.LocalFilter) ([]NeighborRef, error)
-	VectorClassSearch(ctx context.Context, params dto.GetParams) ([]search.Result, error)
+	VectorSearch(ctx context.Context, params dto.GetParams) ([]search.Result, error)
 	ZeroShotSearch(ctx context.Context, vector []float32,
 		class string, properties []string,
 		filter *libfilters.LocalFilter) ([]search.Result, error)
@@ -111,8 +111,8 @@ type VectorRepo interface {
 
 type vectorRepo interface {
 	VectorRepo
-	BatchPutObjects(ctx context.Context, things objects.BatchObjects,
-		repl *additional.ReplicationProperties) (objects.BatchObjects, error)
+	BatchPutObjects(ctx context.Context, objects objects.BatchObjects,
+		repl *additional.ReplicationProperties, tenantKey string) (objects.BatchObjects, error)
 }
 
 // NeighborRef is the result of an aggregation of the ref properties of k

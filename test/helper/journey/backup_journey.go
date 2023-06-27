@@ -12,6 +12,7 @@
 package journey
 
 import (
+	"fmt"
 	"math/rand"
 	"testing"
 	"time"
@@ -32,7 +33,14 @@ const (
 	clusterJourney
 )
 
-func backupJourney(t *testing.T, className, backend, backupID string, journeyType journeyType) {
+const (
+	singleTenant = ""
+	multiTenant  = "tenantID"
+)
+
+func backupJourney(t *testing.T, className, backend, backupID string,
+	journeyType journeyType, tenantNames []string,
+) {
 	if journeyType == clusterJourney && backend == "filesystem" {
 		t.Run("should fail backup/restore with local filesystem backend", func(t *testing.T) {
 			backupResp, err := helper.CreateBackup(t, className, backend, backupID)
@@ -52,7 +60,7 @@ func backupJourney(t *testing.T, className, backend, backupID string, journeyTyp
 		// wait for create success
 		createTime := time.Now()
 		for {
-			if time.Now().After(createTime.Add(21 * time.Second)) {
+			if time.Now().After(createTime.Add(time.Minute)) {
 				break
 			}
 
@@ -90,7 +98,7 @@ func backupJourney(t *testing.T, className, backend, backupID string, journeyTyp
 		// wait for restore success
 		restoreTime := time.Now()
 		for {
-			if time.Now().After(restoreTime.Add(21 * time.Second)) {
+			if time.Now().After(restoreTime.Add(time.Minute)) {
 				break
 			}
 
@@ -119,11 +127,18 @@ func backupJourney(t *testing.T, className, backend, backupID string, journeyTyp
 	})
 
 	// assert class exists again it its entirety
-	count := moduleshelper.GetClassCount(t, className)
-	assert.Equal(t, int64(500), count)
+	if tenantNames != nil {
+		for _, name := range tenantNames {
+			count := moduleshelper.GetClassCount(t, className, name)
+			assert.Equal(t, int64(500/len(tenantNames)), count)
+		}
+	} else {
+		count := moduleshelper.GetClassCount(t, className, singleTenant)
+		assert.Equal(t, int64(500), count)
+	}
 }
 
-func addTestClass(t *testing.T, className string) {
+func addTestClass(t *testing.T, className string, tenantKey string) {
 	class := &models.Class{
 		Class: className,
 		ModuleConfig: map[string]interface{}{
@@ -140,10 +155,21 @@ func addTestClass(t *testing.T, className string) {
 		},
 	}
 
+	if tenantKey != singleTenant {
+		class.Properties = append(class.Properties, &models.Property{
+			Name:     multiTenant,
+			DataType: []string{"string"},
+		})
+		class.MultiTenancyConfig = &models.MultiTenancyConfig{
+			Enabled:   true,
+			TenantKey: multiTenant,
+		}
+	}
+
 	helper.CreateClass(t, class)
 }
 
-func addTestObjects(t *testing.T, className string) {
+func addTestObjects(t *testing.T, className string, tenantKey string) {
 	const (
 		noteLengthMin = 4
 		noteLengthMax = 1024
@@ -160,12 +186,21 @@ func addTestObjects(t *testing.T, className string) {
 			contentsLength := noteLengthMin + seededRand.Intn(noteLengthMax-noteLengthMin+1)
 			contents := helper.GetRandomString(contentsLength)
 
-			batch[j] = &models.Object{
+			obj := models.Object{
 				Class:      className,
 				Properties: map[string]interface{}{"contents": contents},
 			}
+			if tenantKey != singleTenant {
+				obj.Properties.(map[string]interface{})[multiTenant] = fmt.Sprintf("Tenant%d", i)
+			}
+			batch[j] = &obj
 		}
 
-		helper.CreateObjectsBatch(t, batch)
+		if tenantKey != singleTenant {
+			resp, err := helper.CreateTenantObjectsBatch(t, batch, fmt.Sprintf("Tenant%d", i))
+			helper.CheckObjectsBatchResponse(t, resp, err)
+		} else {
+			helper.CreateObjectsBatch(t, batch)
+		}
 	}
 }

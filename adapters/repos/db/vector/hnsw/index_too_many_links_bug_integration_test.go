@@ -16,11 +16,9 @@ package hnsw
 
 import (
 	"context"
-	"math/rand"
 	"runtime"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -43,21 +41,25 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	dim := 16
 	m := 8
 
-	rand.Seed(time.Now().UnixNano())
+	r := getRandomSeed()
 	rootPath := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	original, err := NewCommitLogger(rootPath, "too_many_links_test", logger,
+	cycles := &MaintenanceCycles{}
+	cycles.Init(
+		cyclemanager.HnswCommitLoggerCycleTicker(),
+		cyclemanager.NewFixedIntervalTicker(1))
+
+	original, err := NewCommitLogger(rootPath, "too_many_links_test", logger, cycles.CommitLogMaintenance(),
 		WithCommitlogThreshold(1e5),
-		WithCommitlogThresholdForCombining(5e5),
-		WithCommitlogCycleTicker(cyclemanager.FixedIntervalTickerProvider(1)))
+		WithCommitlogThresholdForCombining(5e5))
 	require.Nil(t, err)
 
 	data := make([][]float32, n)
 	for i := range data {
 		data[i] = make([]float32, dim)
 		for j := range data[i] {
-			data[i][j] = rand.Float32()
+			data[i][j] = r.Float32()
 		}
 
 	}
@@ -85,7 +87,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 2 * n,
-		})
+		}, cycles.TombstoneCleanup())
 		require.Nil(t, err)
 		idx.PostStartup()
 		index = idx
@@ -142,6 +144,57 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 		}
 	})
 
+	t.Run("delete 10 percent of data", func(t *testing.T) {
+		type tuple struct {
+			vec []float32
+			id  uint64
+		}
+
+		jobs := make(chan tuple, n)
+
+		wg := sync.WaitGroup{}
+		worker := func(jobs chan tuple) {
+			for job := range jobs {
+				index.Delete(job.id)
+			}
+
+			wg.Done()
+		}
+
+		for i := 0; i < runtime.GOMAXPROCS(0); i++ {
+			wg.Add(1)
+			go worker(jobs)
+		}
+
+		for i, vec := range data[:n/10] {
+			jobs <- tuple{id: uint64(i), vec: vec}
+		}
+
+		close(jobs)
+
+		wg.Wait()
+	})
+
+	index.Flush()
+
+	t.Run("verify there are no nodes with too many links - post deletion", func(t *testing.T) {
+		for i, node := range index.nodes {
+			if node == nil {
+				continue
+			}
+
+			for level, conns := range node.connections {
+				m := index.maximumConnections
+				if level == 0 {
+					m = index.maximumConnectionsLayerZero
+				}
+
+				assert.LessOrEqualf(t, len(conns), m, "node %d at level %d with %d conns",
+					i, level, len(conns))
+			}
+		}
+	})
+
 	t.Run("destroy the old index", func(t *testing.T) {
 		// kill the commit loger and index
 		require.Nil(t, original.Shutdown(context.Background()))
@@ -168,7 +221,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 2 * n,
-		})
+		}, cycles.TombstoneCleanup())
 		require.Nil(t, err)
 		idx.PostStartup()
 		index = idx
@@ -194,5 +247,6 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 
 	t.Run("destroy the index", func(t *testing.T) {
 		require.Nil(t, index.Drop(context.Background()))
+		require.Nil(t, cycles.Shutdown(context.Background()))
 	})
 }

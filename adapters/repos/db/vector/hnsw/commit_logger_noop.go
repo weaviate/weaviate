@@ -29,8 +29,6 @@ func (n *NoopCommitLogger) AddPQ(data ssdhelpers.PQData) error {
 	return nil
 }
 
-func (n *NoopCommitLogger) Start() {}
-
 func (n *NoopCommitLogger) AddNode(node *vertex) error {
 	return nil
 }
@@ -105,8 +103,4 @@ func (n *NoopCommitLogger) RootPath() string {
 
 func (n *NoopCommitLogger) SwitchCommitLogs(force bool) error {
 	return nil
-}
-
-func (n *NoopCommitLogger) MaintenanceInProgress() bool {
-	return false
 }

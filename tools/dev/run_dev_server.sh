@@ -45,6 +45,7 @@ case $CONFIG in
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
+      LOG_LEVEL="trace" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -339,6 +340,36 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
+  local-all-palm)
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      QNA_INFERENCE_API="http://localhost:8001" \
+      CLUSTER_HOSTNAME="node1" \
+      ENABLE_MODULES="text2vec-contextionary,generative-palm,text2vec-palm" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
+  local-all-openai-cohere-palm)
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      QNA_INFERENCE_API="http://localhost:8001" \
+      CLUSTER_HOSTNAME="node1" \
+      ENABLE_MODULES="text2vec-contextionary,generative-palm,text2vec-palm,qna-openai,generative-openai,text2vec-openai,generative-cohere,text2vec-cohere" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
   local-huggingface)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-huggingface \
@@ -435,6 +466,20 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-cohere \
       ENABLE_MODULES="text2vec-cohere" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
+  local-reranker-transformers)
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      RERANKER_INFERENCE_API="http://localhost:8008" \
+      ENABLE_MODULES="text2vec-contextionary,reranker-transformers" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \

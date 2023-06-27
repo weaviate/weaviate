@@ -51,29 +51,29 @@ type indices struct {
 
 const (
 	urlPatternObjects = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/objects`
+		`\/shards\/([A-Za-z0-9\-]+)\/objects`
 	urlPatternObjectsOverwrite = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/objects:overwrite`
+		`\/shards\/([A-Za-z0-9\-]+)\/objects:overwrite`
 	urlPatternObjectsDigest = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/objects:digest`
+		`\/shards\/([A-Za-z0-9\-]+)\/objects:digest`
 	urlPatternObjectsSearch = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/objects\/_search`
+		`\/shards\/([A-Za-z0-9\-]+)\/objects\/_search`
 	urlPatternObjectsFind = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/objects\/_find`
+		`\/shards\/([A-Za-z0-9\-]+)\/objects\/_find`
 	urlPatternObjectsAggregations = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/objects\/_aggregations`
+		`\/shards\/([A-Za-z0-9\-]+)\/objects\/_aggregations`
 	urlPatternObject = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/objects\/([A-Za-z0-9_+-]+)`
+		`\/shards\/([A-Za-z0-9\-]+)\/objects\/([A-Za-z0-9_+-]+)`
 	urlPatternReferences = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/references`
+		`\/shards\/([A-Za-z0-9\-]+)\/references`
 	urlPatternShardsStatus = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/status`
+		`\/shards\/([A-Za-z0-9\-]+)\/status`
 	urlPatternShardFiles = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/files/(.*)`
+		`\/shards\/([A-Za-z0-9\-]+)\/files/(.*)`
 	urlPatternShard = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)$`
+		`\/shards\/([A-Za-z0-9\-]+)$`
 	urlPatternShardReinit = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+):reinit`
+		`\/shards\/([A-Za-z0-9\-]+):reinit`
 )
 
 type shards interface {
@@ -97,7 +97,8 @@ type shards interface {
 	Search(ctx context.Context, indexName, shardName string,
 		vector []float32, distance float32, limit int, filters *filters.LocalFilter,
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
-		cursor *filters.Cursor, additional additional.Properties,
+		cursor *filters.Cursor, groupBy *searchparams.GroupBy,
+		additional additional.Properties,
 	) ([]*storobj.Object, []float32, error)
 	Aggregate(ctx context.Context, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
@@ -582,7 +583,7 @@ func (i *indices) postSearchObjects() http.Handler {
 			return
 		}
 
-		vector, certainty, limit, filters, keywordRanking, sort, cursor, additional, err := IndicesPayloads.SearchParams.
+		vector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, err := IndicesPayloads.SearchParams.
 			Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal search params from json: "+err.Error(),
@@ -591,7 +592,7 @@ func (i *indices) postSearchObjects() http.Handler {
 		}
 
 		results, dists, err := i.shards.Search(r.Context(), index, shard,
-			vector, certainty, limit, filters, keywordRanking, sort, cursor, additional)
+			vector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

@@ -16,13 +16,12 @@ package db
 
 import (
 	"context"
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -40,7 +39,6 @@ import (
 // needs to be tested extensively because there's a lot of room for error
 // regarding the clean up of Doc ID pointers in the inverted indices, etc.
 func TestUpdateJourney(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -71,16 +69,26 @@ func TestUpdateJourney(t *testing.T) {
 
 	t.Run("import some objects", func(t *testing.T) {
 		for _, res := range updateTestData() {
-			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil)
+			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil, "")
 			require.Nil(t, err)
 		}
+
+		tracker := getTracker(repo, "UpdateTestClass")
+
+		require.Nil(t, err)
+
+		sum, count, mean, err := tracker.PropertyTally("name")
+		require.Nil(t, err)
+		assert.Equal(t, 4, sum)
+		assert.Equal(t, 4, count)
+		assert.InEpsilon(t, 1, mean, 0.1)
 	})
 
 	searchVector := []float32{0.1, 0.1, 0.1}
 
 	t.Run("verify vector search results are initially as expected",
 		func(t *testing.T) {
-			res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 				ClassName:    "UpdateTestClass",
 				SearchVector: searchVector,
 				Pagination: &filters.Pagination{
@@ -111,7 +119,7 @@ func TestUpdateJourney(t *testing.T) {
 						Value: value,
 					},
 				},
-			}, nil, additional.Properties{})
+			}, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 		return extractPropValues(res, "name")
 	}
@@ -142,16 +150,25 @@ func TestUpdateJourney(t *testing.T) {
 			updatedVec := []float32{-0.1, -0.12, -0.105}
 			id := updateTestData()[0].ID
 
-			old, err := repo.ObjectByID(context.Background(), id, search.SelectProperties{},
-				additional.Properties{})
+			old, err := repo.ObjectByID(context.Background(), id, search.SelectProperties{}, additional.Properties{}, "")
 			require.Nil(t, err)
 
-			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil)
+			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil, "")
 			require.Nil(t, err)
+
+			tracker := getTracker(repo, "UpdateTestClass")
+
+			require.Nil(t, err)
+
+			sum, count, mean, err := tracker.PropertyTally("name")
+			require.Nil(t, err)
+			assert.Equal(t, 4, sum)
+			assert.Equal(t, 4, count)
+			assert.InEpsilon(t, 1, mean, 0.1)
 		})
 
 	t.Run("verify new vector search results are as expected", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
 			Pagination: &filters.Pagination{
@@ -195,18 +212,26 @@ func TestUpdateJourney(t *testing.T) {
 			updatedVec := []float32{-0.1, -0.12, -0.105123}
 			id := updateTestData()[2].ID
 
-			old, err := repo.ObjectByID(context.Background(), id, search.SelectProperties{},
-				additional.Properties{})
+			old, err := repo.ObjectByID(context.Background(), id, search.SelectProperties{}, additional.Properties{}, "")
 			require.Nil(t, err)
 
 			old.Schema.(map[string]interface{})["intProp"] = int64(21)
-
-			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil)
+			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil, "")
 			require.Nil(t, err)
+
+			tracker := getTracker(repo, "UpdateTestClass")
+
+			require.Nil(t, err)
+
+			sum, count, mean, err := tracker.PropertyTally("name")
+			require.Nil(t, err)
+			assert.Equal(t, 4, sum)
+			assert.Equal(t, 4, count)
+			assert.InEpsilon(t, 1, mean, 0.1)
 		})
 
 	t.Run("verify new vector search results are as expected", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
 			Pagination: &filters.Pagination{
@@ -243,6 +268,35 @@ func TestUpdateJourney(t *testing.T) {
 
 		expectedInAnyOrder = []interface{}{"element-3"}
 		assert.ElementsMatch(t, expectedInAnyOrder, searchInv(t, filters.OperatorEqual, 30))
+	})
+
+	t.Run("test recount", func(t *testing.T) {
+		tracker := getTracker(repo, "UpdateTestClass")
+
+		require.Nil(t, err)
+
+		sum, count, mean, err := tracker.PropertyTally("name")
+		require.Nil(t, err)
+		assert.Equal(t, 4, sum)
+		assert.Equal(t, 4, count)
+		assert.InEpsilon(t, 1, mean, 0.1)
+
+		tracker.Clear()
+		sum, count, mean, err = tracker.PropertyTally("name")
+		require.Nil(t, err)
+		assert.Equal(t, 0, sum)
+		assert.Equal(t, 0, count)
+		assert.Equal(t, float64(0), mean)
+
+		logger := logrus.New()
+		migrator := NewMigrator(repo, logger)
+		migrator.RecountProperties(context.Background())
+
+		sum, count, mean, err = tracker.PropertyTally("name")
+		require.Nil(t, err)
+		assert.Equal(t, 4, sum)
+		assert.Equal(t, 4, count)
+		assert.Equal(t, float64(1), mean)
 	})
 }
 
@@ -318,4 +372,17 @@ func extractPropValues(in search.Results, propName string) []interface{} {
 	}
 
 	return out
+}
+
+func getTracker(repo *DB, className string) *inverted.JsonPropertyLengthTracker {
+	index := repo.GetIndex("UpdateTestClass")
+	var shard *Shard
+	index.ForEachShard(func(name string, shardv *Shard) error {
+		shard = shardv
+		return nil
+	})
+
+	tracker := shard.propLengths
+
+	return tracker
 }

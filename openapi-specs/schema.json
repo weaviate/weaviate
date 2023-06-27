@@ -387,7 +387,6 @@
       },
       "type": "object"
     },
-
     "StopwordConfig": {
       "description": "fine-grained control over stopword list usage",
       "properties": {
@@ -411,6 +410,19 @@
         }
       },
       "type": "object"
+    },
+    "MultiTenancyConfig": {
+      "description": "Configuration related to multi-tenancy within a class",
+      "properties": {
+        "enabled": {
+          "description": "Whether or not multi-tenancy is enabled for this class",
+          "type": "boolean"
+        },
+        "tenantKey": {
+          "description": "The class property which is used to separate tenants",
+          "type": "string"
+        }
+      }
     },
     "JsonObject": {
       "description": "JSON object value.",
@@ -601,6 +613,9 @@
         },
         "invertedIndexConfig": {
           "$ref": "#/definitions/InvertedIndexConfig"
+        },
+        "multiTenancyConfig": {
+          "$ref": "#/definitions/MultiTenancyConfig"
         },
         "vectorizer": {
           "description": "Specify how the vectors for this class should be determined. The options are either 'none' - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as 'text2vec-contextionary'. If left empty, it will use the globally configured default which can itself either be 'none' or a specific module.",
@@ -1621,6 +1636,16 @@
           }
         }
       }
+    },
+    "Tenant": {
+      "type": "object",
+      "description": "attributes representing a single tenant within weaviate",
+      "properties": {
+        "name": {
+          "description": "name of the tenant",
+          "type": "string"
+        }
+      }
     }
   },
   "externalDocs": {
@@ -1634,7 +1659,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.19.0-beta.1"
+    "version": "1.20.0-prealpha"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -1672,6 +1697,13 @@
       "description": "Determines how many replicas must acknowledge a request before it is considered successful",
       "in": "query",
       "name": "consistency_level",
+      "required": false,
+      "type": "string"
+    },
+    "CommonTenantKeyParameterQuery": {
+      "description": "Specifies the tenant in a request targeting a multi-tenant class",
+      "in": "query",
+      "name": "tenant_key",
       "required": false,
       "type": "string"
     },
@@ -1892,6 +1924,9 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1955,6 +1990,9 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2073,6 +2111,9 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2140,6 +2181,9 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2260,6 +2304,9 @@
           },
           {
             "$ref": "#/parameters/CommonNodeNameParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2324,6 +2371,9 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2393,6 +2443,9 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2467,6 +2520,9 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2532,6 +2588,9 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2802,6 +2861,9 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2885,6 +2947,9 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2968,6 +3033,9 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -3108,6 +3176,9 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -3173,6 +3244,9 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -3241,6 +3315,9 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -3861,6 +3938,66 @@
         }
       }
     },
+    "/schema/{className}/tenants": {
+      "post": {
+        "description": "Create a new tenant for a specific class",
+        "operationId": "tenants.create",
+        "tags": [
+          "schema"
+        ],
+        "parameters": [
+          {
+            "name": "className",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added the new Object class to the schema.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid Tenant class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/backups/{backend}": {
       "post": {
         "description": "Starts a process of creating a backup for a set of classes",
@@ -4117,6 +4254,61 @@
         ],
         "tags": [
           "nodes"
+        ],
+        "responses": {
+          "200": {
+            "description": "Nodes status successfully returned",
+            "schema": {
+              "$ref": "#/definitions/NodesStatusResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Backup does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup restoration status attempt.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/nodes/{className}": {
+      "get": {
+        "description": "Returns status of Weaviate DB.",
+        "operationId": "nodes.get.class",
+        "x-serviceIds": [
+          "weaviate.nodes.status.get.class"
+        ],
+        "tags": [
+          "nodes"
+        ],
+        "parameters": [
+          {
+            "name": "className",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
         ],
         "responses": {
           "200": {

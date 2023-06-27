@@ -40,10 +40,12 @@ const (
 	ErrorMissingSingleRefType string = "class '%s' with property '%s' requires exactly 3 arguments: 'beacon', 'locationUrl' and 'type'. 'type' is missing, check your input schema"
 )
 
-func (v *Validator) properties(ctx context.Context, object interface{}, class *models.Class) error {
-	className := object.(*models.Object).Class
-	isp := object.(*models.Object).Properties
-	vectorWeights := object.(*models.Object).VectorWeights
+func (v *Validator) properties(ctx context.Context, class *models.Class,
+	incomingObject *models.Object, existingObject *models.Object,
+) error {
+	className := incomingObject.Class
+	isp := incomingObject.Properties
+	vectorWeights := incomingObject.VectorWeights
 
 	if vectorWeights != nil {
 		res, err := v.validateVectorWeights(vectorWeights)
@@ -59,12 +61,24 @@ func (v *Validator) properties(ctx context.Context, object interface{}, class *m
 		return nil
 	}
 
-	inputSchema := isp.(map[string]interface{})
+	inputSchema, ok := isp.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("could not recognize object's properties: %v", isp)
+	}
 	returnSchema := map[string]interface{}{}
 
 	for propertyKey, propertyValue := range inputSchema {
 		if propertyValue == nil {
 			continue // nil values are removed and filtered out
+		}
+
+		mt := class.MultiTenancyConfig
+		if mt != nil && existingObject != nil && propertyKey == mt.TenantKey {
+			beforeKey := existingObject.Properties.(map[string]interface{})[mt.TenantKey]
+			afterKey := isp.(map[string]interface{})[mt.TenantKey]
+			if beforeKey != afterKey {
+				return fmt.Errorf("tenant key %q is immutable", mt.TenantKey)
+			}
 		}
 
 		// properties in the class are saved with lower case first letter
@@ -85,8 +99,8 @@ func (v *Validator) properties(ctx context.Context, object interface{}, class *m
 		returnSchema[propertyKeyLowerCase] = data
 	}
 
-	object.(*models.Object).Properties = returnSchema
-	object.(*models.Object).VectorWeights = vectorWeights
+	incomingObject.Properties = returnSchema
+	incomingObject.VectorWeights = vectorWeights
 
 	return nil
 }

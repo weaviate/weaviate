@@ -54,7 +54,8 @@ type RemoteIndexIncomingRepo interface {
 	IncomingSearch(ctx context.Context, shardName string,
 		vector []float32, distance float32, limit int, filters *filters.LocalFilter,
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
-		cursor *filters.Cursor, additional additional.Properties,
+		cursor *filters.Cursor, groupBy *searchparams.GroupBy,
+		additional additional.Properties,
 	) ([]*storobj.Object, []float32, error)
 	IncomingAggregate(ctx context.Context, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
@@ -180,7 +181,7 @@ func (rii *RemoteIndexIncoming) MultiGetObjects(ctx context.Context, indexName,
 func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName string,
 	vector []float32, distance float32, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
-	additional additional.Properties,
+	groupBy *searchparams.GroupBy, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
@@ -188,7 +189,7 @@ func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName
 	}
 
 	return index.IncomingSearch(
-		ctx, shardName, vector, distance, limit, filters, keywordRanking, sort, cursor, additional)
+		ctx, shardName, vector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional)
 }
 
 func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardName string,

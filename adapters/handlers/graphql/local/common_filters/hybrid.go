@@ -69,10 +69,6 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 	}
 
 	args.SubSearches = weightedSearchResults
-	limitI := source["limit"]
-	if limitI != nil {
-		args.Limit = int(limitI.(int))
-	}
 
 	alpha, ok := source["alpha"]
 	if ok {
@@ -90,11 +86,29 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 		args.Query = query.(string)
 	}
 
+	autocut, ok := source["autocut"]
+	if ok {
+		args.AutoCut = autocut.(int)
+	}
+
+	// there is a default value in graphql, this value should always be present
+	fusionType, ok := source["fusionType"]
+	if ok {
+		args.FusionAlgorithm = fusionType.(int)
+	}
 	if _, ok := source["vector"]; ok {
 		vector := source["vector"].([]interface{})
 		args.Vector = make([]float32, len(vector))
 		for i, value := range vector {
 			args.Vector[i] = float32(value.(float64))
+		}
+	}
+
+	if _, ok := source["properties"]; ok {
+		properties := source["properties"].([]interface{})
+		args.Properties = make([]string, len(properties))
+		for i, value := range properties {
+			args.Properties[i] = value.(string)
 		}
 	}
 

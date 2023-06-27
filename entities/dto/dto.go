@@ -34,9 +34,11 @@ type GetParams struct {
 	NearObject            *searchparams.NearObject
 	KeywordRanking        *searchparams.KeywordRanking
 	HybridSearch          *searchparams.HybridSearch
+	GroupBy               *searchparams.GroupBy
 	SearchVector          []float32
 	Group                 *GroupParams
 	ModuleParams          map[string]interface{}
 	AdditionalProperties  additional.Properties
 	ReplicationProperties *additional.ReplicationProperties
+	TenantKey             string
 }

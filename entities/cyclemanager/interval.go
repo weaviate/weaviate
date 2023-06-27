@@ -64,29 +64,3 @@ func HnswCommitLoggerCycleTicker() CycleTicker {
 	return NewExpTicker(hnswCommitLoggerMinInterval, hnswCommitLoggerMaxInterval,
 		hnswCommitLoggerBase, hnswCommitLoggerSteps)
 }
-
-type TickerProvider func() CycleTicker
-
-func FixedIntervalTickerProvider(interval time.Duration) TickerProvider {
-	return func() CycleTicker {
-		return NewFixedIntervalTicker(interval)
-	}
-}
-
-func SeriesTickerProvider(intervals []time.Duration) TickerProvider {
-	return func() CycleTicker {
-		return NewSeriesTicker(intervals)
-	}
-}
-
-func LinearTickerProvider(minInterval, maxInterval time.Duration, steps uint) TickerProvider {
-	return func() CycleTicker {
-		return NewLinearTicker(minInterval, maxInterval, steps)
-	}
-}
-
-func ExpTickerProvider(minInterval, maxInterval time.Duration, base, steps uint) TickerProvider {
-	return func() CycleTicker {
-		return NewExpTicker(minInterval, maxInterval, base, steps)
-	}
-}

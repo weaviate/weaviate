@@ -157,20 +157,38 @@ func (h *hnsw) SearchByVectorDistance(vector []float32, targetDistance float32, 
 	return resultIDs, resultDist, nil
 }
 
+func (h *hnsw) shouldRescore() bool {
+	return h.compressed.Load() && !h.doNotRescore.Load()
+}
+
+func (h *hnsw) freeSortedQueue(sorted priorityqueue.SortedQueue) {
+	if !h.shouldRescore() {
+		h.pools.pqResults.Put(sorted.(*priorityqueue.Queue))
+	} else {
+		h.pools.pqSortedSetResults.Put(sorted.(*ssdhelpers.SortedSet))
+	}
+}
+
 func (h *hnsw) searchLayerByVector(queryVector []float32,
-	entrypoints *priorityqueue.Queue, ef int, level int,
-	allowList helpers.AllowList) (*priorityqueue.Queue, error,
+	entrypoints priorityqueue.SortedQueue, ef int, level int,
+	allowList helpers.AllowList) (priorityqueue.SortedQueue, error,
 ) {
 	h.pools.visitedListsLock.Lock()
 	visited := h.pools.visitedLists.Borrow()
 	h.pools.visitedListsLock.Unlock()
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
-	results := h.pools.pqResults.GetMax(ef)
+	var results priorityqueue.SortedQueue
+	if !h.shouldRescore() {
+		results = h.pools.pqResults.GetMax(ef)
+	} else {
+		results = h.pools.pqSortedSetResults.Get(ef)
+	}
 	var floatDistancer distancer.Distancer
 	var byteDistancer *ssdhelpers.PQDistancer
 	if h.compressed.Load() {
 		byteDistancer = h.pq.NewDistancer(queryVector)
+		defer h.pq.ReturnDistancer(byteDistancer)
 	} else {
 		floatDistancer = h.distancerProvider.New(queryVector)
 	}
@@ -191,29 +209,16 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 
 	for candidates.Len() > 0 {
 		var dist float32
-		var ok bool
-		var err error
-		if h.compressed.Load() {
-			dist, ok, err = h.distanceToByteNode(byteDistancer, candidates.Top().ID)
-		} else {
-			dist, ok, err = h.distanceToFloatNode(floatDistancer, candidates.Top().ID)
-		}
-		if err != nil {
-			return nil, errors.Wrap(err, "calculate distance between candidate and query")
-		}
-		if err != nil {
-			return nil, errors.Wrap(err, "calculate distance between candidate and query")
-		}
-
-		if !ok {
-			candidates.Pop()
-			continue
-		}
+		candidate := candidates.Pop()
+		dist = candidate.Dist
 
 		if dist > worstResultDistance {
 			break
 		}
-		candidate := candidates.Pop()
+		if h.shouldRescore() {
+			dist, _, _ = h.distanceFromBytesToFloatNode(byteDistancer, candidate.ID)
+			results.ReSort(candidate.ID, dist)
+		}
 		h.RLock()
 		candidateNode := h.nodes[candidate.ID]
 		h.RUnlock()
@@ -304,12 +309,17 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 				}
 
 				// +1 because we have added one node size calculating the len
-				if results.Len() > ef {
+				if !h.shouldRescore() && results.Len() > ef {
 					results.Pop()
 				}
 
 				if results.Len() > 0 {
-					worstResultDistance = results.Top().Dist
+					if !h.shouldRescore() {
+						worstResultDistance = results.Top().Dist
+					} else {
+						wdist, _ := results.Last()
+						worstResultDistance = wdist.Dist
+					}
 				}
 			}
 		}
@@ -327,7 +337,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 }
 
 func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
-	entrypoints, candidates, results *priorityqueue.Queue, level int,
+	entrypoints, candidates, results priorityqueue.SortedQueue, level int,
 	visitedList visited.ListSet, allowList helpers.AllowList,
 ) {
 	for entrypoints.Len() > 0 {
@@ -352,7 +362,7 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	}
 }
 
-func (h *hnsw) currentWorstResultDistanceToFloat(results *priorityqueue.Queue,
+func (h *hnsw) currentWorstResultDistanceToFloat(results priorityqueue.SortedQueue,
 	distancer distancer.Distancer,
 ) (float32, error) {
 	if results.Len() > 0 {
@@ -376,11 +386,21 @@ func (h *hnsw) currentWorstResultDistanceToFloat(results *priorityqueue.Queue,
 	}
 }
 
-func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue,
+func (h *hnsw) currentWorstResultDistanceToByte(results priorityqueue.SortedQueue,
 	distancer *ssdhelpers.PQDistancer,
 ) (float32, error) {
 	if results.Len() > 0 {
-		id := results.Top().ID
+		var item priorityqueue.Item
+		var id uint64
+		if !h.shouldRescore() {
+			item = results.Top()
+		} else {
+			item, _ = results.Last()
+		}
+		if item.Dist > 0 {
+			return item.Dist, nil
+		}
+		id = item.ID
 		d, ok, err := h.distanceToByteNode(distancer, id)
 		if err != nil {
 			return 0, errors.Wrap(err,
@@ -415,6 +435,24 @@ func (h *hnsw) distanceToByteNode(distancer *ssdhelpers.PQDistancer,
 		}
 	}
 	return distancer.Distance(vec)
+}
+
+func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer *ssdhelpers.PQDistancer, nodeID uint64) (float32, bool, error) {
+	vec, err := h.VectorForIDThunk(context.Background(), nodeID)
+	if h.distancerProvider.Type() == "cosine-dot" {
+		vec = distancer.Normalize(vec)
+	}
+	if err != nil {
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			h.handleDeletedNode(e.DocID)
+			return 0, false, nil
+		} else {
+			// not a typed error, we can recover from, return with err
+			return 0, false, errors.Wrapf(err, "get vector of docID %d", nodeID)
+		}
+	}
+	return concreteDistancer.DistanceToFloat(vec)
 }
 
 func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer,
@@ -517,7 +555,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 			// entrypoint
 		}
 
-		h.pools.pqResults.pool.Put(res)
+		h.freeSortedQueue(res)
 	}
 
 	eps := priorityqueue.NewMin(10)
@@ -525,6 +563,11 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	res, err := h.searchLayerByVector(searchVec, eps, ef, 0, allowList)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
+	}
+
+	if h.compressed.Load() && !h.doNotRescore.Load() {
+		ids, dists := res.Items(k)
+		return ids, dists, nil
 	}
 
 	for res.Len() > k {
@@ -544,7 +587,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		i--
 	}
 
-	h.pools.pqResults.Put(res)
+	h.freeSortedQueue(res)
 
 	return ids, dists, nil
 }

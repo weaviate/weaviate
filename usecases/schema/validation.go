@@ -44,7 +44,7 @@ func (m *Manager) validateClassName(ctx context.Context, className string) error
 	return err
 }
 
-func validatePropertyTokenization(tokenization string, propertyDataType schema.PropertyDataType) error {
+func (m *Manager) validatePropertyTokenization(tokenization string, propertyDataType schema.PropertyDataType) error {
 	if propertyDataType.IsPrimitive() {
 		primitiveDataType := propertyDataType.AsPrimitive()
 
@@ -74,6 +74,32 @@ func validatePropertyTokenization(tokenization string, propertyDataType schema.P
 		return nil
 	}
 	return fmt.Errorf("Tokenization is not allowed for reference data type")
+}
+
+func (m *Manager) validatePropertyIndexing(prop *models.Property) error {
+	if prop.IndexInverted != nil {
+		if prop.IndexFilterable != nil || prop.IndexSearchable != nil {
+			return fmt.Errorf("`indexInverted` is deprecated and can not be set together with `indexFilterable` or `indexSearchable`.")
+		}
+	}
+
+	if prop.IndexSearchable != nil {
+		switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
+		case schema.DataTypeString, schema.DataTypeStringArray:
+			// string/string[] are migrated to text/text[] later,
+			// at this point they are still valid data types, therefore should be handled here
+			// true or false allowed
+		case schema.DataTypeText, schema.DataTypeTextArray:
+			// true or false allowed
+		default:
+			if *prop.IndexSearchable {
+				return fmt.Errorf("`indexSearchable` is allowed only for text/text[] data types. " +
+					"For other data types set false or leave empty")
+			}
+		}
+	}
+
+	return nil
 }
 
 func (m *Manager) validateVectorSettings(ctx context.Context, class *models.Class) error {

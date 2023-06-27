@@ -67,7 +67,7 @@ func TestFilterNullStateError(t *testing.T) {
 		Pagination:   &filters.Pagination{Limit: 5},
 		Filters:      nilFilter,
 	}
-	_, err = repo.ClassSearch(context.Background(), params)
+	_, err = repo.Search(context.Background(), params)
 	require.NotNil(t, err)
 }
 
@@ -117,20 +117,20 @@ func TestNullArrayClass(t *testing.T) {
 			}
 
 			if name == names[0] {
-				assert.Nil(t, repo.PutObject(context.Background(), arrayObjNil, []float32{1}, nil))
-				assert.Nil(t, repo.PutObject(context.Background(), arrayObjEmpty, []float32{1}, nil))
+				assert.Nil(t, repo.PutObject(context.Background(), arrayObjNil, []float32{1}, nil, ""))
+				assert.Nil(t, repo.PutObject(context.Background(), arrayObjEmpty, []float32{1}, nil, ""))
 
 			} else {
 				batch := make([]objects.BatchObject, 2)
 				batch[0] = objects.BatchObject{Object: arrayObjNil, UUID: arrayObjNil.ID}
 				batch[1] = objects.BatchObject{Object: arrayObjEmpty, UUID: arrayObjEmpty.ID}
-				_, err := repo.BatchPutObjects(context.Background(), batch, nil)
+				_, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
 				assert.Nil(t, err)
 			}
 
-			item1, err := repo.ObjectByID(context.Background(), arrayObjNil.ID, nil, additional.Properties{})
+			item1, err := repo.ObjectByID(context.Background(), arrayObjNil.ID, nil, additional.Properties{}, "")
 			assert.Nil(t, err)
-			item2, err := repo.ObjectByID(context.Background(), arrayObjEmpty.ID, nil, additional.Properties{})
+			item2, err := repo.ObjectByID(context.Background(), arrayObjEmpty.ID, nil, additional.Properties{}, "")
 			assert.Nil(t, err)
 
 			item1Schema := item1.Schema.(map[string]interface{})

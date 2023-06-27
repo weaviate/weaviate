@@ -32,7 +32,7 @@ import (
 // underlying databases or storage providers
 type Manager struct {
 	migrator                migrate.Migrator
-	repo                    Repo
+	repo                    SchemaStore
 	state                   State
 	callbacks               []func(updatedSchema schema.Schema)
 	logger                  logrus.FieldLogger
@@ -74,14 +74,42 @@ type ModuleConfig interface {
 	ValidateClass(ctx context.Context, class *models.Class) error
 }
 
-// Repo describes the requirements the schema manager has to a database to load
-// and persist the schema state
-type Repo interface {
-	SaveSchema(ctx context.Context, schema State) error
+// SchemaStore is responsible for persisting the schema
+// by providing support for both partial and complete schema updates
+type SchemaStore interface {
+	// Save saves the complete schema to the persistent storage
+	Save(ctx context.Context, schema State) error
 
-	// should return nil (and no error) to indicate that no remote schema had
-	// been stored before
-	LoadSchema(ctx context.Context) (*State, error)
+	// Load loads the complete schema from the persistent storage
+	Load(context.Context) (State, error)
+
+	// NewClass creates a new class if it doesn't exists, otherwise return an error
+	NewClass(context.Context, ClassPayload) error
+
+	// UpdateClass if it exists, otherwise return an error
+	UpdateClass(context.Context, ClassPayload) error
+
+	// DeleteClass deletes class
+	DeleteClass(ctx context.Context, class string) error
+
+	// NewShards creates new shards of an existing class
+	NewShards(ctx context.Context, class string, shards []KeyValuePair) error
+}
+
+// KeyValuePair is used to serialize shards updates
+type KeyValuePair struct {
+	Key   string
+	Value []byte
+}
+
+// ClassPayload is used to serialize class updates
+type ClassPayload struct {
+	Name          string
+	Metadata      []byte
+	ShardingState []byte
+	Shards        []KeyValuePair
+	ReplaceShards bool
+	Error         error
 }
 
 type clusterState interface {
@@ -108,7 +136,7 @@ type scaleOut interface {
 }
 
 // NewManager creates a new manager
-func NewManager(migrator migrate.Migrator, repo Repo,
+func NewManager(migrator migrate.Migrator, repo SchemaStore,
 	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
 	hnswConfigParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
@@ -161,16 +189,28 @@ type State struct {
 	ShardingState map[string]*sharding.State
 }
 
-func (m *Manager) saveSchema(ctx context.Context) error {
+// NewState returns a new state with room for nClasses classes
+func NewState(nClasses int) State {
+	return State{
+		ObjectSchema: &models.Schema{
+			Classes: make([]*models.Class, 0, nClasses),
+		},
+		ShardingState: make(map[string]*sharding.State, nClasses),
+	}
+}
+
+func (m *Manager) saveSchema(ctx context.Context, doAfter func(err error)) error {
 	m.logger.
-		WithField("action", "schema_update").
+		WithField("action", "schema.save").
 		Debug("saving updated schema to configuration store")
 
-	err := m.repo.SaveSchema(ctx, m.state)
+	err := m.repo.Save(ctx, m.state)
+	if doAfter != nil {
+		doAfter(err)
+	}
 	if err != nil {
 		return err
 	}
-
 	m.triggerSchemaUpdateCallbacks()
 	return nil
 }
@@ -191,21 +231,16 @@ func (m *Manager) triggerSchemaUpdateCallbacks() {
 }
 
 func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
-	schema, err := m.repo.LoadSchema(ctx)
+	schema, err := m.repo.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("could not load schema:  %v", err)
 	}
-
-	if schema == nil {
-		schema = newSchema()
-	}
-
-	if err := m.parseConfigs(ctx, schema); err != nil {
+	if err := m.parseConfigs(ctx, &schema); err != nil {
 		return errors.Wrap(err, "load schema")
 	}
 
 	// store in local cache
-	m.state = *schema
+	m.state = schema
 
 	if err := m.migrateSchemaIfNecessary(ctx); err != nil {
 		return fmt.Errorf("migrate schema: %w", err)
@@ -222,12 +257,12 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	// otherwise two identical schemas might fail the check based on form rather
 	// than content
 
-	if err := m.startupClusterSync(ctx, schema); err != nil {
+	if err := m.startupClusterSync(ctx, &schema); err != nil {
 		return errors.Wrap(err, "sync schema with other nodes in the cluster")
 	}
 
 	// store in persistent storage
-	if err := m.repo.SaveSchema(ctx, m.state); err != nil {
+	if err := m.repo.Save(ctx, m.state); err != nil {
 		return fmt.Errorf("initialized a new schema, but couldn't update remote: %v", err)
 	}
 
@@ -277,10 +312,10 @@ func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
 		if err := replica.ValidateConfig(c); err != nil {
 			return fmt.Errorf("validate replication config: %w", err)
 		}
-
 		shardState, err := sharding.InitState(c.Class,
 			c.ShardingConfig.(sharding.Config),
-			m.clusterState, c.ReplicationConfig.Factor)
+			m.clusterState, c.ReplicationConfig.Factor,
+			isMultiTenancyEnabled(c.MultiTenancyConfig))
 		if err != nil {
 			return errors.Wrap(err, "init sharding state")
 		}
@@ -320,8 +355,8 @@ func newSchema() *State {
 func (m *Manager) parseConfigs(ctx context.Context, schema *State) error {
 	for _, class := range schema.ObjectSchema.Classes {
 		for _, prop := range class.Properties {
-			m.setPropertyDefaults(prop)
-			m.migratePropertySettings(prop)
+			setPropertyDefaults(prop)
+			migratePropertySettings(prop)
 		}
 
 		if err := m.parseVectorIndexConfig(ctx, class); err != nil {

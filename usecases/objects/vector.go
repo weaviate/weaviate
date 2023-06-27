@@ -15,10 +15,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 )
 
@@ -26,8 +25,8 @@ func (m *Manager) updateRefVector(ctx context.Context, principal *models.Princip
 	className string, id strfmt.UUID,
 ) error {
 	if m.modulesProvider.UsingRef2Vec(className) {
-		parent, err := m.vectorRepo.Object(ctx, className,
-			id, search.SelectProperties{}, additional.Properties{}, nil)
+		parent, err := m.vectorRepo.Object(ctx, className, id,
+			search.SelectProperties{}, additional.Properties{}, nil, "")
 		if err != nil {
 			return fmt.Errorf("find parent '%s/%s': %w",
 				className, id, err)
@@ -45,7 +44,7 @@ func (m *Manager) updateRefVector(ctx context.Context, principal *models.Princip
 				className, id, err)
 		}
 
-		if err := m.vectorRepo.PutObject(ctx, obj, obj.Vector, nil); err != nil {
+		if err := m.vectorRepo.PutObject(ctx, obj, obj.Vector, nil, ""); err != nil {
 			return fmt.Errorf("put object: %w", err)
 		}
 
@@ -60,26 +59,26 @@ func (m *Manager) updateRefVector(ctx context.Context, principal *models.Princip
 // m.modulesProvider.UpdateVector when m.vectorRepo.ObjectByID
 // is finally removed
 func (m *Manager) findObject(ctx context.Context, class string,
-	id strfmt.UUID, props search.SelectProperties,
-	addl additional.Properties,
+	id strfmt.UUID, props search.SelectProperties, addl additional.Properties,
+	tenantKey string,
 ) (*search.Result, error) {
 	// to support backwards compat
 	if class == "" {
-		return m.vectorRepo.ObjectByID(ctx, id, props, addl)
+		return m.vectorRepo.ObjectByID(ctx, id, props, addl, tenantKey)
 	}
-	return m.vectorRepo.Object(ctx, class, id, props, addl, nil)
+	return m.vectorRepo.Object(ctx, class, id, props, addl, nil, tenantKey)
 }
 
 // TODO: remove this method and just pass b.vectorRepo.Object to
 // b.modulesProvider.UpdateVector when b.vectorRepo.ObjectByID
 // is finally removed
 func (b *BatchManager) findObject(ctx context.Context, class string,
-	id strfmt.UUID, props search.SelectProperties,
-	addl additional.Properties,
+	id strfmt.UUID, props search.SelectProperties, addl additional.Properties,
+	tenantKey string,
 ) (*search.Result, error) {
 	// to support backwards compat
 	if class == "" {
-		return b.vectorRepo.ObjectByID(ctx, id, props, addl)
+		return b.vectorRepo.ObjectByID(ctx, id, props, addl, tenantKey)
 	}
-	return b.vectorRepo.Object(ctx, class, id, props, addl, nil)
+	return b.vectorRepo.Object(ctx, class, id, props, addl, nil, tenantKey)
 }

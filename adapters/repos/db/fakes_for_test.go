@@ -68,7 +68,7 @@ func singleShardState() *sharding.State {
 		panic(err)
 	}
 
-	s, err := sharding.InitState("test-index", config, fakeNodes{[]string{"node1"}}, 1)
+	s, err := sharding.InitState("test-index", config, fakeNodes{[]string{"node1"}}, 1, false)
 	if err != nil {
 		panic(err)
 	}
@@ -85,7 +85,7 @@ func multiShardState() *sharding.State {
 	}
 
 	s, err := sharding.InitState("multi-shard-test-index", config,
-		fakeNodes{[]string{"node1"}}, 1)
+		fakeNodes{[]string{"node1"}}, 1, false)
 	if err != nil {
 		panic(err)
 	}
@@ -167,7 +167,7 @@ func (f *fakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexN
 func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []float32, limit int,
 	filters *filters.LocalFilter, _ *searchparams.KeywordRanking, sort []filters.Sort,
-	cursor *filters.Cursor, additional additional.Properties,
+	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	return nil, nil, nil
 }
@@ -222,7 +222,7 @@ func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
 
 type fakeRemoteNodeClient struct{}
 
-func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName string) (*models.NodeStatus, error) {
+func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName string, className string) (*models.NodeStatus, error) {
 	return &models.NodeStatus{}, nil
 }
 

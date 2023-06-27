@@ -34,7 +34,7 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	}
 	defer unlock()
 
-	err = m.validateObjectAndNormalizeNames(ctx, principal, obj, repl)
+	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, obj, nil, "")
 	if err != nil {
 		return NewErrInvalidUserInput("invalid object: %v", err)
 	}

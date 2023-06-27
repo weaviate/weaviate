@@ -30,6 +30,10 @@ func FromEnv(config *Config) error {
 		config.Monitoring.Enabled = true
 		config.Monitoring.Tool = "prometheus"
 		config.Monitoring.Port = 2112
+
+		if enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) {
+			config.Monitoring.GroupClasses = true
+		}
 	}
 
 	if enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
@@ -40,6 +44,11 @@ func FromEnv(config *Config) error {
 		if config.TrackVectorDimensions {
 			config.ReindexVectorDimensionsAtStartup = true
 		}
+	}
+
+	// Recount all property lengths at startup to support accurate BM25 scoring
+	if enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {
+		config.RecountPropertiesAtStartup = true
 	}
 
 	if enabled(os.Getenv("REINDEX_SET_TO_ROARINGSET_AT_STARTUP")) {
@@ -251,6 +260,7 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	config.DisableGraphQL = enabled(os.Getenv("DISABLE_GRAPHQL"))
 	return nil
 }
 

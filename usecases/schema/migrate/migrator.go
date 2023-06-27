@@ -34,6 +34,7 @@ type Migrator interface {
 		prop *models.Property) error
 	UpdateProperty(ctx context.Context, className string,
 		propName string, newName *string) error
+	NewPartitions(ctx context.Context, class *models.Class, partitions []string) (commit func(success bool), err error)
 	ValidateVectorIndexConfigUpdate(ctx context.Context,
 		old, updated schema.VectorIndexConfig) error
 	UpdateVectorIndexConfig(ctx context.Context, className string,
@@ -43,7 +44,7 @@ type Migrator interface {
 	UpdateInvertedIndexConfig(ctx context.Context, className string,
 		updated *models.InvertedIndexConfig) error
 	RecalculateVectorDimensions(ctx context.Context) error
-
+	RecountProperties(ctx context.Context) error
 	InvertedReindex(ctx context.Context, taskNames ...string) error
 	AdjustFilterablePropSettings(ctx context.Context) error
 }

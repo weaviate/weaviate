@@ -38,7 +38,7 @@ type SegmentGroup struct {
 
 	strategy string
 
-	compactionCycle *cyclemanager.CycleManager
+	unregisterCompaction cyclemanager.UnregisterFunc
 
 	logger logrus.FieldLogger
 
@@ -58,7 +58,7 @@ type SegmentGroup struct {
 
 func newSegmentGroup(dir string, logger logrus.FieldLogger,
 	mapRequiresSorting bool, metrics *Metrics, strategy string,
-	monitorCount bool,
+	monitorCount bool, compactionCycleManager cyclemanager.CycleManager,
 ) (*SegmentGroup, error) {
 	list, err := os.ReadDir(dir)
 	if err != nil {
@@ -131,10 +131,7 @@ func newSegmentGroup(dir string, logger logrus.FieldLogger,
 		out.metrics.ObjectCount(out.count())
 	}
 
-	out.compactionCycle = cyclemanager.New(
-		cyclemanager.CompactionCycleTicker(),
-		out.compactIfLevelsMatch)
-	out.compactionCycle.Start()
+	out.unregisterCompaction = compactionCycleManager.Register(out.compactIfLevelsMatch)
 
 	return out, nil
 }
@@ -322,7 +319,7 @@ func (sg *SegmentGroup) count() int {
 }
 
 func (sg *SegmentGroup) shutdown(ctx context.Context) error {
-	if err := sg.compactionCycle.StopAndWait(ctx); err != nil {
+	if err := sg.unregisterCompaction(ctx); err != nil {
 		return errors.Wrap(ctx.Err(), "long-running compaction in progress")
 	}
 

@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-type exists func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties) (bool, error)
+type exists func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error)
 
 const (
 	// ErrorMissingActionObjects message
@@ -65,24 +65,28 @@ type Validator struct {
 	exists           exists
 	config           *config.WeaviateConfig
 	replicationProps *additional.ReplicationProperties
+	tenantKey        string
 }
 
 func New(exists exists, config *config.WeaviateConfig,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) *Validator {
 	return &Validator{
 		exists:           exists,
 		config:           config,
 		replicationProps: repl,
+		tenantKey:        tenantKey,
 	}
 }
 
-func (v *Validator) Object(ctx context.Context, object *models.Object, class *models.Class) error {
-	if err := validateClass(object.Class); err != nil {
+func (v *Validator) Object(ctx context.Context, class *models.Class,
+	incoming *models.Object, existing *models.Object,
+) error {
+	if err := validateClass(incoming.Class); err != nil {
 		return err
 	}
 
-	return v.properties(ctx, object, class)
+	return v.properties(ctx, class, incoming, existing)
 }
 
 func validateClass(class string) error {
@@ -109,7 +113,7 @@ func (v *Validator) ValidateSingleRef(ctx context.Context, cref *models.SingleRe
 	}
 
 	// locally check for object existence
-	ok, err := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps)
+	ok, err := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, v.tenantKey)
 	if err != nil {
 		return err
 	}
