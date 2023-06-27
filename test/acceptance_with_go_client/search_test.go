@@ -289,3 +289,46 @@ func TestNearVectorAndObjectAutocut(t *testing.T) {
 		}
 	})
 }
+
+func TestNearTextAutocut(t *testing.T) {
+	ctx := context.Background()
+	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c.Schema().AllDeleter().Do(ctx)
+	className := "YellowAndBlueSub"
+
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				Name:         "text",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWord,
+			},
+		},
+		Vectorizer: "text2vec-contextionary",
+	}
+	require.Nil(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+	// defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+	creator := c.Data().Creator()
+
+	texts := []string{"word", "another word", "another word and", "completely unrelated"}
+	for _, text := range texts {
+		_, err := creator.WithClassName(className).WithProperties(map[string]interface{}{"text": text}).Do(ctx)
+		require.Nil(t, err)
+	}
+	cases := []struct {
+		autocut    int
+		numResults int
+	}{
+		{autocut: 1, numResults: 3}, {autocut: -1, numResults: 4 /*disabled*/},
+	}
+	for _, tt := range cases {
+		t.Run("autocut "+fmt.Sprint(tt.autocut), func(t *testing.T) {
+			results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(nearText:{concepts: \"word\"}, autocut: %d){_additional{vector}}}}", className, tt.autocut)).Do(ctx)
+			require.Nil(t, err)
+			result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
+			require.Len(t, result, tt.numResults)
+		})
+	}
+}
