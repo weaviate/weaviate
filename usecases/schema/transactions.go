@@ -104,5 +104,6 @@ func UnmarshalTransaction(txType cluster.TransactionType,
 func unmarshalRawJson[T any](payload json.RawMessage) (T, error) {
 	var v T
 	err := json.Unmarshal(payload, &v)
+
 	return v, err
 }

@@ -2368,6 +2368,28 @@ func init() {
         ]
       }
     },
+    "/schema/cluster-status": {
+      "get": {
+        "tags": [
+          "schema"
+        ],
+        "operationId": "schema.cluster.status",
+        "responses": {
+          "200": {
+            "description": "The schema in the cluster is in sync.",
+            "schema": {
+              "$ref": "#/definitions/SchemaClusterStatus"
+            }
+          },
+          "500": {
+            "description": "The schema is either out of sync (see response body) or the sync check could not be completed.",
+            "schema": {
+              "$ref": "#/definitions/SchemaClusterStatus"
+            }
+          }
+        }
+      }
+    },
     "/schema/{className}": {
       "get": {
         "tags": [
@@ -4195,6 +4217,36 @@ func init() {
         "name": {
           "description": "Name of the schema.",
           "type": "string"
+        }
+      }
+    },
+    "SchemaClusterStatus": {
+      "description": "Indicates the health of the schema in a cluster.",
+      "type": "object",
+      "properties": {
+        "error": {
+          "description": "Contains the sync check error if one occurred",
+          "type": "string",
+          "x-omitempty": true
+        },
+        "healthy": {
+          "description": "True if the cluster is in sync, false if there is an issue (see error).",
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "hostname": {
+          "description": "Hostname of the coordinating node, i.e. the one that received the cluster. This can be useful information if the error message contains phrases such as 'other nodes agree, but local does not', etc.",
+          "type": "string"
+        },
+        "ignoreSchemaSync": {
+          "description": "The cluster check at startup can be ignored (to recover from an out-of-sync situation).",
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "nodeCount": {
+          "description": "Number of nodes that participated in the sync check",
+          "type": "number",
+          "format": "int"
         }
       }
     },
@@ -6977,6 +7029,28 @@ func init() {
         ]
       }
     },
+    "/schema/cluster-status": {
+      "get": {
+        "tags": [
+          "schema"
+        ],
+        "operationId": "schema.cluster.status",
+        "responses": {
+          "200": {
+            "description": "The schema in the cluster is in sync.",
+            "schema": {
+              "$ref": "#/definitions/SchemaClusterStatus"
+            }
+          },
+          "500": {
+            "description": "The schema is either out of sync (see response body) or the sync check could not be completed.",
+            "schema": {
+              "$ref": "#/definitions/SchemaClusterStatus"
+            }
+          }
+        }
+      }
+    },
     "/schema/{className}": {
       "get": {
         "tags": [
@@ -8981,6 +9055,36 @@ func init() {
         "name": {
           "description": "Name of the schema.",
           "type": "string"
+        }
+      }
+    },
+    "SchemaClusterStatus": {
+      "description": "Indicates the health of the schema in a cluster.",
+      "type": "object",
+      "properties": {
+        "error": {
+          "description": "Contains the sync check error if one occurred",
+          "type": "string",
+          "x-omitempty": true
+        },
+        "healthy": {
+          "description": "True if the cluster is in sync, false if there is an issue (see error).",
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "hostname": {
+          "description": "Hostname of the coordinating node, i.e. the one that received the cluster. This can be useful information if the error message contains phrases such as 'other nodes agree, but local does not', etc.",
+          "type": "string"
+        },
+        "ignoreSchemaSync": {
+          "description": "The cluster check at startup can be ignored (to recover from an out-of-sync situation).",
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "nodeCount": {
+          "description": "Number of nodes that participated in the sync check",
+          "type": "number",
+          "format": "int"
         }
       }
     },
