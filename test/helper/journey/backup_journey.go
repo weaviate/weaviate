@@ -34,7 +34,7 @@ const (
 
 const (
 	singleTenant = ""
-	multiTenant  = "tenantID"
+	multiTenant  = true
 )
 
 func backupJourney(t *testing.T, className, backend, backupID string,
@@ -137,7 +137,7 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 	}
 }
 
-func addTestClass(t *testing.T, className string, tenantKey string) {
+func addTestClass(t *testing.T, className string, multiTenant bool) {
 	class := &models.Class{
 		Class: className,
 		ModuleConfig: map[string]interface{}{
@@ -154,11 +154,7 @@ func addTestClass(t *testing.T, className string, tenantKey string) {
 		},
 	}
 
-	if tenantKey != singleTenant {
-		class.Properties = append(class.Properties, &models.Property{
-			Name:     multiTenant,
-			DataType: []string{"string"},
-		})
+	if multiTenant {
 		class.MultiTenancyConfig = &models.MultiTenancyConfig{
 			Enabled: true,
 		}
@@ -167,7 +163,7 @@ func addTestClass(t *testing.T, className string, tenantKey string) {
 	helper.CreateClass(t, class)
 }
 
-func addTestObjects(t *testing.T, className string, tenant string) {
+func addTestObjects(t *testing.T, className string, tenantNames []string) {
 	const (
 		noteLengthMin = 4
 		noteLengthMax = 1024
@@ -177,6 +173,7 @@ func addTestObjects(t *testing.T, className string, tenant string) {
 	)
 
 	seededRand := rand.New(rand.NewSource(time.Now().UnixNano()))
+	multiTenant := len(tenantNames) > 0
 
 	for i := 0; i < numBatches; i++ {
 		batch := make([]*models.Object, batchSize)
@@ -188,8 +185,8 @@ func addTestObjects(t *testing.T, className string, tenant string) {
 				Class:      className,
 				Properties: map[string]interface{}{"contents": contents},
 			}
-			if tenant != singleTenant {
-				obj.TenantName = tenant
+			if multiTenant {
+				obj.TenantName = tenantNames[i]
 			}
 			batch[j] = &obj
 		}
