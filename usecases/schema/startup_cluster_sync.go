@@ -189,8 +189,8 @@ func (m *Manager) validateSchemaCorruption(ctx context.Context,
 			"diff": diff,
 		}).Errorf("mismatch between local schema and remote (other nodes consensus) schema")
 
-		return fmt.Errorf("corrupt cluster: other nodes have consensus on schema, " +
-			"but local node has a different (non-null) schema")
+		return fmt.Errorf("corrupt cluster: other nodes have consensus on schema, "+
+			"but local node has a different (non-null) schema: %s", diff)
 	}
 
 	return nil
