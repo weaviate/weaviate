@@ -70,7 +70,17 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 		index.Add(uint64(id), vectors[id])
 	})
 	index.Delete(delete_indices...)
-	index.Compress(dimensions, 256, false, int(ssdhelpers.UseKMeansEncoder), int(ssdhelpers.LogNormalEncoderDistribution))
+
+	cfg := ent.PQConfig{
+		Enabled: true,
+		Encoder: ent.PQEncoder{
+			Type:         ent.PQEncoderTypeKMeans,
+			Distribution: ent.PQEncoderDistributionLogNormal,
+		},
+		Segments:  dimensions,
+		Centroids: 256,
+	}
+	index.Compress(cfg)
 	for _, v := range queries {
 		_, _, err := index.SearchByVector(v, k, nil)
 		assert.Nil(t, err)

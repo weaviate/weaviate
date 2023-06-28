@@ -27,7 +27,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-openai/config"
-	"github.com/weaviate/weaviate/modules/generative-openai/ent"
+	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
@@ -67,7 +67,7 @@ func New(openAIApiKey, azureApiKey string, logger logrus.FieldLogger) *openai {
 	}
 }
 
-func (v *openai) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
+func (v *openai) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
 	forPrompt, err := v.generateForPrompt(textProperties, prompt)
 	if err != nil {
 		return nil, err
@@ -75,7 +75,7 @@ func (v *openai) GenerateSingleResult(ctx context.Context, textProperties map[st
 	return v.Generate(ctx, cfg, forPrompt)
 }
 
-func (v *openai) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
+func (v *openai) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
 	forTask, err := v.generatePromptForTask(textProperties, task)
 	if err != nil {
 		return nil, err
@@ -83,7 +83,7 @@ func (v *openai) GenerateAllResults(ctx context.Context, textProperties []map[st
 	return v.Generate(ctx, cfg, forTask)
 }
 
-func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*ent.GenerateResult, error) {
+func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
 	settings := config.NewClassSettings(cfg)
 
 	oaiUrl, err := v.buildUrl(settings.IsLegacy(), settings.ResourceName(), settings.DeploymentID())
@@ -136,7 +136,7 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	textResponse := resBody.Choices[0].Text
 	if len(resBody.Choices) > 0 && textResponse != "" {
 		trimmedResponse := strings.Trim(textResponse, "\n")
-		return &ent.GenerateResult{
+		return &generativemodels.GenerateResponse{
 			Result: &trimmedResponse,
 		}, nil
 	}
@@ -145,12 +145,12 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	if message != nil {
 		textResponse = message.Content
 		trimmedResponse := strings.Trim(textResponse, "\n")
-		return &ent.GenerateResult{
+		return &generativemodels.GenerateResponse{
 			Result: &trimmedResponse,
 		}, nil
 	}
 
-	return &ent.GenerateResult{
+	return &generativemodels.GenerateResponse{
 		Result: nil,
 	}, nil
 }

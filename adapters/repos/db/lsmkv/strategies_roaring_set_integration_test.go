@@ -15,9 +15,7 @@
 package lsmkv
 
 import (
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,7 +23,6 @@ import (
 )
 
 func TestRoaringSetStrategy_InsertAndSetAdd(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {

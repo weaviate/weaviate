@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
@@ -73,15 +72,15 @@ func Test_L2_DistanceImplementation_OneNegativeValue(t *testing.T) {
 }
 
 func Benchmark_L2_PureGo_VS_AVX(b *testing.B) {
-	rand.Seed(time.Now().UnixNano())
+	r := getRandomSeed()
 	lengths := []int{30, 32, 128, 256, 300, 384, 600, 768, 1024}
 	for _, length := range lengths {
 		b.Run(fmt.Sprintf("vector dim=%d", length), func(b *testing.B) {
 			x := make([]float32, length)
 			y := make([]float32, length)
 			for i := range x {
-				x[i] = -rand.Float32()
-				y[i] = rand.Float32()
+				x[i] = -r.Float32()
+				y[i] = r.Float32()
 			}
 
 			b.Run("pure go", func(b *testing.B) {

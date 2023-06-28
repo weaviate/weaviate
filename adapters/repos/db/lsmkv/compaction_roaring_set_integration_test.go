@@ -18,7 +18,6 @@ import (
 	"encoding/binary"
 	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,9 +33,9 @@ func Test_CompactionRoaringSet(t *testing.T) {
 	deleteRatio := 0.2   // 20% of all operations will be deletes, 80% additions
 	flushChance := 0.001 // on average one flus per 1000 iterations
 
-	rand.Seed(time.Now().UnixNano())
+	r := getRandomSeed()
 
-	instr := generateRandomInstructions(maxID, maxElement, iterations, deleteRatio)
+	instr := generateRandomInstructions(r, maxID, maxElement, iterations, deleteRatio)
 	control := controlFromInstructions(instr, maxID)
 
 	b, err := NewBucket(testCtx(), t.TempDir(), "", nullLogger(), nil,
@@ -59,7 +58,7 @@ func Test_CompactionRoaringSet(t *testing.T) {
 			b.RoaringSetRemoveOne(key, inst.element)
 		}
 
-		if rand.Float64() < flushChance {
+		if r.Float64() < flushChance {
 			require.Nil(t, b.FlushAndSwitch())
 
 			for b.disk.eligibleForCompaction() {
@@ -106,16 +105,16 @@ type roaringSetInstruction struct {
 	addition bool
 }
 
-func generateRandomInstructions(maxID, maxElement, iterations uint64,
+func generateRandomInstructions(r *rand.Rand, maxID, maxElement, iterations uint64,
 	deleteRatio float64,
 ) []roaringSetInstruction {
 	instr := make([]roaringSetInstruction, iterations)
 
 	for i := range instr {
-		instr[i].key = uint64(rand.Intn(int(maxID)))
-		instr[i].element = uint64(rand.Intn(int(maxElement)))
+		instr[i].key = uint64(r.Intn(int(maxID)))
+		instr[i].element = uint64(r.Intn(int(maxElement)))
 
-		if rand.Float64() > deleteRatio {
+		if r.Float64() > deleteRatio {
 			instr[i].addition = true
 		} else {
 			instr[i].addition = false

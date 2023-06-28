@@ -15,7 +15,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,6 +53,10 @@ func (n *NilMigrator) UpdateShardStatus(ctx context.Context, className, shardNam
 
 func (n *NilMigrator) AddProperty(ctx context.Context, className string, prop *models.Property) error {
 	return nil
+}
+
+func (n *NilMigrator) NewPartitions(ctx context.Context, class *models.Class, partitions []string) (commit func(success bool), err error) {
+	return func(bool) {}, nil
 }
 
 func (n *NilMigrator) UpdateProperty(ctx context.Context, className string, propName string, newName *string) error {
@@ -104,7 +107,6 @@ var schemaTests = []struct {
 	name string
 	fn   func(*testing.T, *Manager)
 }{
-	{name: "UpdateMeta", fn: testUpdateMeta},
 	{name: "AddObjectClass", fn: testAddObjectClass},
 	{name: "AddObjectClassWithExplicitVectorizer", fn: testAddObjectClassExplicitVectorizer},
 	{name: "AddObjectClassWithImplicitVectorizer", fn: testAddObjectClassImplicitVectorizer},
@@ -117,23 +119,6 @@ var schemaTests = []struct {
 	{name: "AddInvalidPropertyDuringCreation", fn: testAddInvalidPropertyDuringCreation},
 	{name: "AddInvalidPropertyWithEmptyDataTypeDuringCreation", fn: testAddInvalidPropertyWithEmptyDataTypeDuringCreation},
 	{name: "DropProperty", fn: testDropProperty},
-}
-
-func testUpdateMeta(t *testing.T, lsm *Manager) {
-	t.Parallel()
-	schema, err := lsm.GetSchema(nil)
-	require.Nil(t, err)
-
-	assert.Equal(t, schema.Objects.Maintainer, strfmt.Email(""))
-	assert.Equal(t, schema.Objects.Name, "")
-
-	assert.Nil(t, lsm.UpdateMeta(context.Background(), "http://new/context", "person@example.org", "somename"))
-
-	schema, err = lsm.GetSchema(nil)
-	require.Nil(t, err)
-
-	assert.Equal(t, schema.Objects.Maintainer, strfmt.Email("person@example.org"))
-	assert.Equal(t, schema.Objects.Name, "somename")
 }
 
 func testAddObjectClass(t *testing.T, lsm *Manager) {
@@ -579,7 +564,7 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	repo := newFakeRepo()
-	repo.schema = &State{
+	repo.schema = State{
 		ObjectSchema: &models.Schema{
 			Classes: []*models.Class{{
 				Class:             "Foo",
@@ -607,7 +592,7 @@ func Test_ExtendSchemaWithExistingPropName(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	repo := newFakeRepo()
-	repo.schema = &State{
+	repo.schema = State{
 		ObjectSchema: &models.Schema{
 			Classes: []*models.Class{{
 				Class:             "Foo",

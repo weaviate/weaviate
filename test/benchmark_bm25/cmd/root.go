@@ -25,6 +25,9 @@ var (
 	QueriesCount           int
 	MultiplyProperties     int
 	FilterObjectPercentage int
+	Alpha                  float32
+	Ranking                string
+	Vectorizer             bool
 )
 
 const (
@@ -34,6 +37,9 @@ const (
 	DefaultQueriesCount           = -1
 	DefaultMultiplyProperties     = 1
 	DefaultFilterObjectPercentage = 0
+	DefaultAlpha                  = 0
+	DefaultRanking                = "ranked_fusion"
+	DefaultVectorizer             = false
 )
 
 var rootCmd = &cobra.Command{

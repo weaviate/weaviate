@@ -16,9 +16,7 @@ package db
 
 import (
 	"context"
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -30,7 +28,6 @@ import (
 )
 
 func TestNodesAPI_Journey(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -52,7 +49,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 
 	// check nodes api response on empty DB
-	nodeStatues, err := repo.GetNodeStatuses(context.Background())
+	nodeStatues, err := repo.GetNodeStatus(context.Background(), "")
 	require.Nil(t, err)
 	require.NotNil(t, nodeStatues)
 
@@ -113,14 +110,14 @@ func TestNodesAPI_Journey(t *testing.T) {
 			UUID: "86a380e9-cb60-4b2a-bc48-51f52acd72d6",
 		},
 	}
-	batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
+	batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
 	require.Nil(t, err)
 
 	assert.Nil(t, batchRes[0].Err)
 	assert.Nil(t, batchRes[1].Err)
 
 	// check nodes api after importing 2 objects to DB
-	nodeStatues, err = repo.GetNodeStatuses(context.Background())
+	nodeStatues, err = repo.GetNodeStatus(context.Background(), "")
 	require.Nil(t, err)
 	require.NotNil(t, nodeStatues)
 

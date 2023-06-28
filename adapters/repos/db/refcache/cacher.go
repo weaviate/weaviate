@@ -26,15 +26,17 @@ import (
 )
 
 type repo interface {
-	MultiGet(ctx context.Context, query []multi.Identifier, additional additional.Properties) ([]search.Result, error)
+	MultiGet(ctx context.Context, query []multi.Identifier,
+		additional additional.Properties, tenantKey string) ([]search.Result, error)
 }
 
-func NewCacher(repo repo, logger logrus.FieldLogger) *Cacher {
+func NewCacher(repo repo, logger logrus.FieldLogger, tenantKey string) *Cacher {
 	return &Cacher{
 		logger:    logger,
 		repo:      repo,
 		store:     map[multi.Identifier]search.Result{},
 		withGroup: false,
+		tenantKey: tenantKey,
 	}
 }
 
@@ -65,6 +67,7 @@ type Cacher struct {
 	// for groupBy feature
 	withGroup                bool
 	getGroupSelectProperties func(properties search.SelectProperties) search.SelectProperties
+	tenantKey                string
 }
 
 func (c *Cacher) Get(si multi.Identifier) (search.Result, bool) {
@@ -331,7 +334,7 @@ func (c *Cacher) fetchJobs(ctx context.Context) error {
 	}
 
 	query := jobListToMultiGetQuery(jobs)
-	res, err := c.repo.MultiGet(ctx, query, c.additional)
+	res, err := c.repo.MultiGet(ctx, query, c.additional, c.tenantKey)
 	if err != nil {
 		return errors.Wrap(err, "fetch job list")
 	}

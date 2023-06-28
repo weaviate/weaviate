@@ -71,7 +71,7 @@ Examples and/or documentation of Weaviate integrations (a-z).
 - [Haystack](https://docs.haystack.deepset.ai/reference/document-store-api#weaviatedocumentstore) ([blogpost](https://www.deepset.ai/weaviate-vector-search-engine-integration)) - Use Weaviate as a document store in Haystack.
 - [Hugging Face](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-huggingface) - Use Hugging Face models with Weaviate.
 - [LangChain](https://python.langchain.com/en/latest/ecosystem/weaviate.html#weaviate) ([blogpost](https://weaviate.io/blog/combining-langchain-and-weaviate)) - Use Weaviate as a memory backend for LangChain.
-- [LlamaIndex](https://gpt-index.readthedocs.io/en/latest/how_to/integrations/vector_stores.html) - Use Weaviate as a memory backend for LlamaIndex.
+- [LlamaIndex](https://gpt-index.readthedocs.io/en/latest/how_to/integrations/vector_stores.html) ([blogpost](https://weaviate.io/blog/llamaindex-and-weaviate))- Use Weaviate as a memory backend for LlamaIndex.
 - [OpenAI - ChatGPT retrieval plugin](https://github.com/openai/chatgpt-retrieval-plugin/blob/main/docs/providers/weaviate/setup.md) - Use Weaviate as a memory backend for ChatGPT.
 - [OpenAI](https://github.com/openai/openai-cookbook/tree/main/examples/vector_databases/weaviate) - use OpenAI embeddings with Weaviate.
 - [yours?](https://weaviate.io/slack)
@@ -101,38 +101,39 @@ Some of our past favorites include:
 - [BERTopic](https://www.youtube.com/watch?v=IwXOaHanfUU)
 - [Jina AI's Neural Search Framework](https://www.youtube.com/watch?v=o6MD0tWl0SM)
 
-Both our [📝 blogs](https://weaviate.io/blog) and [🎙️ podcasts](https://weaviate.io/podcast) are updated regularly. To keep up to date with all things Weaviate including new software releases, meetup news and of course all of the content, you can subscribe to our [🗞️ newsletter](https://newsletter.weaviate.io/).
+### 📰 Newsletter
+
+Subscribe to our [🗞️ newsletter](https://newsletter.weaviate.io/) to keep up to date including new releases, meetup news and of course all of the content,.
 
 ## Join our community!
 
-Also, we invite you to join our [Slack](https://weaviate.io/slack) community. There, you can meet other Weaviate users and members of the Weaviate team to talk all things Weaviate and AI (and other topics!).
+We invite you to:
+- Join our [Slack](https://weaviate.io/slack) community, and
+- Ask questions at our [forum](https://forum.weaviate.io/).
 
 You can also say hi to us below:
 - [Twitter](https://twitter.com/weaviate_io)
 - [LinkedIn](https://www.linkedin.com/company/weaviate-io)
 
-Or connect to us via:
-- [Stack Overflow for questions](https://stackoverflow.com/questions/tagged/weaviate)
-- [GitHub for issues](https://github.com/weaviate/weaviate/issues)
-
 -----
 
 ## Weaviate helps ...
 
-1. **Software Engineers** ([docs](https://weaviate.io/developers/weaviate/current/)) - Who use Weaviate as an ML-first database for your applications.
-    * Out-of-the-box modules for: NLP/semantic search, automatic classification and image similarity search.
-    * Easy to integrate into your current architecture, with full CRUD support like you're used to from other OSS databases.
+1. **Software Engineers** - Who use Weaviate as an ML-first database for your applications.
+    * Out-of-the-box modules for: AI-powered searches, Q&A, integrating LLMs with your data, and automatic classification.
+    * With full CRUD support like you're used to from other OSS databases.
     * Cloud-native, distributed, runs well on Kubernetes and scales with your workloads.
 
-2. **Data Engineers** ([docs](https://weaviate.io/developers/weaviate/current/)) - Who use Weaviate as a vector database that is built up from the ground with ANN at its core, and with the same UX they love from Lucene-based search engines.
-    * Weaviate has a modular setup that allows you to use your ML models inside Weaviate, but you can also use out-of-the-box ML models (e.g., SBERT, ResNet, fasttext, etc).
+2. **Data Engineers** - Who use Weaviate as fast, flexible vector database
+    * Use your own ML mode or out-of-the-box ML models, locally or with an inference service.
     * Weaviate takes care of the scalability, so that you don't have to.
-    * Deploy and maintain ML models in production reliably and efficiently.
 
-3. **Data Scientists** ([docs](https://weaviate.io/developers/weaviate/current/)) - Who use Weaviate for a seamless handover of their Machine Learning models to MLOps.
+3. **Data Scientists** - Who use Weaviate for a seamless handover of their Machine Learning models to MLOps.
     * Deploy and maintain your ML models in production reliably and efficiently.
-    * Weaviate's modular design allows you to easily package any custom trained model you want.
-    * Smooth and accelerated handover of your Machine Learning models to engineers.
+    * Easily package any custom trained model you want.
+    * Smooth and accelerated handover of your ML models to engineers.
+
+Read more in our [documentation](https://weaviate.io/developers/weaviate)
 
 ## Interfaces
 

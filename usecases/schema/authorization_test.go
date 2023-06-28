@@ -67,12 +67,6 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResource: "schema/objects",
 		},
 		{
-			methodName:       "UpdateObject",
-			additionalArgs:   []interface{}{"somename", &models.Class{}},
-			expectedVerb:     "update",
-			expectedResource: "schema/objects",
-		},
-		{
 			methodName:       "DeleteClass",
 			additionalArgs:   []interface{}{"somename", false},
 			expectedVerb:     "delete",
@@ -95,6 +89,12 @@ func Test_Schema_Authorization(t *testing.T) {
 			additionalArgs:   []interface{}{"className", "shardName", "targetStatus"},
 			expectedVerb:     "update",
 			expectedResource: "schema/className/shards/shardName",
+		},
+		{
+			methodName:       "AddTenants",
+			additionalArgs:   []interface{}{"className", []*models.Tenant{{"P1"}}},
+			expectedVerb:     "update",
+			expectedResource: "schema/objects",
 		},
 	}
 

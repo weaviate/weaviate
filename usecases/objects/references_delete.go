@@ -33,17 +33,15 @@ type DeleteReferenceInput struct {
 	Reference models.SingleRef
 }
 
-func (m *Manager) DeleteObjectReference(
-	ctx context.Context,
-	principal *models.Principal,
-	input *DeleteReferenceInput,
-	repl *additional.ReplicationProperties,
+func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.Principal,
+	input *DeleteReferenceInput, repl *additional.ReplicationProperties, tenantKey string,
 ) *Error {
 	m.metrics.DeleteReferenceInc()
 	defer m.metrics.DeleteReferenceDec()
 
 	deprecatedEndpoint := input.Class == ""
-	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID, additional.Properties{}, nil)
+	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID,
+		additional.Properties{}, nil, tenantKey)
 	if err != nil {
 		errnf := ErrNotFound{}
 		if errors.As(err, &errnf) {
@@ -81,7 +79,7 @@ func (m *Manager) DeleteObjectReference(
 	}
 	obj.LastUpdateTimeUnix = m.timeSource.Now()
 
-	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, repl)
+	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, repl, tenantKey)
 	if err != nil {
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}

@@ -51,16 +51,18 @@ const (
 func TestDistributedSetup(t *testing.T) {
 	t.Run("individual imports", func(t *testing.T) {
 		dirName := setupDirectory(t)
-		testDistributed(t, dirName, false)
+		r := getRandomSeed()
+		testDistributed(t, dirName, r, false)
 	})
 
 	t.Run("batched imports", func(t *testing.T) {
 		dirName := setupDirectory(t)
-		testDistributed(t, dirName, true)
+		r := getRandomSeed()
+		testDistributed(t, dirName, r, true)
 	})
 }
 
-func testDistributed(t *testing.T, dirName string, batch bool) {
+func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 	var nodes []*node
 	numberOfObjects := 200
 
@@ -98,10 +100,10 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 	if batch {
 		t.Run("import large batch from random node", func(t *testing.T) {
 			// pick a random node, but send the entire batch to this node
-			node := nodes[rand.Intn(len(nodes))]
+			node := nodes[rnd.Intn(len(nodes))]
 
 			batchObjs := dataAsBatch(data)
-			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs, nil)
+			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs, nil, "")
 			require.Nil(t, err)
 			for _, ind := range res {
 				require.Nil(t, ind.Err)
@@ -110,10 +112,10 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 
 		t.Run("import second class without refs", func(t *testing.T) {
 			// pick a random node, but send the entire batch to this node
-			node := nodes[rand.Intn(len(nodes))]
+			node := nodes[rnd.Intn(len(nodes))]
 
 			batchObjs := dataAsBatchWithProps(refData, []string{"description"})
-			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs, nil)
+			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs, nil, "")
 			require.Nil(t, err)
 			for _, ind := range res {
 				require.Nil(t, ind.Err)
@@ -122,10 +124,10 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 
 		t.Run("import refs as batch", func(t *testing.T) {
 			// pick a random node, but send the entire batch to this node
-			node := nodes[rand.Intn(len(nodes))]
+			node := nodes[rnd.Intn(len(nodes))]
 
 			batch := refsAsBatch(refData, "toFirst")
-			res, err := node.repo.AddBatchReferences(context.Background(), batch, nil)
+			res, err := node.repo.AddBatchReferences(context.Background(), batch, nil, "")
 			require.Nil(t, err)
 			for _, ind := range res {
 				require.Nil(t, ind.Err)
@@ -134,18 +136,18 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 	} else {
 		t.Run("import first class by picking a random node", func(t *testing.T) {
 			for _, obj := range data {
-				node := nodes[rand.Intn(len(nodes))]
+				node := nodes[rnd.Intn(len(nodes))]
 
-				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil)
+				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil, "")
 				require.Nil(t, err)
 			}
 		})
 
 		t.Run("import second class with refs by picking a random node", func(t *testing.T) {
 			for _, obj := range refData {
-				node := nodes[rand.Intn(len(nodes))]
+				node := nodes[rnd.Intn(len(nodes))]
 
-				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil)
+				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil, "")
 				require.Nil(t, err)
 			}
 		})
@@ -153,9 +155,9 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 
 	t.Run("query individually to check if all exist using random nodes", func(t *testing.T) {
 		for _, obj := range data {
-			node := nodes[rand.Intn(len(nodes))]
+			node := nodes[rnd.Intn(len(nodes))]
 
-			ok, err := node.repo.Exists(context.Background(), distributedClass, obj.ID, nil)
+			ok, err := node.repo.Exists(context.Background(), distributedClass, obj.ID, nil, "")
 			require.Nil(t, err)
 			assert.True(t, ok)
 		}
@@ -163,10 +165,9 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 
 	t.Run("query individually using random node", func(t *testing.T) {
 		for _, obj := range data {
-			node := nodes[rand.Intn(len(nodes))]
+			node := nodes[rnd.Intn(len(nodes))]
 
-			res, err := node.repo.ObjectByID(context.Background(), obj.ID,
-				search.SelectProperties{}, additional.Properties{})
+			res, err := node.repo.ObjectByID(context.Background(), obj.ID, search.SelectProperties{}, additional.Properties{}, "")
 			require.Nil(t, err)
 			require.NotNil(t, res)
 
@@ -186,13 +187,13 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		for i := 0; i < runs; i++ {
 			query := make([]float32, vectorDims)
 			for i := range query {
-				query[i] = rand.Float32()
+				query[i] = rnd.Float32()
 			}
 
 			groundTruth := bruteForceObjectsByQuery(data, query)
 
-			node := nodes[rand.Intn(len(nodes))]
-			res, err := node.repo.VectorClassSearch(context.Background(), dto.GetParams{
+			node := nodes[rnd.Intn(len(nodes))]
+			res, err := node.repo.VectorSearch(context.Background(), dto.GetParams{
 				SearchVector: query,
 				Pagination: &filters.Pagination{
 					Limit: 25,
@@ -206,9 +207,9 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		}
 
 		for _, obj := range data {
-			node := nodes[rand.Intn(len(nodes))]
+			node := nodes[rnd.Intn(len(nodes))]
 
-			res, err := node.repo.ObjectByID(context.Background(), obj.ID, search.SelectProperties{}, additional.Properties{})
+			res, err := node.repo.ObjectByID(context.Background(), obj.ID, search.SelectProperties{}, additional.Properties{}, "")
 			require.Nil(t, err)
 			require.NotNil(t, res)
 
@@ -224,26 +225,25 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			// if i == 5 {
 			// 	break
 			// }
-			node := nodes[rand.Intn(len(nodes))]
+			node := nodes[rnd.Intn(len(nodes))]
 
-			res, err := node.repo.ObjectByID(context.Background(), obj.ID,
-				search.SelectProperties{
-					search.SelectProperty{
-						Name:        "toFirst",
-						IsPrimitive: false,
-						Refs: []search.SelectClass{
-							{
-								ClassName: distributedClass,
-								RefProperties: search.SelectProperties{
-									search.SelectProperty{
-										Name:        "description",
-										IsPrimitive: true,
-									},
+			res, err := node.repo.ObjectByID(context.Background(), obj.ID, search.SelectProperties{
+				search.SelectProperty{
+					Name:        "toFirst",
+					IsPrimitive: false,
+					Refs: []search.SelectClass{
+						{
+							ClassName: distributedClass,
+							RefProperties: search.SelectProperties{
+								search.SelectProperty{
+									Name:        "description",
+									IsPrimitive: true,
 								},
 							},
 						},
 					},
-				}, additional.Properties{})
+				},
+			}, additional.Properties{}, "")
 			require.Nil(t, err)
 			require.NotNil(t, res)
 			props := res.Object().Properties.(map[string]interface{})
@@ -269,29 +269,28 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			// if i == 1 {
 			// 	break
 			// }
-			node := nodes[rand.Intn(len(nodes))]
+			node := nodes[rnd.Intn(len(nodes))]
 
-			res, err := node.repo.Object(context.Background(), obj.Class, obj.ID,
-				search.SelectProperties{
-					search.SelectProperty{
-						Name:        "toFirst",
-						IsPrimitive: false,
-						Refs: []search.SelectClass{
-							{
-								ClassName: distributedClass,
-								RefProperties: search.SelectProperties{
-									search.SelectProperty{
-										Name:        "description",
-										IsPrimitive: true,
-									},
+			res, err := node.repo.Object(context.Background(), obj.Class, obj.ID, search.SelectProperties{
+				search.SelectProperty{
+					Name:        "toFirst",
+					IsPrimitive: false,
+					Refs: []search.SelectClass{
+						{
+							ClassName: distributedClass,
+							RefProperties: search.SelectProperties{
+								search.SelectProperty{
+									Name:        "description",
+									IsPrimitive: true,
 								},
-								AdditionalProperties: additional.Properties{
-									Vector: true,
-								},
+							},
+							AdditionalProperties: additional.Properties{
+								Vector: true,
 							},
 						},
 					},
-				}, additional.Properties{}, nil)
+				},
+			}, additional.Properties{}, nil, "")
 			require.Nil(t, err)
 			require.NotNil(t, res)
 			props := res.Object().Properties.(map[string]interface{})
@@ -335,8 +334,8 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 				Pagination:     &filters.Pagination{Limit: 100},
 			}
 
-			node := nodes[rand.Intn(len(nodes))]
-			res, err := node.repo.ClassSearch(context.Background(), params)
+			node := nodes[rnd.Intn(len(nodes))]
+			res, err := node.repo.Search(context.Background(), params)
 			require.Nil(t, err)
 			require.NotEmpty(t, res)
 
@@ -352,7 +351,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			IncludeMetaCount: true,
 		}
 
-		node := nodes[rand.Intn(len(nodes))]
+		node := nodes[rnd.Intn(len(nodes))]
 		res, err := node.repo.Aggregate(context.Background(), params)
 		require.Nil(t, err)
 
@@ -370,14 +369,14 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 	t.Run("modify an object using patch", func(t *testing.T) {
 		obj := data[0]
 
-		node := nodes[rand.Intn(len(nodes))]
+		node := nodes[rnd.Intn(len(nodes))]
 		err := node.repo.Merge(context.Background(), objects.MergeDocument{
 			Class: distributedClass,
 			ID:    obj.ID,
 			PrimitiveSchema: map[string]interface{}{
 				"other_property": "a-value-inserted-through-merge",
 			},
-		}, nil)
+		}, nil, "")
 
 		require.Nil(t, err)
 	})
@@ -385,9 +384,8 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 	t.Run("verify the patched object contains the additions and orig", func(t *testing.T) {
 		obj := data[0]
 
-		node := nodes[rand.Intn(len(nodes))]
-		res, err := node.repo.ObjectByID(context.Background(), obj.ID,
-			search.SelectProperties{}, additional.Properties{})
+		node := nodes[rnd.Intn(len(nodes))]
+		res, err := node.repo.ObjectByID(context.Background(), obj.ID, search.SelectProperties{}, additional.Properties{}, "")
 
 		require.Nil(t, err)
 		previousMap := obj.Properties.(map[string]interface{})
@@ -400,8 +398,8 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 	t.Run("query items by date filter with regular field", func(t *testing.T) {
 		count := len(data) / 2 // try to match half the data objects present
 		cutoff := time.Unix(0, 0).Add(time.Duration(count) * time.Hour)
-		node := nodes[rand.Intn(len(nodes))]
-		res, err := node.repo.ClassSearch(context.Background(), dto.GetParams{
+		node := nodes[rnd.Intn(len(nodes))]
+		res, err := node.repo.Search(context.Background(), dto.GetParams{
 			Filters: &filters.LocalFilter{
 				Root: &filters.Clause{
 					Operator: filters.OperatorLessThan,
@@ -430,8 +428,8 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 	t.Run("query items by date filter with array field", func(t *testing.T) {
 		count := len(data) / 2 // try to match half the data objects present
 		cutoff := time.Unix(0, 0).Add(time.Duration(count) * time.Hour)
-		node := nodes[rand.Intn(len(nodes))]
-		res, err := node.repo.ClassSearch(context.Background(), dto.GetParams{
+		node := nodes[rnd.Intn(len(nodes))]
+		res, err := node.repo.Search(context.Background(), dto.GetParams{
 			Filters: &filters.LocalFilter{
 				Root: &filters.Clause{
 					Operator: filters.OperatorLessThan,
@@ -567,8 +565,8 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 					Pagination: &filters.Pagination{Limit: 100},
 				}
 
-				node := nodes[rand.Intn(len(nodes))]
-				res, err := node.repo.ClassSearch(context.Background(), params)
+				node := nodes[rnd.Intn(len(nodes))]
+				res, err := node.repo.Search(context.Background(), params)
 				require.Nil(t, err)
 				require.NotEmpty(t, res)
 
@@ -600,8 +598,8 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 				continue
 			}
 
-			node := nodes[rand.Intn(len(nodes))]
-			err := node.repo.DeleteObject(context.Background(), distributedClass, obj.ID, nil)
+			node := nodes[rnd.Intn(len(nodes))]
+			err := node.repo.DeleteObject(context.Background(), distributedClass, obj.ID, nil, "")
 			require.Nil(t, err)
 		}
 	})
@@ -613,8 +611,8 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 				expected = false
 			}
 
-			node := nodes[rand.Intn(len(nodes))]
-			actual, err := node.repo.Exists(context.Background(), distributedClass, obj.ID, nil)
+			node := nodes[rnd.Intn(len(nodes))]
+			actual, err := node.repo.Exists(context.Background(), distributedClass, obj.ID, nil, "")
 			require.Nil(t, err)
 			assert.Equal(t, expected, actual)
 		}
@@ -641,19 +639,19 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			}
 		}
 		performClassSearch := func(repo *db.DB, className string) ([]search.Result, error) {
-			return repo.ClassSearch(context.Background(), dto.GetParams{
+			return repo.Search(context.Background(), dto.GetParams{
 				ClassName:  className,
 				Pagination: &filters.Pagination{Limit: 10000},
 			})
 		}
-		node := nodes[rand.Intn(len(nodes))]
+		node := nodes[rnd.Intn(len(nodes))]
 		// get the initial count of the objects
 		res, err := performClassSearch(node.repo, distributedClass)
 		require.Nil(t, err)
 		beforeDelete := len(res)
 		require.True(t, beforeDelete > 0)
 		// dryRun == false, perform actual delete
-		batchDeleteRes, err := node.repo.BatchDeleteObjects(context.Background(), getParams(distributedClass, false), nil)
+		batchDeleteRes, err := node.repo.BatchDeleteObjects(context.Background(), getParams(distributedClass, false), nil, "")
 		require.Nil(t, err)
 		require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 		require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))

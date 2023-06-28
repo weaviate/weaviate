@@ -86,7 +86,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 			methodName: "MergeObject",
 			additionalArgs: []interface{}{
 				&models.Object{Class: "class", ID: "foo"},
-				(*additional.ReplicationProperties)(nil),
+				(*additional.ReplicationProperties)(nil), "",
 			},
 			expectedVerb:     "update",
 			expectedResource: "objects/class/foo",
@@ -200,19 +200,13 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 	}
 
 	tests := []testCase{
-		// testCase{
-		// 	methodName:       "AddActions",
-		// 	additionalArgs:   []interface{}{[]*models.Object{}, []*string{}},
-		// 	expectedVerb:     "create",
-		// 	expectedResource: "batch/actions",
-		// },
-
 		{
 			methodName: "AddObjects",
 			additionalArgs: []interface{}{
 				[]*models.Object{},
 				[]*string{},
 				&additional.ReplicationProperties{},
+				"",
 			},
 			expectedVerb:     "create",
 			expectedResource: "batch/objects",
@@ -223,6 +217,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			additionalArgs: []interface{}{
 				[]*models.BatchReference{},
 				&additional.ReplicationProperties{},
+				"",
 			},
 			expectedVerb:     "update",
 			expectedResource: "batch/*",
@@ -235,6 +230,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				(*bool)(nil),
 				(*string)(nil),
 				&additional.ReplicationProperties{},
+				"",
 			},
 			expectedVerb:     "delete",
 			expectedResource: "batch/objects",

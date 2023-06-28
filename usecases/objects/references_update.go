@@ -38,16 +38,14 @@ type PutReferenceInput struct {
 // UpdateObjectReferences of a specific data object. If the class contains a network
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
-func (m *Manager) UpdateObjectReferences(
-	ctx context.Context,
-	principal *models.Principal,
-	input *PutReferenceInput,
-	repl *additional.ReplicationProperties,
+func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.Principal,
+	input *PutReferenceInput, repl *additional.ReplicationProperties, tenantKey string,
 ) *Error {
 	m.metrics.UpdateReferenceInc()
 	defer m.metrics.UpdateReferenceDec()
 
-	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID, additional.Properties{}, nil)
+	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID,
+		additional.Properties{}, nil, "")
 	if err != nil {
 		errnf := ErrNotFound{}
 		if errors.As(err, &errnf) {
@@ -71,7 +69,7 @@ func (m *Manager) UpdateObjectReferences(
 	}
 	defer unlock()
 
-	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
+	validator := validation.New(m.vectorRepo.Exists, m.config, repl, tenantKey)
 	if err := input.validate(ctx, principal, validator, m.schemaManager); err != nil {
 		return &Error{"bad inputs", StatusBadRequest, err}
 	}
@@ -82,7 +80,7 @@ func (m *Manager) UpdateObjectReferences(
 		obj.Properties.(map[string]interface{})[input.Property] = input.Refs
 	}
 	obj.LastUpdateTimeUnix = m.timeSource.Now()
-	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, repl)
+	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, repl, tenantKey)
 	if err != nil {
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}

@@ -38,4 +38,7 @@ func (m *ImageModule) ValidateClass(ctx context.Context,
 	return icheck.Validate()
 }
 
-var _ = modulecapabilities.ClassConfigurator(New())
+var (
+	_ = modulecapabilities.ClassConfigurator(New())
+	_ = modulecapabilities.MetaProvider(New())
+)

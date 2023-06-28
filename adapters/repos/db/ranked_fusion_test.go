@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -18,11 +17,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"os"
 	"strconv"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -43,30 +40,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
 )
 
-/*
-  {
-        "document": "BACKGROUND: Common warts (verruca vulgaris) are benign epithelial proliferations associated with human papillomavirus (HPV) infection. Salicylic acid and cryotherapy are the most frequent treatments for common warts, but can be painful and cause scarring, and have high failure and recrudescence rates. Topical vitamin A has been shown to be a successful treatment of common warts in prior informal studies. CASE: The subject is a healthy, physically-active 30 old female with a 9 year history of common warts on the back of the right hand. The warts resisted treatment with salicylic acid, apple cider vinegar and an over-the-counter blend of essential oils marketed for the treatment of warts. Daily topical application of natural vitamin A derived from fish liver oil (25,000 IU) led to replacement of all the warts with normal skin. Most of the smaller warts had been replaced by 70 days. A large wart on the middle knuckle required 6 months of vitamin A treatment to resolve completely. CONCLUSION: Retinoids should be further investigated in controlled studies to determine their effectiveness in treating common warts and the broad range of other benign and cancerous lesions induced by HPVs.",
-        "DocID": "MED-941"
-    },
-
-*/
-
 type TestDoc struct {
 	DocID    string
 	Document string
 }
 
-/*
-	{
-	    "queryID": "PLAIN-4",
-	    "query": "Using Diet to Treat Asthma and Eczema",
-	    "matchingDocIDs": [
-	        "MED-2441",
-	        "MED-2472",
-	        "MED-2444"
-	    ]
-	},
-*/
 type TestQuery struct {
 	QueryID        string
 	Query          string
@@ -111,13 +89,12 @@ func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchem
 
 		data := map[string]interface{}{"document": doc.Document, "code": doc.DocID}
 		obj := &models.Object{Class: "StandardTest", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
-		err := repo.PutObject(context.Background(), obj, nil, nil)
+		err := repo.PutObject(context.Background(), obj, nil, nil, "")
 		require.Nil(t, err)
 	}
 }
 
 func TestHybrid(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
@@ -145,7 +122,7 @@ func TestHybrid(t *testing.T) {
 	for _, query := range queries {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: query.Query}
 		addit := additional.Properties{}
-		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
+		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "")
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
 
@@ -153,7 +130,6 @@ func TestHybrid(t *testing.T) {
 }
 
 func TestBIER(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -182,7 +158,7 @@ func TestBIER(t *testing.T) {
 	for _, query := range queries {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: query.Query}
 		addit := additional.Properties{}
-		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
+		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "")
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
 		// fmt.Printf("Results: %v\n", res)
@@ -201,27 +177,12 @@ func TestBIER(t *testing.T) {
 	}
 }
 
-func FusionConfig(k1, b float32) *models.InvertedIndexConfig {
-	return &models.InvertedIndexConfig{
-		Bm25: &models.BM25Config{
-			K1: k1,
-			B:  b,
-		},
-		CleanupIntervalSeconds: 60,
-		Stopwords: &models.StopwordConfig{
-			Preset: "none",
-		},
-		IndexNullState:      true,
-		IndexPropertyLength: true,
-	}
-}
-
 func addObj(repo *DB, i int, props map[string]interface{}, vec []float32) error {
 	id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 
 	obj := &models.Object{Class: "MyClass", ID: id, Properties: props, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 	vector := vec
-	err := repo.PutObject(context.Background(), obj, vector, nil)
+	err := repo.PutObject(context.Background(), obj, vector, nil, "")
 	return err
 }
 
@@ -267,7 +228,6 @@ func SetupFusionClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGett
 }
 
 func TestRFJourney(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -324,7 +284,7 @@ func TestRFJourney(t *testing.T) {
 	resultSet2 := []*hybrid.Result{doc2, doc1, doc3}
 
 	t.Run("Fusion Reciprocal", func(t *testing.T) {
-		results := hybrid.FusionReciprocal([]float64{0.4, 0.6},
+		results := hybrid.FusionRanked([]float64{0.4, 0.6},
 			[][]*hybrid.Result{resultSet1, resultSet2})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
@@ -340,7 +300,7 @@ func TestRFJourney(t *testing.T) {
 	})
 
 	t.Run("Fusion Reciprocal 2", func(t *testing.T) {
-		results := hybrid.FusionReciprocal([]float64{0.8, 0.2},
+		results := hybrid.FusionRanked([]float64{0.8, 0.2},
 			[][]*hybrid.Result{resultSet1, resultSet2})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
@@ -356,7 +316,7 @@ func TestRFJourney(t *testing.T) {
 	})
 
 	t.Run("Vector Only", func(t *testing.T) {
-		results := hybrid.FusionReciprocal([]float64{0.0, 1.0},
+		results := hybrid.FusionRanked([]float64{0.0, 1.0},
 			[][]*hybrid.Result{resultSet1, resultSet2})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
@@ -372,7 +332,7 @@ func TestRFJourney(t *testing.T) {
 	})
 
 	t.Run("BM25 only", func(t *testing.T) {
-		results := hybrid.FusionReciprocal([]float64{1.0, 0.0},
+		results := hybrid.FusionRanked([]float64{1.0, 0.0},
 			[][]*hybrid.Result{resultSet1, resultSet2})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
@@ -388,20 +348,22 @@ func TestRFJourney(t *testing.T) {
 	})
 
 	// Check basic search with one property
-	results_set_1, err := repo.VectorClassSearch(context.TODO(), dto.GetParams{
+	results_set_1, err := repo.VectorSearch(context.TODO(), dto.GetParams{
 		ClassName:    "MyClass",
 		SearchVector: peanutsVector(),
 		Pagination: &filters.Pagination{
-			Limit: 100,
+			Offset: 0,
+			Limit:  6,
 		},
 	})
 
 	require.Nil(t, err)
-	results_set_2, err := repo.VectorClassSearch(context.TODO(), dto.GetParams{
+	results_set_2, err := repo.VectorSearch(context.TODO(), dto.GetParams{
 		ClassName:    "MyClass",
 		SearchVector: journeyVector(),
 		Pagination: &filters.Pagination{
-			Limit: 100,
+			Offset: 0,
+			Limit:  6,
 		},
 	})
 	require.Nil(t, err)
@@ -435,7 +397,7 @@ func TestRFJourney(t *testing.T) {
 		})
 	}
 
-	res := hybrid.FusionReciprocal([]float64{0.2, 0.8}, [][]*hybrid.Result{results_set_1_hybrid, results_set_2_hybrid})
+	res := hybrid.FusionRanked([]float64{0.2, 0.8}, [][]*hybrid.Result{results_set_1_hybrid, results_set_2_hybrid})
 	fmt.Println("--- Start results for Fusion Reciprocal (", len(res), ")---")
 	for _, r := range res {
 
@@ -453,12 +415,11 @@ func TestRFJourney(t *testing.T) {
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "elephant",
 				Vector: elephantVector(),
-				Limit:  100,
 				Alpha:  0.5,
 			},
 			Pagination: &filters.Pagination{
 				Offset: 0,
-				Limit:  100,
+				Limit:  6,
 			},
 		}
 
@@ -486,7 +447,6 @@ func TestRFJourney(t *testing.T) {
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "Elephant Parade",
 				Vector: elephantVector(),
-				Limit:  100,
 				Alpha:  0.5,
 			},
 			Pagination: &filters.Pagination{
@@ -502,21 +462,89 @@ func TestRFJourney(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, metrics)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
-		require.Nil(t, err)
-		require.True(t, len(hybridResults) > 0)
 
-		fmt.Println("--- Start results for hybrid ---")
+		fmt.Println("--- Start results for hybrid with negative limit ---")
 		for _, r := range hybridResults {
 			schema := r.Schema.(map[string]interface{})
 			title := schema["title"].(string)
 			description := schema["description"].(string)
 			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
 		}
+		require.Nil(t, err)
+		require.True(t, len(hybridResults) > 0)
+	})
+
+	t.Run("Hybrid with offset", func(t *testing.T) {
+		params := dto.GetParams{
+			ClassName: "MyClass",
+			HybridSearch: &searchparams.HybridSearch{
+				Query:  "Elephant Parade",
+				Vector: elephantVector(),
+				Alpha:  0.5,
+			},
+			Pagination: &filters.Pagination{
+				Offset: 2,
+				Limit:  1,
+			},
+		}
+
+		prov := modules.NewProvider()
+		prov.SetClassDefaults(class)
+
+		metrics := &fakeMetrics{}
+		log, _ := test.NewNullLogger()
+		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		hybridResults, err := explorer.Hybrid(context.TODO(), params)
+
+		fmt.Println("--- Start results for hybrid with offset ---")
+		for _, r := range hybridResults {
+			schema := r.Schema.(map[string]interface{})
+			title := schema["title"].(string)
+			description := schema["description"].(string)
+			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
+		}
+
+		require.Nil(t, err)
+		require.True(t, len(hybridResults) == 1)
+		require.True(t, hybridResults[0].ID == "00000000-0000-0000-0000-000000000001")
+	})
+
+	t.Run("Hybrid with offset", func(t *testing.T) {
+		params := dto.GetParams{
+			ClassName: "MyClass",
+			HybridSearch: &searchparams.HybridSearch{
+				Query:  "Elephant Parade",
+				Vector: elephantVector(),
+				Alpha:  0.5,
+			},
+			Pagination: &filters.Pagination{
+				Offset: 4,
+				Limit:  1,
+			},
+		}
+
+		prov := modules.NewProvider()
+		prov.SetClassDefaults(class)
+
+		metrics := &fakeMetrics{}
+		log, _ := test.NewNullLogger()
+		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		hybridResults, err := explorer.Hybrid(context.TODO(), params)
+
+		fmt.Println("--- Start results for hybrid with offset ---")
+		for _, r := range hybridResults {
+			schema := r.Schema.(map[string]interface{})
+			title := schema["title"].(string)
+			description := schema["description"].(string)
+			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
+		}
+
+		require.Nil(t, err)
+		require.True(t, len(hybridResults) == 0)
 	})
 }
 
 func TestRFJourneyWithFilters(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -602,7 +630,6 @@ func TestRFJourneyWithFilters(t *testing.T) {
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "elephant",
 				Vector: elephantVector(),
-				Limit:  100,
 				Alpha:  0.5,
 			},
 			Pagination: &filters.Pagination{
@@ -629,7 +656,6 @@ func TestRFJourneyWithFilters(t *testing.T) {
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "elephant",
 				Vector: elephantVector(),
-				Limit:  100,
 				Alpha:  0.5,
 			},
 			Pagination: &filters.Pagination{
@@ -664,7 +690,6 @@ func TestRFJourneyWithFilters(t *testing.T) {
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "elephant",
 				Vector: elephantVector(),
-				Limit:  100,
 				Alpha:  0.5,
 			},
 			Pagination: &filters.Pagination{
@@ -696,7 +721,6 @@ func TestRFJourneyWithFilters(t *testing.T) {
 }
 
 func TestStability(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -753,7 +777,7 @@ func TestStability(t *testing.T) {
 	resultSet2 := []*hybrid.Result{doc2, doc1, doc3}
 
 	t.Run("Fusion Reciprocal", func(t *testing.T) {
-		results := hybrid.FusionReciprocal([]float64{0.4, 0.6},
+		results := hybrid.FusionRanked([]float64{0.4, 0.6},
 			[][]*hybrid.Result{resultSet1, resultSet2})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {

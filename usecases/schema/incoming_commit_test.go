@@ -207,6 +207,42 @@ func TestIncommingTxCommit(t *testing.T) {
 			},
 			expectedErrContains: "unrecognized commit type",
 		},
+
+		{
+			name: "successfully add partitions",
+			tx: &cluster.Transaction{
+				Type: AddPartitions,
+				Payload: AddPartitionsPayload{
+					ClassName:  "FirstClass",
+					Partitions: []Partition{{Name: "P1"}, {Name: "P2"}},
+				},
+			},
+			assertSchema: func(t *testing.T, sm *Manager) {
+				st := sm.ShardingState("FirstClass")
+				require.NotNil(t, st)
+				require.Contains(t, st.Physical, "P1")
+				require.Contains(t, st.Physical, "P2")
+			},
+		},
+		{
+			name: "add partition to an unknown class",
+			tx: &cluster.Transaction{
+				Type: AddPartitions,
+				Payload: AddPartitionsPayload{
+					ClassName:  "UnknownClass",
+					Partitions: []Partition{{Name: "P1"}, {Name: "P2"}},
+				},
+			},
+			expectedErrContains: "UnknownClass",
+		},
+		{
+			name: "add partitions with incorrect payload",
+			tx: &cluster.Transaction{
+				Type:    AddPartitions,
+				Payload: AddPropertyPayload{},
+			},
+			expectedErrContains: "expected commit payload to be",
+		},
 	}
 
 	for _, test := range tests {

@@ -18,9 +18,7 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
@@ -29,12 +27,12 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func TestNestedReferences(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	refSchema := schema.Schema{
@@ -210,7 +208,7 @@ func TestNestedReferences(t *testing.T) {
 
 		for _, thing := range objects {
 			t.Run(fmt.Sprintf("add %s", thing.ID), func(t *testing.T) {
-				err := repo.PutObject(context.Background(), &thing, []float32{1, 2, 3, 4, 5, 6, 7}, nil)
+				err := repo.PutObject(context.Background(), &thing, []float32{1, 2, 3, 4, 5, 6, 7}, nil, "")
 				require.Nil(t, err)
 			})
 		}
@@ -258,8 +256,7 @@ func TestNestedReferences(t *testing.T) {
 			"id":   strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
 		}
 
-		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			fullyNestedSelectProperties(), additional.Properties{})
+		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac", fullyNestedSelectProperties(), additional.Properties{}, "")
 		require.Nil(t, err)
 		assert.Equal(t, expectedSchema, res.Schema)
 	})
@@ -310,8 +307,7 @@ func TestNestedReferences(t *testing.T) {
 			"id":   strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
 		}
 
-		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			fullyNestedSelectPropertiesWithVector(), additional.Properties{})
+		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac", fullyNestedSelectPropertiesWithVector(), additional.Properties{}, "")
 		require.Nil(t, err)
 		assert.Equal(t, expectedSchema, res.Schema)
 	})
@@ -344,15 +340,13 @@ func TestNestedReferences(t *testing.T) {
 			"id":   strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
 		}
 
-		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			partiallyNestedSelectProperties(), additional.Properties{})
+		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac", partiallyNestedSelectProperties(), additional.Properties{}, "")
 		require.Nil(t, err)
 		assert.Equal(t, expectedSchema, res.Schema)
 	})
 
 	t.Run("resolving without any refs", func(t *testing.T) {
-		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			search.SelectProperties{}, additional.Properties{})
+		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac", search.SelectProperties{}, additional.Properties{}, "")
 
 		expectedSchema := map[string]interface{}{
 			"id": strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
@@ -384,7 +378,7 @@ func TestNestedReferences(t *testing.T) {
 			CreationTimeUnix: 1566464912,
 		}
 
-		err := repo.PutObject(context.Background(), &newPlace, []float32{1, 2, 3, 4, 5, 6, 7}, nil)
+		err := repo.PutObject(context.Background(), &newPlace, []float32{1, 2, 3, 4, 5, 6, 7}, nil, "")
 		require.Nil(t, err)
 	})
 }
@@ -527,7 +521,6 @@ func GetDimensionsFromRepo(repo *DB, className string) int {
 }
 
 func Test_AddingReferenceOneByOne(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	sch := schema.Schema{
@@ -599,7 +592,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 			Properties: map[string]interface{}{
 				"name": "source item",
 			},
-		}, []float32{0.5}, nil)
+		}, []float32{0.5}, nil, "")
 		require.Nil(t, err)
 
 		err = repo.PutObject(context.Background(), &models.Object{
@@ -608,7 +601,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 			Properties: map[string]interface{}{
 				"name": "target item",
 			},
-		}, []float32{0.5}, nil)
+		}, []float32{0.5}, nil, "")
 		require.Nil(t, err)
 
 		err = repo.PutObject(context.Background(), &models.Object{
@@ -617,7 +610,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 			Properties: map[string]interface{}{
 				"name": "another target item",
 			},
-		}, []float32{0.5}, nil)
+		}, []float32{0.5}, nil, "")
 		require.Nil(t, err)
 	})
 
@@ -626,9 +619,10 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		sourceShardDimension := GetDimensionsFromRepo(repo, "AddingReferencesTestSource")
 		targetShardDimension := GetDimensionsFromRepo(repo, "AddingReferencesTestTarget")
 
-		err := repo.AddReference(context.Background(), "AddingReferencesTestSource", sourceID, "toTarget", &models.SingleRef{
-			Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", targetID)),
-		}, nil)
+		source := crossref.NewSource("AddingReferencesTestSource", "toTarget", sourceID)
+		target := crossref.New("localhost", "", targetID)
+
+		err := repo.AddReference(context.Background(), source, target, nil, "")
 		assert.Nil(t, err)
 
 		// Check dimensions after adding reference
@@ -640,8 +634,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	})
 
 	t.Run("check reference was added", func(t *testing.T) {
-		source, err := repo.ObjectByID(context.Background(), sourceID, nil,
-			additional.Properties{})
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 		require.NotNil(t, source)
 		require.NotNil(t, source.Object())
@@ -664,15 +657,15 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	})
 
 	t.Run("reference a second target", func(t *testing.T) {
-		err := repo.AddReference(context.Background(), "AddingReferencesTestSource", sourceID, "toTarget", &models.SingleRef{
-			Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", target2ID)),
-		}, nil)
+		source := crossref.NewSource("AddingReferencesTestSource", "toTarget", sourceID)
+		target := crossref.New("localhost", "", target2ID)
+
+		err := repo.AddReference(context.Background(), source, target, nil, "")
 		assert.Nil(t, err)
 	})
 
 	t.Run("check both references are now present", func(t *testing.T) {
-		source, err := repo.ObjectByID(context.Background(), sourceID, nil,
-			additional.Properties{})
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 		require.NotNil(t, source)
 		require.NotNil(t, source.Object())

@@ -22,7 +22,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -525,7 +524,13 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 		// zero it will constantly think it's full and needs to be deleted - even
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
-		PQ:                    ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "tile", Distribution: "normal"}},
+		PQ: ent.PQConfig{
+			Enabled: true,
+			Encoder: ent.PQEncoder{
+				Type:         ent.PQEncoderTypeTile,
+				Distribution: ent.PQEncoderDistributionNormal,
+			},
+		},
 	}
 
 	t.Run("import the test vectors", func(t *testing.T) {
@@ -553,7 +558,17 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 			err := vectorIndex.Add(uint64(i), vec)
 			require.Nil(t, err)
 		}
-		index.Compress(0, 256, false, int(ssdhelpers.UseTileEncoder), int(ssdhelpers.LogNormalEncoderDistribution))
+		cfg := ent.PQConfig{
+			Enabled: true,
+			Encoder: ent.PQEncoder{
+				Type:         ent.PQEncoderTypeTile,
+				Distribution: ent.PQEncoderDistributionLogNormal,
+			},
+			BitCompression: false,
+			Segments:       0,
+			Centroids:      256,
+		}
+		index.Compress(cfg)
 	})
 
 	var control []uint64
@@ -680,7 +695,17 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 			err := vectorIndex.Add(uint64(i), vec)
 			require.Nil(t, err)
 		}
-		index.Compress(0, 256, false, int(ssdhelpers.UseTileEncoder), int(ssdhelpers.LogNormalEncoderDistribution))
+		cfg := ent.PQConfig{
+			Enabled: true,
+			Encoder: ent.PQEncoder{
+				Type:         ent.PQEncoderTypeTile,
+				Distribution: ent.PQEncoderDistributionLogNormal,
+			},
+			BitCompression: false,
+			Segments:       0,
+			Centroids:      256,
+		}
+		index.Compress(cfg)
 		for i := len(vectors); i < 1000; i++ {
 			err := vectorIndex.Add(uint64(i), vectors[i%len(vectors)])
 			require.Nil(t, err)

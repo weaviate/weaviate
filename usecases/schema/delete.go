@@ -65,32 +65,32 @@ func (m *Manager) deleteClass(ctx context.Context, className string, force bool)
 func (m *Manager) deleteClassApplyChanges(ctx context.Context,
 	className string, force bool,
 ) error {
-	sch := m.state.ObjectSchema
 	classIdx := -1
+	m.shardingStateLock.RLock()
+	sch := m.state.ObjectSchema
 	for idx, class := range sch.Classes {
 		if class.Class == className {
 			classIdx = idx
 			break
 		}
 	}
+	m.shardingStateLock.RUnlock()
 
 	if classIdx == -1 && !force {
 		return fmt.Errorf("could not find class '%s'", className)
 	}
 
 	if classIdx > -1 {
+		m.shardingStateLock.Lock()
 		// make sure not to delete another class if the force flag is set, but the class does not exist
 		sch.Classes[classIdx] = sch.Classes[len(sch.Classes)-1]
 		sch.Classes[len(sch.Classes)-1] = nil // to prevent leaking this pointer.
 		sch.Classes = sch.Classes[:len(sch.Classes)-1]
+		m.shardingStateLock.Unlock()
+
 	}
 
-	err := m.saveSchema(ctx)
-	if err != nil {
-		return err
-	}
-
-	err = m.migrator.DropClass(ctx, className)
+	err := m.migrator.DropClass(ctx, className)
 	if err != nil {
 		if !force {
 			return err
@@ -103,10 +103,14 @@ func (m *Manager) deleteClassApplyChanges(ctx context.Context,
 	m.shardingStateLock.Lock()
 	delete(m.state.ShardingState, className)
 	m.shardingStateLock.Unlock()
-	err = m.saveSchema(ctx)
-	if err != nil {
+	if err := m.repo.DeleteClass(ctx, className); err != nil {
 		return err
 	}
+	m.logger.
+		WithField("action", "schema_delete_class").
+		Debugf("delete class %q from schema", className)
+
+	m.triggerSchemaUpdateCallbacks()
 
 	return nil
 }

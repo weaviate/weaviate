@@ -15,11 +15,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/client/batch"
+	"github.com/weaviate/weaviate/client/meta"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
@@ -66,6 +69,12 @@ func CreateObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyL
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func CreateTenantObject(t *testing.T, object *models.Object, tenantKey string) {
+	params := objects.NewObjectsCreateParams().WithBody(object).WithTenantKey(&tenantKey)
+	resp, err := Client(t).Objects.ObjectsCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
 	params := batch.NewBatchObjectsCreateParams().
 		WithBody(batch.BatchObjectsCreateBody{
@@ -73,9 +82,29 @@ func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
 		})
 	resp, err := Client(t).Batch.BatchObjectsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
-	for _, elem := range resp.Payload {
-		assert.Nil(t, elem.Result.Errors)
+	CheckObjectsBatchResponse(t, resp.Payload, err)
+}
+
+func CheckObjectsBatchResponse(t *testing.T, resp []*models.ObjectsGetResponse, err error) {
+	AssertRequestOk(t, resp, err, nil)
+	for _, elem := range resp {
+		if !assert.Nil(t, elem.Result.Errors) {
+			t.Logf("expected nil, got: %v",
+				elem.Result.Errors.Error[0].Message)
+		}
 	}
+}
+
+func CreateTenantObjectsBatch(t *testing.T, objects []*models.Object,
+	tenantKey string,
+) ([]*models.ObjectsGetResponse, error) {
+	params := batch.NewBatchObjectsCreateParams().
+		WithBody(batch.BatchObjectsCreateBody{
+			Objects: objects,
+		}).WithTenantKey(&tenantKey)
+	resp, err := Client(t).Batch.BatchObjectsCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	return resp.Payload, err
 }
 
 func UpdateObject(t *testing.T, object *models.Object) {
@@ -92,9 +121,23 @@ func UpdateObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyL
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func UpdateTenantObject(t *testing.T, object *models.Object, tenantKey string) {
+	params := objects.NewObjectsClassPutParams().WithClassName(object.Class).
+		WithID(object.ID).WithBody(object).WithTenantKey(&tenantKey)
+	resp, err := Client(t).Objects.ObjectsClassPut(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func PatchObject(t *testing.T, object *models.Object) {
 	params := objects.NewObjectsPatchParams().WithID(object.ID).WithBody(object)
 	resp, err := Client(t).Objects.ObjectsPatch(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func PatchTenantObject(t *testing.T, object *models.Object, tenantKey string) {
+	params := objects.NewObjectsClassPatchParams().WithClassName(object.Class).
+		WithID(object.ID).WithBody(object).WithTenantKey(&tenantKey)
+	resp, err := Client(t).Objects.ObjectsClassPatch(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }
 
@@ -117,10 +160,47 @@ func DeleteObjectsBatch(t *testing.T, body *models.BatchDelete) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
-func AddReferences(t *testing.T, refs []*models.BatchReference) {
+func DeleteTenantObjectsBatch(t *testing.T, body *models.BatchDelete,
+	tenantKey string,
+) (*models.BatchDeleteResponse, error) {
+	params := batch.NewBatchObjectsDeleteParams().
+		WithBody(body).WithTenantKey(&tenantKey)
+	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
+func AddReferences(t *testing.T, refs []*models.BatchReference) ([]*models.BatchReferenceResponse, error) {
 	params := batch.NewBatchReferencesCreateParams().WithBody(refs)
 	resp, err := Client(t).Batch.BatchReferencesCreate(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
+func AddTenantReferences(t *testing.T, refs []*models.BatchReference,
+	tenantKey string,
+) ([]*models.BatchReferenceResponse, error) {
+	params := batch.NewBatchReferencesCreateParams().
+		WithBody(refs).WithTenantKey(&tenantKey)
+	resp, err := Client(t).Batch.BatchReferencesCreate(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
+func CheckReferencesBatchResponse(t *testing.T, resp []*models.BatchReferenceResponse, err error) {
 	AssertRequestOk(t, resp, err, nil)
+	for _, elem := range resp {
+		if !assert.Nil(t, elem.Result.Errors) {
+			t.Logf("expected nil, got: %v",
+				elem.Result.Errors.Error[0].Message)
+		}
+	}
 }
 
 func AddReference(t *testing.T, object *models.Object, ref *models.SingleRef, prop string) {
@@ -130,9 +210,44 @@ func AddReference(t *testing.T, object *models.Object, ref *models.SingleRef, pr
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func AddTenantReference(t *testing.T, object *models.Object, ref *models.SingleRef, prop string,
+	tenantKey string,
+) {
+	params := objects.NewObjectsClassReferencesCreateParams().
+		WithClassName(object.Class).WithID(object.ID).WithBody(ref).
+		WithPropertyName(prop).WithTenantKey(&tenantKey)
+	resp, err := Client(t).Objects.ObjectsClassReferencesCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func DeleteReference(t *testing.T, object *models.Object, ref *models.SingleRef, prop string) {
 	params := objects.NewObjectsClassReferencesDeleteParams().
 		WithClassName(object.Class).WithID(object.ID).WithBody(ref).WithPropertyName(prop)
 	resp, err := Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
 	AssertRequestOk(t, resp, err, nil)
+}
+
+func DeleteTenantReference(t *testing.T, object *models.Object, ref *models.SingleRef, prop string, tenantKey string) {
+	params := objects.NewObjectsClassReferencesDeleteParams().
+		WithClassName(object.Class).WithID(object.ID).WithBody(ref).
+		WithPropertyName(prop).WithTenantKey(&tenantKey)
+	resp, err := Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func CreateTenants(t *testing.T, class string, tenants []*models.Tenant) {
+	params := schema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
+	resp, err := Client(t).Schema.TenantsCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func NewBeacon(className string, id strfmt.UUID) strfmt.URI {
+	return crossref.New("localhost", className, id).SingleRef().Beacon
+}
+
+func GetMeta(t *testing.T) *models.Meta {
+	params := meta.NewMetaGetParams()
+	resp, err := Client(t).Meta.MetaGet(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	return resp.Payload
 }

@@ -12,13 +12,16 @@
 package schema
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"sort"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type parserFn func(ctx context.Context, schema *State) error
@@ -58,11 +61,11 @@ func newReadConsensus(parser parserFn,
 			}
 			previous := consensus.Payload.(ReadSchemaPayload).Schema
 			current := typed.(ReadSchemaPayload).Schema
-			if !Equal(previous, current) {
+			if err := Equal(previous, current); err != nil {
 				diff := Diff("previous", previous, "current", current)
 				logger.WithFields(logrusStartupSyncFields()).WithFields(logrus.Fields{
 					"diff": diff,
-				}).Errorf("trying to reach cluster consensus on schema")
+				}).Errorf("trying to reach cluster consensus on schema: %v", err)
 
 				return nil, fmt.Errorf("did not reach consensus on schema in cluster")
 			}
@@ -72,11 +75,88 @@ func newReadConsensus(parser parserFn,
 	}
 }
 
-// Equal checks if both schemas are the same by first marshalling, then
-// comparing their byte-representation
-func Equal(s1, s2 *State) bool {
-	s1JSON, _ := json.Marshal(s1)
-	s2JSON, _ := json.Marshal(s2)
+// Equal compares two schema states for equality
+// First the object classes are sorted, because
+// they are unordered. Then we can make the comparison
+// using DeepEqual
+func Equal(lhs, rhs *State) error {
+	if lhs == nil && rhs == nil {
+		return nil
+	}
+	if lhs == nil || rhs == nil {
+		return fmt.Errorf("nil state %p, %p", lhs, rhs)
+	}
+	if err := equalClasses(lhs.ObjectSchema, rhs.ObjectSchema); err != nil {
+		return fmt.Errorf("class models mismatch: %w", err)
+	}
+	if err := equalSharding(lhs.ShardingState, rhs.ShardingState); err != nil {
+		return fmt.Errorf("sharding state mismatch: %w", err)
+	}
+	return nil
+}
 
-	return bytes.Equal(s1JSON, s2JSON)
+func equalClasses(lhs, rhs *models.Schema) error {
+	if lhs == nil && rhs == nil {
+		return nil
+	}
+	if lhs == nil || rhs == nil {
+		return fmt.Errorf("model mismatch: %p!=%p", lhs, rhs)
+	}
+	m, n := len(lhs.Classes), len(rhs.Classes)
+	if n != m {
+		return fmt.Errorf("class count mismatch: %d!=%d", m, n)
+	}
+	if m == 0 {
+		return nil
+	}
+	// sort classes so we can compare them one by one
+	sort.Slice(lhs.Classes, func(i, j int) bool {
+		return lhs.Classes[i].Class < lhs.Classes[j].Class
+	})
+
+	sort.Slice(rhs.Classes, func(i, j int) bool {
+		return rhs.Classes[i].Class < rhs.Classes[j].Class
+	})
+
+	for i, cls := range lhs.Classes {
+		x := rhs.Classes[i]
+		if !reflect.DeepEqual(cls, rhs.Classes[i]) {
+			n1, n2 := "", ""
+			if cls != nil {
+				n1 = cls.Class
+			}
+			if x != nil {
+				n2 = cls.Class
+			}
+			return fmt.Errorf("class mismatch at position %d: %s %s", i, n1, n2)
+		}
+	}
+
+	return nil
+}
+
+func equalSharding(l, r map[string]*sharding.State) error {
+	m, n := len(l), len(r)
+	if m != n {
+		return fmt.Errorf("class count mismatch: %d!=%d", m, n)
+	}
+	if m == 0 {
+		return nil
+	}
+	for cls, u := range l {
+		v := r[cls]
+		if a, b := u.PartitioningEnabled, v.PartitioningEnabled; a != b {
+			return fmt.Errorf("class %s: partitioning %t %t", cls, a, b)
+		}
+		if u.Config != v.Config {
+			return fmt.Errorf("class %s: config mismatch", cls)
+		}
+		if !reflect.DeepEqual(u.Physical, v.Physical) {
+			return fmt.Errorf("class %s: physical shards mismatch", cls)
+		}
+		if !reflect.DeepEqual(u.Virtual, v.Virtual) {
+			return fmt.Errorf("class %s: physical shards mismatch", cls)
+		}
+	}
+	return nil
 }

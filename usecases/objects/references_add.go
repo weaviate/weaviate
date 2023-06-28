@@ -19,24 +19,24 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
 // AddObjectReference to an existing object. If the class contains a network
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
-func (m *Manager) AddObjectReference(
-	ctx context.Context,
-	principal *models.Principal,
-	input *AddReferenceInput,
-	repl *additional.ReplicationProperties,
+func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Principal,
+	input *AddReferenceInput, repl *additional.ReplicationProperties, tenantKey string,
 ) *Error {
 	m.metrics.AddReferenceInc()
 	defer m.metrics.AddReferenceDec()
 
 	deprecatedEndpoint := input.Class == ""
 	if deprecatedEndpoint { // for backward compatibility only
-		objectRes, err := m.getObjectFromRepo(ctx, "", input.ID, additional.Properties{}, nil)
+		objectRes, err := m.getObjectFromRepo(ctx, "", input.ID,
+			additional.Properties{}, nil, "")
 		if err != nil {
 			errnf := ErrNotFound{} // treated as StatusBadRequest for backward comp
 			if errors.As(err, &errnf) {
@@ -57,12 +57,12 @@ func (m *Manager) AddObjectReference(
 	}
 	defer unlock()
 
-	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
+	validator := validation.New(m.vectorRepo.Exists, m.config, repl, tenantKey)
 	if err := input.validate(ctx, principal, validator, m.schemaManager); err != nil {
 		return &Error{"validate inputs", StatusBadRequest, err}
 	}
 	if !deprecatedEndpoint {
-		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl)
+		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl, tenantKey)
 		if err != nil {
 			return &Error{"source object", StatusInternalServerError, err}
 		}
@@ -71,7 +71,23 @@ func (m *Manager) AddObjectReference(
 		}
 	}
 
-	if err := m.vectorRepo.AddReference(ctx, input.Class, input.ID, input.Property, &input.Ref, repl); err != nil {
+	source := crossref.NewSource(schema.ClassName(input.Class),
+		schema.PropertyName(input.Property), input.ID)
+
+	target, err := crossref.ParseSingleRef(&input.Ref)
+	if err != nil {
+		return &Error{"parse target ref", StatusBadRequest, err}
+	}
+
+	if shouldValidateMultiTenantRef(tenantKey, source, target) {
+		err = validateReferenceMultiTenancy(ctx, principal,
+			m.schemaManager, m.vectorRepo, source, target, tenantKey)
+		if err != nil {
+			return &Error{"multi-tenancy violation", StatusInternalServerError, err}
+		}
+	}
+
+	if err := m.vectorRepo.AddReference(ctx, source, target, repl, tenantKey); err != nil {
 		return &Error{"add reference to repo", StatusInternalServerError, err}
 	}
 
@@ -80,6 +96,10 @@ func (m *Manager) AddObjectReference(
 	}
 
 	return nil
+}
+
+func shouldValidateMultiTenantRef(tenantKey string, source *crossref.RefSource, target *crossref.Ref) bool {
+	return tenantKey != "" || (source != nil && target != nil && source.Class != "" && target.Class != "")
 }
 
 // AddReferenceInput represents required inputs to add a reference to an existing object.

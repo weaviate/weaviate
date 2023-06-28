@@ -22,6 +22,13 @@ import (
 	modstgfilesystem "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
+	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
+	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
+	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
+	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
+	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
+	modpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 )
 
 const (
@@ -37,6 +44,8 @@ const (
 	envTestSUMTransformersImage = "TEST_SUM_TRANSFORMERS_IMAGE"
 	// envTestMulti2VecCLIPImage adds ability to pass a custom CLIP image to module tests
 	envTestMulti2VecCLIPImage = "TEST_MULTI2VEC_CLIP_IMAGE"
+	// envTestImg2VecNeuralImage adds ability to pass a custom Im2Vec Neural image to module tests
+	envTestImg2VecNeuralImage = "TEST_IMG2VEC_NEURAL_IMAGE"
 )
 
 const (
@@ -65,6 +74,7 @@ type Compose struct {
 	withSUMTransformers       bool
 	withCentroid              bool
 	withCLIP                  bool
+	withImg2Vec               bool
 }
 
 func New() *Compose {
@@ -151,9 +161,50 @@ func (d *Compose) WithMulti2VecCLIP() *Compose {
 	return d
 }
 
+func (d *Compose) WithImg2VecNeural() *Compose {
+	d.withImg2Vec = true
+	d.enableModules = append(d.enableModules, Img2VecNeural)
+	return d
+}
+
 func (d *Compose) WithRef2VecCentroid() *Compose {
 	d.withCentroid = true
 	d.enableModules = append(d.enableModules, Ref2VecCentroid)
+	return d
+}
+
+func (d *Compose) WithText2VecOpenAI() *Compose {
+	d.enableModules = append(d.enableModules, modopenai.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecCohere() *Compose {
+	d.enableModules = append(d.enableModules, modcohere.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecPaLM() *Compose {
+	d.enableModules = append(d.enableModules, modpalm.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeOpenAI() *Compose {
+	d.enableModules = append(d.enableModules, modgenerativeopenai.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeCohere() *Compose {
+	d.enableModules = append(d.enableModules, modgenerativecohere.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativePaLM() *Compose {
+	d.enableModules = append(d.enableModules, modgenerativepalm.Name)
+	return d
+}
+
+func (d *Compose) WithQnAOpenAI() *Compose {
+	d.enableModules = append(d.enableModules, modqnaopenai.Name)
 	return d
 }
 
@@ -277,7 +328,18 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		image := os.Getenv(envTestMulti2VecCLIPImage)
 		container, err := startM2VClip(ctx, networkName, image)
 		if err != nil {
-			return nil, errors.Wrapf(err, "start %s", SUMTransformers)
+			return nil, errors.Wrapf(err, "start %s", Multi2VecCLIP)
+		}
+		for k, v := range container.envSettings {
+			envSettings[k] = v
+		}
+		containers = append(containers, container)
+	}
+	if d.withImg2Vec {
+		image := os.Getenv(envTestImg2VecNeuralImage)
+		container, err := startI2VNeural(ctx, networkName, image)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", Img2VecNeural)
 		}
 		for k, v := range container.envSettings {
 			envSettings[k] = v

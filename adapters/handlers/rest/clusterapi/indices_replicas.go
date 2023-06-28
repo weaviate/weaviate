@@ -68,19 +68,19 @@ type replicatedIndices struct {
 
 var (
 	regxObject = regexp.MustCompile(`\/replicas\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/objects\/([A-Za-z0-9_+-]+)`)
+		`\/shards\/([A-Za-z0-9\-]+)\/objects\/([A-Za-z0-9_+-]+)`)
 	regxOverwriteObjects = regexp.MustCompile(`\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/objects/_overwrite`)
+		`\/shards\/([A-Za-z0-9\-]+)\/objects/_overwrite`)
 	regxObjectsDigest = regexp.MustCompile(`\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/objects/_digest`)
+		`\/shards\/([A-Za-z0-9\-]+)\/objects/_digest`)
 	regxObjects = regexp.MustCompile(`\/replicas\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/objects`)
+		`\/shards\/([A-Za-z0-9\-]+)\/objects`)
 	regxReferences = regexp.MustCompile(`\/replicas\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/objects/references`)
+		`\/shards\/([A-Za-z0-9\-]+)\/objects/references`)
 	regxIncreaseRepFactor = regexp.MustCompile(`\/replicas\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/replication-factor:increase`)
 	regxCommitPhase = regexp.MustCompile(`\/replicas\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+):(commit|abort)`)
+		`\/shards\/([A-Za-z0-9\-]+):(commit|abort)`)
 )
 
 func NewReplicatedIndices(shards replicator, scaler localScaler) *replicatedIndices {

@@ -36,7 +36,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},
-			wantModel:             "command-xlarge-nightly",
+			wantModel:             "command-nightly",
 			wantMaxTokens:         2048,
 			wantTemperature:       0,
 			wantK:                 0,
@@ -71,7 +71,24 @@ func Test_classSettings_Validate(t *testing.T) {
 					"model": "wrong-model",
 				},
 			},
-			wantErr: errors.Errorf("wrong Cohere model name, available model names are: [command-xlarge-beta command-xlarge command-xlarge-nightly]"),
+			wantErr: errors.Errorf("wrong Cohere model name, available model names are: " +
+				"[command-xlarge-beta command-xlarge command-medium command-xlarge-nightly " +
+				"command-medium-nightly xlarge medium command command-light command-nightly command-light-nightly base base-light]"),
+		},
+		{
+			name: "default settings with command-light-nightly",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"model": "command-light-nightly",
+				},
+			},
+			wantModel:             "command-light-nightly",
+			wantMaxTokens:         2048,
+			wantTemperature:       0,
+			wantK:                 0,
+			wantStopSequences:     []string{},
+			wantReturnLikelihoods: "NONE",
+			wantErr:               nil,
 		},
 	}
 	for _, tt := range tests {

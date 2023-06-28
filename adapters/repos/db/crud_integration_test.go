@@ -40,7 +40,6 @@ import (
 )
 
 func TestCRUD(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -117,7 +116,7 @@ func TestCRUD(t *testing.T) {
 	thingID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
 
 	t.Run("validating that the thing doesn't exist prior", func(t *testing.T) {
-		ok, err := repo.Exists(context.Background(), "TheBestThingClass", thingID, nil)
+		ok, err := repo.Exists(context.Background(), "TheBestThingClass", thingID, nil, "")
 		require.Nil(t, err)
 		assert.False(t, ok)
 	})
@@ -163,13 +162,13 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector, nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, "")
 
 		assert.Nil(t, err)
 	})
 
 	t.Run("validating that the thing exists now", func(t *testing.T) {
-		ok, err := repo.Exists(context.Background(), "TheBestThingClass", thingID, nil)
+		ok, err := repo.Exists(context.Background(), "TheBestThingClass", thingID, nil, "")
 		require.Nil(t, err)
 		assert.True(t, ok)
 	})
@@ -186,7 +185,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector, nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, "")
 		assert.Equal(t,
 			fmt.Errorf("import into non-existing index for WrongClass"), err)
 	})
@@ -224,7 +223,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector, nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, "")
 		assert.Nil(t, err)
 	})
 
@@ -253,13 +252,12 @@ func TestCRUD(t *testing.T) {
 			},
 			Additional: models.AdditionalProperties{},
 		}
-		res, err := repo.ObjectByID(context.Background(), thingID, nil,
-			additional.Properties{})
+		res, err := repo.ObjectByID(context.Background(), thingID, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 		assert.Equal(t, expected, res.ObjectWithVector(false))
 
 		res, err = repo.Object(context.Background(), expected.Class, thingID, nil,
-			additional.Properties{}, nil)
+			additional.Properties{}, nil, "")
 		require.Nil(t, err)
 		assert.Equal(t, expected, res.ObjectWithVector(false))
 	})
@@ -267,7 +265,7 @@ func TestCRUD(t *testing.T) {
 	t.Run("finding the updated object by querying for an updated value",
 		func(t *testing.T) {
 			// This is to verify the inverted index was updated correctly
-			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.Search(context.Background(), dto.GetParams{
 				ClassName:  "TheBestThingClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -294,7 +292,7 @@ func TestCRUD(t *testing.T) {
 	t.Run("NOT finding the previous version by querying for an outdated value",
 		func(t *testing.T) {
 			// This is to verify the inverted index was cleaned up correctly
-			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.Search(context.Background(), dto.GetParams{
 				ClassName:  "TheBestThingClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -320,7 +318,7 @@ func TestCRUD(t *testing.T) {
 			// This is to verify that while we're adding new links and cleaning up
 			// old ones, we don't actually touch those that were present and still
 			// should be
-			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.Search(context.Background(), dto.GetParams{
 				ClassName:  "TheBestThingClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -369,7 +367,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector, nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, "")
 		assert.Nil(t, err)
 	})
 
@@ -412,7 +410,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{3, 1, 0.3, 12}
 
-		err := repo.PutObject(context.Background(), action, vector, nil)
+		err := repo.PutObject(context.Background(), action, vector, nil, "")
 
 		assert.Nil(t, err)
 	})
@@ -422,7 +420,7 @@ func TestCRUD(t *testing.T) {
 		// somewhat far from the thing. So it should match the action closer
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 
-		res, err := repo.VectorSearch(context.Background(), searchVector, 0, 10, nil)
+		res, err := repo.CrossClassVectorSearch(context.Background(), searchVector, 0, 10, nil)
 
 		require.Nil(t, err)
 		require.Equal(t, true, len(res) >= 2)
@@ -449,7 +447,7 @@ func TestCRUD(t *testing.T) {
 			Pagination:   &filters.Pagination{Limit: 10},
 			Filters:      nil,
 		}
-		res, err := repo.VectorClassSearch(context.Background(), params)
+		res, err := repo.VectorSearch(context.Background(), params)
 
 		require.Nil(t, err)
 		require.Len(t, res, 1, "got exactly one result")
@@ -478,7 +476,7 @@ func TestCRUD(t *testing.T) {
 			Pagination:   &filters.Pagination{Limit: 10},
 			Filters:      nil,
 		}
-		res, err := repo.ClassSearch(context.Background(), params)
+		res, err := repo.Search(context.Background(), params)
 
 		require.Nil(t, err)
 		require.Len(t, res, 1, "got exactly one result")
@@ -531,14 +529,14 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector, nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, "")
 
 		assert.Nil(t, err)
 	})
 
 	t.Run("searching all things", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, nil, additional.Properties{})
+		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -555,7 +553,7 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("searching all things with Vector additional props", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, nil, additional.Properties{Vector: true})
+		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, nil, additional.Properties{Vector: true}, "")
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -578,7 +576,7 @@ func TestCRUD(t *testing.T) {
 				"interpretation": true,
 			},
 		}
-		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, nil, params)
+		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, nil, params, "")
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -610,7 +608,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching a thing by ID", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), thingID, search.SelectProperties{}, additional.Properties{})
+		item, err := repo.ObjectByID(context.Background(), thingID, search.SelectProperties{}, additional.Properties{}, "")
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -625,7 +623,7 @@ func TestCRUD(t *testing.T) {
 	// Check the same, but with Object()
 	t.Run("searching a thing by ID", func(t *testing.T) {
 		item, err := repo.Object(context.Background(), "TheBestThingClass",
-			thingID, search.SelectProperties{}, additional.Properties{}, nil)
+			thingID, search.SelectProperties{}, additional.Properties{}, nil, "")
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -648,7 +646,7 @@ func TestCRUD(t *testing.T) {
 				ClassName: "TheBestThingClass",
 			},
 		}
-		res, err := repo.MultiGet(context.Background(), query, additional.Properties{})
+		res, err := repo.MultiGet(context.Background(), query, additional.Properties{}, "")
 		require.Nil(t, err)
 		require.Len(t, res, 2, "length must match even with nil-items")
 
@@ -664,7 +662,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching an action by ID without meta", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), actionID, search.SelectProperties{}, additional.Properties{})
+		item, err := repo.ObjectByID(context.Background(), actionID, search.SelectProperties{}, additional.Properties{}, "")
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -683,8 +681,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching an action by ID with Classification and Vector additional properties", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), actionID, search.SelectProperties{},
-			additional.Properties{Classification: true, Vector: true, RefMeta: true})
+		item, err := repo.ObjectByID(context.Background(), actionID, search.SelectProperties{}, additional.Properties{Classification: true, Vector: true, RefMeta: true}, "")
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -724,7 +721,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching an action by ID with only Vector additional property", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), actionID, search.SelectProperties{}, additional.Properties{Vector: true})
+		item, err := repo.ObjectByID(context.Background(), actionID, search.SelectProperties{}, additional.Properties{Vector: true}, "")
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -736,7 +733,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching all actions", func(t *testing.T) {
-		res, err := repo.ObjectSearch(context.Background(), 0, 10, nil, nil, additional.Properties{})
+		res, err := repo.ObjectSearch(context.Background(), 0, 10, nil, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 
 		item, ok := findID(res, actionID)
@@ -838,7 +835,7 @@ func TestCRUD(t *testing.T) {
 				},
 			}
 			vector := []float32{1.1, 1.3, 1.5, 1.4}
-			err := repo.PutObject(context.Background(), object, vector, nil)
+			err := repo.PutObject(context.Background(), object, vector, nil, "")
 			assert.Nil(t, err)
 		}
 		// run sorting tests
@@ -892,7 +889,7 @@ func TestCRUD(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, tt.sort, additional.Properties{Vector: true})
+				res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, tt.sort, additional.Properties{Vector: true}, "")
 				if len(tt.constainsErrorMsgs) > 0 {
 					require.NotNil(t, err)
 					for _, errorMsg := range tt.constainsErrorMsgs {
@@ -917,7 +914,7 @@ func TestCRUD(t *testing.T) {
 		}
 		// clean up
 		for _, td := range testData {
-			err := repo.DeleteObject(context.Background(), td.className, td.id, nil)
+			err := repo.DeleteObject(context.Background(), td.className, td.id, nil, "")
 			assert.Nil(t, err)
 		}
 	})
@@ -925,7 +922,7 @@ func TestCRUD(t *testing.T) {
 	t.Run("verifying the thing is indexed in the inverted index", func(t *testing.T) {
 		// This is a control for the upcoming deletion, after the deletion it should not
 		// be indexed anymore.
-		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName:  "TheBestThingClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters: &filters.LocalFilter{
@@ -949,7 +946,7 @@ func TestCRUD(t *testing.T) {
 	t.Run("verifying the action is indexed in the inverted index", func(t *testing.T) {
 		// This is a control for the upcoming deletion, after the deletion it should not
 		// be indexed anymore.
-		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName:  "TheBestActionClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters: &filters.LocalFilter{
@@ -971,19 +968,19 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("deleting a thing again", func(t *testing.T) {
-		err := repo.DeleteObject(context.Background(), "TheBestThingClass", thingID, nil)
+		err := repo.DeleteObject(context.Background(), "TheBestThingClass", thingID, nil, "")
 
 		assert.Nil(t, err)
 	})
 
 	t.Run("deleting a action again", func(t *testing.T) {
-		err := repo.DeleteObject(context.Background(), "TheBestActionClass", actionID, nil)
+		err := repo.DeleteObject(context.Background(), "TheBestActionClass", actionID, nil, "")
 
 		assert.Nil(t, err)
 	})
 
 	t.Run("trying to delete from a non-existing class", func(t *testing.T) {
-		err := repo.DeleteObject(context.Background(), "WrongClass", thingID, nil)
+		err := repo.DeleteObject(context.Background(), "WrongClass", thingID, nil, "")
 
 		assert.Equal(t, fmt.Errorf(
 			"delete from non-existing index for WrongClass"), err)
@@ -991,7 +988,7 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("verifying the thing is NOT indexed in the inverted index",
 		func(t *testing.T) {
-			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.Search(context.Background(), dto.GetParams{
 				ClassName:  "TheBestThingClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -1014,7 +1011,7 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("verifying the action is NOT indexed in the inverted index",
 		func(t *testing.T) {
-			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.Search(context.Background(), dto.GetParams{
 				ClassName:  "TheBestActionClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -1036,15 +1033,13 @@ func TestCRUD(t *testing.T) {
 		})
 
 	t.Run("trying to get the deleted thing by ID", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), thingID,
-			search.SelectProperties{}, additional.Properties{})
+		item, err := repo.ObjectByID(context.Background(), thingID, search.SelectProperties{}, additional.Properties{}, "")
 		require.Nil(t, err)
 		require.Nil(t, item, "must not have a result")
 	})
 
 	t.Run("trying to get the deleted action by ID", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), actionID,
-			search.SelectProperties{}, additional.Properties{})
+		item, err := repo.ObjectByID(context.Background(), actionID, search.SelectProperties{}, additional.Properties{}, "")
 		require.Nil(t, err)
 		require.Nil(t, item, "must not have a result")
 	})
@@ -1059,7 +1054,7 @@ func TestCRUD(t *testing.T) {
 				Filters:      nil,
 			}
 
-			res, err := repo.VectorClassSearch(context.Background(), params)
+			res, err := repo.VectorSearch(context.Background(), params)
 
 			require.Nil(t, err)
 			assert.Len(t, res, 0)
@@ -1074,7 +1069,7 @@ func TestCRUD(t *testing.T) {
 			Filters:      nil,
 		}
 
-		res, err := repo.VectorClassSearch(context.Background(), params)
+		res, err := repo.VectorSearch(context.Background(), params)
 
 		require.Nil(t, err)
 		assert.Len(t, res, 0)
@@ -1101,7 +1096,7 @@ func TestCRUD(t *testing.T) {
 				}
 				createdActionIDs[i] = newID
 			}
-			batchObjResp, err := repo.BatchPutObjects(context.Background(), actionBatch, nil)
+			batchObjResp, err := repo.BatchPutObjects(context.Background(), actionBatch, nil, "")
 			require.Len(t, batchObjResp, numThings)
 			require.Nil(t, err)
 			for _, r := range batchObjResp {
@@ -1125,7 +1120,7 @@ func TestCRUD(t *testing.T) {
 				}
 				createdThingIDs[i] = newID
 			}
-			batchObjResp, err := repo.BatchPutObjects(context.Background(), thingBatch, nil)
+			batchObjResp, err := repo.BatchPutObjects(context.Background(), thingBatch, nil, "")
 			require.Len(t, batchObjResp, numThings)
 			require.Nil(t, err)
 			for _, r := range batchObjResp {
@@ -1152,7 +1147,7 @@ func TestCRUD(t *testing.T) {
 				}
 				refBatch[i] = ref
 			}
-			batchRefResp, err := repo.AddBatchReferences(context.Background(), refBatch, nil)
+			batchRefResp, err := repo.AddBatchReferences(context.Background(), refBatch, nil, "")
 			require.Nil(t, err)
 			require.Len(t, batchRefResp, numThings)
 			for _, r := range batchRefResp {
@@ -1162,7 +1157,7 @@ func TestCRUD(t *testing.T) {
 
 		t.Run("query every action for its referenced thing", func(t *testing.T) {
 			for i := range createdActionIDs {
-				resp, err := repo.ClassSearch(context.Background(), dto.GetParams{
+				resp, err := repo.Search(context.Background(), dto.GetParams{
 					ClassName:            "TheBestActionClass",
 					Pagination:           &filters.Pagination{Limit: 5},
 					AdditionalProperties: additional.Properties{ID: true},
@@ -1234,11 +1229,11 @@ func TestCRUD(t *testing.T) {
 				Class:  "TheBestActionClass",
 				Vector: vec,
 			}
-			require.Nil(t, repo.PutObject(context.Background(), obj, vec, nil))
+			require.Nil(t, repo.PutObject(context.Background(), obj, vec, nil, ""))
 		})
 
 		t.Run("perform search with id filter", func(t *testing.T) {
-			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.Search(context.Background(), dto.GetParams{
 				Pagination: &filters.Pagination{Limit: 10},
 				ClassName:  "TheBestActionClass",
 				Filters: &filters.LocalFilter{
@@ -1277,7 +1272,6 @@ func TestCRUD(t *testing.T) {
 }
 
 func TestCRUD_Query(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -1382,7 +1376,7 @@ func TestCRUD_Query(t *testing.T) {
 				},
 			}
 			vector := []float32{1.1, 1.3, 1.5, 1.4}
-			err := repo.PutObject(context.Background(), object, vector, nil)
+			err := repo.PutObject(context.Background(), object, vector, nil, "")
 			assert.Nil(t, err)
 		}
 		// toParams helper method
@@ -1512,20 +1506,20 @@ func TestCRUD_Query(t *testing.T) {
 		}
 		// clean up
 		for _, td := range testData {
-			err := repo.DeleteObject(context.Background(), td.className, td.id, nil)
+			err := repo.DeleteObject(context.Background(), td.className, td.id, nil, "")
 			assert.Nil(t, err)
 		}
 	})
 }
 
 func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
+	r := getRandomSeed()
 	total := 100
 	individual := total / 4
 	className := "DeferredVector"
 	var data []*models.Object
 	var class *models.Class
 
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
@@ -1581,7 +1575,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 
 	t.Run("import individual objects without vector", func(t *testing.T) {
 		for i := 0; i < individual; i++ {
-			err := repo.PutObject(context.Background(), data[i], nil, nil) // nil vector !
+			err := repo.PutObject(context.Background(), data[i], nil, nil, "") // nil vector !
 			require.Nil(t, err)
 		}
 	})
@@ -1599,7 +1593,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 			}
 		}
 
-		res, err := repo.BatchPutObjects(context.Background(), batch, nil)
+		res, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
 		require.Nil(t, err)
 
 		for _, obj := range res {
@@ -1608,7 +1602,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	})
 
 	t.Run("verify inverted index works correctly", func(t *testing.T) {
-		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.Search(context.Background(), dto.GetParams{
 			Filters:   buildFilter("int_prop", total+1, lte, dtInt),
 			ClassName: className,
 			Pagination: &filters.Pagination{
@@ -1621,14 +1615,14 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	})
 
 	t.Run("perform unfiltered vector search and verify there are no matches", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			Filters:   nil,
 			ClassName: className,
 			Pagination: &filters.Pagination{
 				Offset: 0,
 				Limit:  total,
 			},
-			SearchVector: randomVector(7),
+			SearchVector: randomVector(r, 7),
 		})
 		require.Nil(t, err)
 		assert.Len(t, res, 0) // we skipped the vector on half the elements, so we should now match half
@@ -1640,35 +1634,35 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 				continue
 			}
 
-			data[i].Vector = randomVector(7)
-			err := repo.PutObject(context.Background(), data[i], data[i].Vector, nil)
+			data[i].Vector = randomVector(r, 7)
+			err := repo.PutObject(context.Background(), data[i], data[i].Vector, nil, "")
 			require.Nil(t, err)
 		}
 	})
 
 	t.Run("perform unfiltered vector search and verify correct matches", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			Filters:   nil,
 			ClassName: className,
 			Pagination: &filters.Pagination{
 				Offset: 0,
 				Limit:  total,
 			},
-			SearchVector: randomVector(7),
+			SearchVector: randomVector(r, 7),
 		})
 		require.Nil(t, err)
 		assert.Len(t, res, total/2) // we skipped the vector on half the elements, so we should now match half
 	})
 
 	t.Run("perform filtered vector search and verify correct matches", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			Filters:   buildFilter("int_prop", 50, lt, dtInt),
 			ClassName: className,
 			Pagination: &filters.Pagination{
 				Offset: 0,
 				Limit:  total,
 			},
-			SearchVector: randomVector(7),
+			SearchVector: randomVector(r, 7),
 		})
 		require.Nil(t, err)
 		// we skipped the vector on half the elements, and cut the list in half with
@@ -1681,7 +1675,6 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 	className := "SomeClass"
 	var class *models.Class
 
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
@@ -1755,13 +1748,13 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 
 	t.Run("insert test objects", func(t *testing.T) {
 		for id, props := range tests {
-			err := repo.PutObject(context.Background(), &models.Object{Class: className, ID: id}, props.inputVec, nil)
+			err := repo.PutObject(context.Background(), &models.Object{Class: className, ID: id}, props.inputVec, nil, "")
 			require.Nil(t, err)
 		}
 	})
 
 	t.Run("perform nearVector search by distance", func(t *testing.T) {
-		results, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		results, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			ClassName:  className,
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
@@ -1787,7 +1780,7 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 	})
 
 	t.Run("perform nearObject search by distance", func(t *testing.T) {
-		results, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		results, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			ClassName:  className,
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearObject: &searchparams.NearObject{
@@ -1818,7 +1811,6 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 	className := "SomeClass"
 	var class *models.Class
 
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
@@ -1892,13 +1884,13 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 
 	t.Run("insert test objects", func(t *testing.T) {
 		for id, props := range tests {
-			err := repo.PutObject(context.Background(), &models.Object{Class: className, ID: id}, props.inputVec, nil)
+			err := repo.PutObject(context.Background(), &models.Object{Class: className, ID: id}, props.inputVec, nil, "")
 			require.Nil(t, err)
 		}
 	})
 
 	t.Run("perform nearVector search by distance", func(t *testing.T) {
-		results, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		results, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			ClassName:  className,
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
@@ -1924,7 +1916,7 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 	})
 
 	t.Run("perform nearObject search by distance", func(t *testing.T) {
-		results, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		results, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			ClassName:  className,
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearObject: &searchparams.NearObject{
@@ -1952,7 +1944,6 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 }
 
 func Test_PutPatchRestart(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -2002,7 +1993,7 @@ func Test_PutPatchRestart(t *testing.T) {
 			ID:         testID,
 			Class:      testClass.Class,
 			Properties: map[string]interface{}{"description": "test object init"},
-		}, testVec, nil)
+		}, testVec, nil, "")
 		require.Nil(t, err)
 	})
 
@@ -2014,7 +2005,7 @@ func Test_PutPatchRestart(t *testing.T) {
 				Properties: map[string]interface{}{
 					"description": fmt.Sprintf("test object, put #%d", i+1),
 				},
-			}, nil, nil)
+			}, nil, nil, "")
 			require.Nil(t, err)
 
 			err = repo.Merge(ctx, objects.MergeDocument{
@@ -2025,7 +2016,7 @@ func Test_PutPatchRestart(t *testing.T) {
 				},
 				Vector:     testVec,
 				UpdateTime: time.Now().UnixNano() / int64(time.Millisecond),
-			}, nil)
+			}, nil, "")
 			require.Nil(t, err)
 
 			require.Nil(t, repo.Shutdown(ctx))
@@ -2048,7 +2039,7 @@ func Test_PutPatchRestart(t *testing.T) {
 			},
 		}
 		res, err := repo.ObjectSearch(ctx, 0, 10, findByIDFilter,
-			nil, additional.Properties{})
+			nil, additional.Properties{}, "")
 		require.Nil(t, err)
 		assert.Len(t, res, 1)
 
@@ -2059,7 +2050,6 @@ func Test_PutPatchRestart(t *testing.T) {
 }
 
 func TestCRUDWithEmptyArrays(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -2159,11 +2149,10 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 			},
 		}
 
-		assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}, nil))
-		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}, nil))
+		assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}, nil, ""))
+		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}, nil, ""))
 
-		res, err := repo.ObjectByID(context.Background(), objID, nil,
-			additional.Properties{})
+		res, err := repo.ObjectByID(context.Background(), objID, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 		assert.Equal(t, obj2.Properties, res.ObjectWithVector(false).Properties)
 	})
@@ -2177,7 +2166,7 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 				"stringProp": "string prop value",
 			},
 		}
-		assert.Nil(t, repo.PutObject(context.Background(), objRef, []float32{1, 3, 5, 0.4}, nil))
+		assert.Nil(t, repo.PutObject(context.Background(), objRef, []float32{1, 3, 5, 0.4}, nil, ""))
 
 		obj1ID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
 		obj1 := &models.Object{
@@ -2212,17 +2201,17 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 			},
 		}
 
-		assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}, nil))
-		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}, nil))
+		assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}, nil, ""))
+		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}, nil, ""))
 
 		res, err := repo.Object(context.Background(), classNameWithRefs, obj1ID, nil,
-			additional.Properties{}, nil)
+			additional.Properties{}, nil, "")
 		require.Nil(t, err)
 		assert.NotNil(t, res)
 		assert.Equal(t, obj1.Properties, res.ObjectWithVector(false).Properties)
 
 		res, err = repo.Object(context.Background(), classNameWithRefs, obj2ID, nil,
-			additional.Properties{}, nil)
+			additional.Properties{}, nil, "")
 		require.Nil(t, err)
 		assert.NotNil(t, res)
 		assert.Equal(t, obj2.Properties, res.ObjectWithVector(false).Properties)
@@ -2230,7 +2219,6 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 }
 
 func TestOverwriteObjects(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	class := &models.Class{
@@ -2299,7 +2287,7 @@ func TestOverwriteObjects(t *testing.T) {
 	}
 
 	t.Run("insert stale object", func(t *testing.T) {
-		err := repo.PutObject(context.Background(), stale, stale.Vector, nil)
+		err := repo.PutObject(context.Background(), stale, stale.Vector, nil, "")
 		require.Nil(t, err)
 	})
 
@@ -2309,7 +2297,7 @@ func TestOverwriteObjects(t *testing.T) {
 		}
 
 		idx := repo.GetIndex(schema.ClassName(class.Class))
-		shd, err := idx.shardFromUUID(fresh.ID)
+		shd, err := idx.determineObjectShard(fresh.ID, "", nil)
 		require.Nil(t, err)
 
 		received, err := idx.overwriteObjects(context.Background(), shd, input)
@@ -2319,14 +2307,13 @@ func TestOverwriteObjects(t *testing.T) {
 
 	t.Run("assert data was overwritten", func(t *testing.T) {
 		found, err := repo.Object(context.Background(), stale.Class,
-			stale.ID, nil, additional.Properties{}, nil)
+			stale.ID, nil, additional.Properties{}, nil, "")
 		assert.Nil(t, err)
 		assert.EqualValues(t, fresh, found.Object())
 	})
 }
 
 func TestIndexDigestObjects(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	class := &models.Class{
@@ -2394,15 +2381,15 @@ func TestIndexDigestObjects(t *testing.T) {
 	}
 
 	t.Run("insert test objects", func(t *testing.T) {
-		err := repo.PutObject(context.Background(), obj1, obj1.Vector, nil)
+		err := repo.PutObject(context.Background(), obj1, obj1.Vector, nil, "")
 		require.Nil(t, err)
-		err = repo.PutObject(context.Background(), obj2, obj2.Vector, nil)
+		err = repo.PutObject(context.Background(), obj2, obj2.Vector, nil, "")
 		require.Nil(t, err)
 	})
 
 	t.Run("get digest object", func(t *testing.T) {
 		idx := repo.GetIndex(schema.ClassName(class.Class))
-		shd, err := idx.shardFromUUID(obj1.ID)
+		shd, err := idx.determineObjectShard(obj1.ID, "", nil)
 		require.Nil(t, err)
 
 		input := []strfmt.UUID{obj1.ID, obj2.ID}
@@ -2442,10 +2429,10 @@ func ptFloat64(in float64) *float64 {
 	return &in
 }
 
-func randomVector(dim int) []float32 {
+func randomVector(r *rand.Rand, dim int) []float32 {
 	out := make([]float32, dim)
 	for i := range out {
-		out[i] = rand.Float32()
+		out[i] = r.Float32()
 	}
 
 	return out
@@ -2495,8 +2482,9 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			Class:  class.Class,
 			Vector: nil,
 		}
-		require.Nil(t, repo.PutObject(context.Background(), objNil, objNil.Vector, nil))
-		found, err := repo.Object(context.Background(), class.Class, objNil.ID, nil, additional.Properties{}, nil)
+		require.Nil(t, repo.PutObject(context.Background(), objNil, objNil.Vector, nil, ""))
+		found, err := repo.Object(context.Background(), class.Class, objNil.ID, nil,
+			additional.Properties{}, nil, "")
 		require.Nil(t, err)
 		require.Equal(t, found.Vector, []float32{})
 		require.Equal(t, objNil.ID, found.ID)
@@ -2508,7 +2496,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			Class:  class.Class,
 			Vector: []float32{1, 2, 3},
 		}
-		require.Nil(t, repo.PutObject(context.Background(), obj1, obj1.Vector, nil))
+		require.Nil(t, repo.PutObject(context.Background(), obj1, obj1.Vector, nil, ""))
 	})
 
 	t.Run("Add object with different vector length", func(t *testing.T) {
@@ -2517,8 +2505,9 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			Class:  class.Class,
 			Vector: []float32{1, 2, 3, 4},
 		}
-		require.NotNil(t, repo.PutObject(context.Background(), obj2, obj2.Vector, nil))
-		found, err := repo.Object(context.Background(), class.Class, obj2.ID, nil, additional.Properties{}, nil)
+		require.NotNil(t, repo.PutObject(context.Background(), obj2, obj2.Vector, nil, ""))
+		found, err := repo.Object(context.Background(), class.Class, obj2.ID, nil,
+			additional.Properties{}, nil, "")
 		require.Nil(t, err)
 		require.Nil(t, found)
 	})
@@ -2530,9 +2519,10 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			PrimitiveSchema: map[string]interface{}{},
 			Vector:          []float32{1, 2, 3, 4},
 			UpdateTime:      time.Now().UnixNano() / int64(time.Millisecond),
-		}, nil)
+		}, nil, "")
 		require.NotNil(t, err)
-		found, err := repo.Object(context.Background(), class.Class, obj1ID, nil, additional.Properties{}, nil)
+		found, err := repo.Object(context.Background(), class.Class,
+			obj1ID, nil, additional.Properties{}, nil, "")
 		require.Nil(t, err)
 		require.Len(t, found.Vector, 3)
 	})
@@ -2544,9 +2534,10 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			PrimitiveSchema: map[string]interface{}{},
 			Vector:          []float32{1, 2, 3},
 			UpdateTime:      time.Now().UnixNano() / int64(time.Millisecond),
-		}, nil)
+		}, nil, "")
 		require.Nil(t, err)
-		found, err := repo.Object(context.Background(), class.Class, objNilID, nil, additional.Properties{}, nil)
+		found, err := repo.Object(context.Background(), class.Class, objNilID, nil,
+			additional.Properties{}, nil, "")
 		require.Nil(t, err)
 		require.Len(t, found.Vector, 3)
 	})
@@ -2557,8 +2548,9 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			Class:  class.Class,
 			Vector: nil,
 		}
-		require.Nil(t, repo.PutObject(context.Background(), obj2Nil, obj2Nil.Vector, nil))
-		found, err := repo.Object(context.Background(), class.Class, obj2Nil.ID, nil, additional.Properties{}, nil)
+		require.Nil(t, repo.PutObject(context.Background(), obj2Nil, obj2Nil.Vector, nil, ""))
+		found, err := repo.Object(context.Background(), class.Class, obj2Nil.ID, nil,
+			additional.Properties{}, nil, "")
 		require.Nil(t, err)
 		require.Equal(t, obj2Nil.ID, found.ID)
 		require.Equal(t, []float32{}, found.Vector)

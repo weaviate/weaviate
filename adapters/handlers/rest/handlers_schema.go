@@ -182,6 +182,27 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 	return schema.NewSchemaObjectsShardsUpdateOK().WithPayload(payload)
 }
 
+func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
+	principal *models.Principal,
+) middleware.Responder {
+	err := s.manager.AddTenants(
+		params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
+	if err != nil {
+		switch err.(type) {
+		case errors.Forbidden:
+			return schema.NewTenantsCreateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewTenantsCreateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	payload := params.Body
+
+	return schema.NewTenantsCreateOK().WithPayload(payload)
+}
+
 func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager) {
 	h := &schemaHandlers{manager}
 
@@ -204,4 +225,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager)
 		SchemaObjectsShardsGetHandlerFunc(h.getShardsStatus)
 	api.SchemaSchemaObjectsShardsUpdateHandler = schema.
 		SchemaObjectsShardsUpdateHandlerFunc(h.updateShardStatus)
+
+	api.SchemaTenantsCreateHandler = schema.
+		TenantsCreateHandlerFunc(h.createTenants)
 }

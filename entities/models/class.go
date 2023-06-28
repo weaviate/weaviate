@@ -42,6 +42,9 @@ type Class struct {
 	// Configuration specific to modules this Weaviate instance has installed
 	ModuleConfig interface{} `json:"moduleConfig,omitempty"`
 
+	// multi tenancy config
+	MultiTenancyConfig *MultiTenancyConfig `json:"multiTenancyConfig,omitempty"`
+
 	// The properties of the class.
 	Properties []*Property `json:"properties"`
 
@@ -66,6 +69,10 @@ func (m *Class) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateInvertedIndexConfig(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateMultiTenancyConfig(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -94,6 +101,25 @@ func (m *Class) validateInvertedIndexConfig(formats strfmt.Registry) error {
 				return ve.ValidateName("invertedIndexConfig")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
 				return ce.ValidateName("invertedIndexConfig")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Class) validateMultiTenancyConfig(formats strfmt.Registry) error {
+	if swag.IsZero(m.MultiTenancyConfig) { // not required
+		return nil
+	}
+
+	if m.MultiTenancyConfig != nil {
+		if err := m.MultiTenancyConfig.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("multiTenancyConfig")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("multiTenancyConfig")
 			}
 			return err
 		}
@@ -155,6 +181,10 @@ func (m *Class) ContextValidate(ctx context.Context, formats strfmt.Registry) er
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateMultiTenancyConfig(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateProperties(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -177,6 +207,22 @@ func (m *Class) contextValidateInvertedIndexConfig(ctx context.Context, formats 
 				return ve.ValidateName("invertedIndexConfig")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
 				return ce.ValidateName("invertedIndexConfig")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Class) contextValidateMultiTenancyConfig(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.MultiTenancyConfig != nil {
+		if err := m.MultiTenancyConfig.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("multiTenancyConfig")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("multiTenancyConfig")
 			}
 			return err
 		}
