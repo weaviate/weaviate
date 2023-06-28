@@ -720,6 +720,7 @@ func reasonableHttpClient() *http.Client {
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+		MaxConnsPerHost:       1000,
 	}
 	return &http.Client{Transport: t}
 }

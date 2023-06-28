@@ -14,6 +14,7 @@ package inverted
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -90,6 +91,9 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 		pv.docIDs = dbm
 	} else {
 		eg := errgroup.Group{}
+		// prevent unbounded concurrency, see
+		// https://github.com/weaviate/weaviate/issues/3179 for details
+		eg.SetLimit(2 * runtime.GOMAXPROCS(0))
 		for i, child := range pv.children {
 			i, child := i, child
 			eg.Go(func() error {

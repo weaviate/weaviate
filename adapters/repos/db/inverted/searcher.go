@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -191,6 +192,9 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 		out.children = make([]*propValuePair, len(filter.Operands))
 
 		eg := errgroup.Group{}
+		// prevent unbounded concurrency, see
+		// https://github.com/weaviate/weaviate/issues/3179 for details
+		eg.SetLimit(2 * runtime.GOMAXPROCS(0))
 
 		for i, clause := range filter.Operands {
 			i, clause := i, clause
