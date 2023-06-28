@@ -141,6 +141,15 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 	return schema.NewSchemaDumpOK().WithPayload(payload)
 }
 
+func (s *schemaHandlers) getClusterStatus(params schema.SchemaClusterStatusParams, principal *models.Principal) middleware.Responder {
+	status, err := s.manager.ClusterStatus(params.HTTPRequest.Context())
+	if err == nil {
+		return schema.NewSchemaClusterStatusOK().WithPayload(status)
+	} else {
+		return schema.NewSchemaClusterStatusInternalServerError().WithPayload(status)
+	}
+}
+
 func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
@@ -220,6 +229,8 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager)
 		SchemaObjectsGetHandlerFunc(h.getClass)
 	api.SchemaSchemaDumpHandler = schema.
 		SchemaDumpHandlerFunc(h.getSchema)
+	api.SchemaSchemaClusterStatusHandler = schema.
+		SchemaClusterStatusHandlerFunc(h.getClusterStatus)
 
 	api.SchemaSchemaObjectsShardsGetHandler = schema.
 		SchemaObjectsShardsGetHandlerFunc(h.getShardsStatus)
