@@ -12,13 +12,12 @@
 package test
 
 import (
-	"fmt"
-	"net/http"
 	"testing"
+
+	"github.com/weaviate/weaviate/client/objects"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -29,8 +28,7 @@ func TestAddTenantObjects(t *testing.T) {
 	testClass := models.Class{
 		Class: className,
 		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: tenantKey,
+			Enabled: true,
 		},
 		Properties: []*models.Property{
 			{
@@ -49,6 +47,7 @@ func TestAddTenantObjects(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantNames[0],
 			},
+			TenantName: tenantNames[0],
 		},
 		{
 			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
@@ -56,6 +55,7 @@ func TestAddTenantObjects(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantNames[1],
 			},
+			TenantName: tenantNames[1],
 		},
 		{
 			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
@@ -63,6 +63,7 @@ func TestAddTenantObjects(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantNames[2],
 			},
+			TenantName: tenantNames[2],
 		},
 	}
 
@@ -83,8 +84,8 @@ func TestAddTenantObjects(t *testing.T) {
 	})
 
 	t.Run("add tenant objects", func(t *testing.T) {
-		for i, obj := range tenantObjects {
-			helper.CreateTenantObject(t, obj, tenantNames[i])
+		for _, obj := range tenantObjects {
+			helper.CreateObject(t, obj)
 		}
 	})
 
@@ -98,55 +99,43 @@ func TestAddTenantObjects(t *testing.T) {
 	})
 }
 
-func TestAddTenantObjects_MissingTenantKey(t *testing.T) {
-	className := "MultiTenantClass"
-	tenantKey := "tenantName"
-	tenantName := "Tenant1"
-	testClass := models.Class{
-		Class: className,
-		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: tenantKey,
-		},
-		Properties: []*models.Property{
-			{
-				Name:     tenantKey,
-				DataType: []string{"string"},
-			},
-		},
-	}
-	tenantObject := models.Object{
-		ID:    "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
-		Class: className,
-	}
-
+func TestAddTenantObjectsToNonMultiClass(t *testing.T) {
+	className := "NoTenantClass"
 	defer func() {
 		helper.DeleteClass(t, className)
 	}()
 
-	t.Run("create class with multi-tenancy enabled", func(t *testing.T) {
-		helper.CreateClass(t, &testClass)
-	})
+	testClass := models.Class{
+		Class:              className,
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false},
+	}
+	helper.CreateClass(t, &testClass)
+	objWithTenant := &models.Object{
+		ID:         "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
+		Class:      className,
+		TenantName: "RandomName",
+	}
+	params := objects.NewObjectsCreateParams().WithBody(objWithTenant)
+	_, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
+	require.NotNil(t, err)
+}
 
-	t.Run("create tenants", func(t *testing.T) {
-		helper.CreateTenants(t, className, []*models.Tenant{{tenantName}})
-	})
+func TestAddNonTenantObjectsToMultiClass(t *testing.T) {
+	className := "TenantClassFail"
+	defer func() {
+		helper.DeleteClass(t, className)
+	}()
 
-	t.Run("add tenant object", func(t *testing.T) {
-		params := objects.NewObjectsCreateParams().
-			WithBody(&tenantObject).WithTenantKey(&tenantName)
-		resp, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
-		require.Nil(t, resp)
-		require.NotNil(t, err)
-		parsedErr, ok := err.(*objects.ObjectsCreateUnprocessableEntity)
-		require.True(t, ok)
-		expected := "put object: import into index multitenantclass: " +
-			"tenant_key query param value \"Tenant1\" conflicts with object " +
-			"body value \"\" for class \"MultiTenantClass\" tenant key \"tenantName\""
-		require.NotNil(t, parsedErr.Payload)
-		require.NotNil(t, parsedErr.Payload.Error)
-		require.Len(t, parsedErr.Payload.Error, 1)
-		assert.Contains(t, err.Error(), fmt.Sprint(http.StatusUnprocessableEntity))
-		assert.Equal(t, expected, parsedErr.Payload.Error[0].Message)
-	})
+	testClass := models.Class{
+		Class:              className,
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+	}
+	helper.CreateClass(t, &testClass)
+	objWithTenant := &models.Object{
+		ID:    "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
+		Class: className,
+	}
+	params := objects.NewObjectsCreateParams().WithBody(objWithTenant)
+	_, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
+	require.NotNil(t, err)
 }

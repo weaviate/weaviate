@@ -37,7 +37,7 @@ type MergeDocument struct {
 }
 
 func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
-	updates *models.Object, repl *additional.ReplicationProperties, tenantKey string,
+	updates *models.Object, repl *additional.ReplicationProperties,
 ) *Error {
 	if err := m.validateInputs(updates); err != nil {
 		return &Error{"bad request", StatusBadRequest, err}
@@ -51,7 +51,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	m.metrics.MergeObjectInc()
 	defer m.metrics.MergeObjectDec()
 
-	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, tenantKey)
+	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, updates.TenantName)
 	if err != nil {
 		return &Error{"repo.object", StatusInternalServerError, err}
 	}
@@ -69,7 +69,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	}
 
 	if err := m.validateObjectAndNormalizeNames(
-		ctx, principal, repl, updates, obj.Object(), tenantKey); err != nil {
+		ctx, principal, repl, updates, obj.Object()); err != nil {
 		return &Error{"bad request", StatusBadRequest, err}
 	}
 
@@ -77,7 +77,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		updates.Properties = map[string]interface{}{}
 	}
 
-	return m.patchObject(ctx, principal, obj, updates, repl, propertiesToDelete, tenantKey)
+	return m.patchObject(ctx, principal, obj, updates, repl, propertiesToDelete, updates.TenantName)
 }
 
 // patchObject patches an existing object obj with updates

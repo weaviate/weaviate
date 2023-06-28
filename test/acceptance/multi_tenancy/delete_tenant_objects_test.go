@@ -26,8 +26,7 @@ func TestDeleteTenantObjects(t *testing.T) {
 	testClass := models.Class{
 		Class: "MultiTenantClass",
 		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: tenantKey,
+			Enabled: true,
 		},
 		Properties: []*models.Property{
 			{
@@ -46,6 +45,7 @@ func TestDeleteTenantObjects(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantNames[0],
 			},
+			TenantName: tenantNames[0],
 		},
 		{
 			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
@@ -53,6 +53,7 @@ func TestDeleteTenantObjects(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantNames[1],
 			},
+			TenantName: tenantNames[1],
 		},
 		{
 			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
@@ -60,6 +61,7 @@ func TestDeleteTenantObjects(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantNames[2],
 			},
+			TenantName: tenantNames[2],
 		},
 	}
 
@@ -80,8 +82,8 @@ func TestDeleteTenantObjects(t *testing.T) {
 	})
 
 	t.Run("add tenant objects", func(t *testing.T) {
-		for i, obj := range tenantObjects {
-			helper.CreateTenantObject(t, obj, tenantNames[i])
+		for _, obj := range tenantObjects {
+			helper.CreateObject(t, obj)
 		}
 
 		t.Run("verify tenant objects creation", func(t *testing.T) {

@@ -100,12 +100,6 @@ type ObjectsClassPatchParams struct {
 	*/
 	ID strfmt.UUID
 
-	/* TenantKey.
-
-	   Specifies the tenant in a request targeting a multi-tenant class
-	*/
-	TenantKey *string
-
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -203,17 +197,6 @@ func (o *ObjectsClassPatchParams) SetID(id strfmt.UUID) {
 	o.ID = id
 }
 
-// WithTenantKey adds the tenantKey to the objects class patch params
-func (o *ObjectsClassPatchParams) WithTenantKey(tenantKey *string) *ObjectsClassPatchParams {
-	o.SetTenantKey(tenantKey)
-	return o
-}
-
-// SetTenantKey adds the tenantKey to the objects class patch params
-func (o *ObjectsClassPatchParams) SetTenantKey(tenantKey *string) {
-	o.TenantKey = tenantKey
-}
-
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsClassPatchParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -252,23 +235,6 @@ func (o *ObjectsClassPatchParams) WriteToRequest(r runtime.ClientRequest, reg st
 	// path param id
 	if err := r.SetPathParam("id", o.ID.String()); err != nil {
 		return err
-	}
-
-	if o.TenantKey != nil {
-
-		// query param tenant_key
-		var qrTenantKey string
-
-		if o.TenantKey != nil {
-			qrTenantKey = *o.TenantKey
-		}
-		qTenantKey := qrTenantKey
-		if qTenantKey != "" {
-
-			if err := r.SetQueryParam("tenant_key", qTenantKey); err != nil {
-				return err
-			}
-		}
 	}
 
 	if len(res) > 0 {

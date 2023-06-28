@@ -59,16 +59,14 @@ func multiTenancyEnabled(t *testing.T) {
 			Factor: 2,
 		}
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: tenantKey,
+			Enabled: true,
 		}
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor: 2,
 		}
 		articleClass.MultiTenancyConfig = &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: tenantKey,
+			Enabled: true,
 		}
 		helper.CreateClass(t, articleClass)
 	})
@@ -86,10 +84,10 @@ func multiTenancyEnabled(t *testing.T) {
 				batch[i] = articles.NewParagraph().
 					WithID(id).
 					WithContents(fmt.Sprintf("paragraph#%d", i)).
-					WithTenantKey(tenantID.String()).
+					WithTenant(tenantID.String()).
 					Object()
 			}
-			createTenantObjects(t, compose.GetWeaviate().URI(), batch, tenantID.String())
+			createTenantObjects(t, compose.GetWeaviate().URI(), batch)
 		})
 
 		t.Run("stop node 1", func(t *testing.T) {
@@ -113,9 +111,9 @@ func multiTenancyEnabled(t *testing.T) {
 				obj := articles.NewArticle().
 					WithID(id).
 					WithTitle(fmt.Sprintf("Article#%d", i)).
-					WithTenantKey(tenantID.String()).
+					WithTenant(tenantID.String()).
 					Object()
-				createTenantObject(t, compose.GetWeaviateNode2().URI(), obj, tenantID.String())
+				createTenantObject(t, compose.GetWeaviateNode2().URI(), obj)
 			}
 		})
 
@@ -202,8 +200,9 @@ func multiTenancyEnabled(t *testing.T) {
 				ID:         before.ID,
 				Class:      "Article",
 				Properties: map[string]interface{}{"title": newTitle, tenantKey: tenantID.String()},
+				TenantName: tenantID.String(),
 			}
-			patchTenantObject(t, compose.GetWeaviateNode2().URI(), patch, tenantID.String())
+			patchTenantObject(t, compose.GetWeaviateNode2().URI(), patch)
 		})
 
 		t.Run("stop node 2", func(t *testing.T) {

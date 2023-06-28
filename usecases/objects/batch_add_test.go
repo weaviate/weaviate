@@ -84,7 +84,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		expectedErr := NewErrInvalidUserInput("invalid param 'objects': cannot be empty, need at least" +
 			" one object for batching")
 
-		_, err := manager.AddObjects(ctx, nil, []*models.Object{}, []*string{}, nil, "")
+		_, err := manager.AddObjects(ctx, nil, []*models.Object{}, []*string{}, nil)
 
 		assert.Equal(t, expectedErr, err)
 	})
@@ -108,7 +108,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 				Return(nil, nil)
 		}
 
-		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil, "")
+		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
 		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
 
 		assert.Nil(t, err)
@@ -144,7 +144,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 				Return(nil, nil)
 		}
 
-		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil, "")
+		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
 		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
 
 		assert.Nil(t, err)
@@ -184,7 +184,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 				Return(nil, nil)
 		}
 
-		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil, "")
+		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
 		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
 
 		assert.Nil(t, err)
@@ -222,7 +222,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 				Return(nil, nil)
 		}
 
-		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil, "")
+		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
 		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
 
 		assert.Nil(t, err)
@@ -255,7 +255,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 				Return(nil, nil)
 		}
 
-		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil, "")
+		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
 		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
 
 		assert.Nil(t, err)
@@ -305,7 +305,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		expectedErr := NewErrInvalidUserInput("invalid param 'objects': cannot be empty, need at least" +
 			" one object for batching")
 
-		_, err := manager.AddObjects(ctx, nil, []*models.Object{}, []*string{}, nil, "")
+		_, err := manager.AddObjects(ctx, nil, []*models.Object{}, []*string{}, nil)
 
 		assert.Equal(t, expectedErr, err)
 	})
@@ -328,7 +328,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 				Return(expectedVector, nil)
 		}
 
-		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil, "")
+		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
 		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
 
 		assert.Nil(t, err)
@@ -364,7 +364,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 				Return(nil, nil)
 		}
 
-		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil, "")
+		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
 		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
 
 		assert.Nil(t, err)
@@ -394,7 +394,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 				Return(nil, nil)
 		}
 
-		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil, "")
+		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
 		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
 
 		assert.Nil(t, err)
@@ -464,7 +464,7 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
 			Return(nil, nil)
 	}
-	addedObjects, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil, "")
+	addedObjects, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
 	assert.Nil(t, err)
 	require.Len(t, addedObjects, 2)
 	require.NotNil(t, addedObjects[0].Object.Properties)

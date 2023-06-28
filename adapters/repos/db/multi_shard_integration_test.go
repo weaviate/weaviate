@@ -58,7 +58,7 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 
 	t.Run("import all individually", func(t *testing.T) {
 		for _, obj := range data {
-			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil, ""))
+			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil))
 		}
 	})
 
@@ -71,7 +71,7 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 
 	t.Run("import refs individually", func(t *testing.T) {
 		for _, obj := range refData {
-			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil, ""))
+			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil))
 		}
 	})
 
@@ -105,7 +105,7 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 			}
 		}
 
-		_, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
+		_, err := repo.BatchPutObjects(context.Background(), batch, nil)
 		require.Nil(t, err)
 	})
 
@@ -126,7 +126,7 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 				Properties: map[string]interface{}{}, // empty so we remove the ref
 			}
 
-			require.Nil(t, repo.PutObject(context.Background(), withoutRef, withoutRef.Vector, nil, ""))
+			require.Nil(t, repo.PutObject(context.Background(), withoutRef, withoutRef.Vector, nil))
 		}
 
 		index := 0
@@ -232,7 +232,7 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 			},
 		}
 
-		_, err := repo.BatchPutObjects(context.Background(), objs, nil, "")
+		_, err := repo.BatchPutObjects(context.Background(), objs, nil)
 		require.Nil(t, err)
 	})
 

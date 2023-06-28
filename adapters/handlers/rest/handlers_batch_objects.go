@@ -36,10 +36,8 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
-
 	objs, err := h.manager.AddObjects(params.HTTPRequest.Context(), principal,
-		params.Body.Objects, params.Body.Fields, repl, tenantKey)
+		params.Body.Objects, params.Body.Fields, repl)
 	if err != nil {
 		switch err.(type) {
 		case autherrs.Forbidden:

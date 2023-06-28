@@ -36,11 +36,8 @@ func TestBatchAddTenantReferences(t *testing.T) {
 	mtRefProp2 := "relatedToMT2"
 	stRefProp := "relatedToST"
 	mtClass1 := models.Class{
-		Class: className1,
-		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: tenantKey,
-		},
+		Class:              className1,
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 		Properties: []*models.Property{
 			{
 				Name:     tenantKey,
@@ -63,8 +60,7 @@ func TestBatchAddTenantReferences(t *testing.T) {
 	mtClass2 := models.Class{
 		Class: className2,
 		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: tenantKey,
+			Enabled: true,
 		},
 		Properties: []*models.Property{
 			{
@@ -97,6 +93,7 @@ func TestBatchAddTenantReferences(t *testing.T) {
 		Properties: map[string]interface{}{
 			tenantKey: tenantName1,
 		},
+		TenantName: tenantName1,
 	}
 	mtObject2DiffTenant := &models.Object{
 		ID:    "af90a7e3-53b3-4eb0-b395-10a04d217263",
@@ -104,6 +101,7 @@ func TestBatchAddTenantReferences(t *testing.T) {
 		Properties: map[string]interface{}{
 			tenantKey: tenantName2,
 		},
+		TenantName: tenantName2,
 	}
 	mtObject2SameTenant := &models.Object{
 		ID:    "4076df6b-0767-43a9-a0a4-2ec153bf262e",
@@ -111,6 +109,7 @@ func TestBatchAddTenantReferences(t *testing.T) {
 		Properties: map[string]interface{}{
 			tenantKey: tenantName1,
 		},
+		TenantName: tenantName1,
 	}
 	stObject1 := &models.Object{
 		ID:    "bea841c7-d689-4526-8af3-56c44b44274a",
@@ -145,9 +144,9 @@ func TestBatchAddTenantReferences(t *testing.T) {
 	})
 
 	t.Run("add tenant objects", func(t *testing.T) {
-		helper.CreateTenantObject(t, mtObject1, tenantName1)
-		helper.CreateTenantObject(t, mtObject2DiffTenant, tenantName2)
-		helper.CreateTenantObject(t, mtObject2SameTenant, tenantName1)
+		helper.CreateObject(t, mtObject1)
+		helper.CreateObject(t, mtObject2DiffTenant)
+		helper.CreateObject(t, mtObject2SameTenant)
 		helper.CreateObject(t, stObject1)
 		helper.CreateObject(t, stObject2)
 

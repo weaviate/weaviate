@@ -437,9 +437,6 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1076,9 +1073,6 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1280,9 +1274,6 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1479,9 +1470,6 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1873,9 +1861,6 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2043,9 +2028,6 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -3780,10 +3762,6 @@ func init() {
         "enabled": {
           "description": "Whether or not multi-tenancy is enabled for this class",
           "type": "boolean"
-        },
-        "tenantKey": {
-          "description": "The class property which is used to separate tenants",
-          "type": "string"
         }
       }
     },
@@ -3910,6 +3888,10 @@ func init() {
         },
         "properties": {
           "$ref": "#/definitions/PropertySchema"
+        },
+        "tenantName": {
+          "description": "Name of the Objects tenant.",
+          "type": "string"
         },
         "vector": {
           "description": "This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.",
@@ -5036,12 +5018,6 @@ func init() {
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
             "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
-            "in": "query"
           }
         ],
         "responses": {
@@ -5717,12 +5693,6 @@ func init() {
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
             "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
-            "in": "query"
           }
         ],
         "responses": {
@@ -5939,12 +5909,6 @@ func init() {
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
             "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
-            "in": "query"
           }
         ],
         "responses": {
@@ -6155,12 +6119,6 @@ func init() {
             "type": "string",
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
             "in": "query"
           }
         ],
@@ -6577,12 +6535,6 @@ func init() {
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
             "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
-            "in": "query"
           }
         ],
         "responses": {
@@ -6758,12 +6710,6 @@ func init() {
             "type": "string",
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
             "in": "query"
           }
         ],
@@ -8658,10 +8604,6 @@ func init() {
         "enabled": {
           "description": "Whether or not multi-tenancy is enabled for this class",
           "type": "boolean"
-        },
-        "tenantKey": {
-          "description": "The class property which is used to separate tenants",
-          "type": "string"
         }
       }
     },
@@ -8788,6 +8730,10 @@ func init() {
         },
         "properties": {
           "$ref": "#/definitions/PropertySchema"
+        },
+        "tenantName": {
+          "description": "Name of the Objects tenant.",
+          "type": "string"
         },
         "vector": {
           "description": "This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.",

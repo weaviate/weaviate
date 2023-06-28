@@ -79,7 +79,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	}
 	obj.LastUpdateTimeUnix = m.timeSource.Now()
 
-	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, repl, tenantKey)
+	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, repl)
 	if err != nil {
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}

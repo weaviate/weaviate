@@ -28,8 +28,7 @@ func TestTenantObjectsReference(t *testing.T) {
 	testClass := models.Class{
 		Class: "MultiTenantClass",
 		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: tenantKey,
+			Enabled: true,
 		},
 		Properties: []*models.Property{
 			{
@@ -57,6 +56,7 @@ func TestTenantObjectsReference(t *testing.T) {
 				tenantKey:   tenantNames[0],
 				mutableProp: "obj#0",
 			},
+			TenantName: tenantNames[0],
 		},
 		{
 			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
@@ -65,6 +65,7 @@ func TestTenantObjectsReference(t *testing.T) {
 				tenantKey:   tenantNames[1],
 				mutableProp: "obj#1",
 			},
+			TenantName: tenantNames[1],
 		},
 		{
 			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
@@ -73,6 +74,7 @@ func TestTenantObjectsReference(t *testing.T) {
 				tenantKey:   tenantNames[2],
 				mutableProp: "obj#2",
 			},
+			TenantName: tenantNames[2],
 		},
 	}
 	tenantRefs := []*models.Object{
@@ -83,6 +85,7 @@ func TestTenantObjectsReference(t *testing.T) {
 				tenantKey:   tenantNames[0],
 				mutableProp: "ref#0",
 			},
+			TenantName: tenantNames[0],
 		},
 		{
 			ID:    "4d78424d-f7bd-479b-bd8a-52510e2db0fd",
@@ -91,6 +94,7 @@ func TestTenantObjectsReference(t *testing.T) {
 				tenantKey:   tenantNames[1],
 				mutableProp: "ref#1",
 			},
+			TenantName: tenantNames[1],
 		},
 		{
 			ID:    "c1db0a06-d5f9-4f77-aa3c-08a44f16e358",
@@ -99,6 +103,7 @@ func TestTenantObjectsReference(t *testing.T) {
 				tenantKey:   tenantNames[2],
 				mutableProp: "ref#2",
 			},
+			TenantName: tenantNames[2],
 		},
 	}
 
@@ -120,8 +125,8 @@ func TestTenantObjectsReference(t *testing.T) {
 
 	t.Run("add tenant objects", func(t *testing.T) {
 		for i, obj := range tenantObjects {
-			helper.CreateTenantObject(t, obj, tenantNames[i])
-			helper.CreateTenantObject(t, tenantRefs[i], tenantNames[i])
+			helper.CreateObject(t, obj)
+			helper.CreateObject(t, tenantRefs[i])
 		}
 
 		t.Run("verify tenant object creation", func(t *testing.T) {
