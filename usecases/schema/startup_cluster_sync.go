@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // startupClusterSync tries to determine what - if any - schema migration is
@@ -132,6 +133,33 @@ func (m *Manager) startupJoinCluster(ctx context.Context,
 	return nil
 }
 
+func (m *Manager) ClusterStatus(ctx context.Context) (*models.SchemaClusterStatus, error) {
+	m.RLock()
+	defer m.RUnlock()
+
+	out := &models.SchemaClusterStatus{
+		Hostname:         m.clusterState.LocalName(),
+		IgnoreSchemaSync: m.clusterState.SchemaSyncIgnored(),
+	}
+
+	nodes := m.clusterState.AllNames()
+	out.NodeCount = int64(len(nodes))
+	if len(nodes) < 2 {
+		out.Healthy = true
+		return out, nil
+	}
+
+	err := m.validateSchemaCorruption(ctx, &m.state)
+	if err != nil {
+		out.Error = err.Error()
+		out.Healthy = false
+		return out, err
+	}
+
+	out.Healthy = true
+	return out, nil
+}
+
 // validateSchemaCorruption makes sure that - given that all nodes in the
 // cluster have a schema - they are in sync. If not the cluster is considered
 // broken and needs to be repaired manually
@@ -161,8 +189,8 @@ func (m *Manager) validateSchemaCorruption(ctx context.Context,
 			"diff": diff,
 		}).Errorf("mismatch between local schema and remote (other nodes consensus) schema")
 
-		return fmt.Errorf("corrupt cluster: other nodes have consensus on schema, " +
-			"but local node has a different (non-null) schema")
+		return fmt.Errorf("corrupt cluster: other nodes have consensus on schema, "+
+			"but local node has a different (non-null) schema: %s", diff)
 	}
 
 	return nil

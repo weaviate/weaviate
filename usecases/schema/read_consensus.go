@@ -64,7 +64,7 @@ func newReadConsensus(parser parserFn,
 					"diff": diff,
 				}).Errorf("trying to reach cluster consensus on schema")
 
-				return nil, fmt.Errorf("did not reach consensus on schema in cluster")
+				return nil, fmt.Errorf("did not reach consensus on schema in cluster: %s", diff)
 			}
 		}
 
