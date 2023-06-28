@@ -203,7 +203,7 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, topMostSegment i
 	return nil, nil
 }
 
-func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, error, []byte) {
+func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, error) {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 
@@ -225,7 +225,7 @@ func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []b
 			panic(fmt.Sprintf("unsupported error in segmentGroup.get(): %v", err))
 		}
 
-		return v, nil, allocatedBuff
+		return v, allocatedBuff, nil
 	}
 
 	return nil, nil, nil

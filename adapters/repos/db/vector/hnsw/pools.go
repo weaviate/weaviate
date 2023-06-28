@@ -16,23 +16,21 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
 type pools struct {
 	visitedLists     *visited.Pool
 	visitedListsLock *sync.Mutex
 
-	pqItemSlice        *sync.Pool
-	pqHeuristic        *pqMinWithIndexPool
-	pqResults          *pqMaxPool
-	pqSortedSetResults *ssdhelpers.SortedSetPool
-	pqCandidates       *pqMinPool
+	pqItemSlice  *sync.Pool
+	pqHeuristic  *pqMinWithIndexPool
+	pqResults    *pqMaxPool
+	pqCandidates *pqMinPool
 
 	tempVectors *tempVectorsPool
 }
 
-func newPools(maxConnectionsLayerZero int, tempVectorsSize int32) *pools {
+func newPools(maxConnectionsLayerZero int) *pools {
 	return &pools{
 		visitedLists:     visited.NewPool(1, initialSize+500),
 		visitedListsLock: &sync.Mutex{},
@@ -41,11 +39,10 @@ func newPools(maxConnectionsLayerZero int, tempVectorsSize int32) *pools {
 				return make([]priorityqueue.ItemWithIndex, 0, maxConnectionsLayerZero)
 			},
 		},
-		pqHeuristic:        newPqMinWithIndexPool(maxConnectionsLayerZero),
-		pqResults:          newPqMaxPool(maxConnectionsLayerZero),
-		pqSortedSetResults: ssdhelpers.NewSortedSetPool(),
-		pqCandidates:       newPqMinPool(maxConnectionsLayerZero),
-		tempVectors:        newTempVectorsPool(),
+		pqHeuristic:  newPqMinWithIndexPool(maxConnectionsLayerZero),
+		pqResults:    newPqMaxPool(maxConnectionsLayerZero),
+		pqCandidates: newPqMinPool(maxConnectionsLayerZero),
+		tempVectors:  newTempVectorsPool(),
 	}
 }
 

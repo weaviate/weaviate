@@ -249,7 +249,7 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 // equivalent exists for Set and Map, as those do not support secondary
 // indexes.
 func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
-	bytes, err, _ := b.GetBySecondaryIntoMemory(pos, key, nil)
+	bytes, _, err := b.GetBySecondaryIntoMemory(pos, key, nil)
 	return bytes, err
 }
 
@@ -265,7 +265,7 @@ func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
 // Similar to [Bucket.Get], GetBySecondary is limited to ReplaceStrategy. No
 // equivalent exists for Set and Map, as those do not support secondary
 // indexes.
-func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, error, []byte) {
+func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 

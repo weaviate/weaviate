@@ -28,7 +28,7 @@ import (
 )
 
 func (h *hnsw) init(cfg Config) error {
-	h.pools = newPools(h.maximumConnectionsLayerZero, h.dims)
+	h.pools = newPools(h.maximumConnectionsLayerZero)
 
 	if err := h.restoreFromDisk(); err != nil {
 		return errors.Wrapf(err, "restore hnsw index %q", cfg.ID)

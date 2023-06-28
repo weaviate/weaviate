@@ -98,7 +98,7 @@ func TestCreateBloomOnFlushRetrievingIntoMemory(t *testing.T) {
 	valuePrimary, err := b2.Get([]byte("hello"))
 	require.Nil(t, err)
 	valueSecondary := make([]byte, 5)
-	valueSecondary, err, _ = b2.GetBySecondaryIntoMemory(0, []byte("bonjour"), valueSecondary)
+	valueSecondary, _, err = b2.GetBySecondaryIntoMemory(0, []byte("bonjour"), valueSecondary)
 	require.Nil(t, err)
 
 	assert.Equal(t, []byte("world"), valuePrimary)
@@ -260,7 +260,7 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 	defer b2.Shutdown(ctx)
 
 	value := make([]byte, 5)
-	value, err, _ = b2.GetBySecondaryIntoMemory(0, []byte("bonjour"), value)
+	value, _, err = b2.GetBySecondaryIntoMemory(0, []byte("bonjour"), value)
 	assert.Nil(t, err)
 	assert.Equal(t, []byte("world"), value)
 }
