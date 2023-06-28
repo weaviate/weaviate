@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -35,6 +36,8 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"golang.org/x/sync/errgroup"
 )
+
+var _NUMCPU = runtime.NumCPU()
 
 type Searcher struct {
 	logger                 logrus.FieldLogger
@@ -191,6 +194,9 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 		out.children = make([]*propValuePair, len(filter.Operands))
 
 		eg := errgroup.Group{}
+		// prevent unbounded concurrency, see
+		// https://github.com/weaviate/weaviate/issues/3179 for details
+		eg.SetLimit(2 * _NUMCPU)
 
 		for i, clause := range filter.Operands {
 			i, clause := i, clause
