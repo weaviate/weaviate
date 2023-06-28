@@ -92,8 +92,8 @@ func (s *segment) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) (
 	// Similar approach was used to fix SEGFAULT in collection strategy
 	// https://github.com/weaviate/weaviate/issues/1837
 	var contentsCopy []byte
-	if uint64(len(buffer)) >= node.End-node.Start {
-		contentsCopy = buffer
+	if uint64(cap(buffer)) >= node.End-node.Start {
+		contentsCopy = buffer[:node.End-node.Start]
 	} else {
 		contentsCopy = make([]byte, node.End-node.Start)
 	}
