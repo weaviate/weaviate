@@ -39,5 +39,9 @@ func bm25Fields(prefix string) graphql.InputObjectConfigFieldMap {
 			Description: "The properties to search in",
 			Type:        graphql.NewList(graphql.String),
 		},
+		"autocut": &graphql.InputObjectFieldConfig{
+			Description: "Cut off number of results after the Nth extrema. Off by default, negative numbers mean off.",
+			Type:        graphql.Int,
+		},
 	}
 }

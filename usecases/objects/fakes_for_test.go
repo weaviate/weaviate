@@ -16,10 +16,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/sirupsen/logrus"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
@@ -30,12 +29,13 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 const FindObjectFn = "func(context.Context, string, strfmt.UUID, " +
-	"search.SelectProperties, additional.Properties) (*search.Result, error)"
+	"search.SelectProperties, additional.Properties, string) (*search.Result, error)"
 
 type fakeSchemaManager struct {
 	CalledWith struct {
@@ -139,16 +139,14 @@ type fakeVectorRepo struct {
 	mock.Mock
 }
 
-func (f *fakeVectorRepo) Exists(ctx context.Context, class string,
-	id strfmt.UUID, repl *additional.ReplicationProperties,
-) (bool, error) {
+func (f *fakeVectorRepo) Exists(ctx context.Context, class string, id strfmt.UUID, repl *additional.ReplicationProperties, tenantKey string) (bool, error) {
 	args := f.Called(class, id)
 	return args.Bool(0), args.Error(1)
 }
 
 func (f *fakeVectorRepo) Object(ctx context.Context, cls string, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (*search.Result, error) {
 	args := f.Called(cls, id, props, additional)
 	if args.Get(0) != nil {
@@ -157,8 +155,9 @@ func (f *fakeVectorRepo) Object(ctx context.Context, cls string, id strfmt.UUID,
 	return nil, args.Error(1)
 }
 
-func (f *fakeVectorRepo) ObjectByID(ctx context.Context,
-	id strfmt.UUID, props search.SelectProperties, additional additional.Properties,
+func (f *fakeVectorRepo) ObjectByID(ctx context.Context, id strfmt.UUID,
+	props search.SelectProperties, additional additional.Properties,
+	tenantKey string,
 ) (*search.Result, error) {
 	args := f.Called(id, props, additional)
 	if args.Get(0) != nil {
@@ -168,7 +167,7 @@ func (f *fakeVectorRepo) ObjectByID(ctx context.Context,
 }
 
 func (f *fakeVectorRepo) ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
-	sort []filters.Sort, additional additional.Properties,
+	sort []filters.Sort, additional additional.Properties, tenantKey string,
 ) (search.Results, error) {
 	args := f.Called(offset, limit, sort, filters, additional)
 	return args.Get(0).([]search.Result), args.Error(1)
@@ -180,49 +179,50 @@ func (f *fakeVectorRepo) Query(ctx context.Context, q *QueryInput) (search.Resul
 	return res, err
 }
 
-func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object,
-	vector []float32, repl *additional.ReplicationProperties,
+func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, vector []float32,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) error {
 	args := f.Called(concept, vector)
 	return args.Error(0)
 }
 
 func (f *fakeVectorRepo) BatchPutObjects(ctx context.Context, batch BatchObjects,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (BatchObjects, error) {
 	args := f.Called(batch)
 	return batch, args.Error(0)
 }
 
 func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchReferences,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (BatchReferences, error) {
 	args := f.Called(batch)
 	return batch, args.Error(0)
 }
 
-func (f *fakeVectorRepo) BatchDeleteObjects(ctx context.Context, params BatchDeleteParams, repl *additional.ReplicationProperties) (BatchDeleteResult, error) {
+func (f *fakeVectorRepo) BatchDeleteObjects(ctx context.Context, params BatchDeleteParams,
+	repl *additional.ReplicationProperties, tenantKey string,
+) (BatchDeleteResult, error) {
 	args := f.Called(params)
 	return args.Get(0).(BatchDeleteResult), args.Error(1)
 }
 
-func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument, repl *additional.ReplicationProperties) error {
+func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument, repl *additional.ReplicationProperties, tenantKey string) error {
 	args := f.Called(merge)
 	return args.Error(0)
 }
 
 func (f *fakeVectorRepo) DeleteObject(ctx context.Context, className string,
-	id strfmt.UUID, repl *additional.ReplicationProperties,
+	id strfmt.UUID, repl *additional.ReplicationProperties, tenantKey string,
 ) error {
 	args := f.Called(className, id)
 	return args.Error(0)
 }
 
-func (f *fakeVectorRepo) AddReference(ctx context.Context, class string,
-	source strfmt.UUID, prop string, ref *models.SingleRef,
-	repl *additional.ReplicationProperties,
+func (f *fakeVectorRepo) AddReference(ctx context.Context, source *crossref.RefSource,
+	target *crossref.Ref, repl *additional.ReplicationProperties, tenantKey string,
 ) error {
-	args := f.Called(class, source, prop, ref)
+	args := f.Called(source, target)
 	return args.Error(0)
 }
 

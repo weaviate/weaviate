@@ -20,10 +20,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	generativeadditional "github.com/weaviate/weaviate/modules/generative-palm/additional"
-	generativeadditionalgenerate "github.com/weaviate/weaviate/modules/generative-palm/additional/generate"
 	"github.com/weaviate/weaviate/modules/generative-palm/clients"
-	"github.com/weaviate/weaviate/modules/generative-palm/ent"
+	additionalprovider "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
+	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
 const Name = "generative-palm"
@@ -38,9 +37,9 @@ type GenerativePaLMModule struct {
 }
 
 type generativeClient interface {
-	GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error)
-	GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error)
-	Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*ent.GenerateResult, error)
+	GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error)
+	GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error)
+	Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error)
 	MetaInfo() (map[string]interface{}, error)
 }
 
@@ -71,8 +70,7 @@ func (m *GenerativePaLMModule) initAdditional(ctx context.Context,
 
 	m.generative = client
 
-	generateProvider := generativeadditionalgenerate.New(m.generative)
-	m.additionalPropertiesProvider = generativeadditional.New(generateProvider)
+	m.additionalPropertiesProvider = additionalprovider.NewGenerativeProvider(m.generative)
 
 	return nil
 }

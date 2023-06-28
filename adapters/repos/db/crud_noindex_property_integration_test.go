@@ -16,9 +16,7 @@ package db
 
 import (
 	"context"
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -34,7 +32,6 @@ import (
 )
 
 func TestCRUD_NoIndexProp(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	vFalse := false
@@ -95,14 +92,13 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 			},
 		}
 		vector := []float32{1, 3, 5, 0.4}
-		err := repo.PutObject(context.Background(), thing, vector, nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, "")
 
 		assert.Nil(t, err)
 	})
 
 	t.Run("all props are present when getting by id", func(t *testing.T) {
-		res, err := repo.ObjectByID(context.Background(), thingID,
-			search.SelectProperties{}, additional.Properties{})
+		res, err := repo.ObjectByID(context.Background(), thingID, search.SelectProperties{}, additional.Properties{}, "")
 		expectedSchema := map[string]interface{}{
 			"stringProp":       "some value",
 			"hiddenStringProp": "some hidden value",
@@ -116,7 +112,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 	// Same as above, but with Object()
 	t.Run("all props are present when getting by id and class", func(t *testing.T) {
 		res, err := repo.Object(context.Background(), "ThingClassWithNoIndexProps", thingID,
-			search.SelectProperties{}, additional.Properties{}, nil)
+			search.SelectProperties{}, additional.Properties{}, nil, "")
 		expectedSchema := map[string]interface{}{
 			"stringProp":       "some value",
 			"hiddenStringProp": "some hidden value",
@@ -128,7 +124,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 	})
 
 	t.Run("class search on the noindex prop errors", func(t *testing.T) {
-		_, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		_, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName: "ThingClassWithNoIndexProps",
 			Pagination: &filters.Pagination{
 				Limit: 10,
@@ -143,7 +139,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 	})
 
 	t.Run("class search on timestamp prop with no timestamp indexing error", func(t *testing.T) {
-		_, err := repo.ClassSearch(context.Background(), dto.GetParams{
+		_, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName: "ThingClassWithNoIndexProps",
 			Pagination: &filters.Pagination{
 				Limit: 10,

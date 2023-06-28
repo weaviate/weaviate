@@ -202,8 +202,11 @@ func testCtx() context.Context {
 	return ctx
 }
 
+func getRandomSeed() *rand.Rand {
+	return rand.New(rand.NewSource(time.Now().UnixNano()))
+}
+
 func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (*Shard, *Index) {
-	rand.Seed(time.Now().UnixNano())
 	tmpDir := t.TempDir()
 	repo, err := New(logrus.New(), Config{
 		MemtablesFlushIdleAfter:   60,
@@ -258,7 +261,7 @@ func testObject(className string) *storobj.Object {
 	}
 }
 
-func createRandomObjects(className string, numObj int) []*storobj.Object {
+func createRandomObjects(r *rand.Rand, className string, numObj int) []*storobj.Object {
 	obj := make([]*storobj.Object, numObj)
 
 	for i := 0; i < numObj; i++ {
@@ -268,7 +271,7 @@ func createRandomObjects(className string, numObj int) []*storobj.Object {
 				ID:    strfmt.UUID(uuid.NewString()),
 				Class: className,
 			},
-			Vector: []float32{rand.Float32(), rand.Float32(), rand.Float32(), rand.Float32()},
+			Vector: []float32{r.Float32(), r.Float32(), r.Float32(), r.Float32()},
 		}
 	}
 	return obj

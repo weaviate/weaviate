@@ -28,7 +28,7 @@ func TestState(t *testing.T) {
 	require.Nil(t, err)
 
 	nodes := fakeNodes{[]string{"node1", "node2"}}
-	state, err := InitState("my-index", cfg, nodes, 1)
+	state, err := InitState("my-index", cfg, nodes, 1, false)
 	require.Nil(t, err)
 
 	physicalCount := map[string]int{}
@@ -152,7 +152,7 @@ func TestInitState(t *testing.T) {
 				}, 3)
 				require.Nil(t, err)
 
-				state, err := InitState("my-index", cfg, nodes, int64(test.replicationFactor))
+				state, err := InitState("my-index", cfg, nodes, int64(test.replicationFactor), false)
 				if !test.ok {
 					require.NotNil(t, err)
 					return
@@ -227,6 +227,59 @@ func TestAdjustReplicas(t *testing.T) {
 		require.Nil(t, shard.AdjustReplicas(4, nodes)) // correct
 		require.ElementsMatch(t, names, shard.BelongsToNodes)
 	})
+}
+
+func TestGetPartitions(t *testing.T) {
+	t.Run("EmptyCandidatesList", func(t *testing.T) {
+		// nodes := fakeNodes{nodes: []string{"N1", "N2", "N3", "N4", "N5"}}
+		shards := []string{"H1"}
+		state := State{}
+		partitions, err := state.GetPartitions(fakeNodes{}, shards, 1)
+		require.Nil(t, partitions)
+		require.ErrorContains(t, err, "empty")
+	})
+	t.Run("NotEnoughReplicas", func(t *testing.T) {
+		shards := []string{"H1"}
+		state := State{}
+		partitions, err := state.GetPartitions(fakeNodes{nodes: []string{"N1"}}, shards, 2)
+		require.Nil(t, partitions)
+		require.ErrorContains(t, err, "not enough replicas")
+	})
+	t.Run("Success", func(t *testing.T) {
+		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3"}}
+		shards := []string{"H1", "H2", "H3"}
+		state := State{}
+		got, err := state.GetPartitions(nodes, shards, 3)
+		require.Nil(t, err)
+		want := map[string][]string{
+			"H1": {"N1", "N2", "N3"},
+			"H2": {"N2", "N3", "N1"},
+			"H3": {"N3", "N1", "N2"},
+		}
+		require.Equal(t, want, got)
+	})
+}
+
+func TestAddPartition(t *testing.T) {
+	var (
+		nodes1 = []string{"N", "M"}
+		nodes2 = []string{"L", "M", "O"}
+	)
+	cfg, err := ParseConfig(map[string]interface{}{"desiredCount": float64(4)}, 14)
+	require.Nil(t, err)
+
+	nodes := fakeNodes{[]string{"node1", "node2"}}
+	s, err := InitState("my-index", cfg, nodes, 1, true)
+	require.Nil(t, err)
+
+	s.AddPartition("A", nodes1)
+	s.AddPartition("B", nodes2)
+
+	want := map[string]Physical{
+		"A": {Name: "A", BelongsToNodes: nodes1, OwnsPercentage: 1},
+		"B": {Name: "B", BelongsToNodes: nodes2, OwnsPercentage: 1},
+	}
+	require.Equal(t, want, s.Physical)
 }
 
 func TestStateDeepCopy(t *testing.T) {

@@ -40,4 +40,5 @@ type GetParams struct {
 	ModuleParams          map[string]interface{}
 	AdditionalProperties  additional.Properties
 	ReplicationProperties *additional.ReplicationProperties
+	TenantKey             string
 }

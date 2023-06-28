@@ -201,7 +201,7 @@ func newPhoneNumberObject(className string, propertyName string) *graphql.Object
 }
 
 func buildGetClassField(classObject *graphql.Object,
-	class *models.Class, modulesProvider ModulesProvider,
+	class *models.Class, modulesProvider ModulesProvider, fusionEnum *graphql.Enum,
 ) graphql.Field {
 	field := graphql.Field{
 		Type:        graphql.NewList(classObject),
@@ -212,7 +212,7 @@ func buildGetClassField(classObject *graphql.Object,
 				Type:        graphql.String,
 			},
 			"limit": &graphql.ArgumentConfig{
-				Description: descriptions.First,
+				Description: descriptions.Limit,
 				Type:        graphql.Int,
 			},
 			"offset": &graphql.ArgumentConfig{
@@ -231,7 +231,7 @@ func buildGetClassField(classObject *graphql.Object,
 	}
 
 	field.Args["bm25"] = bm25Argument(class.Class)
-	field.Args["hybrid"] = hybridArgument(classObject, class, modulesProvider)
+	field.Args["hybrid"] = hybridArgument(classObject, class, modulesProvider, fusionEnum)
 
 	if modulesProvider != nil {
 		for name, argument := range modulesProvider.GetArguments(class) {
@@ -241,6 +241,10 @@ func buildGetClassField(classObject *graphql.Object,
 
 	if replicationEnabled(class) {
 		field.Args["consistencyLevel"] = consistencyLevelArgument(class)
+	}
+
+	if multiTenancyEnabled(class) {
+		field.Args["tenantKey"] = tenantKeyArgument()
 	}
 
 	return field
@@ -380,6 +384,9 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 		// extracts bm25 (sparseSearch) from the query
 		var keywordRankingParams *searchparams.KeywordRanking
 		if bm25, ok := p.Args["bm25"]; ok {
+			if len(sort) > 0 {
+				return nil, fmt.Errorf("bm25 search is not compatible with sort")
+			}
 			p := common_filters.ExtractBM25(bm25.(map[string]interface{}), addlProps.ExplainScore)
 			keywordRankingParams = &p
 		}
@@ -389,6 +396,9 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 		// refactored
 		var hybridParams *searchparams.HybridSearch
 		if hybrid, ok := p.Args["hybrid"]; ok {
+			if len(sort) > 0 {
+				return nil, fmt.Errorf("hybrid search is not compatible with sort")
+			}
 			p, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}), addlProps.ExplainScore)
 			if err != nil {
 				return nil, fmt.Errorf("failed to extract hybrid params: %w", err)
@@ -411,6 +421,11 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			groupByParams = &p
 		}
 
+		var tenantKey string
+		if tk, ok := p.Args["tenantKey"]; ok {
+			tenantKey = tk.(string)
+		}
+
 		params := dto.GetParams{
 			Filters:               filters,
 			ClassName:             className,
@@ -427,6 +442,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			HybridSearch:          hybridParams,
 			ReplicationProperties: replProps,
 			GroupBy:               groupByParams,
+			TenantKey:             tenantKey,
 		}
 
 		// need to perform vector search by distance

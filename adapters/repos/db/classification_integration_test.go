@@ -17,9 +17,7 @@ package db
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
@@ -34,7 +32,6 @@ import (
 )
 
 func TestClassifications(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -64,7 +61,7 @@ func TestClassifications(t *testing.T) {
 	t.Run("importing categories", func(t *testing.T) {
 		for _, res := range classificationTestCategories() {
 			thing := res.Object()
-			err := repo.PutObject(context.Background(), thing, res.Vector, nil)
+			err := repo.PutObject(context.Background(), thing, res.Vector, nil, "")
 			require.Nil(t, err)
 		}
 	})
@@ -72,7 +69,7 @@ func TestClassifications(t *testing.T) {
 	t.Run("importing articles", func(t *testing.T) {
 		for _, res := range classificationTestArticles() {
 			thing := res.Object()
-			err := repo.PutObject(context.Background(), thing, res.Vector, nil)
+			err := repo.PutObject(context.Background(), thing, res.Vector, nil, "")
 			require.Nil(t, err)
 		}
 	})

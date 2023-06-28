@@ -21,7 +21,6 @@ import (
 	"math/rand"
 	"sort"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -44,6 +43,7 @@ import (
 )
 
 func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
+	r := getRandomSeed()
 	repo, logger := setupMultiShardTest(t)
 	defer func() {
 		repo.Shutdown(context.Background())
@@ -51,14 +51,14 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 
 	t.Run("prepare", makeTestMultiShardSchema(repo, logger, false, testClassesForImporting()...))
 
-	data := multiShardTestData()
-	queryVec := exampleQueryVec()
+	data := multiShardTestData(r)
+	queryVec := exampleQueryVec(r)
 	groundTruth := bruteForceObjectsByQuery(data, queryVec)
-	refData := multiShardRefClassData(data)
+	refData := multiShardRefClassData(r, data)
 
 	t.Run("import all individually", func(t *testing.T) {
 		for _, obj := range data {
-			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil))
+			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil, ""))
 		}
 	})
 
@@ -71,7 +71,7 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 
 	t.Run("import refs individually", func(t *testing.T) {
 		for _, obj := range refData {
-			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil))
+			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil, ""))
 		}
 	})
 
@@ -81,6 +81,7 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 }
 
 func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
+	r := getRandomSeed()
 	repo, logger := setupMultiShardTest(t)
 	defer func() {
 		repo.Shutdown(context.Background())
@@ -88,10 +89,10 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 
 	t.Run("prepare", makeTestMultiShardSchema(repo, logger, false, testClassesForImporting()...))
 
-	data := multiShardTestData()
-	queryVec := exampleQueryVec()
+	data := multiShardTestData(r)
+	queryVec := exampleQueryVec(r)
 	groundTruth := bruteForceObjectsByQuery(data, queryVec)
-	refData := multiShardRefClassData(data)
+	refData := multiShardRefClassData(r, data)
 
 	t.Run("import in a batch", func(t *testing.T) {
 		batch := make(objects.BatchObjects, len(data))
@@ -104,7 +105,7 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 			}
 		}
 
-		_, err := repo.BatchPutObjects(context.Background(), batch, nil)
+		_, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
 		require.Nil(t, err)
 	})
 
@@ -125,7 +126,7 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 				Properties: map[string]interface{}{}, // empty so we remove the ref
 			}
 
-			require.Nil(t, repo.PutObject(context.Background(), withoutRef, withoutRef.Vector, nil))
+			require.Nil(t, repo.PutObject(context.Background(), withoutRef, withoutRef.Vector, nil, ""))
 		}
 
 		index := 0
@@ -142,7 +143,7 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 			}
 		}
 
-		_, err := repo.AddBatchReferences(context.Background(), refBatch, nil)
+		_, err := repo.AddBatchReferences(context.Background(), refBatch, nil, "")
 		require.Nil(t, err)
 	})
 
@@ -231,7 +232,7 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 			},
 		}
 
-		_, err := repo.BatchPutObjects(context.Background(), objs, nil)
+		_, err := repo.BatchPutObjects(context.Background(), objs, nil, "")
 		require.Nil(t, err)
 	})
 
@@ -256,7 +257,7 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 		}
 
 		for _, test := range tests {
-			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.Search(context.Background(), dto.GetParams{
 				ClassName:      className,
 				Pagination:     &filters.Pagination{Limit: 10},
 				KeywordRanking: test.rankingParams,
@@ -272,7 +273,6 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 }
 
 func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -323,8 +323,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 	return func(t *testing.T) {
 		t.Run("retrieve all individually", func(t *testing.T) {
 			for _, desired := range data {
-				res, err := repo.ObjectByID(context.Background(), desired.ID,
-					search.SelectProperties{}, additional.Properties{})
+				res, err := repo.ObjectByID(context.Background(), desired.ID, search.SelectProperties{}, additional.Properties{}, "")
 				assert.Nil(t, err)
 
 				require.NotNil(t, res)
@@ -349,7 +348,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 					},
 				}
 				res, err := repo.ObjectSearch(context.Background(), 0, limit, filters, nil,
-					additional.Properties{})
+					additional.Properties{}, "")
 				assert.Nil(t, err)
 
 				assert.Len(t, res, expected)
@@ -381,7 +380,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 						},
 					},
 				}
-				res, err := repo.ClassSearch(context.Background(), dto.GetParams{
+				res, err := repo.Search(context.Background(), dto.GetParams{
 					Filters: filter,
 					Pagination: &filters.Pagination{
 						Limit: limit,
@@ -407,7 +406,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 
 		t.Run("retrieve through class-level vector search", func(t *testing.T) {
 			do := func(t *testing.T, limit, expected int) {
-				res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+				res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 					SearchVector: queryVec,
 					Pagination: &filters.Pagination{
 						Limit: limit,
@@ -432,7 +431,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 
 		t.Run("retrieve through inter-class vector search", func(t *testing.T) {
 			do := func(t *testing.T, limit, expected int) {
-				res, err := repo.VectorSearch(context.Background(), queryVec, 0, limit, nil)
+				res, err := repo.CrossClassVectorSearch(context.Background(), queryVec, 0, limit, nil)
 				assert.Nil(t, err)
 				assert.Len(t, res, expected)
 				for i, obj := range res {
@@ -455,20 +454,19 @@ func makeTestRetrieveRefClass(repo *DB, data, refData []*models.Object) func(t *
 	return func(t *testing.T) {
 		t.Run("retrieve ref data individually with select props", func(t *testing.T) {
 			for _, desired := range refData {
-				res, err := repo.ObjectByID(context.Background(), desired.ID,
-					search.SelectProperties{
-						search.SelectProperty{
-							IsPrimitive: false,
-							Name:        "toOther",
-							Refs: []search.SelectClass{{
-								ClassName: "TestClass",
-								RefProperties: search.SelectProperties{{
-									Name:        "index",
-									IsPrimitive: true,
-								}},
+				res, err := repo.ObjectByID(context.Background(), desired.ID, search.SelectProperties{
+					search.SelectProperty{
+						IsPrimitive: false,
+						Name:        "toOther",
+						Refs: []search.SelectClass{{
+							ClassName: "TestClass",
+							RefProperties: search.SelectProperties{{
+								Name:        "index",
+								IsPrimitive: true,
 							}},
-						},
-					}, additional.Properties{})
+						}},
+					},
+				}, additional.Properties{}, "")
 				assert.Nil(t, err)
 				refs := res.Schema.(map[string]interface{})["toOther"].([]interface{})
 				assert.Len(t, refs, len(data))
@@ -606,7 +604,7 @@ func makeTestSortingClass(repo *DB) func(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name, func(t *testing.T) {
 					res, err := repo.ObjectSearch(context.Background(), 0, 1000, nil, test.sort,
-						additional.Properties{})
+						additional.Properties{}, "")
 					if len(test.constainsErrorMsgs) > 0 {
 						require.NotNil(t, err)
 						for _, errorMsg := range test.constainsErrorMsgs {
@@ -643,7 +641,7 @@ func makeTestSortingClass(repo *DB) func(t *testing.T) {
 
 func testNodesAPI(repo *DB) func(t *testing.T) {
 	return func(t *testing.T) {
-		nodeStatues, err := repo.GetNodeStatuses(context.Background())
+		nodeStatues, err := repo.GetNodeStatus(context.Background(), "")
 		require.Nil(t, err)
 		require.NotNil(t, nodeStatues)
 
@@ -698,7 +696,7 @@ func makeTestBatchDeleteAllObjects(repo *DB) func(t *testing.T) {
 				}
 			}
 			performClassSearch := func(className string) ([]search.Result, error) {
-				return repo.ClassSearch(context.Background(), dto.GetParams{
+				return repo.Search(context.Background(), dto.GetParams{
 					ClassName:  className,
 					Pagination: &filters.Pagination{Limit: 10000},
 				})
@@ -709,7 +707,7 @@ func makeTestBatchDeleteAllObjects(repo *DB) func(t *testing.T) {
 			beforeDelete := len(res)
 			require.True(t, beforeDelete > 0)
 			// dryRun == true
-			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(className, true), nil)
+			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(className, true), nil, "")
 			require.Nil(t, err)
 			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
@@ -721,7 +719,7 @@ func makeTestBatchDeleteAllObjects(repo *DB) func(t *testing.T) {
 			require.Nil(t, err)
 			require.Equal(t, beforeDelete, len(res))
 			// dryRun == false, perform actual delete
-			batchDeleteRes, err = repo.BatchDeleteObjects(context.Background(), getParams(className, false), nil)
+			batchDeleteRes, err = repo.BatchDeleteObjects(context.Background(), getParams(className, false), nil, "")
 			require.Nil(t, err)
 			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
@@ -742,23 +740,23 @@ func makeTestBatchDeleteAllObjects(repo *DB) func(t *testing.T) {
 	}
 }
 
-func exampleQueryVec() []float32 {
+func exampleQueryVec(r *rand.Rand) []float32 {
 	dim := 10
 	vec := make([]float32, dim)
 	for j := range vec {
-		vec[j] = rand.Float32()
+		vec[j] = r.Float32()
 	}
 	return vec
 }
 
-func multiShardTestData() []*models.Object {
+func multiShardTestData(r *rand.Rand) []*models.Object {
 	size := 20
 	dim := 10
 	out := make([]*models.Object, size)
 	for i := range out {
 		vec := make([]float32, dim)
 		for j := range vec {
-			vec[j] = rand.Float32()
+			vec[j] = r.Float32()
 		}
 
 		out[i] = &models.Object{
@@ -778,7 +776,7 @@ func multiShardTestData() []*models.Object {
 	return out
 }
 
-func multiShardRefClassData(targets []*models.Object) []*models.Object {
+func multiShardRefClassData(r *rand.Rand, targets []*models.Object) []*models.Object {
 	// each class will link to all possible targets, so that we can be sure that
 	// we hit cross-shard links
 	targetLinks := make(models.MultipleRef, len(targets))
@@ -794,7 +792,7 @@ func multiShardRefClassData(targets []*models.Object) []*models.Object {
 	for i := range out {
 		vec := make([]float32, dim)
 		for j := range vec {
-			vec[j] = rand.Float32()
+			vec[j] = r.Float32()
 		}
 
 		out[i] = &models.Object{

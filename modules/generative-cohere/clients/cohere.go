@@ -27,7 +27,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-cohere/config"
-	"github.com/weaviate/weaviate/modules/generative-cohere/ent"
+	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
@@ -52,7 +52,7 @@ func New(apiKey string, logger logrus.FieldLogger) *cohere {
 	}
 }
 
-func (v *cohere) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
+func (v *cohere) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
 	forPrompt, err := v.generateForPrompt(textProperties, prompt)
 	if err != nil {
 		return nil, err
@@ -60,7 +60,7 @@ func (v *cohere) GenerateSingleResult(ctx context.Context, textProperties map[st
 	return v.Generate(ctx, cfg, forPrompt)
 }
 
-func (v *cohere) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
+func (v *cohere) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
 	forTask, err := v.generatePromptForTask(textProperties, task)
 	if err != nil {
 		return nil, err
@@ -68,7 +68,7 @@ func (v *cohere) GenerateAllResults(ctx context.Context, textProperties []map[st
 	return v.Generate(ctx, cfg, forTask)
 }
 
-func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*ent.GenerateResult, error) {
+func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
 	settings := config.NewClassSettings(cfg)
 
 	cohereUrl, err := url.JoinPath(v.host, v.path)
@@ -127,7 +127,7 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 
 	textResponse := resBody.Generations[0].Text
 
-	return &ent.GenerateResult{
+	return &generativemodels.GenerateResponse{
 		Result: &textResponse,
 	}, nil
 }

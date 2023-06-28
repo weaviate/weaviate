@@ -49,7 +49,7 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 			log:      logger,
 		},
 	}
-	if err := state.delegate.init(); err != nil {
+	if err := state.delegate.init(diskSpace); err != nil {
 		logger.WithField("action", "init_state.delete_init").Error(err)
 	}
 	cfg.Delegate = &state.delegate

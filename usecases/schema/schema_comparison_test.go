@@ -116,7 +116,9 @@ func Test_SchemaComparison_VariousMismatches(t *testing.T) {
 			},
 			"Foo2": {
 				Physical: map[string]sharding.Physical{
-					"abcd": {},
+					"abcd": {
+						OwnsVirtual: []string{"v1"},
+					},
 				},
 			},
 			"Foo4": {
@@ -175,7 +177,9 @@ func Test_SchemaComparison_VariousMismatches(t *testing.T) {
 			},
 			"Foo2": {
 				Physical: map[string]sharding.Physical{
-					"xyz": {},
+					"xyz": {
+						BelongsToNodes: []string{"n1"},
+					},
 				},
 			},
 			"Foo3": {
@@ -246,8 +250,8 @@ func Test_SchemaComparison_VariousMismatches(t *testing.T) {
 		"class Foo3: missing sharding state in L",
 		"class Foo4: missing sharding state in R",
 		"class Foo2: sharding state mismatch: " +
-			"L has {\"indexID\":\"\",\"config\":{\"virtualPerPhysical\":0,\"desiredCount\":0,\"actualCount\":0,\"desiredVirtualCount\":0,\"actualVirtualCount\":0,\"key\":\"\",\"strategy\":\"\",\"function\":\"\"},\"physical\":{\"abcd\":{\"name\":\"\",\"ownsVirtual\":null,\"ownsPercentage\":0,\"belongsToNodes\":null}},\"virtual\":null}, " +
-			"but R has {\"indexID\":\"\",\"config\":{\"virtualPerPhysical\":0,\"desiredCount\":0,\"actualCount\":0,\"desiredVirtualCount\":0,\"actualVirtualCount\":0,\"key\":\"\",\"strategy\":\"\",\"function\":\"\"},\"physical\":{\"xyz\":{\"name\":\"\",\"ownsVirtual\":null,\"ownsPercentage\":0,\"belongsToNodes\":null}},\"virtual\":null}",
+			"L has {\"indexID\":\"\",\"config\":{\"virtualPerPhysical\":0,\"desiredCount\":0,\"actualCount\":0,\"desiredVirtualCount\":0,\"actualVirtualCount\":0,\"key\":\"\",\"strategy\":\"\",\"function\":\"\"},\"physical\":{\"abcd\":{\"name\":\"\",\"ownsVirtual\":[\"v1\"],\"ownsPercentage\":0}},\"virtual\":null,\"partitioningEnabled\":false}, " +
+			"but R has {\"indexID\":\"\",\"config\":{\"virtualPerPhysical\":0,\"desiredCount\":0,\"actualCount\":0,\"desiredVirtualCount\":0,\"actualVirtualCount\":0,\"key\":\"\",\"strategy\":\"\",\"function\":\"\"},\"physical\":{\"xyz\":{\"name\":\"\",\"ownsPercentage\":0,\"belongsToNodes\":[\"n1\"]}},\"virtual\":null,\"partitioningEnabled\":false}",
 	}
 
 	for _, exp := range expected {

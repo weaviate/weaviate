@@ -128,12 +128,11 @@ func (h *hnsw) restoreFromDisk() error {
 			return err
 		}
 		h.cache.drop()
+
 		h.pq, err = ssdhelpers.NewProductQuantizerWithEncoders(
-			int(state.PQData.M),
-			int(state.PQData.Ks),
-			state.PQData.UseBitsEncoding,
+			h.pqConfig,
 			h.distancerProvider,
-			int(state.PQData.Dimensions), state.PQData.EncoderType,
+			int(state.PQData.Dimensions),
 			state.PQData.Encoders,
 		)
 		if err != nil {

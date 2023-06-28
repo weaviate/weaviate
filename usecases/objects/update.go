@@ -25,7 +25,7 @@ import (
 // include this particular network ref class.
 func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, updates *models.Object,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (*models.Object, error) {
 	path := fmt.Sprintf("objects/%s/%s", class, id)
 	if class == "" {
@@ -45,17 +45,18 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	return m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl)
+	return m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl, tenantKey)
 }
 
-func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,
-	className string, id strfmt.UUID, updates *models.Object, repl *additional.ReplicationProperties,
+func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
+	principal *models.Principal, className string, id strfmt.UUID, updates *models.Object,
+	repl *additional.ReplicationProperties, tenantKey string,
 ) (*models.Object, error) {
 	if id != updates.ID {
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
-	obj, err := m.getObjectFromRepo(ctx, className, id, additional.Properties{}, repl)
+	obj, err := m.getObjectFromRepo(ctx, className, id, additional.Properties{}, repl, tenantKey)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +68,8 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context, principa
 		WithField("id", id).
 		Debug("received update kind request")
 
-	err = m.validateObjectAndNormalizeNames(ctx, principal, updates, repl)
+	err = m.validateObjectAndNormalizeNames(
+		ctx, principal, repl, updates, obj.Object(), tenantKey)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
@@ -88,9 +90,9 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context, principa
 		return nil, NewErrInternal("update object: %v", err)
 	}
 
-	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, repl)
+	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, repl, tenantKey)
 	if err != nil {
-		return nil, NewErrInternal("put object: %v", err)
+		return nil, fmt.Errorf("put object: %w", err)
 	}
 
 	return updates, nil

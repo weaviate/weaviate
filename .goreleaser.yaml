@@ -1,0 +1,23 @@
+before:
+  hooks:
+    # You may remove this if you don't use go modules.
+    - go mod tidy
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    main: ./cmd/weaviate-server
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -w
+      - -extldflags "-static"
+      - -X github.com/weaviate/weaviate/usecases/config.GitHash={{ .Env.GIT_HASH }}
+
+# create a "fat" binary for MacOS
+universal_binaries:
+  - replace: true
+

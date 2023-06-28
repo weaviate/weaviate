@@ -24,13 +24,14 @@ import (
 const shardNameLength = 12
 
 type State struct {
-	IndexID  string              `json:"indexID"` // for monitoring, reporting purposes. Does not influence the shard-calculations
-	Config   Config              `json:"config"`
-	Physical map[string]Physical `json:"physical"`
-	Virtual  []Virtual           `json:"virtual"`
+	IndexID             string              `json:"indexID"` // for monitoring, reporting purposes. Does not influence the shard-calculations
+	Config              Config              `json:"config"`
+	Physical            map[string]Physical `json:"physical"`
+	Virtual             []Virtual           `json:"virtual"`
+	PartitioningEnabled bool                `json:"partitioningEnabled"`
 
 	// different for each node, not to be serialized
-	localNodeName string
+	localNodeName string // TODO: localNodeName is static it is better to store just once
 }
 
 // MigrateFromOldFormat checks if the old (pre-v1.17) format was used and
@@ -57,11 +58,11 @@ type Virtual struct {
 
 type Physical struct {
 	Name           string   `json:"name"`
-	OwnsVirtual    []string `json:"ownsVirtual"`
+	OwnsVirtual    []string `json:"ownsVirtual,omitempty"`
 	OwnsPercentage float64  `json:"ownsPercentage"`
 
 	LegacyBelongsToNodeForBackwardCompat string   `json:"belongsToNode,omitempty"`
-	BelongsToNodes                       []string `json:"belongsToNodes"`
+	BelongsToNodes                       []string `json:"belongsToNodes,omitempty"`
 }
 
 // BelongsToNode for backward-compatibility when there was no replication. It
@@ -118,12 +119,23 @@ type nodes interface {
 	LocalName() string
 }
 
-func InitState(id string, config Config, nodes nodes, replFactor int64) (*State, error) {
-	out := &State{Config: config, IndexID: id, localNodeName: nodes.LocalName()}
+func InitState(id string, config Config, nodes nodes, replFactor int64, partitioningEnabled bool) (*State, error) {
+	out := &State{
+		Config:              config,
+		IndexID:             id,
+		localNodeName:       nodes.LocalName(),
+		PartitioningEnabled: partitioningEnabled,
+	}
+	if partitioningEnabled {
+		out.Physical = make(map[string]Physical, 128)
+		return out, nil
+	}
+
 	names := nodes.Candidates()
 	if f, n := replFactor, len(names); f > int64(n) {
 		return nil, fmt.Errorf("not enough replicas: found %d want %d", n, f)
 	}
+
 	if err := out.initPhysical(names, replFactor); err != nil {
 		return nil, err
 	}
@@ -131,6 +143,17 @@ func InitState(id string, config Config, nodes nodes, replFactor int64) (*State,
 	out.distributeVirtualAmongPhysical()
 
 	return out, nil
+}
+
+// Shard returns the shard name if it exits and empty string otherwise
+func (s *State) Shard(partitionKey, objectID string) string {
+	if s.PartitioningEnabled {
+		if _, ok := s.Physical[partitionKey]; ok {
+			return partitionKey // will change in the future
+		}
+		return ""
+	}
+	return s.PhysicalShard([]byte(objectID))
 }
 
 func (s *State) PhysicalShard(in []byte) string {
@@ -258,6 +281,63 @@ func (s *State) initPhysical(names []string, replFactor int64) error {
 	return nil
 }
 
+// GetPartitions based on the specified shards, available nodes, and replFactor
+// It doesn't change the internal state
+func (s *State) GetPartitions(nodes nodes, shards []string, replFactor int64) (map[string][]string, error) {
+	names := nodes.Candidates()
+	if len(names) == 0 {
+		return nil, fmt.Errorf("list of node candidates is empty")
+	}
+	if f, n := replFactor, len(names); f > int64(n) {
+		return nil, fmt.Errorf("not enough replicas: found %d want %d", n, f)
+	}
+	it, err := cluster.NewNodeIterator(names, cluster.StartAfter)
+	if err != nil {
+		return nil, err
+	}
+	it.SetStartNode(names[len(names)-1])
+	partitions := make(map[string][]string, len(shards))
+	for _, name := range shards {
+		if _, ok := s.Physical[name]; ok {
+			continue
+		}
+		owners := make([]string, 1, replFactor)
+		node := it.Next()
+		owners[0] = node
+		if replFactor > 1 {
+			// create a second node iterator and start after the already assigned
+			// one, this way we can identify our next n right neighbors without
+			// affecting the root iterator which will determine the next shard
+			replicationIter, err := cluster.NewNodeIterator(names, cluster.StartAfter)
+			if err != nil {
+				return nil, fmt.Errorf("assign replication nodes: %w", err)
+			}
+
+			replicationIter.SetStartNode(node)
+			// the first node is already assigned, we only need to assign the
+			// additional nodes
+			for i := replFactor; i > 1; i-- {
+				owners = append(owners, replicationIter.Next())
+			}
+		}
+
+		partitions[name] = owners
+	}
+
+	return partitions, nil
+}
+
+// AddPartition to physical shards
+func (s *State) AddPartition(name string, nodes []string) Physical {
+	p := Physical{
+		Name:           name,
+		BelongsToNodes: nodes,
+		OwnsPercentage: 1.0,
+	}
+	s.Physical[name] = p
+	return p
+}
+
 func (s *State) initVirtual() {
 	count := s.Config.DesiredVirtualCount
 	s.Virtual = make([]Virtual, count)
@@ -351,22 +431,27 @@ func generateShardName() string {
 }
 
 func (s State) DeepCopy() State {
-	physicalCopy := map[string]Physical{}
+	var virtualCopy []Virtual
+
+	physicalCopy := make(map[string]Physical, len(s.Physical))
 	for name, shard := range s.Physical {
 		physicalCopy[name] = shard.DeepCopy()
 	}
 
-	virtualCopy := make([]Virtual, len(s.Virtual))
+	if len(s.Virtual) > 0 {
+		virtualCopy = make([]Virtual, len(s.Virtual))
+	}
 	for i, virtual := range s.Virtual {
 		virtualCopy[i] = virtual.DeepCopy()
 	}
 
 	return State{
-		localNodeName: s.localNodeName,
-		IndexID:       s.localNodeName,
-		Config:        s.Config.DeepCopy(),
-		Physical:      physicalCopy,
-		Virtual:       virtualCopy,
+		localNodeName:       s.localNodeName,
+		IndexID:             s.IndexID,
+		Config:              s.Config.DeepCopy(),
+		Physical:            physicalCopy,
+		Virtual:             virtualCopy,
+		PartitioningEnabled: s.PartitioningEnabled,
 	}
 }
 
@@ -384,8 +469,11 @@ func (c Config) DeepCopy() Config {
 }
 
 func (p Physical) DeepCopy() Physical {
-	ownsVirtualCopy := make([]string, len(p.OwnsVirtual))
-	copy(ownsVirtualCopy, p.OwnsVirtual)
+	var ownsVirtualCopy []string
+	if len(p.OwnsVirtual) > 0 {
+		ownsVirtualCopy = make([]string, len(p.OwnsVirtual))
+		copy(ownsVirtualCopy, p.OwnsVirtual)
+	}
 
 	belongsCopy := make([]string, len(p.BelongsToNodes))
 	copy(belongsCopy, p.BelongsToNodes)

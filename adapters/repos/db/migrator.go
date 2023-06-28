@@ -150,6 +150,54 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 	return idx.updateShardStatus(ctx, shardName, targetStatus)
 }
 
+// NewPartitions creates new partitions and returns a commit func
+// that can be used to either commit or rollback the partitions
+func (m *Migrator) NewPartitions(ctx context.Context, class *models.Class, partitions []string) (commit func(success bool), err error) {
+	idx := m.db.GetIndex(schema.ClassName(class.Class))
+	if idx == nil {
+		return nil, fmt.Errorf("cannot find index for %q", class.Class)
+	}
+
+	shards := make(map[string]*Shard, len(partitions))
+	rollback := func() {
+		for name, shard := range shards {
+			if err := shard.drop(); err != nil {
+				m.logger.WithField("action", "add_partition").
+					WithField("class", class.Class).
+					Errorf("cannot drop self created shard %s: %v", name, err)
+			}
+		}
+	}
+	commit = func(success bool) {
+		if success {
+			for name, shard := range shards {
+				idx.shards.Store(name, shard)
+			}
+			return
+		}
+		rollback()
+	}
+	defer func() {
+		if err != nil {
+			rollback()
+		}
+	}()
+
+	for _, name := range partitions {
+		if shard := idx.shards.Load(name); shard != nil {
+			continue
+		}
+		shard, err := NewShard(ctx, m.db.promMetrics, name, idx, class, idx.centralJobQueue)
+		if err != nil {
+			return nil, fmt.Errorf("cannot create partition %q: %w", name, err)
+		}
+
+		shards[name] = shard
+	}
+
+	return commit, nil
+}
+
 func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
 	return &Migrator{db: db, logger: logger}
 }

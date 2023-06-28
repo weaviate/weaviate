@@ -1048,13 +1048,13 @@ type fakeManager struct {
 }
 
 func (f *fakeManager) HeadObject(context.Context, *models.Principal,
-	string, strfmt.UUID, *additional.ReplicationProperties,
+	string, strfmt.UUID, *additional.ReplicationProperties, string,
 ) (bool, *uco.Error) {
 	return f.headObjectReturn, f.headObjectErr
 }
 
 func (f *fakeManager) AddObject(_ context.Context, _ *models.Principal,
-	object *models.Object, _ *additional.ReplicationProperties,
+	object *models.Object, _ *additional.ReplicationProperties, _ string,
 ) (*models.Object, error) {
 	return object, nil
 }
@@ -1066,7 +1066,7 @@ func (f *fakeManager) ValidateObject(_ context.Context, _ *models.Principal,
 }
 
 func (f *fakeManager) GetObject(_ context.Context, _ *models.Principal, class string,
-	_ strfmt.UUID, _ additional.Properties, _ *additional.ReplicationProperties,
+	_ strfmt.UUID, _ additional.Properties, _ *additional.ReplicationProperties, _ string,
 ) (*models.Object, error) {
 	return f.getObjectReturn, f.getObjectErr
 }
@@ -1081,7 +1081,7 @@ func (f *fakeManager) GetObjectsClass(ctx context.Context,
 	return class, nil
 }
 
-func (f *fakeManager) GetObjects(_ context.Context, _ *models.Principal, _ *int64, _ *int64, after *string, _ *string, _ *string, _ additional.Properties) ([]*models.Object, error) {
+func (f *fakeManager) GetObjects(ctx context.Context, principal *models.Principal, offset *int64, limit *int64, sort *string, order *string, after *string, addl additional.Properties, tenantKey string) ([]*models.Object, error) {
 	return f.queryResult, nil
 }
 
@@ -1092,35 +1092,37 @@ func (f *fakeManager) Query(_ context.Context,
 }
 
 func (f *fakeManager) UpdateObject(_ context.Context, _ *models.Principal, _ string,
-	_ strfmt.UUID, updates *models.Object, _ *additional.ReplicationProperties,
+	_ strfmt.UUID, updates *models.Object, _ *additional.ReplicationProperties, _ string,
 ) (*models.Object, error) {
 	return updates, f.updateObjectErr
 }
 
 func (f *fakeManager) MergeObject(_ context.Context, _ *models.Principal,
-	_ *models.Object, _ *additional.ReplicationProperties,
+	_ *models.Object, _ *additional.ReplicationProperties, _ string,
 ) *uco.Error {
 	return f.patchObjectReturn
 }
 
 func (f *fakeManager) DeleteObject(_ context.Context, _ *models.Principal,
-	class string, _ strfmt.UUID, _ *additional.ReplicationProperties,
+	class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string,
 ) error {
 	return f.deleteObjectReturn
 }
 
-func (f *fakeManager) AddObjectReference(context.Context, *models.Principal, *uco.AddReferenceInput, *additional.ReplicationProperties) *uco.Error {
+func (f *fakeManager) AddObjectReference(context.Context, *models.Principal,
+	*uco.AddReferenceInput, *additional.ReplicationProperties, string,
+) *uco.Error {
 	return f.addRefErr
 }
 
 func (f *fakeManager) UpdateObjectReferences(context.Context, *models.Principal,
-	*uco.PutReferenceInput, *additional.ReplicationProperties,
+	*uco.PutReferenceInput, *additional.ReplicationProperties, string,
 ) *uco.Error {
 	return f.putRefErr
 }
 
 func (f *fakeManager) DeleteObjectReference(context.Context, *models.Principal,
-	*uco.DeleteReferenceInput, *additional.ReplicationProperties,
+	*uco.DeleteReferenceInput, *additional.ReplicationProperties, string,
 ) *uco.Error {
 	return f.deleteRefErr
 }

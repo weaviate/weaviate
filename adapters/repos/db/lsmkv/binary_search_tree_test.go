@@ -12,27 +12,17 @@
 package lsmkv
 
 import (
-	"fmt"
-	"math/rand"
+	"crypto/rand"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
-func setSeed(t *testing.T) {
-	time := time.Now().UnixNano()
-	t.Log("Seed is", fmt.Sprint(time))
-	rand.Seed(time)
-}
-
 // This test asserts that the *binarySearchTree.insert
 // method properly calculates the net additions of a
 // new node into the tree
 func TestInsertNetAdditions_Replace(t *testing.T) {
-	setSeed(t)
-
 	t.Run("single node entry", func(t *testing.T) {
 		tree := &binarySearchTree{}
 

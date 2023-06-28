@@ -9,6 +9,14 @@
 //  CONTACT: hello@weaviate.io
 //
 
+/* Remark:
+
+In the current implementation, there is no guarantee of consistent updates to the schema
+as updating the actual index and the schema itself is not an atomic operation.
+Resolving this issue is beyond the scope of this PR,
+but it will be addressed in a separate task specifically dedicated to it.
+*/
+
 package schema
 
 import (
@@ -28,6 +36,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
+
+var errInvalidTenantKey = "invalid multiTenancyConfig.tenantKey %q. " +
+	"tenantKey must be 'text' or 'uuid'"
 
 // AddClass to the schema
 func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
@@ -54,10 +65,9 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 	if err := json.Unmarshal(d.Schema, &class); err != nil {
 		return fmt.Errorf("marshal class schema: %w", err)
 	}
-	var shardingState *sharding.State
+	var shardingState sharding.State
 	if d.ShardingState != nil {
-		shardingState = &sharding.State{}
-		err := json.Unmarshal(d.ShardingState, shardingState)
+		err := json.Unmarshal(d.ShardingState, &shardingState)
 		if err != nil {
 			return fmt.Errorf("marshal sharding state: %w", err)
 		}
@@ -87,6 +97,11 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 		return err
 	}
 
+	err = m.parseMultiTenancyConfig(ctx, class)
+	if err != nil {
+		return err
+	}
+
 	err = m.parseVectorIndexConfig(ctx, class)
 	if err != nil {
 		return err
@@ -102,17 +117,25 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 
 	shardingState.MigrateFromOldFormat()
 
-	m.shardingStateLock.Lock()
-	m.state.ShardingState[class.Class] = shardingState
-	m.state.ShardingState[class.Class].SetLocalName(m.clusterState.LocalName())
-	m.shardingStateLock.Unlock()
-
-	err = m.saveSchema(ctx)
+	payload, err := CreateClassPayload(class, &shardingState)
 	if err != nil {
 		return err
 	}
+	shardingState.SetLocalName(m.clusterState.LocalName())
+	m.shardingStateLock.Lock()
+	m.state.ShardingState[class.Class] = &shardingState
+	m.shardingStateLock.Unlock()
 
-	out := m.migrator.AddClass(ctx, class, shardingState)
+	// payload.Shards
+	if err := m.repo.NewClass(ctx, payload); err != nil {
+		return err
+	}
+	m.logger.
+		WithField("action", "schema_restore_class").
+		Debugf("restore class %q from schema", class.Class)
+	m.triggerSchemaUpdateCallbacks()
+
+	out := m.migrator.AddClass(ctx, class, &shardingState)
 	return out
 }
 
@@ -124,6 +147,10 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 	class.Class = schema.UppercaseClassName(class.Class)
 	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
 
+	if class.ShardingConfig != nil && class.MultiTenancyConfig != nil {
+		return nil, fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")
+	}
+
 	m.setClassDefaults(class)
 	err := m.validateCanAddClass(ctx, class, false)
 	if err != nil {
@@ -133,6 +160,11 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 	m.migrateClassSettings(class)
 
 	err = m.parseShardingConfig(ctx, class)
+	if err != nil {
+		return nil, err
+	}
+
+	err = m.parseMultiTenancyConfig(ctx, class)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +181,8 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 
 	shardState, err := sharding.InitState(class.Class,
 		class.ShardingConfig.(sharding.Config),
-		m.clusterState, class.ReplicationConfig.Factor)
+		m.clusterState, class.ReplicationConfig.Factor,
+		isMultiTenancyEnabled(class.MultiTenancyConfig))
 	if err != nil {
 		return nil, errors.Wrap(err, "init sharding state")
 	}
@@ -187,15 +220,27 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 }
 
 func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
-	shardState *sharding.State,
+	shardingState *sharding.State,
 ) error {
-	semanticSchema := m.state.ObjectSchema
-	semanticSchema.Classes = append(semanticSchema.Classes, class)
+	payload, err := CreateClassPayload(class, shardingState)
+	if err != nil {
+		return err
+	}
+	if err := m.repo.NewClass(ctx, payload); err != nil {
+		return err
+	}
+
+	m.logger.
+		WithField("action", "schema_add_class").
+		Debugf("add class %q from schema", class.Class)
 
 	m.shardingStateLock.Lock()
-	m.state.ShardingState[class.Class] = shardState
+	m.state.ObjectSchema.Classes = append(m.state.ObjectSchema.Classes, class)
+	m.state.ShardingState[class.Class] = shardingState
 	m.shardingStateLock.Unlock()
-	return m.saveSchema(ctx)
+
+	m.triggerSchemaUpdateCallbacks()
+	return nil
 }
 
 func (m *Manager) setClassDefaults(class *models.Class) {
@@ -217,18 +262,18 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 
 	setInvertedConfigDefaults(class)
 	for _, prop := range class.Properties {
-		m.setPropertyDefaults(prop)
+		setPropertyDefaults(prop)
 	}
 
 	m.moduleConfig.SetClassDefaults(class)
 }
 
-func (m *Manager) setPropertyDefaults(prop *models.Property) {
-	m.setPropertyDefaultTokenization(prop)
-	m.setPropertyDefaultIndexing(prop)
+func setPropertyDefaults(prop *models.Property) {
+	setPropertyDefaultTokenization(prop)
+	setPropertyDefaultIndexing(prop)
 }
 
-func (m *Manager) setPropertyDefaultTokenization(prop *models.Property) {
+func setPropertyDefaultTokenization(prop *models.Property) {
 	switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
 	case schema.DataTypeString, schema.DataTypeStringArray:
 		// deprecated as of v1.19, default tokenization was word
@@ -245,7 +290,7 @@ func (m *Manager) setPropertyDefaultTokenization(prop *models.Property) {
 	}
 }
 
-func (m *Manager) setPropertyDefaultIndexing(prop *models.Property) {
+func setPropertyDefaultIndexing(prop *models.Property) {
 	// if IndexInverted is set but IndexFilterable and IndexSearchable are not
 	// migrate IndexInverted later.
 	if prop.IndexInverted != nil &&
@@ -275,19 +320,19 @@ func (m *Manager) setPropertyDefaultIndexing(prop *models.Property) {
 
 func (m *Manager) migrateClassSettings(class *models.Class) {
 	for _, prop := range class.Properties {
-		m.migratePropertySettings(prop)
+		migratePropertySettings(prop)
 	}
 }
 
-func (m *Manager) migratePropertySettings(prop *models.Property) {
-	m.migratePropertyDataTypeAndTokenization(prop)
-	m.migratePropertyIndexInverted(prop)
+func migratePropertySettings(prop *models.Property) {
+	migratePropertyDataTypeAndTokenization(prop)
+	migratePropertyIndexInverted(prop)
 }
 
 // as of v1.19 DataTypeString and DataTypeStringArray are deprecated
 // here both are changed to Text/TextArray
 // and proper, backward compatible tokenization
-func (m *Manager) migratePropertyDataTypeAndTokenization(prop *models.Property) {
+func migratePropertyDataTypeAndTokenization(prop *models.Property) {
 	switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
 	case schema.DataTypeString:
 		prop.DataType = schema.DataTypeText.PropString()
@@ -310,7 +355,7 @@ func (m *Manager) migratePropertyDataTypeAndTokenization(prop *models.Property) 
 // IndexFilterable (set inverted index)
 // and IndexSearchable (map inverted index with term frequencies;
 // therefore applicable only to text/text[] data types)
-func (m *Manager) migratePropertyIndexInverted(prop *models.Property) {
+func migratePropertyIndexInverted(prop *models.Property) {
 	// if none of new options is set, use inverted settings
 	if prop.IndexInverted != nil &&
 		prop.IndexFilterable == nil &&
@@ -424,14 +469,45 @@ func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 func (m *Manager) parseShardingConfig(ctx context.Context,
 	class *models.Class,
 ) error {
-	parsed, err := sharding.ParseConfig(class.ShardingConfig,
-		m.clusterState.NodeCount())
-	if err != nil {
-		return errors.Wrap(err, "parse sharding config")
+	// multiTenancyConfig and shardingConfig are mutually exclusive
+	if class.MultiTenancyConfig == nil {
+		parsed, err := sharding.ParseConfig(class.ShardingConfig,
+			m.clusterState.NodeCount())
+		if err != nil {
+			return fmt.Errorf("parse sharding config: %w", err)
+		}
+
+		class.ShardingConfig = parsed
 	}
+	return nil
+}
 
-	class.ShardingConfig = parsed
-
+func (m *Manager) parseMultiTenancyConfig(ctx context.Context, class *models.Class) error {
+	if class.ShardingConfig == nil {
+		if class.MultiTenancyConfig.TenantKey == "" {
+			return fmt.Errorf("multiTenancyConfig.tenantKey is required")
+		}
+		for _, prop := range class.Properties {
+			if prop.Name == class.MultiTenancyConfig.TenantKey {
+				if len(prop.DataType) != 1 {
+					return fmt.Errorf(errInvalidTenantKey, prop.Name)
+				}
+				if prop.DataType[0] == schema.DataTypeText.String() ||
+					prop.DataType[0] == schema.DataTypeUUID.String() {
+					class.ShardingConfig = sharding.Config{
+						// tenant shards will be created dynamically
+						DesiredCount: 0,
+					}
+					return nil
+				} else {
+					return fmt.Errorf(errInvalidTenantKey, prop.Name)
+				}
+			}
+		}
+		return fmt.Errorf(
+			"no class property found for multiTenancyConfig.tenantKey %q",
+			class.MultiTenancyConfig.TenantKey)
+	}
 	return nil
 }
 
@@ -456,4 +532,31 @@ func setInvertedConfigDefaults(class *models.Class) {
 			Preset: stopwords.EnglishPreset,
 		}
 	}
+}
+
+func CreateClassPayload(class *models.Class,
+	shardingState *sharding.State,
+) (pl ClassPayload, err error) {
+	pl.Name = class.Class
+	if pl.Metadata, err = json.Marshal(class); err != nil {
+		return pl, fmt.Errorf("marshal class %q metadata: %w", pl.Name, err)
+	}
+	if shardingState != nil {
+		ss := *shardingState
+		pl.Shards = make([]KeyValuePair, len(ss.Physical))
+		i := 0
+		for name, shard := range ss.Physical {
+			data, err := json.Marshal(shard)
+			if err != nil {
+				return pl, fmt.Errorf("marshal shard %q metadata: %w", name, err)
+			}
+			pl.Shards[i] = KeyValuePair{Key: name, Value: data}
+			i++
+		}
+		ss.Physical = nil
+		if pl.ShardingState, err = json.Marshal(&ss); err != nil {
+			return pl, fmt.Errorf("marshal class %q sharding state: %w", pl.Name, err)
+		}
+	}
+	return pl, nil
 }

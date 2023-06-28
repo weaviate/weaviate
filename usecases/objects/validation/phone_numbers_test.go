@@ -159,7 +159,7 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			config := &config.WeaviateConfig{}
-			validator := New(fakeExists, config, nil)
+			validator := New(fakeExists, config, nil, "")
 
 			obj := &models.Object{
 				Class: "Person",
@@ -168,7 +168,7 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 				},
 			}
 			schema := testSchema()
-			err := validator.properties(context.Background(), obj, schema.Objects.Classes[0])
+			err := validator.properties(context.Background(), schema.Objects.Classes[0], obj, nil)
 			assert.Equal(t, test.expectedErr, err)
 			if err != nil {
 				return

@@ -48,7 +48,7 @@ type Properties struct {
 	// its own props.
 	//
 	// The reason we need this indication is that
-	// without it, the sub-ClassSearch which is
+	// without it, the sub-Search which is
 	// conducted to extract the reference propValuePair
 	// is conducted with the pagination set to whatever
 	// the QueryMaximumResults. if this value is set low

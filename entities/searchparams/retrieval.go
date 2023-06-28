@@ -23,6 +23,7 @@ type KeywordRanking struct {
 	Properties             []string `json:"properties"`
 	Query                  string   `json:"query"`
 	AdditionalExplanations bool     `json:"additionalExplanations"`
+	AutoCut                int      `json:"autocut"`
 }
 
 type WeightedSearchResult struct {
@@ -32,13 +33,14 @@ type WeightedSearchResult struct {
 }
 
 type HybridSearch struct {
-	SubSearches interface{} `json:"subSearches"`
-	Type        string      `json:"type"`
-	Limit       int         `json:"limit"`
-	Alpha       float64     `json:"alpha"`
-	Query       string      `json:"query"`
-	Vector      []float32   `json:"vector"`
-	Properties  []string    `json:"properties"`
+	SubSearches     interface{} `json:"subSearches"`
+	Type            string      `json:"type"`
+	Alpha           float64     `json:"alpha"`
+	Query           string      `json:"query"`
+	Vector          []float32   `json:"vector"`
+	AutoCut         int         `json:"autocut"`
+	Properties      []string    `json:"properties"`
+	FusionAlgorithm int         `json:"fusionalgorithm"`
 }
 
 type NearObject struct {

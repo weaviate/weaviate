@@ -37,7 +37,7 @@ type refFilterExtractor struct {
 
 // ClassSearcher is anything that allows a root-level ClassSearch
 type ClassSearcher interface {
-	ClassSearch(ctx context.Context,
+	Search(ctx context.Context,
 		params dto.GetParams) ([]search.Result, error)
 	GetQueryMaximumResults() int
 }
@@ -118,7 +118,7 @@ func (r *refFilterExtractor) fetchIDs(ctx context.Context) ([]classUUIDPair, err
 		return nil, err
 	}
 
-	res, err := r.classSearcher.ClassSearch(ctx, params)
+	res, err := r.classSearcher.Search(ctx, params)
 	if err != nil {
 		return nil, err
 	}

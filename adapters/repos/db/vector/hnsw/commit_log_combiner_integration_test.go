@@ -12,10 +12,8 @@
 package hnsw
 
 import (
-	"math/rand"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -28,7 +26,6 @@ func Test_CommitlogCombiner(t *testing.T) {
 	// about what should be appended, the actual condensing will be taken care of
 	// by the condensor
 
-	rand.Seed(time.Now().UnixNano())
 	rootPath := t.TempDir()
 	logger, _ := test.NewNullLogger()
 

@@ -16,9 +16,7 @@ package db
 
 import (
 	"context"
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -31,7 +29,6 @@ import (
 )
 
 func TestDeleteJourney(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -63,7 +60,7 @@ func TestDeleteJourney(t *testing.T) {
 
 	t.Run("import some objects", func(t *testing.T) {
 		for _, res := range updateTestData() {
-			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil)
+			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil, "")
 			require.Nil(t, err)
 		}
 	})
@@ -72,7 +69,7 @@ func TestDeleteJourney(t *testing.T) {
 
 	t.Run("verify vector search results are initially as expected",
 		func(t *testing.T) {
-			res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+			res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 				ClassName:    "UpdateTestClass",
 				SearchVector: searchVector,
 				Pagination: &filters.Pagination{
@@ -103,7 +100,7 @@ func TestDeleteJourney(t *testing.T) {
 						Value: value,
 					},
 				},
-			}, nil, additional.Properties{})
+			}, nil, additional.Properties{}, "")
 		require.Nil(t, err)
 		return extractPropValues(res, "name")
 	}
@@ -132,12 +129,12 @@ func TestDeleteJourney(t *testing.T) {
 		func(t *testing.T) {
 			id := updateTestData()[0].ID
 
-			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil)
+			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil, "")
 			require.Nil(t, err)
 		})
 
 	t.Run("verify new vector search results are as expected", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
 			Pagination: &filters.Pagination{
@@ -174,12 +171,12 @@ func TestDeleteJourney(t *testing.T) {
 		func(t *testing.T) {
 			id := updateTestData()[1].ID
 
-			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil)
+			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil, "")
 			require.Nil(t, err)
 		})
 
 	t.Run("verify new vector search results are as expected", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
 			Pagination: &filters.Pagination{
@@ -210,7 +207,7 @@ func TestDeleteJourney(t *testing.T) {
 	})
 
 	t.Run("delete the index", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
+		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
 			Pagination: &filters.Pagination{
@@ -228,7 +225,7 @@ func TestDeleteJourney(t *testing.T) {
 
 		id := updateTestData()[2].ID
 
-		err = repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil)
+		err = repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil, "")
 		require.Nil(t, err)
 
 		index := repo.GetIndex("UpdateTestClass")

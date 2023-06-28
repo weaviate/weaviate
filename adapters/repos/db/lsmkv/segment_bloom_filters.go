@@ -299,6 +299,12 @@ func loadWithChecksum(path string, lengthCheck int) ([]byte, error) {
 	if lengthCheck > 0 && len(data) != lengthCheck {
 		return nil, ErrInvalidChecksum
 	}
+
+	if len(data) < 4 {
+		// the file does not even contain the full checksum, we must consider it corrupt
+		return nil, ErrInvalidChecksum
+	}
+
 	chcksm := binary.LittleEndian.Uint32(data[:4])
 	actual := crc32.ChecksumIEEE(data[4:])
 	if chcksm != actual {

@@ -74,7 +74,7 @@ func singleShardState() *sharding.State {
 	}
 
 	s, err := sharding.InitState("test-index", config,
-		fakeNodes{[]string{"node1"}}, 1)
+		fakeNodes{[]string{"node1"}}, 1, false)
 	if err != nil {
 		panic(err)
 	}
@@ -455,7 +455,7 @@ func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
 
 type fakeRemoteNodeClient struct{}
 
-func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName string) (*models.NodeStatus, error) {
+func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName string, className string) (*models.NodeStatus, error) {
 	return &models.NodeStatus{}, nil
 }
 

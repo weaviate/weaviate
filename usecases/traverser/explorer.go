@@ -40,7 +40,7 @@ import (
 // contain monitoring or authorization checks. It should thus never be directly
 // used by an API, but through a Traverser.
 type Explorer struct {
-	search           vectorClassSearch
+	searcher         objectsSearcher
 	logger           logrus.FieldLogger
 	modulesProvider  ModulesProvider
 	schemaGetter     uc.SchemaGetter
@@ -68,38 +68,43 @@ type ModulesProvider interface {
 	VectorFromInput(ctx context.Context, className string, input string) ([]float32, error)
 }
 
-type vectorClassSearch interface {
-	ClassObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error)
-	ClassObjectVectorSearch(context.Context, string, []float32, int, int,
-		*filters.LocalFilter, additional.Properties) ([]*storobj.Object, []float32, error)
-	ClassSearch(ctx context.Context, params dto.GetParams) ([]search.Result, error)
-	VectorClassSearch(ctx context.Context, params dto.GetParams) ([]search.Result, error)
-	VectorSearch(ctx context.Context, vector []float32, offset, limit int,
+type objectsSearcher interface {
+	hybridSearcher
+
+	// GraphQL Get{} queries
+	Search(ctx context.Context, params dto.GetParams) ([]search.Result, error)
+	VectorSearch(ctx context.Context, params dto.GetParams) ([]search.Result, error)
+
+	// GraphQL Explore{} queries
+	CrossClassVectorSearch(ctx context.Context, vector []float32, offset, limit int,
 		filters *filters.LocalFilter) ([]search.Result, error)
-	ClassVectorSearch(ctx context.Context, class string, vector []float32, offset, limit int,
-		filters *filters.LocalFilter) ([]search.Result, error)
+
+	// Near-params searcher
 	Object(ctx context.Context, className string, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties,
-		properties *additional.ReplicationProperties) (*search.Result, error)
-	ObjectsByID(ctx context.Context, id strfmt.UUID,
-		props search.SelectProperties, additional additional.Properties) (search.Results, error)
-	ResolveReferences(ctx context.Context, objs search.Results,
-		props search.SelectProperties, groupBy *searchparams.GroupBy,
-		additional additional.Properties,
-	) (search.Results, error)
+		properties *additional.ReplicationProperties, tenantKey string) (*search.Result, error)
+	ObjectsByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties, tenantKey string) (search.Results, error)
+}
+
+type hybridSearcher interface {
+	SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error)
+	DenseObjectSearch(context.Context, string, []float32, int, int,
+		*filters.LocalFilter, additional.Properties, string) ([]*storobj.Object, []float32, error)
+	ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties,
+		groupBy *searchparams.GroupBy, additional additional.Properties, tenantKey string) (search.Results, error)
 }
 
 // NewExplorer with search and connector repo
-func NewExplorer(search vectorClassSearch, logger logrus.FieldLogger,
+func NewExplorer(searcher objectsSearcher, logger logrus.FieldLogger,
 	modulesProvider ModulesProvider, metrics explorerMetrics,
 ) *Explorer {
 	return &Explorer{
-		search:           search,
+		searcher:         searcher,
 		logger:           logger,
 		modulesProvider:  modulesProvider,
 		metrics:          metrics,
 		schemaGetter:     nil, // schemaGetter is set later
-		nearParamsVector: newNearParamsVector(modulesProvider, search),
+		nearParamsVector: newNearParamsVector(modulesProvider, searcher),
 	}
 }
 
@@ -157,7 +162,7 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 		params.AdditionalProperties.Vector = true
 	}
 
-	res, err := e.search.ClassSearch(ctx, params)
+	res, err := e.searcher.Search(ctx, params)
 	if err != nil {
 		var e inverted.MissingIndexError
 		if errors.As(err, &e) {
@@ -204,7 +209,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		params.AdditionalProperties.Vector = true
 	}
 
-	res, err := e.search.VectorClassSearch(ctx, params)
+	res, err := e.searcher.VectorSearch(ctx, params)
 	if err != nil {
 		return nil, errors.Errorf("explorer: get class: vector search: %v", err)
 	}
@@ -239,7 +244,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			Properties: params.HybridSearch.Properties,
 		}
 
-		res, dists, err := e.search.ClassObjectSearch(ctx, params)
+		res, dists, err := e.searcher.SparseObjectSearch(ctx, params)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -248,12 +253,13 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 
 	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
-		hybridSearchLimit := params.Pagination.Limit
+		hybridSearchLimit := params.Pagination.Limit + params.Pagination.Offset
 		if hybridSearchLimit == 0 {
 			hybridSearchLimit = hybrid.DefaultLimit
 		}
-		res, dists, err := e.search.ClassObjectVectorSearch(ctx, params.ClassName,
-			vec, 0, hybridSearchLimit, params.Filters, params.AdditionalProperties)
+		res, dists, err := e.searcher.DenseObjectSearch(ctx,
+			params.ClassName, vec, 0, hybridSearchLimit, params.Filters,
+			params.AdditionalProperties, params.TenantKey)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -262,8 +268,8 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 
 	postProcess := func(results hybrid.Results) ([]search.Result, error) {
-		res, err := e.search.ResolveReferences(ctx, results.SearchResults(),
-			params.Properties, nil, params.AdditionalProperties)
+		res, err := e.searcher.ResolveReferences(ctx, results.SearchResults(),
+			params.Properties, nil, params.AdditionalProperties, "")
 		if err != nil {
 			return nil, err
 		}
@@ -282,7 +288,27 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return nil, err
 	}
 
-	return res.SearchResults(), nil
+	var out hybrid.Results
+
+	if params.Pagination.Limit <= 0 {
+		params.Pagination.Limit = hybrid.DefaultLimit
+	}
+
+	if params.Pagination.Offset < 0 {
+		params.Pagination.Offset = 0
+	}
+
+	if len(res) >= params.Pagination.Limit+params.Pagination.Offset {
+		out = res[params.Pagination.Offset : params.Pagination.Limit+params.Pagination.Offset]
+	}
+	if len(res) < params.Pagination.Limit+params.Pagination.Offset && len(res) > params.Pagination.Offset {
+		out = res[params.Pagination.Offset:]
+	}
+	if len(res) <= params.Pagination.Offset {
+		out = hybrid.Results{}
+	}
+
+	return out.SearchResults(), nil
 }
 
 func (e *Explorer) getClassList(ctx context.Context,
@@ -308,15 +334,12 @@ func (e *Explorer) getClassList(ctx context.Context,
 	var res []search.Result
 	var err error
 	if params.HybridSearch != nil {
-		if params.Pagination != nil {
-			params.HybridSearch.Limit = params.Pagination.Limit
-		}
 		res, err = e.Hybrid(ctx, params)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		res, err = e.search.ClassSearch(ctx, params)
+		res, err = e.searcher.Search(ctx, params)
 		if err != nil {
 			var e inverted.MissingIndexError
 			if errors.As(err, &e) {
@@ -543,7 +566,7 @@ func (e *Explorer) CrossClassVectorSearch(ctx context.Context,
 		return nil, errors.Errorf("vectorize params: %v", err)
 	}
 
-	res, err := e.search.VectorSearch(ctx, vector, params.Offset, params.Limit, nil)
+	res, err := e.searcher.CrossClassVectorSearch(ctx, vector, params.Offset, params.Limit, nil)
 	if err != nil {
 		return nil, errors.Errorf("vector search: %v", err)
 	}

@@ -18,13 +18,15 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func SchemaFromDataset(ds Dataset) *models.Class {
+func SchemaFromDataset(ds Dataset, includeVectorizer bool) *models.Class {
 	out := &models.Class{}
 	out.Class = ClassNameFromDatasetID(ds.ID)
-	out.VectorIndexConfig = map[string]interface{}{
-		"skip": true,
+	if !includeVectorizer {
+		out.VectorIndexConfig = map[string]interface{}{
+			"skip": true,
+		}
+		out.Vectorizer = "none"
 	}
-	out.Vectorizer = "none"
 	out.InvertedIndexConfig = &models.InvertedIndexConfig{
 		Stopwords: &models.StopwordConfig{
 			Preset: "none",

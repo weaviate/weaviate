@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func (h *hnsw) initCompressedStore() error {
@@ -36,7 +37,7 @@ func (h *hnsw) initCompressedStore() error {
 	return nil
 }
 
-func (h *hnsw) Compress(segments int, centroids int, useBitsEncoding bool, encoderType int, encoderDistribution int) error {
+func (h *hnsw) Compress(cfg ent.PQConfig) error {
 	if h.nodes[0] == nil {
 		return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
 	}
@@ -50,11 +51,13 @@ func (h *hnsw) Compress(segments int, centroids int, useBitsEncoding bool, encod
 		return errors.Wrap(err, "Inferring data dimensions")
 	}
 	dims := len(vec)
-	// segments == 0 (default value) means use as many sements as dimensions
-	if segments <= 0 {
-		segments = dims
+
+	// segments == 0 (default value) means use as many segments as dimensions
+	if cfg.Segments <= 0 {
+		cfg.Segments = dims
 	}
-	h.pq, err = ssdhelpers.NewProductQuantizer(segments, centroids, useBitsEncoding, h.distancerProvider, dims, ssdhelpers.Encoder(encoderType), ssdhelpers.EncoderDistribution(encoderDistribution))
+
+	h.pq, err = ssdhelpers.NewProductQuantizer(cfg, h.distancerProvider, dims)
 	if err != nil {
 		return errors.Wrap(err, "Compressing vectors.")
 	}

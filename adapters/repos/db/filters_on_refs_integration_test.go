@@ -17,9 +17,7 @@ package db
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -34,7 +32,6 @@ import (
 )
 
 func TestRefFilters(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -198,7 +195,7 @@ func TestRefFilters(t *testing.T) {
 
 		for _, thing := range objects {
 			t.Run(fmt.Sprintf("add %s", thing.ID), func(t *testing.T) {
-				err := repo.PutObject(context.Background(), &thing, []float32{1, 2, 3, 4, 5, 6, 7}, nil)
+				err := repo.PutObject(context.Background(), &thing, []float32{1, 2, 3, 4, 5, 6, 7}, nil, "")
 				require.Nil(t, err)
 			})
 		}
@@ -211,7 +208,7 @@ func TestRefFilters(t *testing.T) {
 					"name", filters.OperatorEqual, "Luxury Parking Garage")
 				params := getParamsWithFilter("MultiRefCar", filter)
 
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
 				require.Len(t, res, 2)
 			})
@@ -221,7 +218,7 @@ func TestRefFilters(t *testing.T) {
 					"id", filters.OperatorEqual, "a7e10b55-1ac4-464f-80df-82508eea1951")
 				params := getParamsWithFilter("MultiRefCar", filter)
 
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
 				require.Len(t, res, 2)
 			})
@@ -231,7 +228,7 @@ func TestRefFilters(t *testing.T) {
 					"name", filters.OperatorEqual, "There is no parking garage with this name")
 				params := getParamsWithFilter("MultiRefCar", filter)
 
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
 				require.Len(t, res, 0)
 			})
@@ -247,7 +244,7 @@ func TestRefFilters(t *testing.T) {
 					})
 				params := getParamsWithFilter("MultiRefCar", filter)
 
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
 				require.Len(t, res, 2)
 
@@ -271,7 +268,7 @@ func TestRefFilters(t *testing.T) {
 					})
 				params := getParamsWithFilter("MultiRefCar", filter)
 
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
 				require.Len(t, res, 0)
 			})
@@ -307,7 +304,7 @@ func TestRefFilters(t *testing.T) {
 				}
 				params := getParamsWithFilter("MultiRefCar", filter)
 
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
 				require.Len(t, res, 1)
 
@@ -326,7 +323,7 @@ func TestRefFilters(t *testing.T) {
 					"name", filters.OperatorEqual, "Luxury Parking Garage")
 				params := getParamsWithFilter("MultiRefDriver", filter)
 
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
 				require.Len(t, res, 1)
 
@@ -338,7 +335,7 @@ func TestRefFilters(t *testing.T) {
 					"name", filters.OperatorEqual, "There is no parking garage with this name")
 				params := getParamsWithFilter("MultiRefDriver", filter)
 
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
 				require.Len(t, res, 0)
 			})
@@ -354,7 +351,7 @@ func TestRefFilters(t *testing.T) {
 					})
 				params := getParamsWithFilter("MultiRefDriver", filter)
 
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
 				require.Len(t, res, 1)
 
@@ -372,7 +369,7 @@ func TestRefFilters(t *testing.T) {
 					})
 				params := getParamsWithFilter("MultiRefDriver", filter)
 
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
 				require.Len(t, res, 0)
 			})
@@ -382,7 +379,7 @@ func TestRefFilters(t *testing.T) {
 			t.Run("equal to zero", func(t *testing.T) {
 				filter := filterCarParkedCount(filters.OperatorEqual, 0)
 				params := getParamsWithFilter("MultiRefCar", filter)
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
 				require.Len(t, res, 1) // there is just one car parked nowhere
 				assert.Equal(t, "Car which is parked no where", res[0].Schema.(map[string]interface{})["name"])
@@ -391,7 +388,7 @@ func TestRefFilters(t *testing.T) {
 			t.Run("equal to one", func(t *testing.T) {
 				filter := filterCarParkedCount(filters.OperatorEqual, 1)
 				params := getParamsWithFilter("MultiRefCar", filter)
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
 				expectedNames := []string{
 					"Car which is parked in a garage",
@@ -403,7 +400,7 @@ func TestRefFilters(t *testing.T) {
 			t.Run("equal to more than one", func(t *testing.T) {
 				filter := filterCarParkedCount(filters.OperatorGreaterThan, 1)
 				params := getParamsWithFilter("MultiRefCar", filter)
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
 				expectedNames := []string{
 					"Car which is parked in two places at the same time (magic!)",
@@ -414,7 +411,7 @@ func TestRefFilters(t *testing.T) {
 			t.Run("greater or equal one", func(t *testing.T) {
 				filter := filterCarParkedCount(filters.OperatorGreaterThanEqual, 1)
 				params := getParamsWithFilter("MultiRefCar", filter)
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
 				expectedNames := []string{
 					"Car which is parked in a garage",
@@ -427,7 +424,7 @@ func TestRefFilters(t *testing.T) {
 			t.Run("less than one", func(t *testing.T) {
 				filter := filterCarParkedCount(filters.OperatorLessThan, 1)
 				params := getParamsWithFilter("MultiRefCar", filter)
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
 				expectedNames := []string{
 					"Car which is parked no where",
@@ -438,7 +435,7 @@ func TestRefFilters(t *testing.T) {
 			t.Run("less than or equal one", func(t *testing.T) {
 				filter := filterCarParkedCount(filters.OperatorLessThanEqual, 1)
 				params := getParamsWithFilter("MultiRefCar", filter)
-				res, err := repo.ClassSearch(context.Background(), params)
+				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
 				expectedNames := []string{
 					"Car which is parked in a garage",
@@ -456,7 +453,6 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 	// operator, which was discovered through a journey test as part of gh-1286.
 	// The schema is modelled after the journey test, as the regular tests suites
 	// above do not seem to run into this issue on their own
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -647,7 +643,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 		}
 
 		for _, obj := range objects {
-			require.Nil(t, repo.PutObject(context.Background(), obj, []float32{0.1}, nil))
+			require.Nil(t, repo.PutObject(context.Background(), obj, []float32{0.1}, nil, ""))
 		}
 	})
 
@@ -657,7 +653,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 		// of ids
 
 		filter := filterAirportsInGermanCitiesOver600k()
-		res, err := repo.ClassSearch(context.Background(),
+		res, err := repo.Search(context.Background(),
 			getParamsWithFilter("Airport", filter))
 		require.Nil(t, err)
 

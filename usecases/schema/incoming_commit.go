@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -28,6 +29,8 @@ func (m *Manager) handleCommit(ctx context.Context, tx *cluster.Transaction) err
 		return m.handleDeleteClassCommit(ctx, tx)
 	case UpdateClass:
 		return m.handleUpdateClassCommit(ctx, tx)
+	case AddPartitions:
+		return m.handleAddPartitionsCommit(ctx, tx)
 	default:
 		return errors.Errorf("unrecognized commit type %q", tx.Type)
 	}
@@ -135,4 +138,23 @@ func (m *Manager) handleUpdateClassCommit(ctx context.Context,
 	}
 
 	return m.updateClassApplyChanges(ctx, pl.ClassName, pl.Class, pl.State)
+}
+
+func (m *Manager) handleAddPartitionsCommit(ctx context.Context,
+	tx *cluster.Transaction,
+) error {
+	m.Lock()
+	defer m.Unlock()
+
+	req, ok := tx.Payload.(AddPartitionsPayload)
+	if !ok {
+		return errors.Errorf("expected commit payload to be AddPartitions, but got %T",
+			tx.Payload)
+	}
+	cls, st := m.getClassByName(req.ClassName), m.ShardingState(req.ClassName)
+	if cls == nil || st == nil {
+		return fmt.Errorf("class %q: %w", req.ClassName, ErrNotFound)
+	}
+
+	return m.onAddPartitions(ctx, st, cls, req)
 }

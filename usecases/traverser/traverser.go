@@ -19,7 +19,6 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -51,14 +50,12 @@ type Traverser struct {
 }
 
 type VectorSearcher interface {
-	VectorSearch(ctx context.Context, vector []float32,
-		offset, limit int, filters *filters.LocalFilter) ([]search.Result, error)
 	Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error)
 	Object(ctx context.Context, className string, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties,
-		properties *additional.ReplicationProperties) (*search.Result, error)
-	ObjectsByID(ctx context.Context, id strfmt.UUID,
-		props search.SelectProperties, additional additional.Properties) (search.Results, error)
+		properties *additional.ReplicationProperties, tenantKey string) (*search.Result, error)
+	ObjectsByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties,
+		additional additional.Properties, tenantKey string) (search.Results, error)
 }
 
 type explorer interface {

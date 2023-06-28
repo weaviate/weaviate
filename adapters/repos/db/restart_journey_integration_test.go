@@ -16,9 +16,7 @@ package db
 
 import (
 	"context"
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -32,7 +30,6 @@ import (
 )
 
 func TestRestartJourney(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -81,7 +78,7 @@ func TestRestartJourney(t *testing.T) {
 			Properties: map[string]interface{}{
 				"description": "the band is just fantastic that is really what I think",
 			},
-		}, []float32{0.1, 0.2, 0.3}, nil)
+		}, []float32{0.1, 0.2, 0.3}, nil, "")
 		require.Nil(t, err)
 
 		err = repo.PutObject(context.Background(), &models.Object{
@@ -90,14 +87,13 @@ func TestRestartJourney(t *testing.T) {
 			Properties: map[string]interface{}{
 				"description": "oh by the way, which one's pink?",
 			},
-		}, []float32{-0.1, 0.2, -0.3}, nil)
+		}, []float32{-0.1, 0.2, -0.3}, nil, "")
 		require.Nil(t, err)
 	})
 
 	t.Run("control", func(t *testing.T) {
 		t.Run("verify object by id", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(),
-				"46ebcce8-fb77-413b-ade6-26c427af3f33", nil, additional.Properties{})
+			res, err := repo.ObjectByID(context.Background(), "46ebcce8-fb77-413b-ade6-26c427af3f33", nil, additional.Properties{}, "")
 			require.Nil(t, err)
 			require.NotNil(t, res)
 			assert.Equal(t, "oh by the way, which one's pink?",
@@ -118,7 +114,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "id",
 						},
 					},
-				}, nil, additional.Properties{})
+				}, nil, additional.Properties{}, "")
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "the band is just fantastic that is really what I think",
@@ -139,7 +135,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "description",
 						},
 					},
-				}, nil, additional.Properties{})
+				}, nil, additional.Properties{}, "")
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "oh by the way, which one's pink?",
@@ -147,7 +143,7 @@ func TestRestartJourney(t *testing.T) {
 		})
 
 		t.Run("find object through vector index", func(t *testing.T) {
-			res, err := repo.VectorClassSearch(context.Background(),
+			res, err := repo.VectorSearch(context.Background(),
 				dto.GetParams{
 					ClassName:    "Class",
 					SearchVector: []float32{0.05, 0.1, 0.15},
@@ -180,8 +176,7 @@ func TestRestartJourney(t *testing.T) {
 
 	t.Run("verify after restart", func(t *testing.T) {
 		t.Run("verify object by id", func(t *testing.T) {
-			res, err := newRepo.ObjectByID(context.Background(),
-				"46ebcce8-fb77-413b-ade6-26c427af3f33", nil, additional.Properties{})
+			res, err := newRepo.ObjectByID(context.Background(), "46ebcce8-fb77-413b-ade6-26c427af3f33", nil, additional.Properties{}, "")
 			require.Nil(t, err)
 			require.NotNil(t, res)
 			assert.Equal(t, "oh by the way, which one's pink?",
@@ -202,7 +197,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "id",
 						},
 					},
-				}, nil, additional.Properties{})
+				}, nil, additional.Properties{}, "")
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "the band is just fantastic that is really what I think",
@@ -223,7 +218,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "description",
 						},
 					},
-				}, nil, additional.Properties{})
+				}, nil, additional.Properties{}, "")
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "oh by the way, which one's pink?",
@@ -231,7 +226,7 @@ func TestRestartJourney(t *testing.T) {
 		})
 
 		t.Run("find object through vector index", func(t *testing.T) {
-			res, err := newRepo.VectorClassSearch(context.Background(),
+			res, err := newRepo.VectorSearch(context.Background(),
 				dto.GetParams{
 					ClassName:    "Class",
 					SearchVector: []float32{0.05, 0.1, 0.15},
