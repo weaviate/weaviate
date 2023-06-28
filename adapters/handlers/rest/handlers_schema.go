@@ -143,7 +143,7 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 
 func (s *schemaHandlers) getClusterStatus(params schema.SchemaClusterStatusParams, principal *models.Principal) middleware.Responder {
 	status, err := s.manager.ClusterStatus(params.HTTPRequest.Context())
-	if err != nil {
+	if err == nil {
 		return schema.NewSchemaClusterStatusOK().WithPayload(status)
 	} else {
 		return schema.NewSchemaClusterStatusInternalServerError().WithPayload(status)
