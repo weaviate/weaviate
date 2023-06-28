@@ -12,6 +12,7 @@
 package schema
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -53,6 +54,10 @@ func TestStartupSync(t *testing.T) {
 
 		localSchema := sm.GetSchemaSkipAuth()
 		assert.Equal(t, "Bongourno", localSchema.FindClassByName("Bongourno").Class)
+
+		st, _ := sm.ClusterStatus(context.Background())
+		assert.False(t, st.IgnoreSchemaSync, "sync is indicated as not skipped")
+		assert.True(t, len(st.Error) == 0, "no error is shown")
 	})
 
 	t.Run("new node joining, other nodes have no schema", func(t *testing.T) {
@@ -77,6 +82,11 @@ func TestStartupSync(t *testing.T) {
 
 		localSchema := sm.GetSchemaSkipAuth()
 		assert.Len(t, localSchema.Objects.Classes, 0)
+
+		st, _ := sm.ClusterStatus(context.Background())
+		fmt.Println(st.Error)
+		assert.False(t, st.IgnoreSchemaSync, "sync is indicated as not skipped")
+		assert.True(t, len(st.Error) == 0, "no error is shown")
 	})
 
 	t.Run("new node joining, conflict in schema between nodes", func(t *testing.T) {
@@ -138,7 +148,7 @@ func TestStartupSync(t *testing.T) {
 			openInjectPayload: json.RawMessage(txJSON),
 		}
 
-		_, err := newManagerWithClusterAndTx(t, clusterState, txClient, &State{
+		m, err := newManagerWithClusterAndTx(t, clusterState, txClient, &State{
 			ObjectSchema: &models.Schema{
 				Classes: []*models.Class{
 					{
@@ -149,6 +159,10 @@ func TestStartupSync(t *testing.T) {
 			},
 		})
 		require.Nil(t, err)
+
+		st, _ := m.ClusterStatus(context.Background())
+		assert.True(t, st.IgnoreSchemaSync, "sync is indicated as skipped")
+		assert.True(t, len(st.Error) > 0, "the error is shown")
 	})
 
 	t.Run("new node joining, agreement between all", func(t *testing.T) {
@@ -158,6 +172,9 @@ func TestStartupSync(t *testing.T) {
 
 		txJSON, _ := json.Marshal(ReadSchemaPayload{
 			Schema: &State{
+				ShardingState: map[string]*sharding.State{
+					"GutenTag": {},
+				},
 				ObjectSchema: &models.Schema{
 					Classes: []*models.Class{
 						{
@@ -174,6 +191,9 @@ func TestStartupSync(t *testing.T) {
 		}
 
 		sm, err := newManagerWithClusterAndTx(t, clusterState, txClient, &State{
+			ShardingState: map[string]*sharding.State{
+				"GutenTag": {},
+			},
 			ObjectSchema: &models.Schema{
 				Classes: []*models.Class{
 					{
