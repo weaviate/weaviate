@@ -122,6 +122,14 @@ func TestAddAndRemoveObjectClass(t *testing.T) {
 
 	// And verify that the class does not exist anymore.
 	assert.NotContains(t, GetObjectClassNames(t), randomObjectClassName)
+
+	t.Log("Verify schema cluster status")
+	statusResp, err := helper.Client(t).Schema.SchemaClusterStatus(
+		clschema.NewSchemaClusterStatusParams(), nil,
+	)
+	require.Nil(t, err)
+	assert.Equal(t, "", statusResp.Payload.Error)
+	assert.Equal(t, true, statusResp.Payload.Healthy)
 }
 
 // This test prevents a regression on

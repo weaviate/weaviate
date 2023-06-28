@@ -135,7 +135,7 @@ func (m *Manager) startupJoinCluster(ctx context.Context,
 
 func (m *Manager) ClusterStatus(ctx context.Context) (*models.SchemaClusterStatus, error) {
 	m.RLock()
-	defer m.RLock()
+	defer m.RUnlock()
 
 	out := &models.SchemaClusterStatus{
 		Hostname:         m.clusterState.LocalName(),
