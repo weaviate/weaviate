@@ -454,7 +454,7 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 		return nil, fmt.Errorf("invalid reference: %s", err)
 	}
 	errVal := fmt.Sprintf("'cref' %s:%s", className, propertyName)
-	err = v.ValidateSingleRef(ctx, ref.SingleRef(), errVal)
+	err = v.ValidateSingleRef(ctx, ref.SingleRef(), errVal, "")
 	if err != nil {
 		return nil, err
 	}

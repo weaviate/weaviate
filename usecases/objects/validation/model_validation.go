@@ -65,7 +65,6 @@ type Validator struct {
 	exists           exists
 	config           *config.WeaviateConfig
 	replicationProps *additional.ReplicationProperties
-	tenantKey        string
 }
 
 func New(exists exists, config *config.WeaviateConfig,
@@ -100,7 +99,7 @@ func validateClass(class string) error {
 
 // ValidateSingleRef validates a single ref based on location URL and existence of the object in the database
 func (v *Validator) ValidateSingleRef(ctx context.Context, cref *models.SingleRef,
-	errorVal string,
+	errorVal string, tenant string,
 ) error {
 	ref, err := crossref.ParseSingleRef(cref)
 	if err != nil {
@@ -112,7 +111,7 @@ func (v *Validator) ValidateSingleRef(ctx context.Context, cref *models.SingleRe
 	}
 
 	// locally check for object existence
-	ok, err := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, v.tenantKey)
+	ok, err := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, tenant)
 	if err != nil {
 		return err
 	}
@@ -124,14 +123,14 @@ func (v *Validator) ValidateSingleRef(ctx context.Context, cref *models.SingleRe
 }
 
 func (v *Validator) ValidateMultipleRef(ctx context.Context, refs models.MultipleRef,
-	errorVal string,
+	errorVal string, tenant string,
 ) error {
 	if refs == nil {
 		return nil
 	}
 
 	for _, ref := range refs {
-		err := v.ValidateSingleRef(ctx, ref, errorVal)
+		err := v.ValidateSingleRef(ctx, ref, errorVal, tenant)
 		if err != nil {
 			return err
 		}
