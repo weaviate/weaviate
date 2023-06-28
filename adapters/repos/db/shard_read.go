@@ -151,7 +151,7 @@ func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32,
 func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, container *hnsw.VectorSlice) ([]float32, error) {
 	binary.LittleEndian.PutUint64(container.Buff8, indexID)
 
-	bytes, err, newBuff := s.store.Bucket(helpers.ObjectsBucketLSM).
+	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
 		GetBySecondaryIntoMemory(0, container.Buff8, container.Buff)
 	if err != nil {
 		return nil, err
