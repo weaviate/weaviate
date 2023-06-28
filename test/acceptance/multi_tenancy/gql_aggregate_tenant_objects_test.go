@@ -29,8 +29,7 @@ func TestGQLAggregateTenantObjects(t *testing.T) {
 	testClass := models.Class{
 		Class: "MultiTenantClass",
 		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: tenantKey,
+			Enabled: true,
 		},
 		Properties: []*models.Property{
 			{
@@ -75,12 +74,8 @@ func TestGQLAggregateTenantObjects(t *testing.T) {
 				batchSize:  numTenantObjs2,
 			})
 
-			resp, err := helper.CreateTenantObjectsBatch(t, batch1, tenantName1)
-			require.Nil(t, err)
-			helper.CheckObjectsBatchResponse(t, resp, err)
-			resp, err = helper.CreateTenantObjectsBatch(t, batch2, tenantName2)
-			require.Nil(t, err)
-			helper.CheckObjectsBatchResponse(t, resp, err)
+			helper.CreateObjectsBatch(t, batch1)
+			helper.CreateObjectsBatch(t, batch2)
 		})
 	})
 
@@ -131,8 +126,7 @@ func TestGQLAggregateTenantObjects_InvalidTenantKey(t *testing.T) {
 	testClass := models.Class{
 		Class: "MultiTenantClass",
 		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: tenantKey,
+			Enabled: true,
 		},
 		Properties: []*models.Property{
 			{
@@ -167,16 +161,8 @@ func TestGQLAggregateTenantObjects_InvalidTenantKey(t *testing.T) {
 				tenantKey:  tenantKey,
 				batchSize:  numTenantObjs,
 			})
-			resp, err := helper.CreateTenantObjectsBatch(t, batch, tenantName)
-			require.Nil(t, err)
-			helper.CheckObjectsBatchResponse(t, resp, err)
+			helper.CreateObjectsBatch(t, batch)
 		})
-	})
-
-	t.Run("missing tenant key", func(t *testing.T) {
-		query := fmt.Sprintf(`{Aggregate{%s{meta{count}}}}`, testClass.Class)
-		expected := `class "MultiTenantClass" has multi-tenancy enabled, tenant_key "tenantName" required`
-		testAggregateTenantFailure(t, testClass.Class, query, expected)
 	})
 
 	t.Run("non-existent tenant key", func(t *testing.T) {
@@ -201,6 +187,7 @@ func makeTenantBatch(params batchParams) []*models.Object {
 			Properties: map[string]interface{}{
 				params.tenantKey: params.tenantName,
 			},
+			TenantName: params.tenantName,
 		}
 	}
 	return batch

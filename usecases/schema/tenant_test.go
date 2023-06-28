@@ -23,7 +23,7 @@ import (
 func TestAddTenants(t *testing.T) {
 	var (
 		ctx        = context.Background()
-		mt         = &models.MultiTenancyConfig{Enabled: true, TenantKey: "uUID"}
+		mt         = &models.MultiTenancyConfig{Enabled: true}
 		tenants    = []*models.Tenant{{Name: "USER1"}, {Name: "USER2"}}
 		cls        = "C1"
 		properties = []*models.Property{
@@ -73,7 +73,7 @@ func TestAddTenants(t *testing.T) {
 			tenants: tenants,
 			initial: &models.Class{
 				Class:              cls,
-				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false, TenantKey: "uUID"},
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false},
 				Properties:         properties,
 				ReplicationConfig:  repConfig,
 			},
@@ -85,7 +85,7 @@ func TestAddTenants(t *testing.T) {
 			tenants: []*models.Tenant{{Name: "A"}, {Name: ""}, {Name: "B"}},
 			initial: &models.Class{
 				Class:              cls,
-				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true, TenantKey: "uUID"},
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 				Properties:         properties,
 				ReplicationConfig:  repConfig,
 			},
@@ -97,7 +97,7 @@ func TestAddTenants(t *testing.T) {
 			tenants: []*models.Tenant{{Name: "A"}, {Name: "B"}},
 			initial: &models.Class{
 				Class:              cls,
-				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true, TenantKey: "uUID"},
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 				Properties:         properties,
 				ReplicationConfig:  repConfig,
 			},
@@ -128,7 +128,7 @@ func TestAddTenants(t *testing.T) {
 func TestDeleteTenants(t *testing.T) {
 	var (
 		ctx     = context.Background()
-		mt      = &models.MultiTenancyConfig{Enabled: true, TenantKey: "uUID"}
+		mt      = &models.MultiTenancyConfig{Enabled: true}
 		tenants = []*models.Tenant{
 			{Name: "USER1"},
 			{Name: "USER2"},
@@ -183,7 +183,7 @@ func TestDeleteTenants(t *testing.T) {
 			tenants: tenants,
 			initial: &models.Class{
 				Class:              cls,
-				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false, TenantKey: "uUID"},
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false},
 				Properties:         properties,
 				ReplicationConfig:  repConfig,
 			},
@@ -195,7 +195,7 @@ func TestDeleteTenants(t *testing.T) {
 			tenants: []*models.Tenant{{Name: "A"}, {Name: ""}, {Name: "B"}},
 			initial: &models.Class{
 				Class:              cls,
-				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true, TenantKey: "uUID"},
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 				Properties:         properties,
 				ReplicationConfig:  repConfig,
 			},
@@ -207,7 +207,7 @@ func TestDeleteTenants(t *testing.T) {
 			tenants: tenants[:2],
 			initial: &models.Class{
 				Class:              cls,
-				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true, TenantKey: "uUID"},
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 				Properties:         properties,
 				ReplicationConfig:  repConfig,
 			},

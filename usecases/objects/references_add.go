@@ -57,7 +57,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 	defer unlock()
 
-	validator := validation.New(m.vectorRepo.Exists, m.config, repl, tenantKey)
+	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
 	if err := input.validate(ctx, principal, validator, m.schemaManager); err != nil {
 		return &Error{"validate inputs", StatusBadRequest, err}
 	}

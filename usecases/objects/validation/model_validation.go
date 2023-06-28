@@ -69,13 +69,12 @@ type Validator struct {
 }
 
 func New(exists exists, config *config.WeaviateConfig,
-	repl *additional.ReplicationProperties, tenantKey string,
+	repl *additional.ReplicationProperties,
 ) *Validator {
 	return &Validator{
 		exists:           exists,
 		config:           config,
 		replicationProps: repl,
-		tenantKey:        tenantKey,
 	}
 }
 

@@ -28,7 +28,7 @@ type batchQueue struct {
 }
 
 func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
-	repl *additional.ReplicationProperties, tenantKey string,
+	repl *additional.ReplicationProperties,
 ) (objects.BatchObjects, error) {
 	objectByClass := make(map[string]batchQueue)
 	indexByClass := make(map[string]*Index)
@@ -81,7 +81,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 
 	for class, index := range indexByClass {
 		queue := objectByClass[class]
-		errs := index.putObjectBatch(ctx, queue.objects, repl, tenantKey)
+		errs := index.putObjectBatch(ctx, queue.objects, repl)
 		// remove index from map to skip releasing its lock in defer
 		indexByClass[class] = nil
 		index.dropIndex.RUnlock()
@@ -159,9 +159,6 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 	idx := db.GetIndex(params.ClassName)
 	if idx == nil {
 		return objects.BatchDeleteResult{}, errors.Errorf("cannot find index for class %v", params.ClassName)
-	}
-	if err := idx.validateMultiTenancy(tenantKey, nil); err != nil {
-		return objects.BatchDeleteResult{}, err
 	}
 	// find all DocIDs in all shards that match the filter
 	shardDocIDs, err := idx.findDocIDs(ctx, params.Filters, tenantKey)

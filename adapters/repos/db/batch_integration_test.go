@@ -377,7 +377,7 @@ func testBatchImportObjectsNoVector(repo *DB) func(t *testing.T) {
 			}
 
 			t.Run("can import", func(t *testing.T) {
-				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
+				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
 				require.Nil(t, err)
 
 				assert.Nil(t, batchRes[0].Err)
@@ -413,7 +413,7 @@ func simpleInsertObjects(t *testing.T, repo *DB, class string, count int) {
 		}
 	}
 
-	repo.BatchPutObjects(context.Background(), batch, nil, "")
+	repo.BatchPutObjects(context.Background(), batch, nil)
 }
 
 func testBatchImportObjects(repo *DB) func(t *testing.T) {
@@ -462,7 +462,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 			}
 
 			t.Run("can import", func(t *testing.T) {
-				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
+				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
 				require.Nil(t, err)
 
 				assert.Nil(t, batchRes[0].Err)
@@ -546,7 +546,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 			}
 
 			t.Run("can import", func(t *testing.T) {
-				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
+				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
 				require.Nil(t, err, "there shouldn't be an overall error, only inividual ones")
 
 				t.Run("element errors are marked correctly", func(t *testing.T) {
@@ -607,7 +607,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				}
 
 				t.Run("can import", func(t *testing.T) {
-					batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
+					batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
 					require.Nil(t, err)
 
 					assert.Nil(t, batchRes[0].Err)
@@ -698,7 +698,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 			}
 
 			t.Run("can import", func(t *testing.T) {
-				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
+				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
 				require.Nil(t, err, "there shouldn't be an overall error, only inividual ones")
 
 				t.Run("element errors are marked correctly", func(t *testing.T) {
@@ -755,7 +755,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 				defer cancel()
 
-				batchRes, err := repo.BatchPutObjects(ctx, batch, nil, "")
+				batchRes, err := repo.BatchPutObjects(ctx, batch, nil)
 				require.Nil(t, err, "there shouldn't be an overall error, only inividual ones")
 
 				t.Run("some elements have error'd due to context", func(t *testing.T) {
@@ -812,7 +812,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 					}
 				}
 
-				res, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
+				res, err := repo.BatchPutObjects(context.Background(), batch, nil)
 				require.Nil(t, err)
 				assertAllItemsErrorFree(t, res)
 			}
@@ -894,7 +894,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 					}
 				}
 
-				res, err := repo.BatchPutObjects(context.Background(), batch, nil, "")
+				res, err := repo.BatchPutObjects(context.Background(), batch, nil)
 				require.Nil(t, err)
 				assertAllItemsErrorFree(t, res)
 			}

@@ -75,9 +75,8 @@ func (a *Article) WithTitle(title string) *Article {
 	return a
 }
 
-func (a *Article) WithTenantKey(tk string) *Article {
-	props := a.Properties.(map[string]interface{})
-	props["tenantKey"] = tk
+func (a *Article) WithTenant(tk string) *Article {
+	a.TenantName = tk
 	return a
 }
 
@@ -112,9 +111,8 @@ func (p *Paragraph) WithVector(vec []float32) *Paragraph {
 	return p
 }
 
-func (p *Paragraph) WithTenantKey(tk string) *Paragraph {
-	props := p.Properties.(map[string]interface{})
-	props["tenantKey"] = tk
+func (p *Paragraph) WithTenant(tk string) *Paragraph {
+	p.TenantName = tk
 	return p
 }
 

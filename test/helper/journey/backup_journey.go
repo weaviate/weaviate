@@ -12,7 +12,6 @@
 package journey
 
 import (
-	"fmt"
 	"math/rand"
 	"testing"
 	"time"
@@ -161,15 +160,14 @@ func addTestClass(t *testing.T, className string, tenantKey string) {
 			DataType: []string{"string"},
 		})
 		class.MultiTenancyConfig = &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: multiTenant,
+			Enabled: true,
 		}
 	}
 
 	helper.CreateClass(t, class)
 }
 
-func addTestObjects(t *testing.T, className string, tenantKey string) {
+func addTestObjects(t *testing.T, className string, tenant string) {
 	const (
 		noteLengthMin = 4
 		noteLengthMax = 1024
@@ -190,17 +188,12 @@ func addTestObjects(t *testing.T, className string, tenantKey string) {
 				Class:      className,
 				Properties: map[string]interface{}{"contents": contents},
 			}
-			if tenantKey != singleTenant {
-				obj.Properties.(map[string]interface{})[multiTenant] = fmt.Sprintf("Tenant%d", i)
+			if tenant != singleTenant {
+				obj.TenantName = tenant
 			}
 			batch[j] = &obj
 		}
+		helper.CreateObjectsBatch(t, batch)
 
-		if tenantKey != singleTenant {
-			resp, err := helper.CreateTenantObjectsBatch(t, batch, fmt.Sprintf("Tenant%d", i))
-			helper.CheckObjectsBatchResponse(t, resp, err)
-		} else {
-			helper.CreateObjectsBatch(t, batch)
-		}
 	}
 }

@@ -29,7 +29,6 @@ import (
 // AddObjects Class Instances in batch to the connected DB
 func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
-	tenantKey string,
 ) (BatchObjects, error) {
 	err := b.authorizer.Authorize(principal, "create", "batch/objects")
 	if err != nil {
@@ -47,19 +46,18 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	defer b.metrics.BatchOp("total_uc_level", before.UnixNano())
 	defer b.metrics.BatchDec()
 
-	return b.addObjects(ctx, principal, objects, fields, repl, tenantKey)
+	return b.addObjects(ctx, principal, objects, fields, repl)
 }
 
 func (b *BatchManager) addObjects(ctx context.Context, principal *models.Principal,
 	classes []*models.Object, fields []*string, repl *additional.ReplicationProperties,
-	tenantKey string,
 ) (BatchObjects, error) {
 	beforePreProcessing := time.Now()
 	if err := b.validateObjectForm(classes); err != nil {
 		return nil, NewErrInvalidUserInput("invalid param 'objects': %v", err)
 	}
 
-	batchObjects := b.validateObjectsConcurrently(ctx, principal, classes, fields, repl, tenantKey)
+	batchObjects := b.validateObjectsConcurrently(ctx, principal, classes, fields, repl)
 	b.metrics.BatchOp("total_preprocessing", beforePreProcessing.UnixNano())
 
 	var (
@@ -69,7 +67,7 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 
 	beforePersistence := time.Now()
 	defer b.metrics.BatchOp("total_persistence_level", beforePersistence.UnixNano())
-	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects, repl, tenantKey); err != nil {
+	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects, repl); err != nil {
 		return nil, NewErrInternal("batch objects: %#v", err)
 	}
 
@@ -86,7 +84,6 @@ func (b *BatchManager) validateObjectForm(classes []*models.Object) error {
 
 func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
-	tenantKey string,
 ) BatchObjects {
 	fieldsToKeep := determineResponseFields(fields)
 	c := make(chan BatchObject, len(objects))
@@ -105,7 +102,7 @@ func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principa
 		i := i
 		object := object
 		eg.Go(func() error {
-			b.validateObject(ctx, principal, object, i, &c, fieldsToKeep, repl, tenantKey)
+			b.validateObject(ctx, principal, object, i, &c, fieldsToKeep, repl)
 			return nil
 		})
 	}
@@ -118,7 +115,6 @@ func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principa
 func (b *BatchManager) validateObject(ctx context.Context, principal *models.Principal,
 	concept *models.Object, originalIndex int, resultsC *chan BatchObject,
 	fieldsToKeep map[string]struct{}, repl *additional.ReplicationProperties,
-	tenantKey string,
 ) {
 	var id strfmt.UUID
 
@@ -144,6 +140,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	object.LastUpdateTimeUnix = 0
 	object.ID = id
 	object.Vector = concept.Vector
+	object.TenantName = concept.TenantName
 
 	if _, ok := fieldsToKeep["class"]; ok {
 		object.Class = concept.Class
@@ -167,10 +164,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	if class == nil {
 		ec.Add(fmt.Errorf("class '%s' not present in schema", object.Class))
 	} else {
-		err = validateSingleBatchObjectTenantKey(class, concept, tenantKey, ec, b.logger)
-		ec.Add(err)
-
-		err = validation.New(b.vectorRepo.Exists, b.config, repl, tenantKey).
+		err = validation.New(b.vectorRepo.Exists, b.config, repl).
 			Object(ctx, class, object, nil)
 		ec.Add(err)
 
