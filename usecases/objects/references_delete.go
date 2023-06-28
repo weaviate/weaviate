@@ -34,14 +34,14 @@ type DeleteReferenceInput struct {
 }
 
 func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.Principal,
-	input *DeleteReferenceInput, repl *additional.ReplicationProperties, tenantKey string,
+	input *DeleteReferenceInput, repl *additional.ReplicationProperties, tenant string,
 ) *Error {
 	m.metrics.DeleteReferenceInc()
 	defer m.metrics.DeleteReferenceDec()
 
 	deprecatedEndpoint := input.Class == ""
 	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID,
-		additional.Properties{}, nil, tenantKey)
+		additional.Properties{}, nil, tenant)
 	if err != nil {
 		errnf := ErrNotFound{}
 		if errors.As(err, &errnf) {
@@ -70,6 +70,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	}
 
 	obj := res.Object()
+	obj.TenantName = tenant
 	ok, errmsg := removeReference(obj, input.Property, &input.Reference)
 	if errmsg != "" {
 		return &Error{errmsg, StatusInternalServerError, nil}

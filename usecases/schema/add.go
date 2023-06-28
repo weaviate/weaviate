@@ -37,9 +37,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-var errInvalidTenantKey = "invalid multiTenancyConfig.tenantKey %q. " +
-	"tenantKey must be 'text' or 'uuid'"
-
 // AddClass to the schema
 func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 	class *models.Class,
