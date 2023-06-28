@@ -178,8 +178,8 @@ func TestHnswPqGist(t *testing.T) {
 					Enabled:  false,
 					Segments: dimensions / int(math.Pow(2, float64(segmentRate))),
 					Encoder: ent.PQEncoder{
-						Type:         "kmeans",
-						Distribution: "log-normal",
+						Type:         ent.PQEncoderTypeKMeans,
+						Distribution: ent.PQEncoderDistributionLogNormal,
 					},
 				},
 			}
@@ -346,8 +346,8 @@ func TestHnswPqSift(t *testing.T) {
 				Enabled:  false,
 				Segments: dimensions / int(math.Pow(2, float64(segmentRate))),
 				Encoder: ent.PQEncoder{
-					Type:         "tile",
-					Distribution: "log-normal",
+					Type:         ent.PQEncoderTypeTile,
+					Distribution: ent.PQEncoderDistributionLogNormal,
 				},
 			},
 			VectorCacheMaxObjects: 10e12,
@@ -369,7 +369,19 @@ func TestHnswPqSift(t *testing.T) {
 		})
 		before = time.Now()
 		fmt.Println("Start compressing...")
-		index.Compress(dimensions/int(math.Pow(2, float64(segmentRate))), centroids, false, int(ssdhelpers.UseKMeansEncoder), int(ssdhelpers.LogNormalEncoderDistribution)) /*should have configuration.compressed = true*/
+
+		cfg := ent.PQConfig{
+			Enabled:        true,
+			Segments:       dimensions / int(math.Pow(2, float64(segmentRate))),
+			Centroids:      centroids,
+			BitCompression: false,
+			Encoder: ent.PQEncoder{
+				Type:         ent.PQEncoderTypeKMeans,
+				Distribution: ent.PQEncoderDistributionLogNormal,
+			},
+		}
+
+		index.Compress(cfg) /*should have configuration.compressed = true*/
 		fmt.Printf("Time to compress: %s", time.Since(before))
 		fmt.Println()
 		ssdhelpers.Concurrently(uint64(vectors_size-switch_at), func(_, id uint64, _ *sync.Mutex) {
@@ -531,8 +543,8 @@ func TestHnswPqDeepImage(t *testing.T) {
 					Enabled:  false,
 					Segments: dimensions / int(math.Pow(2, float64(segmentRate))),
 					Encoder: ent.PQEncoder{
-						Type:         "kmeans",
-						Distribution: "normal",
+						Type:         ent.PQEncoderTypeKMeans,
+						Distribution: ent.PQEncoderDistributionNormal,
 					},
 				},
 				VectorCacheMaxObjects: 10e12,

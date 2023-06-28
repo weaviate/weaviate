@@ -122,30 +122,21 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 func (h *hnsw) turnOnCompression(cfg ent.UserConfig, callback func()) error {
 	h.logger.WithField("action", "compress").Info("switching to compressed vectors")
 
-	encoder, err := ent.ValidEncoder(cfg.PQ.Encoder.Type)
+	err := ent.ValidatePQConfig(cfg.PQ)
 	if err != nil {
 		callback()
 		return err
 	}
 
-	encoderDistribution, err := ent.ValidEncoderDistribution(cfg.PQ.Encoder.Distribution)
-	if err != nil {
-		callback()
-		return err
-	}
-
-	go h.compressThenCallback(cfg, callback, int(encoder), int(encoderDistribution))
+	go h.compressThenCallback(cfg, callback)
 
 	return nil
 }
 
-func (h *hnsw) compressThenCallback(cfg ent.UserConfig, callback func(),
-	encoder int, encoderDistribution int,
-) {
+func (h *hnsw) compressThenCallback(cfg ent.UserConfig, callback func()) {
 	defer callback()
 
-	if err := h.Compress(cfg.PQ.Segments, cfg.PQ.Centroids, cfg.PQ.BitCompression,
-		encoder, encoderDistribution); err != nil {
+	if err := h.Compress(cfg.PQ); err != nil {
 		h.logger.Error(err)
 		return
 	}

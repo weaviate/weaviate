@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	testinghelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 type IndexAndDistance struct {
@@ -38,14 +39,21 @@ func distance(dp distancer.Provider) func(x, y []float32) float32 {
 
 func Test_NoRacePQSettings(t *testing.T) {
 	distanceProvider := distancer.NewL2SquaredProvider()
+
+	cfg := ent.PQConfig{
+		Enabled: true,
+		Encoder: ent.PQEncoder{
+			Type:         ent.PQEncoderTypeKMeans,
+			Distribution: ent.PQEncoderDistributionLogNormal,
+		},
+		Centroids: 512,
+		Segments:  128,
+	}
+
 	_, err := ssdhelpers.NewProductQuantizer(
-		128,
-		512,
-		false,
+		cfg,
 		distanceProvider,
 		128,
-		ssdhelpers.UseKMeansEncoder,
-		ssdhelpers.LogNormalEncoderDistribution,
 	)
 	assert.NotNil(t, err)
 }
@@ -58,14 +66,19 @@ func Test_NoRacePQKMeans(t *testing.T) {
 	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, int(dimensions))
 	distanceProvider := distancer.NewL2SquaredProvider()
 
+	cfg := ent.PQConfig{
+		Enabled: true,
+		Encoder: ent.PQEncoder{
+			Type:         ent.PQEncoderTypeKMeans,
+			Distribution: ent.PQEncoderDistributionLogNormal,
+		},
+		Centroids: 255,
+		Segments:  dimensions,
+	}
 	pq, _ := ssdhelpers.NewProductQuantizer(
-		dimensions,
-		255,
-		false,
+		cfg,
 		distanceProvider,
 		dimensions,
-		ssdhelpers.UseKMeansEncoder,
-		ssdhelpers.LogNormalEncoderDistribution,
 	)
 	pq.Fit(vectors)
 	encoded := make([][]byte, vectors_size)
@@ -109,6 +122,104 @@ func Test_NoRacePQDecodeBytes(t *testing.T) {
 			code := ssdhelpers.ExtractCode8(values, i)
 			assert.Equal(t, code, uint8(i))
 		}
+	})
+}
+
+func Test_NoRacePQInvalidConfig(t *testing.T) {
+	t.Run("validate pq options", func(t *testing.T) {
+		amount := 100
+		centroids := 256
+		cfg := ent.PQConfig{
+			Enabled: true,
+			Encoder: ent.PQEncoder{
+				Type:         "lmeans",
+				Distribution: ent.PQEncoderDistributionLogNormal,
+			},
+			Centroids:     centroids,
+			TrainingLimit: 75,
+			Segments:      amount,
+		}
+		_, err := ssdhelpers.NewProductQuantizer(
+			cfg,
+			nil,
+			amount,
+		)
+		assert.ErrorContains(t, err, "invalid encoder type")
+		cfg = ent.PQConfig{
+			Enabled: true,
+			Encoder: ent.PQEncoder{
+				Type:         ent.DefaultPQEncoderType,
+				Distribution: "log",
+			},
+			Centroids:     centroids,
+			TrainingLimit: 75,
+			Segments:      amount,
+		}
+		_, err = ssdhelpers.NewProductQuantizer(
+			cfg,
+			nil,
+			amount,
+		)
+		assert.ErrorContains(t, err, "invalid encoder distribution")
+		cfg = ent.PQConfig{
+			Enabled: true,
+			Encoder: ent.PQEncoder{
+				Type:         ent.DefaultPQEncoderType,
+				Distribution: ent.DefaultPQEncoderDistribution,
+			},
+			Centroids:     centroids,
+			TrainingLimit: 75,
+			Segments:      0,
+		}
+		_, err = ssdhelpers.NewProductQuantizer(
+			cfg,
+			nil,
+			amount,
+		)
+		assert.ErrorContains(t, err, "segments cannot be 0 nor negative")
+		cfg = ent.PQConfig{
+			Enabled: true,
+			Encoder: ent.PQEncoder{
+				Type:         ent.DefaultPQEncoderType,
+				Distribution: ent.DefaultPQEncoderDistribution,
+			},
+			Centroids:     centroids,
+			TrainingLimit: 75,
+			Segments:      3,
+		}
+		_, err = ssdhelpers.NewProductQuantizer(
+			cfg,
+			nil,
+			4,
+		)
+		assert.ErrorContains(t, err, "segments should be an integer divisor of dimensions")
+	})
+	t.Run("validate training limit applied", func(t *testing.T) {
+		amount := 64
+		centroids := 256
+		vectors_size := 400
+		vectors, _ := testinghelpers.RandomVecs(vectors_size, vectors_size, amount)
+		distanceProvider := distancer.NewL2SquaredProvider()
+
+		cfg := ent.PQConfig{
+			Enabled: true,
+			Encoder: ent.PQEncoder{
+				Type:         "kmeans",
+				Distribution: ent.PQEncoderDistributionLogNormal,
+			},
+			Centroids:     centroids,
+			TrainingLimit: 260,
+			Segments:      amount,
+		}
+		pq, err := ssdhelpers.NewProductQuantizer(
+			cfg,
+			distanceProvider,
+			amount,
+		)
+		assert.NoError(t, err)
+		pq.Fit(vectors)
+		pqdata := pq.ExposeFields()
+		assert.Equal(t, pqdata.TrainingLimit, 260)
 	})
 }
 
