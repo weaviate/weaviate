@@ -57,7 +57,8 @@ func TestStartupSync(t *testing.T) {
 
 		st, _ := sm.ClusterStatus(context.Background())
 		assert.False(t, st.IgnoreSchemaSync, "sync is indicated as not skipped")
-		assert.True(t, len(st.Error) == 0, "no error is shown")
+		assert.True(t, st.Healthy, "cluster is deemed healthy")
+		assert.Len(t, st.Error, 0, "no error is shown")
 	})
 
 	t.Run("new node joining, other nodes have no schema", func(t *testing.T) {
@@ -84,9 +85,9 @@ func TestStartupSync(t *testing.T) {
 		assert.Len(t, localSchema.Objects.Classes, 0)
 
 		st, _ := sm.ClusterStatus(context.Background())
-		fmt.Println(st.Error)
 		assert.False(t, st.IgnoreSchemaSync, "sync is indicated as not skipped")
-		assert.True(t, len(st.Error) == 0, "no error is shown")
+		assert.True(t, st.Healthy, "cluster is deemed healthy")
+		assert.Len(t, st.Error, 0, "no error is shown")
 	})
 
 	t.Run("new node joining, conflict in schema between nodes", func(t *testing.T) {
@@ -162,6 +163,7 @@ func TestStartupSync(t *testing.T) {
 
 		st, _ := m.ClusterStatus(context.Background())
 		assert.True(t, st.IgnoreSchemaSync, "sync is indicated as skipped")
+		assert.False(t, st.Healthy, "cluster is not deemed healthy")
 		assert.True(t, len(st.Error) > 0, "the error is shown")
 	})
 
