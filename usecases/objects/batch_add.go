@@ -14,7 +14,7 @@ package objects
 import (
 	"context"
 	"fmt"
-	"sync"
+	"runtime"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
+	"golang.org/x/sync/errgroup"
 )
 
 // AddObjects Class Instances in batch to the connected DB
@@ -82,30 +83,39 @@ func (b *BatchManager) validateObjectForm(classes []*models.Object) error {
 }
 
 func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principal *models.Principal,
-	classes []*models.Object, fields []*string, repl *additional.ReplicationProperties,
+	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
 ) BatchObjects {
 	fieldsToKeep := determineResponseFields(fields)
-	c := make(chan BatchObject, len(classes))
+	c := make(chan BatchObject, len(objects))
 
-	wg := new(sync.WaitGroup)
+	// the validation function can't error directly, it would return an error
+	// over the channel. But by using an error group, we can easily limit the
+	// concurrency
+	//
+	// see https://github.com/weaviate/weaviate/issues/3179 for details of how the
+	// unbounded concurrency caused a production outage
+	eg := new(errgroup.Group)
+	eg.SetLimit(2 * runtime.GOMAXPROCS(0))
 
 	// Generate a goroutine for each separate request
-	for i, object := range classes {
-		wg.Add(1)
-		go b.validateObject(ctx, principal, wg, object, i, &c, fieldsToKeep, repl)
+	for i, object := range objects {
+		i := i
+		object := object
+		eg.Go(func() error {
+			b.validateObject(ctx, principal, object, i, &c, fieldsToKeep, repl)
+			return nil
+		})
 	}
 
-	wg.Wait()
+	eg.Wait()
 	close(c)
 	return objectsChanToSlice(c)
 }
 
 func (b *BatchManager) validateObject(ctx context.Context, principal *models.Principal,
-	wg *sync.WaitGroup, concept *models.Object, originalIndex int, resultsC *chan BatchObject,
+	concept *models.Object, originalIndex int, resultsC *chan BatchObject,
 	fieldsToKeep map[string]struct{}, repl *additional.ReplicationProperties,
 ) {
-	defer wg.Done()
-
 	var id strfmt.UUID
 
 	ec := &errorcompounder.ErrorCompounder{}
