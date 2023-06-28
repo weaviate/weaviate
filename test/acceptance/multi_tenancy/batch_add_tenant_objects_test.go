@@ -14,6 +14,8 @@ package test
 import (
 	"testing"
 
+	"github.com/weaviate/weaviate/client/batch"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
@@ -62,27 +64,20 @@ func TestBatchAddTenantObjects(t *testing.T) {
 		},
 	}
 
+	helper.CreateClass(t, &testClass)
 	defer func() {
 		helper.DeleteClass(t, testClass.Class)
 	}()
 
-	t.Run("create class with multi-tenancy enabled", func(t *testing.T) {
-		helper.CreateClass(t, &testClass)
-	})
+	tenants := make([]*models.Tenant, len(tenantObjects))
+	for i := range tenants {
+		tenants[i] = &models.Tenant{tenantName}
+	}
+	helper.CreateTenants(t, testClass.Class, tenants)
 
-	t.Run("create tenants", func(t *testing.T) {
-		tenants := make([]*models.Tenant, len(tenantObjects))
-		for i := range tenants {
-			tenants[i] = &models.Tenant{tenantName}
-		}
-		helper.CreateTenants(t, testClass.Class, tenants)
-	})
-
-	t.Run("add tenant objects", func(t *testing.T) {
+	t.Run("add and get tenant objects", func(t *testing.T) {
 		helper.CreateObjectsBatch(t, tenantObjects)
-	})
 
-	t.Run("get tenant objects", func(t *testing.T) {
 		for _, obj := range tenantObjects {
 			resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenantName)
 			require.Nil(t, err)
@@ -91,4 +86,127 @@ func TestBatchAddTenantObjects(t *testing.T) {
 			assert.Equal(t, obj.Properties, resp.Properties)
 		}
 	})
+}
+
+func TestAddNonTenantBatchToMultiClass(t *testing.T) {
+	className := "MultiTenantClassBatchFail"
+	testClass := models.Class{
+		Class: className,
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled: true,
+		},
+	}
+	nonTenantObjects := []*models.Object{
+		{
+			ID:    "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
+			Class: testClass.Class,
+		},
+		{
+			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
+			Class: testClass.Class,
+		},
+		{
+			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
+			Class: testClass.Class,
+		},
+	}
+
+	helper.CreateClass(t, &testClass)
+	defer func() {
+		helper.DeleteClass(t, testClass.Class)
+	}()
+	helper.CreateTenants(t, className, []*models.Tenant{{"randomTenant1"}})
+	params := batch.NewBatchObjectsCreateParams().
+		WithBody(batch.BatchObjectsCreateBody{
+			Objects: nonTenantObjects,
+		})
+	resp, err := helper.Client(t).Batch.BatchObjectsCreate(params, nil)
+	require.Nil(t, err)
+	for i := range resp.Payload {
+		require.NotNil(t, resp.Payload[i].Result.Errors)
+	}
+}
+
+func TestAddBatchToNonMultiClass(t *testing.T) {
+	className := "MultiTenantClassBatchFail"
+	testClass := models.Class{
+		Class: className,
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled: false,
+		},
+	}
+	tenantObjects := []*models.Object{
+		{
+			ID:         "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
+			Class:      testClass.Class,
+			TenantName: "something",
+		},
+		{
+			ID:         "831ae1d0-f441-44b1-bb2a-46548048e26f",
+			Class:      testClass.Class,
+			TenantName: "something",
+		},
+		{
+			ID:         "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
+			Class:      testClass.Class,
+			TenantName: "something",
+		},
+	}
+
+	helper.CreateClass(t, &testClass)
+	defer func() {
+		helper.DeleteClass(t, testClass.Class)
+	}()
+	params := batch.NewBatchObjectsCreateParams().
+		WithBody(batch.BatchObjectsCreateBody{
+			Objects: tenantObjects,
+		})
+	resp, err := helper.Client(t).Batch.BatchObjectsCreate(params, nil)
+	require.Nil(t, err)
+	for i := range resp.Payload {
+		require.NotNil(t, resp.Payload[i].Result.Errors)
+	}
+}
+
+func TestAddBatchWithNonExistentTenant(t *testing.T) {
+	className := "MultiTenantClassBatchFail"
+	testClass := models.Class{
+		Class: className,
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled: true,
+		},
+	}
+	nonTenantObjects := []*models.Object{
+		{
+			ID:         "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
+			Class:      testClass.Class,
+			TenantName: "something",
+		},
+		{
+			ID:         "831ae1d0-f441-44b1-bb2a-46548048e26f",
+			Class:      testClass.Class,
+			TenantName: "something",
+		},
+		{
+			ID:         "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
+			Class:      testClass.Class,
+			TenantName: "something",
+		},
+	}
+
+	helper.CreateClass(t, &testClass)
+	defer func() {
+		helper.DeleteClass(t, testClass.Class)
+	}()
+	helper.CreateTenants(t, className, []*models.Tenant{{"somethingElse"}})
+
+	params := batch.NewBatchObjectsCreateParams().
+		WithBody(batch.BatchObjectsCreateBody{
+			Objects: nonTenantObjects,
+		})
+	resp, err := helper.Client(t).Batch.BatchObjectsCreate(params, nil)
+	require.Nil(t, err)
+	for i := range resp.Payload {
+		require.NotNil(t, resp.Payload[i].Result.Errors)
+	}
 }

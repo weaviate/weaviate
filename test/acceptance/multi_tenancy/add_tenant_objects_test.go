@@ -101,6 +101,7 @@ func TestAddTenantObjects(t *testing.T) {
 
 func TestAddTenantObjectsToNonMultiClass(t *testing.T) {
 	className := "NoTenantClass"
+	tenantName := "randomTenant"
 	defer func() {
 		helper.DeleteClass(t, className)
 	}()
@@ -110,10 +111,11 @@ func TestAddTenantObjectsToNonMultiClass(t *testing.T) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false},
 	}
 	helper.CreateClass(t, &testClass)
+
 	objWithTenant := &models.Object{
 		ID:         "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
 		Class:      className,
-		TenantName: "RandomName",
+		TenantName: tenantName,
 	}
 	params := objects.NewObjectsCreateParams().WithBody(objWithTenant)
 	_, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
@@ -134,6 +136,29 @@ func TestAddNonTenantObjectsToMultiClass(t *testing.T) {
 	objWithTenant := &models.Object{
 		ID:    "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
 		Class: className,
+	}
+	params := objects.NewObjectsCreateParams().WithBody(objWithTenant)
+	_, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
+	require.NotNil(t, err)
+}
+
+func TestAddObjectWithNonexistentTenantToMultiClass(t *testing.T) {
+	className := "TenantClass"
+	defer func() {
+		helper.DeleteClass(t, className)
+	}()
+
+	testClass := models.Class{
+		Class:              className,
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+	}
+	helper.CreateClass(t, &testClass)
+	helper.CreateTenants(t, className, []*models.Tenant{{"randomTenant1"}})
+
+	objWithTenant := &models.Object{
+		ID:         "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
+		Class:      className,
+		TenantName: "randomTenant2",
 	}
 	params := objects.NewObjectsCreateParams().WithBody(objWithTenant)
 	_, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
