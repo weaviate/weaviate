@@ -50,6 +50,7 @@ func Test_UserConfig(t *testing.T) {
 					BitCompression: DefaultPQBitCompression,
 					Segments:       DefaultPQSegments,
 					Centroids:      DefaultPQCentroids,
+					TrainingLimit:  DefaultPQTrainingLimit,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -79,6 +80,7 @@ func Test_UserConfig(t *testing.T) {
 					BitCompression: DefaultPQBitCompression,
 					Segments:       DefaultPQSegments,
 					Centroids:      DefaultPQCentroids,
+					TrainingLimit:  DefaultPQTrainingLimit,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -119,6 +121,7 @@ func Test_UserConfig(t *testing.T) {
 					BitCompression: DefaultPQBitCompression,
 					Segments:       DefaultPQSegments,
 					Centroids:      DefaultPQCentroids,
+					TrainingLimit:  DefaultPQTrainingLimit,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -159,6 +162,7 @@ func Test_UserConfig(t *testing.T) {
 					BitCompression: DefaultPQBitCompression,
 					Segments:       DefaultPQSegments,
 					Centroids:      DefaultPQCentroids,
+					TrainingLimit:  DefaultPQTrainingLimit,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -199,6 +203,7 @@ func Test_UserConfig(t *testing.T) {
 					BitCompression: DefaultPQBitCompression,
 					Segments:       DefaultPQSegments,
 					Centroids:      DefaultPQCentroids,
+					TrainingLimit:  DefaultPQTrainingLimit,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -237,6 +242,7 @@ func Test_UserConfig(t *testing.T) {
 					BitCompression: DefaultPQBitCompression,
 					Segments:       DefaultPQSegments,
 					Centroids:      DefaultPQCentroids,
+					TrainingLimit:  DefaultPQTrainingLimit,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -262,6 +268,7 @@ func Test_UserConfig(t *testing.T) {
 					"bitCompression": false,
 					"segments":       float64(64),
 					"centroids":      float64(DefaultPQCentroids),
+					"trainingLimit":  float64(DefaultPQTrainingLimit),
 					"encoder": map[string]interface{}{
 						"type":         "tile",
 						"distribution": "normal",
@@ -280,9 +287,10 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFFactor:        19,
 				Distance:               DefaultDistanceMetric,
 				PQ: PQConfig{
-					Enabled:   true,
-					Segments:  64,
-					Centroids: DefaultPQCentroids,
+					Enabled:       true,
+					Segments:      64,
+					Centroids:     DefaultPQCentroids,
+					TrainingLimit: DefaultPQTrainingLimit,
 					Encoder: PQEncoder{
 						Type:         "tile",
 						Distribution: "normal",
@@ -308,6 +316,7 @@ func Test_UserConfig(t *testing.T) {
 					"bitCompression": false,
 					"segments":       float64(64),
 					"centroids":      float64(DefaultPQCentroids),
+					"trainingLimit":  float64(DefaultPQTrainingLimit),
 					"encoder": map[string]interface{}{
 						"type": "kmeans",
 					},
@@ -325,11 +334,12 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFFactor:        19,
 				Distance:               DefaultDistanceMetric,
 				PQ: PQConfig{
-					Enabled:   true,
-					Segments:  64,
-					Centroids: DefaultPQCentroids,
+					Enabled:       true,
+					Segments:      64,
+					Centroids:     DefaultPQCentroids,
+					TrainingLimit: DefaultPQTrainingLimit,
 					Encoder: PQEncoder{
-						Type:         "kmeans",
+						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
@@ -347,7 +357,7 @@ func Test_UserConfig(t *testing.T) {
 				},
 			},
 			expectErr:    true,
-			expectErrMsg: "invalid encoder type: bernoulli",
+			expectErrMsg: "invalid encoder type bernoulli",
 		},
 
 		{
@@ -361,7 +371,7 @@ func Test_UserConfig(t *testing.T) {
 				},
 			},
 			expectErr:    true,
-			expectErrMsg: "invalid encoder distribution: lognormal",
+			expectErrMsg: "invalid encoder distribution lognormal",
 		},
 
 		{
@@ -394,6 +404,7 @@ func Test_UserConfig(t *testing.T) {
 					BitCompression: DefaultPQBitCompression,
 					Segments:       DefaultPQSegments,
 					Centroids:      DefaultPQCentroids,
+					TrainingLimit:  DefaultPQTrainingLimit,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,

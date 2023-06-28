@@ -13,17 +13,23 @@ package hnsw
 
 import (
 	"fmt"
+)
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+const (
+	PQEncoderTypeKMeans            = "kmeans"
+	PQEncoderTypeTile              = "tile"
+	PQEncoderDistributionLogNormal = "log-normal"
+	PQEncoderDistributionNormal    = "normal"
 )
 
 const (
 	DefaultPQEnabled             = false
 	DefaultPQBitCompression      = false
 	DefaultPQSegments            = 0
-	DefaultPQEncoderType         = "kmeans"
-	DefaultPQEncoderDistribution = "log-normal"
+	DefaultPQEncoderType         = PQEncoderTypeKMeans
+	DefaultPQEncoderDistribution = PQEncoderDistributionLogNormal
 	DefaultPQCentroids           = 256
+	DefaultPQTrainingLimit       = 100000
 )
 
 // Product Quantization encoder configuration
@@ -38,29 +44,44 @@ type PQConfig struct {
 	BitCompression bool      `json:"bitCompression"`
 	Segments       int       `json:"segments"`
 	Centroids      int       `json:"centroids"`
+	TrainingLimit  int       `json:"trainingLimit"`
 	Encoder        PQEncoder `json:"encoder"`
 }
 
-func ValidEncoder(encoder string) (ssdhelpers.Encoder, error) {
-	switch encoder {
-	case "tile":
-		return ssdhelpers.UseTileEncoder, nil
-	case "kmeans":
-		return ssdhelpers.UseKMeansEncoder, nil
+func validEncoder(v string) error {
+	switch v {
+	case PQEncoderTypeKMeans:
+	case PQEncoderTypeTile:
 	default:
-		return 0, fmt.Errorf("invalid encoder type: %s", encoder)
+		return fmt.Errorf("invalid encoder type %s", v)
 	}
+
+	return nil
 }
 
-func ValidEncoderDistribution(distribution string) (ssdhelpers.EncoderDistribution, error) {
-	switch distribution {
-	case "log-normal":
-		return ssdhelpers.LogNormalEncoderDistribution, nil
-	case "normal":
-		return ssdhelpers.NormalEncoderDistribution, nil
+func validEncoderDistribution(v string) error {
+	switch v {
+	case PQEncoderDistributionLogNormal:
+	case PQEncoderDistributionNormal:
 	default:
-		return 0, fmt.Errorf("invalid encoder distribution: %s", distribution)
+		return fmt.Errorf("invalid encoder distribution %s", v)
 	}
+
+	return nil
+}
+
+func ValidatePQConfig(cfg PQConfig) error {
+	err := validEncoder(cfg.Encoder.Type)
+	if err != nil {
+		return err
+	}
+
+	err = validEncoderDistribution(cfg.Encoder.Distribution)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func encoderFromMap(in map[string]interface{}, setFn func(v string)) error {
@@ -74,7 +95,7 @@ func encoderFromMap(in map[string]interface{}, setFn func(v string)) error {
 		return nil
 	}
 
-	_, err := ValidEncoder(asString)
+	err := validEncoder(asString)
 	if err != nil {
 		return err
 	}
@@ -94,7 +115,7 @@ func encoderDistributionFromMap(in map[string]interface{}, setFn func(v string))
 		return nil
 	}
 
-	_, err := ValidEncoderDistribution(asString)
+	err := validEncoderDistribution(asString)
 	if err != nil {
 		return err
 	}
@@ -134,6 +155,12 @@ func parsePQMap(in map[string]interface{}, pq *PQConfig) error {
 
 	if err := optionalIntFromMap(pqConfigMap, "centroids", func(v int) {
 		pq.Centroids = v
+	}); err != nil {
+		return err
+	}
+
+	if err := optionalIntFromMap(pqConfigMap, "trainingLimit", func(v int) {
+		pq.TrainingLimit = v
 	}); err != nil {
 		return err
 	}
