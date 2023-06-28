@@ -129,7 +129,7 @@ func TestAddAndRemoveObjectClass(t *testing.T) {
 	)
 	require.Nil(t, err)
 	assert.Equal(t, "", statusResp.Payload.Error)
-	assert.Equal(t, true, statusResp.Payload.Healthy)
+	assert.True(t, statusResp.Payload.Healthy)
 }
 
 // This test prevents a regression on
