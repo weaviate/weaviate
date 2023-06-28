@@ -131,5 +131,9 @@ func unmarshalReadSchema(payload json.RawMessage) (interface{}, error) {
 		return nil, err
 	}
 
+	if pl.Schema != nil && pl.Schema.ShardingState == nil {
+		pl.Schema.ShardingState = map[string]*sharding.State{}
+	}
+
 	return pl, nil
 }
