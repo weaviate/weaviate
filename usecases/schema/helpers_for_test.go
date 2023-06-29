@@ -53,6 +53,10 @@ func (f *fakeRepo) NewShards(ctx context.Context, class string, shards []KeyValu
 	return nil
 }
 
+func (f *fakeRepo) DeleteShards(_ context.Context, class string, _ []string) error {
+	return nil
+}
+
 type fakeAuthorizer struct{}
 
 func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {

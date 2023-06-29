@@ -338,6 +338,11 @@ func (s *State) AddPartition(name string, nodes []string) Physical {
 	return p
 }
 
+// DeletePartition to physical shards
+func (s *State) DeletePartition(name string) {
+	delete(s.Physical, name)
+}
+
 func (s *State) initVirtual() {
 	count := s.Config.DesiredVirtualCount
 	s.Virtual = make([]Virtual, count)

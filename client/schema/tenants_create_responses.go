@@ -77,7 +77,7 @@ func NewTenantsCreateOK() *TenantsCreateOK {
 /*
 TenantsCreateOK describes a response with status code 200, with default header values.
 
-Added the new Object class to the schema.
+Added new tenants to the specified class
 */
 type TenantsCreateOK struct {
 	Payload []*models.Tenant

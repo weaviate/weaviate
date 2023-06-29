@@ -29,8 +29,10 @@ func (m *Manager) handleCommit(ctx context.Context, tx *cluster.Transaction) err
 		return m.handleDeleteClassCommit(ctx, tx)
 	case UpdateClass:
 		return m.handleUpdateClassCommit(ctx, tx)
-	case AddPartitions:
-		return m.handleAddPartitionsCommit(ctx, tx)
+	case addTenants:
+		return m.handleAddTenantsCommit(ctx, tx)
+	case deleteTenants:
+		return m.handleDeleteTenantsCommit(ctx, tx)
 	default:
 		return errors.Errorf("unrecognized commit type %q", tx.Type)
 	}
@@ -140,21 +142,42 @@ func (m *Manager) handleUpdateClassCommit(ctx context.Context,
 	return m.updateClassApplyChanges(ctx, pl.ClassName, pl.Class, pl.State)
 }
 
-func (m *Manager) handleAddPartitionsCommit(ctx context.Context,
+func (m *Manager) handleAddTenantsCommit(ctx context.Context,
 	tx *cluster.Transaction,
 ) error {
 	m.Lock()
 	defer m.Unlock()
 
-	req, ok := tx.Payload.(AddPartitionsPayload)
+	req, ok := tx.Payload.(AddTenantsPayload)
 	if !ok {
-		return errors.Errorf("expected commit payload to be AddPartitions, but got %T",
+		return errors.Errorf("expected commit payload to be AddTenants, but got %T",
 			tx.Payload)
 	}
-	cls, st := m.getClassByName(req.ClassName), m.ShardingState(req.ClassName)
+	cls, st := m.getClassByName(req.Class), m.ShardingState(req.Class)
 	if cls == nil || st == nil {
-		return fmt.Errorf("class %q: %w", req.ClassName, ErrNotFound)
+		return fmt.Errorf("class %q: %w", req.Class, ErrNotFound)
 	}
 
-	return m.onAddPartitions(ctx, st, cls, req)
+	return m.onAddTenants(ctx, st, cls, req)
+}
+
+func (m *Manager) handleDeleteTenantsCommit(ctx context.Context,
+	tx *cluster.Transaction,
+) error {
+	m.Lock()
+	defer m.Unlock()
+
+	req, ok := tx.Payload.(DeleteTenantsPayload)
+	if !ok {
+		return errors.Errorf("expected commit payload to be DeleteTenants, but got %T",
+			tx.Payload)
+	}
+	cls := m.getClassByName(req.Class)
+	if cls == nil {
+		m.logger.WithField("action", "delete_tenants").
+			WithField("class", req.Class).Warn("class not found")
+		return nil
+	}
+
+	return m.onDeleteTenants(ctx, cls, req)
 }

@@ -28,7 +28,7 @@ import (
 const TenantsCreateOKCode int = 200
 
 /*
-TenantsCreateOK Added the new Object class to the schema.
+TenantsCreateOK Added new tenants to the specified class
 
 swagger:response tenantsCreateOK
 */

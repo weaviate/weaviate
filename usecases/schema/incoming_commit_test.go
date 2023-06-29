@@ -209,12 +209,12 @@ func TestIncommingTxCommit(t *testing.T) {
 		},
 
 		{
-			name: "successfully add partitions",
+			name: "successfully add tenants",
 			tx: &cluster.Transaction{
-				Type: AddPartitions,
-				Payload: AddPartitionsPayload{
-					ClassName:  "FirstClass",
-					Partitions: []Partition{{Name: "P1"}, {Name: "P2"}},
+				Type: addTenants,
+				Payload: AddTenantsPayload{
+					Class:   "FirstClass",
+					Tenants: []Tenant{{Name: "P1"}, {Name: "P2"}},
 				},
 			},
 			assertSchema: func(t *testing.T, sm *Manager) {
@@ -227,18 +227,18 @@ func TestIncommingTxCommit(t *testing.T) {
 		{
 			name: "add partition to an unknown class",
 			tx: &cluster.Transaction{
-				Type: AddPartitions,
-				Payload: AddPartitionsPayload{
-					ClassName:  "UnknownClass",
-					Partitions: []Partition{{Name: "P1"}, {Name: "P2"}},
+				Type: addTenants,
+				Payload: AddTenantsPayload{
+					Class:   "UnknownClass",
+					Tenants: []Tenant{{Name: "P1"}, {Name: "P2"}},
 				},
 			},
 			expectedErrContains: "UnknownClass",
 		},
 		{
-			name: "add partitions with incorrect payload",
+			name: "add tenants with incorrect payload",
 			tx: &cluster.Transaction{
-				Type:    AddPartitions,
+				Type:    addTenants,
 				Payload: AddPropertyPayload{},
 			},
 			expectedErrContains: "expected commit payload to be",
