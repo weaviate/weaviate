@@ -26,8 +26,8 @@ import (
 )
 
 type embeddingsRequest struct {
-	Input string `json:"input"`
-	Model string `json:"model,omitempty"`
+	Input []string `json:"input"`
+	Model string   `json:"model,omitempty"`
 }
 
 type embedding struct {
@@ -82,16 +82,16 @@ func New(openAIApiKey, azureApiKey string, logger logrus.FieldLogger) *vectorize
 func (v *vectorizer) Vectorize(ctx context.Context, input string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, v.getModelString(config.Type, config.Model, "document", config.ModelVersion), config)
+	return v.vectorize(ctx, []string{input}, v.getModelString(config.Type, config.Model, "document", config.ModelVersion), config)
 }
 
-func (v *vectorizer) VectorizeQuery(ctx context.Context, input string,
+func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
 	return v.vectorize(ctx, input, v.getModelString(config.Type, config.Model, "query", config.ModelVersion), config)
 }
 
-func (v *vectorizer) vectorize(ctx context.Context, input string, model string, config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
+func (v *vectorizer) vectorize(ctx context.Context, input []string, model string, config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
 	body, err := json.Marshal(v.getEmbeddingsRequest(input, model, config.IsAzure))
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal body")
@@ -134,14 +134,17 @@ func (v *vectorizer) vectorize(ctx context.Context, input string, model string, 
 		return nil, v.getError(res.StatusCode, resBody.Error, config.IsAzure)
 	}
 
-	if len(resBody.Data) != 1 {
-		return nil, errors.Errorf("wrong number of embeddings: %v", len(resBody.Data))
+	texts := make([]string, len(resBody.Data))
+	embeddings := make([][]float32, len(resBody.Data))
+	for i := range resBody.Data {
+		texts[i] = resBody.Data[i].Object
+		embeddings[i] = resBody.Data[i].Embedding
 	}
 
 	return &ent.VectorizationResult{
-		Text:       input,
+		Text:       texts,
 		Dimensions: len(resBody.Data[0].Embedding),
-		Vector:     resBody.Data[0].Embedding,
+		Vector:     embeddings,
 	}, nil
 }
 
@@ -156,7 +159,7 @@ func (v *vectorizer) getError(statusCode int, resBodyError *openAIApiError, isAz
 	return fmt.Errorf("connection to: %s failed with status: %d", endpoint, statusCode)
 }
 
-func (v *vectorizer) getEmbeddingsRequest(input, model string, isAzure bool) embeddingsRequest {
+func (v *vectorizer) getEmbeddingsRequest(input []string, model string, isAzure bool) embeddingsRequest {
 	if isAzure {
 		return embeddingsRequest{Input: input}
 	}
