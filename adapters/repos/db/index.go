@@ -136,6 +136,8 @@ type Index struct {
 
 	metrics         *Metrics
 	centralJobQueue chan job
+
+	partinioningEnabled bool
 }
 
 func (i *Index) ID() string {
@@ -175,8 +177,9 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		replicator:            repl,
 		remote: sharding.NewRemoteIndex(config.ClassName.String(), sg,
 			nodeResolver, remoteClient),
-		metrics:         NewMetrics(logger, promMetrics, config.ClassName.String(), "n/a"),
-		centralJobQueue: jobQueueCh,
+		metrics:             NewMetrics(logger, promMetrics, config.ClassName.String(), "n/a"),
+		centralJobQueue:     jobQueueCh,
+		partinioningEnabled: shardState.PartitioningEnabled,
 	}
 
 	if err := index.checkSingleShardMigration(shardState); err != nil {
@@ -357,7 +360,7 @@ func (i *Index) shardFromTenantKey(tenantKey string, id strfmt.UUID, ss *shardin
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	replProps *additional.ReplicationProperties,
 ) error {
-	if err := i.validateMultiTenancy(object.Object.TenantName, &object.Object); err != nil {
+	if err := i.validateMultiTenancy(object.Object.TenantName); err != nil {
 		return err
 	}
 
@@ -698,7 +701,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, addl additional.Properties,
 	replProps *additional.ReplicationProperties, tenantKey string,
 ) (*storobj.Object, error) {
-	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
+	if err := i.validateMultiTenancy(tenantKey); err != nil {
 		return nil, err
 	}
 
@@ -774,7 +777,7 @@ func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 func (i *Index) multiObjectByID(ctx context.Context,
 	query []multi.Identifier, tenantKey string,
 ) ([]*storobj.Object, error) {
-	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
+	if err := i.validateMultiTenancy(tenantKey); err != nil {
 		return nil, err
 	}
 
@@ -859,7 +862,7 @@ func wrapIDsInMulti(in []strfmt.UUID) []multi.Identifier {
 func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 	replProps *additional.ReplicationProperties, tenantKey string,
 ) (bool, error) {
-	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
+	if err := i.validateMultiTenancy(tenantKey); err != nil {
 		return false, err
 	}
 
@@ -909,7 +912,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenantKey string, autoCut int,
 ) ([]*storobj.Object, []float32, error) {
-	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
+	if err := i.validateMultiTenancy(tenantKey); err != nil {
 		return nil, nil, err
 	}
 
@@ -1172,7 +1175,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	sort []filters.Sort, groupBy *searchparams.GroupBy,
 	additional additional.Properties, tenantKey string,
 ) ([]*storobj.Object, []float32, error) {
-	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
+	if err := i.validateMultiTenancy(tenantKey); err != nil {
 		return nil, nil, err
 	}
 
@@ -1291,7 +1294,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 
-	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
+	if err := i.validateMultiTenancy(tenantKey); err != nil {
 		return err
 	}
 
@@ -1352,7 +1355,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 
-	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
+	if err := i.validateMultiTenancy(tenantKey); err != nil {
 		return err
 	}
 
@@ -1403,7 +1406,7 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 func (i *Index) aggregate(ctx context.Context,
 	params aggregation.Params,
 ) (*aggregation.Result, error) {
-	if err := i.validateMultiTenancy(params.TenantKey, nil); err != nil {
+	if err := i.validateMultiTenancy(params.TenantKey); err != nil {
 		return nil, err
 	}
 
@@ -1713,6 +1716,9 @@ func (i *Index) addNewShard(ctx context.Context,
 	return nil
 }
 
-func (i *Index) validateMultiTenancy(tenantKey string, object *models.Object) error {
+func (i *Index) validateMultiTenancy(tenantKey string) error {
+	if i.partinioningEnabled && tenantKey == "" {
+		return fmt.Errorf("class %s has multi-tenancy enabled, but request was without tenant", i.Config.ClassName)
+	}
 	return nil
 }
