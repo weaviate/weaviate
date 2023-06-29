@@ -143,7 +143,7 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 			}
 		}
 
-		_, err := repo.AddBatchReferences(context.Background(), refBatch, nil, "")
+		_, err := repo.AddBatchReferences(context.Background(), refBatch, nil)
 		require.Nil(t, err)
 	})
 

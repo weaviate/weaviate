@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package clusterintegrationtest
 
@@ -127,7 +126,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			node := nodes[rnd.Intn(len(nodes))]
 
 			batch := refsAsBatch(refData, "toFirst")
-			res, err := node.repo.AddBatchReferences(context.Background(), batch, nil, "")
+			res, err := node.repo.AddBatchReferences(context.Background(), batch, nil)
 			require.Nil(t, err)
 			for _, ind := range res {
 				require.Nil(t, ind.Err)

@@ -1134,6 +1134,10 @@
           "example": "weaviate://localhost/97525810-a9a5-4eb0-858a-71449aeb007f",
           "format": "uri",
           "type": "string"
+        },
+        "tenantName" : {
+          "type": "string",
+          "description": "Name of the reference tenant."
         }
       }
     },
@@ -3327,9 +3331,6 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
