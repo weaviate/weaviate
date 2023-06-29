@@ -41,7 +41,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 
 	deprecatedEndpoint := input.Class == ""
 	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID,
-		additional.Properties{}, nil, input.Reference.TenantName)
+		additional.Properties{}, nil, input.Reference.Tenant)
 	if err != nil {
 		errnf := ErrNotFound{}
 		if errors.As(err, &errnf) {
@@ -70,7 +70,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	}
 
 	obj := res.Object()
-	obj.TenantName = input.Reference.TenantName
+	obj.Tenant = input.Reference.Tenant
 	ok, errmsg := removeReference(obj, input.Property, &input.Reference)
 	if errmsg != "" {
 		return &Error{errmsg, StatusInternalServerError, nil}

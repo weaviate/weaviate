@@ -46,7 +46,7 @@ func TestGQLGetTenantObjects(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantName,
 			},
-			TenantName: tenantName,
+			Tenant: tenantName,
 		},
 		{
 			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
@@ -54,7 +54,7 @@ func TestGQLGetTenantObjects(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantName,
 			},
-			TenantName: tenantName,
+			Tenant: tenantName,
 		},
 		{
 			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
@@ -62,7 +62,7 @@ func TestGQLGetTenantObjects(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantName,
 			},
-			TenantName: tenantName,
+			Tenant: tenantName,
 		},
 	}
 
@@ -145,7 +145,7 @@ func TestGQLGetTenantObjects_MissingTenantKey(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantName,
 			},
-			TenantName: tenantName,
+			Tenant: tenantName,
 		},
 		{
 			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
@@ -153,7 +153,7 @@ func TestGQLGetTenantObjects_MissingTenantKey(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantName,
 			},
-			TenantName: tenantName,
+			Tenant: tenantName,
 		},
 		{
 			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
@@ -161,7 +161,7 @@ func TestGQLGetTenantObjects_MissingTenantKey(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantName,
 			},
-			TenantName: tenantName,
+			Tenant: tenantName,
 		},
 	}
 

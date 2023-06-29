@@ -49,7 +49,7 @@ type SingleRef struct {
 	Schema PropertySchema `json:"schema,omitempty"`
 
 	// Name of the reference tenant.
-	TenantName string `json:"tenantName,omitempty"`
+	Tenant string `json:"tenant,omitempty"`
 }
 
 // Validate validates this single ref

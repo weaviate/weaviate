@@ -3158,7 +3158,7 @@ func init() {
           "format": "uri",
           "example": "weaviate://localhost/Zoo/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
         },
-        "tenantName": {
+        "tenant": {
           "description": "Name of the reference tenant.",
           "type": "string"
         },
@@ -3881,7 +3881,7 @@ func init() {
         "properties": {
           "$ref": "#/definitions/PropertySchema"
         },
-        "tenantName": {
+        "tenant": {
           "description": "Name of the Objects tenant.",
           "type": "string"
         },
@@ -4341,7 +4341,7 @@ func init() {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
         },
-        "tenantName": {
+        "tenant": {
           "description": "Name of the reference tenant.",
           "type": "string"
         }
@@ -4554,7 +4554,7 @@ func init() {
     "CommonTenantKeyParameterQuery": {
       "type": "string",
       "description": "Specifies the tenant in a request targeting a multi-tenant class",
-      "name": "tenant_key",
+      "name": "tenant",
       "in": "query"
     }
   },
@@ -5086,7 +5086,7 @@ func init() {
           {
             "type": "string",
             "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
+            "name": "tenant",
             "in": "query"
           }
         ],
@@ -5822,7 +5822,7 @@ func init() {
           {
             "type": "string",
             "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
+            "name": "tenant",
             "in": "query"
           }
         ],
@@ -5970,7 +5970,7 @@ func init() {
           {
             "type": "string",
             "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
+            "name": "tenant",
             "in": "query"
           }
         ],
@@ -6041,7 +6041,7 @@ func init() {
           {
             "type": "string",
             "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
+            "name": "tenant",
             "in": "query"
           }
         ],
@@ -6573,7 +6573,7 @@ func init() {
           {
             "type": "string",
             "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
+            "name": "tenant",
             "in": "query"
           }
         ],
@@ -7896,7 +7896,7 @@ func init() {
           "format": "uri",
           "example": "weaviate://localhost/Zoo/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
         },
-        "tenantName": {
+        "tenant": {
           "description": "Name of the reference tenant.",
           "type": "string"
         },
@@ -8707,7 +8707,7 @@ func init() {
         "properties": {
           "$ref": "#/definitions/PropertySchema"
         },
-        "tenantName": {
+        "tenant": {
           "description": "Name of the Objects tenant.",
           "type": "string"
         },
@@ -9185,7 +9185,7 @@ func init() {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
         },
-        "tenantName": {
+        "tenant": {
           "description": "Name of the reference tenant.",
           "type": "string"
         }
@@ -9407,7 +9407,7 @@ func init() {
     "CommonTenantKeyParameterQuery": {
       "type": "string",
       "description": "Specifies the tenant in a request targeting a multi-tenant class",
-      "name": "tenant_key",
+      "name": "tenant",
       "in": "query"
     }
   },

@@ -360,7 +360,7 @@ func (i *Index) shardFromTenantKey(tenantKey string, id strfmt.UUID, ss *shardin
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	replProps *additional.ReplicationProperties,
 ) error {
-	if err := i.validateMultiTenancy(object.Object.TenantName); err != nil {
+	if err := i.validateMultiTenancy(object.Object.Tenant); err != nil {
 		return err
 	}
 
@@ -371,7 +371,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
-	shardName, err := i.determineObjectShard(object.ID(), object.Object.TenantName, nil)
+	shardName, err := i.determineObjectShard(object.ID(), object.Object.Tenant, nil)
 	if err != nil {
 		return err
 	}
@@ -541,7 +541,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	}
 
 	for pos, obj := range objects {
-		shardName, err := i.determineObjectShard(obj.ID(), obj.Object.TenantName, ss)
+		shardName, err := i.determineObjectShard(obj.ID(), obj.Object.Tenant, ss)
 		if err != nil {
 			out[pos] = err
 			continue

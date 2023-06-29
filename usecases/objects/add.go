@@ -86,7 +86,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, class string, id strfm
 func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	object *models.Object, repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	id, err := m.checkIDOrAssignNew(ctx, object.Class, object.ID, repl, object.TenantName)
+	id, err := m.checkIDOrAssignNew(ctx, object.Class, object.ID, repl, object.Tenant)
 	if err != nil {
 		return nil, err
 	}

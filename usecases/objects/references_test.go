@@ -101,7 +101,7 @@ func Test_ReferenceAdd(t *testing.T) {
 		refID  = strfmt.UUID("d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
 		uri    = strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
 		anyErr = errors.New("any")
-		ref    = models.SingleRef{Beacon: uri, TenantName: ""}
+		ref    = models.SingleRef{Beacon: uri, Tenant: ""}
 		req    = AddReferenceInput{
 			Class:    cls,
 			ID:       id,
@@ -249,7 +249,7 @@ func Test_ReferenceUpdate(t *testing.T) {
 		refID  = strfmt.UUID("d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
 		uri    = strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
 		anyErr = errors.New("any")
-		refs   = models.MultipleRef{&models.SingleRef{Beacon: uri, TenantName: ""}}
+		refs   = models.MultipleRef{&models.SingleRef{Beacon: uri, Tenant: ""}}
 		req    = PutReferenceInput{
 			Class:    cls,
 			ID:       id,
@@ -397,7 +397,7 @@ func Test_ReferenceDelete(t *testing.T) {
 		id     = strfmt.UUID("d18c8e5e-000-0000-0000-56b0cfe33ce7")
 		uri    = strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
 		anyErr = errors.New("any")
-		ref    = models.SingleRef{Beacon: uri, TenantName: ""}
+		ref    = models.SingleRef{Beacon: uri, Tenant: ""}
 		ref2   = &models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce5")}
 		ref3   = &models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce6")}
 		req    = DeleteReferenceInput{
@@ -595,8 +595,8 @@ func Test_ReferenceAdd_Ref2Vec(t *testing.T) {
 		ID:       strfmt.UUID("e1a60252-c38c-496d-8e54-306e1cedc5c4"),
 		Property: "hasParagraphs",
 		Ref: models.SingleRef{
-			Beacon:     strfmt.URI("weaviate://localhost/Paragraph/494a2fe5-3e4c-4e9a-a47e-afcd9814f5ea"),
-			TenantName: "",
+			Beacon: strfmt.URI("weaviate://localhost/Paragraph/494a2fe5-3e4c-4e9a-a47e-afcd9814f5ea"),
+			Tenant: "",
 		},
 	}
 
@@ -642,8 +642,8 @@ func Test_ReferenceDelete_Ref2Vec(t *testing.T) {
 		ID:       strfmt.UUID("e1a60252-c38c-496d-8e54-306e1cedc5c4"),
 		Property: "hasParagraphs",
 		Reference: models.SingleRef{
-			Beacon:     strfmt.URI("weaviate://localhost/Paragraph/494a2fe5-3e4c-4e9a-a47e-afcd9814f5ea"),
-			TenantName: "",
+			Beacon: strfmt.URI("weaviate://localhost/Paragraph/494a2fe5-3e4c-4e9a-a47e-afcd9814f5ea"),
+			Tenant: "",
 		},
 	}
 

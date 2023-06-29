@@ -47,7 +47,7 @@ func TestBatchAddTenantObjects(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantName,
 			},
-			TenantName: tenantName,
+			Tenant: tenantName,
 		},
 		{
 			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
@@ -55,7 +55,7 @@ func TestBatchAddTenantObjects(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantName,
 			},
-			TenantName: tenantName,
+			Tenant: tenantName,
 		},
 		{
 			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
@@ -63,7 +63,7 @@ func TestBatchAddTenantObjects(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantName,
 			},
-			TenantName: tenantName,
+			Tenant: tenantName,
 		},
 	}
 
@@ -87,7 +87,7 @@ func TestBatchAddTenantObjects(t *testing.T) {
 			assert.Equal(t, obj.ID, resp.ID)
 			assert.Equal(t, obj.Class, resp.Class)
 			assert.Equal(t, obj.Properties, resp.Properties)
-			assert.Equal(t, obj.TenantName, resp.Properties.(map[string]interface{})[tenantKey])
+			assert.Equal(t, obj.Tenant, resp.Properties.(map[string]interface{})[tenantKey])
 		}
 	})
 }
@@ -124,16 +124,16 @@ func TestBatchWithMixedTenants(t *testing.T) {
 
 	for i := 0; i < 9; i++ {
 		tenantObjects = append(tenantObjects, &models.Object{
-			ID:         strfmt.UUID(uuid.New().String()),
-			Class:      classes[i%2].Class,
-			TenantName: tenants[i%len(tenants)],
+			ID:     strfmt.UUID(uuid.New().String()),
+			Class:  classes[i%2].Class,
+			Tenant: tenants[i%len(tenants)],
 		},
 		)
 	}
 	helper.CreateObjectsBatch(t, tenantObjects)
 
 	for _, obj := range tenantObjects {
-		resp, err := helper.TenantObject(t, obj.Class, obj.ID, obj.TenantName)
+		resp, err := helper.TenantObject(t, obj.Class, obj.ID, obj.Tenant)
 		require.Nil(t, err)
 		assert.Equal(t, obj.ID, resp.ID)
 		assert.Equal(t, obj.Class, resp.Class)
@@ -189,19 +189,19 @@ func TestAddBatchToNonMultiClass(t *testing.T) {
 	}
 	tenantObjects := []*models.Object{
 		{
-			ID:         "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
-			Class:      testClass.Class,
-			TenantName: "something",
+			ID:     "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
+			Class:  testClass.Class,
+			Tenant: "something",
 		},
 		{
-			ID:         "831ae1d0-f441-44b1-bb2a-46548048e26f",
-			Class:      testClass.Class,
-			TenantName: "something",
+			ID:     "831ae1d0-f441-44b1-bb2a-46548048e26f",
+			Class:  testClass.Class,
+			Tenant: "something",
 		},
 		{
-			ID:         "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
-			Class:      testClass.Class,
-			TenantName: "something",
+			ID:     "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
+			Class:  testClass.Class,
+			Tenant: "something",
 		},
 	}
 
@@ -230,19 +230,19 @@ func TestAddBatchWithNonExistentTenant(t *testing.T) {
 	}
 	nonTenantObjects := []*models.Object{
 		{
-			ID:         "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
-			Class:      testClass.Class,
-			TenantName: "something",
+			ID:     "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
+			Class:  testClass.Class,
+			Tenant: "something",
 		},
 		{
-			ID:         "831ae1d0-f441-44b1-bb2a-46548048e26f",
-			Class:      testClass.Class,
-			TenantName: "something",
+			ID:     "831ae1d0-f441-44b1-bb2a-46548048e26f",
+			Class:  testClass.Class,
+			Tenant: "something",
 		},
 		{
-			ID:         "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
-			Class:      testClass.Class,
-			TenantName: "something",
+			ID:     "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
+			Class:  testClass.Class,
+			Tenant: "something",
 		},
 	}
 

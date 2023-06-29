@@ -71,7 +71,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
 	for _, ref := range input.Refs {
-		if err := input.validate(ctx, principal, validator, m.schemaManager, ref.TenantName); err != nil {
+		if err := input.validate(ctx, principal, validator, m.schemaManager, ref.Tenant); err != nil {
 			return &Error{"bad inputs", StatusBadRequest, err}
 		}
 	}
