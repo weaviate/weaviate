@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
 )
@@ -117,6 +118,8 @@ func (rr *RowReaderFrequency) greaterThan(ctx context.Context, readFn ReadFnFreq
 	defer c.Close()
 
 	for k, v := c.Seek(rr.value); k != nil; k, v = c.Next() {
+		k = helpers.UnMakePropertyKey(rr.PropPrefix, k)
+		fmt.Printf("k sans prop: %v\n", k)
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -148,6 +151,8 @@ func (rr *RowReaderFrequency) lessThan(ctx context.Context, readFn ReadFnFrequen
 	defer c.Close()
 
 	for k, v := c.First(); k != nil && bytes.Compare(k, rr.value) != 1; k, v = c.Next() {
+		k = helpers.UnMakePropertyKey(rr.PropPrefix, k)
+		fmt.Printf("k sans prop: %v\n", k)
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -176,6 +181,8 @@ func (rr *RowReaderFrequency) notEqual(ctx context.Context, readFn ReadFnFrequen
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
+		k = helpers.UnMakePropertyKey(rr.PropPrefix, k)
+		fmt.Printf("k sans prop: %v\n", k)
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -214,12 +221,15 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFnFrequency) 
 	)
 
 	if like.optimizable {
-		initialK, initialV = c.Seek(like.min)
+		initialK, initialV = c.Seek(helpers.MakePropertyKey(rr.PropPrefix, like.min))
 	} else {
 		initialK, initialV = c.First()
 	}
 
 	for k, v := initialK, initialV; k != nil; k, v = c.Next() {
+		fmt.Printf("k: %v\n", k)
+		k = helpers.UnMakePropertyKey(rr.PropPrefix, k)
+		fmt.Printf("k sans prop: %v\n", k)
 		if err := ctx.Err(); err != nil {
 			return err
 		}

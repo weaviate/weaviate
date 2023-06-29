@@ -111,6 +111,7 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, property []byte, b 
 ) (docBitmap, error) {
 	out := newDocBitmap()
 	var readFn ReadFnFrequency = func(k []byte, pairs []lsmkv.MapPair) (bool, error) {
+		fmt.Printf("readFn: %v, %+v\n", k, pairs)
 		for _, pair := range pairs {
 			// this entry has a frequency, but that's only used for bm25, not for
 			// pure filtering, so we can ignore it here
@@ -127,6 +128,7 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, property []byte, b 
 		return true, nil
 	}
 
+	//FIXME use helper make prop key
 	propid, err := s.propIds.GetIdForProperty(string(property))
 	if err != nil {
 		return out, fmt.Errorf("property '%s' not found in propLengths", property)

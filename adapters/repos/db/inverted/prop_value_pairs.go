@@ -61,7 +61,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 		b := s.store.Bucket(bucketName)
 
 		// TODO text_rbm_inverted_index find better way check whether prop len
-		if b == nil && strings.HasSuffix(bucketName, filters.InternalPropertyLength) {
+		if b == nil && strings.HasSuffix(pv.prop, filters.InternalPropertyLength) {  //FIXME check that propname length will be the internal propname length name
 			return errors.Errorf("Property length must be indexed to be filterable! " +
 				"add `IndexPropertyLength: true` to the invertedIndexConfig." +
 				"Geo-coordinates, phone numbers and data blobs are not supported by property length.")

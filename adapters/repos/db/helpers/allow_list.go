@@ -42,6 +42,10 @@ func MakePropertyKey(propName []byte, key []byte) []byte {
 	return val
 }
 
+func UnMakePropertyKey(propName []byte, key []byte) []byte {
+	return key[len(propName)+1:]
+}
+
 type AllowListIterator interface {
 	Next() (uint64, bool)
 	Len() int

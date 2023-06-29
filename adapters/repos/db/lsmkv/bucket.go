@@ -610,6 +610,7 @@ func (b *Bucket) MapSetProp(property, keyBytes []byte, kv MapPair) error {
 
 	rowKey := helpers.MakePropertyKey(property, keyBytes)
 
+	fmt.Printf("mapsetprop: %v\n", rowKey)
 	return b.active.appendMapSorted(rowKey, kv)
 }
 
