@@ -28,7 +28,7 @@ import (
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
 func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Principal,
-	input *AddReferenceInput, repl *additional.ReplicationProperties, tenantKey string,
+	input *AddReferenceInput, repl *additional.ReplicationProperties,
 ) *Error {
 	m.metrics.AddReferenceInc()
 	defer m.metrics.AddReferenceDec()
@@ -58,11 +58,11 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	defer unlock()
 
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
-	if err := input.validate(ctx, principal, validator, m.schemaManager, tenantKey); err != nil {
+	if err := input.validate(ctx, principal, validator, m.schemaManager, input.Ref.TenantName); err != nil {
 		return &Error{"validate inputs", StatusBadRequest, err}
 	}
 	if !deprecatedEndpoint {
-		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl, tenantKey)
+		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl, input.Ref.TenantName)
 		if err != nil {
 			return &Error{"source object", StatusInternalServerError, err}
 		}
@@ -79,15 +79,15 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		return &Error{"parse target ref", StatusBadRequest, err}
 	}
 
-	if shouldValidateMultiTenantRef(tenantKey, source, target) {
+	if shouldValidateMultiTenantRef(input.Ref.TenantName, source, target) {
 		err = validateReferenceMultiTenancy(ctx, principal,
-			m.schemaManager, m.vectorRepo, source, target, tenantKey)
+			m.schemaManager, m.vectorRepo, source, target, input.Ref.TenantName)
 		if err != nil {
 			return &Error{"multi-tenancy violation", StatusInternalServerError, err}
 		}
 	}
 
-	if err := m.vectorRepo.AddReference(ctx, source, target, repl, tenantKey); err != nil {
+	if err := m.vectorRepo.AddReference(ctx, source, target, repl, input.Ref.TenantName); err != nil {
 		return &Error{"add reference to repo", StatusInternalServerError, err}
 	}
 

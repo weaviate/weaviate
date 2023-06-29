@@ -142,8 +142,8 @@ func TestTenantObjectsReference(t *testing.T) {
 
 	t.Run("add tenant object references", func(t *testing.T) {
 		for i, obj := range tenantObjects {
-			ref := &models.SingleRef{Beacon: helper.NewBeacon(className, tenantRefs[i].ID)}
-			helper.AddTenantReference(t, obj, ref, refProp, tenantNames[i])
+			ref := &models.SingleRef{Beacon: helper.NewBeacon(className, tenantRefs[i].ID), TenantName: tenantNames[i]}
+			helper.AddReference(t, obj, ref, refProp)
 		}
 
 		t.Run("assert tenant object references", func(t *testing.T) {
@@ -162,8 +162,8 @@ func TestTenantObjectsReference(t *testing.T) {
 
 	t.Run("delete tenant object references", func(Z *testing.T) {
 		for i, obj := range tenantObjects {
-			ref := &models.SingleRef{Beacon: helper.NewBeacon(className, tenantRefs[i].ID)}
-			helper.DeleteTenantReference(t, obj, ref, refProp, tenantNames[i])
+			ref := &models.SingleRef{Beacon: helper.NewBeacon(className, tenantRefs[i].ID), TenantName: tenantNames[i]}
+			helper.DeleteReference(t, obj, ref, refProp)
 		}
 
 		t.Run("assert tenant object references", func(t *testing.T) {
