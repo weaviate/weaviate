@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
 )
@@ -26,6 +27,7 @@ type RowReader struct {
 	value    []byte
 	bucket   *lsmkv.Bucket
 	operator filters.Operator
+	PropPrefix   []byte
 
 	keyOnly bool
 }
@@ -33,14 +35,15 @@ type RowReader struct {
 // If keyOnly is set, the RowReader will request key-only cursors wherever
 // cursors are used, the specified value arguments in the ReadFn will always be
 // nil
-func NewRowReader(bucket *lsmkv.Bucket, value []byte,
-	operator filters.Operator, keyOnly bool,
+func NewRowReader(propPrefix []byte, bucket *lsmkv.Bucket, value []byte,
+	operator filters.Operator, keyOnly bool, 
 ) *RowReader {
 	return &RowReader{
 		bucket:   bucket,
 		value:    value,
 		operator: operator,
 		keyOnly:  keyOnly,
+		PropPrefix:   propPrefix,
 	}
 }
 
@@ -93,7 +96,9 @@ func (rr *RowReader) equal(ctx context.Context, readFn ReadFn) error {
 		return err
 	}
 
-	v, err := rr.bucket.SetList(rr.value)
+	key := helpers.MakePropertyKey(rr.PropPrefix, rr.value)
+
+	v, err := rr.bucket.SetList(key)
 	if err != nil {
 		return err
 	}
@@ -111,6 +116,8 @@ func (rr *RowReader) greaterThan(ctx context.Context, readFn ReadFn,
 	defer c.Close()
 
 	for k, v := c.Seek(rr.value); k != nil; k, v = c.Next() {
+		k = helpers.UnMakePropertyKey(rr.PropPrefix, k)
+		fmt.Printf("k sans prop: %v\n", k)
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -142,6 +149,8 @@ func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 	defer c.Close()
 
 	for k, v := c.First(); k != nil && bytes.Compare(k, rr.value) != 1; k, v = c.Next() {
+		k = helpers.UnMakePropertyKey(rr.PropPrefix, k)
+		fmt.Printf("k sans prop: %v\n", k)
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -170,6 +179,8 @@ func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
+		k = helpers.UnMakePropertyKey(rr.PropPrefix, k)
+		fmt.Printf("k sans prop: %v\n", k)
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -212,6 +223,8 @@ func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 	}
 
 	for k, v := initialK, initialV; k != nil; k, v = c.Next() {
+		k = helpers.UnMakePropertyKey(rr.PropPrefix, k)
+		fmt.Printf("k sans prop: %v\n", k)
 		if err := ctx.Err(); err != nil {
 			return err
 		}

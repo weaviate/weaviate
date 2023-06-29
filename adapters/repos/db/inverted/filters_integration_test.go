@@ -332,6 +332,7 @@ func Test_Filters_Int(t *testing.T) {
 		t.Fail()
 	}
 
+
 	defer store.Shutdown(context.Background())
 
 	fakeInvertedIndex := map[int64][]uint64{
@@ -365,16 +366,16 @@ func Test_Filters_Int(t *testing.T) {
 			propid_bytes := make([]byte, 8)
 			binary.LittleEndian.PutUint64(propid_bytes, propid)
 
-			keyBytes := helpers.MakePropertyKey(propid_bytes, valueBytes)
+			
 
-			require.Nil(t, bucket.SetAdd(keyBytes, idValues))
+			require.Nil(t, bucket.SetAddProp(propid_bytes, valueBytes, idValues))
 		}
 
 		require.Nil(t, bucket.FlushAndSwitch())
 	})
 
 	searcher := NewSearcher(logger, store, createSchema(),
-		nil, nil, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false })
+		nil, propIds, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false })
 
 	type test struct {
 		name                     string

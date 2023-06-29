@@ -41,7 +41,7 @@ func (s *Searcher) docBitmap(ctx context.Context, property []byte, b *lsmkv.Buck
 		}
 
 		// bucket with strategy set serves docIds used to build bitmap
-		return s.docBitmapInvertedSet(ctx, b, limit, pv)
+		return s.docBitmapInvertedSet(ctx, property, b, limit, pv)
 	}
 
 	if pv.hasSearchableIndex {
@@ -83,7 +83,7 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 	return out, nil
 }
 
-func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
+func (s *Searcher) docBitmapInvertedSet(ctx context.Context, property []byte, b *lsmkv.Bucket,
 	limit int, pv *propValuePair,
 ) (docBitmap, error) {
 	out := newDocBitmap()
@@ -98,7 +98,16 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 		return true, nil
 	}
 
-	rr := NewRowReader(b, pv.value, pv.operator, false)
+		//FIXME use helper make prop key
+		propid, err := s.propIds.GetIdForProperty(string(property))
+		if err != nil {
+			return out, fmt.Errorf("property '%s' not found in propLengths", property)
+		}
+		propid_bytes := make([]byte, 8)
+		binary.LittleEndian.PutUint64(propid_bytes, propid)
+
+	
+	rr := NewRowReader(propid_bytes, b, pv.value, pv.operator, false)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, errors.Wrap(err, "read row")
 	}

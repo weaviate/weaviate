@@ -383,6 +383,15 @@ func (b *Bucket) SetAdd(key []byte, values [][]byte) error {
 	return b.active.append(key, newSetEncoder().Do(values))
 }
 
+func (b *Bucket) SetAddProp(property_prefix, key []byte, values [][]byte) error {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	real_key := helpers.MakePropertyKey(property_prefix, key)
+
+	return b.active.append(real_key, newSetEncoder().Do(values))
+}
+
 // SetDeleteSingle removes one Set element from the given key. Note that LSM
 // stores are append only, thus internally this action appends a tombstone. The
 // entry will not be removed until a compaction has run, and even then a
