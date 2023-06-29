@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package clusterintegrationtest
 
@@ -103,7 +102,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			node := nodes[rnd.Intn(len(nodes))]
 
 			batchObjs := dataAsBatch(data)
-			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs, nil, "")
+			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs, nil)
 			require.Nil(t, err)
 			for _, ind := range res {
 				require.Nil(t, ind.Err)
@@ -115,7 +114,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			node := nodes[rnd.Intn(len(nodes))]
 
 			batchObjs := dataAsBatchWithProps(refData, []string{"description"})
-			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs, nil, "")
+			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs, nil)
 			require.Nil(t, err)
 			for _, ind := range res {
 				require.Nil(t, ind.Err)
@@ -127,7 +126,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			node := nodes[rnd.Intn(len(nodes))]
 
 			batch := refsAsBatch(refData, "toFirst")
-			res, err := node.repo.AddBatchReferences(context.Background(), batch, nil, "")
+			res, err := node.repo.AddBatchReferences(context.Background(), batch, nil)
 			require.Nil(t, err)
 			for _, ind := range res {
 				require.Nil(t, ind.Err)
@@ -138,7 +137,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			for _, obj := range data {
 				node := nodes[rnd.Intn(len(nodes))]
 
-				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil, "")
+				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil)
 				require.Nil(t, err)
 			}
 		})
@@ -147,7 +146,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			for _, obj := range refData {
 				node := nodes[rnd.Intn(len(nodes))]
 
-				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil, "")
+				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil)
 				require.Nil(t, err)
 			}
 		})

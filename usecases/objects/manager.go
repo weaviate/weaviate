@@ -91,7 +91,7 @@ type authorizer interface {
 
 type VectorRepo interface {
 	PutObject(ctx context.Context, concept *models.Object, vector []float32,
-		repl *additional.ReplicationProperties, tenantKey string) error
+		repl *additional.ReplicationProperties) error
 	DeleteObject(ctx context.Context, className string, id strfmt.UUID,
 		repl *additional.ReplicationProperties, tenantKey string) error
 	// Object returns object of the specified class giving by its id

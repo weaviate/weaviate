@@ -120,8 +120,6 @@ type Index struct {
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
 
-	tenantKey string
-
 	// This lock should be used together with the db indexLock.
 	//
 	// The db indexlock locks the map that contains all indices against changes and should be used while iterating.
@@ -179,9 +177,6 @@ func NewIndex(ctx context.Context, config IndexConfig,
 			nodeResolver, remoteClient),
 		metrics:         NewMetrics(logger, promMetrics, config.ClassName.String(), "n/a"),
 		centralJobQueue: jobQueueCh,
-	}
-	if class != nil && class.MultiTenancyConfig != nil {
-		index.tenantKey = class.MultiTenancyConfig.TenantKey
 	}
 
 	if err := index.checkSingleShardMigration(shardState); err != nil {
@@ -340,6 +335,12 @@ func (i *Index) determineObjectShard(id strfmt.UUID, tenantKey string, ss *shard
 			return "", fmt.Errorf("cannot find sharding state for class %q", i.Config.ClassName.String())
 		}
 	}
+	if ss.PartitioningEnabled && tenantKey == "" {
+		return "", errors.New("object without tenantName for class with multi tenancy")
+	} else if !ss.PartitioningEnabled && tenantKey != "" {
+		return "", errors.New("object with tenantName for class without multi tenancy")
+	}
+
 	if tenantKey != "" {
 		return i.shardFromTenantKey(tenantKey, id, ss)
 	}
@@ -354,9 +355,9 @@ func (i *Index) shardFromTenantKey(tenantKey string, id strfmt.UUID, ss *shardin
 }
 
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
-	replProps *additional.ReplicationProperties, tenantKey string,
+	replProps *additional.ReplicationProperties,
 ) error {
-	if err := i.validateMultiTenancy(tenantKey, &object.Object); err != nil {
+	if err := i.validateMultiTenancy(object.Object.TenantName, &object.Object); err != nil {
 		return err
 	}
 
@@ -367,7 +368,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
-	shardName, err := i.determineObjectShard(object.ID(), tenantKey, nil)
+	shardName, err := i.determineObjectShard(object.ID(), object.Object.TenantName, nil)
 	if err != nil {
 		return err
 	}
@@ -515,7 +516,7 @@ func parseAsStringToTime(in interface{}) (time.Time, error) {
 // return value []error gives the error for the index with the positions
 // matching the inputs
 func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
-	replProps *additional.ReplicationProperties, tenantKey string,
+	replProps *additional.ReplicationProperties,
 ) []error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
@@ -524,12 +525,6 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 		pos     []int
 	}
 	out := make([]error, len(objects))
-	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
-		for i := 0; i < len(out); i++ {
-			out[i] = err
-		}
-		return out
-	}
 
 	byShard := map[string]objsAndPos{}
 	className := string(i.Config.ClassName)
@@ -543,7 +538,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	}
 
 	for pos, obj := range objects {
-		shardName, err := i.determineObjectShard(obj.ID(), tenantKey, ss)
+		shardName, err := i.determineObjectShard(obj.ID(), obj.Object.TenantName, ss)
 		if err != nil {
 			out[pos] = err
 			continue
@@ -628,17 +623,13 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 
 // return value map[int]error gives the error for the index as it received it
 func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchReferences,
-	replProps *additional.ReplicationProperties, tenantKey string,
+	replProps *additional.ReplicationProperties,
 ) []error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 	type refsAndPos struct {
 		refs objects.BatchReferences
 		pos  []int
-	}
-
-	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
-		return []error{err}
 	}
 
 	byShard := map[string]refsAndPos{}
@@ -654,7 +645,7 @@ func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchRefere
 	}
 
 	for pos, ref := range refs {
-		shardName, err := i.determineObjectShard(ref.From.TargetID, tenantKey, ss)
+		shardName, err := i.determineObjectShard(ref.From.TargetID, ref.TenantName, ss)
 		if err != nil {
 			out[pos] = err
 			continue
@@ -1723,17 +1714,5 @@ func (i *Index) addNewShard(ctx context.Context,
 }
 
 func (i *Index) validateMultiTenancy(tenantKey string, object *models.Object) error {
-	if i.tenantKey != "" && tenantKey == "" {
-		return objects.NewErrInvalidUserInput("class %q has multi-tenancy enabled, tenant_key %q required",
-			i.Config.ClassName, i.tenantKey)
-	}
-	if object != nil {
-		parsedTenantKey := objects.ParseTenantKeyFromObject(i.tenantKey, object, i.logger)
-		if parsedTenantKey != tenantKey {
-			return objects.NewErrInvalidUserInput(
-				"tenant_key query param value %q conflicts with object body value %q for class %q tenant key %q",
-				tenantKey, parsedTenantKey, i.Config.ClassName, i.tenantKey)
-		}
-	}
 	return nil
 }

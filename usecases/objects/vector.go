@@ -44,7 +44,7 @@ func (m *Manager) updateRefVector(ctx context.Context, principal *models.Princip
 				className, id, err)
 		}
 
-		if err := m.vectorRepo.PutObject(ctx, obj, obj.Vector, nil, ""); err != nil {
+		if err := m.vectorRepo.PutObject(ctx, obj, obj.Vector, nil); err != nil {
 			return fmt.Errorf("put object: %w", err)
 		}
 

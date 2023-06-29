@@ -417,10 +417,6 @@
         "enabled": {
           "description": "Whether or not multi-tenancy is enabled for this class",
           "type": "boolean"
-        },
-        "tenantKey": {
-          "description": "The class property which is used to separate tenants",
-          "type": "string"
         }
       }
     },
@@ -1138,6 +1134,10 @@
           "example": "weaviate://localhost/97525810-a9a5-4eb0-858a-71449aeb007f",
           "format": "uri",
           "type": "string"
+        },
+        "tenantName" : {
+          "type": "string",
+          "description": "Name of the reference tenant."
         }
       }
     },
@@ -1251,6 +1251,10 @@
         "vector": {
           "description": "This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.",
           "$ref": "#/definitions/C11yVector"
+        },
+        "tenantName": {
+          "description": "Name of the Objects tenant.",
+          "type": "string"
         },
         "additional": {
           "$ref": "#/definitions/AdditionalProperties"
@@ -1954,9 +1958,6 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2141,9 +2142,6 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2211,9 +2209,6 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2473,9 +2468,6 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2550,9 +2542,6 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -3206,9 +3195,6 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -3345,9 +3331,6 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {

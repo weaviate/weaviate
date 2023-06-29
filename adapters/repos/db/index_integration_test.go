@@ -139,7 +139,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		}
 
 		err := index.putObject(context.TODO(), storobj.FromObject(
-			&product, []float32{0.1, 0.2, 0.01, 0.2}), nil, "")
+			&product, []float32{0.1, 0.2, 0.01, 0.2}), nil)
 		require.Nil(t, err)
 	}
 
@@ -201,7 +201,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		}
 
 		err := index.putObject(context.TODO(), storobj.FromObject(
-			&thing, []float32{0.1, 0.2, 0.01, 0.2}), nil, "")
+			&thing, []float32{0.1, 0.2, 0.01, 0.2}), nil)
 		require.Nil(t, err)
 	}
 
@@ -298,7 +298,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		}
 
 		err := index.putObject(ctx, storobj.FromObject(
-			&product, []float32{0.1, 0.2, 0.01, 0.2}), nil, "")
+			&product, []float32{0.1, 0.2, 0.01, 0.2}), nil)
 		require.Nil(t, err)
 	}
 

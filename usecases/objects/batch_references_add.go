@@ -24,7 +24,7 @@ import (
 
 // AddReferences Class Instances in batch to the connected DB
 func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Principal,
-	refs []*models.BatchReference, repl *additional.ReplicationProperties, tenantKey string,
+	refs []*models.BatchReference, repl *additional.ReplicationProperties,
 ) (BatchReferences, error) {
 	err := b.authorizer.Authorize(principal, "update", "batch/*")
 	if err != nil {
@@ -40,19 +40,18 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 	b.metrics.BatchRefInc()
 	defer b.metrics.BatchRefDec()
 
-	return b.addReferences(ctx, principal, refs, repl, tenantKey)
+	return b.addReferences(ctx, principal, refs, repl)
 }
 
 func (b *BatchManager) addReferences(ctx context.Context, principal *models.Principal,
 	refs []*models.BatchReference, repl *additional.ReplicationProperties,
-	tenantKey string,
 ) (BatchReferences, error) {
 	if err := b.validateReferenceForm(refs); err != nil {
 		return nil, NewErrInvalidUserInput("invalid params: %v", err)
 	}
 
-	batchReferences := b.validateReferencesConcurrently(ctx, principal, refs, tenantKey)
-	if res, err := b.vectorRepo.AddBatchReferences(ctx, batchReferences, repl, tenantKey); err != nil {
+	batchReferences := b.validateReferencesConcurrently(ctx, principal, refs)
+	if res, err := b.vectorRepo.AddBatchReferences(ctx, batchReferences, repl); err != nil {
 		return nil, NewErrInternal("could not add batch request to connector: %v", err)
 	} else {
 		return res, nil
@@ -68,7 +67,7 @@ func (b *BatchManager) validateReferenceForm(refs []*models.BatchReference) erro
 }
 
 func (b *BatchManager) validateReferencesConcurrently(ctx context.Context,
-	principal *models.Principal, refs []*models.BatchReference, tenantKey string,
+	principal *models.Principal, refs []*models.BatchReference,
 ) BatchReferences {
 	c := make(chan BatchReference, len(refs))
 	wg := new(sync.WaitGroup)
@@ -76,7 +75,7 @@ func (b *BatchManager) validateReferencesConcurrently(ctx context.Context,
 	// Generate a goroutine for each separate request
 	for i, ref := range refs {
 		wg.Add(1)
-		go b.validateReference(ctx, principal, wg, ref, i, &c, tenantKey)
+		go b.validateReference(ctx, principal, wg, ref, i, &c)
 	}
 
 	wg.Wait()
@@ -86,7 +85,6 @@ func (b *BatchManager) validateReferencesConcurrently(ctx context.Context,
 
 func (b *BatchManager) validateReference(ctx context.Context, principal *models.Principal,
 	wg *sync.WaitGroup, ref *models.BatchReference, i int, resultsC *chan BatchReference,
-	tenantKey string,
 ) {
 	defer wg.Done()
 	var errors []error
@@ -113,10 +111,10 @@ func (b *BatchManager) validateReference(ctx context.Context, principal *models.
 		err = joinErrors(errors)
 	}
 
-	if err == nil && shouldValidateMultiTenantRef(tenantKey, source, target) {
+	if err == nil && shouldValidateMultiTenantRef(ref.TenantName, source, target) {
 		// can only validate multi-tenancy when everything above succeeds
 		err = validateReferenceMultiTenancy(ctx, principal,
-			b.schemaManager, b.vectorRepo, source, target, tenantKey)
+			b.schemaManager, b.vectorRepo, source, target, ref.TenantName)
 	}
 
 	*resultsC <- BatchReference{
@@ -124,6 +122,7 @@ func (b *BatchManager) validateReference(ctx context.Context, principal *models.
 		To:            target,
 		Err:           err,
 		OriginalIndex: i,
+		TenantName:    ref.TenantName,
 	}
 }
 

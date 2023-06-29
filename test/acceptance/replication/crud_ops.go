@@ -49,9 +49,9 @@ func createObjectCL(t *testing.T, host string, obj *models.Object, cl replica.Co
 	helper.CreateObjectCL(t, obj, cl)
 }
 
-func createTenantObject(t *testing.T, host string, obj *models.Object, tenantKey string) {
+func createTenantObject(t *testing.T, host string, obj *models.Object) {
 	helper.SetupClient(host)
-	helper.CreateTenantObject(t, obj, tenantKey)
+	helper.CreateObject(t, obj)
 }
 
 func createObjects(t *testing.T, host string, batch []*models.Object) {
@@ -59,9 +59,9 @@ func createObjects(t *testing.T, host string, batch []*models.Object) {
 	helper.CreateObjectsBatch(t, batch)
 }
 
-func createTenantObjects(t *testing.T, host string, batch []*models.Object, tenantKey string) {
+func createTenantObjects(t *testing.T, host string, batch []*models.Object) {
 	helper.SetupClient(host)
-	helper.CreateTenantObjectsBatch(t, batch, tenantKey)
+	helper.CreateObjectsBatch(t, batch)
 }
 
 func getObject(t *testing.T, host, class string, id strfmt.UUID) (*models.Object, error) {
@@ -99,9 +99,9 @@ func patchObject(t *testing.T, host string, patch *models.Object) {
 	helper.PatchObject(t, patch)
 }
 
-func patchTenantObject(t *testing.T, host string, patch *models.Object, tenantKey string) {
+func patchTenantObject(t *testing.T, host string, patch *models.Object) {
 	helper.SetupClient(host)
-	helper.PatchTenantObject(t, patch, tenantKey)
+	helper.PatchObject(t, patch)
 }
 
 func updateObjectCL(t *testing.T, host string, obj *models.Object, cl replica.ConsistencyLevel) {
@@ -115,9 +115,9 @@ func addReferences(t *testing.T, host string, refs []*models.BatchReference) {
 	helper.CheckReferencesBatchResponse(t, resp, err)
 }
 
-func addTenantReferences(t *testing.T, host string, refs []*models.BatchReference, tenantKey string) {
+func addTenantReferences(t *testing.T, host string, refs []*models.BatchReference) {
 	helper.SetupClient(host)
-	resp, err := helper.AddTenantReferences(t, refs, tenantKey)
+	resp, err := helper.AddReferences(t, refs)
 	helper.CheckReferencesBatchResponse(t, resp, err)
 }
 

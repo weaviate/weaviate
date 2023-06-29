@@ -12,8 +12,12 @@
 package test
 
 import (
-	"fmt"
 	"testing"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
+
+	"github.com/weaviate/weaviate/client/batch"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,8 +30,7 @@ func TestBatchAddTenantObjects(t *testing.T) {
 	testClass := models.Class{
 		Class: "MultiTenantClass",
 		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: tenantKey,
+			Enabled: true,
 		},
 		Properties: []*models.Property{
 			{
@@ -44,6 +47,7 @@ func TestBatchAddTenantObjects(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantName,
 			},
+			TenantName: tenantName,
 		},
 		{
 			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
@@ -51,6 +55,7 @@ func TestBatchAddTenantObjects(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantName,
 			},
+			TenantName: tenantName,
 		},
 		{
 			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
@@ -58,181 +63,202 @@ func TestBatchAddTenantObjects(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantName,
 			},
+			TenantName: tenantName,
 		},
 	}
 
+	helper.CreateClass(t, &testClass)
 	defer func() {
 		helper.DeleteClass(t, testClass.Class)
 	}()
 
-	t.Run("create class with multi-tenancy enabled", func(t *testing.T) {
-		helper.CreateClass(t, &testClass)
-	})
+	tenants := make([]*models.Tenant, len(tenantObjects))
+	for i := range tenants {
+		tenants[i] = &models.Tenant{tenantName}
+	}
+	helper.CreateTenants(t, testClass.Class, tenants)
 
-	t.Run("create tenants", func(t *testing.T) {
-		tenants := make([]*models.Tenant, len(tenantObjects))
-		for i := range tenants {
-			tenants[i] = &models.Tenant{tenantName}
-		}
-		helper.CreateTenants(t, testClass.Class, tenants)
-	})
+	t.Run("add and get tenant objects", func(t *testing.T) {
+		helper.CreateObjectsBatch(t, tenantObjects)
 
-	t.Run("add tenant objects", func(t *testing.T) {
-		resp, err := helper.CreateTenantObjectsBatch(t, tenantObjects, tenantName)
-		require.Nil(t, err)
-		helper.CheckObjectsBatchResponse(t, resp, err)
-	})
-
-	t.Run("get tenant objects", func(t *testing.T) {
 		for _, obj := range tenantObjects {
 			resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenantName)
 			require.Nil(t, err)
 			assert.Equal(t, obj.ID, resp.ID)
 			assert.Equal(t, obj.Class, resp.Class)
 			assert.Equal(t, obj.Properties, resp.Properties)
+			assert.Equal(t, obj.TenantName, resp.Properties.(map[string]interface{})[tenantKey])
 		}
 	})
 }
 
-func TestBatchAddTenantObjects_MixedTenants(t *testing.T) {
-	tenantKey := "tenantName"
-	testClass := models.Class{
-		Class: "MultiTenantClass",
-		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: tenantKey,
-		},
-		Properties: []*models.Property{
-			{
-				Name:     tenantKey,
-				DataType: []string{"string"},
+func TestBatchWithMixedTenants(t *testing.T) {
+	className := "MultiTenantClassMixedBatchFail"
+	classes := []models.Class{
+		{
+			Class: className + "1",
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled: true,
+			},
+		}, {
+			Class: className + "2",
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled: true,
 			},
 		},
 	}
-	tenantNames := []string{
-		"Tenant1", "Tenant2", "Tenant3",
+	tenants := []string{"tenant1", "tenant2", "tenant3"}
+	for i := range classes {
+		helper.CreateClass(t, &classes[i])
+		for k := range tenants {
+			helper.CreateTenants(t, classes[i].Class, []*models.Tenant{{tenants[k]}})
+		}
 	}
-	tenantObjects := []*models.Object{
-		{
-			ID:    "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
-			Class: testClass.Class,
-			Properties: map[string]interface{}{
-				tenantKey: tenantNames[0],
-			},
-		},
-		{
-			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
-			Class: testClass.Class,
-			Properties: map[string]interface{}{
-				tenantKey: tenantNames[1],
-			},
-		},
-		{
-			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
-			Class: testClass.Class,
-			Properties: map[string]interface{}{
-				tenantKey: tenantNames[2],
-			},
-		},
-	}
-
 	defer func() {
-		helper.DeleteClass(t, testClass.Class)
+		for i := range classes {
+			helper.DeleteClass(t, classes[i].Class)
+		}
 	}()
 
-	t.Run("create class with multi-tenancy enabled", func(t *testing.T) {
-		helper.CreateClass(t, &testClass)
-	})
+	var tenantObjects []*models.Object
 
-	t.Run("create tenants", func(t *testing.T) {
-		tenants := make([]*models.Tenant, len(tenantNames))
-		for i := range tenants {
-			tenants[i] = &models.Tenant{tenantNames[i]}
-		}
-		helper.CreateTenants(t, testClass.Class, tenants)
-	})
+	for i := 0; i < 9; i++ {
+		tenantObjects = append(tenantObjects, &models.Object{
+			ID:         strfmt.UUID(uuid.New().String()),
+			Class:      classes[i%2].Class,
+			TenantName: tenants[i%len(tenants)],
+		},
+		)
+	}
+	helper.CreateObjectsBatch(t, tenantObjects)
 
-	t.Run("add tenant objects", func(t *testing.T) {
-		otherTenant := "SomeOtherKey"
-		resp, err := helper.CreateTenantObjectsBatch(t, tenantObjects, otherTenant)
+	for _, obj := range tenantObjects {
+		resp, err := helper.TenantObject(t, obj.Class, obj.ID, obj.TenantName)
 		require.Nil(t, err)
-		for _, obj := range resp {
-			require.NotNil(t, obj.Result)
-			require.NotNil(t, obj.Result.Errors)
-			require.NotNil(t, obj.Result.Errors)
-			require.Len(t, obj.Result.Errors.Error, 1)
-			assert.Contains(t, obj.Result.Errors.Error[0].Message,
-				fmt.Sprintf("object does not belong to tenant %q", otherTenant))
-		}
-	})
+		assert.Equal(t, obj.ID, resp.ID)
+		assert.Equal(t, obj.Class, resp.Class)
+	}
 }
 
-func TestBatchAddTenantObjects_MissingTenantKey(t *testing.T) {
-	tenantKey := "tenantName"
+func TestAddNonTenantBatchToMultiClass(t *testing.T) {
+	className := "MultiTenantClassBatchFail"
 	testClass := models.Class{
-		Class: "MultiTenantClass",
+		Class: className,
 		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: tenantKey,
-		},
-		Properties: []*models.Property{
-			{
-				Name:     tenantKey,
-				DataType: []string{"string"},
-			},
+			Enabled: true,
 		},
 	}
-	tenantName := "Tenant1"
-	tenantObjects := []*models.Object{
+	nonTenantObjects := []*models.Object{
 		{
 			ID:    "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
 			Class: testClass.Class,
-			Properties: map[string]interface{}{
-				tenantKey: tenantName,
-			},
 		},
 		{
 			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
 			Class: testClass.Class,
-			Properties: map[string]interface{}{
-				tenantKey: tenantName,
-			},
 		},
 		{
 			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
 			Class: testClass.Class,
-			Properties: map[string]interface{}{
-				tenantKey: tenantName,
-			},
 		},
 	}
 
+	helper.CreateClass(t, &testClass)
 	defer func() {
 		helper.DeleteClass(t, testClass.Class)
 	}()
+	helper.CreateTenants(t, className, []*models.Tenant{{"randomTenant1"}})
+	params := batch.NewBatchObjectsCreateParams().
+		WithBody(batch.BatchObjectsCreateBody{
+			Objects: nonTenantObjects,
+		})
+	resp, err := helper.Client(t).Batch.BatchObjectsCreate(params, nil)
+	require.Nil(t, err)
+	for i := range resp.Payload {
+		require.NotNil(t, resp.Payload[i].Result.Errors)
+	}
+}
 
-	t.Run("create class with multi-tenancy enabled", func(t *testing.T) {
-		helper.CreateClass(t, &testClass)
-	})
+func TestAddBatchToNonMultiClass(t *testing.T) {
+	className := "MultiTenantClassBatchFail"
+	testClass := models.Class{
+		Class: className,
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled: false,
+		},
+	}
+	tenantObjects := []*models.Object{
+		{
+			ID:         "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
+			Class:      testClass.Class,
+			TenantName: "something",
+		},
+		{
+			ID:         "831ae1d0-f441-44b1-bb2a-46548048e26f",
+			Class:      testClass.Class,
+			TenantName: "something",
+		},
+		{
+			ID:         "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
+			Class:      testClass.Class,
+			TenantName: "something",
+		},
+	}
 
-	t.Run("create tenants", func(t *testing.T) {
-		tenants := make([]*models.Tenant, len(tenantObjects))
-		for i := range tenants {
-			tenants[i] = &models.Tenant{tenantName}
-		}
-		helper.CreateTenants(t, testClass.Class, tenants)
-	})
+	helper.CreateClass(t, &testClass)
+	defer func() {
+		helper.DeleteClass(t, testClass.Class)
+	}()
+	params := batch.NewBatchObjectsCreateParams().
+		WithBody(batch.BatchObjectsCreateBody{
+			Objects: tenantObjects,
+		})
+	resp, err := helper.Client(t).Batch.BatchObjectsCreate(params, nil)
+	require.Nil(t, err)
+	for i := range resp.Payload {
+		require.NotNil(t, resp.Payload[i].Result.Errors)
+	}
+}
 
-	t.Run("add tenant objects", func(t *testing.T) {
-		resp, err := helper.CreateTenantObjectsBatch(t, tenantObjects, "")
-		require.Nil(t, err)
-		for _, obj := range resp {
-			require.NotNil(t, obj.Result)
-			require.NotNil(t, obj.Result.Errors)
-			require.NotNil(t, obj.Result.Errors)
-			require.Len(t, obj.Result.Errors.Error, 1)
-			assert.Contains(t, obj.Result.Errors.Error[0].Message,
-				`class "MultiTenantClass" has multi-tenancy enabled, tenant_key "tenantName" required`)
-		}
-	})
+func TestAddBatchWithNonExistentTenant(t *testing.T) {
+	className := "MultiTenantClassBatchFail"
+	testClass := models.Class{
+		Class: className,
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled: true,
+		},
+	}
+	nonTenantObjects := []*models.Object{
+		{
+			ID:         "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
+			Class:      testClass.Class,
+			TenantName: "something",
+		},
+		{
+			ID:         "831ae1d0-f441-44b1-bb2a-46548048e26f",
+			Class:      testClass.Class,
+			TenantName: "something",
+		},
+		{
+			ID:         "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
+			Class:      testClass.Class,
+			TenantName: "something",
+		},
+	}
+
+	helper.CreateClass(t, &testClass)
+	defer func() {
+		helper.DeleteClass(t, testClass.Class)
+	}()
+	helper.CreateTenants(t, className, []*models.Tenant{{"somethingElse"}})
+
+	params := batch.NewBatchObjectsCreateParams().
+		WithBody(batch.BatchObjectsCreateBody{
+			Objects: nonTenantObjects,
+		})
+	resp, err := helper.Client(t).Batch.BatchObjectsCreate(params, nil)
+	require.Nil(t, err)
+	for i := range resp.Payload {
+		require.NotNil(t, resp.Payload[i].Result.Errors)
+	}
 }

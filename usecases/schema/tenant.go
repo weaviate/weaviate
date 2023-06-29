@@ -215,5 +215,5 @@ func (m *Manager) onDeleteTenants(ctx context.Context, class *models.Class, req 
 }
 
 func isMultiTenancyEnabled(cfg *models.MultiTenancyConfig) bool {
-	return cfg != nil && cfg.Enabled && cfg.TenantKey != ""
+	return cfg != nil && cfg.Enabled
 }

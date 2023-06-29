@@ -437,9 +437,6 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -576,9 +573,6 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1076,9 +1070,6 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1280,9 +1271,6 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1479,9 +1467,6 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1873,9 +1858,6 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2043,9 +2025,6 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -3188,6 +3167,10 @@ func init() {
           "format": "uri",
           "example": "weaviate://localhost/Zoo/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
         },
+        "tenantName": {
+          "description": "Name of the reference tenant.",
+          "type": "string"
+        },
         "to": {
           "description": "Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/\u003cuuid\u003e for the example of a local cross-ref to an object",
           "type": "string",
@@ -3780,10 +3763,6 @@ func init() {
         "enabled": {
           "description": "Whether or not multi-tenancy is enabled for this class",
           "type": "boolean"
-        },
-        "tenantKey": {
-          "description": "The class property which is used to separate tenants",
-          "type": "string"
         }
       }
     },
@@ -3910,6 +3889,10 @@ func init() {
         },
         "properties": {
           "$ref": "#/definitions/PropertySchema"
+        },
+        "tenantName": {
+          "description": "Name of the Objects tenant.",
+          "type": "string"
         },
         "vector": {
           "description": "This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.",
@@ -5036,12 +5019,6 @@ func init() {
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
             "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
-            "in": "query"
           }
         ],
         "responses": {
@@ -5186,12 +5163,6 @@ func init() {
             "type": "string",
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
             "in": "query"
           }
         ],
@@ -5717,12 +5688,6 @@ func init() {
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
             "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
-            "in": "query"
           }
         ],
         "responses": {
@@ -5939,12 +5904,6 @@ func init() {
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
             "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
-            "in": "query"
           }
         ],
         "responses": {
@@ -6155,12 +6114,6 @@ func init() {
             "type": "string",
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
             "in": "query"
           }
         ],
@@ -6577,12 +6530,6 @@ func init() {
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
             "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
-            "in": "query"
           }
         ],
         "responses": {
@@ -6758,12 +6705,6 @@ func init() {
             "type": "string",
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
             "in": "query"
           }
         ],
@@ -7978,6 +7919,10 @@ func init() {
           "format": "uri",
           "example": "weaviate://localhost/Zoo/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
         },
+        "tenantName": {
+          "description": "Name of the reference tenant.",
+          "type": "string"
+        },
         "to": {
           "description": "Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/\u003cuuid\u003e for the example of a local cross-ref to an object",
           "type": "string",
@@ -8658,10 +8603,6 @@ func init() {
         "enabled": {
           "description": "Whether or not multi-tenancy is enabled for this class",
           "type": "boolean"
-        },
-        "tenantKey": {
-          "description": "The class property which is used to separate tenants",
-          "type": "string"
         }
       }
     },
@@ -8788,6 +8729,10 @@ func init() {
         },
         "properties": {
           "$ref": "#/definitions/PropertySchema"
+        },
+        "tenantName": {
+          "description": "Name of the Objects tenant.",
+          "type": "string"
         },
         "vector": {
           "description": "This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.",

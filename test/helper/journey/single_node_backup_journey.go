@@ -34,12 +34,12 @@ func singleNodeBackupJourneyTest(t *testing.T,
 				tenants[i] = &models.Tenant{Name: tenantNames[i]}
 			}
 			helper.CreateTenants(t, className, tenants)
-			addTestObjects(t, className, multiTenant)
+			addTestObjects(t, className, tenantNames)
 		})
 	} else {
 		t.Run("add test data", func(t *testing.T) {
-			addTestClass(t, className, singleTenant)
-			addTestObjects(t, className, singleTenant)
+			addTestClass(t, className, !multiTenant)
+			addTestObjects(t, className, nil)
 		})
 	}
 

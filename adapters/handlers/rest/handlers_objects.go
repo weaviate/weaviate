@@ -46,7 +46,7 @@ type ModulesProvider interface {
 
 type objectsManager interface {
 	AddObject(context.Context, *models.Principal, *models.Object,
-		*additional.ReplicationProperties, string) (*models.Object, error)
+		*additional.ReplicationProperties) (*models.Object, error)
 	ValidateObject(context.Context, *models.Principal,
 		*models.Object, *additional.ReplicationProperties) error
 	GetObject(context.Context, *models.Principal, string, strfmt.UUID,
@@ -54,7 +54,7 @@ type objectsManager interface {
 	DeleteObject(context.Context, *models.Principal, string,
 		strfmt.UUID, *additional.ReplicationProperties, string) error
 	UpdateObject(context.Context, *models.Principal, string, strfmt.UUID,
-		*models.Object, *additional.ReplicationProperties, string) (*models.Object, error)
+		*models.Object, *additional.ReplicationProperties) (*models.Object, error)
 	HeadObject(ctx context.Context, principal *models.Principal, class string, id strfmt.UUID,
 		repl *additional.ReplicationProperties, tenantKey string) (bool, *uco.Error)
 	GetObjects(context.Context, *models.Principal, *int64, *int64,
@@ -62,7 +62,7 @@ type objectsManager interface {
 	Query(ctx context.Context, principal *models.Principal,
 		params *uco.QueryParams) ([]*models.Object, *uco.Error)
 	MergeObject(context.Context, *models.Principal, *models.Object,
-		*additional.ReplicationProperties, string) *uco.Error
+		*additional.ReplicationProperties) *uco.Error
 	AddObjectReference(context.Context, *models.Principal, *uco.AddReferenceInput,
 		*additional.ReplicationProperties, string) *uco.Error
 	UpdateObjectReferences(context.Context, *models.Principal,
@@ -81,10 +81,8 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
-
 	object, err := h.manager.AddObject(params.HTTPRequest.Context(),
-		principal, params.Body, repl, tenantKey)
+		principal, params.Body, repl)
 	if err != nil {
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsCreateUnprocessableEntity().
@@ -314,10 +312,8 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
-
 	object, err := h.manager.UpdateObject(params.HTTPRequest.Context(),
-		principal, params.ClassName, params.ID, params.Body, repl, tenantKey)
+		principal, params.ClassName, params.ID, params.Body, repl)
 	if err != nil {
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsClassPutUnprocessableEntity().
@@ -380,9 +376,7 @@ func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, pri
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
-
-	objErr := h.manager.MergeObject(params.HTTPRequest.Context(), principal, updates, repl, tenantKey)
+	objErr := h.manager.MergeObject(params.HTTPRequest.Context(), principal, updates, repl)
 	if objErr != nil {
 		switch {
 		case objErr.NotFound():

@@ -19,8 +19,7 @@ import (
 
 func multiTenancyEnabled(class *models.Class) bool {
 	if class.MultiTenancyConfig != nil &&
-		class.MultiTenancyConfig.Enabled &&
-		class.MultiTenancyConfig.TenantKey != "" {
+		class.MultiTenancyConfig.Enabled {
 		return true
 	}
 	return false
