@@ -30,9 +30,6 @@ type MultiTenancyConfig struct {
 
 	// Whether or not multi-tenancy is enabled for this class
 	Enabled bool `json:"enabled,omitempty"`
-
-	// The class property which is used to separate tenants
-	TenantKey string `json:"tenantKey,omitempty"`
 }
 
 // Validate validates this multi tenancy config

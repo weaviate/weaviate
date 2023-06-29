@@ -76,7 +76,7 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil, ""))
+					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil))
 			})
 		}
 	})
@@ -172,7 +172,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil, ""))
+					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil))
 			})
 		}
 	})
@@ -214,7 +214,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), company, []float32{0.1, 0.21, 0.01, 0.2}, nil, ""))
+					repo.PutObject(context.Background(), company, []float32{0.1, 0.21, 0.01, 0.2}, nil))
 			})
 		}
 	})
@@ -297,7 +297,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil, ""))
+					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil))
 			})
 		}
 	})
@@ -324,7 +324,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), company, []float32{0.1, 0.21, 0.01, 0.2}, nil, ""))
+					repo.PutObject(context.Background(), company, []float32{0.1, 0.21, 0.01, 0.2}, nil))
 			})
 		}
 	})

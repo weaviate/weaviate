@@ -36,10 +36,8 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
-
 	objs, err := h.manager.AddObjects(params.HTTPRequest.Context(), principal,
-		params.Body.Objects, params.Body.Fields, repl, tenantKey)
+		params.Body.Objects, params.Body.Fields, repl)
 	if err != nil {
 		switch err.(type) {
 		case autherrs.Forbidden:
@@ -87,10 +85,7 @@ func (h *batchObjectHandlers) addReferences(params batch.BatchReferencesCreatePa
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
-
-	references, err := h.manager.AddReferences(
-		params.HTTPRequest.Context(), principal, params.Body, repl, tenantKey)
+	references, err := h.manager.AddReferences(params.HTTPRequest.Context(), principal, params.Body, repl)
 	if err != nil {
 		switch err.(type) {
 		case autherrs.Forbidden:

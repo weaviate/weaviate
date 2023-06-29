@@ -57,8 +57,8 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 	defer unlock()
 
-	validator := validation.New(m.vectorRepo.Exists, m.config, repl, tenantKey)
-	if err := input.validate(ctx, principal, validator, m.schemaManager); err != nil {
+	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
+	if err := input.validate(ctx, principal, validator, m.schemaManager, tenantKey); err != nil {
 		return &Error{"validate inputs", StatusBadRequest, err}
 	}
 	if !deprecatedEndpoint {
@@ -118,12 +118,12 @@ func (req *AddReferenceInput) validate(
 	ctx context.Context,
 	principal *models.Principal,
 	v *validation.Validator,
-	sm schemaManager,
+	sm schemaManager, tenant string,
 ) error {
 	if err := validateReferenceName(req.Class, req.Property); err != nil {
 		return err
 	}
-	if err := v.ValidateSingleRef(ctx, &req.Ref, "validate reference"); err != nil {
+	if err := v.ValidateSingleRef(ctx, &req.Ref, "validate reference", tenant); err != nil {
 		return err
 	}
 

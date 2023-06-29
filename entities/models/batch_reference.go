@@ -35,6 +35,9 @@ type BatchReference struct {
 	// Format: uri
 	From strfmt.URI `json:"from,omitempty"`
 
+	// Name of the reference tenant.
+	TenantName string `json:"tenantName,omitempty"`
+
 	// Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/<uuid> for the example of a local cross-ref to an object
 	// Example: weaviate://localhost/97525810-a9a5-4eb0-858a-71449aeb007f
 	// Format: uri

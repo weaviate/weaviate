@@ -69,8 +69,8 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	}
 	defer unlock()
 
-	validator := validation.New(m.vectorRepo.Exists, m.config, repl, tenantKey)
-	if err := input.validate(ctx, principal, validator, m.schemaManager); err != nil {
+	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
+	if err := input.validate(ctx, principal, validator, m.schemaManager, tenantKey); err != nil {
 		return &Error{"bad inputs", StatusBadRequest, err}
 	}
 	obj := res.Object()
@@ -80,7 +80,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 		obj.Properties.(map[string]interface{})[input.Property] = input.Refs
 	}
 	obj.LastUpdateTimeUnix = m.timeSource.Now()
-	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, repl, tenantKey)
+	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, repl)
 	if err != nil {
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}
@@ -91,12 +91,12 @@ func (req *PutReferenceInput) validate(
 	ctx context.Context,
 	principal *models.Principal,
 	v *validation.Validator,
-	sm schemaManager,
+	sm schemaManager, tenant string,
 ) error {
 	if err := validateReferenceName(req.Class, req.Property); err != nil {
 		return err
 	}
-	if err := v.ValidateMultipleRef(ctx, req.Refs, "validate references"); err != nil {
+	if err := v.ValidateMultipleRef(ctx, req.Refs, "validate references", tenant); err != nil {
 		return err
 	}
 

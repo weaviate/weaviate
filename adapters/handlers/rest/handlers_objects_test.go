@@ -1054,7 +1054,7 @@ func (f *fakeManager) HeadObject(context.Context, *models.Principal,
 }
 
 func (f *fakeManager) AddObject(_ context.Context, _ *models.Principal,
-	object *models.Object, _ *additional.ReplicationProperties, _ string,
+	object *models.Object, _ *additional.ReplicationProperties,
 ) (*models.Object, error) {
 	return object, nil
 }
@@ -1092,13 +1092,13 @@ func (f *fakeManager) Query(_ context.Context,
 }
 
 func (f *fakeManager) UpdateObject(_ context.Context, _ *models.Principal, _ string,
-	_ strfmt.UUID, updates *models.Object, _ *additional.ReplicationProperties, _ string,
+	_ strfmt.UUID, updates *models.Object, _ *additional.ReplicationProperties,
 ) (*models.Object, error) {
 	return updates, f.updateObjectErr
 }
 
 func (f *fakeManager) MergeObject(_ context.Context, _ *models.Principal,
-	_ *models.Object, _ *additional.ReplicationProperties, _ string,
+	_ *models.Object, _ *additional.ReplicationProperties,
 ) *uco.Error {
 	return f.patchObjectReturn
 }

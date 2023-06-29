@@ -452,8 +452,7 @@ func TestAddClass(t *testing.T) {
 					},
 				},
 				MultiTenancyConfig: &models.MultiTenancyConfig{
-					Enabled:   true,
-					TenantKey: "textProp",
+					Enabled: true,
 				},
 			}
 			mgr := newSchemaManager()
@@ -461,49 +460,6 @@ func TestAddClass(t *testing.T) {
 			require.Nil(t, err)
 			require.NotNil(t, class.ShardingConfig)
 			require.Zero(t, class.ShardingConfig.(sharding.Config).DesiredCount)
-		})
-
-		t.Run("multiTenancyConfig missing tenantKey", func(t *testing.T) {
-			mgr := newSchemaManager()
-			err := mgr.AddClass(context.Background(),
-				nil,
-				&models.Class{
-					Class: "NewClass",
-					Properties: []*models.Property{
-						{
-							Name:     "textProp",
-							DataType: []string{"text"},
-						},
-					},
-					MultiTenancyConfig: &models.MultiTenancyConfig{
-						Enabled: true,
-					},
-				},
-			)
-			require.NotNil(t, err)
-			require.Equal(t, "multiTenancyConfig.tenantKey is required", err.Error())
-		})
-
-		t.Run("multiTenancyConfig.tenantKey invalid prop type", func(t *testing.T) {
-			mgr := newSchemaManager()
-			err := mgr.AddClass(context.Background(),
-				nil,
-				&models.Class{
-					Class: "NewClass",
-					Properties: []*models.Property{
-						{
-							Name:     "intProp",
-							DataType: []string{"int"},
-						},
-					},
-					MultiTenancyConfig: &models.MultiTenancyConfig{
-						Enabled:   true,
-						TenantKey: "intProp",
-					},
-				},
-			)
-			require.NotNil(t, err)
-			require.Equal(t, "invalid multiTenancyConfig.tenantKey \"intProp\". tenantKey must be 'text' or 'uuid'", err.Error())
 		})
 
 		t.Run("multiTenancyConfig and shardingConfig both provided", func(t *testing.T) {
@@ -519,8 +475,7 @@ func TestAddClass(t *testing.T) {
 						},
 					},
 					MultiTenancyConfig: &models.MultiTenancyConfig{
-						Enabled:   true,
-						TenantKey: "uuidProp",
+						Enabled: true,
 					},
 					ShardingConfig: sharding.Config{DesiredCount: 2},
 				},

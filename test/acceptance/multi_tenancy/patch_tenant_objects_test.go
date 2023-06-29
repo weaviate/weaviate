@@ -29,8 +29,7 @@ func TestPatchTenantObjects(t *testing.T) {
 	testClass := models.Class{
 		Class: "MultiTenantClass",
 		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: tenantKey,
+			Enabled: true,
 		},
 		Properties: []*models.Property{
 			{
@@ -53,6 +52,7 @@ func TestPatchTenantObjects(t *testing.T) {
 				tenantKey:   tenantNames[0],
 				mutableProp: "obj#0",
 			},
+			TenantName: tenantNames[0],
 		},
 		{
 			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
@@ -61,6 +61,7 @@ func TestPatchTenantObjects(t *testing.T) {
 				tenantKey:   tenantNames[1],
 				mutableProp: "obj#1",
 			},
+			TenantName: tenantNames[1],
 		},
 		{
 			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
@@ -69,6 +70,7 @@ func TestPatchTenantObjects(t *testing.T) {
 				tenantKey:   tenantNames[2],
 				mutableProp: "obj#2",
 			},
+			TenantName: tenantNames[2],
 		},
 	}
 
@@ -89,8 +91,8 @@ func TestPatchTenantObjects(t *testing.T) {
 	})
 
 	t.Run("add tenant objects", func(t *testing.T) {
-		for i, obj := range tenantObjects {
-			helper.CreateTenantObject(t, obj, tenantNames[i])
+		for _, obj := range tenantObjects {
+			helper.CreateObject(t, obj)
 		}
 
 		t.Run("verify tenant object creation", func(t *testing.T) {
@@ -114,8 +116,9 @@ func TestPatchTenantObjects(t *testing.T) {
 					tenantKey:   tenantNames[i],
 					mutableProp: fmt.Sprintf("%s--patched", mut),
 				},
+				TenantName: tenantNames[i],
 			}
-			helper.PatchTenantObject(t, toUpdate, tenantNames[i])
+			helper.PatchObject(t, toUpdate)
 		}
 
 		t.Run("assert tenant object updates", func(t *testing.T) {
@@ -133,14 +136,13 @@ func TestPatchTenantObjects(t *testing.T) {
 }
 
 func TestPatchTenantObjects_ChangeTenantKey(t *testing.T) {
-	className := "MultiTenantClass"
+	className := "MultiTenantClassPatch"
 	tenantKey := "tenantName"
 	tenantName := "Tenant1"
 	testClass := models.Class{
 		Class: className,
 		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: tenantKey,
+			Enabled: true,
 		},
 		Properties: []*models.Property{
 			{
@@ -155,6 +157,7 @@ func TestPatchTenantObjects_ChangeTenantKey(t *testing.T) {
 		Properties: map[string]interface{}{
 			tenantKey: tenantName,
 		},
+		TenantName: tenantName,
 	}
 
 	defer func() {
@@ -168,7 +171,7 @@ func TestPatchTenantObjects_ChangeTenantKey(t *testing.T) {
 
 	t.Run("add tenant object", func(t *testing.T) {
 		params := objects.NewObjectsCreateParams().
-			WithBody(&tenantObject).WithTenantKey(&tenantName)
+			WithBody(&tenantObject)
 		_, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
 		require.Nil(t, err)
 	})
@@ -180,18 +183,18 @@ func TestPatchTenantObjects_ChangeTenantKey(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: "updatedTenantName",
 			},
+			TenantName: "updatedTenantName",
 		}
 		params := objects.NewObjectsClassPatchParams().WithClassName(toUpdate.Class).
-			WithID(toUpdate.ID).WithBody(&toUpdate).WithTenantKey(&tenantName)
-		resp, err := helper.Client(t).Objects.ObjectsClassPatch(params, nil)
-		require.Nil(t, resp)
-		require.NotNil(t, err)
-		parsedErr, ok := err.(*objects.ObjectsClassPatchUnprocessableEntity)
+			WithID(toUpdate.ID).WithBody(&toUpdate)
+		_, err := helper.Client(t).Objects.ObjectsClassPatch(params, nil)
+		require.NotNil(t, err) // tenant does not exist
+		parsedErr, ok := err.(*objects.ObjectsClassPatchInternalServerError)
 		require.True(t, ok)
 		require.NotNil(t, parsedErr.Payload.Error)
 		require.Len(t, parsedErr.Payload.Error, 1)
-		assert.Contains(t, err.Error(), fmt.Sprint(http.StatusUnprocessableEntity))
-		expected := "tenant key \"tenantName\" is immutable"
+		assert.Contains(t, err.Error(), fmt.Sprint(http.StatusInternalServerError))
+		expected := "no tenant found with key: \"updatedTenantName\""
 		assert.Contains(t, parsedErr.Payload.Error[0].Message, expected)
 	})
 }

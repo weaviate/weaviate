@@ -72,15 +72,6 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 			continue // nil values are removed and filtered out
 		}
 
-		mt := class.MultiTenancyConfig
-		if mt != nil && existingObject != nil && propertyKey == mt.TenantKey {
-			beforeKey := existingObject.Properties.(map[string]interface{})[mt.TenantKey]
-			afterKey := isp.(map[string]interface{})[mt.TenantKey]
-			if beforeKey != afterKey {
-				return fmt.Errorf("tenant key %q is immutable", mt.TenantKey)
-			}
-		}
-
 		// properties in the class are saved with lower case first letter
 		propertyKeyLowerCase := strings.ToLower(propertyKey[:1])
 		if len(propertyKey) > 1 {
@@ -463,7 +454,7 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 		return nil, fmt.Errorf("invalid reference: %s", err)
 	}
 	errVal := fmt.Sprintf("'cref' %s:%s", className, propertyName)
-	err = v.ValidateSingleRef(ctx, ref.SingleRef(), errVal)
+	err = v.ValidateSingleRef(ctx, ref.SingleRef(), errVal, "")
 	if err != nil {
 		return nil, err
 	}
