@@ -916,7 +916,7 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
-	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenantKey string,
+	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenantKey string, autoCut int,
 ) ([]*storobj.Object, []float32, error) {
 	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
 		return nil, nil, err
@@ -1000,8 +1000,8 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		outObjects, outScores = i.sortByID(outObjects, outScores)
 	}
 
-	if keywordRanking != nil && keywordRanking.AutoCut > 0 {
-		cutOff := autocut.Autocut(outScores, keywordRanking.AutoCut)
+	if autoCut > 0 {
+		cutOff := autocut.Autocut(outScores, autoCut)
 		outObjects = outObjects[:cutOff]
 		outScores = outScores[:cutOff]
 	}

@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/autocut"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -214,6 +216,15 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		return nil, errors.Errorf("explorer: get class: vector search: %v", err)
 	}
 
+	if params.Pagination.Autocut > 0 {
+		scores := make([]float32, len(res))
+		for i := range res {
+			scores[i] = res[i].Dist
+		}
+		cutOff := autocut.Autocut(scores, params.Pagination.Autocut)
+		res = res[:cutOff]
+	}
+
 	if params.Group != nil {
 		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
 		if err != nil {
@@ -280,6 +291,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		HybridSearch: params.HybridSearch,
 		Keyword:      params.KeywordRanking,
 		Class:        params.ClassName,
+		Autocut:      params.Pagination.Autocut,
 	}, e.logger, sparseSearch, denseSearch,
 		postProcess, e.modulesProvider)
 

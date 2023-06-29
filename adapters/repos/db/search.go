@@ -71,7 +71,7 @@ func (db *DB) SparseObjectSearch(ctx context.Context,
 
 	res, dist, err := idx.objectSearch(ctx, totalLimit,
 		params.Filters, params.KeywordRanking, params.Sort, params.Cursor,
-		params.AdditionalProperties, params.ReplicationProperties, params.TenantKey)
+		params.AdditionalProperties, params.ReplicationProperties, params.TenantKey, params.Pagination.Autocut)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "object search at index %s", idx.ID())
 	}
@@ -238,7 +238,7 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 		}
 	}
 	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters,
-		nil, q.Sort, q.Cursor, q.Additional, nil, "")
+		nil, q.Sort, q.Cursor, q.Additional, nil, "", 0)
 	if err != nil {
 		return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}
 	}
@@ -271,7 +271,7 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 	for _, index := range db.indices {
 		// TODO support all additional props
 		res, _, err := index.objectSearch(ctx, totalLimit,
-			filters, nil, sort, nil, additional, nil, tenantKey)
+			filters, nil, sort, nil, additional, nil, tenantKey, 0)
 		if err != nil {
 			db.indexLock.RUnlock()
 			return nil, errors.Wrapf(err, "search index %s", index.ID())

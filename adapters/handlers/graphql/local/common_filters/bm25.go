@@ -31,11 +31,6 @@ func ExtractBM25(source map[string]interface{}, explainScore bool) searchparams.
 		args.Query = query.(string)
 	}
 
-	autocut, ok := source["autocut"]
-	if ok {
-		args.AutoCut = autocut.(int)
-	}
-
 	args.AdditionalExplanations = explainScore
 	args.Type = "bm25"
 
