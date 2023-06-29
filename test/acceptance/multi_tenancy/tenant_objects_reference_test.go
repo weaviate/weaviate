@@ -17,12 +17,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
 func TestTenantObjectsReference(t *testing.T) {
 	className := "MultiTenantClass"
-	tenantKey := "tenantName"
 	mutableProp := "mutableProp"
 	refProp := "refProp"
 	testClass := models.Class{
@@ -32,12 +32,12 @@ func TestTenantObjectsReference(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     tenantKey,
-				DataType: []string{"string"},
+				Name:     "name",
+				DataType: schema.DataTypeText.PropString(),
 			},
 			{
 				Name:     mutableProp,
-				DataType: []string{"string"},
+				DataType: schema.DataTypeText.PropString(),
 			},
 			{
 				Name:     refProp,
@@ -53,7 +53,7 @@ func TestTenantObjectsReference(t *testing.T) {
 			ID:    "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
 			Class: className,
 			Properties: map[string]interface{}{
-				tenantKey:   tenantNames[0],
+				"name":      tenantNames[0],
 				mutableProp: "obj#0",
 			},
 			Tenant: tenantNames[0],
@@ -62,7 +62,7 @@ func TestTenantObjectsReference(t *testing.T) {
 			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
 			Class: className,
 			Properties: map[string]interface{}{
-				tenantKey:   tenantNames[1],
+				"name":      tenantNames[1],
 				mutableProp: "obj#1",
 			},
 			Tenant: tenantNames[1],
@@ -71,7 +71,7 @@ func TestTenantObjectsReference(t *testing.T) {
 			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
 			Class: className,
 			Properties: map[string]interface{}{
-				tenantKey:   tenantNames[2],
+				"name":      tenantNames[2],
 				mutableProp: "obj#2",
 			},
 			Tenant: tenantNames[2],
@@ -82,7 +82,7 @@ func TestTenantObjectsReference(t *testing.T) {
 			ID:    "169b62a7-ef1c-481d-8fb0-27f11716bde7",
 			Class: className,
 			Properties: map[string]interface{}{
-				tenantKey:   tenantNames[0],
+				"name":      tenantNames[0],
 				mutableProp: "ref#0",
 			},
 			Tenant: tenantNames[0],
@@ -91,7 +91,7 @@ func TestTenantObjectsReference(t *testing.T) {
 			ID:    "4d78424d-f7bd-479b-bd8a-52510e2db0fd",
 			Class: className,
 			Properties: map[string]interface{}{
-				tenantKey:   tenantNames[1],
+				"name":      tenantNames[1],
 				mutableProp: "ref#1",
 			},
 			Tenant: tenantNames[1],
@@ -100,7 +100,7 @@ func TestTenantObjectsReference(t *testing.T) {
 			ID:    "c1db0a06-d5f9-4f77-aa3c-08a44f16e358",
 			Class: className,
 			Properties: map[string]interface{}{
-				tenantKey:   tenantNames[2],
+				"name":      tenantNames[2],
 				mutableProp: "ref#2",
 			},
 			Tenant: tenantNames[2],

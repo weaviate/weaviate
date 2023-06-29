@@ -16,9 +16,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 )
 
-func tenantKeyArgument() *graphql.ArgumentConfig {
+func tenantArgument() *graphql.ArgumentConfig {
 	return &graphql.ArgumentConfig{
-		Description: descriptions.TenantKey,
+		Description: descriptions.Tenant,
 		Type:        graphql.String,
 	}
 }

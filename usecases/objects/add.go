@@ -57,7 +57,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 }
 
 func (m *Manager) checkIDOrAssignNew(ctx context.Context, class string, id strfmt.UUID,
-	repl *additional.ReplicationProperties, tenantKey string,
+	repl *additional.ReplicationProperties, tenant string,
 ) (strfmt.UUID, error) {
 	if id == "" {
 		newID, err := generateUUID()
@@ -75,7 +75,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, class string, id strfm
 	}
 
 	// only validate ID uniqueness if explicitly set
-	if ok, err := m.vectorRepo.Exists(ctx, class, id, repl, tenantKey); ok {
+	if ok, err := m.vectorRepo.Exists(ctx, class, id, repl, tenant); ok {
 		return "", NewErrInvalidUserInput("id '%s' already exists", id)
 	} else if err != nil {
 		return "", NewErrInternal(err.Error())

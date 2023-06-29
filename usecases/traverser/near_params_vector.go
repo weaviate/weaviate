@@ -34,9 +34,9 @@ type nearParamsVector struct {
 type nearParamsSearcher interface {
 	Object(ctx context.Context, className string, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties,
-		repl *additional.ReplicationProperties, tenantKey string) (*search.Result, error)
+		repl *additional.ReplicationProperties, tenant string) (*search.Result, error)
 	ObjectsByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties, tenantKey string) (search.Results, error)
+		additional additional.Properties, tenant string) (search.Results, error)
 }
 
 func newNearParamsVector(modulesProvider ModulesProvider, search nearParamsSearcher) *nearParamsVector {

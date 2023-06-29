@@ -56,7 +56,7 @@ type objectsManager interface {
 	UpdateObject(context.Context, *models.Principal, string, strfmt.UUID,
 		*models.Object, *additional.ReplicationProperties) (*models.Object, error)
 	HeadObject(ctx context.Context, principal *models.Principal, class string, id strfmt.UUID,
-		repl *additional.ReplicationProperties, tenantKey string) (bool, *uco.Error)
+		repl *additional.ReplicationProperties, tenant string) (bool, *uco.Error)
 	GetObjects(context.Context, *models.Principal, *int64, *int64,
 		*string, *string, *string, additional.Properties, string) ([]*models.Object, error)
 	Query(ctx context.Context, principal *models.Principal,
@@ -157,10 +157,10 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.Tenant)
+	tenant := getTenant(params.Tenant)
 
 	object, err := h.manager.GetObject(params.HTTPRequest.Context(), principal,
-		params.ClassName, params.ID, additional, replProps, tenantKey)
+		params.ClassName, params.ID, additional, replProps, tenant)
 	if err != nil {
 		switch err.(type) {
 		case autherrs.Forbidden:
@@ -198,7 +198,7 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 
 	list, err := h.manager.GetObjects(params.HTTPRequest.Context(), principal,
 		params.Offset, params.Limit, params.Sort, params.Order, params.After, additional,
-		getTenantKey(params.Tenant))
+		getTenant(params.Tenant))
 	if err != nil {
 		switch err.(type) {
 		case autherrs.Forbidden:
@@ -240,7 +240,7 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 		After:      params.After,
 		Sort:       params.Sort,
 		Order:      params.Order,
-		TenantKey:  params.Tenant,
+		Tenant:     params.Tenant,
 		Additional: additional,
 	}
 	resultSet, rerr := h.manager.Query(params.HTTPRequest.Context(), principal, &req)
@@ -285,10 +285,10 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.Tenant)
+	tenant := getTenant(params.Tenant)
 
 	err = h.manager.DeleteObject(params.HTTPRequest.Context(),
-		principal, params.ClassName, params.ID, repl, tenantKey)
+		principal, params.ClassName, params.ID, repl, tenant)
 	if err != nil {
 		switch err.(type) {
 		case autherrs.Forbidden:
@@ -346,10 +346,10 @@ func (h *objectHandlers) headObject(params objects.ObjectsClassHeadParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.Tenant)
+	tenant := getTenant(params.Tenant)
 
 	exists, objErr := h.manager.HeadObject(params.HTTPRequest.Context(),
-		principal, params.ClassName, params.ID, repl, tenantKey)
+		principal, params.ClassName, params.ID, repl, tenant)
 	if objErr != nil {
 		switch {
 		case objErr.Forbidden():
@@ -777,7 +777,7 @@ func getConsistencyLevel(lvl *string) (string, error) {
 	return "", nil
 }
 
-func getTenantKey(maybeKey *string) string {
+func getTenant(maybeKey *string) string {
 	if maybeKey != nil {
 		return *maybeKey
 	}

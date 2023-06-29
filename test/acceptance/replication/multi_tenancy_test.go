@@ -31,8 +31,7 @@ import (
 )
 
 const (
-	tenantKey = "tenantKey"
-	tenantID  = strfmt.UUID("45e9e17e-8102-4011-95f0-3079ca188bbf")
+	tenantID = strfmt.UUID("45e9e17e-8102-4011-95f0-3079ca188bbf")
 )
 
 func multiTenancyEnabled(t *testing.T) {
@@ -200,7 +199,7 @@ func multiTenancyEnabled(t *testing.T) {
 			patch := &models.Object{
 				ID:         before.ID,
 				Class:      "Article",
-				Properties: map[string]interface{}{"title": newTitle, tenantKey: tenantID.String()},
+				Properties: map[string]interface{}{"title": newTitle},
 				Tenant:     tenantID.String(),
 			}
 			patchTenantObject(t, compose.GetWeaviateNode2().URI(), patch)

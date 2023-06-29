@@ -20,12 +20,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
 func TestGQLAggregateTenantObjects(t *testing.T) {
-	tenantKey := "tenantName"
 	testClass := models.Class{
 		Class: "MultiTenantClass",
 		MultiTenancyConfig: &models.MultiTenancyConfig{
@@ -33,8 +33,8 @@ func TestGQLAggregateTenantObjects(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     tenantKey,
-				DataType: []string{"string"},
+				Name:     "name",
+				DataType: schema.DataTypeText.PropString(),
 			},
 		},
 	}
@@ -54,8 +54,8 @@ func TestGQLAggregateTenantObjects(t *testing.T) {
 
 		t.Run("create tenants", func(t *testing.T) {
 			tenants := []*models.Tenant{
-				{tenantName1},
-				{tenantName2},
+				{Name: tenantName1},
+				{Name: tenantName2},
 			}
 			helper.CreateTenants(t, testClass.Class, tenants)
 		})
@@ -64,13 +64,11 @@ func TestGQLAggregateTenantObjects(t *testing.T) {
 			batch1 := makeTenantBatch(batchParams{
 				className:  testClass.Class,
 				tenantName: tenantName1,
-				tenantKey:  tenantKey,
 				batchSize:  numTenantObjs1,
 			})
 			batch2 := makeTenantBatch(batchParams{
 				className:  testClass.Class,
 				tenantName: tenantName2,
-				tenantKey:  tenantKey,
 				batchSize:  numTenantObjs2,
 			})
 
@@ -121,8 +119,7 @@ func TestGQLAggregateTenantObjects(t *testing.T) {
 	})
 }
 
-func TestGQLAggregateTenantObjects_InvalidTenantKey(t *testing.T) {
-	tenantKey := "tenantName"
+func TestGQLAggregateTenantObjects_InvalidTenant(t *testing.T) {
 	testClass := models.Class{
 		Class: "MultiTenantClass",
 		MultiTenancyConfig: &models.MultiTenancyConfig{
@@ -130,8 +127,8 @@ func TestGQLAggregateTenantObjects_InvalidTenantKey(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     tenantKey,
-				DataType: []string{"string"},
+				Name:     "name",
+				DataType: schema.DataTypeText.PropString(),
 			},
 		},
 	}
@@ -149,7 +146,7 @@ func TestGQLAggregateTenantObjects_InvalidTenantKey(t *testing.T) {
 
 		t.Run("create tenants", func(t *testing.T) {
 			tenants := []*models.Tenant{
-				{tenantName},
+				{Name: tenantName},
 			}
 			helper.CreateTenants(t, testClass.Class, tenants)
 		})
@@ -158,7 +155,6 @@ func TestGQLAggregateTenantObjects_InvalidTenantKey(t *testing.T) {
 			batch := makeTenantBatch(batchParams{
 				className:  testClass.Class,
 				tenantName: tenantName,
-				tenantKey:  tenantKey,
 				batchSize:  numTenantObjs,
 			})
 			helper.CreateObjectsBatch(t, batch)
@@ -166,7 +162,7 @@ func TestGQLAggregateTenantObjects_InvalidTenantKey(t *testing.T) {
 	})
 
 	t.Run("non-existent tenant key", func(t *testing.T) {
-		query := fmt.Sprintf(`{Aggregate{%s(tenantKey:"DNE"){meta{count}}}}`, testClass.Class)
+		query := fmt.Sprintf(`{Aggregate{%s(tenant:"DNE"){meta{count}}}}`, testClass.Class)
 		expected := `no tenant found with key: "DNE"`
 		testAggregateTenantFailure(t, testClass.Class, query, expected)
 	})
@@ -175,7 +171,6 @@ func TestGQLAggregateTenantObjects_InvalidTenantKey(t *testing.T) {
 type batchParams struct {
 	className  string
 	tenantName string
-	tenantKey  string
 	batchSize  int
 }
 
@@ -185,7 +180,7 @@ func makeTenantBatch(params batchParams) []*models.Object {
 		batch[i] = &models.Object{
 			Class: params.className,
 			Properties: map[string]interface{}{
-				params.tenantKey: params.tenantName,
+				"name": params.tenantName,
 			},
 			Tenant: params.tenantName,
 		}
@@ -194,7 +189,7 @@ func makeTenantBatch(params batchParams) []*models.Object {
 }
 
 func testAggregateTenantSuccess(t *testing.T, className, tenantName string, expectedCount int) {
-	query := fmt.Sprintf(`{Aggregate{%s(tenantKey:%q){meta{count}}}}`, className, tenantName)
+	query := fmt.Sprintf(`{Aggregate{%s(tenant:%q){meta{count}}}}`, className, tenantName)
 	resp := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 	result := resp.Get("Aggregate", className).AsSlice()
 	require.Len(t, result, 1)
