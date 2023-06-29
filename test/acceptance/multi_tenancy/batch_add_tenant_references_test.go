@@ -302,7 +302,7 @@ func TestBatchAddTenantReferences(t *testing.T) {
 func TestAddMultipleTenantsForBatch(t *testing.T) {
 	tenants := []string{"tenant1", "tenant2"}
 	classNames := []string{"MultiTenantRefs1", "MultiTenantRefs2", "MultiTenantRefs3"}
-	refProps := []string{"refPropMT1", "refPropMT2", "refPropST1"}
+	refProps := []string{"refPropST", "refPropOtherMT", "refPropSelf"}
 	classes := []models.Class{
 		{Class: classNames[0]},
 		{
@@ -362,41 +362,50 @@ func TestAddMultipleTenantsForBatch(t *testing.T) {
 	t.Run("refs between same class", func(t *testing.T) {
 		var refs []*models.BatchReference
 		for _, objectIndex := range objMap[classNames[2]] {
+			obj := tenantObjects[objectIndex]
 			refs = append(refs, &models.BatchReference{
-				From: strfmt.URI(crossref.NewSource(schema.ClassName(classNames[2]),
-					schema.PropertyName(refProps[0]), tenantObjects[objectIndex].ID).String()),
-				To:         strfmt.URI(crossref.NewLocalhost(classNames[2], tenantObjects[objectIndex].ID).String()),
-				TenantName: tenantObjects[objectIndex].TenantName,
+				From: strfmt.URI(crossref.NewSource(schema.ClassName(obj.Class),
+					schema.PropertyName(refProps[2]), obj.ID).String()),
+				To:         strfmt.URI(crossref.NewLocalhost(classNames[2], obj.ID).String()),
+				TenantName: obj.TenantName,
 			},
 			)
 		}
 		resp, err := helper.AddReferences(t, refs)
 		helper.CheckReferencesBatchResponse(t, resp, err)
+
+		// verify refs
+		for _, objectIndex := range objMap[classNames[2]] {
+			obj := tenantObjects[objectIndex]
+
+			resp, err := helper.TenantObject(t, classNames[2], obj.ID, obj.TenantName)
+			require.Nil(t, err)
+			require.Equal(t, obj.Class, resp.Class)
+			require.Equal(t, fmt.Sprintf("weaviate://localhost/%s/%v", obj.Class, obj.ID), resp.Properties.(map[string]interface{})[refProps[2]].([]interface{})[0].(map[string]interface{})["beacon"])
+			require.Equal(t, obj.TenantName, resp.TenantName)
+		}
 	})
 
 	t.Run("refs between multiple classes class", func(t *testing.T) {
 		var refs []*models.BatchReference
-		for _, objectIndexClass2 := range objMap[classNames[2]] {
+		for i, objectIndexClass2 := range objMap[classNames[2]] {
 			objClass2 := tenantObjects[objectIndexClass2]
 			// refs between two MMT classes
-			for _, objectIndexClass1 := range objMap[classNames[1]] {
-				objClass1 := tenantObjects[objectIndexClass1]
-
-				if objClass2.TenantName != objClass1.TenantName {
-					continue
+			if len(objMap[classNames[1]]) > i {
+				objClass1 := tenantObjects[objMap[classNames[1]][i]]
+				if objClass2.TenantName == objClass1.TenantName {
+					refs = append(refs, &models.BatchReference{
+						From: strfmt.URI(crossref.NewSource(schema.ClassName(classNames[2]),
+							schema.PropertyName(refProps[1]), objClass2.ID).String()),
+						To:         strfmt.URI(crossref.NewLocalhost(classNames[1], objClass1.ID).String()),
+						TenantName: objClass2.TenantName,
+					})
 				}
-
-				refs = append(refs, &models.BatchReference{
-					From: strfmt.URI(crossref.NewSource(schema.ClassName(classNames[2]),
-						schema.PropertyName(refProps[0]), objClass2.ID).String()),
-					To:         strfmt.URI(crossref.NewLocalhost(classNames[1], objClass1.ID).String()),
-					TenantName: objClass1.TenantName,
-				})
 			}
 
 			// refs between MMT and non MMT class
-			for _, objectIndexClass0 := range objMap[classNames[0]] {
-				objClass0 := tenantObjects[objectIndexClass0]
+			if len(objMap[classNames[0]]) > i {
+				objClass0 := tenantObjects[objMap[classNames[0]][i]]
 				refs = append(refs, &models.BatchReference{
 					From: strfmt.URI(crossref.NewSource(schema.ClassName(classNames[2]),
 						schema.PropertyName(refProps[0]), objClass2.ID).String()),
@@ -407,5 +416,35 @@ func TestAddMultipleTenantsForBatch(t *testing.T) {
 		}
 		resp, err := helper.AddReferences(t, refs)
 		helper.CheckReferencesBatchResponse(t, resp, err)
+
+		// verify refs
+		for i, objectIndexClass2 := range objMap[classNames[2]] {
+			objClass2 := tenantObjects[objectIndexClass2]
+			// refs between two MMT classes
+			if len(objMap[classNames[1]]) > i {
+				objClass1 := tenantObjects[objMap[classNames[1]][i]]
+				if objClass2.TenantName != objClass1.TenantName {
+					continue
+				}
+
+				resp, err := helper.TenantObject(t, classNames[2], objClass2.ID, objClass2.TenantName)
+				require.Nil(t, err)
+				require.Equal(t, objClass2.Class, resp.Class)
+				require.Equal(t, fmt.Sprintf("weaviate://localhost/%s/%v", objClass1.Class, objClass1.ID), resp.Properties.(map[string]interface{})[refProps[1]].([]interface{})[0].(map[string]interface{})["beacon"])
+				require.Equal(t, objClass2.TenantName, resp.TenantName)
+
+			}
+
+			// refs between MMT and non MMT class
+			if len(objMap[classNames[0]]) > i {
+				objClass0 := tenantObjects[objMap[classNames[0]][i]]
+				refs = append(refs, &models.BatchReference{
+					From: strfmt.URI(crossref.NewSource(schema.ClassName(classNames[2]),
+						schema.PropertyName(refProps[0]), objClass2.ID).String()),
+					To:         strfmt.URI(crossref.NewLocalhost(classNames[0], objClass0.ID).String()),
+					TenantName: objClass2.TenantName,
+				})
+			}
+		}
 	})
 }

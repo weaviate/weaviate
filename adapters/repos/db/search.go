@@ -71,7 +71,7 @@ func (db *DB) SparseObjectSearch(ctx context.Context,
 
 	res, dist, err := idx.objectSearch(ctx, totalLimit,
 		params.Filters, params.KeywordRanking, params.Sort, params.Cursor,
-		params.AdditionalProperties, params.ReplicationProperties, params.TenantKey, params.Pagination.Autocut)
+		params.AdditionalProperties, params.ReplicationProperties, params.Tenant, params.Pagination.Autocut)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "object search at index %s", idx.ID())
 	}
@@ -88,8 +88,8 @@ func (db *DB) Search(ctx context.Context,
 	}
 
 	return db.ResolveReferences(ctx,
-		storobj.SearchResults(db.getStoreObjects(res, params.Pagination), params.AdditionalProperties),
-		params.Properties, params.GroupBy, params.AdditionalProperties, params.TenantKey)
+		storobj.SearchResults(db.getStoreObjects(res, params.Pagination), params.AdditionalProperties, params.Tenant),
+		params.Properties, params.GroupBy, params.AdditionalProperties, params.Tenant)
 }
 
 func (db *DB) VectorSearch(ctx context.Context,
@@ -112,7 +112,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 	targetDist := extractDistanceFromParams(params)
 	res, dists, err := idx.objectVectorSearch(ctx, params.SearchVector,
 		targetDist, totalLimit, params.Filters, params.Sort, params.GroupBy,
-		params.AdditionalProperties, params.TenantKey)
+		params.AdditionalProperties, params.Tenant)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
 	}
@@ -124,7 +124,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 	return db.ResolveReferences(ctx,
 		storobj.SearchResultsWithDists(db.getStoreObjects(res, params.Pagination),
 			params.AdditionalProperties, db.getDists(dists, params.Pagination)),
-		params.Properties, params.GroupBy, params.AdditionalProperties, params.TenantKey)
+		params.Properties, params.GroupBy, params.AdditionalProperties, params.Tenant)
 }
 
 func extractDistanceFromParams(params dto.GetParams) float32 {
@@ -242,7 +242,7 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 	if err != nil {
 		return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}
 	}
-	return db.getSearchResults(storobj.SearchResults(res, q.Additional), q.Offset, q.Limit), nil
+	return db.getSearchResults(storobj.SearchResults(res, q.Additional, ""), q.Offset, q.Limit), nil
 }
 
 // ObjectSearch search each index.
@@ -256,7 +256,7 @@ func (db *DB) ObjectSearch(ctx context.Context, offset, limit int,
 
 func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 	filters *filters.LocalFilter, sort []filters.Sort,
-	additional additional.Properties, tenantKey string,
+	additional additional.Properties, tenant string,
 ) (search.Results, error) {
 	var found []*storobj.Object
 
@@ -271,7 +271,7 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 	for _, index := range db.indices {
 		// TODO support all additional props
 		res, _, err := index.objectSearch(ctx, totalLimit,
-			filters, nil, sort, nil, additional, nil, tenantKey, 0)
+			filters, nil, sort, nil, additional, nil, tenant, 0)
 		if err != nil {
 			db.indexLock.RUnlock()
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
@@ -285,7 +285,7 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 	}
 	db.indexLock.RUnlock()
 
-	return db.getSearchResults(storobj.SearchResults(found, additional), offset, limit), nil
+	return db.getSearchResults(storobj.SearchResults(found, additional, tenant), offset, limit), nil
 }
 
 // ResolveReferences takes a list of search results and enriches them
