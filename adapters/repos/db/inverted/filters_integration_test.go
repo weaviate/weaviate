@@ -79,9 +79,9 @@ func Test_Filters_String(t *testing.T) {
 	t.Run("import data", func(t *testing.T) {
 		for value, ids := range fakeInvertedIndex {
 			idsMapValues := idsToBinaryMapValues(ids)
-			for _, pair := range idsMapValues {
-				propid_bytes := make([]byte, 8)
+			propid_bytes := make([]byte, 8)
 				binary.LittleEndian.PutUint64(propid_bytes, propId)
+			for _, pair := range idsMapValues {
 				require.Nil(t, bWithFrequency.MapSetProp(propid_bytes, []byte(value), pair))
 			}
 		}
@@ -275,15 +275,17 @@ func Test_Filters_String(t *testing.T) {
 			t.Run("update", func(t *testing.T) {
 				value := []byte("modulo-7")
 				idsMapValues := idsToBinaryMapValues([]uint64{21})
+				propid_bytes := make([]byte, 8)
+				binary.LittleEndian.PutUint64(propid_bytes, propId)
 				for _, pair := range idsMapValues {
-					require.Nil(t, bWithFrequency.MapSet([]byte(value), pair))
+					require.Nil(t, bWithFrequency.MapSetProp(propid_bytes, []byte(value), pair))
 				}
 
 				// for like filter
 				value = []byte("modulo-17")
 				idsMapValues = idsToBinaryMapValues([]uint64{17})
 				for _, pair := range idsMapValues {
-					require.Nil(t, bWithFrequency.MapSet([]byte(value), pair))
+					require.Nil(t, bWithFrequency.MapSetProp(propid_bytes, []byte(value), pair))
 				}
 			})
 
@@ -532,7 +534,14 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	store, err := lsmkv.New(dirName, "", logger, nil)
 	require.Nil(t, err)
 
+	propIds, err := propertyspecific.NewJsonPropertyIdTracker("tempfile_propertyIds")
+	defer propIds.Drop()
+	require.Nil(t, err)
 	propName := "inverted-with-frequency"
+	propId, err := propIds.CreateProperty(propName)
+	require.Nil(t, err)
+
+	
 	bucketName := "searchable_properties"
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
 		bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
@@ -549,7 +558,9 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 		for value, ids := range fakeInvertedIndex {
 			idsMapValues := idsToBinaryMapValues(ids)
 			for _, pair := range idsMapValues {
-				require.Nil(t, bWithFrequency.MapSet([]byte(value), pair))
+				propid_bytes := make([]byte, 8)
+			binary.LittleEndian.PutUint64(propid_bytes, propId)
+				require.Nil(t, bWithFrequency.MapSetProp(propid_bytes, []byte(value), pair))
 			}
 		}
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
@@ -613,14 +624,16 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 			t.Run("update", func(t *testing.T) {
 				value := []byte("list_a")
 				idsMapValues := idsToBinaryMapValues([]uint64{3})
+				propid_bytes := make([]byte, 8)
+			binary.LittleEndian.PutUint64(propid_bytes, propId)
 				for _, pair := range idsMapValues {
-					require.Nil(t, bWithFrequency.MapSet([]byte(value), pair))
+					require.Nil(t, bWithFrequency.MapSetProp(propid_bytes, []byte(value), pair))
 				}
 
 				value = []byte("list_b")
 				idsMapValues = idsToBinaryMapValues([]uint64{3})
 				for _, pair := range idsMapValues {
-					require.Nil(t, bWithFrequency.MapSet([]byte(value), pair))
+					require.Nil(t, bWithFrequency.MapSetProp(propid_bytes, []byte(value), pair))
 				}
 			})
 
