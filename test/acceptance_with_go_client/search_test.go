@@ -210,7 +210,7 @@ func TestAutocut(t *testing.T) {
 	className := "Paragraph453745"
 
 	AddClassAndObjects(t, className, string(schema.DataTypeTextArray), c)
-	// defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
 	searchQuery := []string{"hybrid:{query:\"rain nice\", alpha: 0, fusionType: relativeScoreFusion", "bm25:{query:\"rain nice\""}
 	cases := []struct {
@@ -308,7 +308,7 @@ func TestNearTextAutocut(t *testing.T) {
 		Vectorizer: "text2vec-contextionary",
 	}
 	require.Nil(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
-	// defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
 	creator := c.Data().Creator()
 
