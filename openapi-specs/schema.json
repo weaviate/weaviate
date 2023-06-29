@@ -1053,6 +1053,10 @@
         "classification": {
           "description": "Additional Meta information about classifications if the item was part of one",
           "$ref": "#/definitions/ReferenceMetaClassification"
+        },
+        "tenant": {
+          "type": "string",
+          "description": "Name of the reference tenant."
         }
       }
     },
@@ -1135,7 +1139,7 @@
           "format": "uri",
           "type": "string"
         },
-        "tenantName": {
+        "tenant" : {
           "type": "string",
           "description": "Name of the reference tenant."
         }
@@ -1252,7 +1256,7 @@
           "description": "This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.",
           "$ref": "#/definitions/C11yVector"
         },
-        "tenantName": {
+        "tenant": {
           "description": "Name of the Objects tenant.",
           "type": "string"
         },
@@ -1737,7 +1741,7 @@
     "CommonTenantKeyParameterQuery": {
       "description": "Specifies the tenant in a request targeting a multi-tenant class",
       "in": "query",
-      "name": "tenant_key",
+      "name": "tenant",
       "required": false,
       "type": "string"
     },
@@ -2880,9 +2884,6 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2966,9 +2967,6 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -3052,9 +3050,6 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {

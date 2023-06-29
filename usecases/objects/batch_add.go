@@ -140,7 +140,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	object.LastUpdateTimeUnix = 0
 	object.ID = id
 	object.Vector = concept.Vector
-	object.TenantName = concept.TenantName
+	object.Tenant = concept.Tenant
 
 	if _, ok := fieldsToKeep["class"]; ok {
 		object.Class = concept.Class

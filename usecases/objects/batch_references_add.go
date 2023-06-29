@@ -111,10 +111,10 @@ func (b *BatchManager) validateReference(ctx context.Context, principal *models.
 		err = joinErrors(errors)
 	}
 
-	if err == nil && shouldValidateMultiTenantRef(ref.TenantName, source, target) {
+	if err == nil && shouldValidateMultiTenantRef(ref.Tenant, source, target) {
 		// can only validate multi-tenancy when everything above succeeds
 		err = validateReferenceMultiTenancy(ctx, principal,
-			b.schemaManager, b.vectorRepo, source, target, ref.TenantName)
+			b.schemaManager, b.vectorRepo, source, target, ref.Tenant)
 	}
 
 	*resultsC <- BatchReference{
@@ -122,7 +122,7 @@ func (b *BatchManager) validateReference(ctx context.Context, principal *models.
 		To:            target,
 		Err:           err,
 		OriginalIndex: i,
-		TenantName:    ref.TenantName,
+		TenantName:    ref.Tenant,
 	}
 }
 

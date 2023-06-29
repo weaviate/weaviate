@@ -39,7 +39,7 @@ type PutReferenceInput struct {
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
 func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.Principal,
-	input *PutReferenceInput, repl *additional.ReplicationProperties, tenantKey string,
+	input *PutReferenceInput, repl *additional.ReplicationProperties,
 ) *Error {
 	m.metrics.UpdateReferenceInc()
 	defer m.metrics.UpdateReferenceDec()
@@ -70,9 +70,12 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	defer unlock()
 
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
-	if err := input.validate(ctx, principal, validator, m.schemaManager, tenantKey); err != nil {
-		return &Error{"bad inputs", StatusBadRequest, err}
+	for _, ref := range input.Refs {
+		if err := input.validate(ctx, principal, validator, m.schemaManager, ref.Tenant); err != nil {
+			return &Error{"bad inputs", StatusBadRequest, err}
+		}
 	}
+
 	obj := res.Object()
 	if obj.Properties == nil {
 		obj.Properties = map[string]interface{}{input.Property: input.Refs}

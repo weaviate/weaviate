@@ -64,11 +64,11 @@ type objectsManager interface {
 	MergeObject(context.Context, *models.Principal, *models.Object,
 		*additional.ReplicationProperties) *uco.Error
 	AddObjectReference(context.Context, *models.Principal, *uco.AddReferenceInput,
-		*additional.ReplicationProperties, string) *uco.Error
+		*additional.ReplicationProperties) *uco.Error
 	UpdateObjectReferences(context.Context, *models.Principal,
-		*uco.PutReferenceInput, *additional.ReplicationProperties, string) *uco.Error
+		*uco.PutReferenceInput, *additional.ReplicationProperties) *uco.Error
 	DeleteObjectReference(context.Context, *models.Principal, *uco.DeleteReferenceInput,
-		*additional.ReplicationProperties, string) *uco.Error
+		*additional.ReplicationProperties) *uco.Error
 	GetObjectsClass(ctx context.Context, principal *models.Principal, id strfmt.UUID) (*models.Class, error)
 }
 
@@ -157,7 +157,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
+	tenantKey := getTenantKey(params.Tenant)
 
 	object, err := h.manager.GetObject(params.HTTPRequest.Context(), principal,
 		params.ClassName, params.ID, additional, replProps, tenantKey)
@@ -283,7 +283,7 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
+	tenantKey := getTenantKey(params.Tenant)
 
 	err = h.manager.DeleteObject(params.HTTPRequest.Context(),
 		principal, params.ClassName, params.ID, repl, tenantKey)
@@ -344,7 +344,7 @@ func (h *objectHandlers) headObject(params objects.ObjectsClassHeadParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
+	tenantKey := getTenantKey(params.Tenant)
 
 	exists, objErr := h.manager.HeadObject(params.HTTPRequest.Context(),
 		principal, params.ClassName, params.ID, repl, tenantKey)
@@ -413,9 +413,7 @@ func (h *objectHandlers) addObjectReference(
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
-
-	objErr := h.manager.AddObjectReference(params.HTTPRequest.Context(), principal, &input, repl, tenantKey)
+	objErr := h.manager.AddObjectReference(params.HTTPRequest.Context(), principal, &input, repl)
 	if objErr != nil {
 		switch {
 		case objErr.Forbidden():
@@ -451,9 +449,7 @@ func (h *objectHandlers) putObjectReferences(params objects.ObjectsClassReferenc
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
-
-	objErr := h.manager.UpdateObjectReferences(params.HTTPRequest.Context(), principal, &input, repl, tenantKey)
+	objErr := h.manager.UpdateObjectReferences(params.HTTPRequest.Context(), principal, &input, repl)
 	if objErr != nil {
 		switch {
 		case objErr.Forbidden():
@@ -489,9 +485,7 @@ func (h *objectHandlers) deleteObjectReference(params objects.ObjectsClassRefere
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
-
-	objErr := h.manager.DeleteObjectReference(params.HTTPRequest.Context(), principal, &input, repl, tenantKey)
+	objErr := h.manager.DeleteObjectReference(params.HTTPRequest.Context(), principal, &input, repl)
 	if objErr != nil {
 		switch objErr.Code {
 		case uco.StatusForbidden:

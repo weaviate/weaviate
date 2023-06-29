@@ -52,7 +52,7 @@ func TestPatchTenantObjects(t *testing.T) {
 				tenantKey:   tenantNames[0],
 				mutableProp: "obj#0",
 			},
-			TenantName: tenantNames[0],
+			Tenant: tenantNames[0],
 		},
 		{
 			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
@@ -61,7 +61,7 @@ func TestPatchTenantObjects(t *testing.T) {
 				tenantKey:   tenantNames[1],
 				mutableProp: "obj#1",
 			},
-			TenantName: tenantNames[1],
+			Tenant: tenantNames[1],
 		},
 		{
 			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
@@ -70,7 +70,7 @@ func TestPatchTenantObjects(t *testing.T) {
 				tenantKey:   tenantNames[2],
 				mutableProp: "obj#2",
 			},
-			TenantName: tenantNames[2],
+			Tenant: tenantNames[2],
 		},
 	}
 
@@ -116,7 +116,7 @@ func TestPatchTenantObjects(t *testing.T) {
 					tenantKey:   tenantNames[i],
 					mutableProp: fmt.Sprintf("%s--patched", mut),
 				},
-				TenantName: tenantNames[i],
+				Tenant: tenantNames[i],
 			}
 			helper.PatchObject(t, toUpdate)
 		}
@@ -157,7 +157,7 @@ func TestPatchTenantObjects_ChangeTenantKey(t *testing.T) {
 		Properties: map[string]interface{}{
 			tenantKey: tenantName,
 		},
-		TenantName: tenantName,
+		Tenant: tenantName,
 	}
 
 	defer func() {
@@ -183,7 +183,7 @@ func TestPatchTenantObjects_ChangeTenantKey(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: "updatedTenantName",
 			},
-			TenantName: "updatedTenantName",
+			Tenant: "updatedTenantName",
 		}
 		params := objects.NewObjectsClassPatchParams().WithClassName(toUpdate.Class).
 			WithID(toUpdate.ID).WithBody(&toUpdate)

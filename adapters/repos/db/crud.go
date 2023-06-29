@@ -63,7 +63,7 @@ func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
 }
 
 func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
-	additional additional.Properties, tenantKey string,
+	additional additional.Properties, tenant string,
 ) ([]search.Result, error) {
 	byIndex := map[string][]multi.Identifier{}
 	db.indexLock.RLock()
@@ -86,7 +86,7 @@ func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
 
 	out := make(search.Results, len(query))
 	for indexID, queries := range byIndex {
-		indexRes, err := db.indices[indexID].multiObjectByID(ctx, queries, tenantKey)
+		indexRes, err := db.indices[indexID].multiObjectByID(ctx, queries, tenant)
 		if err != nil {
 			return nil, errors.Wrapf(err, "index %q", indexID)
 		}
@@ -95,7 +95,7 @@ func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
 			if obj == nil {
 				continue
 			}
-			res := obj.SearchResult(additional)
+			res := obj.SearchResult(additional, tenant)
 			out[queries[i].OriginalPosition] = *res
 		}
 	}
@@ -125,7 +125,7 @@ func (db *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 // a class context
 func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
-	tenantKey string,
+	tenant string,
 ) (search.Results, error) {
 	var result []*storobj.Object
 	// TODO: Search in parallel, rather than sequentially or this will be
@@ -133,7 +133,7 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	db.indexLock.RLock()
 
 	for _, index := range db.indices {
-		res, err := index.objectByID(ctx, id, props, additional, nil, tenantKey)
+		res, err := index.objectByID(ctx, id, props, additional, nil, tenant)
 		if err != nil {
 			db.indexLock.RUnlock()
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
@@ -150,31 +150,31 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	}
 
 	return db.ResolveReferences(ctx,
-		storobj.SearchResults(result, additional), props, nil, additional, tenantKey)
+		storobj.SearchResults(result, additional, tenant), props, nil, additional, tenant)
 }
 
 // Object gets object with id from index of specified class.
 func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID,
 	props search.SelectProperties, addl additional.Properties,
-	repl *additional.ReplicationProperties, tenantKey string,
+	repl *additional.ReplicationProperties, tenant string,
 ) (*search.Result, error) {
 	idx := db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return nil, nil
 	}
 
-	obj, err := idx.objectByID(ctx, id, props, addl, repl, tenantKey)
+	obj, err := idx.objectByID(ctx, id, props, addl, repl, tenant)
 	if err != nil {
 		return nil, errors.Wrapf(err, "search index %s", idx.ID())
 	}
 	var r *search.Result
 	if obj != nil {
-		r = obj.SearchResult(addl)
+		r = obj.SearchResult(addl, tenant)
 	}
 	if r == nil {
 		return nil, nil
 	}
-	return db.enrichRefsForSingle(ctx, r, props, addl, tenantKey)
+	return db.enrichRefsForSingle(ctx, r, props, addl, tenant)
 }
 
 func (db *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
