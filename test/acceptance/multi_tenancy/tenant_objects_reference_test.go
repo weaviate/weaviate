@@ -56,7 +56,7 @@ func TestTenantObjectsReference(t *testing.T) {
 				tenantKey:   tenantNames[0],
 				mutableProp: "obj#0",
 			},
-			TenantName: tenantNames[0],
+			Tenant: tenantNames[0],
 		},
 		{
 			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
@@ -65,7 +65,7 @@ func TestTenantObjectsReference(t *testing.T) {
 				tenantKey:   tenantNames[1],
 				mutableProp: "obj#1",
 			},
-			TenantName: tenantNames[1],
+			Tenant: tenantNames[1],
 		},
 		{
 			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
@@ -74,7 +74,7 @@ func TestTenantObjectsReference(t *testing.T) {
 				tenantKey:   tenantNames[2],
 				mutableProp: "obj#2",
 			},
-			TenantName: tenantNames[2],
+			Tenant: tenantNames[2],
 		},
 	}
 	tenantRefs := []*models.Object{
@@ -85,7 +85,7 @@ func TestTenantObjectsReference(t *testing.T) {
 				tenantKey:   tenantNames[0],
 				mutableProp: "ref#0",
 			},
-			TenantName: tenantNames[0],
+			Tenant: tenantNames[0],
 		},
 		{
 			ID:    "4d78424d-f7bd-479b-bd8a-52510e2db0fd",
@@ -94,7 +94,7 @@ func TestTenantObjectsReference(t *testing.T) {
 				tenantKey:   tenantNames[1],
 				mutableProp: "ref#1",
 			},
-			TenantName: tenantNames[1],
+			Tenant: tenantNames[1],
 		},
 		{
 			ID:    "c1db0a06-d5f9-4f77-aa3c-08a44f16e358",
@@ -103,7 +103,7 @@ func TestTenantObjectsReference(t *testing.T) {
 				tenantKey:   tenantNames[2],
 				mutableProp: "ref#2",
 			},
-			TenantName: tenantNames[2],
+			Tenant: tenantNames[2],
 		},
 	}
 
@@ -142,7 +142,7 @@ func TestTenantObjectsReference(t *testing.T) {
 
 	t.Run("add tenant object references", func(t *testing.T) {
 		for i, obj := range tenantObjects {
-			ref := &models.SingleRef{Beacon: helper.NewBeacon(className, tenantRefs[i].ID), TenantName: tenantNames[i]}
+			ref := &models.SingleRef{Beacon: helper.NewBeacon(className, tenantRefs[i].ID), Tenant: tenantNames[i]}
 			helper.AddReference(t, obj, ref, refProp)
 		}
 
@@ -162,7 +162,7 @@ func TestTenantObjectsReference(t *testing.T) {
 
 	t.Run("delete tenant object references", func(Z *testing.T) {
 		for i, obj := range tenantObjects {
-			ref := &models.SingleRef{Beacon: helper.NewBeacon(className, tenantRefs[i].ID), TenantName: tenantNames[i]}
+			ref := &models.SingleRef{Beacon: helper.NewBeacon(className, tenantRefs[i].ID), Tenant: tenantNames[i]}
 			helper.DeleteReference(t, obj, ref, refProp)
 		}
 

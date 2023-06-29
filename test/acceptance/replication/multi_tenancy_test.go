@@ -137,9 +137,9 @@ func multiTenancyEnabled(t *testing.T) {
 		refs := make([]*models.BatchReference, len(articleIDs))
 		for i := range articleIDs {
 			refs[i] = &models.BatchReference{
-				From:       strfmt.URI(crossref.NewSource("Article", "hasParagraphs", articleIDs[i]).String()),
-				To:         strfmt.URI(crossref.NewLocalhost("Paragraph", paragraphIDs[i]).String()),
-				TenantName: tenantID.String(),
+				From:   strfmt.URI(crossref.NewSource("Article", "hasParagraphs", articleIDs[i]).String()),
+				To:     strfmt.URI(crossref.NewLocalhost("Paragraph", paragraphIDs[i]).String()),
+				Tenant: tenantID.String(),
 			}
 		}
 
@@ -201,7 +201,7 @@ func multiTenancyEnabled(t *testing.T) {
 				ID:         before.ID,
 				Class:      "Article",
 				Properties: map[string]interface{}{"title": newTitle, tenantKey: tenantID.String()},
-				TenantName: tenantID.String(),
+				Tenant:     tenantID.String(),
 			}
 			patchTenantObject(t, compose.GetWeaviateNode2().URI(), patch)
 		})

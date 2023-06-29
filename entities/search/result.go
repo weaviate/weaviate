@@ -60,7 +60,7 @@ func (r Result) ObjectWithVector(includeVector bool) *models.Object {
 		CreationTimeUnix:   r.Created,
 		LastUpdateTimeUnix: r.Updated,
 		VectorWeights:      r.VectorWeights,
-		TenantName:         r.Tenant,
+		Tenant:             r.Tenant,
 	}
 
 	if r.AdditionalProperties != nil {

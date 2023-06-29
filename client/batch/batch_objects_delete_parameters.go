@@ -83,11 +83,11 @@ type BatchObjectsDeleteParams struct {
 	*/
 	ConsistencyLevel *string
 
-	/* TenantKey.
+	/* Tenant.
 
 	   Specifies the tenant in a request targeting a multi-tenant class
 	*/
-	TenantKey *string
+	Tenant *string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -164,15 +164,15 @@ func (o *BatchObjectsDeleteParams) SetConsistencyLevel(consistencyLevel *string)
 	o.ConsistencyLevel = consistencyLevel
 }
 
-// WithTenantKey adds the tenantKey to the batch objects delete params
-func (o *BatchObjectsDeleteParams) WithTenantKey(tenantKey *string) *BatchObjectsDeleteParams {
-	o.SetTenantKey(tenantKey)
+// WithTenant adds the tenant to the batch objects delete params
+func (o *BatchObjectsDeleteParams) WithTenant(tenant *string) *BatchObjectsDeleteParams {
+	o.SetTenant(tenant)
 	return o
 }
 
-// SetTenantKey adds the tenantKey to the batch objects delete params
-func (o *BatchObjectsDeleteParams) SetTenantKey(tenantKey *string) {
-	o.TenantKey = tenantKey
+// SetTenant adds the tenant to the batch objects delete params
+func (o *BatchObjectsDeleteParams) SetTenant(tenant *string) {
+	o.Tenant = tenant
 }
 
 // WriteToRequest writes these params to a swagger request
@@ -205,18 +205,18 @@ func (o *BatchObjectsDeleteParams) WriteToRequest(r runtime.ClientRequest, reg s
 		}
 	}
 
-	if o.TenantKey != nil {
+	if o.Tenant != nil {
 
-		// query param tenant_key
-		var qrTenantKey string
+		// query param tenant
+		var qrTenant string
 
-		if o.TenantKey != nil {
-			qrTenantKey = *o.TenantKey
+		if o.Tenant != nil {
+			qrTenant = *o.Tenant
 		}
-		qTenantKey := qrTenantKey
-		if qTenantKey != "" {
+		qTenant := qrTenant
+		if qTenant != "" {
 
-			if err := r.SetQueryParam("tenant_key", qTenantKey); err != nil {
+			if err := r.SetQueryParam("tenant", qTenant); err != nil {
 				return err
 			}
 		}

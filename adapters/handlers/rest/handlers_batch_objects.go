@@ -140,7 +140,7 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
+	tenantKey := getTenantKey(params.Tenant)
 
 	res, err := h.manager.DeleteObjects(params.HTTPRequest.Context(), principal,
 		params.Body.Match, params.Body.DryRun, params.Body.Output, repl, tenantKey)

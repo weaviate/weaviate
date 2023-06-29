@@ -58,7 +58,7 @@ type BatchObjectsDeleteParams struct {
 	/*Specifies the tenant in a request targeting a multi-tenant class
 	  In: query
 	*/
-	TenantKey *string
+	Tenant *string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -105,8 +105,8 @@ func (o *BatchObjectsDeleteParams) BindRequest(r *http.Request, route *middlewar
 		res = append(res, err)
 	}
 
-	qTenantKey, qhkTenantKey, _ := qs.GetOK("tenant_key")
-	if err := o.bindTenantKey(qTenantKey, qhkTenantKey, route.Formats); err != nil {
+	qTenant, qhkTenant, _ := qs.GetOK("tenant")
+	if err := o.bindTenant(qTenant, qhkTenant, route.Formats); err != nil {
 		res = append(res, err)
 	}
 	if len(res) > 0 {
@@ -133,8 +133,8 @@ func (o *BatchObjectsDeleteParams) bindConsistencyLevel(rawData []string, hasKey
 	return nil
 }
 
-// bindTenantKey binds and validates parameter TenantKey from query.
-func (o *BatchObjectsDeleteParams) bindTenantKey(rawData []string, hasKey bool, formats strfmt.Registry) error {
+// bindTenant binds and validates parameter Tenant from query.
+func (o *BatchObjectsDeleteParams) bindTenant(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
@@ -146,7 +146,7 @@ func (o *BatchObjectsDeleteParams) bindTenantKey(rawData []string, hasKey bool, 
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-	o.TenantKey = &raw
+	o.Tenant = &raw
 
 	return nil
 }

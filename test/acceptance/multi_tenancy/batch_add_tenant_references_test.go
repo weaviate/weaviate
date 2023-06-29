@@ -95,7 +95,7 @@ func TestBatchAddTenantReferences(t *testing.T) {
 		Properties: map[string]interface{}{
 			tenantKey: tenantName1,
 		},
-		TenantName: tenantName1,
+		Tenant: tenantName1,
 	}
 	mtObject2DiffTenant := &models.Object{
 		ID:    "af90a7e3-53b3-4eb0-b395-10a04d217263",
@@ -103,7 +103,7 @@ func TestBatchAddTenantReferences(t *testing.T) {
 		Properties: map[string]interface{}{
 			tenantKey: tenantName2,
 		},
-		TenantName: tenantName2,
+		Tenant: tenantName2,
 	}
 	mtObject2SameTenant := &models.Object{
 		ID:    "4076df6b-0767-43a9-a0a4-2ec153bf262e",
@@ -111,7 +111,7 @@ func TestBatchAddTenantReferences(t *testing.T) {
 		Properties: map[string]interface{}{
 			tenantKey: tenantName1,
 		},
-		TenantName: tenantName1,
+		Tenant: tenantName1,
 	}
 	stObject1 := &models.Object{
 		ID:    "bea841c7-d689-4526-8af3-56c44b44274a",
@@ -183,8 +183,8 @@ func TestBatchAddTenantReferences(t *testing.T) {
 			{
 				From: strfmt.URI(crossref.NewSource(schema.ClassName(className1),
 					schema.PropertyName(mtRefProp1), mtObject1.ID).String()),
-				To:         strfmt.URI(crossref.NewLocalhost(className1, mtObject1.ID).String()),
-				TenantName: tenantName1,
+				To:     strfmt.URI(crossref.NewLocalhost(className1, mtObject1.ID).String()),
+				Tenant: tenantName1,
 			},
 		}
 		resp, err := helper.AddReferences(t, refs)
@@ -207,8 +207,8 @@ func TestBatchAddTenantReferences(t *testing.T) {
 			{
 				From: strfmt.URI(crossref.NewSource(schema.ClassName(className1),
 					schema.PropertyName(mtRefProp2), mtObject1.ID).String()),
-				To:         strfmt.URI(crossref.NewLocalhost(className2, mtObject2SameTenant.ID).String()),
-				TenantName: tenantName1,
+				To:     strfmt.URI(crossref.NewLocalhost(className2, mtObject2SameTenant.ID).String()),
+				Tenant: tenantName1,
 			},
 		}
 		resp, err := helper.AddReferences(t, refs)
@@ -231,8 +231,8 @@ func TestBatchAddTenantReferences(t *testing.T) {
 			{
 				From: strfmt.URI(crossref.NewSource(schema.ClassName(className1),
 					schema.PropertyName(mtRefProp2), mtObject1.ID).String()),
-				To:         strfmt.URI(crossref.NewLocalhost(className2, mtObject2DiffTenant.ID).String()),
-				TenantName: tenantName1,
+				To:     strfmt.URI(crossref.NewLocalhost(className2, mtObject2DiffTenant.ID).String()),
+				Tenant: tenantName1,
 			},
 		}
 
@@ -256,8 +256,8 @@ func TestBatchAddTenantReferences(t *testing.T) {
 			{
 				From: strfmt.URI(crossref.NewSource(schema.ClassName(className1),
 					schema.PropertyName(stRefProp), mtObject1.ID).String()),
-				To:         strfmt.URI(crossref.NewLocalhost(className3, stObject1.ID).String()),
-				TenantName: tenantName1,
+				To:     strfmt.URI(crossref.NewLocalhost(className3, stObject1.ID).String()),
+				Tenant: tenantName1,
 			},
 		}
 		resp, err := helper.AddReferences(t, refs)
@@ -352,7 +352,7 @@ func TestAddMultipleTenantsForBatch(t *testing.T) {
 			Class: classes[i%len(classes)].Class,
 		}
 		if i%len(classes) > 0 { // only for MMT class
-			obj.TenantName = tenants[i%len(tenants)]
+			obj.Tenant = tenants[i%len(tenants)]
 		}
 		tenantObjects = append(tenantObjects, obj)
 		objMap[obj.Class] = append(objMap[obj.Class], i)
@@ -366,8 +366,8 @@ func TestAddMultipleTenantsForBatch(t *testing.T) {
 			refs = append(refs, &models.BatchReference{
 				From: strfmt.URI(crossref.NewSource(schema.ClassName(obj.Class),
 					schema.PropertyName(refProps[2]), obj.ID).String()),
-				To:         strfmt.URI(crossref.NewLocalhost(classNames[2], obj.ID).String()),
-				TenantName: obj.TenantName,
+				To:     strfmt.URI(crossref.NewLocalhost(classNames[2], obj.ID).String()),
+				Tenant: obj.Tenant,
 			},
 			)
 		}
@@ -378,11 +378,11 @@ func TestAddMultipleTenantsForBatch(t *testing.T) {
 		for _, objectIndex := range objMap[classNames[2]] {
 			obj := tenantObjects[objectIndex]
 
-			resp, err := helper.TenantObject(t, classNames[2], obj.ID, obj.TenantName)
+			resp, err := helper.TenantObject(t, classNames[2], obj.ID, obj.Tenant)
 			require.Nil(t, err)
 			require.Equal(t, obj.Class, resp.Class)
 			require.Equal(t, fmt.Sprintf("weaviate://localhost/%s/%v", obj.Class, obj.ID), resp.Properties.(map[string]interface{})[refProps[2]].([]interface{})[0].(map[string]interface{})["beacon"])
-			require.Equal(t, obj.TenantName, resp.TenantName)
+			require.Equal(t, obj.Tenant, resp.Tenant)
 		}
 	})
 
@@ -393,12 +393,12 @@ func TestAddMultipleTenantsForBatch(t *testing.T) {
 			// refs between two MMT classes
 			if len(objMap[classNames[1]]) > i {
 				objClass1 := tenantObjects[objMap[classNames[1]][i]]
-				if objClass2.TenantName == objClass1.TenantName {
+				if objClass2.Tenant == objClass1.Tenant {
 					refs = append(refs, &models.BatchReference{
 						From: strfmt.URI(crossref.NewSource(schema.ClassName(classNames[2]),
 							schema.PropertyName(refProps[1]), objClass2.ID).String()),
-						To:         strfmt.URI(crossref.NewLocalhost(classNames[1], objClass1.ID).String()),
-						TenantName: objClass2.TenantName,
+						To:     strfmt.URI(crossref.NewLocalhost(classNames[1], objClass1.ID).String()),
+						Tenant: objClass2.Tenant,
 					})
 				}
 			}
@@ -409,8 +409,8 @@ func TestAddMultipleTenantsForBatch(t *testing.T) {
 				refs = append(refs, &models.BatchReference{
 					From: strfmt.URI(crossref.NewSource(schema.ClassName(classNames[2]),
 						schema.PropertyName(refProps[0]), objClass2.ID).String()),
-					To:         strfmt.URI(crossref.NewLocalhost(classNames[0], objClass0.ID).String()),
-					TenantName: objClass2.TenantName,
+					To:     strfmt.URI(crossref.NewLocalhost(classNames[0], objClass0.ID).String()),
+					Tenant: objClass2.Tenant,
 				})
 			}
 		}
@@ -423,15 +423,15 @@ func TestAddMultipleTenantsForBatch(t *testing.T) {
 			// refs between two MMT classes
 			if len(objMap[classNames[1]]) > i {
 				objClass1 := tenantObjects[objMap[classNames[1]][i]]
-				if objClass2.TenantName != objClass1.TenantName {
+				if objClass2.Tenant != objClass1.Tenant {
 					continue
 				}
 
-				resp, err := helper.TenantObject(t, classNames[2], objClass2.ID, objClass2.TenantName)
+				resp, err := helper.TenantObject(t, classNames[2], objClass2.ID, objClass2.Tenant)
 				require.Nil(t, err)
 				require.Equal(t, objClass2.Class, resp.Class)
 				require.Equal(t, fmt.Sprintf("weaviate://localhost/%s/%v", objClass1.Class, objClass1.ID), resp.Properties.(map[string]interface{})[refProps[1]].([]interface{})[0].(map[string]interface{})["beacon"])
-				require.Equal(t, objClass2.TenantName, resp.TenantName)
+				require.Equal(t, objClass2.Tenant, resp.Tenant)
 
 			}
 
@@ -441,8 +441,8 @@ func TestAddMultipleTenantsForBatch(t *testing.T) {
 				refs = append(refs, &models.BatchReference{
 					From: strfmt.URI(crossref.NewSource(schema.ClassName(classNames[2]),
 						schema.PropertyName(refProps[0]), objClass2.ID).String()),
-					To:         strfmt.URI(crossref.NewLocalhost(classNames[0], objClass0.ID).String()),
-					TenantName: objClass2.TenantName,
+					To:     strfmt.URI(crossref.NewLocalhost(classNames[0], objClass0.ID).String()),
+					Tenant: objClass2.Tenant,
 				})
 			}
 		}

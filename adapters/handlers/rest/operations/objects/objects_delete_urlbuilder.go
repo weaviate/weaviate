@@ -30,7 +30,7 @@ type ObjectsDeleteURL struct {
 	ID strfmt.UUID
 
 	ConsistencyLevel *string
-	TenantKey        *string
+	Tenant           *string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -81,12 +81,12 @@ func (o *ObjectsDeleteURL) Build() (*url.URL, error) {
 		qs.Set("consistency_level", consistencyLevelQ)
 	}
 
-	var tenantKeyQ string
-	if o.TenantKey != nil {
-		tenantKeyQ = *o.TenantKey
+	var tenantQ string
+	if o.Tenant != nil {
+		tenantQ = *o.Tenant
 	}
-	if tenantKeyQ != "" {
-		qs.Set("tenant_key", tenantKeyQ)
+	if tenantQ != "" {
+		qs.Set("tenant", tenantQ)
 	}
 
 	_result.RawQuery = qs.Encode()

@@ -129,10 +129,10 @@ func DeleteObjectsBatch(t *testing.T, body *models.BatchDelete) {
 }
 
 func DeleteTenantObjectsBatch(t *testing.T, body *models.BatchDelete,
-	tenantKey string,
+	tenant string,
 ) (*models.BatchDeleteResponse, error) {
 	params := batch.NewBatchObjectsDeleteParams().
-		WithBody(body).WithTenantKey(&tenantKey)
+		WithBody(body).WithTenant(&tenant)
 	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
 	if err != nil {
 		return nil, err

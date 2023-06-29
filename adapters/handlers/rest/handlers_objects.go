@@ -157,7 +157,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
+	tenantKey := getTenantKey(params.Tenant)
 
 	object, err := h.manager.GetObject(params.HTTPRequest.Context(), principal,
 		params.ClassName, params.ID, additional, replProps, tenantKey)
@@ -283,7 +283,7 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
+	tenantKey := getTenantKey(params.Tenant)
 
 	err = h.manager.DeleteObject(params.HTTPRequest.Context(),
 		principal, params.ClassName, params.ID, repl, tenantKey)
@@ -344,7 +344,7 @@ func (h *objectHandlers) headObject(params objects.ObjectsClassHeadParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
+	tenantKey := getTenantKey(params.Tenant)
 
 	exists, objErr := h.manager.HeadObject(params.HTTPRequest.Context(),
 		principal, params.ClassName, params.ID, repl, tenantKey)
