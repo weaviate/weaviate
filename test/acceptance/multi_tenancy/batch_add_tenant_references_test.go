@@ -222,7 +222,7 @@ func TestBatchAddTenantReferences(t *testing.T) {
 		})
 	})
 
-	t.Run("add tenant reference - different MT class and tenant", func(t *testing.T) {
+	t.Run("no references between different tenants", func(t *testing.T) {
 		refs := []*models.BatchReference{
 			{
 				From: strfmt.URI(crossref.NewSource(schema.ClassName(className1),
@@ -269,7 +269,7 @@ func TestBatchAddTenantReferences(t *testing.T) {
 		})
 	})
 
-	t.Run("add tenant reference - from single tenant class to MT class", func(t *testing.T) {
+	t.Run("no references from single tenant class to MT class", func(t *testing.T) {
 		refs := []*models.BatchReference{
 			{
 				From: strfmt.URI(crossref.NewSource(schema.ClassName(className4),
@@ -291,4 +291,14 @@ func TestBatchAddTenantReferences(t *testing.T) {
 		expectedMsg := "invalid reference: cannot reference a multi-tenant enabled class from a non multi-tenant enabled class"
 		assert.Equal(t, expectedMsg, resp[0].Result.Errors.Error[0].Message)
 	})
+}
+
+func TestAddNonTenantRefBatchToMultiClass(t *testing.T) {
+	className := "MultiTenantClassRefBatchFail"
+	testClass := models.Class{
+		Class: className,
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled: true,
+		},
+	}
 }
