@@ -269,7 +269,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCleanupCycle cyclemanager.Cycle
 		VectorForIDThunk:     cfg.VectorForIDThunk,
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 		pqConfig:             uc.PQ,
-		shardedNodeLocks:     make([]sync.RWMutex, NodeLockStride),
+		shardedNodeLocks:     make([]sync.RWMutex, NodeLockStripe),
 	}
 
 	// TODO common_cycle_manager move to poststartup?
