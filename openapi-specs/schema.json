@@ -1135,7 +1135,7 @@
           "format": "uri",
           "type": "string"
         },
-        "tenantName" : {
+        "tenantName": {
           "type": "string",
           "description": "Name of the reference tenant."
         }
@@ -3540,7 +3540,7 @@
         "tags": [
           "schema"
         ],
-        "responses":{
+        "responses": {
           "200": {
             "description": "The schema in the cluster is in sync.",
             "schema": {

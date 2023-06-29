@@ -36,7 +36,7 @@ func New(client Client) *Vectorizer {
 type Client interface {
 	Vectorize(ctx context.Context, input string,
 		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
-	VectorizeQuery(ctx context.Context, input string,
+	VectorizeQuery(ctx context.Context, input []string,
 		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
 }
 
@@ -148,7 +148,10 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 		return nil, err
 	}
 
-	return res.Vector, nil
+	if len(res.Vector) > 1 {
+		return v.CombineVectors(res.Vector), nil
+	}
+	return res.Vector[0], nil
 }
 
 func camelCaseToLower(in string) string {
