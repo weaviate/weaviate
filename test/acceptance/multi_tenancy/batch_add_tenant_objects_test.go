@@ -14,6 +14,9 @@ package test
 import (
 	"testing"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
+
 	"github.com/weaviate/weaviate/client/batch"
 
 	"github.com/stretchr/testify/assert"
@@ -84,8 +87,57 @@ func TestBatchAddTenantObjects(t *testing.T) {
 			assert.Equal(t, obj.ID, resp.ID)
 			assert.Equal(t, obj.Class, resp.Class)
 			assert.Equal(t, obj.Properties, resp.Properties)
+			assert.Equal(t, obj.TenantName, resp.Properties.(map[string]interface{})[tenantKey])
 		}
 	})
+}
+
+func TestBatchWithMixedTenants(t *testing.T) {
+	className := "MultiTenantClassMixedBatchFail"
+	classes := []models.Class{
+		{
+			Class: className + "1",
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled: true,
+			},
+		}, {
+			Class: className + "2",
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled: true,
+			},
+		},
+	}
+	tenants := []string{"tenant1", "tenant2", "tenant3"}
+	for i := range classes {
+		helper.CreateClass(t, &classes[i])
+		for k := range tenants {
+			helper.CreateTenants(t, classes[i].Class, []*models.Tenant{{tenants[k]}})
+		}
+	}
+	defer func() {
+		for i := range classes {
+			helper.DeleteClass(t, classes[i].Class)
+		}
+	}()
+
+	var tenantObjects []*models.Object
+
+	for i := 0; i < 9; i++ {
+		tenantObjects = append(tenantObjects, &models.Object{
+			ID:         strfmt.UUID(uuid.New().String()),
+			Class:      classes[i%2].Class,
+			TenantName: tenants[i%len(tenants)],
+		},
+		)
+	}
+	helper.CreateObjectsBatch(t, tenantObjects)
+
+	for _, obj := range tenantObjects {
+		resp, err := helper.TenantObject(t, obj.Class, obj.ID, obj.TenantName)
+		require.Nil(t, err)
+		assert.Equal(t, obj.ID, resp.ID)
+		assert.Equal(t, obj.Class, resp.Class)
+	}
 }
 
 func TestAddNonTenantBatchToMultiClass(t *testing.T) {
