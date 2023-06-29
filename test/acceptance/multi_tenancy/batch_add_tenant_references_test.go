@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -181,10 +183,11 @@ func TestBatchAddTenantReferences(t *testing.T) {
 			{
 				From: strfmt.URI(crossref.NewSource(schema.ClassName(className1),
 					schema.PropertyName(mtRefProp1), mtObject1.ID).String()),
-				To: strfmt.URI(crossref.NewLocalhost(className1, mtObject1.ID).String()),
+				To:         strfmt.URI(crossref.NewLocalhost(className1, mtObject1.ID).String()),
+				TenantName: tenantName1,
 			},
 		}
-		resp, err := helper.AddTenantReferences(t, refs, tenantName1)
+		resp, err := helper.AddReferences(t, refs)
 		helper.CheckReferencesBatchResponse(t, resp, err)
 
 		t.Run("verify object references", func(t *testing.T) {
@@ -204,10 +207,11 @@ func TestBatchAddTenantReferences(t *testing.T) {
 			{
 				From: strfmt.URI(crossref.NewSource(schema.ClassName(className1),
 					schema.PropertyName(mtRefProp2), mtObject1.ID).String()),
-				To: strfmt.URI(crossref.NewLocalhost(className2, mtObject2SameTenant.ID).String()),
+				To:         strfmt.URI(crossref.NewLocalhost(className2, mtObject2SameTenant.ID).String()),
+				TenantName: tenantName1,
 			},
 		}
-		resp, err := helper.AddTenantReferences(t, refs, tenantName1)
+		resp, err := helper.AddReferences(t, refs)
 		helper.CheckReferencesBatchResponse(t, resp, err)
 
 		t.Run("verify object references", func(t *testing.T) {
@@ -227,11 +231,12 @@ func TestBatchAddTenantReferences(t *testing.T) {
 			{
 				From: strfmt.URI(crossref.NewSource(schema.ClassName(className1),
 					schema.PropertyName(mtRefProp2), mtObject1.ID).String()),
-				To: strfmt.URI(crossref.NewLocalhost(className2, mtObject2DiffTenant.ID).String()),
+				To:         strfmt.URI(crossref.NewLocalhost(className2, mtObject2DiffTenant.ID).String()),
+				TenantName: tenantName1,
 			},
 		}
 
-		resp, err := helper.AddTenantReferences(t, refs, tenantName1)
+		resp, err := helper.AddReferences(t, refs)
 		require.Nil(t, err)
 		require.NotNil(t, resp)
 		require.Len(t, resp, 1)
@@ -251,10 +256,11 @@ func TestBatchAddTenantReferences(t *testing.T) {
 			{
 				From: strfmt.URI(crossref.NewSource(schema.ClassName(className1),
 					schema.PropertyName(stRefProp), mtObject1.ID).String()),
-				To: strfmt.URI(crossref.NewLocalhost(className3, stObject1.ID).String()),
+				To:         strfmt.URI(crossref.NewLocalhost(className3, stObject1.ID).String()),
+				TenantName: tenantName1,
 			},
 		}
-		resp, err := helper.AddTenantReferences(t, refs, tenantName1)
+		resp, err := helper.AddReferences(t, refs)
 		helper.CheckReferencesBatchResponse(t, resp, err)
 
 		t.Run("verify object references", func(t *testing.T) {
@@ -293,12 +299,113 @@ func TestBatchAddTenantReferences(t *testing.T) {
 	})
 }
 
-func TestAddNonTenantRefBatchToMultiClass(t *testing.T) {
-	className := "MultiTenantClassRefBatchFail"
-	testClass := models.Class{
-		Class: className,
-		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled: true,
+func TestAddMultipleTenantsForBatch(t *testing.T) {
+	tenants := []string{"tenant1", "tenant2"}
+	classNames := []string{"MultiTenantRefs1", "MultiTenantRefs2", "MultiTenantRefs3"}
+	refProps := []string{"refPropMT1", "refPropMT2", "refPropST1"}
+	classes := []models.Class{
+		{Class: classNames[0]},
+		{
+			Class:              classNames[1],
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		},
+		{
+			Class:              classNames[2],
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			Properties: []*models.Property{
+				{
+					Name:     refProps[0],
+					DataType: []string{classNames[0]},
+				},
+				{
+					Name:     refProps[1],
+					DataType: []string{classNames[1]},
+				},
+				{
+					Name:     refProps[2],
+					DataType: []string{classNames[2]},
+				},
+			},
 		},
 	}
+	defer func() {
+		for i := range classes {
+			helper.DeleteClass(t, classes[i].Class)
+		}
+	}()
+	for i := range classes {
+		helper.CreateClass(t, &classes[i])
+	}
+
+	for _, class := range classes[1:] {
+		for k := range tenants {
+			helper.CreateTenants(t, class.Class, []*models.Tenant{{tenants[k]}})
+		}
+	}
+
+	var tenantObjects []*models.Object
+	objMap := make(map[string][]int)
+
+	for i := 0; i < 9; i++ {
+		obj := &models.Object{
+			ID:    strfmt.UUID(uuid.New().String()),
+			Class: classes[i%len(classes)].Class,
+		}
+		if i%len(classes) > 0 { // only for MMT class
+			obj.TenantName = tenants[i%len(tenants)]
+		}
+		tenantObjects = append(tenantObjects, obj)
+		objMap[obj.Class] = append(objMap[obj.Class], i)
+	}
+	helper.CreateObjectsBatch(t, tenantObjects)
+
+	t.Run("refs between same class", func(t *testing.T) {
+		var refs []*models.BatchReference
+		for _, objectIndex := range objMap[classNames[2]] {
+			refs = append(refs, &models.BatchReference{
+				From: strfmt.URI(crossref.NewSource(schema.ClassName(classNames[2]),
+					schema.PropertyName(refProps[0]), tenantObjects[objectIndex].ID).String()),
+				To:         strfmt.URI(crossref.NewLocalhost(classNames[2], tenantObjects[objectIndex].ID).String()),
+				TenantName: tenantObjects[objectIndex].TenantName,
+			},
+			)
+		}
+		resp, err := helper.AddReferences(t, refs)
+		helper.CheckReferencesBatchResponse(t, resp, err)
+	})
+
+	t.Run("refs between multiple classes class", func(t *testing.T) {
+		var refs []*models.BatchReference
+		for _, objectIndexClass2 := range objMap[classNames[2]] {
+			objClass2 := tenantObjects[objectIndexClass2]
+			// refs between two MMT classes
+			for _, objectIndexClass1 := range objMap[classNames[1]] {
+				objClass1 := tenantObjects[objectIndexClass1]
+
+				if objClass2.TenantName != objClass1.TenantName {
+					continue
+				}
+
+				refs = append(refs, &models.BatchReference{
+					From: strfmt.URI(crossref.NewSource(schema.ClassName(classNames[2]),
+						schema.PropertyName(refProps[0]), objClass2.ID).String()),
+					To:         strfmt.URI(crossref.NewLocalhost(classNames[1], objClass1.ID).String()),
+					TenantName: objClass1.TenantName,
+				})
+			}
+
+			// refs between MMT and non MMT class
+			for _, objectIndexClass0 := range objMap[classNames[0]] {
+				objClass0 := tenantObjects[objectIndexClass0]
+				refs = append(refs, &models.BatchReference{
+					From: strfmt.URI(crossref.NewSource(schema.ClassName(classNames[2]),
+						schema.PropertyName(refProps[0]), objClass2.ID).String()),
+					To:         strfmt.URI(crossref.NewLocalhost(classNames[0], objClass0.ID).String()),
+					TenantName: objClass2.TenantName,
+				})
+			}
+		}
+		resp, err := helper.AddReferences(t, refs)
+		helper.CheckReferencesBatchResponse(t, resp, err)
+	})
 }

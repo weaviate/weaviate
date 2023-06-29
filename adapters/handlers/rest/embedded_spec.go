@@ -573,9 +573,6 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -3170,6 +3167,10 @@ func init() {
           "format": "uri",
           "example": "weaviate://localhost/Zoo/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
         },
+        "tenantName": {
+          "description": "Name of the reference tenant.",
+          "type": "string"
+        },
         "to": {
           "description": "Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/\u003cuuid\u003e for the example of a local cross-ref to an object",
           "type": "string",
@@ -5162,12 +5163,6 @@ func init() {
             "type": "string",
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
             "in": "query"
           }
         ],
@@ -7923,6 +7918,10 @@ func init() {
           "type": "string",
           "format": "uri",
           "example": "weaviate://localhost/Zoo/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
+        },
+        "tenantName": {
+          "description": "Name of the reference tenant.",
+          "type": "string"
         },
         "to": {
           "description": "Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/\u003cuuid\u003e for the example of a local cross-ref to an object",

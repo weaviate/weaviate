@@ -623,17 +623,13 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 
 // return value map[int]error gives the error for the index as it received it
 func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchReferences,
-	replProps *additional.ReplicationProperties, tenantKey string,
+	replProps *additional.ReplicationProperties,
 ) []error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 	type refsAndPos struct {
 		refs objects.BatchReferences
 		pos  []int
-	}
-
-	if err := i.validateMultiTenancy(tenantKey, nil); err != nil {
-		return []error{err}
 	}
 
 	byShard := map[string]refsAndPos{}
@@ -649,7 +645,7 @@ func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchRefere
 	}
 
 	for pos, ref := range refs {
-		shardName, err := i.determineObjectShard(ref.From.TargetID, tenantKey, ss)
+		shardName, err := i.determineObjectShard(ref.From.TargetID, ref.TenantName, ss)
 		if err != nil {
 			out[pos] = err
 			continue

@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -176,7 +175,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				OriginalIndex: i,
 			}
 		}
-		_, err = repo.AddBatchReferences(context.Background(), refs, nil, "")
+		_, err = repo.AddBatchReferences(context.Background(), refs, nil)
 		assert.Nil(t, err)
 	})
 
@@ -251,7 +250,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				OriginalIndex: 3*i + 2,
 			}
 		}
-		batchRefs, err := repo.AddBatchReferences(context.Background(), refs, nil, "")
+		batchRefs, err := repo.AddBatchReferences(context.Background(), refs, nil)
 		assert.Nil(t, err)
 		require.Len(t, batchRefs, 6)
 		assert.Nil(t, batchRefs[0].Err)

@@ -115,9 +115,9 @@ func addReferences(t *testing.T, host string, refs []*models.BatchReference) {
 	helper.CheckReferencesBatchResponse(t, resp, err)
 }
 
-func addTenantReferences(t *testing.T, host string, refs []*models.BatchReference, tenantKey string) {
+func addTenantReferences(t *testing.T, host string, refs []*models.BatchReference) {
 	helper.SetupClient(host)
-	resp, err := helper.AddTenantReferences(t, refs, tenantKey)
+	resp, err := helper.AddReferences(t, refs)
 	helper.CheckReferencesBatchResponse(t, resp, err)
 }
 

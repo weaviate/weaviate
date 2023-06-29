@@ -149,18 +149,6 @@ func AddReferences(t *testing.T, refs []*models.BatchReference) ([]*models.Batch
 	return resp.Payload, nil
 }
 
-func AddTenantReferences(t *testing.T, refs []*models.BatchReference,
-	tenantKey string,
-) ([]*models.BatchReferenceResponse, error) {
-	params := batch.NewBatchReferencesCreateParams().
-		WithBody(refs).WithTenantKey(&tenantKey)
-	resp, err := Client(t).Batch.BatchReferencesCreate(params, nil)
-	if err != nil {
-		return nil, err
-	}
-	return resp.Payload, nil
-}
-
 func CheckReferencesBatchResponse(t *testing.T, resp []*models.BatchReferenceResponse, err error) {
 	AssertRequestOk(t, resp, err, nil)
 	for _, elem := range resp {
