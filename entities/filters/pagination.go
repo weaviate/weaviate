@@ -23,8 +23,9 @@ const (
 )
 
 type Pagination struct {
-	Offset int
-	Limit  int
+	Offset  int
+	Limit   int
+	Autocut int
 }
 
 // ExtractPaginationFromArgs gets the limit key out of a map. Not specific to
@@ -40,12 +41,18 @@ func ExtractPaginationFromArgs(args map[string]interface{}) (*Pagination, error)
 		limit = LimitFlagNotSet
 	}
 
-	if !offsetOk && !limitOk {
+	autocut, autocutOk := args["autocut"]
+	if !autocutOk {
+		autocut = 0 // disabled
+	}
+
+	if !offsetOk && !limitOk && !autocutOk {
 		return nil, nil
 	}
 
 	return &Pagination{
-		Offset: offset.(int),
-		Limit:  limit.(int),
+		Offset:  offset.(int),
+		Limit:   limit.(int),
+		Autocut: autocut.(int),
 	}, nil
 }
