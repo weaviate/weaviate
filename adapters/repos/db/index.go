@@ -647,11 +647,11 @@ func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchRefere
 	}
 
 	for pos, ref := range refs {
-		if err := i.validateMultiTenancy(ref.TenantName); err != nil {
+		if err := i.validateMultiTenancy(ref.Tenant); err != nil {
 			out[pos] = err
 			continue
 		}
-		shardName, err := i.determineObjectShard(ref.From.TargetID, ref.TenantName, ss)
+		shardName, err := i.determineObjectShard(ref.From.TargetID, ref.Tenant, ss)
 		if err != nil {
 			out[pos] = err
 			continue

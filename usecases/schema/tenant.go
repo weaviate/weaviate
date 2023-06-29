@@ -36,7 +36,7 @@ func (m *Manager) AddTenants(ctx context.Context, principal *models.Principal, c
 	}
 
 	// validation
-	if err := validateTenantNames(tenants); err != nil {
+	if err := validateTenants(tenants); err != nil {
 		return err
 	}
 	cls, st := m.getClassByName(class), m.ShardingState(class)
@@ -85,7 +85,7 @@ func (m *Manager) AddTenants(ctx context.Context, principal *models.Principal, c
 	return m.onAddTenants(ctx, st, cls, request) // actual update
 }
 
-func validateTenantNames(tenants []*models.Tenant) error {
+func validateTenants(tenants []*models.Tenant) error {
 	for i, tenant := range tenants {
 		if !regexTenantName.MatchString(tenant.Name) {
 			return uco.NewErrInvalidUserInput("invalid tenant name at index %d", i)
@@ -147,7 +147,7 @@ func (m *Manager) DeleteTenants(ctx context.Context, principal *models.Principal
 		return err
 	}
 	// validation
-	if err := validateTenantNames(tenants); err != nil {
+	if err := validateTenants(tenants); err != nil {
 		return err
 	}
 	cls := m.getClassByName(class)

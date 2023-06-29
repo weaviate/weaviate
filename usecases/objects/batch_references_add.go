@@ -122,7 +122,7 @@ func (b *BatchManager) validateReference(ctx context.Context, principal *models.
 		To:            target,
 		Err:           err,
 		OriginalIndex: i,
-		TenantName:    ref.Tenant,
+		Tenant:        ref.Tenant,
 	}
 }
 

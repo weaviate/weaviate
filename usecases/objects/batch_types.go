@@ -55,7 +55,7 @@ type BatchReference struct {
 	Err           error               `json:"err"`
 	From          *crossref.RefSource `json:"from"`
 	To            *crossref.Ref       `json:"to"`
-	TenantName    string              `json:"tenantName"`
+	Tenant        string              `json:"tenant"`
 }
 
 // BatchReferences groups many Reference items together. The order matches the
