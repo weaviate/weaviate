@@ -47,14 +47,14 @@ func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 
 // DeleteObject from of a specific class giving its ID
 func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
-	repl *additional.ReplicationProperties, tenantKey string,
+	repl *additional.ReplicationProperties, tenant string,
 ) error {
 	idx := db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("delete from non-existing index for %s", class)
 	}
 
-	err := idx.deleteObject(ctx, id, repl, tenantKey)
+	err := idx.deleteObject(ctx, id, repl, tenant)
 	if err != nil {
 		return fmt.Errorf("delete from index %q: %w", idx.ID(), err)
 	}
@@ -108,9 +108,9 @@ func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
 // @warning: this function is deprecated by Object()
 func (db *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
-	tenantKey string,
+	tenant string,
 ) (*search.Result, error) {
-	results, err := db.ObjectsByID(ctx, id, props, additional, tenantKey)
+	results, err := db.ObjectsByID(ctx, id, props, additional, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -178,9 +178,9 @@ func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID,
 }
 
 func (db *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
-	props search.SelectProperties, additional additional.Properties, tenantKey string,
+	props search.SelectProperties, additional additional.Properties, tenant string,
 ) (*search.Result, error) {
-	res, err := refcache.NewResolver(refcache.NewCacher(db, db.logger, tenantKey)).
+	res, err := refcache.NewResolver(refcache.NewCacher(db, db.logger, tenant)).
 		Do(ctx, []search.Result{*obj}, props, additional)
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve cross-refs")
@@ -190,7 +190,7 @@ func (db *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
 }
 
 func (db *DB) Exists(ctx context.Context, class string, id strfmt.UUID,
-	repl *additional.ReplicationProperties, tenantKey string,
+	repl *additional.ReplicationProperties, tenant string,
 ) (bool, error) {
 	if class == "" {
 		return db.anyExists(ctx, id, repl)
@@ -199,7 +199,7 @@ func (db *DB) Exists(ctx context.Context, class string, id strfmt.UUID,
 	if index == nil {
 		return false, nil
 	}
-	return index.exists(ctx, id, repl, tenantKey)
+	return index.exists(ctx, id, repl, tenant)
 }
 
 func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
@@ -224,7 +224,7 @@ func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 }
 
 func (db *DB) AddReference(ctx context.Context, source *crossref.RefSource, target *crossref.Ref,
-	repl *additional.ReplicationProperties, tenantKey string,
+	repl *additional.ReplicationProperties, tenant string,
 ) error {
 	return db.Merge(ctx, objects.MergeDocument{
 		Class:      source.Class.String(),
@@ -236,18 +236,18 @@ func (db *DB) AddReference(ctx context.Context, source *crossref.RefSource, targ
 				To:   target,
 			},
 		},
-	}, repl, tenantKey)
+	}, repl, tenant)
 }
 
 func (db *DB) Merge(ctx context.Context, merge objects.MergeDocument,
-	repl *additional.ReplicationProperties, tenantKey string,
+	repl *additional.ReplicationProperties, tenant string,
 ) error {
 	idx := db.GetIndex(schema.ClassName(merge.Class))
 	if idx == nil {
 		return fmt.Errorf("merge from non-existing index for %s", merge.Class)
 	}
 
-	err := idx.mergeObject(ctx, merge, repl, tenantKey)
+	err := idx.mergeObject(ctx, merge, repl, tenant)
 	if err != nil {
 		return errors.Wrapf(err, "merge into index %s", idx.ID())
 	}

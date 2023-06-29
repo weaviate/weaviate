@@ -84,8 +84,8 @@ type objectsSearcher interface {
 	// Near-params searcher
 	Object(ctx context.Context, className string, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties,
-		properties *additional.ReplicationProperties, tenantKey string) (*search.Result, error)
-	ObjectsByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties, tenantKey string) (search.Results, error)
+		properties *additional.ReplicationProperties, tenant string) (*search.Result, error)
+	ObjectsByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties, tenant string) (search.Results, error)
 }
 
 type hybridSearcher interface {
@@ -93,7 +93,7 @@ type hybridSearcher interface {
 	DenseObjectSearch(context.Context, string, []float32, int, int,
 		*filters.LocalFilter, additional.Properties, string) ([]*storobj.Object, []float32, error)
 	ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties,
-		groupBy *searchparams.GroupBy, additional additional.Properties, tenantKey string) (search.Results, error)
+		groupBy *searchparams.GroupBy, additional additional.Properties, tenant string) (search.Results, error)
 }
 
 // NewExplorer with search and connector repo

@@ -47,4 +47,4 @@ const NetworkGetClassUUID = "The UUID of a Object, assigned by the Weaviate netw
 const ConsistencyLevel = "Determines how many replicas must acknowledge a request " +
 	"before it is considered successful. Can be 'ONE', 'QUORUM', or 'ALL'"
 
-const TenantKey = "The value by which a tenant is identified, specified in the class schema"
+const Tenant = "The value by which a tenant is identified, specified in the class schema"

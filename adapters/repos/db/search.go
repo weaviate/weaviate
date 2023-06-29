@@ -144,7 +144,7 @@ func extractDistanceFromParams(params dto.GetParams) float32 {
 // for the raw storage objects, such as hybrid search.
 func (db *DB) DenseObjectSearch(ctx context.Context, class string, vector []float32,
 	offset int, limit int, filters *filters.LocalFilter, addl additional.Properties,
-	tenantKey string,
+	tenant string,
 ) ([]*storobj.Object, []float32, error) {
 	totalLimit := offset + limit
 
@@ -155,7 +155,7 @@ func (db *DB) DenseObjectSearch(ctx context.Context, class string, vector []floa
 
 	// TODO: groupBy think of this
 	objs, dist, err := index.objectVectorSearch(
-		ctx, vector, 0, totalLimit, filters, nil, nil, addl, tenantKey)
+		ctx, vector, 0, totalLimit, filters, nil, nil, addl, tenant)
 	if err != nil {
 		return nil, nil, fmt.Errorf("search index %s: %w", index.ID(), err)
 	}
@@ -238,7 +238,7 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 		}
 	}
 	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters,
-		nil, q.Sort, q.Cursor, q.Additional, nil, q.TenantKey, 0)
+		nil, q.Sort, q.Cursor, q.Additional, nil, q.Tenant, 0)
 	if err != nil {
 		return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}
 	}
@@ -249,9 +249,9 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 // Deprecated by Query which searches a specific index
 func (db *DB) ObjectSearch(ctx context.Context, offset, limit int,
 	filters *filters.LocalFilter, sort []filters.Sort,
-	additional additional.Properties, tenantKey string,
+	additional additional.Properties, tenant string,
 ) (search.Results, error) {
-	return db.objectSearch(ctx, offset, limit, filters, sort, additional, tenantKey)
+	return db.objectSearch(ctx, offset, limit, filters, sort, additional, tenant)
 }
 
 func (db *DB) objectSearch(ctx context.Context, offset, limit int,
@@ -279,12 +279,12 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 			if err != nil {
 				// TODO find better way to recognise particular errors
 				if errors.As(err, &objects.ErrInvalidUserInput{}) {
-					// validation failed (either MT class without tenantKey or non-MT class with tenantKey)
+					// validation failed (either MT class without tenant or non-MT class with tenant)
 					if strings.Contains(err.Error(), "has multi-tenancy enabled, but request was without tenant") ||
 						strings.Contains(err.Error(), "has multi-tenancy disabled, but request was with tenant") {
 						continue
 					}
-					// tenantKey not supported by class
+					// tenant not added to class
 					if strings.Contains(err.Error(), "no tenant found with key") {
 						continue
 					}
@@ -310,7 +310,7 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 // with any referenced objects
 func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 	props search.SelectProperties, groupBy *searchparams.GroupBy,
-	addl additional.Properties, tenantKey string,
+	addl additional.Properties, tenant string,
 ) (search.Results, error) {
 	if addl.NoProps {
 		// If we have no props, there also can't be refs among them, so we can skip
@@ -327,7 +327,7 @@ func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 		return res, nil
 	}
 
-	res, err := refcache.NewResolver(refcache.NewCacher(db, db.logger, tenantKey)).
+	res, err := refcache.NewResolver(refcache.NewCacher(db, db.logger, tenant)).
 		Do(ctx, objs, props, addl)
 	if err != nil {
 		return nil, fmt.Errorf("resolve cross-refs: %w", err)

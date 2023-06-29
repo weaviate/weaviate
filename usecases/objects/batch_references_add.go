@@ -129,7 +129,7 @@ func (b *BatchManager) validateReference(ctx context.Context, principal *models.
 func validateReferenceMultiTenancy(ctx context.Context,
 	principal *models.Principal, schemaManager schemaManager,
 	repo VectorRepo, source *crossref.RefSource, target *crossref.Ref,
-	tenantKey string,
+	tenant string,
 ) error {
 	if source == nil || target == nil {
 		return fmt.Errorf("can't validate multi-tenancy for nil refs")
@@ -146,7 +146,7 @@ func validateReferenceMultiTenancy(ctx context.Context,
 	if sourceClass.MultiTenancyConfig != nil && targetClass.MultiTenancyConfig != nil &&
 		sourceClass.MultiTenancyConfig.Enabled && targetClass.MultiTenancyConfig.Enabled {
 		err = validateTenantRefObjects(ctx, repo,
-			sourceClass, targetClass, source, target, tenantKey)
+			sourceClass, targetClass, source, target, tenant)
 		if err != nil {
 			return err
 		}
@@ -200,26 +200,26 @@ func getReferenceClasses(ctx context.Context,
 // tenant will not be found in the searched tenant shard
 func validateTenantRefObjects(ctx context.Context, repo VectorRepo,
 	sourceClass, targetClass *models.Class, source *crossref.RefSource,
-	target *crossref.Ref, tenantKey string,
+	target *crossref.Ref, tenant string,
 ) error {
 	exists, err := repo.Exists(ctx, sourceClass.Class,
-		source.TargetID, nil, tenantKey)
+		source.TargetID, nil, tenant)
 	if err != nil {
 		return fmt.Errorf("get source object %s/%s: %w", sourceClass.Class, source.TargetID, err)
 	}
 	if !exists {
 		return fmt.Errorf("source object %s/%s not found for tenant %q",
-			source.Class, source.TargetID, tenantKey)
+			source.Class, source.TargetID, tenant)
 	}
 
 	exists, err = repo.Exists(ctx, targetClass.Class,
-		target.TargetID, nil, tenantKey)
+		target.TargetID, nil, tenant)
 	if err != nil {
 		return fmt.Errorf("get target object %s/%s: %w", targetClass.Class, target.TargetID, err)
 	}
 	if !exists {
 		return fmt.Errorf("target object %s/%s not found for tenant %q",
-			target.Class, target.TargetID, tenantKey)
+			target.Class, target.TargetID, tenant)
 	}
 
 	return nil

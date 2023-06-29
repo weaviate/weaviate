@@ -1738,7 +1738,7 @@
       "required": false,
       "type": "string"
     },
-    "CommonTenantKeyParameterQuery": {
+    "CommonTenantParameterQuery": {
       "description": "Specifies the tenant in a request targeting a multi-tenant class",
       "in": "query",
       "name": "tenant",
@@ -1900,7 +1900,7 @@
             "$ref": "#/parameters/CommonClassParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -2030,7 +2030,7 @@
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -2338,7 +2338,7 @@
             "$ref": "#/parameters/CommonNodeNameParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -2405,7 +2405,7 @@
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -2616,7 +2616,7 @@
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -3260,7 +3260,7 @@
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {

@@ -153,7 +153,7 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 }
 
 func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDeleteParams,
-	repl *additional.ReplicationProperties, tenantKey string,
+	repl *additional.ReplicationProperties, tenant string,
 ) (objects.BatchDeleteResult, error) {
 	// get index for a given class
 	idx := db.GetIndex(params.ClassName)
@@ -161,7 +161,7 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 		return objects.BatchDeleteResult{}, errors.Errorf("cannot find index for class %v", params.ClassName)
 	}
 	// find all DocIDs in all shards that match the filter
-	shardDocIDs, err := idx.findDocIDs(ctx, params.Filters, tenantKey)
+	shardDocIDs, err := idx.findDocIDs(ctx, params.Filters, tenant)
 	if err != nil {
 		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot find objects")
 	}

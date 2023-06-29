@@ -80,7 +80,7 @@ func TestAddTenants(t *testing.T) {
 			errMsg: "not enabled",
 		},
 		{
-			name:    "EmptyTenantKeyValue",
+			name:    "EmptyTenantValue",
 			Class:   "C1",
 			tenants: []*models.Tenant{{Name: "Aaaa"}, {Name: ""}, {Name: "Bbbb"}},
 			initial: &models.Class{
@@ -190,7 +190,7 @@ func TestDeleteTenants(t *testing.T) {
 			errMsg: "not enabled",
 		},
 		{
-			name:    "EmptyTenantKeyValue",
+			name:    "EmptyTenantValue",
 			Class:   "C1",
 			tenants: []*models.Tenant{{Name: "Aaaa"}, {Name: ""}, {Name: "Bbbb"}},
 			initial: &models.Class{

@@ -31,7 +31,6 @@ func TestBatchAddTenantReferences(t *testing.T) {
 	className2 := "MultiTenantClass2"
 	className3 := "SingleTenantClass1"
 	className4 := "SingleTenantClass2"
-	tenantKey := "tenantName"
 	tenantName1 := "Tenant1"
 	tenantName2 := "Tenant2"
 	mtRefProp1 := "relatedToMT1"
@@ -42,8 +41,8 @@ func TestBatchAddTenantReferences(t *testing.T) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 		Properties: []*models.Property{
 			{
-				Name:     tenantKey,
-				DataType: []string{"string"},
+				Name:     "name",
+				DataType: schema.DataTypeText.PropString(),
 			},
 			{
 				Name:     mtRefProp1,
@@ -66,8 +65,8 @@ func TestBatchAddTenantReferences(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     tenantKey,
-				DataType: []string{"string"},
+				Name:     "name",
+				DataType: schema.DataTypeText.PropString(),
 			},
 		},
 	}
@@ -76,7 +75,7 @@ func TestBatchAddTenantReferences(t *testing.T) {
 		Properties: []*models.Property{
 			{
 				Name:     "stringProp",
-				DataType: []string{"string"},
+				DataType: schema.DataTypeText.PropString(),
 			},
 		},
 	}
@@ -93,7 +92,7 @@ func TestBatchAddTenantReferences(t *testing.T) {
 		ID:    "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
 		Class: className1,
 		Properties: map[string]interface{}{
-			tenantKey: tenantName1,
+			"name": tenantName1,
 		},
 		Tenant: tenantName1,
 	}
@@ -101,7 +100,7 @@ func TestBatchAddTenantReferences(t *testing.T) {
 		ID:    "af90a7e3-53b3-4eb0-b395-10a04d217263",
 		Class: className2,
 		Properties: map[string]interface{}{
-			tenantKey: tenantName2,
+			"name": tenantName2,
 		},
 		Tenant: tenantName2,
 	}
@@ -109,7 +108,7 @@ func TestBatchAddTenantReferences(t *testing.T) {
 		ID:    "4076df6b-0767-43a9-a0a4-2ec153bf262e",
 		Class: className2,
 		Properties: map[string]interface{}{
-			tenantKey: tenantName1,
+			"name": tenantName1,
 		},
 		Tenant: tenantName1,
 	}

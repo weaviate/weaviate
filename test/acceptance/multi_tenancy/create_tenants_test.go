@@ -18,11 +18,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
 func TestCreateTenants(t *testing.T) {
-	tenantKey := "tenantName"
 	testClass := models.Class{
 		Class: "MultiTenantClass",
 		MultiTenancyConfig: &models.MultiTenancyConfig{
@@ -30,8 +30,8 @@ func TestCreateTenants(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     tenantKey,
-				DataType: []string{"string"},
+				Name:     "name",
+				DataType: schema.DataTypeText.PropString(),
 			},
 		},
 	}
@@ -48,7 +48,7 @@ func TestCreateTenants(t *testing.T) {
 	t.Run("create tenants", func(t *testing.T) {
 		tenants := make([]*models.Tenant, len(expectedTenants))
 		for i := range tenants {
-			tenants[i] = &models.Tenant{expectedTenants[i]}
+			tenants[i] = &models.Tenant{Name: expectedTenants[i]}
 		}
 		helper.CreateTenants(t, testClass.Class, tenants)
 	})

@@ -248,7 +248,7 @@ func buildGetClassField(classObject *graphql.Object,
 	}
 
 	if schema.MultiTenancyEnabled(class) {
-		field.Args["tenantKey"] = tenantKeyArgument()
+		field.Args["tenant"] = tenantArgument()
 	}
 
 	return field
@@ -425,9 +425,9 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			groupByParams = &p
 		}
 
-		var tenantKey string
-		if tk, ok := p.Args["tenantKey"]; ok {
-			tenantKey = tk.(string)
+		var tenant string
+		if tk, ok := p.Args["tenant"]; ok {
+			tenant = tk.(string)
 		}
 
 		params := dto.GetParams{
@@ -446,7 +446,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			HybridSearch:          hybridParams,
 			ReplicationProperties: replProps,
 			GroupBy:               groupByParams,
-			Tenant:                tenantKey,
+			Tenant:                tenant,
 		}
 
 		// need to perform vector search by distance
