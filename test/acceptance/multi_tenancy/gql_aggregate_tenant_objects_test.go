@@ -187,7 +187,7 @@ func makeTenantBatch(params batchParams) []*models.Object {
 			Properties: map[string]interface{}{
 				params.tenantKey: params.tenantName,
 			},
-			TenantName: params.tenantName,
+			Tenant: params.tenantName,
 		}
 	}
 	return batch

@@ -186,7 +186,7 @@ func addTestObjects(t *testing.T, className string, tenantNames []string) {
 				Properties: map[string]interface{}{"contents": contents},
 			}
 			if multiTenant {
-				obj.TenantName = tenantNames[i]
+				obj.Tenant = tenantNames[i]
 			}
 			batch[j] = &obj
 		}

@@ -13,6 +13,7 @@ package test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -45,7 +46,7 @@ func TestGQLGetTenantObjects(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantName,
 			},
-			TenantName: tenantName,
+			Tenant: tenantName,
 		},
 		{
 			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
@@ -53,7 +54,7 @@ func TestGQLGetTenantObjects(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantName,
 			},
-			TenantName: tenantName,
+			Tenant: tenantName,
 		},
 		{
 			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
@@ -61,7 +62,7 @@ func TestGQLGetTenantObjects(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantName,
 			},
-			TenantName: tenantName,
+			Tenant: tenantName,
 		},
 	}
 
@@ -120,4 +121,77 @@ func TestGQLGetTenantObjects(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestGQLGetTenantObjects_MissingTenantKey(t *testing.T) {
+	tenantKey := "tenantName"
+	testClass := models.Class{
+		Class: "MultiTenantClass",
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled: true,
+		},
+		Properties: []*models.Property{
+			{
+				Name:     tenantKey,
+				DataType: []string{"string"},
+			},
+		},
+	}
+	tenantName := "Tenant1"
+	tenantObjects := []*models.Object{
+		{
+			ID:    "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
+			Class: testClass.Class,
+			Properties: map[string]interface{}{
+				tenantKey: tenantName,
+			},
+			Tenant: tenantName,
+		},
+		{
+			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
+			Class: testClass.Class,
+			Properties: map[string]interface{}{
+				tenantKey: tenantName,
+			},
+			Tenant: tenantName,
+		},
+		{
+			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
+			Class: testClass.Class,
+			Properties: map[string]interface{}{
+				tenantKey: tenantName,
+			},
+			Tenant: tenantName,
+		},
+	}
+
+	defer func() {
+		helper.DeleteClass(t, testClass.Class)
+	}()
+
+	helper.CreateClass(t, &testClass)
+	tenants := make([]*models.Tenant, len(tenantObjects))
+	for i := range tenants {
+		tenants[i] = &models.Tenant{Name: tenantName}
+	}
+	helper.CreateTenants(t, testClass.Class, tenants)
+	helper.CreateObjectsBatch(t, tenantObjects)
+
+	for _, obj := range tenantObjects {
+		resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenantName)
+		require.Nil(t, err)
+		assert.Equal(t, obj.ID, resp.ID)
+		assert.Equal(t, obj.Class, resp.Class)
+		assert.Equal(t, obj.Properties, resp.Properties)
+	}
+
+	query := fmt.Sprintf(`{Get{%s{_additional{id}}}}`, testClass.Class)
+	result, err := graphqlhelper.QueryGraphQL(t, helper.RootAuth, "", query, nil)
+	require.Nil(t, err)
+	require.Len(t, result.Errors, 1)
+	assert.Nil(t, result.Data["Get"].(map[string]interface{})[testClass.Class])
+	msg := fmt.Sprintf(`explorer: list class: search: object search at index %s: `,
+		strings.ToLower(testClass.Class)) +
+		fmt.Sprintf(`class %s has multi-tenancy enabled, but request was without tenant`, testClass.Class)
+	assert.Equal(t, result.Errors[0].Message, msg)
 }

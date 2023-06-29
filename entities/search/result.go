@@ -35,6 +35,7 @@ type Result struct {
 	AdditionalProperties models.AdditionalProperties
 	VectorWeights        map[string]string
 	IsConsistent         bool
+	Tenant               string
 
 	// Dimensions in case search was vector-based, 0 otherwise
 	Dims int
@@ -59,6 +60,7 @@ func (r Result) ObjectWithVector(includeVector bool) *models.Object {
 		CreationTimeUnix:   r.Created,
 		LastUpdateTimeUnix: r.Updated,
 		VectorWeights:      r.VectorWeights,
+		Tenant:             r.Tenant,
 	}
 
 	if r.AdditionalProperties != nil {

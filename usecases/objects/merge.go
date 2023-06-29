@@ -51,7 +51,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	m.metrics.MergeObjectInc()
 	defer m.metrics.MergeObjectDec()
 
-	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, updates.TenantName)
+	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
 		return &Error{"repo.object", StatusInternalServerError, err}
 	}
@@ -77,7 +77,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		updates.Properties = map[string]interface{}{}
 	}
 
-	return m.patchObject(ctx, principal, obj, updates, repl, propertiesToDelete, updates.TenantName)
+	return m.patchObject(ctx, principal, obj, updates, repl, propertiesToDelete, updates.Tenant)
 }
 
 // patchObject patches an existing object obj with updates

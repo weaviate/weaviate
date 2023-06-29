@@ -76,7 +76,7 @@ func (a *Article) WithTitle(title string) *Article {
 }
 
 func (a *Article) WithTenant(tk string) *Article {
-	a.TenantName = tk
+	a.Tenant = tk
 	return a
 }
 
@@ -112,7 +112,7 @@ func (p *Paragraph) WithVector(vec []float32) *Paragraph {
 }
 
 func (p *Paragraph) WithTenant(tk string) *Paragraph {
-	p.TenantName = tk
+	p.Tenant = tk
 	return p
 }
 

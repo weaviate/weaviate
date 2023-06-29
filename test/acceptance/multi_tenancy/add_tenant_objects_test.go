@@ -47,7 +47,7 @@ func TestAddTenantObjects(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantNames[0],
 			},
-			TenantName: tenantNames[0],
+			Tenant: tenantNames[0],
 		},
 		{
 			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
@@ -55,7 +55,7 @@ func TestAddTenantObjects(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantNames[1],
 			},
-			TenantName: tenantNames[1],
+			Tenant: tenantNames[1],
 		},
 		{
 			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
@@ -63,7 +63,7 @@ func TestAddTenantObjects(t *testing.T) {
 			Properties: map[string]interface{}{
 				tenantKey: tenantNames[2],
 			},
-			TenantName: tenantNames[2],
+			Tenant: tenantNames[2],
 		},
 	}
 
@@ -113,9 +113,9 @@ func TestAddTenantObjectsToNonMultiClass(t *testing.T) {
 	helper.CreateClass(t, &testClass)
 
 	objWithTenant := &models.Object{
-		ID:         "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
-		Class:      className,
-		TenantName: tenantName,
+		ID:     "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
+		Class:  className,
+		Tenant: tenantName,
 	}
 	params := objects.NewObjectsCreateParams().WithBody(objWithTenant)
 	_, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
@@ -156,9 +156,9 @@ func TestAddObjectWithNonexistentTenantToMultiClass(t *testing.T) {
 	helper.CreateTenants(t, className, []*models.Tenant{{"randomTenant1"}})
 
 	objWithTenant := &models.Object{
-		ID:         "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
-		Class:      className,
-		TenantName: "randomTenant2",
+		ID:     "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
+		Class:  className,
+		Tenant: "randomTenant2",
 	}
 	params := objects.NewObjectsCreateParams().WithBody(objWithTenant)
 	_, err := helper.Client(t).Objects.ObjectsCreate(params, nil)

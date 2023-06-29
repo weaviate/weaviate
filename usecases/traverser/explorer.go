@@ -270,7 +270,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		}
 		res, dists, err := e.searcher.DenseObjectSearch(ctx,
 			params.ClassName, vec, 0, hybridSearchLimit, params.Filters,
-			params.AdditionalProperties, params.TenantKey)
+			params.AdditionalProperties, params.Tenant)
 		if err != nil {
 			return nil, nil, err
 		}

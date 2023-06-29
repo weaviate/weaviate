@@ -129,10 +129,10 @@ func DeleteObjectsBatch(t *testing.T, body *models.BatchDelete) {
 }
 
 func DeleteTenantObjectsBatch(t *testing.T, body *models.BatchDelete,
-	tenantKey string,
+	tenant string,
 ) (*models.BatchDeleteResponse, error) {
 	params := batch.NewBatchObjectsDeleteParams().
-		WithBody(body).WithTenantKey(&tenantKey)
+		WithBody(body).WithTenant(&tenant)
 	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
 	if err != nil {
 		return nil, err
@@ -166,27 +166,9 @@ func AddReference(t *testing.T, object *models.Object, ref *models.SingleRef, pr
 	AssertRequestOk(t, resp, err, nil)
 }
 
-func AddTenantReference(t *testing.T, object *models.Object, ref *models.SingleRef, prop string,
-	tenantKey string,
-) {
-	params := objects.NewObjectsClassReferencesCreateParams().
-		WithClassName(object.Class).WithID(object.ID).WithBody(ref).
-		WithPropertyName(prop).WithTenantKey(&tenantKey)
-	resp, err := Client(t).Objects.ObjectsClassReferencesCreate(params, nil)
-	AssertRequestOk(t, resp, err, nil)
-}
-
 func DeleteReference(t *testing.T, object *models.Object, ref *models.SingleRef, prop string) {
 	params := objects.NewObjectsClassReferencesDeleteParams().
 		WithClassName(object.Class).WithID(object.ID).WithBody(ref).WithPropertyName(prop)
-	resp, err := Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
-	AssertRequestOk(t, resp, err, nil)
-}
-
-func DeleteTenantReference(t *testing.T, object *models.Object, ref *models.SingleRef, prop string, tenantKey string) {
-	params := objects.NewObjectsClassReferencesDeleteParams().
-		WithClassName(object.Class).WithID(object.ID).WithBody(ref).
-		WithPropertyName(prop).WithTenantKey(&tenantKey)
 	resp, err := Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }

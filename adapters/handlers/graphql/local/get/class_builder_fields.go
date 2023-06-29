@@ -446,7 +446,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			HybridSearch:          hybridParams,
 			ReplicationProperties: replProps,
 			GroupBy:               groupByParams,
-			TenantKey:             tenantKey,
+			Tenant:                tenantKey,
 		}
 
 		// need to perform vector search by distance
