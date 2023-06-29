@@ -18,29 +18,29 @@ import (
 )
 
 type fakeClient struct {
-	lastInput  string
+	lastInput  []string
 	lastConfig ent.VectorizationConfig
 }
 
 func (c *fakeClient) Vectorize(ctx context.Context,
 	text string, cfg ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	c.lastInput = text
+	c.lastInput = []string{text}
 	c.lastConfig = cfg
 	return &ent.VectorizationResult{
-		Vector:     []float32{0, 1, 2, 3},
+		Vector:     [][]float32{{0, 1, 2, 3}},
 		Dimensions: 4,
-		Text:       text,
+		Text:       []string{text},
 	}, nil
 }
 
 func (c *fakeClient) VectorizeQuery(ctx context.Context,
-	text string, cfg ent.VectorizationConfig,
+	text []string, cfg ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
 	c.lastInput = text
 	c.lastConfig = cfg
 	return &ent.VectorizationResult{
-		Vector:     []float32{0.1, 1.1, 2.1, 3.1},
+		Vector:     [][]float32{{0.1, 1.1, 2.1, 3.1}},
 		Dimensions: 4,
 		Text:       text,
 	}, nil

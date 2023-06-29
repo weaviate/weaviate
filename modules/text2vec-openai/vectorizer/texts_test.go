@@ -24,7 +24,6 @@ func TestVectorizingTexts(t *testing.T) {
 	type testCase struct {
 		name                 string
 		input                []string
-		expectedClientCall   string
 		expectedOpenAIType   string
 		openAIType           string
 		expectedOpenAIModel  string
@@ -41,7 +40,6 @@ func TestVectorizingTexts(t *testing.T) {
 			expectedOpenAIType:  "text",
 			openAIModel:         "ada",
 			expectedOpenAIModel: "ada",
-			expectedClientCall:  "hello",
 
 			// use something that doesn't exist on purpose to rule out that this was
 			// set by a default, but validate that the version was set explicitly
@@ -56,7 +54,6 @@ func TestVectorizingTexts(t *testing.T) {
 			expectedOpenAIType:  "text",
 			openAIModel:         "ada",
 			expectedOpenAIModel: "ada",
-			expectedClientCall:  "hello world, this is me!",
 
 			// use something that doesn't exist on purpose to rule out that this was
 			// set by a default, but validate that the version was set explicitly
@@ -71,7 +68,6 @@ func TestVectorizingTexts(t *testing.T) {
 			expectedOpenAIType:  "text",
 			openAIModel:         "ada",
 			expectedOpenAIModel: "ada",
-			expectedClientCall:  "this is sentence 1. and here's number 2",
 
 			// use something that doesn't exist on purpose to rule out that this was
 			// set by a default, but validate that the version was set explicitly
@@ -86,7 +82,6 @@ func TestVectorizingTexts(t *testing.T) {
 			expectedOpenAIType:  "text",
 			openAIModel:         "ada",
 			expectedOpenAIModel: "ada",
-			expectedClientCall:  "this is sentence 1. and here's number 2",
 
 			// use something that doesn't exist on purpose to rule out that this was
 			// set by a default, but validate that the version was set explicitly
@@ -101,7 +96,6 @@ func TestVectorizingTexts(t *testing.T) {
 			expectedOpenAIType:  "text",
 			openAIModel:         "ada",
 			expectedOpenAIModel: "ada",
-			expectedClientCall:  "this is sentence 1? and here's number 2",
 
 			// use something that doesn't exist on purpose to rule out that this was
 			// set by a default, but validate that the version was set explicitly
@@ -116,7 +110,6 @@ func TestVectorizingTexts(t *testing.T) {
 			expectedOpenAIType:  "text",
 			openAIModel:         "ada",
 			expectedOpenAIModel: "ada",
-			expectedClientCall:  "this is sentence 1! and here's number 2",
 
 			// use something that doesn't exist on purpose to rule out that this was
 			// set by a default, but validate that the version was set explicitly
@@ -131,7 +124,6 @@ func TestVectorizingTexts(t *testing.T) {
 			expectedOpenAIType:  "text",
 			openAIModel:         "ada",
 			expectedOpenAIModel: "ada",
-			expectedClientCall:  "this is sentence 1, and here's number 2",
 
 			// use something that doesn't exist on purpose to rule out that this was
 			// set by a default, but validate that the version was set explicitly
@@ -156,7 +148,7 @@ func TestVectorizingTexts(t *testing.T) {
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0.1, 1.1, 2.1, 3.1}, vec)
-			assert.Equal(t, test.expectedClientCall, client.lastInput)
+			assert.Equal(t, test.input, client.lastInput)
 			assert.Equal(t, client.lastConfig.Type, test.expectedOpenAIType)
 			assert.Equal(t, client.lastConfig.Model, test.expectedOpenAIModel)
 			assert.Equal(t, client.lastConfig.ModelVersion, test.expectedModelVersion)
