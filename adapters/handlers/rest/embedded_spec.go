@@ -1549,9 +1549,6 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1635,9 +1632,6 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1721,9 +1715,6 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -4349,6 +4340,10 @@ func init() {
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
+        },
+        "tenantName": {
+          "description": "Name of the reference tenant.",
+          "type": "string"
         }
       }
     },
@@ -6200,12 +6195,6 @@ func init() {
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
             "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
-            "in": "query"
           }
         ],
         "responses": {
@@ -6292,12 +6281,6 @@ func init() {
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
             "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
-            "in": "query"
           }
         ],
         "responses": {
@@ -6383,12 +6366,6 @@ func init() {
             "type": "string",
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Specifies the tenant in a request targeting a multi-tenant class",
-            "name": "tenant_key",
             "in": "query"
           }
         ],
@@ -9207,6 +9184,10 @@ func init() {
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
+        },
+        "tenantName": {
+          "description": "Name of the reference tenant.",
+          "type": "string"
         }
       }
     },

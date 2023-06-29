@@ -1053,6 +1053,10 @@
         "classification": {
           "description": "Additional Meta information about classifications if the item was part of one",
           "$ref": "#/definitions/ReferenceMetaClassification"
+        },
+        "tenantName": {
+          "type": "string",
+          "description": "Name of the reference tenant."
         }
       }
     },
@@ -2880,9 +2884,6 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2966,9 +2967,6 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -3052,9 +3050,6 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
