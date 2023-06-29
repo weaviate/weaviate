@@ -94,6 +94,10 @@ type SchemaStore interface {
 
 	// NewShards creates new shards of an existing class
 	NewShards(ctx context.Context, class string, shards []KeyValuePair) error
+
+	// DeleteShards deletes shards from a class
+	// If the class or a shard does not exist then nothing is done and a nil error is returned
+	DeleteShards(ctx context.Context, class string, shards []string) error
 }
 
 // KeyValuePair is used to serialize shards updates

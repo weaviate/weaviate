@@ -212,6 +212,27 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 	return schema.NewTenantsCreateOK().WithPayload(payload)
 }
 
+func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
+	principal *models.Principal,
+) middleware.Responder {
+	err := s.manager.DeleteTenants(
+		params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
+	if err != nil {
+		switch err.(type) {
+		case errors.Forbidden:
+			return schema.NewTenantsDeleteForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewTenantsDeleteUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	payload := params.Body
+
+	return schema.NewTenantsDeleteOK().WithPayload(payload)
+}
+
 func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager) {
 	h := &schemaHandlers{manager}
 
@@ -239,4 +260,6 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager)
 
 	api.SchemaTenantsCreateHandler = schema.
 		TenantsCreateHandlerFunc(h.createTenants)
+	api.SchemaTenantsDeleteHandler = schema.
+		TenantsDeleteHandlerFunc(h.deleteTenants)
 }
