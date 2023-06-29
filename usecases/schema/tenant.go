@@ -18,12 +18,12 @@ import (
 	"regexp"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// currently only support alphanumeric or uuid
-var regexTenantName = regexp.MustCompile(`[A-Za-z0-9\-]+`)
+var regexTenantName = regexp.MustCompile(`^` + schema.ShardNameRegexCore + `$`)
 
 // tenantsPath is the main path used for authorization
 const tenantsPath = "schema/tenants"

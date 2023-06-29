@@ -19,6 +19,7 @@ import (
 	"regexp"
 
 	"github.com/weaviate/weaviate/entities/models"
+	entschema "github.com/weaviate/weaviate/entities/schema"
 )
 
 type nodesManager interface {
@@ -35,7 +36,7 @@ func NewNodes(manager nodesManager) *nodes {
 
 var (
 	regxNodes      = regexp.MustCompile(`/status`)
-	regxNodesClass = regexp.MustCompile(`/status/([A-Z][_0-9A-Za-z]*)`)
+	regxNodesClass = regexp.MustCompile(`/status/(` + entschema.ClassNameRegexCore + `)`)
 )
 
 func (s *nodes) Nodes() http.Handler {
