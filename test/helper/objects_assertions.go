@@ -211,8 +211,8 @@ func ListObjects(t *testing.T, class string) (*models.ObjectsListResponse, error
 	return resp.Payload, nil
 }
 
-func TenantListObjects(t *testing.T, class string, tenantKey string) (*models.ObjectsListResponse, error) {
-	params := objects.NewObjectsListParams().WithTenant(&tenantKey)
+func TenantListObjects(t *testing.T, class string, tenant string) (*models.ObjectsListResponse, error) {
+	params := objects.NewObjectsListParams().WithTenant(&tenant)
 	if class != "" {
 		params.WithClass(&class)
 	}

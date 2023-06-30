@@ -504,7 +504,7 @@ func init() {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -1008,7 +1008,7 @@ func init() {
             "$ref": "#/parameters/CommonClassParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -1201,7 +1201,7 @@ func init() {
             "$ref": "#/parameters/CommonNodeNameParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -1340,7 +1340,7 @@ func init() {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -1405,7 +1405,7 @@ func init() {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -1913,7 +1913,7 @@ func init() {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -4554,7 +4554,7 @@ func init() {
       "name": "sort",
       "in": "query"
     },
-    "CommonTenantKeyParameterQuery": {
+    "CommonTenantParameterQuery": {
       "type": "string",
       "description": "Specifies the tenant in a request targeting a multi-tenant class",
       "name": "tenant",
@@ -9413,7 +9413,7 @@ func init() {
       "name": "sort",
       "in": "query"
     },
-    "CommonTenantKeyParameterQuery": {
+    "CommonTenantParameterQuery": {
       "type": "string",
       "description": "Specifies the tenant in a request targeting a multi-tenant class",
       "name": "tenant",

@@ -140,10 +140,10 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.Tenant)
+	tenant := getTenant(params.Tenant)
 
 	res, err := h.manager.DeleteObjects(params.HTTPRequest.Context(), principal,
-		params.Body.Match, params.Body.DryRun, params.Body.Output, repl, tenantKey)
+		params.Body.Match, params.Body.DryRun, params.Body.Output, repl, tenant)
 	if err != nil {
 		if errors.As(err, &objects.ErrInvalidUserInput{}) {
 			return batch.NewBatchObjectsDeleteUnprocessableEntity().
