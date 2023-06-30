@@ -64,11 +64,11 @@ type objectsManager interface {
 	MergeObject(context.Context, *models.Principal, *models.Object,
 		*additional.ReplicationProperties) *uco.Error
 	AddObjectReference(context.Context, *models.Principal, *uco.AddReferenceInput,
-		*additional.ReplicationProperties) *uco.Error
+		*additional.ReplicationProperties, string) *uco.Error
 	UpdateObjectReferences(context.Context, *models.Principal,
-		*uco.PutReferenceInput, *additional.ReplicationProperties) *uco.Error
+		*uco.PutReferenceInput, *additional.ReplicationProperties, string) *uco.Error
 	DeleteObjectReference(context.Context, *models.Principal, *uco.DeleteReferenceInput,
-		*additional.ReplicationProperties) *uco.Error
+		*additional.ReplicationProperties, string) *uco.Error
 	GetObjectsClass(ctx context.Context, principal *models.Principal, id strfmt.UUID) (*models.Class, error)
 }
 
@@ -414,8 +414,9 @@ func (h *objectHandlers) addObjectReference(
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
+	tenant := getTenant(params.Tenant)
 
-	objErr := h.manager.AddObjectReference(params.HTTPRequest.Context(), principal, &input, repl)
+	objErr := h.manager.AddObjectReference(params.HTTPRequest.Context(), principal, &input, repl, tenant)
 	if objErr != nil {
 		switch {
 		case objErr.Forbidden():
@@ -451,7 +452,9 @@ func (h *objectHandlers) putObjectReferences(params objects.ObjectsClassReferenc
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	objErr := h.manager.UpdateObjectReferences(params.HTTPRequest.Context(), principal, &input, repl)
+	tenant := getTenant(params.Tenant)
+
+	objErr := h.manager.UpdateObjectReferences(params.HTTPRequest.Context(), principal, &input, repl, tenant)
 	if objErr != nil {
 		switch {
 		case objErr.Forbidden():
@@ -486,8 +489,9 @@ func (h *objectHandlers) deleteObjectReference(params objects.ObjectsClassRefere
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
+	tenant := getTenant(params.Tenant)
 
-	objErr := h.manager.DeleteObjectReference(params.HTTPRequest.Context(), principal, &input, repl)
+	objErr := h.manager.DeleteObjectReference(params.HTTPRequest.Context(), principal, &input, repl, tenant)
 	if objErr != nil {
 		switch objErr.Code {
 		case uco.StatusForbidden:

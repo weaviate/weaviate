@@ -166,10 +166,31 @@ func AddReference(t *testing.T, object *models.Object, ref *models.SingleRef, pr
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func AddReferenceTenant(t *testing.T, object *models.Object, ref *models.SingleRef, prop string, tenant string) {
+	params := objects.NewObjectsClassReferencesCreateParams().
+		WithClassName(object.Class).WithID(object.ID).WithBody(ref).WithPropertyName(prop).WithTenant(&tenant)
+	resp, err := Client(t).Objects.ObjectsClassReferencesCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func DeleteReference(t *testing.T, object *models.Object, ref *models.SingleRef, prop string) {
 	params := objects.NewObjectsClassReferencesDeleteParams().
 		WithClassName(object.Class).WithID(object.ID).WithBody(ref).WithPropertyName(prop)
 	resp, err := Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func DeleteReferenceTenant(t *testing.T, object *models.Object, ref *models.SingleRef, prop string, tenant string) {
+	params := objects.NewObjectsClassReferencesDeleteParams().
+		WithClassName(object.Class).WithID(object.ID).WithBody(ref).WithPropertyName(prop).WithTenant(&tenant)
+	resp, err := Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func UpdateReferenceTenant(t *testing.T, object *models.Object, ref models.MultipleRef, prop string, tenant string) {
+	params := objects.NewObjectsClassReferencesPutParams().
+		WithClassName(object.Class).WithID(object.ID).WithBody(ref).WithPropertyName(prop).WithTenant(&tenant)
+	resp, err := Client(t).Objects.ObjectsClassReferencesPut(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }
 
