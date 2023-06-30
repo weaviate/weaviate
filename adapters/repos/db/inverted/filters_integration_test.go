@@ -541,7 +541,9 @@ func Test_Filters_Int(t *testing.T) {
 				func(t *testing.T) {
 					idsList := idsToBinaryList([]uint64{21})
 					value, _ := LexicographicallySortableInt64(7)
-					require.Nil(t, bucket.SetDeleteSingle(value, idsList[0])) FIXME needs the propid
+					propid_bytes := make([]byte, 8)
+				binary.LittleEndian.PutUint64(propid_bytes, propId)
+					require.Nil(t, bucket.SetDeleteSingleProp(propid_bytes, value, idsList[0])) 
 				})
 		})
 	}

@@ -432,6 +432,20 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 	})
 }
 
+func (b *Bucket) SetDeleteSingleProp(prop_bytes []byte, key []byte, valueToDelete []byte) error {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	real_key := helpers.MakePropertyKey(prop_bytes, key)
+
+	return b.active.append(real_key, []value{
+		{
+			value:     valueToDelete,
+			tombstone: true,
+		},
+	})
+}
+
 // WasDeleted determines if an object used to exist in the LSM store
 //
 // There are 3 different locations that we need to check for the key
