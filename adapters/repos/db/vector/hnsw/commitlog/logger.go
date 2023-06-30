@@ -14,25 +14,13 @@ package commitlog
 import (
 	"encoding/binary"
 	"os"
-	"sync"
-	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/asyncwriter"
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
-type linkedBuff struct {
-	buffer []byte
-	next   *linkedBuff
-}
-
 type Logger struct {
-	file      *os.File
-	bufw      *bufWriter
-	buffers   chan bool
-	currBuff  *linkedBuff
-	lastBuff  *linkedBuff
-	lock      *sync.Mutex
-	closeLock *sync.RWMutex
+	writer *asyncwriter.AsyncQueuedWriter
 }
 
 // TODO: these are duplicates with the hnsw package, unify them
@@ -55,46 +43,11 @@ const (
 )
 
 func NewLogger(fileName string) *Logger {
-	file, err := os.Create(fileName)
-	if err != nil {
-		panic(err)
-	}
-
-	logger := &Logger{file: file, bufw: NewWriter(file)}
-	logger.initWriterWorker()
-	return logger
+	return &Logger{writer: asyncwriter.NewAsyncQueuedWriter(fileName)}
 }
 
 func NewLoggerWithFile(file *os.File) *Logger {
-	logger := &Logger{file: file, bufw: NewWriterSize(file, 32*1024)}
-	logger.initWriterWorker()
-	return logger
-}
-
-func (l *Logger) initWriterWorker() {
-	l.buffers = make(chan bool)
-	l.currBuff = &linkedBuff{}
-	l.lastBuff = l.currBuff
-	l.lock = &sync.Mutex{}
-	l.closeLock = &sync.RWMutex{}
-	go func() {
-		for {
-			<-l.buffers
-			l.bufw.Write(l.currBuff.buffer)
-			l.currBuff = l.currBuff.next
-		}
-	}()
-}
-
-func (l *Logger) addData(buff []byte) {
-	l.closeLock.RLock()
-	defer l.closeLock.RUnlock()
-	l.lock.Lock()
-	l.lastBuff.buffer = buff
-	l.lastBuff.next = &linkedBuff{}
-	l.lastBuff = l.lastBuff.next
-	l.lock.Unlock()
-	l.buffers <- true
+	return &Logger{writer: asyncwriter.NewAsyncQueuedWriterWithFile(file)}
 }
 
 func (l *Logger) SetEntryPointWithMaxLayer(id uint64, level int) error {
@@ -103,7 +56,7 @@ func (l *Logger) SetEntryPointWithMaxLayer(id uint64, level int) error {
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(level))
 
-	l.addData(toWrite)
+	l.writer.QueueData(toWrite)
 	return nil
 }
 
@@ -112,7 +65,7 @@ func (l *Logger) AddNode(id uint64, level int) error {
 	toWrite[0] = byte(AddNode)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(level))
-	l.addData(toWrite)
+	l.writer.QueueData(toWrite)
 	return nil
 }
 
@@ -133,7 +86,7 @@ func (l *Logger) AddPQ(data ssdhelpers.PQData) error {
 	for _, encoder := range data.Encoders {
 		toWrite = append(toWrite, encoder.ExposeDataForRestore()...)
 	}
-	l.addData(toWrite)
+	l.writer.QueueData(toWrite)
 	return nil
 }
 
@@ -143,7 +96,7 @@ func (l *Logger) AddLinkAtLevel(id uint64, level int, target uint64) error {
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(level))
 	binary.LittleEndian.PutUint64(toWrite[11:19], target)
-	l.addData(toWrite)
+	l.writer.QueueData(toWrite)
 	return nil
 }
 
@@ -158,7 +111,7 @@ func (l *Logger) AddLinksAtLevel(id uint64, level int, targets []uint64) error {
 		offsetEnd := offsetStart + 8
 		binary.LittleEndian.PutUint64(toWrite[offsetStart:offsetEnd], target)
 	}
-	l.addData(toWrite)
+	l.writer.QueueData(toWrite)
 	return nil
 }
 
@@ -170,7 +123,7 @@ func (l *Logger) ReplaceLinksAtLevel(id uint64, level int, targets []uint64) err
 	binary.LittleEndian.PutUint64(headers[1:9], id)
 	binary.LittleEndian.PutUint16(headers[9:11], uint16(level))
 	binary.LittleEndian.PutUint16(headers[11:13], uint16(len(targets)))
-	//l.addData(headers)
+	//l.writer.QueueData(headers)
 	toWrite := headers
 
 	i := 0
@@ -182,7 +135,7 @@ func (l *Logger) ReplaceLinksAtLevel(id uint64, level int, targets []uint64) err
 			copy(bufCopy, toWrite)
 			copy(bufCopy[len(toWrite):], buf)
 			toWrite = bufCopy
-			//l.addData(buf)
+			//l.writer.QueueData(buf)
 		}
 
 		pos := i % 8
@@ -204,9 +157,9 @@ func (l *Logger) ReplaceLinksAtLevel(id uint64, level int, targets []uint64) err
 		copy(bufCopy, toWrite)
 		copy(bufCopy[len(toWrite):], buf[start:end])
 		toWrite = bufCopy
-		//l.addData(buf[start:end])
+		//l.writer.QueueData(buf[start:end])
 	}
-	l.addData(toWrite)
+	l.writer.QueueData(toWrite)
 	return nil
 }
 
@@ -214,7 +167,7 @@ func (l *Logger) AddTombstone(id uint64) error {
 	toWrite := make([]byte, 9)
 	toWrite[0] = byte(AddTombstone)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
-	l.addData(toWrite)
+	l.writer.QueueData(toWrite)
 	return nil
 }
 
@@ -222,7 +175,7 @@ func (l *Logger) RemoveTombstone(id uint64) error {
 	toWrite := make([]byte, 9)
 	toWrite[0] = byte(RemoveTombstone)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
-	l.addData(toWrite)
+	l.writer.QueueData(toWrite)
 	return nil
 }
 
@@ -230,7 +183,7 @@ func (l *Logger) ClearLinks(id uint64) error {
 	toWrite := make([]byte, 9)
 	toWrite[0] = byte(ClearLinks)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
-	l.addData(toWrite)
+	l.writer.QueueData(toWrite)
 	return nil
 }
 
@@ -239,7 +192,7 @@ func (l *Logger) ClearLinksAtLevel(id uint64, level uint16) error {
 	toWrite[0] = byte(ClearLinksAtLevel)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	binary.LittleEndian.PutUint16(toWrite[9:11], level)
-	l.addData(toWrite)
+	l.writer.QueueData(toWrite)
 	return nil
 }
 
@@ -247,19 +200,19 @@ func (l *Logger) DeleteNode(id uint64) error {
 	toWrite := make([]byte, 9)
 	toWrite[0] = byte(DeleteNode)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
-	l.addData(toWrite)
+	l.writer.QueueData(toWrite)
 	return nil
 }
 
 func (l *Logger) Reset() error {
 	toWrite := make([]byte, 1)
 	toWrite[0] = byte(ResetIndex)
-	l.addData(toWrite)
+	l.writer.QueueData(toWrite)
 	return nil
 }
 
 func (l *Logger) FileSize() (int64, error) {
-	i, err := l.file.Stat()
+	i, err := l.writer.Stat()
 	if err != nil {
 		return -1, err
 	}
@@ -268,7 +221,7 @@ func (l *Logger) FileSize() (int64, error) {
 }
 
 func (l *Logger) FileName() (string, error) {
-	i, err := l.file.Stat()
+	i, err := l.writer.Stat()
 	if err != nil {
 		return "", err
 	}
@@ -277,31 +230,9 @@ func (l *Logger) FileName() (string, error) {
 }
 
 func (l *Logger) Flush() error {
-	l.closeLock.Lock()
-	defer l.closeLock.Unlock()
-
-	for l.currBuff.next != nil {
-		time.Sleep(100)
-	}
-
-	return l.bufw.Flush()
+	return l.writer.Flush()
 }
 
 func (l *Logger) Close() error {
-	l.closeLock.Lock()
-	defer l.closeLock.Unlock()
-
-	for l.currBuff.next != nil {
-		time.Sleep(100)
-	}
-
-	if err := l.bufw.Flush(); err != nil {
-		return err
-	}
-
-	if err := l.file.Close(); err != nil {
-		return err
-	}
-
-	return nil
+	return l.writer.Close()
 }

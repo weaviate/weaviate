@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package commitlog
+package asyncwriter
 
 import (
 	"os"
