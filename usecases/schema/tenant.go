@@ -30,7 +30,11 @@ const tenantsPath = "schema/tenants"
 
 // AddTenants is used to add new tenants to a class
 // Class must exist and has partitioning enabled
-func (m *Manager) AddTenants(ctx context.Context, principal *models.Principal, class string, tenants []*models.Tenant) error {
+func (m *Manager) AddTenants(ctx context.Context,
+	principal *models.Principal,
+	class string,
+	tenants []*models.Tenant,
+) (err error) {
 	if err := m.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
 		return err
 	}
@@ -39,8 +43,8 @@ func (m *Manager) AddTenants(ctx context.Context, principal *models.Principal, c
 	if err := validateTenantNames(tenants); err != nil {
 		return err
 	}
-	cls, st := m.getClassByName(class), m.ShardingState(class)
-	if cls == nil || st == nil {
+	cls := m.getClassByName(class)
+	if cls == nil {
 		return fmt.Errorf("class %q: %w", class, ErrNotFound)
 	}
 	if !isMultiTenancyEnabled(cls.MultiTenancyConfig) {
@@ -48,18 +52,13 @@ func (m *Manager) AddTenants(ctx context.Context, principal *models.Principal, c
 	}
 
 	// create transaction payload
-	rf := int64(1)
-	if cls.ReplicationConfig != nil && cls.ReplicationConfig.Factor > rf {
-		rf = cls.ReplicationConfig.Factor
-	}
-
 	tenantNames := make([]string, len(tenants))
 	for i, tenant := range tenants {
 		tenantNames[i] = tenant.Name
 	}
-	partitions, err := st.GetPartitions(m.clusterState, tenantNames, rf)
+	partitions, err := m.getPartitions(cls, tenantNames)
 	if err != nil {
-		return fmt.Errorf("get partitions from sharding state: %w", err)
+		return fmt.Errorf("get partitions from class %q: %w", class, err)
 	}
 	request := AddTenantsPayload{
 		Class:   class,
@@ -82,7 +81,28 @@ func (m *Manager) AddTenants(ctx context.Context, principal *models.Principal, c
 		m.logger.WithError(err).Errorf("not every node was able to commit")
 	}
 
-	return m.onAddTenants(ctx, st, cls, request) // actual update
+	err = m.onAddTenants(ctx, cls, request) // actual update
+	if err != nil {
+		m.logger.WithField("action", "add_tenants").
+			WithField("n", len(request.Tenants)).
+			WithField("class", cls.Class).Error(err)
+	}
+
+	return err
+}
+
+func (m *Manager) getPartitions(cls *models.Class, shards []string) (map[string][]string, error) {
+	rf := int64(1)
+	if cls.ReplicationConfig != nil && cls.ReplicationConfig.Factor > rf {
+		rf = cls.ReplicationConfig.Factor
+	}
+	m.shardingStateLock.RLock()
+	defer m.shardingStateLock.RUnlock()
+	st := m.state.ShardingState[cls.Class]
+	if st == nil {
+		return nil, fmt.Errorf("sharding state %w", ErrNotFound)
+	}
+	return st.GetPartitions(m.clusterState, shards, rf)
 }
 
 func validateTenantNames(tenants []*models.Tenant) error {
@@ -94,9 +114,12 @@ func validateTenantNames(tenants []*models.Tenant) error {
 	return nil
 }
 
-func (m *Manager) onAddTenants(ctx context.Context,
-	st *sharding.State, class *models.Class, request AddTenantsPayload,
+func (m *Manager) onAddTenants(ctx context.Context, class *models.Class, request AddTenantsPayload,
 ) error {
+	st := sharding.State{
+		Physical: make(map[string]sharding.Physical, len(request.Tenants)),
+	}
+	st.SetLocalName(m.clusterState.LocalName())
 	pairs := make([]KeyValuePair, 0, len(request.Tenants))
 	for _, p := range request.Tenants {
 		if _, ok := st.Physical[p.Name]; !ok {
@@ -117,11 +140,8 @@ func (m *Manager) onAddTenants(ctx context.Context,
 
 	commit, err := m.migrator.NewTenants(ctx, class, shards)
 	if err != nil {
-		m.logger.WithField("action", "add_tenants").
-			WithField("class", request.Class).Error(err)
+		return fmt.Errorf("migrator.new_tenants: %w", err)
 	}
-
-	st.SetLocalName(m.clusterState.LocalName())
 
 	m.logger.
 		WithField("action", "schema.add_tenants").
@@ -133,7 +153,10 @@ func (m *Manager) onAddTenants(ctx context.Context,
 	}
 	commit(true) // commit new adding new tenant
 	m.shardingStateLock.Lock()
-	m.state.ShardingState[request.Class] = st
+	ost := m.state.ShardingState[request.Class]
+	for name, p := range st.Physical {
+		ost.Physical[name] = p
+	}
 	m.shardingStateLock.Unlock()
 	m.triggerSchemaUpdateCallbacks()
 

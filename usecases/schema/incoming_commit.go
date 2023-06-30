@@ -153,12 +153,18 @@ func (m *Manager) handleAddTenantsCommit(ctx context.Context,
 		return errors.Errorf("expected commit payload to be AddTenants, but got %T",
 			tx.Payload)
 	}
-	cls, st := m.getClassByName(req.Class), m.ShardingState(req.Class)
-	if cls == nil || st == nil {
+	cls := m.getClassByName(req.Class)
+	if cls == nil {
 		return fmt.Errorf("class %q: %w", req.Class, ErrNotFound)
 	}
 
-	return m.onAddTenants(ctx, st, cls, req)
+	err := m.onAddTenants(ctx, cls, req)
+	if err != nil {
+		m.logger.WithField("action", "on_add_tenants").
+			WithField("n", len(req.Tenants)).
+			WithField("class", cls.Class).Error(err)
+	}
+	return err
 }
 
 func (m *Manager) handleDeleteTenantsCommit(ctx context.Context,
