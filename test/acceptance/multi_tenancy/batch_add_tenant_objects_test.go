@@ -72,11 +72,7 @@ func TestBatchAddTenantObjects(t *testing.T) {
 		helper.DeleteClass(t, testClass.Class)
 	}()
 
-	tenants := make([]*models.Tenant, len(tenantObjects))
-	for i := range tenants {
-		tenants[i] = &models.Tenant{Name: tenantName}
-	}
-	helper.CreateTenants(t, testClass.Class, tenants)
+	helper.CreateTenants(t, testClass.Class, []*models.Tenant{{Name: tenantName}})
 
 	t.Run("add and get tenant objects", func(t *testing.T) {
 		helper.CreateObjectsBatch(t, tenantObjects)

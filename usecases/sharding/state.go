@@ -298,8 +298,8 @@ func (s *State) GetPartitions(nodes nodes, shards []string, replFactor int64) (m
 	it.SetStartNode(names[len(names)-1])
 	partitions := make(map[string][]string, len(shards))
 	for _, name := range shards {
-		if _, ok := s.Physical[name]; ok {
-			continue
+		if _, alreadyExists := s.Physical[name]; alreadyExists {
+			return nil, fmt.Errorf("tenant %s already exists", name)
 		}
 		owners := make([]string, 1, replFactor)
 		node := it.Next()

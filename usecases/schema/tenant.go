@@ -106,7 +106,14 @@ func (m *Manager) getPartitions(cls *models.Class, shards []string) (map[string]
 }
 
 func validateTenants(tenants []*models.Tenant) error {
+	names := make(map[string]struct{}, len(tenants)) // check for name uniqueness
 	for i, tenant := range tenants {
+		_, nameExists := names[tenant.Name]
+		if nameExists {
+			return uco.NewErrInvalidUserInput("duplicate tenant name %s", tenant.Name)
+		}
+		names[tenant.Name] = struct{}{}
+
 		if !regexTenantName.MatchString(tenant.Name) {
 			return uco.NewErrInvalidUserInput("invalid tenant name at index %d", i)
 		}
