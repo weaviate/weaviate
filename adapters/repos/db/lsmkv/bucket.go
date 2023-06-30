@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -165,6 +166,21 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	b.metrics.TrackStartupBucket(beforeAll)
 
 	return b, nil
+}
+
+// Iterate over every entry in the bucket and create a human-readable display of the bucket's contents, and return it as a string.
+func (b *Bucket) DumpString() string {
+	var buf bytes.Buffer
+	b.IterateObjects(context.Background(), func(object *storobj.Object) error {
+		// Marshall the object to json
+		json, err := json.Marshal(object)
+		if err != nil {
+			return err
+		}
+		buf.WriteString(fmt.Sprintf("%s: %s\n", object.ID, json))
+		return nil
+	})
+	return buf.String()
 }
 
 func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error {

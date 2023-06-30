@@ -17,6 +17,7 @@ package inverted
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -80,7 +81,7 @@ func Test_Filters_String(t *testing.T) {
 		for value, ids := range fakeInvertedIndex {
 			idsMapValues := idsToBinaryMapValues(ids)
 			propid_bytes := make([]byte, 8)
-				binary.LittleEndian.PutUint64(propid_bytes, propId)
+			binary.LittleEndian.PutUint64(propid_bytes, propId)
 			for _, pair := range idsMapValues {
 				require.Nil(t, bWithFrequency.MapSetProp(propid_bytes, []byte(value), pair))
 			}
@@ -310,6 +311,24 @@ func Test_Filters_String(t *testing.T) {
 	}
 }
 
+func DumpString(bucket *lsmkv.Bucket, property_prefix []byte) string {
+	var out string
+	rr := NewRowReader(property_prefix, bucket, nil, filters.OperatorAnd, false)
+
+	
+
+	rr.Iterate(context.Background(), func(id []byte, values [][]byte) (bool, error) {
+		out += fmt.Sprintf("id: %v\n", id)
+		//Marshall values 
+		out += fmt.Sprintf("values: \n")
+		for _, v := range values {
+			out += fmt.Sprintf("  %v\n", v)
+		}
+		return true, nil
+	})
+	return out
+}
+
 func Test_Filters_Int(t *testing.T) {
 	dirName := t.TempDir()
 
@@ -322,18 +341,16 @@ func Test_Filters_Int(t *testing.T) {
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
 	bucket := store.Bucket(bucketName)
 
-	propIds , err:= propertyspecific.NewJsonPropertyIdTracker("temp_propIds")
+	propIds, err := propertyspecific.NewJsonPropertyIdTracker("temp_propIds")
 	defer propIds.Drop()
 	if err != nil {
 		t.Fail()
 	}
-	
 
-	_,err = propIds.CreateProperty(propName)
+	propId, err := propIds.CreateProperty(propName)
 	if err != nil {
 		t.Fail()
 	}
-
 
 	defer store.Shutdown(context.Background())
 
@@ -367,8 +384,6 @@ func Test_Filters_Int(t *testing.T) {
 			}
 			propid_bytes := make([]byte, 8)
 			binary.LittleEndian.PutUint64(propid_bytes, propid)
-
-			
 
 			require.Nil(t, bucket.SetAddProp(propid_bytes, valueBytes, idValues))
 		}
@@ -496,8 +511,12 @@ func Test_Filters_Int(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Run("before update", func(t *testing.T) {
-				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, className)
+				fmt.Println("Dumping bucket:")
+				propid_bytes := make([]byte, 8)
+				binary.LittleEndian.PutUint64(propid_bytes, propId)
+				DumpString(bucket, propid_bytes)
+				fmt.Println("Dumping bucket end")
+				res, err := searcher.DocIDs(context.Background(), test.filter,additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
 			})
@@ -505,12 +524,15 @@ func Test_Filters_Int(t *testing.T) {
 			t.Run("update", func(t *testing.T) {
 				value, _ := LexicographicallySortableInt64(7)
 				idsBinary := idsToBinaryList([]uint64{21})
-				require.Nil(t, bucket.SetAdd([]byte(value), idsBinary))
+				propid_bytes := make([]byte, 8)
+				binary.LittleEndian.PutUint64(propid_bytes, propId)
+				//fmt.Println(DumpString(bucket))
+				require.Nil(t, bucket.SetAddProp(propid_bytes, []byte(value), idsBinary))
+				fmt.Println(DumpString(bucket, propid_bytes))
 			})
 
 			t.Run("after update", func(t *testing.T) {
-				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, className)
+				res, err := searcher.DocIDs(context.Background(), test.filter,	additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListAfterUpdate.Slice(), res.Slice())
 			})
@@ -519,7 +541,7 @@ func Test_Filters_Int(t *testing.T) {
 				func(t *testing.T) {
 					idsList := idsToBinaryList([]uint64{21})
 					value, _ := LexicographicallySortableInt64(7)
-					require.Nil(t, bucket.SetDeleteSingle(value, idsList[0]))
+					require.Nil(t, bucket.SetDeleteSingle(value, idsList[0])) FIXME needs the propid
 				})
 		})
 	}
@@ -541,7 +563,6 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	propId, err := propIds.CreateProperty(propName)
 	require.Nil(t, err)
 
-	
 	bucketName := "searchable_properties"
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
 		bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
@@ -559,7 +580,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 			idsMapValues := idsToBinaryMapValues(ids)
 			for _, pair := range idsMapValues {
 				propid_bytes := make([]byte, 8)
-			binary.LittleEndian.PutUint64(propid_bytes, propId)
+				binary.LittleEndian.PutUint64(propid_bytes, propId)
 				require.Nil(t, bWithFrequency.MapSetProp(propid_bytes, []byte(value), pair))
 			}
 		}
@@ -625,7 +646,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 				value := []byte("list_a")
 				idsMapValues := idsToBinaryMapValues([]uint64{3})
 				propid_bytes := make([]byte, 8)
-			binary.LittleEndian.PutUint64(propid_bytes, propId)
+				binary.LittleEndian.PutUint64(propid_bytes, propId)
 				for _, pair := range idsMapValues {
 					require.Nil(t, bWithFrequency.MapSetProp(propid_bytes, []byte(value), pair))
 				}

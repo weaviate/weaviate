@@ -139,6 +139,35 @@ func (rr *RowReader) greaterThan(ctx context.Context, readFn ReadFn,
 	return nil
 }
 
+
+// Iterate dumps every value
+func (rr *RowReader) Iterate(ctx context.Context, readFn ReadFn) error {
+	c := rr.newCursor()
+	defer c.Close()
+
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		fmt.Printf("Property prefix: %v\n", rr.PropPrefix)
+		k = helpers.UnMakePropertyKey(rr.PropPrefix, k)
+		fmt.Printf("k sans prop: %v\n", k)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+
+		continueReading, err := readFn(k, v)
+		if err != nil {
+			return err
+		}
+
+		if !continueReading {
+			break
+		}
+	}
+
+	return nil
+}
+
+
 // lessThan reads from the very begging to the specified  value. The last
 // matching row is only included if allowEqual==true, otherwise it ends one
 // prior to that.
