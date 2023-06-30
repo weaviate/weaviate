@@ -20,11 +20,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
 func TestUpdateTenantObjects(t *testing.T) {
-	tenantKey := "tenantName"
 	mutableProp := "mutableProp"
 	testClass := models.Class{
 		Class: "MultiTenantClass",
@@ -33,11 +33,11 @@ func TestUpdateTenantObjects(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     tenantKey,
-				DataType: []string{"string"},
+				Name:     "name",
+				DataType: schema.DataTypeText.PropString(),
 			}, {
 				Name:     mutableProp,
-				DataType: []string{"string"},
+				DataType: schema.DataTypeText.PropString(),
 			},
 		},
 	}
@@ -49,7 +49,7 @@ func TestUpdateTenantObjects(t *testing.T) {
 			ID:    "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
 			Class: testClass.Class,
 			Properties: map[string]interface{}{
-				tenantKey:   tenantNames[0],
+				"name":      tenantNames[0],
 				mutableProp: "obj#0",
 			},
 			Tenant: tenantNames[0],
@@ -58,7 +58,7 @@ func TestUpdateTenantObjects(t *testing.T) {
 			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
 			Class: testClass.Class,
 			Properties: map[string]interface{}{
-				tenantKey:   tenantNames[1],
+				"name":      tenantNames[1],
 				mutableProp: "obj#1",
 			},
 			Tenant: tenantNames[1],
@@ -67,7 +67,7 @@ func TestUpdateTenantObjects(t *testing.T) {
 			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
 			Class: testClass.Class,
 			Properties: map[string]interface{}{
-				tenantKey:   tenantNames[2],
+				"name":      tenantNames[2],
 				mutableProp: "obj#2",
 			},
 			Tenant: tenantNames[2],
@@ -85,7 +85,7 @@ func TestUpdateTenantObjects(t *testing.T) {
 	t.Run("create tenants", func(t *testing.T) {
 		tenants := make([]*models.Tenant, len(tenantNames))
 		for i := range tenants {
-			tenants[i] = &models.Tenant{tenantNames[i]}
+			tenants[i] = &models.Tenant{Name: tenantNames[i]}
 		}
 		helper.CreateTenants(t, testClass.Class, tenants)
 	})
@@ -113,7 +113,7 @@ func TestUpdateTenantObjects(t *testing.T) {
 				Class: testClass.Class,
 				ID:    obj.ID,
 				Properties: map[string]interface{}{
-					tenantKey:   tenantNames[i],
+					"name":      tenantNames[i],
 					mutableProp: fmt.Sprintf("%s--updated", mut),
 				},
 				Tenant: tenantNames[i],
@@ -135,9 +135,8 @@ func TestUpdateTenantObjects(t *testing.T) {
 	})
 }
 
-func TestUpdateTenantObjects_UpdateTenantKey(t *testing.T) {
+func TestUpdateTenantObjects_UpdateTenant(t *testing.T) {
 	className := "MultiTenantClass"
-	tenantKey := "tenantName"
 	tenantName := "Tenant1"
 	testClass := models.Class{
 		Class: className,
@@ -146,8 +145,8 @@ func TestUpdateTenantObjects_UpdateTenantKey(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     tenantKey,
-				DataType: []string{"string"},
+				Name:     "name",
+				DataType: schema.DataTypeText.PropString(),
 			},
 		},
 	}
@@ -155,7 +154,7 @@ func TestUpdateTenantObjects_UpdateTenantKey(t *testing.T) {
 		ID:    "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
 		Class: className,
 		Properties: map[string]interface{}{
-			tenantKey: tenantName,
+			"name": tenantName,
 		},
 		Tenant: tenantName,
 	}
@@ -181,7 +180,7 @@ func TestUpdateTenantObjects_UpdateTenantKey(t *testing.T) {
 			Class: testClass.Class,
 			ID:    tenantObject.ID,
 			Properties: map[string]interface{}{
-				tenantKey: "updatedTenantName",
+				"name": "updatedTenantName",
 			},
 			Tenant: "updatedTenantName",
 		}

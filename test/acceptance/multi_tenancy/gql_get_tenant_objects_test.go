@@ -20,12 +20,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
 func TestGQLGetTenantObjects(t *testing.T) {
-	tenantKey := "tenantName"
 	testClass := models.Class{
 		Class: "MultiTenantClass",
 		MultiTenancyConfig: &models.MultiTenancyConfig{
@@ -33,36 +33,36 @@ func TestGQLGetTenantObjects(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     tenantKey,
-				DataType: []string{"string"},
+				Name:     "name",
+				DataType: schema.DataTypeText.PropString(),
 			},
 		},
 	}
-	tenantName := "Tenant1"
+	tenant := "Tenant1"
 	tenantObjects := []*models.Object{
 		{
 			ID:    "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
 			Class: testClass.Class,
 			Properties: map[string]interface{}{
-				tenantKey: tenantName,
+				"name": tenant,
 			},
-			Tenant: tenantName,
+			Tenant: tenant,
 		},
 		{
 			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
 			Class: testClass.Class,
 			Properties: map[string]interface{}{
-				tenantKey: tenantName,
+				"name": tenant,
 			},
-			Tenant: tenantName,
+			Tenant: tenant,
 		},
 		{
 			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
 			Class: testClass.Class,
 			Properties: map[string]interface{}{
-				tenantKey: tenantName,
+				"name": tenant,
 			},
-			Tenant: tenantName,
+			Tenant: tenant,
 		},
 	}
 
@@ -78,7 +78,7 @@ func TestGQLGetTenantObjects(t *testing.T) {
 		t.Run("create tenants", func(t *testing.T) {
 			tenants := make([]*models.Tenant, len(tenantObjects))
 			for i := range tenants {
-				tenants[i] = &models.Tenant{tenantName}
+				tenants[i] = &models.Tenant{Name: tenant}
 			}
 			helper.CreateTenants(t, testClass.Class, tenants)
 		})
@@ -89,7 +89,7 @@ func TestGQLGetTenantObjects(t *testing.T) {
 
 		t.Run("get tenant objects", func(t *testing.T) {
 			for _, obj := range tenantObjects {
-				resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenantName)
+				resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenant)
 				require.Nil(t, err)
 				assert.Equal(t, obj.ID, resp.ID)
 				assert.Equal(t, obj.Class, resp.Class)
@@ -104,7 +104,7 @@ func TestGQLGetTenantObjects(t *testing.T) {
 			expectedIDs[obj.ID] = false
 		}
 
-		query := fmt.Sprintf(`{Get{%s(tenantKey:%q){_additional{id}}}}`, testClass.Class, tenantName)
+		query := fmt.Sprintf(`{Get{%s(tenant:%q){_additional{id}}}}`, testClass.Class, tenant)
 		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		for _, obj := range result.Get("Get", testClass.Class).AsSlice() {
 			id := obj.(map[string]any)["_additional"].(map[string]any)["id"].(string)
@@ -123,8 +123,7 @@ func TestGQLGetTenantObjects(t *testing.T) {
 	})
 }
 
-func TestGQLGetTenantObjects_MissingTenantKey(t *testing.T) {
-	tenantKey := "tenantName"
+func TestGQLGetTenantObjects_MissingTenant(t *testing.T) {
 	testClass := models.Class{
 		Class: "MultiTenantClass",
 		MultiTenancyConfig: &models.MultiTenancyConfig{
@@ -132,8 +131,8 @@ func TestGQLGetTenantObjects_MissingTenantKey(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     tenantKey,
-				DataType: []string{"string"},
+				Name:     "name",
+				DataType: schema.DataTypeText.PropString(),
 			},
 		},
 	}
@@ -143,7 +142,7 @@ func TestGQLGetTenantObjects_MissingTenantKey(t *testing.T) {
 			ID:    "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
 			Class: testClass.Class,
 			Properties: map[string]interface{}{
-				tenantKey: tenantName,
+				"name": tenantName,
 			},
 			Tenant: tenantName,
 		},
@@ -151,7 +150,7 @@ func TestGQLGetTenantObjects_MissingTenantKey(t *testing.T) {
 			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
 			Class: testClass.Class,
 			Properties: map[string]interface{}{
-				tenantKey: tenantName,
+				"name": tenantName,
 			},
 			Tenant: tenantName,
 		},
@@ -159,7 +158,7 @@ func TestGQLGetTenantObjects_MissingTenantKey(t *testing.T) {
 			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
 			Class: testClass.Class,
 			Properties: map[string]interface{}{
-				tenantKey: tenantName,
+				"name": tenantName,
 			},
 			Tenant: tenantName,
 		},

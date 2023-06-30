@@ -1044,7 +1044,7 @@ func newFakeRepo() *fakeRepo {
 	}
 }
 
-func (f *fakeRepo) MultiGet(ctx context.Context, query []multi.Identifier, additional additional.Properties, tenantKey string) ([]search.Result, error) {
+func (f *fakeRepo) MultiGet(ctx context.Context, query []multi.Identifier, additional additional.Properties, tenant string) ([]search.Result, error) {
 	f.counter++
 	f.objectCounter += len(query)
 	out := make([]search.Result, len(query))

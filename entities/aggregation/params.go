@@ -29,7 +29,7 @@ type Params struct {
 	ObjectLimit      *int                       `json:"objectLimit"`
 	SearchVector     []float32                  `json:"searchVector"`
 	Certainty        float64                    `json:"certainty"`
-	TenantKey        string                     `json:"tenantKey"`
+	Tenant           string                     `json:"tenant"`
 	ModuleParams     map[string]interface{}     `json:"moduleParams"`
 	NearVector       *searchparams.NearVector   `json:"nearVector"`
 	NearObject       *searchparams.NearObject   `json:"nearObject"`

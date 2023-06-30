@@ -27,7 +27,7 @@ type QueryInput struct {
 	Cursor     *filters.Cursor
 	Filters    *filters.LocalFilter
 	Sort       []filters.Sort
-	TenantKey  string
+	Tenant     string
 	Additional additional.Properties
 }
 
@@ -38,7 +38,7 @@ type QueryParams struct {
 	After      *string
 	Sort       *string
 	Order      *string
-	TenantKey  *string
+	Tenant     *string
 	Additional additional.Properties
 }
 
@@ -49,9 +49,9 @@ func (q *QueryParams) inputs(m *Manager) (*QueryInput, error) {
 	}
 	sort := m.getSort(q.Sort, q.Order)
 	cursor := m.getCursor(q.After, q.Limit)
-	tenantKey := ""
-	if q.TenantKey != nil {
-		tenantKey = *q.TenantKey
+	tenant := ""
+	if q.Tenant != nil {
+		tenant = *q.Tenant
 	}
 	return &QueryInput{
 		Class:      q.Class,
@@ -59,7 +59,7 @@ func (q *QueryParams) inputs(m *Manager) (*QueryInput, error) {
 		Limit:      smartLimit,
 		Sort:       sort,
 		Cursor:     cursor,
-		TenantKey:  tenantKey,
+		Tenant:     tenant,
 		Additional: q.Additional,
 	}, nil
 }

@@ -43,7 +43,7 @@ type batchRepoNew interface {
 	BatchPutObjects(ctx context.Context, objects BatchObjects,
 		repl *additional.ReplicationProperties) (BatchObjects, error)
 	BatchDeleteObjects(ctx context.Context, params BatchDeleteParams,
-		repl *additional.ReplicationProperties, tenantKey string) (BatchDeleteResult, error)
+		repl *additional.ReplicationProperties, tenant string) (BatchDeleteResult, error)
 	AddBatchReferences(ctx context.Context, references BatchReferences,
 		repl *additional.ReplicationProperties) (BatchReferences, error)
 }

@@ -31,10 +31,6 @@ func ArticlesClass() *models.Class {
 				Name:     "hasParagraphs",
 				DataType: []string{"Paragraph"},
 			},
-			{
-				Name:     "tenantKey",
-				DataType: schema.DataTypeUUID.PropString(),
-			},
 		},
 	}
 }
@@ -46,10 +42,6 @@ func ParagraphsClass() *models.Class {
 			{
 				Name:     "contents",
 				DataType: schema.DataTypeText.PropString(),
-			},
-			{
-				Name:     "tenantKey",
-				DataType: schema.DataTypeUUID.PropString(),
 			},
 		},
 		Vectorizer: "none",

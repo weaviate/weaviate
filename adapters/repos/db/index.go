@@ -320,7 +320,7 @@ func indexID(class schema.ClassName) string {
 	return strings.ToLower(string(class))
 }
 
-func (i *Index) determineObjectShard(id strfmt.UUID, tenantKey string, ss *sharding.State) (string, error) {
+func (i *Index) determineObjectShard(id strfmt.UUID, tenant string, ss *sharding.State) (string, error) {
 	if ss == nil {
 		ss = i.getSchema.ShardingState(i.Config.ClassName.String())
 		if ss == nil {
@@ -328,8 +328,8 @@ func (i *Index) determineObjectShard(id strfmt.UUID, tenantKey string, ss *shard
 		}
 	}
 
-	if tenantKey != "" {
-		return i.shardFromTenantKey(tenantKey, ss)
+	if tenant != "" {
+		return i.shardFromTenant(tenant, ss)
 	}
 	return i.shardFromUUID(id, ss)
 }
@@ -345,11 +345,11 @@ func (i *Index) shardFromUUID(in strfmt.UUID, ss *sharding.State) (string, error
 	return ss.PhysicalShard(uuidBytes), nil
 }
 
-func (i *Index) shardFromTenantKey(tenantKey string, ss *sharding.State) (string, error) {
-	if name := ss.Shard(tenantKey, ""); name != "" {
+func (i *Index) shardFromTenant(tenant string, ss *sharding.State) (string, error) {
+	if name := ss.Shard(tenant, ""); name != "" {
 		return name, nil
 	}
-	return "", objects.NewErrInvalidUserInput("no tenant found with key: %q", tenantKey)
+	return "", objects.NewErrInvalidUserInput("no tenant found with key: %q", tenant)
 }
 
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
@@ -647,11 +647,11 @@ func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchRefere
 	}
 
 	for pos, ref := range refs {
-		if err := i.validateMultiTenancy(ref.TenantName); err != nil {
+		if err := i.validateMultiTenancy(ref.Tenant); err != nil {
 			out[pos] = err
 			continue
 		}
-		shardName, err := i.determineObjectShard(ref.From.TargetID, ref.TenantName, ss)
+		shardName, err := i.determineObjectShard(ref.From.TargetID, ref.Tenant, ss)
 		if err != nil {
 			out[pos] = err
 			continue
@@ -702,13 +702,13 @@ func (i *Index) IncomingBatchAddReferences(ctx context.Context, shardName string
 
 func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, addl additional.Properties,
-	replProps *additional.ReplicationProperties, tenantKey string,
+	replProps *additional.ReplicationProperties, tenant string,
 ) (*storobj.Object, error) {
-	if err := i.validateMultiTenancy(tenantKey); err != nil {
+	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, err
 	}
 
-	shardName, err := i.determineObjectShard(id, tenantKey, nil)
+	shardName, err := i.determineObjectShard(id, tenant, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine shard for object %q: %w", id, err)
 	}
@@ -778,9 +778,9 @@ func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 }
 
 func (i *Index) multiObjectByID(ctx context.Context,
-	query []multi.Identifier, tenantKey string,
+	query []multi.Identifier, tenant string,
 ) ([]*storobj.Object, error) {
-	if err := i.validateMultiTenancy(tenantKey); err != nil {
+	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, err
 	}
 
@@ -796,7 +796,7 @@ func (i *Index) multiObjectByID(ctx context.Context,
 	}
 
 	for pos, id := range query {
-		shardName, err := i.determineObjectShard(strfmt.UUID(id.ID), tenantKey, ss)
+		shardName, err := i.determineObjectShard(strfmt.UUID(id.ID), tenant, ss)
 		if err != nil {
 			return nil, err
 		}
@@ -863,13 +863,13 @@ func wrapIDsInMulti(in []strfmt.UUID) []multi.Identifier {
 }
 
 func (i *Index) exists(ctx context.Context, id strfmt.UUID,
-	replProps *additional.ReplicationProperties, tenantKey string,
+	replProps *additional.ReplicationProperties, tenant string,
 ) (bool, error) {
-	if err := i.validateMultiTenancy(tenantKey); err != nil {
+	if err := i.validateMultiTenancy(tenant); err != nil {
 		return false, err
 	}
 
-	shardName, err := i.determineObjectShard(id, tenantKey, nil)
+	shardName, err := i.determineObjectShard(id, tenant, nil)
 	if err != nil {
 		return false, err
 	}
@@ -913,13 +913,13 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
-	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenantKey string, autoCut int,
+	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int,
 ) ([]*storobj.Object, []float32, error) {
-	if err := i.validateMultiTenancy(tenantKey); err != nil {
+	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
 	}
 
-	shardNames, err := i.targetShardNames(tenantKey)
+	shardNames, err := i.targetShardNames(tenant)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1165,11 +1165,11 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 }
 
 // to be called after validating multi-tenancy
-func (i *Index) targetShardNames(tenantKey string) ([]string, error) {
+func (i *Index) targetShardNames(tenant string) ([]string, error) {
 	shardingState := i.getSchema.ShardingState(i.Config.ClassName.String())
 
-	if tenantKey != "" {
-		shardName, err := i.determineObjectShard("", tenantKey, shardingState)
+	if tenant != "" {
+		shardName, err := i.determineObjectShard("", tenant, shardingState)
 		if err != nil {
 			return nil, err
 		}
@@ -1181,13 +1181,13 @@ func (i *Index) targetShardNames(tenantKey string) ([]string, error) {
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	dist float32, limit int, filters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy,
-	additional additional.Properties, tenantKey string,
+	additional additional.Properties, tenant string,
 ) ([]*storobj.Object, []float32, error) {
-	if err := i.validateMultiTenancy(tenantKey); err != nil {
+	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
 	}
 
-	shardNames, err := i.targetShardNames(tenantKey)
+	shardNames, err := i.targetShardNames(tenant)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1300,16 +1300,16 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 }
 
 func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
-	replProps *additional.ReplicationProperties, tenantKey string,
+	replProps *additional.ReplicationProperties, tenant string,
 ) error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 
-	if err := i.validateMultiTenancy(tenantKey); err != nil {
+	if err := i.validateMultiTenancy(tenant); err != nil {
 		return err
 	}
 
-	shardName, err := i.determineObjectShard(id, tenantKey, nil)
+	shardName, err := i.determineObjectShard(id, tenant, nil)
 	if err != nil {
 		return err
 	}
@@ -1361,16 +1361,16 @@ func (i *Index) isLocalShard(shard string) bool {
 }
 
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
-	replProps *additional.ReplicationProperties, tenantKey string,
+	replProps *additional.ReplicationProperties, tenant string,
 ) error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 
-	if err := i.validateMultiTenancy(tenantKey); err != nil {
+	if err := i.validateMultiTenancy(tenant); err != nil {
 		return err
 	}
 
-	shardName, err := i.determineObjectShard(merge.ID, tenantKey, nil)
+	shardName, err := i.determineObjectShard(merge.ID, tenant, nil)
 	if err != nil {
 		return err
 	}
@@ -1417,11 +1417,11 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 func (i *Index) aggregate(ctx context.Context,
 	params aggregation.Params,
 ) (*aggregation.Result, error) {
-	if err := i.validateMultiTenancy(params.TenantKey); err != nil {
+	if err := i.validateMultiTenancy(params.Tenant); err != nil {
 		return nil, err
 	}
 
-	shardNames, err := i.targetShardNames(params.TenantKey)
+	shardNames, err := i.targetShardNames(params.Tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -1573,19 +1573,19 @@ func (i *Index) notifyReady() {
 }
 
 func (i *Index) findDocIDs(ctx context.Context,
-	filters *filters.LocalFilter, tenantKey string,
+	filters *filters.LocalFilter, tenant string,
 ) (map[string][]uint64, error) {
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "filter_total")
 
 	shardState := i.getSchema.ShardingState(i.Config.ClassName.String())
 	var shardNames []string
-
+	// TODO targetShardNames
 	// If this index is multi-tenant-enabled, we are only
 	// interested in deleting objects from the target
 	// tenant's shard
-	if tenantKey != "" {
-		shardNames = []string{tenantKey}
+	if tenant != "" {
+		shardNames = []string{tenant}
 	} else {
 		shardNames = shardState.AllPhysicalShards()
 	}
