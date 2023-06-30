@@ -47,9 +47,6 @@ type SingleRef struct {
 
 	// If using a concept reference (rather than a direct reference), specify the desired properties here
 	Schema PropertySchema `json:"schema,omitempty"`
-
-	// Name of the reference tenant.
-	Tenant string `json:"tenant,omitempty"`
 }
 
 // Validate validates this single ref

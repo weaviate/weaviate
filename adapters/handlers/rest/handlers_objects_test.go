@@ -1110,19 +1110,19 @@ func (f *fakeManager) DeleteObject(_ context.Context, _ *models.Principal,
 }
 
 func (f *fakeManager) AddObjectReference(context.Context, *models.Principal,
-	*uco.AddReferenceInput, *additional.ReplicationProperties,
+	*uco.AddReferenceInput, *additional.ReplicationProperties, string,
 ) *uco.Error {
 	return f.addRefErr
 }
 
 func (f *fakeManager) UpdateObjectReferences(context.Context, *models.Principal,
-	*uco.PutReferenceInput, *additional.ReplicationProperties,
+	*uco.PutReferenceInput, *additional.ReplicationProperties, string,
 ) *uco.Error {
 	return f.putRefErr
 }
 
 func (f *fakeManager) DeleteObjectReference(context.Context, *models.Principal,
-	*uco.DeleteReferenceInput, *additional.ReplicationProperties,
+	*uco.DeleteReferenceInput, *additional.ReplicationProperties, string,
 ) *uco.Error {
 	return f.deleteRefErr
 }

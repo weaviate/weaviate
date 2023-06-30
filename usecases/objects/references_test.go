@@ -54,7 +54,7 @@ func Test_ReferencesAddDeprecated(t *testing.T) {
 		m.repo.On("AddReference", source, target).Return(nil)
 		m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 
-		err := m.AddObjectReference(context.Background(), nil, &req, nil)
+		err := m.AddObjectReference(context.Background(), nil, &req, nil, "")
 		require.Nil(t, err)
 		m.repo.AssertExpectations(t)
 	})
@@ -68,7 +68,7 @@ func Test_ReferencesAddDeprecated(t *testing.T) {
 		}
 		m := newFakeGetManager(zooAnimalSchemaForTest())
 		m.repo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
-		err := m.AddObjectReference(context.Background(), nil, &req, nil)
+		err := m.AddObjectReference(context.Background(), nil, &req, nil, "")
 		require.NotNil(t, err)
 		if !err.BadRequest() {
 			t.Errorf("error expected: not found error got: %v", err)
@@ -84,7 +84,7 @@ func Test_ReferencesAddDeprecated(t *testing.T) {
 		}
 		m := newFakeGetManager(zooAnimalSchemaForTest())
 		m.repo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("any"))
-		err := m.AddObjectReference(context.Background(), nil, &req, nil)
+		err := m.AddObjectReference(context.Background(), nil, &req, nil, "")
 		require.NotNil(t, err)
 		if err.Code != StatusInternalServerError {
 			t.Errorf("error expected: internal error, got: %v", err)
@@ -101,7 +101,7 @@ func Test_ReferenceAdd(t *testing.T) {
 		refID  = strfmt.UUID("d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
 		uri    = strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
 		anyErr = errors.New("any")
-		ref    = models.SingleRef{Beacon: uri, Tenant: ""}
+		ref    = models.SingleRef{Beacon: uri}
 		req    = AddReferenceInput{
 			Class:    cls,
 			ID:       id,
@@ -220,7 +220,7 @@ func Test_ReferenceAdd(t *testing.T) {
 				m.repo.On("AddReference", source, target).Return(tc.ErrAddRef).Once()
 			}
 
-			err := m.AddObjectReference(context.Background(), nil, &tc.Req, nil)
+			err := m.AddObjectReference(context.Background(), nil, &tc.Req, nil, "")
 			if tc.WantCode != 0 {
 				code := 0
 				if err != nil {
@@ -249,7 +249,7 @@ func Test_ReferenceUpdate(t *testing.T) {
 		refID  = strfmt.UUID("d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
 		uri    = strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
 		anyErr = errors.New("any")
-		refs   = models.MultipleRef{&models.SingleRef{Beacon: uri, Tenant: ""}}
+		refs   = models.MultipleRef{&models.SingleRef{Beacon: uri}}
 		req    = PutReferenceInput{
 			Class:    cls,
 			ID:       id,
@@ -283,19 +283,23 @@ func Test_ReferenceUpdate(t *testing.T) {
 			WantCode:     StatusInternalServerError,
 			ErrSrcExists: anyErr,
 			WantErr:      NewErrInternal("repo: object by id: %v", anyErr),
+			Stage:        1,
 		},
 		{
 			Name: "source object missing", Req: req,
 			WantCode:    StatusNotFound,
 			SrcNotFound: true,
+			Stage:       1,
 		},
 		{
 			Name: "locking", Req: req,
 			WantCode: StatusInternalServerError, WantErr: anyErr, ErrLock: anyErr,
+			Stage: 1,
 		},
 		{
 			Name: "authorization", Req: req,
 			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr,
+			Stage: 1,
 		},
 		{
 			Name: "get schema",
@@ -359,7 +363,9 @@ func Test_ReferenceUpdate(t *testing.T) {
 			if tc.SrcNotFound {
 				srcObj = nil
 			}
-			m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(srcObj, tc.ErrSrcExists)
+			if tc.Stage >= 1 {
+				m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(srcObj, tc.ErrSrcExists)
+			}
 
 			if tc.Stage >= 2 {
 				m.repo.On("Exists", "", refID).Return(true, tc.ErrTargetExists).Once()
@@ -369,7 +375,7 @@ func Test_ReferenceUpdate(t *testing.T) {
 				m.repo.On("PutObject", mock.Anything, mock.Anything).Return(tc.ErrPutRefs).Once()
 			}
 
-			err := m.UpdateObjectReferences(context.Background(), nil, &tc.Req, nil)
+			err := m.UpdateObjectReferences(context.Background(), nil, &tc.Req, nil, "")
 			if tc.WantCode != 0 {
 				code := 0
 				if err != nil {
@@ -397,7 +403,7 @@ func Test_ReferenceDelete(t *testing.T) {
 		id     = strfmt.UUID("d18c8e5e-000-0000-0000-56b0cfe33ce7")
 		uri    = strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
 		anyErr = errors.New("any")
-		ref    = models.SingleRef{Beacon: uri, Tenant: ""}
+		ref    = models.SingleRef{Beacon: uri}
 		ref2   = &models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce5")}
 		ref3   = &models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce6")}
 		req    = DeleteReferenceInput{
@@ -555,7 +561,7 @@ func Test_ReferenceDelete(t *testing.T) {
 				m.repo.On("PutObject", mock.Anything, mock.Anything).Return(tc.ErrPutRefs).Once()
 			}
 
-			err := m.DeleteObjectReference(context.Background(), nil, &tc.Req, nil)
+			err := m.DeleteObjectReference(context.Background(), nil, &tc.Req, nil, "")
 			if tc.WantCode != 0 {
 				code := 0
 				if err != nil {
@@ -596,7 +602,6 @@ func Test_ReferenceAdd_Ref2Vec(t *testing.T) {
 		Property: "hasParagraphs",
 		Ref: models.SingleRef{
 			Beacon: strfmt.URI("weaviate://localhost/Paragraph/494a2fe5-3e4c-4e9a-a47e-afcd9814f5ea"),
-			Tenant: "",
 		},
 	}
 
@@ -625,7 +630,7 @@ func Test_ReferenceAdd_Ref2Vec(t *testing.T) {
 		Return(ref1.Vector, nil)
 	m.repo.On("PutObject", mock.Anything, ref1.Vector).Return(nil)
 
-	err := m.Manager.AddObjectReference(ctx, nil, &req, nil)
+	err := m.Manager.AddObjectReference(ctx, nil, &req, nil, "")
 	assert.Nil(t, err)
 }
 
@@ -643,7 +648,6 @@ func Test_ReferenceDelete_Ref2Vec(t *testing.T) {
 		Property: "hasParagraphs",
 		Reference: models.SingleRef{
 			Beacon: strfmt.URI("weaviate://localhost/Paragraph/494a2fe5-3e4c-4e9a-a47e-afcd9814f5ea"),
-			Tenant: "",
 		},
 	}
 
@@ -665,7 +669,7 @@ func Test_ReferenceDelete_Ref2Vec(t *testing.T) {
 	m.repo.On("PutObject", parent.Object(), []float32(nil)).Return(nil)
 	m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(true)
 
-	err := m.Manager.DeleteObjectReference(ctx, nil, &req, nil)
+	err := m.Manager.DeleteObjectReference(ctx, nil, &req, nil, "")
 	assert.Nil(t, err)
 }
 

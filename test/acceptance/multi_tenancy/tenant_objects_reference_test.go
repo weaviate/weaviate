@@ -26,7 +26,7 @@ func TestTenantObjectsReference(t *testing.T) {
 	mutableProp := "mutableProp"
 	refProp := "refProp"
 	testClass := models.Class{
-		Class: "MultiTenantClass",
+		Class: className,
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled: true,
 		},
@@ -118,7 +118,7 @@ func TestTenantObjectsReference(t *testing.T) {
 	t.Run("create tenants", func(t *testing.T) {
 		tenants := make([]*models.Tenant, len(tenantNames))
 		for i := range tenants {
-			tenants[i] = &models.Tenant{tenantNames[i]}
+			tenants[i] = &models.Tenant{Name: tenantNames[i]}
 		}
 		helper.CreateTenants(t, className, tenants)
 	})
@@ -142,8 +142,8 @@ func TestTenantObjectsReference(t *testing.T) {
 
 	t.Run("add tenant object references", func(t *testing.T) {
 		for i, obj := range tenantObjects {
-			ref := &models.SingleRef{Beacon: helper.NewBeacon(className, tenantRefs[i].ID), Tenant: tenantNames[i]}
-			helper.AddReference(t, obj, ref, refProp)
+			ref := &models.SingleRef{Beacon: helper.NewBeacon(className, tenantRefs[i].ID)}
+			helper.AddReferenceTenant(t, obj, ref, refProp, tenantNames[i])
 		}
 
 		t.Run("assert tenant object references", func(t *testing.T) {
@@ -162,8 +162,8 @@ func TestTenantObjectsReference(t *testing.T) {
 
 	t.Run("delete tenant object references", func(Z *testing.T) {
 		for i, obj := range tenantObjects {
-			ref := &models.SingleRef{Beacon: helper.NewBeacon(className, tenantRefs[i].ID), Tenant: tenantNames[i]}
-			helper.DeleteReference(t, obj, ref, refProp)
+			ref := &models.SingleRef{Beacon: helper.NewBeacon(className, tenantRefs[i].ID)}
+			helper.DeleteReferenceTenant(t, obj, ref, refProp, tenantNames[i])
 		}
 
 		t.Run("assert tenant object references", func(t *testing.T) {
