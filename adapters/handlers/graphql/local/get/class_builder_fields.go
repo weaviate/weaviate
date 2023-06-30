@@ -247,7 +247,7 @@ func buildGetClassField(classObject *graphql.Object,
 		field.Args["consistencyLevel"] = consistencyLevelArgument(class)
 	}
 
-	if multiTenancyEnabled(class) {
+	if schema.MultiTenancyEnabled(class) {
 		field.Args["tenantKey"] = tenantKeyArgument()
 	}
 
