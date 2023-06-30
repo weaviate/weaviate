@@ -32,6 +32,7 @@ type ObjectsClassReferencesDeleteURL struct {
 	PropertyName string
 
 	ConsistencyLevel *string
+	Tenant           *string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -94,6 +95,14 @@ func (o *ObjectsClassReferencesDeleteURL) Build() (*url.URL, error) {
 	}
 	if consistencyLevelQ != "" {
 		qs.Set("consistency_level", consistencyLevelQ)
+	}
+
+	var tenantQ string
+	if o.Tenant != nil {
+		tenantQ = *o.Tenant
+	}
+	if tenantQ != "" {
+		qs.Set("tenant", tenantQ)
 	}
 
 	_result.RawQuery = qs.Encode()

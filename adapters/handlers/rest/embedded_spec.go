@@ -1552,6 +1552,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -1635,6 +1638,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -1718,6 +1724,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -2092,6 +2101,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/MultipleRef"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -2157,6 +2169,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/SingleRef"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -2222,6 +2237,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/SingleRef"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -4343,10 +4361,6 @@ func init() {
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
-        },
-        "tenant": {
-          "description": "Name of the reference tenant.",
-          "type": "string"
         }
       }
     },
@@ -6204,6 +6218,12 @@ func init() {
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
             "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant",
+            "in": "query"
           }
         ],
         "responses": {
@@ -6290,6 +6310,12 @@ func init() {
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
             "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant",
+            "in": "query"
           }
         ],
         "responses": {
@@ -6375,6 +6401,12 @@ func init() {
             "type": "string",
             "description": "Determines how many replicas must acknowledge a request before it is considered successful",
             "name": "consistency_level",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant",
             "in": "query"
           }
         ],
@@ -6765,6 +6797,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/MultipleRef"
             }
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant",
+            "in": "query"
           }
         ],
         "responses": {
@@ -6830,6 +6868,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/SingleRef"
             }
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant",
+            "in": "query"
           }
         ],
         "responses": {
@@ -6895,6 +6939,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/SingleRef"
             }
+          },
+          {
+            "type": "string",
+            "description": "Specifies the tenant in a request targeting a multi-tenant class",
+            "name": "tenant",
+            "in": "query"
           }
         ],
         "responses": {
@@ -9193,10 +9243,6 @@ func init() {
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
-        },
-        "tenant": {
-          "description": "Name of the reference tenant.",
-          "type": "string"
         }
       }
     },
