@@ -320,6 +320,20 @@ func indexID(class schema.ClassName) string {
 	return strings.ToLower(string(class))
 }
 
+func (i *Index) determineObjectShard(id strfmt.UUID, tenantKey string, ss *sharding.State) (string, error) {
+	if ss == nil {
+		ss = i.getSchema.ShardingState(i.Config.ClassName.String())
+		if ss == nil {
+			return "", fmt.Errorf("cannot find sharding state for class %q", i.Config.ClassName.String())
+		}
+	}
+
+	if tenantKey != "" {
+		return i.shardFromTenantKey(tenantKey, ss)
+	}
+	return i.shardFromUUID(id, ss)
+}
+
 func (i *Index) shardFromUUID(in strfmt.UUID, ss *sharding.State) (string, error) {
 	uuid, err := uuid.Parse(in.String())
 	if err != nil {
@@ -331,30 +345,11 @@ func (i *Index) shardFromUUID(in strfmt.UUID, ss *sharding.State) (string, error
 	return ss.PhysicalShard(uuidBytes), nil
 }
 
-func (i *Index) determineObjectShard(id strfmt.UUID, tenantKey string, ss *sharding.State) (string, error) {
-	if ss == nil {
-		ss = i.getSchema.ShardingState(i.Config.ClassName.String())
-		if ss == nil {
-			return "", fmt.Errorf("cannot find sharding state for class %q", i.Config.ClassName.String())
-		}
-	}
-	if ss.PartitioningEnabled && tenantKey == "" {
-		return "", errors.New("object without tenantName for class with multi tenancy")
-	} else if !ss.PartitioningEnabled && tenantKey != "" {
-		return "", errors.New("object with tenantName for class without multi tenancy")
-	}
-
-	if tenantKey != "" {
-		return i.shardFromTenantKey(tenantKey, id, ss)
-	}
-	return i.shardFromUUID(id, ss)
-}
-
-func (i *Index) shardFromTenantKey(tenantKey string, id strfmt.UUID, ss *sharding.State) (string, error) {
-	if name := ss.Shard(tenantKey, id.String()); name != "" {
+func (i *Index) shardFromTenantKey(tenantKey string, ss *sharding.State) (string, error) {
+	if name := ss.Shard(tenantKey, ""); name != "" {
 		return name, nil
 	}
-	return "", fmt.Errorf("no tenant found with key: %q", tenantKey)
+	return "", objects.NewErrInvalidUserInput("no tenant found with key: %q", tenantKey)
 }
 
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
@@ -541,6 +536,10 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	}
 
 	for pos, obj := range objects {
+		if err := i.validateMultiTenancy(obj.Object.Tenant); err != nil {
+			out[pos] = err
+			continue
+		}
 		shardName, err := i.determineObjectShard(obj.ID(), obj.Object.Tenant, ss)
 		if err != nil {
 			out[pos] = err
@@ -648,6 +647,10 @@ func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchRefere
 	}
 
 	for pos, ref := range refs {
+		if err := i.validateMultiTenancy(ref.TenantName); err != nil {
+			out[pos] = err
+			continue
+		}
 		shardName, err := i.determineObjectShard(ref.From.TargetID, ref.TenantName, ss)
 		if err != nil {
 			out[pos] = err
@@ -916,7 +919,10 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		return nil, nil, err
 	}
 
-	shardNames := i.targetShardNames(tenantKey)
+	shardNames, err := i.targetShardNames(tenantKey)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// If the request is a BM25F with no properties selected, use all possible properties
 	if keywordRanking != nil && keywordRanking.Type == "bm25" && len(keywordRanking.Properties) == 0 {
@@ -1063,7 +1069,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 					sort, cursor, nil, addlProps, i.replicationEnabled())
 				if err != nil {
 					return fmt.Errorf(
-						"remote shard object serach %s: %w", shardName, err)
+						"remote shard object search %s: %w", shardName, err)
 				}
 			}
 
@@ -1158,16 +1164,18 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 	return res, resDists, nil
 }
 
-func (i *Index) targetShardNames(tenantKey string) (shardNames []string) {
+// to be called after validating multi-tenancy
+func (i *Index) targetShardNames(tenantKey string) ([]string, error) {
 	shardingState := i.getSchema.ShardingState(i.Config.ClassName.String())
 
 	if tenantKey != "" {
-		shardNames = []string{tenantKey}
-	} else {
-		shardNames = shardingState.AllPhysicalShards()
+		shardName, err := i.determineObjectShard("", tenantKey, shardingState)
+		if err != nil {
+			return nil, err
+		}
+		return []string{shardName}, nil
 	}
-
-	return
+	return shardingState.AllPhysicalShards(), nil
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
@@ -1179,7 +1187,10 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 		return nil, nil, err
 	}
 
-	shardNames := i.targetShardNames(tenantKey)
+	shardNames, err := i.targetShardNames(tenantKey)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	if len(shardNames) == 1 && i.isLocalShard(shardNames[0]) {
 		return i.singleLocalShardObjectVectorSearch(ctx, searchVector, dist, limit, filters,
@@ -1410,9 +1421,12 @@ func (i *Index) aggregate(ctx context.Context,
 		return nil, err
 	}
 
-	shardState := i.getSchema.ShardingState(i.Config.ClassName.String())
-	shardNames := i.targetShardNames(params.TenantKey)
+	shardNames, err := i.targetShardNames(params.TenantKey)
+	if err != nil {
+		return nil, err
+	}
 
+	shardState := i.getSchema.ShardingState(i.Config.ClassName.String())
 	results := make([]*aggregation.Result, len(shardNames))
 	for j, shardName := range shardNames {
 		local := shardState.IsShardLocal(shardName)
@@ -1716,9 +1730,13 @@ func (i *Index) addNewShard(ctx context.Context,
 	return nil
 }
 
-func (i *Index) validateMultiTenancy(tenantKey string) error {
-	if i.partinioningEnabled && tenantKey == "" {
-		return fmt.Errorf("class %s has multi-tenancy enabled, but request was without tenant", i.Config.ClassName)
+func (i *Index) validateMultiTenancy(tenant string) error {
+	if i.partinioningEnabled && tenant == "" {
+		return objects.NewErrInvalidUserInput(
+			fmt.Sprintf("class %s has multi-tenancy enabled, but request was without tenant", i.Config.ClassName))
+	} else if !i.partinioningEnabled && tenant != "" {
+		return objects.NewErrInvalidUserInput(
+			fmt.Sprintf("class %s has multi-tenancy disabled, but request was with tenant", i.Config.ClassName))
 	}
 	return nil
 }

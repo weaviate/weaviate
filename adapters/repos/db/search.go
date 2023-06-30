@@ -238,7 +238,7 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 		}
 	}
 	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters,
-		nil, q.Sort, q.Cursor, q.Additional, nil, "", 0)
+		nil, q.Sort, q.Cursor, q.Additional, nil, q.TenantKey, 0)
 	if err != nil {
 		return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}
 	}
@@ -267,23 +267,41 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 	totalLimit := offset + limit
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
-	db.indexLock.RLock()
-	for _, index := range db.indices {
-		// TODO support all additional props
-		res, _, err := index.objectSearch(ctx, totalLimit,
-			filters, nil, sort, nil, additional, nil, tenant, 0)
-		if err != nil {
-			db.indexLock.RUnlock()
-			return nil, errors.Wrapf(err, "search index %s", index.ID())
-		}
+	// wrapped in func to unlock mutex within defer
+	if err := func() error {
+		db.indexLock.RLock()
+		defer db.indexLock.RUnlock()
 
-		found = append(found, res...)
-		if len(found) >= totalLimit {
-			// we are done
-			break
+		for _, index := range db.indices {
+			// TODO support all additional props
+			res, _, err := index.objectSearch(ctx, totalLimit,
+				filters, nil, sort, nil, additional, nil, tenant, 0)
+			if err != nil {
+				// TODO find better way to recognise particular errors
+				if errors.As(err, &objects.ErrInvalidUserInput{}) {
+					// validation failed (either MT class without tenantKey or non-MT class with tenantKey)
+					if strings.Contains(err.Error(), "has multi-tenancy enabled, but request was without tenant") ||
+						strings.Contains(err.Error(), "has multi-tenancy disabled, but request was with tenant") {
+						continue
+					}
+					// tenantKey not supported by class
+					if strings.Contains(err.Error(), "no tenant found with key") {
+						continue
+					}
+				}
+				return errors.Wrapf(err, "search index %s", index.ID())
+			}
+
+			found = append(found, res...)
+			if len(found) >= totalLimit {
+				// we are done
+				break
+			}
 		}
+		return nil
+	}(); err != nil {
+		return nil, err
 	}
-	db.indexLock.RUnlock()
 
 	return db.getSearchResults(storobj.SearchResults(found, additional, tenant), offset, limit), nil
 }

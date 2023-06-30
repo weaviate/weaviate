@@ -319,7 +319,7 @@ func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
 		shardState, err := sharding.InitState(c.Class,
 			c.ShardingConfig.(sharding.Config),
 			m.clusterState, c.ReplicationConfig.Factor,
-			isMultiTenancyEnabled(c.MultiTenancyConfig))
+			schema.MultiTenancyEnabled(c))
 		if err != nil {
 			return errors.Wrap(err, "init sharding state")
 		}

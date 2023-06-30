@@ -27,6 +27,7 @@ type QueryInput struct {
 	Cursor     *filters.Cursor
 	Filters    *filters.LocalFilter
 	Sort       []filters.Sort
+	TenantKey  string
 	Additional additional.Properties
 }
 
@@ -37,6 +38,7 @@ type QueryParams struct {
 	After      *string
 	Sort       *string
 	Order      *string
+	TenantKey  *string
 	Additional additional.Properties
 }
 
@@ -47,17 +49,23 @@ func (q *QueryParams) inputs(m *Manager) (*QueryInput, error) {
 	}
 	sort := m.getSort(q.Sort, q.Order)
 	cursor := m.getCursor(q.After, q.Limit)
+	tenantKey := ""
+	if q.TenantKey != nil {
+		tenantKey = *q.TenantKey
+	}
 	return &QueryInput{
 		Class:      q.Class,
 		Offset:     smartOffset,
 		Limit:      smartLimit,
 		Sort:       sort,
 		Cursor:     cursor,
+		TenantKey:  tenantKey,
 		Additional: q.Additional,
 	}, nil
 }
 
-func (m *Manager) Query(ctx context.Context, principal *models.Principal, params *QueryParams) ([]*models.Object, *Error) {
+func (m *Manager) Query(ctx context.Context, principal *models.Principal, params *QueryParams,
+) ([]*models.Object, *Error) {
 	path := fmt.Sprintf("objects/%s", params.Class)
 	if err := m.authorizer.Authorize(principal, "list", path); err != nil {
 		return nil, &Error{path, StatusForbidden, err}
