@@ -69,17 +69,8 @@ func TestBatchDeleteTenantObjects(t *testing.T) {
 		helper.DeleteClass(t, className)
 	}()
 
-	t.Run("create class with multi-tenancy enabled", func(t *testing.T) {
-		helper.CreateClass(t, &testClass)
-	})
-
-	t.Run("create tenants", func(t *testing.T) {
-		tenants := make([]*models.Tenant, len(tenantObjects))
-		for i := range tenants {
-			tenants[i] = &models.Tenant{Name: tenantName}
-		}
-		helper.CreateTenants(t, className, tenants)
-	})
+	helper.CreateClass(t, &testClass)
+	helper.CreateTenants(t, className, []*models.Tenant{{Name: tenantName}})
 
 	t.Run("add tenant objects", func(t *testing.T) {
 		helper.CreateObjectsBatch(t, tenantObjects)

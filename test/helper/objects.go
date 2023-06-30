@@ -200,6 +200,12 @@ func CreateTenants(t *testing.T, class string, tenants []*models.Tenant) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func CreateTenantsReturnError(t *testing.T, class string, tenants []*models.Tenant) error {
+	params := schema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
+	_, err := Client(t).Schema.TenantsCreate(params, nil)
+	return err
+}
+
 func NewBeacon(className string, id strfmt.UUID) strfmt.URI {
 	return crossref.New("localhost", className, id).SingleRef().Beacon
 }
