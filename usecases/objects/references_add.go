@@ -28,7 +28,7 @@ import (
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
 func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Principal,
-	input *AddReferenceInput, repl *additional.ReplicationProperties,
+	input *AddReferenceInput, repl *additional.ReplicationProperties, tenant string,
 ) *Error {
 	m.metrics.AddReferenceInc()
 	defer m.metrics.AddReferenceDec()
@@ -36,7 +36,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	deprecatedEndpoint := input.Class == ""
 	if deprecatedEndpoint { // for backward compatibility only
 		objectRes, err := m.getObjectFromRepo(ctx, "", input.ID,
-			additional.Properties{}, nil, "")
+			additional.Properties{}, nil, tenant)
 		if err != nil {
 			errnf := ErrNotFound{} // treated as StatusBadRequest for backward comp
 			if errors.As(err, &errnf) {
@@ -58,11 +58,11 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	defer unlock()
 
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
-	if err := input.validate(ctx, principal, validator, m.schemaManager, input.Ref.Tenant); err != nil {
+	if err := input.validate(ctx, principal, validator, m.schemaManager, tenant); err != nil {
 		return &Error{"validate inputs", StatusBadRequest, err}
 	}
 	if !deprecatedEndpoint {
-		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl, input.Ref.Tenant)
+		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl, tenant)
 		if err != nil {
 			return &Error{"source object", StatusInternalServerError, err}
 		}
@@ -79,15 +79,15 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		return &Error{"parse target ref", StatusBadRequest, err}
 	}
 
-	if shouldValidateMultiTenantRef(input.Ref.Tenant, source, target) {
+	if shouldValidateMultiTenantRef(tenant, source, target) {
 		err = validateReferenceMultiTenancy(ctx, principal,
-			m.schemaManager, m.vectorRepo, source, target, input.Ref.Tenant)
+			m.schemaManager, m.vectorRepo, source, target, tenant)
 		if err != nil {
 			return &Error{"multi-tenancy violation", StatusInternalServerError, err}
 		}
 	}
 
-	if err := m.vectorRepo.AddReference(ctx, source, target, repl, input.Ref.Tenant); err != nil {
+	if err := m.vectorRepo.AddReference(ctx, source, target, repl, tenant); err != nil {
 		return &Error{"add reference to repo", StatusInternalServerError, err}
 	}
 

@@ -1053,10 +1053,6 @@
         "classification": {
           "description": "Additional Meta information about classifications if the item was part of one",
           "$ref": "#/definitions/ReferenceMetaClassification"
-        },
-        "tenant": {
-          "type": "string",
-          "description": "Name of the reference tenant."
         }
       }
     },
@@ -2680,6 +2676,9 @@
             "schema": {
               "$ref": "#/definitions/SingleRef"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -2745,6 +2744,9 @@
             "schema": {
               "$ref": "#/definitions/MultipleRef"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -2810,6 +2812,9 @@
             "schema": {
               "$ref": "#/definitions/SingleRef"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -2887,6 +2892,9 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -2970,6 +2978,9 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -3053,6 +3064,9 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {

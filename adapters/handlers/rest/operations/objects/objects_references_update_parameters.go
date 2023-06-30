@@ -61,6 +61,10 @@ type ObjectsReferencesUpdateParams struct {
 	  In: path
 	*/
 	PropertyName string
+	/*Specifies the tenant in a request targeting a multi-tenant class
+	  In: query
+	*/
+	Tenant *string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -71,6 +75,8 @@ func (o *ObjectsReferencesUpdateParams) BindRequest(r *http.Request, route *midd
 	var res []error
 
 	o.HTTPRequest = r
+
+	qs := runtime.Values(r.URL.Query())
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
@@ -107,6 +113,11 @@ func (o *ObjectsReferencesUpdateParams) BindRequest(r *http.Request, route *midd
 
 	rPropertyName, rhkPropertyName, _ := route.Params.GetOK("propertyName")
 	if err := o.bindPropertyName(rPropertyName, rhkPropertyName, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qTenant, qhkTenant, _ := qs.GetOK("tenant")
+	if err := o.bindTenant(qTenant, qhkTenant, route.Formats); err != nil {
 		res = append(res, err)
 	}
 	if len(res) > 0 {
@@ -158,6 +169,24 @@ func (o *ObjectsReferencesUpdateParams) bindPropertyName(rawData []string, hasKe
 	// Required: true
 	// Parameter is provided by construction from the route
 	o.PropertyName = raw
+
+	return nil
+}
+
+// bindTenant binds and validates parameter Tenant from query.
+func (o *ObjectsReferencesUpdateParams) bindTenant(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+	o.Tenant = &raw
 
 	return nil
 }
