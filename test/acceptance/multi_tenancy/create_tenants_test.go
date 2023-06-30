@@ -36,24 +36,22 @@ func TestCreateTenants(t *testing.T) {
 		},
 	}
 
-	defer func() {
-		helper.DeleteClass(t, testClass.Class)
-	}()
-	helper.CreateClass(t, &testClass)
+	t.Run("Create tenant", func(Z *testing.T) {
+		expectedTenants := []string{
+			"Tenant1", "Tenant2", "Tenant3",
+		}
 
-	expectedTenants := []string{
-		"Tenant1", "Tenant2", "Tenant3",
-	}
+		defer func() {
+			helper.DeleteClass(t, testClass.Class)
+		}()
+		helper.CreateClass(t, &testClass)
 
-	t.Run("create tenants", func(t *testing.T) {
 		tenants := make([]*models.Tenant, len(expectedTenants))
 		for i := range tenants {
 			tenants[i] = &models.Tenant{Name: expectedTenants[i]}
 		}
 		helper.CreateTenants(t, testClass.Class, tenants)
-	})
 
-	t.Run("verify tenants creation", func(t *testing.T) {
 		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload)
@@ -67,5 +65,25 @@ func TestCreateTenants(t *testing.T) {
 			foundTenants = append(foundTenants, found.Name)
 		}
 		assert.ElementsMatch(t, expectedTenants, foundTenants)
+	})
+
+	t.Run("Create duplicate tenant multiple times", func(Z *testing.T) {
+		defer func() {
+			helper.DeleteClass(t, testClass.Class)
+		}()
+		helper.CreateClass(t, &testClass)
+		err := helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{"DoubleTenant"}, {"DoubleTenant"}})
+		require.NotNil(t, err)
+	})
+
+	t.Run("Create same tenant multiple times", func(Z *testing.T) {
+		defer func() {
+			helper.DeleteClass(t, testClass.Class)
+		}()
+		helper.CreateClass(t, &testClass)
+		helper.CreateTenants(t, testClass.Class, []*models.Tenant{{"AddTenantAgain"}})
+
+		err := helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{"AddTenantAgain"}})
+		require.NotNil(t, err)
 	})
 }

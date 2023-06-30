@@ -76,11 +76,7 @@ func TestGQLGetTenantObjects(t *testing.T) {
 		})
 
 		t.Run("create tenants", func(t *testing.T) {
-			tenants := make([]*models.Tenant, len(tenantObjects))
-			for i := range tenants {
-				tenants[i] = &models.Tenant{Name: tenant}
-			}
-			helper.CreateTenants(t, testClass.Class, tenants)
+			helper.CreateTenants(t, testClass.Class, []*models.Tenant{{Name: tenant}})
 		})
 
 		t.Run("add tenant objects", func(t *testing.T) {
@@ -169,11 +165,7 @@ func TestGQLGetTenantObjects_MissingTenant(t *testing.T) {
 	}()
 
 	helper.CreateClass(t, &testClass)
-	tenants := make([]*models.Tenant, len(tenantObjects))
-	for i := range tenants {
-		tenants[i] = &models.Tenant{Name: tenantName}
-	}
-	helper.CreateTenants(t, testClass.Class, tenants)
+	helper.CreateTenants(t, testClass.Class, []*models.Tenant{{Name: tenantName}})
 	helper.CreateObjectsBatch(t, tenantObjects)
 
 	for _, obj := range tenantObjects {
