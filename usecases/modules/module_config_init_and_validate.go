@@ -35,7 +35,7 @@ func (p *Provider) SetClassDefaults(class *models.Class) {
 		return
 	}
 
-	cfg := NewClassBasedModuleConfig(class, class.Vectorizer)
+	cfg := NewClassBasedModuleConfig(class, class.Vectorizer, "")
 
 	p.setPerClassConfigDefaults(class, cfg, cc)
 	p.setPerPropertyConfigDefaults(class, cfg, cc)
@@ -134,7 +134,7 @@ func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error
 			return nil
 		}
 
-		cfg := NewClassBasedModuleConfig(class, key)
+		cfg := NewClassBasedModuleConfig(class, key, "")
 		err := cc.ValidateClass(ctx, class, cfg)
 		if err != nil {
 			return errors.Wrapf(err, "module '%s'", key)

@@ -31,6 +31,10 @@ func (cfg fakeClassConfig) Property(string) map[string]interface{} {
 	return nil
 }
 
+func (f fakeClassConfig) Tenant() string {
+	return ""
+}
+
 func newFakeStorageProvider(t *testing.T) *fakeStorageProvider {
 	dirName := t.TempDir()
 	return &fakeStorageProvider{dirName}

@@ -34,6 +34,10 @@ func (cfg fakeClassConfig) Property(string) map[string]interface{} {
 	return nil
 }
 
+func (f fakeClassConfig) Tenant() string {
+	return ""
+}
+
 type fakeObjectsRepo struct {
 	mock.Mock
 }

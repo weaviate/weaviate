@@ -58,7 +58,7 @@ type ModulesProvider interface {
 	ValidateSearchParam(name string, value interface{}, className string) error
 	CrossClassValidateSearchParam(name string, value interface{}) error
 	VectorFromSearchParam(ctx context.Context, className string, param string,
-		params interface{}, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error)
+		params interface{}, findVectorFn modulecapabilities.FindVectorFn, tenant string) ([]float32, error)
 	CrossClassVectorFromSearchParam(ctx context.Context, param string,
 		params interface{}, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error)
 	GetExploreAdditionalExtend(ctx context.Context, in []search.Result,

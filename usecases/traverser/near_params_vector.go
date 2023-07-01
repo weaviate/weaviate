@@ -54,7 +54,7 @@ func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 
 	if len(moduleParams) == 1 {
 		for name, value := range moduleParams {
-			return v.vectorFromModules(ctx, className, name, value)
+			return v.vectorFromModules(ctx, className, name, value, tenant)
 		}
 	}
 
@@ -143,11 +143,11 @@ func (v *nearParamsVector) validateNearParams(nearVector *searchparams.NearVecto
 }
 
 func (v *nearParamsVector) vectorFromModules(ctx context.Context,
-	className, paramName string, paramValue interface{},
+	className, paramName string, paramValue interface{}, tenant string,
 ) ([]float32, error) {
 	if v.modulesProvider != nil {
 		vector, err := v.modulesProvider.VectorFromSearchParam(ctx,
-			className, paramName, paramValue, v.findVector,
+			className, paramName, paramValue, v.findVector, tenant,
 		)
 		if err != nil {
 			return nil, errors.Errorf("vectorize params: %v", err)
