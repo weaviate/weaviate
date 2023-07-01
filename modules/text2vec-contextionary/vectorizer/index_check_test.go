@@ -28,7 +28,7 @@ func TestIndexChecker(t *testing.T) {
 			}},
 		}
 
-		cfg := modules.NewClassBasedModuleConfig(class, "my-module")
+		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant")
 		ic := NewIndexChecker(cfg)
 
 		assert.True(t, ic.PropertyIndexed("someProp"))
@@ -55,7 +55,7 @@ func TestIndexChecker(t *testing.T) {
 			}},
 		}
 
-		cfg := modules.NewClassBasedModuleConfig(class, "my-module")
+		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant")
 		ic := NewIndexChecker(cfg)
 
 		assert.True(t, ic.PropertyIndexed("someProp"))
@@ -82,7 +82,7 @@ func TestIndexChecker(t *testing.T) {
 			}},
 		}
 
-		cfg := modules.NewClassBasedModuleConfig(class, "my-module")
+		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant")
 		ic := NewIndexChecker(cfg)
 
 		assert.False(t, ic.PropertyIndexed("someProp"))

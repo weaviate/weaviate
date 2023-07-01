@@ -15,6 +15,7 @@ package moduletools
 // per-class config. This is - among other places - used when vectorizing and
 // when validation schema config
 type ClassConfig interface {
+	Tenant() string
 	Class() map[string]interface{}
 	ClassByModuleName(moduleName string) map[string]interface{}
 	Property(propName string) map[string]interface{}
