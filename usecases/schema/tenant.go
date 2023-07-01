@@ -189,20 +189,6 @@ func (m *Manager) DeleteTenants(ctx context.Context, principal *models.Principal
 		return fmt.Errorf("multi-tenancy is not enabled for class %q", class)
 	}
 
-	m.shardingStateLock.Lock()
-	ss := m.state.ShardingState[class]
-	var nonExistentTenants []string
-	for _, tenant := range tenants {
-		if !ss.PartitionExists(tenant) {
-			nonExistentTenants = append(nonExistentTenants, tenant)
-		}
-	}
-	if len(nonExistentTenants) > 0 {
-		m.shardingStateLock.Unlock()
-		return fmt.Errorf("tenants do not exist %s", nonExistentTenants)
-	}
-	m.shardingStateLock.Unlock()
-
 	request := DeleteTenantsPayload{
 		Class:   class,
 		Tenants: tenants,
