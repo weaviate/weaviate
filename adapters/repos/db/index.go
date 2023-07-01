@@ -188,7 +188,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 
 	for _, shardName := range shardState.AllPhysicalShards() {
 
-		if !shardState.IsShardLocal(shardName) {
+		if !shardState.IsLocalShard(shardName) {
 			// do not create non-local shards
 			continue
 		}
@@ -812,7 +812,7 @@ func (i *Index) multiObjectByID(ctx context.Context,
 	for shardName, group := range byShard {
 		local := i.getSchema.
 			ShardingState(i.Config.ClassName.String()).
-			IsShardLocal(shardName)
+			IsLocalShard(shardName)
 
 		var objects []*storobj.Object
 		var err error
@@ -1186,13 +1186,18 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
 	}
+	className := i.Config.ClassName.String()
+	ss := i.getSchema.ShardingState(className)
+	if ss == nil {
+		return nil, nil, fmt.Errorf("could not find sharding state for class %q", className)
+	}
 
 	shardNames, err := i.targetShardNames(tenant)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if len(shardNames) == 1 && i.isLocalShard(shardNames[0]) {
+	if len(shardNames) == 1 && ss.IsLocalShard(shardNames[0]) {
 		return i.singleLocalShardObjectVectorSearch(ctx, searchVector, dist, limit, filters,
 			sort, groupBy, additional, shardNames[0])
 	}
@@ -1214,7 +1219,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	for _, shardName := range shardNames {
 		shardName := shardName
 		errgrp.Go(func() error {
-			local := i.isLocalShard(shardName)
+			local := ss.IsLocalShard(shardName)
 
 			var res []*storobj.Object
 			var resDists []float32
@@ -1357,7 +1362,7 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) isLocalShard(shard string) bool {
-	return i.getSchema.ShardingState(i.Config.ClassName.String()).IsShardLocal(shard)
+	return i.getSchema.ShardingState(i.Config.ClassName.String()).IsLocalShard(shard)
 }
 
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
@@ -1429,7 +1434,7 @@ func (i *Index) aggregate(ctx context.Context,
 	shardState := i.getSchema.ShardingState(i.Config.ClassName.String())
 	results := make([]*aggregation.Result, len(shardNames))
 	for j, shardName := range shardNames {
-		local := shardState.IsShardLocal(shardName)
+		local := shardState.IsLocalShard(shardName)
 
 		var err error
 		var res *aggregation.Result
@@ -1503,7 +1508,7 @@ func (i *Index) getShardsStatus(ctx context.Context) (map[string]string, error) 
 	shardNames := shardState.AllPhysicalShards()
 
 	for _, shardName := range shardNames {
-		local := shardState.IsShardLocal(shardName)
+		local := shardState.IsLocalShard(shardName)
 
 		var err error
 		var status string
@@ -1539,7 +1544,7 @@ func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus s
 	shardState := i.getSchema.ShardingState(i.Config.ClassName.String())
 
 	var err error
-	local := shardState.IsShardLocal(shardName)
+	local := shardState.IsLocalShard(shardName)
 	if !local {
 		err = i.remote.UpdateShardStatus(ctx, shardName, targetStatus)
 	} else {
@@ -1592,7 +1597,7 @@ func (i *Index) findDocIDs(ctx context.Context,
 
 	results := make(map[string][]uint64)
 	for _, shardName := range shardNames {
-		local := shardState.IsShardLocal(shardName)
+		local := shardState.IsLocalShard(shardName)
 
 		var err error
 		var res []uint64

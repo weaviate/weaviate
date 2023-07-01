@@ -195,7 +195,7 @@ func (s *State) AllPhysicalShards() []string {
 func (s *State) AllLocalPhysicalShards() []string {
 	var names []string
 	for _, physical := range s.Physical {
-		if s.IsShardLocal(physical.Name) {
+		if s.IsLocalShard(physical.Name) {
 			names = append(names, physical.Name)
 		}
 	}
@@ -211,7 +211,7 @@ func (s *State) SetLocalName(name string) {
 	s.localNodeName = name
 }
 
-func (s *State) IsShardLocal(name string) bool {
+func (s *State) IsLocalShard(name string) bool {
 	for _, node := range s.Physical[name].BelongsToNodes {
 		if node == s.localNodeName {
 			return true
