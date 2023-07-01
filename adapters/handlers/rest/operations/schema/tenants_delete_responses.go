@@ -33,11 +33,6 @@ TenantsDeleteOK Deleted tenants from specified class.
 swagger:response tenantsDeleteOK
 */
 type TenantsDeleteOK struct {
-
-	/*
-	  In: Body
-	*/
-	Payload []*models.Tenant `json:"body,omitempty"`
 }
 
 // NewTenantsDeleteOK creates TenantsDeleteOK with default headers values
@@ -46,30 +41,12 @@ func NewTenantsDeleteOK() *TenantsDeleteOK {
 	return &TenantsDeleteOK{}
 }
 
-// WithPayload adds the payload to the tenants delete o k response
-func (o *TenantsDeleteOK) WithPayload(payload []*models.Tenant) *TenantsDeleteOK {
-	o.Payload = payload
-	return o
-}
-
-// SetPayload sets the payload to the tenants delete o k response
-func (o *TenantsDeleteOK) SetPayload(payload []*models.Tenant) {
-	o.Payload = payload
-}
-
 // WriteResponse to the client
 func (o *TenantsDeleteOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.WriteHeader(200)
-	payload := o.Payload
-	if payload == nil {
-		// return empty array
-		payload = make([]*models.Tenant, 0, 50)
-	}
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
-	if err := producer.Produce(rw, payload); err != nil {
-		panic(err) // let the recovery middleware deal with this
-	}
+	rw.WriteHeader(200)
 }
 
 // TenantsDeleteUnauthorizedCode is the HTTP code returned for type TenantsDeleteUnauthorized

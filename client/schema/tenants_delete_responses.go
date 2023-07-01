@@ -80,7 +80,6 @@ TenantsDeleteOK describes a response with status code 200, with default header v
 Deleted tenants from specified class.
 */
 type TenantsDeleteOK struct {
-	Payload []*models.Tenant
 }
 
 // IsSuccess returns true when this tenants delete o k response has a 2xx status code
@@ -114,23 +113,14 @@ func (o *TenantsDeleteOK) Code() int {
 }
 
 func (o *TenantsDeleteOK) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/tenants][%d] tenantsDeleteOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{className}/tenants][%d] tenantsDeleteOK ", 200)
 }
 
 func (o *TenantsDeleteOK) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/tenants][%d] tenantsDeleteOK  %+v", 200, o.Payload)
-}
-
-func (o *TenantsDeleteOK) GetPayload() []*models.Tenant {
-	return o.Payload
+	return fmt.Sprintf("[DELETE /schema/{className}/tenants][%d] tenantsDeleteOK ", 200)
 }
 
 func (o *TenantsDeleteOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	// response payload
-	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
-		return err
-	}
 
 	return nil
 }

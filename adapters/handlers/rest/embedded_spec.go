@@ -2786,26 +2786,20 @@ func init() {
             "required": true
           },
           {
-            "name": "body",
+            "name": "tenants",
             "in": "body",
             "required": true,
             "schema": {
               "type": "array",
               "items": {
-                "$ref": "#/definitions/Tenant"
+                "type": "string"
               }
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Deleted tenants from specified class.",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/Tenant"
-              }
-            }
+            "description": "Deleted tenants from specified class."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -7491,26 +7485,20 @@ func init() {
             "required": true
           },
           {
-            "name": "body",
+            "name": "tenants",
             "in": "body",
             "required": true,
             "schema": {
               "type": "array",
               "items": {
-                "$ref": "#/definitions/Tenant"
+                "type": "string"
               }
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Deleted tenants from specified class.",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/Tenant"
-              }
-            }
+            "description": "Deleted tenants from specified class."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."

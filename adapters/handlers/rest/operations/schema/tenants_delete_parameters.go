@@ -24,8 +24,6 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
-
-	"github.com/weaviate/weaviate/entities/models"
 )
 
 // NewTenantsDeleteParams creates a new TenantsDeleteParams object
@@ -47,14 +45,14 @@ type TenantsDeleteParams struct {
 
 	/*
 	  Required: true
-	  In: body
-	*/
-	Body []*models.Tenant
-	/*
-	  Required: true
 	  In: path
 	*/
 	ClassName string
+	/*
+	  Required: true
+	  In: body
+	*/
+	Tenants []string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -66,39 +64,26 @@ func (o *TenantsDeleteParams) BindRequest(r *http.Request, route *middleware.Mat
 
 	o.HTTPRequest = r
 
-	if runtime.HasBody(r) {
-		defer r.Body.Close()
-		var body []*models.Tenant
-		if err := route.Consumer.Consume(r.Body, &body); err != nil {
-			if err == io.EOF {
-				res = append(res, errors.Required("body", "body", ""))
-			} else {
-				res = append(res, errors.NewParseError("body", "body", "", err))
-			}
-		} else {
-
-			// validate array of body objects
-			for i := range body {
-				if body[i] == nil {
-					continue
-				}
-				if err := body[i].Validate(route.Formats); err != nil {
-					res = append(res, err)
-					break
-				}
-			}
-
-			if len(res) == 0 {
-				o.Body = body
-			}
-		}
-	} else {
-		res = append(res, errors.Required("body", "body", ""))
-	}
-
 	rClassName, rhkClassName, _ := route.Params.GetOK("className")
 	if err := o.bindClassName(rClassName, rhkClassName, route.Formats); err != nil {
 		res = append(res, err)
+	}
+
+	if runtime.HasBody(r) {
+		defer r.Body.Close()
+		var body []string
+		if err := route.Consumer.Consume(r.Body, &body); err != nil {
+			if err == io.EOF {
+				res = append(res, errors.Required("tenants", "body", ""))
+			} else {
+				res = append(res, errors.NewParseError("tenants", "body", "", err))
+			}
+		} else {
+			// no validation required on inline body
+			o.Tenants = body
+		}
+	} else {
+		res = append(res, errors.Required("tenants", "body", ""))
 	}
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)

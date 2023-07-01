@@ -343,6 +343,12 @@ func (s *State) DeletePartition(name string) {
 	delete(s.Physical, name)
 }
 
+// PartitionExists to physical shards
+func (s *State) PartitionExists(name string) bool {
+	_, ok := s.Physical[name]
+	return ok
+}
+
 func (s *State) initVirtual() {
 	count := s.Config.DesiredVirtualCount
 	s.Virtual = make([]Virtual, count)
