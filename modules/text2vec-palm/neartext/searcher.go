@@ -61,6 +61,7 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 	// is to built to work with all defaults in the case of a nil-config, see
 	// vectorizer/class_settings_test.go for details.
 	settings := config.NewClassSettings(cfg)
+	tenant := cfg.Tenant()
 	vector, err := s.vectorizer.Texts(ctx, params.Values, settings)
 	if err != nil {
 		return nil, errors.Errorf("vectorize keywords: %v", err)
@@ -69,7 +70,7 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 	moveTo := params.MoveTo
 	if moveTo.Force > 0 && (len(moveTo.Values) > 0 || len(moveTo.Objects) > 0) {
 		moveToVector, err := s.vectorFromValuesAndObjects(ctx, moveTo.Values,
-			moveTo.Objects, className, findVectorFn, settings)
+			moveTo.Objects, className, findVectorFn, settings, tenant)
 		if err != nil {
 			return nil, errors.Errorf("vectorize move to: %v", err)
 		}
@@ -84,7 +85,7 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 	moveAway := params.MoveAwayFrom
 	if moveAway.Force > 0 && (len(moveAway.Values) > 0 || len(moveAway.Objects) > 0) {
 		moveAwayVector, err := s.vectorFromValuesAndObjects(ctx, moveAway.Values,
-			moveAway.Objects, className, findVectorFn, settings)
+			moveAway.Objects, className, findVectorFn, settings, tenant)
 		if err != nil {
 			return nil, errors.Errorf("vectorize move away from: %v", err)
 		}
@@ -103,7 +104,7 @@ func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
 	values []string, objects []ObjectMove,
 	className string,
 	findVectorFn modulecapabilities.FindVectorFn,
-	settings localvectorizer.ClassSettings,
+	settings localvectorizer.ClassSettings, tenant string,
 ) ([]float32, error) {
 	var objectVectors [][]float32
 	class := className
@@ -132,7 +133,7 @@ func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
 				}
 			}
 
-			vector, err := findVectorFn(ctx, class, id, "")
+			vector, err := findVectorFn(ctx, class, id, tenant)
 			if err != nil {
 				return nil, err
 			}
