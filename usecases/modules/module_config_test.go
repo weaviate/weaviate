@@ -23,7 +23,7 @@ func TestClassBasedModuleConfig(t *testing.T) {
 		class := &models.Class{
 			Class: "Test",
 		}
-		cfg := NewClassBasedModuleConfig(class, "my-module")
+		cfg := NewClassBasedModuleConfig(class, "my-module", "tenant")
 		assert.Equal(t, map[string]interface{}{}, cfg.Property("some-prop"))
 	})
 
@@ -36,7 +36,7 @@ func TestClassBasedModuleConfig(t *testing.T) {
 				},
 			},
 		}
-		cfg := NewClassBasedModuleConfig(class, "my-module")
+		cfg := NewClassBasedModuleConfig(class, "my-module", "tenant")
 		assert.Equal(t, map[string]interface{}{}, cfg.Class())
 		assert.Equal(t, map[string]interface{}{}, cfg.Property("some-prop"))
 	})
@@ -60,7 +60,7 @@ func TestClassBasedModuleConfig(t *testing.T) {
 				},
 			},
 		}
-		cfg := NewClassBasedModuleConfig(class, "my-module")
+		cfg := NewClassBasedModuleConfig(class, "my-module", "tenant")
 		assert.Equal(t, map[string]interface{}{}, cfg.Class())
 		assert.Equal(t, map[string]interface{}{},
 			cfg.Property("some-prop"))
@@ -85,7 +85,7 @@ func TestClassBasedModuleConfig(t *testing.T) {
 				},
 			},
 		}
-		cfg := NewClassBasedModuleConfig(class, "my-module")
+		cfg := NewClassBasedModuleConfig(class, "my-module", "tenant")
 		assert.Equal(t, map[string]interface{}{"classLevel": "foo"}, cfg.Class())
 		assert.Equal(t, map[string]interface{}{"propLevel": "bar"},
 			cfg.Property("some-prop"))

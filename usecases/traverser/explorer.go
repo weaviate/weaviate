@@ -58,7 +58,7 @@ type ModulesProvider interface {
 	ValidateSearchParam(name string, value interface{}, className string) error
 	CrossClassValidateSearchParam(name string, value interface{}) error
 	VectorFromSearchParam(ctx context.Context, className string, param string,
-		params interface{}, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error)
+		params interface{}, findVectorFn modulecapabilities.FindVectorFn, tenant string) ([]float32, error)
 	CrossClassVectorFromSearchParam(ctx context.Context, param string,
 		params interface{}, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error)
 	GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
@@ -628,7 +628,7 @@ func (e *Explorer) vectorFromParams(ctx context.Context,
 	params dto.GetParams,
 ) ([]float32, error) {
 	return e.nearParamsVector.vectorFromParams(ctx, params.NearVector,
-		params.NearObject, params.ModuleParams, params.ClassName)
+		params.NearObject, params.ModuleParams, params.ClassName, params.Tenant)
 }
 
 func (e *Explorer) vectorFromExploreParams(ctx context.Context,

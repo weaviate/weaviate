@@ -66,6 +66,10 @@ func (c fakeClassConfig) Property(propName string) map[string]interface{} {
 	return c.config
 }
 
+func (f fakeClassConfig) Tenant() string {
+	return ""
+}
+
 type fakeClient struct{}
 
 func (c *fakeClient) Vectorize(ctx context.Context,

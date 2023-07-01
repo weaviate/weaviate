@@ -2755,7 +2755,7 @@ func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className str
 
 func (p *fakeModulesProvider) VectorFromSearchParam(ctx context.Context, className,
 	param string, params interface{},
-	findVectorFn modulecapabilities.FindVectorFn,
+	findVectorFn modulecapabilities.FindVectorFn, tenant string,
 ) ([]float32, error) {
 	txt2vec := p.getFakeT2Vec()
 	vectorForParams := txt2vec.VectorSearches()["nearCustomText"]
