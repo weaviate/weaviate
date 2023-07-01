@@ -628,7 +628,7 @@ func (e *Explorer) vectorFromParams(ctx context.Context,
 	params dto.GetParams,
 ) ([]float32, error) {
 	return e.nearParamsVector.vectorFromParams(ctx, params.NearVector,
-		params.NearObject, params.ModuleParams, params.ClassName)
+		params.NearObject, params.ModuleParams, params.ClassName, params.Tenant)
 }
 
 func (e *Explorer) vectorFromExploreParams(ctx context.Context,
