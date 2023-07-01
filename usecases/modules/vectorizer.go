@@ -121,7 +121,7 @@ func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 			"no vectorizer found for class %q", object.Class)
 	}
 
-	cfg := NewClassBasedModuleConfig(class, found.Name())
+	cfg := NewClassBasedModuleConfig(class, found.Name(), "")
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer); ok {
 		if object.Vector == nil {

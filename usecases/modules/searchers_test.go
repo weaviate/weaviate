@@ -62,14 +62,14 @@ func TestModulesWithSearchers(t *testing.T) {
 				// take the findVectorFn and append one dimension. This doesn't make too
 				// much sense, but helps verify that the modules method was used in the
 				// decisions
-				initial, _ := findVectorFn(ctx, "class", "123")
+				initial, _ := findVectorFn(ctx, "class", "123", "")
 				return append(initial, 4), nil
 			}),
 		)
 		p.Init(context.Background(), nil, logger)
 
 		res, err := p.VectorFromSearchParam(context.Background(), "MyClass",
-			"nearGrape", nil, fakeFindVector)
+			"nearGrape", nil, fakeFindVector, "")
 
 		require.Nil(t, err)
 		assert.Equal(t, []float32{1, 2, 3, 4}, res)
@@ -95,7 +95,7 @@ func TestModulesWithSearchers(t *testing.T) {
 				// take the findVectorFn and append one dimension. This doesn't make too
 				// much sense, but helps verify that the modules method was used in the
 				// decisions
-				initial, _ := findVectorFn(ctx, "class", "123")
+				initial, _ := findVectorFn(ctx, "class", "123", "")
 				return append(initial, 4), nil
 			}),
 		)
@@ -109,7 +109,7 @@ func TestModulesWithSearchers(t *testing.T) {
 	})
 }
 
-func fakeFindVector(ctx context.Context, className string, id strfmt.UUID) ([]float32, error) {
+func fakeFindVector(ctx context.Context, className string, id strfmt.UUID, tenant string) ([]float32, error) {
 	return []float32{1, 2, 3}, nil
 }
 

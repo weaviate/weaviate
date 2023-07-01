@@ -49,11 +49,12 @@ func (s *Searcher) vectorForNearTextParam(ctx context.Context, params interface{
 		params.(*NearTextParams),
 		className,
 		findVectorFn,
+		cfg.Tenant(),
 	)
 }
 
 func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
-	params *NearTextParams, className string, findVectorFn modulecapabilities.FindVectorFn,
+	params *NearTextParams, className string, findVectorFn modulecapabilities.FindVectorFn, tenant string,
 ) ([]float32, error) {
 	vector, err := s.vectorizer.Corpi(ctx, params.Values)
 	if err != nil {
@@ -62,7 +63,7 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 
 	moveTo := params.MoveTo
 	if moveTo.Force > 0 && (len(moveTo.Values) > 0 || len(moveTo.Objects) > 0) {
-		moveToVector, err := s.vectorFromValuesAndObjects(ctx, moveTo.Values, moveTo.Objects, className, findVectorFn)
+		moveToVector, err := s.vectorFromValuesAndObjects(ctx, moveTo.Values, moveTo.Objects, className, findVectorFn, tenant)
 		if err != nil {
 			return nil, errors.Errorf("vectorize move to: %v", err)
 		}
@@ -76,7 +77,7 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 
 	moveAway := params.MoveAwayFrom
 	if moveAway.Force > 0 && (len(moveAway.Values) > 0 || len(moveAway.Objects) > 0) {
-		moveAwayVector, err := s.vectorFromValuesAndObjects(ctx, moveAway.Values, moveAway.Objects, className, findVectorFn)
+		moveAwayVector, err := s.vectorFromValuesAndObjects(ctx, moveAway.Values, moveAway.Objects, className, findVectorFn, tenant)
 		if err != nil {
 			return nil, errors.Errorf("vectorize move away from: %v", err)
 		}
@@ -93,7 +94,7 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 
 func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
 	values []string, objects []ObjectMove,
-	className string, findVectorFn modulecapabilities.FindVectorFn,
+	className string, findVectorFn modulecapabilities.FindVectorFn, tenant string,
 ) ([]float32, error) {
 	var objectVectors [][]float32
 
@@ -119,7 +120,7 @@ func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
 				id = ref.TargetID
 			}
 
-			vector, err := findVectorFn(ctx, className, id, "")
+			vector, err := findVectorFn(ctx, className, id, tenant)
 			if err != nil {
 				return nil, err
 			}
