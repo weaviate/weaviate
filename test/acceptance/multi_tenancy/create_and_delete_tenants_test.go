@@ -121,15 +121,15 @@ func TestDeleteTenants(t *testing.T) {
 
 	t.Run("Delete non-existent tenant alongside existing", func(Z *testing.T) {
 		err := helper.DeleteTenants(t, testClass.Class, []string{"tenant1", "tenant5"})
-		require.NotNil(t, err)
+		require.Nil(t, err)
 
-		// nothing deleted
+		// idempotent - deleting multiple times works - tenant1 is removed
 		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload)
 		require.NotNil(t, resp.Payload.Nodes)
 		require.Len(t, resp.Payload.Nodes, 1)
-		require.Len(t, resp.Payload.Nodes[0].Shards, 3)
+		require.Len(t, resp.Payload.Nodes[0].Shards, 2)
 	})
 
 	t.Run("Delete tenants", func(Z *testing.T) {
