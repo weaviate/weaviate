@@ -38,9 +38,13 @@ func (m *Manager) AddTenants(ctx context.Context,
 	if err := m.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
 		return err
 	}
+	tenantNames := make([]string, len(tenants))
+	for i, tenant := range tenants {
+		tenantNames[i] = tenant.Name
+	}
 
 	// validation
-	if err := validateTenants(tenants); err != nil {
+	if err := validateTenants(tenantNames); err != nil {
 		return err
 	}
 	cls := m.getClassByName(class)
@@ -52,10 +56,6 @@ func (m *Manager) AddTenants(ctx context.Context,
 	}
 
 	// create transaction payload
-	tenantNames := make([]string, len(tenants))
-	for i, tenant := range tenants {
-		tenantNames[i] = tenant.Name
-	}
 	partitions, err := m.getPartitions(cls, tenantNames)
 	if err != nil {
 		return fmt.Errorf("get partitions from class %q: %w", class, err)
@@ -105,16 +105,16 @@ func (m *Manager) getPartitions(cls *models.Class, shards []string) (map[string]
 	return st.GetPartitions(m.clusterState, shards, rf)
 }
 
-func validateTenants(tenants []*models.Tenant) error {
+func validateTenants(tenants []string) error {
 	names := make(map[string]struct{}, len(tenants)) // check for name uniqueness
 	for i, tenant := range tenants {
-		_, nameExists := names[tenant.Name]
+		_, nameExists := names[tenant]
 		if nameExists {
-			return uco.NewErrInvalidUserInput("duplicate tenant name %s", tenant.Name)
+			return uco.NewErrInvalidUserInput("duplicate tenant name %s", tenant)
 		}
-		names[tenant.Name] = struct{}{}
+		names[tenant] = struct{}{}
 
-		if !regexTenantName.MatchString(tenant.Name) {
+		if !regexTenantName.MatchString(tenant) {
 			return uco.NewErrInvalidUserInput("invalid tenant name at index %d", i)
 		}
 	}
@@ -170,9 +170,10 @@ func (m *Manager) onAddTenants(ctx context.Context, class *models.Class, request
 	return nil
 }
 
-// DeleteTenants is used to delete tenants of a class
+// DeleteTenants is used to delete tenants of a class.
+//
 // Class must exist and has partitioning enabled
-func (m *Manager) DeleteTenants(ctx context.Context, principal *models.Principal, class string, tenants []*models.Tenant) error {
+func (m *Manager) DeleteTenants(ctx context.Context, principal *models.Principal, class string, tenants []string) error {
 	if err := m.Authorizer.Authorize(principal, "delete", tenantsPath); err != nil {
 		return err
 	}
@@ -188,15 +189,9 @@ func (m *Manager) DeleteTenants(ctx context.Context, principal *models.Principal
 		return fmt.Errorf("multi-tenancy is not enabled for class %q", class)
 	}
 
-	// create transaction payload
-	tenantNames := make([]string, len(tenants))
-	for i, tenant := range tenants {
-		tenantNames[i] = tenant.Name
-	}
-
 	request := DeleteTenantsPayload{
 		Class:   class,
-		Tenants: tenantNames,
+		Tenants: tenants,
 	}
 
 	// open cluster-wide transaction

@@ -206,6 +206,12 @@ func CreateTenantsReturnError(t *testing.T, class string, tenants []*models.Tena
 	return err
 }
 
+func DeleteTenants(t *testing.T, class string, tenants []string) error {
+	params := schema.NewTenantsDeleteParams().WithClassName(class).WithTenants(tenants)
+	_, err := Client(t).Schema.TenantsDelete(params, nil)
+	return err
+}
+
 func NewBeacon(className string, id strfmt.UUID) strfmt.URI {
 	return crossref.New("localhost", className, id).SingleRef().Beacon
 }

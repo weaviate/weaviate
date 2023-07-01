@@ -228,7 +228,12 @@ func TestDeleteTenants(t *testing.T) {
 				t.Fatalf("%s: add tenants: %v", test.name, err)
 			}
 		}
-		err = sm.DeleteTenants(ctx, nil, test.Class, test.tenants)
+		var tenantNames []string
+		for i := range test.tenants {
+			tenantNames = append(tenantNames, test.tenants[i].Name)
+		}
+
+		err = sm.DeleteTenants(ctx, nil, test.Class, tenantNames)
 		if test.errMsg == "" {
 			if err != nil {
 				t.Fatalf("%s: remove tenants: %v", test.name, err)

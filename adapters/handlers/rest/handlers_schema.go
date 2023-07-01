@@ -216,7 +216,7 @@ func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	err := s.manager.DeleteTenants(
-		params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
+		params.HTTPRequest.Context(), principal, params.ClassName, params.Tenants)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -228,9 +228,7 @@ func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
 		}
 	}
 
-	payload := params.Body
-
-	return schema.NewTenantsDeleteOK().WithPayload(payload)
+	return schema.NewTenantsDeleteOK()
 }
 
 func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager) {
