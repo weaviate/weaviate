@@ -25,8 +25,6 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
-
-	"github.com/weaviate/weaviate/entities/models"
 )
 
 // NewTenantsDeleteParams creates a new TenantsDeleteParams object,
@@ -74,11 +72,11 @@ TenantsDeleteParams contains all the parameters to send to the API endpoint
 */
 type TenantsDeleteParams struct {
 
-	// Body.
-	Body []*models.Tenant
-
 	// ClassName.
 	ClassName string
+
+	// Tenants.
+	Tenants []string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -133,17 +131,6 @@ func (o *TenantsDeleteParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
-// WithBody adds the body to the tenants delete params
-func (o *TenantsDeleteParams) WithBody(body []*models.Tenant) *TenantsDeleteParams {
-	o.SetBody(body)
-	return o
-}
-
-// SetBody adds the body to the tenants delete params
-func (o *TenantsDeleteParams) SetBody(body []*models.Tenant) {
-	o.Body = body
-}
-
 // WithClassName adds the className to the tenants delete params
 func (o *TenantsDeleteParams) WithClassName(className string) *TenantsDeleteParams {
 	o.SetClassName(className)
@@ -155,6 +142,17 @@ func (o *TenantsDeleteParams) SetClassName(className string) {
 	o.ClassName = className
 }
 
+// WithTenants adds the tenants to the tenants delete params
+func (o *TenantsDeleteParams) WithTenants(tenants []string) *TenantsDeleteParams {
+	o.SetTenants(tenants)
+	return o
+}
+
+// SetTenants adds the tenants to the tenants delete params
+func (o *TenantsDeleteParams) SetTenants(tenants []string) {
+	o.Tenants = tenants
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *TenantsDeleteParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -162,15 +160,15 @@ func (o *TenantsDeleteParams) WriteToRequest(r runtime.ClientRequest, reg strfmt
 		return err
 	}
 	var res []error
-	if o.Body != nil {
-		if err := r.SetBodyParam(o.Body); err != nil {
-			return err
-		}
-	}
 
 	// path param className
 	if err := r.SetPathParam("className", o.ClassName); err != nil {
 		return err
+	}
+	if o.Tenants != nil {
+		if err := r.SetBodyParam(o.Tenants); err != nil {
+			return err
+		}
 	}
 
 	if len(res) > 0 {
