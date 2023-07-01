@@ -98,7 +98,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "DeleteTenants",
-			additionalArgs:   []interface{}{"className", []*models.Tenant{{Name: "P1"}}},
+			additionalArgs:   []interface{}{"className", []string{"P1"}},
 			expectedVerb:     "delete",
 			expectedResource: tenantsPath,
 		},
