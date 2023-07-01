@@ -31,7 +31,46 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/sroar"
 )
+
+
+type BucketInterface interface {
+	Shutdown(ctx context.Context) error
+	//Commit() error
+	//Rollback() error
+
+	//CompactRange(start, end []byte) error
+	//DropIndex(pos int) error
+	//BuildSecondaryIndex(pos int, start, end []byte) error
+	//SecondaryIndexDelete(pos int, secondaryKey []byte) error
+	MakePropertyKey(prefix, key []byte) []byte
+	IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error
+	SetMemtableThreshold(size uint64)
+	Get(key []byte) ([]byte, error)
+	GetBySecondary(pos int, key []byte) ([]byte, error)
+	SetList(key []byte) ([][]byte, error)
+	Put(key, value []byte, opts ...SecondaryKeyOption) error
+	SetAdd(key []byte, values [][]byte) error
+	SetDeleteSingle(key []byte, valueToDelete []byte) error
+	WasDeleted(key []byte) (bool, error)
+	MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error)
+	MapSet(rowKey []byte, kv MapPair) error
+	MapDeleteKey(rowKey, mapKey []byte) error
+	Delete(key []byte, opts ...SecondaryKeyOption) error
+	Count() int
+	Strategy() string
+	RoaringSetGet(key []byte) (*sroar.Bitmap, error)
+	SetCursorKeyOnly() *CursorSet
+	//SetCursorKey() *CursorSet
+	SetCursor() *CursorSet
+	MapCursorKeyOnly(cfgs ...MapListOption) *CursorMap 
+	MapCursor(cfgs ...MapListOption) *CursorMap 
+	CursorRoaringSet() CursorRoaringSet
+	
+	CursorRoaringSetKeyOnly() CursorRoaringSet
+	
+}
 
 type Bucket struct {
 	dir      string
@@ -166,6 +205,10 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	b.metrics.TrackStartupBucket(beforeAll)
 
 	return b, nil
+}
+
+func (b *Bucket) MakePropertyKey([]byte, []byte) []byte {
+	return []byte("stub function")
 }
 
 // Iterate over every entry in the bucket and create a human-readable display of the bucket's contents, and return it as a string.

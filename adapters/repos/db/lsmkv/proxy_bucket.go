@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
+	"github.com/weaviate/sroar"
 )
 type BucketProxy struct {
 	realB             *Bucket
@@ -46,6 +47,39 @@ func (b *BucketProxy) MakePropertyKey(prefix, key []byte) []byte {
 	t := append([]byte(b.property_prefix), byte('|'))
 	val := append(t, key...)
 	return val
+}
+
+func (b *BucketProxy) CursorRoaringSet () CursorRoaringSet {
+	return b.realB.CursorRoaringSet()
+}
+
+func (b *BucketProxy) CursorRoaringSetKeyOnly() CursorRoaringSet {
+	return b.realB.CursorRoaringSetKeyOnly()
+}
+
+func (b *BucketProxy) MapCursorKeyOnly(cfgs ...MapListOption) *CursorMap {
+	return b.realB.MapCursorKeyOnly(cfgs...)
+}
+
+func (b *BucketProxy) MapCursor(cfgs ...MapListOption) *CursorMap {
+	return b.realB.MapCursor(cfgs...)
+}
+
+func (b *BucketProxy) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
+	real_key := b.MakePropertyKey(b.property_prefix, key)
+	return b.realB.RoaringSetGet(real_key)
+}
+
+func (b *BucketProxy) SetCursor() *CursorSet {
+	return b.realB.SetCursor()
+}
+
+func (b *BucketProxy) SetCursorKeyOnly() *CursorSet {
+	return b.realB.SetCursorKeyOnly()
+}
+
+func (b *BucketProxy) Strategy() string {
+	return b.realB.Strategy()
 }
 
 func (b *BucketProxy) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error {
@@ -117,4 +151,8 @@ func (b *BucketProxy) Count() int {
 
 func (b *BucketProxy) Shutdown(ctx context.Context) error {
 	return b.realB.Shutdown(ctx)
+}
+
+func (b *BucketProxy) FlushAndSwitch() error {
+	return b.realB.FlushAndSwitch()
 }

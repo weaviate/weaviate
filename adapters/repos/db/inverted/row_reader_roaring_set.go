@@ -34,7 +34,7 @@ type RowReaderRoaringSet struct {
 // If keyOnly is set, the RowReaderRoaringSet will request key-only cursors
 // wherever cursors are used, the specified value arguments in the
 // RoaringSetReadFn will always be empty
-func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte,
+func NewRowReaderRoaringSet(bucket lsmkv.BucketInterface, value []byte,
 	operator filters.Operator, keyOnly bool,
 ) *RowReaderRoaringSet {
 	getter := bucket.RoaringSetGet

@@ -30,7 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 )
 
 const (
@@ -46,7 +46,7 @@ func Test_Filters_String(t *testing.T) {
 	store, err := lsmkv.New(dirName, "", logger, nil)
 	require.Nil(t, err)
 
-	propIds, err := propertyspecific.NewJsonPropertyIdTracker("tempfile_propertyIds")
+	propIds, err := tracker.NewJsonPropertyIdTracker("tempfile_propertyIds")
 	defer propIds.Drop()
 	require.Nil(t, err)
 	propName := "inverted-with-frequency"
@@ -83,7 +83,7 @@ func Test_Filters_String(t *testing.T) {
 			propid_bytes := make([]byte, 8)
 			binary.LittleEndian.PutUint64(propid_bytes, propId)
 			for _, pair := range idsMapValues {
-				require.Nil(t, bWithFrequency.MapSetProp(propid_bytes, []byte(value), pair))
+				require.Nil(t, bWithFrequency.MapSet( []byte(value), pair))
 			}
 		}
 
@@ -279,14 +279,14 @@ func Test_Filters_String(t *testing.T) {
 				propid_bytes := make([]byte, 8)
 				binary.LittleEndian.PutUint64(propid_bytes, propId)
 				for _, pair := range idsMapValues {
-					require.Nil(t, bWithFrequency.MapSetProp(propid_bytes, []byte(value), pair))
+					require.Nil(t, bWithFrequency.MapSet( []byte(value), pair))
 				}
 
 				// for like filter
 				value = []byte("modulo-17")
 				idsMapValues = idsToBinaryMapValues([]uint64{17})
 				for _, pair := range idsMapValues {
-					require.Nil(t, bWithFrequency.MapSetProp(propid_bytes, []byte(value), pair))
+					require.Nil(t, bWithFrequency.MapSet( []byte(value), pair))
 				}
 			})
 
@@ -341,7 +341,7 @@ func Test_Filters_Int(t *testing.T) {
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
 	bucket := store.Bucket(bucketName)
 
-	propIds, err := propertyspecific.NewJsonPropertyIdTracker("temp_propIds")
+	propIds, err := tracker.NewJsonPropertyIdTracker("temp_propIds")
 	defer propIds.Drop()
 	if err != nil {
 		t.Fail()
@@ -558,7 +558,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	store, err := lsmkv.New(dirName, "", logger, nil)
 	require.Nil(t, err)
 
-	propIds, err := propertyspecific.NewJsonPropertyIdTracker("tempfile_propertyIds")
+	propIds, err := tracker.NewJsonPropertyIdTracker("tempfile_propertyIds")
 	defer propIds.Drop()
 	require.Nil(t, err)
 	propName := "inverted-with-frequency"
@@ -568,7 +568,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	bucketName := "searchable_properties"
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
 		bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
-	bWithFrequency := store.Bucket(bucketName)
+	bWithFrequency :=  lsmkv.NewBucketProxy(store.Bucket(bucketName), []byte(propName), propIds)
 
 	defer store.Shutdown(context.Background())
 
@@ -583,7 +583,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 			for _, pair := range idsMapValues {
 				propid_bytes := make([]byte, 8)
 				binary.LittleEndian.PutUint64(propid_bytes, propId)
-				require.Nil(t, bWithFrequency.MapSetProp(propid_bytes, []byte(value), pair))
+				require.Nil(t, bWithFrequency.MapSet( []byte(value), pair))
 			}
 		}
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
@@ -650,13 +650,13 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 				propid_bytes := make([]byte, 8)
 				binary.LittleEndian.PutUint64(propid_bytes, propId)
 				for _, pair := range idsMapValues {
-					require.Nil(t, bWithFrequency.MapSetProp(propid_bytes, []byte(value), pair))
+					require.Nil(t, bWithFrequency.MapSet( []byte(value), pair))
 				}
 
 				value = []byte("list_b")
 				idsMapValues = idsToBinaryMapValues([]uint64{3})
 				for _, pair := range idsMapValues {
-					require.Nil(t, bWithFrequency.MapSetProp(propid_bytes, []byte(value), pair))
+					require.Nil(t, bWithFrequency.MapSet( []byte(value), pair))
 				}
 			})
 

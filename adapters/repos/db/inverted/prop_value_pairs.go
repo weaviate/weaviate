@@ -17,9 +17,9 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
-	"golang.org/x/sync/errgroup"
 )
 
 type propValuePair struct {
@@ -58,7 +58,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 		}
 
-		b := s.store.Bucket(bucketName)
+		b := lsmkv.NewBucketProxy(s.store.Bucket(bucketName), []byte(pv.prop), s.propIds) 
 
 		// TODO text_rbm_inverted_index find better way check whether prop len
 		if b == nil && strings.HasSuffix(pv.prop, filters.InternalPropertyLength) {  //FIXME check that propname length will be the internal propname length name
@@ -92,10 +92,10 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 		}
 		pv.docIDs = dbm
 	} else {
-		eg := errgroup.Group{}
+	
 		for i, child := range pv.children {
 			i, child := i, child
-			eg.Go(func() error {
+			
 				// Explicitly set the limit to 0 (=unlimited) as this is a nested filter,
 				// otherwise we run into situations where each subfilter on their own
 				// runs into the limit, possibly yielding in "less than limit" results
@@ -106,11 +106,9 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 				}
 
 				return nil
-			})
+			
 		}
-		if err := eg.Wait(); err != nil {
-			return fmt.Errorf("nested query: %w", err)
-		}
+		
 	}
 
 	return nil

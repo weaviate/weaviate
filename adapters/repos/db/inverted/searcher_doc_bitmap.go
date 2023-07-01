@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
-func (s *Searcher) docBitmap(ctx context.Context, property []byte, b *lsmkv.Bucket, limit int,
+func (s *Searcher) docBitmap(ctx context.Context, property []byte, b lsmkv.BucketInterface, limit int,
 	pv *propValuePair,
 ) (docBitmap, error) {
 	// geo props cannot be served by the inverted index and they require an
@@ -53,7 +53,7 @@ func (s *Searcher) docBitmap(ctx context.Context, property []byte, b *lsmkv.Buck
 	return docBitmap{}, fmt.Errorf("property '%s' is neither filterable nor searchable", pv.prop)
 }
 
-func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Bucket,
+func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b lsmkv.BucketInterface,
 	limit int, pv *propValuePair,
 ) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
@@ -83,7 +83,7 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 	return out, nil
 }
 
-func (s *Searcher) docBitmapInvertedSet(ctx context.Context, property []byte, b *lsmkv.Bucket,
+func (s *Searcher) docBitmapInvertedSet(ctx context.Context, property []byte, b lsmkv.BucketInterface,
 	limit int, pv *propValuePair,
 ) (docBitmap, error) {
 	out := newDocBitmap()
@@ -115,7 +115,7 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, property []byte, b 
 	return out, nil
 }
 
-func (s *Searcher) docBitmapInvertedMap(ctx context.Context, property []byte, b *lsmkv.Bucket,
+func (s *Searcher) docBitmapInvertedMap(ctx context.Context, property []byte, b lsmkv.BucketInterface,
 	limit int, pv *propValuePair,
 ) (docBitmap, error) {
 	out := newDocBitmap()

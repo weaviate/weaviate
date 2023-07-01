@@ -25,14 +25,14 @@ import (
 // RowReaderFrequency reads one or many row(s) depending on the specified operator
 type RowReaderFrequency struct {
 	value        []byte
-	bucket       *lsmkv.Bucket
+	bucket       lsmkv.BucketInterface
 	operator     filters.Operator
 	keyOnly      bool
 	shardVersion uint16
 	PropPrefix   []byte
 }
 
-func NewRowReaderFrequency(propPrefix []byte, bucket *lsmkv.Bucket, value []byte,
+func NewRowReaderFrequency(propPrefix []byte, bucket lsmkv.BucketInterface, value []byte,
 	operator filters.Operator, keyOnly bool, shardVersion uint16,
 ) *RowReaderFrequency {
 	return &RowReaderFrequency{
@@ -92,12 +92,12 @@ func (rr *RowReaderFrequency) equal(ctx context.Context, readFn ReadFnFrequency)
 	var v []lsmkv.MapPair
 	var err error
 	if rr.shardVersion < 2 {
-		v, err = rr.bucket.MapListProp(rr.PropPrefix, rr.value, lsmkv.MapListAcceptDuplicates(), lsmkv.MapListLegacySortingRequired())
+		v, err = rr.bucket.MapList(rr.value, lsmkv.MapListAcceptDuplicates(), lsmkv.MapListLegacySortingRequired())
 		if err != nil {
 			return err
 		}
 	} else {
-		v, err = rr.bucket.MapListProp(rr.PropPrefix, rr.value, lsmkv.MapListAcceptDuplicates())
+		v, err = rr.bucket.MapList( rr.value, lsmkv.MapListAcceptDuplicates())
 		if err != nil {
 			return err
 		}
