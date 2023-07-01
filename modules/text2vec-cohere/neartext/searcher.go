@@ -130,7 +130,7 @@ func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
 				}
 			}
 
-			vector, err := findVectorFn(ctx, class, id)
+			vector, err := findVectorFn(ctx, class, id, "")
 			if err != nil {
 				return nil, err
 			}

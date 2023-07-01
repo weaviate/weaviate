@@ -70,28 +70,18 @@ func TestGQLGetTenantObjects(t *testing.T) {
 		helper.DeleteClass(t, testClass.Class)
 	}()
 
-	t.Run("setup test data", func(t *testing.T) {
-		t.Run("create class with multi-tenancy enabled", func(t *testing.T) {
-			helper.CreateClass(t, &testClass)
-		})
+	helper.CreateClass(t, &testClass)
+	helper.CreateTenants(t, testClass.Class, []*models.Tenant{{Name: tenant}})
+	helper.CreateObjectsBatch(t, tenantObjects)
 
-		t.Run("create tenants", func(t *testing.T) {
-			helper.CreateTenants(t, testClass.Class, []*models.Tenant{{Name: tenant}})
-		})
-
-		t.Run("add tenant objects", func(t *testing.T) {
-			helper.CreateObjectsBatch(t, tenantObjects)
-		})
-
-		t.Run("get tenant objects", func(t *testing.T) {
-			for _, obj := range tenantObjects {
-				resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenant)
-				require.Nil(t, err)
-				assert.Equal(t, obj.ID, resp.ID)
-				assert.Equal(t, obj.Class, resp.Class)
-				assert.Equal(t, obj.Properties, resp.Properties)
-			}
-		})
+	t.Run("Test tenant objects", func(t *testing.T) {
+		for _, obj := range tenantObjects {
+			resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenant)
+			require.Nil(t, err)
+			assert.Equal(t, obj.ID, resp.ID)
+			assert.Equal(t, obj.Class, resp.Class)
+			assert.Equal(t, obj.Properties, resp.Properties)
+		}
 	})
 
 	t.Run("GQL Get tenant objects", func(t *testing.T) {
@@ -116,6 +106,18 @@ func TestGQLGetTenantObjects(t *testing.T) {
 				t.Fatalf("expected to find id %q, but didn't", id)
 			}
 		}
+	})
+
+	t.Run("GQL near objects", func(t *testing.T) {
+		expectedIDs := map[strfmt.UUID]bool{}
+		for _, obj := range tenantObjects {
+			expectedIDs[obj.ID] = false
+		}
+
+		query := fmt.Sprintf(`{Get{%s(nearObject:{id: %q}, tenant:%q){_additional{id}}}}`, testClass.Class, tenantObjects[0].ID, tenant)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		res := result.Get("Get", testClass.Class)
+		require.NotNil(t, res) // objects have no content, so no result
 	})
 }
 
