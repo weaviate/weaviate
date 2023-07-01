@@ -87,3 +87,61 @@ func TestCreateTenants(t *testing.T) {
 		require.NotNil(t, err)
 	})
 }
+
+func TestDeleteTenants(t *testing.T) {
+	testClass := models.Class{
+		Class:              "MultiTenantClassDelete",
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+	}
+
+	defer func() {
+		helper.DeleteClass(t, testClass.Class)
+	}()
+	helper.CreateClass(t, &testClass)
+
+	tenants := []string{"tenant1", "tenant2", "tenant3"}
+	var tenantsObject []*models.Tenant
+	for _, tenant := range tenants {
+		tenantsObject = append(tenantsObject, &models.Tenant{Name: tenant})
+	}
+	helper.CreateTenants(t, testClass.Class, tenantsObject)
+
+	t.Run("Delete same tenant multiple times", func(Z *testing.T) {
+		err := helper.DeleteTenants(t, testClass.Class, []string{"tenant1", "tenant1"})
+		require.NotNil(t, err)
+
+		// nothing deleted
+		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+		require.Nil(t, err)
+		require.NotNil(t, resp.Payload)
+		require.NotNil(t, resp.Payload.Nodes)
+		require.Len(t, resp.Payload.Nodes, 1)
+		require.Len(t, resp.Payload.Nodes[0].Shards, 3)
+	})
+
+	t.Run("Delete non-existent tenant alongside existing", func(Z *testing.T) {
+		err := helper.DeleteTenants(t, testClass.Class, []string{"tenant1", "tenant5"})
+		require.Nil(t, err)
+
+		// idempotent - deleting multiple times works - tenant1 is removed
+		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+		require.Nil(t, err)
+		require.NotNil(t, resp.Payload)
+		require.NotNil(t, resp.Payload.Nodes)
+		require.Len(t, resp.Payload.Nodes, 1)
+		require.Len(t, resp.Payload.Nodes[0].Shards, 2)
+	})
+
+	t.Run("Delete tenants", func(Z *testing.T) {
+		err := helper.DeleteTenants(t, testClass.Class, []string{"tenant1", "tenant3"})
+		require.Nil(t, err)
+
+		// successfully deleted
+		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+		require.Nil(t, err)
+		require.NotNil(t, resp.Payload)
+		require.NotNil(t, resp.Payload.Nodes)
+		require.Len(t, resp.Payload.Nodes, 1)
+		require.Len(t, resp.Payload.Nodes[0].Shards, 1)
+	})
+}
