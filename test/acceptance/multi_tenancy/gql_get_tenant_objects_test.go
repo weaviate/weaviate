@@ -152,6 +152,32 @@ func TestGQLGetTenantObjects(t *testing.T) {
 		require.NotNil(t, res)
 		require.Len(t, res.Result, 3) // don't find object from other tenants
 	})
+
+	t.Run("GQL bm25", func(t *testing.T) {
+		expectedIDs := map[strfmt.UUID]bool{}
+		for _, obj := range tenantObjects {
+			expectedIDs[obj.ID] = false
+		}
+
+		query := fmt.Sprintf(`{Get{%s(bm25:{query: "kiwi"}, tenant:%q){_additional{id}}}}`, testClass.Class, tenant)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		res := result.Get("Get", testClass.Class)
+		require.NotNil(t, res)
+		require.Len(t, res.Result, 1) // don't find object from other tenants
+	})
+
+	t.Run("GQL hybrid", func(t *testing.T) {
+		expectedIDs := map[strfmt.UUID]bool{}
+		for _, obj := range tenantObjects {
+			expectedIDs[obj.ID] = false
+		}
+
+		query := fmt.Sprintf(`{Get{%s(hybrid:{query: "kiwi", alpha: 0.1}, tenant:%q, autocut:1){text _additional{id}}}}`, testClass.Class, tenant)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		res := result.Get("Get", testClass.Class)
+		require.NotNil(t, res)
+		require.Len(t, res.Result, 1) // find only relevant results from tenant
+	})
 }
 
 func TestGQLGetTenantObjects_MissingTenant(t *testing.T) {
