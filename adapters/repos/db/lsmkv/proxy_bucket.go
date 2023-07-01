@@ -18,15 +18,15 @@ import (
 	"fmt"
 	"github.com/weaviate/weaviate/entities/storobj"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 )
 type BucketProxy struct {
 	realB             *Bucket
 	property_prefix   []byte
-	propertyIds   *propertyspecific.JsonPropertyIdTracker
+	propertyIds   *tracker.JsonPropertyIdTracker
 }
 
-func NewBucketProxy(realB *Bucket, propName []byte, propids *propertyspecific.JsonPropertyIdTracker) *BucketProxy {
+func NewBucketProxy(realB *Bucket, propName []byte, propids *tracker.JsonPropertyIdTracker) *BucketProxy {
 	propid, err := propids.GetIdForProperty(string(propName))
 	if err != nil {
 		panic(fmt.Sprintf("property '%s' not found in propLengths", propName))

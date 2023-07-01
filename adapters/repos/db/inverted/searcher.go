@@ -27,6 +27,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -46,14 +47,14 @@ type Searcher struct {
 	stopwords              stopwords.StopwordDetector
 	shardVersion           uint16
 	isFallbackToSearchable IsFallbackToSearchable
-	propIds                *propertyspecific.JsonPropertyIdTracker
+	propIds                *tracker.JsonPropertyIdTracker
 }
 
 type DeletedDocIDChecker interface {
 	Contains(id uint64) bool
 }
 
-func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store, schema schema.Schema, propIndices propertyspecific.Indices, propIds *propertyspecific.JsonPropertyIdTracker, classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker, stopwords stopwords.StopwordDetector, shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable) *Searcher {
+func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store, schema schema.Schema, propIndices propertyspecific.Indices, propIds *tracker.JsonPropertyIdTracker, classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker, stopwords stopwords.StopwordDetector, shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable) *Searcher {
 	return &Searcher{
 		logger:                 logger,
 		store:                  store,

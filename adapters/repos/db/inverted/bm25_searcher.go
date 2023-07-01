@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -50,7 +51,7 @@ type BM25Searcher struct {
 	propLengths   propLengthRetriever
 	logger        logrus.FieldLogger
 	shardVersion  uint16
-	propertyIds   *propertyspecific.JsonPropertyIdTracker
+	propertyIds   *tracker.JsonPropertyIdTracker
 }
 
 type propLengthRetriever interface {
@@ -61,7 +62,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	schema schema.Schema, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker,
 	propLengths propLengthRetriever, logger logrus.FieldLogger,
-	shardVersion uint16, propertyIds *propertyspecific.JsonPropertyIdTracker,
+	shardVersion uint16, propertyIds *tracker.JsonPropertyIdTracker,
 ) *BM25Searcher {
 	return &BM25Searcher{
 		config:        config,

@@ -177,7 +177,7 @@ func (b *Bucket) DumpString() string {
 		if err != nil {
 			return err
 		}
-		buf.WriteString(fmt.Sprintf("%s: %s\n", object.ID, json))
+		buf.WriteString(fmt.Sprintf("%v: %v\n", object.ID(), json))
 		return nil
 	})
 	return buf.String()

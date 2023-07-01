@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -44,7 +44,7 @@ type Aggregator struct {
 	stopwords              stopwords.StopwordDetector
 	shardVersion           uint16
 	propLengths            *inverted.JsonPropertyLengthTracker
-	propertyIds            *propertyspecific.JsonPropertyIdTracker
+	propertyIds            *tracker.JsonPropertyIdTracker
 	isFallbackToSearchable inverted.IsFallbackToSearchable
 }
 
@@ -53,7 +53,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	deletedDocIDs inverted.DeletedDocIDChecker, stopwords stopwords.StopwordDetector,
 	shardVersion uint16, vectorIndex vectorIndex, logger logrus.FieldLogger,
 	propLengths *inverted.JsonPropertyLengthTracker, isFallbackToSearchable inverted.IsFallbackToSearchable,
-	propertyIds *propertyspecific.JsonPropertyIdTracker,
+	propertyIds *tracker.JsonPropertyIdTracker,
 ) *Aggregator {
 	return &Aggregator{
 		logger:                 logger,

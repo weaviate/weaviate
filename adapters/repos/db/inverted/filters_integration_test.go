@@ -55,7 +55,7 @@ func Test_Filters_String(t *testing.T) {
 
 	bucketName := "searchable_properties"
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection), lsmkv.WithRegisteredName(helpers.BucketFromPropNameLSM(propName))))
-	bWithFrequency := store.Bucket(bucketName)
+	bWithFrequency := lsmkv.NewBucketProxy( store.Bucket(bucketName), []byte(propName), propIds)
 
 	defer store.Shutdown(context.Background())
 

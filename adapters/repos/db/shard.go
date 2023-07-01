@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -54,7 +55,7 @@ type Shard struct {
 	promMetrics     *monitoring.PrometheusMetrics
 	propertyIndices propertyspecific.Indices
 	deletedDocIDs   *docid.InMemDeletedTracker
-	propIds         *propertyspecific.JsonPropertyIdTracker
+	propIds         *tracker.JsonPropertyIdTracker
 	propLengths     *inverted.JsonPropertyLengthTracker
 	versioner       *shardVersioner
 
@@ -218,7 +219,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	s.propLengths = propLengths
 
 	piPath := path.Join(s.index.Config.RootPath, s.ID()+".propids")
-	propIds, err := propertyspecific.NewJsonPropertyIdTracker(piPath)
+	propIds, err := tracker.NewJsonPropertyIdTracker(piPath)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: prop id tracker", s.ID())
 	}
