@@ -239,7 +239,7 @@ func (m *Manager) onDeleteTenants(ctx context.Context, class *models.Class, req 
 	return nil
 }
 
-// GetTenants is used to delete tenants of a class.
+// GetTenants is used to get tenants of a class.
 //
 // Class must exist and has partitioning enabled
 func (m *Manager) GetTenants(ctx context.Context, principal *models.Principal, class string) ([]*models.Tenant, error) {
@@ -255,9 +255,10 @@ func (m *Manager) GetTenants(ctx context.Context, principal *models.Principal, c
 		return nil, fmt.Errorf("multi-tenancy is not enabled for class %q", class)
 	}
 
-	var tenants []*models.Tenant
 	m.shardingStateLock.Lock()
+	var tenants []*models.Tenant
 	if ss := m.state.ShardingState[cls.Class]; ss != nil {
+		tenants = make([]*models.Tenant, len(ss.Physical))
 		for tenant := range ss.Physical {
 			tenants = append(tenants, &models.Tenant{Name: tenant})
 		}

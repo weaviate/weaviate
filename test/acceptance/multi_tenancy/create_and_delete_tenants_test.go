@@ -79,6 +79,12 @@ func TestCreateTenants(t *testing.T) {
 		helper.CreateClass(t, &testClass)
 		err := helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{"DoubleTenant"}, {"DoubleTenant"}})
 		require.NotNil(t, err)
+
+		// nothing added
+		respGet, errGet := helper.GetTenants(t, testClass.Class)
+		require.Nil(t, errGet)
+		require.NotNil(t, respGet)
+		require.Len(t, respGet.Payload, 0)
 	})
 
 	t.Run("Create same tenant multiple times", func(Z *testing.T) {
