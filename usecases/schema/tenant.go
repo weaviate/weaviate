@@ -140,7 +140,7 @@ func (m *Manager) onAddTenants(ctx context.Context, class *models.Class, request
 	}
 	shards := make([]string, 0, len(request.Tenants))
 	for _, p := range request.Tenants {
-		if st.IsShardLocal(p.Name) {
+		if st.IsLocalShard(p.Name) {
 			shards = append(shards, p.Name)
 		}
 	}

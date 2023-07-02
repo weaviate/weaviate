@@ -30,7 +30,7 @@ func distributions(before, after *sharding.State) (ShardDist, nodeShardDist) {
 	nodeDist := make(map[string]ShardDist)
 	for name := range before.Physical {
 		newNodes := difference(after.Physical[name].BelongsToNodes, before.Physical[name].BelongsToNodes)
-		if before.IsShardLocal(name) {
+		if before.IsLocalShard(name) {
 			localDist[name] = newNodes
 		} else {
 			belongsTo := before.Physical[name].BelongsToNode()

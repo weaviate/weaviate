@@ -188,7 +188,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 
 	for _, shardName := range shardState.AllPhysicalShards() {
 
-		if !shardState.IsShardLocal(shardName) {
+		if !shardState.IsLocalShard(shardName) {
 			// do not create non-local shards
 			continue
 		}
@@ -568,7 +568,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			if replProps != nil {
 				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
 					replica.ConsistencyLevel(replProps.ConsistencyLevel))
-			} else if !i.isLocalShard(shardName) {
+			} else if !ss.IsLocalShard(shardName) {
 				errs = i.remote.BatchPutObjects(ctx, shardName, group.objects)
 			} else {
 				shard := i.shards.Load(shardName)
@@ -671,7 +671,7 @@ func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchRefere
 			}
 			errs = i.replicator.AddReferences(ctx, shardName, group.refs,
 				replica.ConsistencyLevel(replProps.ConsistencyLevel))
-		} else if i.isLocalShard(shardName) {
+		} else if ss.IsLocalShard(shardName) {
 			shard := i.shards.Load(shardName)
 			errs = shard.addReferencesBatch(ctx, group.refs)
 		} else {
@@ -810,9 +810,7 @@ func (i *Index) multiObjectByID(ctx context.Context,
 	out := make([]*storobj.Object, len(query))
 
 	for shardName, group := range byShard {
-		local := i.getSchema.
-			ShardingState(i.Config.ClassName.String()).
-			IsShardLocal(shardName)
+		local := ss.IsLocalShard(shardName)
 
 		var objects []*storobj.Object
 		var err error
@@ -919,6 +917,11 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		return nil, nil, err
 	}
 
+	ss := i.getSchema.ShardingState(i.Config.ClassName.String())
+	if ss == nil {
+		return nil, nil, fmt.Errorf("cannot find sharding state for class %q", i.Config.ClassName.String())
+	}
+
 	shardNames, err := i.targetShardNames(tenant)
 	if err != nil {
 		return nil, nil, err
@@ -952,7 +955,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	outObjects, outScores, err := i.objectSearchByShard(ctx, limit,
-		filters, keywordRanking, sort, cursor, addlProps, shardNames)
+		filters, keywordRanking, sort, cursor, addlProps, shardNames, ss)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1039,7 +1042,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
-	addlProps additional.Properties, shards []string,
+	addlProps additional.Properties, shards []string, ss *sharding.State,
 ) ([]*storobj.Object, []float32, error) {
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
@@ -1053,7 +1056,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			var scores []float32
 			var err error
 
-			if i.isLocalShard(shardName) {
+			if ss.IsLocalShard(shardName) {
 				shard := i.shards.Load(shardName)
 				objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
 				if err != nil {
@@ -1186,13 +1189,18 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
 	}
+	className := i.Config.ClassName.String()
+	ss := i.getSchema.ShardingState(className)
+	if ss == nil {
+		return nil, nil, fmt.Errorf("could not find sharding state for class %q", className)
+	}
 
 	shardNames, err := i.targetShardNames(tenant)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if len(shardNames) == 1 && i.isLocalShard(shardNames[0]) {
+	if len(shardNames) == 1 && ss.IsLocalShard(shardNames[0]) {
 		return i.singleLocalShardObjectVectorSearch(ctx, searchVector, dist, limit, filters,
 			sort, groupBy, additional, shardNames[0])
 	}
@@ -1214,13 +1222,11 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	for _, shardName := range shardNames {
 		shardName := shardName
 		errgrp.Go(func() error {
-			local := i.isLocalShard(shardName)
-
 			var res []*storobj.Object
 			var resDists []float32
 			var err error
 
-			if local {
+			if ss.IsLocalShard(shardName) {
 				shard := i.shards.Load(shardName)
 				res, resDists, err = shard.objectVectorSearch(
 					ctx, searchVector, dist, limit, filters, sort, groupBy, additional)
@@ -1357,7 +1363,7 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) isLocalShard(shard string) bool {
-	return i.getSchema.ShardingState(i.Config.ClassName.String()).IsShardLocal(shard)
+	return i.getSchema.ShardingState(i.Config.ClassName.String()).IsLocalShard(shard)
 }
 
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
@@ -1429,11 +1435,9 @@ func (i *Index) aggregate(ctx context.Context,
 	shardState := i.getSchema.ShardingState(i.Config.ClassName.String())
 	results := make([]*aggregation.Result, len(shardNames))
 	for j, shardName := range shardNames {
-		local := shardState.IsShardLocal(shardName)
-
 		var err error
 		var res *aggregation.Result
-		if !local {
+		if !shardState.IsLocalShard(shardName) {
 			res, err = i.remote.Aggregate(ctx, shardName, params)
 		} else {
 			shard := i.shards.Load(shardName)
@@ -1503,11 +1507,9 @@ func (i *Index) getShardsStatus(ctx context.Context) (map[string]string, error) 
 	shardNames := shardState.AllPhysicalShards()
 
 	for _, shardName := range shardNames {
-		local := shardState.IsShardLocal(shardName)
-
 		var err error
 		var status string
-		if !local {
+		if !shardState.IsLocalShard(shardName) {
 			status, err = i.remote.GetShardStatus(ctx, shardName)
 		} else {
 			shard := i.shards.Load(shardName)
@@ -1537,10 +1539,9 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 
 func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus string) error {
 	shardState := i.getSchema.ShardingState(i.Config.ClassName.String())
-
 	var err error
-	local := shardState.IsShardLocal(shardName)
-	if !local {
+
+	if !shardState.IsLocalShard(shardName) {
 		err = i.remote.UpdateShardStatus(ctx, shardName, targetStatus)
 	} else {
 		shard := i.shards.Load(shardName)
@@ -1592,11 +1593,9 @@ func (i *Index) findDocIDs(ctx context.Context,
 
 	results := make(map[string][]uint64)
 	for _, shardName := range shardNames {
-		local := shardState.IsShardLocal(shardName)
-
 		var err error
 		var res []uint64
-		if !local {
+		if !shardState.IsLocalShard(shardName) {
 			res, err = i.remote.FindDocIDs(ctx, shardName, filters)
 		} else {
 			shard := i.shards.Load(shardName)
@@ -1629,7 +1628,7 @@ func (i *Index) IncomingFindDocIDs(ctx context.Context, shardName string,
 }
 
 func (i *Index) batchDeleteObjects(ctx context.Context, shardDocIDs map[string][]uint64,
-	dryRun bool, replProps *additional.ReplicationProperties,
+	dryRun bool, replProps *additional.ReplicationProperties, ss *sharding.State,
 ) (objects.BatchSimpleObjects, error) {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
@@ -1654,7 +1653,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardDocIDs map[string][
 				}
 				objs = i.replicator.DeleteObjects(ctx, shardName, docIDs,
 					dryRun, replica.ConsistencyLevel(replProps.ConsistencyLevel))
-			} else if i.isLocalShard(shardName) {
+			} else if ss.IsLocalShard(shardName) {
 				shard := i.shards.Load(shardName)
 				objs = shard.deleteObjectBatch(ctx, docIDs, dryRun)
 			} else {
