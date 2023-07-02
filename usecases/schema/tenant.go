@@ -258,7 +258,7 @@ func (m *Manager) GetTenants(ctx context.Context, principal *models.Principal, c
 	m.shardingStateLock.Lock()
 	var tenants []*models.Tenant
 	if ss := m.state.ShardingState[cls.Class]; ss != nil {
-		tenants = make([]*models.Tenant, len(ss.Physical))
+		tenants = make([]*models.Tenant, 0, len(ss.Physical))
 		for tenant := range ss.Physical {
 			tenants = append(tenants, &models.Tenant{Name: tenant})
 		}
