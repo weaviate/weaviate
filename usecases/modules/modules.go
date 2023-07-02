@@ -677,6 +677,7 @@ func (p *Provider) VectorFromInput(ctx context.Context,
 	for _, mod := range p.GetAll() {
 		if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type()) {
 			if vectorizer, ok := mod.(modulecapabilities.InputVectorizer); ok {
+				// does not access any objects, therefore tenant is irrelevant
 				cfg := NewClassBasedModuleConfig(class, mod.Name(), "")
 				return vectorizer.VectorizeInput(ctx, input, cfg)
 			}
