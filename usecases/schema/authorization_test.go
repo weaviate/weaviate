@@ -102,6 +102,12 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedVerb:     "delete",
 			expectedResource: tenantsPath,
 		},
+		{
+			methodName:       "GetTenants",
+			additionalArgs:   []interface{}{"className"},
+			expectedVerb:     "get",
+			expectedResource: tenantsPath,
+		},
 	}
 
 	t.Run("verify that a test for every public method exists", func(t *testing.T) {

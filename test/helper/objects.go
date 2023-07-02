@@ -206,6 +206,12 @@ func CreateTenantsReturnError(t *testing.T, class string, tenants []*models.Tena
 	return err
 }
 
+func GetTenants(t *testing.T, class string) (*schema.TenantsGetOK, error) {
+	params := schema.NewTenantsGetParams().WithClassName(class)
+	resp, err := Client(t).Schema.TenantsGet(params, nil)
+	return resp, err
+}
+
 func DeleteTenants(t *testing.T, class string, tenants []string) error {
 	params := schema.NewTenantsDeleteParams().WithClassName(class).WithTenants(tenants)
 	_, err := Client(t).Schema.TenantsDelete(params, nil)
