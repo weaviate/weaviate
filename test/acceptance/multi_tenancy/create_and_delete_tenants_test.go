@@ -52,6 +52,11 @@ func TestCreateTenants(t *testing.T) {
 		}
 		helper.CreateTenants(t, testClass.Class, tenants)
 
+		respGet, errGet := helper.GetTenants(t, testClass.Class)
+		require.Nil(t, errGet)
+		require.NotNil(t, respGet)
+		require.ElementsMatch(t, respGet.Payload, tenants)
+
 		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload)
@@ -144,4 +149,37 @@ func TestDeleteTenants(t *testing.T) {
 		require.Len(t, resp.Payload.Nodes, 1)
 		require.Len(t, resp.Payload.Nodes[0].Shards, 1)
 	})
+}
+
+func TestTenantsNonMultiTenant(t *testing.T) {
+	testClass := models.Class{
+		Class: "TenantsNoMultiClass",
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled: false,
+		},
+	}
+	defer func() {
+		helper.DeleteClass(t, testClass.Class)
+	}()
+	helper.CreateClass(t, &testClass)
+
+	err := helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{Name: "doesNotMatter"}})
+	require.NotNil(t, err)
+
+	_, err = helper.GetTenants(t, testClass.Class)
+	require.NotNil(t, err)
+
+	err = helper.DeleteTenants(t, testClass.Class, []string{"doesNotMatter"})
+	require.NotNil(t, err)
+}
+
+func TestTenantsClassDoesNotExist(t *testing.T) {
+	err := helper.CreateTenantsReturnError(t, "DoesNotExist", []*models.Tenant{{Name: "doesNotMatter"}})
+	require.NotNil(t, err)
+
+	_, err = helper.GetTenants(t, "DoesNotExist")
+	require.NotNil(t, err)
+
+	err = helper.DeleteTenants(t, "DoesNotExist", []string{"doesNotMatter"})
+	require.NotNil(t, err)
 }

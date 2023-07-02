@@ -201,6 +201,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaTenantsDeleteHandler: schema.TenantsDeleteHandlerFunc(func(params schema.TenantsDeleteParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantsDelete has not yet been implemented")
 		}),
+		SchemaTenantsGetHandler: schema.TenantsGetHandlerFunc(func(params schema.TenantsGetParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.TenantsGet has not yet been implemented")
+		}),
 		WeaviateRootHandler: WeaviateRootHandlerFunc(func(params WeaviateRootParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateRoot has not yet been implemented")
 		}),
@@ -352,6 +355,8 @@ type WeaviateAPI struct {
 	SchemaTenantsCreateHandler schema.TenantsCreateHandler
 	// SchemaTenantsDeleteHandler sets the operation handler for the tenants delete operation
 	SchemaTenantsDeleteHandler schema.TenantsDeleteHandler
+	// SchemaTenantsGetHandler sets the operation handler for the tenants get operation
+	SchemaTenantsGetHandler schema.TenantsGetHandler
 	// WeaviateRootHandler sets the operation handler for the weaviate root operation
 	WeaviateRootHandler WeaviateRootHandler
 	// WeaviateWellknownLivenessHandler sets the operation handler for the weaviate wellknown liveness operation
@@ -576,6 +581,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaTenantsDeleteHandler == nil {
 		unregistered = append(unregistered, "schema.TenantsDeleteHandler")
+	}
+	if o.SchemaTenantsGetHandler == nil {
+		unregistered = append(unregistered, "schema.TenantsGetHandler")
 	}
 	if o.WeaviateRootHandler == nil {
 		unregistered = append(unregistered, "WeaviateRootHandler")
@@ -866,6 +874,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/schema/{className}/tenants"] = schema.NewTenantsDelete(o.context, o.SchemaTenantsDeleteHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/schema/{className}/tenants"] = schema.NewTenantsGet(o.context, o.SchemaTenantsGetHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
