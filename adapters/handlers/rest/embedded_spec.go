@@ -2741,13 +2741,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added new tenants to the specified class",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/Tenant"
-              }
-            }
+            "description": "Added new tenants to the specified class"
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -7440,13 +7434,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added new tenants to the specified class",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/Tenant"
-              }
-            }
+            "description": "Added new tenants to the specified class"
           },
           "401": {
             "description": "Unauthorized or invalid credentials."

@@ -33,11 +33,6 @@ TenantsCreateOK Added new tenants to the specified class
 swagger:response tenantsCreateOK
 */
 type TenantsCreateOK struct {
-
-	/*
-	  In: Body
-	*/
-	Payload []*models.Tenant `json:"body,omitempty"`
 }
 
 // NewTenantsCreateOK creates TenantsCreateOK with default headers values
@@ -46,30 +41,12 @@ func NewTenantsCreateOK() *TenantsCreateOK {
 	return &TenantsCreateOK{}
 }
 
-// WithPayload adds the payload to the tenants create o k response
-func (o *TenantsCreateOK) WithPayload(payload []*models.Tenant) *TenantsCreateOK {
-	o.Payload = payload
-	return o
-}
-
-// SetPayload sets the payload to the tenants create o k response
-func (o *TenantsCreateOK) SetPayload(payload []*models.Tenant) {
-	o.Payload = payload
-}
-
 // WriteResponse to the client
 func (o *TenantsCreateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.WriteHeader(200)
-	payload := o.Payload
-	if payload == nil {
-		// return empty array
-		payload = make([]*models.Tenant, 0, 50)
-	}
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
-	if err := producer.Produce(rw, payload); err != nil {
-		panic(err) // let the recovery middleware deal with this
-	}
+	rw.WriteHeader(200)
 }
 
 // TenantsCreateUnauthorizedCode is the HTTP code returned for type TenantsCreateUnauthorized

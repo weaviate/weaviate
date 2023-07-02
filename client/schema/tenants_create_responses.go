@@ -80,7 +80,6 @@ TenantsCreateOK describes a response with status code 200, with default header v
 Added new tenants to the specified class
 */
 type TenantsCreateOK struct {
-	Payload []*models.Tenant
 }
 
 // IsSuccess returns true when this tenants create o k response has a 2xx status code
@@ -114,23 +113,14 @@ func (o *TenantsCreateOK) Code() int {
 }
 
 func (o *TenantsCreateOK) Error() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateOK ", 200)
 }
 
 func (o *TenantsCreateOK) String() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateOK  %+v", 200, o.Payload)
-}
-
-func (o *TenantsCreateOK) GetPayload() []*models.Tenant {
-	return o.Payload
+	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateOK ", 200)
 }
 
 func (o *TenantsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	// response payload
-	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
-		return err
-	}
 
 	return nil
 }

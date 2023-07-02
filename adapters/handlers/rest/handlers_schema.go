@@ -207,9 +207,7 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 		}
 	}
 
-	payload := params.Body
-
-	return schema.NewTenantsCreateOK().WithPayload(payload)
+	return schema.NewTenantsCreateOK()
 }
 
 func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
