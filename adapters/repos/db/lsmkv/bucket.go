@@ -42,7 +42,6 @@ type BucketInterface interface {
 	//DropIndex(pos int) error
 	//BuildSecondaryIndex(pos int, start, end []byte) error
 	//SecondaryIndexDelete(pos int, secondaryKey []byte) error
-	MakePropertyKey(prefix, key []byte) []byte
 	IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error
 	SetMemtableThreshold(size uint64)
 	Get(key []byte) ([]byte, error)
@@ -66,6 +65,8 @@ type BucketInterface interface {
 	MapCursor(cfgs ...MapListOption) *CursorMap
 	CursorRoaringSet() CursorRoaringSet
 	RoaringSetAddOne(key []byte, value uint64) error
+	FlushAndSwitch() error 
+	PropertyPrefix() []byte
 
 	CursorRoaringSetKeyOnly() CursorRoaringSet
 }
@@ -205,8 +206,8 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	return b, nil
 }
 
-func (b *Bucket) MakePropertyKey([]byte, []byte) []byte {
-	return []byte("stub function")
+func (b *Bucket) PropertyPrefix() []byte {
+	return []byte("")
 }
 
 // Iterate over every entry in the bucket and create a human-readable display of the bucket's contents, and return it as a string.

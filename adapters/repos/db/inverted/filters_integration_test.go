@@ -80,8 +80,6 @@ func Test_Filters_String(t *testing.T) {
 	t.Run("import data", func(t *testing.T) {
 		for value, ids := range fakeInvertedIndex {
 			idsMapValues := idsToBinaryMapValues(ids)
-			propid_bytes := make([]byte, 8)
-			binary.LittleEndian.PutUint64(propid_bytes, propId)
 			for _, pair := range idsMapValues {
 				require.Nil(t, bWithFrequency.MapSet( []byte(value), pair))
 			}
@@ -276,8 +274,6 @@ func Test_Filters_String(t *testing.T) {
 			t.Run("update", func(t *testing.T) {
 				value := []byte("modulo-7")
 				idsMapValues := idsToBinaryMapValues([]uint64{21})
-				propid_bytes := make([]byte, 8)
-				binary.LittleEndian.PutUint64(propid_bytes, propId)
 				for _, pair := range idsMapValues {
 					require.Nil(t, bWithFrequency.MapSet( []byte(value), pair))
 				}
@@ -346,7 +342,7 @@ func Test_Filters_Int(t *testing.T) {
 		t.Fail()
 	}
 
-	propId, err := propIds.CreateProperty(propName)
+	_, err = propIds.CreateProperty(propName)
 	if err != nil {
 		t.Fail()
 	}
@@ -384,13 +380,6 @@ func Test_Filters_Int(t *testing.T) {
 			idValues := idsToBinaryList(ids)
 			valueBytes, err := LexicographicallySortableInt64(value)
 			require.Nil(t, err)
-
-			propid, err := propIds.GetIdForProperty(string(propName))
-			if err != nil {
-				t.Fail()
-			}
-			propid_bytes := make([]byte, 8)
-			binary.LittleEndian.PutUint64(propid_bytes, propid)
 
 			require.Nil(t, bucket.SetAdd( valueBytes, idValues))
 		}
@@ -519,8 +508,6 @@ func Test_Filters_Int(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Run("before update", func(t *testing.T) {
 				fmt.Println("Dumping bucket:")
-				propid_bytes := make([]byte, 8)
-				binary.LittleEndian.PutUint64(propid_bytes, propId)
 				//DumpString(bucket, propid_bytes)
 				fmt.Println("Dumping bucket end")
 				res, err := searcher.DocIDs(context.Background(), test.filter,additional.Properties{}, className)
@@ -531,8 +518,6 @@ func Test_Filters_Int(t *testing.T) {
 			t.Run("update", func(t *testing.T) {
 				value, _ := LexicographicallySortableInt64(7)
 				idsBinary := idsToBinaryList([]uint64{21})
-				propid_bytes := make([]byte, 8)
-				binary.LittleEndian.PutUint64(propid_bytes, propId)
 				//fmt.Println(DumpString(bucket))
 				require.Nil(t, bucket.SetAdd( []byte(value), idsBinary))
 				//fmt.Println(DumpString(bucket, propid_bytes))
@@ -548,8 +533,6 @@ func Test_Filters_Int(t *testing.T) {
 				func(t *testing.T) {
 					idsList := idsToBinaryList([]uint64{21})
 					value, _ := LexicographicallySortableInt64(7)
-					propid_bytes := make([]byte, 8)
-				binary.LittleEndian.PutUint64(propid_bytes, propId)
 					require.Nil(t, bucket.SetDeleteSingle(value, idsList[0])) 
 				})
 		})
@@ -588,8 +571,6 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 		for value, ids := range fakeInvertedIndex {
 			idsMapValues := idsToBinaryMapValues(ids)
 			for _, pair := range idsMapValues {
-				propid_bytes := make([]byte, 8)
-				binary.LittleEndian.PutUint64(propid_bytes, propId)
 				require.Nil(t, bWithFrequency.MapSet( []byte(value), pair))
 			}
 		}
@@ -654,8 +635,6 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 			t.Run("update", func(t *testing.T) {
 				value := []byte("list_a")
 				idsMapValues := idsToBinaryMapValues([]uint64{3})
-				propid_bytes := make([]byte, 8)
-				binary.LittleEndian.PutUint64(propid_bytes, propId)
 				for _, pair := range idsMapValues {
 					require.Nil(t, bWithFrequency.MapSet( []byte(value), pair))
 				}

@@ -35,7 +35,7 @@ type RowReader struct {
 // If keyOnly is set, the RowReader will request key-only cursors wherever
 // cursors are used, the specified value arguments in the ReadFn will always be
 // nil
-func NewRowReader(propPrefix []byte, bucket lsmkv.BucketInterface, value []byte,
+func NewRowReader(bucket lsmkv.BucketInterface, value []byte,
 	operator filters.Operator, keyOnly bool, 
 ) *RowReader {
 	return &RowReader{
@@ -43,7 +43,7 @@ func NewRowReader(propPrefix []byte, bucket lsmkv.BucketInterface, value []byte,
 		value:    value,
 		operator: operator,
 		keyOnly:  keyOnly,
-		PropPrefix:   propPrefix,
+		PropPrefix:   bucket.PropertyPrefix(),
 	}
 }
 

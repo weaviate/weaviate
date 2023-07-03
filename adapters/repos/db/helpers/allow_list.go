@@ -12,11 +12,13 @@
 package helpers
 
 import (
-	
 
 	//"runtime/debug"
 	"github.com/weaviate/sroar"
+	"fmt"
+	"encoding/binary"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
@@ -31,6 +33,18 @@ type AllowList interface {
 	Iterator() AllowListIterator
 	LimitedIterator(limit int) AllowListIterator
 }
+
+func MakePropertyPrefix(property []byte, propIds *tracker.JsonPropertyIdTracker) ([]byte, error) {
+	var out []byte
+		//FIXME use helper make prop key
+		propid, err := propIds.GetIdForProperty(string(property))
+		if err != nil {
+			return out, fmt.Errorf("property '%s' not found in propLengths", property)
+		}
+		propid_bytes := make([]byte, 8)
+		binary.LittleEndian.PutUint64(propid_bytes, propid)
+		return propid_bytes, nil
+	}
 
 func MakePropertyKey(propName []byte, key []byte) []byte {
 	t := append([]byte(propName), byte('|'))

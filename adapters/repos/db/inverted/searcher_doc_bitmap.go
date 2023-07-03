@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
 
 func (s *Searcher) docBitmap(ctx context.Context, property []byte, b lsmkv.BucketInterface, limit int,
@@ -98,16 +99,8 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, property []byte, b 
 		return true, nil
 	}
 
-		//FIXME use helper make prop key
-		propid, err := s.propIds.GetIdForProperty(string(property))
-		if err != nil {
-			return out, fmt.Errorf("property '%s' not found in propLengths", property)
-		}
-		propid_bytes := make([]byte, 8)
-		binary.LittleEndian.PutUint64(propid_bytes, propid)
-
 	
-	rr := NewRowReader(propid_bytes, b, pv.value, pv.operator, false)
+	rr := NewRowReader(b, pv.value, pv.operator, false)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, errors.Wrap(err, "read row")
 	}
@@ -137,13 +130,11 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, property []byte, b 
 		return true, nil
 	}
 
-	//FIXME use helper make prop key
-	propid, err := s.propIds.GetIdForProperty(string(property))
+
+	propid_bytes, err := helpers.MakePropertyPrefix(property, s.propIds)
 	if err != nil {
-		return out, fmt.Errorf("property '%s' not found in propLengths", property)
+		return out, err
 	}
-	propid_bytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(propid_bytes, propid)
 
 	rr := NewRowReaderFrequency(propid_bytes, b, pv.value, pv.operator, false, s.shardVersion)
 	if err := rr.Read(ctx, readFn); err != nil {
