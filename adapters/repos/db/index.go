@@ -1505,16 +1505,13 @@ func (i *Index) findDocIDs(ctx context.Context,
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "filter_total")
 
-	var shardNames []string
-	// TODO targetShardNames
-	// If this index is multi-tenant-enabled, we are only
-	// interested in deleting objects from the target
-	// tenant's shard
-	if tenant != "" {
-		shardNames = []string{tenant}
-	} else {
-		shardState := i.getSchema.CopyShardingState(i.Config.ClassName.String())
-		shardNames = shardState.AllPhysicalShards()
+	if err := i.validateMultiTenancy(tenant); err != nil {
+		return nil, err
+	}
+
+	shardNames, err := i.targetShardNames(tenant)
+	if err != nil {
+		return nil, err
 	}
 
 	results := make(map[string][]uint64)
