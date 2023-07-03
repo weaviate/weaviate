@@ -98,9 +98,8 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 			for i := range resp {
 				require.NotNil(t, resp[i])
 				require.NotNil(t, resp[i].Result)
-				// TODO should be success?
-				// require.NotNil(t, resp[i].Result.Status)
-				// assert.Equal(t, "SUCCESS", *resp[i].Result.Status)
+				require.NotNil(t, resp[i].Result.Status)
+				assert.Equal(t, "SUCCESS", *resp[i].Result.Status)
 				assert.Equal(t, tenant, resp[i].Tenant)
 
 				ids[i] = resp[i].ID.String()
@@ -193,13 +192,13 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 		for i := range resp {
 			require.NotNil(t, resp[i])
 			require.NotNil(t, resp[i].Result)
-			// TODO should be failed?
-			// require.NotNil(t, resp[i].Result.Status)
-			// assert.Equal(t, "FAILED", *resp[i].Result.Status)
+			require.NotNil(t, resp[i].Result.Status)
+			assert.Equal(t, "FAILED", *resp[i].Result.Status)
 			require.NotNil(t, resp[i].Result.Errors)
 			require.NotNil(t, resp[i].Result.Errors.Error)
 			require.Len(t, resp[i].Result.Errors.Error, 1)
 			assert.Contains(t, resp[i].Result.Errors.Error[0].Message, "has multi-tenancy enabled, but request was without tenant")
+			assert.Empty(t, resp[i].Tenant)
 		}
 
 		t.Run("verify not created", func(t *testing.T) {
@@ -285,13 +284,13 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 		for i := range resp {
 			require.NotNil(t, resp[i])
 			require.NotNil(t, resp[i].Result)
-			// TODO should be failed?
-			// require.NotNil(t, resp[i].Result.Status)
-			// assert.Equal(t, "FAILED", *resp[i].Result.Status)
+			require.NotNil(t, resp[i].Result.Status)
+			assert.Equal(t, "FAILED", *resp[i].Result.Status)
 			require.NotNil(t, resp[i].Result.Errors)
 			require.NotNil(t, resp[i].Result.Errors.Error)
 			require.Len(t, resp[i].Result.Errors.Error, 1)
 			assert.Contains(t, resp[i].Result.Errors.Error[0].Message, "no tenant found with key")
+			assert.Equal(t, "nonExistentTenant", resp[i].Tenant)
 		}
 
 		t.Run("verify not created", func(t *testing.T) {
@@ -376,13 +375,13 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 			for i := range resp {
 				require.NotNil(t, resp[i])
 				require.NotNil(t, resp[i].Result)
-				// TODO should be failed?
-				// require.NotNil(t, resp[i].Result.Status)
-				// assert.Equal(t, "FAILED", *resp[i].Result.Status)
+				require.NotNil(t, resp[i].Result.Status)
+				assert.Equal(t, "FAILED", *resp[i].Result.Status)
 				require.NotNil(t, resp[i].Result.Errors)
 				require.NotNil(t, resp[i].Result.Errors.Error)
 				require.Len(t, resp[i].Result.Errors.Error, 1)
 				assert.Contains(t, resp[i].Result.Errors.Error[0].Message, "has multi-tenancy disabled, but request was with tenant")
+				assert.Equal(t, tenant, resp[i].Tenant)
 			}
 		}
 
