@@ -342,13 +342,6 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 			return termResult, nil, fmt.Errorf("could not find bucket for property %v", propName)
 		}
 
-		propid, err := b.propertyIds.GetIdForProperty(string(propName))
-		if err != nil {
-			panic(fmt.Sprintf("property '%s' not found in propLengths", propName))
-		}
-		propid_bytes := make([]byte, 8)
-		binary.LittleEndian.PutUint64(propid_bytes, propid)
-
 		preM, err := bucket.MapList([]byte(query))
 		if err != nil {
 			return termResult, nil, err
