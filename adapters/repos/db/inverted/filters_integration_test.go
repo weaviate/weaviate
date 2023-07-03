@@ -311,7 +311,8 @@ func Test_Filters_String(t *testing.T) {
 	}
 }
 
-func DumpString(bucket *lsmkv.Bucket, property_prefix []byte) string {
+/*
+func DumpString(bucket *lsmkv.BucketInterface, property_prefix []byte) string {
 	var out string
 	rr := NewRowReader(property_prefix, bucket, nil, filters.OperatorAnd, false)
 
@@ -328,6 +329,7 @@ func DumpString(bucket *lsmkv.Bucket, property_prefix []byte) string {
 	})
 	return out
 }
+*/
 
 func Test_Filters_Int(t *testing.T) {
 	dirName := t.TempDir()
@@ -337,9 +339,6 @@ func Test_Filters_Int(t *testing.T) {
 	require.Nil(t, err)
 
 	propName := "inverted-without-frequency"
-	bucketName := "filterable_properties"
-	require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
-	bucket := store.Bucket(bucketName)
 
 	propIds, err := tracker.NewJsonPropertyIdTracker("temp_propIds")
 	defer propIds.Drop()
@@ -351,6 +350,14 @@ func Test_Filters_Int(t *testing.T) {
 	if err != nil {
 		t.Fail()
 	}
+
+
+	bucketName := "filterable_properties"
+	require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
+	raw_bucket := store.Bucket(bucketName)
+	bucket := lsmkv.NewBucketProxy(raw_bucket, propName, propIds)
+
+
 
 	defer store.Shutdown(context.Background())
 
@@ -385,7 +392,7 @@ func Test_Filters_Int(t *testing.T) {
 			propid_bytes := make([]byte, 8)
 			binary.LittleEndian.PutUint64(propid_bytes, propid)
 
-			require.Nil(t, bucket.SetAddProp(propid_bytes, valueBytes, idValues))
+			require.Nil(t, bucket.SetAdd( valueBytes, idValues))
 		}
 
 		require.Nil(t, bucket.FlushAndSwitch())
@@ -514,7 +521,7 @@ func Test_Filters_Int(t *testing.T) {
 				fmt.Println("Dumping bucket:")
 				propid_bytes := make([]byte, 8)
 				binary.LittleEndian.PutUint64(propid_bytes, propId)
-				DumpString(bucket, propid_bytes)
+				//DumpString(bucket, propid_bytes)
 				fmt.Println("Dumping bucket end")
 				res, err := searcher.DocIDs(context.Background(), test.filter,additional.Properties{}, className)
 				assert.Nil(t, err)
@@ -527,8 +534,8 @@ func Test_Filters_Int(t *testing.T) {
 				propid_bytes := make([]byte, 8)
 				binary.LittleEndian.PutUint64(propid_bytes, propId)
 				//fmt.Println(DumpString(bucket))
-				require.Nil(t, bucket.SetAddProp(propid_bytes, []byte(value), idsBinary))
-				fmt.Println(DumpString(bucket, propid_bytes))
+				require.Nil(t, bucket.SetAdd( []byte(value), idsBinary))
+				//fmt.Println(DumpString(bucket, propid_bytes))
 			})
 
 			t.Run("after update", func(t *testing.T) {
@@ -543,7 +550,7 @@ func Test_Filters_Int(t *testing.T) {
 					value, _ := LexicographicallySortableInt64(7)
 					propid_bytes := make([]byte, 8)
 				binary.LittleEndian.PutUint64(propid_bytes, propId)
-					require.Nil(t, bucket.SetDeleteSingleProp(propid_bytes, value, idsList[0])) 
+					require.Nil(t, bucket.SetDeleteSingle(value, idsList[0])) 
 				})
 		})
 	}

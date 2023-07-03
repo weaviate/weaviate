@@ -336,7 +336,8 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	allMsAndProps := make(AllMapPairsAndPropName, 0, len(propertyNames))
 	for _, propName := range propertyNames {
 
-		bucket := b.store.Bucket("searchable_properties")
+		raw_bucket := b.store.Bucket("searchable_properties")
+		bucket := lsmkv.NewBucketProxy(raw_bucket, []byte(propName), b.propertyIds)
 		if bucket == nil {
 			return termResult, nil, fmt.Errorf("could not find bucket for property %v", propName)
 		}
@@ -348,7 +349,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 		propid_bytes := make([]byte, 8)
 		binary.LittleEndian.PutUint64(propid_bytes, propid)
 
-		preM, err := bucket.MapListProp(propid_bytes, []byte(query))
+		preM, err := bucket.MapList([]byte(query))
 		if err != nil {
 			return termResult, nil, err
 		}

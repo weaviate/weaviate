@@ -30,7 +30,7 @@ type BucketProxy struct {
 func NewBucketProxy(realB *Bucket, propName []byte, propids *tracker.JsonPropertyIdTracker) *BucketProxy {
 	propid, err := propids.GetIdForProperty(string(propName))
 	if err != nil {
-		panic(fmt.Sprintf("property '%s' not found in propLengths", propName))
+		fmt.Print(fmt.Sprintf("property '%s' not found in propLengths", propName))
 	}
 	propid_bytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(propid_bytes, propid)
@@ -155,4 +155,9 @@ func (b *BucketProxy) Shutdown(ctx context.Context) error {
 
 func (b *BucketProxy) FlushAndSwitch() error {
 	return b.realB.FlushAndSwitch()
+}
+
+func (b *BucketProxy) RoaringSetAddOne(key []byte, value uint64) error {
+	real_key := b.MakePropertyKey(b.property_prefix, key)
+	return b.realB.RoaringSetAddOne(real_key, value)
 }

@@ -150,6 +150,7 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 
 		t.Run("import products", func(t *testing.T) {
 			for i, schema := range products {
+				fmt.Printf("importing product %d", i)
 				t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 					fixture := models.Object{
 						Class:      productClass.Class,

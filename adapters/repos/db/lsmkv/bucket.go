@@ -25,15 +25,13 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/sroar"
 )
-
 
 type BucketInterface interface {
 	Shutdown(ctx context.Context) error
@@ -64,12 +62,12 @@ type BucketInterface interface {
 	SetCursorKeyOnly() *CursorSet
 	//SetCursorKey() *CursorSet
 	SetCursor() *CursorSet
-	MapCursorKeyOnly(cfgs ...MapListOption) *CursorMap 
-	MapCursor(cfgs ...MapListOption) *CursorMap 
+	MapCursorKeyOnly(cfgs ...MapListOption) *CursorMap
+	MapCursor(cfgs ...MapListOption) *CursorMap
 	CursorRoaringSet() CursorRoaringSet
-	
+	RoaringSetAddOne(key []byte, value uint64) error
+
 	CursorRoaringSetKeyOnly() CursorRoaringSet
-	
 }
 
 type Bucket struct {
@@ -442,15 +440,6 @@ func (b *Bucket) SetAdd(key []byte, values [][]byte) error {
 	return b.active.append(key, newSetEncoder().Do(values))
 }
 
-func (b *Bucket) SetAddProp(property_prefix, key []byte, values [][]byte) error {
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
-
-	real_key := helpers.MakePropertyKey(property_prefix, key)
-
-	return b.active.append(real_key, newSetEncoder().Do(values))
-}
-
 // SetDeleteSingle removes one Set element from the given key. Note that LSM
 // stores are append only, thus internally this action appends a tombstone. The
 // entry will not be removed until a compaction has run, and even then a
@@ -468,20 +457,6 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 	defer b.flushLock.RUnlock()
 
 	return b.active.append(key, []value{
-		{
-			value:     valueToDelete,
-			tombstone: true,
-		},
-	})
-}
-
-func (b *Bucket) SetDeleteSingleProp(prop_bytes []byte, key []byte, valueToDelete []byte) error {
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
-
-	real_key := helpers.MakePropertyKey(prop_bytes, key)
-
-	return b.active.append(real_key, []value{
 		{
 			value:     valueToDelete,
 			tombstone: true,
@@ -633,24 +608,6 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	return newSortedMapMerger().do(segments)
 }
 
-// MapListProp returns all map entries for a given row key and property id. The order of map pairs
-// has no specific meaning. For efficient merge operations, pair entries are
-// stored sorted on disk, however that is an implementation detail and not a
-// caller-facing guarantee.
-//
-// MapListProp is specific to the Map strategy, for Sets use [Bucket.SetList], for
-// Replace use [Bucket.Get].
-func (b *Bucket) MapListProp(propertyid []byte, keypart []byte, cfgs ...MapListOption) ([]MapPair, error) {
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
-
-	//fmt.Printf("maplistprop: searching for propertyid %s, keypart %s\n", propertyid, keypart)
-
-	key := helpers.MakePropertyKey(propertyid, keypart)
-
-	return b.MapList(key, cfgs...)
-}
-
 // MapSet writes one [MapPair] into the map for the given row key. It is
 // agnostic of whether the row key already exists, as well as agnostic of
 // whether the map key already exists. In both cases it will create the entry
@@ -669,30 +626,6 @@ func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	return b.active.appendMapSorted(rowKey, kv)
-}
-
-// MapSetProp writes one [MapPair] into the map for the given row key and property. It is
-// agnostic of whether the row key already exists, as well as agnostic of
-// whether the map key already exists. In both cases it will create the entry
-// if it does not exist or override if it does.
-//
-// Example to add a new MapPair:
-//
-//	pair := MapPair{Key: []byte("Jane"), Value: []byte("Backend")}
-//	err := bucket.MapSet([]byte("developers"), pair)
-//	if err != nil {
-//		/* do something */
-//	}
-//
-// MapSet is specific to the Map Strategy, for Replace use [Bucket.Put], and for Set use [Bucket.SetAdd] instead.
-func (b *Bucket) MapSetProp(property, keyBytes []byte, kv MapPair) error {
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
-
-	rowKey := helpers.MakePropertyKey(property, keyBytes)
-
-	fmt.Printf("mapsetprop: %v\n", rowKey)
 	return b.active.appendMapSorted(rowKey, kv)
 }
 
