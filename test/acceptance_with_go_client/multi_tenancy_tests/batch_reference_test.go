@@ -1004,8 +1004,6 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 	})
 
 	t.Run("fails creating references between MT and non-MT classes with different existing tenant", func(t *testing.T) {
-		t.Skip("should not create refs")
-
 		defer cleanup()
 
 		tenants := []string{"tenantNo1", "tenantNo2"}
@@ -1056,11 +1054,10 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 		for i := range resp {
 			require.NotNil(t, resp[i].Result)
 			require.NotNil(t, resp[i].Result.Status)
-			// TODO should fail
-			// assert.Equal(t, "FAILED", *resp[i].Result.Status)
-			// require.NotNil(t, resp[i].Result.Errors)
-			// require.Len(t, resp[i].Result.Errors.Error, 1)
-			// assert.Contains(t, resp[i].Result.Errors.Error[0].Message, "no tenant found with key")
+			assert.Equal(t, "FAILED", *resp[i].Result.Status)
+			require.NotNil(t, resp[i].Result.Errors)
+			require.Len(t, resp[i].Result.Errors.Error, 1)
+			assert.Contains(t, resp[i].Result.Errors.Error[0].Message, "not found for tenant")
 		}
 
 		t.Run("verify not created", func(t *testing.T) {
@@ -1097,9 +1094,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					Do(context.Background())
 
 				require.Nil(t, err)
-				// TODO should not create objects
-				_ = exists
-				// assert.False(t, exists)
+				assert.False(t, exists)
 			}
 
 			for _, tenant := range tenants {
