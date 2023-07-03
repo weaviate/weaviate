@@ -355,7 +355,7 @@ func Test_Filters_Int(t *testing.T) {
 	bucketName := "filterable_properties"
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
 	raw_bucket := store.Bucket(bucketName)
-	bucket := lsmkv.NewBucketProxy(raw_bucket, propName, propIds)
+	bucket := lsmkv.NewBucketProxy(raw_bucket, []byte(propName), propIds)
 
 
 
