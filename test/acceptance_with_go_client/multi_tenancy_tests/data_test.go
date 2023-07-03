@@ -34,7 +34,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		require.Nil(t, err)
 	}
 
-	t.Run("creates objects of multi-tenancy class", func(t *testing.T) {
+	t.Run("creates objects of MT class", func(t *testing.T) {
 		defer cleanup()
 
 		className := "Pizza"
@@ -102,7 +102,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		})
 	})
 
-	t.Run("fails creating objects of multi-tenancy class without tenant", func(t *testing.T) {
+	t.Run("fails creating objects of MT class without tenant", func(t *testing.T) {
 		defer cleanup()
 
 		className := "Pizza"
@@ -164,7 +164,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		})
 	})
 
-	t.Run("fails creating objects of multi-tenancy class with non existent tenant", func(t *testing.T) {
+	t.Run("fails creating objects of MT class with non existent tenant", func(t *testing.T) {
 		defer cleanup()
 
 		className := "Pizza"
@@ -281,7 +281,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		})
 	})
 
-	t.Run("gets objects of multi-tenancy class", func(t *testing.T) {
+	t.Run("gets objects of MT class", func(t *testing.T) {
 		defer cleanup()
 
 		tenants := []string{"tenantNo1", "tenantNo2"}
@@ -342,7 +342,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		}
 	})
 
-	t.Run("fails getting objects of multi-tenancy class without tenant", func(t *testing.T) {
+	t.Run("fails getting objects of MT class without tenant", func(t *testing.T) {
 		defer cleanup()
 
 		tenants := []string{"tenantNo1", "tenantNo2"}
@@ -390,7 +390,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		})
 	})
 
-	t.Run("fails getting objects of multi-tenancy class with non existent tenant", func(t *testing.T) {
+	t.Run("fails getting objects of MT class with non existent tenant", func(t *testing.T) {
 		defer cleanup()
 
 		tenants := []string{"tenantNo1", "tenantNo2"}
@@ -489,7 +489,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		})
 	})
 
-	t.Run("checks objects of multi-tenancy class", func(t *testing.T) {
+	t.Run("checks objects of MT class", func(t *testing.T) {
 		defer cleanup()
 
 		tenants := []string{"tenantNo1", "tenantNo2"}
@@ -514,7 +514,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		}
 	})
 
-	t.Run("fails checking objects of multi-tenancy class without tenant", func(t *testing.T) {
+	t.Run("fails checking objects of MT class without tenant", func(t *testing.T) {
 		defer cleanup()
 
 		tenants := []string{"tenantNo1", "tenantNo2"}
@@ -539,7 +539,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		}
 	})
 
-	t.Run("fails checking objects of multi-tenancy class with non existent tenant", func(t *testing.T) {
+	t.Run("fails checking objects of MT class with non existent tenant", func(t *testing.T) {
 		defer cleanup()
 
 		tenants := []string{"tenantNo1", "tenantNo2"}
@@ -588,7 +588,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		}
 	})
 
-	t.Run("deletes objects from multi-tenancy class", func(t *testing.T) {
+	t.Run("deletes objects from MT class", func(t *testing.T) {
 		defer cleanup()
 
 		tenants := []string{"tenantNo1", "tenantNo2"}
@@ -637,7 +637,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		}
 	})
 
-	t.Run("fails deleting objects from multi-tenancy class without tenant", func(t *testing.T) {
+	t.Run("fails deleting objects from MT class without tenant", func(t *testing.T) {
 		defer cleanup()
 
 		tenants := []string{"tenantNo1", "tenantNo2"}
@@ -686,7 +686,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		})
 	})
 
-	t.Run("fails deleting objects from multi-tenancy class with non existent tenant", func(t *testing.T) {
+	t.Run("fails deleting objects from MT class with non existent tenant", func(t *testing.T) {
 		defer cleanup()
 
 		tenants := []string{"tenantNo1", "tenantNo2"}
@@ -777,7 +777,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		})
 	})
 
-	t.Run("updates objects of multi-tenancy class", func(t *testing.T) {
+	t.Run("updates objects of MT class", func(t *testing.T) {
 		defer cleanup()
 
 		className := "Soup"
@@ -846,7 +846,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		})
 	})
 
-	t.Run("fails updating objects of multi-tenancy class without tenant", func(t *testing.T) {
+	t.Run("fails updating objects of MT class without tenant", func(t *testing.T) {
 		defer cleanup()
 
 		className := "Soup"
@@ -917,7 +917,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		})
 	})
 
-	t.Run("fails updating objects of multi-tenancy class with non existent tenant", func(t *testing.T) {
+	t.Run("fails updating objects of MT class with non existent tenant", func(t *testing.T) {
 		defer cleanup()
 
 		className := "Soup"
@@ -1055,7 +1055,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		})
 	})
 
-	t.Run("merges objects of multi-tenancy class", func(t *testing.T) {
+	t.Run("merges objects of MT class", func(t *testing.T) {
 		defer cleanup()
 
 		className := "Soup"
@@ -1122,7 +1122,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		})
 	})
 
-	t.Run("fails merging objects of multi-tenancy class without tenant", func(t *testing.T) {
+	t.Run("fails merging objects of MT class without tenant", func(t *testing.T) {
 		defer cleanup()
 
 		className := "Soup"
@@ -1191,7 +1191,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		})
 	})
 
-	t.Run("fails merging objects of multi-tenancy class with non existent tenant", func(t *testing.T) {
+	t.Run("fails merging objects of MT class with non existent tenant", func(t *testing.T) {
 		defer cleanup()
 
 		className := "Soup"
