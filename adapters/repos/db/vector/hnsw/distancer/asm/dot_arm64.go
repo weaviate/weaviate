@@ -18,4 +18,4 @@ package asm
 import "unsafe"
 
 //go:noescape
-func l2(a, b, res, len unsafe.Pointer)
+func dot(a, b, res, len unsafe.Pointer)
