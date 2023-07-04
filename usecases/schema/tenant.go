@@ -165,7 +165,6 @@ func (m *Manager) onAddTenants(ctx context.Context, class *models.Class, request
 		ost.Physical[name] = p
 	}
 	m.shardingStateLock.Unlock()
-	m.triggerSchemaUpdateCallbacks()
 
 	return nil
 }
@@ -234,7 +233,6 @@ func (m *Manager) onDeleteTenants(ctx context.Context, class *models.Class, req 
 		}
 	}
 	m.shardingStateLock.Unlock()
-	m.triggerSchemaUpdateCallbacks()
 
 	return nil
 }
