@@ -126,7 +126,7 @@ func (m *Manager) startupJoinCluster(ctx context.Context,
 		return nil
 	}
 
-	m.state = *pl.Schema
+	m.schemaCache.State = *pl.Schema
 
 	if err := m.saveSchema(ctx, nil); err != nil {
 		return fmt.Errorf("save schema: %w", err)
@@ -151,7 +151,7 @@ func (m *Manager) ClusterStatus(ctx context.Context) (*models.SchemaClusterStatu
 		return out, nil
 	}
 
-	err := m.validateSchemaCorruption(ctx, &m.state)
+	err := m.validateSchemaCorruption(ctx, &m.schemaCache.State)
 	if err != nil {
 		out.Error = err.Error()
 		out.Healthy = false

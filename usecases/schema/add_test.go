@@ -59,10 +59,10 @@ func TestAddClass(t *testing.T) {
 			nil, &models.Class{Class: "NewClass"})
 		require.Nil(t, err)
 
-		require.NotNil(t, mgr.state.ObjectSchema)
-		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
-		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
-		require.Equal(t, expectedBM25Config, mgr.state.ObjectSchema.Classes[0].InvertedIndexConfig.Bm25)
+		require.NotNil(t, mgr.schemaCache.ObjectSchema)
+		require.NotEmpty(t, mgr.schemaCache.ObjectSchema.Classes)
+		require.Equal(t, "NewClass", mgr.schemaCache.ObjectSchema.Classes[0].Class)
+		require.Equal(t, expectedBM25Config, mgr.schemaCache.ObjectSchema.Classes[0].InvertedIndexConfig.Bm25)
 	})
 
 	t.Run("with customized BM25 params", func(t *testing.T) {
@@ -82,10 +82,10 @@ func TestAddClass(t *testing.T) {
 			})
 		require.Nil(t, err)
 
-		require.NotNil(t, mgr.state.ObjectSchema)
-		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
-		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
-		require.Equal(t, expectedBM25Config, mgr.state.ObjectSchema.Classes[0].InvertedIndexConfig.Bm25)
+		require.NotNil(t, mgr.schemaCache.ObjectSchema)
+		require.NotEmpty(t, mgr.schemaCache.ObjectSchema.Classes)
+		require.Equal(t, "NewClass", mgr.schemaCache.ObjectSchema.Classes[0].Class)
+		require.Equal(t, expectedBM25Config, mgr.schemaCache.ObjectSchema.Classes[0].InvertedIndexConfig.Bm25)
 	})
 
 	t.Run("with default Stopwords config", func(t *testing.T) {
@@ -99,10 +99,10 @@ func TestAddClass(t *testing.T) {
 			nil, &models.Class{Class: "NewClass"})
 		require.Nil(t, err)
 
-		require.NotNil(t, mgr.state.ObjectSchema)
-		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
-		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
-		require.Equal(t, expectedStopwordConfig, mgr.state.ObjectSchema.Classes[0].InvertedIndexConfig.Stopwords)
+		require.NotNil(t, mgr.schemaCache.ObjectSchema)
+		require.NotEmpty(t, mgr.schemaCache.ObjectSchema.Classes)
+		require.Equal(t, "NewClass", mgr.schemaCache.ObjectSchema.Classes[0].Class)
+		require.Equal(t, expectedStopwordConfig, mgr.schemaCache.ObjectSchema.Classes[0].InvertedIndexConfig.Stopwords)
 	})
 
 	t.Run("with customized Stopwords config", func(t *testing.T) {
@@ -123,10 +123,10 @@ func TestAddClass(t *testing.T) {
 			})
 		require.Nil(t, err)
 
-		require.NotNil(t, mgr.state.ObjectSchema)
-		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
-		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
-		require.Equal(t, expectedStopwordConfig, mgr.state.ObjectSchema.Classes[0].InvertedIndexConfig.Stopwords)
+		require.NotNil(t, mgr.schemaCache.ObjectSchema)
+		require.NotEmpty(t, mgr.schemaCache.ObjectSchema.Classes)
+		require.Equal(t, "NewClass", mgr.schemaCache.ObjectSchema.Classes[0].Class)
+		require.Equal(t, expectedStopwordConfig, mgr.schemaCache.ObjectSchema.Classes[0].InvertedIndexConfig.Stopwords)
 	})
 
 	t.Run("with tokenizations", func(t *testing.T) {
@@ -162,8 +162,8 @@ func TestAddClass(t *testing.T) {
 
 					if tc.expectedErrMsg == "" {
 						require.Nil(t, err)
-						require.NotNil(t, mgr.state.ObjectSchema)
-						require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
+						require.NotNil(t, mgr.schemaCache.ObjectSchema)
+						require.NotEmpty(t, mgr.schemaCache.ObjectSchema.Classes)
 					} else {
 						require.EqualError(t, err, tc.expectedErrMsg)
 					}
@@ -306,10 +306,10 @@ func TestAddClass(t *testing.T) {
 			nil, &models.Class{Class: "NewClass"})
 		require.Nil(t, err)
 
-		require.NotNil(t, mgr.state.ObjectSchema)
-		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
-		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
-		require.Equal(t, expected, mgr.state.ObjectSchema.Classes[0].VectorIndexConfig)
+		require.NotNil(t, mgr.schemaCache.ObjectSchema)
+		require.NotEmpty(t, mgr.schemaCache.ObjectSchema.Classes)
+		require.Equal(t, "NewClass", mgr.schemaCache.ObjectSchema.Classes[0].Class)
+		require.Equal(t, expected, mgr.schemaCache.ObjectSchema.Classes[0].VectorIndexConfig)
 	})
 
 	t.Run("with default vector distance metric when class already has VectorIndexConfig", func(t *testing.T) {
@@ -329,10 +329,10 @@ func TestAddClass(t *testing.T) {
 			})
 		require.Nil(t, err)
 
-		require.NotNil(t, mgr.state.ObjectSchema)
-		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
-		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
-		require.Equal(t, expected, mgr.state.ObjectSchema.Classes[0].VectorIndexConfig)
+		require.NotNil(t, mgr.schemaCache.ObjectSchema)
+		require.NotEmpty(t, mgr.schemaCache.ObjectSchema.Classes)
+		require.Equal(t, "NewClass", mgr.schemaCache.ObjectSchema.Classes[0].Class)
+		require.Equal(t, expected, mgr.schemaCache.ObjectSchema.Classes[0].VectorIndexConfig)
 	})
 
 	t.Run("with customized distance metric", func(t *testing.T) {
@@ -351,10 +351,10 @@ func TestAddClass(t *testing.T) {
 			})
 		require.Nil(t, err)
 
-		require.NotNil(t, mgr.state.ObjectSchema)
-		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
-		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
-		require.Equal(t, expected, mgr.state.ObjectSchema.Classes[0].VectorIndexConfig)
+		require.NotNil(t, mgr.schemaCache.ObjectSchema)
+		require.NotEmpty(t, mgr.schemaCache.ObjectSchema.Classes)
+		require.Equal(t, "NewClass", mgr.schemaCache.ObjectSchema.Classes[0].Class)
+		require.Equal(t, expected, mgr.schemaCache.ObjectSchema.Classes[0].VectorIndexConfig)
 	})
 
 	t.Run("with two identical prop names", func(t *testing.T) {
@@ -575,9 +575,9 @@ func TestAddClass_DefaultsAndMigration(t *testing.T) {
 			})
 
 			require.Nil(t, err)
-			require.NotNil(t, mgr.state.ObjectSchema)
-			require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
-			require.Equal(t, className, mgr.state.ObjectSchema.Classes[0].Class)
+			require.NotNil(t, mgr.schemaCache.ObjectSchema)
+			require.NotEmpty(t, mgr.schemaCache.ObjectSchema.Classes)
+			require.Equal(t, className, mgr.schemaCache.ObjectSchema.Classes[0].Class)
 		})
 
 		t.Run("add properties to existing class", func(t *testing.T) {
@@ -595,7 +595,7 @@ func TestAddClass_DefaultsAndMigration(t *testing.T) {
 		})
 
 		t.Run("verify defaults and migration", func(t *testing.T) {
-			class := mgr.state.ObjectSchema.Classes[0]
+			class := mgr.schemaCache.ObjectSchema.Classes[0]
 			for _, tc := range testCases {
 				t.Run("created_"+tc.propName, func(t *testing.T) {
 					createdProperty, err := schema.GetPropertyByName(class, "created_"+tc.propName)
@@ -759,9 +759,9 @@ func TestAddClass_DefaultsAndMigration(t *testing.T) {
 			})
 
 			require.Nil(t, err)
-			require.NotNil(t, mgr.state.ObjectSchema)
-			require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
-			require.Equal(t, className, mgr.state.ObjectSchema.Classes[0].Class)
+			require.NotNil(t, mgr.schemaCache.ObjectSchema)
+			require.NotEmpty(t, mgr.schemaCache.ObjectSchema.Classes)
+			require.Equal(t, className, mgr.schemaCache.ObjectSchema.Classes[0].Class)
 		})
 
 		t.Run("add properties to existing class", func(t *testing.T) {
@@ -781,7 +781,7 @@ func TestAddClass_DefaultsAndMigration(t *testing.T) {
 		})
 
 		t.Run("verify migration", func(t *testing.T) {
-			class := mgr.state.ObjectSchema.Classes[0]
+			class := mgr.schemaCache.ObjectSchema.Classes[0]
 			for _, tc := range testCases {
 				t.Run("created_"+tc.propName, func(t *testing.T) {
 					createdProperty, err := schema.GetPropertyByName(class, "created_"+tc.propName)

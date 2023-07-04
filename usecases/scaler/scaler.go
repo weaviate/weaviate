@@ -80,7 +80,7 @@ type cluster interface {
 
 // SchemaManager is used by the scaler to get and update sharding states
 type SchemaManager interface {
-	ShardingState(class string) *sharding.State
+	CopyShardingState(class string) *sharding.State
 }
 
 func (s *Scaler) SetSchemaManager(sm SchemaManager) {
@@ -98,7 +98,7 @@ func (s *Scaler) Scale(ctx context.Context, className string,
 	// First identify what the sharding state was before this change. This is
 	// mainly to be able to compare the diff later, so we know where we need to
 	// make changes
-	ssBefore := s.schema.ShardingState(className)
+	ssBefore := s.schema.CopyShardingState(className)
 	if ssBefore == nil {
 		return nil, fmt.Errorf("no sharding state for class %q", className)
 	}

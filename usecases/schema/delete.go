@@ -66,28 +66,29 @@ func (m *Manager) deleteClassApplyChanges(ctx context.Context,
 	className string, force bool,
 ) error {
 	classIdx := -1
-	m.shardingStateLock.RLock()
-	sch := m.state.ObjectSchema
-	for idx, class := range sch.Classes {
-		if class.Class == className {
-			classIdx = idx
-			break
+	var sch *models.Schema
+	m.schemaCache.RLockGuard(func() error {
+		sch = m.schemaCache.ObjectSchema
+		for idx, class := range sch.Classes {
+			if class.Class == className {
+				classIdx = idx
+				break
+			}
 		}
-	}
-	m.shardingStateLock.RUnlock()
+		return nil
+	})
 
 	if classIdx == -1 && !force {
 		return fmt.Errorf("could not find class '%s'", className)
 	}
 
 	if classIdx > -1 {
-		m.shardingStateLock.Lock()
 		// make sure not to delete another class if the force flag is set, but the class does not exist
-		sch.Classes[classIdx] = sch.Classes[len(sch.Classes)-1]
-		sch.Classes[len(sch.Classes)-1] = nil // to prevent leaking this pointer.
-		sch.Classes = sch.Classes[:len(sch.Classes)-1]
-		m.shardingStateLock.Unlock()
-
+		m.schemaCache.LockGuard(func() {
+			sch.Classes[classIdx] = sch.Classes[len(sch.Classes)-1]
+			sch.Classes[len(sch.Classes)-1] = nil // to prevent leaking this pointer.
+			sch.Classes = sch.Classes[:len(sch.Classes)-1]
+		})
 	}
 
 	err := m.migrator.DropClass(ctx, className)
@@ -100,9 +101,7 @@ func (m *Manager) deleteClassApplyChanges(ctx context.Context,
 			Errorf("ignoring class delete error because force is set")
 	}
 
-	m.shardingStateLock.Lock()
-	delete(m.state.ShardingState, className)
-	m.shardingStateLock.Unlock()
+	m.schemaCache.LockGuard(func() { delete(m.schemaCache.ShardingState, className) })
 	if err := m.repo.DeleteClass(ctx, className); err != nil {
 		return err
 	}

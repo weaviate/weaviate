@@ -115,7 +115,7 @@ func TestAddTenants(t *testing.T) {
 		}
 		if test.errMsg == "" {
 			assert.Nil(t, err)
-			ss := sm.state.ShardingState[test.Class]
+			ss := sm.schemaCache.ShardingState[test.Class]
 			assert.NotNil(t, ss, test.name)
 			assert.Equal(t, len(ss.Physical), len(test.tenants), test.name)
 		} else {
@@ -238,7 +238,7 @@ func TestDeleteTenants(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: remove tenants: %v", test.name, err)
 			}
-			ss := sm.state.ShardingState[test.Class]
+			ss := sm.schemaCache.ShardingState[test.Class]
 			if ss == nil {
 				t.Fatalf("%s: sharding state equal nil", test.name)
 			}

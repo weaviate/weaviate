@@ -17,6 +17,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 
 	"github.com/go-openapi/strfmt"
@@ -42,8 +43,29 @@ func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
 }
 
-func (f *fakeSchemaGetter) ShardingState(class string) *sharding.State {
+func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {
 	return f.shardState
+}
+
+func (f *fakeSchemaGetter) ShardOwner(class, shard string) (string, error) {
+	ss := f.shardState
+	x, ok := ss.Physical[shard]
+	if !ok {
+		return "", fmt.Errorf("shard not found")
+	}
+	if len(x.BelongsToNodes) < 1 || x.BelongsToNodes[0] == "" {
+		return "", fmt.Errorf("owner node not found")
+	}
+	return ss.Physical[shard].BelongsToNodes[0], nil
+}
+
+func (f *fakeSchemaGetter) TenantShard(class, tenant string) string {
+	return tenant
+}
+
+func (f *fakeSchemaGetter) ShardFromUUID(class string, uuid []byte) string {
+	ss := f.shardState
+	return ss.Shard("", string(uuid))
 }
 
 func (f *fakeSchemaGetter) Nodes() []string {

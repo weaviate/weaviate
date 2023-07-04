@@ -44,7 +44,7 @@ func (m *Manager) handleTxResponse(ctx context.Context,
 	switch tx.Type {
 	case ReadSchema:
 		tx.Payload = ReadSchemaPayload{
-			Schema: &m.state,
+			Schema: &m.schemaCache.State,
 		}
 		return nil
 	// TODO
