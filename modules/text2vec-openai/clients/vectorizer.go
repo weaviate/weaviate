@@ -60,7 +60,7 @@ func buildUrl(config ent.VectorizationConfig) (string, error) {
 		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil
 	}
 	host := config.BaseURL
-	path := "/embeddings"
+	path := "/v1/embeddings"
 	return url.JoinPath(host, path)
 }
 
