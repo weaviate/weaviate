@@ -279,13 +279,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, objectsTraverser)
 	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
-	setupSchemaHandlers(api, schemaManager)
-	setupObjectHandlers(api, objectsManager, appState.ServerConfig.Config, appState.Logger, appState.Modules)
-	setupObjectBatchHandlers(api, batchObjectsManager)
-	setupGraphQLHandlers(api, appState, schemaManager, appState.ServerConfig.Config.DisableGraphQL)
-	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Modules)
-	setupClassificationHandlers(api, classifier)
-	setupBackupHandlers(api, backupScheduler)
+	setupSchemaHandlers(api, schemaManager, appState.Metrics, appState.Logger)
+	setupObjectHandlers(api, objectsManager, appState.ServerConfig.Config, appState.Logger,
+		appState.Modules, appState.Metrics)
+	setupObjectBatchHandlers(api, batchObjectsManager, appState.Metrics, appState.Logger)
+	setupGraphQLHandlers(api, appState, schemaManager, appState.ServerConfig.Config.DisableGraphQL,
+		appState.Metrics, appState.Logger)
+	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Modules,
+		appState.Metrics, appState.Logger)
+	setupClassificationHandlers(api, classifier, appState.Metrics, appState.Logger)
+	setupBackupHandlers(api, backupScheduler, appState.Metrics, appState.Logger)
 	setupNodesHandlers(api, schemaManager, repo, appState)
 
 	err = migrator.AdjustFilterablePropSettings(ctx)

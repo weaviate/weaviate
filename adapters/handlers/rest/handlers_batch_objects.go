@@ -16,15 +16,19 @@ import (
 
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/batch"
 	"github.com/weaviate/weaviate/entities/models"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
+	uco "github.com/weaviate/weaviate/usecases/objects"
 )
 
 type batchObjectHandlers struct {
-	manager *objects.BatchManager
+	manager             *objects.BatchManager
+	metricRequestsTotal restApiRequestsTotal
 }
 
 func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
@@ -32,6 +36,7 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 ) middleware.Responder {
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
+		h.metricRequestsTotal.logError("", err)
 		return batch.NewBatchObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
@@ -39,6 +44,7 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 	objs, err := h.manager.AddObjects(params.HTTPRequest.Context(), principal,
 		params.Body.Objects, params.Body.Fields, repl)
 	if err != nil {
+		h.metricRequestsTotal.logError("", err)
 		switch err.(type) {
 		case autherrs.Forbidden:
 			return batch.NewBatchObjectsCreateForbidden().
@@ -52,6 +58,7 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 		}
 	}
 
+	h.metricRequestsTotal.logOk("")
 	return batch.NewBatchObjectsCreateOK().
 		WithPayload(h.objectsResponse(objs))
 }
@@ -81,12 +88,14 @@ func (h *batchObjectHandlers) addReferences(params batch.BatchReferencesCreatePa
 ) middleware.Responder {
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
+		h.metricRequestsTotal.logError("", err)
 		return batch.NewBatchReferencesCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	references, err := h.manager.AddReferences(params.HTTPRequest.Context(), principal, params.Body, repl)
 	if err != nil {
+		h.metricRequestsTotal.logError("", err)
 		switch err.(type) {
 		case autherrs.Forbidden:
 			return batch.NewBatchReferencesCreateForbidden().
@@ -100,6 +109,7 @@ func (h *batchObjectHandlers) addReferences(params batch.BatchReferencesCreatePa
 		}
 	}
 
+	h.metricRequestsTotal.logOk("")
 	return batch.NewBatchReferencesCreateOK().
 		WithPayload(h.referencesResponse(references))
 }
@@ -136,6 +146,7 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 ) middleware.Responder {
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
+		h.metricRequestsTotal.logError("", err)
 		return batch.NewBatchObjectsDeleteBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
@@ -145,6 +156,7 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 	res, err := h.manager.DeleteObjects(params.HTTPRequest.Context(), principal,
 		params.Body.Match, params.Body.DryRun, params.Body.Output, repl, tenant)
 	if err != nil {
+		h.metricRequestsTotal.logError("", err)
 		if errors.As(err, &objects.ErrInvalidUserInput{}) {
 			return batch.NewBatchObjectsDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -157,6 +169,7 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 		}
 	}
 
+	h.metricRequestsTotal.logOk("")
 	return batch.NewBatchObjectsDeleteOK().
 		WithPayload(h.objectsDeleteResponse(res))
 }
@@ -211,8 +224,8 @@ func (h *batchObjectHandlers) objectsDeleteResponse(input *objects.BatchDeleteRe
 	return response
 }
 
-func setupObjectBatchHandlers(api *operations.WeaviateAPI, manager *objects.BatchManager) {
-	h := &batchObjectHandlers{manager}
+func setupObjectBatchHandlers(api *operations.WeaviateAPI, manager *objects.BatchManager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger) {
+	h := &batchObjectHandlers{manager, newBatchRequestsTotal(metrics, logger)}
 
 	api.BatchBatchObjectsCreateHandler = batch.
 		BatchObjectsCreateHandlerFunc(h.addObjects)
@@ -220,4 +233,26 @@ func setupObjectBatchHandlers(api *operations.WeaviateAPI, manager *objects.Batc
 		BatchReferencesCreateHandlerFunc(h.addReferences)
 	api.BatchBatchObjectsDeleteHandler = batch.
 		BatchObjectsDeleteHandlerFunc(h.deleteObjects)
+}
+
+type batchRequestsTotal struct {
+	*restApiRequestsTotalImpl
+}
+
+func newBatchRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger) restApiRequestsTotal {
+	return &batchRequestsTotal{
+		restApiRequestsTotalImpl: &restApiRequestsTotalImpl{newRequestsTotalMetric(metrics, "rest"), "rest", "batch", logger},
+	}
+}
+
+func (e *batchRequestsTotal) logError(className string, err error) {
+	switch err.(type) {
+	case errReplication:
+		e.logUserError(className)
+	case autherrs.Forbidden, uco.ErrInvalidUserInput:
+		e.logUserError(className)
+		return
+	default:
+		e.logServerError(className, err)
+	}
 }

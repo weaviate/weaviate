@@ -17,6 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -35,7 +36,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 
 	unlock, err := t.locks.LockConnector()
 	if err != nil {
-		return nil, fmt.Errorf("could not acquire lock: %v", err)
+		return nil, enterrors.NewErrLockConnector(err)
 	}
 	defer unlock()
 
