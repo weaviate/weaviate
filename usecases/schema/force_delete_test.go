@@ -113,9 +113,9 @@ func TestForceDelete(t *testing.T) {
 
 			assert.ElementsMatch(t, test.expSchema, sm.GetSchemaSkipAuth().Objects.Classes)
 
-			if len(sm.state.ShardingState) != len(test.expSchema) {
+			if len(sm.schemaCache.ShardingState) != len(test.expSchema) {
 				t.Errorf("sharding state entries != schema: %d vs %d",
-					len(sm.state.ShardingState), len(test.expSchema))
+					len(sm.schemaCache.ShardingState), len(test.expSchema))
 			}
 		})
 	}

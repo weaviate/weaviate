@@ -79,7 +79,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 	}
 
 	res, err := t.vectorSearcher.Aggregate(ctx, *params)
-	if err != nil {
+	if err != nil || res == nil {
 		return nil, err
 	}
 

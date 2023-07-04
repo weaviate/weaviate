@@ -19,7 +19,7 @@ import (
 )
 
 func (m *Manager) removeDuplicatePropsIfPresent() {
-	for _, c := range m.state.ObjectSchema.Classes {
+	for _, c := range m.schemaCache.ObjectSchema.Classes {
 		c.Properties = m.deduplicateProps(c.Properties, c.Class)
 	}
 }

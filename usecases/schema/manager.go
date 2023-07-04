@@ -33,7 +33,6 @@ import (
 type Manager struct {
 	migrator                migrate.Migrator
 	repo                    SchemaStore
-	state                   State
 	callbacks               []func(updatedSchema schema.Schema)
 	logger                  logrus.FieldLogger
 	Authorizer              authorizer
@@ -48,7 +47,8 @@ type Manager struct {
 	RestoreStatus           sync.Map
 	RestoreError            sync.Map
 	sync.RWMutex
-	shardingStateLock sync.RWMutex
+
+	schemaCache
 }
 
 type VectorConfigParser func(in interface{}) (schema.VectorIndexConfig, error)
@@ -57,11 +57,15 @@ type InvertedConfigValidator func(in *models.InvertedIndexConfig) error
 
 type SchemaGetter interface {
 	GetSchemaSkipAuth() schema.Schema
-	ShardingState(class string) *sharding.State
 	Nodes() []string
 	NodeName() string
 	ClusterHealthScore() int
 	ResolveParentNodes(string, string) (map[string]string, error)
+
+	CopyShardingState(class string) *sharding.State
+	ShardOwner(class, shard string) (string, error)
+	TenantShard(class, tenant string) string
+	ShardFromUUID(class string, uuid []byte) string
 }
 
 type VectorizerValidator interface {
@@ -152,7 +156,7 @@ func NewManager(migrator migrate.Migrator, repo SchemaStore,
 		config:                  config,
 		migrator:                migrator,
 		repo:                    repo,
-		state:                   State{},
+		schemaCache:             schemaCache{State: State{}},
 		logger:                  logger,
 		Authorizer:              authorizer,
 		hnswConfigParser:        hnswConfigParser,
@@ -186,29 +190,12 @@ type authorizer interface {
 	Authorize(principal *models.Principal, verb, resource string) error
 }
 
-// State is a cached copy of the schema that can also be saved into a remote
-// storage, as specified by Repo
-type State struct {
-	ObjectSchema  *models.Schema `json:"object"`
-	ShardingState map[string]*sharding.State
-}
-
-// NewState returns a new state with room for nClasses classes
-func NewState(nClasses int) State {
-	return State{
-		ObjectSchema: &models.Schema{
-			Classes: make([]*models.Class, 0, nClasses),
-		},
-		ShardingState: make(map[string]*sharding.State, nClasses),
-	}
-}
-
 func (m *Manager) saveSchema(ctx context.Context, doAfter func(err error)) error {
 	m.logger.
 		WithField("action", "schema.save").
 		Debug("saving updated schema to configuration store")
 
-	err := m.repo.Save(ctx, m.state)
+	err := m.repo.Save(ctx, m.schemaCache.State)
 	if doAfter != nil {
 		doAfter(err)
 	}
@@ -244,7 +231,7 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	}
 
 	// store in local cache
-	m.state = schema
+	m.schemaCache.State = schema
 
 	if err := m.migrateSchemaIfNecessary(ctx); err != nil {
 		return fmt.Errorf("migrate schema: %w", err)
@@ -266,7 +253,7 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	}
 
 	// store in persistent storage
-	if err := m.repo.Save(ctx, m.state); err != nil {
+	if err := m.repo.Save(ctx, m.schemaCache.State); err != nil {
 		return fmt.Errorf("initialized a new schema, but couldn't update remote: %v", err)
 	}
 
@@ -289,10 +276,10 @@ func (m *Manager) migrateSchemaIfNecessary(ctx context.Context) error {
 }
 
 func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
-	for _, c := range m.state.ObjectSchema.Classes {
-		m.shardingStateLock.RLock()
-		_, ok := m.state.ShardingState[c.Class]
-		m.shardingStateLock.RUnlock()
+	for _, c := range m.schemaCache.ObjectSchema.Classes {
+		m.schemaCache.RLock()
+		_, ok := m.schemaCache.ShardingState[c.Class]
+		m.schemaCache.RUnlock()
 		if ok { // there is sharding state for this class. Nothing to do
 			continue
 		}
@@ -324,12 +311,12 @@ func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
 			return errors.Wrap(err, "init sharding state")
 		}
 
-		m.shardingStateLock.Lock()
-		if m.state.ShardingState == nil {
-			m.state.ShardingState = map[string]*sharding.State{}
-		}
-		m.state.ShardingState[c.Class] = shardState
-		m.shardingStateLock.Unlock()
+		m.schemaCache.LockGuard(func() {
+			if m.schemaCache.ShardingState == nil {
+				m.schemaCache.ShardingState = map[string]*sharding.State{}
+			}
+			m.schemaCache.ShardingState[c.Class] = shardState
+		})
 
 	}
 
@@ -337,12 +324,11 @@ func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
 }
 
 func (m *Manager) checkShardingStateForReplication(ctx context.Context) error {
-	m.shardingStateLock.Lock()
-	defer m.shardingStateLock.Unlock()
-
-	for _, classState := range m.state.ShardingState {
-		classState.MigrateFromOldFormat()
-	}
+	m.schemaCache.LockGuard(func() {
+		for _, classState := range m.schemaCache.ShardingState {
+			classState.MigrateFromOldFormat()
+		}
+	})
 
 	return nil
 }
@@ -375,11 +361,11 @@ func (m *Manager) parseConfigs(ctx context.Context, schema *State) error {
 			return fmt.Errorf("replication config: %w", err)
 		}
 	}
-	m.shardingStateLock.Lock()
-	for _, shardState := range schema.ShardingState {
-		shardState.SetLocalName(m.clusterState.LocalName())
-	}
-	m.shardingStateLock.Unlock()
+	m.schemaCache.LockGuard(func() {
+		for _, shardState := range schema.ShardingState {
+			shardState.SetLocalName(m.clusterState.LocalName())
+		}
+	})
 
 	return nil
 }

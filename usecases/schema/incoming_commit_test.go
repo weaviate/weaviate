@@ -218,7 +218,7 @@ func TestIncommingTxCommit(t *testing.T) {
 				},
 			},
 			assertSchema: func(t *testing.T, sm *Manager) {
-				st := sm.ShardingState("FirstClass")
+				st := sm.CopyShardingState("FirstClass")
 				require.NotNil(t, st)
 				require.Contains(t, st.Physical, "P1")
 				require.Contains(t, st.Physical, "P2")

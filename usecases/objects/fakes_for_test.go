@@ -66,6 +66,10 @@ func (f *fakeSchemaManager) GetSchema(principal *models.Principal) (schema.Schem
 	return f.GetSchemaResponse, f.GetschemaErr
 }
 
+func (f *fakeSchemaManager) ShardOwner(class, shard string) (string, error) { return "", nil }
+func (f *fakeSchemaManager) TenantShard(class, tenant string) string        { return tenant }
+func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string { return "" }
+
 func (f *fakeSchemaManager) GetClass(ctx context.Context, principal *models.Principal,
 	name string,
 ) (*models.Class, error) {

@@ -117,17 +117,15 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 		return errors.Wrap(err, "inverted index config")
 	}
 
-	m.shardingStateLock.RLock()
+	m.schemaCache.RLock()
 	initial := m.getClassByName(className)
-	m.shardingStateLock.RUnlock()
+	m.schemaCache.RUnlock()
 
 	if initial == nil {
 		return ErrNotFound
 	}
 
-	m.shardingStateLock.Lock()
-	*initial = *updated
-	m.shardingStateLock.Unlock()
+	m.schemaCache.LockGuard(func() { *initial = *updated })
 
 	payload, err := CreateClassPayload(updated, updatedShardingState)
 	if err != nil {
@@ -142,9 +140,7 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 		// the sharding state caches the node name, we must therefore set this
 		// explicitly now.
 		updatedShardingState.SetLocalName(m.clusterState.LocalName())
-		m.shardingStateLock.Lock()
-		m.state.ShardingState[className] = updatedShardingState
-		m.shardingStateLock.Unlock()
+		m.schemaCache.LockGuard(func() { m.schemaCache.ShardingState[className] = updatedShardingState })
 	}
 	m.logger.
 		WithField("action", "schema.update_class").

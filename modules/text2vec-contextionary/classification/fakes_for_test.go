@@ -39,9 +39,13 @@ func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
 }
 
-func (f *fakeSchemaGetter) ShardingState(class string) *sharding.State {
+func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {
 	panic("not implemented")
 }
+
+func (f *fakeSchemaGetter) ShardOwner(class, shard string) (string, error) { return "", nil }
+func (f *fakeSchemaGetter) TenantShard(class, tenant string) string        { return tenant }
+func (f *fakeSchemaGetter) ShardFromUUID(class string, uuid []byte) string { return "" }
 
 func (f *fakeSchemaGetter) Nodes() []string {
 	panic("not implemented")

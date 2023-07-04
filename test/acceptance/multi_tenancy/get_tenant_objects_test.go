@@ -103,7 +103,7 @@ func TestListTenantObjects(t *testing.T) {
 		"Tenant1", "Tenant2",
 	}
 
-	classMT_T1T2_1 := models.Class{
+	classMT_1 := models.Class{
 		Class: "MultiTenantClass1",
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled: true,
@@ -115,7 +115,7 @@ func TestListTenantObjects(t *testing.T) {
 			},
 		},
 	}
-	classMT_T1T2_2 := models.Class{
+	classMT_2 := models.Class{
 		Class: "MultiTenantClass2",
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled: true,
@@ -127,7 +127,7 @@ func TestListTenantObjects(t *testing.T) {
 			},
 		},
 	}
-	classMT_T1 := models.Class{
+	classMT_3 := models.Class{
 		Class: "SingleTenantClass3",
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled: true,
@@ -139,7 +139,7 @@ func TestListTenantObjects(t *testing.T) {
 			},
 		},
 	}
-	classMT_T2 := models.Class{
+	classMT_4 := models.Class{
 		Class: "SingleTenantClass4",
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled: true,
@@ -173,7 +173,7 @@ func TestListTenantObjects(t *testing.T) {
 	objectsMT_T1 := []*models.Object{
 		{
 			ID:    "b1d19f8a-2158-4c41-b648-ba77a0ea7074",
-			Class: classMT_T1T2_1.Class,
+			Class: classMT_1.Class,
 			Properties: map[string]interface{}{
 				"name": "Obj1_Class1_Tenant1",
 			},
@@ -181,7 +181,7 @@ func TestListTenantObjects(t *testing.T) {
 		},
 		{
 			ID:    "a95c027c-07fb-4175-b726-4d5cfd55a7cf",
-			Class: classMT_T1T2_1.Class,
+			Class: classMT_1.Class,
 			Properties: map[string]interface{}{
 				"name": "Obj2_Class1_Tenant1",
 			},
@@ -189,7 +189,7 @@ func TestListTenantObjects(t *testing.T) {
 		},
 		{
 			ID:    "026890f5-8623-4d31-b295-b2820a81b85a",
-			Class: classMT_T1T2_2.Class,
+			Class: classMT_2.Class,
 			Properties: map[string]interface{}{
 				"name": "Obj3_Class2_Tenant1",
 			},
@@ -197,7 +197,7 @@ func TestListTenantObjects(t *testing.T) {
 		},
 		{
 			ID:    "d697d6b6-d7e6-47e6-a268-42e917b614e1",
-			Class: classMT_T1.Class,
+			Class: classMT_3.Class,
 			Properties: map[string]interface{}{
 				"name": "Obj4_Class3_Tenant1",
 			},
@@ -207,7 +207,7 @@ func TestListTenantObjects(t *testing.T) {
 	objectsMT_T2 := []*models.Object{
 		{
 			ID:    "7baead88-a42b-4876-a185-e0ccc61c58ca",
-			Class: classMT_T1T2_1.Class,
+			Class: classMT_1.Class,
 			Properties: map[string]interface{}{
 				"name": "Obj1_Class1_Tenant2",
 			},
@@ -215,7 +215,7 @@ func TestListTenantObjects(t *testing.T) {
 		},
 		{
 			ID:    "7fa1fd17-a883-465a-ae22-44f103250b27",
-			Class: classMT_T1T2_2.Class,
+			Class: classMT_2.Class,
 			Properties: map[string]interface{}{
 				"name": "Obj2_Class2_Tenant2",
 			},
@@ -223,7 +223,7 @@ func TestListTenantObjects(t *testing.T) {
 		},
 		{
 			ID:    "fd4ce87a-8034-4e27-8d47-539fa9dde1f3",
-			Class: classMT_T1T2_2.Class,
+			Class: classMT_2.Class,
 			Properties: map[string]interface{}{
 				"name": "Obj3_Class2_Tenant2",
 			},
@@ -231,7 +231,7 @@ func TestListTenantObjects(t *testing.T) {
 		},
 		{
 			ID:    "b33d8f4c-30f9-426d-94a5-fa256f3fb5e7",
-			Class: classMT_T2.Class,
+			Class: classMT_4.Class,
 			Properties: map[string]interface{}{
 				"name": "Obj4_Class4_Tenant2",
 			},
@@ -263,10 +263,10 @@ func TestListTenantObjects(t *testing.T) {
 	}
 
 	defer func() {
-		helper.DeleteClass(t, classMT_T1T2_1.Class)
-		helper.DeleteClass(t, classMT_T1T2_2.Class)
-		helper.DeleteClass(t, classMT_T1.Class)
-		helper.DeleteClass(t, classMT_T2.Class)
+		helper.DeleteClass(t, classMT_1.Class)
+		helper.DeleteClass(t, classMT_2.Class)
+		helper.DeleteClass(t, classMT_3.Class)
+		helper.DeleteClass(t, classMT_4.Class)
 		helper.DeleteClass(t, classNonMT_1.Class)
 		helper.DeleteClass(t, classNonMT_2.Class)
 	}()
@@ -280,10 +280,10 @@ func TestListTenantObjects(t *testing.T) {
 	}
 
 	t.Run("create MT and non-MT classes", func(t *testing.T) {
-		helper.CreateClass(t, &classMT_T1T2_1)
-		helper.CreateClass(t, &classMT_T1T2_2)
-		helper.CreateClass(t, &classMT_T1)
-		helper.CreateClass(t, &classMT_T2)
+		helper.CreateClass(t, &classMT_1)
+		helper.CreateClass(t, &classMT_2)
+		helper.CreateClass(t, &classMT_3)
+		helper.CreateClass(t, &classMT_4)
 		helper.CreateClass(t, &classNonMT_1)
 		helper.CreateClass(t, &classNonMT_2)
 	})
@@ -293,10 +293,10 @@ func TestListTenantObjects(t *testing.T) {
 		for i := range tenants {
 			tenants[i] = &models.Tenant{Name: tenantNames[i]}
 		}
-		helper.CreateTenants(t, classMT_T1T2_1.Class, tenants)
-		helper.CreateTenants(t, classMT_T1T2_2.Class, tenants)
-		helper.CreateTenants(t, classMT_T1.Class, tenants[:1])
-		helper.CreateTenants(t, classMT_T2.Class, tenants[1:])
+		helper.CreateTenants(t, classMT_1.Class, tenants)
+		helper.CreateTenants(t, classMT_2.Class, tenants)
+		helper.CreateTenants(t, classMT_3.Class, tenants[:1])
+		helper.CreateTenants(t, classMT_4.Class, tenants[1:])
 	})
 
 	t.Run("add objects", func(t *testing.T) {
@@ -309,7 +309,6 @@ func TestListTenantObjects(t *testing.T) {
 	t.Run("list objects for tenant 1", func(t *testing.T) {
 		t.Run("no class", func(t *testing.T) {
 			res, err := helper.TenantListObjects(t, "", tenantNames[0])
-
 			require.Nil(t, err)
 			require.NotNil(t, res)
 			require.Equal(t, int64(4), res.TotalResults)
@@ -320,9 +319,8 @@ func TestListTenantObjects(t *testing.T) {
 				"d697d6b6-d7e6-47e6-a268-42e917b614e1",
 			}, extractIds(res.Objects))
 		})
-
 		t.Run("classMT_T1T2_1", func(t *testing.T) {
-			res, err := helper.TenantListObjects(t, classMT_T1T2_1.Class, tenantNames[0])
+			res, err := helper.TenantListObjects(t, classMT_1.Class, tenantNames[0])
 
 			require.Nil(t, err)
 			require.NotNil(t, res)
@@ -332,9 +330,8 @@ func TestListTenantObjects(t *testing.T) {
 				"a95c027c-07fb-4175-b726-4d5cfd55a7cf",
 			}, extractIds(res.Objects))
 		})
-
 		t.Run("classMT_T1T2_2", func(t *testing.T) {
-			res, err := helper.TenantListObjects(t, classMT_T1T2_2.Class, tenantNames[0])
+			res, err := helper.TenantListObjects(t, classMT_2.Class, tenantNames[0])
 
 			require.Nil(t, err)
 			require.NotNil(t, res)
@@ -345,7 +342,7 @@ func TestListTenantObjects(t *testing.T) {
 		})
 
 		t.Run("classMT_T1", func(t *testing.T) {
-			res, err := helper.TenantListObjects(t, classMT_T1.Class, tenantNames[0])
+			res, err := helper.TenantListObjects(t, classMT_3.Class, tenantNames[0])
 
 			require.Nil(t, err)
 			require.NotNil(t, res)
@@ -356,12 +353,12 @@ func TestListTenantObjects(t *testing.T) {
 		})
 
 		t.Run("classMT_T2", func(t *testing.T) {
-			res, err := helper.TenantListObjects(t, classMT_T2.Class, tenantNames[0])
+			res, err := helper.TenantListObjects(t, classMT_4.Class, tenantNames[0])
 
 			require.NotNil(t, err)
 			expErr := &objects.ObjectsListInternalServerError{}
 			require.ErrorAs(t, err, &expErr)
-			assert.Contains(t, err.(*objects.ObjectsListInternalServerError).Payload.Error[0].Message, "no tenant found with key")
+			assert.Contains(t, err.(*objects.ObjectsListInternalServerError).Payload.Error[0].Message, tenantNames[0])
 			require.Nil(t, res)
 		})
 	})
@@ -382,7 +379,7 @@ func TestListTenantObjects(t *testing.T) {
 		})
 
 		t.Run("classMT_T1T2_1", func(t *testing.T) {
-			res, err := helper.TenantListObjects(t, classMT_T1T2_1.Class, tenantNames[1])
+			res, err := helper.TenantListObjects(t, classMT_1.Class, tenantNames[1])
 
 			require.Nil(t, err)
 			require.NotNil(t, res)
@@ -393,7 +390,7 @@ func TestListTenantObjects(t *testing.T) {
 		})
 
 		t.Run("classMT_T1T2_2", func(t *testing.T) {
-			res, err := helper.TenantListObjects(t, classMT_T1T2_2.Class, tenantNames[1])
+			res, err := helper.TenantListObjects(t, classMT_2.Class, tenantNames[1])
 
 			require.Nil(t, err)
 			require.NotNil(t, res)
@@ -405,17 +402,17 @@ func TestListTenantObjects(t *testing.T) {
 		})
 
 		t.Run("classMT_T1", func(t *testing.T) {
-			res, err := helper.TenantListObjects(t, classMT_T1.Class, tenantNames[1])
+			res, err := helper.TenantListObjects(t, classMT_3.Class, tenantNames[1])
 
 			require.NotNil(t, err)
 			expErr := &objects.ObjectsListInternalServerError{}
 			require.ErrorAs(t, err, &expErr)
-			assert.Contains(t, err.(*objects.ObjectsListInternalServerError).Payload.Error[0].Message, "no tenant found with key")
+			assert.Contains(t, err.(*objects.ObjectsListInternalServerError).Payload.Error[0].Message, tenantNames[1])
 			require.Nil(t, res)
 		})
 
 		t.Run("classMT_T2", func(t *testing.T) {
-			res, err := helper.TenantListObjects(t, classMT_T2.Class, tenantNames[1])
+			res, err := helper.TenantListObjects(t, classMT_4.Class, tenantNames[1])
 
 			require.Nil(t, err)
 			require.NotNil(t, res)

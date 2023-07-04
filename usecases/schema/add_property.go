@@ -41,7 +41,7 @@ func (m *Manager) addClassProperty(ctx context.Context,
 	m.Lock()
 	defer m.Unlock()
 
-	class, err := schema.GetClassByName(m.state.ObjectSchema, className)
+	class, err := schema.GetClassByName(m.schemaCache.ObjectSchema, className)
 	if err != nil {
 		return err
 	}
@@ -122,7 +122,7 @@ func validateUserProp(class *models.Class, prop *models.Property) error {
 func (m *Manager) addClassPropertyApplyChanges(ctx context.Context,
 	className string, prop *models.Property,
 ) error {
-	class, err := schema.GetClassByName(m.state.ObjectSchema, className)
+	class, err := schema.GetClassByName(m.schemaCache.ObjectSchema, className)
 	if err != nil {
 		return err
 	}
