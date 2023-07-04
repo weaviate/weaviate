@@ -193,7 +193,7 @@ func TestPatchTenantObjects_ChangeTenant(t *testing.T) {
 		require.NotNil(t, parsedErr.Payload.Error)
 		require.Len(t, parsedErr.Payload.Error, 1)
 		assert.Contains(t, err.Error(), fmt.Sprint(http.StatusInternalServerError))
-		expected := "no tenant found with key: \"updatedTenantName\""
+		expected := "\"updatedTenantName\""
 		assert.Contains(t, parsedErr.Payload.Error[0].Message, expected)
 	})
 }

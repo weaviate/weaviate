@@ -135,7 +135,7 @@ func (db *DB) ClassExists(name string) bool {
 func (db *DB) Shards(ctx context.Context, class string) []string {
 	unique := make(map[string]struct{})
 
-	ss := db.schemaGetter.ShardingState(class)
+	ss := db.schemaGetter.CopyShardingState(class)
 	for _, shard := range ss.Physical {
 		unique[shard.BelongsToNode()] = struct{}{}
 	}
@@ -252,7 +252,7 @@ func (i *Index) resumeMaintenanceCycles(ctx context.Context) error {
 }
 
 func (i *Index) marshalShardingState() ([]byte, error) {
-	b, err := i.getSchema.ShardingState(i.Config.ClassName.String()).JSON()
+	b, err := i.getSchema.CopyShardingState(i.Config.ClassName.String()).JSON()
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal sharding state")
 	}

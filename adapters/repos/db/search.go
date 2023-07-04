@@ -277,6 +277,9 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 			res, _, err := index.objectSearch(ctx, totalLimit,
 				filters, nil, sort, nil, additional, nil, tenant, 0)
 			if err != nil {
+				if errors.Is(err, errTenantNotFound) {
+					continue // tenant does belong to this class
+				}
 				// TODO find better way to recognise particular errors
 				if errors.As(err, &objects.ErrInvalidUserInput{}) {
 					// validation failed (either MT class without tenant or non-MT class with tenant)

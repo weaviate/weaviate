@@ -66,7 +66,7 @@ func (db *DB) init(ctx context.Context) error {
 				MemtablesMaxActiveSeconds: db.config.MemtablesMaxActiveSeconds,
 				TrackVectorDimensions:     db.config.TrackVectorDimensions,
 				ReplicationFactor:         class.ReplicationConfig.Factor,
-			}, db.schemaGetter.ShardingState(class.Class),
+			}, db.schemaGetter.CopyShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				class.VectorIndexConfig.(schema.VectorIndexConfig),
 				db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,

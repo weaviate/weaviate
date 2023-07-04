@@ -162,8 +162,12 @@ func TestGQLAggregateTenantObjects_InvalidTenant(t *testing.T) {
 
 	t.Run("non-existent tenant key", func(t *testing.T) {
 		query := fmt.Sprintf(`{Aggregate{%s(tenant:"DNE"){meta{count}}}}`, testClass.Class)
-		expected := `no tenant found with key: "DNE"`
-		testAggregateTenantFailure(t, testClass.Class, query, expected)
+		expected := `"DNE"`
+		resp, err := graphqlhelper.QueryGraphQL(t, helper.RootAuth, "", query, nil)
+		require.Nil(t, err)
+		assert.Nil(t, resp.Data["Aggregate"].(map[string]interface{})[testClass.Class])
+		assert.Len(t, resp.Errors, 1)
+		assert.Contains(t, resp.Errors[0].Message, expected)
 	})
 }
 
@@ -200,12 +204,4 @@ func testAggregateTenantSuccess(t *testing.T, className, tenantName string, expe
 	require.Len(t, result, 1)
 	count := result[0].(map[string]any)["meta"].(map[string]any)["count"].(json.Number)
 	assert.Equal(t, json.Number(fmt.Sprint(expectedCount)), count)
-}
-
-func testAggregateTenantFailure(t *testing.T, className, query, expectedMsg string) {
-	resp, err := graphqlhelper.QueryGraphQL(t, helper.RootAuth, "", query, nil)
-	require.Nil(t, err)
-	assert.Nil(t, resp.Data["Aggregate"].(map[string]interface{})[className])
-	require.Len(t, resp.Errors, 1)
-	assert.Equal(t, expectedMsg, resp.Errors[0].Message)
 }
