@@ -7,7 +7,7 @@
 
 ## Overview
 
-Weaviate is an **open source ​vector database** that is robust, scalable, cloud-native, and fast.
+Weaviate is an **open source vector database** that is robust, scalable, cloud-native, and fast.
 
 If you just want to get started, great! Try:
 - the [quickstart tutorial](https://weaviate.io/developers/weaviate/quickstart) if you are looking to use Weaviate, or
