@@ -23,7 +23,7 @@ import (
 )
 
 func (m *Manager) validateClassNameUniqueness(className string) error {
-	for _, otherClass := range m.state.ObjectSchema.Classes {
+	for _, otherClass := range m.schemaCache.ObjectSchema.Classes {
 		if strings.EqualFold(className, otherClass.Class) {
 			if className != otherClass.Class {
 				// It's a permutation

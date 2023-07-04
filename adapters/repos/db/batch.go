@@ -161,10 +161,7 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 	if idx == nil {
 		return objects.BatchDeleteResult{}, errors.Errorf("cannot find index for class %v", className)
 	}
-	ss := idx.getSchema.ShardingState(string(className))
-	if ss == nil {
-		return objects.BatchDeleteResult{}, fmt.Errorf("cannot find sharding state for class %q", className)
-	}
+
 	// find all DocIDs in all shards that match the filter
 	shardDocIDs, err := idx.findDocIDs(ctx, params.Filters, tenant)
 	if err != nil {
@@ -187,7 +184,7 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 		matches += docIDsLength
 	}
 	// delete the DocIDs in given shards
-	deletedObjects, err := idx.batchDeleteObjects(ctx, toDelete, params.DryRun, repl, ss)
+	deletedObjects, err := idx.batchDeleteObjects(ctx, toDelete, params.DryRun, repl)
 	if err != nil {
 		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot delete objects")
 	}

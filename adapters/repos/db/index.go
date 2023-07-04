@@ -48,6 +48,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+var errTenantNotFound = errors.New("tenant not found")
+
 // shardMap is a syn.Map which specialized in storing shards
 type shardMap sync.Map
 
@@ -137,7 +139,7 @@ type Index struct {
 	metrics         *Metrics
 	centralJobQueue chan job
 
-	partinioningEnabled bool
+	partitioningEnabled bool
 }
 
 func (i *Index) ID() string {
@@ -179,7 +181,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 			nodeResolver, remoteClient),
 		metrics:             NewMetrics(logger, promMetrics, config.ClassName.String(), "n/a"),
 		centralJobQueue:     jobQueueCh,
-		partinioningEnabled: shardState.PartitioningEnabled,
+		partitioningEnabled: shardState.PartitioningEnabled,
 	}
 
 	if err := index.checkSingleShardMigration(shardState); err != nil {
@@ -320,36 +322,26 @@ func indexID(class schema.ClassName) string {
 	return strings.ToLower(string(class))
 }
 
-func (i *Index) determineObjectShard(id strfmt.UUID, tenant string, ss *sharding.State) (string, error) {
-	if ss == nil {
-		ss = i.getSchema.ShardingState(i.Config.ClassName.String())
-		if ss == nil {
-			return "", fmt.Errorf("cannot find sharding state for class %q", i.Config.ClassName.String())
-		}
-	}
-
+func (i *Index) determineObjectShard(id strfmt.UUID, tenant string) (string, error) {
+	className := i.Config.ClassName.String()
 	if tenant != "" {
-		return i.shardFromTenant(tenant, ss)
+		if shard := i.getSchema.TenantShard(className, tenant); shard != "" {
+			return shard, nil
+		}
+		return "", fmt.Errorf("%w: %q", errTenantNotFound, tenant)
 	}
-	return i.shardFromUUID(id, ss)
-}
 
-func (i *Index) shardFromUUID(in strfmt.UUID, ss *sharding.State) (string, error) {
-	uuid, err := uuid.Parse(in.String())
+	uuid, err := uuid.Parse(id.String())
 	if err != nil {
-		return "", errors.Wrap(err, "parse id as uuid")
+		return "", fmt.Errorf("parse uuid: %q", id.String())
 	}
 
-	uuidBytes, _ := uuid.MarshalBinary() // cannot error
-
-	return ss.PhysicalShard(uuidBytes), nil
-}
-
-func (i *Index) shardFromTenant(tenant string, ss *sharding.State) (string, error) {
-	if name := ss.Shard(tenant, ""); name != "" {
-		return name, nil
+	uuidBytes, err := uuid.MarshalBinary() // cannot error
+	if err != nil {
+		return "", fmt.Errorf("marshal uuid: %q", id.String())
 	}
-	return "", objects.NewErrInvalidUserInput("no tenant found with key: %q", tenant)
+
+	return i.getSchema.ShardFromUUID(className, uuidBytes), nil
 }
 
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
@@ -366,31 +358,26 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
-	shardName, err := i.determineObjectShard(object.ID(), object.Object.Tenant, nil)
+	shardName, err := i.determineObjectShard(object.ID(), object.Object.Tenant)
 	if err != nil {
-		return err
+		return objects.NewErrInvalidUserInput("determine shard: %v", err)
 	}
 
 	if i.replicationEnabled() {
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
-		err = i.replicator.PutObject(ctx, shardName, object, replica.ConsistencyLevel(replProps.ConsistencyLevel))
-		if err != nil {
-			return fmt.Errorf("failed to relay object put across replicas: %w", err)
+		cl := replica.ConsistencyLevel(replProps.ConsistencyLevel)
+		if err := i.replicator.PutObject(ctx, shardName, object, cl); err != nil {
+			return fmt.Errorf("replicate insertion: shard=%q: %w", shardName, err)
 		}
-	} else if i.isLocalShard(shardName) {
-		shard := i.shards.Load(shardName)
-		if shard == nil {
-			return fmt.Errorf("cannot find local shard %q", shardName)
-		}
+	} else if shard := i.localShard(shardName); shard != nil {
 		if err := shard.putObject(ctx, object); err != nil {
-			return errors.Wrapf(err, "shard %s", shard.ID())
+			return fmt.Errorf("put local object: shard=%q: %w", shardName, err)
 		}
 	} else {
-		// this must be a remote shard, try sending it remotely
 		if err := i.remote.PutObject(ctx, shardName, object); err != nil {
-			return errors.Wrap(err, "send to remote shard")
+			return fmt.Errorf("put remote object: shard=%q: %w", shardName, err)
 		}
 	}
 
@@ -402,7 +389,7 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 ) error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
-	localShard := i.shards.Load(shardName)
+	localShard := i.localShard(shardName)
 	if localShard == nil {
 		return errors.Errorf("shard %q does not exist locally", shardName)
 	}
@@ -525,22 +512,12 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	out := make([]error, len(objects))
 
 	byShard := map[string]objsAndPos{}
-	className := string(i.Config.ClassName)
-	ss := i.getSchema.ShardingState(className)
-	if ss == nil {
-		err := fmt.Errorf("could not find sharding state for class %q", className)
-		for i := 0; i < len(out); i++ {
-			out[i] = err
-		}
-		return out
-	}
-
 	for pos, obj := range objects {
 		if err := i.validateMultiTenancy(obj.Object.Tenant); err != nil {
 			out[pos] = err
 			continue
 		}
-		shardName, err := i.determineObjectShard(obj.ID(), obj.Object.Tenant, ss)
+		shardName, err := i.determineObjectShard(obj.ID(), obj.Object.Tenant)
 		if err != nil {
 			out[pos] = err
 			continue
@@ -568,11 +545,10 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			if replProps != nil {
 				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
 					replica.ConsistencyLevel(replProps.ConsistencyLevel))
-			} else if !ss.IsLocalShard(shardName) {
-				errs = i.remote.BatchPutObjects(ctx, shardName, group.objects)
-			} else {
-				shard := i.shards.Load(shardName)
+			} else if shard := i.localShard(shardName); shard != nil {
 				errs = shard.putObjectBatch(ctx, group.objects)
+			} else {
+				errs = i.remote.BatchPutObjects(ctx, shardName, group.objects)
 			}
 			for i, err := range errs {
 				desiredPos := group.pos[i]
@@ -636,22 +612,13 @@ func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchRefere
 
 	byShard := map[string]refsAndPos{}
 	out := make([]error, len(refs))
-	className := i.Config.ClassName.String()
-	ss := i.getSchema.ShardingState(className)
-	if ss == nil {
-		err := fmt.Errorf("could not find sharding state for class %q", className)
-		for i := 0; i < len(out); i++ {
-			out[i] = err
-		}
-		return out
-	}
 
 	for pos, ref := range refs {
 		if err := i.validateMultiTenancy(ref.Tenant); err != nil {
 			out[pos] = err
 			continue
 		}
-		shardName, err := i.determineObjectShard(ref.From.TargetID, ref.Tenant, ss)
+		shardName, err := i.determineObjectShard(ref.From.TargetID, ref.Tenant)
 		if err != nil {
 			out[pos] = err
 			continue
@@ -671,8 +638,7 @@ func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchRefere
 			}
 			errs = i.replicator.AddReferences(ctx, shardName, group.refs,
 				replica.ConsistencyLevel(replProps.ConsistencyLevel))
-		} else if ss.IsLocalShard(shardName) {
-			shard := i.shards.Load(shardName)
+		} else if shard := i.localShard(shardName); shard != nil {
 			errs = shard.addReferencesBatch(ctx, group.refs)
 		} else {
 			errs = i.remote.BatchAddReferences(ctx, shardName, group.refs)
@@ -708,9 +674,9 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 		return nil, err
 	}
 
-	shardName, err := i.determineObjectShard(id, tenant, nil)
+	shardName, err := i.determineObjectShard(id, tenant)
 	if err != nil {
-		return nil, fmt.Errorf("failed to determine shard for object %q: %w", id, err)
+		return nil, objects.NewErrInvalidUserInput("determine shard: %v", err)
 	}
 
 	var obj *storobj.Object
@@ -725,23 +691,22 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 			obj, err = i.replicator.GetOne(ctx,
 				replica.ConsistencyLevel(replProps.ConsistencyLevel), shardName, id, props, addl)
 		}
-	} else if i.isLocalShard(shardName) {
-		if shard := i.shards.Load(shardName); shard != nil {
-			obj, err = shard.objectByID(ctx, id, props, addl)
-			if err != nil {
-				err = fmt.Errorf("shard %s: %w", shard.ID(), err)
-			}
-		} else {
-			err = fmt.Errorf("cannot find local shard %q", shardName)
+		return obj, err
+	}
+
+	if shard := i.localShard(shardName); shard != nil {
+		obj, err = shard.objectByID(ctx, id, props, addl)
+		if err != nil {
+			return obj, fmt.Errorf("get local object: shard=%s: %w", shardName, err)
 		}
 	} else {
 		obj, err = i.remote.GetObject(ctx, shardName, id, props, addl)
 		if err != nil {
-			err = fmt.Errorf("get object from remote index: %w", err)
+			return obj, fmt.Errorf("get remote object: shard=%s: %w", shardName, err)
 		}
 	}
 
-	return obj, err
+	return obj, nil
 }
 
 func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
@@ -790,15 +755,10 @@ func (i *Index) multiObjectByID(ctx context.Context,
 	}
 
 	byShard := map[string]idsAndPos{}
-	ss := i.getSchema.ShardingState(i.Config.ClassName.String())
-	if ss == nil {
-		return nil, fmt.Errorf("cannot find sharding state for class %q", i.Config.ClassName.String())
-	}
-
 	for pos, id := range query {
-		shardName, err := i.determineObjectShard(strfmt.UUID(id.ID), tenant, ss)
+		shardName, err := i.determineObjectShard(strfmt.UUID(id.ID), tenant)
 		if err != nil {
-			return nil, err
+			return nil, objects.NewErrInvalidUserInput("determine shard: %v", err)
 		}
 
 		group := byShard[shardName]
@@ -810,16 +770,11 @@ func (i *Index) multiObjectByID(ctx context.Context,
 	out := make([]*storobj.Object, len(query))
 
 	for shardName, group := range byShard {
-		local := ss.IsLocalShard(shardName)
 
 		var objects []*storobj.Object
 		var err error
 
-		if local {
-			shard := i.shards.Load(shardName)
-			if shard == nil {
-				return nil, fmt.Errorf("cannot find local shard %q", shardName)
-			}
+		if shard := i.localShard(shardName); shard != nil {
 			objects, err = shard.multiObjectByID(ctx, group.ids)
 			if err != nil {
 				return nil, errors.Wrapf(err, "shard %s", shard.ID())
@@ -867,9 +822,9 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 		return false, err
 	}
 
-	shardName, err := i.determineObjectShard(id, tenant, nil)
+	shardName, err := i.determineObjectShard(id, tenant)
 	if err != nil {
-		return false, err
+		return false, objects.NewErrInvalidUserInput("determine shard: %v", err)
 	}
 
 	var exists bool
@@ -877,20 +832,22 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
-		exists, err = i.replicator.Exists(ctx,
-			replica.ConsistencyLevel(replProps.ConsistencyLevel), shardName, id)
-	} else if i.isLocalShard(shardName) {
-		shard := i.shards.Load(shardName)
+		cl := replica.ConsistencyLevel(replProps.ConsistencyLevel)
+		return i.replicator.Exists(ctx, cl, shardName, id)
+
+	}
+	if shard := i.localShard(shardName); shard != nil {
 		exists, err = shard.exists(ctx, id)
+		if err != nil {
+			err = fmt.Errorf("exists locally: shard=%q: %w", shardName, err)
+		}
 	} else {
 		exists, err = i.remote.Exists(ctx, shardName, id)
+		if err != nil {
+			err = fmt.Errorf("exists remotely: shard=%q: %w", shardName, err)
+		}
 	}
-
-	if err != nil {
-		return false, errors.Wrapf(err, "shard %s", shardName)
-	}
-
-	return exists, nil
+	return exists, err
 }
 
 func (i *Index) IncomingExists(ctx context.Context, shardName string,
@@ -917,13 +874,8 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		return nil, nil, err
 	}
 
-	ss := i.getSchema.ShardingState(i.Config.ClassName.String())
-	if ss == nil {
-		return nil, nil, fmt.Errorf("cannot find sharding state for class %q", i.Config.ClassName.String())
-	}
-
 	shardNames, err := i.targetShardNames(tenant)
-	if err != nil {
+	if err != nil || len(shardNames) == 0 {
 		return nil, nil, err
 	}
 
@@ -955,7 +907,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	outObjects, outScores, err := i.objectSearchByShard(ctx, limit,
-		filters, keywordRanking, sort, cursor, addlProps, shardNames, ss)
+		filters, keywordRanking, sort, cursor, addlProps, shardNames)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1042,7 +994,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
-	addlProps additional.Properties, shards []string, ss *sharding.State,
+	addlProps additional.Properties, shards []string,
 ) ([]*storobj.Object, []float32, error) {
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
@@ -1056,8 +1008,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			var scores []float32
 			var err error
 
-			if ss.IsLocalShard(shardName) {
-				shard := i.shards.Load(shardName)
+			if shard := i.localShard(shardName); shard != nil {
 				objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
 				if err != nil {
 					return fmt.Errorf(
@@ -1169,16 +1120,17 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 
 // to be called after validating multi-tenancy
 func (i *Index) targetShardNames(tenant string) ([]string, error) {
-	shardingState := i.getSchema.ShardingState(i.Config.ClassName.String())
-
-	if tenant != "" {
-		shardName, err := i.determineObjectShard("", tenant, shardingState)
-		if err != nil {
-			return nil, err
-		}
-		return []string{shardName}, nil
+	className := i.Config.ClassName.String()
+	if !i.partitioningEnabled {
+		shardingState := i.getSchema.CopyShardingState(className)
+		return shardingState.AllPhysicalShards(), nil
 	}
-	return shardingState.AllPhysicalShards(), nil
+	if tenant != "" {
+		if shard := i.getSchema.TenantShard(className, tenant); shard != "" {
+			return []string{shard}, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: %q", errTenantNotFound, tenant)
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
@@ -1189,20 +1141,16 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
 	}
-	className := i.Config.ClassName.String()
-	ss := i.getSchema.ShardingState(className)
-	if ss == nil {
-		return nil, nil, fmt.Errorf("could not find sharding state for class %q", className)
-	}
-
 	shardNames, err := i.targetShardNames(tenant)
-	if err != nil {
+	if err != nil || len(shardNames) == 0 {
 		return nil, nil, err
 	}
 
-	if len(shardNames) == 1 && ss.IsLocalShard(shardNames[0]) {
-		return i.singleLocalShardObjectVectorSearch(ctx, searchVector, dist, limit, filters,
-			sort, groupBy, additional, shardNames[0])
+	if len(shardNames) == 1 {
+		if i.localShard(shardNames[0]) != nil {
+			return i.singleLocalShardObjectVectorSearch(ctx, searchVector, dist, limit, filters,
+				sort, groupBy, additional, shardNames[0])
+		}
 	}
 
 	// a limit of -1 is used to signal a search by distance. if that is
@@ -1226,8 +1174,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 			var resDists []float32
 			var err error
 
-			if ss.IsLocalShard(shardName) {
-				shard := i.shards.Load(shardName)
+			if shard := i.localShard(shardName); shard != nil {
 				res, resDists, err = shard.objectVectorSearch(
 					ctx, searchVector, dist, limit, filters, sort, groupBy, additional)
 				if err != nil {
@@ -1315,32 +1262,26 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 		return err
 	}
 
-	shardName, err := i.determineObjectShard(id, tenant, nil)
+	shardName, err := i.determineObjectShard(id, tenant)
 	if err != nil {
-		return err
+		return objects.NewErrInvalidUserInput("determine shard: %v", err)
 	}
 
 	if i.replicationEnabled() {
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
-		err = i.replicator.DeleteObject(ctx, shardName, id,
-			replica.ConsistencyLevel(replProps.ConsistencyLevel))
-		if err != nil {
-			return fmt.Errorf("failed to relay object delete across replicas: %w", err)
+		cl := replica.ConsistencyLevel(replProps.ConsistencyLevel)
+		if err := i.replicator.DeleteObject(ctx, shardName, id, cl); err != nil {
+			return fmt.Errorf("replicate deletion: shard=%q %w", shardName, err)
 		}
-	} else if i.isLocalShard(shardName) {
-		shard := i.shards.Load(shardName)
+	} else if shard := i.localShard(shardName); shard != nil {
 		if err := shard.deleteObject(ctx, id); err != nil {
-			return fmt.Errorf("delete object: %w", err)
+			return fmt.Errorf("delete local object: shard=%q: %w", shardName, err)
 		}
-	} else {
-		err = i.remote.DeleteObject(ctx, shardName, id)
-		if err != nil {
-			return errors.Wrapf(err, "send to remote shard %s", shardName)
-		}
+	} else if err := i.remote.DeleteObject(ctx, shardName, id); err != nil {
+		return fmt.Errorf("delete remote object: shard=%q: %w", shardName, err)
 	}
-
 	return nil
 }
 
@@ -1349,21 +1290,18 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 ) error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
-	shard := i.shards.Load(shardName)
+	shard := i.localShard(shardName)
 	if shard == nil {
 		return errors.Errorf("shard %q does not exist locally", shardName)
 	}
-
-	err := shard.deleteObject(ctx, id)
-	if err != nil {
-		return errors.Wrapf(err, "shard %s", shard.ID())
+	if err := shard.deleteObject(ctx, id); err != nil {
+		return fmt.Errorf("shard %s", shard.ID())
 	}
-
 	return nil
 }
 
-func (i *Index) isLocalShard(shard string) bool {
-	return i.getSchema.ShardingState(i.Config.ClassName.String()).IsLocalShard(shard)
+func (i *Index) localShard(name string) *Shard {
+	return i.shards.Load(name)
 }
 
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
@@ -1376,27 +1314,31 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 		return err
 	}
 
-	shardName, err := i.determineObjectShard(merge.ID, tenant, nil)
+	shardName, err := i.determineObjectShard(merge.ID, tenant)
 	if err != nil {
-		return err
+		return objects.NewErrInvalidUserInput("determine shard: %v", err)
 	}
 
 	if i.replicationEnabled() {
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
-		err = i.replicator.MergeObject(ctx, shardName, &merge, replica.ConsistencyLevel(replProps.ConsistencyLevel))
-		if err != nil {
-			return fmt.Errorf("failed to relay object patch across replicas: %w", err)
+		cl := replica.ConsistencyLevel(replProps.ConsistencyLevel)
+		if err := i.replicator.MergeObject(ctx, shardName, &merge, cl); err != nil {
+			return fmt.Errorf("replicate single update: %w", err)
 		}
-	} else if i.isLocalShard(shardName) {
-		shard := i.shards.Load(shardName)
-		err = shard.mergeObject(ctx, merge)
-	} else {
-		err = i.remote.MergeObject(ctx, shardName, merge)
+		return nil
 	}
-	if err != nil {
-		return errors.Wrapf(err, "shard %s", shardName)
+
+	if shard := i.localShard(shardName); shard != nil {
+		if err := shard.mergeObject(ctx, merge); err != nil {
+			return fmt.Errorf("update local object: shard=%q: %w", shardName, err)
+		}
+		return nil
+	}
+
+	if err := i.remote.MergeObject(ctx, shardName, merge); err != nil {
+		return fmt.Errorf("update local object: shard=%q: %w", shardName, err)
 	}
 
 	return nil
@@ -1428,20 +1370,18 @@ func (i *Index) aggregate(ctx context.Context,
 	}
 
 	shardNames, err := i.targetShardNames(params.Tenant)
-	if err != nil {
+	if err != nil || len(shardNames) == 0 {
 		return nil, err
 	}
 
-	shardState := i.getSchema.ShardingState(i.Config.ClassName.String())
 	results := make([]*aggregation.Result, len(shardNames))
 	for j, shardName := range shardNames {
 		var err error
 		var res *aggregation.Result
-		if !shardState.IsLocalShard(shardName) {
-			res, err = i.remote.Aggregate(ctx, shardName, params)
-		} else {
-			shard := i.shards.Load(shardName)
+		if shard := i.localShard(shardName); shard != nil {
 			res, err = shard.aggregate(ctx, params)
+		} else {
+			res, err = i.remote.Aggregate(ctx, shardName, params)
 		}
 		if err != nil {
 			return nil, errors.Wrapf(err, "shard %s", shardName)
@@ -1472,7 +1412,7 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 func (i *Index) drop() error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
-	for _, name := range i.getSchema.ShardingState(i.Config.ClassName.String()).
+	for _, name := range i.getSchema.CopyShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards() {
 		shard := i.shards.Load(name)
 		if shard == nil {
@@ -1503,7 +1443,7 @@ func (i *Index) Shutdown(ctx context.Context) error {
 func (i *Index) getShardsStatus(ctx context.Context) (map[string]string, error) {
 	shardsStatus := make(map[string]string)
 
-	shardState := i.getSchema.ShardingState(i.Config.ClassName.String())
+	shardState := i.getSchema.CopyShardingState(i.Config.ClassName.String())
 	shardNames := shardState.AllPhysicalShards()
 
 	for _, shardName := range shardNames {
@@ -1538,24 +1478,10 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 }
 
 func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus string) error {
-	shardState := i.getSchema.ShardingState(i.Config.ClassName.String())
-	var err error
-
-	if !shardState.IsLocalShard(shardName) {
-		err = i.remote.UpdateShardStatus(ctx, shardName, targetStatus)
-	} else {
-		shard := i.shards.Load(shardName)
-		if shard == nil {
-			err = errors.Errorf("shard %s does not exist", shardName)
-		} else {
-			err = shard.updateStatus(targetStatus)
-		}
+	if shard := i.localShard(shardName); shard != nil {
+		return shard.updateStatus(targetStatus)
 	}
-	if err != nil {
-		return errors.Wrapf(err, "shard %s", shardName)
-	}
-
-	return nil
+	return i.remote.UpdateShardStatus(ctx, shardName, targetStatus)
 }
 
 func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string) error {
@@ -1579,7 +1505,6 @@ func (i *Index) findDocIDs(ctx context.Context,
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "filter_total")
 
-	shardState := i.getSchema.ShardingState(i.Config.ClassName.String())
 	var shardNames []string
 	// TODO targetShardNames
 	// If this index is multi-tenant-enabled, we are only
@@ -1588,6 +1513,7 @@ func (i *Index) findDocIDs(ctx context.Context,
 	if tenant != "" {
 		shardNames = []string{tenant}
 	} else {
+		shardState := i.getSchema.CopyShardingState(i.Config.ClassName.String())
 		shardNames = shardState.AllPhysicalShards()
 	}
 
@@ -1595,11 +1521,11 @@ func (i *Index) findDocIDs(ctx context.Context,
 	for _, shardName := range shardNames {
 		var err error
 		var res []uint64
-		if !shardState.IsLocalShard(shardName) {
-			res, err = i.remote.FindDocIDs(ctx, shardName, filters)
-		} else {
+		if shard := i.localShard(shardName); shard != nil {
 			shard := i.shards.Load(shardName)
 			res, err = shard.findDocIDs(ctx, filters)
+		} else {
+			res, err = i.remote.FindDocIDs(ctx, shardName, filters)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("find matching doc ids in shard %q: %w", shardName, err)
@@ -1628,7 +1554,7 @@ func (i *Index) IncomingFindDocIDs(ctx context.Context, shardName string,
 }
 
 func (i *Index) batchDeleteObjects(ctx context.Context, shardDocIDs map[string][]uint64,
-	dryRun bool, replProps *additional.ReplicationProperties, ss *sharding.State,
+	dryRun bool, replProps *additional.ReplicationProperties,
 ) (objects.BatchSimpleObjects, error) {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
@@ -1653,8 +1579,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardDocIDs map[string][
 				}
 				objs = i.replicator.DeleteObjects(ctx, shardName, docIDs,
 					dryRun, replica.ConsistencyLevel(replProps.ConsistencyLevel))
-			} else if ss.IsLocalShard(shardName) {
-				shard := i.shards.Load(shardName)
+			} else if shard := i.localShard(shardName); shard != nil {
 				objs = shard.deleteObjectBatch(ctx, docIDs, dryRun)
 			} else {
 				objs = i.remote.DeleteObjectBatch(ctx, shardName, docIDs, dryRun)
@@ -1730,10 +1655,10 @@ func (i *Index) addNewShard(ctx context.Context,
 }
 
 func (i *Index) validateMultiTenancy(tenant string) error {
-	if i.partinioningEnabled && tenant == "" {
+	if i.partitioningEnabled && tenant == "" {
 		return objects.NewErrInvalidUserInput(
 			fmt.Sprintf("class %s has multi-tenancy enabled, but request was without tenant", i.Config.ClassName))
-	} else if !i.partinioningEnabled && tenant != "" {
+	} else if !i.partitioningEnabled && tenant != "" {
 		return objects.NewErrInvalidUserInput(
 			fmt.Sprintf("class %s has multi-tenancy disabled, but request was with tenant", i.Config.ClassName))
 	}

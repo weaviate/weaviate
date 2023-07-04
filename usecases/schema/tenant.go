@@ -96,9 +96,9 @@ func (m *Manager) getPartitions(cls *models.Class, shards []string) (map[string]
 	if cls.ReplicationConfig != nil && cls.ReplicationConfig.Factor > rf {
 		rf = cls.ReplicationConfig.Factor
 	}
-	m.shardingStateLock.RLock()
-	defer m.shardingStateLock.RUnlock()
-	st := m.state.ShardingState[cls.Class]
+	m.schemaCache.RLock()
+	defer m.schemaCache.RUnlock()
+	st := m.schemaCache.ShardingState[cls.Class]
 	if st == nil {
 		return nil, fmt.Errorf("sharding state %w", ErrNotFound)
 	}
@@ -159,12 +159,12 @@ func (m *Manager) onAddTenants(ctx context.Context, class *models.Class, request
 		return err
 	}
 	commit(true) // commit new adding new tenant
-	m.shardingStateLock.Lock()
-	ost := m.state.ShardingState[request.Class]
-	for name, p := range st.Physical {
-		ost.Physical[name] = p
-	}
-	m.shardingStateLock.Unlock()
+	m.schemaCache.LockGuard(func() {
+		ost := m.schemaCache.ShardingState[request.Class]
+		for name, p := range st.Physical {
+			ost.Physical[name] = p
+		}
+	})
 	m.triggerSchemaUpdateCallbacks()
 
 	return nil
@@ -227,13 +227,13 @@ func (m *Manager) onDeleteTenants(ctx context.Context, class *models.Class, req 
 	commit(true) // commit deletion of tenants
 
 	// update cache
-	m.shardingStateLock.Lock()
-	if ss := m.state.ShardingState[req.Class]; ss != nil {
-		for _, p := range req.Tenants {
-			ss.DeletePartition(p)
+	m.schemaCache.LockGuard(func() {
+		if ss := m.schemaCache.ShardingState[req.Class]; ss != nil {
+			for _, p := range req.Tenants {
+				ss.DeletePartition(p)
+			}
 		}
-	}
-	m.shardingStateLock.Unlock()
+	})
 	m.triggerSchemaUpdateCallbacks()
 
 	return nil
@@ -255,15 +255,17 @@ func (m *Manager) GetTenants(ctx context.Context, principal *models.Principal, c
 		return nil, fmt.Errorf("multi-tenancy is not enabled for class %q", class)
 	}
 
-	m.shardingStateLock.Lock()
 	var tenants []*models.Tenant
-	if ss := m.state.ShardingState[cls.Class]; ss != nil {
-		tenants = make([]*models.Tenant, 0, len(ss.Physical))
+	m.schemaCache.RLock()
+	if ss := m.schemaCache.ShardingState[cls.Class]; ss != nil {
+		tenants = make([]*models.Tenant, len(ss.Physical))
+		i := 0
 		for tenant := range ss.Physical {
-			tenants = append(tenants, &models.Tenant{Name: tenant})
+			tenants[i] = &models.Tenant{Name: tenant}
+			i++
 		}
 	}
-	m.shardingStateLock.Unlock()
+	m.schemaCache.RUnlock()
 
 	return tenants, nil
 }

@@ -17,6 +17,7 @@ package clusterintegrationtest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -137,8 +138,29 @@ func (f *fakeSchemaManager) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
 }
 
-func (f *fakeSchemaManager) ShardingState(class string) *sharding.State {
+func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {
 	return f.shardState
+}
+
+func (f *fakeSchemaManager) ShardOwner(class, shard string) (string, error) {
+	ss := f.shardState
+	x, ok := ss.Physical[shard]
+	if !ok {
+		return "", fmt.Errorf("shard not found")
+	}
+	if len(x.BelongsToNodes) < 1 || x.BelongsToNodes[0] == "" {
+		return "", fmt.Errorf("owner node not found")
+	}
+	return ss.Physical[shard].BelongsToNodes[0], nil
+}
+
+func (f *fakeSchemaManager) TenantShard(class, tenant string) string {
+	return tenant
+}
+
+func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string {
+	ss := f.shardState
+	return ss.Shard("", string(uuid))
 }
 
 func (f *fakeSchemaManager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) error {

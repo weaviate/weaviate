@@ -53,7 +53,7 @@ func TestDeleteJourney(t *testing.T) {
 
 	t.Run("add schema", func(t *testing.T) {
 		err := migrator.AddClass(context.Background(), updateTestClass(),
-			schemaGetter.ShardingState(updateTestClass().Class))
+			schemaGetter.CopyShardingState(updateTestClass().Class))
 		require.Nil(t, err)
 	})
 	schemaGetter.schema = schema
