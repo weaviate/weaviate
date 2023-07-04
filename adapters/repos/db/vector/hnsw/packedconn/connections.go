@@ -92,6 +92,40 @@ func (c Connections) GetLayer(layer uint8) []uint64 {
 	return c.CopyLayer(nil, layer)
 }
 
+func (c *Connections) InsertAtLayer(conn uint64, layer uint8) {
+	offset := c.layerOffset(layer)
+	end := c.layerEndOffset(layer)
+	val := uint64(0)
+	var n int
+	val, n = binary.Uvarint(c.data[offset:])
+	offset += uint16(n)
+	for end > offset-uint16(n) && val < conn {
+		conn -= val
+		val, n = binary.Uvarint(c.data[offset:])
+		offset += uint16(n)
+	}
+
+	len := c.replaceElement(layer, offset-uint16(n), 0, conn)
+	offset = offset - uint16(n) + len
+	c.setLayerLength(layer, c.layerLength(layer)+1)
+	if end > offset-uint16(n) {
+		val, n = binary.Uvarint(c.data[offset:])
+		c.replaceElement(layer, offset, n, val-conn)
+	}
+}
+
+func (c *Connections) replaceElement(layer uint8, pos uint16, formerLen int, value uint64) uint16 {
+	buff := make([]byte, 8)
+	len := binary.PutUvarint(buff, value)
+	if len > formerLen {
+		c.shiftRightByAndAdaptOffsets(pos, uint16(len-formerLen), layer)
+	} else if formerLen > len {
+		c.shiftLeftByAndAdaptOffsets(pos, uint16(formerLen-len), layer)
+	}
+	copy(c.data[pos:], buff[:len])
+	return uint16(len)
+}
+
 func (c *Connections) initLayers(maxLayer uint8) {
 	layers := maxLayer + 1
 	c.data[layerPos] = layers
@@ -192,6 +226,16 @@ func (c *Connections) shrinkLayerBy(layer uint8, delta uint16) {
 		c.shiftLeftBy(c.layerOffset(layer-1), delta)
 	}
 	c.data = c.data[:len(c.data)-int(delta)]
+}
+
+func (c *Connections) shiftRightByAndAdaptOffsets(startPos, delta uint16, layer uint8) {
+	c.growLayerBy(layer, delta)
+	copy(c.data[startPos+delta:], c.data[startPos:c.layerEndOffset(layer)-delta])
+}
+
+func (c *Connections) shiftLeftByAndAdaptOffsets(startPos, delta uint16, layer uint8) {
+	c.shrinkLayerBy(layer, delta)
+	copy(c.data[startPos+delta:], c.data[startPos:c.layerEndOffset(layer)])
 }
 
 func (c *Connections) shiftRightBy(startPos, delta uint16) {

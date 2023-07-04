@@ -1,6 +1,7 @@
 package packedconn
 
 import (
+	"math/rand"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -120,4 +121,34 @@ func TestConnections_CopyLayers(t *testing.T) {
 	assert.ElementsMatch(t, connsSlice1, c.CopyLayer(conns, 0))
 	assert.ElementsMatch(t, connsSlice2, c.CopyLayer(conns, 1))
 	assert.ElementsMatch(t, connsSlice3, c.CopyLayer(conns, 2))
+}
+
+func TestConnections_InsertLayers(t *testing.T) {
+	c, err := NewWithMaxLayer(2)
+	require.Nil(t, err)
+
+	assert.Equal(t, 0, c.LenAtLayer(0))
+	assert.Len(t, c.GetLayer(0), 0)
+	assert.Equal(t, 0, c.LenAtLayer(1))
+	assert.Len(t, c.GetLayer(1), 0)
+	assert.Equal(t, 0, c.LenAtLayer(2))
+	assert.Len(t, c.GetLayer(2), 0)
+
+	c.ReplaceLayer(0, connsSlice1)
+	c.ReplaceLayer(1, connsSlice2)
+	c.ReplaceLayer(2, connsSlice3)
+
+	c.ReplaceLayer(1, []uint64{})
+	shuffled := make([]uint64, len(connsSlice2))
+	copy(shuffled, connsSlice2)
+	shuffled = append(shuffled, 10000)
+	rand.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+	for _, item := range shuffled {
+		c.InsertAtLayer(item, 1)
+	}
+
+	conns2 := c.GetLayer(1)
+	assert.ElementsMatch(t, connsSlice1, c.GetLayer(0))
+	assert.ElementsMatch(t, shuffled, conns2)
+	assert.ElementsMatch(t, connsSlice3, c.GetLayer(2))
 }
