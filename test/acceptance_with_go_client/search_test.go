@@ -37,7 +37,7 @@ var (
 	ctx  = context.Background()
 )
 
-func AddClassAndObjects(t *testing.T, className string, datatype string, c *client.Client) {
+func AddClassAndObjects(t *testing.T, className string, datatype string, c *client.Client, vectorizer string) {
 	class := &models.Class{
 		Class: className,
 		Properties: []*models.Property{
@@ -45,7 +45,7 @@ func AddClassAndObjects(t *testing.T, className string, datatype string, c *clie
 			{Name: "num", DataType: []string{"int"}},
 		},
 		InvertedIndexConfig: &models.InvertedIndexConfig{Bm25: &models.BM25Config{K1: 1.2, B: 0.75}},
-		Vectorizer:          "none",
+		Vectorizer:          vectorizer,
 	}
 	require.Nil(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
 
@@ -209,7 +209,7 @@ func TestAutocut(t *testing.T) {
 	c.Schema().AllDeleter().Do(ctx)
 	className := "Paragraph453745"
 
-	AddClassAndObjects(t, className, string(schema.DataTypeTextArray), c)
+	AddClassAndObjects(t, className, string(schema.DataTypeTextArray), c, "none")
 	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
 	searchQuery := []string{"hybrid:{query:\"rain nice\", alpha: 0, fusionType: relativeScoreFusion", "bm25:{query:\"rain nice\""}
@@ -231,6 +231,21 @@ func TestAutocut(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestHybridWithPureVectorSearch(t *testing.T) {
+	ctx := context.Background()
+	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c.Schema().AllDeleter().Do(ctx)
+	className := "ParagraphWithManyWords"
+
+	AddClassAndObjects(t, className, string(schema.DataTypeTextArray), c, "text2vec-contextionary")
+	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+	results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid: {query: \"rain nice\" properties: [\"contents\"], alpha:1}, autocut: -1){num}}}", className)).Do(ctx)
+	require.Nil(t, err)
+	result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
+	require.Len(t, result, 4)
 }
 
 func TestNearVectorAndObjectAutocut(t *testing.T) {
