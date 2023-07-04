@@ -36,7 +36,7 @@ func TestBuildUrlFn(t *testing.T) {
 			ModelVersion: "",
 			ResourceName: "",
 			DeploymentID: "",
-			BaseURL:      "https://api.openai.com/v1",
+			BaseURL:      "https://api.openai.com",
 			IsAzure:      false,
 		}
 		url, err := buildUrl(config)
@@ -58,7 +58,7 @@ func TestBuildUrlFn(t *testing.T) {
 		assert.Equal(t, "https://resourceID.openai.azure.com/openai/deployments/deploymentID/embeddings?api-version=2022-12-01", url)
 	})
 
-	t.Run("buildUrlFn loads from environment variable", func(t *testing.T) {
+	t.Run("buildUrlFn loads from BaseURL", func(t *testing.T) {
 		config := ent.VectorizationConfig{
 			Type:         "",
 			Model:        "",
@@ -70,7 +70,7 @@ func TestBuildUrlFn(t *testing.T) {
 		}
 		url, err := buildUrl(config)
 		assert.Nil(t, err)
-		assert.Equal(t, "https://foobar.some.proxy/embeddings", url)
+		assert.Equal(t, "https://foobar.some.proxy/v1/embeddings", url)
 	})
 }
 
