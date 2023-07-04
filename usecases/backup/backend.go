@@ -17,12 +17,14 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"runtime"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"golang.org/x/sync/errgroup"
 )
 
 // TODO adjust or make configurable
@@ -214,15 +216,33 @@ func (u *uploader) class(ctx context.Context, id string, desc backup.ClassDescri
 	}()
 	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
 	defer cancel()
+	eg := errgroup.Group{}
+	// Prevent unbounded concurrency (e.g. opening thousands of requests) if a
+	// shard has many files. Two per available CPU is rather arbitrary, but at
+	// least means that larger machines will try to parallize more than
+	// smaller ones.
+	eg.SetLimit(2 * runtime.GOMAXPROCS(0))
+
 	for _, shard := range desc.Shards {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		for _, fpath := range shard.Files {
-			if err := u.backend.PutFile(ctx, fpath, fpath); err != nil {
+		// copy loop variable to prevent loop variable capture, see
+		// https://github.com/golang/go/wiki/CommonMistakes#using-reference-to-loop-iterator-variable
+		shard := shard
+		eg.Go(func() error {
+			if err := ctx.Err(); err != nil {
 				return err
 			}
-		}
+
+			for _, fpath := range shard.Files {
+				if err := u.backend.PutFile(ctx, fpath, fpath); err != nil {
+					return fmt.Errorf("shard: %s: %w", shard.Name, err)
+				}
+			}
+
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return err
 	}
 	return nil
 }
