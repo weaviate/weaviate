@@ -64,6 +64,67 @@ func TestCombineVectors(t *testing.T) {
 	}
 }
 
+func TestCombineVectorsWithWeights(t *testing.T) {
+	type args struct {
+		vectors [][]float32
+		weights []float32
+	}
+	tests := []struct {
+		name string
+		args args
+		want []float32
+	}{
+		{
+			"Combine simple vectors with 0 weights",
+			args{
+				vectors: [][]float32{
+					{1, 2, 3},
+					{2, 3, 4},
+				},
+				weights: []float32{0, 0, 0},
+			},
+			[]float32{0, 0, 0},
+		},
+		{
+			"Combine simple vectors with 1 weights",
+			args{
+				vectors: [][]float32{
+					{1, 2, 3},
+					{2, 3, 4},
+				},
+				weights: []float32{1, 1, 1},
+			},
+			[]float32{1.5, 2.5, 3.5},
+		},
+		{
+			"Combine empty vectors",
+			args{
+				vectors: [][]float32{},
+				weights: []float32{},
+			},
+			[]float32{},
+		},
+		{
+			"Combine simple vectors without weights",
+			args{
+				vectors: [][]float32{
+					{1, 2, 3},
+					{2, 3, 4},
+				},
+				weights: nil,
+			},
+			[]float32{1.5, 2.5, 3.5},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := CombineVectorsWithWeights(tt.args.vectors, tt.args.weights); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("CombineVectors() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func BenchmarkCombine(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		CombineVectors([][]float32{
