@@ -16,18 +16,18 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
 type pools struct {
 	visitedLists     *visited.Pool
 	visitedListsLock *sync.Mutex
 
-	pqItemSlice        *sync.Pool
-	pqHeuristic        *pqMinWithIndexPool
-	pqResults          *pqMaxPool
-	pqSortedSetResults *ssdhelpers.SortedSetPool
-	pqCandidates       *pqMinPool
+	pqItemSlice  *sync.Pool
+	pqHeuristic  *pqMinWithIndexPool
+	pqResults    *pqMaxPool
+	pqCandidates *pqMinPool
+
+	tempVectors *tempVectorsPool
 }
 
 func newPools(maxConnectionsLayerZero int) *pools {
@@ -39,11 +39,52 @@ func newPools(maxConnectionsLayerZero int) *pools {
 				return make([]priorityqueue.ItemWithIndex, 0, maxConnectionsLayerZero)
 			},
 		},
-		pqHeuristic:        newPqMinWithIndexPool(maxConnectionsLayerZero),
-		pqResults:          newPqMaxPool(maxConnectionsLayerZero),
-		pqSortedSetResults: ssdhelpers.NewSortedSetPool(),
-		pqCandidates:       newPqMinPool(maxConnectionsLayerZero),
+		pqHeuristic:  newPqMinWithIndexPool(maxConnectionsLayerZero),
+		pqResults:    newPqMaxPool(maxConnectionsLayerZero),
+		pqCandidates: newPqMinPool(maxConnectionsLayerZero),
+		tempVectors:  newTempVectorsPool(),
 	}
+}
+
+type tempVectorsPool struct {
+	pool *sync.Pool
+}
+
+type VectorSlice struct {
+	Slice []float32
+	mem   []float32
+	Buff8 []byte
+	Buff  []byte
+}
+
+func newTempVectorsPool() *tempVectorsPool {
+	return &tempVectorsPool{
+		pool: &sync.Pool{
+			New: func() interface{} {
+				return &VectorSlice{
+					mem:   nil,
+					Buff8: make([]byte, 8),
+					Buff:  nil,
+					Slice: nil,
+				}
+			},
+		},
+	}
+}
+
+func (pool *tempVectorsPool) Get(capacity int) *VectorSlice {
+	container := pool.pool.Get().(*VectorSlice)
+	if len(container.Slice) >= capacity {
+		container.Slice = container.mem[:capacity]
+	} else {
+		container.mem = make([]float32, capacity)
+		container.Slice = container.mem[:capacity]
+	}
+	return container
+}
+
+func (pool *tempVectorsPool) Put(container *VectorSlice) {
+	pool.pool.Put(container)
 }
 
 type pqMinPool struct {

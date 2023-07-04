@@ -64,7 +64,7 @@ func Test_NoRacePQKMeans(t *testing.T) {
 	queries_size := 100
 	k := 100
 	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, int(dimensions))
-	distanceProvider := distancer.NewL2SquaredProvider()
+	distanceProvider := distancer.NewDotProductProvider()
 
 	cfg := ent.PQConfig{
 		Enabled: true,
@@ -92,9 +92,10 @@ func Test_NoRacePQKMeans(t *testing.T) {
 		truth := testinghelpers.BruteForce(vectors, query, k, distance(distanceProvider))
 		distances := make([]IndexAndDistance, len(vectors))
 
-		lut := pq.CenterAt(query)
+		distancer := pq.NewDistancer(query)
 		for v := range vectors {
-			distances[v] = IndexAndDistance{index: uint64(v), distance: pq.Distance(encoded[v], lut)}
+			d, _, _ := distancer.Distance(encoded[v])
+			distances[v] = IndexAndDistance{index: uint64(v), distance: d}
 		}
 		sort.Slice(distances, func(a, b int) bool {
 			return distances[a].distance < distances[b].distance

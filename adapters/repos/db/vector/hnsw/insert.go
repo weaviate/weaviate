@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -101,6 +102,9 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 }
 
 func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
+	h.trackDimensionsOnce.Do(func() {
+		atomic.StoreInt32(&h.dims, int32(len(nodeVec)))
+	})
 	h.deleteVsInsertLock.RLock()
 	defer h.deleteVsInsertLock.RUnlock()
 
