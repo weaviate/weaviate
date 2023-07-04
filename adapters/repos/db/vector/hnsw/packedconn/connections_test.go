@@ -71,3 +71,53 @@ func TestConnections_ReplaceLayers(t *testing.T) {
 	assert.ElementsMatch(t, connsSlice2, c.GetLayer(1))
 	assert.ElementsMatch(t, connsSlice3, c.GetLayer(2))
 }
+
+func TestConnections_CopyLayers(t *testing.T) {
+	c, err := NewWithMaxLayer(2)
+	require.Nil(t, err)
+
+	conns := make([]uint64, 0, 100)
+
+	// Initially all layers should have length==0 and return no results
+	assert.Equal(t, 0, c.LenAtLayer(0))
+	assert.Len(t, c.CopyLayer(conns, 0), 0)
+	assert.Equal(t, 0, c.LenAtLayer(1))
+	assert.Len(t, c.CopyLayer(conns, 1), 0)
+	assert.Equal(t, 0, c.LenAtLayer(2))
+	assert.Len(t, c.CopyLayer(conns, 2), 0)
+
+	// replace layer 0, it should return the correct results, all others should
+	// still be empty
+	c.ReplaceLayer(0, connsSlice1)
+	assert.ElementsMatch(t, connsSlice1, c.CopyLayer(conns, 0))
+	assert.Len(t, c.CopyLayer(conns, 1), 0)
+	assert.Len(t, c.CopyLayer(conns, 2), 0)
+
+	// replace layer 1+2, other layers should be unaffected
+	c.ReplaceLayer(1, connsSlice2)
+	c.ReplaceLayer(2, connsSlice3)
+	assert.ElementsMatch(t, connsSlice1, c.CopyLayer(conns, 0))
+	assert.ElementsMatch(t, connsSlice2, c.CopyLayer(conns, 1))
+	assert.ElementsMatch(t, connsSlice3, c.CopyLayer(conns, 2))
+
+	// replace a layer with a smaller list to trigger a shrinking operation
+	c.ReplaceLayer(2, []uint64{768})
+	assert.ElementsMatch(t, []uint64{768}, c.CopyLayer(conns, 2))
+	assert.ElementsMatch(t, connsSlice1, c.CopyLayer(conns, 0))
+	assert.ElementsMatch(t, connsSlice2, c.CopyLayer(conns, 1))
+
+	// replace the other layers with smaller lists
+	c.ReplaceLayer(0, connsSlice1[:5])
+	c.ReplaceLayer(1, connsSlice2[:5])
+	assert.ElementsMatch(t, connsSlice1[:5], c.CopyLayer(conns, 0))
+	assert.ElementsMatch(t, connsSlice2[:5], c.CopyLayer(conns, 1))
+
+	// finally grow all layers back to their original sizes again, to verify what
+	// previous shrinking does not hinder future growing
+	c.ReplaceLayer(1, connsSlice2)
+	c.ReplaceLayer(2, connsSlice3)
+	c.ReplaceLayer(0, connsSlice1)
+	assert.ElementsMatch(t, connsSlice1, c.CopyLayer(conns, 0))
+	assert.ElementsMatch(t, connsSlice2, c.CopyLayer(conns, 1))
+	assert.ElementsMatch(t, connsSlice3, c.CopyLayer(conns, 2))
+}

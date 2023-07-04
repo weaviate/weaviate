@@ -64,8 +64,12 @@ func (c Connections) LenAtLayer(layer uint8) int {
 	return int(c.layerLength(layer))
 }
 
-func (c Connections) GetLayer(layer uint8) []uint64 {
-	conns := make([]uint64, c.layerLength(layer))
+func (c Connections) CopyLayer(conns []uint64, layer uint8) []uint64 {
+	if cap(conns) < int(c.layerLength(layer)) {
+		conns = make([]uint64, c.layerLength(layer))
+	} else {
+		conns = conns[:c.layerLength(layer)]
+	}
 
 	offset := c.layerOffset(layer)
 	end := c.layerEndOffset(layer)
@@ -82,6 +86,10 @@ func (c Connections) GetLayer(layer uint8) []uint64 {
 	}
 
 	return conns
+}
+
+func (c Connections) GetLayer(layer uint8) []uint64 {
+	return c.CopyLayer(nil, layer)
 }
 
 func (c *Connections) initLayers(maxLayer uint8) {
