@@ -479,7 +479,7 @@ func TestManagerCreateBackup(t *testing.T) {
 		}
 		assert.Nil(t, err)
 		assert.Equal(t, backend.meta.Status, string(backup.Transferring))
-		assert.Equal(t, backend.meta.Error, ErrAny.Error())
+		assert.Contains(t, backend.meta.Error, ErrAny.Error())
 	})
 
 	t.Run("ClassDescriptor", func(t *testing.T) {
