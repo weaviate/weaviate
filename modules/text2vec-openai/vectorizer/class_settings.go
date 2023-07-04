@@ -28,7 +28,7 @@ const (
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
-	DefaultBaseURL               = "https://api.openai.com/v1"
+	DefaultBaseURL               = "https://api.openai.com"
 )
 
 var availableOpenAITypes = []string{"text", "code"}
