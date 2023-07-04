@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -473,7 +474,9 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 	// we made it thorugh the entire graph and didn't find a new entrypoint all
 	// the way down to level 0. This can only mean the graph is empty, which is
 	// unexpected. This situation should have been prevented by the deleteLock.
-	panic("findNewEntrypoint called on an empty hnsw graph")
+	panic(fmt.Sprintf(
+		"class %s: shard %s: findNewEntrypoint called on an empty hnsw graph",
+		h.className, h.shardName))
 }
 
 // returns entryPointID, level and whether a change occurred
@@ -523,7 +526,9 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, targetLevel in
 		}
 	}
 
-	panic("findNewLocalEntrypoint called on an empty hnsw graph")
+	panic(fmt.Sprintf(
+		"class %s: shard %s: findNewLocalEntrypoint called on an empty hnsw graph",
+		h.className, h.shardName))
 }
 
 func (h *hnsw) isOnlyNode(needle *vertex, denyList helpers.AllowList) bool {
