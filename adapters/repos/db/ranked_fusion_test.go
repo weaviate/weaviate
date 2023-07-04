@@ -672,7 +672,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		explorer := traverser.NewExplorer(repo, log, prov, metrics)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
-		require.Equal(t, 1, len(hybridResults))
+		require.Equal(t, 3, len(hybridResults))
 
 		fmt.Println("--- Start results for hybrid ---")
 		for _, r := range hybridResults {
