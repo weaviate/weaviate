@@ -361,7 +361,7 @@ case $CONFIG in
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       QNA_INFERENCE_API="http://localhost:8001" \
       CLUSTER_HOSTNAME="node1" \
-      ENABLE_MODULES="text2vec-contextionary,generative-palm,text2vec-palm,qna-openai,generative-openai,text2vec-openai,generative-cohere,text2vec-cohere" \
+      ENABLE_MODULES="text2vec-contextionary,generative-palm,text2vec-palm,qna-openai,generative-openai,text2vec-openai,generative-cohere,text2vec-cohere,reranker-cohere" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -466,6 +466,18 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-cohere \
       ENABLE_MODULES="text2vec-cohere" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
+  local-all-cohere)
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-cohere \
+      ENABLE_MODULES="text2vec-cohere,reranker-cohere,generative-cohere" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
