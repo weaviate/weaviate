@@ -60,6 +60,10 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
+			TempVectorForIDThunk: func(ctx context.Context, id uint64, container *hnsw.VectorSlice) ([]float32, error) {
+				copy(container.Slice, vectors[int(id)])
+				return container.Slice, nil
+			},
 		}, uc, cyclemanager.NewNoop(),
 	)
 	ssdhelpers.Concurrently(uint64(len(vectors)), func(id uint64) {

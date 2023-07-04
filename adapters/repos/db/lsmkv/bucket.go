@@ -249,6 +249,23 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 // equivalent exists for Set and Map, as those do not support secondary
 // indexes.
 func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
+	bytes, _, err := b.GetBySecondaryIntoMemory(pos, key, nil)
+	return bytes, err
+}
+
+// GetBySecondaryIntoMemory copies into the specified memory, and retrieves
+// an object using one of its secondary keys. A bucket
+// can have an infinite number of secondary keys. Specify the secondary key
+// position as the first argument.
+//
+// A real-life example of secondary keys is the Weaviate object store. Objects
+// are stored with the user-facing ID as their primary key and with the doc-id
+// (an ever-increasing uint64) as the secondary key.
+//
+// Similar to [Bucket.Get], GetBySecondary is limited to ReplaceStrategy. No
+// equivalent exists for Set and Map, as those do not support secondary
+// indexes.
+func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -256,12 +273,12 @@ func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
 	if err == nil {
 		// item found and no error, return and stop searching, since the strategy
 		// is replace
-		return v, nil
+		return v, buffer, nil
 	}
 	if err == lsmkv.Deleted {
 		// deleted in the mem-table (which is always the latest) means we don't
 		// have to check the disk segments, return nil now
-		return nil, nil
+		return nil, buffer, nil
 	}
 
 	if err != lsmkv.NotFound {
@@ -273,12 +290,12 @@ func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
 		if err == nil {
 			// item found and no error, return and stop searching, since the strategy
 			// is replace
-			return v, nil
+			return v, buffer, nil
 		}
 		if err == lsmkv.Deleted {
 			// deleted in the now most recent memtable  means we don't have to check
 			// the disk segments, return nil now
-			return nil, nil
+			return nil, buffer, nil
 		}
 
 		if err != lsmkv.NotFound {
@@ -286,7 +303,7 @@ func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
 		}
 	}
 
-	return b.disk.getBySecondary(pos, key)
+	return b.disk.getBySecondaryIntoMemory(pos, key, buffer)
 }
 
 // SetList returns all Set entries for a given key.

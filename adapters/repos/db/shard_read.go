@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -144,10 +145,14 @@ func (s *Shard) objectByIndexID(ctx context.Context,
 
 func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32, error) {
 	keyBuf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(keyBuf, indexID)
+	return s.readVectorByIndexIDIntoSlice(ctx, indexID, &hnsw.VectorSlice{Buff8: keyBuf})
+}
 
-	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).
-		GetBySecondary(0, keyBuf)
+func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, container *hnsw.VectorSlice) ([]float32, error) {
+	binary.LittleEndian.PutUint64(container.Buff8, indexID)
+
+	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
+		GetBySecondaryIntoMemory(0, container.Buff8, container.Buff)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +162,8 @@ func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32,
 			"no object for doc id, it could have been deleted")
 	}
 
-	return storobj.VectorFromBinary(bytes)
+	container.Buff = newBuff
+	return storobj.VectorFromBinary(bytes, container.Slice)
 }
 
 func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties) ([]*storobj.Object, []float32, error) {
