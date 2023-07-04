@@ -14,6 +14,6 @@ package clients
 func (v *openai) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{
 		"name":              "Generative Search - OpenAI",
-		"documentationHref": "https://beta.openai.com/docs/api-reference/completions",
+		"documentationHref": "https://platform.openai.com/docs/api-reference/completions",
 	}, nil
 }
