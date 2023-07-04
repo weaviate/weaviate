@@ -65,6 +65,8 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 		return nil, err
 	}
 
+	l.Lock() // avoid race with cycle manager
+	defer l.Unlock()
 	l.unregisterSwitchLogs = maintenanceCycle.Register(l.startSwitchLogs)
 	l.unregisterCondenseLogs = maintenanceCycle.Register(l.startCombineAndCondenseLogs)
 
