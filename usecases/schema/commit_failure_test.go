@@ -156,6 +156,7 @@ func classWithDefaultsWithProps(t *testing.T, name string,
 
 	class.VectorIndexConfig = fakeVectorConfig{}
 	class.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
+	class.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: false}
 
 	(&fakeModuleConfig{}).SetClassDefaults(class)
 	setInvertedConfigDefaults(class)
