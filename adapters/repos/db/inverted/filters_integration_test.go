@@ -50,7 +50,6 @@ func Test_Filters_String(t *testing.T) {
 	defer propIds.Drop()
 	require.Nil(t, err)
 	propName := "inverted-with-frequency"
-	propId, err := propIds.CreateProperty(propName)
 	require.Nil(t, err)
 
 	bucketName := "searchable_properties"
@@ -552,7 +551,6 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	defer propIds.Drop()
 	require.Nil(t, err)
 	propName := "inverted-with-frequency"
-	propId, err := propIds.CreateProperty(propName)
 	require.Nil(t, err)
 
 	bucketName := "searchable_properties"

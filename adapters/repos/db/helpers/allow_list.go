@@ -47,7 +47,8 @@ func MakePropertyPrefix(property []byte, propIds *tracker.JsonPropertyIdTracker)
 	}
 
 func MakePropertyKey(propName []byte, key []byte) []byte {
-	t := append([]byte(propName), byte('|'))
+	//t := append([]byte(propName), byte('|'))
+	t := propName
 	val := append(t, key...)
 	//log.Printf("Property key: %s\n", val)
 	//log.Printf("Property key bytes: %v\n", val)
@@ -57,7 +58,8 @@ func MakePropertyKey(propName []byte, key []byte) []byte {
 }
 
 func UnMakePropertyKey(propName []byte, key []byte) []byte {
-	return key[len(propName)+1:]
+	//return key[len(propName)+1:]
+	return key[len(propName):]
 }
 
 type AllowListIterator interface {
