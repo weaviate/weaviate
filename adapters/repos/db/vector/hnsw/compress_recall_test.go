@@ -16,7 +16,6 @@ package hnsw_test
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"os"
 	"sync"
 	"testing"
@@ -39,7 +38,6 @@ func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 }
 
 func Test_NoRaceCompressionRecall(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	path := t.TempDir()
 
 	efConstruction := 64
