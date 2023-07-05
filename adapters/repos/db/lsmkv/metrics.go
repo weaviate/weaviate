@@ -47,7 +47,7 @@ type Metrics struct {
 func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	shardName string,
 ) *Metrics {
-	if promMetrics.GroupClasses {
+	if promMetrics.Group {
 		className = "n/a"
 		shardName = "n/a"
 	}
@@ -77,7 +77,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	})
 
 	return &Metrics{
-		groupClasses:         promMetrics.GroupClasses,
+		groupClasses:         promMetrics.Group,
 		CompactionReplace:    replace,
 		CompactionSet:        set,
 		CompactionMap:        stratMap,
