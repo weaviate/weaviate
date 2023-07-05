@@ -296,29 +296,38 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir string, d
 	if err := os.MkdirAll(classTempDir, os.ModePerm); err != nil {
 		return fmt.Errorf("create temp class folder %s: %w", classTempDir, err)
 	}
-	for _, part := range desc.Shards {
-		for _, key := range part.Files {
-			destPath := path.Join(classTempDir, key)
-			destDir := path.Dir(destPath)
-			if err := os.MkdirAll(destDir, os.ModePerm); err != nil {
-				return fmt.Errorf("create folder %s: %w", destDir, err)
-			}
-			if err := fw.backend.WriteToFile(ctx, key, destPath); err != nil {
-				return fmt.Errorf("write file %s: %w", destPath, err)
-			}
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.SetLimit(2 * _NUMCPU)
+
+	for _, shard := range desc.Shards {
+		shard := shard
+		eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir) })
+	}
+	return eg.Wait()
+}
+
+func (fw *fileWriter) writeTempShard(ctx context.Context, sd backup.ShardDescriptor, classTempDir string) error {
+	for _, key := range sd.Files {
+		destPath := path.Join(classTempDir, key)
+		destDir := path.Dir(destPath)
+		if err := os.MkdirAll(destDir, os.ModePerm); err != nil {
+			return fmt.Errorf("create folder %s: %w", destDir, err)
 		}
-		destPath := path.Join(classTempDir, part.DocIDCounterPath)
-		if err := os.WriteFile(destPath, part.DocIDCounter, os.ModePerm); err != nil {
-			return fmt.Errorf("write counter file %s: %w", destPath, err)
+		if err := fw.backend.WriteToFile(ctx, key, destPath); err != nil {
+			return fmt.Errorf("write file %s: %w", destPath, err)
 		}
-		destPath = path.Join(classTempDir, part.PropLengthTrackerPath)
-		if err := os.WriteFile(destPath, part.PropLengthTracker, os.ModePerm); err != nil {
-			return fmt.Errorf("write prop file %s: %w", destPath, err)
-		}
-		destPath = path.Join(classTempDir, part.ShardVersionPath)
-		if err := os.WriteFile(destPath, part.Version, os.ModePerm); err != nil {
-			return fmt.Errorf("write version file %s: %w", destPath, err)
-		}
+	}
+	destPath := path.Join(classTempDir, sd.DocIDCounterPath)
+	if err := os.WriteFile(destPath, sd.DocIDCounter, os.ModePerm); err != nil {
+		return fmt.Errorf("write counter file %s: %w", destPath, err)
+	}
+	destPath = path.Join(classTempDir, sd.PropLengthTrackerPath)
+	if err := os.WriteFile(destPath, sd.PropLengthTracker, os.ModePerm); err != nil {
+		return fmt.Errorf("write prop file %s: %w", destPath, err)
+	}
+	destPath = path.Join(classTempDir, sd.ShardVersionPath)
+	if err := os.WriteFile(destPath, sd.Version, os.ModePerm); err != nil {
+		return fmt.Errorf("write version file %s: %w", destPath, err)
 	}
 	return nil
 }
