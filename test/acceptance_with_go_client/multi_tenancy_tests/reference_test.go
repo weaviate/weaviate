@@ -212,7 +212,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 				require.NotNil(t, err)
 				clientErr := err.(*fault.WeaviateClientError)
 				assert.Equal(t, 422, clientErr.StatusCode)
-				assert.Contains(t, clientErr.Msg, "no tenant found with key")
+				assert.Contains(t, clientErr.Msg, "tenant not found")
 			}
 		}
 
@@ -455,7 +455,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 					require.NotNil(t, err)
 					clientErr := err.(*fault.WeaviateClientError)
 					assert.Equal(t, 422, clientErr.StatusCode)
-					assert.Contains(t, clientErr.Msg, "no tenant found with key")
+					assert.Contains(t, clientErr.Msg, "tenant not found")
 				}
 			}
 
@@ -625,7 +625,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 					require.NotNil(t, err)
 					clientErr := err.(*fault.WeaviateClientError)
 					assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
-					assert.Contains(t, clientErr.Msg, "no tenant found with key")
+					assert.Contains(t, clientErr.Msg, "tenant not found")
 				}
 			}
 
@@ -938,7 +938,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 				require.NotNil(t, err)
 				clientErr := err.(*fault.WeaviateClientError)
 				assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
-				assert.Contains(t, clientErr.Msg, "no tenant found with key")
+				assert.Contains(t, clientErr.Msg, "tenant not found")
 			}
 		}
 
@@ -1356,7 +1356,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 			require.NotNil(t, err)
 			clientErr := err.(*fault.WeaviateClientError)
 			assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
-			assert.Contains(t, clientErr.Msg, "no tenant found with key")
+			assert.Contains(t, clientErr.Msg, "tenant not found")
 		}
 
 		t.Run("verify not replaced", func(t *testing.T) {
@@ -1657,7 +1657,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 					require.NotNil(t, err)
 					clientErr := err.(*fault.WeaviateClientError)
 					assert.Equal(t, 422, clientErr.StatusCode)
-					assert.Contains(t, clientErr.Msg, "no tenant found with key")
+					assert.Contains(t, clientErr.Msg, "tenant not found")
 				}
 			}
 
@@ -1831,7 +1831,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 					require.NotNil(t, err)
 					clientErr := err.(*fault.WeaviateClientError)
 					assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
-					assert.Contains(t, clientErr.Msg, "no tenant found with key")
+					assert.Contains(t, clientErr.Msg, "tenant not found")
 				}
 			}
 
@@ -2068,7 +2068,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 				require.NotNil(t, err)
 				clientErr := err.(*fault.WeaviateClientError)
 				assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
-				assert.Contains(t, clientErr.Msg, "no tenant found with key")
+				assert.Contains(t, clientErr.Msg, "tenant not found")
 			}
 		}
 
@@ -2445,7 +2445,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 				require.NotNil(t, err)
 				clientErr := err.(*fault.WeaviateClientError)
 				assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
-				assert.Contains(t, clientErr.Msg, "no tenant found with key")
+				assert.Contains(t, clientErr.Msg, "tenant not found")
 			}
 		}
 
@@ -2817,7 +2817,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 			require.NotNil(t, err)
 			clientErr := err.(*fault.WeaviateClientError)
 			assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
-			assert.Contains(t, clientErr.Msg, "no tenant found with key")
+			assert.Contains(t, clientErr.Msg, "tenant not found")
 		}
 
 		t.Run("verify not replaced", func(t *testing.T) {
@@ -3171,7 +3171,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 				clientErr := err.(*fault.WeaviateClientError)
 				assert.Equal(t, 422, clientErr.StatusCode)
 				// TODO valid error?
-				assert.Contains(t, clientErr.Msg, "no tenant found with key")
+				assert.Contains(t, clientErr.Msg, "tenant not found")
 			}
 		}
 

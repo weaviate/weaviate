@@ -238,7 +238,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 			assert.Equal(t, "FAILED", *resp[i].Result.Status)
 			require.NotNil(t, resp[i].Result.Errors)
 			require.Len(t, resp[i].Result.Errors.Error, 1)
-			assert.Contains(t, resp[i].Result.Errors.Error[0].Message, "no tenant found with key")
+			assert.Contains(t, resp[i].Result.Errors.Error[0].Message, "tenant not found")
 		}
 
 		t.Run("verify not created", func(t *testing.T) {
@@ -508,7 +508,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 				assert.Equal(t, "FAILED", *resp[i].Result.Status)
 				require.NotNil(t, resp[i].Result.Errors)
 				require.Len(t, resp[i].Result.Errors.Error, 1)
-				assert.Contains(t, resp[i].Result.Errors.Error[0].Message, "no tenant found with key")
+				assert.Contains(t, resp[i].Result.Errors.Error[0].Message, "tenant not found")
 			}
 
 			t.Run("verify not created", func(t *testing.T) {
@@ -696,7 +696,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 				assert.Equal(t, "FAILED", *resp[i].Result.Status)
 				require.NotNil(t, resp[i].Result.Errors)
 				require.Len(t, resp[i].Result.Errors.Error, 1)
-				assert.Contains(t, resp[i].Result.Errors.Error[0].Message, "no tenant found with key")
+				assert.Contains(t, resp[i].Result.Errors.Error[0].Message, "tenant not found")
 			}
 
 			t.Run("verify not created", func(t *testing.T) {
@@ -961,7 +961,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 			assert.Equal(t, "FAILED", *resp[i].Result.Status)
 			require.NotNil(t, resp[i].Result.Errors)
 			require.Len(t, resp[i].Result.Errors.Error, 1)
-			assert.Contains(t, resp[i].Result.Errors.Error[0].Message, "no tenant found with key")
+			assert.Contains(t, resp[i].Result.Errors.Error[0].Message, "tenant not found")
 		}
 
 		t.Run("verify not created", func(t *testing.T) {
