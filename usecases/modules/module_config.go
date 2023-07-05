@@ -32,6 +32,12 @@ func NewClassBasedModuleConfig(class *models.Class,
 	}
 }
 
+func NewCrossClassModuleConfig() *ClassBasedModuleConfig {
+	// explicitly setting tenant to "" in order to flag that a cross class search
+	// is being done without a tenant context
+	return &ClassBasedModuleConfig{tenant: ""}
+}
+
 func (cbmc *ClassBasedModuleConfig) Class() map[string]interface{} {
 	return cbmc.ClassByModuleName(cbmc.moduleName)
 }
