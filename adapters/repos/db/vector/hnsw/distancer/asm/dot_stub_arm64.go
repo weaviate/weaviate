@@ -15,7 +15,7 @@ package asm
 //   go install github.com/gorse-io/goat@v0.1.0
 //   go generate
 
-//go:generate goat ../c/dot_arm64.c -O3 -e="--target=arm64-arm-none-eabi"
+//go:generate goat ../c/dot_arm64.c -O3 -e="-mfpu=neon-fp-armv8" -e="-mfloat-abi=hard" -e="--target=arm64" -e="-march=armv8-a+simd+fp"
 
 import (
 	"reflect"
