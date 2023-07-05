@@ -14,17 +14,13 @@ package db
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/schema"
-	"golang.org/x/sync/errgroup"
 )
-
-var _NUMCPU = runtime.NumCPU()
 
 type BackupState struct {
 	BackupID   string
@@ -256,21 +252,16 @@ func (i *Index) resetBackupState() {
 	i.backupState = BackupState{InProgress: false}
 }
 
-func (i *Index) resumeMaintenanceCycles(ctx context.Context) error {
-	var g errgroup.Group
-	g.SetLimit(_NUMCPU)
-	i.ForEachShard(func(_ string, shard *Shard) error {
-		g.Go(func() error {
-			return shard.resumeMaintenanceCycles(ctx)
-		})
+func (i *Index) resumeMaintenanceCycles(ctx context.Context) (lastErr error) {
+	i.ForEachShard(func(name string, shard *Shard) error {
+		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
+			lastErr = err
+			i.logger.WithField("shard", name).WithField("op", "resume_maintenance").Error(err)
+		}
+		time.Sleep(time.Millisecond * 10)
 		return nil
 	})
-
-	if err := g.Wait(); err != nil {
-		return errors.Wrap(err, "resume maintenance cycles")
-	}
-
-	return nil
+	return lastErr
 }
 
 func (i *Index) marshalShardingState() ([]byte, error) {
