@@ -29,7 +29,7 @@ import (
 type MultiTenancyConfig struct {
 
 	// Whether or not multi-tenancy is enabled for this class
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled bool `json:"enabled"`
 }
 
 // Validate validates this multi tenancy config
