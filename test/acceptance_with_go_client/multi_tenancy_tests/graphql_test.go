@@ -282,4 +282,47 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 			}
 		})
 	})
+
+	t.Run("GraphQL Explore", func(t *testing.T) {
+		defer cleanup()
+
+		tenant1 := "tenantNo1"
+		tenant2 := "tenantNo2"
+
+		assertExploreContainsErrors := func(t *testing.T, response *models.GraphQLResponse,
+			expectedErrorMessage string,
+		) {
+			require.NotNil(t, response)
+			require.NotNil(t, response.Errors)
+			require.Nil(t, response.Data["Explore"])
+			require.NotNil(t, response.Data)
+			require.Len(t, response.Errors, 1)
+			assert.NotEmpty(t, response.Errors[0].Message)
+			assert.Equal(t, expectedErrorMessage, response.Errors[0].Message)
+		}
+
+		t.Run("add data", func(t *testing.T) {
+			fixtures.CreateSchemaPizzaForTenants(t, client)
+			fixtures.CreateTenantsPizza(t, client, tenant1, tenant2)
+			fixtures.CreateDataPizzaQuattroFormaggiForTenants(t, client, tenant1)
+			fixtures.CreateDataPizzaFruttiDiMareForTenants(t, client, tenant1)
+			fixtures.CreateDataPizzaHawaiiForTenants(t, client, tenant2)
+			fixtures.CreateDataPizzaDoenerForTenants(t, client, tenant2)
+		})
+
+		t.Run("explore with nearText", func(t *testing.T) {
+			nearText := client.GraphQL().NearTextArgBuilder().
+				WithConcepts([]string{"Italian"})
+
+			resp, err := client.GraphQL().Explore().
+				WithNearText(nearText).
+				WithFields(graphql.Beacon, graphql.Certainty, graphql.ClassName).
+				Do(context.Background())
+
+			require.Nil(t, err)
+			assertExploreContainsErrors(t, resp,
+				"vector search: search index pizza: class Pizza has multi-tenancy enabled, but request was without tenant",
+			)
+		})
+	})
 }
