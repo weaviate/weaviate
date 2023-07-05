@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -155,12 +156,13 @@ type uploader struct {
 	backend   nodeStore
 	backupID  string
 	setStatus func(st backup.Status)
+	log       logrus.FieldLogger
 }
 
 func newUploader(sourcer Sourcer, backend nodeStore,
-	backupID string, setstaus func(st backup.Status),
+	backupID string, setstaus func(st backup.Status), l logrus.FieldLogger,
 ) *uploader {
-	return &uploader{sourcer, backend, backupID, setstaus}
+	return &uploader{sourcer, backend, backupID, setstaus, l}
 }
 
 // all uploads all files in addition to the metadata file
@@ -175,10 +177,12 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			desc.Error = err.Error()
 			err = fmt.Errorf("upload %w: %v", err, u.backend.PutMeta(ctx, desc))
 		} else {
+			u.log.Info("start uploading meta data")
 			if err = u.backend.PutMeta(ctx, desc); err != nil {
 				desc.Status = string(backup.Transferred)
 			}
 			u.setStatus(backup.Success)
+			u.log.Info("finish uploading meta data")
 		}
 	}()
 Loop:
@@ -191,10 +195,12 @@ Loop:
 			if cdesc.Error != nil {
 				return cdesc.Error
 			}
+			u.log.WithField("class", cdesc.Name).Info("start uploading files")
 			if err := u.class(ctx, desc.ID, cdesc); err != nil {
 				return err
 			}
 			desc.Classes = append(desc.Classes, cdesc)
+			u.log.WithField("class", cdesc.Name).Info("finish uploading files")
 
 		case <-ctx.Done():
 			return ctx.Err()
