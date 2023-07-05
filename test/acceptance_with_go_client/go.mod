@@ -5,11 +5,12 @@ go 1.19
 replace github.com/weaviate/weaviate v1.19.0 => ../..
 
 require (
+	github.com/go-openapi/strfmt v0.21.3
 	github.com/google/uuid v1.3.0
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.8.4
-	github.com/weaviate/weaviate v1.19.0
-	github.com/weaviate/weaviate-go-client/v4 v4.7.1
+	github.com/weaviate/weaviate v1.19.12-0.20230701104513-628c8ff8b894
+	github.com/weaviate/weaviate-go-client/v4 v4.8.2-0.20230701123930-caa290a14587
 )
 
 require (
