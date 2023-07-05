@@ -92,7 +92,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 		)
 		init := time.Now()
 		ssdhelpers.Concurrently(uint64(vectors_size), func(id uint64) {
-			index.Add(uint64(id), vectors[id])
+			index.Add(id, vectors[id])
 		})
 		before = time.Now()
 		fmt.Println("Start compressing...")

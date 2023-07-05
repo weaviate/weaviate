@@ -3815,7 +3815,8 @@ func init() {
       "properties": {
         "enabled": {
           "description": "Whether or not multi-tenancy is enabled for this class",
-          "type": "boolean"
+          "type": "boolean",
+          "x-omitempty": false
         }
       }
     },
@@ -8720,7 +8721,8 @@ func init() {
       "properties": {
         "enabled": {
           "description": "Whether or not multi-tenancy is enabled for this class",
-          "type": "boolean"
+          "type": "boolean",
+          "x-omitempty": false
         }
       }
     },

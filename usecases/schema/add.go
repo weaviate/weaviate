@@ -138,7 +138,9 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
 	if class.ShardingConfig != nil && class.MultiTenancyConfig != nil {
 		return nil, fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")
-	} else if class.MultiTenancyConfig != nil {
+	} else if class.MultiTenancyConfig == nil {
+		class.MultiTenancyConfig = &models.MultiTenancyConfig{}
+	} else if class.MultiTenancyConfig.Enabled {
 		class.ShardingConfig = sharding.Config{DesiredCount: 0} // tenant shards will be created dynamically
 	}
 
@@ -456,7 +458,7 @@ func (m *Manager) parseShardingConfig(ctx context.Context,
 	class *models.Class,
 ) error {
 	// multiTenancyConfig and shardingConfig are mutually exclusive
-	if class.MultiTenancyConfig == nil {
+	if !schema.MultiTenancyEnabled(class) {
 		parsed, err := sharding.ParseConfig(class.ShardingConfig,
 			m.clusterState.NodeCount())
 		if err != nil {
