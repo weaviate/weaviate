@@ -458,7 +458,7 @@ func (m *Manager) parseShardingConfig(ctx context.Context,
 	class *models.Class,
 ) error {
 	// multiTenancyConfig and shardingConfig are mutually exclusive
-	if class.MultiTenancyConfig == nil {
+	if class.MultiTenancyConfig == nil || !class.MultiTenancyConfig.Enabled {
 		parsed, err := sharding.ParseConfig(class.ShardingConfig,
 			m.clusterState.NodeCount())
 		if err != nil {
