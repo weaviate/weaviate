@@ -12,9 +12,10 @@
 package multi_tenancy_tests
 
 import (
-	"acceptance_tests_with_client/fixtures"
 	"context"
 	"testing"
+
+	"acceptance_tests_with_client/fixtures"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -115,7 +116,8 @@ func TestSchema_MultiTenancyConfig(t *testing.T) {
 		t.Run("verify class created", func(t *testing.T) {
 			loadedClass, err := client.Schema().ClassGetter().WithClassName(className).Do(context.Background())
 			require.Nil(t, err)
-			assert.Nil(t, loadedClass.MultiTenancyConfig)
+			assert.NotNil(t, loadedClass.MultiTenancyConfig)
+			assert.False(t, loadedClass.MultiTenancyConfig.Enabled)
 		})
 	})
 }
