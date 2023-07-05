@@ -67,8 +67,10 @@ func (h *batchObjectHandlers) objectsResponse(input objects.BatchObjects) []*mod
 	response := make([]*models.ObjectsGetResponse, len(input))
 	for i, object := range input {
 		var errorResponse *models.ErrorResponse
+		status := models.ObjectsGetResponseAO2ResultStatusSUCCESS
 		if object.Err != nil {
 			errorResponse = errPayloadFromSingleErr(object.Err)
+			status = models.ObjectsGetResponseAO2ResultStatusFAILED
 		}
 
 		object.Object.ID = object.UUID
@@ -76,6 +78,7 @@ func (h *batchObjectHandlers) objectsResponse(input objects.BatchObjects) []*mod
 			Object: *object.Object,
 			Result: &models.ObjectsGetResponseAO2Result{
 				Errors: errorResponse,
+				Status: &status,
 			},
 		}
 	}
