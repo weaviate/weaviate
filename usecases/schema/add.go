@@ -136,7 +136,7 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 
 	class.Class = schema.UppercaseClassName(class.Class)
 	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
-	if class.ShardingConfig != nil && class.MultiTenancyConfig != nil {
+	if class.ShardingConfig != nil && schema.MultiTenancyEnabled(class) {
 		return nil, fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")
 	} else if class.MultiTenancyConfig == nil {
 		class.MultiTenancyConfig = &models.MultiTenancyConfig{}
