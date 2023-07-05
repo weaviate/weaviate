@@ -26,7 +26,10 @@ import (
 )
 
 // ErrAny represent a random error
-var ErrAny = errors.New("any error")
+var (
+	ErrAny = errors.New("any error")
+	any    = mock.Anything
+)
 
 func TestRestoreStatus(t *testing.T) {
 	t.Parallel()
@@ -334,7 +337,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(t.TempDir())
-		backend.On("WriteToFile", ctx, nodeHome, mock.Anything, mock.Anything).Return(nil)
+		backend.On("WriteToFile", any, nodeHome, mock.Anything, mock.Anything).Return(nil)
 		m2 := createManager(sourcer, nil, backend, nil)
 		resp1, err := m2.Restore(ctx, nil, &req1)
 		assert.Nil(t, err)
@@ -375,7 +378,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(t.TempDir())
-		backend.On("WriteToFile", ctx, nodeHome, mock.Anything, mock.Anything).Return(ErrAny)
+		backend.On("WriteToFile", any, nodeHome, mock.Anything, mock.Anything).Return(ErrAny)
 		m2 := createManager(sourcer, nil, backend, nil)
 		resp1, err := m2.Restore(ctx, nil, &req1)
 		assert.Nil(t, err)
@@ -417,7 +420,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(t.TempDir())
-		backend.On("WriteToFile", ctx, nodeHome, mock.Anything, mock.Anything).Return(nil)
+		backend.On("WriteToFile", any, nodeHome, mock.Anything, mock.Anything).Return(nil)
 		m2 := createManager(sourcer, &schema, backend, nil)
 		resp1, err := m2.Restore(ctx, nil, &req1)
 		assert.Nil(t, err)
@@ -526,7 +529,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(t.TempDir())
-		backend.On("WriteToFile", ctx, nodeHome, mock.Anything, mock.Anything).Return(nil)
+		backend.On("WriteToFile", any, nodeHome, mock.Anything, mock.Anything).Return(nil)
 		m := createManager(sourcer, nil, backend, nil)
 		resp1 := m.OnCanCommit(ctx, &req)
 		want1 := &CanCommitResponse{
@@ -562,7 +565,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(t.TempDir())
-		backend.On("WriteToFile", ctx, nodeHome, mock.Anything, mock.Anything).Return(nil)
+		backend.On("WriteToFile", any, nodeHome, mock.Anything, mock.Anything).Return(nil)
 		m := createManager(sourcer, nil, backend, nil)
 		resp1 := m.OnCanCommit(ctx, &req)
 		want1 := &CanCommitResponse{
