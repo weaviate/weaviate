@@ -19,7 +19,9 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
@@ -81,7 +83,17 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*azu
 		return &azureClient{client, *config, serviceURL, dataPath}, nil
 	}
 
-	client, err := azblob.NewClientWithNoCredential(serviceURL, nil)
+	options := &azblob.ClientOptions{
+		ClientOptions: policy.ClientOptions{
+			Retry: policy.RetryOptions{
+				MaxRetries:    3,
+				RetryDelay:    4 * time.Second,
+				MaxRetryDelay: 120 * time.Second,
+			},
+		},
+	}
+
+	client, err := azblob.NewClientWithNoCredential(serviceURL, options)
 	if err != nil {
 		return nil, err
 	}

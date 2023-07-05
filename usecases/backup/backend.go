@@ -17,17 +17,19 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"runtime"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"golang.org/x/sync/errgroup"
 )
 
 // TODO adjust or make configurable
 const (
-	storeTimeout = 2 * time.Hour
+	storeTimeout = 24 * time.Hour
 	metaTimeout  = 20 * time.Minute
 
 	// createTimeout  = 5 * time.Minute
@@ -42,6 +44,8 @@ const (
 	GlobalRestoreFile = "restore_config.json"
 	_TempDirectory    = ".backup.tmp"
 )
+
+var _NUMCPU = runtime.NumCPU()
 
 type objStore struct {
 	b        modulecapabilities.BackupBackend
@@ -214,17 +218,26 @@ func (u *uploader) class(ctx context.Context, id string, desc backup.ClassDescri
 	}()
 	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
 	defer cancel()
+
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.SetLimit(2 * _NUMCPU)
+
 	for _, shard := range desc.Shards {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		for _, fpath := range shard.Files {
-			if err := u.backend.PutFile(ctx, fpath, fpath); err != nil {
+		shard := shard
+		eg.Go(func() error {
+			if err := ctx.Err(); err != nil {
 				return err
 			}
-		}
+			for _, fpath := range shard.Files {
+				if err := u.backend.PutFile(ctx, fpath, fpath); err != nil {
+					return fmt.Errorf("put shard: %q: %w", shard.Name, err)
+				}
+			}
+
+			return nil
+		})
 	}
-	return nil
+	return eg.Wait()
 }
 
 // fileWriter downloads files from object store and writes files to the destination folder destDir
