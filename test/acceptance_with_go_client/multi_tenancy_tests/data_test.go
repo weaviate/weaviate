@@ -124,7 +124,7 @@ func TestData_MultiTenancy(t *testing.T) {
 
 		require.NotNil(t, err)
 		clientErr := err.(*fault.WeaviateClientError)
-		assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+		assert.Equal(t, 422, clientErr.StatusCode)
 		assert.Contains(t, clientErr.Msg, "has multi-tenancy enabled, but request was without tenant")
 		require.Nil(t, wrap)
 
@@ -141,7 +141,7 @@ func TestData_MultiTenancy(t *testing.T) {
 
 		require.NotNil(t, err)
 		clientErr = err.(*fault.WeaviateClientError)
-		assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+		assert.Equal(t, 422, clientErr.StatusCode)
 		assert.Contains(t, clientErr.Msg, "has multi-tenancy enabled, but request was without tenant")
 		require.Nil(t, wrap)
 
@@ -187,8 +187,8 @@ func TestData_MultiTenancy(t *testing.T) {
 
 		require.NotNil(t, err)
 		clientErr := err.(*fault.WeaviateClientError)
-		assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
-		assert.Contains(t, clientErr.Msg, "no tenant found with key")
+		assert.Equal(t, 422, clientErr.StatusCode)
+		assert.Contains(t, clientErr.Msg, "tenant not found")
 		require.Nil(t, wrap)
 
 		wrap, err = client.Data().Creator().
@@ -205,8 +205,8 @@ func TestData_MultiTenancy(t *testing.T) {
 
 		require.NotNil(t, err)
 		clientErr = err.(*fault.WeaviateClientError)
-		assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
-		assert.Contains(t, clientErr.Msg, "no tenant found with key")
+		assert.Equal(t, 422, clientErr.StatusCode)
+		assert.Contains(t, clientErr.Msg, "tenant not found")
 		require.Nil(t, wrap)
 
 		t.Run("verify not created", func(t *testing.T) {
@@ -249,7 +249,7 @@ func TestData_MultiTenancy(t *testing.T) {
 
 		require.NotNil(t, err)
 		clientErr := err.(*fault.WeaviateClientError)
-		assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+		assert.Equal(t, 422, clientErr.StatusCode)
 		assert.Contains(t, clientErr.Msg, "has multi-tenancy disabled, but request was with tenant")
 		require.Nil(t, wrap)
 
@@ -267,7 +267,7 @@ func TestData_MultiTenancy(t *testing.T) {
 
 		require.NotNil(t, err)
 		clientErr = err.(*fault.WeaviateClientError)
-		assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+		assert.Equal(t, 422, clientErr.StatusCode)
 		assert.Contains(t, clientErr.Msg, "has multi-tenancy disabled, but request was with tenant")
 		require.Nil(t, wrap)
 
@@ -411,7 +411,7 @@ func TestData_MultiTenancy(t *testing.T) {
 					require.NotNil(t, err)
 					clientErr := err.(*fault.WeaviateClientError)
 					assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
-					assert.Contains(t, clientErr.Msg, "no tenant found with key")
+					assert.Contains(t, clientErr.Msg, "tenant not found")
 					assert.Nil(t, objects)
 				})
 			}
@@ -425,7 +425,7 @@ func TestData_MultiTenancy(t *testing.T) {
 				require.NotNil(t, err)
 				clientErr := err.(*fault.WeaviateClientError)
 				assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
-				assert.Contains(t, clientErr.Msg, "no tenant found with key")
+				assert.Contains(t, clientErr.Msg, "tenant not found")
 				assert.Nil(t, objects)
 			})
 		}
@@ -706,7 +706,7 @@ func TestData_MultiTenancy(t *testing.T) {
 				require.NotNil(t, err)
 				clientErr := err.(*fault.WeaviateClientError)
 				assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
-				assert.Contains(t, clientErr.Msg, "no tenant found with key")
+				assert.Contains(t, clientErr.Msg, "tenant not found")
 
 				t.Run("verify not deleted", func(t *testing.T) {
 					for _, tenant := range tenants {
@@ -941,7 +941,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		require.NotNil(t, err)
 		clientErr := err.(*fault.WeaviateClientError)
 		assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
-		assert.Contains(t, clientErr.Msg, "no tenant found with key")
+		assert.Contains(t, clientErr.Msg, "tenant not found")
 
 		err = client.Data().Updater().
 			WithClassName(className).
@@ -957,7 +957,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		require.NotNil(t, err)
 		clientErr = err.(*fault.WeaviateClientError)
 		assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
-		assert.Contains(t, clientErr.Msg, "no tenant found with key")
+		assert.Contains(t, clientErr.Msg, "tenant not found")
 
 		t.Run("verify not updated", func(t *testing.T) {
 			for _, tenant := range tenants {
@@ -1214,7 +1214,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		require.NotNil(t, err)
 		clientErr := err.(*fault.WeaviateClientError)
 		assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
-		assert.Contains(t, clientErr.Msg, "no tenant found with key")
+		assert.Contains(t, clientErr.Msg, "tenant not found")
 
 		err = client.Data().Updater().
 			WithClassName(className).
@@ -1229,7 +1229,7 @@ func TestData_MultiTenancy(t *testing.T) {
 		require.NotNil(t, err)
 		clientErr = err.(*fault.WeaviateClientError)
 		assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
-		assert.Contains(t, clientErr.Msg, "no tenant found with key")
+		assert.Contains(t, clientErr.Msg, "tenant not found")
 
 		t.Run("verify not merged", func(t *testing.T) {
 			for _, tenant := range tenants {
