@@ -59,7 +59,7 @@ type PrometheusMetrics struct {
 	StartupDurations *prometheus.SummaryVec
 	StartupDiskIO    *prometheus.SummaryVec
 
-	GroupClasses bool
+	Group bool
 }
 
 var (
@@ -72,7 +72,7 @@ func init() {
 }
 
 func InitConfig(cfg config.Monitoring) {
-	metrics.GroupClasses = cfg.GroupClasses
+	metrics.Group = cfg.Group
 }
 
 func GetMetrics() *PrometheusMetrics {

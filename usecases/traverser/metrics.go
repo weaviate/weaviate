@@ -34,7 +34,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
 		queriesCount:     prom.QueriesCount,
 		queriesDurations: prom.QueriesDurations,
 		dimensions:       prom.QueryDimensions,
-		groupClasses:     prom.GroupClasses,
+		groupClasses:     prom.Group,
 	}
 }
 
