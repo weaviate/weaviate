@@ -12,10 +12,11 @@
 package multi_tenancy_tests
 
 import (
-	"acceptance_tests_with_client/fixtures"
 	"context"
 	"fmt"
 	"testing"
+
+	"acceptance_tests_with_client/fixtures"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
