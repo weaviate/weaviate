@@ -150,7 +150,7 @@ func (b *backupper) backup(ctx context.Context,
 			return
 
 		}
-		provider := newUploader(b.sourcer, store, req.ID, b.lastOp.set)
+		provider := newUploader(b.sourcer, store, req.ID, b.lastOp.set, b.logger)
 		result := backup.BackupDescriptor{
 			StartedAt:     time.Now().UTC(),
 			ID:            id,

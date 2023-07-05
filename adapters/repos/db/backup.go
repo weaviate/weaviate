@@ -14,12 +14,17 @@ package db
 import (
 	"context"
 	"fmt"
+	"runtime"
+	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/schema"
 	"golang.org/x/sync/errgroup"
 )
+
+var _NUMCPU = runtime.NumCPU()
 
 type BackupState struct {
 	BackupID   string
@@ -120,7 +125,23 @@ func (db *DB) ShardsBackup(
 }
 
 // ReleaseBackup release resources acquired by the index during backup
-func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) error {
+func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) (err error) {
+	fields := logrus.Fields{
+		"op":    "release_backup",
+		"class": class,
+		"id":    bakID,
+	}
+	db.logger.WithFields(fields).Debug("starting")
+	begin := time.Now()
+	defer func() {
+		l := db.logger.WithFields(fields).WithField("took", time.Since(begin))
+		if err != nil {
+			l.Error(err)
+			return
+		}
+		l.Debug("finish")
+	}()
+
 	idx := db.GetIndex(schema.ClassName(class))
 	if idx != nil {
 		return idx.ReleaseBackup(ctx, bakID)
@@ -237,6 +258,7 @@ func (i *Index) resetBackupState() {
 
 func (i *Index) resumeMaintenanceCycles(ctx context.Context) error {
 	var g errgroup.Group
+	g.SetLimit(_NUMCPU)
 	i.ForEachShard(func(_ string, shard *Shard) error {
 		g.Go(func() error {
 			return shard.resumeMaintenanceCycles(ctx)
