@@ -19,6 +19,7 @@ type Connections struct {
 }
 
 const layerPos = 0
+const initialSize = 50
 
 func NewWithMaxLayer(maxLayer uint8) (Connections, error) {
 	if maxLayer+1 > math.MaxUint8 {
@@ -27,7 +28,7 @@ func NewWithMaxLayer(maxLayer uint8) (Connections, error) {
 	}
 	c := Connections{
 		// TODO: low initial size and grow dynamically
-		data: make([]byte, 100000),
+		data: make([]byte, initialSize),
 	}
 
 	c.initLayers(maxLayer)
@@ -192,9 +193,19 @@ func (c *Connections) initialLayerOffset() uint16 {
 	return uint16(1 + c.layers()*3)
 }
 
+func (c *Connections) expandDataIfRequired(delta uint16) {
+	newSize := len(c.data) + int(delta)
+	if cap(c.data) < newSize {
+		temp := c.data
+		c.data = make([]byte, newSize, newSize+newSize/10)
+		copy(c.data, temp)
+	} else {
+		c.data = c.data[:newSize]
+	}
+}
+
 func (c *Connections) growLayerBy(layer uint8, delta uint16) {
-	// TODO: check cap and grow backing array if required
-	c.data = c.data[:len(c.data)+int(delta)]
+	c.expandDataIfRequired(delta)
 
 	if layer > 0 {
 		// the backing array has the correct size now, next up we need to adapt the
