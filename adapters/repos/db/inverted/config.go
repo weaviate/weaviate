@@ -12,6 +12,7 @@
 package inverted
 
 import (
+	"runtime"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -20,6 +21,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
 )
+
+var _NUMCPU = runtime.NumCPU()
 
 func ValidateConfig(conf *models.InvertedIndexConfig) error {
 	if conf.CleanupIntervalSeconds < 0 {
