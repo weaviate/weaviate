@@ -38,19 +38,17 @@ import (
 // - If Node 1 and Node 2 both have a schema, but they aren't in sync, the
 // cluster is broken. This state cannot be automatically recovered from and
 // startup needs to fail. Manual intervention would be required in this case.
-func (m *Manager) startupClusterSync(ctx context.Context,
-	localSchema *State,
-) error {
+func (m *Manager) startupClusterSync(ctx context.Context) error {
 	nodes := m.clusterState.AllNames()
 	if len(nodes) <= 1 {
 		return m.startupHandleSingleNode(ctx, nodes)
 	}
 
-	if isEmpty(localSchema) {
-		return m.startupJoinCluster(ctx, localSchema)
+	if m.schemaCache.isEmpty() {
+		return m.startupJoinCluster(ctx)
 	}
 
-	err := m.validateSchemaCorruption(ctx, localSchema)
+	err := m.validateSchemaCorruption(ctx)
 	if err != nil {
 		if m.clusterState.SchemaSyncIgnored() {
 			m.logger.WithError(err).WithFields(logrusStartupSyncFields()).
@@ -98,9 +96,7 @@ func (m *Manager) startupHandleSingleNode(ctx context.Context,
 //
 // There is one edge case: The cluster could consist of multiple nodes which
 // are empty. In this case, no migration is required.
-func (m *Manager) startupJoinCluster(ctx context.Context,
-	localSchema *State,
-) error {
+func (m *Manager) startupJoinCluster(ctx context.Context) error {
 	tx, err := m.cluster.BeginTransaction(ctx, ReadSchema, nil, DefaultTxTTL)
 	if err != nil {
 		if m.clusterSyncImpossibleBecauseRemoteNodeTooOld(err) {
@@ -126,11 +122,11 @@ func (m *Manager) startupJoinCluster(ctx context.Context,
 		return nil
 	}
 
-	m.schemaCache.State = *pl.Schema
-
-	if err := m.saveSchema(ctx, nil); err != nil {
+	if err := m.saveSchema(ctx, *pl.Schema); err != nil {
 		return fmt.Errorf("save schema: %w", err)
 	}
+
+	m.schemaCache.setState(*pl.Schema)
 
 	return nil
 }
@@ -151,7 +147,7 @@ func (m *Manager) ClusterStatus(ctx context.Context) (*models.SchemaClusterStatu
 		return out, nil
 	}
 
-	err := m.validateSchemaCorruption(ctx, &m.schemaCache.State)
+	err := m.validateSchemaCorruption(ctx)
 	if err != nil {
 		out.Error = err.Error()
 		out.Healthy = false
@@ -165,9 +161,7 @@ func (m *Manager) ClusterStatus(ctx context.Context) (*models.SchemaClusterStatu
 // validateSchemaCorruption makes sure that - given that all nodes in the
 // cluster have a schema - they are in sync. If not the cluster is considered
 // broken and needs to be repaired manually
-func (m *Manager) validateSchemaCorruption(ctx context.Context,
-	localSchema *State,
-) error {
+func (m *Manager) validateSchemaCorruption(ctx context.Context) error {
 	tx, err := m.cluster.BeginTransaction(ctx, ReadSchema, nil, DefaultTxTTL)
 	if err != nil {
 		if m.clusterSyncImpossibleBecauseRemoteNodeTooOld(err) {
@@ -184,13 +178,18 @@ func (m *Manager) validateSchemaCorruption(ctx context.Context,
 	if !ok {
 		return fmt.Errorf("unrecognized tx response payload: %T", tx.Payload)
 	}
-
-	if err := Equal(localSchema, pl.Schema); err != nil {
-		diff := Diff("local", localSchema, "cluster", pl.Schema)
+	var diff []string
+	cmp := func() error {
+		if err := Equal(&m.schemaCache.State, pl.Schema); err != nil {
+			diff = Diff("local", &m.schemaCache.State, "cluster", pl.Schema)
+			return err
+		}
+		return nil
+	}
+	if err := m.schemaCache.RLockGuard(cmp); err != nil {
 		m.logger.WithFields(logrusStartupSyncFields()).WithFields(logrus.Fields{
 			"diff": diff,
 		}).Errorf("mismatch between local schema and remote (other nodes consensus) schema")
-
 		return fmt.Errorf("corrupt cluster: other nodes have consensus on schema, "+
 			"but local node has a different (non-null) schema: %w", err)
 	}
@@ -203,7 +202,7 @@ func logrusStartupSyncFields() logrus.Fields {
 }
 
 func isEmpty(schema *State) bool {
-	return schema.ObjectSchema == nil || len(schema.ObjectSchema.Classes) == 0
+	return schema == nil || schema.ObjectSchema == nil || len(schema.ObjectSchema.Classes) == 0
 }
 
 func (m *Manager) clusterSyncImpossibleBecauseRemoteNodeTooOld(err error) bool {

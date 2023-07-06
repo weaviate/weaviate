@@ -37,7 +37,7 @@ type Remote interface {
 
 type (
 	CommitFn   func(ctx context.Context, tx *Transaction) error
-	ResponseFn func(ctx context.Context, tx *Transaction) error
+	ResponseFn func(ctx context.Context, tx *Transaction) ([]byte, error)
 )
 
 type TxManager struct {
@@ -65,6 +65,12 @@ func newDummyCommitResponseFn() func(ctx context.Context, tx *Transaction) error
 	}
 }
 
+func newDummyResponseFn() func(ctx context.Context, tx *Transaction) ([]byte, error) {
+	return func(ctx context.Context, tx *Transaction) ([]byte, error) {
+		return nil, nil
+	}
+}
+
 func NewTxManager(remote Remote, logger logrus.FieldLogger) *TxManager {
 	return &TxManager{
 		remote: remote,
@@ -76,7 +82,7 @@ func NewTxManager(remote Remote, logger logrus.FieldLogger) *TxManager {
 		// dummy function is a reasonable default - and much cleaner than a
 		// nil-check on every call.
 		commitFn:   newDummyCommitResponseFn(),
-		responseFn: newDummyCommitResponseFn(),
+		responseFn: newDummyResponseFn(),
 		logger:     logger,
 	}
 }
@@ -292,23 +298,26 @@ func (c *TxManager) CommitWriteTransaction(ctx context.Context,
 
 func (c *TxManager) IncomingBeginTransaction(ctx context.Context,
 	tx *Transaction,
-) error {
+) ([]byte, error) {
 	c.Lock()
 	defer c.Unlock()
 
 	if c.currentTransaction != nil && c.currentTransaction.ID != tx.ID {
-		return ErrConcurrentTransaction
+		return nil, ErrConcurrentTransaction
 	}
 
 	c.currentTransaction = tx
-	c.responseFn(ctx, tx)
+	data, err := c.responseFn(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
 	var ttl time.Duration
 	if tx.Deadline.UnixMilli() != 0 {
 		ttl = time.Until(tx.Deadline)
 	}
 	c.resetTxExpiry(ttl, tx.ID)
 
-	return nil
+	return data, nil
 }
 
 func (c *TxManager) IncomingAbortTransaction(ctx context.Context,
