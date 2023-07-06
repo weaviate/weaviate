@@ -467,7 +467,7 @@ func createTenants(t *testing.T, client *weaviate.Client, className string, tena
 		tenants[i] = models.Tenant{Name: name}
 	}
 
-	err := client.Schema().TenantCreator().
+	err := client.Schema().TenantsCreator().
 		WithClassName(className).
 		WithTenants(tenants...).
 		Do(context.Background())
