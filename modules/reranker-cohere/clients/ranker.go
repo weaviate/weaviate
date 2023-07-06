@@ -91,18 +91,21 @@ func (v *client) Rank(ctx context.Context, cfg moduletools.ClassConfig,
 		return nil, errors.Wrap(err, "read response body")
 	}
 
-	var resBody RankResponse
-	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
-	}
-
-	if res.StatusCode > 399 {
+	if res.StatusCode != 200 {
 		var apiError cohereApiError
 		err = json.Unmarshal(bodyBytes, &apiError)
 		if err != nil {
 			return nil, errors.Wrap(err, "unmarshal error from response body")
 		}
-		return nil, errors.Errorf("fail with status %d: %s", res.StatusCode, apiError.Message)
+		if apiError.Message != "" {
+			return nil, errors.Errorf("connection to Cohere API failed with status %d: %s", res.StatusCode, apiError.Message)
+		}
+		return nil, errors.Errorf("connection to Cohere API failed with status %d", res.StatusCode)
+	}
+
+	var resBody RankResponse
+	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
+		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 	return &ent.RankResult{
 		RankPropertyValue: rankpropertyValue,
@@ -152,5 +155,5 @@ type RankResponse struct {
 }
 
 type cohereApiError struct {
-	Message string `json:"error"`
+	Message string `json:"message"`
 }
