@@ -94,12 +94,23 @@ func testDotProductRandomValue(t *testing.T, size uint) {
 
 func TestCompareDotProductImplementations(t *testing.T) {
 	sizes := []uint{
+		1,
+		4,
 		8,
 		16,
+		31,
 		32,
+		35,
 		64,
+		67,
 		128,
+		130,
 		256,
+		260,
+		384,
+		390,
+		768,
+		777,
 	}
 
 	for _, size := range sizes {
