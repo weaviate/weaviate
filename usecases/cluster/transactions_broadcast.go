@@ -14,6 +14,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
@@ -57,7 +58,7 @@ func (t *TxBroadcaster) SetConsensusFunction(fn ConsensusFn) {
 	t.consensusFn = fn
 }
 
-func (t *TxBroadcaster) BroadcastTransaction(ctx context.Context, tx *Transaction) error {
+func (t *TxBroadcaster) BroadcastTransaction(rootCtx context.Context, tx *Transaction) error {
 	if !tx.TolerateNodeFailures {
 		if err := t.ideal.Validate(); err != nil {
 			return fmt.Errorf("tx does not tolerate node failures: %w", err)
@@ -72,6 +73,12 @@ func (t *TxBroadcaster) BroadcastTransaction(ctx context.Context, tx *Transactio
 		host := host // https://golang.org/doc/faq#closures_and_goroutines
 
 		eg.Go(func() error {
+			// make sure we don't block forever if the caller passes in an unlimited
+			// context. If another node does not respond within the timeout, consider
+			// the tx open attempt failed.
+			ctx, cancel := context.WithTimeout(rootCtx, 30*time.Second)
+			defer cancel()
+
 			// the client call can mutate the tx, so we need to work with copies to
 			// prevent a race and to be able to keep all individual results, so they
 			// can be passed to the consensus fn
@@ -90,7 +97,7 @@ func (t *TxBroadcaster) BroadcastTransaction(ctx context.Context, tx *Transactio
 	}
 
 	if t.consensusFn != nil {
-		merged, err := t.consensusFn(ctx, resTx)
+		merged, err := t.consensusFn(rootCtx, resTx)
 		if err != nil {
 			return fmt.Errorf("try to reach consenus: %w", err)
 		}
@@ -103,11 +110,17 @@ func (t *TxBroadcaster) BroadcastTransaction(ctx context.Context, tx *Transactio
 	return nil
 }
 
-func (t *TxBroadcaster) BroadcastAbortTransaction(ctx context.Context, tx *Transaction) error {
+func (t *TxBroadcaster) BroadcastAbortTransaction(rootCtx context.Context, tx *Transaction) error {
 	eg := &errgroup.Group{}
 	for _, host := range t.state.Hostnames() {
 		host := host // https://golang.org/doc/faq#closures_and_goroutines
 		eg.Go(func() error {
+			// make sure we don't block forever if the caller passes in an unlimited
+			// context. If another node does not respond within the timeout, consider
+			// the tx abort attempt failed.
+			ctx, cancel := context.WithTimeout(rootCtx, 30*time.Second)
+			defer cancel()
+
 			if err := t.client.AbortTransaction(ctx, host, tx); err != nil {
 				return errors.Wrapf(err, "host %q", host)
 			}
@@ -119,7 +132,7 @@ func (t *TxBroadcaster) BroadcastAbortTransaction(ctx context.Context, tx *Trans
 	return eg.Wait()
 }
 
-func (t *TxBroadcaster) BroadcastCommitTransaction(ctx context.Context, tx *Transaction) error {
+func (t *TxBroadcaster) BroadcastCommitTransaction(rootCtx context.Context, tx *Transaction) error {
 	if !tx.TolerateNodeFailures {
 		if err := t.ideal.Validate(); err != nil {
 			return fmt.Errorf("tx does not tolerate node failures: %w", err)
@@ -127,6 +140,11 @@ func (t *TxBroadcaster) BroadcastCommitTransaction(ctx context.Context, tx *Tran
 	}
 	eg := &errgroup.Group{}
 	for _, host := range t.state.Hostnames() {
+		// make sure we don't block forever if the caller passes in an unlimited
+		// context. If another node does not respond within the timeout, consider
+		// the tx commit attempt failed.
+		ctx, cancel := context.WithTimeout(rootCtx, 30*time.Second)
+		defer cancel()
 		host := host // https://golang.org/doc/faq#closures_and_goroutines
 		eg.Go(func() error {
 			if err := t.client.CommitTransaction(ctx, host, tx); err != nil {
