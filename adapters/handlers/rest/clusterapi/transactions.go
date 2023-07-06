@@ -24,7 +24,7 @@ import (
 )
 
 type txManager interface {
-	IncomingBeginTransaction(ctx context.Context, tx *cluster.Transaction) error
+	IncomingBeginTransaction(ctx context.Context, tx *cluster.Transaction) ([]byte, error)
 	IncomingCommitTransaction(ctx context.Context, tx *cluster.Transaction) error
 	IncomingAbortTransaction(ctx context.Context, tx *cluster.Transaction)
 }
@@ -113,7 +113,8 @@ func (h *txHandler) incomingTransaction() http.Handler {
 			Deadline: time.UnixMilli(payload.DeadlineMilli),
 		}
 
-		if err := h.manager.IncomingBeginTransaction(r.Context(), tx); err != nil {
+		data, err := h.manager.IncomingBeginTransaction(r.Context(), tx)
+		if err != nil {
 			status := http.StatusInternalServerError
 			if errors.Is(err, cluster.ErrConcurrentTransaction) {
 				status = http.StatusConflict
@@ -127,13 +128,12 @@ func (h *txHandler) incomingTransaction() http.Handler {
 			return
 		}
 
-		resBody, err := json.Marshal(tx)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
 		}
 		w.WriteHeader(http.StatusCreated)
-		w.Write(resBody)
+		w.Write(data)
 	})
 }
 
