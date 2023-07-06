@@ -43,6 +43,7 @@ type PrometheusMetrics struct {
 	QueriesDurations                   *prometheus.HistogramVec
 	QueriesFilteredVectorDurations     *prometheus.SummaryVec
 	QueryDimensions                    *prometheus.CounterVec
+	QueryDimensionsCombined            prometheus.Counter
 	GoroutinesCount                    *prometheus.GaugeVec
 	BackupRestoreDurations             *prometheus.SummaryVec
 	BackupStoreDurations               *prometheus.SummaryVec
@@ -203,7 +204,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "query_dimensions_total",
 			Help: "The vector dimensions used by any read-query that involves vectors",
 		}, []string{"query_type", "operation", "class_name"}),
-
+		QueryDimensionsCombined: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "query_dimensions_combined_total",
+			Help: "The vector dimensions used by any read-query that involves vectors, aggregated across all classes and shards. The sum of all labels for query_dimensions_total should always match this labelless metric",
+		}),
 		BackupRestoreDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "backup_restore_ms",
 			Help: "Duration of a backup restore",
