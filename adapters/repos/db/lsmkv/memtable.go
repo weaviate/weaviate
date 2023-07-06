@@ -332,6 +332,8 @@ func (m *Memtable) IdleDuration() time.Duration {
 }
 
 func (m *Memtable) countStats() *countStats {
+	m.RLock()
+	defer m.RUnlock()
 	return m.key.countStats()
 }
 
