@@ -92,7 +92,7 @@ type testRankHandler struct {
 func (f *testRankHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if f.errorMessage != "" {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error":"` + f.errorMessage + `"}`))
+		w.Write([]byte(`{"message":"` + f.errorMessage + `"}`))
 		return
 	}
 
