@@ -395,10 +395,11 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) e
 		return nil
 	}
 
-	errgrp := &errgroup.Group{}
+	eg := &errgroup.Group{}
+	eg.SetLimit(_NUMCPU)
 	for _, index := range m.db.indices {
 		index.ForEachShard(func(name string, shard *Shard) error {
-			errgrp.Go(func() error {
+			eg.Go(func() error {
 				reindexer := NewShardInvertedReindexer(shard, m.logger)
 				for taskName, task := range tasks {
 					reindexer.AddTask(task)
@@ -419,7 +420,7 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) e
 			return nil
 		})
 	}
-	return errgrp.Wait()
+	return eg.Wait()
 }
 
 func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, taskNames ...string) error {
@@ -448,8 +449,8 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 
 	m.logMissingFilterable().Info("staring missing text filterable task")
 
-	errgrpIndexes := &errgroup.Group{}
-	errgrpIndexes.SetLimit(50)
+	eg := &errgroup.Group{}
+	eg.SetLimit(_NUMCPU * 2)
 	for _, index := range m.db.indices {
 		index := index
 		className := index.Config.ClassName.String()
@@ -458,7 +459,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 			continue
 		}
 
-		errgrpIndexes.Go(func() error {
+		eg.Go(func() error {
 			errgrpShards := &errgroup.Group{}
 			index.ForEachShard(func(_ string, shard *Shard) error {
 				errgrpShards.Go(func() error {
@@ -503,7 +504,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 		})
 	}
 
-	if err := errgrpIndexes.Wait(); err != nil {
+	if err := eg.Wait(); err != nil {
 		m.logMissingFilterable().
 			WithError(err).
 			Error("failed missing text filterable task")
