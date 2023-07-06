@@ -1663,7 +1663,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.19.11"
+    "version": "1.19.12"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -3479,7 +3479,7 @@
         "tags": [
           "schema"
         ],
-        "responses":{
+        "responses": {
           "200": {
             "description": "The schema in the cluster is in sync.",
             "schema": {
