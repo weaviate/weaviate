@@ -298,14 +298,15 @@ func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn) error {
 
 	//for k, v := c.First(); k != nil; k, v = c.Next() 
 	
-	b.IterateObjects(context.TODO(), func (k []byte, elem *storobj.Object) error {
+	b.IterateObjects(context.TODO(), func ( elem *storobj.Object) error {
 
 		// scanAll has no abort, so we can ignore the first arg
 		properties := elem.Properties()
-		_, err = scan(&properties, elem.DocID())
+		_, err := scan(&properties, elem.DocID())
 		if err != nil {
 			return err
 		}
+		return nil
 	})
 
 	return nil
