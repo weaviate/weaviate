@@ -14,6 +14,7 @@ package scaler
 import (
 	"context"
 	"fmt"
+	"runtime"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -32,8 +33,11 @@ import (
 //
 // 3. implement scaler.scaleIn
 
-// ErrUnresolvedName cannot resolve the host address of a node
-var ErrUnresolvedName = errors.New("cannot resolve node name")
+var (
+	// ErrUnresolvedName cannot resolve the host address of a node
+	ErrUnresolvedName = errors.New("cannot resolve node name")
+	_NUMCPU           = runtime.NumCPU()
+)
 
 // Scaler scales out/in class replicas.
 //
