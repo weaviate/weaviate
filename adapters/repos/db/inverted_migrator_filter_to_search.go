@@ -71,12 +71,12 @@ func (m *filterableToSearchableMigrator) migrate(ctx context.Context) error {
 
 	m.log().Debug("starting migration")
 
-	errgrp := &errgroup.Group{}
-	errgrp.SetLimit(50)
+	eg := &errgroup.Group{}
+	eg.SetLimit(_NUMCPU * 2)
 	for _, index := range m.indexes {
 		index := index
 
-		errgrp.Go(func() error {
+		eg.Go(func() error {
 			migratedProps, err := m.migrateClass(ctx, index, sch)
 			if err != nil {
 				m.logIndex(index).WithError(err).Error("failed migrating class")
@@ -95,7 +95,7 @@ func (m *filterableToSearchableMigrator) migrate(ctx context.Context) error {
 		})
 	}
 
-	err = errgrp.Wait()
+	err = eg.Wait()
 	if err != nil {
 		m.log().WithError(err).Error("failed migrating classes")
 	}
@@ -194,12 +194,13 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 		return nil, nil
 	}
 
-	errgrp := &errgroup.Group{}
+	eg := &errgroup.Group{}
+	eg.SetLimit(_NUMCPU)
 	for shardName, props := range shard2PropsToFix {
 		shard := index.shards.Load(shardName)
 		props := props
 
-		errgrp.Go(func() error {
+		eg.Go(func() error {
 			if err := m.migrateShard(ctx, shard, props); err != nil {
 				m.logShard(shard).WithError(err).Error("failed migrating shard")
 				return errors.Wrap(err, "failed migrating shard")
@@ -207,7 +208,7 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 			return nil
 		})
 	}
-	if err := errgrp.Wait(); err != nil {
+	if err := eg.Wait(); err != nil {
 		return nil, err
 	}
 

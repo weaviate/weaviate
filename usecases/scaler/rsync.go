@@ -54,6 +54,7 @@ func newRSync(c client, cl cluster, rootPath string) *rsync {
 // Push pushes local shards of a class to remote nodes
 func (r *rsync) Push(ctx context.Context, shardsBackups []backup.ShardDescriptor, dist ShardDist, className string) error {
 	var g errgroup.Group
+	g.SetLimit(_NUMCPU * 2)
 	for _, desc := range shardsBackups {
 		shardName := desc.Name
 		additions := dist[shardName]

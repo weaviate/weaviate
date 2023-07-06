@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"runtime"
 	golangSort "sort"
 	"strings"
 	"sync"
@@ -48,7 +49,10 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-var errTenantNotFound = errors.New("tenant not found")
+var (
+	errTenantNotFound = errors.New("tenant not found")
+	_NUMCPU           = runtime.NumCPU()
+)
 
 // shardMap is a syn.Map which specialized in storing shards
 type shardMap sync.Map
@@ -230,6 +234,7 @@ func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard *
 
 func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
 	eg := &errgroup.Group{}
+	eg.SetLimit(_NUMCPU)
 
 	i.ForEachShard(func(key string, shard *Shard) error {
 		shard.createPropertyIndex(ctx, prop, eg)
@@ -999,6 +1004,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
 	eg := errgroup.Group{}
+	eg.SetLimit(_NUMCPU * 2)
 	shardResultLock := sync.Mutex{}
 	for _, shardName := range shards {
 		shardName := shardName
@@ -1162,14 +1168,15 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 		shardCap = len(shardNames) * limit
 	}
 
-	errgrp := &errgroup.Group{}
+	eg := &errgroup.Group{}
+	eg.SetLimit(_NUMCPU * 2)
 	m := &sync.Mutex{}
 
 	out := make([]*storobj.Object, 0, shardCap)
 	dists := make([]float32, 0, shardCap)
 	for _, shardName := range shardNames {
 		shardName := shardName
-		errgrp.Go(func() error {
+		eg.Go(func() error {
 			var res []*storobj.Object
 			var resDists []float32
 			var err error
@@ -1198,7 +1205,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 		})
 	}
 
-	if err := errgrp.Wait(); err != nil {
+	if err := eg.Wait(); err != nil {
 		return nil, nil, err
 	}
 
