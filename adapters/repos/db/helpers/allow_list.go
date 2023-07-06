@@ -13,11 +13,13 @@ package helpers
 
 import (
 
+	"bytes"
 	//"runtime/debug"
 	"github.com/weaviate/sroar"
 	"fmt"
 	"encoding/binary"
 
+	
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
@@ -47,6 +49,9 @@ func MakePropertyPrefix(property []byte, propIds *tracker.JsonPropertyIdTracker)
 	}
 
 func MakePropertyKey(propName []byte, key []byte) []byte {
+	if len(propName) == 0 {
+		panic("Empty property name, this is almost certainly wrong")
+	}
 	//t := append([]byte(propName), byte('|'))
 	t := propName
 	val := append(t, key...)
@@ -57,7 +62,18 @@ func MakePropertyKey(propName []byte, key []byte) []byte {
 	return val
 }
 
+func MatchesPropertyKeyPrefix(propName []byte, key []byte) bool {
+	if len(propName) == 0 {
+		panic("Empty property name, this is almost certainly wrong")
+	}
+	//return bytes.HasPrefix(key, append([]byte(propName), byte('|')))
+	return bytes.HasPrefix(key, propName)
+}
+
 func UnMakePropertyKey(propName []byte, key []byte) []byte {
+	if len(propName) == 0 {
+		panic("Empty property name, this is almost certainly wrong")
+	}
 	//return key[len(propName)+1:]
 	return key[len(propName):]
 }

@@ -12,6 +12,8 @@
 package lsmkv
 
 import (
+	"github.com/pkg/errors"
+
 	"context"
 
 	"encoding/binary"
@@ -23,10 +25,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 )
+
 type BucketProxy struct {
-	realB             BucketInterface
-	property_prefix   []byte
-	propertyIds   *tracker.JsonPropertyIdTracker
+	realB           BucketInterface
+	property_prefix []byte
+	propertyIds     *tracker.JsonPropertyIdTracker
 }
 
 func NewBucketProxy(realB BucketInterface, propName []byte, propids *tracker.JsonPropertyIdTracker) *BucketProxy {
@@ -39,7 +42,7 @@ func NewBucketProxy(realB BucketInterface, propName []byte, propids *tracker.Jso
 	return &BucketProxy{
 		realB:           realB,
 		property_prefix: propid_bytes,
-		propertyIds: propids,
+		propertyIds:     propids,
 	}
 }
 
@@ -51,7 +54,7 @@ func (b *BucketProxy) makePropertyKey(key []byte) []byte {
 	return helpers.MakePropertyKey([]byte(b.property_prefix), key)
 }
 
-func (b *BucketProxy) CursorRoaringSet () CursorRoaringSet {
+func (b *BucketProxy) CursorRoaringSet() CursorRoaringSet {
 	return b.realB.CursorRoaringSet()
 }
 
@@ -162,4 +165,64 @@ func (b *BucketProxy) FlushAndSwitch() error {
 func (b *BucketProxy) RoaringSetAddOne(key []byte, value uint64) error {
 	real_key := b.makePropertyKey(key)
 	return b.realB.RoaringSetAddOne(real_key, value)
+}
+
+func (b *BucketProxy) Cursor() *CursorReplace {
+	return b.realB.Cursor()
+}
+
+func (b *BucketProxy) IteratePropPrefixObjects(ctx context.Context, propPrefix []byte, f func(k []byte, object *storobj.Object) error, froar func(k []byte, object *sroar.Bitmap) error, fset func(k []byte, object [][]byte) error) error {
+
+	switch b.Strategy() {
+	case StrategyReplace:
+		c := b.SetCursor()
+		defer c.Close()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if err := fset(k, v); err != nil {
+				return err
+			}
+		}
+
+	case StrategyMapCollection: //FIXME: Wrong type?
+
+		i := 0
+		cursor := b.Cursor()
+		defer cursor.Close()
+
+		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+			if !helpers.MatchesPropertyKeyPrefix(propPrefix, k) {
+				continue
+			}
+			k = helpers.UnMakePropertyKey(propPrefix, k)
+			fmt.Printf("k sans prop: %v\n", k)
+			obj, err := storobj.FromBinary(v)
+			if err != nil {
+				return fmt.Errorf("cannot unmarshal object %d, %v", i, err)
+			}
+			if err := f(k, obj); err != nil {
+				return errors.Wrapf(err, "callback on object '%d' failed", obj.DocID())
+			}
+
+			i++
+		}
+
+	case StrategyRoaringSet:
+		c := b.CursorRoaringSet()
+		defer c.Close()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if !helpers.MatchesPropertyKeyPrefix(propPrefix, k) {
+				continue
+			}
+			k = helpers.UnMakePropertyKey(propPrefix, k)
+			fmt.Printf("k sans prop: %v\n", k)
+			if err := froar(k, v); err != nil {
+				return err
+			}
+		}
+
+	}
+
+	return nil
 }

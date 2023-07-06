@@ -67,6 +67,8 @@ type BucketInterface interface {
 	RoaringSetAddOne(key []byte, value uint64) error
 	FlushAndSwitch() error 
 	PropertyPrefix() []byte
+	Cursor() *CursorReplace 
+
 
 	CursorRoaringSetKeyOnly() CursorRoaringSet
 }
@@ -243,6 +245,10 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 	}
 
 	return nil
+}
+
+func (b *Bucket) IteratePropPrefixObjects(ctx context.Context, propPrefix []byte, f func(object *storobj.Object) error) error {
+	return b.IterateObjects(ctx, f)
 }
 
 func (b *Bucket) SetMemtableThreshold(size uint64) {

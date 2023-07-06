@@ -45,9 +45,7 @@ type Store struct {
 // New initializes a new [Store] based on the root dir. If state is present on
 // disk, it is loaded, if the folder is empty a new store is initialized in
 // there.
-func New(dir, rootDir string, logger logrus.FieldLogger,
-	metrics *Metrics,
-) (*Store, error) {
+func New(dir, rootDir string, logger logrus.FieldLogger,metrics *Metrics) (*Store, error) {
 	s := &Store{
 		dir:             dir,
 		rootDir:         rootDir,

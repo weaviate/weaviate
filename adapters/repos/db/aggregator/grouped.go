@@ -13,6 +13,7 @@ package aggregator
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -36,6 +37,9 @@ func (ga *groupedAggregator) Do(ctx context.Context) (*aggregation.Result, error
 	groups, err := ga.identifyGroups(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "identify groups")
+	}
+	if len(groups) == 0 {
+		return nil, fmt.Errorf("Failed to aggregate, no groups found")
 	}
 
 	out.Groups = make([]aggregation.Group, len(groups))

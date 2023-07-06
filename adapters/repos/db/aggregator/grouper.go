@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 
+	//"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/docid"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -285,10 +286,12 @@ func ScanAll(tx *bolt.Tx, scan docid.ObjectScanFn) error {
 
 // ScanAllLSM iterates over every row in the object buckets
 func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn) error {
+	//b :=  lsmkv.NewBucketProxy( store.Bucket(helpers.ObjectsBucketLSM), propName, propIds)
+	//if b == nil {
+	//	return fmt.Errorf("objects bucket not found")
+	//}
+
 	b := store.Bucket(helpers.ObjectsBucketLSM)
-	if b == nil {
-		return fmt.Errorf("objects bucket not found")
-	}
 
 	c := b.Cursor()
 	defer c.Close()
