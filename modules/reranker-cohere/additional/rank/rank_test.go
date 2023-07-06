@@ -13,6 +13,7 @@ package rank
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/weaviate/weaviate/modules/reranker-cohere/ent"
@@ -71,6 +72,27 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.Error(t, err, "empty params")
 	})
 
+	t.Run("should fail on cohere error", func(t *testing.T) {
+		rankClient := &fakeRankClient{}
+		rankProvider := New(rankClient)
+		in := []search.Result{
+			{
+				ID: "some-uuid",
+				Schema: map[string]interface{}{
+					"content": "this is the content",
+				},
+			},
+		}
+		property := "content"
+		query := "unavailable"
+		fakeParams := &Params{Property: &property, Query: &query}
+		limit := 3
+		argumentModuleParams := map[string]interface{}{}
+
+		_, err := rankProvider.AdditionalPropertyFn(context.Background(), in, fakeParams, &limit, argumentModuleParams, nil)
+		require.EqualError(t, err, "error ranking with cohere: unavailable")
+	})
+
 	t.Run("should rank", func(t *testing.T) {
 		rankClient := &fakeRankClient{}
 		rankProvider := New(rankClient)
@@ -106,6 +128,9 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 type fakeRankClient struct{}
 
 func (c *fakeRankClient) Rank(ctx context.Context, cfg moduletools.ClassConfig, rankpropertyValue string, query string) (result *ent.RankResult, err error) {
+	if query == "unavailable" {
+		return nil, errors.New("unavailable")
+	}
 	score := 0.15
 	result = &ent.RankResult{
 		Score:             score,
