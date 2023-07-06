@@ -296,11 +296,9 @@ func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn) error {
 	c := b.Cursor()
 	defer c.Close()
 
-	for k, v := c.First(); k != nil; k, v = c.Next() {
-		elem, err := storobj.FromBinary(v)
-		if err != nil {
-			return errors.Wrapf(err, "unmarshal data object")
-		}
+	//for k, v := c.First(); k != nil; k, v = c.Next() 
+	
+	b.IterateObjects(context.TODO(), func (k []byte, elem *storobj.Object) error {
 
 		// scanAll has no abort, so we can ignore the first arg
 		properties := elem.Properties()
@@ -308,7 +306,7 @@ func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn) error {
 		if err != nil {
 			return err
 		}
-	}
+	})
 
 	return nil
 }
