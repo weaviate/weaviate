@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"runtime"
 	"strconv"
 	"time"
 
@@ -36,8 +35,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"golang.org/x/sync/errgroup"
 )
-
-var _NUMCPU = runtime.NumCPU()
 
 type Searcher struct {
 	logger                 logrus.FieldLogger
