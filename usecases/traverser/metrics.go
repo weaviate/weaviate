@@ -19,10 +19,11 @@ import (
 )
 
 type Metrics struct {
-	queriesCount     *prometheus.GaugeVec
-	queriesDurations *prometheus.HistogramVec
-	dimensions       *prometheus.CounterVec
-	groupClasses     bool
+	queriesCount       *prometheus.GaugeVec
+	queriesDurations   *prometheus.HistogramVec
+	dimensions         *prometheus.CounterVec
+	dimensionsCombined prometheus.Counter
+	groupClasses       bool
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
@@ -31,10 +32,11 @@ func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
 	}
 
 	return &Metrics{
-		queriesCount:     prom.QueriesCount,
-		queriesDurations: prom.QueriesDurations,
-		dimensions:       prom.QueryDimensions,
-		groupClasses:     prom.GroupClasses,
+		queriesCount:       prom.QueriesCount,
+		queriesDurations:   prom.QueriesDurations,
+		dimensions:         prom.QueryDimensions,
+		dimensionsCombined: prom.QueryDimensionsCombined,
+		groupClasses:       prom.GroupClasses,
 	}
 }
 
@@ -129,4 +131,5 @@ func (m *Metrics) AddUsageDimensions(className, queryType, operation string, dim
 		"operation":  operation,
 		"query_type": queryType,
 	}).Add(float64(dims))
+	m.dimensionsCombined.Add(float64(dims))
 }
