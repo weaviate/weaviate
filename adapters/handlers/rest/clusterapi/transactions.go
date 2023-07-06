@@ -20,7 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
-	schemauc "github.com/weaviate/weaviate/usecases/schema"
+	ucs "github.com/weaviate/weaviate/usecases/schema"
 )
 
 type txManager interface {
@@ -99,16 +99,16 @@ func (h *txHandler) incomingTransaction() http.Handler {
 			return
 		}
 
-		txPayload, err := schemauc.UnmarshalTransaction(payload.Type, payload.Payload)
+		txPayload, err := ucs.UnmarshalTransaction(payload.Type, payload.Payload)
 		if err != nil {
 			http.Error(w, errors.Wrap(err, "decode tx payload").Error(),
 				http.StatusInternalServerError)
 			return
 		}
-
+		txType := payload.Type
 		tx := &cluster.Transaction{
 			ID:       payload.ID,
-			Type:     payload.Type,
+			Type:     txType,
 			Payload:  txPayload,
 			Deadline: time.UnixMilli(payload.DeadlineMilli),
 		}
@@ -122,13 +122,16 @@ func (h *txHandler) incomingTransaction() http.Handler {
 			http.Error(w, errors.Wrap(err, "open transaction").Error(), status)
 			return
 		}
+		if txType != ucs.ReadSchema {
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
 
 		resBody, err := json.Marshal(tx)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
 		}
-
 		w.WriteHeader(http.StatusCreated)
 		w.Write(resBody)
 	})
