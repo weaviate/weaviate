@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -278,7 +279,7 @@ func TestTxResponse(t *testing.T) {
 	type test struct {
 		name     string
 		tx       *cluster.Transaction
-		assertTx func(t *testing.T, tx *cluster.Transaction)
+		assertTx func(t *testing.T, tx *cluster.Transaction, payload json.RawMessage)
 	}
 
 	tests := []test{
@@ -294,7 +295,7 @@ func TestTxResponse(t *testing.T) {
 					State: &sharding.State{},
 				},
 			},
-			assertTx: func(t *testing.T, tx *cluster.Transaction) {
+			assertTx: func(t *testing.T, tx *cluster.Transaction, payload json.RawMessage) {
 				_, ok := tx.Payload.(AddClassPayload)
 				assert.True(t, ok, "write tx was not changed")
 			},
@@ -305,9 +306,9 @@ func TestTxResponse(t *testing.T) {
 				Type:    ReadSchema,
 				Payload: nil,
 			},
-			assertTx: func(t *testing.T, tx *cluster.Transaction) {
-				pl, ok := tx.Payload.(ReadSchemaPayload)
-				require.True(t, ok)
+			assertTx: func(t *testing.T, tx *cluster.Transaction, payload json.RawMessage) {
+				pl, err := unmarshalRawJson[ReadSchemaPayload](payload)
+				require.Nil(t, err)
 				require.Len(t, pl.Schema.ObjectSchema.Classes, 1)
 				assert.Equal(t, "FirstClass", pl.Schema.ObjectSchema.Classes[0].Class)
 			},
@@ -331,9 +332,21 @@ func TestTxResponse(t *testing.T) {
 				schemaBefore)
 			require.Nil(t, err)
 
-			err = sm.handleTxResponse(context.Background(), test.tx)
+			data, err := sm.handleTxResponse(context.Background(), test.tx)
 			require.Nil(t, err)
-			test.assertTx(t, test.tx)
+			if test.tx.Type == ReadSchema {
+				var txRes txResponsePayload
+				err = json.Unmarshal(data, &txRes)
+				require.Nil(t, err)
+				test.assertTx(t, test.tx, txRes.Payload)
+
+			}
 		})
 	}
+}
+
+type txResponsePayload struct {
+	Type    cluster.TransactionType `json:"type"`
+	ID      string                  `json:"id"`
+	Payload json.RawMessage         `json:"payload"`
 }

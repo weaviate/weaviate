@@ -121,3 +121,15 @@ func (s *schemaCache) RLockGuard(reader func() error) error {
 	defer s.RUnlock()
 	return reader()
 }
+
+func (s *schemaCache) isEmpty() bool {
+	s.RLock()
+	defer s.RUnlock()
+	return s.State.ObjectSchema == nil || len(s.State.ObjectSchema.Classes) == 0
+}
+
+func (s *schemaCache) setState(st State) {
+	s.Lock()
+	defer s.Unlock()
+	s.State = st
+}
