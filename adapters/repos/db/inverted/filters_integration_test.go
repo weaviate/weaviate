@@ -54,7 +54,7 @@ func Test_Filters_String(t *testing.T) {
 
 	bucketName := "searchable_properties"
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection), lsmkv.WithRegisteredName(helpers.BucketFromPropNameLSM(propName))))
-	bWithFrequency := lsmkv.NewBucketProxy( store.Bucket(bucketName), []byte(propName), propIds)
+	bWithFrequency := lsmkv.NewBucketProxy( store.Bucket(bucketName), propName, propIds)
 
 	defer store.Shutdown(context.Background())
 
@@ -350,7 +350,7 @@ func Test_Filters_Int(t *testing.T) {
 	bucketName := "filterable_properties"
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
 	raw_bucket := store.Bucket(bucketName)
-	bucket := lsmkv.NewBucketProxy(raw_bucket, []byte(propName), propIds)
+	bucket := lsmkv.NewBucketProxy(raw_bucket, propName, propIds)
 
 
 
@@ -556,7 +556,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	bucketName := "searchable_properties"
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
 		bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
-	bWithFrequency :=  lsmkv.NewBucketProxy(store.Bucket(bucketName), []byte(propName), propIds)
+	bWithFrequency :=  lsmkv.NewBucketProxy(store.Bucket(bucketName), propName, propIds)
 
 	defer store.Shutdown(context.Background())
 

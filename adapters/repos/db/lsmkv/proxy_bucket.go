@@ -27,22 +27,26 @@ import (
 )
 
 type BucketProxy struct {
-	realB           BucketInterface
-	property_prefix []byte
-	propertyIds     *tracker.JsonPropertyIdTracker
+	realB           BucketInterface // the real bucket
+	property_prefix []byte          // the property id as a byte prefix, only keys with this prefix will be  accessed
+	PropertyName    string          // the property name, used mainly for debugging
 }
 
-func NewBucketProxy(realB BucketInterface, propName []byte, propids *tracker.JsonPropertyIdTracker) *BucketProxy {
-	propid, err := propids.GetIdForProperty(string(propName))
+func NewBucketProxy(realB BucketInterface, propName string, propids *tracker.JsonPropertyIdTracker) *BucketProxy {
+	propid, err := propids.GetIdForProperty(propName)
 	if err != nil {
 		fmt.Print(fmt.Sprintf("property '%s' not found in propLengths", propName))
 	}
 	propid_bytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(propid_bytes, propid)
+	return NewBucketProxyWithPrefix(realB, propName, propid_bytes)
+}
+
+func NewBucketProxyWithPrefix(realB BucketInterface, propName string, propid_bytes []byte) *BucketProxy {
 	return &BucketProxy{
 		realB:           realB,
 		property_prefix: propid_bytes,
-		propertyIds:     propids,
+		PropertyName:    string(propName),
 	}
 }
 
@@ -171,30 +175,41 @@ func (b *BucketProxy) Cursor() *CursorReplace {
 	return b.realB.Cursor()
 }
 
-func (b *BucketProxy) IteratePropPrefixObjects(ctx context.Context, propPrefix []byte, f func(k []byte, object *storobj.Object) error, froar func(k []byte, object *sroar.Bitmap) error, fset func(k []byte, object [][]byte) error) error {
+func (b *BucketProxy) IteratePropPrefixObjects(ctx context.Context, f func(k []byte, object *storobj.Object) error, froar func(k []byte, object *sroar.Bitmap) error, fset func(k []byte, object [][]byte) error) error {
 
 	switch b.Strategy() {
-	case StrategyReplace:
+	/*
+		if fset == nil {
+			return fmt.Errorf("set callback is nil")
+		}
 		c := b.SetCursor()
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if !helpers.MatchesPropertyKeyPrefix(b.property_prefix, k) {
+				continue
+			}
+			k = helpers.UnMakePropertyKey(b.property_prefix, k)
+			fmt.Printf("k sans prop: %v\n", k)
 			if err := fset(k, v); err != nil {
 				return err
 			}
 		}
+		*/
 
-	case StrategyMapCollection: //FIXME: Wrong type?
-
+	case StrategyMapCollection, StrategyReplace: //FIXME: Wrong type?
+		if f == nil {
+			return fmt.Errorf("object callback is nil")
+		}
 		i := 0
 		cursor := b.Cursor()
 		defer cursor.Close()
 
 		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-			if !helpers.MatchesPropertyKeyPrefix(propPrefix, k) {
+			if !helpers.MatchesPropertyKeyPrefix(b.property_prefix, k) {
 				continue
 			}
-			k = helpers.UnMakePropertyKey(propPrefix, k)
+			k = helpers.UnMakePropertyKey(b.property_prefix, k)
 			fmt.Printf("k sans prop: %v\n", k)
 			obj, err := storobj.FromBinary(v)
 			if err != nil {
@@ -208,14 +223,17 @@ func (b *BucketProxy) IteratePropPrefixObjects(ctx context.Context, propPrefix [
 		}
 
 	case StrategyRoaringSet:
+		if froar == nil {
+			return fmt.Errorf("roaringset callback is nil")
+		}
 		c := b.CursorRoaringSet()
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if !helpers.MatchesPropertyKeyPrefix(propPrefix, k) {
+			if !helpers.MatchesPropertyKeyPrefix(b.property_prefix, k) {
 				continue
 			}
-			k = helpers.UnMakePropertyKey(propPrefix, k)
+			k = helpers.UnMakePropertyKey(b.property_prefix, k)
 			fmt.Printf("k sans prop: %v\n", k)
 			if err := froar(k, v); err != nil {
 				return err

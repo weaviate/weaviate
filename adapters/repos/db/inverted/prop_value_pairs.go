@@ -58,7 +58,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 		}
 
-		b := lsmkv.NewBucketProxy(s.store.Bucket(bucketName), []byte(pv.prop), s.propIds) 
+		b := s.store.Bucket(bucketName)
 
 		// TODO text_rbm_inverted_index find better way check whether prop len
 		if b == nil && strings.HasSuffix(pv.prop, filters.InternalPropertyLength) {  //FIXME check that propname length will be the internal propname length name
@@ -85,8 +85,10 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 		}
 
+		bproxy := lsmkv.NewBucketProxy(b, pv.prop, s.propIds) 
+
 		ctx := context.TODO() // TODO: pass through instead of spawning new
-		dbm, err := s.docBitmap(ctx, []byte(pv.prop), b, limit, pv)
+		dbm, err := s.docBitmap(ctx, []byte(pv.prop), bproxy, limit, pv)
 		if err != nil {
 			return err
 		}
@@ -105,7 +107,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 					return errors.Wrapf(err, "nested child %d", i)
 				}
 
-				return nil
+				
 			
 		}
 		

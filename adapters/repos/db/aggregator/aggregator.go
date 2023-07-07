@@ -20,8 +20,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -46,6 +46,7 @@ type Aggregator struct {
 	propLengths            *inverted.JsonPropertyLengthTracker
 	propertyIds            *tracker.JsonPropertyIdTracker
 	isFallbackToSearchable inverted.IsFallbackToSearchable
+	PropertyName           string
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,

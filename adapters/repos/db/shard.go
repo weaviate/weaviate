@@ -85,10 +85,10 @@ type Shard struct {
 	geoPropsCycles *hnsw.MaintenanceCycles
 }
 
-func (s *Shard) wrapBucketWithProp(bucket *lsmkv.Bucket, propName []byte, propIds *tracker.JsonPropertyIdTracker) (*lsmkv.BucketProxy, error) {
+func (s *Shard) wrapBucketWithProp(bucket *lsmkv.Bucket, propName string, propIds *tracker.JsonPropertyIdTracker) (*lsmkv.BucketProxy, error) {
 	
 	
-	bucketValue := lsmkv.NewBucketProxy(bucket, []byte(propName), propIds)
+	bucketValue := lsmkv.NewBucketProxy(bucket, propName, propIds)
 	if bucketValue == nil {
 		return nil, errors.Errorf("cannot wrap raw bucket with property prefixer '%s'", propName)
 	}

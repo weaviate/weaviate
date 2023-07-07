@@ -142,9 +142,7 @@ func (b *deleteObjectsBatcher) setErrorAtIndex(err error, index int) {
 	b.objects[index].Err = err
 }
 
-func (s *Shard) findDocIDs(ctx context.Context,
-	filters *filters.LocalFilter,
-) ([]uint64, error) {
+func (s *Shard) findDocIDs(ctx context.Context,filters *filters.LocalFilter) ([]uint64, error) {
 	allowList, err := inverted.NewSearcher(s.index.logger, s.store,
 		s.index.getSchema.GetSchemaSkipAuth(), s.propertyIndices, s.propIds,
 		s.index.classSearcher, s.deletedDocIDs, s.index.stopwords,

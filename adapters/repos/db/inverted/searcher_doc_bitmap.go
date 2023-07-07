@@ -23,9 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
 
-func (s *Searcher) docBitmap(ctx context.Context, property []byte, b lsmkv.BucketInterface, limit int,
-	pv *propValuePair,
-) (docBitmap, error) {
+func (s *Searcher) docBitmap(ctx context.Context, property []byte, b lsmkv.BucketInterface, limit int,pv *propValuePair) (docBitmap, error) {
 	// geo props cannot be served by the inverted index and they require an
 	// external index. So, instead of trying to serve this chunk of the filter
 	// request internally, we can pass it to an external geo index

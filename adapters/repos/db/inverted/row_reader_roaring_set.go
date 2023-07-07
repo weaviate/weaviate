@@ -150,7 +150,7 @@ func (rr *RowReaderRoaringSet) lessThan(ctx context.Context,
 	c := rr.newCursor()
 	defer c.Close()
 
-	for k, v := c.First(); k != nil && bytes.Compare(k, rr.value) < 1; k, v = c.Next() {
+	for k, v := c.First(); k != nil && bytes.Compare(helpers.UnMakePropertyKey(rr.PropPrefix, k), rr.value) < 1; k, v = c.Next() {
 		fmt.Printf("rr roaring set: Property prefix: %v\n", rr.PropPrefix)
 		k = helpers.UnMakePropertyKey(rr.PropPrefix, k)
 		fmt.Printf("rr roaring set: k sans prop: %v\n", k)

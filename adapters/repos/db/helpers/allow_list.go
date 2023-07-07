@@ -14,7 +14,7 @@ package helpers
 import (
 
 	"bytes"
-	//"runtime/debug"
+	"runtime/debug"
 	"github.com/weaviate/sroar"
 	"fmt"
 	"encoding/binary"
@@ -64,7 +64,9 @@ func MakePropertyKey(propName []byte, key []byte) []byte {
 
 func MatchesPropertyKeyPrefix(propName []byte, key []byte) bool {
 	if len(propName) == 0 {
-		panic("Empty property name, this is almost certainly wrong")
+		fmt.Println("Empty property name, this is almost certainly wrong")
+		//Print stack trace here
+		debug.PrintStack()
 	}
 	//return bytes.HasPrefix(key, append([]byte(propName), byte('|')))
 	return bytes.HasPrefix(key, propName)
@@ -72,7 +74,9 @@ func MatchesPropertyKeyPrefix(propName []byte, key []byte) bool {
 
 func UnMakePropertyKey(propName []byte, key []byte) []byte {
 	if len(propName) == 0 {
-		panic("Empty property name, this is almost certainly wrong")
+		fmt.Println("Empty property name, this is almost certainly wrong")
+		//Print stack trace here
+		debug.PrintStack()
 	}
 	//return key[len(propName)+1:]
 	return key[len(propName):]

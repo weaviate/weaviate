@@ -27,9 +27,7 @@ type batchQueue struct {
 	originalIndex []int
 }
 
-func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
-	repl *additional.ReplicationProperties, tenantKey string,
-) (objects.BatchObjects, error) {
+func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,repl *additional.ReplicationProperties, tenantKey string) (objects.BatchObjects, error) {
 	objectByClass := make(map[string]batchQueue)
 	indexByClass := make(map[string]*Index)
 
@@ -95,9 +93,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	return objs, nil
 }
 
-func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchReferences,
-	repl *additional.ReplicationProperties, tenantKey string,
-) (objects.BatchReferences, error) {
+func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchReferences,repl *additional.ReplicationProperties, tenantKey string) (objects.BatchReferences, error) {
 	refByClass := make(map[schema.ClassName]objects.BatchReferences)
 	indexByClass := make(map[schema.ClassName]*Index)
 
@@ -152,9 +148,7 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 	return references, nil
 }
 
-func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDeleteParams,
-	repl *additional.ReplicationProperties, tenantKey string,
-) (objects.BatchDeleteResult, error) {
+func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDeleteParams,repl *additional.ReplicationProperties, tenantKey string) (objects.BatchDeleteResult, error) {
 	// get index for a given class
 	idx := db.GetIndex(params.ClassName)
 	if idx == nil {

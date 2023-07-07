@@ -35,6 +35,8 @@ type grouper struct {
 	values    map[interface{}]map[uint64]struct{} // map[value][docID]struct, to keep docIds unique
 	topGroups []group
 	limit     int
+	propertyName string
+	propertyPrefix []byte
 }
 
 func newGrouper(a *Aggregator, limit int) *grouper {
@@ -60,7 +62,7 @@ func (g *grouper) Do(ctx context.Context) ([]group, error) {
 func (g *grouper) groupAll(ctx context.Context) ([]group, error) {
 	err := ScanAllLSM(g.store, func(prop *models.PropertySchema, docID uint64) (bool, error) {
 		return true, g.addElementById(prop, docID)
-	})
+	},  g.propertyName, g.propertyPrefix)
 	if err != nil {
 		return nil, errors.Wrap(err, "group all (unfiltered)")
 	}
@@ -285,20 +287,20 @@ func ScanAll(tx *bolt.Tx, scan docid.ObjectScanFn) error {
 }
 
 // ScanAllLSM iterates over every row in the object buckets
-func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn) error {
+func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn,propName string,  propPrefix []byte) error {
 	//b :=  lsmkv.NewBucketProxy( store.Bucket(helpers.ObjectsBucketLSM), propName, propIds)
 	//if b == nil {
 	//	return fmt.Errorf("objects bucket not found")
 	//}
 
-	b := store.Bucket(helpers.ObjectsBucketLSM)
+	b :=  lsmkv.NewBucketProxyWithPrefix( store.Bucket(helpers.ObjectsBucketLSM), propName, propPrefix)
 
-	c := b.Cursor()
-	defer c.Close()
+	//c := b.Cursor()
+	//defer c.Close()
 
 	//for k, v := c.First(); k != nil; k, v = c.Next() 
 	
-	b.IterateObjects(context.TODO(), func ( elem *storobj.Object) error {
+	b.IteratePropPrefixObjects(context.TODO(), func ( k []byte, elem *storobj.Object) error {
 
 		// scanAll has no abort, so we can ignore the first arg
 		properties := elem.Properties()
@@ -307,7 +309,7 @@ func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn) error {
 			return err
 		}
 		return nil
-	})
+	}, nil, nil)
 
 	return nil
 }

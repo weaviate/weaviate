@@ -1518,9 +1518,7 @@ func (i *Index) notifyReady() {
 	})
 }
 
-func (i *Index) findDocIDs(ctx context.Context,
-	filters *filters.LocalFilter, tenantKey string,
-) (map[string][]uint64, error) {
+func (i *Index) findDocIDs(ctx context.Context,filters *filters.LocalFilter, tenantKey string) (map[string][]uint64, error) {
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "filter_total")
 

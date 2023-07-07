@@ -93,9 +93,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	return s.objectsByDocID(it, additional)
 }
 
-func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs helpers.AllowList,
-	additional additional.Properties, className schema.ClassName,
-) ([]uint64, error) {
+func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs helpers.AllowList,additional additional.Properties, className schema.ClassName) ([]uint64, error) {
 	lsmSorter, err := sorter.NewLSMSorter(s.store, s.schema, className)
 	if err != nil {
 		return nil, err
@@ -103,9 +101,7 @@ func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, doc
 	return lsmSorter.SortDocIDs(ctx, limit, sort, docIDs)
 }
 
-func (s *Searcher) objectsByDocID(it docIDsIterator,
-	additional additional.Properties,
-) ([]*storobj.Object, error) {
+func (s *Searcher) objectsByDocID(it docIDsIterator,additional additional.Properties) ([]*storobj.Object, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
 		return nil, errors.Errorf("objects bucket not found")
@@ -157,11 +153,8 @@ func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter, addi
 	return s.docIDs(ctx, filter, additional, className, 0)
 }
 
-func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
-	additional additional.Properties, className schema.ClassName,
-	limit int,
-) (helpers.AllowList, error) {
-	pv, err := s.extractPropValuePair(filter.Root, className)
+func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,additional additional.Properties,className schema.ClassName,	limit int) (helpers.AllowList, error) {
+	pv, err := s.buildPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err
 	}
@@ -178,9 +171,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	return helpers.NewAllowListFromBitmap(dbm.docIDs), nil
 }
 
-func (s *Searcher) extractPropValuePair(filter *filters.Clause,
-	className schema.ClassName,
-) (*propValuePair, error) {
+func (s *Searcher) buildPropValuePair(filter *filters.Clause,className schema.ClassName) (*propValuePair, error) {
 	out := newPropValuePair()
 	if filter.Operands != nil {
 		// nested filter
@@ -189,7 +180,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 		for i, clause := range filter.Operands {
 			i, clause := i, clause
 
-			child, err := s.extractPropValuePair(&clause, className)
+			child, err := s.buildPropValuePair(&clause, className)
 			if err != nil {
 				return nil, errors.Wrapf(err, "nested clause at pos %d", i)
 			}
@@ -398,9 +389,7 @@ func (s *Searcher) extractInternalProp(propName string, propType schema.DataType
 	}
 }
 
-func (s *Searcher) extractIDProp(propName string, propType schema.DataType,
-	value interface{}, operator filters.Operator,
-) (*propValuePair, error) {
+func (s *Searcher) extractIDProp(propName string, propType schema.DataType,value interface{}, operator filters.Operator) (*propValuePair, error) {
 	var byteValue []byte
 
 	switch propType {
@@ -424,9 +413,7 @@ func (s *Searcher) extractIDProp(propName string, propType schema.DataType,
 	}, nil
 }
 
-func (s *Searcher) extractTimestampProp(propName string, propType schema.DataType, value interface{},
-	operator filters.Operator,
-) (*propValuePair, error) {
+func (s *Searcher) extractTimestampProp(propName string, propType schema.DataType, value interface{},operator filters.Operator) (*propValuePair, error) {
 	var byteValue []byte
 
 	switch propType {
@@ -468,9 +455,7 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 	}, nil
 }
 
-func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema.DataType,
-	value interface{}, operator filters.Operator,
-) (*propValuePair, error) {
+func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema.DataType,value interface{}, operator filters.Operator) (*propValuePair, error) {
 	var terms []string
 
 	switch propType {
@@ -516,9 +501,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 	return nil, errors.Errorf("invalid search term, only stopwords provided. Stopwords can be configured in class.invertedIndexConfig.stopwords")
 }
 
-func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.DataType,
-	value interface{}, operator filters.Operator,
-) (*propValuePair, error) {
+func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.DataType,value interface{}, operator filters.Operator) (*propValuePair, error) {
 	var byteValue []byte
 
 	switch propType {
@@ -542,9 +525,7 @@ func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.
 	}, nil
 }
 
-func (s *Searcher) extractPropertyNull(prop *models.Property, propType schema.DataType,
-	value interface{}, operator filters.Operator,
-) (*propValuePair, error) {
+func (s *Searcher) extractPropertyNull(prop *models.Property, propType schema.DataType,value interface{}, operator filters.Operator) (*propValuePair, error) {
 	var valResult []byte
 
 	switch propType {
