@@ -40,12 +40,13 @@ type PQEncoder struct {
 
 // Product Quantization configuration
 type PQConfig struct {
-	Enabled        bool      `json:"enabled"`
-	BitCompression bool      `json:"bitCompression"`
-	Segments       int       `json:"segments"`
-	Centroids      int       `json:"centroids"`
-	TrainingLimit  int       `json:"trainingLimit"`
-	Encoder        PQEncoder `json:"encoder"`
+	Enabled             bool      `json:"enabled"`
+	CompressConnections bool      `json:"compressConnections"`
+	BitCompression      bool      `json:"bitCompression"`
+	Segments            int       `json:"segments"`
+	Centroids           int       `json:"centroids"`
+	TrainingLimit       int       `json:"trainingLimit"`
+	Encoder             PQEncoder `json:"encoder"`
 }
 
 func validEncoder(v string) error {

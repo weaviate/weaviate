@@ -13,14 +13,17 @@ package hnsw
 
 import (
 	"sync"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 )
 
 type vertex struct {
 	id uint64
 	sync.Mutex
-	level       int
-	connections [][]uint64
-	maintenance bool
+	level             int
+	connections       [][]uint64
+	packedConnections *packedconn.Connections
+	maintenance       bool
 }
 
 func (v *vertex) markAsMaintenance() {
@@ -46,11 +49,22 @@ func (v *vertex) connectionsAtLevelNoLock(level int) []uint64 {
 	return v.connections[level]
 }
 
+func (v *vertex) upgradePackedToLevelNoLock(level int) {
+	v.level = level
+	v.packedConnections.AddLayer()
+}
+
 func (v *vertex) upgradeToLevelNoLock(level int) {
 	newConnections := make([][]uint64, level+1)
 	copy(newConnections, v.connections)
 	v.level = level
 	v.connections = newConnections
+}
+
+func (v *vertex) setPackedConnectionsAtLevel(level int, connections []uint64) {
+	v.Lock()
+	defer v.Unlock()
+	v.packedConnections.ReplaceLayer(uint8(level), connections)
 }
 
 func (v *vertex) setConnectionsAtLevel(level int, connections []uint64) {

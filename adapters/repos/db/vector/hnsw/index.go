@@ -147,6 +147,7 @@ type hnsw struct {
 	deleteVsInsertLock sync.RWMutex
 
 	compressed             atomic.Bool
+	compressedConnections  atomic.Bool
 	doNotRescore           bool
 	pq                     *ssdhelpers.ProductQuantizer
 	pqConfig               ent.PQConfig

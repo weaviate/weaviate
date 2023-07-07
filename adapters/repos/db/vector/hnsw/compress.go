@@ -20,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -87,6 +88,9 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 
 	h.compressed.Store(true)
 	h.cache.drop()
+	if cfg.CompressConnections {
+		return h.compresseConnections()
+	}
 	return nil
 }
 
@@ -99,4 +103,23 @@ func (h *hnsw) storeCompressedVector(index uint64, vector []byte) {
 	Id := make([]byte, 8)
 	binary.LittleEndian.PutUint64(Id, index)
 	h.compressedStore.Bucket(helpers.CompressedObjectsBucketLSM).Put(Id, vector)
+}
+
+func (h *hnsw) compresseConnections() error {
+	for _, node := range h.nodes {
+		if node == nil {
+			continue
+		}
+		packedConnections, err := packedconn.NewWithMaxLayer(uint8(node.level))
+		if err != nil {
+			return err
+		}
+		node.packedConnections = &packedConnections
+		for l, connections := range node.connections {
+			node.packedConnections.ReplaceLayer(uint8(l), connections)
+		}
+		node.connections = nil
+	}
+	h.compressedConnections.Store(true)
+	return nil
 }

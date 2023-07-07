@@ -233,24 +233,28 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			continue
 		}
 
-		if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
-			// How is it possible that we could ever have more connections than the
-			// allowed maximum? It is not anymore, but there was a bug that allowed
-			// this to happen in versions prior to v1.12.0:
-			// https://github.com/weaviate/weaviate/issues/1868
-			//
-			// As a result the length of this slice is entirely unpredictable and we
-			// can no longer retrieve it from the pool. Instead we need to fallback
-			// to allocating a new slice.
-			//
-			// This was discovered as part of
-			// https://github.com/weaviate/weaviate/issues/1897
-			connectionsReusable = make([]uint64, len(candidateNode.connections[level]))
+		if h.compressedConnections.Load() {
+			connectionsReusable = candidateNode.packedConnections.CopyLayer(connectionsReusable, uint8(level))
 		} else {
-			connectionsReusable = connectionsReusable[:len(candidateNode.connections[level])]
-		}
+			if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
+				// How is it possible that we could ever have more connections than the
+				// allowed maximum? It is not anymore, but there was a bug that allowed
+				// this to happen in versions prior to v1.12.0:
+				// https://github.com/weaviate/weaviate/issues/1868
+				//
+				// As a result the length of this slice is entirely unpredictable and we
+				// can no longer retrieve it from the pool. Instead we need to fallback
+				// to allocating a new slice.
+				//
+				// This was discovered as part of
+				// https://github.com/weaviate/weaviate/issues/1897
+				connectionsReusable = make([]uint64, len(candidateNode.connections[level]))
+			} else {
+				connectionsReusable = connectionsReusable[:len(candidateNode.connections[level])]
+			}
 
-		copy(connectionsReusable, candidateNode.connections[level])
+			copy(connectionsReusable, candidateNode.connections[level])
+		}
 		candidateNode.Unlock()
 
 		for _, neighborID := range connectionsReusable {

@@ -106,8 +106,12 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 
 	n.graph.pools.pqResults.Put(results)
 
-	// set all outoing in one go
-	n.node.setConnectionsAtLevel(level, neighbors)
+	if n.graph.compressedConnections.Load() {
+		n.node.setPackedConnectionsAtLevel(level, neighbors)
+	} else {
+		// set all outoing in one go
+		n.node.setConnectionsAtLevel(level, neighbors)
+	}
 	n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighbors)
 
 	for _, neighborID := range neighbors {
@@ -142,16 +146,29 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 	neighbor.Lock()
 	defer neighbor.Unlock()
 	if level > neighbor.level {
-		// upgrade neighbor level if the level is out of sync due to a delete re-assign
-		neighbor.upgradeToLevelNoLock(level)
+		if n.graph.compressedConnections.Load() {
+			neighbor.upgradePackedToLevelNoLock(level)
+		} else {
+			// upgrade neighbor level if the level is out of sync due to a delete re-assign
+			neighbor.upgradeToLevelNoLock(level)
+		}
 	}
-	currentConnections := neighbor.connectionsAtLevelNoLock(level)
+	var currentConnections []uint64
+	if n.graph.compressedConnections.Load() {
+		currentConnections = neighbor.packedConnections.GetLayer(uint8(level))
+	} else {
+		currentConnections = neighbor.connectionsAtLevelNoLock(level)
+	}
 
 	maximumConnections := n.maximumConnections(level)
 	if len(currentConnections) < maximumConnections {
-		// we can simply append
-		// updatedConnections = append(currentConnections, n.node.id)
-		neighbor.appendConnectionAtLevelNoLock(level, n.node.id, maximumConnections)
+		if n.graph.compressedConnections.Load() {
+			neighbor.packedConnections.InsertAtLayer(n.node.id, uint8(level))
+		} else {
+			// we can simply append
+			// updatedConnections = append(currentConnections, n.node.id)
+			neighbor.appendConnectionAtLevelNoLock(level, n.node.id, maximumConnections)
+		}
 		if err := n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, n.node.id); err != nil {
 			return err
 		}
@@ -191,14 +208,22 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			return errors.Wrap(err, "connect neighbors")
 		}
 
-		neighbor.resetConnectionsAtLevelNoLock(level)
+		if n.graph.compressedConnections.Load() {
+			neighbor.packedConnections.ReplaceLayer(uint8(level), []uint64{})
+		} else {
+			neighbor.resetConnectionsAtLevelNoLock(level)
+		}
 		if err := n.graph.commitLog.ClearLinksAtLevel(neighbor.id, uint16(level)); err != nil {
 			return err
 		}
 
 		for candidates.Len() > 0 {
 			id := candidates.Pop().ID
-			neighbor.appendConnectionAtLevelNoLock(level, id, maximumConnections)
+			if n.graph.compressedConnections.Load() {
+				neighbor.packedConnections.InsertAtLayer(id, uint8(level))
+			} else {
+				neighbor.appendConnectionAtLevelNoLock(level, id, maximumConnections)
+			}
 			if err := n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, id); err != nil {
 				return err
 			}

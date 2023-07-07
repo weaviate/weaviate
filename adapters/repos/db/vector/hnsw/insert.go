@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 )
 
 func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
@@ -138,15 +139,23 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	// before = time.Now()
 	// m.addBuildingItemLocking(before)
 	node.level = targetLevel
-	node.connections = make([][]uint64, targetLevel+1)
-
-	for i := targetLevel; i >= 0; i-- {
-		capacity := h.maximumConnections
-		if i == 0 {
-			capacity = h.maximumConnectionsLayerZero
+	if h.compressedConnections.Load() {
+		packedConnections, err := packedconn.NewWithMaxLayer(uint8(targetLevel + 1))
+		if err != nil {
+			return err
 		}
+		node.packedConnections = &packedConnections
+	} else {
+		node.connections = make([][]uint64, targetLevel+1)
 
-		node.connections[i] = make([]uint64, 0, capacity)
+		for i := targetLevel; i >= 0; i-- {
+			capacity := h.maximumConnections
+			if i == 0 {
+				capacity = h.maximumConnectionsLayerZero
+			}
+
+			node.connections[i] = make([]uint64, 0, capacity)
+		}
 	}
 
 	if err := h.commitLog.AddNode(node); err != nil {
