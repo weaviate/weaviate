@@ -2,6 +2,7 @@ package packedconn
 
 import (
 	"math/rand"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -151,4 +152,120 @@ func TestConnections_InsertLayers(t *testing.T) {
 	assert.ElementsMatch(t, connsSlice1, c.GetLayer(0))
 	assert.ElementsMatch(t, shuffled, conns2)
 	assert.ElementsMatch(t, connsSlice3, c.GetLayer(2))
+}
+
+func TestConnections_InsertLayersAtEnd(t *testing.T) {
+	c, err := NewWithMaxLayer(2)
+	require.Nil(t, err)
+
+	assert.Equal(t, 0, c.LenAtLayer(0))
+	assert.Len(t, c.GetLayer(0), 0)
+	assert.Equal(t, 0, c.LenAtLayer(1))
+	assert.Len(t, c.GetLayer(1), 0)
+	assert.Equal(t, 0, c.LenAtLayer(2))
+	assert.Len(t, c.GetLayer(2), 0)
+
+	c.ReplaceLayer(0, connsSlice1)
+	c.ReplaceLayer(1, connsSlice2)
+	c.ReplaceLayer(2, connsSlice3)
+
+	c.ReplaceLayer(0, []uint64{})
+	shuffled := make([]uint64, len(connsSlice1))
+	copy(shuffled, connsSlice1)
+	shuffled = append(shuffled, 10000)
+	rand.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+	for _, item := range shuffled {
+		c.InsertAtLayer(item, 0)
+	}
+
+	conns1 := c.GetLayer(0)
+	assert.ElementsMatch(t, shuffled, conns1)
+	assert.ElementsMatch(t, connsSlice2, c.GetLayer(1))
+	assert.ElementsMatch(t, connsSlice3, c.GetLayer(2))
+}
+
+func TestConnections_InsertLayerAfterAddingLayer(t *testing.T) {
+	c, err := NewWithMaxLayer(1)
+	require.Nil(t, err)
+
+	assert.Equal(t, 0, c.LenAtLayer(0))
+	assert.Len(t, c.GetLayer(0), 0)
+	assert.Equal(t, 0, c.LenAtLayer(1))
+	assert.Len(t, c.GetLayer(1), 0)
+
+	c.ReplaceLayer(0, connsSlice1)
+	c.ReplaceLayer(1, connsSlice2)
+
+	assert.ElementsMatch(t, connsSlice1, c.GetLayer(0))
+	assert.ElementsMatch(t, connsSlice2, c.GetLayer(1))
+
+	c.AddLayer()
+
+	c.ReplaceLayer(0, []uint64{})
+	shuffled := make([]uint64, len(connsSlice1))
+	copy(shuffled, connsSlice1)
+	shuffled = append(shuffled)
+	rand.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+	for _, item := range shuffled {
+		c.InsertAtLayer(item, 0)
+	}
+
+	c.ReplaceLayer(2, []uint64{})
+	shuffled = make([]uint64, len(connsSlice3))
+	copy(shuffled, connsSlice3)
+	shuffled = append(shuffled)
+	rand.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+	for _, item := range shuffled {
+		c.InsertAtLayer(item, 2)
+	}
+
+	assert.ElementsMatch(t, connsSlice1, c.GetLayer(0))
+	assert.ElementsMatch(t, connsSlice2, c.GetLayer(1))
+	assert.ElementsMatch(t, connsSlice3, c.GetLayer(2))
+}
+
+func randomArray(size int) []uint64 {
+	res := make([]uint64, 0, size)
+	for i := 0; i < size; i++ {
+		res = append(res, uint64(rand.Uint32()/10000))
+	}
+	return res
+}
+
+func TestConnections_stress(t *testing.T) {
+	layers := uint8(10)
+	c, err := NewWithMaxLayer(layers)
+	require.Nil(t, err)
+
+	slices := make([][]uint64, 0, layers+1)
+	for i := uint8(0); i <= layers; i++ {
+		assert.Equal(t, 0, c.LenAtLayer(i))
+		assert.Len(t, c.GetLayer(i), 0)
+		slices = append(slices, randomArray(32))
+	}
+
+	for i := uint8(0); i <= layers; i++ {
+		c.ReplaceLayer(i, slices[i])
+	}
+
+	randomArray(32)
+	randomArray(32)
+
+	for i := uint8(0); i <= layers; i++ {
+		newNumbers := randomArray(5)
+		slices[i] = append(slices[i], newNumbers...)
+		for j := range newNumbers {
+			c.InsertAtLayer(newNumbers[j], i)
+		}
+	}
+
+	for i := uint8(0); int(i) < len(slices); i++ {
+		sort.Slice(slices[i], func(i2, j int) bool {
+			return slices[i][i2] < slices[i][j]
+		})
+		assert.Equal(t, len(slices[i]), c.LenAtLayer(i))
+		if !assert.ElementsMatch(t, slices[i], c.GetLayer(i)) {
+			return
+		}
+	}
 }

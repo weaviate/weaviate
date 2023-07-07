@@ -36,6 +36,24 @@ func NewWithMaxLayer(maxLayer uint8) (Connections, error) {
 	return c, nil
 }
 
+func (c *Connections) AddLayer() {
+	layers := c.layers()
+	c.expandDataIfRequired(3)
+	c.shiftRightBy(1+uint16(layers)*3, 3)
+	c.data[layerPos] = layers + 1
+	c.setLayerLength(layers, 0)
+	c.setLayerOffset(layers, 1+uint16(layers+1)*3)
+	layer := layers - 1
+	for {
+		c.setLayerOffset(layer, c.layerOffset(layer)+3)
+
+		if layer == 0 {
+			break
+		}
+		layer--
+	}
+}
+
 func (c *Connections) ReplaceLayer(layer uint8, conns []uint64) {
 	// create a temporary buffer that is guaranteed to fit everything. The
 	// over-allocation does not matter, this buffer won't stick around, so the
@@ -106,17 +124,18 @@ func (c *Connections) InsertAtLayer(conn uint64, layer uint8) {
 		offset += uint16(n)
 	}
 
-	len := c.replaceElement(layer, offset-uint16(n), 0, conn)
-	offset = offset - uint16(n) + len
+	offset = offset - uint16(n)
+	len := c.replaceElement(layer, offset, 0, conn)
+	offset += len
 	c.setLayerLength(layer, c.layerLength(layer)+1)
-	if end > offset-uint16(n) {
+	if end+len > offset {
 		val, n = binary.Uvarint(c.data[offset:])
 		c.replaceElement(layer, offset, n, val-conn)
 	}
 }
 
 func (c *Connections) replaceElement(layer uint8, pos uint16, formerLen int, value uint64) uint16 {
-	buff := make([]byte, 8)
+	buff := make([]byte, 16)
 	len := binary.PutUvarint(buff, value)
 	if len > formerLen {
 		c.shiftRightByAndAdaptOffsets(pos, uint16(len-formerLen), layer)
@@ -195,7 +214,7 @@ func (c *Connections) initialLayerOffset() uint16 {
 
 func (c *Connections) expandDataIfRequired(delta uint16) {
 	newSize := len(c.data) + int(delta)
-	if cap(c.data) < newSize {
+	if cap(c.data) <= newSize {
 		temp := c.data
 		c.data = make([]byte, newSize, newSize+newSize/10)
 		copy(c.data, temp)
@@ -241,12 +260,17 @@ func (c *Connections) shrinkLayerBy(layer uint8, delta uint16) {
 
 func (c *Connections) shiftRightByAndAdaptOffsets(startPos, delta uint16, layer uint8) {
 	c.growLayerBy(layer, delta)
-	copy(c.data[startPos+delta:], c.data[startPos:c.layerEndOffset(layer)-delta])
+	if c.layerEndOffset(layer) >= startPos+delta {
+		copy(c.data[startPos+delta:], c.data[startPos:c.layerEndOffset(layer)-delta])
+	}
 }
 
 func (c *Connections) shiftLeftByAndAdaptOffsets(startPos, delta uint16, layer uint8) {
+	offsetEnd := c.layerEndOffset(layer)
+	if offsetEnd >= startPos+delta {
+		copy(c.data[startPos:], c.data[startPos+delta:c.layerEndOffset(layer)])
+	}
 	c.shrinkLayerBy(layer, delta)
-	copy(c.data[startPos+delta:], c.data[startPos:c.layerEndOffset(layer)])
 }
 
 func (c *Connections) shiftRightBy(startPos, delta uint16) {
