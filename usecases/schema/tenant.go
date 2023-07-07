@@ -255,16 +255,17 @@ func (m *Manager) GetTenants(ctx context.Context, principal *models.Principal, c
 	}
 
 	var tenants []*models.Tenant
-	m.schemaCache.RLock()
-	if ss := m.schemaCache.ShardingState[cls.Class]; ss != nil {
-		tenants = make([]*models.Tenant, len(ss.Physical))
-		i := 0
-		for tenant := range ss.Physical {
-			tenants[i] = &models.Tenant{Name: tenant}
-			i++
+	m.schemaCache.RLockGuard(func() error {
+		if ss := m.schemaCache.ShardingState[cls.Class]; ss != nil {
+			tenants = make([]*models.Tenant, len(ss.Physical))
+			i := 0
+			for tenant := range ss.Physical {
+				tenants[i] = &models.Tenant{Name: tenant}
+				i++
+			}
 		}
-	}
-	m.schemaCache.RUnlock()
+		return nil
+	})
 
 	return tenants, nil
 }
