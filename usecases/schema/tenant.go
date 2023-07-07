@@ -115,7 +115,8 @@ func validateTenants(tenants []string) error {
 		names[tenant] = struct{}{}
 
 		if !regexTenantName.MatchString(tenant) {
-			return uco.NewErrInvalidUserInput("invalid tenant name at index %d", i)
+			msg := "tenant name should only contain alphanumeric characters (a-z, A-Z, 0-9), underscore (_), and hyphen (-), with a length between 1 and 64 characters"
+			return uco.NewErrInvalidUserInput("tenant name at index %d: %s", i, msg)
 		}
 	}
 	return nil
