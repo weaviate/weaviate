@@ -18,6 +18,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -92,18 +93,32 @@ func createRequest(url string, method string, payload interface{}) *http.Request
 
 // performRequest runs requests
 func performRequest(c *http.Client, request *http.Request) (int, []byte, error) {
-	response, err := c.Do(request)
-	if err != nil {
-		return 0, nil, err
-	}
+	for {
+		response, err := c.Do(request)
+		if err != nil {
+			return 0, nil, err
+		}
 
-	body, err := io.ReadAll(response.Body)
-	response.Body.Close()
-	if err != nil {
-		return 0, nil, err
-	}
+		body, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		if err != nil {
+			return 0, nil, err
+		}
 
-	return response.StatusCode, body, nil
+		if response.StatusCode == 200 {
+			return response.StatusCode, body, nil
+		}
+		time.Sleep(time.Millisecond * 10)
+		var result map[string]interface{}
+		json.Unmarshal(body, &result)
+		message := result["error"].([]interface{})[0].(map[string]interface{})["message"].(string)
+
+		if strings.Contains(message, "concurrent transaction") {
+			time.Sleep(time.Millisecond * 10)
+			continue
+		}
+		return response.StatusCode, body, nil
+	}
 }
 
 func createSchemaRequest(url string, class string, multiTenantcy bool) *http.Request {
@@ -120,30 +135,18 @@ func createSchemaRequest(url string, class string, multiTenantcy bool) *http.Req
 				Name:        "counter",
 			},
 			{
-				DataType:    []string{"int"},
-				Description: "The value of the counter in the dataset",
-				Name:        "counter2",
-			},
-			{
 				DataType:     schema.DataTypeText.PropString(),
 				Tokenization: models.PropertyTokenizationWhitespace,
 				Description:  "The value of the counter in the dataset",
-				Name:         "something",
+				Name:         "name",
 			},
-		},
-		VectorIndexConfig: map[string]interface{}{
-			"distance":              "l2-squared",
-			"ef":                    -1,
-			"efConstruction":        64,
-			"maxConnections":        64,
-			"vectorCacheMaxObjects": 1000000000,
 		},
 	}
 	request := createRequest(url+"schema", "POST", classObj)
 	return request
 }
 
-func createObject(class string, tenant string) []*models.Object {
+func createObject(class string) []*models.Object {
 	objects := []*models.Object{
 		{
 			Class:  class,
@@ -154,8 +157,23 @@ func createObject(class string, tenant string) []*models.Object {
 				"counter2":  45,
 				"something": "JustSlammedMyKeyboardahudghoig",
 			},
-			Tenant: tenant,
 		},
+	}
+	return objects
+}
+
+func createBatch(class string, batchSize int, tenants []models.Tenant) []*models.Object {
+	objects := make([]*models.Object, 0, batchSize)
+	for i := 0; i < batchSize; i++ {
+		objects = append(objects, &models.Object{
+			Class: class,
+			ID:    strfmt.UUID(uuid.New().String()),
+			Properties: map[string]interface{}{
+				"counter": i,
+				"name":    tenants[i%len(tenants)].Name,
+			},
+			Tenant: tenants[i%len(tenants)].Name,
+		})
 	}
 	return objects
 }

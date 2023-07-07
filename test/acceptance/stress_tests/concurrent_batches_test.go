@@ -29,7 +29,7 @@ const class = "TestClass"
 
 func Test_AddConcurrentSchemas_sameObject(t *testing.T) {
 	url := "http://localhost:8080/v1/"
-	objects := createObject(class, "")
+	objects := createObject(class)
 	requestAdd := createRequest(url+"batch/objects", "POST", batch{objects})
 	// Add schema and object
 	parallelReqs := 50
@@ -68,8 +68,8 @@ func Test_AddConcurrentSchemas_sameObject(t *testing.T) {
 func Test_AddConcurrentBatches_differentObjects(t *testing.T) {
 	url := "http://localhost:8080/v1/"
 
-	requestAdd1 := createRequest(url+"batch/objects", "POST", batch{createObject(class, "")})
-	requestAdd2 := createRequest(url+"batch/objects", "POST", batch{createObject(class, "")})
+	requestAdd1 := createRequest(url+"batch/objects", "POST", batch{createObject(class)})
+	requestAdd2 := createRequest(url+"batch/objects", "POST", batch{createObject(class)})
 	// Add schema and object
 	parallelReqs := 150
 	wg := sync.WaitGroup{}
