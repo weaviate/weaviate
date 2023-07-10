@@ -69,7 +69,6 @@ type DeleteTenantsPayload struct {
 
 type DeleteClassPayload struct {
 	ClassName string `json:"className"`
-	Force     bool   `json:"force"`
 }
 
 type UpdateClassPayload struct {
