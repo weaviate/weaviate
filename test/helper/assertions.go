@@ -20,6 +20,7 @@ import (
 // Asserts that the request did not return an error.
 // Optionally perform some checks only if the request did not fail
 func AssertRequestOk(t *testing.T, response interface{}, err error, checkFn func()) {
+	t.Helper()
 	if err != nil {
 		responseJson, _ := json.MarshalIndent(response, "", "  ")
 		errorPayload, _ := json.MarshalIndent(err, "", " ")
