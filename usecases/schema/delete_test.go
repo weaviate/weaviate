@@ -26,7 +26,6 @@ func TestForceDelete(t *testing.T) {
 		name           string
 		existingSchema []*models.Class
 		classToDelete  string
-		force          bool
 		expErr         bool
 		expErrMsg      string
 		expSchema      []*models.Class
@@ -34,8 +33,7 @@ func TestForceDelete(t *testing.T) {
 
 	tests := []test{
 		{
-			name:  "class exists, regular delete",
-			force: false,
+			name: "class exists",
 			existingSchema: []*models.Class{
 				{Class: "MyClass", VectorIndexType: "hnsw"},
 				{Class: "OtherClass", VectorIndexType: "hnsw"},
@@ -47,34 +45,7 @@ func TestForceDelete(t *testing.T) {
 			expErr: false,
 		},
 		{
-			name:  "class does not exist, regular delete",
-			force: false,
-			existingSchema: []*models.Class{
-				{Class: "OtherClass", VectorIndexType: "hnsw"},
-			},
-			classToDelete: "MyClass",
-			expSchema: []*models.Class{
-				classWithDefaultsSet(t, "OtherClass"),
-			},
-			expErr:    true,
-			expErrMsg: "could not find class",
-		},
-		{
-			name:  "class exists, force delete",
-			force: true,
-			existingSchema: []*models.Class{
-				{Class: "MyClass", VectorIndexType: "hnsw"},
-				{Class: "OtherClass", VectorIndexType: "hnsw"},
-			},
-			classToDelete: "MyClass",
-			expSchema: []*models.Class{
-				classWithDefaultsSet(t, "OtherClass"),
-			},
-			expErr: false,
-		},
-		{
-			name:  "class does not exist, force delete",
-			force: true,
+			name: "class does not exist",
 			existingSchema: []*models.Class{
 				{Class: "OtherClass", VectorIndexType: "hnsw"},
 			},
@@ -102,10 +73,10 @@ func TestForceDelete(t *testing.T) {
 
 			sm, err := newManagerWithClusterAndTx(t, clusterState, txClient, initialSchema)
 			require.Nil(t, err)
-			err = sm.DeleteClass(context.Background(), nil, test.classToDelete, test.force)
+			err = sm.DeleteClass(context.Background(), nil, test.classToDelete)
 
 			if test.expErr {
-				require.NotNil(t, err, "opeartion should have errord")
+				require.NotNil(t, err)
 				assert.Contains(t, err.Error(), test.expErrMsg)
 			} else {
 				require.Nil(t, err)
