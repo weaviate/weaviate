@@ -180,16 +180,18 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 	db.indexLock.Lock()
 	defer db.indexLock.Unlock()
 
+	// Get index
 	id := indexID(className)
-	index, ok := db.indices[id]
-	if !ok {
-		return errors.Errorf("exist index %s", id)
+	index := db.indices[id]
+	if index == nil {
+		return nil
 	}
+
+	// Drop index
 	index.dropIndex.Lock()
 	defer index.dropIndex.Unlock()
-	err := index.drop()
-	if err != nil {
-		return errors.Wrapf(err, "drop index %s", id)
+	if err := index.drop(); err != nil {
+		db.logger.WithField("action", "delete_index").WithField("class", className).Error(err)
 	}
 	delete(db.indices, id)
 	return nil
