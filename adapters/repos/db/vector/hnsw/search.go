@@ -486,8 +486,11 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	if h.isEmpty() {
 		return nil, nil, nil
 	}
-
+	h.RLock()
 	entryPointID := h.entryPointID
+	maxLayer := h.currentMaximumLayer
+	h.RUnlock()
+
 	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
@@ -504,7 +507,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		defer h.pq.ReturnDistancer(byteDistancer)
 	}
 	// stop at layer 1, not 0!
-	for level := h.currentMaximumLayer; level >= 1; level-- {
+	for level := maxLayer; level >= 1; level-- {
 		eps := priorityqueue.NewMin(10)
 		eps.Insert(entryPointID, entryPointDistance)
 
