@@ -1416,24 +1416,23 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 	return res, nil
 }
 
-func (i *Index) drop() error {
+func (i *Index) drop() (firstErr error) {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
-	for _, name := range i.getSchema.CopyShardingState(i.Config.ClassName.String()).
-		AllPhysicalShards() {
-		shard := i.shards.Load(name)
+	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName}
+	i.shards.Range(func(name string, shard *Shard) error {
 		if shard == nil {
-			// skip non-local, but do delete everything that exists - even if it
-			// shouldn't
-			continue
+			return nil
 		}
-		err := shard.drop()
-		if err != nil {
-			return errors.Wrapf(err, "delete shard %s", shard.ID())
+		if err := shard.drop(); err != nil {
+			logrus.WithFields(fields).WithField("id", shard.ID()).Error(err)
+			if firstErr == nil {
+				firstErr = err
+			}
 		}
-	}
-
-	return nil
+		return nil
+	})
+	return
 }
 
 func (i *Index) Shutdown(ctx context.Context) error {
