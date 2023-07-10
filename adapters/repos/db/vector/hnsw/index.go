@@ -590,12 +590,10 @@ func (h *hnsw) isEmpty() bool {
 }
 
 func (h *hnsw) isEmptyUnsecured() bool {
-	for _, node := range h.nodes {
-		if node != nil {
-			return false
-		}
-	}
-	return true
+	h.shardedNodeLocks[h.entryPointID%NodeLockStripe].Lock()
+	defer h.shardedNodeLocks[h.entryPointID%NodeLockStripe].Unlock()
+	entryPoint := h.nodes[h.entryPointID]
+	return entryPoint == nil
 }
 
 func (h *hnsw) nodeByID(id uint64) *vertex {

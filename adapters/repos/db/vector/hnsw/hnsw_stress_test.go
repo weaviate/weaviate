@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	vectorSize         = 1024
+	vectorSize         = 128
 	vectorsToAdd       = 100
 	parallelGoroutines = 100
 )
@@ -73,12 +73,21 @@ func BenchmarkHnswStress(b *testing.B) {
 		}, cyclemanager.NewNoop())
 		require.Nil(b, err)
 		for k := 0; k < parallelGoroutines; k++ {
-			wg.Add(1)
+			wg.Add(2)
 			goroutineIndex := k * vectorsToAdd
 			go func() {
 				for i := 0; i < vectorsToAdd; i++ {
 
 					err := index.Add(uint64(goroutineIndex+i), vectors[goroutineIndex+i])
+					require.Nil(b, err)
+				}
+				wg.Done()
+			}()
+
+			go func() {
+				for i := 0; i < vectorsToAdd; i++ {
+
+					_, _, err := index.SearchByVector(vectors[goroutineIndex+i], 0, nil)
 					require.Nil(b, err)
 				}
 				wg.Done()
