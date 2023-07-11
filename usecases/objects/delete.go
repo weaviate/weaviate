@@ -52,7 +52,12 @@ func (m *Manager) DeleteObject(ctx context.Context,
 
 	ok, err := m.vectorRepo.Exists(ctx, class, id, repl, tenant)
 	if err != nil {
-		return NewErrInternal("check object existence: %v", err)
+		switch err.(type) {
+		case ErrMultiTenancy:
+			return NewErrMultiTenancy(fmt.Errorf("check object existence: %w", err))
+		default:
+			return NewErrInternal("check object existence: %v", err)
+		}
 	}
 	if !ok {
 		return NewErrNotFound("object %v could not be found", path)

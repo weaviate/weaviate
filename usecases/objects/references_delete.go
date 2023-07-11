@@ -46,6 +46,8 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		errnf := ErrNotFound{}
 		if errors.As(err, &errnf) {
 			return &Error{"source object", StatusNotFound, err}
+		} else if errors.As(err, &ErrMultiTenancy{}) {
+			return &Error{"source object", StatusBadRequest, err}
 		}
 		return &Error{"source object", StatusInternalServerError, err}
 	}

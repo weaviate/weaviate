@@ -43,7 +43,12 @@ func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, c
 
 	ok, err := m.vectorRepo.Exists(ctx, class, id, repl, tenant)
 	if err != nil {
-		return false, &Error{"repo.exists", StatusInternalServerError, err}
+		switch err.(type) {
+		case ErrMultiTenancy:
+			return false, &Error{"repo.exists", StatusBadRequest, err}
+		default:
+			return false, &Error{"repo.exists", StatusInternalServerError, err}
+		}
 	}
 	return ok, nil
 }

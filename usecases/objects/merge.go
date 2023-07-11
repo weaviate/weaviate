@@ -53,7 +53,12 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 
 	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
-		return &Error{"repo.object", StatusInternalServerError, err}
+		switch err.(type) {
+		case ErrMultiTenancy:
+			return &Error{"repo.object", StatusBadRequest, err}
+		default:
+			return &Error{"repo.object", StatusInternalServerError, err}
+		}
 	}
 	if obj == nil {
 		return &Error{"not found", StatusNotFound, err}
