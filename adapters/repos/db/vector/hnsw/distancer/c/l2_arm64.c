@@ -11,7 +11,7 @@
 
 #include <arm_neon.h>
 
-// l2 only works with lenght >= 16
+// l2 only works with length >= 16
 void l2(float *a, float *b, float *res, long *len)
 {
     int size = *len;

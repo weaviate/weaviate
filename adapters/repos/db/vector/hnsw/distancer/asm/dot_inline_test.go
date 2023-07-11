@@ -17,19 +17,16 @@ import (
 	"testing"
 )
 
-func l2Loop(a, b []float32) float32 {
+func dotLoop(x, y []float32) float32 {
 	var sum float32
-
-	for i := range a {
-		diff := a[i] - b[i]
-		sum += diff * diff
+	for i := range x {
+		sum += x[i] * y[i]
 	}
 
 	return sum
 }
 
-func BenchmarkL2InlineVsLoop(b *testing.B) {
-
+func BenchmarkDotInlineVsLoop(b *testing.B) {
 	lengths := []int{2, 4, 6, 8, 10, 12}
 	for _, length := range lengths {
 		x := make([]float32, length)
@@ -43,7 +40,7 @@ func BenchmarkL2InlineVsLoop(b *testing.B) {
 		b.Run(fmt.Sprintf("vector dim=%d", length), func(b *testing.B) {
 			b.Run("loop", func(b *testing.B) {
 				for i := 0; i < b.N; i++ {
-					l2Loop(x, y)
+					dotLoop(x, y)
 				}
 			})
 
@@ -54,38 +51,37 @@ func BenchmarkL2InlineVsLoop(b *testing.B) {
 				case 2:
 					b.ResetTimer()
 					for i := 0; i < b.N; i++ {
-						l22(x, y)
+						dot2(x, y)
 					}
 				case 4:
 					b.ResetTimer()
 					for i := 0; i < b.N; i++ {
-						l24(x, y)
+						dot4(x, y)
 					}
 				case 6:
 					b.ResetTimer()
 					for i := 0; i < b.N; i++ {
-						l26(x, y)
+						dot6(x, y)
 					}
 				case 8:
 					b.ResetTimer()
 					for i := 0; i < b.N; i++ {
-						l28(x, y)
+						dot8(x, y)
 					}
 				case 10:
 					b.ResetTimer()
 					for i := 0; i < b.N; i++ {
-						l210(x, y)
+						dot10(x, y)
 					}
 				case 12:
 					b.ResetTimer()
 					for i := 0; i < b.N; i++ {
-						l212(x, y)
+						dot12(x, y)
 					}
 				default:
 					panic("unsupported length")
 				}
 			})
 		})
-
 	}
 }
