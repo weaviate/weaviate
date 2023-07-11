@@ -143,7 +143,7 @@ func TestSchema_Tenants(t *testing.T) {
 				Name: "tenantNo1",
 			}
 
-			err := client.Schema().TenantCreator().
+			err := client.Schema().TenantsCreator().
 				WithClassName(className).
 				WithTenants(tenant).
 				Do(context.Background())
@@ -153,11 +153,11 @@ func TestSchema_Tenants(t *testing.T) {
 
 		t.Run("adds multiple tenants", func(t *testing.T) {
 			tenants := []models.Tenant{
-				{Name: "TenantNo2"},
-				{Name: "TenantNo3"},
+				{Name: "tenantNo2"},
+				{Name: "tenantNo3"},
 			}
 
-			err := client.Schema().TenantCreator().
+			err := client.Schema().TenantsCreator().
 				WithClassName(className).
 				WithTenants(tenants...).
 				Do(context.Background())
@@ -176,7 +176,7 @@ func TestSchema_Tenants(t *testing.T) {
 
 		fixtures.CreateSchemaPizza(t, client)
 
-		err := client.Schema().TenantCreator().
+		err := client.Schema().TenantsCreator().
 			WithClassName(className).
 			WithTenants(tenants...).
 			Do(context.Background())
@@ -185,6 +185,44 @@ func TestSchema_Tenants(t *testing.T) {
 		clientErr := err.(*fault.WeaviateClientError)
 		assert.Equal(t, 422, clientErr.StatusCode)
 		assert.Contains(t, clientErr.Msg, "multi-tenancy is not enabled for class")
+	})
+
+	t.Run("gets tenants of MT class", func(t *testing.T) {
+		defer cleanup()
+
+		tenants := []string{"tenantNo1", "tenantNo2"}
+
+		fixtures.CreateSchemaPizzaForTenants(t, client)
+		fixtures.CreateTenantsPizza(t, client, tenants...)
+
+		gotTenants, err := client.Schema().TenantsGetter().
+			WithClassName(className).
+			Do(context.Background())
+
+		require.Nil(t, err)
+		require.Len(t, gotTenants, len(tenants))
+
+		names := make([]string, len(tenants))
+		for i, tenant := range gotTenants {
+			names[i] = tenant.Name
+		}
+		assert.ElementsMatch(t, tenants, names)
+	})
+
+	t.Run("fails getting tenants from non-MT class", func(t *testing.T) {
+		defer cleanup()
+
+		fixtures.CreateSchemaPizza(t, client)
+
+		gotTenants, err := client.Schema().TenantsGetter().
+			WithClassName(className).
+			Do(context.Background())
+
+		require.NotNil(t, err)
+		clientErr := err.(*fault.WeaviateClientError)
+		assert.Equal(t, 422, clientErr.StatusCode)
+		assert.Contains(t, clientErr.Msg, "multi-tenancy is not enabled for class")
+		require.Nil(t, gotTenants)
 	})
 
 	t.Run("deletes tenants from MT class", func(t *testing.T) {
@@ -196,7 +234,7 @@ func TestSchema_Tenants(t *testing.T) {
 		fixtures.CreateTenantsPizza(t, client, tenants...)
 
 		t.Run("does not error on deleting non existent tenant", func(t *testing.T) {
-			err := client.Schema().TenantDeleter().
+			err := client.Schema().TenantsDeleter().
 				WithClassName(className).
 				WithTenants(tenants[0], "nonExistentTenant").
 				Do(context.Background())
@@ -205,7 +243,7 @@ func TestSchema_Tenants(t *testing.T) {
 		})
 
 		t.Run("deletes multiple tenants", func(t *testing.T) {
-			err := client.Schema().TenantDeleter().
+			err := client.Schema().TenantsDeleter().
 				WithClassName(className).
 				WithTenants(tenants[1:]...).
 				Do(context.Background())
@@ -221,7 +259,7 @@ func TestSchema_Tenants(t *testing.T) {
 
 		fixtures.CreateSchemaPizza(t, client)
 
-		err := client.Schema().TenantDeleter().
+		err := client.Schema().TenantsDeleter().
 			WithClassName(className).
 			WithTenants(tenants...).
 			Do(context.Background())

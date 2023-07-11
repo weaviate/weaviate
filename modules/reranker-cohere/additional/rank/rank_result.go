@@ -59,7 +59,10 @@ func (p *ReRankerCohereProvider) getScore(ctx context.Context, cfg moduletools.C
 				ap = models.AdditionalProperties{}
 			}
 
-			result, _ := p.client.Rank(ctx, cfg, rankPropertyValue, query) // didn't implement error yet
+			result, err := p.client.Rank(ctx, cfg, rankPropertyValue, query)
+			if err != nil {
+				return nil, fmt.Errorf("error ranking with cohere: %w", err)
+			}
 			ap["rerank"] = []*rerankmodels.RankResult{
 				{
 					Score: &result.Score,

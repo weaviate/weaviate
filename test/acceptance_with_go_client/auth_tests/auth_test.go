@@ -37,8 +37,6 @@ func TestAuthGraphQLUnauthenticated(t *testing.T) {
 }
 
 func TestAuthGraphQLValidUserNotOnAdminlist(t *testing.T) {
-	t.Skip("To be enabled. fails for unreleased client")
-
 	pw := os.Getenv("WCS_DUMMY_CI_PW_2")
 	if pw == "" {
 		t.Skip("No password supplied")
@@ -59,8 +57,6 @@ func TestAuthGraphQLValidUserNotOnAdminlist(t *testing.T) {
 }
 
 func TestAuthGraphQLValidUser(t *testing.T) {
-	t.Skip("To be enabled. fails for unreleased client")
-
 	pwAdminUser := os.Getenv("WCS_DUMMY_CI_PW")
 	pwNoAdminUser := os.Getenv("WCS_DUMMY_CI_PW_2")
 	if pwAdminUser == "" || pwNoAdminUser == "" {

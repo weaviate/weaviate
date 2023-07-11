@@ -190,16 +190,12 @@ type authorizer interface {
 	Authorize(principal *models.Principal, verb, resource string) error
 }
 
-func (m *Manager) saveSchema(ctx context.Context, doAfter func(err error)) error {
+func (m *Manager) saveSchema(ctx context.Context, st State) error {
 	m.logger.
 		WithField("action", "schema.save").
 		Debug("saving updated schema to configuration store")
 
-	err := m.repo.Save(ctx, m.schemaCache.State)
-	if doAfter != nil {
-		doAfter(err)
-	}
-	if err != nil {
+	if err := m.repo.Save(ctx, st); err != nil {
 		return err
 	}
 	m.triggerSchemaUpdateCallbacks()
@@ -222,18 +218,15 @@ func (m *Manager) triggerSchemaUpdateCallbacks() {
 }
 
 func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
-	schema, err := m.repo.Load(ctx)
+	localSchema, err := m.repo.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("could not load schema:  %v", err)
 	}
-	if err := m.parseConfigs(ctx, &schema); err != nil {
+	if err := m.parseConfigs(ctx, &localSchema); err != nil {
 		return errors.Wrap(err, "load schema")
 	}
 
-	// store in local cache
-	m.schemaCache.State = schema
-
-	if err := m.migrateSchemaIfNecessary(ctx); err != nil {
+	if err := m.migrateSchemaIfNecessary(ctx, &localSchema); err != nil {
 		return fmt.Errorf("migrate schema: %w", err)
 	}
 
@@ -242,32 +235,39 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	// this step can remove the duplicate ones.
 	//
 	// See https://github.com/weaviate/weaviate/issues/2609
-	m.removeDuplicatePropsIfPresent()
+	for _, c := range localSchema.ObjectSchema.Classes {
+		c.Properties = m.deduplicateProps(c.Properties, c.Class)
+	}
+
+	// set internal state since it is used by startupClusterSync
+	m.schemaCache.setState(localSchema)
 
 	// make sure that all migrations have completed before checking sync,
 	// otherwise two identical schemas might fail the check based on form rather
 	// than content
 
-	if err := m.startupClusterSync(ctx, &schema); err != nil {
+	if err := m.startupClusterSync(ctx); err != nil {
 		return errors.Wrap(err, "sync schema with other nodes in the cluster")
 	}
 
 	// store in persistent storage
-	if err := m.repo.Save(ctx, m.schemaCache.State); err != nil {
-		return fmt.Errorf("initialized a new schema, but couldn't update remote: %v", err)
+	// TODO: investigate if save() is redundant because it is called in startupClusterSync()
+	err = m.RLockGuard(func() error { return m.repo.Save(ctx, m.schemaCache.State) })
+	if err != nil {
+		return fmt.Errorf("store to persistent storage: %v", err)
 	}
 
 	return nil
 }
 
-func (m *Manager) migrateSchemaIfNecessary(ctx context.Context) error {
+func (m *Manager) migrateSchemaIfNecessary(ctx context.Context, localSchema *State) error {
 	// introduced when Weaviate started supporting multi-shards per class in v1.8
-	if err := m.checkSingleShardMigration(ctx); err != nil {
+	if err := m.checkSingleShardMigration(ctx, localSchema); err != nil {
 		return errors.Wrap(err, "migrating sharding state from previous version")
 	}
 
 	// introduced when Weaviate started supporting replication in v1.17
-	if err := m.checkShardingStateForReplication(ctx); err != nil {
+	if err := m.checkShardingStateForReplication(ctx, localSchema); err != nil {
 		return errors.Wrap(err, "migrating sharding state from previous version (before replication)")
 	}
 
@@ -275,12 +275,9 @@ func (m *Manager) migrateSchemaIfNecessary(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
-	for _, c := range m.schemaCache.ObjectSchema.Classes {
-		m.schemaCache.RLock()
-		_, ok := m.schemaCache.ShardingState[c.Class]
-		m.schemaCache.RUnlock()
-		if ok { // there is sharding state for this class. Nothing to do
+func (m *Manager) checkSingleShardMigration(ctx context.Context, localSchema *State) error {
+	for _, c := range localSchema.ObjectSchema.Classes {
+		if _, ok := localSchema.ShardingState[c.Class]; ok { // there is sharding state for this class. Nothing to do
 			continue
 		}
 
@@ -311,25 +308,20 @@ func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
 			return errors.Wrap(err, "init sharding state")
 		}
 
-		m.schemaCache.LockGuard(func() {
-			if m.schemaCache.ShardingState == nil {
-				m.schemaCache.ShardingState = map[string]*sharding.State{}
-			}
-			m.schemaCache.ShardingState[c.Class] = shardState
-		})
+		if localSchema.ShardingState == nil {
+			localSchema.ShardingState = map[string]*sharding.State{}
+		}
+		localSchema.ShardingState[c.Class] = shardState
 
 	}
 
 	return nil
 }
 
-func (m *Manager) checkShardingStateForReplication(ctx context.Context) error {
-	m.schemaCache.LockGuard(func() {
-		for _, classState := range m.schemaCache.ShardingState {
-			classState.MigrateFromOldFormat()
-		}
-	})
-
+func (m *Manager) checkShardingStateForReplication(ctx context.Context, localSchema *State) error {
+	for _, classState := range localSchema.ShardingState {
+		classState.MigrateFromOldFormat()
+	}
 	return nil
 }
 

@@ -12,11 +12,12 @@
 package multi_tenancy_tests
 
 import (
-	"acceptance_tests_with_client/fixtures"
 	"context"
 	"fmt"
 	"strings"
 	"testing"
+
+	"acceptance_tests_with_client/fixtures"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

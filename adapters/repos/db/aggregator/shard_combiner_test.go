@@ -240,7 +240,7 @@ func createNumericalAgg(numbers []float64) map[string]interface{} {
 }
 
 func createRandomSlice() []float64 {
-	size := rand.Intn(100)
+	size := rand.Intn(100) + 1 // at least one entry
 	array := make([]float64, size)
 	for i := 0; i < size; i++ {
 		array[i] = rand.Float64() * 1000
