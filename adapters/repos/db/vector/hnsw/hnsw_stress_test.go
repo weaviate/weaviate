@@ -29,9 +29,9 @@ import (
 )
 
 const (
-	vectorSize         = 128
-	vectorsToAdd       = 100
-	parallelGoroutines = 100
+	vectorSize          = 128
+	vectorsPerGoroutine = 100
+	parallelGoroutines  = 100
 )
 
 func idVector(ctx context.Context, id uint64) ([]float32, error) {
@@ -52,49 +52,94 @@ func int32FromBytes(bytes []byte) int {
 	return int(binary.LittleEndian.Uint32(bytes))
 }
 
-func BenchmarkHnswStress(b *testing.B) {
+func TestHnswStress(t *testing.T) {
 	siftFile := "siftsmall/siftsmall_base.fvecs"
 	if _, err := os.Stat(siftFile); err != nil {
-		b.Skip("Sift data needs to be present")
+		t.Skip("Sift data needs to be present")
 	}
 	wg := sync.WaitGroup{}
-	vectors := readSiftFloat(siftFile, parallelGoroutines*vectorsToAdd)
+	vectors := readSiftFloat(siftFile, parallelGoroutines*vectorsPerGoroutine)
 
-	for n := 0; n < b.N; n++ {
-		index, err := New(Config{
-			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-			ID:                    "unittest",
-			MakeCommitLoggerThunk: MakeNoopCommitLogger,
-			DistanceProvider:      distancer.NewCosineDistanceProvider(),
-			VectorForIDThunk:      idVector,
-		}, ent.UserConfig{
-			MaxConnections: 30,
-			EFConstruction: 60,
-		}, cyclemanager.NewNoop())
-		require.Nil(b, err)
-		for k := 0; k < parallelGoroutines; k++ {
-			wg.Add(2)
-			goroutineIndex := k * vectorsToAdd
-			go func() {
-				for i := 0; i < vectorsToAdd; i++ {
+	t.Run("Insert and search and maybe delete", func(t *testing.T) {
+		for n := 0; n < 1; n++ { // increase if you don't want to reread SIFT for every run
+			index, err := New(Config{
+				RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+				ID:                    "unittest",
+				MakeCommitLoggerThunk: MakeNoopCommitLogger,
+				DistanceProvider:      distancer.NewCosineDistanceProvider(),
+				VectorForIDThunk:      idVector,
+			}, ent.UserConfig{
+				MaxConnections: 30,
+				EFConstruction: 60,
+			}, cyclemanager.NewNoop())
+			require.Nil(t, err)
+			for k := 0; k < parallelGoroutines; k++ {
+				wg.Add(2)
+				goroutineIndex := k * vectorsPerGoroutine
+				go func() {
+					for i := 0; i < vectorsPerGoroutine; i++ {
 
-					err := index.Add(uint64(goroutineIndex+i), vectors[goroutineIndex+i])
-					require.Nil(b, err)
-				}
-				wg.Done()
-			}()
+						err := index.Add(uint64(goroutineIndex+i), vectors[goroutineIndex+i])
+						require.Nil(t, err)
+					}
+					wg.Done()
+				}()
 
-			go func() {
-				for i := 0; i < vectorsToAdd; i++ {
+				go func() {
+					for i := 0; i < vectorsPerGoroutine; i++ {
+						for j := 0; j < 5; j++ { // try a couple of times to delete if found
+							_, dists, err := index.SearchByVector(vectors[goroutineIndex+i], 0, nil)
+							require.Nil(t, err)
 
-					_, _, err := index.SearchByVector(vectors[goroutineIndex+i], 0, nil)
-					require.Nil(b, err)
-				}
-				wg.Done()
-			}()
+							if len(dists) > 0 && dists[0] == 0 {
+								err := index.Delete(uint64(goroutineIndex + i))
+								require.Nil(t, err)
+								break
+							} else {
+								continue
+							}
+						}
+					}
+					wg.Done()
+				}()
+			}
+			wg.Wait()
 		}
-		wg.Wait()
-	}
+	})
+
+	t.Run("Insert and delete", func(t *testing.T) {
+		for i := 0; i < 1; i++ { // increase if you don't want to reread SIFT for every run
+			index, err := New(Config{
+				RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+				ID:                    "unittest",
+				MakeCommitLoggerThunk: MakeNoopCommitLogger,
+				DistanceProvider:      distancer.NewCosineDistanceProvider(),
+				VectorForIDThunk:      idVector,
+			}, ent.UserConfig{
+				MaxConnections: 30,
+				EFConstruction: 60,
+			}, cyclemanager.NewNoop())
+			require.Nil(t, err)
+			for k := 0; k < parallelGoroutines; k++ {
+				wg.Add(1)
+				goroutineIndex := k * vectorsPerGoroutine
+				go func() {
+					for i := 0; i < vectorsPerGoroutine; i++ {
+
+						err := index.Add(uint64(goroutineIndex+i), vectors[goroutineIndex+i])
+						require.Nil(t, err)
+						err = index.Delete(uint64(goroutineIndex + i))
+						require.Nil(t, err)
+
+					}
+					wg.Done()
+				}()
+
+			}
+			wg.Wait()
+
+		}
+	})
 }
 
 func readSiftFloat(file string, maxObjects int) [][]float32 {
