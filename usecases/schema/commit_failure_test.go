@@ -70,7 +70,7 @@ func TestFailedCommits(t *testing.T) {
 				})
 			},
 			action: func(t *testing.T, sm *Manager) {
-				assert.Nil(t, sm.DeleteClass(ctx, nil, "MyClass", false))
+				assert.Nil(t, sm.DeleteClass(ctx, nil, "MyClass"))
 			},
 			expSchema: []*models.Class{
 				classWithDefaultsWithProps(t, "OtherClass", nil),
