@@ -4,8 +4,8 @@ package asm
 // Theoretically, this should be faster than the loop version for small vectors
 // - it avoids the loop overhead
 // - it elimitates the bounds check by reversing the iteration
-// 	 (go tool compile -d=ssa/check_bce/debug=1 -m l2_inline.go)
 // - it allows l22 and l24 to be inlined (the other ones are too large)
+// See go tool compile -d=ssa/check_bce/debug=1 -m l2_inline.go
 
 func l22(x []float32, y []float32) float32 {
 	diff := x[1] - y[1]

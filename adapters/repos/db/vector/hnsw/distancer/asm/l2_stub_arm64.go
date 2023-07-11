@@ -33,9 +33,29 @@ func L2(x []float32, y []float32) float32 {
 	case 4:
 		return l24(x, y)
 	case 6:
-		return l26(x, y)
+		// manually inlined l26(x, y)
+		diff := x[5] - y[5]
+		sum := diff * diff
+
+		diff = x[4] - y[4]
+		sum += diff * diff
+
+		return l24(x, y) + sum
 	case 8:
-		return l28(x, y)
+		// manually inlined l28(x, y)
+		diff := x[7] - y[7]
+		sum := diff * diff
+
+		diff = x[6] - y[6]
+		sum += diff * diff
+
+		diff = x[5] - y[5]
+		sum += diff * diff
+
+		diff = x[4] - y[4]
+		sum += diff * diff
+
+		return l24(x, y) + sum
 	case 10:
 		return l210(x, y)
 	case 12:
