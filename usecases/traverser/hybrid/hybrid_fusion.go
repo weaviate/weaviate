@@ -119,16 +119,19 @@ func FusionRelativeScore(weights []float64, results [][]*Result) []*Result {
 		weight := float32(weights[i])
 		for _, res := range results[i] {
 			score := float32(0)
-			// if min an max are the same, score stays at 0. If all scores are identical
+			// if min and max are the same, score stays at 0. If all scores are identical
 			if maximum[i] != minimum[i] {
 				score = weight * (res.SecondarySortValue - minimum[i]) / (maximum[i] - minimum[i])
 			}
 
 			previousResult, ok := mapResults[res.ID]
+			explainScore := res.ExplainScore + fmt.Sprintf(": original score %v, normalized score: %v", res.SecondarySortValue, score)
 			if ok {
 				score += previousResult.Score
+				explainScore += " - " + previousResult.ExplainScore
 			}
 			res.Score = score
+			res.ExplainScore = explainScore
 
 			mapResults[res.ID] = res
 		}
