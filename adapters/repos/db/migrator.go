@@ -93,12 +93,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 }
 
 func (m *Migrator) DropClass(ctx context.Context, className string) error {
-	err := m.db.DeleteIndex(schema.ClassName(className))
-	if err != nil {
-		return errors.Wrapf(err, "delete idx for class '%s'", className)
-	}
-
-	return nil
+	return m.db.DeleteIndex(schema.ClassName(className))
 }
 
 func (m *Migrator) UpdateClass(ctx context.Context, className string, newClassName *string) error {

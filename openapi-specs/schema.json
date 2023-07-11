@@ -1136,7 +1136,7 @@
           "format": "uri",
           "type": "string"
         },
-        "tenant" : {
+        "tenant": {
           "type": "string",
           "description": "Name of the reference tenant."
         }
@@ -3713,12 +3713,6 @@
             "in": "path",
             "required": true,
             "type": "string"
-          },
-          {
-            "name": "force",
-            "in": "query",
-            "required": false,
-            "type": "boolean"
           }
         ],
         "responses": {
