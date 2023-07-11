@@ -11,20 +11,49 @@
 
 package asm
 
+import (
+	"reflect"
+	"unsafe"
+)
+
 // To generate the asm code, run:
 //   go install github.com/gorse-io/goat@v0.1.0
 //   go generate
 
 //go:generate goat ../c/l2_arm64.c -O3 -e="-mfpu=neon-fp-armv8" -e="-mfloat-abi=hard" -e="--target=arm64" -e="-march=armv8-a+simd+fp"
 
-import (
-	"reflect"
-	"unsafe"
-)
-
 // L2 calculates the L2 distance between two vectors
-// using SIMD instructions.
+// using SIMD instructions when possible.
+// Vector lengths < 16 are handled by the Go implementation
+// because the overhead of using reflection is too high.
 func L2(x []float32, y []float32) float32 {
+	switch len(x) {
+	case 2:
+		return l22(x, y)
+	case 4:
+		return l24(x, y)
+	case 6:
+		return l26(x, y)
+	case 8:
+		return l28(x, y)
+	case 10:
+		return l210(x, y)
+	case 12:
+		return l212(x, y)
+	}
+
+	// deal with odd lengths and lengths 13, 14, 15
+	if len(x) < 16 {
+		var sum float32
+
+		for i := range x {
+			diff := x[i] - y[i]
+			sum += diff * diff
+		}
+
+		return sum
+	}
+
 	var res float32
 
 	// The C function expects pointers to the underlying array, not slices.
