@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/search"
@@ -62,4 +64,19 @@ func TestFusionRelativeScore(t *testing.T) {
 			assert.Equal(t, tt.expectedOrder, fusedOrder)
 		})
 	}
+}
+
+func TestFusionRelativeScoreExplain(t *testing.T) {
+	result1 := []*Result{
+		{uint64(1), &search.Result{SecondarySortValue: 0.5, ID: strfmt.UUID(fmt.Sprint(1)), ExplainScore: "keyword"}},
+		{uint64(1), &search.Result{SecondarySortValue: 0.1, ID: strfmt.UUID(fmt.Sprint(2)), ExplainScore: "keyword"}},
+	}
+	result2 := []*Result{
+		{uint64(1), &search.Result{SecondarySortValue: 2, ID: strfmt.UUID(fmt.Sprint(1)), ExplainScore: "vector"}},
+		{uint64(1), &search.Result{SecondarySortValue: 1, ID: strfmt.UUID(fmt.Sprint(2)), ExplainScore: "vector"}},
+	}
+	results := [][]*Result{result1, result2}
+	fused := FusionRelativeScore([]float64{0.5, 0.5}, results)
+	require.Contains(t, fused[0].ExplainScore, "keyword: original score 0.5, normalized score: 0.5")
+	require.Contains(t, fused[0].ExplainScore, "vector: original score 2, normalized score: 0.5 - keyword: original score 0.5, normalized score: 0.5")
 }
