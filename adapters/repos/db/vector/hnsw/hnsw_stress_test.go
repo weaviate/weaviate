@@ -168,8 +168,7 @@ func readSiftFloat(file string, maxObjects int) [][]float32 {
 	// The vector data needs to be converted from bytes to float
 	// Note that the vector entries are of type float but are integer numbers eg 2.0
 	bytesPerF := 4
-	vectorLengthFloat := 128
-	vectorBytes := make([]byte, bytesPerF+vectorLengthFloat*bytesPerF)
+	vectorBytes := make([]byte, bytesPerF+vectorSize*bytesPerF)
 	for i := 0; i >= 0; i++ {
 		_, err = f.Read(vectorBytes)
 		if err == io.EOF {
@@ -177,11 +176,11 @@ func readSiftFloat(file string, maxObjects int) [][]float32 {
 		} else if err != nil {
 			panic(err)
 		}
-		if int32FromBytes(vectorBytes[0:bytesPerF]) != vectorLengthFloat {
+		if int32FromBytes(vectorBytes[0:bytesPerF]) != vectorSize {
 			panic("Each vector must have 128 entries.")
 		}
-		vectorFloat := make([]float32, 0, vectorLengthFloat)
-		for j := 0; j < vectorLengthFloat; j++ {
+		vectorFloat := make([]float32, 0, vectorSize)
+		for j := 0; j < vectorSize; j++ {
 			start := (j + 1) * bytesPerF // first bytesPerF are length of vector
 			vectorFloat = append(vectorFloat, float32FromBytes(vectorBytes[start:start+bytesPerF]))
 		}
