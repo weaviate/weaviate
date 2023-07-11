@@ -344,7 +344,7 @@ func (e *graphqlRequestsTotal) log(result *tailorincgraphql.Result) {
 			}
 		}
 	} else if result.Data != nil {
-		e.logOk()
+		e.logOk(result.Data)
 	}
 }
 
@@ -366,8 +366,32 @@ func (e *graphqlRequestsTotal) logUserError() {
 	}
 }
 
-func (e *graphqlRequestsTotal) logOk() {
+func (e *graphqlRequestsTotal) logOk(data interface{}) {
 	if e.metrics != nil {
-		e.metrics.RequestsTotalInc(Ok, "", "")
+		className, queryType := e.getClassNameAndQueryType(data)
+		e.metrics.RequestsTotalInc(Ok, className, queryType)
 	}
+}
+
+func (e *graphqlRequestsTotal) getClassNameAndQueryType(data interface{}) (className, queryType string) {
+	dataMap, ok := data.(map[string]interface{})
+	if ok {
+		for query, value := range dataMap {
+			queryType = query
+			if queryType == "Explore" {
+				// Explore queries are cross class queries, we won't get a className in this case
+				// there's no sense in further value investigation
+				return
+			}
+			if value != nil {
+				if valueMap, ok := value.(map[string]interface{}); ok {
+					for class := range valueMap {
+						className = class
+						return
+					}
+				}
+			}
+		}
+	}
+	return
 }
