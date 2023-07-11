@@ -92,6 +92,9 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
+		} else if errors.As(err, &uco.ErrMultiTenancy{}) {
+			return objects.NewObjectsCreateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
 		} else if errors.As(err, &autherrs.Forbidden{}) {
 			return objects.NewObjectsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -122,6 +125,9 @@ func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
 			return objects.NewObjectsValidateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case uco.ErrInvalidUserInput:
+			return objects.NewObjectsValidateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		case uco.ErrMultiTenancy:
 			return objects.NewObjectsValidateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -181,6 +187,9 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 				WithPayload(errPayloadFromSingleErr(err))
 		case uco.ErrNotFound:
 			return objects.NewObjectsClassGetNotFound()
+		case uco.ErrMultiTenancy:
+			return objects.NewObjectsClassGetBadRequest().
+				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return objects.NewObjectsClassGetInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -219,6 +228,9 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 		switch err.(type) {
 		case autherrs.Forbidden:
 			return objects.NewObjectsListForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case uco.ErrMultiTenancy:
+			return objects.NewObjectsListBadRequest().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return objects.NewObjectsListInternalServerError().
@@ -318,6 +330,9 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 				WithPayload(errPayloadFromSingleErr(err))
 		case uco.ErrNotFound:
 			return objects.NewObjectsClassDeleteNotFound()
+		case uco.ErrMultiTenancy:
+			return objects.NewObjectsClassDeleteBadRequest().
+				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return objects.NewObjectsClassDeleteInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -344,6 +359,9 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
+			return objects.NewObjectsClassPutUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		} else if errors.As(err, &uco.ErrMultiTenancy{}) {
 			return objects.NewObjectsClassPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		} else if errors.As(err, &autherrs.Forbidden{}) {
@@ -755,6 +773,8 @@ func newObjectsRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logru
 
 func (e *objectsRequestsTotal) logError(className string, err error) {
 	switch err := err.(type) {
+	case uco.ErrMultiTenancy:
+		e.logUserError(className)
 	case errReplication, errUnregonizedProperty:
 		e.logUserError(className)
 	case autherrs.Forbidden:
@@ -769,7 +789,13 @@ func (e *objectsRequestsTotal) logError(className string, err error) {
 			e.logUserError(className)
 		}
 	default:
-		e.logServerError(className, err)
+		if errors.As(err, &uco.ErrInvalidUserInput{}) ||
+			errors.As(err, &uco.ErrMultiTenancy{}) ||
+			errors.As(err, &autherrs.Forbidden{}) {
+			e.logUserError(className)
+		} else {
+			e.logServerError(className, err)
+		}
 	}
 }
 

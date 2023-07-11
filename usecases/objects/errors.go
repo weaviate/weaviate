@@ -92,3 +92,16 @@ func (e ErrNotFound) Error() string {
 func NewErrNotFound(format string, args ...interface{}) ErrNotFound {
 	return ErrNotFound{msg: fmt.Sprintf(format, args...)}
 }
+
+type ErrMultiTenancy struct {
+	err error
+}
+
+func (e ErrMultiTenancy) Error() string {
+	return e.err.Error()
+}
+
+// NewErrMultiTenancy with error signature
+func NewErrMultiTenancy(err error) ErrMultiTenancy {
+	return ErrMultiTenancy{err}
+}

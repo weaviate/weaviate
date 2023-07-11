@@ -41,6 +41,8 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 			errnf := ErrNotFound{} // treated as StatusBadRequest for backward comp
 			if errors.As(err, &errnf) {
 				return &Error{"source object deprecated", StatusBadRequest, err}
+			} else if errors.As(err, &ErrMultiTenancy{}) {
+				return &Error{"source object deprecated", StatusBadRequest, err}
 			}
 			return &Error{"source object deprecated", StatusInternalServerError, err}
 		}
@@ -64,7 +66,12 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	if !deprecatedEndpoint {
 		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl, tenant)
 		if err != nil {
-			return &Error{"source object", StatusInternalServerError, err}
+			switch err.(type) {
+			case ErrMultiTenancy:
+				return &Error{"source object", StatusBadRequest, err}
+			default:
+				return &Error{"source object", StatusInternalServerError, err}
+			}
 		}
 		if !ok {
 			return &Error{"source object", StatusNotFound, err}

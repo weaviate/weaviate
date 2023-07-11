@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	uco "github.com/weaviate/weaviate/usecases/objects"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -318,6 +319,8 @@ func newSchemaRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus
 
 func (e *schemaRequestsTotal) logError(className string, err error) {
 	switch err.(type) {
+	case uco.ErrMultiTenancy:
+		e.logUserError(className)
 	case errors.Forbidden:
 		e.logUserError(className)
 	default:

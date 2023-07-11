@@ -52,6 +52,9 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 		case objects.ErrInvalidUserInput:
 			return batch.NewBatchObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
+		case uco.ErrMultiTenancy:
+			return batch.NewBatchObjectsCreateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return batch.NewBatchObjectsCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -104,6 +107,9 @@ func (h *batchObjectHandlers) addReferences(params batch.BatchReferencesCreatePa
 			return batch.NewBatchReferencesCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case objects.ErrInvalidUserInput:
+			return batch.NewBatchReferencesCreateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		case objects.ErrMultiTenancy:
 			return batch.NewBatchReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -161,6 +167,9 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		if errors.As(err, &objects.ErrInvalidUserInput{}) {
+			return batch.NewBatchObjectsDeleteUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		} else if errors.As(err, &objects.ErrMultiTenancy{}) {
 			return batch.NewBatchObjectsDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		} else if errors.As(err, &autherrs.Forbidden{}) {
@@ -254,8 +263,15 @@ func (e *batchRequestsTotal) logError(className string, err error) {
 		e.logUserError(className)
 	case autherrs.Forbidden, uco.ErrInvalidUserInput:
 		e.logUserError(className)
-		return
+	case uco.ErrMultiTenancy:
+		e.logUserError(className)
 	default:
-		e.logServerError(className, err)
+		if errors.As(err, &objects.ErrMultiTenancy{}) ||
+			errors.As(err, &objects.ErrInvalidUserInput{}) ||
+			errors.As(err, &autherrs.Forbidden{}) {
+			e.logUserError(className)
+		} else {
+			e.logServerError(className, err)
+		}
 	}
 }

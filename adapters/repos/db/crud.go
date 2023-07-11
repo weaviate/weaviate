@@ -136,7 +136,12 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 		res, err := index.objectByID(ctx, id, props, additional, nil, tenant)
 		if err != nil {
 			db.indexLock.RUnlock()
-			return nil, errors.Wrapf(err, "search index %s", index.ID())
+			switch err.(type) {
+			case objects.ErrMultiTenancy:
+				return nil, objects.NewErrMultiTenancy(fmt.Errorf("search index %s: %w", index.ID(), err))
+			default:
+				return nil, errors.Wrapf(err, "search index %s", index.ID())
+			}
 		}
 
 		if res != nil {
@@ -165,7 +170,12 @@ func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID,
 
 	obj, err := idx.objectByID(ctx, id, props, addl, repl, tenant)
 	if err != nil {
-		return nil, errors.Wrapf(err, "search index %s", idx.ID())
+		switch err.(type) {
+		case objects.ErrMultiTenancy:
+			return nil, objects.NewErrMultiTenancy(fmt.Errorf("search index %s: %w", idx.ID(), err))
+		default:
+			return nil, errors.Wrapf(err, "search index %s", idx.ID())
+		}
 	}
 	var r *search.Result
 	if obj != nil {
@@ -213,7 +223,12 @@ func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 	for _, index := range db.indices {
 		ok, err := index.exists(ctx, id, repl, "")
 		if err != nil {
-			return false, errors.Wrapf(err, "search index %s", index.ID())
+			switch err.(type) {
+			case objects.ErrMultiTenancy:
+				return false, objects.NewErrMultiTenancy(fmt.Errorf("search index %s: %w", index.ID(), err))
+			default:
+				return false, errors.Wrapf(err, "search index %s", index.ID())
+			}
 		}
 		if ok {
 			return true, nil

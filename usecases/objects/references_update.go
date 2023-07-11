@@ -52,6 +52,8 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 				return &Error{"source object deprecated", StatusBadRequest, err}
 			}
 			return &Error{"source object", StatusNotFound, err}
+		} else if errors.As(err, &ErrMultiTenancy{}) {
+			return &Error{"source object", StatusBadRequest, err}
 		}
 		return &Error{"source object", StatusInternalServerError, err}
 	}
