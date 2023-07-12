@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -50,7 +51,9 @@ func (s *segment) getCollection(key []byte) ([]value, error) {
 	// compaction completes and the old segment is removed, we would be accessing
 	// invalid memory without the copy, thus leading to a SEGFAULT.
 	contentsCopy := make([]byte, node.End-node.Start)
-	copy(contentsCopy, s.contents[node.Start:node.End])
+	if err = s.pread(contentsCopy, node.Start, node.End); err != nil {
+		return nil, fmt.Errorf("pread: %w", err)
+	}
 
 	return s.collectionStratParseData(contentsCopy)
 }

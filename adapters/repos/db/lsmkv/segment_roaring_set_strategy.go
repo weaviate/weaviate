@@ -35,7 +35,11 @@ func (s *segment) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 		return out, err
 	}
 
-	sn := roaringset.NewSegmentNodeFromBuffer(s.contents[node.Start:node.End])
+	contents := make([]byte, node.End-node.Start)
+	if err = s.pread(contents, node.Start, node.End); err != nil {
+		return out, fmt.Errorf("pread: %w", err)
+	}
+	sn := roaringset.NewSegmentNodeFromBuffer(contents)
 
 	// make sure that any data is copied before exiting this method, otherwise we
 	// risk a SEGFAULT as described in
