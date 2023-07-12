@@ -23,7 +23,6 @@ import (
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
-	uco "github.com/weaviate/weaviate/usecases/objects"
 )
 
 type batchObjectHandlers struct {
@@ -52,7 +51,7 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 		case objects.ErrInvalidUserInput:
 			return batch.NewBatchObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
-		case uco.ErrMultiTenancy:
+		case objects.ErrMultiTenancy:
 			return batch.NewBatchObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -261,9 +260,9 @@ func (e *batchRequestsTotal) logError(className string, err error) {
 	switch err.(type) {
 	case errReplication:
 		e.logUserError(className)
-	case autherrs.Forbidden, uco.ErrInvalidUserInput:
+	case autherrs.Forbidden, objects.ErrInvalidUserInput:
 		e.logUserError(className)
-	case uco.ErrMultiTenancy:
+	case objects.ErrMultiTenancy:
 		e.logUserError(className)
 	default:
 		if errors.As(err, &objects.ErrMultiTenancy{}) ||
