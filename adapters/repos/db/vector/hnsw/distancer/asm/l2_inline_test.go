@@ -29,7 +29,6 @@ func l2Loop(a, b []float32) float32 {
 }
 
 func BenchmarkL2InlineVsLoop(b *testing.B) {
-
 	lengths := []int{2, 4, 6, 8, 10, 12}
 	for _, length := range lengths {
 		x := make([]float32, length)
