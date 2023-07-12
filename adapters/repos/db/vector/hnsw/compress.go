@@ -106,6 +106,9 @@ func (h *hnsw) storeCompressedVector(index uint64, vector []byte) {
 }
 
 func (h *hnsw) compresseConnections() error {
+	if h.compressedConnections.Load() {
+		return nil
+	}
 	for _, node := range h.nodes {
 		if node == nil {
 			continue

@@ -16,6 +16,7 @@ import (
 
 type Connections struct {
 	data []byte
+	buff []byte
 }
 
 const layerPos = 0
@@ -32,6 +33,8 @@ func NewWithMaxLayer(maxLayer uint8) (Connections, error) {
 	}
 
 	c.initLayers(maxLayer)
+
+	c.buff = make([]byte, 16)
 
 	return c, nil
 }
@@ -99,6 +102,9 @@ func (c Connections) CopyLayer(conns []uint64, layer uint8) []uint64 {
 		offset += uint16(n)
 
 		// TODO: allocate exact size, don't rely on dynamic growing
+		if len(conns) <= i {
+			fmt.Println(offset, end, i, len(conns), c.layerLength(layer))
+		}
 		conns[i] = last + val
 		last += val
 		i++
@@ -135,14 +141,13 @@ func (c *Connections) InsertAtLayer(conn uint64, layer uint8) {
 }
 
 func (c *Connections) replaceElement(layer uint8, pos uint16, formerLen int, value uint64) uint16 {
-	buff := make([]byte, 16)
-	len := binary.PutUvarint(buff, value)
+	len := binary.PutUvarint(c.buff, value)
 	if len > formerLen {
 		c.shiftRightByAndAdaptOffsets(pos, uint16(len-formerLen), layer)
 	} else if formerLen > len {
 		c.shiftLeftByAndAdaptOffsets(pos, uint16(formerLen-len), layer)
 	}
-	copy(c.data[pos:], buff[:len])
+	copy(c.data[pos:], c.buff[:len])
 	return uint16(len)
 }
 
