@@ -62,7 +62,10 @@ func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
 		panic(fmt.Sprintf("CursorRoaringSet() called on strategy other than '%s'", StrategyRoaringSet))
 	}
 
-	innerCursors, unlockSegmentGroup := b.disk.newRoaringSetCursors()
+	innerCursors, unlockSegmentGroup, err := b.disk.newRoaringSetCursors()
+	if err != nil {
+		panic(fmt.Sprintf("obtain new roaringset cursors"))
+	}
 
 	// we have a flush-RLock, so we have the guarantee that the flushing state
 	// will not change for the lifetime of the cursor, thus there can only be two

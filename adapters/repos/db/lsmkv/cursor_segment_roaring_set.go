@@ -16,20 +16,28 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
-func (s *segment) newRoaringSetCursor() *roaringset.SegmentCursor {
-	return roaringset.NewSegmentCursor(s.contents[s.dataStartPos:s.dataEndPos],
-		&roaringSetSeeker{s.index})
+func (s *segment) newRoaringSetCursor() (*roaringset.SegmentCursor, error) {
+	contents := make([]byte, s.dataEndPos-s.dataStartPos)
+	if err := s.pread(contents, s.dataStartPos, s.dataEndPos); err != nil {
+		return nil, err
+	}
+	return roaringset.NewSegmentCursor(contents,
+		&roaringSetSeeker{s.index}), nil
 }
 
-func (sg *SegmentGroup) newRoaringSetCursors() ([]roaringset.InnerCursor, func()) {
+func (sg *SegmentGroup) newRoaringSetCursors() ([]roaringset.InnerCursor, func(), error) {
 	sg.maintenanceLock.RLock()
 	out := make([]roaringset.InnerCursor, len(sg.segments))
 
-	for i, segment := range sg.segments {
-		out[i] = segment.newRoaringSetCursor()
+	for i, seg := range sg.segments {
+		curs, err := seg.newRoaringSetCursor()
+		if err != nil {
+			return nil, nil, err
+		}
+		out[i] = curs
 	}
 
-	return out, sg.maintenanceLock.RUnlock
+	return out, sg.maintenanceLock.RUnlock, nil
 }
 
 // diskIndex returns node's Start and End offsets

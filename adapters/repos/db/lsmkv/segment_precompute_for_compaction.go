@@ -17,7 +17,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/edsrzf/mmap-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -45,21 +44,22 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		return nil, fmt.Errorf("open file: %w", err)
 	}
 
-	defer file.Close()
-
 	fileInfo, err := file.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("stat file: %w", err)
 	}
 
-	content, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
+	contents := make([]byte, fileInfo.Size())
+	n, err := file.Read(contents)
 	if err != nil {
-		return nil, fmt.Errorf("mmap file: %w", err)
+		return nil, fmt.Errorf("read segment file %q: %w", fileInfo.Name(), err)
+	}
+	if int64(n) != fileInfo.Size() {
+		logger.WithField("action", "read segment file").
+			Warnf("only read %d out of %d segment bytes", n, fileInfo.Size())
 	}
 
-	defer content.Unmap()
-
-	header, err := segmentindex.ParseHeader(bytes.NewReader(content[:segmentindex.HeaderSize]))
+	header, err := segmentindex.ParseHeader(bytes.NewReader(contents[:segmentindex.HeaderSize]))
 	if err != nil {
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
@@ -71,7 +71,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		return nil, fmt.Errorf("unsupported strategy in segment")
 	}
 
-	primaryIndex, err := header.PrimaryIndex(content)
+	primaryIndex, err := header.PrimaryIndex(contents)
 	if err != nil {
 		return nil, fmt.Errorf("extract primary index position: %w", err)
 	}
@@ -86,11 +86,11 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		// the path here, we would end up with filenames like
 		// segment.tmp.bloom.tmp, whereas we want to end up with segment.bloom.tmp
 		path:                strings.TrimSuffix(path, ".tmp"),
-		contents:            content,
+		contentFile:         file,
 		version:             header.Version,
 		secondaryIndexCount: header.SecondaryIndices,
 		segmentStartPos:     header.IndexStart,
-		segmentEndPos:       uint64(len(content)),
+		segmentEndPos:       uint64(fileInfo.Size()),
 		strategy:            header.Strategy,
 		dataStartPos:        segmentindex.HeaderSize, // fixed value that's the same for all strategies
 		dataEndPos:          header.IndexStart,
@@ -102,7 +102,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		ind.secondaryIndices = make([]diskIndex, ind.secondaryIndexCount)
 		ind.secondaryBloomFilters = make([]*bloom.BloomFilter, ind.secondaryIndexCount)
 		for i := range ind.secondaryIndices {
-			secondary, err := header.SecondaryIndex(content, uint16(i))
+			secondary, err := header.SecondaryIndex(contents, uint16(i))
 			if err != nil {
 				return nil, errors.Wrapf(err, "get position for secondary index at %d", i)
 			}

@@ -43,8 +43,11 @@ func (s *segmentCursorCollection) seek(key []byte) ([]byte, []value, error) {
 		return nil, nil, err
 	}
 
-	parsed, err := s.segment.collectionStratParseDataWithKey(
-		s.segment.contents[node.Start:node.End])
+	contents := make([]byte, node.End-node.Start)
+	if err = s.segment.pread(contents, node.Start, node.End); err != nil {
+		return nil, nil, err
+	}
+	parsed, err := s.segment.collectionStratParseDataWithKey(contents)
 
 	// make sure to set the next offset before checking the error. The error
 	// could be 'entities.Deleted' which would require that the offset is still advanced
@@ -62,8 +65,12 @@ func (s *segmentCursorCollection) next() ([]byte, []value, error) {
 		return nil, nil, lsmkv.NotFound
 	}
 
-	parsed, err := s.segment.collectionStratParseDataWithKey(
-		s.segment.contents[s.nextOffset:])
+	contents := make([]byte, s.segment.dataEndPos)
+	if err := s.segment.pread(contents, 0, s.segment.segmentEndPos); err != nil {
+		return nil, nil, err
+	}
+
+	parsed, err := s.segment.collectionStratParseDataWithKey(contents[s.nextOffset:])
 
 	// make sure to set the next offset before checking the error. The error
 	// could be 'entities.Deleted' which would require that the offset is still advanced
@@ -77,9 +84,13 @@ func (s *segmentCursorCollection) next() ([]byte, []value, error) {
 }
 
 func (s *segmentCursorCollection) first() ([]byte, []value, error) {
+	contents := make([]byte, s.segment.dataEndPos)
+	if err := s.segment.pread(contents, 0, s.segment.dataEndPos); err != nil {
+		return nil, nil, err
+	}
 	s.nextOffset = s.segment.dataStartPos
 	parsed, err := s.segment.collectionStratParseDataWithKey(
-		s.segment.contents[s.nextOffset:])
+		contents[s.nextOffset:])
 
 	// make sure to set the next offset before checking the error. The error
 	// could be 'entities.Deleted' which would require that the offset is still advanced

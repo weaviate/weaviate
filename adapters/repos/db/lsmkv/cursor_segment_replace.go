@@ -45,8 +45,13 @@ func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
 		return nil, nil, err
 	}
 
+	contents := make([]byte, node.End-node.Start)
+	if err = s.segment.pread(contents, node.Start, node.End); err != nil {
+		return nil, nil, err
+	}
+
 	err = s.segment.replaceStratParseDataWithKeyInto(
-		s.segment.contents[node.Start:node.End], s.reusableNode)
+		contents, s.reusableNode)
 
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
@@ -65,8 +70,12 @@ func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 		return nil, nil, lsmkv.NotFound
 	}
 
+	contents := make([]byte, s.segment.dataEndPos)
+	if err := s.segment.pread(contents, 0, s.segment.dataEndPos); err != nil {
+		return nil, nil, err
+	}
 	err := s.segment.replaceStratParseDataWithKeyInto(
-		s.segment.contents[s.nextOffset:], s.reusableNode)
+		contents[s.nextOffset:], s.reusableNode)
 
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
@@ -80,9 +89,13 @@ func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 }
 
 func (s *segmentCursorReplace) first() ([]byte, []byte, error) {
+	contents := make([]byte, s.segment.dataEndPos)
+	if err := s.segment.pread(contents, 0, s.segment.dataEndPos); err != nil {
+		return nil, nil, err
+	}
 	s.nextOffset = s.segment.dataStartPos
 	err := s.segment.replaceStratParseDataWithKeyInto(
-		s.segment.contents[s.nextOffset:], s.reusableNode)
+		contents[s.nextOffset:], s.reusableNode)
 
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
@@ -101,8 +114,12 @@ func (s *segmentCursorReplace) nextWithAllKeys() (segmentReplaceNode, error) {
 		return out, lsmkv.NotFound
 	}
 
+	contents := make([]byte, s.segment.dataEndPos)
+	if err := s.segment.pread(contents, 0, s.segment.dataEndPos); err != nil {
+		return segmentReplaceNode{}, err
+	}
 	parsed, err := s.segment.replaceStratParseDataWithKey(
-		s.segment.contents[s.nextOffset:])
+		contents[s.nextOffset:])
 
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
@@ -116,9 +133,13 @@ func (s *segmentCursorReplace) nextWithAllKeys() (segmentReplaceNode, error) {
 }
 
 func (s *segmentCursorReplace) firstWithAllKeys() (segmentReplaceNode, error) {
+	contents := make([]byte, s.segment.dataEndPos)
+	if err := s.segment.pread(contents, 0, s.segment.dataEndPos); err != nil {
+		return segmentReplaceNode{}, err
+	}
 	s.nextOffset = s.segment.dataStartPos
 	parsed, err := s.segment.replaceStratParseDataWithKey(
-		s.segment.contents[s.nextOffset:])
+		contents[s.nextOffset:])
 
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced

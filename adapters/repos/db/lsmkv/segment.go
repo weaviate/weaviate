@@ -15,9 +15,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"syscall"
 
-	"github.com/edsrzf/mmap-go"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/willf/bloom"
@@ -32,7 +30,6 @@ type segment struct {
 	segmentEndPos         uint64
 	dataStartPos          uint64
 	dataEndPos            uint64
-	contents              []byte
 	contentFile           *os.File
 	bloomFilter           *bloom.BloomFilter
 	secondaryBloomFilters []*bloom.BloomFilter
@@ -76,9 +73,14 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, fmt.Errorf("stat file: %w", err)
 	}
 
-	contents, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
+	contents := make([]byte, fileInfo.Size())
+	n, err := file.Read(contents)
 	if err != nil {
-		return nil, fmt.Errorf("mmap file: %w", err)
+		return nil, fmt.Errorf("read segment file %q: %w", fileInfo.Name(), err)
+	}
+	if int64(n) != fileInfo.Size() {
+		logger.WithField("action", "read segment file").
+			Warnf("only read %d out of %d segment bytes", n, fileInfo.Size())
 	}
 
 	header, err := segmentindex.ParseHeader(bytes.NewReader(contents[:segmentindex.HeaderSize]))
@@ -103,7 +105,6 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	ind := &segment{
 		level:               header.Level,
 		path:                path,
-		contents:            contents,
 		contentFile:         file,
 		version:             header.Version,
 		secondaryIndexCount: header.SecondaryIndices,
@@ -151,7 +152,7 @@ func (s *segment) close() error {
 			return err
 		}
 	}
-	return syscall.Munmap(s.contents)
+	return nil
 }
 
 func (s *segment) drop() error {
@@ -186,7 +187,13 @@ func (s *segment) drop() error {
 // Size returns the total size of the segment in bytes, including the header
 // and index
 func (s *segment) Size() int {
-	return len(s.contents)
+	stat, err := s.contentFile.Stat()
+	if err != nil {
+		s.logger.WithField("action", "stat segment file").
+			Error(err.Error())
+		return 0
+	}
+	return int(stat.Size())
 }
 
 // Payload Size is only the payload of the index, excluding the index
