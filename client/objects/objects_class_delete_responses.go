@@ -64,6 +64,12 @@ func (o *ObjectsClassDeleteReader) ReadResponse(response runtime.ClientResponse,
 			return nil, err
 		}
 		return nil, result
+	case 422:
+		result := NewObjectsClassDeleteUnprocessableEntity()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewObjectsClassDeleteInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -375,6 +381,74 @@ func (o *ObjectsClassDeleteNotFound) String() string {
 }
 
 func (o *ObjectsClassDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewObjectsClassDeleteUnprocessableEntity creates a ObjectsClassDeleteUnprocessableEntity with default headers values
+func NewObjectsClassDeleteUnprocessableEntity() *ObjectsClassDeleteUnprocessableEntity {
+	return &ObjectsClassDeleteUnprocessableEntity{}
+}
+
+/*
+ObjectsClassDeleteUnprocessableEntity describes a response with status code 422, with default header values.
+
+Request is well-formed (i.e., syntactically correct), but erroneous.
+*/
+type ObjectsClassDeleteUnprocessableEntity struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this objects class delete unprocessable entity response has a 2xx status code
+func (o *ObjectsClassDeleteUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects class delete unprocessable entity response has a 3xx status code
+func (o *ObjectsClassDeleteUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class delete unprocessable entity response has a 4xx status code
+func (o *ObjectsClassDeleteUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects class delete unprocessable entity response has a 5xx status code
+func (o *ObjectsClassDeleteUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects class delete unprocessable entity response a status code equal to that given
+func (o *ObjectsClassDeleteUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the objects class delete unprocessable entity response
+func (o *ObjectsClassDeleteUnprocessableEntity) Code() int {
+	return 422
+}
+
+func (o *ObjectsClassDeleteUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *ObjectsClassDeleteUnprocessableEntity) String() string {
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *ObjectsClassDeleteUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ObjectsClassDeleteUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

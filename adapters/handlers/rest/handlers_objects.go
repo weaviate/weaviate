@@ -188,7 +188,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 		case uco.ErrNotFound:
 			return objects.NewObjectsClassGetNotFound()
 		case uco.ErrMultiTenancy:
-			return objects.NewObjectsClassGetBadRequest().
+			return objects.NewObjectsClassGetUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return objects.NewObjectsClassGetInternalServerError().
@@ -230,7 +230,7 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 			return objects.NewObjectsListForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case uco.ErrMultiTenancy:
-			return objects.NewObjectsListBadRequest().
+			return objects.NewObjectsListUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return objects.NewObjectsListInternalServerError().
@@ -285,6 +285,9 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 		case uco.StatusBadRequest:
 			return objects.NewObjectsListUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(rerr))
+		case uco.StatusUnprocessableEntity:
+			return objects.NewObjectsListUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(rerr))
 		default:
 			return objects.NewObjectsListInternalServerError().
 				WithPayload(errPayloadFromSingleErr(rerr))
@@ -331,7 +334,7 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 		case uco.ErrNotFound:
 			return objects.NewObjectsClassDeleteNotFound()
 		case uco.ErrMultiTenancy:
-			return objects.NewObjectsClassDeleteBadRequest().
+			return objects.NewObjectsClassDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return objects.NewObjectsClassDeleteInternalServerError().
@@ -402,6 +405,9 @@ func (h *objectHandlers) headObject(params objects.ObjectsClassHeadParams,
 		case objErr.Forbidden():
 			return objects.NewObjectsClassHeadForbidden().
 				WithPayload(errPayloadFromSingleErr(objErr))
+		case objErr.UnprocessableEntity():
+			return objects.NewObjectsClassHeadUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(objErr))
 		default:
 			return objects.NewObjectsClassHeadInternalServerError().
 				WithPayload(errPayloadFromSingleErr(objErr))
@@ -437,6 +443,9 @@ func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, pri
 			return objects.NewObjectsClassPatchForbidden().
 				WithPayload(errPayloadFromSingleErr(objErr))
 		case objErr.BadRequest():
+			return objects.NewObjectsClassPatchUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(objErr))
+		case objErr.UnprocessableEntity():
 			return objects.NewObjectsClassPatchUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(objErr))
 		default:
@@ -480,6 +489,9 @@ func (h *objectHandlers) addObjectReference(
 		case objErr.BadRequest():
 			return objects.NewObjectsClassReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(objErr))
+		case objErr.UnprocessableEntity():
+			return objects.NewObjectsClassReferencesCreateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(objErr))
 		default:
 			return objects.NewObjectsClassReferencesCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(objErr))
@@ -521,6 +533,9 @@ func (h *objectHandlers) putObjectReferences(params objects.ObjectsClassReferenc
 		case objErr.BadRequest():
 			return objects.NewObjectsClassReferencesPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(objErr))
+		case objErr.UnprocessableEntity():
+			return objects.NewObjectsClassReferencesPutUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(objErr))
 		default:
 			return objects.NewObjectsClassReferencesPutInternalServerError().
 				WithPayload(errPayloadFromSingleErr(objErr))
@@ -559,6 +574,9 @@ func (h *objectHandlers) deleteObjectReference(params objects.ObjectsClassRefere
 		case uco.StatusNotFound:
 			return objects.NewObjectsClassReferencesDeleteNotFound()
 		case uco.StatusBadRequest:
+			return objects.NewObjectsClassReferencesDeleteUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(objErr))
+		case uco.StatusUnprocessableEntity:
 			return objects.NewObjectsClassReferencesDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(objErr))
 		default:

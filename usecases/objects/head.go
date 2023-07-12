@@ -45,7 +45,7 @@ func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, c
 	if err != nil {
 		switch err.(type) {
 		case ErrMultiTenancy:
-			return false, &Error{"repo.exists", StatusBadRequest, err}
+			return false, &Error{"repo.exists", StatusUnprocessableEntity, err}
 		default:
 			return false, &Error{"repo.exists", StatusInternalServerError, err}
 		}

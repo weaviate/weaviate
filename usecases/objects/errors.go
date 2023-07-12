@@ -20,6 +20,7 @@ const (
 	StatusForbidden           = 403
 	StatusBadRequest          = 400
 	StatusNotFound            = 404
+	StatusUnprocessableEntity = 422
 	StatusInternalServerError = 500
 )
 
@@ -49,6 +50,10 @@ func (e *Error) Forbidden() bool {
 
 func (e *Error) BadRequest() bool {
 	return e.Code == StatusBadRequest
+}
+
+func (e *Error) UnprocessableEntity() bool {
+	return e.Code == StatusUnprocessableEntity
 }
 
 // ErrInvalidUserInput indicates a client-side error

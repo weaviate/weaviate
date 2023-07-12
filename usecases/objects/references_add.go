@@ -42,7 +42,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 			if errors.As(err, &errnf) {
 				return &Error{"source object deprecated", StatusBadRequest, err}
 			} else if errors.As(err, &ErrMultiTenancy{}) {
-				return &Error{"source object deprecated", StatusBadRequest, err}
+				return &Error{"source object deprecated", StatusUnprocessableEntity, err}
 			}
 			return &Error{"source object deprecated", StatusInternalServerError, err}
 		}
@@ -61,6 +61,9 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
 	if err := input.validate(ctx, principal, validator, m.schemaManager, tenant); err != nil {
+		if errors.As(err, &ErrMultiTenancy{}) {
+			return &Error{"validate inputs", StatusUnprocessableEntity, err}
+		}
 		return &Error{"validate inputs", StatusBadRequest, err}
 	}
 	if !deprecatedEndpoint {
@@ -68,7 +71,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		if err != nil {
 			switch err.(type) {
 			case ErrMultiTenancy:
-				return &Error{"source object", StatusBadRequest, err}
+				return &Error{"source object", StatusUnprocessableEntity, err}
 			default:
 				return &Error{"source object", StatusInternalServerError, err}
 			}

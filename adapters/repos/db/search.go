@@ -242,7 +242,7 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 	if err != nil {
 		switch err.(type) {
 		case objects.ErrMultiTenancy:
-			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusBadRequest, Err: err}
+			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusUnprocessableEntity, Err: err}
 		default:
 			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}
 		}
