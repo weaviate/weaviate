@@ -1416,23 +1416,82 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 	return res, nil
 }
 
-func (i *Index) drop() (firstErr error) {
-	i.backupStateLock.RLock()
-	defer i.backupStateLock.RUnlock()
+func (i *Index) drop() error {
+	var eg errgroup.Group
+	eg.SetLimit(_NUMCPU * 2)
 	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName}
-	i.shards.Range(func(name string, shard *Shard) error {
+	dropShard := func(name string, shard *Shard) error {
 		if shard == nil {
 			return nil
 		}
-		if err := shard.drop(); err != nil {
-			logrus.WithFields(fields).WithField("id", shard.ID()).Error(err)
-			if firstErr == nil {
-				firstErr = err
+		eg.Go(func() error {
+			if err := shard.drop(); err != nil {
+				logrus.WithFields(fields).WithField("id", shard.ID()).Error(err)
 			}
-		}
+			return nil
+		})
 		return nil
-	})
-	return
+	}
+
+	i.backupStateLock.RLock()
+	defer i.backupStateLock.RUnlock()
+
+	i.shards.Range(dropShard)
+	return eg.Wait()
+}
+
+// dropShards deletes shards in a transactional manner.
+// To confirm the deletion, the user must call Commit(true).
+// To roll back the deletion, the user must call Commit(false)
+func (i *Index) dropShards(names []string) (commit func(success bool), err error) {
+	shards := make(map[string]*Shard, len(names))
+	i.backupStateLock.RLock()
+	defer i.backupStateLock.RUnlock()
+
+	// mark deleted shards
+	for _, name := range names {
+		prev, ok := i.shards.Swap(name, nil) // mark
+		if !ok {                             // shard doesn't exit
+			i.shards.LoadAndDelete(name) // rollback nil value created by swap()
+			continue
+		}
+		if prev != nil {
+			shards[name] = prev
+		}
+	}
+
+	rollback := func() {
+		for name, shard := range shards {
+			i.shards.CompareAndSwap(name, nil, shard)
+		}
+	}
+
+	var eg errgroup.Group
+	eg.SetLimit(_NUMCPU * 2)
+	commit = func(success bool) {
+		if !success {
+			rollback()
+			return
+		}
+		// detach shards
+		for name := range shards {
+			i.shards.LoadAndDelete(name)
+		}
+
+		// drop shards
+		for _, shard := range shards {
+			shard := shard
+			eg.Go(func() error {
+				if err := shard.drop(); err != nil {
+					i.logger.WithField("action", "drop_shard").
+						WithField("shard", shard.ID()).Error(err)
+				}
+				return nil
+			})
+		}
+	}
+
+	return commit, eg.Wait()
 }
 
 func (i *Index) Shutdown(ctx context.Context) error {
