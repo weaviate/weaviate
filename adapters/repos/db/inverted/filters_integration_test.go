@@ -16,6 +16,7 @@ package inverted
 
 import (
 	"context"
+	"log"
 	"encoding/binary"
 	"fmt"
 	"testing"
@@ -306,10 +307,10 @@ func Test_Filters_String(t *testing.T) {
 	}
 }
 
-/*
-func DumpString(bucket *lsmkv.BucketInterface, property_prefix []byte) string {
+
+func DumpString(bucket lsmkv.BucketInterface) string {
 	var out string
-	rr := NewRowReader(property_prefix, bucket, nil, filters.OperatorAnd, false)
+	rr := NewRowReader( bucket, nil, filters.OperatorAnd, false)
 
 	
 
@@ -324,7 +325,7 @@ func DumpString(bucket *lsmkv.BucketInterface, property_prefix []byte) string {
 	})
 	return out
 }
-*/
+
 
 func Test_Filters_Int(t *testing.T) {
 	dirName := t.TempDir()
@@ -507,7 +508,9 @@ func Test_Filters_Int(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Run("before update", func(t *testing.T) {
 				fmt.Println("Dumping bucket:")
-				//DumpString(bucket, propid_bytes)
+				log.Println("hi")
+				x:=DumpString(bucket)
+				fmt.Println(x)
 				fmt.Println("Dumping bucket end")
 				res, err := searcher.DocIDs(context.Background(), test.filter,additional.Properties{}, className)
 				assert.Nil(t, err)

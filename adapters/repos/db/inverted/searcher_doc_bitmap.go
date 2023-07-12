@@ -59,13 +59,13 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b lsmkv.Buck
 	isEmpty := true
 	var readFn RoaringSetReadFn = func(k []byte, docIDs *sroar.Bitmap) (bool, error) {
 		if isEmpty {
-			out.docIDs = docIDs
+			out.DocIDs = docIDs
 			isEmpty = false
 		} else {
-			out.docIDs.Or(docIDs)
+			out.DocIDs.Or(docIDs)
 		}
 
-		if limit > 0 && out.docIDs.GetCardinality() >= limit {
+		if limit > 0 && out.DocIDs.GetCardinality() >= limit {
 			return false, nil
 		}
 		return true, nil
@@ -88,10 +88,10 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, property []byte, b 
 	out := newDocBitmap()
 	var readFn ReadFn = func(k []byte, ids [][]byte) (bool, error) {
 		for _, asBytes := range ids {
-			out.docIDs.Set(binary.LittleEndian.Uint64(asBytes))
+			out.DocIDs.Set(binary.LittleEndian.Uint64(asBytes))
 		}
 
-		if limit > 0 && out.docIDs.GetCardinality() >= limit {
+		if limit > 0 && out.DocIDs.GetCardinality() >= limit {
 			return false, nil
 		}
 		return true, nil
@@ -116,13 +116,13 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, property []byte, b 
 			// this entry has a frequency, but that's only used for bm25, not for
 			// pure filtering, so we can ignore it here
 			if s.shardVersion < 2 {
-				out.docIDs.Set(binary.LittleEndian.Uint64(pair.Key))
+				out.DocIDs.Set(binary.LittleEndian.Uint64(pair.Key))
 			} else {
-				out.docIDs.Set(binary.BigEndian.Uint64(pair.Key))
+				out.DocIDs.Set(binary.BigEndian.Uint64(pair.Key))
 			}
 		}
 
-		if limit > 0 && out.docIDs.GetCardinality() >= limit {
+		if limit > 0 && out.DocIDs.GetCardinality() >= limit {
 			return false, nil
 		}
 		return true, nil
@@ -155,6 +155,6 @@ func (s *Searcher) docBitmapGeo(ctx context.Context, pv *propValuePair) (docBitm
 		return out, errors.Wrapf(err, "geo index range search on prop %q", pv.prop)
 	}
 
-	out.docIDs.SetMany(res)
+	out.DocIDs.SetMany(res)
 	return out, nil
 }

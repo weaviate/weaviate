@@ -288,28 +288,30 @@ func ScanAll(tx *bolt.Tx, scan docid.ObjectScanFn) error {
 
 // ScanAllLSM iterates over every row in the object buckets
 func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn,propName string,  propPrefix []byte) error {
-	//b :=  lsmkv.NewBucketProxy( store.Bucket(helpers.ObjectsBucketLSM), propName, propIds)
-	//if b == nil {
-	//	return fmt.Errorf("objects bucket not found")
-	//}
+
 
 	b :=  lsmkv.NewBucketProxyWithPrefix( store.Bucket(helpers.ObjectsBucketLSM), propName, propPrefix)
+	if b == nil {
+		return fmt.Errorf("objects bucket not found")
+	}
+	c := b.Cursor()
+	defer c.Close()
 
-	//c := b.Cursor()
-	//defer c.Close()
-
-	//for k, v := c.First(); k != nil; k, v = c.Next() 
-	
-	b.IteratePropPrefixObjects(context.TODO(), func ( k []byte, elem *storobj.Object) error {
-
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		elem , err:= storobj.FromBinary(v)
+		if err != nil {
+			return errors.Wrapf(err, "unmarshal data object")
+		}
 		// scanAll has no abort, so we can ignore the first arg
 		properties := elem.Properties()
-		_, err := scan(&properties, elem.DocID())
+		_, err = scan(&properties, elem.DocID())
 		if err != nil {
 			return err
 		}
-		return nil
-	}, nil, nil)
+		
+	}
 
 	return nil
 }
+
+

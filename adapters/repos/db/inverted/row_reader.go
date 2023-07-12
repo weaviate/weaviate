@@ -96,9 +96,8 @@ func (rr *RowReader) equal(ctx context.Context, readFn ReadFn) error {
 		return err
 	}
 
-	key := helpers.MakePropertyKey(rr.PropPrefix, rr.value)
 
-	v, err := rr.bucket.SetList(key)
+	v, err := rr.bucket.SetList(rr.value)
 	if err != nil {
 		return err
 	}

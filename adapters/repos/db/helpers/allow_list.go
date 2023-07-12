@@ -48,13 +48,13 @@ func MakePropertyPrefix(property []byte, propIds *tracker.JsonPropertyIdTracker)
 		return propid_bytes, nil
 	}
 
-func MakePropertyKey(propName []byte, key []byte) []byte {
-	if len(propName) == 0 {
+func MakePropertyKey(propPrefix []byte, key []byte) []byte {
+	if len(propPrefix) == 0 {
 		panic("Empty property name, this is almost certainly wrong")
 	}
 	//t := append([]byte(propName), byte('|'))
-	t := propName
-	val := append(t, key...)
+	t := key
+	val := append(t, propPrefix...)
 	//log.Printf("Property key: %s\n", val)
 	//log.Printf("Property key bytes: %v\n", val)
 	// Print stack trace here
@@ -69,7 +69,7 @@ func MatchesPropertyKeyPrefix(propName []byte, key []byte) bool {
 		debug.PrintStack()
 	}
 	//return bytes.HasPrefix(key, append([]byte(propName), byte('|')))
-	return bytes.HasPrefix(key, propName)
+	return bytes.HasSuffix(key, propName)
 }
 
 func UnMakePropertyKey(propName []byte, key []byte) []byte {
@@ -79,7 +79,7 @@ func UnMakePropertyKey(propName []byte, key []byte) []byte {
 		debug.PrintStack()
 	}
 	//return key[len(propName)+1:]
-	return key[len(propName):]
+	return key[:len(key)-len(propName)]
 }
 
 type AllowListIterator interface {

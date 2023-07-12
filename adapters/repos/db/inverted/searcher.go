@@ -168,7 +168,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,addit
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
 
-	return helpers.NewAllowListFromBitmap(dbm.docIDs), nil
+	return helpers.NewAllowListFromBitmap(dbm.DocIDs), nil
 }
 
 func (s *Searcher) buildPropValuePair(filter *filters.Clause,className schema.ClassName) (*propValuePair, error) {
@@ -623,35 +623,35 @@ func (it *sliceDocIDsIterator) Len() int {
 }
 
 type docBitmap struct {
-	docIDs *sroar.Bitmap
+	DocIDs *sroar.Bitmap
 }
 
 // newUninitializedDocBitmap can be used whenever we can be sure that the first
 // user of the docBitmap will set or replace the bitmap, such as a row reader
 func newUninitializedDocBitmap() docBitmap {
-	return docBitmap{docIDs: nil}
+	return docBitmap{DocIDs: nil}
 }
 
 func newDocBitmap() docBitmap {
-	return docBitmap{docIDs: sroar.NewBitmap()}
+	return docBitmap{DocIDs: sroar.NewBitmap()}
 }
 
 func (dbm *docBitmap) count() int {
-	if dbm.docIDs == nil {
+	if dbm.DocIDs == nil {
 		return 0
 	}
-	return dbm.docIDs.GetCardinality()
+	return dbm.DocIDs.GetCardinality()
 }
 
 func (dbm *docBitmap) IDs() []uint64 {
-	if dbm.docIDs == nil {
+	if dbm.DocIDs == nil {
 		return []uint64{}
 	}
-	return dbm.docIDs.ToArray()
+	return dbm.DocIDs.ToArray()
 }
 
 func (dbm *docBitmap) IDsWithLimit(limit int) []uint64 {
-	card := dbm.docIDs.GetCardinality()
+	card := dbm.DocIDs.GetCardinality()
 	if limit >= card {
 		return dbm.IDs()
 	}
@@ -660,7 +660,7 @@ func (dbm *docBitmap) IDsWithLimit(limit int) []uint64 {
 	for i := range out {
 		// safe to ignore error, it can only error if the index is >= cardinality
 		// which we have already ruled out
-		out[i], _ = dbm.docIDs.Select(uint64(i))
+		out[i], _ = dbm.DocIDs.Select(uint64(i))
 	}
 
 	return out

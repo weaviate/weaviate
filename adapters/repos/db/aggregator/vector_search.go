@@ -90,7 +90,7 @@ func (a *Aggregator) buildAllowList(ctx context.Context) (helpers.AllowList, err
 
 	if a.params.Filters != nil {
 		s := a.getSchema.GetSchemaSkipAuth()
-		allow, err = inverted.NewSearcher(a.logger, a.store, s, nil, nil,
+		allow, err = inverted.NewSearcher(a.logger, a.store, s, nil, a.propertyIds,
 			a.classSearcher, a.deletedDocIDs, a.stopwords, a.shardVersion,
 			a.isFallbackToSearchable).
 			DocIDs(ctx, a.params.Filters, additional.Properties{},

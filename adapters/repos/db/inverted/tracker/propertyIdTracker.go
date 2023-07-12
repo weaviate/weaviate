@@ -140,12 +140,15 @@ func (t *JsonPropertyIdTracker) CreateProperty(property string) (uint64, error) 
 func (t *JsonPropertyIdTracker) _createProperty(property string) (uint64, error) {
 	fmt.Printf("Creating property %v\n", property)
 
-	if _, ok := t.PropertyIds[property]; ok {
-		return 0, fmt.Errorf("property %v already exists\n", property)
+	if id, ok := t.PropertyIds[property]; ok {
+		fmt.Printf("property %v already exists\n", property)
+		return id, fmt.Errorf("property %v already exists\n", property)
 	}
 
 	t.LastId++
 	t.PropertyIds[property] = t.LastId
+
+	fmt.Printf("Created property %v with id %v\n", property, t.LastId)
 
 	return t.LastId, nil
 }

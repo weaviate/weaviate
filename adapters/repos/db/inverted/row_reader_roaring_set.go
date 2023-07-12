@@ -151,7 +151,10 @@ func (rr *RowReaderRoaringSet) lessThan(ctx context.Context,
 	defer c.Close()
 
 	for k, v := c.First(); k != nil && bytes.Compare(helpers.UnMakePropertyKey(rr.PropPrefix, k), rr.value) < 1; k, v = c.Next() {
-		fmt.Printf("rr roaring set: Property prefix: %v\n", rr.PropPrefix)
+		fmt.Printf("\nrr roaring set: Property prefix: %v, k: %v\n", rr.PropPrefix,k)
+		if ! helpers.MatchesPropertyKeyPrefix(rr.PropPrefix, k) {
+			continue
+		}
 		k = helpers.UnMakePropertyKey(rr.PropPrefix, k)
 		fmt.Printf("rr roaring set: k sans prop: %v\n", k)
 		if err := ctx.Err(); err != nil {

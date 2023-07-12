@@ -137,17 +137,17 @@ func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
 		dbms[i] = dbm
 	}
 
-	mergeRes := dbms[0].docIDs.Clone()
+	mergeRes := dbms[0].DocIDs.Clone()
 	mergeFn := mergeRes.And
 	if pv.operator == filters.OperatorOr {
 		mergeFn = mergeRes.Or
 	}
 
 	for i := 1; i < len(dbms); i++ {
-		mergeFn(dbms[i].docIDs)
+		mergeFn(dbms[i].DocIDs)
 	}
 
 	return &docBitmap{
-		docIDs: roaringset.Condense(mergeRes),
+		DocIDs: roaringset.Condense(mergeRes),
 	}, nil
 }
