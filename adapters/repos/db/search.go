@@ -240,7 +240,12 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters,
 		nil, q.Sort, q.Cursor, q.Additional, nil, q.Tenant, 0)
 	if err != nil {
-		return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}
+		switch err.(type) {
+		case objects.ErrMultiTenancy:
+			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusUnprocessableEntity, Err: err}
+		default:
+			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}
+		}
 	}
 	return db.getSearchResults(storobj.SearchResults(res, q.Additional, ""), q.Offset, q.Limit), nil
 }
@@ -277,11 +282,8 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 			res, _, err := index.objectSearch(ctx, totalLimit,
 				filters, nil, sort, nil, additional, nil, tenant, 0)
 			if err != nil {
-				if errors.Is(err, errTenantNotFound) {
-					continue // tenant does belong to this class
-				}
-				// TODO find better way to recognise particular errors
-				if errors.As(err, &objects.ErrInvalidUserInput{}) {
+				// Multi tenancy specific errors
+				if errors.As(err, &objects.ErrMultiTenancy{}) {
 					// validation failed (either MT class without tenant or non-MT class with tenant)
 					if strings.Contains(err.Error(), "has multi-tenancy enabled, but request was without tenant") ||
 						strings.Contains(err.Error(), "has multi-tenancy disabled, but request was with tenant") {
@@ -290,6 +292,10 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 					// tenant not added to class
 					if strings.Contains(err.Error(), "no tenant found with key") {
 						continue
+					}
+					// tenant does belong to this class
+					if errors.As(err, &errTenantNotFound) {
+						continue // tenant does belong to this class
 					}
 				}
 				return errors.Wrapf(err, "search index %s", index.ID())

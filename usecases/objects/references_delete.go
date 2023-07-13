@@ -46,6 +46,8 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		errnf := ErrNotFound{}
 		if errors.As(err, &errnf) {
 			return &Error{"source object", StatusNotFound, err}
+		} else if errors.As(err, &ErrMultiTenancy{}) {
+			return &Error{"source object", StatusUnprocessableEntity, err}
 		}
 		return &Error{"source object", StatusInternalServerError, err}
 	}
@@ -65,6 +67,9 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	if err := input.validate(ctx, principal, m.schemaManager); err != nil {
 		if deprecatedEndpoint { // for backward comp reasons
 			return &Error{"bad inputs deprecated", StatusNotFound, err}
+		}
+		if errors.As(err, &ErrMultiTenancy{}) {
+			return &Error{"bad inputs", StatusUnprocessableEntity, err}
 		}
 		return &Error{"bad inputs", StatusBadRequest, err}
 	}

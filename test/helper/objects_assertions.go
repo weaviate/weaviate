@@ -23,6 +23,7 @@ import (
 )
 
 func AssertCreateObject(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {
+	t.Helper()
 	params := objects.NewObjectsCreateParams().WithBody(
 		&models.Object{
 			Class:      className,
@@ -42,6 +43,7 @@ func AssertCreateObject(t *testing.T, className string, schema map[string]interf
 }
 
 func AssertGetObject(t *testing.T, class string, uuid strfmt.UUID, include ...string) *models.Object {
+	t.Helper()
 	obj, err := GetObject(t, class, uuid, include...)
 	AssertRequestOk(t, obj, err, nil)
 	return obj

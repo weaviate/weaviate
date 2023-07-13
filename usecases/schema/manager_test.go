@@ -277,7 +277,7 @@ func testRemoveObjectClass(t *testing.T, lsm *Manager) {
 	assert.Contains(t, objectClasses, "Car")
 
 	// Now delete the class
-	err = lsm.DeleteClass(context.Background(), nil, "Car", false)
+	err = lsm.DeleteClass(context.Background(), nil, "Car")
 	assert.Nil(t, err)
 
 	objectClasses = testGetClassNames(lsm)

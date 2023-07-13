@@ -25,7 +25,6 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
-	"github.com/go-openapi/swag"
 )
 
 // NewSchemaObjectsDeleteParams creates a new SchemaObjectsDeleteParams object,
@@ -75,9 +74,6 @@ type SchemaObjectsDeleteParams struct {
 
 	// ClassName.
 	ClassName string
-
-	// Force.
-	Force *bool
 
 	timeout    time.Duration
 	Context    context.Context
@@ -143,17 +139,6 @@ func (o *SchemaObjectsDeleteParams) SetClassName(className string) {
 	o.ClassName = className
 }
 
-// WithForce adds the force to the schema objects delete params
-func (o *SchemaObjectsDeleteParams) WithForce(force *bool) *SchemaObjectsDeleteParams {
-	o.SetForce(force)
-	return o
-}
-
-// SetForce adds the force to the schema objects delete params
-func (o *SchemaObjectsDeleteParams) SetForce(force *bool) {
-	o.Force = force
-}
-
 // WriteToRequest writes these params to a swagger request
 func (o *SchemaObjectsDeleteParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -165,23 +150,6 @@ func (o *SchemaObjectsDeleteParams) WriteToRequest(r runtime.ClientRequest, reg 
 	// path param className
 	if err := r.SetPathParam("className", o.ClassName); err != nil {
 		return err
-	}
-
-	if o.Force != nil {
-
-		// query param force
-		var qrForce bool
-
-		if o.Force != nil {
-			qrForce = *o.Force
-		}
-		qForce := swag.FormatBool(qrForce)
-		if qForce != "" {
-
-			if err := r.SetQueryParam("force", qForce); err != nil {
-				return err
-			}
-		}
 	}
 
 	if len(res) > 0 {

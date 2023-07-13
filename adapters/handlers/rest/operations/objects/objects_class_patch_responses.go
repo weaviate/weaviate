@@ -58,6 +58,11 @@ ObjectsClassPatchBadRequest The patch-JSON is malformed.
 swagger:response objectsClassPatchBadRequest
 */
 type ObjectsClassPatchBadRequest struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewObjectsClassPatchBadRequest creates ObjectsClassPatchBadRequest with default headers values
@@ -66,12 +71,27 @@ func NewObjectsClassPatchBadRequest() *ObjectsClassPatchBadRequest {
 	return &ObjectsClassPatchBadRequest{}
 }
 
+// WithPayload adds the payload to the objects class patch bad request response
+func (o *ObjectsClassPatchBadRequest) WithPayload(payload *models.ErrorResponse) *ObjectsClassPatchBadRequest {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects class patch bad request response
+func (o *ObjectsClassPatchBadRequest) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *ObjectsClassPatchBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(400)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // ObjectsClassPatchUnauthorizedCode is the HTTP code returned for type ObjectsClassPatchUnauthorized
