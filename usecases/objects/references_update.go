@@ -52,6 +52,8 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 				return &Error{"source object deprecated", StatusBadRequest, err}
 			}
 			return &Error{"source object", StatusNotFound, err}
+		} else if errors.As(err, &ErrMultiTenancy{}) {
+			return &Error{"source object", StatusUnprocessableEntity, err}
 		}
 		return &Error{"source object", StatusInternalServerError, err}
 	}
@@ -70,6 +72,9 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
 	if err := input.validate(ctx, principal, validator, m.schemaManager, tenant); err != nil {
+		if errors.As(err, &ErrMultiTenancy{}) {
+			return &Error{"bad inputs", StatusUnprocessableEntity, err}
+		}
 		return &Error{"bad inputs", StatusBadRequest, err}
 	}
 

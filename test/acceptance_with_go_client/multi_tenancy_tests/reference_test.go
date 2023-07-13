@@ -625,7 +625,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 
 					require.NotNil(t, err)
 					clientErr := err.(*fault.WeaviateClientError)
-					assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+					assert.Equal(t, 422, clientErr.StatusCode)
 					assert.Contains(t, clientErr.Msg, "tenant not found")
 				}
 			}
@@ -840,7 +840,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 
 				require.NotNil(t, err)
 				clientErr := err.(*fault.WeaviateClientError)
-				assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+				assert.Equal(t, 422, clientErr.StatusCode)
 				assert.Contains(t, clientErr.Msg, "has multi-tenancy enabled, but request was without tenant")
 			}
 		}
@@ -935,10 +935,9 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 					WithReference(ref).
 					WithTenant("nonExistentTenant").
 					Do(context.Background())
-
 				require.NotNil(t, err)
 				clientErr := err.(*fault.WeaviateClientError)
-				assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+				assert.Equal(t, 422, clientErr.StatusCode)
 				assert.Contains(t, clientErr.Msg, "tenant not found")
 			}
 		}
@@ -1244,7 +1243,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 
 			require.NotNil(t, err)
 			clientErr := err.(*fault.WeaviateClientError)
-			assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+			assert.Equal(t, 422, clientErr.StatusCode)
 			assert.Contains(t, clientErr.Msg, "has multi-tenancy enabled, but request was without tenant")
 		}
 
@@ -1356,7 +1355,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 
 			require.NotNil(t, err)
 			clientErr := err.(*fault.WeaviateClientError)
-			assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+			assert.Equal(t, 422, clientErr.StatusCode)
 			assert.Contains(t, clientErr.Msg, "tenant not found")
 		}
 
@@ -1831,7 +1830,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 
 					require.NotNil(t, err)
 					clientErr := err.(*fault.WeaviateClientError)
-					assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+					assert.Equal(t, 422, clientErr.StatusCode)
 					assert.Contains(t, clientErr.Msg, "tenant not found")
 				}
 			}
@@ -1981,7 +1980,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 
 				require.NotNil(t, err)
 				clientErr := err.(*fault.WeaviateClientError)
-				assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+				assert.Equal(t, 422, clientErr.StatusCode)
 				assert.Contains(t, clientErr.Msg, "has multi-tenancy enabled, but request was without tenant")
 			}
 		}
@@ -2068,7 +2067,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 
 				require.NotNil(t, err)
 				clientErr := err.(*fault.WeaviateClientError)
-				assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+				assert.Equal(t, 422, clientErr.StatusCode)
 				assert.Contains(t, clientErr.Msg, "tenant not found")
 			}
 		}
@@ -2359,7 +2358,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 
 				require.NotNil(t, err)
 				clientErr := err.(*fault.WeaviateClientError)
-				assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+				assert.Equal(t, 422, clientErr.StatusCode)
 				assert.Contains(t, clientErr.Msg, "has multi-tenancy enabled, but request was without tenant")
 			}
 		}
@@ -2445,7 +2444,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 
 				require.NotNil(t, err)
 				clientErr := err.(*fault.WeaviateClientError)
-				assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+				assert.Equal(t, 422, clientErr.StatusCode)
 				assert.Contains(t, clientErr.Msg, "tenant not found")
 			}
 		}
@@ -2717,7 +2716,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 
 			require.NotNil(t, err)
 			clientErr := err.(*fault.WeaviateClientError)
-			assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+			assert.Equal(t, 422, clientErr.StatusCode)
 			assert.Contains(t, clientErr.Msg, "has multi-tenancy enabled, but request was without tenant")
 		}
 
@@ -2817,7 +2816,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 
 			require.NotNil(t, err)
 			clientErr := err.(*fault.WeaviateClientError)
-			assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+			assert.Equal(t, 422, clientErr.StatusCode)
 			assert.Contains(t, clientErr.Msg, "tenant not found")
 		}
 
@@ -3018,7 +3017,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 
 				require.NotNil(t, err)
 				clientErr := err.(*fault.WeaviateClientError)
-				assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+				assert.Equal(t, 422, clientErr.StatusCode)
 				assert.Contains(t, clientErr.Msg, "has multi-tenancy disabled, but request was with tenant")
 			}
 		}
@@ -3340,7 +3339,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 
 			require.NotNil(t, err)
 			clientErr := err.(*fault.WeaviateClientError)
-			assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+			assert.Equal(t, 422, clientErr.StatusCode)
 			assert.Contains(t, clientErr.Msg, "has multi-tenancy disabled, but request was with tenant")
 		}
 
@@ -3496,7 +3495,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 
 			require.NotNil(t, err)
 			clientErr := err.(*fault.WeaviateClientError)
-			assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+			assert.Equal(t, 422, clientErr.StatusCode)
 			assert.Contains(t, clientErr.Msg, "has multi-tenancy disabled, but request was with tenant")
 		}
 
@@ -3574,7 +3573,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 
 			require.NotNil(t, err)
 			clientErr := err.(*fault.WeaviateClientError)
-			assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+			assert.Equal(t, 422, clientErr.StatusCode)
 			assert.Contains(t, clientErr.Msg, "has multi-tenancy disabled, but request was with tenant")
 		}
 

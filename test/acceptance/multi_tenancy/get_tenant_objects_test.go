@@ -356,9 +356,9 @@ func TestListTenantObjects(t *testing.T) {
 			res, err := helper.TenantListObjects(t, classMT_4.Class, tenantNames[0])
 
 			require.NotNil(t, err)
-			expErr := &objects.ObjectsListInternalServerError{}
+			expErr := &objects.ObjectsListUnprocessableEntity{}
 			require.ErrorAs(t, err, &expErr)
-			assert.Contains(t, err.(*objects.ObjectsListInternalServerError).Payload.Error[0].Message, tenantNames[0])
+			assert.Contains(t, err.(*objects.ObjectsListUnprocessableEntity).Payload.Error[0].Message, tenantNames[0])
 			require.Nil(t, res)
 		})
 	})
@@ -405,9 +405,9 @@ func TestListTenantObjects(t *testing.T) {
 			res, err := helper.TenantListObjects(t, classMT_3.Class, tenantNames[1])
 
 			require.NotNil(t, err)
-			expErr := &objects.ObjectsListInternalServerError{}
+			expErr := &objects.ObjectsListUnprocessableEntity{}
 			require.ErrorAs(t, err, &expErr)
-			assert.Contains(t, err.(*objects.ObjectsListInternalServerError).Payload.Error[0].Message, tenantNames[1])
+			assert.Contains(t, err.(*objects.ObjectsListUnprocessableEntity).Payload.Error[0].Message, tenantNames[1])
 			require.Nil(t, res)
 		})
 
