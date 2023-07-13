@@ -333,7 +333,7 @@ func (i *Index) determineObjectShard(id strfmt.UUID, tenant string) (string, err
 		if shard := i.getSchema.TenantShard(className, tenant); shard != "" {
 			return shard, nil
 		}
-		return "", fmt.Errorf("%w: %q", errTenantNotFound, tenant)
+		return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
 	}
 
 	uuid, err := uuid.Parse(id.String())
@@ -681,7 +681,12 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 
 	shardName, err := i.determineObjectShard(id, tenant)
 	if err != nil {
-		return nil, objects.NewErrInvalidUserInput("determine shard: %v", err)
+		switch err.(type) {
+		case objects.ErrMultiTenancy:
+			return nil, objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
+		default:
+			return nil, objects.NewErrInvalidUserInput("determine shard: %v", err)
+		}
 	}
 
 	var obj *storobj.Object
@@ -829,7 +834,12 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 
 	shardName, err := i.determineObjectShard(id, tenant)
 	if err != nil {
-		return false, objects.NewErrInvalidUserInput("determine shard: %v", err)
+		switch err.(type) {
+		case objects.ErrMultiTenancy:
+			return false, objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
+		default:
+			return false, objects.NewErrInvalidUserInput("determine shard: %v", err)
+		}
 	}
 
 	var exists bool
@@ -1136,7 +1146,7 @@ func (i *Index) targetShardNames(tenant string) ([]string, error) {
 			return []string{shard}, nil
 		}
 	}
-	return nil, fmt.Errorf("%w: %q", errTenantNotFound, tenant)
+	return nil, objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
@@ -1718,11 +1728,13 @@ func (i *Index) addNewShard(ctx context.Context,
 
 func (i *Index) validateMultiTenancy(tenant string) error {
 	if i.partitioningEnabled && tenant == "" {
-		return objects.NewErrInvalidUserInput(
-			fmt.Sprintf("class %s has multi-tenancy enabled, but request was without tenant", i.Config.ClassName))
+		return objects.NewErrMultiTenancy(
+			fmt.Errorf("class %s has multi-tenancy enabled, but request was without tenant", i.Config.ClassName),
+		)
 	} else if !i.partitioningEnabled && tenant != "" {
-		return objects.NewErrInvalidUserInput(
-			fmt.Sprintf("class %s has multi-tenancy disabled, but request was with tenant", i.Config.ClassName))
+		return objects.NewErrMultiTenancy(
+			fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", i.Config.ClassName),
+		)
 	}
 	return nil
 }

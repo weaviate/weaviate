@@ -148,6 +148,7 @@ ObjectsClassPatchBadRequest describes a response with status code 400, with defa
 The patch-JSON is malformed.
 */
 type ObjectsClassPatchBadRequest struct {
+	Payload *models.ErrorResponse
 }
 
 // IsSuccess returns true when this objects class patch bad request response has a 2xx status code
@@ -181,14 +182,25 @@ func (o *ObjectsClassPatchBadRequest) Code() int {
 }
 
 func (o *ObjectsClassPatchBadRequest) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchBadRequest ", 400)
+	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *ObjectsClassPatchBadRequest) String() string {
-	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchBadRequest ", 400)
+	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *ObjectsClassPatchBadRequest) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *ObjectsClassPatchBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }
