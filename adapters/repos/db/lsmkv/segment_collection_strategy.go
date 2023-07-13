@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"fmt"
@@ -86,20 +87,30 @@ func (s *segment) collectionStratParseData(in []byte) ([]value, error) {
 	return values, nil
 }
 
-func (s *segment) collectionStratParseDataWithKey(in []byte) (segmentCollectionNode, error) {
-	r := bytes.NewReader(in)
-
-	if len(in) == 0 {
-		return segmentCollectionNode{}, lsmkv.NotFound
-	}
-
-	return ParseCollectionNode(r)
-}
-
 func (s *segment) collectionStratParseDataWithKeyInto(in []byte, node *segmentCollectionNode) error {
 	if len(in) == 0 {
 		return lsmkv.NotFound
 	}
 
 	return ParseCollectionNodeInto(in, node)
+}
+
+func (s *segment) bytesReaderFrom(in []byte) (*bytes.Reader, error) {
+	if len(in) == 0 {
+		return nil, lsmkv.NotFound
+	}
+	return bytes.NewReader(in), nil
+}
+
+func (s *segment) bufferedReaderAt(offset uint64) (*bufio.Reader, error) {
+	if s.contentFile == nil {
+		return nil, fmt.Errorf("nil contentFile for segment at %s", s.path)
+	}
+
+	if _, err := s.contentFile.Seek(int64(offset), 0); err != nil {
+		return nil,
+			fmt.Errorf("bufferedReaderAt: seek to offset: %w", err)
+	}
+
+	return bufio.NewReader(s.contentFile), nil
 }

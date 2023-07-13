@@ -288,6 +288,15 @@ func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key
 	return out, nil
 }
 
+// ParseCollectionNode reads from r and parses the collection values into a segmentCollectionNode
+//
+// When only given an offset, r is constructed as a *bufio.Reader to avoid first reading the
+// entire segment (could be GBs). Each consecutive read will be buffered to avoid excessive
+// syscalls.
+//
+// When we already have a finite and manageable []byte (i.e. when we have already seeked to an
+// lsmkv node and have start+end offset), r should be constructed as a *bytes.Reader, since the
+// contents have already been `pread` from the segment contentFile.
 func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
 	out := segmentCollectionNode{}
 	// 9 bytes is the most we can ever read uninterrupted, i.e. without a dynamic

@@ -64,7 +64,7 @@ func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
 
 	innerCursors, unlockSegmentGroup, err := b.disk.newRoaringSetCursors()
 	if err != nil {
-		panic(fmt.Sprintf("obtain new roaringset cursors"))
+		panic(fmt.Sprintf("obtain new roaringset cursors: %v", err))
 	}
 
 	// we have a flush-RLock, so we have the guarantee that the flushing state
