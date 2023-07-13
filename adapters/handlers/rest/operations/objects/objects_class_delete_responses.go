@@ -189,6 +189,51 @@ func (o *ObjectsClassDeleteNotFound) WriteResponse(rw http.ResponseWriter, produ
 	rw.WriteHeader(404)
 }
 
+// ObjectsClassDeleteUnprocessableEntityCode is the HTTP code returned for type ObjectsClassDeleteUnprocessableEntity
+const ObjectsClassDeleteUnprocessableEntityCode int = 422
+
+/*
+ObjectsClassDeleteUnprocessableEntity Request is well-formed (i.e., syntactically correct), but erroneous.
+
+swagger:response objectsClassDeleteUnprocessableEntity
+*/
+type ObjectsClassDeleteUnprocessableEntity struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewObjectsClassDeleteUnprocessableEntity creates ObjectsClassDeleteUnprocessableEntity with default headers values
+func NewObjectsClassDeleteUnprocessableEntity() *ObjectsClassDeleteUnprocessableEntity {
+
+	return &ObjectsClassDeleteUnprocessableEntity{}
+}
+
+// WithPayload adds the payload to the objects class delete unprocessable entity response
+func (o *ObjectsClassDeleteUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *ObjectsClassDeleteUnprocessableEntity {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects class delete unprocessable entity response
+func (o *ObjectsClassDeleteUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ObjectsClassDeleteUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ObjectsClassDeleteInternalServerErrorCode is the HTTP code returned for type ObjectsClassDeleteInternalServerError
 const ObjectsClassDeleteInternalServerErrorCode int = 500
 

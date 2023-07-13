@@ -527,7 +527,7 @@ func TestBatchDelete_MultiTenancy(t *testing.T) {
 
 			require.NotNil(t, err)
 			clientErr := err.(*fault.WeaviateClientError)
-			assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+			assert.Equal(t, 422, clientErr.StatusCode)
 			assert.Contains(t, clientErr.Msg, "tenant not found")
 			require.Nil(t, resp)
 		}

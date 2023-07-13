@@ -333,7 +333,7 @@ func (i *Index) determineObjectShard(id strfmt.UUID, tenant string) (string, err
 		if shard := i.getSchema.TenantShard(className, tenant); shard != "" {
 			return shard, nil
 		}
-		return "", fmt.Errorf("%w: %q", errTenantNotFound, tenant)
+		return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
 	}
 
 	uuid, err := uuid.Parse(id.String())
@@ -681,7 +681,12 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 
 	shardName, err := i.determineObjectShard(id, tenant)
 	if err != nil {
-		return nil, objects.NewErrInvalidUserInput("determine shard: %v", err)
+		switch err.(type) {
+		case objects.ErrMultiTenancy:
+			return nil, objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
+		default:
+			return nil, objects.NewErrInvalidUserInput("determine shard: %v", err)
+		}
 	}
 
 	var obj *storobj.Object
@@ -829,7 +834,12 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 
 	shardName, err := i.determineObjectShard(id, tenant)
 	if err != nil {
-		return false, objects.NewErrInvalidUserInput("determine shard: %v", err)
+		switch err.(type) {
+		case objects.ErrMultiTenancy:
+			return false, objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
+		default:
+			return false, objects.NewErrInvalidUserInput("determine shard: %v", err)
+		}
 	}
 
 	var exists bool
@@ -1136,7 +1146,7 @@ func (i *Index) targetShardNames(tenant string) ([]string, error) {
 			return []string{shard}, nil
 		}
 	}
-	return nil, fmt.Errorf("%w: %q", errTenantNotFound, tenant)
+	return nil, objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
@@ -1417,23 +1427,81 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 }
 
 func (i *Index) drop() error {
+	var eg errgroup.Group
+	eg.SetLimit(_NUMCPU * 2)
+	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName}
+	dropShard := func(name string, shard *Shard) error {
+		if shard == nil {
+			return nil
+		}
+		eg.Go(func() error {
+			if err := shard.drop(); err != nil {
+				logrus.WithFields(fields).WithField("id", shard.ID()).Error(err)
+			}
+			return nil
+		})
+		return nil
+	}
+
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
-	for _, name := range i.getSchema.CopyShardingState(i.Config.ClassName.String()).
-		AllPhysicalShards() {
-		shard := i.shards.Load(name)
-		if shard == nil {
-			// skip non-local, but do delete everything that exists - even if it
-			// shouldn't
+
+	i.shards.Range(dropShard)
+	return eg.Wait()
+}
+
+// dropShards deletes shards in a transactional manner.
+// To confirm the deletion, the user must call Commit(true).
+// To roll back the deletion, the user must call Commit(false)
+func (i *Index) dropShards(names []string) (commit func(success bool), err error) {
+	shards := make(map[string]*Shard, len(names))
+	i.backupStateLock.RLock()
+	defer i.backupStateLock.RUnlock()
+
+	// mark deleted shards
+	for _, name := range names {
+		prev, ok := i.shards.Swap(name, nil) // mark
+		if !ok {                             // shard doesn't exit
+			i.shards.LoadAndDelete(name) // rollback nil value created by swap()
 			continue
 		}
-		err := shard.drop()
-		if err != nil {
-			return errors.Wrapf(err, "delete shard %s", shard.ID())
+		if prev != nil {
+			shards[name] = prev
 		}
 	}
 
-	return nil
+	rollback := func() {
+		for name, shard := range shards {
+			i.shards.CompareAndSwap(name, nil, shard)
+		}
+	}
+
+	var eg errgroup.Group
+	eg.SetLimit(_NUMCPU * 2)
+	commit = func(success bool) {
+		if !success {
+			rollback()
+			return
+		}
+		// detach shards
+		for name := range shards {
+			i.shards.LoadAndDelete(name)
+		}
+
+		// drop shards
+		for _, shard := range shards {
+			shard := shard
+			eg.Go(func() error {
+				if err := shard.drop(); err != nil {
+					i.logger.WithField("action", "drop_shard").
+						WithField("shard", shard.ID()).Error(err)
+				}
+				return nil
+			})
+		}
+	}
+
+	return commit, eg.Wait()
 }
 
 func (i *Index) Shutdown(ctx context.Context) error {
@@ -1660,11 +1728,13 @@ func (i *Index) addNewShard(ctx context.Context,
 
 func (i *Index) validateMultiTenancy(tenant string) error {
 	if i.partitioningEnabled && tenant == "" {
-		return objects.NewErrInvalidUserInput(
-			fmt.Sprintf("class %s has multi-tenancy enabled, but request was without tenant", i.Config.ClassName))
+		return objects.NewErrMultiTenancy(
+			fmt.Errorf("class %s has multi-tenancy enabled, but request was without tenant", i.Config.ClassName),
+		)
 	} else if !i.partitioningEnabled && tenant != "" {
-		return objects.NewErrInvalidUserInput(
-			fmt.Sprintf("class %s has multi-tenancy disabled, but request was with tenant", i.Config.ClassName))
+		return objects.NewErrMultiTenancy(
+			fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", i.Config.ClassName),
+		)
 	}
 	return nil
 }
