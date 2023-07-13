@@ -12,11 +12,8 @@
 package lsmkv
 
 import (
-	"github.com/pkg/errors"
 
 	"context"
-
-	"encoding/binary"
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -33,12 +30,10 @@ type BucketProxy struct {
 }
 
 func NewBucketProxy(realB BucketInterface, propName string, propids *tracker.JsonPropertyIdTracker) *BucketProxy {
-	propid, err := propids.GetIdForProperty(propName)
+	propid_bytes ,err:= helpers.MakePropertyPrefix(propName, propids)
 	if err != nil {
 		fmt.Print(fmt.Sprintf("property '%s' not found in propLengths", propName))
 	}
-	propid_bytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(propid_bytes, propid)
 	return NewBucketProxyWithPrefix(realB, propName, propid_bytes)
 }
 
@@ -173,74 +168,4 @@ func (b *BucketProxy) RoaringSetAddOne(key []byte, value uint64) error {
 
 func (b *BucketProxy) Cursor() *CursorReplace {
 	return b.realB.Cursor()
-}
-
-func (b *BucketProxy) IteratePropPrefixObjects(ctx context.Context, f func(k []byte, object *storobj.Object) error, froar func(k []byte, object *sroar.Bitmap) error, fset func(k []byte, object [][]byte) error) error {
-
-	switch b.Strategy() {
-	/*
-		if fset == nil {
-			return fmt.Errorf("set callback is nil")
-		}
-		c := b.SetCursor()
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if !helpers.MatchesPropertyKeyPrefix(b.property_prefix, k) {
-				continue
-			}
-			k = helpers.UnMakePropertyKey(b.property_prefix, k)
-			fmt.Printf("k sans prop: %v\n", k)
-			if err := fset(k, v); err != nil {
-				return err
-			}
-		}
-		*/
-
-	case StrategyMapCollection, StrategyReplace: //FIXME: Wrong type?
-		if f == nil {
-			return fmt.Errorf("object callback is nil")
-		}
-		i := 0
-		cursor := b.Cursor()
-		defer cursor.Close()
-
-		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-			if !helpers.MatchesPropertyKeyPrefix(b.property_prefix, k) {
-				continue
-			}
-			k = helpers.UnMakePropertyKey(b.property_prefix, k)
-			fmt.Printf("k sans prop: %v\n", k)
-			obj, err := storobj.FromBinary(v)
-			if err != nil {
-				return fmt.Errorf("cannot unmarshal object %d, %v", i, err)
-			}
-			if err := f(k, obj); err != nil {
-				return errors.Wrapf(err, "callback on object '%d' failed", obj.DocID())
-			}
-
-			i++
-		}
-
-	case StrategyRoaringSet:
-		if froar == nil {
-			return fmt.Errorf("roaringset callback is nil")
-		}
-		c := b.CursorRoaringSet()
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if !helpers.MatchesPropertyKeyPrefix(b.property_prefix, k) {
-				continue
-			}
-			k = helpers.UnMakePropertyKey(b.property_prefix, k)
-			fmt.Printf("k sans prop: %v\n", k)
-			if err := froar(k, v); err != nil {
-				return err
-			}
-		}
-
-	}
-
-	return nil
 }

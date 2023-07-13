@@ -20,7 +20,6 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
 
 func (s *Searcher) docBitmap(ctx context.Context, property []byte, b lsmkv.BucketInterface, limit int,pv *propValuePair) (docBitmap, error) {
@@ -128,13 +127,7 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, property []byte, b 
 		return true, nil
 	}
 
-
-	propid_bytes, err := helpers.MakePropertyPrefix(property, s.propIds)
-	if err != nil {
-		return out, err
-	}
-
-	rr := NewRowReaderFrequency(propid_bytes, b, pv.value, pv.operator, false, s.shardVersion)
+	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false, s.shardVersion)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, errors.Wrap(err, "read row")
 	}

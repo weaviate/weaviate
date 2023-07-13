@@ -36,12 +36,11 @@ type AllowList interface {
 	LimitedIterator(limit int) AllowListIterator
 }
 
-func MakePropertyPrefix(property []byte, propIds *tracker.JsonPropertyIdTracker) ([]byte, error) {
-	var out []byte
+func MakePropertyPrefix(property string, propIds *tracker.JsonPropertyIdTracker) ([]byte, error) {
 		//FIXME use helper make prop key
 		propid, err := propIds.GetIdForProperty(string(property))
 		if err != nil {
-			return out, fmt.Errorf("property '%s' not found in propLengths", property)
+			fmt.Printf("property '%s' not found in propIds, creating", property)
 		}
 		propid_bytes := make([]byte, 8)
 		binary.LittleEndian.PutUint64(propid_bytes, propid)

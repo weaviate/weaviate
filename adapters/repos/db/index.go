@@ -357,6 +357,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		if shard == nil {
 			return fmt.Errorf("cannot find local shard %q", shardName)
 		}
+		fmt.Printf("Inserting object %s into shard %s\n", object.ID(), shardName)
 		if err := shard.putObject(ctx, object); err != nil {
 			return errors.Wrapf(err, "shard %s", shard.ID())
 		}

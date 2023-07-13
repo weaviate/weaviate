@@ -32,7 +32,7 @@ type RowReaderFrequency struct {
 	PropPrefix   []byte
 }
 
-func NewRowReaderFrequency(propPrefix []byte, bucket lsmkv.BucketInterface, value []byte,
+func NewRowReaderFrequency(bucket lsmkv.BucketInterface, value []byte,
 	operator filters.Operator, keyOnly bool, shardVersion uint16,
 ) *RowReaderFrequency {
 	return &RowReaderFrequency{
@@ -41,7 +41,7 @@ func NewRowReaderFrequency(propPrefix []byte, bucket lsmkv.BucketInterface, valu
 		operator:     operator,
 		keyOnly:      keyOnly,
 		shardVersion: shardVersion,
-		PropPrefix:   propPrefix,
+		PropPrefix:   bucket.PropertyPrefix(),
 	}
 }
 

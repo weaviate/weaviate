@@ -579,7 +579,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	})
 
 	searcher := NewSearcher(logger, store, createSchema(),
-		nil, nil, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false })
+		nil, propIds, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false })
 
 	type test struct {
 		name                     string
