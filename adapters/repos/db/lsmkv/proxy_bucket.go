@@ -30,6 +30,9 @@ type BucketProxy struct {
 }
 
 func NewBucketProxy(realB BucketInterface, propName string, propids *tracker.JsonPropertyIdTracker) *BucketProxy {
+	if propids == nil {
+	panic("propids is nil")
+	}
 	propid_bytes ,err:= helpers.MakePropertyPrefix(propName, propids)
 	if err != nil {
 		fmt.Print(fmt.Sprintf("property '%s' not found in propLengths", propName))
@@ -48,6 +51,18 @@ func NewBucketProxyWithPrefix(realB BucketInterface, propName string, propid_byt
 func (b *BucketProxy) PropertyPrefix() []byte {
 	return b.property_prefix
 }
+
+
+func (b *BucketProxy) RoaringSetRemoveOne(key []byte, value uint64) error {
+	real_key := b.makePropertyKey(key)
+	return b.realB.RoaringSetRemoveOne(real_key, value)
+}
+
+func (b *BucketProxy)  RoaringSetAddList(key []byte, values []uint64) error{
+	real_key := b.makePropertyKey(key)
+	return b.realB.RoaringSetAddList(real_key, values)
+}
+
 
 func (b *BucketProxy) makePropertyKey(key []byte) []byte {
 	return helpers.MakePropertyKey([]byte(b.property_prefix), key)

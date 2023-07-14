@@ -68,6 +68,8 @@ type BucketInterface interface {
 	FlushAndSwitch() error 
 	PropertyPrefix() []byte
 	Cursor() *CursorReplace 
+	RoaringSetRemoveOne(key []byte, value uint64) error
+	RoaringSetAddList(key []byte, values []uint64) error
 
 
 	CursorRoaringSetKeyOnly() CursorRoaringSet

@@ -196,7 +196,7 @@ func (s *Shard) addToPropertySetBucket( bucket lsmkv.BucketInterface, docID uint
 	return bucket.RoaringSetAddOne(key, docID)
 }
 
-func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket,
+func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b lsmkv.BucketInterface,
 	item inverted.MergeItem,
 ) error {
 	if b.Strategy() != lsmkv.StrategySetCollection && b.Strategy() != lsmkv.StrategyRoaringSet {
