@@ -49,7 +49,7 @@ func MakePropertyPrefix(property string, propIds *tracker.JsonPropertyIdTracker)
 
 func MakePropertyKey(propPrefix []byte, key []byte) []byte {
 	if len(propPrefix) == 0 {
-		panic("Empty property name, this is almost certainly wrong")
+		fmt.Println("Empty property name, this is almost certainly wrong")
 	}
 	//t := append([]byte(propName), byte('|'))
 	t := key
