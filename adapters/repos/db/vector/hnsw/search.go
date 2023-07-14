@@ -581,7 +581,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 			id := ids[i]
 			dist, _, _ := h.distanceFromBytesToFloatNode(byteDistancer, id)
 			last, _ := set.Last()
-			if dist > last.Dist {
+			if dist < last.Dist {
 				set.Insert(id, dist)
 			}
 		}
