@@ -151,8 +151,14 @@ func (rr *RowReaderFrequency) lessThan(ctx context.Context, readFn ReadFnFrequen
 	defer c.Close()
 
 	for k, v := c.First(); k != nil && bytes.Compare(k, rr.value) != 1; k, v = c.Next() {
+		if !helpers.MatchesPropertyKeyPrefix(rr.PropPrefix, k) {
+			continue
+		}
+		
 		k = helpers.UnMakePropertyKey(rr.PropPrefix, k)
 		fmt.Printf("k sans prop: %v\n", k)
+
+
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -181,8 +187,14 @@ func (rr *RowReaderFrequency) notEqual(ctx context.Context, readFn ReadFnFrequen
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
+		if !helpers.MatchesPropertyKeyPrefix(rr.PropPrefix, k) {
+			continue
+		}
+		
 		k = helpers.UnMakePropertyKey(rr.PropPrefix, k)
 		fmt.Printf("k sans prop: %v\n", k)
+
+		
 
 		
 		if err := ctx.Err(); err != nil {

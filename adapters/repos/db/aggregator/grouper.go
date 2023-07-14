@@ -61,8 +61,8 @@ func (g *grouper) Do(ctx context.Context) ([]group, error) {
 
 func (g *grouper) groupAll(ctx context.Context) ([]group, error) {
 	err := ScanAllLSM(g.store, func(prop *models.PropertySchema, docID uint64) (bool, error) {
-		return true, g.addElementById(prop, docID)
-	},  g.propertyName, g.propertyPrefix)
+			return true, g.addElementById(prop, docID)
+	})
 	if err != nil {
 		return nil, errors.Wrap(err, "group all (unfiltered)")
 	}
@@ -287,10 +287,10 @@ func ScanAll(tx *bolt.Tx, scan docid.ObjectScanFn) error {
 }
 
 // ScanAllLSM iterates over every row in the object buckets
-func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn,propName string,  propPrefix []byte) error {
+func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn) error {
 
 
-	b :=  lsmkv.NewBucketProxyWithPrefix( store.Bucket(helpers.ObjectsBucketLSM), propName, propPrefix)
+	b :=   store.Bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
 		return fmt.Errorf("objects bucket not found")
 	}
@@ -298,6 +298,7 @@ func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn,propName string,  pr
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
+
 		elem , err:= storobj.FromBinary(v)
 		if err != nil {
 			return errors.Wrapf(err, "unmarshal data object")

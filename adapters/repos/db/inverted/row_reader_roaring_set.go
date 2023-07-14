@@ -186,9 +186,14 @@ func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
-		fmt.Printf("rr roaring set: Property prefix: %v\n", rr.PropPrefix)
+		if !helpers.MatchesPropertyKeyPrefix(rr.PropPrefix, k) {
+			continue
+		}
+		
 		k = helpers.UnMakePropertyKey(rr.PropPrefix, k)
-		fmt.Printf("rr roaring set: k sans prop: %v\n", k)
+		fmt.Printf("k sans prop: %v\n", k)
+
+		
 		if err := ctx.Err(); err != nil {
 			return err
 		}

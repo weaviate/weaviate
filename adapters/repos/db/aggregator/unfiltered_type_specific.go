@@ -175,6 +175,12 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if !helpers.MatchesPropertyKeyPrefix(b.PropertyPrefix(), k) {
+				continue
+			}
+			
+			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
+			fmt.Printf("k sans prop: %v\n", k)
 			if err := ua.parseAndAddFloatRowRoaringSet(agg, k, v); err != nil {
 				return nil, err
 			}
@@ -295,7 +301,7 @@ func (ua unfilteredAggregator) dateProperty(ctx context.Context,
 			}
 			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
 			fmt.Printf("k sans prop: %v\n", k)
-			
+
 			if err := ua.parseAndAddDateRowSet(agg, k, v); err != nil {
 				return nil, err
 			}

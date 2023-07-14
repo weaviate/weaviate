@@ -145,9 +145,13 @@ func (rr *RowReader) Iterate(ctx context.Context, readFn ReadFn) error {
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
-		fmt.Printf("Property prefix: %v\n", rr.PropPrefix)
+		if !helpers.MatchesPropertyKeyPrefix(rr.PropPrefix, k) {
+			continue
+		}
+		
 		k = helpers.UnMakePropertyKey(rr.PropPrefix, k)
 		fmt.Printf("k sans prop: %v\n", k)
+
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -177,8 +181,13 @@ func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 	defer c.Close()
 
 	for k, v := c.First(); k != nil && bytes.Compare(k, rr.value) != 1; k, v = c.Next() {
+		if !helpers.MatchesPropertyKeyPrefix(rr.PropPrefix, k) {
+			continue
+		}
+		
 		k = helpers.UnMakePropertyKey(rr.PropPrefix, k)
 		fmt.Printf("k sans prop: %v\n", k)
+
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -207,8 +216,13 @@ func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
+		if !helpers.MatchesPropertyKeyPrefix(rr.PropPrefix, k) {
+			continue
+		}
+		
 		k = helpers.UnMakePropertyKey(rr.PropPrefix, k)
 		fmt.Printf("k sans prop: %v\n", k)
+		
 		if err := ctx.Err(); err != nil {
 			return err
 		}
