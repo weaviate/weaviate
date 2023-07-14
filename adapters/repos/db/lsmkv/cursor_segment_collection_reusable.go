@@ -12,6 +12,8 @@
 package lsmkv
 
 import (
+	"bytes"
+
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -38,7 +40,11 @@ func (s *segmentCursorCollectionReusable) seek(key []byte) ([]byte, []value, err
 		return nil, nil, err
 	}
 
-	err = s.segment.collectionStratParseDataWithKeyInto(contents, &s.nodeBuf)
+	if len(contents) == 0 {
+		return nil, nil, lsmkv.NotFound
+	}
+
+	err = ParseCollectionNodeInto(bytes.NewReader(contents), &s.nodeBuf)
 	if err != nil {
 		return s.nodeBuf.primaryKey, nil, err
 	}
@@ -53,13 +59,12 @@ func (s *segmentCursorCollectionReusable) next() ([]byte, []value, error) {
 		return nil, nil, lsmkv.NotFound
 	}
 
-	contents := make([]byte, s.segment.dataEndPos)
-	if err := s.segment.pread(contents, 0, s.segment.dataEndPos); err != nil {
+	r, err := s.segment.bufferedReaderAt(s.nextOffset)
+	if err != nil {
 		return nil, nil, err
 	}
-	err := s.segment.collectionStratParseDataWithKeyInto(
-		contents[s.nextOffset:], &s.nodeBuf)
 
+	err = ParseCollectionNodeInto(r, &s.nodeBuf)
 	// make sure to set the next offset before checking the error. The error
 	// could be 'entities.Deleted' which would require that the offset is still advanced
 	// for the next cycle
@@ -72,13 +77,14 @@ func (s *segmentCursorCollectionReusable) next() ([]byte, []value, error) {
 }
 
 func (s *segmentCursorCollectionReusable) first() ([]byte, []value, error) {
-	contents := make([]byte, s.segment.dataEndPos)
-	if err := s.segment.pread(contents, 0, s.segment.dataEndPos); err != nil {
+	s.nextOffset = s.segment.dataStartPos
+
+	r, err := s.segment.bufferedReaderAt(s.nextOffset)
+	if err != nil {
 		return nil, nil, err
 	}
-	s.nextOffset = s.segment.dataStartPos
-	err := s.segment.collectionStratParseDataWithKeyInto(
-		contents[s.nextOffset:], &s.nodeBuf)
+
+	err = ParseCollectionNodeInto(r, &s.nodeBuf)
 	if err != nil {
 		return s.nodeBuf.primaryKey, nil, err
 	}

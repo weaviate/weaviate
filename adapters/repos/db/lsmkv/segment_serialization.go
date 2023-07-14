@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 
 	"github.com/pkg/errors"
@@ -361,32 +362,55 @@ func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
 // As a result calling this method only makes sense if you plan on calling it
 // multiple times. Calling it just once on an uninitialized node does not have
 // major advantages over calling ParseCollectionNode.
-func ParseCollectionNodeInto(in []byte, node *segmentCollectionNode) error {
+func ParseCollectionNodeInto(in io.Reader, node *segmentCollectionNode) error {
 	// offset is only the local offset relative to "in". In the end we need to
 	// update the global offset.
 	offset := 0
 
-	valuesLen := binary.LittleEndian.Uint64(in[offset : offset+8])
+	var buf []byte
+	if err := readN(in, 8, &buf); err != nil {
+		return fmt.Errorf("init collection node buffer: %w", err)
+	}
+
+	valuesLen := binary.LittleEndian.Uint64(buf[offset : offset+8])
 	offset += 8
 
 	resizeValuesOfCollectionNode(node, valuesLen)
 	for i := range node.values {
-		node.values[i].tombstone = in[offset] == 0x1
+		if err := readN(in, 9, &buf); err != nil {
+			return fmt.Errorf("read node value tombstone and length: %w", err)
+		}
+
+		node.values[i].tombstone = buf[offset] == 0x1
 		offset += 1
 
-		valueLen := binary.LittleEndian.Uint64(in[offset : offset+8])
+		valueLen := binary.LittleEndian.Uint64(buf[offset : offset+8])
 		offset += 8
 
 		resizeValueOfCollectionNodeAtPos(node, i, valueLen)
-		node.values[i].value = in[offset : offset+int(valueLen)]
+
+		if err := readN(in, int(valueLen), &buf); err != nil {
+			return fmt.Errorf("read node value: %w", err)
+		}
+
+		node.values[i].value = buf[offset : offset+int(valueLen)]
 		offset += int(valueLen)
 	}
 
-	keyLen := binary.LittleEndian.Uint32(in[offset : offset+4])
+	if err := readN(in, 4, &buf); err != nil {
+		return fmt.Errorf("read node key length: %w", err)
+	}
+
+	keyLen := binary.LittleEndian.Uint32(buf[offset : offset+4])
 	offset += 4
 
 	resizeKeyOfCollectionNode(node, keyLen)
-	node.primaryKey = in[offset : offset+int(keyLen)]
+
+	if err := readN(in, int(keyLen), &buf); err != nil {
+		return fmt.Errorf("read node key: %w", err)
+	}
+
+	node.primaryKey = buf[offset : offset+int(keyLen)]
 	offset += int(keyLen)
 
 	node.offset = offset
@@ -423,4 +447,15 @@ func resizeKeyOfCollectionNode(node *segmentCollectionNode, size uint32) {
 		// allocations sequentially.
 		node.primaryKey = make([]byte, size, int(float64(size)*1.25))
 	}
+}
+
+// readN reads n bytes from r and appends them to *buf
+func readN(r io.Reader, n int, buf *[]byte) error {
+	tmp := make([]byte, n)
+	_, err := io.ReadFull(r, tmp)
+	if err != nil {
+		return err
+	}
+	*buf = append(*buf, tmp...)
+	return nil
 }

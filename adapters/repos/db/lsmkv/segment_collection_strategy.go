@@ -87,14 +87,6 @@ func (s *segment) collectionStratParseData(in []byte) ([]value, error) {
 	return values, nil
 }
 
-func (s *segment) collectionStratParseDataWithKeyInto(in []byte, node *segmentCollectionNode) error {
-	if len(in) == 0 {
-		return lsmkv.NotFound
-	}
-
-	return ParseCollectionNodeInto(in, node)
-}
-
 func (s *segment) bytesReaderFrom(in []byte) (*bytes.Reader, error) {
 	if len(in) == 0 {
 		return nil, lsmkv.NotFound
