@@ -29,7 +29,7 @@ var availableCohereModels = []string{
 
 // note it might not like this -- might want int values for e.g. MaxTokens
 var (
-	DefaultCohereModel     = "rerank-english-v2.0"
+	DefaultCohereModel     = "rerank-multilingual-v2.0"
 	DefaultReturnDocuments = false
 )
 
