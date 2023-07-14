@@ -33,7 +33,6 @@ import (
 type Manager struct {
 	migrator                migrate.Migrator
 	repo                    SchemaStore
-	state                   State
 	callbacks               []func(updatedSchema schema.Schema)
 	logger                  logrus.FieldLogger
 	Authorizer              authorizer
@@ -48,7 +47,8 @@ type Manager struct {
 	RestoreStatus           sync.Map
 	RestoreError            sync.Map
 	sync.RWMutex
-	shardingStateLock sync.RWMutex
+
+	schemaCache
 }
 
 type VectorConfigParser func(in interface{}) (schema.VectorIndexConfig, error)
@@ -57,11 +57,15 @@ type InvertedConfigValidator func(in *models.InvertedIndexConfig) error
 
 type SchemaGetter interface {
 	GetSchemaSkipAuth() schema.Schema
-	ShardingState(class string) *sharding.State
 	Nodes() []string
 	NodeName() string
 	ClusterHealthScore() int
 	ResolveParentNodes(string, string) (map[string]string, error)
+
+	CopyShardingState(class string) *sharding.State
+	ShardOwner(class, shard string) (string, error)
+	TenantShard(class, tenant string) string
+	ShardFromUUID(class string, uuid []byte) string
 }
 
 type VectorizerValidator interface {
@@ -94,6 +98,10 @@ type SchemaStore interface {
 
 	// NewShards creates new shards of an existing class
 	NewShards(ctx context.Context, class string, shards []KeyValuePair) error
+
+	// DeleteShards deletes shards from a class
+	// If the class or a shard does not exist then nothing is done and a nil error is returned
+	DeleteShards(ctx context.Context, class string, shards []string) error
 }
 
 // KeyValuePair is used to serialize shards updates
@@ -148,7 +156,7 @@ func NewManager(migrator migrate.Migrator, repo SchemaStore,
 		config:                  config,
 		migrator:                migrator,
 		repo:                    repo,
-		state:                   State{},
+		schemaCache:             schemaCache{State: State{}},
 		logger:                  logger,
 		Authorizer:              authorizer,
 		hnswConfigParser:        hnswConfigParser,
@@ -182,33 +190,12 @@ type authorizer interface {
 	Authorize(principal *models.Principal, verb, resource string) error
 }
 
-// State is a cached copy of the schema that can also be saved into a remote
-// storage, as specified by Repo
-type State struct {
-	ObjectSchema  *models.Schema `json:"object"`
-	ShardingState map[string]*sharding.State
-}
-
-// NewState returns a new state with room for nClasses classes
-func NewState(nClasses int) State {
-	return State{
-		ObjectSchema: &models.Schema{
-			Classes: make([]*models.Class, 0, nClasses),
-		},
-		ShardingState: make(map[string]*sharding.State, nClasses),
-	}
-}
-
-func (m *Manager) saveSchema(ctx context.Context, doAfter func(err error)) error {
+func (m *Manager) saveSchema(ctx context.Context, st State) error {
 	m.logger.
 		WithField("action", "schema.save").
 		Debug("saving updated schema to configuration store")
 
-	err := m.repo.Save(ctx, m.state)
-	if doAfter != nil {
-		doAfter(err)
-	}
-	if err != nil {
+	if err := m.repo.Save(ctx, st); err != nil {
 		return err
 	}
 	m.triggerSchemaUpdateCallbacks()
@@ -231,18 +218,15 @@ func (m *Manager) triggerSchemaUpdateCallbacks() {
 }
 
 func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
-	schema, err := m.repo.Load(ctx)
+	localSchema, err := m.repo.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("could not load schema:  %v", err)
 	}
-	if err := m.parseConfigs(ctx, &schema); err != nil {
+	if err := m.parseConfigs(ctx, &localSchema); err != nil {
 		return errors.Wrap(err, "load schema")
 	}
 
-	// store in local cache
-	m.state = schema
-
-	if err := m.migrateSchemaIfNecessary(ctx); err != nil {
+	if err := m.migrateSchemaIfNecessary(ctx, &localSchema); err != nil {
 		return fmt.Errorf("migrate schema: %w", err)
 	}
 
@@ -251,32 +235,39 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	// this step can remove the duplicate ones.
 	//
 	// See https://github.com/weaviate/weaviate/issues/2609
-	m.removeDuplicatePropsIfPresent()
+	for _, c := range localSchema.ObjectSchema.Classes {
+		c.Properties = m.deduplicateProps(c.Properties, c.Class)
+	}
+
+	// set internal state since it is used by startupClusterSync
+	m.schemaCache.setState(localSchema)
 
 	// make sure that all migrations have completed before checking sync,
 	// otherwise two identical schemas might fail the check based on form rather
 	// than content
 
-	if err := m.startupClusterSync(ctx, &schema); err != nil {
+	if err := m.startupClusterSync(ctx); err != nil {
 		return errors.Wrap(err, "sync schema with other nodes in the cluster")
 	}
 
 	// store in persistent storage
-	if err := m.repo.Save(ctx, m.state); err != nil {
-		return fmt.Errorf("initialized a new schema, but couldn't update remote: %v", err)
+	// TODO: investigate if save() is redundant because it is called in startupClusterSync()
+	err = m.RLockGuard(func() error { return m.repo.Save(ctx, m.schemaCache.State) })
+	if err != nil {
+		return fmt.Errorf("store to persistent storage: %v", err)
 	}
 
 	return nil
 }
 
-func (m *Manager) migrateSchemaIfNecessary(ctx context.Context) error {
+func (m *Manager) migrateSchemaIfNecessary(ctx context.Context, localSchema *State) error {
 	// introduced when Weaviate started supporting multi-shards per class in v1.8
-	if err := m.checkSingleShardMigration(ctx); err != nil {
+	if err := m.checkSingleShardMigration(ctx, localSchema); err != nil {
 		return errors.Wrap(err, "migrating sharding state from previous version")
 	}
 
 	// introduced when Weaviate started supporting replication in v1.17
-	if err := m.checkShardingStateForReplication(ctx); err != nil {
+	if err := m.checkShardingStateForReplication(ctx, localSchema); err != nil {
 		return errors.Wrap(err, "migrating sharding state from previous version (before replication)")
 	}
 
@@ -284,12 +275,9 @@ func (m *Manager) migrateSchemaIfNecessary(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
-	for _, c := range m.state.ObjectSchema.Classes {
-		m.shardingStateLock.RLock()
-		_, ok := m.state.ShardingState[c.Class]
-		m.shardingStateLock.RUnlock()
-		if ok { // there is sharding state for this class. Nothing to do
+func (m *Manager) checkSingleShardMigration(ctx context.Context, localSchema *State) error {
+	for _, c := range localSchema.ObjectSchema.Classes {
+		if _, ok := localSchema.ShardingState[c.Class]; ok { // there is sharding state for this class. Nothing to do
 			continue
 		}
 
@@ -315,31 +303,25 @@ func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
 		shardState, err := sharding.InitState(c.Class,
 			c.ShardingConfig.(sharding.Config),
 			m.clusterState, c.ReplicationConfig.Factor,
-			isMultiTenancyEnabled(c.MultiTenancyConfig))
+			schema.MultiTenancyEnabled(c))
 		if err != nil {
 			return errors.Wrap(err, "init sharding state")
 		}
 
-		m.shardingStateLock.Lock()
-		if m.state.ShardingState == nil {
-			m.state.ShardingState = map[string]*sharding.State{}
+		if localSchema.ShardingState == nil {
+			localSchema.ShardingState = map[string]*sharding.State{}
 		}
-		m.state.ShardingState[c.Class] = shardState
-		m.shardingStateLock.Unlock()
+		localSchema.ShardingState[c.Class] = shardState
 
 	}
 
 	return nil
 }
 
-func (m *Manager) checkShardingStateForReplication(ctx context.Context) error {
-	m.shardingStateLock.Lock()
-	defer m.shardingStateLock.Unlock()
-
-	for _, classState := range m.state.ShardingState {
+func (m *Manager) checkShardingStateForReplication(ctx context.Context, localSchema *State) error {
+	for _, classState := range localSchema.ShardingState {
 		classState.MigrateFromOldFormat()
 	}
-
 	return nil
 }
 
@@ -371,11 +353,11 @@ func (m *Manager) parseConfigs(ctx context.Context, schema *State) error {
 			return fmt.Errorf("replication config: %w", err)
 		}
 	}
-	m.shardingStateLock.Lock()
-	for _, shardState := range schema.ShardingState {
-		shardState.SetLocalName(m.clusterState.LocalName())
-	}
-	m.shardingStateLock.Unlock()
+	m.schemaCache.LockGuard(func() {
+		for _, shardState := range schema.ShardingState {
+			shardState.SetLocalName(m.clusterState.LocalName())
+		}
+	})
 
 	return nil
 }

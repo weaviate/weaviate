@@ -34,13 +34,17 @@ func (cfg fakeClassConfig) Property(string) map[string]interface{} {
 	return nil
 }
 
+func (f fakeClassConfig) Tenant() string {
+	return ""
+}
+
 type fakeObjectsRepo struct {
 	mock.Mock
 }
 
 func (r *fakeObjectsRepo) Object(ctx context.Context, class string,
 	id strfmt.UUID, props search.SelectProperties,
-	addl additional.Properties, tenantKey string,
+	addl additional.Properties, tenant string,
 ) (*search.Result, error) {
 	args := r.Called(ctx, class, id)
 	if args.Get(0) == nil {

@@ -12,7 +12,6 @@
 package journey
 
 import (
-	"fmt"
 	"math/rand"
 	"testing"
 	"time"
@@ -35,7 +34,7 @@ const (
 
 const (
 	singleTenant = ""
-	multiTenant  = "tenantID"
+	multiTenant  = true
 )
 
 func backupJourney(t *testing.T, className, backend, backupID string,
@@ -138,7 +137,7 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 	}
 }
 
-func addTestClass(t *testing.T, className string, tenantKey string) {
+func addTestClass(t *testing.T, className string, multiTenant bool) {
 	class := &models.Class{
 		Class: className,
 		ModuleConfig: map[string]interface{}{
@@ -155,21 +154,16 @@ func addTestClass(t *testing.T, className string, tenantKey string) {
 		},
 	}
 
-	if tenantKey != singleTenant {
-		class.Properties = append(class.Properties, &models.Property{
-			Name:     multiTenant,
-			DataType: []string{"string"},
-		})
+	if multiTenant {
 		class.MultiTenancyConfig = &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: multiTenant,
+			Enabled: true,
 		}
 	}
 
 	helper.CreateClass(t, class)
 }
 
-func addTestObjects(t *testing.T, className string, tenantKey string) {
+func addTestObjects(t *testing.T, className string, tenantNames []string) {
 	const (
 		noteLengthMin = 4
 		noteLengthMax = 1024
@@ -179,6 +173,7 @@ func addTestObjects(t *testing.T, className string, tenantKey string) {
 	)
 
 	seededRand := rand.New(rand.NewSource(time.Now().UnixNano()))
+	multiTenant := len(tenantNames) > 0
 
 	for i := 0; i < numBatches; i++ {
 		batch := make([]*models.Object, batchSize)
@@ -190,17 +185,12 @@ func addTestObjects(t *testing.T, className string, tenantKey string) {
 				Class:      className,
 				Properties: map[string]interface{}{"contents": contents},
 			}
-			if tenantKey != singleTenant {
-				obj.Properties.(map[string]interface{})[multiTenant] = fmt.Sprintf("Tenant%d", i)
+			if multiTenant {
+				obj.Tenant = tenantNames[i]
 			}
 			batch[j] = &obj
 		}
+		helper.CreateObjectsBatch(t, batch)
 
-		if tenantKey != singleTenant {
-			resp, err := helper.CreateTenantObjectsBatch(t, batch, fmt.Sprintf("Tenant%d", i))
-			helper.CheckObjectsBatchResponse(t, resp, err)
-		} else {
-			helper.CreateObjectsBatch(t, batch)
-		}
 	}
 }

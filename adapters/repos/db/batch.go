@@ -28,7 +28,7 @@ type batchQueue struct {
 }
 
 func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
-	repl *additional.ReplicationProperties, tenantKey string,
+	repl *additional.ReplicationProperties,
 ) (objects.BatchObjects, error) {
 	objectByClass := make(map[string]batchQueue)
 	indexByClass := make(map[string]*Index)
@@ -81,7 +81,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 
 	for class, index := range indexByClass {
 		queue := objectByClass[class]
-		errs := index.putObjectBatch(ctx, queue.objects, repl, tenantKey)
+		errs := index.putObjectBatch(ctx, queue.objects, repl)
 		// remove index from map to skip releasing its lock in defer
 		indexByClass[class] = nil
 		index.dropIndex.RUnlock()
@@ -96,7 +96,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 }
 
 func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchReferences,
-	repl *additional.ReplicationProperties, tenantKey string,
+	repl *additional.ReplicationProperties,
 ) (objects.BatchReferences, error) {
 	refByClass := make(map[schema.ClassName]objects.BatchReferences)
 	indexByClass := make(map[schema.ClassName]*Index)
@@ -138,7 +138,7 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 
 	for class, index := range indexByClass {
 		queue := refByClass[class]
-		errs := index.addReferencesBatch(ctx, queue, repl, tenantKey)
+		errs := index.addReferencesBatch(ctx, queue, repl)
 		// remove index from map to skip releasing its lock in defer
 		indexByClass[class] = nil
 		index.dropIndex.RUnlock()
@@ -153,18 +153,17 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 }
 
 func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDeleteParams,
-	repl *additional.ReplicationProperties, tenantKey string,
+	repl *additional.ReplicationProperties, tenant string,
 ) (objects.BatchDeleteResult, error) {
 	// get index for a given class
-	idx := db.GetIndex(params.ClassName)
+	className := params.ClassName
+	idx := db.GetIndex(className)
 	if idx == nil {
-		return objects.BatchDeleteResult{}, errors.Errorf("cannot find index for class %v", params.ClassName)
+		return objects.BatchDeleteResult{}, errors.Errorf("cannot find index for class %v", className)
 	}
-	if err := idx.validateMultiTenancy(tenantKey, nil); err != nil {
-		return objects.BatchDeleteResult{}, err
-	}
+
 	// find all DocIDs in all shards that match the filter
-	shardDocIDs, err := idx.findDocIDs(ctx, params.Filters, tenantKey)
+	shardDocIDs, err := idx.findDocIDs(ctx, params.Filters, tenant)
 	if err != nil {
 		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot find objects")
 	}

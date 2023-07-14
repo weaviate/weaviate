@@ -18,7 +18,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // GetSchema retrieves a locally cached copy of the schema
@@ -29,7 +28,7 @@ func (m *Manager) GetSchema(principal *models.Principal) (schema.Schema, error) 
 	}
 
 	return schema.Schema{
-		Objects: m.state.ObjectSchema,
+		Objects: m.schemaCache.ObjectSchema,
 	}, nil
 }
 
@@ -38,13 +37,13 @@ func (m *Manager) GetSchema(principal *models.Principal) (schema.Schema, error) 
 // non-user triggered processes, such as regular updates / maintenance / etc
 func (m *Manager) GetSchemaSkipAuth() schema.Schema {
 	return schema.Schema{
-		Objects: m.state.ObjectSchema,
+		Objects: m.schemaCache.ObjectSchema,
 	}
 }
 
 func (m *Manager) getSchema() schema.Schema {
 	return schema.Schema{
-		Objects: m.state.ObjectSchema,
+		Objects: m.schemaCache.ObjectSchema,
 	}
 }
 
@@ -72,40 +71,31 @@ func (m *Manager) GetClass(ctx context.Context, principal *models.Principal,
 
 func (m *Manager) getClassByName(name string) *models.Class {
 	s := schema.Schema{
-		Objects: m.state.ObjectSchema,
+		Objects: m.schemaCache.ObjectSchema,
 	}
 
 	return s.FindClassByName(schema.ClassName(name))
-}
-
-func (m *Manager) ShardingState(className string) *sharding.State {
-	m.shardingStateLock.RLock()
-	pst := m.state.ShardingState[className]
-	if pst != nil {
-		st := pst.DeepCopy()
-		pst = &st
-	}
-	m.shardingStateLock.RUnlock()
-	return pst
 }
 
 // ResolveParentNodes gets all replicas for a specific class shard and resolves their names
 //
 // it returns map[node_name] node_address where node_address = "" if can't resolve node_name
 func (m *Manager) ResolveParentNodes(class, shardName string) (map[string]string, error) {
-	shard, ok := m.ShardingState(class).Physical[shardName]
-	if !ok {
-		return nil, fmt.Errorf("sharding state not found")
+	nodes, err := m.ShardReplicas(class, shardName)
+	if err != nil {
+		return nil, fmt.Errorf("get replicas from schema: %w", err)
 	}
 
-	if len(shard.BelongsToNodes) == 0 {
+	if len(nodes) == 0 {
 		return nil, nil
 	}
 
-	name2Addr := make(map[string]string, len(shard.BelongsToNodes))
-	for _, node := range shard.BelongsToNodes {
-		host, _ := m.clusterState.NodeHostname(node)
-		name2Addr[node] = host
+	name2Addr := make(map[string]string, len(nodes))
+	for _, node := range nodes {
+		if node != "" {
+			host, _ := m.clusterState.NodeHostname(node)
+			name2Addr[node] = host
+		}
 	}
 	return name2Addr, nil
 }

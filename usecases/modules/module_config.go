@@ -19,19 +19,31 @@ import (
 type ClassBasedModuleConfig struct {
 	class      *models.Class
 	moduleName string
+	tenant     string
 }
 
 func NewClassBasedModuleConfig(class *models.Class,
-	moduleName string,
+	moduleName string, tenant string,
 ) *ClassBasedModuleConfig {
 	return &ClassBasedModuleConfig{
 		class:      class,
 		moduleName: moduleName,
+		tenant:     tenant,
 	}
+}
+
+func NewCrossClassModuleConfig() *ClassBasedModuleConfig {
+	// explicitly setting tenant to "" in order to flag that a cross class search
+	// is being done without a tenant context
+	return &ClassBasedModuleConfig{tenant: ""}
 }
 
 func (cbmc *ClassBasedModuleConfig) Class() map[string]interface{} {
 	return cbmc.ClassByModuleName(cbmc.moduleName)
+}
+
+func (cbmc *ClassBasedModuleConfig) Tenant() string {
+	return cbmc.tenant
 }
 
 func (cbmc *ClassBasedModuleConfig) ClassByModuleName(moduleName string) map[string]interface{} {

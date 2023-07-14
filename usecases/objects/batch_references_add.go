@@ -17,14 +17,16 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 )
 
 // AddReferences Class Instances in batch to the connected DB
 func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Principal,
-	refs []*models.BatchReference, repl *additional.ReplicationProperties, tenantKey string,
+	refs []*models.BatchReference, repl *additional.ReplicationProperties,
 ) (BatchReferences, error) {
 	err := b.authorizer.Authorize(principal, "update", "batch/*")
 	if err != nil {
@@ -40,19 +42,18 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 	b.metrics.BatchRefInc()
 	defer b.metrics.BatchRefDec()
 
-	return b.addReferences(ctx, principal, refs, repl, tenantKey)
+	return b.addReferences(ctx, principal, refs, repl)
 }
 
 func (b *BatchManager) addReferences(ctx context.Context, principal *models.Principal,
 	refs []*models.BatchReference, repl *additional.ReplicationProperties,
-	tenantKey string,
 ) (BatchReferences, error) {
 	if err := b.validateReferenceForm(refs); err != nil {
 		return nil, NewErrInvalidUserInput("invalid params: %v", err)
 	}
 
-	batchReferences := b.validateReferencesConcurrently(ctx, principal, refs, tenantKey)
-	if res, err := b.vectorRepo.AddBatchReferences(ctx, batchReferences, repl, tenantKey); err != nil {
+	batchReferences := b.validateReferencesConcurrently(ctx, principal, refs)
+	if res, err := b.vectorRepo.AddBatchReferences(ctx, batchReferences, repl); err != nil {
 		return nil, NewErrInternal("could not add batch request to connector: %v", err)
 	} else {
 		return res, nil
@@ -68,7 +69,7 @@ func (b *BatchManager) validateReferenceForm(refs []*models.BatchReference) erro
 }
 
 func (b *BatchManager) validateReferencesConcurrently(ctx context.Context,
-	principal *models.Principal, refs []*models.BatchReference, tenantKey string,
+	principal *models.Principal, refs []*models.BatchReference,
 ) BatchReferences {
 	c := make(chan BatchReference, len(refs))
 	wg := new(sync.WaitGroup)
@@ -76,7 +77,7 @@ func (b *BatchManager) validateReferencesConcurrently(ctx context.Context,
 	// Generate a goroutine for each separate request
 	for i, ref := range refs {
 		wg.Add(1)
-		go b.validateReference(ctx, principal, wg, ref, i, &c, tenantKey)
+		go b.validateReference(ctx, principal, wg, ref, i, &c)
 	}
 
 	wg.Wait()
@@ -86,7 +87,6 @@ func (b *BatchManager) validateReferencesConcurrently(ctx context.Context,
 
 func (b *BatchManager) validateReference(ctx context.Context, principal *models.Principal,
 	wg *sync.WaitGroup, ref *models.BatchReference, i int, resultsC *chan BatchReference,
-	tenantKey string,
 ) {
 	defer wg.Done()
 	var errors []error
@@ -113,10 +113,10 @@ func (b *BatchManager) validateReference(ctx context.Context, principal *models.
 		err = joinErrors(errors)
 	}
 
-	if err == nil && shouldValidateMultiTenantRef(tenantKey, source, target) {
+	if err == nil && shouldValidateMultiTenantRef(ref.Tenant, source, target) {
 		// can only validate multi-tenancy when everything above succeeds
 		err = validateReferenceMultiTenancy(ctx, principal,
-			b.schemaManager, b.vectorRepo, source, target, tenantKey)
+			b.schemaManager, b.vectorRepo, source, target, ref.Tenant)
 	}
 
 	*resultsC <- BatchReference{
@@ -124,13 +124,14 @@ func (b *BatchManager) validateReference(ctx context.Context, principal *models.
 		To:            target,
 		Err:           err,
 		OriginalIndex: i,
+		Tenant:        ref.Tenant,
 	}
 }
 
 func validateReferenceMultiTenancy(ctx context.Context,
 	principal *models.Principal, schemaManager schemaManager,
 	repo VectorRepo, source *crossref.RefSource, target *crossref.Ref,
-	tenantKey string,
+	tenant string,
 ) error {
 	if source == nil || target == nil {
 		return fmt.Errorf("can't validate multi-tenancy for nil refs")
@@ -142,22 +143,30 @@ func validateReferenceMultiTenancy(ctx context.Context,
 		return err
 	}
 
-	// if both classes have MT enabled but different tenant keys,
-	// no cross-tenant references can be made
-	if sourceClass.MultiTenancyConfig != nil && targetClass.MultiTenancyConfig != nil &&
-		sourceClass.MultiTenancyConfig.Enabled && targetClass.MultiTenancyConfig.Enabled {
-		err = validateTenantRefObjects(ctx, repo,
-			sourceClass, targetClass, source, target, tenantKey)
-		if err != nil {
-			return err
-		}
-	}
+	sourceEnabled := schema.MultiTenancyEnabled(sourceClass)
+	targetEnabled := schema.MultiTenancyEnabled(targetClass)
 
-	// the other way around is ok, a MT-enabled class may reference a
-	// non-MT-enabled class.
-	if sourceClass.MultiTenancyConfig == nil && targetClass.MultiTenancyConfig != nil {
+	if !sourceEnabled && targetEnabled {
 		return fmt.Errorf("invalid reference: cannot reference a multi-tenant " +
 			"enabled class from a non multi-tenant enabled class")
+	}
+	if sourceEnabled && !targetEnabled {
+		if err := validateTenantRefObject(ctx, repo, sourceClass, source.TargetID, tenant); err != nil {
+			return fmt.Errorf("source: %w", err)
+		}
+		if err := validateTenantRefObject(ctx, repo, targetClass, target.TargetID, ""); err != nil {
+			return fmt.Errorf("target: %w", err)
+		}
+	}
+	// if both classes have MT enabled but different tenant keys,
+	// no cross-tenant references can be made
+	if sourceEnabled && targetEnabled {
+		if err := validateTenantRefObject(ctx, repo, sourceClass, source.TargetID, tenant); err != nil {
+			return fmt.Errorf("source: %w", err)
+		}
+		if err := validateTenantRefObject(ctx, repo, targetClass, target.TargetID, tenant); err != nil {
+			return fmt.Errorf("target: %w", err)
+		}
 	}
 
 	return nil
@@ -195,34 +204,20 @@ func getReferenceClasses(ctx context.Context,
 	return
 }
 
-// validateTenantRefObjects ensures that both source and target objects
-// exist for the given tenant key. This asserts that no cross-tenant
-// references can occur, as a class+id which belongs to a different
+// validateTenantRefObject ensures that object exist for the given tenant key.
+// This asserts that no cross-tenant references can occur,
+// as a class+id which belongs to a different
 // tenant will not be found in the searched tenant shard
-func validateTenantRefObjects(ctx context.Context, repo VectorRepo,
-	sourceClass, targetClass *models.Class, source *crossref.RefSource,
-	target *crossref.Ref, tenantKey string,
+func validateTenantRefObject(ctx context.Context, repo VectorRepo,
+	class *models.Class, ID strfmt.UUID, tenant string,
 ) error {
-	exists, err := repo.Exists(ctx, sourceClass.Class,
-		source.TargetID, nil, tenantKey)
+	exists, err := repo.Exists(ctx, class.Class, ID, nil, tenant)
 	if err != nil {
-		return fmt.Errorf("get source object %s/%s: %w", sourceClass.Class, source.TargetID, err)
+		return fmt.Errorf("get object %s/%s: %w", class.Class, ID, err)
 	}
 	if !exists {
-		return fmt.Errorf("source object %s/%s not found for tenant %q",
-			source.Class, source.TargetID, tenantKey)
+		return fmt.Errorf("object %s/%s not found for tenant %q", class.Class, ID, tenant)
 	}
-
-	exists, err = repo.Exists(ctx, targetClass.Class,
-		target.TargetID, nil, tenantKey)
-	if err != nil {
-		return fmt.Errorf("get target object %s/%s: %w", targetClass.Class, target.TargetID, err)
-	}
-	if !exists {
-		return fmt.Errorf("target object %s/%s not found for tenant %q",
-			target.Class, target.TargetID, tenantKey)
-	}
-
 	return nil
 }
 

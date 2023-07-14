@@ -37,7 +37,7 @@ type schemaManager interface {
 
 // AddObject Class Instance to the connected DB.
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, object *models.Object,
-	repl *additional.ReplicationProperties, tenantKey string,
+	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
 	err := m.authorizer.Authorize(principal, "create", "objects")
 	if err != nil {
@@ -53,11 +53,11 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	m.metrics.AddObjectInc()
 	defer m.metrics.AddObjectDec()
 
-	return m.addObjectToConnectorAndSchema(ctx, principal, object, repl, tenantKey)
+	return m.addObjectToConnectorAndSchema(ctx, principal, object, repl)
 }
 
 func (m *Manager) checkIDOrAssignNew(ctx context.Context, class string, id strfmt.UUID,
-	repl *additional.ReplicationProperties, tenantKey string,
+	repl *additional.ReplicationProperties, tenant string,
 ) (strfmt.UUID, error) {
 	if id == "" {
 		newID, err := generateUUID()
@@ -75,18 +75,25 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, class string, id strfm
 	}
 
 	// only validate ID uniqueness if explicitly set
-	if ok, err := m.vectorRepo.Exists(ctx, class, id, repl, tenantKey); ok {
+	if ok, err := m.vectorRepo.Exists(ctx, class, id, repl, tenant); ok {
 		return "", NewErrInvalidUserInput("id '%s' already exists", id)
 	} else if err != nil {
-		return "", NewErrInternal(err.Error())
+		switch err.(type) {
+		case ErrInvalidUserInput:
+			return "", err
+		case ErrMultiTenancy:
+			return "", err
+		default:
+			return "", NewErrInternal(err.Error())
+		}
 	}
 	return id, nil
 }
 
 func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,
-	object *models.Object, repl *additional.ReplicationProperties, tenantKey string,
+	object *models.Object, repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	id, err := m.checkIDOrAssignNew(ctx, object.Class, object.ID, repl, tenantKey)
+	id, err := m.checkIDOrAssignNew(ctx, object.Class, object.ID, repl, object.Tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +104,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
-	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, object, nil, tenantKey)
+	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, object, nil)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
@@ -117,7 +124,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		return nil, err
 	}
 
-	err = m.vectorRepo.PutObject(ctx, object, object.Vector, repl, tenantKey)
+	err = m.vectorRepo.PutObject(ctx, object, object.Vector, repl)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
 	}
@@ -127,14 +134,14 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 
 func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context,
 	principal *models.Principal, repl *additional.ReplicationProperties,
-	incoming *models.Object, existing *models.Object, tenantKey string,
+	incoming *models.Object, existing *models.Object,
 ) error {
 	class, err := m.validateSchema(ctx, principal, incoming)
 	if err != nil {
 		return err
 	}
 
-	return validation.New(m.vectorRepo.Exists, m.config, repl, tenantKey).
+	return validation.New(m.vectorRepo.Exists, m.config, repl).
 		Object(ctx, class, incoming, existing)
 }
 

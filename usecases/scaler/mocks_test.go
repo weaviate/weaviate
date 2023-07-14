@@ -81,7 +81,7 @@ type fakeShardingState struct {
 	M         map[string][]string
 }
 
-func (f *fakeShardingState) ShardingState(class string) *sharding.State {
+func (f *fakeShardingState) CopyShardingState(class string) *sharding.State {
 	if len(f.M) == 0 {
 		return nil
 	}

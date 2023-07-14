@@ -27,15 +27,17 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 type objectHandlers struct {
-	manager         objectsManager
-	logger          logrus.FieldLogger
-	config          config.Config
-	modulesProvider ModulesProvider
+	manager             objectsManager
+	logger              logrus.FieldLogger
+	config              config.Config
+	modulesProvider     ModulesProvider
+	metricRequestsTotal restApiRequestsTotal
 }
 
 type ModulesProvider interface {
@@ -46,7 +48,7 @@ type ModulesProvider interface {
 
 type objectsManager interface {
 	AddObject(context.Context, *models.Principal, *models.Object,
-		*additional.ReplicationProperties, string) (*models.Object, error)
+		*additional.ReplicationProperties) (*models.Object, error)
 	ValidateObject(context.Context, *models.Principal,
 		*models.Object, *additional.ReplicationProperties) error
 	GetObject(context.Context, *models.Principal, string, strfmt.UUID,
@@ -54,15 +56,15 @@ type objectsManager interface {
 	DeleteObject(context.Context, *models.Principal, string,
 		strfmt.UUID, *additional.ReplicationProperties, string) error
 	UpdateObject(context.Context, *models.Principal, string, strfmt.UUID,
-		*models.Object, *additional.ReplicationProperties, string) (*models.Object, error)
+		*models.Object, *additional.ReplicationProperties) (*models.Object, error)
 	HeadObject(ctx context.Context, principal *models.Principal, class string, id strfmt.UUID,
-		repl *additional.ReplicationProperties, tenantKey string) (bool, *uco.Error)
+		repl *additional.ReplicationProperties, tenant string) (bool, *uco.Error)
 	GetObjects(context.Context, *models.Principal, *int64, *int64,
 		*string, *string, *string, additional.Properties, string) ([]*models.Object, error)
 	Query(ctx context.Context, principal *models.Principal,
 		params *uco.QueryParams) ([]*models.Object, *uco.Error)
 	MergeObject(context.Context, *models.Principal, *models.Object,
-		*additional.ReplicationProperties, string) *uco.Error
+		*additional.ReplicationProperties) *uco.Error
 	AddObjectReference(context.Context, *models.Principal, *uco.AddReferenceInput,
 		*additional.ReplicationProperties, string) *uco.Error
 	UpdateObjectReferences(context.Context, *models.Principal,
@@ -77,16 +79,20 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 ) middleware.Responder {
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
+		h.metricRequestsTotal.logError("", err)
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
-
-	tenantKey := getTenantKey(params.TenantKey)
+	className := getClassName(params.Body)
 
 	object, err := h.manager.AddObject(params.HTTPRequest.Context(),
-		principal, params.Body, repl, tenantKey)
+		principal, params.Body, repl)
 	if err != nil {
+		h.metricRequestsTotal.logError(className, err)
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
+			return objects.NewObjectsCreateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		} else if errors.As(err, &uco.ErrMultiTenancy{}) {
 			return objects.NewObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		} else if errors.As(err, &autherrs.Forbidden{}) {
@@ -103,19 +109,25 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 	}
 
+	h.metricRequestsTotal.logOk(className)
 	return objects.NewObjectsCreateOK().WithPayload(object)
 }
 
 func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	className := getClassName(params.Body)
 	err := h.manager.ValidateObject(params.HTTPRequest.Context(), principal, params.Body, nil)
 	if err != nil {
+		h.metricRequestsTotal.logError(className, err)
 		switch err.(type) {
 		case autherrs.Forbidden:
 			return objects.NewObjectsValidateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case uco.ErrInvalidUserInput:
+			return objects.NewObjectsValidateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		case uco.ErrMultiTenancy:
 			return objects.NewObjectsValidateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -124,6 +136,7 @@ func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
 		}
 	}
 
+	h.metricRequestsTotal.logOk(className)
 	return objects.NewObjectsValidateOK()
 }
 
@@ -142,12 +155,14 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 	if params.Include != nil {
 		class, err := h.manager.GetObjectsClass(params.HTTPRequest.Context(), principal, params.ID)
 		if err != nil {
+			h.metricRequestsTotal.logUserError(class.Class)
 			return objects.NewObjectsClassGetBadRequest().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 
 		additional, err = parseIncludeParam(params.Include, h.modulesProvider, true, class)
 		if err != nil {
+			h.metricRequestsTotal.logError(class.Class, err)
 			return objects.NewObjectsClassGetBadRequest().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
@@ -155,21 +170,26 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 
 	replProps, err := getReplicationProperties(params.ConsistencyLevel, params.NodeName)
 	if err != nil {
+		h.metricRequestsTotal.logError(params.ClassName, err)
 		return objects.NewObjectsClassGetBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
+	tenant := getTenant(params.Tenant)
 
 	object, err := h.manager.GetObject(params.HTTPRequest.Context(), principal,
-		params.ClassName, params.ID, additional, replProps, tenantKey)
+		params.ClassName, params.ID, additional, replProps, tenant)
 	if err != nil {
+		h.metricRequestsTotal.logError(getClassName(object), err)
 		switch err.(type) {
 		case autherrs.Forbidden:
 			return objects.NewObjectsClassGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case uco.ErrNotFound:
 			return objects.NewObjectsClassGetNotFound()
+		case uco.ErrMultiTenancy:
+			return objects.NewObjectsClassGetUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return objects.NewObjectsClassGetInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -181,6 +201,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 	}
 
+	h.metricRequestsTotal.logOk(getClassName(object))
 	return objects.NewObjectsClassGetOK().WithPayload(object)
 }
 
@@ -192,6 +213,7 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 	}
 	additional, err := parseIncludeParam(params.Include, h.modulesProvider, h.shouldIncludeGetObjectsModuleParams(), nil)
 	if err != nil {
+		h.metricRequestsTotal.logError("", err)
 		return objects.NewObjectsListBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
@@ -199,11 +221,16 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 	var deprecationsRes []*models.Deprecation
 
 	list, err := h.manager.GetObjects(params.HTTPRequest.Context(), principal,
-		params.Offset, params.Limit, params.Sort, params.Order, params.After, additional, "")
+		params.Offset, params.Limit, params.Sort, params.Order, params.After, additional,
+		getTenant(params.Tenant))
 	if err != nil {
+		h.metricRequestsTotal.logError("", err)
 		switch err.(type) {
 		case autherrs.Forbidden:
 			return objects.NewObjectsListForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case uco.ErrMultiTenancy:
+			return objects.NewObjectsListUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return objects.NewObjectsListInternalServerError().
@@ -218,6 +245,7 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 		}
 	}
 
+	h.metricRequestsTotal.logOk("")
 	return objects.NewObjectsListOK().
 		WithPayload(&models.ObjectsListResponse{
 			Objects:      list,
@@ -231,6 +259,7 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 ) middleware.Responder {
 	additional, err := parseIncludeParam(params.Include, h.modulesProvider, h.shouldIncludeGetObjectsModuleParams(), nil)
 	if err != nil {
+		h.metricRequestsTotal.logError(*params.Class, err)
 		return objects.NewObjectsListBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
@@ -241,10 +270,12 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 		After:      params.After,
 		Sort:       params.Sort,
 		Order:      params.Order,
+		Tenant:     params.Tenant,
 		Additional: additional,
 	}
 	resultSet, rerr := h.manager.Query(params.HTTPRequest.Context(), principal, &req)
 	if rerr != nil {
+		h.metricRequestsTotal.logError(req.Class, rerr)
 		switch rerr.Code {
 		case uco.StatusForbidden:
 			return objects.NewObjectsListForbidden().
@@ -252,6 +283,9 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 		case uco.StatusNotFound:
 			return objects.NewObjectsListNotFound()
 		case uco.StatusBadRequest:
+			return objects.NewObjectsListUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(rerr))
+		case uco.StatusUnprocessableEntity:
 			return objects.NewObjectsListUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(rerr))
 		default:
@@ -267,6 +301,7 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 		}
 	}
 
+	h.metricRequestsTotal.logOk(req.Class)
 	return objects.NewObjectsListOK().
 		WithPayload(&models.ObjectsListResponse{
 			Objects:      resultSet,
@@ -281,45 +316,55 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 ) middleware.Responder {
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
+		h.metricRequestsTotal.logError(params.ClassName, err)
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
+	tenant := getTenant(params.Tenant)
 
 	err = h.manager.DeleteObject(params.HTTPRequest.Context(),
-		principal, params.ClassName, params.ID, repl, tenantKey)
+		principal, params.ClassName, params.ID, repl, tenant)
 	if err != nil {
+		h.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
 		case autherrs.Forbidden:
 			return objects.NewObjectsClassDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case uco.ErrNotFound:
 			return objects.NewObjectsClassDeleteNotFound()
+		case uco.ErrMultiTenancy:
+			return objects.NewObjectsClassDeleteUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return objects.NewObjectsClassDeleteInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
+	h.metricRequestsTotal.logOk(params.ClassName)
 	return objects.NewObjectsClassDeleteNoContent()
 }
 
 func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	className := getClassName(params.Body)
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
+		h.metricRequestsTotal.logError(className, err)
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
-
 	object, err := h.manager.UpdateObject(params.HTTPRequest.Context(),
-		principal, params.ClassName, params.ID, params.Body, repl, tenantKey)
+		principal, params.ClassName, params.ID, params.Body, repl)
 	if err != nil {
+		h.metricRequestsTotal.logError(className, err)
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
+			return objects.NewObjectsClassPutUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		} else if errors.As(err, &uco.ErrMultiTenancy{}) {
 			return objects.NewObjectsClassPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		} else if errors.As(err, &autherrs.Forbidden{}) {
@@ -336,6 +381,7 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 	}
 
+	h.metricRequestsTotal.logOk(className)
 	return objects.NewObjectsClassPutOK().WithPayload(object)
 }
 
@@ -344,18 +390,23 @@ func (h *objectHandlers) headObject(params objects.ObjectsClassHeadParams,
 ) middleware.Responder {
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
+		h.metricRequestsTotal.logError(params.ClassName, err)
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
+	tenant := getTenant(params.Tenant)
 
 	exists, objErr := h.manager.HeadObject(params.HTTPRequest.Context(),
-		principal, params.ClassName, params.ID, repl, tenantKey)
+		principal, params.ClassName, params.ID, repl, tenant)
 	if objErr != nil {
+		h.metricRequestsTotal.logError(params.ClassName, objErr)
 		switch {
 		case objErr.Forbidden():
 			return objects.NewObjectsClassHeadForbidden().
+				WithPayload(errPayloadFromSingleErr(objErr))
+		case objErr.UnprocessableEntity():
+			return objects.NewObjectsClassHeadUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(objErr))
 		default:
 			return objects.NewObjectsClassHeadInternalServerError().
@@ -363,6 +414,7 @@ func (h *objectHandlers) headObject(params objects.ObjectsClassHeadParams,
 		}
 	}
 
+	h.metricRequestsTotal.logOk(params.ClassName)
 	if !exists {
 		return objects.NewObjectsClassHeadNotFound()
 	}
@@ -376,14 +428,14 @@ func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, pri
 
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
+		h.metricRequestsTotal.logError(getClassName(updates), err)
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
-
-	objErr := h.manager.MergeObject(params.HTTPRequest.Context(), principal, updates, repl, tenantKey)
+	objErr := h.manager.MergeObject(params.HTTPRequest.Context(), principal, updates, repl)
 	if objErr != nil {
+		h.metricRequestsTotal.logError(getClassName(updates), objErr)
 		switch {
 		case objErr.NotFound():
 			return objects.NewObjectsClassPatchNotFound()
@@ -393,12 +445,16 @@ func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, pri
 		case objErr.BadRequest():
 			return objects.NewObjectsClassPatchUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(objErr))
+		case objErr.UnprocessableEntity():
+			return objects.NewObjectsClassPatchUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(objErr))
 		default:
 			return objects.NewObjectsClassPatchInternalServerError().
 				WithPayload(errPayloadFromSingleErr(objErr))
 		}
 	}
 
+	h.metricRequestsTotal.logOk(getClassName(updates))
 	return objects.NewObjectsClassPatchNoContent()
 }
 
@@ -415,14 +471,15 @@ func (h *objectHandlers) addObjectReference(
 
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
+		h.metricRequestsTotal.logError(params.ClassName, err)
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
+	tenant := getTenant(params.Tenant)
 
-	tenantKey := getTenantKey(params.TenantKey)
-
-	objErr := h.manager.AddObjectReference(params.HTTPRequest.Context(), principal, &input, repl, tenantKey)
+	objErr := h.manager.AddObjectReference(params.HTTPRequest.Context(), principal, &input, repl, tenant)
 	if objErr != nil {
+		h.metricRequestsTotal.logError(params.ClassName, objErr)
 		switch {
 		case objErr.Forbidden():
 			return objects.NewObjectsClassReferencesCreateForbidden().
@@ -432,12 +489,16 @@ func (h *objectHandlers) addObjectReference(
 		case objErr.BadRequest():
 			return objects.NewObjectsClassReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(objErr))
+		case objErr.UnprocessableEntity():
+			return objects.NewObjectsClassReferencesCreateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(objErr))
 		default:
 			return objects.NewObjectsClassReferencesCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(objErr))
 		}
 	}
 
+	h.metricRequestsTotal.logOk(params.ClassName)
 	return objects.NewObjectsClassReferencesCreateOK()
 }
 
@@ -453,14 +514,16 @@ func (h *objectHandlers) putObjectReferences(params objects.ObjectsClassReferenc
 
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
+		h.metricRequestsTotal.logError(params.ClassName, err)
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	tenantKey := getTenantKey(params.TenantKey)
+	tenant := getTenant(params.Tenant)
 
-	objErr := h.manager.UpdateObjectReferences(params.HTTPRequest.Context(), principal, &input, repl, tenantKey)
+	objErr := h.manager.UpdateObjectReferences(params.HTTPRequest.Context(), principal, &input, repl, tenant)
 	if objErr != nil {
+		h.metricRequestsTotal.logError(params.ClassName, objErr)
 		switch {
 		case objErr.Forbidden():
 			return objects.NewObjectsClassReferencesPutForbidden().
@@ -470,12 +533,16 @@ func (h *objectHandlers) putObjectReferences(params objects.ObjectsClassReferenc
 		case objErr.BadRequest():
 			return objects.NewObjectsClassReferencesPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(objErr))
+		case objErr.UnprocessableEntity():
+			return objects.NewObjectsClassReferencesPutUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(objErr))
 		default:
 			return objects.NewObjectsClassReferencesPutInternalServerError().
 				WithPayload(errPayloadFromSingleErr(objErr))
 		}
 	}
 
+	h.metricRequestsTotal.logOk(params.ClassName)
 	return objects.NewObjectsClassReferencesPutOK()
 }
 
@@ -491,14 +558,15 @@ func (h *objectHandlers) deleteObjectReference(params objects.ObjectsClassRefere
 
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
+		h.metricRequestsTotal.logError(params.ClassName, err)
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
+	tenant := getTenant(params.Tenant)
 
-	tenantKey := getTenantKey(params.TenantKey)
-
-	objErr := h.manager.DeleteObjectReference(params.HTTPRequest.Context(), principal, &input, repl, tenantKey)
+	objErr := h.manager.DeleteObjectReference(params.HTTPRequest.Context(), principal, &input, repl, tenant)
 	if objErr != nil {
+		h.metricRequestsTotal.logError(params.ClassName, objErr)
 		switch objErr.Code {
 		case uco.StatusForbidden:
 			return objects.NewObjectsClassReferencesDeleteForbidden().
@@ -508,20 +576,24 @@ func (h *objectHandlers) deleteObjectReference(params objects.ObjectsClassRefere
 		case uco.StatusBadRequest:
 			return objects.NewObjectsClassReferencesDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(objErr))
+		case uco.StatusUnprocessableEntity:
+			return objects.NewObjectsClassReferencesDeleteUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(objErr))
 		default:
 			return objects.NewObjectsClassReferencesDeleteInternalServerError().
 				WithPayload(errPayloadFromSingleErr(objErr))
 		}
 	}
 
+	h.metricRequestsTotal.logOk(params.ClassName)
 	return objects.NewObjectsClassReferencesDeleteNoContent()
 }
 
 func setupObjectHandlers(api *operations.WeaviateAPI,
 	manager *uco.Manager, config config.Config, logger logrus.FieldLogger,
-	modulesProvider ModulesProvider,
+	modulesProvider ModulesProvider, metrics *monitoring.PrometheusMetrics,
 ) {
-	h := &objectHandlers{manager, logger, config, modulesProvider}
+	h := &objectHandlers{manager, logger, config, modulesProvider, newObjectsRequestsTotal(metrics, logger)}
 	api.ObjectsObjectsCreateHandler = objects.
 		ObjectsCreateHandlerFunc(h.addObject)
 	api.ObjectsObjectsValidateHandler = objects.
@@ -707,6 +779,44 @@ func (h *objectHandlers) shouldIncludeGetObjectsModuleParams() bool {
 	return false
 }
 
+type objectsRequestsTotal struct {
+	*restApiRequestsTotalImpl
+}
+
+func newObjectsRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger) restApiRequestsTotal {
+	return &objectsRequestsTotal{
+		restApiRequestsTotalImpl: &restApiRequestsTotalImpl{newRequestsTotalMetric(metrics, "rest"), "rest", "objects", logger},
+	}
+}
+
+func (e *objectsRequestsTotal) logError(className string, err error) {
+	switch err := err.(type) {
+	case uco.ErrMultiTenancy:
+		e.logUserError(className)
+	case errReplication, errUnregonizedProperty:
+		e.logUserError(className)
+	case autherrs.Forbidden:
+		e.logUserError(className)
+	case uco.ErrInvalidUserInput, uco.ErrNotFound:
+		e.logUserError(className)
+	case *uco.Error:
+		switch err.Code {
+		case uco.StatusInternalServerError:
+			e.logServerError(className, err)
+		default:
+			e.logUserError(className)
+		}
+	default:
+		if errors.As(err, &uco.ErrInvalidUserInput{}) ||
+			errors.As(err, &uco.ErrMultiTenancy{}) ||
+			errors.As(err, &autherrs.Forbidden{}) {
+			e.logUserError(className)
+		} else {
+			e.logServerError(className, err)
+		}
+	}
+}
+
 func parseIncludeParam(in *string, modulesProvider ModulesProvider, includeModuleParams bool,
 	class *models.Class,
 ) (additional.Properties, error) {
@@ -737,7 +847,7 @@ func parseIncludeParam(in *string, modulesProvider ModulesProvider, includeModul
 				continue
 			}
 		}
-		return out, fmt.Errorf("unrecognized property '%s' in ?include list", prop)
+		return out, newErrUnregonizedProperty(fmt.Errorf("unrecognized property '%s' in ?include list", prop))
 	}
 
 	return out, nil
@@ -762,12 +872,12 @@ func getReplicationProperties(consistencyLvl, nodeName *string) (*additional.Rep
 
 	cl, err := getConsistencyLevel(consistencyLvl)
 	if err != nil {
-		return nil, err
+		return nil, newErrReplication(err)
 	}
 	repl.ConsistencyLevel = cl
 
 	if repl.ConsistencyLevel != "" && repl.NodeName != "" {
-		return nil, fmt.Errorf("consistency_level and node_name are mutually exclusive")
+		return nil, newErrReplication(fmt.Errorf("consistency_level and node_name are mutually exclusive"))
 	}
 
 	return &repl, nil
@@ -779,7 +889,7 @@ func getConsistencyLevel(lvl *string) (string, error) {
 		case replica.One, replica.Quorum, replica.All:
 			return *lvl, nil
 		default:
-			return "", fmt.Errorf("unrecognized consistency level %q, "+
+			return "", fmt.Errorf("unrecognized consistency level '%v', "+
 				"try one of the following: ['ONE', 'QUORUM', 'ALL']", *lvl)
 		}
 	}
@@ -787,9 +897,40 @@ func getConsistencyLevel(lvl *string) (string, error) {
 	return "", nil
 }
 
-func getTenantKey(maybeKey *string) string {
+func getTenant(maybeKey *string) string {
 	if maybeKey != nil {
 		return *maybeKey
 	}
 	return ""
+}
+
+func getClassName(obj *models.Object) string {
+	if obj != nil {
+		return obj.Class
+	}
+	return ""
+}
+
+type errReplication struct {
+	err error
+}
+
+func newErrReplication(err error) errReplication {
+	return errReplication{err}
+}
+
+func (e errReplication) Error() string {
+	return fmt.Sprintf("%v", e.err)
+}
+
+type errUnregonizedProperty struct {
+	err error
+}
+
+func newErrUnregonizedProperty(err error) errUnregonizedProperty {
+	return errUnregonizedProperty{err}
+}
+
+func (e errUnregonizedProperty) Error() string {
+	return fmt.Sprintf("%v", e.err)
 }

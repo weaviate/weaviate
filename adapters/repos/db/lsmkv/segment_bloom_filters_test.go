@@ -218,6 +218,44 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
 
+	value := make([]byte, 5)
+	value, _, err = b2.GetBySecondaryIntoMemory(0, []byte("bonjour"), value)
+	assert.Nil(t, err)
+	assert.Equal(t, []byte("world"), value)
+}
+
+func TestRepairCorruptedBloomSecondaryOnInitIntoMemory(t *testing.T) {
+	ctx := context.Background()
+	dirName := t.TempDir()
+
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+	require.Nil(t, err)
+	defer b.Shutdown(ctx)
+
+	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
+		WithSecondaryKey(0, []byte("bonjour"))))
+	require.Nil(t, b.FlushMemtable())
+
+	files, err := os.ReadDir(dirName)
+	require.Nil(t, err)
+	fname, ok := findFileWithExt(files, "secondary.0.bloom")
+	require.True(t, ok)
+
+	// now corrupt the file by replacing the count value without adapting the checksum
+	require.Nil(t, corruptBloomFile(path.Join(dirName, fname)))
+
+	// now create a new bucket and assert that the file is ignored, re-created on
+	// init, and the count matches
+	b2, err := NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+	require.Nil(t, err)
+	defer b2.Shutdown(ctx)
+
 	value, err := b2.GetBySecondary(0, []byte("bonjour"))
 	assert.Nil(t, err)
 	assert.Equal(t, []byte("world"), value)

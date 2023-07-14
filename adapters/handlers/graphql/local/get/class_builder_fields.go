@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -219,6 +220,10 @@ func buildGetClassField(classObject *graphql.Object,
 				Description: descriptions.After,
 				Type:        graphql.Int,
 			},
+			"autocut": &graphql.ArgumentConfig{
+				Description: "Cut off number of results after the Nth extrema. Off by default, negative numbers mean off.",
+				Type:        graphql.Int,
+			},
 
 			"sort":       sortArgument(class.Class),
 			"nearVector": nearVectorArgument(class.Class),
@@ -243,8 +248,8 @@ func buildGetClassField(classObject *graphql.Object,
 		field.Args["consistencyLevel"] = consistencyLevelArgument(class)
 	}
 
-	if multiTenancyEnabled(class) {
-		field.Args["tenantKey"] = tenantKeyArgument()
+	if schema.MultiTenancyEnabled(class) {
+		field.Args["tenant"] = tenantArgument()
 	}
 
 	return field
@@ -312,147 +317,159 @@ func newResolver(modulesProvider ModulesProvider) *resolver {
 
 func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn {
 	return func(p graphql.ResolveParams) (interface{}, error) {
-		source, ok := p.Source.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf("expected graphql root to be a map, but was %T", p.Source)
-		}
-
-		resolver, ok := source["Resolver"].(Resolver)
-		if !ok {
-			return nil, fmt.Errorf("expected source map to have a usable Resolver, but got %#v", source["Resolver"])
-		}
-
-		pagination, err := filters.ExtractPaginationFromArgs(p.Args)
+		result, err := r.resolveGet(p, className)
 		if err != nil {
-			return nil, err
+			return result, enterrors.NewErrGraphQLUser(err, "Get", className)
 		}
-
-		cursor, err := filters.ExtractCursorFromArgs(p.Args)
-		if err != nil {
-			return nil, err
-		}
-
-		// There can only be exactly one ast.Field; it is the class name.
-		if len(p.Info.FieldASTs) != 1 {
-			panic("Only one Field expected here")
-		}
-
-		selectionsOfClass := p.Info.FieldASTs[0].SelectionSet
-
-		properties, addlProps, err := extractProperties(
-			className, selectionsOfClass, p.Info.Fragments, r.modulesProvider)
-		if err != nil {
-			return nil, err
-		}
-
-		var sort []filters.Sort
-		if sortArg, ok := p.Args["sort"]; ok {
-			sort = filters.ExtractSortFromArgs(sortArg.([]interface{}))
-		}
-
-		filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
-		if err != nil {
-			return nil, fmt.Errorf("could not extract filters: %s", err)
-		}
-
-		var nearVectorParams *searchparams.NearVector
-		if nearVector, ok := p.Args["nearVector"]; ok {
-			p, err := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
-			if err != nil {
-				return nil, fmt.Errorf("failed to extract nearVector params: %s", err)
-			}
-			nearVectorParams = &p
-		}
-
-		var nearObjectParams *searchparams.NearObject
-		if nearObject, ok := p.Args["nearObject"]; ok {
-			p, err := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
-			if err != nil {
-				return nil, fmt.Errorf("failed to extract nearObject params: %s", err)
-			}
-			nearObjectParams = &p
-		}
-
-		var moduleParams map[string]interface{}
-		if r.modulesProvider != nil {
-			extractedParams := r.modulesProvider.ExtractSearchParams(p.Args, className)
-			if len(extractedParams) > 0 {
-				moduleParams = extractedParams
-			}
-		}
-
-		// extracts bm25 (sparseSearch) from the query
-		var keywordRankingParams *searchparams.KeywordRanking
-		if bm25, ok := p.Args["bm25"]; ok {
-			if len(sort) > 0 {
-				return nil, fmt.Errorf("bm25 search is not compatible with sort")
-			}
-			p := common_filters.ExtractBM25(bm25.(map[string]interface{}), addlProps.ExplainScore)
-			keywordRankingParams = &p
-		}
-
-		// Extract hybrid search params from the processed query
-		// Everything hybrid can go in another namespace AFTER modulesprovider is
-		// refactored
-		var hybridParams *searchparams.HybridSearch
-		if hybrid, ok := p.Args["hybrid"]; ok {
-			if len(sort) > 0 {
-				return nil, fmt.Errorf("hybrid search is not compatible with sort")
-			}
-			p, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}), addlProps.ExplainScore)
-			if err != nil {
-				return nil, fmt.Errorf("failed to extract hybrid params: %w", err)
-			}
-			hybridParams = p
-		}
-
-		var replProps *additional.ReplicationProperties
-		if cl, ok := p.Args["consistencyLevel"]; ok {
-			replProps = &additional.ReplicationProperties{
-				ConsistencyLevel: cl.(string),
-			}
-		}
-
-		group := extractGroup(p.Args)
-
-		var groupByParams *searchparams.GroupBy
-		if groupBy, ok := p.Args["groupBy"]; ok {
-			p := common_filters.ExtractGroupBy(groupBy.(map[string]interface{}))
-			groupByParams = &p
-		}
-
-		var tenantKey string
-		if tk, ok := p.Args["tenantKey"]; ok {
-			tenantKey = tk.(string)
-		}
-
-		params := dto.GetParams{
-			Filters:               filters,
-			ClassName:             className,
-			Pagination:            pagination,
-			Cursor:                cursor,
-			Properties:            properties,
-			Sort:                  sort,
-			NearVector:            nearVectorParams,
-			NearObject:            nearObjectParams,
-			Group:                 group,
-			ModuleParams:          moduleParams,
-			AdditionalProperties:  addlProps,
-			KeywordRanking:        keywordRankingParams,
-			HybridSearch:          hybridParams,
-			ReplicationProperties: replProps,
-			GroupBy:               groupByParams,
-			TenantKey:             tenantKey,
-		}
-
-		// need to perform vector search by distance
-		// under certain conditions
-		setLimitBasedOnVectorSearchParams(&params)
-
-		return func() (interface{}, error) {
-			return resolver.GetClass(p.Context, principalFromContext(p.Context), params)
-		}, nil
+		return result, nil
 	}
+}
+
+func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interface{}, error) {
+	source, ok := p.Source.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("expected graphql root to be a map, but was %T", p.Source)
+	}
+
+	resolver, ok := source["Resolver"].(Resolver)
+	if !ok {
+		return nil, fmt.Errorf("expected source map to have a usable Resolver, but got %#v", source["Resolver"])
+	}
+
+	pagination, err := filters.ExtractPaginationFromArgs(p.Args)
+	if err != nil {
+		return nil, err
+	}
+
+	cursor, err := filters.ExtractCursorFromArgs(p.Args)
+	if err != nil {
+		return nil, err
+	}
+
+	// There can only be exactly one ast.Field; it is the class name.
+	if len(p.Info.FieldASTs) != 1 {
+		panic("Only one Field expected here")
+	}
+
+	selectionsOfClass := p.Info.FieldASTs[0].SelectionSet
+
+	properties, addlProps, err := extractProperties(
+		className, selectionsOfClass, p.Info.Fragments, r.modulesProvider)
+	if err != nil {
+		return nil, err
+	}
+
+	var sort []filters.Sort
+	if sortArg, ok := p.Args["sort"]; ok {
+		sort = filters.ExtractSortFromArgs(sortArg.([]interface{}))
+	}
+
+	filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
+	if err != nil {
+		return nil, fmt.Errorf("could not extract filters: %s", err)
+	}
+
+	var nearVectorParams *searchparams.NearVector
+	if nearVector, ok := p.Args["nearVector"]; ok {
+		p, err := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract nearVector params: %s", err)
+		}
+		nearVectorParams = &p
+	}
+
+	var nearObjectParams *searchparams.NearObject
+	if nearObject, ok := p.Args["nearObject"]; ok {
+		p, err := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract nearObject params: %s", err)
+		}
+		nearObjectParams = &p
+	}
+
+	var moduleParams map[string]interface{}
+	if r.modulesProvider != nil {
+		extractedParams := r.modulesProvider.ExtractSearchParams(p.Args, className)
+		if len(extractedParams) > 0 {
+			moduleParams = extractedParams
+		}
+	}
+
+	// extracts bm25 (sparseSearch) from the query
+	var keywordRankingParams *searchparams.KeywordRanking
+	if bm25, ok := p.Args["bm25"]; ok {
+		if len(sort) > 0 {
+			return nil, fmt.Errorf("bm25 search is not compatible with sort")
+		}
+		p := common_filters.ExtractBM25(bm25.(map[string]interface{}), addlProps.ExplainScore)
+		keywordRankingParams = &p
+	}
+
+	// Extract hybrid search params from the processed query
+	// Everything hybrid can go in another namespace AFTER modulesprovider is
+	// refactored
+	var hybridParams *searchparams.HybridSearch
+	if hybrid, ok := p.Args["hybrid"]; ok {
+		if len(sort) > 0 {
+			return nil, fmt.Errorf("hybrid search is not compatible with sort")
+		}
+		p, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}), addlProps.ExplainScore)
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract hybrid params: %w", err)
+		}
+		hybridParams = p
+	}
+
+	var replProps *additional.ReplicationProperties
+	if cl, ok := p.Args["consistencyLevel"]; ok {
+		replProps = &additional.ReplicationProperties{
+			ConsistencyLevel: cl.(string),
+		}
+	}
+
+	group := extractGroup(p.Args)
+
+	var groupByParams *searchparams.GroupBy
+	if groupBy, ok := p.Args["groupBy"]; ok {
+		p := common_filters.ExtractGroupBy(groupBy.(map[string]interface{}))
+		groupByParams = &p
+	}
+
+	var tenant string
+	if tk, ok := p.Args["tenant"]; ok {
+		tenant = tk.(string)
+	}
+
+	params := dto.GetParams{
+		Filters:               filters,
+		ClassName:             className,
+		Pagination:            pagination,
+		Cursor:                cursor,
+		Properties:            properties,
+		Sort:                  sort,
+		NearVector:            nearVectorParams,
+		NearObject:            nearObjectParams,
+		Group:                 group,
+		ModuleParams:          moduleParams,
+		AdditionalProperties:  addlProps,
+		KeywordRanking:        keywordRankingParams,
+		HybridSearch:          hybridParams,
+		ReplicationProperties: replProps,
+		GroupBy:               groupByParams,
+		Tenant:                tenant,
+	}
+
+	// need to perform vector search by distance
+	// under certain conditions
+	setLimitBasedOnVectorSearchParams(&params)
+
+	return func() (interface{}, error) {
+		result, err := resolver.GetClass(p.Context, principalFromContext(p.Context), params)
+		if err != nil {
+			return result, enterrors.NewErrGraphQLUser(err, "Get", params.ClassName)
+		}
+		return result, nil
+	}, nil
 }
 
 // the limit needs to be set according to the vector search parameters.

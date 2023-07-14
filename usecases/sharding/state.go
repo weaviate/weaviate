@@ -195,7 +195,7 @@ func (s *State) AllPhysicalShards() []string {
 func (s *State) AllLocalPhysicalShards() []string {
 	var names []string
 	for _, physical := range s.Physical {
-		if s.IsShardLocal(physical.Name) {
+		if s.IsLocalShard(physical.Name) {
 			names = append(names, physical.Name)
 		}
 	}
@@ -211,7 +211,7 @@ func (s *State) SetLocalName(name string) {
 	s.localNodeName = name
 }
 
-func (s *State) IsShardLocal(name string) bool {
+func (s *State) IsLocalShard(name string) bool {
 	for _, node := range s.Physical[name].BelongsToNodes {
 		if node == s.localNodeName {
 			return true
@@ -298,8 +298,8 @@ func (s *State) GetPartitions(nodes nodes, shards []string, replFactor int64) (m
 	it.SetStartNode(names[len(names)-1])
 	partitions := make(map[string][]string, len(shards))
 	for _, name := range shards {
-		if _, ok := s.Physical[name]; ok {
-			continue
+		if _, alreadyExists := s.Physical[name]; alreadyExists {
+			return nil, fmt.Errorf("tenant %s already exists", name)
 		}
 		owners := make([]string, 1, replFactor)
 		node := it.Next()
@@ -336,6 +336,11 @@ func (s *State) AddPartition(name string, nodes []string) Physical {
 	}
 	s.Physical[name] = p
 	return p
+}
+
+// DeletePartition to physical shards
+func (s *State) DeletePartition(name string) {
+	delete(s.Physical, name)
 }
 
 func (s *State) initVirtual() {

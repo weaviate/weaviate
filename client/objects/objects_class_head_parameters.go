@@ -92,11 +92,11 @@ type ObjectsClassHeadParams struct {
 	*/
 	ID strfmt.UUID
 
-	/* TenantKey.
+	/* Tenant.
 
 	   Specifies the tenant in a request targeting a multi-tenant class
 	*/
-	TenantKey *string
+	Tenant *string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -184,15 +184,15 @@ func (o *ObjectsClassHeadParams) SetID(id strfmt.UUID) {
 	o.ID = id
 }
 
-// WithTenantKey adds the tenantKey to the objects class head params
-func (o *ObjectsClassHeadParams) WithTenantKey(tenantKey *string) *ObjectsClassHeadParams {
-	o.SetTenantKey(tenantKey)
+// WithTenant adds the tenant to the objects class head params
+func (o *ObjectsClassHeadParams) WithTenant(tenant *string) *ObjectsClassHeadParams {
+	o.SetTenant(tenant)
 	return o
 }
 
-// SetTenantKey adds the tenantKey to the objects class head params
-func (o *ObjectsClassHeadParams) SetTenantKey(tenantKey *string) {
-	o.TenantKey = tenantKey
+// SetTenant adds the tenant to the objects class head params
+func (o *ObjectsClassHeadParams) SetTenant(tenant *string) {
+	o.Tenant = tenant
 }
 
 // WriteToRequest writes these params to a swagger request
@@ -230,18 +230,18 @@ func (o *ObjectsClassHeadParams) WriteToRequest(r runtime.ClientRequest, reg str
 		return err
 	}
 
-	if o.TenantKey != nil {
+	if o.Tenant != nil {
 
-		// query param tenant_key
-		var qrTenantKey string
+		// query param tenant
+		var qrTenant string
 
-		if o.TenantKey != nil {
-			qrTenantKey = *o.TenantKey
+		if o.Tenant != nil {
+			qrTenant = *o.Tenant
 		}
-		qTenantKey := qrTenantKey
-		if qTenantKey != "" {
+		qTenant := qrTenant
+		if qTenant != "" {
 
-			if err := r.SetQueryParam("tenant_key", qTenantKey); err != nil {
+			if err := r.SetQueryParam("tenant", qTenant); err != nil {
 				return err
 			}
 		}

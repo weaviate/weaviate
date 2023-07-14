@@ -65,17 +65,15 @@ type Validator struct {
 	exists           exists
 	config           *config.WeaviateConfig
 	replicationProps *additional.ReplicationProperties
-	tenantKey        string
 }
 
 func New(exists exists, config *config.WeaviateConfig,
-	repl *additional.ReplicationProperties, tenantKey string,
+	repl *additional.ReplicationProperties,
 ) *Validator {
 	return &Validator{
 		exists:           exists,
 		config:           config,
 		replicationProps: repl,
-		tenantKey:        tenantKey,
 	}
 }
 
@@ -101,7 +99,7 @@ func validateClass(class string) error {
 
 // ValidateSingleRef validates a single ref based on location URL and existence of the object in the database
 func (v *Validator) ValidateSingleRef(ctx context.Context, cref *models.SingleRef,
-	errorVal string,
+	errorVal string, tenant string,
 ) error {
 	ref, err := crossref.ParseSingleRef(cref)
 	if err != nil {
@@ -113,9 +111,19 @@ func (v *Validator) ValidateSingleRef(ctx context.Context, cref *models.SingleRe
 	}
 
 	// locally check for object existence
-	ok, err := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, v.tenantKey)
+	ok, err := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, tenant)
 	if err != nil {
-		return err
+		if tenant == "" {
+			return err
+		}
+		// since refs can be created to non-MT classes, check again if non-MT object exists
+		// (use empty tenant, if previously was given)
+		ok2, err2 := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, "")
+		if err2 != nil {
+			// return orig error
+			return err
+		}
+		ok = ok2
 	}
 	if !ok {
 		return fmt.Errorf(ErrorNotFoundInDatabase, errorVal, ref.TargetID)
@@ -125,14 +133,14 @@ func (v *Validator) ValidateSingleRef(ctx context.Context, cref *models.SingleRe
 }
 
 func (v *Validator) ValidateMultipleRef(ctx context.Context, refs models.MultipleRef,
-	errorVal string,
+	errorVal string, tenant string,
 ) error {
 	if refs == nil {
 		return nil
 	}
 
 	for _, ref := range refs {
-		err := v.ValidateSingleRef(ctx, ref, errorVal)
+		err := v.ValidateSingleRef(ctx, ref, errorVal, tenant)
 		if err != nil {
 			return err
 		}

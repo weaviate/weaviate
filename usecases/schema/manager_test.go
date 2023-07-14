@@ -55,7 +55,11 @@ func (n *NilMigrator) AddProperty(ctx context.Context, className string, prop *m
 	return nil
 }
 
-func (n *NilMigrator) NewPartitions(ctx context.Context, class *models.Class, partitions []string) (commit func(success bool), err error) {
+func (n *NilMigrator) NewTenants(ctx context.Context, class *models.Class, tenants []string) (commit func(success bool), err error) {
+	return func(bool) {}, nil
+}
+
+func (n *NilMigrator) DeleteTenants(ctx context.Context, class *models.Class, tenants []string) (commit func(success bool), err error) {
 	return func(bool) {}, nil
 }
 
@@ -273,7 +277,7 @@ func testRemoveObjectClass(t *testing.T, lsm *Manager) {
 	assert.Contains(t, objectClasses, "Car")
 
 	// Now delete the class
-	err = lsm.DeleteClass(context.Background(), nil, "Car", false)
+	err = lsm.DeleteClass(context.Background(), nil, "Car")
 	assert.Nil(t, err)
 
 	objectClasses = testGetClassNames(lsm)

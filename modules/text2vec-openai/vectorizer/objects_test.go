@@ -14,7 +14,6 @@ package vectorizer
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -195,9 +194,7 @@ func TestVectorizingObjects(t *testing.T) {
 
 			require.Nil(t, err)
 			assert.Equal(t, models.C11yVector{0, 1, 2, 3}, test.input.Vector)
-			expected := strings.Split(test.expectedClientCall, " ")
-			actual := strings.Split(client.lastInput, " ")
-			assert.Equal(t, expected, actual)
+			assert.Equal(t, []string{test.expectedClientCall}, client.lastInput)
 			assert.Equal(t, client.lastConfig.Type, test.expectedOpenAIType)
 			assert.Equal(t, client.lastConfig.Model, test.expectedOpenAIModel)
 		})

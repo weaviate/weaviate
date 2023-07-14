@@ -18,12 +18,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-func (m *Manager) removeDuplicatePropsIfPresent() {
-	for _, c := range m.state.ObjectSchema.Classes {
-		c.Properties = m.deduplicateProps(c.Properties, c.Class)
-	}
-}
-
 func (m *Manager) deduplicateProps(props []*models.Property,
 	className string,
 ) []*models.Property {

@@ -59,10 +59,10 @@ func TestAddClass(t *testing.T) {
 			nil, &models.Class{Class: "NewClass"})
 		require.Nil(t, err)
 
-		require.NotNil(t, mgr.state.ObjectSchema)
-		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
-		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
-		require.Equal(t, expectedBM25Config, mgr.state.ObjectSchema.Classes[0].InvertedIndexConfig.Bm25)
+		require.NotNil(t, mgr.schemaCache.ObjectSchema)
+		require.NotEmpty(t, mgr.schemaCache.ObjectSchema.Classes)
+		require.Equal(t, "NewClass", mgr.schemaCache.ObjectSchema.Classes[0].Class)
+		require.Equal(t, expectedBM25Config, mgr.schemaCache.ObjectSchema.Classes[0].InvertedIndexConfig.Bm25)
 	})
 
 	t.Run("with customized BM25 params", func(t *testing.T) {
@@ -82,10 +82,10 @@ func TestAddClass(t *testing.T) {
 			})
 		require.Nil(t, err)
 
-		require.NotNil(t, mgr.state.ObjectSchema)
-		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
-		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
-		require.Equal(t, expectedBM25Config, mgr.state.ObjectSchema.Classes[0].InvertedIndexConfig.Bm25)
+		require.NotNil(t, mgr.schemaCache.ObjectSchema)
+		require.NotEmpty(t, mgr.schemaCache.ObjectSchema.Classes)
+		require.Equal(t, "NewClass", mgr.schemaCache.ObjectSchema.Classes[0].Class)
+		require.Equal(t, expectedBM25Config, mgr.schemaCache.ObjectSchema.Classes[0].InvertedIndexConfig.Bm25)
 	})
 
 	t.Run("with default Stopwords config", func(t *testing.T) {
@@ -99,10 +99,10 @@ func TestAddClass(t *testing.T) {
 			nil, &models.Class{Class: "NewClass"})
 		require.Nil(t, err)
 
-		require.NotNil(t, mgr.state.ObjectSchema)
-		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
-		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
-		require.Equal(t, expectedStopwordConfig, mgr.state.ObjectSchema.Classes[0].InvertedIndexConfig.Stopwords)
+		require.NotNil(t, mgr.schemaCache.ObjectSchema)
+		require.NotEmpty(t, mgr.schemaCache.ObjectSchema.Classes)
+		require.Equal(t, "NewClass", mgr.schemaCache.ObjectSchema.Classes[0].Class)
+		require.Equal(t, expectedStopwordConfig, mgr.schemaCache.ObjectSchema.Classes[0].InvertedIndexConfig.Stopwords)
 	})
 
 	t.Run("with customized Stopwords config", func(t *testing.T) {
@@ -123,10 +123,10 @@ func TestAddClass(t *testing.T) {
 			})
 		require.Nil(t, err)
 
-		require.NotNil(t, mgr.state.ObjectSchema)
-		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
-		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
-		require.Equal(t, expectedStopwordConfig, mgr.state.ObjectSchema.Classes[0].InvertedIndexConfig.Stopwords)
+		require.NotNil(t, mgr.schemaCache.ObjectSchema)
+		require.NotEmpty(t, mgr.schemaCache.ObjectSchema.Classes)
+		require.Equal(t, "NewClass", mgr.schemaCache.ObjectSchema.Classes[0].Class)
+		require.Equal(t, expectedStopwordConfig, mgr.schemaCache.ObjectSchema.Classes[0].InvertedIndexConfig.Stopwords)
 	})
 
 	t.Run("with tokenizations", func(t *testing.T) {
@@ -162,8 +162,8 @@ func TestAddClass(t *testing.T) {
 
 					if tc.expectedErrMsg == "" {
 						require.Nil(t, err)
-						require.NotNil(t, mgr.state.ObjectSchema)
-						require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
+						require.NotNil(t, mgr.schemaCache.ObjectSchema)
+						require.NotEmpty(t, mgr.schemaCache.ObjectSchema.Classes)
 					} else {
 						require.EqualError(t, err, tc.expectedErrMsg)
 					}
@@ -306,10 +306,10 @@ func TestAddClass(t *testing.T) {
 			nil, &models.Class{Class: "NewClass"})
 		require.Nil(t, err)
 
-		require.NotNil(t, mgr.state.ObjectSchema)
-		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
-		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
-		require.Equal(t, expected, mgr.state.ObjectSchema.Classes[0].VectorIndexConfig)
+		require.NotNil(t, mgr.schemaCache.ObjectSchema)
+		require.NotEmpty(t, mgr.schemaCache.ObjectSchema.Classes)
+		require.Equal(t, "NewClass", mgr.schemaCache.ObjectSchema.Classes[0].Class)
+		require.Equal(t, expected, mgr.schemaCache.ObjectSchema.Classes[0].VectorIndexConfig)
 	})
 
 	t.Run("with default vector distance metric when class already has VectorIndexConfig", func(t *testing.T) {
@@ -329,10 +329,10 @@ func TestAddClass(t *testing.T) {
 			})
 		require.Nil(t, err)
 
-		require.NotNil(t, mgr.state.ObjectSchema)
-		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
-		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
-		require.Equal(t, expected, mgr.state.ObjectSchema.Classes[0].VectorIndexConfig)
+		require.NotNil(t, mgr.schemaCache.ObjectSchema)
+		require.NotEmpty(t, mgr.schemaCache.ObjectSchema.Classes)
+		require.Equal(t, "NewClass", mgr.schemaCache.ObjectSchema.Classes[0].Class)
+		require.Equal(t, expected, mgr.schemaCache.ObjectSchema.Classes[0].VectorIndexConfig)
 	})
 
 	t.Run("with customized distance metric", func(t *testing.T) {
@@ -351,10 +351,10 @@ func TestAddClass(t *testing.T) {
 			})
 		require.Nil(t, err)
 
-		require.NotNil(t, mgr.state.ObjectSchema)
-		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
-		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
-		require.Equal(t, expected, mgr.state.ObjectSchema.Classes[0].VectorIndexConfig)
+		require.NotNil(t, mgr.schemaCache.ObjectSchema)
+		require.NotEmpty(t, mgr.schemaCache.ObjectSchema.Classes)
+		require.Equal(t, "NewClass", mgr.schemaCache.ObjectSchema.Classes[0].Class)
+		require.Equal(t, expected, mgr.schemaCache.ObjectSchema.Classes[0].VectorIndexConfig)
 	})
 
 	t.Run("with two identical prop names", func(t *testing.T) {
@@ -452,8 +452,7 @@ func TestAddClass(t *testing.T) {
 					},
 				},
 				MultiTenancyConfig: &models.MultiTenancyConfig{
-					Enabled:   true,
-					TenantKey: "textProp",
+					Enabled: true,
 				},
 			}
 			mgr := newSchemaManager()
@@ -461,49 +460,6 @@ func TestAddClass(t *testing.T) {
 			require.Nil(t, err)
 			require.NotNil(t, class.ShardingConfig)
 			require.Zero(t, class.ShardingConfig.(sharding.Config).DesiredCount)
-		})
-
-		t.Run("multiTenancyConfig missing tenantKey", func(t *testing.T) {
-			mgr := newSchemaManager()
-			err := mgr.AddClass(context.Background(),
-				nil,
-				&models.Class{
-					Class: "NewClass",
-					Properties: []*models.Property{
-						{
-							Name:     "textProp",
-							DataType: []string{"text"},
-						},
-					},
-					MultiTenancyConfig: &models.MultiTenancyConfig{
-						Enabled: true,
-					},
-				},
-			)
-			require.NotNil(t, err)
-			require.Equal(t, "multiTenancyConfig.tenantKey is required", err.Error())
-		})
-
-		t.Run("multiTenancyConfig.tenantKey invalid prop type", func(t *testing.T) {
-			mgr := newSchemaManager()
-			err := mgr.AddClass(context.Background(),
-				nil,
-				&models.Class{
-					Class: "NewClass",
-					Properties: []*models.Property{
-						{
-							Name:     "intProp",
-							DataType: []string{"int"},
-						},
-					},
-					MultiTenancyConfig: &models.MultiTenancyConfig{
-						Enabled:   true,
-						TenantKey: "intProp",
-					},
-				},
-			)
-			require.NotNil(t, err)
-			require.Equal(t, "invalid multiTenancyConfig.tenantKey \"intProp\". tenantKey must be 'text' or 'uuid'", err.Error())
 		})
 
 		t.Run("multiTenancyConfig and shardingConfig both provided", func(t *testing.T) {
@@ -519,14 +475,80 @@ func TestAddClass(t *testing.T) {
 						},
 					},
 					MultiTenancyConfig: &models.MultiTenancyConfig{
-						Enabled:   true,
-						TenantKey: "uuidProp",
+						Enabled: true,
 					},
-					ShardingConfig: sharding.Config{DesiredCount: 2},
+					ShardingConfig: map[string]interface{}{
+						"desiredCount": 2,
+					},
 				},
 			)
 			require.NotNil(t, err)
 			require.Equal(t, "cannot have both shardingConfig and multiTenancyConfig", err.Error())
+		})
+
+		t.Run("multiTenancyConfig and shardingConfig both provided but multi tenancy config is set to false", func(t *testing.T) {
+			mgr := newSchemaManager()
+			err := mgr.AddClass(context.Background(),
+				nil,
+				&models.Class{
+					Class: "NewClass1",
+					Properties: []*models.Property{
+						{
+							Name:     "uuidProp",
+							DataType: []string{"uuid"},
+						},
+					},
+					MultiTenancyConfig: &models.MultiTenancyConfig{
+						Enabled: false,
+					},
+					ShardingConfig: map[string]interface{}{
+						"desiredCount": 2,
+					},
+				},
+			)
+			require.Nil(t, err)
+		})
+
+		t.Run("multiTenancyConfig and shardingConfig both provided but multi tenancy config is empty", func(t *testing.T) {
+			mgr := newSchemaManager()
+			err := mgr.AddClass(context.Background(),
+				nil,
+				&models.Class{
+					Class: "NewClass",
+					Properties: []*models.Property{
+						{
+							Name:     "uuidProp",
+							DataType: []string{"uuid"},
+						},
+					},
+					MultiTenancyConfig: &models.MultiTenancyConfig{},
+					ShardingConfig: map[string]interface{}{
+						"desiredCount": 2,
+					},
+				},
+			)
+			require.Nil(t, err)
+		})
+
+		t.Run("multiTenancyConfig and shardingConfig both provided but multi tenancy is nil", func(t *testing.T) {
+			mgr := newSchemaManager()
+			err := mgr.AddClass(context.Background(),
+				nil,
+				&models.Class{
+					Class: "NewClass",
+					Properties: []*models.Property{
+						{
+							Name:     "uuidProp",
+							DataType: []string{"uuid"},
+						},
+					},
+					MultiTenancyConfig: nil,
+					ShardingConfig: map[string]interface{}{
+						"desiredCount": 2,
+					},
+				},
+			)
+			require.Nil(t, err)
 		})
 	})
 }
@@ -620,9 +642,9 @@ func TestAddClass_DefaultsAndMigration(t *testing.T) {
 			})
 
 			require.Nil(t, err)
-			require.NotNil(t, mgr.state.ObjectSchema)
-			require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
-			require.Equal(t, className, mgr.state.ObjectSchema.Classes[0].Class)
+			require.NotNil(t, mgr.schemaCache.ObjectSchema)
+			require.NotEmpty(t, mgr.schemaCache.ObjectSchema.Classes)
+			require.Equal(t, className, mgr.schemaCache.ObjectSchema.Classes[0].Class)
 		})
 
 		t.Run("add properties to existing class", func(t *testing.T) {
@@ -640,7 +662,7 @@ func TestAddClass_DefaultsAndMigration(t *testing.T) {
 		})
 
 		t.Run("verify defaults and migration", func(t *testing.T) {
-			class := mgr.state.ObjectSchema.Classes[0]
+			class := mgr.schemaCache.ObjectSchema.Classes[0]
 			for _, tc := range testCases {
 				t.Run("created_"+tc.propName, func(t *testing.T) {
 					createdProperty, err := schema.GetPropertyByName(class, "created_"+tc.propName)
@@ -804,9 +826,9 @@ func TestAddClass_DefaultsAndMigration(t *testing.T) {
 			})
 
 			require.Nil(t, err)
-			require.NotNil(t, mgr.state.ObjectSchema)
-			require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
-			require.Equal(t, className, mgr.state.ObjectSchema.Classes[0].Class)
+			require.NotNil(t, mgr.schemaCache.ObjectSchema)
+			require.NotEmpty(t, mgr.schemaCache.ObjectSchema.Classes)
+			require.Equal(t, className, mgr.schemaCache.ObjectSchema.Classes[0].Class)
 		})
 
 		t.Run("add properties to existing class", func(t *testing.T) {
@@ -826,7 +848,7 @@ func TestAddClass_DefaultsAndMigration(t *testing.T) {
 		})
 
 		t.Run("verify migration", func(t *testing.T) {
-			class := mgr.state.ObjectSchema.Classes[0]
+			class := mgr.schemaCache.ObjectSchema.Classes[0]
 			for _, tc := range testCases {
 				t.Run("created_"+tc.propName, func(t *testing.T) {
 					createdProperty, err := schema.GetPropertyByName(class, "created_"+tc.propName)

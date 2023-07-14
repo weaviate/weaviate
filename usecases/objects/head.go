@@ -22,7 +22,7 @@ import (
 
 // HeadObject check object's existence in the connected DB
 func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, class string,
-	id strfmt.UUID, repl *additional.ReplicationProperties, tenantKey string,
+	id strfmt.UUID, repl *additional.ReplicationProperties, tenant string,
 ) (bool, *Error) {
 	path := fmt.Sprintf("objects/%s", id)
 	if class != "" {
@@ -41,9 +41,14 @@ func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, c
 	m.metrics.HeadObjectInc()
 	defer m.metrics.HeadObjectDec()
 
-	ok, err := m.vectorRepo.Exists(ctx, class, id, repl, tenantKey)
+	ok, err := m.vectorRepo.Exists(ctx, class, id, repl, tenant)
 	if err != nil {
-		return false, &Error{"repo.exists", StatusInternalServerError, err}
+		switch err.(type) {
+		case ErrMultiTenancy:
+			return false, &Error{"repo.exists", StatusUnprocessableEntity, err}
+		default:
+			return false, &Error{"repo.exists", StatusInternalServerError, err}
+		}
 	}
 	return ok, nil
 }

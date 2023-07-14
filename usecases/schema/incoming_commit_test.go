@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -209,16 +210,16 @@ func TestIncommingTxCommit(t *testing.T) {
 		},
 
 		{
-			name: "successfully add partitions",
+			name: "successfully add tenants",
 			tx: &cluster.Transaction{
-				Type: AddPartitions,
-				Payload: AddPartitionsPayload{
-					ClassName:  "FirstClass",
-					Partitions: []Partition{{Name: "P1"}, {Name: "P2"}},
+				Type: addTenants,
+				Payload: AddTenantsPayload{
+					Class:   "FirstClass",
+					Tenants: []Tenant{{Name: "P1"}, {Name: "P2"}},
 				},
 			},
 			assertSchema: func(t *testing.T, sm *Manager) {
-				st := sm.ShardingState("FirstClass")
+				st := sm.CopyShardingState("FirstClass")
 				require.NotNil(t, st)
 				require.Contains(t, st.Physical, "P1")
 				require.Contains(t, st.Physical, "P2")
@@ -227,18 +228,18 @@ func TestIncommingTxCommit(t *testing.T) {
 		{
 			name: "add partition to an unknown class",
 			tx: &cluster.Transaction{
-				Type: AddPartitions,
-				Payload: AddPartitionsPayload{
-					ClassName:  "UnknownClass",
-					Partitions: []Partition{{Name: "P1"}, {Name: "P2"}},
+				Type: addTenants,
+				Payload: AddTenantsPayload{
+					Class:   "UnknownClass",
+					Tenants: []Tenant{{Name: "P1"}, {Name: "P2"}},
 				},
 			},
 			expectedErrContains: "UnknownClass",
 		},
 		{
-			name: "add partitions with incorrect payload",
+			name: "add tenants with incorrect payload",
 			tx: &cluster.Transaction{
-				Type:    AddPartitions,
+				Type:    addTenants,
 				Payload: AddPropertyPayload{},
 			},
 			expectedErrContains: "expected commit payload to be",
@@ -278,7 +279,7 @@ func TestTxResponse(t *testing.T) {
 	type test struct {
 		name     string
 		tx       *cluster.Transaction
-		assertTx func(t *testing.T, tx *cluster.Transaction)
+		assertTx func(t *testing.T, tx *cluster.Transaction, payload json.RawMessage)
 	}
 
 	tests := []test{
@@ -294,7 +295,7 @@ func TestTxResponse(t *testing.T) {
 					State: &sharding.State{},
 				},
 			},
-			assertTx: func(t *testing.T, tx *cluster.Transaction) {
+			assertTx: func(t *testing.T, tx *cluster.Transaction, payload json.RawMessage) {
 				_, ok := tx.Payload.(AddClassPayload)
 				assert.True(t, ok, "write tx was not changed")
 			},
@@ -305,9 +306,9 @@ func TestTxResponse(t *testing.T) {
 				Type:    ReadSchema,
 				Payload: nil,
 			},
-			assertTx: func(t *testing.T, tx *cluster.Transaction) {
-				pl, ok := tx.Payload.(ReadSchemaPayload)
-				require.True(t, ok)
+			assertTx: func(t *testing.T, tx *cluster.Transaction, payload json.RawMessage) {
+				pl, err := unmarshalRawJson[ReadSchemaPayload](payload)
+				require.Nil(t, err)
 				require.Len(t, pl.Schema.ObjectSchema.Classes, 1)
 				assert.Equal(t, "FirstClass", pl.Schema.ObjectSchema.Classes[0].Class)
 			},
@@ -331,9 +332,21 @@ func TestTxResponse(t *testing.T) {
 				schemaBefore)
 			require.Nil(t, err)
 
-			err = sm.handleTxResponse(context.Background(), test.tx)
+			data, err := sm.handleTxResponse(context.Background(), test.tx)
 			require.Nil(t, err)
-			test.assertTx(t, test.tx)
+			if test.tx.Type == ReadSchema {
+				var txRes txResponsePayload
+				err = json.Unmarshal(data, &txRes)
+				require.Nil(t, err)
+				test.assertTx(t, test.tx, txRes.Payload)
+
+			}
 		})
 	}
+}
+
+type txResponsePayload struct {
+	Type    cluster.TransactionType `json:"type"`
+	ID      string                  `json:"id"`
+	Payload json.RawMessage         `json:"payload"`
 }

@@ -17,89 +17,119 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-var regexTenantName = regexp.MustCompile(`[A-Za-z0-9\-]+`)
+var regexTenantName = regexp.MustCompile(`^` + schema.ShardNameRegexCore + `$`)
+
+// tenantsPath is the main path used for authorization
+const tenantsPath = "schema/tenants"
 
 // AddTenants is used to add new tenants to a class
-// Class must exit and has partitioning enabled
-func (m *Manager) AddTenants(ctx context.Context, principal *models.Principal, class string, tenants []*models.Tenant) error {
-	err := m.Authorizer.Authorize(principal, "update", "schema/objects")
-	if err != nil {
+// Class must exist and has partitioning enabled
+func (m *Manager) AddTenants(ctx context.Context,
+	principal *models.Principal,
+	class string,
+	tenants []*models.Tenant,
+) (err error) {
+	if err := m.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
 		return err
 	}
-
-	if err := validateTenantNames(tenants); err != nil {
-		return err
-	}
-
-	cls, st := m.getClassByName(class), m.ShardingState(class)
-	if cls == nil || st == nil {
-		return fmt.Errorf("class %q: %w", class, ErrNotFound)
-	}
-	if !isMultiTenancyEnabled(cls.MultiTenancyConfig) {
-		return fmt.Errorf("multi-tenancy is not enabled for class %q", class)
-	}
-	rf := int64(1)
-	if cls.ReplicationConfig != nil && cls.ReplicationConfig.Factor > rf {
-		rf = cls.ReplicationConfig.Factor
-	}
-
 	tenantNames := make([]string, len(tenants))
 	for i, tenant := range tenants {
-		if tenant.Name == "" {
-			return fmt.Errorf("found empty tenant key at index %d", rf)
-		}
-		// TODO: validate p.Name (length, charset, case sensitivity)
 		tenantNames[i] = tenant.Name
 	}
-	partitions, err := st.GetPartitions(m.clusterState, tenantNames, rf)
-	if err != nil {
-		return fmt.Errorf("get partitions: %w", err)
+
+	// validation
+	if err := validateTenants(tenantNames); err != nil {
+		return err
 	}
-	request := AddPartitionsPayload{
-		ClassName:  class,
-		Partitions: make([]Partition, len(partitions)),
+	cls := m.getClassByName(class)
+	if cls == nil {
+		return fmt.Errorf("class %q: %w", class, ErrNotFound)
+	}
+	if !schema.MultiTenancyEnabled(cls) {
+		return fmt.Errorf("multi-tenancy is not enabled for class %q", class)
+	}
+
+	// create transaction payload
+	partitions, err := m.getPartitions(cls, tenantNames)
+	if err != nil {
+		return fmt.Errorf("get partitions from class %q: %w", class, err)
+	}
+	request := AddTenantsPayload{
+		Class:   class,
+		Tenants: make([]Tenant, len(partitions)),
 	}
 	i := 0
 	for name, owners := range partitions {
-		request.Partitions[i] = Partition{Name: name, Nodes: owners}
+		request.Tenants[i] = Tenant{Name: name, Nodes: owners}
 		i++
 	}
 
-	tx, err := m.cluster.BeginTransaction(ctx, AddPartitions,
+	// open cluster-wide transaction
+	tx, err := m.cluster.BeginTransaction(ctx, addTenants,
 		request, DefaultTxTTL)
 	if err != nil {
-		return errors.Wrap(err, "open cluster-wide transaction")
+		return fmt.Errorf("open cluster-wide transaction: %w", err)
 	}
 
 	if err := m.cluster.CommitWriteTransaction(ctx, tx); err != nil {
 		m.logger.WithError(err).Errorf("not every node was able to commit")
 	}
 
-	return m.onAddPartitions(ctx, st, cls, request)
+	err = m.onAddTenants(ctx, cls, request) // actual update
+	if err != nil {
+		m.logger.WithField("action", "add_tenants").
+			WithField("n", len(request.Tenants)).
+			WithField("class", cls.Class).Error(err)
+	}
+
+	return err
 }
 
-func validateTenantNames(tenants []*models.Tenant) error {
-	for _, tenant := range tenants {
-		// currently only support alphanumeric or uuid
-		valid := regexTenantName.MatchString(tenant.Name)
-		if !valid {
-			return uco.NewErrInvalidUserInput("invalid tenant name %q", tenant.Name)
+func (m *Manager) getPartitions(cls *models.Class, shards []string) (map[string][]string, error) {
+	rf := int64(1)
+	if cls.ReplicationConfig != nil && cls.ReplicationConfig.Factor > rf {
+		rf = cls.ReplicationConfig.Factor
+	}
+	m.schemaCache.RLock()
+	defer m.schemaCache.RUnlock()
+	st := m.schemaCache.ShardingState[cls.Class]
+	if st == nil {
+		return nil, fmt.Errorf("sharding state %w", ErrNotFound)
+	}
+	return st.GetPartitions(m.clusterState, shards, rf)
+}
+
+func validateTenants(tenants []string) error {
+	names := make(map[string]struct{}, len(tenants)) // check for name uniqueness
+	for i, tenant := range tenants {
+		_, nameExists := names[tenant]
+		if nameExists {
+			return uco.NewErrInvalidUserInput("duplicate tenant name %s", tenant)
+		}
+		names[tenant] = struct{}{}
+
+		if !regexTenantName.MatchString(tenant) {
+			msg := "tenant name should only contain alphanumeric characters (a-z, A-Z, 0-9), underscore (_), and hyphen (-), with a length between 1 and 64 characters"
+			return uco.NewErrInvalidUserInput("tenant name at index %d: %s", i, msg)
 		}
 	}
 	return nil
 }
 
-func (m *Manager) onAddPartitions(ctx context.Context,
-	st *sharding.State, class *models.Class, request AddPartitionsPayload,
+func (m *Manager) onAddTenants(ctx context.Context, class *models.Class, request AddTenantsPayload,
 ) error {
-	pairs := make([]KeyValuePair, 0, len(request.Partitions))
-	for _, p := range request.Partitions {
+	st := sharding.State{
+		Physical: make(map[string]sharding.Physical, len(request.Tenants)),
+	}
+	st.SetLocalName(m.clusterState.LocalName())
+	pairs := make([]KeyValuePair, 0, len(request.Tenants))
+	for _, p := range request.Tenants {
 		if _, ok := st.Physical[p.Name]; !ok {
 			p := st.AddPartition(p.Name, p.Nodes)
 			data, err := json.Marshal(p)
@@ -109,38 +139,133 @@ func (m *Manager) onAddPartitions(ctx context.Context,
 			pairs = append(pairs, KeyValuePair{p.Name, data})
 		}
 	}
-	shards := make([]string, 0, len(request.Partitions))
-	for _, p := range request.Partitions {
-		if st.IsShardLocal(p.Name) {
+	shards := make([]string, 0, len(request.Tenants))
+	for _, p := range request.Tenants {
+		if st.IsLocalShard(p.Name) {
 			shards = append(shards, p.Name)
 		}
 	}
 
-	commit, err := m.migrator.NewPartitions(ctx, class, shards)
+	commit, err := m.migrator.NewTenants(ctx, class, shards)
 	if err != nil {
-		m.logger.WithField("action", "add_partitions").
-			WithField("class", request.ClassName).Error(err)
+		return fmt.Errorf("migrator.new_tenants: %w", err)
 	}
-
-	st.SetLocalName(m.clusterState.LocalName())
 
 	m.logger.
 		WithField("action", "schema.add_tenants").
 		Debug("saving updated schema to configuration store")
 
 	if err := m.repo.NewShards(ctx, class.Class, pairs); err != nil {
-		commit(false) // rollback new partitions
+		commit(false) // rollback adding new tenant
 		return err
 	}
-	commit(true) // commit new partitions
-	m.shardingStateLock.Lock()
-	m.state.ShardingState[request.ClassName] = st
-	m.shardingStateLock.Unlock()
-	m.triggerSchemaUpdateCallbacks()
+	commit(true) // commit new adding new tenant
+	m.schemaCache.LockGuard(func() {
+		ost := m.schemaCache.ShardingState[request.Class]
+		for name, p := range st.Physical {
+			ost.Physical[name] = p
+		}
+	})
 
 	return nil
 }
 
-func isMultiTenancyEnabled(cfg *models.MultiTenancyConfig) bool {
-	return cfg != nil && cfg.Enabled && cfg.TenantKey != ""
+// DeleteTenants is used to delete tenants of a class.
+//
+// Class must exist and has partitioning enabled
+func (m *Manager) DeleteTenants(ctx context.Context, principal *models.Principal, class string, tenants []string) error {
+	if err := m.Authorizer.Authorize(principal, "delete", tenantsPath); err != nil {
+		return err
+	}
+	// validation
+	if err := validateTenants(tenants); err != nil {
+		return err
+	}
+	cls := m.getClassByName(class)
+	if cls == nil {
+		return fmt.Errorf("class %q: %w", class, ErrNotFound)
+	}
+	if !schema.MultiTenancyEnabled(cls) {
+		return fmt.Errorf("multi-tenancy is not enabled for class %q", class)
+	}
+
+	request := DeleteTenantsPayload{
+		Class:   class,
+		Tenants: tenants,
+	}
+
+	// open cluster-wide transaction
+	tx, err := m.cluster.BeginTransaction(ctx, deleteTenants,
+		request, DefaultTxTTL)
+	if err != nil {
+		return fmt.Errorf("open cluster-wide transaction: %w", err)
+	}
+
+	if err := m.cluster.CommitWriteTransaction(ctx, tx); err != nil {
+		m.logger.WithError(err).Errorf("not every node was able to commit")
+	}
+
+	return m.onDeleteTenants(ctx, cls, request) // actual update
+}
+
+func (m *Manager) onDeleteTenants(ctx context.Context, class *models.Class, req DeleteTenantsPayload,
+) error {
+	commit, err := m.migrator.DeleteTenants(ctx, class, req.Tenants)
+	if err != nil {
+		m.logger.WithField("action", "delete_tenants").
+			WithField("class", req.Class).Error(err)
+	}
+
+	m.logger.
+		WithField("action", "schema.delete_tenants").
+		WithField("n", len(req.Tenants)).Debugf("persist schema updates")
+
+	if err := m.repo.DeleteShards(ctx, class.Class, req.Tenants); err != nil {
+		commit(false) // rollback deletion of tenants
+		return err
+	}
+	commit(true) // commit deletion of tenants
+
+	// update cache
+	m.schemaCache.LockGuard(func() {
+		if ss := m.schemaCache.ShardingState[req.Class]; ss != nil {
+			for _, p := range req.Tenants {
+				ss.DeletePartition(p)
+			}
+		}
+	})
+
+	return nil
+}
+
+// GetTenants is used to get tenants of a class.
+//
+// Class must exist and has partitioning enabled
+func (m *Manager) GetTenants(ctx context.Context, principal *models.Principal, class string) ([]*models.Tenant, error) {
+	if err := m.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
+		return nil, err
+	}
+	// validation
+	cls := m.getClassByName(class)
+	if cls == nil {
+		return nil, fmt.Errorf("class %q: %w", class, ErrNotFound)
+	}
+	if !schema.MultiTenancyEnabled(cls) {
+		return nil, fmt.Errorf("multi-tenancy is not enabled for class %q", class)
+	}
+
+	var tenants []*models.Tenant
+	m.schemaCache.RLockGuard(func() error {
+		if ss := m.schemaCache.ShardingState[cls.Class]; ss != nil {
+			tenants = make([]*models.Tenant, len(ss.Physical))
+			i := 0
+			for tenant := range ss.Physical {
+				tenants[i] = &models.Tenant{Name: tenant}
+				i++
+			}
+		}
+		return nil
+	})
+
+	return tenants, nil
 }

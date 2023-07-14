@@ -44,7 +44,7 @@ func (m *Manager) updateRefVector(ctx context.Context, principal *models.Princip
 				className, id, err)
 		}
 
-		if err := m.vectorRepo.PutObject(ctx, obj, obj.Vector, nil, ""); err != nil {
+		if err := m.vectorRepo.PutObject(ctx, obj, obj.Vector, nil); err != nil {
 			return fmt.Errorf("put object: %w", err)
 		}
 
@@ -60,13 +60,13 @@ func (m *Manager) updateRefVector(ctx context.Context, principal *models.Princip
 // is finally removed
 func (m *Manager) findObject(ctx context.Context, class string,
 	id strfmt.UUID, props search.SelectProperties, addl additional.Properties,
-	tenantKey string,
+	tenant string,
 ) (*search.Result, error) {
 	// to support backwards compat
 	if class == "" {
-		return m.vectorRepo.ObjectByID(ctx, id, props, addl, tenantKey)
+		return m.vectorRepo.ObjectByID(ctx, id, props, addl, tenant)
 	}
-	return m.vectorRepo.Object(ctx, class, id, props, addl, nil, tenantKey)
+	return m.vectorRepo.Object(ctx, class, id, props, addl, nil, tenant)
 }
 
 // TODO: remove this method and just pass b.vectorRepo.Object to
@@ -74,11 +74,11 @@ func (m *Manager) findObject(ctx context.Context, class string,
 // is finally removed
 func (b *BatchManager) findObject(ctx context.Context, class string,
 	id strfmt.UUID, props search.SelectProperties, addl additional.Properties,
-	tenantKey string,
+	tenant string,
 ) (*search.Result, error) {
 	// to support backwards compat
 	if class == "" {
-		return b.vectorRepo.ObjectByID(ctx, id, props, addl, tenantKey)
+		return b.vectorRepo.ObjectByID(ctx, id, props, addl, tenant)
 	}
-	return b.vectorRepo.Object(ctx, class, id, props, addl, nil, tenantKey)
+	return b.vectorRepo.Object(ctx, class, id, props, addl, nil, tenant)
 }

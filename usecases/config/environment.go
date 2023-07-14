@@ -31,8 +31,16 @@ func FromEnv(config *Config) error {
 		config.Monitoring.Tool = "prometheus"
 		config.Monitoring.Port = 2112
 
-		if enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) {
-			config.Monitoring.GroupClasses = true
+		if enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) ||
+			enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP")) {
+			// The variable was renamed with v1.20. Prior to v1.20 the recommended
+			// way to do MT was using classes. This lead to a lot of metrics which
+			// could be grouped with this variable. With v1.20 we introduced native
+			// multi-tenancy. Now all you need is a single class, but you would
+			// still get one set of metrics per shard. To prevent this, you still
+			// want to group. The new name reflects that it's just about grouping,
+			// not about classes or shards.
+			config.Monitoring.Group = true
 		}
 	}
 

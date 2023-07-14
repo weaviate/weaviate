@@ -120,14 +120,14 @@ func (f *fakeVectorSearcher) Search(ctx context.Context,
 func (f *fakeVectorSearcher) Object(ctx context.Context,
 	className string, id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties, repl *additional.ReplicationProperties,
-	tenantKey string,
+	tenant string,
 ) (*search.Result, error) {
 	args := f.Called(className, id)
 	return args.Get(0).(*search.Result), args.Error(1)
 }
 
 func (f *fakeVectorSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID,
-	props search.SelectProperties, additional additional.Properties, tenantKey string,
+	props search.SelectProperties, additional additional.Properties, tenant string,
 ) (search.Results, error) {
 	args := f.Called(id)
 	return args.Get(0).(search.Results), args.Error(1)
@@ -147,7 +147,7 @@ func (f *fakeVectorSearcher) DenseObjectSearch(context.Context, string,
 
 func (f *fakeVectorSearcher) ResolveReferences(ctx context.Context, objs search.Results,
 	props search.SelectProperties, groupBy *searchparams.GroupBy,
-	additional additional.Properties, tenantKey string,
+	additional additional.Properties, tenant string,
 ) (search.Results, error) {
 	return nil, nil
 }
@@ -164,14 +164,14 @@ type fakeVectorRepo struct {
 
 func (f *fakeVectorRepo) ObjectsByID(ctx context.Context,
 	id strfmt.UUID, props search.SelectProperties,
-	additional additional.Properties, tenantKey string,
+	additional additional.Properties, tenant string,
 ) (search.Results, error) {
 	return nil, nil
 }
 
 func (f *fakeVectorRepo) Object(ctx context.Context, className string, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
-	repl *additional.ReplicationProperties, tenantKey string,
+	repl *additional.ReplicationProperties, tenant string,
 ) (*search.Result, error) {
 	return nil, nil
 }
@@ -227,9 +227,13 @@ func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
 }
 
-func (f *fakeSchemaGetter) ShardingState(class string) *sharding.State {
+func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {
 	panic("not implemented")
 }
+
+func (f *fakeSchemaGetter) ShardOwner(class, shard string) (string, error) { return shard, nil }
+func (f *fakeSchemaGetter) TenantShard(class, tenant string) string        { return tenant }
+func (f *fakeSchemaGetter) ShardFromUUID(class string, uuid []byte) string { return string(uuid) }
 
 func (f *fakeSchemaGetter) Nodes() []string {
 	panic("not implemented")

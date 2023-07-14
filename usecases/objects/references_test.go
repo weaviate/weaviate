@@ -283,19 +283,23 @@ func Test_ReferenceUpdate(t *testing.T) {
 			WantCode:     StatusInternalServerError,
 			ErrSrcExists: anyErr,
 			WantErr:      NewErrInternal("repo: object by id: %v", anyErr),
+			Stage:        1,
 		},
 		{
 			Name: "source object missing", Req: req,
 			WantCode:    StatusNotFound,
 			SrcNotFound: true,
+			Stage:       1,
 		},
 		{
 			Name: "locking", Req: req,
 			WantCode: StatusInternalServerError, WantErr: anyErr, ErrLock: anyErr,
+			Stage: 1,
 		},
 		{
 			Name: "authorization", Req: req,
 			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr,
+			Stage: 1,
 		},
 		{
 			Name: "get schema",
@@ -320,12 +324,12 @@ func Test_ReferenceUpdate(t *testing.T) {
 		},
 		{
 			Name: "reserved property name",
-			Req:  PutReferenceInput{Class: cls, ID: id, Property: "_id"}, Stage: 1,
+			Req:  PutReferenceInput{Class: cls, ID: id, Property: "_id", Refs: refs}, Stage: 1,
 			WantCode: StatusBadRequest,
 		},
 		{
 			Name: "valid property name",
-			Req:  PutReferenceInput{Class: cls, ID: id, Property: "-"}, Stage: 1,
+			Req:  PutReferenceInput{Class: cls, ID: id, Property: "-", Refs: refs}, Stage: 1,
 			WantCode: StatusBadRequest,
 		},
 
@@ -359,7 +363,10 @@ func Test_ReferenceUpdate(t *testing.T) {
 			if tc.SrcNotFound {
 				srcObj = nil
 			}
-			m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(srcObj, tc.ErrSrcExists)
+			if tc.Stage >= 1 {
+				m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(srcObj, tc.ErrSrcExists)
+			}
+
 			if tc.Stage >= 2 {
 				m.repo.On("Exists", "", refID).Return(true, tc.ErrTargetExists).Once()
 			}

@@ -70,7 +70,7 @@ func TestFailedCommits(t *testing.T) {
 				})
 			},
 			action: func(t *testing.T, sm *Manager) {
-				assert.Nil(t, sm.DeleteClass(ctx, nil, "MyClass", false))
+				assert.Nil(t, sm.DeleteClass(ctx, nil, "MyClass"))
 			},
 			expSchema: []*models.Class{
 				classWithDefaultsWithProps(t, "OtherClass", nil),
@@ -156,6 +156,7 @@ func classWithDefaultsWithProps(t *testing.T, name string,
 
 	class.VectorIndexConfig = fakeVectorConfig{}
 	class.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
+	class.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: false}
 
 	(&fakeModuleConfig{}).SetClassDefaults(class)
 	setInvertedConfigDefaults(class)

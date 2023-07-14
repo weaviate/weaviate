@@ -89,7 +89,7 @@ func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchem
 
 		data := map[string]interface{}{"document": doc.Document, "code": doc.DocID}
 		obj := &models.Object{Class: "StandardTest", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
-		err := repo.PutObject(context.Background(), obj, nil, nil, "")
+		err := repo.PutObject(context.Background(), obj, nil, nil)
 		require.Nil(t, err)
 	}
 }
@@ -122,7 +122,7 @@ func TestHybrid(t *testing.T) {
 	for _, query := range queries {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: query.Query}
 		addit := additional.Properties{}
-		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "")
+		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
 
@@ -158,7 +158,7 @@ func TestBIER(t *testing.T) {
 	for _, query := range queries {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: query.Query}
 		addit := additional.Properties{}
-		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "")
+		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
 		// fmt.Printf("Results: %v\n", res)
@@ -182,7 +182,7 @@ func addObj(repo *DB, i int, props map[string]interface{}, vec []float32) error 
 
 	obj := &models.Object{Class: "MyClass", ID: id, Properties: props, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 	vector := vec
-	err := repo.PutObject(context.Background(), obj, vector, nil, "")
+	err := repo.PutObject(context.Background(), obj, vector, nil)
 	return err
 }
 
@@ -672,7 +672,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		explorer := traverser.NewExplorer(repo, log, prov, metrics)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
-		require.Equal(t, 1, len(hybridResults))
+		require.Equal(t, 3, len(hybridResults))
 
 		fmt.Println("--- Start results for hybrid ---")
 		for _, r := range hybridResults {

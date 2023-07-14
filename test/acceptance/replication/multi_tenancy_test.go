@@ -31,8 +31,7 @@ import (
 )
 
 const (
-	tenantKey = "tenantKey"
-	tenantID  = strfmt.UUID("45e9e17e-8102-4011-95f0-3079ca188bbf")
+	tenantID = strfmt.UUID("45e9e17e-8102-4011-95f0-3079ca188bbf")
 )
 
 func multiTenancyEnabled(t *testing.T) {
@@ -59,16 +58,14 @@ func multiTenancyEnabled(t *testing.T) {
 			Factor: 2,
 		}
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: tenantKey,
+			Enabled: true,
 		}
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor: 2,
 		}
 		articleClass.MultiTenancyConfig = &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: tenantKey,
+			Enabled: true,
 		}
 		helper.CreateClass(t, articleClass)
 	})
@@ -86,10 +83,10 @@ func multiTenancyEnabled(t *testing.T) {
 				batch[i] = articles.NewParagraph().
 					WithID(id).
 					WithContents(fmt.Sprintf("paragraph#%d", i)).
-					WithTenantKey(tenantID.String()).
+					WithTenant(tenantID.String()).
 					Object()
 			}
-			createTenantObjects(t, compose.GetWeaviate().URI(), batch, tenantID.String())
+			createTenantObjects(t, compose.GetWeaviate().URI(), batch)
 		})
 
 		t.Run("stop node 1", func(t *testing.T) {
@@ -113,9 +110,9 @@ func multiTenancyEnabled(t *testing.T) {
 				obj := articles.NewArticle().
 					WithID(id).
 					WithTitle(fmt.Sprintf("Article#%d", i)).
-					WithTenantKey(tenantID.String()).
+					WithTenant(tenantID.String()).
 					Object()
-				createTenantObject(t, compose.GetWeaviateNode2().URI(), obj, tenantID.String())
+				createTenantObject(t, compose.GetWeaviateNode2().URI(), obj)
 			}
 		})
 
@@ -139,13 +136,14 @@ func multiTenancyEnabled(t *testing.T) {
 		refs := make([]*models.BatchReference, len(articleIDs))
 		for i := range articleIDs {
 			refs[i] = &models.BatchReference{
-				From: strfmt.URI(crossref.NewSource("Article", "hasParagraphs", articleIDs[i]).String()),
-				To:   strfmt.URI(crossref.NewLocalhost("Paragraph", paragraphIDs[i]).String()),
+				From:   strfmt.URI(crossref.NewSource("Article", "hasParagraphs", articleIDs[i]).String()),
+				To:     strfmt.URI(crossref.NewLocalhost("Paragraph", paragraphIDs[i]).String()),
+				Tenant: tenantID.String(),
 			}
 		}
 
 		t.Run("add references to node 1", func(t *testing.T) {
-			addTenantReferences(t, compose.GetWeaviate().URI(), refs, tenantID.String())
+			addTenantReferences(t, compose.GetWeaviate().URI(), refs)
 		})
 
 		t.Run("stop node 1", func(t *testing.T) {
@@ -201,9 +199,10 @@ func multiTenancyEnabled(t *testing.T) {
 			patch := &models.Object{
 				ID:         before.ID,
 				Class:      "Article",
-				Properties: map[string]interface{}{"title": newTitle, tenantKey: tenantID.String()},
+				Properties: map[string]interface{}{"title": newTitle},
+				Tenant:     tenantID.String(),
 			}
-			patchTenantObject(t, compose.GetWeaviateNode2().URI(), patch, tenantID.String())
+			patchTenantObject(t, compose.GetWeaviateNode2().URI(), patch)
 		})
 
 		t.Run("stop node 2", func(t *testing.T) {

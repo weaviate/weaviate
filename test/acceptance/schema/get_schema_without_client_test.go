@@ -57,7 +57,8 @@ func testGetSchemaWithoutClient(t *testing.T) {
 							"distribution": "log-normal",
 							"type":         "kmeans",
 						},
-						"segments": float64(0),
+						"segments":      float64(0),
+						"trainingLimit": float64(100000),
 					},
 				},
 				"shardingConfig": map[string]interface{}{
@@ -91,6 +92,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 						"vectorizeClassName": true,
 					},
 				},
+				"multiTenancyConfig": map[string]interface{}{"enabled": false},
 			},
 		},
 	}

@@ -39,9 +39,13 @@ func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
 }
 
-func (f *fakeSchemaGetter) ShardingState(class string) *sharding.State {
+func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {
 	panic("not implemented")
 }
+
+func (f *fakeSchemaGetter) ShardOwner(class, shard string) (string, error) { return "", nil }
+func (f *fakeSchemaGetter) TenantShard(class, tenant string) string        { return tenant }
+func (f *fakeSchemaGetter) ShardFromUUID(class string, uuid []byte) string { return "" }
 
 func (f *fakeSchemaGetter) Nodes() []string {
 	panic("not implemented")
@@ -187,7 +191,7 @@ func (f *fakeVectorRepoKNN) VectorSearch(ctx context.Context,
 	return nil, fmt.Errorf("vector class search not implemented in fake")
 }
 
-func (f *fakeVectorRepoKNN) BatchPutObjects(ctx context.Context, objects objects.BatchObjects, repl *additional.ReplicationProperties, tenantKey string) (objects.BatchObjects, error) {
+func (f *fakeVectorRepoKNN) BatchPutObjects(ctx context.Context, objects objects.BatchObjects, repl *additional.ReplicationProperties) (objects.BatchObjects, error) {
 	f.Lock()
 	defer f.Unlock()
 
@@ -260,7 +264,7 @@ func (f *fakeVectorRepoContextual) ZeroShotSearch(ctx context.Context, vector []
 	panic("not implemented")
 }
 
-func (f *fakeVectorRepoContextual) BatchPutObjects(ctx context.Context, objects objects.BatchObjects, repl *additional.ReplicationProperties, tenantKey string) (objects.BatchObjects, error) {
+func (f *fakeVectorRepoContextual) BatchPutObjects(ctx context.Context, objects objects.BatchObjects, repl *additional.ReplicationProperties) (objects.BatchObjects, error) {
 	f.Lock()
 	defer f.Unlock()
 	for _, batchObject := range objects {

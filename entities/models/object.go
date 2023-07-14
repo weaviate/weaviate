@@ -49,6 +49,9 @@ type Object struct {
 	// properties
 	Properties PropertySchema `json:"properties,omitempty"`
 
+	// Name of the Objects tenant.
+	Tenant string `json:"tenant,omitempty"`
+
 	// This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.
 	Vector C11yVector `json:"vector,omitempty"`
 

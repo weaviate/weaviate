@@ -30,7 +30,7 @@ function main() {
 
   echo "INFO: In directory $PWD"
 
-  echo "INFO: This script will surpress most output, unless a command ultimately fails"
+  echo "INFO: This script will suppress most output, unless a command ultimately fails"
   echo "      Then it will print the output of the failed command."
 
   echo_green "Prepare workspace..."

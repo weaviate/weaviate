@@ -507,7 +507,7 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result,
 			if err := p.checkCapabilities(allAdditionalProperties, moduleParams, capability); err != nil {
 				return nil, err
 			}
-			cfg := NewClassBasedModuleConfig(class, "")
+			cfg := NewClassBasedModuleConfig(class, "", "")
 			for name, value := range moduleParams {
 				additionalPropertyFn := p.getAdditionalPropertyFn(allAdditionalProperties[name], capability)
 				if additionalPropertyFn != nil && value != nil {
@@ -606,7 +606,7 @@ func (p *Provider) RestApiAdditionalProperties(includeProp string, class *models
 // Get { Class() } for example
 func (p *Provider) VectorFromSearchParam(ctx context.Context,
 	className string, param string, params interface{},
-	findVectorFn modulecapabilities.FindVectorFn,
+	findVectorFn modulecapabilities.FindVectorFn, tenant string,
 ) ([]float32, error) {
 	class, err := p.getClass(className)
 	if err != nil {
@@ -628,7 +628,7 @@ func (p *Provider) VectorFromSearchParam(ctx context.Context,
 			}
 			if vectorSearches != nil {
 				if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
-					cfg := NewClassBasedModuleConfig(class, moduleName)
+					cfg := NewClassBasedModuleConfig(class, moduleName, tenant)
 					vector, err := searchVectorFn(ctx, params, class.Class, findVectorFn, cfg)
 					if err != nil {
 						return nil, errors.Errorf("vectorize params: %v", err)
@@ -653,7 +653,8 @@ func (p *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 		if searcher, ok := mod.(modulecapabilities.Searcher); ok {
 			if vectorSearches := searcher.VectorSearches(); vectorSearches != nil {
 				if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
-					vector, err := searchVectorFn(ctx, params, "", findVectorFn, nil)
+					cfg := NewCrossClassModuleConfig()
+					vector, err := searchVectorFn(ctx, params, "", findVectorFn, cfg)
 					if err != nil {
 						return nil, errors.Errorf("vectorize params: %v", err)
 					}
@@ -677,7 +678,8 @@ func (p *Provider) VectorFromInput(ctx context.Context,
 	for _, mod := range p.GetAll() {
 		if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type()) {
 			if vectorizer, ok := mod.(modulecapabilities.InputVectorizer); ok {
-				cfg := NewClassBasedModuleConfig(class, mod.Name())
+				// does not access any objects, therefore tenant is irrelevant
+				cfg := NewClassBasedModuleConfig(class, mod.Name(), "")
 				return vectorizer.VectorizeInput(ctx, input, cfg)
 			}
 		}

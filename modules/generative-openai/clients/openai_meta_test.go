@@ -58,7 +58,7 @@ func (f *testMetaHandler) metaInfo() string {
   "hostname": "http://127.0.0.1:8080",
   "modules": {
     "generative-openai": {
-      "documentationHref": "https://beta.openai.com/docs/api-reference/completions",
+      "documentationHref": "https://platform.openai.com/docs/api-reference/completions",
       "name": "OpenAI Generative Module"
     }
   },

@@ -89,8 +89,11 @@ type hnsw struct {
 
 	nodes []*vertex
 
-	vectorForID      VectorForID
-	multiVectorForID MultiVectorForID
+	vectorForID          VectorForID
+	TempVectorForIDThunk TempVectorForID
+	multiVectorForID     MultiVectorForID
+	trackDimensionsOnce  sync.Once
+	dims                 int32
 
 	cache cache[float32]
 
@@ -144,8 +147,9 @@ type hnsw struct {
 	deleteVsInsertLock sync.RWMutex
 
 	compressed             atomic.Bool
-	doNotRescore           atomic.Bool
+	doNotRescore           bool
 	pq                     *ssdhelpers.ProductQuantizer
+	pqConfig               ent.PQConfig
 	compressedVectorsCache cache[byte]
 	compressedStore        *lsmkv.Store
 	compressActionLock     *sync.RWMutex
@@ -184,6 +188,7 @@ type MakeCommitLogger func() (CommitLogger, error)
 
 type (
 	VectorForID      func(ctx context.Context, id uint64) ([]float32, error)
+	TempVectorForID  func(ctx context.Context, id uint64, container *VectorSlice) ([]float32, error)
 	MultiVectorForID func(ctx context.Context, ids []uint64) ([][]float32, []error)
 )
 
@@ -255,10 +260,12 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCleanupCycle cyclemanager.Cycle
 		metrics:   NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 		shardName: cfg.ShardName,
 
-		randFunc:           rand.Float64,
-		compressActionLock: &sync.RWMutex{},
-		className:          cfg.ClassName,
-		VectorForIDThunk:   cfg.VectorForIDThunk,
+		randFunc:             rand.Float64,
+		compressActionLock:   &sync.RWMutex{},
+		className:            cfg.ClassName,
+		VectorForIDThunk:     cfg.VectorForIDThunk,
+		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
+		pqConfig:             uc.PQ,
 	}
 
 	// TODO common_cycle_manager move to poststartup?
@@ -404,7 +411,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 			}
 		}
 
-		h.freeSortedQueue(res)
+		h.pools.pqResults.Put(res)
 	}
 
 	return entryPointID, nil

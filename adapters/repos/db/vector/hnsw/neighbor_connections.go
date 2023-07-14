@@ -104,7 +104,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		neighbors = append(neighbors, id)
 	}
 
-	n.graph.freeSortedQueue(results)
+	n.graph.pools.pqResults.Put(results)
 
 	// set all outoing in one go
 	n.node.setConnectionsAtLevel(level, neighbors)

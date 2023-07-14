@@ -14,21 +14,11 @@ package aggregate
 import (
 	"github.com/tailor-inc/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
-	"github.com/weaviate/weaviate/entities/models"
 )
 
-func multiTenancyEnabled(class *models.Class) bool {
-	if class.MultiTenancyConfig != nil &&
-		class.MultiTenancyConfig.Enabled &&
-		class.MultiTenancyConfig.TenantKey != "" {
-		return true
-	}
-	return false
-}
-
-func tenantKeyArgument() *graphql.ArgumentConfig {
+func tenantArgument() *graphql.ArgumentConfig {
 	return &graphql.ArgumentConfig{
-		Description: descriptions.TenantKey,
+		Description: descriptions.Tenant,
 		Type:        graphql.String,
 	}
 }

@@ -136,8 +136,8 @@ func classField(class *models.Class, description string,
 		}
 	}
 
-	if multiTenancyEnabled(class) {
-		fieldsField.Args["tenantKey"] = tenantKeyArgument()
+	if schema.MultiTenancyEnabled(class) {
+		fieldsField.Args["tenant"] = tenantArgument()
 	}
 
 	return fieldsField, nil

@@ -26,7 +26,7 @@ import (
 // This is due to backward compatibility reasons and should be removed in the future
 func (m *Manager) DeleteObject(ctx context.Context,
 	principal *models.Principal, class string, id strfmt.UUID,
-	repl *additional.ReplicationProperties, tenantKey string,
+	repl *additional.ReplicationProperties, tenant string,
 ) error {
 	path := fmt.Sprintf("objects/%s/%s", class, id)
 	if class == "" {
@@ -50,15 +50,20 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return m.deleteObjectFromRepo(ctx, id)
 	}
 
-	ok, err := m.vectorRepo.Exists(ctx, class, id, repl, tenantKey)
+	ok, err := m.vectorRepo.Exists(ctx, class, id, repl, tenant)
 	if err != nil {
-		return NewErrInternal("check object existence: %v", err)
+		switch err.(type) {
+		case ErrMultiTenancy:
+			return NewErrMultiTenancy(fmt.Errorf("check object existence: %w", err))
+		default:
+			return NewErrInternal("check object existence: %v", err)
+		}
 	}
 	if !ok {
 		return NewErrNotFound("object %v could not be found", path)
 	}
 
-	err = m.vectorRepo.DeleteObject(ctx, class, id, repl, tenantKey)
+	err = m.vectorRepo.DeleteObject(ctx, class, id, repl, tenant)
 	if err != nil {
 		return NewErrInternal("could not delete object from vector repo: %v", err)
 	}

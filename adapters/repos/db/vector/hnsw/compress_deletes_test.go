@@ -60,13 +60,27 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
+			TempVectorForIDThunk: func(ctx context.Context, id uint64, container *hnsw.VectorSlice) ([]float32, error) {
+				copy(container.Slice, vectors[int(id)])
+				return container.Slice, nil
+			},
 		}, uc, cyclemanager.NewNoop(),
 	)
 	ssdhelpers.Concurrently(uint64(len(vectors)), func(id uint64) {
 		index.Add(uint64(id), vectors[id])
 	})
 	index.Delete(delete_indices...)
-	index.Compress(dimensions, 256, false, int(ssdhelpers.UseKMeansEncoder), int(ssdhelpers.LogNormalEncoderDistribution))
+
+	cfg := ent.PQConfig{
+		Enabled: true,
+		Encoder: ent.PQEncoder{
+			Type:         ent.PQEncoderTypeKMeans,
+			Distribution: ent.PQEncoderDistributionLogNormal,
+		},
+		Segments:  dimensions,
+		Centroids: 256,
+	}
+	index.Compress(cfg)
 	for _, v := range queries {
 		_, _, err := index.SearchByVector(v, k, nil)
 		assert.Nil(t, err)

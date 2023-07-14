@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/autocut"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -56,7 +58,7 @@ type ModulesProvider interface {
 	ValidateSearchParam(name string, value interface{}, className string) error
 	CrossClassValidateSearchParam(name string, value interface{}) error
 	VectorFromSearchParam(ctx context.Context, className string, param string,
-		params interface{}, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error)
+		params interface{}, findVectorFn modulecapabilities.FindVectorFn, tenant string) ([]float32, error)
 	CrossClassVectorFromSearchParam(ctx context.Context, param string,
 		params interface{}, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error)
 	GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
@@ -82,8 +84,8 @@ type objectsSearcher interface {
 	// Near-params searcher
 	Object(ctx context.Context, className string, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties,
-		properties *additional.ReplicationProperties, tenantKey string) (*search.Result, error)
-	ObjectsByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties, tenantKey string) (search.Results, error)
+		properties *additional.ReplicationProperties, tenant string) (*search.Result, error)
+	ObjectsByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties, tenant string) (search.Results, error)
 }
 
 type hybridSearcher interface {
@@ -91,7 +93,7 @@ type hybridSearcher interface {
 	DenseObjectSearch(context.Context, string, []float32, int, int,
 		*filters.LocalFilter, additional.Properties, string) ([]*storobj.Object, []float32, error)
 	ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties,
-		groupBy *searchparams.GroupBy, additional additional.Properties, tenantKey string) (search.Results, error)
+		groupBy *searchparams.GroupBy, additional additional.Properties, tenant string) (search.Results, error)
 }
 
 // NewExplorer with search and connector repo
@@ -214,6 +216,15 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		return nil, errors.Errorf("explorer: get class: vector search: %v", err)
 	}
 
+	if params.Pagination.Autocut > 0 {
+		scores := make([]float32, len(res))
+		for i := range res {
+			scores[i] = res[i].Dist
+		}
+		cutOff := autocut.Autocut(scores, params.Pagination.Autocut)
+		res = res[:cutOff]
+	}
+
 	if params.Group != nil {
 		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
 		if err != nil {
@@ -254,12 +265,12 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
 		hybridSearchLimit := params.Pagination.Limit + params.Pagination.Offset
-		if hybridSearchLimit == 0 {
+		if hybridSearchLimit <= 0 {
 			hybridSearchLimit = hybrid.DefaultLimit
 		}
 		res, dists, err := e.searcher.DenseObjectSearch(ctx,
 			params.ClassName, vec, 0, hybridSearchLimit, params.Filters,
-			params.AdditionalProperties, params.TenantKey)
+			params.AdditionalProperties, params.Tenant)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -280,6 +291,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		HybridSearch: params.HybridSearch,
 		Keyword:      params.KeywordRanking,
 		Class:        params.ClassName,
+		Autocut:      params.Pagination.Autocut,
 	}, e.logger, sparseSearch, denseSearch,
 		postProcess, e.modulesProvider)
 
@@ -616,7 +628,7 @@ func (e *Explorer) vectorFromParams(ctx context.Context,
 	params dto.GetParams,
 ) ([]float32, error) {
 	return e.nearParamsVector.vectorFromParams(ctx, params.NearVector,
-		params.NearObject, params.ModuleParams, params.ClassName)
+		params.NearObject, params.ModuleParams, params.ClassName, params.Tenant)
 }
 
 func (e *Explorer) vectorFromExploreParams(ctx context.Context,

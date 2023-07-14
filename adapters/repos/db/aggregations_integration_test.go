@@ -154,7 +154,7 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 						Properties: schema,
 					}
 					require.Nil(t,
-						repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.2, 0.01, 0.2}, nil, ""))
+						repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.2, 0.01, 0.2}, nil))
 				})
 			}
 		})
@@ -170,7 +170,7 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 						}
 
 						require.Nil(t,
-							repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}, nil, ""))
+							repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}, nil))
 					})
 				}
 			}
@@ -185,7 +185,7 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 						Properties: schema,
 					}
 					require.Nil(t,
-						repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}, nil, ""))
+						repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}, nil))
 				})
 			}
 		})
@@ -199,7 +199,7 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 						Properties: schema,
 					}
 					require.Nil(t,
-						repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}, nil, ""))
+						repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}, nil))
 				})
 			}
 		})

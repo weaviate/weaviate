@@ -85,8 +85,8 @@ func TestClient(t *testing.T) {
 		}
 
 		expected := &ent.VectorizationResult{
-			Text:       "This is my text",
-			Vector:     []float32{0.1, 0.2, 0.3},
+			Text:       []string{"This is my text"},
+			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
 		res, err := c.Vectorize(context.Background(), "This is my text",
@@ -146,8 +146,8 @@ func TestClient(t *testing.T) {
 			"X-Openai-Api-Key", []string{"some-key"})
 
 		expected := &ent.VectorizationResult{
-			Text:       "This is my text",
-			Vector:     []float32{0.1, 0.2, 0.3},
+			Text:       []string{"This is my text"},
+			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
 		res, err := c.Vectorize(ctxWithValue, "This is my text",
@@ -234,11 +234,12 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var b map[string]interface{}
 	require.Nil(f.t, json.Unmarshal(bodyBytes, &b))
 
-	textInput := b["input"].(string)
+	textInputArray := b["input"].([]interface{})
+	textInput := textInputArray[0].(string)
 	assert.Greater(f.t, len(textInput), 0)
 
 	embeddingData := map[string]interface{}{
-		"object":    "embedding",
+		"object":    textInput,
 		"index":     0,
 		"embedding": []float32{0.1, 0.2, 0.3},
 	}

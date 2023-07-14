@@ -28,7 +28,7 @@ import (
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
 func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Principal,
-	input *AddReferenceInput, repl *additional.ReplicationProperties, tenantKey string,
+	input *AddReferenceInput, repl *additional.ReplicationProperties, tenant string,
 ) *Error {
 	m.metrics.AddReferenceInc()
 	defer m.metrics.AddReferenceDec()
@@ -36,11 +36,13 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	deprecatedEndpoint := input.Class == ""
 	if deprecatedEndpoint { // for backward compatibility only
 		objectRes, err := m.getObjectFromRepo(ctx, "", input.ID,
-			additional.Properties{}, nil, "")
+			additional.Properties{}, nil, tenant)
 		if err != nil {
 			errnf := ErrNotFound{} // treated as StatusBadRequest for backward comp
 			if errors.As(err, &errnf) {
 				return &Error{"source object deprecated", StatusBadRequest, err}
+			} else if errors.As(err, &ErrMultiTenancy{}) {
+				return &Error{"source object deprecated", StatusUnprocessableEntity, err}
 			}
 			return &Error{"source object deprecated", StatusInternalServerError, err}
 		}
@@ -57,14 +59,22 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 	defer unlock()
 
-	validator := validation.New(m.vectorRepo.Exists, m.config, repl, tenantKey)
-	if err := input.validate(ctx, principal, validator, m.schemaManager); err != nil {
+	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
+	if err := input.validate(ctx, principal, validator, m.schemaManager, tenant); err != nil {
+		if errors.As(err, &ErrMultiTenancy{}) {
+			return &Error{"validate inputs", StatusUnprocessableEntity, err}
+		}
 		return &Error{"validate inputs", StatusBadRequest, err}
 	}
 	if !deprecatedEndpoint {
-		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl, tenantKey)
+		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl, tenant)
 		if err != nil {
-			return &Error{"source object", StatusInternalServerError, err}
+			switch err.(type) {
+			case ErrMultiTenancy:
+				return &Error{"source object", StatusUnprocessableEntity, err}
+			default:
+				return &Error{"source object", StatusInternalServerError, err}
+			}
 		}
 		if !ok {
 			return &Error{"source object", StatusNotFound, err}
@@ -79,15 +89,15 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		return &Error{"parse target ref", StatusBadRequest, err}
 	}
 
-	if shouldValidateMultiTenantRef(tenantKey, source, target) {
+	if shouldValidateMultiTenantRef(tenant, source, target) {
 		err = validateReferenceMultiTenancy(ctx, principal,
-			m.schemaManager, m.vectorRepo, source, target, tenantKey)
+			m.schemaManager, m.vectorRepo, source, target, tenant)
 		if err != nil {
 			return &Error{"multi-tenancy violation", StatusInternalServerError, err}
 		}
 	}
 
-	if err := m.vectorRepo.AddReference(ctx, source, target, repl, tenantKey); err != nil {
+	if err := m.vectorRepo.AddReference(ctx, source, target, repl, tenant); err != nil {
 		return &Error{"add reference to repo", StatusInternalServerError, err}
 	}
 
@@ -98,8 +108,8 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	return nil
 }
 
-func shouldValidateMultiTenantRef(tenantKey string, source *crossref.RefSource, target *crossref.Ref) bool {
-	return tenantKey != "" || (source != nil && target != nil && source.Class != "" && target.Class != "")
+func shouldValidateMultiTenantRef(tenant string, source *crossref.RefSource, target *crossref.Ref) bool {
+	return tenant != "" || (source != nil && target != nil && source.Class != "" && target.Class != "")
 }
 
 // AddReferenceInput represents required inputs to add a reference to an existing object.
@@ -118,12 +128,12 @@ func (req *AddReferenceInput) validate(
 	ctx context.Context,
 	principal *models.Principal,
 	v *validation.Validator,
-	sm schemaManager,
+	sm schemaManager, tenant string,
 ) error {
 	if err := validateReferenceName(req.Class, req.Property); err != nil {
 		return err
 	}
-	if err := v.ValidateSingleRef(ctx, &req.Ref, "validate reference"); err != nil {
+	if err := v.ValidateSingleRef(ctx, &req.Ref, "validate reference", tenant); err != nil {
 		return err
 	}
 

@@ -416,11 +416,8 @@
       "properties": {
         "enabled": {
           "description": "Whether or not multi-tenancy is enabled for this class",
-          "type": "boolean"
-        },
-        "tenantKey": {
-          "description": "The class property which is used to separate tenants",
-          "type": "string"
+          "type": "boolean",
+          "x-omitempty": false
         }
       }
     },
@@ -586,6 +583,36 @@
         "name": {
           "description": "Name of the schema.",
           "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "SchemaClusterStatus": {
+      "description": "Indicates the health of the schema in a cluster.",
+      "properties": {
+        "healthy": {
+          "description": "True if the cluster is in sync, false if there is an issue (see error).",
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "error": {
+          "description": "Contains the sync check error if one occurred",
+          "type": "string",
+          "x-omitempty": true
+        },
+        "hostname": {
+          "description": "Hostname of the coordinating node, i.e. the one that received the cluster. This can be useful information if the error message contains phrases such as 'other nodes agree, but local does not', etc.",
+          "type": "string"
+        },
+        "nodeCount": {
+          "description": "Number of nodes that participated in the sync check",
+          "type": "number",
+          "format": "int"
+        },
+        "ignoreSchemaSync": {
+          "description": "The cluster check at startup can be ignored (to recover from an out-of-sync situation).",
+          "type": "boolean",
+          "x-omitempty": false
         }
       },
       "type": "object"
@@ -1108,6 +1135,10 @@
           "example": "weaviate://localhost/97525810-a9a5-4eb0-858a-71449aeb007f",
           "format": "uri",
           "type": "string"
+        },
+        "tenant": {
+          "type": "string",
+          "description": "Name of the reference tenant."
         }
       }
     },
@@ -1221,6 +1252,10 @@
         "vector": {
           "description": "This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.",
           "$ref": "#/definitions/C11yVector"
+        },
+        "tenant": {
+          "description": "Name of the Objects tenant.",
+          "type": "string"
         },
         "additional": {
           "$ref": "#/definitions/AdditionalProperties"
@@ -1659,7 +1694,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.20.0-prealpha"
+    "version": "1.20.1"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -1700,10 +1735,10 @@
       "required": false,
       "type": "string"
     },
-    "CommonTenantKeyParameterQuery": {
+    "CommonTenantParameterQuery": {
       "description": "Specifies the tenant in a request targeting a multi-tenant class",
       "in": "query",
-      "name": "tenant_key",
+      "name": "tenant",
       "required": false,
       "type": "string"
     },
@@ -1860,6 +1895,9 @@
           },
           {
             "$ref": "#/parameters/CommonClassParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -1924,9 +1962,6 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -1992,7 +2027,7 @@
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -2111,9 +2146,6 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2181,9 +2213,6 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2306,7 +2335,7 @@
             "$ref": "#/parameters/CommonNodeNameParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -2333,6 +2362,12 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "Request is well-formed (i.e., syntactically correct), but erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -2373,7 +2408,7 @@
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -2397,6 +2432,12 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "Request is well-formed (i.e., syntactically correct), but erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -2443,9 +2484,6 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2520,9 +2558,6 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -2530,7 +2565,10 @@
             "description": "Successfully applied. No content provided."
           },
           "400": {
-            "description": "The patch-JSON is malformed."
+            "description": "The patch-JSON is malformed.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -2590,7 +2628,7 @@
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -2608,6 +2646,12 @@
           },
           "404": {
             "description": "Object doesn't exist."
+          },
+          "422": {
+            "description": "Request is well-formed (i.e., syntactically correct), but erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -2654,6 +2698,9 @@
             "schema": {
               "$ref": "#/definitions/SingleRef"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -2719,6 +2766,9 @@
             "schema": {
               "$ref": "#/definitions/MultipleRef"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -2784,6 +2834,9 @@
             "schema": {
               "$ref": "#/definitions/SingleRef"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -2863,7 +2916,7 @@
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -2949,7 +3002,7 @@
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -3035,7 +3088,7 @@
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -3176,9 +3229,6 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -3246,7 +3296,7 @@
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
+            "$ref": "#/parameters/CommonTenantParameterQuery"
           }
         ],
         "responses": {
@@ -3315,9 +3365,6 @@
           },
           {
             "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTenantKeyParameterQuery"
           }
         ],
         "responses": {
@@ -3521,6 +3568,28 @@
         "x-available-in-websocket": false
       }
     },
+    "/schema/cluster-status": {
+      "get": {
+        "operationId": "schema.cluster.status",
+        "tags": [
+          "schema"
+        ],
+        "responses": {
+          "200": {
+            "description": "The schema in the cluster is in sync.",
+            "schema": {
+              "$ref": "#/definitions/SchemaClusterStatus"
+            }
+          },
+          "500": {
+            "description": "The schema is either out of sync (see response body) or the sync check could not be completed.",
+            "schema": {
+              "$ref": "#/definitions/SchemaClusterStatus"
+            }
+          }
+        }
+      }
+    },
     "/schema": {
       "get": {
         "summary": "Dump the current the database schema.",
@@ -3665,12 +3734,6 @@
             "in": "path",
             "required": true,
             "type": "string"
-          },
-          {
-            "name": "force",
-            "in": "query",
-            "required": false,
-            "type": "boolean"
           }
         ],
         "responses": {
@@ -3966,7 +4029,106 @@
         ],
         "responses": {
           "200": {
-            "description": "Added the new Object class to the schema.",
+            "description": "Added new tenants to the specified class",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid Tenant class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "description": "delete tenants from a specific class",
+        "operationId": "tenants.delete",
+        "tags": [
+          "schema"
+        ],
+        "parameters": [
+          {
+            "name": "className",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "tenants",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted tenants from specified class."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid Tenant class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "get": {
+        "description": "get all tenants from a specific class",
+        "operationId": "tenants.get",
+        "tags": [
+          "schema"
+        ],
+        "parameters": [
+          {
+            "name": "className",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tenants from specified class.",
             "schema": {
               "type": "array",
               "items": {

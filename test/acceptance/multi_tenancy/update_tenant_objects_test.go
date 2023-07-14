@@ -20,25 +20,24 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
 func TestUpdateTenantObjects(t *testing.T) {
-	tenantKey := "tenantName"
 	mutableProp := "mutableProp"
 	testClass := models.Class{
 		Class: "MultiTenantClass",
 		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: tenantKey,
+			Enabled: true,
 		},
 		Properties: []*models.Property{
 			{
-				Name:     tenantKey,
-				DataType: []string{"string"},
+				Name:     "name",
+				DataType: schema.DataTypeText.PropString(),
 			}, {
 				Name:     mutableProp,
-				DataType: []string{"string"},
+				DataType: schema.DataTypeText.PropString(),
 			},
 		},
 	}
@@ -50,25 +49,28 @@ func TestUpdateTenantObjects(t *testing.T) {
 			ID:    "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
 			Class: testClass.Class,
 			Properties: map[string]interface{}{
-				tenantKey:   tenantNames[0],
+				"name":      tenantNames[0],
 				mutableProp: "obj#0",
 			},
+			Tenant: tenantNames[0],
 		},
 		{
 			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
 			Class: testClass.Class,
 			Properties: map[string]interface{}{
-				tenantKey:   tenantNames[1],
+				"name":      tenantNames[1],
 				mutableProp: "obj#1",
 			},
+			Tenant: tenantNames[1],
 		},
 		{
 			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
 			Class: testClass.Class,
 			Properties: map[string]interface{}{
-				tenantKey:   tenantNames[2],
+				"name":      tenantNames[2],
 				mutableProp: "obj#2",
 			},
+			Tenant: tenantNames[2],
 		},
 	}
 
@@ -83,14 +85,14 @@ func TestUpdateTenantObjects(t *testing.T) {
 	t.Run("create tenants", func(t *testing.T) {
 		tenants := make([]*models.Tenant, len(tenantNames))
 		for i := range tenants {
-			tenants[i] = &models.Tenant{tenantNames[i]}
+			tenants[i] = &models.Tenant{Name: tenantNames[i]}
 		}
 		helper.CreateTenants(t, testClass.Class, tenants)
 	})
 
 	t.Run("add tenant objects", func(t *testing.T) {
-		for i, obj := range tenantObjects {
-			helper.CreateTenantObject(t, obj, tenantNames[i])
+		for _, obj := range tenantObjects {
+			helper.CreateObject(t, obj)
 		}
 
 		t.Run("verify tenant object creation", func(t *testing.T) {
@@ -111,11 +113,12 @@ func TestUpdateTenantObjects(t *testing.T) {
 				Class: testClass.Class,
 				ID:    obj.ID,
 				Properties: map[string]interface{}{
-					tenantKey:   tenantNames[i],
+					"name":      tenantNames[i],
 					mutableProp: fmt.Sprintf("%s--updated", mut),
 				},
+				Tenant: tenantNames[i],
 			}
-			helper.UpdateTenantObject(t, toUpdate, tenantNames[i])
+			helper.UpdateObject(t, toUpdate)
 		}
 
 		t.Run("assert tenant object updates", func(t *testing.T) {
@@ -132,20 +135,18 @@ func TestUpdateTenantObjects(t *testing.T) {
 	})
 }
 
-func TestUpdateTenantObjects_MissingTenantKey(t *testing.T) {
+func TestUpdateTenantObjects_UpdateTenant(t *testing.T) {
 	className := "MultiTenantClass"
-	tenantKey := "tenantName"
 	tenantName := "Tenant1"
 	testClass := models.Class{
 		Class: className,
 		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: tenantKey,
+			Enabled: true,
 		},
 		Properties: []*models.Property{
 			{
-				Name:     tenantKey,
-				DataType: []string{"string"},
+				Name:     "name",
+				DataType: schema.DataTypeText.PropString(),
 			},
 		},
 	}
@@ -153,8 +154,9 @@ func TestUpdateTenantObjects_MissingTenantKey(t *testing.T) {
 		ID:    "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
 		Class: className,
 		Properties: map[string]interface{}{
-			tenantKey: tenantName,
+			"name": tenantName,
 		},
+		Tenant: tenantName,
 	}
 
 	defer func() {
@@ -168,69 +170,7 @@ func TestUpdateTenantObjects_MissingTenantKey(t *testing.T) {
 
 	t.Run("add tenant object", func(t *testing.T) {
 		params := objects.NewObjectsCreateParams().
-			WithBody(&tenantObject).WithTenantKey(&tenantName)
-		_, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
-		require.Nil(t, err)
-	})
-
-	t.Run("update tenant object", func(t *testing.T) {
-		toUpdate := models.Object{
-			Class: testClass.Class,
-			ID:    tenantObject.ID,
-		}
-		params := objects.NewObjectsClassPutParams().WithClassName(toUpdate.Class).
-			WithID(toUpdate.ID).WithBody(&toUpdate).WithTenantKey(&tenantName)
-		resp, err := helper.Client(t).Objects.ObjectsClassPut(params, nil)
-		require.Nil(t, resp)
-		require.NotNil(t, err)
-		parsedErr, ok := err.(*objects.ObjectsClassPutUnprocessableEntity)
-		require.True(t, ok)
-		require.NotNil(t, parsedErr.Payload.Error)
-		require.Len(t, parsedErr.Payload.Error, 1)
-		assert.Contains(t, err.Error(), fmt.Sprint(http.StatusUnprocessableEntity))
-		expected := "tenant_key query param value \"Tenant1\" conflicts with object " +
-			"body value \"\" for class \"MultiTenantClass\" tenant key \"tenantName\""
-		assert.Contains(t, parsedErr.Payload.Error[0].Message, expected)
-	})
-}
-
-func TestUpdateTenantObjects_UpdateTenantKey(t *testing.T) {
-	className := "MultiTenantClass"
-	tenantKey := "tenantName"
-	tenantName := "Tenant1"
-	testClass := models.Class{
-		Class: className,
-		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled:   true,
-			TenantKey: tenantKey,
-		},
-		Properties: []*models.Property{
-			{
-				Name:     tenantKey,
-				DataType: []string{"string"},
-			},
-		},
-	}
-	tenantObject := models.Object{
-		ID:    "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
-		Class: className,
-		Properties: map[string]interface{}{
-			tenantKey: tenantName,
-		},
-	}
-
-	defer func() {
-		helper.DeleteClass(t, className)
-	}()
-
-	t.Run("create class with multi-tenancy enabled", func(t *testing.T) {
-		helper.CreateClass(t, &testClass)
-		helper.CreateTenants(t, className, []*models.Tenant{{tenantName}})
-	})
-
-	t.Run("add tenant object", func(t *testing.T) {
-		params := objects.NewObjectsCreateParams().
-			WithBody(&tenantObject).WithTenantKey(&tenantName)
+			WithBody(&tenantObject)
 		_, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
 		require.Nil(t, err)
 	})
@@ -240,20 +180,20 @@ func TestUpdateTenantObjects_UpdateTenantKey(t *testing.T) {
 			Class: testClass.Class,
 			ID:    tenantObject.ID,
 			Properties: map[string]interface{}{
-				tenantKey: "updatedTenantName",
+				"name": "updatedTenantName",
 			},
+			Tenant: "updatedTenantName",
 		}
 		params := objects.NewObjectsClassPutParams().WithClassName(toUpdate.Class).
-			WithID(toUpdate.ID).WithBody(&toUpdate).WithTenantKey(&tenantName)
-		resp, err := helper.Client(t).Objects.ObjectsClassPut(params, nil)
-		require.Nil(t, resp)
-		require.NotNil(t, err)
+			WithID(toUpdate.ID).WithBody(&toUpdate)
+		_, err := helper.Client(t).Objects.ObjectsClassPut(params, nil)
+		require.NotNil(t, err) // tenant does not exist
 		parsedErr, ok := err.(*objects.ObjectsClassPutUnprocessableEntity)
 		require.True(t, ok)
 		require.NotNil(t, parsedErr.Payload.Error)
 		require.Len(t, parsedErr.Payload.Error, 1)
 		assert.Contains(t, err.Error(), fmt.Sprint(http.StatusUnprocessableEntity))
-		expected := "tenant key \"tenantName\" is immutable"
+		expected := "\"updatedTenantName\""
 		assert.Contains(t, parsedErr.Payload.Error[0].Message, expected)
 	})
 }

@@ -139,6 +139,26 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantBaseURL:          "https://api.openai.com",
 		},
 		{
+			name: "With gpt-3.5-turbo-16k model",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"model":            "gpt-3.5-turbo-16k",
+					"maxTokens":        4097,
+					"temperature":      0.5,
+					"topP":             3,
+					"frequencyPenalty": 0.1,
+					"presencePenalty":  0.9,
+				},
+			},
+			wantModel:            "gpt-3.5-turbo-16k",
+			wantMaxTokens:        4097,
+			wantTemperature:      0.5,
+			wantTopP:             3,
+			wantFrequencyPenalty: 0.1,
+			wantPresencePenalty:  0.9,
+			wantErr:              nil,
+		},
+		{
 			name: "Wrong maxTokens configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
@@ -229,6 +249,10 @@ type fakeClassConfig struct {
 
 func (f fakeClassConfig) Class() map[string]interface{} {
 	return f.classConfig
+}
+
+func (f fakeClassConfig) Tenant() string {
+	return ""
 }
 
 func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {

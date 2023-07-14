@@ -54,12 +54,12 @@ func TestBackup_DBLevel(t *testing.T) {
 				LastUpdateTimeUnix: now.UnixNano(),
 				Vector:             []float32{1, 2, 3},
 				VectorWeights:      nil,
-			}, []float32{1, 2, 3}, nil, ""))
+			}, []float32{1, 2, 3}, nil))
 		})
 
 		expectedNodeName := "node1"
 		expectedShardName := db.schemaGetter.
-			ShardingState(className).
+			CopyShardingState(className).
 			AllPhysicalShards()[0]
 		testShd := db.GetIndex(schema.ClassName(className)).
 			shards.Load(expectedShardName)
@@ -72,7 +72,7 @@ func TestBackup_DBLevel(t *testing.T) {
 		require.Nil(t, err)
 		expectedPropLength, err := os.ReadFile(testShd.propLengths.FileName())
 		require.Nil(t, err)
-		expectedShardState, err := testShd.index.getSchema.ShardingState(className).JSON()
+		expectedShardState, err := testShd.index.getSchema.CopyShardingState(className).JSON()
 		require.Nil(t, err)
 		expectedSchema, err := testShd.index.getSchema.GetSchemaSkipAuth().
 			Objects.Classes[0].MarshalBinary()
@@ -154,7 +154,7 @@ func TestBackup_DBLevel(t *testing.T) {
 				LastUpdateTimeUnix: now.UnixNano(),
 				Vector:             []float32{1, 2, 3},
 				VectorWeights:      nil,
-			}, []float32{1, 2, 3}, nil, ""))
+			}, []float32{1, 2, 3}, nil))
 		})
 
 		t.Run("fail with expired context", func(t *testing.T) {

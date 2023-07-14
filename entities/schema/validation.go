@@ -19,14 +19,17 @@ import (
 var (
 	validateClassNameRegex    *regexp.Regexp
 	validatePropertyNameRegex *regexp.Regexp
-	validateNetworkClassRegex *regexp.Regexp
 	reservedPropertyNames     []string
 )
 
+const (
+	ClassNameRegexCore = `[A-Z][_0-9A-Za-z]*`
+	ShardNameRegexCore = `[A-Za-z0-9\-\_]{1,64}`
+)
+
 func init() {
-	validateClassNameRegex = regexp.MustCompile(`^[A-Z][_0-9A-Za-z]*$`)
+	validateClassNameRegex = regexp.MustCompile(`^` + ClassNameRegexCore + `$`)
 	validatePropertyNameRegex = regexp.MustCompile(`^[_A-Za-z][_0-9A-Za-z]*$`)
-	validateNetworkClassRegex = regexp.MustCompile(`^([A-Za-z]+)+/([A-Z][a-z]+)+$`)
 	reservedPropertyNames = []string{"_additional", "_id", "id"}
 }
 
@@ -56,16 +59,6 @@ func ValidateReservedPropertyName(name string) error {
 		}
 	}
 	return nil
-}
-
-// ValidNetworkClassName verifies if the specified class is a valid
-// crossReference name. This does not mean the class currently exists
-// on the specified instance or that the instance exist, but simply
-// that the name is valid.
-// Receiving a false could also still mean the class is not network-ref, but
-// simply a local-ref.
-func ValidNetworkClassName(name string) bool {
-	return validateNetworkClassRegex.MatchString(name)
 }
 
 // AssertValidClassName assert that this string is a valid class name or

@@ -22,6 +22,7 @@ import (
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -48,125 +49,133 @@ type RequestsLog interface {
 
 func makeResolveClass(modulesProvider ModulesProvider, class *models.Class) graphql.FieldResolveFn {
 	return func(p graphql.ResolveParams) (interface{}, error) {
-		className := schema.ClassName(p.Info.FieldName)
-		source, ok := p.Source.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf("expected source to be a map, but was %t", p.Source)
-		}
-
-		resolver, ok := source["Resolver"].(Resolver)
-		if !ok {
-			return nil, fmt.Errorf("expected source to contain a usable Resolver, but was %t", p.Source)
-		}
-
-		// There can only be exactly one ast.Field; it is the class name.
-		if len(p.Info.FieldASTs) != 1 {
-			panic("Only one Field expected here")
-		}
-
-		selections := p.Info.FieldASTs[0].SelectionSet
-		properties, includeMeta, err := extractProperties(selections)
+		res, err := resolveAggregate(p, modulesProvider, class)
 		if err != nil {
-			return nil, fmt.Errorf("could not extract properties for class '%s': %w", className, err)
+			return res, enterrors.NewErrGraphQLUser(err, "Aggregate", schema.ClassName(p.Info.FieldName).String())
 		}
+		return res, nil
+	}
+}
 
-		groupBy, err := extractGroupBy(p.Args, p.Info.FieldName)
+func resolveAggregate(p graphql.ResolveParams, modulesProvider ModulesProvider, class *models.Class) (interface{}, error) {
+	className := schema.ClassName(p.Info.FieldName)
+	source, ok := p.Source.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("expected source to be a map, but was %t", p.Source)
+	}
+
+	resolver, ok := source["Resolver"].(Resolver)
+	if !ok {
+		return nil, fmt.Errorf("expected source to contain a usable Resolver, but was %t", p.Source)
+	}
+
+	// There can only be exactly one ast.Field; it is the class name.
+	if len(p.Info.FieldASTs) != 1 {
+		panic("Only one Field expected here")
+	}
+
+	selections := p.Info.FieldASTs[0].SelectionSet
+	properties, includeMeta, err := extractProperties(selections)
+	if err != nil {
+		return nil, fmt.Errorf("could not extract properties for class '%s': %w", className, err)
+	}
+
+	groupBy, err := extractGroupBy(p.Args, p.Info.FieldName)
+	if err != nil {
+		return nil, fmt.Errorf("could not extract groupBy path: %w", err)
+	}
+
+	limit, err := extractLimit(p.Args)
+	if err != nil {
+		return nil, fmt.Errorf("could not extract limit: %w", err)
+	}
+
+	objectLimit, err := extractObjectLimit(p.Args)
+	if objectLimit != nil && *objectLimit <= 0 {
+		return nil, fmt.Errorf("objectLimit must be a positive integer")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("could not extract objectLimit: %w", err)
+	}
+
+	filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
+	if err != nil {
+		return nil, fmt.Errorf("could not extract filters: %w", err)
+	}
+
+	var nearVectorParams *searchparams.NearVector
+	if nearVector, ok := p.Args["nearVector"]; ok {
+		p, err := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
 		if err != nil {
-			return nil, fmt.Errorf("could not extract groupBy path: %w", err)
+			return nil, fmt.Errorf("failed to extract nearVector params: %w", err)
 		}
+		nearVectorParams = &p
+	}
 
-		limit, err := extractLimit(p.Args)
+	var nearObjectParams *searchparams.NearObject
+	if nearObject, ok := p.Args["nearObject"]; ok {
+		p, err := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
 		if err != nil {
-			return nil, fmt.Errorf("could not extract limit: %w", err)
+			return nil, fmt.Errorf("failed to extract nearObject params: %w", err)
 		}
+		nearObjectParams = &p
+	}
 
-		objectLimit, err := extractObjectLimit(p.Args)
-		if objectLimit != nil && *objectLimit <= 0 {
-			return nil, fmt.Errorf("objectLimit must be a positive integer")
+	var moduleParams map[string]interface{}
+	if modulesProvider != nil {
+		extractedParams := modulesProvider.ExtractSearchParams(p.Args, class.Class)
+		if len(extractedParams) > 0 {
+			moduleParams = extractedParams
 		}
+	}
+
+	// Extract hybrid search params from the processed query
+	// Everything hybrid can go in another namespace AFTER modulesprovider is
+	// refactored
+	var hybridParams *searchparams.HybridSearch
+	if hybrid, ok := p.Args["hybrid"]; ok {
+		p, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}), false)
 		if err != nil {
-			return nil, fmt.Errorf("could not extract objectLimit: %w", err)
+			return nil, fmt.Errorf("failed to extract hybrid params: %w", err)
 		}
+		hybridParams = p
+	}
 
-		filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
-		if err != nil {
-			return nil, fmt.Errorf("could not extract filters: %w", err)
-		}
+	var tenant string
+	if tk, ok := p.Args["tenant"]; ok {
+		tenant = tk.(string)
+	}
 
-		var nearVectorParams *searchparams.NearVector
-		if nearVector, ok := p.Args["nearVector"]; ok {
-			p, err := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
-			if err != nil {
-				return nil, fmt.Errorf("failed to extract nearVector params: %w", err)
-			}
-			nearVectorParams = &p
-		}
+	params := &aggregation.Params{
+		Filters:          filters,
+		ClassName:        className,
+		Properties:       properties,
+		GroupBy:          groupBy,
+		IncludeMetaCount: includeMeta,
+		Limit:            limit,
+		ObjectLimit:      objectLimit,
+		NearVector:       nearVectorParams,
+		NearObject:       nearObjectParams,
+		ModuleParams:     moduleParams,
+		Hybrid:           hybridParams,
+		Tenant:           tenant,
+	}
 
-		var nearObjectParams *searchparams.NearObject
-		if nearObject, ok := p.Args["nearObject"]; ok {
-			p, err := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
-			if err != nil {
-				return nil, fmt.Errorf("failed to extract nearObject params: %w", err)
-			}
-			nearObjectParams = &p
-		}
+	// we might support objectLimit without nearMedia filters later, e.g. with sort
+	if params.ObjectLimit != nil && !validateObjectLimitUsage(params) {
+		return nil, fmt.Errorf("objectLimit can only be used with a near<Media> or hybrid filter")
+	}
 
-		var moduleParams map[string]interface{}
-		if modulesProvider != nil {
-			extractedParams := modulesProvider.ExtractSearchParams(p.Args, class.Class)
-			if len(extractedParams) > 0 {
-				moduleParams = extractedParams
-			}
-		}
+	res, err := resolver.Aggregate(p.Context, principalFromContext(p.Context), params)
+	if err != nil {
+		return nil, err
+	}
 
-		// Extract hybrid search params from the processed query
-		// Everything hybrid can go in another namespace AFTER modulesprovider is
-		// refactored
-		var hybridParams *searchparams.HybridSearch
-		if hybrid, ok := p.Args["hybrid"]; ok {
-			p, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}), false)
-			if err != nil {
-				return nil, fmt.Errorf("failed to extract hybrid params: %w", err)
-			}
-			hybridParams = p
-		}
-
-		var tenantKey string
-		if tk, ok := p.Args["tenantKey"]; ok {
-			tenantKey = tk.(string)
-		}
-
-		params := &aggregation.Params{
-			Filters:          filters,
-			ClassName:        className,
-			Properties:       properties,
-			GroupBy:          groupBy,
-			IncludeMetaCount: includeMeta,
-			Limit:            limit,
-			ObjectLimit:      objectLimit,
-			NearVector:       nearVectorParams,
-			NearObject:       nearObjectParams,
-			ModuleParams:     moduleParams,
-			Hybrid:           hybridParams,
-			TenantKey:        tenantKey,
-		}
-
-		// we might support objectLimit without nearMedia filters later, e.g. with sort
-		if params.ObjectLimit != nil && !validateObjectLimitUsage(params) {
-			return nil, fmt.Errorf("objectLimit can only be used with a near<Media> or hybrid filter")
-		}
-
-		res, err := resolver.Aggregate(p.Context, principalFromContext(p.Context), params)
-		if err != nil {
-			return nil, err
-		}
-
-		switch parsed := res.(type) {
-		case *aggregation.Result:
-			return parsed.Groups, nil
-		default:
-			return res, nil
-		}
+	switch parsed := res.(type) {
+	case *aggregation.Result:
+		return parsed.Groups, nil
+	default:
+		return res, nil
 	}
 }
 

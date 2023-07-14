@@ -168,6 +168,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ObjectsObjectsValidateHandler: objects.ObjectsValidateHandlerFunc(func(params objects.ObjectsValidateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation objects.ObjectsValidate has not yet been implemented")
 		}),
+		SchemaSchemaClusterStatusHandler: schema.SchemaClusterStatusHandlerFunc(func(params schema.SchemaClusterStatusParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.SchemaClusterStatus has not yet been implemented")
+		}),
 		SchemaSchemaDumpHandler: schema.SchemaDumpHandlerFunc(func(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaDump has not yet been implemented")
 		}),
@@ -194,6 +197,12 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		SchemaTenantsCreateHandler: schema.TenantsCreateHandlerFunc(func(params schema.TenantsCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantsCreate has not yet been implemented")
+		}),
+		SchemaTenantsDeleteHandler: schema.TenantsDeleteHandlerFunc(func(params schema.TenantsDeleteParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.TenantsDelete has not yet been implemented")
+		}),
+		SchemaTenantsGetHandler: schema.TenantsGetHandlerFunc(func(params schema.TenantsGetParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.TenantsGet has not yet been implemented")
 		}),
 		WeaviateRootHandler: WeaviateRootHandlerFunc(func(params WeaviateRootParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateRoot has not yet been implemented")
@@ -324,6 +333,8 @@ type WeaviateAPI struct {
 	ObjectsObjectsUpdateHandler objects.ObjectsUpdateHandler
 	// ObjectsObjectsValidateHandler sets the operation handler for the objects validate operation
 	ObjectsObjectsValidateHandler objects.ObjectsValidateHandler
+	// SchemaSchemaClusterStatusHandler sets the operation handler for the schema cluster status operation
+	SchemaSchemaClusterStatusHandler schema.SchemaClusterStatusHandler
 	// SchemaSchemaDumpHandler sets the operation handler for the schema dump operation
 	SchemaSchemaDumpHandler schema.SchemaDumpHandler
 	// SchemaSchemaObjectsCreateHandler sets the operation handler for the schema objects create operation
@@ -342,6 +353,10 @@ type WeaviateAPI struct {
 	SchemaSchemaObjectsUpdateHandler schema.SchemaObjectsUpdateHandler
 	// SchemaTenantsCreateHandler sets the operation handler for the tenants create operation
 	SchemaTenantsCreateHandler schema.TenantsCreateHandler
+	// SchemaTenantsDeleteHandler sets the operation handler for the tenants delete operation
+	SchemaTenantsDeleteHandler schema.TenantsDeleteHandler
+	// SchemaTenantsGetHandler sets the operation handler for the tenants get operation
+	SchemaTenantsGetHandler schema.TenantsGetHandler
 	// WeaviateRootHandler sets the operation handler for the weaviate root operation
 	WeaviateRootHandler WeaviateRootHandler
 	// WeaviateWellknownLivenessHandler sets the operation handler for the weaviate wellknown liveness operation
@@ -534,6 +549,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.ObjectsObjectsValidateHandler == nil {
 		unregistered = append(unregistered, "objects.ObjectsValidateHandler")
 	}
+	if o.SchemaSchemaClusterStatusHandler == nil {
+		unregistered = append(unregistered, "schema.SchemaClusterStatusHandler")
+	}
 	if o.SchemaSchemaDumpHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaDumpHandler")
 	}
@@ -560,6 +578,12 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaTenantsCreateHandler == nil {
 		unregistered = append(unregistered, "schema.TenantsCreateHandler")
+	}
+	if o.SchemaTenantsDeleteHandler == nil {
+		unregistered = append(unregistered, "schema.TenantsDeleteHandler")
+	}
+	if o.SchemaTenantsGetHandler == nil {
+		unregistered = append(unregistered, "schema.TenantsGetHandler")
 	}
 	if o.WeaviateRootHandler == nil {
 		unregistered = append(unregistered, "WeaviateRootHandler")
@@ -809,6 +833,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
+	o.handlers["GET"]["/schema/cluster-status"] = schema.NewSchemaClusterStatus(o.context, o.SchemaSchemaClusterStatusHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
 	o.handlers["GET"]["/schema"] = schema.NewSchemaDump(o.context, o.SchemaSchemaDumpHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
@@ -842,6 +870,14 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/schema/{className}/tenants"] = schema.NewTenantsCreate(o.context, o.SchemaTenantsCreateHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/schema/{className}/tenants"] = schema.NewTenantsDelete(o.context, o.SchemaTenantsDeleteHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/schema/{className}/tenants"] = schema.NewTenantsGet(o.context, o.SchemaTenantsGetHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

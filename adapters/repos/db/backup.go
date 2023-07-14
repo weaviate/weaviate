@@ -14,11 +14,12 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/schema"
-	"golang.org/x/sync/errgroup"
 )
 
 type BackupState struct {
@@ -120,7 +121,23 @@ func (db *DB) ShardsBackup(
 }
 
 // ReleaseBackup release resources acquired by the index during backup
-func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) error {
+func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) (err error) {
+	fields := logrus.Fields{
+		"op":    "release_backup",
+		"class": class,
+		"id":    bakID,
+	}
+	db.logger.WithFields(fields).Debug("starting")
+	begin := time.Now()
+	defer func() {
+		l := db.logger.WithFields(fields).WithField("took", time.Since(begin))
+		if err != nil {
+			l.Error(err)
+			return
+		}
+		l.Debug("finish")
+	}()
+
 	idx := db.GetIndex(schema.ClassName(class))
 	if idx != nil {
 		return idx.ReleaseBackup(ctx, bakID)
@@ -135,7 +152,7 @@ func (db *DB) ClassExists(name string) bool {
 func (db *DB) Shards(ctx context.Context, class string) []string {
 	unique := make(map[string]struct{})
 
-	ss := db.schemaGetter.ShardingState(class)
+	ss := db.schemaGetter.CopyShardingState(class)
 	for _, shard := range ss.Physical {
 		unique[shard.BelongsToNode()] = struct{}{}
 	}
@@ -235,24 +252,20 @@ func (i *Index) resetBackupState() {
 	i.backupState = BackupState{InProgress: false}
 }
 
-func (i *Index) resumeMaintenanceCycles(ctx context.Context) error {
-	var g errgroup.Group
-	i.ForEachShard(func(_ string, shard *Shard) error {
-		g.Go(func() error {
-			return shard.resumeMaintenanceCycles(ctx)
-		})
+func (i *Index) resumeMaintenanceCycles(ctx context.Context) (lastErr error) {
+	i.ForEachShard(func(name string, shard *Shard) error {
+		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
+			lastErr = err
+			i.logger.WithField("shard", name).WithField("op", "resume_maintenance").Error(err)
+		}
+		time.Sleep(time.Millisecond * 10)
 		return nil
 	})
-
-	if err := g.Wait(); err != nil {
-		return errors.Wrap(err, "resume maintenance cycles")
-	}
-
-	return nil
+	return lastErr
 }
 
 func (i *Index) marshalShardingState() ([]byte, error) {
-	b, err := i.getSchema.ShardingState(i.Config.ClassName.String()).JSON()
+	b, err := i.getSchema.CopyShardingState(i.Config.ClassName.String()).JSON()
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal sharding state")
 	}

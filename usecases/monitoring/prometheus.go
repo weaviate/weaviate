@@ -40,9 +40,11 @@ type PrometheusMetrics struct {
 	VectorIndexMaintenanceDurations    *prometheus.SummaryVec
 	ObjectCount                        *prometheus.GaugeVec
 	QueriesCount                       *prometheus.GaugeVec
+	RequestsTotal                      *prometheus.GaugeVec
 	QueriesDurations                   *prometheus.HistogramVec
 	QueriesFilteredVectorDurations     *prometheus.SummaryVec
 	QueryDimensions                    *prometheus.CounterVec
+	QueryDimensionsCombined            prometheus.Counter
 	GoroutinesCount                    *prometheus.GaugeVec
 	BackupRestoreDurations             *prometheus.SummaryVec
 	BackupStoreDurations               *prometheus.SummaryVec
@@ -58,7 +60,7 @@ type PrometheusMetrics struct {
 	StartupDurations *prometheus.SummaryVec
 	StartupDiskIO    *prometheus.SummaryVec
 
-	GroupClasses bool
+	Group bool
 }
 
 var (
@@ -71,7 +73,7 @@ func init() {
 }
 
 func InitConfig(cfg config.Monitoring) {
-	metrics.GroupClasses = cfg.GroupClasses
+	metrics.Group = cfg.Group
 }
 
 func GetMetrics() *PrometheusMetrics {
@@ -103,6 +105,11 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "concurrent_queries_count",
 			Help: "Number of concurrently running query operations",
 		}, []string{"class_name", "query_type"}),
+
+		RequestsTotal: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "requests_total",
+			Help: "Number of all requests made",
+		}, []string{"status", "class_name", "api", "query_type"}),
 
 		QueriesDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "queries_durations_ms",
@@ -203,7 +210,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "query_dimensions_total",
 			Help: "The vector dimensions used by any read-query that involves vectors",
 		}, []string{"query_type", "operation", "class_name"}),
-
+		QueryDimensionsCombined: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "query_dimensions_combined_total",
+			Help: "The vector dimensions used by any read-query that involves vectors, aggregated across all classes and shards. The sum of all labels for query_dimensions_total should always match this labelless metric",
+		}),
 		BackupRestoreDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "backup_restore_ms",
 			Help: "Duration of a backup restore",

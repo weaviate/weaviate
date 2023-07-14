@@ -25,7 +25,7 @@ import (
 // include this particular network ref class.
 func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, updates *models.Object,
-	repl *additional.ReplicationProperties, tenantKey string,
+	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
 	path := fmt.Sprintf("objects/%s/%s", class, id)
 	if class == "" {
@@ -45,18 +45,18 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	return m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl, tenantKey)
+	return m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl)
 }
 
 func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	principal *models.Principal, className string, id strfmt.UUID, updates *models.Object,
-	repl *additional.ReplicationProperties, tenantKey string,
+	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
 	if id != updates.ID {
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
-	obj, err := m.getObjectFromRepo(ctx, className, id, additional.Properties{}, repl, tenantKey)
+	obj, err := m.getObjectFromRepo(ctx, className, id, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		Debug("received update kind request")
 
 	err = m.validateObjectAndNormalizeNames(
-		ctx, principal, repl, updates, obj.Object(), tenantKey)
+		ctx, principal, repl, updates, obj.Object())
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
@@ -90,7 +90,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, NewErrInternal("update object: %v", err)
 	}
 
-	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, repl, tenantKey)
+	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, repl)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
 	}

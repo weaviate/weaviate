@@ -37,9 +37,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-var errInvalidTenantKey = "invalid multiTenancyConfig.tenantKey %q. " +
-	"tenantKey must be 'text' or 'uuid'"
-
 // AddClass to the schema
 func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 	class *models.Class,
@@ -97,11 +94,6 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 		return err
 	}
 
-	err = m.parseMultiTenancyConfig(ctx, class)
-	if err != nil {
-		return err
-	}
-
 	err = m.parseVectorIndexConfig(ctx, class)
 	if err != nil {
 		return err
@@ -112,7 +104,7 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 		return err
 	}
 
-	semanticSchema := m.state.ObjectSchema
+	semanticSchema := m.schemaCache.ObjectSchema
 	semanticSchema.Classes = append(semanticSchema.Classes, class)
 
 	shardingState.MigrateFromOldFormat()
@@ -122,9 +114,7 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 		return err
 	}
 	shardingState.SetLocalName(m.clusterState.LocalName())
-	m.shardingStateLock.Lock()
-	m.state.ShardingState[class.Class] = &shardingState
-	m.shardingStateLock.Unlock()
+	m.schemaCache.LockGuard(func() { m.schemaCache.ShardingState[class.Class] = &shardingState })
 
 	// payload.Shards
 	if err := m.repo.NewClass(ctx, payload); err != nil {
@@ -146,9 +136,12 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 
 	class.Class = schema.UppercaseClassName(class.Class)
 	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
-
-	if class.ShardingConfig != nil && class.MultiTenancyConfig != nil {
+	if class.ShardingConfig != nil && schema.MultiTenancyEnabled(class) {
 		return nil, fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")
+	} else if class.MultiTenancyConfig == nil {
+		class.MultiTenancyConfig = &models.MultiTenancyConfig{}
+	} else if class.MultiTenancyConfig.Enabled {
+		class.ShardingConfig = sharding.Config{DesiredCount: 0} // tenant shards will be created dynamically
 	}
 
 	m.setClassDefaults(class)
@@ -160,11 +153,6 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 	m.migrateClassSettings(class)
 
 	err = m.parseShardingConfig(ctx, class)
-	if err != nil {
-		return nil, err
-	}
-
-	err = m.parseMultiTenancyConfig(ctx, class)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +170,7 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 	shardState, err := sharding.InitState(class.Class,
 		class.ShardingConfig.(sharding.Config),
 		m.clusterState, class.ReplicationConfig.Factor,
-		isMultiTenancyEnabled(class.MultiTenancyConfig))
+		schema.MultiTenancyEnabled(class))
 	if err != nil {
 		return nil, errors.Wrap(err, "init sharding state")
 	}
@@ -234,10 +222,10 @@ func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
 		WithField("action", "schema_add_class").
 		Debugf("add class %q from schema", class.Class)
 
-	m.shardingStateLock.Lock()
-	m.state.ObjectSchema.Classes = append(m.state.ObjectSchema.Classes, class)
-	m.state.ShardingState[class.Class] = shardingState
-	m.shardingStateLock.Unlock()
+	m.schemaCache.LockGuard(func() {
+		m.schemaCache.ObjectSchema.Classes = append(m.schemaCache.ObjectSchema.Classes, class)
+		m.schemaCache.ShardingState[class.Class] = shardingState
+	})
 
 	m.triggerSchemaUpdateCallbacks()
 	return nil
@@ -470,7 +458,7 @@ func (m *Manager) parseShardingConfig(ctx context.Context,
 	class *models.Class,
 ) error {
 	// multiTenancyConfig and shardingConfig are mutually exclusive
-	if class.MultiTenancyConfig == nil {
+	if !schema.MultiTenancyEnabled(class) {
 		parsed, err := sharding.ParseConfig(class.ShardingConfig,
 			m.clusterState.NodeCount())
 		if err != nil {
@@ -478,35 +466,6 @@ func (m *Manager) parseShardingConfig(ctx context.Context,
 		}
 
 		class.ShardingConfig = parsed
-	}
-	return nil
-}
-
-func (m *Manager) parseMultiTenancyConfig(ctx context.Context, class *models.Class) error {
-	if class.ShardingConfig == nil {
-		if class.MultiTenancyConfig.TenantKey == "" {
-			return fmt.Errorf("multiTenancyConfig.tenantKey is required")
-		}
-		for _, prop := range class.Properties {
-			if prop.Name == class.MultiTenancyConfig.TenantKey {
-				if len(prop.DataType) != 1 {
-					return fmt.Errorf(errInvalidTenantKey, prop.Name)
-				}
-				if prop.DataType[0] == schema.DataTypeText.String() ||
-					prop.DataType[0] == schema.DataTypeUUID.String() {
-					class.ShardingConfig = sharding.Config{
-						// tenant shards will be created dynamically
-						DesiredCount: 0,
-					}
-					return nil
-				} else {
-					return fmt.Errorf(errInvalidTenantKey, prop.Name)
-				}
-			}
-		}
-		return fmt.Errorf(
-			"no class property found for multiTenancyConfig.tenantKey %q",
-			class.MultiTenancyConfig.TenantKey)
 	}
 	return nil
 }

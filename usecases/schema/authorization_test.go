@@ -68,7 +68,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "DeleteClass",
-			additionalArgs:   []interface{}{"somename", false},
+			additionalArgs:   []interface{}{"somename"},
 			expectedVerb:     "delete",
 			expectedResource: "schema/objects",
 		},
@@ -92,9 +92,21 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "AddTenants",
-			additionalArgs:   []interface{}{"className", []*models.Tenant{{"P1"}}},
+			additionalArgs:   []interface{}{"className", []*models.Tenant{{Name: "P1"}}},
 			expectedVerb:     "update",
-			expectedResource: "schema/objects",
+			expectedResource: tenantsPath,
+		},
+		{
+			methodName:       "DeleteTenants",
+			additionalArgs:   []interface{}{"className", []string{"P1"}},
+			expectedVerb:     "delete",
+			expectedResource: tenantsPath,
+		},
+		{
+			methodName:       "GetTenants",
+			additionalArgs:   []interface{}{"className"},
+			expectedVerb:     "get",
+			expectedResource: tenantsPath,
 		},
 	}
 
@@ -109,8 +121,9 @@ func Test_Schema_Authorization(t *testing.T) {
 			case "RegisterSchemaUpdateCallback",
 				"UpdateMeta", "GetSchemaSkipAuth", "IndexedInverted", "RLock", "RUnlock", "Lock", "Unlock",
 				"TryLock", "RLocker", "TryRLock", // introduced by sync.Mutex in go 1.18
-				"Nodes", "NodeName", "ClusterHealthScore", "ResolveParentNodes",
-				"ShardingState", "TxManager", "RestoreClass":
+				"Nodes", "NodeName", "ClusterHealthScore", "ClusterStatus", "ResolveParentNodes",
+				"CopyShardingState", "TxManager", "RestoreClass",
+				"ShardOwner", "TenantShard", "ShardFromUUID", "LockGuard", "RLockGuard", "ShardReplicas":
 				// don't require auth on methods which are exported because other
 				// packages need to call them for maintenance and other regular jobs,
 				// but aren't user facing

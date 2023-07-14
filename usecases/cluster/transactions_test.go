@@ -328,7 +328,8 @@ type wrapTxManagerAsBroadcaster struct {
 func (w *wrapTxManagerAsBroadcaster) BroadcastTransaction(ctx context.Context,
 	tx *Transaction,
 ) error {
-	return w.txManager.IncomingBeginTransaction(ctx, tx)
+	_, err := w.txManager.IncomingBeginTransaction(ctx, tx)
+	return err
 }
 
 func (w *wrapTxManagerAsBroadcaster) BroadcastAbortTransaction(ctx context.Context,
@@ -354,7 +355,7 @@ func (b *slowMultiBroadcaster) BroadcastTransaction(ctx context.Context,
 ) error {
 	time.Sleep(b.delay)
 	for _, node := range b.nodes {
-		if err := node.IncomingBeginTransaction(ctx, tx); err != nil {
+		if _, err := node.IncomingBeginTransaction(ctx, tx); err != nil {
 			return err
 		}
 	}
@@ -390,9 +391,9 @@ func TestSuccessfulDistributedReadTransaction(t *testing.T) {
 	payload := "my-payload"
 
 	remote := newTestTxManager()
-	remote.SetResponseFn(func(ctx context.Context, tx *Transaction) error {
+	remote.SetResponseFn(func(ctx context.Context, tx *Transaction) ([]byte, error) {
 		tx.Payload = payload
-		return nil
+		return nil, nil
 	})
 	local := NewTxManager(&wrapTxManagerAsBroadcaster{remote}, remote.logger)
 	// TODO local.SetConsensusFn

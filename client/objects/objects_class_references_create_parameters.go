@@ -103,11 +103,11 @@ type ObjectsClassReferencesCreateParams struct {
 	*/
 	PropertyName string
 
-	/* TenantKey.
+	/* Tenant.
 
 	   Specifies the tenant in a request targeting a multi-tenant class
 	*/
-	TenantKey *string
+	Tenant *string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -217,15 +217,15 @@ func (o *ObjectsClassReferencesCreateParams) SetPropertyName(propertyName string
 	o.PropertyName = propertyName
 }
 
-// WithTenantKey adds the tenantKey to the objects class references create params
-func (o *ObjectsClassReferencesCreateParams) WithTenantKey(tenantKey *string) *ObjectsClassReferencesCreateParams {
-	o.SetTenantKey(tenantKey)
+// WithTenant adds the tenant to the objects class references create params
+func (o *ObjectsClassReferencesCreateParams) WithTenant(tenant *string) *ObjectsClassReferencesCreateParams {
+	o.SetTenant(tenant)
 	return o
 }
 
-// SetTenantKey adds the tenantKey to the objects class references create params
-func (o *ObjectsClassReferencesCreateParams) SetTenantKey(tenantKey *string) {
-	o.TenantKey = tenantKey
+// SetTenant adds the tenant to the objects class references create params
+func (o *ObjectsClassReferencesCreateParams) SetTenant(tenant *string) {
+	o.Tenant = tenant
 }
 
 // WriteToRequest writes these params to a swagger request
@@ -273,18 +273,18 @@ func (o *ObjectsClassReferencesCreateParams) WriteToRequest(r runtime.ClientRequ
 		return err
 	}
 
-	if o.TenantKey != nil {
+	if o.Tenant != nil {
 
-		// query param tenant_key
-		var qrTenantKey string
+		// query param tenant
+		var qrTenant string
 
-		if o.TenantKey != nil {
-			qrTenantKey = *o.TenantKey
+		if o.Tenant != nil {
+			qrTenant = *o.Tenant
 		}
-		qTenantKey := qrTenantKey
-		if qTenantKey != "" {
+		qTenant := qrTenant
+		if qTenant != "" {
 
-			if err := r.SetQueryParam("tenant_key", qTenantKey); err != nil {
+			if err := r.SetQueryParam("tenant", qTenant); err != nil {
 				return err
 			}
 		}

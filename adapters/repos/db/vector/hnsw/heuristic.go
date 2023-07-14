@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (h *hnsw) selectNeighborsHeuristic(input priorityqueue.SortedQueue,
+func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 	max int, denyList helpers.AllowList,
 ) error {
 	if input.Len() < max {

@@ -209,6 +209,51 @@ func (o *ObjectsClassGetNotFound) WriteResponse(rw http.ResponseWriter, producer
 	rw.WriteHeader(404)
 }
 
+// ObjectsClassGetUnprocessableEntityCode is the HTTP code returned for type ObjectsClassGetUnprocessableEntity
+const ObjectsClassGetUnprocessableEntityCode int = 422
+
+/*
+ObjectsClassGetUnprocessableEntity Request is well-formed (i.e., syntactically correct), but erroneous.
+
+swagger:response objectsClassGetUnprocessableEntity
+*/
+type ObjectsClassGetUnprocessableEntity struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewObjectsClassGetUnprocessableEntity creates ObjectsClassGetUnprocessableEntity with default headers values
+func NewObjectsClassGetUnprocessableEntity() *ObjectsClassGetUnprocessableEntity {
+
+	return &ObjectsClassGetUnprocessableEntity{}
+}
+
+// WithPayload adds the payload to the objects class get unprocessable entity response
+func (o *ObjectsClassGetUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *ObjectsClassGetUnprocessableEntity {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects class get unprocessable entity response
+func (o *ObjectsClassGetUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ObjectsClassGetUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ObjectsClassGetInternalServerErrorCode is the HTTP code returned for type ObjectsClassGetInternalServerError
 const ObjectsClassGetInternalServerErrorCode int = 500
 

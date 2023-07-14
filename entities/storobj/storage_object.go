@@ -348,7 +348,7 @@ func (ko *Object) VectorWeights() models.VectorWeights {
 	return ko.Object.VectorWeights
 }
 
-func (ko *Object) SearchResult(additional additional.Properties) *search.Result {
+func (ko *Object) SearchResult(additional additional.Properties, tenant string) *search.Result {
 	propertiesMap, ok := ko.PropertiesWithAdditional(additional).(map[string]interface{})
 	if !ok || propertiesMap == nil {
 		propertiesMap = map[string]interface{}{}
@@ -387,12 +387,13 @@ func (ko *Object) SearchResult(additional additional.Properties) *search.Result 
 		Score:                ko.Score(),
 		ExplainScore:         ko.ExplainScore(),
 		IsConsistent:         ko.IsConsistent,
+		Tenant:               tenant, // not part of the binary
 		// TODO: Beacon?
 	}
 }
 
 func (ko *Object) SearchResultWithDist(addl additional.Properties, dist float32) search.Result {
-	res := ko.SearchResult(addl)
+	res := ko.SearchResult(addl, "")
 	res.Dist = dist
 	res.Certainty = float32(additional.DistToCertainty(float64(dist)))
 	return *res
@@ -403,11 +404,11 @@ func (ko *Object) Valid() bool {
 		ko.Class().String() != ""
 }
 
-func SearchResults(in []*Object, additional additional.Properties) search.Results {
+func SearchResults(in []*Object, additional additional.Properties, tenant string) search.Results {
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
-		out[i] = *(elem.SearchResult(additional))
+		out[i] = *(elem.SearchResult(additional, tenant))
 	}
 
 	return out
@@ -694,7 +695,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	)
 }
 
-func VectorFromBinary(in []byte) ([]float32, error) {
+func VectorFromBinary(in []byte, buffer []float32) ([]float32, error) {
 	if len(in) == 0 {
 		return nil, nil
 	}
@@ -710,7 +711,12 @@ func VectorFromBinary(in []byte) ([]float32, error) {
 	// it would be acceptable to panic
 	vecLen := binary.LittleEndian.Uint16(in[42:44])
 
-	out := make([]float32, vecLen)
+	var out []float32
+	if cap(buffer) >= int(vecLen) {
+		out = buffer[:vecLen]
+	} else {
+		out = make([]float32, vecLen)
+	}
 	vecStart := 44
 	vecEnd := vecStart + int(vecLen*4)
 

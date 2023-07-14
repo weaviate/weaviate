@@ -7,7 +7,7 @@
 
 ## Overview
 
-Weaviate is an **open source ​vector database** that is robust, scalable, cloud-native, and fast.
+Weaviate is an **open source vector database** that is robust, scalable, cloud-native, and fast.
 
 If you just want to get started, great! Try:
 - the [quickstart tutorial](https://weaviate.io/developers/weaviate/quickstart) if you are looking to use Weaviate, or
@@ -51,7 +51,7 @@ For starters, you can build vector databases with text, images, or a combination
 
 You can also build question and answer extraction, summarization and classification systems.
 
-You can find [code examples here](https://github.com/weaviate/weaviate-examples), and you might these blog posts useful:
+You can see [code examples here](https://github.com/weaviate/weaviate-examples), and you might find these blog posts useful:
 
 - [The ChatGPT Retrieval Plugin - Weaviate as a Long-term Memory Store for Generative AI](https://weaviate.io/blog/weaviate-retrieval-plugin)
 - [Giving Auto-GPT Long-Term Memory with Weaviate](https://weaviate.io/blog/autogpt-and-weaviate)

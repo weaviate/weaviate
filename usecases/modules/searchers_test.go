@@ -62,14 +62,14 @@ func TestModulesWithSearchers(t *testing.T) {
 				// take the findVectorFn and append one dimension. This doesn't make too
 				// much sense, but helps verify that the modules method was used in the
 				// decisions
-				initial, _ := findVectorFn(ctx, "class", "123")
+				initial, _ := findVectorFn(ctx, "class", "123", "")
 				return append(initial, 4), nil
 			}),
 		)
 		p.Init(context.Background(), nil, logger)
 
 		res, err := p.VectorFromSearchParam(context.Background(), "MyClass",
-			"nearGrape", nil, fakeFindVector)
+			"nearGrape", nil, fakeFindVector, "")
 
 		require.Nil(t, err)
 		assert.Equal(t, []float32{1, 2, 3, 4}, res)
@@ -88,14 +88,17 @@ func TestModulesWithSearchers(t *testing.T) {
 				cfg moduletools.ClassConfig,
 			) ([]float32, error) {
 				// this is a cross-class search, such as is used for Explore{}, in this
-				// case we do not have class-based config, so the optional argument is
-				// nil! Modules must be able to deal with this situation!
-				assert.Nil(t, cfg)
+				// case we do not have class-based config, but we need at least pass
+				// a tenant information, that's why we pass an empty config with empty tenant
+				// so that it would be possible to perform cross class searches, without
+				// tenant context. Modules must be able to deal with this situation!
+				assert.NotNil(t, cfg)
+				assert.Equal(t, "", cfg.Tenant())
 
 				// take the findVectorFn and append one dimension. This doesn't make too
 				// much sense, but helps verify that the modules method was used in the
 				// decisions
-				initial, _ := findVectorFn(ctx, "class", "123")
+				initial, _ := findVectorFn(ctx, "class", "123", "")
 				return append(initial, 4), nil
 			}),
 		)
@@ -109,7 +112,7 @@ func TestModulesWithSearchers(t *testing.T) {
 	})
 }
 
-func fakeFindVector(ctx context.Context, className string, id strfmt.UUID) ([]float32, error) {
+func fakeFindVector(ctx context.Context, className string, id strfmt.UUID, tenant string) ([]float32, error) {
 	return []float32{1, 2, 3}, nil
 }
 

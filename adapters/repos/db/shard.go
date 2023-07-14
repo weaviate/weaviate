@@ -172,14 +172,15 @@ func (s *Shard) initVectorIndex(
 		cyclemanager.NewFixedIntervalTicker(time.Duration(hnswUserConfig.CleanupIntervalSeconds)*time.Second))
 
 	vi, err := hnsw.New(hnsw.Config{
-		Logger:            s.index.logger,
-		RootPath:          s.index.Config.RootPath,
-		ID:                s.ID(),
-		ShardName:         s.name,
-		ClassName:         s.index.Config.ClassName.String(),
-		PrometheusMetrics: s.promMetrics,
-		VectorForIDThunk:  s.vectorByIndexID,
-		DistanceProvider:  distProv,
+		Logger:               s.index.logger,
+		RootPath:             s.index.Config.RootPath,
+		ID:                   s.ID(),
+		ShardName:            s.name,
+		ClassName:            s.index.Config.ClassName.String(),
+		PrometheusMetrics:    s.promMetrics,
+		VectorForIDThunk:     s.vectorByIndexID,
+		TempVectorForIDThunk: s.readVectorByIndexIDIntoSlice,
+		DistanceProvider:     distProv,
 		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), s.index.logger, s.vectorCycles.CommitLogMaintenance())
 		},

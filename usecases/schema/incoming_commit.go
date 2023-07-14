@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/pkg/errors"
@@ -29,8 +30,10 @@ func (m *Manager) handleCommit(ctx context.Context, tx *cluster.Transaction) err
 		return m.handleDeleteClassCommit(ctx, tx)
 	case UpdateClass:
 		return m.handleUpdateClassCommit(ctx, tx)
-	case AddPartitions:
-		return m.handleAddPartitionsCommit(ctx, tx)
+	case addTenants:
+		return m.handleAddTenantsCommit(ctx, tx)
+	case deleteTenants:
+		return m.handleDeleteTenantsCommit(ctx, tx)
 	default:
 		return errors.Errorf("unrecognized commit type %q", tx.Type)
 	}
@@ -38,18 +41,20 @@ func (m *Manager) handleCommit(ctx context.Context, tx *cluster.Transaction) err
 
 func (m *Manager) handleTxResponse(ctx context.Context,
 	tx *cluster.Transaction,
-) error {
-	switch tx.Type {
-	case ReadSchema:
-		tx.Payload = ReadSchemaPayload{
-			Schema: &m.state,
-		}
-		return nil
-	// TODO
-	default:
-		// silently ignore. Not all types support responses
-		return nil
+) (data []byte, err error) {
+	if tx.Type != ReadSchema {
+		return nil, nil
 	}
+	m.schemaCache.RLockGuard(func() error {
+		tx.Payload = ReadSchemaPayload{
+			Schema: &m.schemaCache.State,
+		}
+
+		data, err = json.Marshal(tx)
+		tx.Payload = ReadSchemaPayload{}
+		return err
+	})
+	return
 }
 
 func (m *Manager) handleAddClassCommit(ctx context.Context,
@@ -114,7 +119,7 @@ func (m *Manager) handleDeleteClassCommit(ctx context.Context,
 			tx.Payload)
 	}
 
-	return m.deleteClassApplyChanges(ctx, pl.ClassName, pl.Force)
+	return m.deleteClassApplyChanges(ctx, pl.ClassName)
 }
 
 func (m *Manager) handleUpdateClassCommit(ctx context.Context,
@@ -140,21 +145,48 @@ func (m *Manager) handleUpdateClassCommit(ctx context.Context,
 	return m.updateClassApplyChanges(ctx, pl.ClassName, pl.Class, pl.State)
 }
 
-func (m *Manager) handleAddPartitionsCommit(ctx context.Context,
+func (m *Manager) handleAddTenantsCommit(ctx context.Context,
 	tx *cluster.Transaction,
 ) error {
 	m.Lock()
 	defer m.Unlock()
 
-	req, ok := tx.Payload.(AddPartitionsPayload)
+	req, ok := tx.Payload.(AddTenantsPayload)
 	if !ok {
-		return errors.Errorf("expected commit payload to be AddPartitions, but got %T",
+		return errors.Errorf("expected commit payload to be AddTenants, but got %T",
 			tx.Payload)
 	}
-	cls, st := m.getClassByName(req.ClassName), m.ShardingState(req.ClassName)
-	if cls == nil || st == nil {
-		return fmt.Errorf("class %q: %w", req.ClassName, ErrNotFound)
+	cls := m.getClassByName(req.Class)
+	if cls == nil {
+		return fmt.Errorf("class %q: %w", req.Class, ErrNotFound)
 	}
 
-	return m.onAddPartitions(ctx, st, cls, req)
+	err := m.onAddTenants(ctx, cls, req)
+	if err != nil {
+		m.logger.WithField("action", "on_add_tenants").
+			WithField("n", len(req.Tenants)).
+			WithField("class", cls.Class).Error(err)
+	}
+	return err
+}
+
+func (m *Manager) handleDeleteTenantsCommit(ctx context.Context,
+	tx *cluster.Transaction,
+) error {
+	m.Lock()
+	defer m.Unlock()
+
+	req, ok := tx.Payload.(DeleteTenantsPayload)
+	if !ok {
+		return errors.Errorf("expected commit payload to be DeleteTenants, but got %T",
+			tx.Payload)
+	}
+	cls := m.getClassByName(req.Class)
+	if cls == nil {
+		m.logger.WithField("action", "delete_tenants").
+			WithField("class", req.Class).Warn("class not found")
+		return nil
+	}
+
+	return m.onDeleteTenants(ctx, cls, req)
 }

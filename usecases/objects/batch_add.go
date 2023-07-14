@@ -14,7 +14,7 @@ package objects
 import (
 	"context"
 	"fmt"
-	"sync"
+	"runtime"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -23,12 +23,12 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
+	"golang.org/x/sync/errgroup"
 )
 
 // AddObjects Class Instances in batch to the connected DB
 func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
-	tenantKey string,
 ) (BatchObjects, error) {
 	err := b.authorizer.Authorize(principal, "create", "batch/objects")
 	if err != nil {
@@ -46,19 +46,18 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	defer b.metrics.BatchOp("total_uc_level", before.UnixNano())
 	defer b.metrics.BatchDec()
 
-	return b.addObjects(ctx, principal, objects, fields, repl, tenantKey)
+	return b.addObjects(ctx, principal, objects, fields, repl)
 }
 
 func (b *BatchManager) addObjects(ctx context.Context, principal *models.Principal,
 	classes []*models.Object, fields []*string, repl *additional.ReplicationProperties,
-	tenantKey string,
 ) (BatchObjects, error) {
 	beforePreProcessing := time.Now()
 	if err := b.validateObjectForm(classes); err != nil {
 		return nil, NewErrInvalidUserInput("invalid param 'objects': %v", err)
 	}
 
-	batchObjects := b.validateObjectsConcurrently(ctx, principal, classes, fields, repl, tenantKey)
+	batchObjects := b.validateObjectsConcurrently(ctx, principal, classes, fields, repl)
 	b.metrics.BatchOp("total_preprocessing", beforePreProcessing.UnixNano())
 
 	var (
@@ -68,7 +67,7 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 
 	beforePersistence := time.Now()
 	defer b.metrics.BatchOp("total_persistence_level", beforePersistence.UnixNano())
-	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects, repl, tenantKey); err != nil {
+	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects, repl); err != nil {
 		return nil, NewErrInternal("batch objects: %#v", err)
 	}
 
@@ -84,31 +83,39 @@ func (b *BatchManager) validateObjectForm(classes []*models.Object) error {
 }
 
 func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principal *models.Principal,
-	classes []*models.Object, fields []*string, repl *additional.ReplicationProperties,
-	tenantKey string,
+	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
 ) BatchObjects {
 	fieldsToKeep := determineResponseFields(fields)
-	c := make(chan BatchObject, len(classes))
+	c := make(chan BatchObject, len(objects))
 
-	wg := new(sync.WaitGroup)
+	// the validation function can't error directly, it would return an error
+	// over the channel. But by using an error group, we can easily limit the
+	// concurrency
+	//
+	// see https://github.com/weaviate/weaviate/issues/3179 for details of how the
+	// unbounded concurrency caused a production outage
+	eg := new(errgroup.Group)
+	eg.SetLimit(2 * runtime.GOMAXPROCS(0))
 
 	// Generate a goroutine for each separate request
-	for i, object := range classes {
-		wg.Add(1)
-		go b.validateObject(ctx, principal, wg, object, i, &c, fieldsToKeep, repl, tenantKey)
+	for i, object := range objects {
+		i := i
+		object := object
+		eg.Go(func() error {
+			b.validateObject(ctx, principal, object, i, &c, fieldsToKeep, repl)
+			return nil
+		})
 	}
 
-	wg.Wait()
+	eg.Wait()
 	close(c)
 	return objectsChanToSlice(c)
 }
 
 func (b *BatchManager) validateObject(ctx context.Context, principal *models.Principal,
-	wg *sync.WaitGroup, concept *models.Object, originalIndex int, resultsC *chan BatchObject,
-	fieldsToKeep map[string]struct{}, repl *additional.ReplicationProperties, tenantKey string,
+	concept *models.Object, originalIndex int, resultsC *chan BatchObject,
+	fieldsToKeep map[string]struct{}, repl *additional.ReplicationProperties,
 ) {
-	defer wg.Done()
-
 	var id strfmt.UUID
 
 	ec := &errorcompounder.ErrorCompounder{}
@@ -133,6 +140,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	object.LastUpdateTimeUnix = 0
 	object.ID = id
 	object.Vector = concept.Vector
+	object.Tenant = concept.Tenant
 
 	if _, ok := fieldsToKeep["class"]; ok {
 		object.Class = concept.Class
@@ -156,10 +164,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	if class == nil {
 		ec.Add(fmt.Errorf("class '%s' not present in schema", object.Class))
 	} else {
-		err = validateSingleBatchObjectTenantKey(class, concept, tenantKey, ec, b.logger)
-		ec.Add(err)
-
-		err = validation.New(b.vectorRepo.Exists, b.config, repl, tenantKey).
+		err = validation.New(b.vectorRepo.Exists, b.config, repl).
 			Object(ctx, class, object, nil)
 		ec.Add(err)
 

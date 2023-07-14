@@ -62,22 +62,22 @@ func (s *segment) get(key []byte) ([]byte, error) {
 	return s.replaceStratParseData(contentsCopy)
 }
 
-func (s *segment) getBySecondary(pos int, key []byte) ([]byte, error) {
+func (s *segment) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, error, []byte) {
 	if s.strategy != segmentindex.StrategyReplace {
-		return nil, errors.Errorf("get only possible for strategy %q", StrategyReplace)
+		return nil, errors.Errorf("get only possible for strategy %q", StrategyReplace), nil
 	}
 
 	if pos > len(s.secondaryIndices) || s.secondaryIndices[pos] == nil {
-		return nil, errors.Errorf("no secondary index at pos %d", pos)
+		return nil, errors.Errorf("no secondary index at pos %d", pos), nil
 	}
 
 	if !s.secondaryBloomFilters[pos].Test(key) {
-		return nil, lsmkv.NotFound
+		return nil, lsmkv.NotFound, nil
 	}
 
 	node, err := s.secondaryIndices[pos].Get(key)
 	if err != nil {
-		return nil, err
+		return nil, err, nil
 	}
 
 	// We need to copy the data we read from the segment exactly once in this
@@ -91,10 +91,15 @@ func (s *segment) getBySecondary(pos int, key []byte) ([]byte, error) {
 	// invalid memory without the copy, thus leading to a SEGFAULT.
 	// Similar approach was used to fix SEGFAULT in collection strategy
 	// https://github.com/weaviate/weaviate/issues/1837
-	contentsCopy := make([]byte, node.End-node.Start)
+	var contentsCopy []byte
+	if uint64(cap(buffer)) >= node.End-node.Start {
+		contentsCopy = buffer[:node.End-node.Start]
+	} else {
+		contentsCopy = make([]byte, node.End-node.Start)
+	}
 	copy(contentsCopy, s.contents[node.Start:node.End])
-
-	return s.replaceStratParseData(contentsCopy)
+	currContent, err := s.replaceStratParseData(contentsCopy)
+	return currContent, err, contentsCopy
 }
 
 func (s *segment) replaceStratParseData(in []byte) ([]byte, error) {

@@ -14,6 +14,7 @@ package scaler
 import (
 	"context"
 	"fmt"
+	"runtime"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -32,8 +33,11 @@ import (
 //
 // 3. implement scaler.scaleIn
 
-// ErrUnresolvedName cannot resolve the host address of a node
-var ErrUnresolvedName = errors.New("cannot resolve node name")
+var (
+	// ErrUnresolvedName cannot resolve the host address of a node
+	ErrUnresolvedName = errors.New("cannot resolve node name")
+	_NUMCPU           = runtime.NumCPU()
+)
 
 // Scaler scales out/in class replicas.
 //
@@ -80,7 +84,7 @@ type cluster interface {
 
 // SchemaManager is used by the scaler to get and update sharding states
 type SchemaManager interface {
-	ShardingState(class string) *sharding.State
+	CopyShardingState(class string) *sharding.State
 }
 
 func (s *Scaler) SetSchemaManager(sm SchemaManager) {
@@ -98,7 +102,7 @@ func (s *Scaler) Scale(ctx context.Context, className string,
 	// First identify what the sharding state was before this change. This is
 	// mainly to be able to compare the diff later, so we know where we need to
 	// make changes
-	ssBefore := s.schema.ShardingState(className)
+	ssBefore := s.schema.CopyShardingState(className)
 	if ssBefore == nil {
 		return nil, fmt.Errorf("no sharding state for class %q", className)
 	}

@@ -17,6 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -35,7 +36,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 
 	unlock, err := t.locks.LockConnector()
 	if err != nil {
-		return nil, fmt.Errorf("could not acquire lock: %v", err)
+		return nil, enterrors.NewErrLockConnector(err)
 	}
 	defer unlock()
 
@@ -49,7 +50,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 			return nil, err
 		}
 		searchVector, err := t.nearParamsVector.vectorFromParams(ctx,
-			params.NearVector, params.NearObject, params.ModuleParams, className)
+			params.NearVector, params.NearObject, params.ModuleParams, className, params.Tenant)
 		if err != nil {
 			return nil, err
 		}
@@ -79,7 +80,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 	}
 
 	res, err := t.vectorSearcher.Aggregate(ctx, *params)
-	if err != nil {
+	if err != nil || res == nil {
 		return nil, err
 	}
 

@@ -41,7 +41,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		return &Metrics{enabled: false}
 	}
 
-	if prom.GroupClasses {
+	if prom.Group {
 		className = "n/a"
 		shardName = "n/a"
 	}

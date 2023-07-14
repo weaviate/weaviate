@@ -36,13 +36,13 @@ func clusterBackupJourneyTest(t *testing.T, backend, className, backupID,
 				tenants[i] = &models.Tenant{Name: tenantNames[i]}
 			}
 			helper.CreateTenants(t, className, tenants)
-			addTestObjects(t, className, multiTenant)
+			addTestObjects(t, className, tenantNames)
 		})
 	} else {
 		// upload data to a node other than the coordinator
 		t.Run(fmt.Sprintf("add test data to endpoint: %s", uploaderEndpoint), func(t *testing.T) {
-			addTestClass(t, className, singleTenant)
-			addTestObjects(t, className, singleTenant)
+			addTestClass(t, className, !multiTenant)
+			addTestObjects(t, className, nil)
 		})
 	}
 

@@ -224,24 +224,18 @@ func (s *Schema) FindPropertyDataTypeWithRefs(
 	var classes []ClassName
 
 	for _, someDataType := range dataType {
-		if ValidNetworkClassName(someDataType) {
-			// this is a network instance
-			classes = append(classes, ClassName(someDataType))
-		} else {
-			// this is a local reference
-			className, err := ValidateClassName(someDataType)
-			if err != nil {
-				return nil, err
-			}
-
-			if beloningToClass != className && !relaxCrossRefValidation {
-				if s.FindClassByName(className) == nil {
-					return nil, ErrRefToNonexistentClass
-				}
-			}
-
-			classes = append(classes, className)
+		className, err := ValidateClassName(someDataType)
+		if err != nil {
+			return nil, err
 		}
+
+		if beloningToClass != className && !relaxCrossRefValidation {
+			if s.FindClassByName(className) == nil {
+				return nil, ErrRefToNonexistentClass
+			}
+		}
+
+		classes = append(classes, className)
 	}
 
 	return &propertyDataType{

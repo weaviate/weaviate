@@ -13,28 +13,27 @@ package schema
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
 // DeleteClass from the schema
-func (m *Manager) DeleteClass(ctx context.Context, principal *models.Principal, class string, force bool) error {
+func (m *Manager) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
 	err := m.Authorizer.Authorize(principal, "delete", "schema/objects")
 	if err != nil {
 		return err
 	}
 
-	return m.deleteClass(ctx, class, force)
+	return m.deleteClass(ctx, class)
 }
 
-func (m *Manager) deleteClass(ctx context.Context, className string, force bool) error {
+func (m *Manager) deleteClass(ctx context.Context, className string) error {
 	m.Lock()
 	defer m.Unlock()
 
 	tx, err := m.cluster.BeginTransaction(ctx, DeleteClass,
-		DeleteClassPayload{className, force}, DefaultTxTTL)
+		DeleteClassPayload{className}, DefaultTxTTL)
 	if err != nil {
 		// possible causes for errors could be nodes down (we expect every node to
 		// be up for a schema transaction) or concurrent transactions from other
@@ -59,57 +58,28 @@ func (m *Manager) deleteClass(ctx context.Context, className string, force bool)
 		m.logger.WithError(err).Errorf("not every node was able to commit")
 	}
 
-	return m.deleteClassApplyChanges(ctx, className, force)
+	return m.deleteClassApplyChanges(ctx, className)
 }
 
-func (m *Manager) deleteClassApplyChanges(ctx context.Context,
-	className string, force bool,
-) error {
-	classIdx := -1
-	m.shardingStateLock.RLock()
-	sch := m.state.ObjectSchema
-	for idx, class := range sch.Classes {
-		if class.Class == className {
-			classIdx = idx
-			break
-		}
-	}
-	m.shardingStateLock.RUnlock()
-
-	if classIdx == -1 && !force {
-		return fmt.Errorf("could not find class '%s'", className)
-	}
-
-	if classIdx > -1 {
-		m.shardingStateLock.Lock()
-		// make sure not to delete another class if the force flag is set, but the class does not exist
-		sch.Classes[classIdx] = sch.Classes[len(sch.Classes)-1]
-		sch.Classes[len(sch.Classes)-1] = nil // to prevent leaking this pointer.
-		sch.Classes = sch.Classes[:len(sch.Classes)-1]
-		m.shardingStateLock.Unlock()
-
-	}
-
-	err := m.migrator.DropClass(ctx, className)
-	if err != nil {
-		if !force {
-			return err
-		}
-
-		m.logger.WithError(err).
-			Errorf("ignoring class delete error because force is set")
-	}
-
-	m.shardingStateLock.Lock()
-	delete(m.state.ShardingState, className)
-	m.shardingStateLock.Unlock()
+func (m *Manager) deleteClassApplyChanges(ctx context.Context, className string) error {
 	if err := m.repo.DeleteClass(ctx, className); err != nil {
+		m.logger.WithField("action", "delete_class").
+			WithField("class", className).Errorf("schema: %v", err)
 		return err
 	}
-	m.logger.
-		WithField("action", "schema_delete_class").
-		Debugf("delete class %q from schema", className)
 
+	if ok := m.schemaCache.detachClass(className); !ok {
+		return nil
+	}
+
+	if err := m.migrator.DropClass(ctx, className); err != nil {
+		m.logger.WithField("action", "delete_class").
+			WithField("class", className).Errorf("migrator: %v", err)
+	}
+
+	m.schemaCache.deleteClassState(className)
+
+	m.logger.WithField("action", "delete_class").WithField("class", className).Debug("")
 	m.triggerSchemaUpdateCallbacks()
 
 	return nil

@@ -31,10 +31,6 @@ func ArticlesClass() *models.Class {
 				Name:     "hasParagraphs",
 				DataType: []string{"Paragraph"},
 			},
-			{
-				Name:     "tenantKey",
-				DataType: schema.DataTypeUUID.PropString(),
-			},
 		},
 	}
 }
@@ -46,10 +42,6 @@ func ParagraphsClass() *models.Class {
 			{
 				Name:     "contents",
 				DataType: schema.DataTypeText.PropString(),
-			},
-			{
-				Name:     "tenantKey",
-				DataType: schema.DataTypeUUID.PropString(),
 			},
 		},
 		Vectorizer: "none",
@@ -75,9 +67,8 @@ func (a *Article) WithTitle(title string) *Article {
 	return a
 }
 
-func (a *Article) WithTenantKey(tk string) *Article {
-	props := a.Properties.(map[string]interface{})
-	props["tenantKey"] = tk
+func (a *Article) WithTenant(tk string) *Article {
+	a.Tenant = tk
 	return a
 }
 
@@ -112,9 +103,8 @@ func (p *Paragraph) WithVector(vec []float32) *Paragraph {
 	return p
 }
 
-func (p *Paragraph) WithTenantKey(tk string) *Paragraph {
-	props := p.Properties.(map[string]interface{})
-	props["tenantKey"] = tk
+func (p *Paragraph) WithTenant(tk string) *Paragraph {
+	p.Tenant = tk
 	return p
 }
 

@@ -53,14 +53,14 @@ func TestDeleteJourney(t *testing.T) {
 
 	t.Run("add schema", func(t *testing.T) {
 		err := migrator.AddClass(context.Background(), updateTestClass(),
-			schemaGetter.ShardingState(updateTestClass().Class))
+			schemaGetter.CopyShardingState(updateTestClass().Class))
 		require.Nil(t, err)
 	})
 	schemaGetter.schema = schema
 
 	t.Run("import some objects", func(t *testing.T) {
 		for _, res := range updateTestData() {
-			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil, "")
+			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil)
 			require.Nil(t, err)
 		}
 	})

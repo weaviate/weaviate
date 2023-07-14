@@ -116,6 +116,10 @@ func (f fakeClassConfig) Class() map[string]interface{} {
 	return f.classConfig
 }
 
+func (f fakeClassConfig) Tenant() string {
+	return ""
+}
+
 func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
 	return f.classConfig
 }

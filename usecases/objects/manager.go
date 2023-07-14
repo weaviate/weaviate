@@ -91,23 +91,23 @@ type authorizer interface {
 
 type VectorRepo interface {
 	PutObject(ctx context.Context, concept *models.Object, vector []float32,
-		repl *additional.ReplicationProperties, tenantKey string) error
+		repl *additional.ReplicationProperties) error
 	DeleteObject(ctx context.Context, className string, id strfmt.UUID,
-		repl *additional.ReplicationProperties, tenantKey string) error
+		repl *additional.ReplicationProperties, tenant string) error
 	// Object returns object of the specified class giving by its id
 	Object(ctx context.Context, class string, id strfmt.UUID, props search.SelectProperties,
 		additional additional.Properties, repl *additional.ReplicationProperties,
-		tenantKey string) (*search.Result, error)
+		tenant string) (*search.Result, error)
 	// Exists returns true if an object of a giving class exists
 	Exists(ctx context.Context, class string, id strfmt.UUID,
-		repl *additional.ReplicationProperties, tenantKey string) (bool, error)
+		repl *additional.ReplicationProperties, tenant string) (bool, error)
 	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties, tenantKey string) (*search.Result, error)
+		additional additional.Properties, tenant string) (*search.Result, error)
 	ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
-		sort []filters.Sort, additional additional.Properties, tenantKey string) (search.Results, error)
+		sort []filters.Sort, additional additional.Properties, tenant string) (search.Results, error)
 	AddReference(ctx context.Context, source *crossref.RefSource,
-		target *crossref.Ref, repl *additional.ReplicationProperties, tenantKey string) error
-	Merge(ctx context.Context, merge MergeDocument, repl *additional.ReplicationProperties, tenantKey string) error
+		target *crossref.Ref, repl *additional.ReplicationProperties, tenant string) error
+	Merge(ctx context.Context, merge MergeDocument, repl *additional.ReplicationProperties, tenant string) error
 	Query(context.Context, *QueryInput) (search.Results, *Error)
 }
 

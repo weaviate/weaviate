@@ -13,6 +13,7 @@ package sharding
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	"github.com/go-openapi/strfmt"
@@ -34,7 +35,8 @@ type RemoteIndex struct {
 }
 
 type shardingStateGetter interface {
-	ShardingState(class string) *State
+	// ShardOwner returns id of owner node
+	ShardOwner(class, shard string) (string, error)
 }
 
 func NewRemoteIndex(className string,
@@ -94,14 +96,14 @@ type RemoteIndexClient interface {
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
 	obj *storobj.Object,
 ) error {
-	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
-	if !ok {
-		return errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
+	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	if err != nil {
+		return fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
+	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
+		return errors.Errorf("resolve node name %q to host", owner)
 	}
 
 	return ri.client.PutObject(ctx, host, ri.class, shardName, obj)
@@ -120,16 +122,16 @@ func duplicateErr(in error, count int) []error {
 func (ri *RemoteIndex) BatchPutObjects(ctx context.Context, shardName string,
 	objs []*storobj.Object,
 ) []error {
-	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
-	if !ok {
-		return duplicateErr(errors.Errorf("class %s has no physical shard %q",
-			ri.class, shardName), len(objs))
+	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	if err != nil {
+		return duplicateErr(fmt.Errorf("class %s has no physical shard %q: %w",
+			ri.class, shardName, err), len(objs))
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
+	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return duplicateErr(errors.Errorf("resolve node name %q to host",
-			shard.BelongsToNode()), len(objs))
+		return duplicateErr(fmt.Errorf("resolve node name %q to host",
+			owner), len(objs))
 	}
 
 	return ri.client.BatchPutObjects(ctx, host, ri.class, shardName, objs, nil)
@@ -138,16 +140,16 @@ func (ri *RemoteIndex) BatchPutObjects(ctx context.Context, shardName string,
 func (ri *RemoteIndex) BatchAddReferences(ctx context.Context, shardName string,
 	refs objects.BatchReferences,
 ) []error {
-	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
-	if !ok {
-		return duplicateErr(errors.Errorf("class %s has no physical shard %q",
-			ri.class, shardName), len(refs))
+	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	if err != nil {
+		return duplicateErr(fmt.Errorf("class %s has no physical shard %q: %w",
+			ri.class, shardName, err), len(refs))
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
+	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return duplicateErr(errors.Errorf("resolve node name %q to host",
-			shard.BelongsToNode()), len(refs))
+		return duplicateErr(fmt.Errorf("resolve node name %q to host",
+			owner), len(refs))
 	}
 
 	return ri.client.BatchAddReferences(ctx, host, ri.class, shardName, refs)
@@ -156,14 +158,14 @@ func (ri *RemoteIndex) BatchAddReferences(ctx context.Context, shardName string,
 func (ri *RemoteIndex) Exists(ctx context.Context, shardName string,
 	id strfmt.UUID,
 ) (bool, error) {
-	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
-	if !ok {
-		return false, errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
+	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	if err != nil {
+		return false, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
+	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return false, errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
+		return false, errors.Errorf("resolve node name %q to host", owner)
 	}
 
 	return ri.client.Exists(ctx, host, ri.class, shardName, id)
@@ -172,14 +174,14 @@ func (ri *RemoteIndex) Exists(ctx context.Context, shardName string,
 func (ri *RemoteIndex) DeleteObject(ctx context.Context, shardName string,
 	id strfmt.UUID,
 ) error {
-	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
-	if !ok {
-		return errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
+	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	if err != nil {
+		return fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
+	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
+		return errors.Errorf("resolve node name %q to host", owner)
 	}
 
 	return ri.client.DeleteObject(ctx, host, ri.class, shardName, id)
@@ -188,14 +190,14 @@ func (ri *RemoteIndex) DeleteObject(ctx context.Context, shardName string,
 func (ri *RemoteIndex) MergeObject(ctx context.Context, shardName string,
 	mergeDoc objects.MergeDocument,
 ) error {
-	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
-	if !ok {
-		return errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
+	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	if err != nil {
+		return fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
+	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
+		return errors.Errorf("resolve node name %q to host", owner)
 	}
 
 	return ri.client.MergeObject(ctx, host, ri.class, shardName, mergeDoc)
@@ -205,14 +207,14 @@ func (ri *RemoteIndex) GetObject(ctx context.Context, shardName string,
 	id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties,
 ) (*storobj.Object, error) {
-	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
-	if !ok {
-		return nil, errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
+	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	if err != nil {
+		return nil, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
+	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return nil, errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
+		return nil, errors.Errorf("resolve node name %q to host", owner)
 	}
 
 	return ri.client.GetObject(ctx, host, ri.class, shardName, id, props, additional)
@@ -221,14 +223,14 @@ func (ri *RemoteIndex) GetObject(ctx context.Context, shardName string,
 func (ri *RemoteIndex) MultiGetObjects(ctx context.Context, shardName string,
 	ids []strfmt.UUID,
 ) ([]*storobj.Object, error) {
-	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
-	if !ok {
-		return nil, errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
+	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	if err != nil {
+		return nil, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
+	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return nil, errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
+		return nil, errors.Errorf("resolve node name %q to host", owner)
 	}
 
 	return ri.client.MultiGetObjects(ctx, host, ri.class, shardName, ids)
@@ -240,20 +242,20 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shardName string,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	additional additional.Properties, replEnabled bool,
 ) ([]*storobj.Object, []float32, error) {
-	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
-	if !ok {
-		return nil, nil, errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
+	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
+	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return nil, nil, errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
+		return nil, nil, errors.Errorf("resolve node name %q to host", owner)
 	}
 
 	objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shardName, searchVector, limit,
 		filters, keywordRanking, sort, cursor, groupBy, additional)
 	if replEnabled {
-		storobj.AddOwnership(objs, shard.BelongsToNode(), shard.Name)
+		storobj.AddOwnership(objs, owner, shardName)
 	}
 	return objs, scores, err
 }
@@ -261,14 +263,14 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shardName string,
 func (ri *RemoteIndex) Aggregate(ctx context.Context, shardName string,
 	params aggregation.Params,
 ) (*aggregation.Result, error) {
-	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
-	if !ok {
-		return nil, errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
+	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	if err != nil {
+		return nil, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
+	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return nil, errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
+		return nil, errors.Errorf("resolve node name %q to host", owner)
 	}
 
 	return ri.client.Aggregate(ctx, host, ri.class, shardName, params)
@@ -277,14 +279,14 @@ func (ri *RemoteIndex) Aggregate(ctx context.Context, shardName string,
 func (ri *RemoteIndex) FindDocIDs(ctx context.Context, shardName string,
 	filters *filters.LocalFilter,
 ) ([]uint64, error) {
-	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
-	if !ok {
-		return nil, errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
+	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	if err != nil {
+		return nil, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
+	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return nil, errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
+		return nil, errors.Errorf("resolve node name %q to host", owner)
 	}
 
 	return ri.client.FindDocIDs(ctx, host, ri.class, shardName, filters)
@@ -293,15 +295,15 @@ func (ri *RemoteIndex) FindDocIDs(ctx context.Context, shardName string,
 func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
 	docIDs []uint64, dryRun bool,
 ) objects.BatchSimpleObjects {
-	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
-	if !ok {
-		err := errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
+	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	if err != nil {
+		err := fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
+	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		err := errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
+		err := fmt.Errorf("resolve node name %q to host", owner)
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
 	}
 
@@ -309,28 +311,28 @@ func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
 }
 
 func (ri *RemoteIndex) GetShardStatus(ctx context.Context, shardName string) (string, error) {
-	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
-	if !ok {
-		return "", errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
+	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	if err != nil {
+		return "", fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
+	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return "", errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
+		return "", errors.Errorf("resolve node name %q to host", owner)
 	}
 
 	return ri.client.GetShardStatus(ctx, host, ri.class, shardName)
 }
 
 func (ri *RemoteIndex) UpdateShardStatus(ctx context.Context, shardName, targetStatus string) error {
-	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
-	if !ok {
-		return errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
+	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	if err != nil {
+		return fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
+	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
+		return errors.Errorf("resolve node name %q to host", owner)
 	}
 
 	return ri.client.UpdateShardStatus(ctx, host, ri.class, shardName, targetStatus)

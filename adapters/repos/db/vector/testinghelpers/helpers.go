@@ -20,6 +20,7 @@ import (
 	"math/rand"
 	"os"
 	"sort"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -27,6 +28,10 @@ import (
 )
 
 type DistanceFunction func([]float32, []float32) float32
+
+func getRandomSeed() *rand.Rand {
+	return rand.New(rand.NewSource(time.Now().UnixNano()))
+}
 
 func int32FromBytes(bytes []byte) int {
 	return int(binary.LittleEndian.Uint32(bytes))
@@ -98,21 +103,25 @@ func ReadSiftVecsFrom(path string, size int, dimensions int) [][]float32 {
 
 func RandomVecs(size int, queriesSize int, dimensions int) ([][]float32, [][]float32) {
 	fmt.Printf("generating %d vectors...\n", size+queriesSize)
+	r := getRandomSeed()
 	vectors := make([][]float32, 0, size)
 	queries := make([][]float32, 0, queriesSize)
 	for i := 0; i < size; i++ {
-		vectors = append(vectors, genVector(dimensions))
+		vectors = append(vectors, genVector(r, dimensions))
 	}
 	for i := 0; i < queriesSize; i++ {
-		queries = append(queries, genVector(dimensions))
+		queries = append(queries, genVector(r, dimensions))
 	}
 	return vectors, queries
 }
 
-func genVector(dimensions int) []float32 {
+func genVector(r *rand.Rand, dimensions int) []float32 {
 	vector := make([]float32, 0, dimensions)
 	for i := 0; i < dimensions; i++ {
-		vector = append(vector, rand.Float32())
+		// Some distances like dot could produce negative values when the vectors have negative values
+		// This change will not affect anything when using a distance like l2, but will cover some bugs
+		// when using distances like dot
+		vector = append(vector, r.Float32()*2-1)
 	}
 	return vector
 }

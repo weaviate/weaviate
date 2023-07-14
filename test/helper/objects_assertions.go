@@ -23,6 +23,7 @@ import (
 )
 
 func AssertCreateObject(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {
+	t.Helper()
 	params := objects.NewObjectsCreateParams().WithBody(
 		&models.Object{
 			Class:      className,
@@ -42,6 +43,7 @@ func AssertCreateObject(t *testing.T, className string, schema map[string]interf
 }
 
 func AssertGetObject(t *testing.T, class string, uuid strfmt.UUID, include ...string) *models.Object {
+	t.Helper()
 	obj, err := GetObject(t, class, uuid, include...)
 	AssertRequestOk(t, obj, err, nil)
 	return obj
@@ -109,9 +111,9 @@ func GetObject(t *testing.T, class string, uuid strfmt.UUID, include ...string) 
 	return getResp.Payload, nil
 }
 
-func TenantObject(t *testing.T, class string, id strfmt.UUID, tenantKey string) (*models.Object, error) {
+func TenantObject(t *testing.T, class string, id strfmt.UUID, tenant string) (*models.Object, error) {
 	req := objects.NewObjectsClassGetParams().
-		WithClassName(class).WithID(id).WithTenantKey(&tenantKey)
+		WithClassName(class).WithID(id).WithTenant(&tenant)
 	getResp, err := Client(t).Objects.ObjectsClassGet(req, nil)
 	if err != nil {
 		return nil, err
@@ -149,9 +151,9 @@ func ObjectExistsCL(t *testing.T, class string, id strfmt.UUID, cl replica.Consi
 	return resp.IsCode(http.StatusNoContent), nil
 }
 
-func TenantObjectExists(t *testing.T, class string, id strfmt.UUID, tenantKey string) (bool, error) {
+func TenantObjectExists(t *testing.T, class string, id strfmt.UUID, tenant string) (bool, error) {
 	req := objects.NewObjectsClassHeadParams().
-		WithClassName(class).WithID(id).WithTenantKey(&tenantKey)
+		WithClassName(class).WithID(id).WithTenant(&tenant)
 	resp, err := Client(t).Objects.ObjectsClassHead(req, nil)
 	if err != nil {
 		return false, err
@@ -174,11 +176,11 @@ func GetObjectFromNode(t *testing.T, class string, uuid strfmt.UUID, nodename st
 	return getResp.Payload, nil
 }
 
-func GetTenantObjectFromNode(t *testing.T, class string, uuid strfmt.UUID, nodename, tenantKey string) (*models.Object, error) {
+func GetTenantObjectFromNode(t *testing.T, class string, uuid strfmt.UUID, nodename, tenant string) (*models.Object, error) {
 	req := objects.NewObjectsClassGetParams().WithID(uuid).
 		WithClassName(class).
 		WithNodeName(&nodename).
-		WithTenantKey(&tenantKey)
+		WithTenant(&tenant)
 	getResp, err := Client(t).Objects.ObjectsClassGet(req, nil)
 	if err != nil {
 		return nil, err
@@ -191,9 +193,35 @@ func DeleteClassObject(t *testing.T, class string) (*schema.SchemaObjectsDeleteO
 	return Client(t).Schema.SchemaObjectsDelete(delParams, nil)
 }
 
-func DeleteTenantObject(t *testing.T, class string, id strfmt.UUID, tenantKey string) {
+func DeleteTenantObject(t *testing.T, class string, id strfmt.UUID, tenant string) {
 	params := objects.NewObjectsClassDeleteParams().
-		WithClassName(class).WithID(id).WithTenantKey(&tenantKey)
+		WithClassName(class).WithID(id).WithTenant(&tenant)
 	resp, err := Client(t).Objects.ObjectsClassDelete(params, nil)
 	AssertRequestOk(t, resp, err, nil)
+}
+
+func ListObjects(t *testing.T, class string) (*models.ObjectsListResponse, error) {
+	params := objects.NewObjectsListParams()
+	if class != "" {
+		params.WithClass(&class)
+	}
+
+	resp, err := Client(t).Objects.ObjectsList(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
+func TenantListObjects(t *testing.T, class string, tenant string) (*models.ObjectsListResponse, error) {
+	params := objects.NewObjectsListParams().WithTenant(&tenant)
+	if class != "" {
+		params.WithClass(&class)
+	}
+
+	resp, err := Client(t).Objects.ObjectsList(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
 }

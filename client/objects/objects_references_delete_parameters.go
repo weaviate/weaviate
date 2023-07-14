@@ -91,6 +91,12 @@ type ObjectsReferencesDeleteParams struct {
 	*/
 	PropertyName string
 
+	/* Tenant.
+
+	   Specifies the tenant in a request targeting a multi-tenant class
+	*/
+	Tenant *string
+
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -177,6 +183,17 @@ func (o *ObjectsReferencesDeleteParams) SetPropertyName(propertyName string) {
 	o.PropertyName = propertyName
 }
 
+// WithTenant adds the tenant to the objects references delete params
+func (o *ObjectsReferencesDeleteParams) WithTenant(tenant *string) *ObjectsReferencesDeleteParams {
+	o.SetTenant(tenant)
+	return o
+}
+
+// SetTenant adds the tenant to the objects references delete params
+func (o *ObjectsReferencesDeleteParams) SetTenant(tenant *string) {
+	o.Tenant = tenant
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsReferencesDeleteParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -198,6 +215,23 @@ func (o *ObjectsReferencesDeleteParams) WriteToRequest(r runtime.ClientRequest, 
 	// path param propertyName
 	if err := r.SetPathParam("propertyName", o.PropertyName); err != nil {
 		return err
+	}
+
+	if o.Tenant != nil {
+
+		// query param tenant
+		var qrTenant string
+
+		if o.Tenant != nil {
+			qrTenant = *o.Tenant
+		}
+		qTenant := qrTenant
+		if qTenant != "" {
+
+			if err := r.SetQueryParam("tenant", qTenant); err != nil {
+				return err
+			}
+		}
 	}
 
 	if len(res) > 0 {

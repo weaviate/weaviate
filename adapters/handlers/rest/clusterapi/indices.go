@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
+	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -50,30 +51,34 @@ type indices struct {
 }
 
 const (
-	urlPatternObjects = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9\-]+)\/objects`
-	urlPatternObjectsOverwrite = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9\-]+)\/objects:overwrite`
-	urlPatternObjectsDigest = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9\-]+)\/objects:digest`
-	urlPatternObjectsSearch = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9\-]+)\/objects\/_search`
-	urlPatternObjectsFind = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9\-]+)\/objects\/_find`
-	urlPatternObjectsAggregations = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9\-]+)\/objects\/_aggregations`
-	urlPatternObject = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9\-]+)\/objects\/([A-Za-z0-9_+-]+)`
-	urlPatternReferences = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9\-]+)\/references`
-	urlPatternShardsStatus = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9\-]+)\/status`
-	urlPatternShardFiles = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9\-]+)\/files/(.*)`
-	urlPatternShard = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9\-]+)$`
-	urlPatternShardReinit = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9\-]+):reinit`
+	cl = entschema.ClassNameRegexCore
+	sh = entschema.ShardNameRegexCore
+	ob = `[A-Za-z0-9_+-]+`
+
+	urlPatternObjects = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/objects`
+	urlPatternObjectsOverwrite = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/objects:overwrite`
+	urlPatternObjectsDigest = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/objects:digest`
+	urlPatternObjectsSearch = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/objects\/_search`
+	urlPatternObjectsFind = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/objects\/_find`
+	urlPatternObjectsAggregations = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/objects\/_aggregations`
+	urlPatternObject = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/objects\/(` + ob + `)`
+	urlPatternReferences = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/references`
+	urlPatternShardsStatus = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/status`
+	urlPatternShardFiles = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/files/(.*)`
+	urlPatternShard = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)$`
+	urlPatternShardReinit = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `):reinit`
 )
 
 type shards interface {
