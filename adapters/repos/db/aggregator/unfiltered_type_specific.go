@@ -47,7 +47,9 @@ func (ua unfilteredAggregator) parseBoolProp(ctx context.Context,
 		Type: aggregation.PropertyTypeBoolean,
 	}
 
-	b := ua.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name.String()))
+	//FIXME is this supposed to be filterable or searchable?
+	//b := ua.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name.String()))
+	b := lsmkv.NewBucketProxy(  ua.store.Bucket("filterable_properties"),prop.Name.String(), ua.propertyIds)
 	if b == nil {
 		return nil, errors.Errorf("could not find bucket for prop %s", prop.Name)
 	}
@@ -60,6 +62,12 @@ func (ua unfilteredAggregator) parseBoolProp(ctx context.Context,
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if ! helpers.MatchesPropertyKeyPrefix(b.PropertyPrefix(), k) {
+				continue
+			}
+			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
+			fmt.Printf("k sans prop: %v\n", k)
+			
 			err := parseFnRoaringSet(agg, k, v)
 			if err != nil {
 				return nil, err
@@ -70,6 +78,11 @@ func (ua unfilteredAggregator) parseBoolProp(ctx context.Context,
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if ! helpers.MatchesPropertyKeyPrefix(b.PropertyPrefix(), k) {
+				continue
+			}
+			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
+			fmt.Printf("k sans prop: %v\n", k)
 			err := parseFnSet(agg, k, v)
 			if err != nil {
 				return nil, err
@@ -85,7 +98,7 @@ func (ua unfilteredAggregator) parseBoolProp(ctx context.Context,
 func (ua unfilteredAggregator) parseAndAddBoolRowSet(agg *boolAggregator, k []byte, v [][]byte) error {
 	if len(k) != 1 {
 		// we expect to see a single byte for a marshalled bool
-		return fmt.Errorf("unexpected key length on inverted index, "+
+		return fmt.Errorf("parseAndAddBoolRowSet: unexpected key length on inverted index, "+
 			"expected 1: got %d", len(k))
 	}
 
@@ -99,7 +112,7 @@ func (ua unfilteredAggregator) parseAndAddBoolRowSet(agg *boolAggregator, k []by
 func (ua unfilteredAggregator) parseAndAddBoolRowRoaringSet(agg *boolAggregator, k []byte, v *sroar.Bitmap) error {
 	if len(k) != 1 {
 		// we expect to see a single byte for a marshalled bool
-		return fmt.Errorf("unexpected key length on inverted index, "+
+		return fmt.Errorf("parseAndAddBoolRowRoaringSet: unexpected key length on inverted index, "+
 			"expected 1: got %d", len(k))
 	}
 
@@ -148,7 +161,8 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 		NumericalAggregations: map[string]interface{}{},
 	}
 
-	b := ua.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name.String()))
+	//b := ua.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name.String()))
+	b := lsmkv.NewBucketProxy(  ua.store.Bucket("filterable_properties"),prop.Name.String(), ua.propertyIds)
 	if b == nil {
 		return nil, errors.Errorf("could not find bucket for prop %s", prop.Name)
 	}
@@ -170,6 +184,12 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if ! helpers.MatchesPropertyKeyPrefix(b.PropertyPrefix(), k) {
+				continue
+			}
+			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
+			fmt.Printf("k sans prop: %v\n", k)
+
 			if err := ua.parseAndAddFloatRowSet(agg, k, v); err != nil {
 				return nil, err
 			}
@@ -189,7 +209,8 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,
 		NumericalAggregations: map[string]interface{}{},
 	}
 
-	b := ua.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name.String()))
+	//b := ua.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name.String()))
+	b := lsmkv.NewBucketProxy(  ua.store.Bucket("filterable_properties"),prop.Name.String(), ua.propertyIds)
 	if b == nil {
 		return nil, errors.Errorf("could not find bucket for prop %s", prop.Name)
 	}
@@ -202,6 +223,11 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if ! helpers.MatchesPropertyKeyPrefix(b.PropertyPrefix(), k) {
+				continue
+			}
+			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
+			fmt.Printf("k sans prop: %v\n", k)
 			if err := ua.parseAndAddIntRowRoaringSet(agg, k, v); err != nil {
 				return nil, err
 			}
@@ -212,6 +238,11 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if ! helpers.MatchesPropertyKeyPrefix(b.PropertyPrefix(), k) {
+				continue
+			}
+			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
+			fmt.Printf("k sans prop: %v\n", k)
 			if err := ua.parseAndAddIntRowSet(agg, k, v); err != nil {
 				return nil, err
 			}
@@ -231,7 +262,8 @@ func (ua unfilteredAggregator) dateProperty(ctx context.Context,
 		DateAggregations: map[string]interface{}{},
 	}
 
-	b := ua.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name.String()))
+	//b := ua.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name.String()))
+	b := lsmkv.NewBucketProxy(  ua.store.Bucket("filterable_properties"),prop.Name.String(), ua.propertyIds)
 	if b == nil {
 		return nil, errors.Errorf("could not find bucket for prop %s", prop.Name)
 	}
@@ -244,6 +276,11 @@ func (ua unfilteredAggregator) dateProperty(ctx context.Context,
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if ! helpers.MatchesPropertyKeyPrefix(b.PropertyPrefix(), k) {
+				continue
+			}
+			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
+			fmt.Printf("k sans prop: %v\n", k)
 			if err := ua.parseAndAddDateRowRoaringSet(agg, k, v); err != nil {
 				return nil, err
 			}
@@ -253,6 +290,12 @@ func (ua unfilteredAggregator) dateProperty(ctx context.Context,
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if ! helpers.MatchesPropertyKeyPrefix(b.PropertyPrefix(), k) {
+				continue
+			}
+			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
+			fmt.Printf("k sans prop: %v\n", k)
+			
 			if err := ua.parseAndAddDateRowSet(agg, k, v); err != nil {
 				return nil, err
 			}
@@ -269,7 +312,7 @@ func (ua unfilteredAggregator) parseAndAddDateRowSet(agg *dateAggregator, k []by
 ) error {
 	if len(k) != 8 {
 		// dates are stored as epoch nanoseconds, we expect to see an int64
-		return fmt.Errorf("unexpected key length on inverted index, "+
+		return fmt.Errorf("parseAndAddDateRowSet: unexpected key length on inverted index, "+
 			"expected 8: got %d", len(k))
 	}
 
@@ -285,8 +328,8 @@ func (ua unfilteredAggregator) parseAndAddDateRowRoaringSet(agg *dateAggregator,
 ) error {
 	if len(k) != 8 {
 		// dates are stored as epoch nanoseconds, we expect to see an int64
-		return fmt.Errorf("unexpected key length on inverted index, "+
-			"expected 8: got %d", len(k))
+		return fmt.Errorf("parseAndAddDateRowRoaringSet: unexpected key length on inverted index, "+
+			"expected 8: got %d (%v)(%s)", len(k), k,k)
 	}
 
 	if err := agg.AddTimestampRow(k, uint64(v.GetCardinality())); err != nil {
@@ -352,7 +395,7 @@ func (ua unfilteredAggregator) parseAndAddFloatRowSet(agg *numericalAggregator, 
 	if len(k) != 8 {
 		// we expect to see either an int64 or a float64, so any non-8 length
 		// is unexpected
-		return fmt.Errorf("unexpected key length on inverted index, "+
+		return fmt.Errorf("parseAndAddFloatRowSet: unexpected key length on inverted index, "+
 			"expected 8: got %d", len(k))
 	}
 
@@ -369,7 +412,7 @@ func (ua unfilteredAggregator) parseAndAddFloatRowRoaringSet(agg *numericalAggre
 	if len(k) != 8 {
 		// we expect to see either an int64 or a float64, so any non-8 length
 		// is unexpected
-		return fmt.Errorf("unexpected key length on inverted index, "+
+		return fmt.Errorf("parseAndAddFloatRowRoaringSet: unexpected key length on inverted index, "+
 			"expected 8: got %d", len(k))
 	}
 
@@ -386,7 +429,7 @@ func (ua unfilteredAggregator) parseAndAddIntRowSet(agg *numericalAggregator, k 
 	if len(k) != 8 {
 		// we expect to see either an int64 or a float64, so any non-8 length
 		// is unexpected
-		return fmt.Errorf("unexpected key length on inverted index, "+
+		return fmt.Errorf("parseAndAddIntRowSet: unexpected key length on inverted index, "+
 			"expected 8: got %d", len(k))
 	}
 
@@ -403,7 +446,7 @@ func (ua unfilteredAggregator) parseAndAddIntRowRoaringSet(agg *numericalAggrega
 	if len(k) != 8 {
 		// we expect to see either an int64 or a float64, so any non-8 length
 		// is unexpected
-		return fmt.Errorf("unexpected key length on inverted index, "+
+		return fmt.Errorf("parseAndAddIntRowRoaringSet: unexpected key length on inverted index, "+
 			"expected 8: got %d", len(k))
 	}
 

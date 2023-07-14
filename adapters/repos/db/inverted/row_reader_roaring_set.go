@@ -119,7 +119,9 @@ func (rr *RowReaderRoaringSet) greaterThan(ctx context.Context,
 	c := rr.newCursor()
 	defer c.Close()
 
-	for k, v := c.Seek(rr.value); k != nil; k, v = c.Next() {
+	value_with_prop := helpers.MakePropertyKey(rr.PropPrefix, rr.value)
+
+	for k, v := c.Seek(value_with_prop); k != nil; k, v = c.Next() {
 		fmt.Printf("rr roaring set: Property prefix: %v\n", rr.PropPrefix)
 		k = helpers.UnMakePropertyKey(rr.PropPrefix, k)
 		fmt.Printf("rr roaring set: k sans prop: %v\n", k)
