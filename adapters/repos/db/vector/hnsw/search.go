@@ -557,16 +557,14 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	}
 
 	if h.shouldRescore() {
-		ids := make([]uint64, res.Len())
-		dists := make([]float32, res.Len())
-		for i, item := range res.Items() {
-			ids[i] = item.ID
-			dists[i] = item.Dist
-		}
-		h.pools.pqResults.Put(res)
-
 		set := h.pools.sortedSets.Get(k)
 		defer h.pools.sortedSets.Put(set)
+		defer h.pools.pqResults.Put(res)
+
+		ids := make([]uint64, ef)
+		for i := range ids {
+			ids[i] = res.Pop().ID
+		}
 
 		for i := 0; i < k; i++ {
 			id := ids[i]
@@ -574,7 +572,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 			set.Insert(id, dist)
 		}
 
-		for i := k; i < len(ids); i++ {
+		for i := k; i < ef; i++ {
 			id := ids[i]
 			dist, _, _ := h.distanceFromBytesToFloatNode(byteDistancer, id)
 			last, _ := set.Last()
@@ -583,6 +581,8 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 			}
 		}
 
+		ids = ids[:k]
+		dists := make([]float32, k)
 		set.CopyItemsTo(k, ids, dists)
 		return ids, dists, nil
 	}
