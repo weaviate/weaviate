@@ -559,12 +559,12 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	if h.shouldRescore() {
 		set := h.pools.sortedSets.Get(k)
 		defer h.pools.sortedSets.Put(set)
-		defer h.pools.pqResults.Put(res)
 
 		ids := make([]uint64, ef)
 		for i := range ids {
 			ids[i] = res.Pop().ID
 		}
+		h.pools.pqResults.Put(res)
 
 		for i := 0; i < k; i++ {
 			id := ids[i]
