@@ -132,6 +132,15 @@ func (s *SortedSet) Items(k int) ([]uint64, []float32) {
 	return ids, dists
 }
 
+func (s *SortedSet) CopyItemsTo(k int, ids []uint64, dists []float32) {
+	k = min(s.last+1, k)
+
+	for i := 0; i < k; i++ {
+		ids[i] = s.items[i].ID
+		dists[i] = s.items[i].Dist
+	}
+}
+
 func (s *SortedSet) Pop() priorityqueue.Item {
 	x := s.items[0]
 	copy(s.items, s.items[1:])
