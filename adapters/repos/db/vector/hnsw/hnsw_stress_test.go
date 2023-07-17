@@ -20,6 +20,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
@@ -57,11 +58,11 @@ func TestHnswStress(t *testing.T) {
 	if _, err := os.Stat(siftFile); err != nil {
 		t.Skip("Sift data needs to be present")
 	}
-	wg := sync.WaitGroup{}
 	vectors := readSiftFloat(siftFile, parallelGoroutines*vectorsPerGoroutine)
 
 	t.Run("Insert and search and maybe delete", func(t *testing.T) {
 		for n := 0; n < 1; n++ { // increase if you don't want to reread SIFT for every run
+			wg := sync.WaitGroup{}
 			index, err := New(Config{
 				RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 				ID:                    "unittest",
@@ -109,6 +110,7 @@ func TestHnswStress(t *testing.T) {
 
 	t.Run("Insert and delete", func(t *testing.T) {
 		for i := 0; i < 1; i++ { // increase if you don't want to reread SIFT for every run
+			wg := sync.WaitGroup{}
 			index, err := New(Config{
 				RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 				ID:                    "unittest",
@@ -137,6 +139,52 @@ func TestHnswStress(t *testing.T) {
 
 			}
 			wg.Wait()
+
+		}
+	})
+
+	t.Run("Concurrent deletes", func(t *testing.T) {
+		for i := 0; i < 10; i++ { // increase if you don't want to reread SIFT for every run
+			wg := sync.WaitGroup{}
+
+			cycle := cyclemanager.NewMulti(cyclemanager.NewFixedIntervalTicker(time.Nanosecond))
+			cycle.Start()
+			index, err := New(Config{
+				RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+				ID:                    "unittest",
+				MakeCommitLoggerThunk: MakeNoopCommitLogger,
+				DistanceProvider:      distancer.NewCosineDistanceProvider(),
+				VectorForIDThunk:      idVector,
+			}, ent.UserConfig{
+				MaxConnections: 30,
+				EFConstruction: 60,
+			}, cycle)
+			require.Nil(t, err)
+			deleteIds := make([]uint64, 50)
+			for j := 0; j < len(deleteIds); j++ {
+				err = index.Add(uint64(j), vectors[j])
+				require.Nil(t, err)
+				deleteIds[j] = uint64(j)
+			}
+			wg.Add(2)
+
+			go func() {
+				err := index.Delete(deleteIds[25:]...)
+				require.Nil(t, err)
+				wg.Done()
+			}()
+			go func() {
+				err := index.Delete(deleteIds[:24]...)
+				require.Nil(t, err)
+				wg.Done()
+			}()
+
+			wg.Wait()
+
+			time.Sleep(time.Microsecond * 100)
+			index.Lock()
+			require.NotNil(t, index.nodes[24])
+			index.Unlock()
 
 		}
 	})
