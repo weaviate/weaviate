@@ -102,6 +102,7 @@ func (rr *RowReaderRoaringSet) equal(ctx context.Context,
 		return err
 	}
 
+	
 	v, err := rr.getter(rr.value)
 	if err != nil {
 		return err

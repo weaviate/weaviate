@@ -67,6 +67,8 @@ func (b *Bucket) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
 		return nil, err
 	}
 
+	fmt.Println( b.DumpStringRoaring())
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 

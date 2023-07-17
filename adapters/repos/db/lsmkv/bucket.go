@@ -65,12 +65,11 @@ type BucketInterface interface {
 	MapCursor(cfgs ...MapListOption) *CursorMap
 	CursorRoaringSet() CursorRoaringSet
 	RoaringSetAddOne(key []byte, value uint64) error
-	FlushAndSwitch() error 
+	FlushAndSwitch() error
 	PropertyPrefix() []byte
-	Cursor() *CursorReplace 
+	Cursor() *CursorReplace
 	RoaringSetRemoveOne(key []byte, value uint64) error
 	RoaringSetAddList(key []byte, values []uint64) error
-
 
 	CursorRoaringSetKeyOnly() CursorRoaringSet
 }
@@ -229,6 +228,8 @@ func (b *Bucket) DumpString() string {
 	return buf.String()
 }
 
+
+
 func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error {
 	i := 0
 	cursor := b.Cursor()
@@ -244,6 +245,33 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 		}
 
 		i++
+	}
+
+	return nil
+}
+
+// Iterate over every entry in the bucket and create a human-readable display of the bucket's contents, and return it as a string.
+func (b *Bucket) DumpStringRoaring() string {
+	var buf bytes.Buffer
+	b.IterateObjectsRoaring(context.Background(), func(object *storobj.Object) error {
+		// Marshall the object to json
+		json, err := json.Marshal(object)
+		if err != nil {
+			return err
+		}
+		buf.WriteString(fmt.Sprintf("%v: %v\n", object.ID(), json))
+		return nil
+	})
+	return buf.String()
+}
+
+func (b *Bucket) IterateObjectsRoaring(ctx context.Context, f func(object *storobj.Object) error) error {
+	cursor := b.cursorRoaringSet(false)
+	defer cursor.Close()
+
+	for k, sbmp := cursor.First(); k != nil; k, sbmp = cursor.Next() {
+		fmt.Printf("IterateObjectsRoaring k: %v, sbmp: %v\n", k, sbmp.ToArray())
+		
 	}
 
 	return nil
