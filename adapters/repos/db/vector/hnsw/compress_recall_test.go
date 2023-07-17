@@ -60,7 +60,9 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 		distancer.NewDotProductProvider(),
 	}
 
-	for _, distancer := range distancers {
+	latencies := []float32{200, 200, 150}
+
+	for distancerIndex, distancer := range distancers {
 		truths := make([][]uint64, queries_size)
 		ssdhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
 			truths[i] = testinghelpers.BruteForce(vectors, queries[i], k, distanceWrapper(distancer))
@@ -125,6 +127,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 			latency := float32(querying.Microseconds()) / float32(queries_size)
 			fmt.Println(recall, latency)
 			assert.True(t, recall > 0.9)
+			assert.True(t, latency > latencies[distancerIndex])
 
 			err := os.RemoveAll(path)
 			if err != nil {
