@@ -39,7 +39,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 		}
 
 		if prop.HasSearchableIndex {
-			bucket := s.store.Bucket("searchable_properties")
+			bucket := lsmkv.NewBucketProxy( s.store.Bucket("searchable_properties"), prop.Name, s.propIds)
 			if bucket == nil {
 				return fmt.Errorf("no bucket searchable for prop '%s' found", prop.Name)
 			}
@@ -57,7 +57,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 	return nil
 }
 
-func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket *lsmkv.Bucket,
+func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket lsmkv.BucketInterface,
 	item inverted.Countable, docID uint64,
 ) error {
 	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
