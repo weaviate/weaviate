@@ -51,12 +51,16 @@ func TestRank(t *testing.T) {
 		c.host = server.URL
 
 		expected := &ent.RankResult{
-			RankPropertyValue: "I work at Apple",
-			Query:             "Where do I work?",
-			Score:             0.9,
+			DocumentScores: []ent.DocumentScore{
+				{
+					Document: "I work at Apple",
+					Score:    0.9,
+				},
+			},
+			Query: "Where do I work?",
 		}
 
-		res, err := c.Rank(context.Background(), nil, "I work at Apple", "Where do I work?")
+		res, err := c.Rank(context.Background(), "Where do I work?", []string{"I work at Apple"}, nil)
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -76,7 +80,7 @@ func TestRank(t *testing.T) {
 		c := New("apiKey", nullLogger())
 		c.host = server.URL
 
-		_, err := c.Rank(context.Background(), nil, "I work at Apple", "Where do I work?")
+		_, err := c.Rank(context.Background(), "I work at Apple", []string{"Where do I work?"}, nil)
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "some error from the server")

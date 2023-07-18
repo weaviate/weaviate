@@ -21,30 +21,26 @@ import (
 
 func Test_classSettings_Validate(t *testing.T) {
 	tests := []struct {
-		name                string
-		cfg                 moduletools.ClassConfig
-		wantModel           string
-		wantReturnDocuments bool
-		wantErr             error
+		name      string
+		cfg       moduletools.ClassConfig
+		wantModel string
+		wantErr   error
 	}{
 		{
 			name: "default settings",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},
-			wantModel:           "rerank-multilingual-v2.0",
-			wantReturnDocuments: false,
+			wantModel: "rerank-multilingual-v2.0",
 		},
 		{
 			name: "custom settings",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"model":           "rerank-english-v2.0",
-					"returnDocuments": true,
+					"model": "rerank-english-v2.0",
 				},
 			},
-			wantModel:           "rerank-english-v2.0",
-			wantReturnDocuments: true,
+			wantModel: "rerank-english-v2.0",
 		},
 		{
 			name: "unsupported model error",
@@ -63,7 +59,6 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.EqualError(t, ic.Validate(nil), tt.wantErr.Error())
 			} else {
 				assert.Equal(t, tt.wantModel, ic.Model())
-				assert.Equal(t, tt.wantReturnDocuments, ic.ReturnDocuments())
 			}
 		})
 	}
