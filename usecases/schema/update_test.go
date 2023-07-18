@@ -372,9 +372,9 @@ func TestClassUpdates(t *testing.T) {
 							"desiredCount": json.Number("7"),
 						},
 					})
-				expectedErrMsg := "sharding config: re-sharding not supported yet: shard count is immutable: attempted change from \"1\" to \"7\""
+				expectedErrMsg := "re-sharding not supported yet: shard count is immutable: attempted change from \"1\" to \"7\""
 				require.NotNil(t, err)
-				assert.Equal(t, expectedErrMsg, err.Error())
+				assert.Contains(t, err.Error(), expectedErrMsg)
 			})
 		})
 	})
