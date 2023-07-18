@@ -110,8 +110,7 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 		}
 
 		if !isIndexTypeSupportedByStrategy(reindexProperty.IndexType, reindexProperty.DesiredStrategy) {
-			err := fmt.Errorf("strategy '%s' is not supported for given index type '%d",
-				reindexProperty.DesiredStrategy, reindexProperty.IndexType)
+			err := fmt.Errorf("strategy '%s' is not supported for given index type '%d",reindexProperty.DesiredStrategy, reindexProperty.IndexType)
 			r.logError(err, "invalid strategy")
 			return err
 		}
@@ -119,8 +118,7 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 		// TODO verify if property indeed need reindex before creating buckets
 		// (is filterable / is searchable / null or prop length index enabled)
 		bucketsToReindex[i] = r.bucketName(reindexProperty.PropertyName, reindexProperty.IndexType)
-		if err := r.createTempBucket(ctx, bucketsToReindex[i], reindexProperty.DesiredStrategy,
-			reindexProperty.BucketOptions...); err != nil {
+		if err := r.createTempBucket(ctx, bucketsToReindex[i], reindexProperty.DesiredStrategy,reindexProperty.BucketOptions...); err != nil {
 			r.logError(err, "failed creating temporary bucket")
 			return err
 		}
@@ -254,6 +252,22 @@ func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexa
 				WithField("shard", r.shard.name).
 				Debugf("iterating through objects: %d done", i)
 		}
+
+		var bucketValue, bucketSearchableValue *lsmkv.Bucket
+
+		
+		bucketValue = r.tempBucket("blah", IndexTypePropValue)
+		if bucketValue == nil {
+			return fmt.Errorf("no bucket for prop IndexTypePropValue value found")
+		}
+	
+	
+		bucketSearchableValue = r.tempBucket("blah", IndexTypePropSearchableValue)
+		if bucketSearchableValue == nil {
+			return fmt.Errorf("no bucket searchable for prop IndexTypePropSearchableValue value found")
+		}
+		
+
 		docID := object.DocID()
 		properties, nilProperties, err := r.shard.analyzeObject(object)
 		if err != nil {
@@ -261,7 +275,7 @@ func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexa
 		}
 
 		for _, property := range properties {
-			if err := r.handleProperty(ctx, checker, docID, property); err != nil {
+			if err := r.handleProperty(ctx, checker, docID, property, bucketValue, bucketSearchableValue); err != nil {
 				return errors.Wrapf(err, "failed reindexing property '%s' of object '%d'", property.Name, docID)
 			}
 		}
@@ -285,8 +299,7 @@ func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexa
 	return nil
 }
 
-func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *reindexablePropertyChecker,
-	docID uint64, property inverted.Property,
+func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *reindexablePropertyChecker, docID uint64, property inverted.Property, bucketValue, bucketSearchableValue lsmkv.BucketInterface,
 ) error {
 	reindexablePropValue := checker.isReindexable(property.Name, IndexTypePropValue)
 	reindexablePropSearchableValue := checker.isReindexable(property.Name, IndexTypePropSearchableValue)
@@ -294,20 +307,9 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 	if reindexablePropValue || reindexablePropSearchableValue {
 		schemaProp := checker.getSchemaProp(property.Name)
 
-		var bucketValue, bucketSearchableValue *lsmkv.Bucket
+		
 
-		if reindexablePropValue {
-			bucketValue = r.tempBucket(property.Name, IndexTypePropValue)
-			if bucketValue == nil {
-				return fmt.Errorf("no bucket for prop '%s' value found", property.Name)
-			}
-		}
-		if reindexablePropSearchableValue {
-			bucketSearchableValue = r.tempBucket(property.Name, IndexTypePropSearchableValue)
-			if bucketSearchableValue == nil {
-				return fmt.Errorf("no bucket searchable for prop '%s' value found", property.Name)
-			}
-		}
+
 
 		propLen := float32(len(property.Items))
 		for _, item := range property.Items {
@@ -406,16 +408,17 @@ func (r *ShardInvertedReindexer) handleNilProperty(ctx context.Context, checker 
 	return nil
 }
 
-func (r *ShardInvertedReindexer) bucketName(propName string, indexType PropertyIndexType) string {
+func (r *ShardInvertedReindexer) bucketName( prop string, indexType PropertyIndexType) string {
 	checkSupportedPropertyIndexType(indexType)
 
 	switch indexType {
 	case IndexTypePropValue:
-		return helpers.BucketFromPropNameLSM(propName)
+		panic("no")
+		return "no"
 	case IndexTypePropSearchableValue:
-		return helpers.BucketSearchableFromPropNameLSM(propName)
+		return "searchable_properties"
 	case IndexTypePropLength:
-		return helpers.BucketFromPropNameLengthLSM(propName)
+		return helpers.BucketFromPropNameLengthLSM(prop)
 	case IndexTypePropNull:
 		return "null_properties"
 	default:
@@ -423,8 +426,8 @@ func (r *ShardInvertedReindexer) bucketName(propName string, indexType PropertyI
 	}
 }
 
-func (r *ShardInvertedReindexer) tempBucket(propName string, indexType PropertyIndexType) *lsmkv.Bucket {
-	tempBucketName := helpers.TempBucketFromBucketName(r.bucketName(propName, indexType))
+func (r *ShardInvertedReindexer) tempBucket(prop string, indexType PropertyIndexType) *lsmkv.Bucket {
+	tempBucketName := helpers.TempBucketFromBucketName( r.bucketName( prop,indexType))
 	return r.shard.store.Bucket(tempBucketName)
 }
 

@@ -46,7 +46,7 @@ func TestFilterNullStateError(t *testing.T) {
 			Classes: []*models.Class{class},
 		},
 	}
-
+	
 	nilFilter := &filters.LocalFilter{
 		Root: &filters.Clause{
 			Operator: filters.OperatorIsNull,

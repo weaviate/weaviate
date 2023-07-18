@@ -553,7 +553,7 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 	}
 
 	return s.store.CreateOrLoadBucket(ctx,
-		"property_length_index",
+		helpers.BucketFromPropNameLengthLSM(prop.Name),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithRegisteredName(helpers.BucketFromPropNameLengthLSM(prop.Name)))
 }

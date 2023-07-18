@@ -25,9 +25,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -60,7 +60,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store, schema schema.Sc
 		store:                  store,
 		schema:                 schema,
 		propIndices:            propIndices,
-		propIds: 			    propIds,
+		propIds:                propIds,
 		classSearcher:          classSearcher,
 		deletedDocIDs:          deletedDocIDs,
 		stopwords:              stopwords,
@@ -93,7 +93,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	return s.objectsByDocID(it, additional)
 }
 
-func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs helpers.AllowList,additional additional.Properties, className schema.ClassName) ([]uint64, error) {
+func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs helpers.AllowList, additional additional.Properties, className schema.ClassName) ([]uint64, error) {
 	lsmSorter, err := sorter.NewLSMSorter(s.store, s.schema, className)
 	if err != nil {
 		return nil, err
@@ -101,7 +101,7 @@ func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, doc
 	return lsmSorter.SortDocIDs(ctx, limit, sort, docIDs)
 }
 
-func (s *Searcher) objectsByDocID(it docIDsIterator,additional additional.Properties) ([]*storobj.Object, error) {
+func (s *Searcher) objectsByDocID(it docIDsIterator, additional additional.Properties) ([]*storobj.Object, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
 		return nil, errors.Errorf("objects bucket not found")
@@ -153,7 +153,7 @@ func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter, addi
 	return s.docIDs(ctx, filter, additional, className, 0)
 }
 
-func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,additional additional.Properties,className schema.ClassName,	limit int) (helpers.AllowList, error) {
+func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter, additional additional.Properties, className schema.ClassName, limit int) (helpers.AllowList, error) {
 	pv, err := s.buildPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err
@@ -171,7 +171,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,addit
 	return helpers.NewAllowListFromBitmap(dbm.DocIDs), nil
 }
 
-func (s *Searcher) buildPropValuePair(filter *filters.Clause,className schema.ClassName) (*propValuePair, error) {
+func (s *Searcher) buildPropValuePair(filter *filters.Clause, className schema.ClassName) (*propValuePair, error) {
 	out := newPropValuePair()
 	if filter.Operands != nil {
 		// nested filter
@@ -224,7 +224,12 @@ func (s *Searcher) buildPropValuePair(filter *filters.Clause,className schema.Cl
 	}
 
 	if filter.Operator == filters.OperatorIsNull {
-		return s.extractPropertyNull(property, filter.Value.Type, filter.Value.Value, filter.Operator)
+		class := s.schema.GetClass(schema.ClassName(className))
+		if class.InvertedIndexConfig.IndexNullState {
+			return s.extractPropertyNull(property, filter.Value.Type, filter.Value.Value, filter.Operator)
+		} else {
+			return nil, errors.Errorf("property %s does not support null state", property.Name)
+		}
 	}
 
 	if s.onGeoProp(property) {
@@ -389,7 +394,7 @@ func (s *Searcher) extractInternalProp(propName string, propType schema.DataType
 	}
 }
 
-func (s *Searcher) extractIDProp(propName string, propType schema.DataType,value interface{}, operator filters.Operator) (*propValuePair, error) {
+func (s *Searcher) extractIDProp(propName string, propType schema.DataType, value interface{}, operator filters.Operator) (*propValuePair, error) {
 	var byteValue []byte
 
 	switch propType {
@@ -413,7 +418,7 @@ func (s *Searcher) extractIDProp(propName string, propType schema.DataType,value
 	}, nil
 }
 
-func (s *Searcher) extractTimestampProp(propName string, propType schema.DataType, value interface{},operator filters.Operator) (*propValuePair, error) {
+func (s *Searcher) extractTimestampProp(propName string, propType schema.DataType, value interface{}, operator filters.Operator) (*propValuePair, error) {
 	var byteValue []byte
 
 	switch propType {
@@ -455,7 +460,7 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 	}, nil
 }
 
-func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema.DataType,value interface{}, operator filters.Operator) (*propValuePair, error) {
+func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema.DataType, value interface{}, operator filters.Operator) (*propValuePair, error) {
 	var terms []string
 
 	switch propType {
@@ -501,7 +506,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 	return nil, errors.Errorf("invalid search term, only stopwords provided. Stopwords can be configured in class.invertedIndexConfig.stopwords")
 }
 
-func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.DataType,value interface{}, operator filters.Operator) (*propValuePair, error) {
+func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.DataType, value interface{}, operator filters.Operator) (*propValuePair, error) {
 	var byteValue []byte
 
 	switch propType {
@@ -525,7 +530,7 @@ func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.
 	}, nil
 }
 
-func (s *Searcher) extractPropertyNull(prop *models.Property, propType schema.DataType,value interface{}, operator filters.Operator) (*propValuePair, error) {
+func (s *Searcher) extractPropertyNull(prop *models.Property, propType schema.DataType, value interface{}, operator filters.Operator) (*propValuePair, error) {
 	var valResult []byte
 
 	switch propType {

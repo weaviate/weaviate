@@ -12,15 +12,16 @@
 package db
 
 import (
-	"regexp"
+	//"regexp"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	//"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func GetPropNameAndIndexTypeFromBucketName(bucketName string) (string, PropertyIndexType) {
-	propRegexpGroup := "(?P<propName>.*)"
+	panic("nope")
+/*	propRegexpGroup := "(?P<propName>.*)"
 
 	types := []struct {
 		indexType    PropertyIndexType
@@ -54,6 +55,7 @@ func GetPropNameAndIndexTypeFromBucketName(bucketName string) (string, PropertyI
 			return matches[r.SubexpIndex("propName")], t.indexType
 		}
 	}
+	*/
 	return "", 0
 }
 
