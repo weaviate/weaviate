@@ -35,7 +35,7 @@ func (v *vectorizer) WaitForStartup(initCtx context.Context,
 			}
 			v.logger.
 				WithField("action", "multi2vec_remote_wait_for_startup").
-				WithError(lastErr).Warnf("multi2vec-clip inference service not ready")
+				WithError(lastErr).Warnf("multi2vec-bind inference service not ready")
 		case <-expired:
 			return errors.Wrapf(lastErr, "init context expired before remote was ready")
 		}
