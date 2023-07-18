@@ -29,48 +29,52 @@ func (p *ReRankerCohereProvider) getScore(ctx context.Context, cfg moduletools.C
 ) ([]search.Result, error) {
 	if len(in) == 0 {
 		return nil, nil
-	} else {
-		if params == nil {
-			return nil, fmt.Errorf("no params provided")
-		}
+	}
+	if params == nil {
+		return nil, fmt.Errorf("no params provided")
+	}
 
-		rankProperty := params.GetProperty()
-		query := params.GetQuery()
+	rankProperty := params.GetProperty()
+	query := params.GetQuery()
 
-		// check if user parameter values are valid
-		if len(rankProperty) == 0 {
-			return in, errors.New("no properties provided")
-		}
+	// check if user parameter values are valid
+	if len(rankProperty) == 0 {
+		return in, errors.New("no properties provided")
+	}
 
-		for i := range in { // for each result of the general GraphQL Query
-			// get text property
-			rankPropertyValue := ""
-			schema := in[i].Object().Properties.(map[string]interface{})
-			for property, value := range schema {
-				if valueString, ok := value.(string); ok {
-					if property == rankProperty {
-						rankPropertyValue = valueString
-					}
+	documents := make([]string, len(in))
+	for i := range in { // for each result of the general GraphQL Query
+		// get text property
+		rankPropertyValue := ""
+		schema := in[i].Object().Properties.(map[string]interface{})
+		for property, value := range schema {
+			if valueString, ok := value.(string); ok {
+				if property == rankProperty {
+					rankPropertyValue = valueString
 				}
 			}
+		}
+		documents[i] = rankPropertyValue
+	}
 
-			ap := in[i].AdditionalProperties
-			if ap == nil {
-				ap = models.AdditionalProperties{}
-			}
+	// rank results
+	result, err := p.client.Rank(ctx, query, documents, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("error ranking with cohere: %w", err)
+	}
 
-			result, err := p.client.Rank(ctx, cfg, rankPropertyValue, query)
-			if err != nil {
-				return nil, fmt.Errorf("error ranking with cohere: %w", err)
-			}
-			ap["rerank"] = []*rerankmodels.RankResult{
-				{
-					Score: &result.Score,
-				},
-			}
-			in[i].AdditionalProperties = ap
+	// add scores to results
+	for i := range in {
+		if in[i].AdditionalProperties == nil {
+			in[i].AdditionalProperties = models.AdditionalProperties{}
+		}
+		in[i].AdditionalProperties["rerank"] = []*rerankmodels.RankResult{
+			{
+				Score: &result.DocumentScores[i].Score,
+			},
 		}
 	}
+
 	// sort the list
 	sort.Slice(in, func(i, j int) bool {
 		apI := in[i].AdditionalProperties["rerank"].([]*rerankmodels.RankResult)
