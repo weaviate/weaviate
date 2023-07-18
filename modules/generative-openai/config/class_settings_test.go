@@ -157,6 +157,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantFrequencyPenalty: 0.1,
 			wantPresencePenalty:  0.9,
 			wantErr:              nil,
+			wantBaseURL:          "https://api.openai.com",
 		},
 		{
 			name: "Wrong maxTokens configured",
