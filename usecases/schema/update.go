@@ -38,6 +38,10 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 	if initial == nil {
 		return ErrNotFound
 	}
+	mtEnabled, err := validateUpdatingMT(initial, updated)
+	if err != nil {
+		return err
+	}
 
 	// make sure unset optionals on 'updated' don't lead to an error, as all
 	// optionals would have been set with defaults on the initial already
@@ -65,10 +69,8 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 		initial.InvertedIndexConfig, updated.InvertedIndexConfig); err != nil {
 		return errors.Wrap(err, "inverted index config")
 	}
-
-	if err := sharding.ValidateConfigUpdate(initial.ShardingConfig.(sharding.Config),
-		updated.ShardingConfig.(sharding.Config), m.clusterState); err != nil {
-		return errors.Wrap(err, "sharding config")
+	if err := validateShardingConfig(initial, updated, mtEnabled, m.clusterState); err != nil {
+		return fmt.Errorf("validate sharding config: %w", err)
 	}
 
 	if err := replica.ValidateConfigUpdate(initial, updated, m.clusterState); err != nil {
@@ -102,6 +104,37 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 	}
 
 	return m.updateClassApplyChanges(ctx, className, updated, updatedState)
+}
+
+// validateUpdatingMT validates toggling MT and returns whether mt is enabled
+func validateUpdatingMT(current, update *models.Class) (enabled bool, err error) {
+	enabled = schema.MultiTenancyEnabled(current)
+	if schema.MultiTenancyEnabled(update) != enabled {
+		if enabled {
+			err = fmt.Errorf("disabling multi-tenancy for an existing class is not supported")
+		} else {
+			err = fmt.Errorf("enabling multi-tenancy for an existing class is not supported")
+		}
+	}
+	return
+}
+
+func validateShardingConfig(current, update *models.Class, mtEnabled bool, cl clusterState) error {
+	if mtEnabled {
+		return nil
+	}
+	first, ok := current.ShardingConfig.(sharding.Config)
+	if !ok {
+		return fmt.Errorf("current config is not well-formed")
+	}
+	second, ok := update.ShardingConfig.(sharding.Config)
+	if !ok {
+		return fmt.Errorf("updated config is not well-formed")
+	}
+	if err := sharding.ValidateConfigUpdate(first, second, cl); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
