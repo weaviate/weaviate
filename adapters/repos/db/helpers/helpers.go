@@ -57,7 +57,8 @@ func BucketFromPropNameLengthLSM(propName string) string {
 }
 
 func BucketFromPropNameNullLSM(propName string) string {
-	return BucketFromPropNameLSM(PropNull(propName))
+	//return BucketFromPropNameLSM(PropNull(propName))
+	return "filterable_properties"
 }
 
 func BucketFromPropNameMetaCountLSM(propName string) string {

@@ -307,7 +307,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		index := repo.indices["testclass"]
 		n := 0
 		index.ForEachShard(func(_ string, shard *Shard) error {
-			bucketNull := shard.store.Bucket(helpers.BucketFromPropNameNullLSM("name"))
+			bucketNull := shard.store.Bucket("filterable_properties")
 			require.NotNil(t, bucketNull)
 			n++
 			return nil

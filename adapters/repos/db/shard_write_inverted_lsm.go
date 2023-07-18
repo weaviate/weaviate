@@ -121,10 +121,7 @@ func (s *Shard) addToPropertyLengthIndex(propName string, docID uint64, length i
 }
 
 func (s *Shard) addToPropertyNullIndex(propName string, docID uint64, isNull bool) error {
-	bucketNull ,err:= s.wrapBucketWithProp(  s.store.Bucket("null_properties"), propName, s.propIds)
-	if err != nil {
-		return errors.Errorf("no bucket for prop '%s' null found", propName)
-	}
+
 
 
 	key, err := s.keyPropertyNull(isNull)
@@ -132,13 +129,13 @@ func (s *Shard) addToPropertyNullIndex(propName string, docID uint64, isNull boo
 		return errors.Wrapf(err, "failed creating key for prop '%s' null", propName)
 	}
 
-	prefix, err  := helpers.MakePropertyPrefix(propName, s.propIds)
-	if err != nil {
-		return errors.Wrapf(err, "failed creating prefix for prop '%s' null", propName)
-	}
-	real_key := helpers.MakePropertyKey(prefix, key)
 
-	if err := s.addToPropertySetBucket(bucketNull, docID, real_key); err != nil {
+	bucketNull ,err:= s.wrapBucketWithProp(  s.store.Bucket("filterable_properties"), helpers.PropNull(propName), s.propIds)
+	if err != nil {
+		return errors.Errorf("no bucket for prop '%s' null found", propName)
+	}
+
+	if err := s.addToPropertySetBucket(bucketNull, docID, key); err != nil {
 		return errors.Wrapf(err, "failed adding to prop '%s' null bucket", propName)
 	}
 	return nil
