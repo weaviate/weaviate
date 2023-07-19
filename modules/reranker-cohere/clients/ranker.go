@@ -20,7 +20,6 @@ import (
 	"net/http"
 	"net/url"
 	"runtime"
-	"sort"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -54,23 +53,23 @@ func New(apiKey string, logger logrus.FieldLogger) *client {
 	}
 }
 
-func (v *client) Rank(ctx context.Context, query string, documents []string,
+func (c *client) Rank(ctx context.Context, query string, documents []string,
 	cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
-	var batchRankResponses []*batchRankResponse
 	eg := &errgroup.Group{}
 	eg.SetLimit(_NUMCPU)
 
-	batchRankRequests := v.chunkDocuments(documents, v.maxDocuments)
-	for i := range batchRankRequests {
-		request := batchRankRequests[i]
+	chunkedDocuments := c.chunkDocuments(documents, c.maxDocuments)
+	documentScoreResponses := make([][]ent.DocumentScore, len(chunkedDocuments))
+	for i := range chunkedDocuments {
+		i := i // https://golang.org/doc/faq#closures_and_goroutines
 		eg.Go(func() error {
-			batchRankResponse, err := v.performRank(ctx, query, request, cfg)
+			documentScoreResponse, err := c.performRank(ctx, query, chunkedDocuments[i], cfg)
 			if err != nil {
 				return err
 			}
-			v.lockGuard(func() {
-				batchRankResponses = append(batchRankResponses, batchRankResponse)
+			c.lockGuard(func() {
+				documentScoreResponses[i] = documentScoreResponse
 			})
 			return nil
 		})
@@ -79,26 +78,26 @@ func (v *client) Rank(ctx context.Context, query string, documents []string,
 		return nil, err
 	}
 
-	return v.toRankResult(query, batchRankResponses), nil
+	return c.toRankResult(query, documentScoreResponses), nil
 }
 
-func (v *client) lockGuard(mutate func()) {
-	v.lock.Lock()
-	defer v.lock.Unlock()
+func (c *client) lockGuard(mutate func()) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	mutate()
 }
 
-func (v *client) performRank(ctx context.Context, query string, request batchRankRequest,
+func (c *client) performRank(ctx context.Context, query string, documents []string,
 	cfg moduletools.ClassConfig,
-) (*batchRankResponse, error) {
+) ([]ent.DocumentScore, error) {
 	settings := config.NewClassSettings(cfg)
-	cohereUrl, err := url.JoinPath(v.host, v.path)
+	cohereUrl, err := url.JoinPath(c.host, c.path)
 	if err != nil {
 		return nil, errors.Wrap(err, "join Cohere API host and path")
 	}
 
 	input := RankInput{
-		Documents:       request.documents,
+		Documents:       documents,
 		Query:           query,
 		Model:           settings.Model(),
 		ReturnDocuments: false,
@@ -114,14 +113,14 @@ func (v *client) performRank(ctx context.Context, query string, request batchRan
 		return nil, errors.Wrap(err, "create POST request")
 	}
 
-	apiKey, err := v.getApiKey(ctx)
+	apiKey, err := c.getApiKey(ctx)
 	if err != nil {
 		return nil, errors.Wrapf(err, "Cohere API Key")
 	}
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	req.Header.Add("Content-Type", "application/json")
 
-	res, err := v.httpClient.Do(req)
+	res, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, errors.Wrap(err, "send POST request")
 	}
@@ -148,15 +147,11 @@ func (v *client) performRank(ctx context.Context, query string, request batchRan
 	if err := json.Unmarshal(bodyBytes, &rankResponse); err != nil {
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
-	return &batchRankResponse{
-		index:          request.index,
-		documentScores: v.toDocumentScores(request.documents, rankResponse.Results),
-	}, nil
+	return c.toDocumentScores(documents, rankResponse.Results), nil
 }
 
-func (v *client) chunkDocuments(documents []string, chunkSize int) []batchRankRequest {
-	var requests []batchRankRequest
-	index := 0
+func (c *client) chunkDocuments(documents []string, chunkSize int) [][]string {
+	var requests [][]string
 	for i := 0; i < len(documents); i += chunkSize {
 		end := i + chunkSize
 
@@ -164,17 +159,13 @@ func (v *client) chunkDocuments(documents []string, chunkSize int) []batchRankRe
 			end = len(documents)
 		}
 
-		requests = append(requests, batchRankRequest{
-			index:     index,
-			documents: documents[i:end],
-		})
-		index++
+		requests = append(requests, documents[i:end])
 	}
 
 	return requests
 }
 
-func (v *client) toDocumentScores(documents []string, results []Result) []ent.DocumentScore {
+func (c *client) toDocumentScores(documents []string, results []Result) []ent.DocumentScore {
 	documentScores := make([]ent.DocumentScore, len(results))
 	for _, result := range results {
 		documentScores[result.Index] = ent.DocumentScore{
@@ -185,18 +176,10 @@ func (v *client) toDocumentScores(documents []string, results []Result) []ent.Do
 	return documentScores
 }
 
-func (v *client) toRankResult(query string, results []*batchRankResponse) *ent.RankResult {
-	if len(results) > 1 {
-		// we need to reconstruct the order of the document chunks
-		// that's why all of the batch rank requests have index field
-		// so that we could then reconstruct the order of the documents
-		sort.Slice(results, func(i, j int) bool {
-			return results[i].index < results[j].index
-		})
-	}
+func (c *client) toRankResult(query string, results [][]ent.DocumentScore) *ent.RankResult {
 	documentScores := []ent.DocumentScore{}
 	for i := range results {
-		documentScores = append(documentScores, results[i].documentScores...)
+		documentScores = append(documentScores, results[i]...)
 	}
 	return &ent.RankResult{
 		Query:          query,
@@ -204,9 +187,9 @@ func (v *client) toRankResult(query string, results []*batchRankResponse) *ent.R
 	}
 }
 
-func (v *client) getApiKey(ctx context.Context) (string, error) {
-	if len(v.apiKey) > 0 {
-		return v.apiKey, nil
+func (c *client) getApiKey(ctx context.Context) (string, error) {
+	if len(c.apiKey) > 0 {
+		return c.apiKey, nil
 	}
 	apiKey := ctx.Value("X-Cohere-Api-Key")
 	if apiKeyHeader, ok := apiKey.([]string); ok &&
@@ -216,16 +199,6 @@ func (v *client) getApiKey(ctx context.Context) (string, error) {
 	return "", errors.New("no api key found " +
 		"neither in request header: X-Cohere-Api-Key " +
 		"nor in environment variable under COHERE_APIKEY")
-}
-
-type batchRankRequest struct {
-	index     int
-	documents []string
-}
-
-type batchRankResponse struct {
-	index          int
-	documentScores []ent.DocumentScore
 }
 
 type RankInput struct {

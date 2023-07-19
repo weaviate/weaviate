@@ -18,8 +18,7 @@ import (
 )
 
 const (
-	modelProperty   = "model"
-	returnDocuments = "returnDocuments"
+	modelProperty = "model"
 )
 
 var availableCohereModels = []string{
