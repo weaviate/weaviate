@@ -86,7 +86,6 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 		args.Query = query.(string)
 	}
 
-	// there is a default value in graphql, this value should always be present
 	fusionType, ok := source["fusionType"]
 	if ok {
 		args.FusionAlgorithm = fusionType.(int)
