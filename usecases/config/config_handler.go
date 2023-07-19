@@ -53,6 +53,11 @@ const (
 )
 
 const (
+	HybridRankedFusion = iota
+	HybridRelativeScoreFusion
+)
+
+const (
 	DefaultMaxImportGoroutinesFactor = float64(1.5)
 
 	DefaultDiskUseWarningPercentage  = uint64(80)

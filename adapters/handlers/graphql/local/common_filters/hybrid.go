@@ -90,6 +90,8 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 	fusionType, ok := source["fusionType"]
 	if ok {
 		args.FusionAlgorithm = fusionType.(int)
+	} else {
+		args.FusionAlgorithm = config.HybridRankedFusion
 	}
 	if _, ok := source["vector"]; ok {
 		vector := source["vector"].([]interface{})
