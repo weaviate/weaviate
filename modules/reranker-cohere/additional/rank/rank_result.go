@@ -48,8 +48,8 @@ func (p *ReRankerCohereProvider) getScore(ctx context.Context, cfg moduletools.C
 		rankPropertyValue := ""
 		schema := in[i].Object().Properties.(map[string]interface{})
 		for property, value := range schema {
-			if valueString, ok := value.(string); ok {
-				if property == rankProperty {
+			if property == rankProperty {
+				if valueString, ok := value.(string); ok {
 					rankPropertyValue = valueString
 				}
 			}
