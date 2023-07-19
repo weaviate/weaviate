@@ -20,11 +20,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-const (
-	HybridRankedFusion = iota
-	HybridRelativeScoreFusion
-)
-
 func hybridArgument(classObject *graphql.Object,
 	class *models.Class, modulesProvider ModulesProvider, fusionEnum *graphql.Enum,
 ) *graphql.ArgumentConfig {
