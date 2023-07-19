@@ -347,6 +347,11 @@ func (s *Shard) drop() error {
 		return errors.Wrapf(err, "remove prop length tracker at %s", s.DBPathLSM())
 	}
 
+	err = s.propIds.Drop()
+	if err != nil {
+		return errors.Wrapf(err, "remove prop id tracker at %s", s.DBPathLSM())
+	}
+
 	// TODO: can we remove this?
 	s.deletedDocIDs.BulkRemove(s.deletedDocIDs.GetAll())
 	s.propertyIndicesLock.Lock()
