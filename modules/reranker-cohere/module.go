@@ -38,7 +38,7 @@ type ReRankerCohereModule struct {
 }
 
 type ReRankerCohereClient interface {
-	Rank(ctx context.Context, cfg moduletools.ClassConfig, property string, query string) (*ent.RankResult, error)
+	Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
 	MetaInfo() (map[string]interface{}, error)
 }
 
