@@ -1150,9 +1150,9 @@ func (i *Index) targetShardNames(tenant string) ([]string, error) {
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
-	dist float32, limit int, filters *filters.LocalFilter,
-	sort []filters.Sort, groupBy *searchparams.GroupBy,
-	additional additional.Properties, tenant string,
+	dist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort,
+	groupBy *searchparams.GroupBy, additional additional.Properties,
+	replProps *additional.ReplicationProperties, tenant string,
 ) ([]*storobj.Object, []float32, error) {
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
@@ -1197,6 +1197,9 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 				if err != nil {
 					return errors.Wrapf(err, "shard %s", shard.ID())
 				}
+				if i.replicationEnabled() {
+					storobj.AddOwnership(res, i.getSchema.NodeName(), shardName)
+				}
 			} else {
 				res, resDists, err = i.remote.SearchShard(ctx,
 					shardName, searchVector, limit, filters,
@@ -1235,6 +1238,18 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]
 		dists = dists[:limit]
+	}
+
+	if i.replicationEnabled() {
+		if replProps == nil {
+			replProps = defaultConsistency(replica.One)
+		}
+		l := replica.ConsistencyLevel(replProps.ConsistencyLevel)
+		err = i.replicator.CheckConsistency(ctx, l, out)
+		if err != nil {
+			i.logger.WithField("action", "object_vector_search").
+				Errorf("failed to check consistency of search results: %v", err)
+		}
 	}
 
 	return out, dists, nil

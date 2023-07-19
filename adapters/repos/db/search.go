@@ -112,7 +112,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 	targetDist := extractDistanceFromParams(params)
 	res, dists, err := idx.objectVectorSearch(ctx, params.SearchVector,
 		targetDist, totalLimit, params.Filters, params.Sort, params.GroupBy,
-		params.AdditionalProperties, params.Tenant)
+		params.AdditionalProperties, params.ReplicationProperties, params.Tenant)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
 	}
@@ -154,8 +154,8 @@ func (db *DB) DenseObjectSearch(ctx context.Context, class string, vector []floa
 	}
 
 	// TODO: groupBy think of this
-	objs, dist, err := index.objectVectorSearch(
-		ctx, vector, 0, totalLimit, filters, nil, nil, addl, tenant)
+	objs, dist, err := index.objectVectorSearch(ctx, vector, 0,
+		totalLimit, filters, nil, nil, addl, nil, tenant)
 	if err != nil {
 		return nil, nil, fmt.Errorf("search index %s: %w", index.ID(), err)
 	}
@@ -179,8 +179,9 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, offs
 		go func(index *Index, wg *sync.WaitGroup) {
 			defer wg.Done()
 
-			objs, dist, err := index.objectVectorSearch(
-				ctx, vector, 0, totalLimit, filters, nil, nil, additional.Properties{}, "")
+			objs, dist, err := index.objectVectorSearch(ctx, vector,
+				0, totalLimit, filters, nil, nil,
+				additional.Properties{}, nil, "")
 			if err != nil {
 				mutex.Lock()
 				searchErrors = append(searchErrors, errors.Wrapf(err, "search index %s", index.ID()))

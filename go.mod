@@ -48,7 +48,7 @@ require (
 	github.com/coreos/go-oidc/v3 v3.4.0
 	github.com/googleapis/gax-go/v2 v2.11.0
 	github.com/pkoukk/tiktoken-go v0.1.1
-	github.com/tailor-inc/graphql v0.4.1
+	github.com/tailor-inc/graphql v0.2.1
 	github.com/weaviate/sroar v0.0.0-20230210105426-26108af5465d
 	golang.org/x/text v0.9.0
 	google.golang.org/protobuf v1.30.0
