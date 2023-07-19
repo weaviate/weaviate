@@ -213,9 +213,9 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		productsIds[1], nil, additional.Properties{}, nil, "")
 	require.Nil(t, err)
 
-	assert.Equal(t, 6, len(indexFilesBeforeDelete))
+	assert.Equal(t, 8, len(indexFilesBeforeDelete))
 	assert.Equal(t, 0, len(indexFilesAfterDelete))
-	assert.Equal(t, 6, len(indexFilesAfterRecreate))
+	assert.Equal(t, 8, len(indexFilesAfterRecreate))
 	assert.Equal(t, indexFilesBeforeDelete, indexFilesAfterRecreate)
 	assert.NotNil(t, beforeDeleteObj1)
 	assert.NotNil(t, beforeDeleteObj2)
