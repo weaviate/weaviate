@@ -12,7 +12,11 @@
 package ent
 
 type RankResult struct {
-	Query             string
-	RankPropertyValue string
-	Score             float64
+	Query          string
+	DocumentScores []DocumentScore
+}
+
+type DocumentScore struct {
+	Document string
+	Score    float64
 }
