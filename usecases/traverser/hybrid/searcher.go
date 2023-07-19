@@ -15,9 +15,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/autocut"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
+	"github.com/weaviate/weaviate/entities/autocut"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -157,9 +157,9 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 	}
 
 	var fused []*Result
-	if s.params.FusionAlgorithm == get.HybridRankedFusion {
+	if s.params.FusionAlgorithm == common_filters.HybridRankedFusion {
 		fused = FusionRanked(weights, found)
-	} else if s.params.FusionAlgorithm == get.HybridRelativeScoreFusion {
+	} else if s.params.FusionAlgorithm == common_filters.HybridRelativeScoreFusion {
 		fused = FusionRelativeScore(weights, found)
 	} else {
 		return nil, fmt.Errorf("unknown ranking algorithm %v for hybrid search", s.params.FusionAlgorithm)
