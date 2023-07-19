@@ -15,7 +15,12 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/usecases/config"
+)
+
+const DefaultAlpha = float64(0.75)
+const (
+	HybridRankedFusion = iota
+	HybridRelativeScoreFusion
 )
 
 func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*searchparams.HybridSearch, error) {
@@ -74,7 +79,7 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 	if ok {
 		args.Alpha = alpha.(float64)
 	} else {
-		args.Alpha = config.DefaultAlpha
+		args.Alpha = DefaultAlpha
 	}
 
 	if args.Alpha < 0 || args.Alpha > 1 {
@@ -90,7 +95,7 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 	if ok {
 		args.FusionAlgorithm = fusionType.(int)
 	} else {
-		args.FusionAlgorithm = config.HybridRankedFusion
+		args.FusionAlgorithm = HybridRankedFusion
 	}
 	if _, ok := source["vector"]; ok {
 		vector := source["vector"].([]interface{})
