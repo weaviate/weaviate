@@ -16,6 +16,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/weaviate/weaviate/modules/reranker-cohere/additional/models"
 	"github.com/weaviate/weaviate/modules/reranker-cohere/ent"
 
 	"github.com/stretchr/testify/assert"
@@ -119,23 +120,28 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		answer, answerOK := in[0].AdditionalProperties["rerank"]
 		assert.True(t, answerOK)
 		assert.NotNil(t, answer)
-		answerAdditional, _ := answer.(ent.RankResult)
-		// assert.True(t, answerAdditionalOK)
-		assert.Equal(t, float64(0), answerAdditional.Score)
+		answerAdditional, ok := answer.([]*models.RankResult)
+		require.True(t, ok)
+		require.Len(t, answerAdditional, 1)
+		assert.Equal(t, float64(0.15), *answerAdditional[0].Score)
 	})
 }
 
 type fakeRankClient struct{}
 
-func (c *fakeRankClient) Rank(ctx context.Context, cfg moduletools.ClassConfig, rankpropertyValue string, query string) (result *ent.RankResult, err error) {
+func (c *fakeRankClient) Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (result *ent.RankResult, err error) {
 	if query == "unavailable" {
 		return nil, errors.New("unavailable")
 	}
 	score := 0.15
 	result = &ent.RankResult{
-		Score:             score,
-		Query:             query,
-		RankPropertyValue: rankpropertyValue,
+		DocumentScores: []ent.DocumentScore{
+			{
+				Document: documents[0],
+				Score:    score,
+			},
+		},
+		Query: query,
 	}
 	return result, nil
 }

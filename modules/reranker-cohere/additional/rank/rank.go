@@ -22,15 +22,15 @@ import (
 	"github.com/weaviate/weaviate/modules/reranker-cohere/ent"
 )
 
-type ReRankerCohereClient interface {
-	Rank(ctx context.Context, cfg moduletools.ClassConfig, rankpropertyValue string, query string) (*ent.RankResult, error)
+type ReRankerClient interface {
+	Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
 }
 
 type ReRankerCohereProvider struct {
-	client ReRankerCohereClient
+	client ReRankerClient
 }
 
-func New(reranker ReRankerCohereClient) *ReRankerCohereProvider {
+func New(reranker ReRankerClient) *ReRankerCohereProvider {
 	return &ReRankerCohereProvider{reranker}
 }
 
