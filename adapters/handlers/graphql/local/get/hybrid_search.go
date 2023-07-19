@@ -66,9 +66,8 @@ func hybridOperands(classObject *graphql.Object,
 			Type:        graphql.NewList(graphql.String),
 		},
 		"fusionType": &graphql.InputObjectFieldConfig{
-			Description:  "Algorithm used for fusing results from vector and keyword search",
-			DefaultValue: fusionEnum.Values()[0].Name,
-			Type:         fusionEnum,
+			Description: "Algorithm used for fusing results from vector and keyword search",
+			Type:        fusionEnum,
 		},
 	}
 
