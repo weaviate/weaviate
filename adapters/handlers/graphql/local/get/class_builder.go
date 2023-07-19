@@ -14,7 +14,7 @@ package get
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -72,10 +72,10 @@ func (b *classBuilder) kinds(kindSchema *models.Schema) (*graphql.Object, error)
 		Name: "FusionEnum",
 		Values: graphql.EnumValueConfigMap{
 			"rankedFusion": &graphql.EnumValueConfig{
-				Value: config.HybridRankedFusion,
+				Value: common_filters.HybridRankedFusion,
 			},
 			"relativeScoreFusion": &graphql.EnumValueConfig{
-				Value: config.HybridRelativeScoreFusion,
+				Value: common_filters.HybridRelativeScoreFusion,
 			},
 		},
 	})
