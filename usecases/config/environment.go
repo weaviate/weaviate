@@ -335,7 +335,10 @@ func parsePositiveInt(varName string, cb func(val int), defaultValue int) error 
 	return nil
 }
 
-const DefaultQueryMaximumResults = int64(10000)
+const (
+	DefaultQueryMaximumResults = int64(10000)
+	DefaultQueryReferenceLimit = int64(100000)
+)
 
 const (
 	DefaultPersistenceFlushIdleMemtablesAfter = 60

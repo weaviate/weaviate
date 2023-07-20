@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
+	"strconv"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -25,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // a helper tool to extract the uuid beacon for any matching reference
@@ -79,16 +82,9 @@ func (r *refFilterExtractor) paramsForNestedRequest() (dto.GetParams, error) {
 		Filters:   r.innerFilter(),
 		ClassName: r.filter.On.Child.Class.String(),
 		Pagination: &filters.Pagination{
-			// The limit is chosen arbitrarily, it used to be 1e4 in the ES-based
-			// implementation, so using a 10x as high value should be safe. However,
-			// we might come back to reduce this number in case this leads to
-			// unexpected performance issues
-			// Limit: int(config.DefaultQueryMaximumResults),
-
-			// due to reported issue https://github.com/weaviate/weaviate/issues/2537
-			// ref search is temporarily (until better solution) effectively unlimited
 			Offset: 0,
-			Limit:  math.MaxInt,
+			// Limit can be set to dynamically with QUERY_REF_LIMIT
+			Limit: determineRefLimit(),
 		},
 		// set this to indicate that this is a sub-query, so we do not need
 		// to perform the same search limits cutoff check that we do with
@@ -244,4 +240,14 @@ func (r *refFilterExtractor) validate() error {
 	}
 
 	return nil
+}
+
+func determineRefLimit() int {
+	limit, err := strconv.ParseInt(os.Getenv("QUERY_REF_LIMIT"), 10, 64)
+	if err != nil {
+		limit = config.DefaultQueryReferenceLimit
+	} else if limit < 0 {
+		limit = math.MaxInt
+	}
+	return int(limit)
 }
