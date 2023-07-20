@@ -109,7 +109,7 @@ func Test_ReferenceAdd(t *testing.T) {
 			Ref:      ref,
 		}
 		source = crossref.NewSource(schema.ClassName(cls), schema.PropertyName(prop), id)
-		target = crossref.New("localhost", "", refID)
+		target = crossref.New("localhost", "Animal", refID)
 	)
 
 	tests := []struct {

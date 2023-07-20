@@ -24,6 +24,56 @@ import (
 	testhelper "github.com/weaviate/weaviate/test/helper"
 )
 
+func Test_refs_without_to_class(t *testing.T) {
+	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{Class: "ReferenceTo"})
+	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+
+	refFromClass := &models.Class{
+		Class: "ReferenceFrom",
+		Properties: []*models.Property{
+			{
+				DataType: []string{"ReferenceTo"},
+				Name:     "ref",
+			},
+		},
+	}
+	params2 := clschema.NewSchemaObjectsCreateParams().WithObjectClass(refFromClass)
+	resp2, err := helper.Client(t).Schema.SchemaObjectsCreate(params2, nil)
+	helper.AssertRequestOk(t, resp2, err, nil)
+
+	defer deleteObjectClass(t, "ReferenceTo")
+	defer deleteObjectClass(t, "ReferenceFrom")
+
+	refToId := assertCreateObject(t, "ReferenceTo", map[string]interface{}{})
+	assertGetObjectEventually(t, refToId)
+	refFromId := assertCreateObject(t, "ReferenceFrom", map[string]interface{}{})
+	assertGetObjectEventually(t, refFromId)
+
+	postRefParams := objects.NewObjectsClassReferencesCreateParams().
+		WithID(refFromId).
+		WithPropertyName("ref").WithClassName(refFromClass.Class).
+		WithBody(&models.SingleRef{
+			Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", refToId.String())),
+		})
+	postRefResponse, err := helper.Client(t).Objects.ObjectsClassReferencesCreate(postRefParams, nil)
+	helper.AssertRequestOk(t, postRefResponse, err, nil)
+
+	// validate that ref was create for the correct class
+	objWithRef := func() interface{} {
+		obj := assertGetObjectWithClass(t, refFromId, "ReferenceFrom")
+		return obj.Properties
+	}
+	testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+		"ref": []interface{}{
+			map[string]interface{}{
+				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", "ReferenceTo", refToId.String()),
+				"href":   fmt.Sprintf("/v1/objects/%s/%s", "ReferenceTo", refToId.String()),
+			},
+		},
+	}, objWithRef)
+}
+
 // This test suite is meant to prevent a regression on
 // https://github.com/weaviate/weaviate/issues/868, hence it tries to
 // reprodcue the steps outlined in there as closely as possible
