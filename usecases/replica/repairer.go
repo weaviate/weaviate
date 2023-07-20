@@ -87,6 +87,7 @@ func (r *repairer) repairOne(ctx context.Context,
 		gr.Go(func() error {
 			ups := []*objects.VObject{{
 				LatestObject:    &updates.Object.Object,
+				Vector:          updates.Object.Vector,
 				StaleUpdateTime: vote.UTime,
 			}}
 			resp, err := cl.Overwrite(ctx, vote.sender, r.class, shard, ups)
@@ -150,6 +151,7 @@ func (r *repairer) repairExist(ctx context.Context,
 		gr.Go(func() error {
 			ups := []*objects.VObject{{
 				LatestObject:    &resp.Object.Object,
+				Vector:          resp.Object.Vector,
 				StaleUpdateTime: vote.UTime,
 			}}
 			resp, err := cl.Overwrite(ctx, vote.sender, r.class, shard, ups)
@@ -263,7 +265,12 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		for j, x := range lastTimes {
 			cTime := vote.UpdateTimeAt(j)
 			if x.T != cTime && !x.Deleted && result[j] != nil && vote.Count[j] == nVotes {
-				query = append(query, &objects.VObject{LatestObject: &result[j].Object, StaleUpdateTime: cTime})
+				obj := objects.VObject{
+					LatestObject:    &result[j].Object,
+					Vector:          result[j].Vector,
+					StaleUpdateTime: cTime,
+				}
+				query = append(query, &obj)
 				m[string(result[j].ID())] = j
 			}
 		}
