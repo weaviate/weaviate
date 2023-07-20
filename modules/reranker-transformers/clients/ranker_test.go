@@ -17,11 +17,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/modules/reranker-transformers/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
 func TestGetScore(t *testing.T) {
@@ -150,12 +151,16 @@ func TestGetScore(t *testing.T) {
 }
 
 type testCrossRankerHandler struct {
+	lock           sync.RWMutex
 	t              *testing.T
 	res            RankResponse
 	batchedResults [][]DocumentScore
 }
 
 func (f *testCrossRankerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
 	assert.Equal(f.t, "/rerank", r.URL.String())
 	assert.Equal(f.t, http.MethodPost, r.Method)
 

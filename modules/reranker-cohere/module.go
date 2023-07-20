@@ -20,10 +20,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	rerankeradditional "github.com/weaviate/weaviate/modules/reranker-cohere/additional"
-	rerankeradditionalrank "github.com/weaviate/weaviate/modules/reranker-cohere/additional/rank"
 	"github.com/weaviate/weaviate/modules/reranker-cohere/clients"
-	"github.com/weaviate/weaviate/modules/reranker-cohere/ent"
+	rerankeradditional "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
 const Name = "reranker-cohere"
@@ -64,13 +63,9 @@ func (m *ReRankerCohereModule) initAdditional(ctx context.Context,
 	logger logrus.FieldLogger,
 ) error {
 	apiKey := os.Getenv("COHERE_APIKEY")
-
 	client := clients.New(apiKey, logger)
-
 	m.reranker = client
-
-	rerankerProvider := rerankeradditionalrank.New(m.reranker)
-	m.additionalPropertiesProvider = rerankeradditional.New(rerankerProvider)
+	m.additionalPropertiesProvider = rerankeradditional.NewRankerProvider(m.reranker)
 	return nil
 }
 

@@ -19,7 +19,7 @@ import (
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/modules/reranker-transformers/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
 // const maximumNumberOfGoroutines = 10
