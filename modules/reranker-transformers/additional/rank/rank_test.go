@@ -13,12 +13,15 @@ package rank
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"github.com/weaviate/weaviate/modules/reranker-transformers/additional/models"
 	"github.com/weaviate/weaviate/modules/reranker-transformers/ent"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
 )
 
@@ -70,6 +73,27 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.Error(t, err, "empty params")
 	})
 
+	t.Run("should fail on cohere error", func(t *testing.T) {
+		rankClient := &fakeRankClient{}
+		rankProvider := New(rankClient)
+		in := []search.Result{
+			{
+				ID: "some-uuid",
+				Schema: map[string]interface{}{
+					"content": "this is the content",
+				},
+			},
+		}
+		property := "content"
+		query := "unavailable"
+		fakeParams := &Params{Property: &property, Query: &query}
+		limit := 3
+		argumentModuleParams := map[string]interface{}{}
+
+		_, err := rankProvider.AdditionalPropertyFn(context.Background(), in, fakeParams, &limit, argumentModuleParams, nil)
+		require.EqualError(t, err, "error ranking with cohere: unavailable")
+	})
+
 	t.Run("should rank", func(t *testing.T) {
 		rankClient := &fakeRankClient{}
 		rankProvider := New(rankClient)
@@ -96,20 +120,28 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		answer, answerOK := in[0].AdditionalProperties["rerank"]
 		assert.True(t, answerOK)
 		assert.NotNil(t, answer)
-		answerAdditional, _ := answer.(ent.RankResult)
-		assert.Equal(t, float64(0), answerAdditional.Score)
+		answerAdditional, ok := answer.([]*models.RankResult)
+		require.True(t, ok)
+		require.Len(t, answerAdditional, 1)
+		assert.Equal(t, float64(0.15), *answerAdditional[0].Score)
 	})
 }
 
 type fakeRankClient struct{}
 
-func (c *fakeRankClient) Rank(ctx context.Context, rankpropertyValue string, query string,
-) (*ent.RankResult, error) {
-	score := 0.15
-	returnResult := ent.RankResult{
-		Score:             score,
-		Query:             query,
-		RankPropertyValue: rankpropertyValue,
+func (c *fakeRankClient) Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (result *ent.RankResult, err error) {
+	if query == "unavailable" {
+		return nil, errors.New("unavailable")
 	}
-	return &returnResult, nil
+	score := 0.15
+	result = &ent.RankResult{
+		DocumentScores: []ent.DocumentScore{
+			{
+				Document: documents[0],
+				Score:    score,
+			},
+		},
+		Query: query,
+	}
+	return result, nil
 }

@@ -18,44 +18,104 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"runtime"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/reranker-transformers/ent"
+	"golang.org/x/sync/errgroup"
 )
 
+var _NUMCPU = runtime.NumCPU()
+
 type client struct {
-	origin     string
-	httpClient *http.Client
-	logger     logrus.FieldLogger
+	lock         sync.RWMutex
+	origin       string
+	httpClient   *http.Client
+	maxDocuments int
+	logger       logrus.FieldLogger
 }
 
 func New(origin string, logger logrus.FieldLogger) *client {
 	return &client{
-		origin:     origin,
-		httpClient: &http.Client{},
-		logger:     logger,
+		origin:       origin,
+		httpClient:   &http.Client{},
+		maxDocuments: 1000,
+		logger:       logger,
 	}
 }
 
-func (v *client) Rank(ctx context.Context,
-	rankpropertyValue string, query string,
+func (c *client) Rank(ctx context.Context,
+	query string, documents []string, cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
+
+	eg := &errgroup.Group{}
+	eg.SetLimit(_NUMCPU)
+
+	chunkedDocuments := c.chunkDocuments(documents, c.maxDocuments)
+	documentScoreResponses := make([][]DocumentScore, len(chunkedDocuments))
+	for i := range chunkedDocuments {
+		i := i // https://golang.org/doc/faq#closures_and_goroutines
+		eg.Go(func() error {
+			documentScoreResponse, err := c.performRank(ctx, query, chunkedDocuments[i], cfg)
+			if err != nil {
+				return err
+			}
+			c.lockGuard(func() {
+				documentScoreResponses[i] = documentScoreResponse
+			})
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+
+	return c.toRankResult(query, documentScoreResponses), nil
+}
+
+func (c *client) lockGuard(mutate func()) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	mutate()
+}
+
+func (c *client) toRankResult(query string, scores [][]DocumentScore) *ent.RankResult {
+	documentScores := []ent.DocumentScore{}
+	for _, docScores := range scores {
+		for i := range docScores {
+			documentScores = append(documentScores, ent.DocumentScore{
+				Document: docScores[i].Document,
+				Score:    docScores[i].Score,
+			})
+		}
+	}
+	return &ent.RankResult{
+		Query:          query,
+		DocumentScores: documentScores,
+	}
+}
+
+func (c *client) performRank(ctx context.Context,
+	query string, documents []string, cfg moduletools.ClassConfig,
+) ([]DocumentScore, error) {
 	body, err := json.Marshal(RankInput{
-		RankPropertyValue: rankpropertyValue,
-		Query:             query,
+		Query:     query,
+		Documents: documents,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "marshal body")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", v.url("/rerank"),
+	req, err := http.NewRequestWithContext(ctx, "POST", c.url("/rerank"),
 		bytes.NewReader(body))
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
 	}
 
-	res, err := v.httpClient.Do(req)
+	res, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, errors.Wrap(err, "send POST request")
 	}
@@ -79,25 +139,43 @@ func (v *client) Rank(ctx context.Context,
 		return nil, errors.Errorf("fail with status %d", res.StatusCode)
 	}
 
-	return &ent.RankResult{
-		RankPropertyValue: resBody.RankPropertyValue,
-		Query:             resBody.Query,
-		Score:             resBody.Score,
-	}, nil
+	return resBody.Scores, nil
 }
 
-func (v *client) url(path string) string {
-	return fmt.Sprintf("%s%s", v.origin, path)
+func (c *client) chunkDocuments(documents []string, chunkSize int) [][]string {
+	var requests [][]string
+	for i := 0; i < len(documents); i += chunkSize {
+		end := i + chunkSize
+
+		if end > len(documents) {
+			end = len(documents)
+		}
+
+		requests = append(requests, documents[i:end])
+	}
+
+	return requests
+}
+
+func (c *client) url(path string) string {
+	return fmt.Sprintf("%s%s", c.origin, path)
 }
 
 type RankInput struct {
-	RankPropertyValue string `json:"property"`
-	Query             string `json:"query"`
+	Query             string   `json:"query"`
+	Documents         []string `json:"documents"`
+	RankPropertyValue string   `json:"property"`
+}
+
+type DocumentScore struct {
+	Document string  `json:"document"`
+	Score    float64 `json:"score"`
 }
 
 type RankResponse struct {
-	RankPropertyValue string  `json:"property"`
-	Query             string  `json:"query"`
-	Score             float64 `json:"score"`
-	Error             string  `json:"error"`
+	Query             string          `json:"query"`
+	Scores            []DocumentScore `json:"scores"`
+	RankPropertyValue string          `json:"property"`
+	Score             float64         `json:"score"`
+	Error             string          `json:"error"`
 }
