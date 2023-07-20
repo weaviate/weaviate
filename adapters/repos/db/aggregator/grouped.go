@@ -65,7 +65,11 @@ func (ga *groupedAggregator) identifyGroups(ctx context.Context) ([]group, error
 	if ga.params.Limit != nil {
 		limit = *ga.params.Limit
 	}
-	return newGrouper(ga.Aggregator, limit).Do(ctx)
+	offset := 0
+	if ga.params.Offset != nil {
+		offset = *ga.params.Offset
+	}
+	return newGrouper(ga.Aggregator, limit, offset).Do(ctx)
 }
 
 func (ga *groupedAggregator) aggregateGroup(ctx context.Context,

@@ -90,6 +90,11 @@ func resolveAggregate(p graphql.ResolveParams, modulesProvider ModulesProvider, 
 		return nil, fmt.Errorf("could not extract limit: %w", err)
 	}
 
+	offset, err := extractOffset(p.Args)
+	if err != nil {
+		return nil, fmt.Errorf("could not extract offset: %w", err)
+	}
+
 	objectLimit, err := extractObjectLimit(p.Args)
 	if objectLimit != nil && *objectLimit <= 0 {
 		return nil, fmt.Errorf("objectLimit must be a positive integer")
@@ -153,6 +158,7 @@ func resolveAggregate(p graphql.ResolveParams, modulesProvider ModulesProvider, 
 		GroupBy:          groupBy,
 		IncludeMetaCount: includeMeta,
 		Limit:            limit,
+		Offset:           offset,
 		ObjectLimit:      objectLimit,
 		NearVector:       nearVectorParams,
 		NearObject:       nearObjectParams,
@@ -286,6 +292,21 @@ func extractLimit(args map[string]interface{}) (*int, error) {
 	}
 
 	return &limitInt, nil
+}
+
+func extractOffset(args map[string]interface{}) (*int, error) {
+	offset, ok := args["offset"]
+	if !ok {
+		// not set means the user is not interested and the UC should use a reasonable default
+		return nil, nil
+	}
+
+	offsetInt, ok := offset.(int)
+	if !ok {
+		return nil, fmt.Errorf("offset must be an int, instead got: %#v", offset)
+	}
+
+	return &offsetInt, nil
 }
 
 func extractObjectLimit(args map[string]interface{}) (*int, error) {

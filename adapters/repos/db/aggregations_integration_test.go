@@ -289,6 +289,54 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 			}
 		})
 
+		t.Run("single field, single aggregator, limit, offset", func(t *testing.T) {
+			params := aggregation.Params{
+				ClassName: schema.ClassName(companyClass.Class),
+				GroupBy: &filters.Path{
+					Class:    schema.ClassName(companyClass.Class),
+					Property: schema.PropertyName("sector"),
+				},
+				IncludeMetaCount: true,
+				Properties: []aggregation.ParamProperty{
+					{
+						Name:        schema.PropertyName("dividendYield"),
+						Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
+					},
+				},
+				Limit:  new(int),
+				Offset: new(int),
+			}
+
+			*params.Limit = 1
+			*params.Offset = 1
+
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
+
+			require.Equal(t, 1, len(res.Groups))
+			assert.Equal(t, 30, res.Groups[0].Count)
+
+			*params.Limit = 2
+			*params.Offset = 0
+
+			res, err = repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
+
+			require.Equal(t, 2, len(res.Groups))
+			assert.Equal(t, 60, res.Groups[0].Count)
+			assert.Equal(t, 30, res.Groups[1].Count)
+
+			*params.Limit = 1
+			*params.Offset = 0
+
+			res, err = repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
+
+			require.Equal(t, 1, len(res.Groups))
+			assert.Equal(t, 60, res.Groups[0].Count)
+
+		})
+
 		t.Run("grouping by a non-numerical, non-string prop", func(t *testing.T) {
 			params := aggregation.Params{
 				ClassName: schema.ClassName(companyClass.Class),

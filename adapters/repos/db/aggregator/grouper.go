@@ -34,13 +34,15 @@ type grouper struct {
 	values    map[interface{}]map[uint64]struct{} // map[value][docID]struct, to keep docIds unique
 	topGroups []group
 	limit     int
+	offset    int
 }
 
-func newGrouper(a *Aggregator, limit int) *grouper {
+func newGrouper(a *Aggregator, limit int, offset int) *grouper {
 	return &grouper{
 		Aggregator: a,
 		values:     map[interface{}]map[uint64]struct{}{},
 		limit:      limit,
+		offset:     offset,
 	}
 }
 
@@ -224,7 +226,7 @@ func (g *grouper) aggregateAndSelect() ([]group, error) {
 		})
 	}
 
-	return g.topGroups, nil
+	return g.topGroups[g.offset:], nil
 }
 
 func (g *grouper) insertOrdered(elem group) {
@@ -251,11 +253,11 @@ func (g *grouper) insertOrdered(elem group) {
 		break
 	}
 
-	if len(g.topGroups) > g.limit {
+	if len(g.topGroups) > g.offset+g.limit {
 		g.topGroups = g.topGroups[:len(g.topGroups)-1]
 	}
 
-	if !added && len(g.topGroups) < g.limit {
+	if !added && len(g.topGroups) < g.offset+g.limit {
 		g.topGroups = append(g.topGroups, elem)
 	}
 }

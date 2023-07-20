@@ -975,6 +975,93 @@ func localMetaWithWhereGroupByNearMediaFilters(t *testing.T) {
 
 			assert.EqualValues(t, expected, result.Result)
 		})
+
+		t.Run("with limit and offset", func(t *testing.T) {
+			limit := 2
+			offset := 1
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
+				{
+					Aggregate {
+						City 
+						(
+							groupBy: "name"
+							limit: %d
+							offset: %d
+						)
+						{
+							groupedBy {
+								value
+							}
+							meta {
+								count
+							}
+						}
+					}
+				}
+			`, limit, offset))
+
+			expected := []interface{}{
+				map[string]interface{}{
+					"groupedBy": map[string]interface{}{
+						"value": "Missing Island",
+					},
+					"meta": map[string]interface{}{
+						"count": json.Number("1"),
+					},
+				},
+				map[string]interface{}{
+					"groupedBy": map[string]interface{}{
+						"value": "Amsterdam",
+					},
+					"meta": map[string]interface{}{
+						"count": json.Number("1"),
+					},
+				},
+				map[string]interface{}{
+					"groupedBy": map[string]interface{}{
+						"value": "Dusseldorf",
+					},
+					"meta": map[string]interface{}{
+						"count": json.Number("1"),
+					},
+				},
+				map[string]interface{}{
+					"groupedBy": map[string]interface{}{
+						"value": "Berlin",
+					},
+					"meta": map[string]interface{}{
+						"count": json.Number("1"),
+					},
+				},
+				map[string]interface{}{
+					"groupedBy": map[string]interface{}{
+						"value": "Rotterdam",
+					},
+					"meta": map[string]interface{}{
+						"count": json.Number("1"),
+					},
+				},
+				map[string]interface{}{
+					"groupedBy": map[string]interface{}{
+						"value": nil,
+					},
+					"meta": map[string]interface{}{
+						"count": json.Number("1"),
+					},
+				},
+			}
+
+			t.Run("validate limit and offset functions as expected", func(t *testing.T) {
+				res := result.Get("Aggregate", "City").AsSlice()
+				fmt.Sprintln(res)
+				require.Len(t, res, 2)
+
+				cities := result.Get("Aggregate", "City").Result.([]interface{})
+				for _, city := range cities {
+					assert.Contains(t, expected, city)
+				}
+			})
+		})
 	})
 
 	t.Run("with nearVector", func(t *testing.T) {

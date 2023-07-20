@@ -105,6 +105,10 @@ func classField(class *models.Class, description string,
 				Description: descriptions.First,
 				Type:        graphql.Int,
 			},
+			"offset": &graphql.ArgumentConfig{
+				Type:        graphql.Int,
+				Description: descriptions.Offset,
+			},
 			"where": &graphql.ArgumentConfig{
 				Description: descriptions.GetWhere,
 				Type: graphql.NewInputObject(
