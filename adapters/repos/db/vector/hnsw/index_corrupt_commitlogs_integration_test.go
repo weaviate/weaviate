@@ -34,7 +34,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	original, err := NewCommitLogger(rootPath, "corrupt_test", logger,
-		cyclemanager.NewNoop())
+		cyclemanager.NewCycleCallbacksNoop())
 	require.Nil(t, err)
 
 	data := [][]float32{
@@ -66,7 +66,8 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 			MaxConnections:         100,
 			EFConstruction:         100,
 			CleanupIntervalSeconds: 0,
-		}, cyclemanager.NewNoop())
+		},
+			cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
 		require.Nil(t, err)
 		index = idx
 	})
@@ -117,7 +118,8 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 			MaxConnections:         100,
 			EFConstruction:         100,
 			CleanupIntervalSeconds: 0,
-		}, cyclemanager.NewNoop())
+		},
+			cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
 		require.Nil(t, err)
 		index = idx
 	})
