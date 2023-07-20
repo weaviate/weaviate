@@ -103,7 +103,7 @@ func (rr *RowReaderRoaringSet) equal(ctx context.Context,
 	}
 
 	
-	v, err := rr.getter(rr.value)  //this needs to be value + prop prefix
+	v, err := rr.getter(rr.value)  //this needs to be value without prop prefix
 	if err != nil {
 		return err
 	}

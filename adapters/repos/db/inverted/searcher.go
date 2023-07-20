@@ -172,7 +172,8 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter, addi
 }
 
 func (s *Searcher) buildPropValuePair(filter *filters.Clause, className schema.ClassName) (*propValuePair, error) {
-	out := newPropValuePair()
+	class := s.schema.FindClassByName(schema.ClassName(className))
+	out := newPropValuePair(class)
 	if filter.Operands != nil {
 		// nested filter
 		out.children = make([]*propValuePair, len(filter.Operands))
@@ -197,7 +198,12 @@ func (s *Searcher) buildPropValuePair(filter *filters.Clause, className schema.C
 	propName := props[0]
 
 	if s.onInternalProp(propName) {
-		return s.extractInternalProp(propName, filter.Value.Type, filter.Value.Value, filter.Operator)
+		pv ,err:= s.extractInternalProp(propName, filter.Value.Type, filter.Value.Value, filter.Operator)
+		if err != nil {
+			return nil, err
+		}
+		pv.Class = class
+		return pv, nil
 	}
 
 	if extractedPropName, ok := schema.IsPropertyLength(propName, 0); ok {
@@ -205,7 +211,12 @@ func (s *Searcher) buildPropValuePair(filter *filters.Clause, className schema.C
 		if err != nil {
 			return nil, err
 		}
-		return s.extractPropertyLength(property, filter.Value.Type, filter.Value.Value, filter.Operator)
+		pv ,err:=  s.extractPropertyLength(property, filter.Value.Type, filter.Value.Value, filter.Operator)
+		if err != nil {
+			return nil, err
+		}
+		pv.Class = class
+		return pv, nil
 	}
 
 	property, err := s.schema.GetProperty(className, schema.PropertyName(propName))
@@ -214,41 +225,75 @@ func (s *Searcher) buildPropValuePair(filter *filters.Clause, className schema.C
 	}
 
 	if s.onRefProp(property) && len(props) != 1 {
-		return s.extractReferenceFilter(property, filter)
+		pv ,err:=  s.extractReferenceFilter(property, filter)
+		if err != nil {
+			return nil, err
+		}
+		pv.Class = class
+		return pv, nil
 	}
 
 	if s.onRefProp(property) && filter.Value.Type == schema.DataTypeInt {
 		// ref prop and int type is a special case, the user is looking for the
 		// reference count as opposed to the content
-		return s.extractReferenceCount(property, filter.Value.Value, filter.Operator)
+		pv ,err:=  s.extractReferenceCount(property, filter.Value.Value, filter.Operator)
+		if err != nil {
+			return nil, err
+		}
+		pv.Class = class
+		return pv, nil
 	}
 
 	if filter.Operator == filters.OperatorIsNull {
 		class := s.schema.GetClass(schema.ClassName(className))
 		if class.InvertedIndexConfig.IndexNullState {
-			return s.extractPropertyNull(property, filter.Value.Type, filter.Value.Value, filter.Operator)
+			pv ,err:=  s.extractPropertyNull(property, filter.Value.Type, filter.Value.Value, filter.Operator)
+			if err != nil {
+				return nil, err
+			}
+			pv.Class = class
+			return pv, nil
 		} else {
 			return nil, errors.Errorf("property %s does not support null state", property.Name)
 		}
 	}
 
 	if s.onGeoProp(property) {
-		return s.extractGeoFilter(property, filter.Value.Value, filter.Value.Type,
+		pv ,err:=  s.extractGeoFilter(property, filter.Value.Value, filter.Value.Type,
 			filter.Operator)
+		if err != nil {
+			return nil, err
+		}
+		pv.Class = class
+		return pv, nil
 	}
 
 	if s.onUUIDProp(property) {
-		return s.extractUUIDFilter(property, filter.Value.Value, filter.Value.Type,
+		pv ,err:=  s.extractUUIDFilter(property, filter.Value.Value, filter.Value.Type,
 			filter.Operator)
+		if err != nil {
+			return nil, err
+		}
+		pv.Class = class
+		return pv, nil
 	}
 
 	if s.onTokenizableProp(property) {
-		return s.extractTokenizableProp(property, filter.Value.Type, filter.Value.Value,
-			filter.Operator)
+		pv ,err:=  s.extractTokenizableProp(property, filter.Value.Type, filter.Value.Value,filter.Operator)
+		if err != nil {
+			return nil, err
+		}
+		pv.Class = class
+		return pv, nil
 	}
 
-	return s.extractPrimitiveProp(property, filter.Value.Type, filter.Value.Value,
+	pv ,err:=  s.extractPrimitiveProp(property, filter.Value.Type, filter.Value.Value,
 		filter.Operator)
+	if err != nil {
+		return nil, err
+	}
+	pv.Class = class
+	return pv, nil
 }
 
 func (s *Searcher) extractReferenceFilter(prop *models.Property,

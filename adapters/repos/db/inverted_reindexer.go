@@ -418,9 +418,9 @@ func (r *ShardInvertedReindexer) bucketName( prop string, indexType PropertyInde
 	case IndexTypePropSearchableValue:
 		return "searchable_properties"
 	case IndexTypePropLength:
-		return helpers.BucketFromPropNameLengthLSM(prop)
+		return "filterable_properties"
 	case IndexTypePropNull:
-		return "null_properties"
+		return "filterable_properties"
 	default:
 		return ""
 	}

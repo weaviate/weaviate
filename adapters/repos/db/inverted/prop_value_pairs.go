@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 type propValuePair struct {
@@ -37,15 +38,19 @@ type propValuePair struct {
 	children           []*propValuePair
 	hasFilterableIndex bool
 	hasSearchableIndex bool
+	Class              *models.Class
 }
 
-func newPropValuePair() propValuePair {
-	return propValuePair{docIDs: newDocBitmap()}
+func newPropValuePair(class *models.Class) propValuePair {
+	if class == nil {
+		panic("class must not be nil")
+	}
+	return propValuePair{docIDs: newDocBitmap(), Class: class}
 }
 
 func (pv *propValuePair) DocIds() []uint64 {
 	return pv.docIDs.IDs()
-} 
+}
 
 func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 	if pv.operator.OnValue() {
@@ -58,34 +63,39 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 		}
 
-		b := s.store.Bucket(bucketName)  //We wrap this later
+		b := s.store.Bucket(bucketName) //We wrap this later
+		
 
 		// TODO text_rbm_inverted_index find better way check whether prop len
-		if b == nil && strings.HasSuffix(pv.prop, filters.InternalPropertyLength) {  //FIXME check that propname length will be the internal propname length name
+		if b == nil && strings.HasSuffix(pv.prop, filters.InternalPropertyLength) { //FIXME check that propname length will be the internal propname length name
 			return errors.Errorf("Property length must be indexed to be filterable! " +
 				"add `IndexPropertyLength: true` to the invertedIndexConfig." +
 				"Geo-coordinates, phone numbers and data blobs are not supported by property length.")
 		}
 
-		if b == nil && pv.operator == filters.OperatorIsNull {
-			return errors.Errorf("Nullstate must be indexed to be filterable! " +
-				"add `indexNullState: true` to the invertedIndexConfig")
+		if pv.operator == filters.OperatorIsNull {
+			if pv.Class.InvertedIndexConfig.IndexNullState {
+				return errors.Errorf("Nullstate must be indexed to be filterable! " +
+					"add `indexNullState: true` to the invertedIndexConfig")
+			}
 		}
 
-		if b == nil && (pv.prop == filters.InternalPropCreationTimeUnix ||
-			pv.prop == filters.InternalPropLastUpdateTimeUnix) {
-			return errors.Errorf("timestamps must be indexed to be filterable! " +
-				"add `indexTimestamps: true` to the invertedIndexConfig")
+		if pv.prop == filters.InternalPropCreationTimeUnix ||
+			pv.prop == filters.InternalPropLastUpdateTimeUnix {
+			if !pv.Class.InvertedIndexConfig.IndexTimestamps {
+				return errors.Errorf("timestamps must be indexed to be filterable! " +
+					"add `indexTimestamps: true` to the invertedIndexConfig")
+			}
 		}
 
-		if b == nil && pv.operator != filters.OperatorWithinGeoRange {
+		if b == nil && pv.operator != filters.OperatorWithinGeoRange { //FIXME
 			// a nil bucket is ok for a WithinGeoRange filter, as this query is not
 			// served by the inverted index, but propagated to a secondary index in
 			// .docPointers()
 			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 		}
 
-		bproxy := lsmkv.NewBucketProxy(b, pv.prop, s.propIds) 
+		bproxy := lsmkv.NewBucketProxy(b, pv.prop, s.propIds)
 
 		ctx := context.TODO() // TODO: pass through instead of spawning new
 		dbm, err := s.docBitmap(ctx, []byte(pv.prop), bproxy, limit, pv)
@@ -94,23 +104,21 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 		}
 		pv.docIDs = dbm
 	} else {
-	
+
 		for i, child := range pv.children {
 			i, child := i, child
-			
-				// Explicitly set the limit to 0 (=unlimited) as this is a nested filter,
-				// otherwise we run into situations where each subfilter on their own
-				// runs into the limit, possibly yielding in "less than limit" results
-				// after merging.
-				err := child.fetchDocIDs(s, 0)
-				if err != nil {
-					return errors.Wrapf(err, "nested child %d", i)
-				}
 
-				
-			
+			// Explicitly set the limit to 0 (=unlimited) as this is a nested filter,
+			// otherwise we run into situations where each subfilter on their own
+			// runs into the limit, possibly yielding in "less than limit" results
+			// after merging.
+			err := child.fetchDocIDs(s, 0)
+			if err != nil {
+				return errors.Wrapf(err, "nested child %d", i)
+			}
+
 		}
-		
+
 	}
 
 	return nil

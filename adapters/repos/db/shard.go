@@ -416,16 +416,18 @@ func (s *Shard) addTimestampProperties(ctx context.Context) error {
 
 func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
+		"filterable_properties",
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithRegisteredName(helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix)))
 }
 
 func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
+		"filterable_properties",
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithRegisteredName(helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix)))
 }
 
 func (s *Shard) memtableIdleConfig() lsmkv.BucketOption {
@@ -558,7 +560,7 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 	}
 
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLengthLSM(prop.Name),
+		"filterable_properties",
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithRegisteredName(helpers.BucketFromPropNameLengthLSM(prop.Name)))
 }
