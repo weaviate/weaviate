@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-	rerankmodels "github.com/weaviate/weaviate/modules/reranker-transformers/additional/models"
+	rerankmodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
 func (p *ReRankerProvider) getScore(ctx context.Context, cfg moduletools.ClassConfig,

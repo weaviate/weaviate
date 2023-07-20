@@ -24,7 +24,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/reranker-transformers/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -42,7 +42,7 @@ func New(origin string, logger logrus.FieldLogger) *client {
 	return &client{
 		origin:       origin,
 		httpClient:   &http.Client{},
-		maxDocuments: 1000,
+		maxDocuments: 32,
 		logger:       logger,
 	}
 }
@@ -50,7 +50,6 @@ func New(origin string, logger logrus.FieldLogger) *client {
 func (c *client) Rank(ctx context.Context,
 	query string, documents []string, cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
-
 	eg := &errgroup.Group{}
 	eg.SetLimit(_NUMCPU)
 
