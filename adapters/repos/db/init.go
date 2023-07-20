@@ -59,6 +59,7 @@ func (db *DB) init(ctx context.Context) error {
 				RootPath:                  db.config.RootPath,
 				ResourceUsage:             db.config.ResourceUsage,
 				QueryMaximumResults:       db.config.QueryMaximumResults,
+				QueryNestedRefLimit:       db.config.QueryNestedRefLimit,
 				MemtablesFlushIdleAfter:   db.config.MemtablesFlushIdleAfter,
 				MemtablesInitialSizeMB:    db.config.MemtablesInitialSizeMB,
 				MemtablesMaxSizeMB:        db.config.MemtablesMaxSizeMB,

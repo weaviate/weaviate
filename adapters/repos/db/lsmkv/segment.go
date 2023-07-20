@@ -70,7 +70,6 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	if err != nil {
 		return nil, errors.Wrap(err, "open file")
 	}
-	//defer file.Close()
 
 	fileInfo, err := file.Stat()
 	if err != nil {

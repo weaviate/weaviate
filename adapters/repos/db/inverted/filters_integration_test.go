@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 const (
@@ -78,8 +79,8 @@ func Test_Filters_String(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-	searcher := NewSearcher(logger, store, createSchema(),
-		nil, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false }, "")
+	searcher := NewSearcher(logger, store, createSchema(), nil, nil, nil,
+		fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit)
 
 	type test struct {
 		name                     string
@@ -342,8 +343,8 @@ func Test_Filters_Int(t *testing.T) {
 		require.Nil(t, bucket.FlushAndSwitch())
 	})
 
-	searcher := NewSearcher(logger, store, createSchema(),
-		nil, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false }, "")
+	searcher := NewSearcher(logger, store, createSchema(), nil, nil, nil,
+		fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit)
 
 	type test struct {
 		name                     string
@@ -523,8 +524,8 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-	searcher := NewSearcher(logger, store, createSchema(),
-		nil, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false }, "")
+	searcher := NewSearcher(logger, store, createSchema(), nil, nil, nil,
+		fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit)
 
 	type test struct {
 		name                     string

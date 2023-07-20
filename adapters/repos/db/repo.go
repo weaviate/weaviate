@@ -132,6 +132,7 @@ type Config struct {
 	RootPath                  string
 	QueryLimit                int64
 	QueryMaximumResults       int64
+	QueryNestedRefLimit       int64
 	ResourceUsage             config.ResourceUsage
 	MaxImportGoroutinesFactor float64
 	MemtablesFlushIdleAfter   int

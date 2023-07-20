@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -160,6 +161,7 @@ func TestRank(t *testing.T) {
 }
 
 type testRankHandler struct {
+	lock           sync.RWMutex
 	t              *testing.T
 	response       RankResponse
 	batchedResults [][]Result
@@ -167,6 +169,9 @@ type testRankHandler struct {
 }
 
 func (f *testRankHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
 	if f.errorMessage != "" {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(`{"message":"` + f.errorMessage + `"}`))

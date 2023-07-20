@@ -156,7 +156,7 @@ type nodeResolver interface {
 
 // NewIndex creates an index with the specified amount of shards, using only
 // the shards that are local to a node
-func NewIndex(ctx context.Context, config IndexConfig,
+func NewIndex(ctx context.Context, cfg IndexConfig,
 	shardState *sharding.State, invertedIndexConfig schema.InvertedIndexConfig,
 	vectorIndexUserConfig schema.VectorIndexConfig, sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
@@ -169,11 +169,15 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		return nil, errors.Wrap(err, "failed to create new index")
 	}
 
-	repl := replica.NewReplicator(config.ClassName.String(),
+	repl := replica.NewReplicator(cfg.ClassName.String(),
 		sg, nodeResolver, replicaClient, logger)
 
+	if cfg.QueryNestedRefLimit == 0 {
+		cfg.QueryNestedRefLimit = config.DefaultQueryNestedCrossReferenceLimit
+	}
+
 	index := &Index{
-		Config:                config,
+		Config:                cfg,
 		getSchema:             sg,
 		logger:                logger,
 		classSearcher:         cs,
@@ -181,9 +185,9 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		invertedIndexConfig:   invertedIndexConfig,
 		stopwords:             sd,
 		replicator:            repl,
-		remote: sharding.NewRemoteIndex(config.ClassName.String(), sg,
+		remote: sharding.NewRemoteIndex(cfg.ClassName.String(), sg,
 			nodeResolver, remoteClient),
-		metrics:             NewMetrics(logger, promMetrics, config.ClassName.String(), "n/a"),
+		metrics:             NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
 		centralJobQueue:     jobQueueCh,
 		partitioningEnabled: shardState.PartitioningEnabled,
 	}
@@ -312,6 +316,7 @@ type IndexConfig struct {
 	RootPath                  string
 	ClassName                 schema.ClassName
 	QueryMaximumResults       int64
+	QueryNestedRefLimit       int64
 	ResourceUsage             config.ResourceUsage
 	MemtablesFlushIdleAfter   int
 	MemtablesInitialSizeMB    int
