@@ -68,23 +68,15 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		return &Error{"validate inputs", StatusBadRequest, err}
 	}
 
-	// autodetect to class from schema if not part of reference
-	if !deprecatedEndpoint && input.Ref.Class == "" && strings.Count(string(input.Ref.Beacon), "/") == 3 {
-		class, err := m.schemaManager.GetClass(ctx, principal, input.Class)
-		if err != nil {
-			return &Error{"cannot get class", StatusInternalServerError, err}
-		}
-		prop, err := schema.GetPropertyByName(class, schema.LowercaseFirstLetter(input.Property))
-		if err != nil {
-			return &Error{"cannot get property", StatusInternalServerError, err}
-		}
-		input.Ref.Class = strfmt.URI(prop.DataType[0]) // datatype is the name of the class that is referenced
-		beaconElements := strings.Split(string(input.Ref.Beacon), "/")
-		toUUID := beaconElements[len(beaconElements)-1]
-		input.Ref.Beacon = strfmt.URI("weaviate://localhost/" + string(input.Ref.Class) + "/" + toUUID) // datatype is the name of the class that is referenced
-	}
-
 	if !deprecatedEndpoint {
+		if input.Class != "" && strings.Count(string(input.Ref.Beacon), "/") == 3 {
+			toClass, toBeacon, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, input.Ref.Beacon)
+			if err != nil {
+				return err
+			}
+			input.Ref.Class = toClass
+			input.Ref.Beacon = toBeacon
+		}
 		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl, tenant)
 		if err != nil {
 			switch err.(type) {
