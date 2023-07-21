@@ -19,12 +19,12 @@ import (
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/modules/reranker-transformers/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
 // const maximumNumberOfGoroutines = 10
 type ReRankerClient interface {
-	Rank(ctx context.Context, rankpropertyValue string, query string) (*ent.RankResult, error)
+	Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
 }
 
 type ReRankerProvider struct {
@@ -52,7 +52,7 @@ func (p *ReRankerProvider) AdditionalPropertyFn(ctx context.Context,
 	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	if parameters, ok := params.(*Params); ok {
-		return p.getScore(ctx, in, parameters)
+		return p.getScore(ctx, cfg, in, parameters)
 	}
 	return nil, errors.New("wrong parameters")
 }

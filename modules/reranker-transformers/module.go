@@ -21,10 +21,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	rerankeradditional "github.com/weaviate/weaviate/modules/reranker-transformers/additional"
-	rerankeradditionalrank "github.com/weaviate/weaviate/modules/reranker-transformers/additional/rank"
 	client "github.com/weaviate/weaviate/modules/reranker-transformers/clients"
-	"github.com/weaviate/weaviate/modules/reranker-transformers/ent"
+	additionalprovider "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
 const Name = "reranker-transformers"
@@ -39,7 +38,7 @@ type ReRankerModule struct {
 }
 
 type ReRankerClient interface {
-	Rank(ctx context.Context, property string, query string) (*ent.RankResult, error)
+	Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
 	MetaInfo() (map[string]interface{}, error)
 }
 
@@ -76,8 +75,7 @@ func (m *ReRankerModule) initAdditional(ctx context.Context,
 		return errors.Wrap(err, "init remote sum module")
 	}
 
-	rerankerProvider := rerankeradditionalrank.New(m.reranker)
-	m.additionalPropertiesProvider = rerankeradditional.New(rerankerProvider)
+	m.additionalPropertiesProvider = additionalprovider.NewRankerProvider(client)
 	return nil
 }
 

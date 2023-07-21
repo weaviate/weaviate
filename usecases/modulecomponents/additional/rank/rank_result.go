@@ -17,14 +17,13 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/weaviate/weaviate/entities/moduletools"
-
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-	rerankmodels "github.com/weaviate/weaviate/modules/reranker-cohere/additional/models"
+	rerankmodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
-func (p *ReRankerCohereProvider) getScore(ctx context.Context, cfg moduletools.ClassConfig,
+func (p *ReRankerProvider) getScore(ctx context.Context, cfg moduletools.ClassConfig,
 	in []search.Result, params *Params,
 ) ([]search.Result, error) {
 	if len(in) == 0 {
