@@ -401,7 +401,7 @@ func Test_ReferenceDelete(t *testing.T) {
 		cls    = "Zoo"
 		prop   = "hasAnimals"
 		id     = strfmt.UUID("d18c8e5e-000-0000-0000-56b0cfe33ce7")
-		uri    = strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
+		uri    = strfmt.URI("weaviate://localhost/Animal/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
 		anyErr = errors.New("any")
 		ref    = models.SingleRef{Beacon: uri}
 		ref2   = &models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce5")}

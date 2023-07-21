@@ -72,6 +72,23 @@ func Test_refs_without_to_class(t *testing.T) {
 			},
 		},
 	}, objWithRef)
+
+	// delete reference without class
+	deleteRefParams := objects.NewObjectsClassReferencesDeleteParams().
+		WithID(refFromId).
+		WithPropertyName("ref").WithClassName(refFromClass.Class).
+		WithBody(&models.SingleRef{
+			Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", refToId.String())),
+		})
+	deleteRefResponse, err := helper.Client(t).Objects.ObjectsClassReferencesDelete(deleteRefParams, nil)
+	helper.AssertRequestOk(t, deleteRefResponse, err, nil)
+	objWithoutRef := func() interface{} {
+		obj := assertGetObjectWithClass(t, refFromId, "ReferenceFrom")
+		return obj.Properties
+	}
+	testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+		"ref": []interface{}{},
+	}, objWithoutRef)
 }
 
 // This test suite is meant to prevent a regression on
