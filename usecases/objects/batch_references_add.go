@@ -89,28 +89,41 @@ func (b *BatchManager) validateReference(ctx context.Context, principal *models.
 	wg *sync.WaitGroup, ref *models.BatchReference, i int, resultsC *chan BatchReference,
 ) {
 	defer wg.Done()
-	var errors []error
+	var validateErrors []error
 	source, err := crossref.ParseSource(string(ref.From))
 	if err != nil {
-		errors = append(errors, err)
+		validateErrors = append(validateErrors, err)
 	} else if !source.Local {
-		errors = append(errors, fmt.Errorf("source class must always point to the local peer, but got %s",
+		validateErrors = append(validateErrors, fmt.Errorf("source class must always point to the local peer, but got %s",
 			source.PeerName))
 	}
 
 	target, err := crossref.Parse(string(ref.To))
 	if err != nil {
-		errors = append(errors, err)
+		validateErrors = append(validateErrors, err)
 	} else if !target.Local {
-		errors = append(errors, fmt.Errorf("importing network references in batch is not possible. "+
+		validateErrors = append(validateErrors, fmt.Errorf("importing network references in batch is not possible. "+
 			"Please perform a regular non-batch import for network references, got peer %s",
 			target.PeerName))
 	}
 
-	if len(errors) == 0 {
+	// get to class from property datatype
+	if target.Class == "" {
+		class, err := b.schemaManager.GetClass(ctx, principal, string(source.Class))
+		if err != nil {
+			validateErrors = append(validateErrors, err)
+		}
+		prop, err := schema.GetPropertyByName(class, schema.LowercaseFirstLetter(string(source.Property)))
+		if err != nil {
+			validateErrors = append(validateErrors, err)
+		}
+		target.Class = prop.DataType[0] // datatype is the name of the class that is referenced
+	}
+
+	if len(validateErrors) == 0 {
 		err = nil
 	} else {
-		err = joinErrors(errors)
+		err = joinErrors(validateErrors)
 	}
 
 	if err == nil && shouldValidateMultiTenantRef(ref.Tenant, source, target) {
