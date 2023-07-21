@@ -95,6 +95,12 @@ func (l *Queue) Pop() Item {
 	return out
 }
 
+func (l *Queue) SubstitudeTop(id uint64, distance float32) {
+	l.items[0].ID = id
+	l.items[0].Dist = distance
+	l.heapify(0)
+}
+
 func (l *Queue) Top() Item {
 	return l.items[0]
 }
@@ -113,4 +119,8 @@ func (l *Queue) Reset() {
 
 func (l *Queue) ResetCap(capacity int) {
 	l.items = make([]Item, 0, capacity)
+}
+
+func (l *Queue) Items() []Item {
+	return l.items
 }
