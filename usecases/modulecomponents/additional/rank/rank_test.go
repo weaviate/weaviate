@@ -16,8 +16,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/weaviate/weaviate/modules/reranker-cohere/additional/models"
-	"github.com/weaviate/weaviate/modules/reranker-cohere/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

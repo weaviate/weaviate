@@ -14,37 +14,31 @@ package additional
 import (
 	"context"
 
-	"github.com/tailor-inc/graphql"
-	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/search"
+	rankerrank "github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
-type AdditionalProperty interface {
-	AdditionalPropertyFn(ctx context.Context,
-		in []search.Result, params interface{}, limit *int,
-		argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig) ([]search.Result, error)
-	ExtractAdditionalFn(param []*ast.Argument) interface{}
-	AdditionalPropertyDefaultValue() interface{}
-	AdditionalFieldFn(classname string) *graphql.Field
+type reRankerClient interface {
+	Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
 }
 
-type GraphQLAdditionalArgumentsProvider struct {
+type GraphQLAdditionalRankerProvider struct {
 	ReRankerProvider AdditionalProperty
 }
 
-func New(ReRankerProvider AdditionalProperty) *GraphQLAdditionalArgumentsProvider {
-	return &GraphQLAdditionalArgumentsProvider{ReRankerProvider}
+func NewRankerProvider(client reRankerClient) *GraphQLAdditionalRankerProvider {
+	return &GraphQLAdditionalRankerProvider{rankerrank.New(client)}
 }
 
-func (p *GraphQLAdditionalArgumentsProvider) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+func (p *GraphQLAdditionalRankerProvider) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	additionalProperties := map[string]modulecapabilities.AdditionalProperty{}
 	additionalProperties["rerank"] = p.getReRanker()
 	return additionalProperties
 }
 
-func (p *GraphQLAdditionalArgumentsProvider) getReRanker() modulecapabilities.AdditionalProperty {
+func (p *GraphQLAdditionalRankerProvider) getReRanker() modulecapabilities.AdditionalProperty {
 	return modulecapabilities.AdditionalProperty{
 		GraphQLNames:           []string{"rerank"},
 		GraphQLFieldFunction:   p.ReRankerProvider.AdditionalFieldFn,
