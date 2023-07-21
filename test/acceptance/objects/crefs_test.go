@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/weaviate/weaviate/client/batch"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/client/objects"
 	clschema "github.com/weaviate/weaviate/client/schema"
@@ -117,6 +119,66 @@ func Test_refs_without_to_class(t *testing.T) {
 	testhelper.AssertEventuallyEqual(t, map[string]interface{}{
 		"ref": []interface{}{},
 	}, objWithoutRef)
+}
+
+func Test_batch_refs_without_to_class(t *testing.T) {
+	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{Class: "ReferenceTo"})
+	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+
+	refFromClass := &models.Class{
+		Class: "ReferenceFrom",
+		Properties: []*models.Property{
+			{
+				DataType: []string{"ReferenceTo"},
+				Name:     "ref",
+			},
+		},
+	}
+	params2 := clschema.NewSchemaObjectsCreateParams().WithObjectClass(refFromClass)
+	resp2, err := helper.Client(t).Schema.SchemaObjectsCreate(params2, nil)
+	helper.AssertRequestOk(t, resp2, err, nil)
+
+	defer deleteObjectClass(t, "ReferenceTo")
+	defer deleteObjectClass(t, "ReferenceFrom")
+
+	uuidsTo := make([]strfmt.UUID, 10)
+	uuidsFrom := make([]strfmt.UUID, 10)
+	for i := 0; i < 10; i++ {
+		uuidsTo[i] = assertCreateObject(t, "ReferenceTo", map[string]interface{}{})
+		assertGetObjectEventually(t, uuidsTo[i])
+		uuidsFrom[i] = assertCreateObject(t, "ReferenceFrom", map[string]interface{}{})
+		assertGetObjectEventually(t, uuidsFrom[i])
+	}
+
+	batchRefs := []*models.BatchReference{}
+
+	for i := range uuidsFrom {
+		from := "weaviate://localhost/ReferenceFrom/" + uuidsFrom[i] + "/ref"
+		to := "weaviate://localhost/" + uuidsTo[i]
+		batchRefs = append(batchRefs, &models.BatchReference{From: strfmt.URI(from), To: strfmt.URI(to)})
+	}
+
+	postRefParams := batch.NewBatchReferencesCreateParams().WithBody(batchRefs)
+	postRefResponse, err := helper.Client(t).Batch.BatchReferencesCreate(postRefParams, nil)
+	helper.AssertRequestOk(t, postRefResponse, err, nil)
+
+	for i := range uuidsFrom {
+
+		// validate that ref was create for the correct class
+		objWithRef := func() interface{} {
+			obj := assertGetObjectWithClass(t, uuidsFrom[i], "ReferenceFrom")
+			return obj.Properties
+		}
+		testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+			"ref": []interface{}{
+				map[string]interface{}{
+					"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", "ReferenceTo", uuidsTo[i].String()),
+					"href":   fmt.Sprintf("/v1/objects/%s/%s", "ReferenceTo", uuidsTo[i].String()),
+				},
+			},
+		}, objWithRef)
+	}
 }
 
 // This test suite is meant to prevent a regression on
