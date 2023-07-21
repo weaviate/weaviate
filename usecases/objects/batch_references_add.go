@@ -97,7 +97,7 @@ func (b *BatchManager) autodetectToClass(ctx context.Context,
 	classPropTarget := make(map[string]string)
 	scheme, err := b.schemaManager.GetSchema(principal)
 	if err != nil {
-		return NewErrInvalidUserInput("get schema", err)
+		return NewErrInvalidUserInput("get schema: %v", err)
 	}
 	for i, ref := range batchReferences {
 		// get to class from property datatype
@@ -111,12 +111,12 @@ func (b *BatchManager) autodetectToClass(ctx context.Context,
 		if !ok {
 			class := scheme.FindClassByName(ref.From.Class)
 			if class == nil {
-				return NewErrInvalidUserInput("class for ref does not exist: "+className, err)
+				return NewErrInvalidUserInput("class for ref does not exist: "+className+": %v", err)
 			}
 
 			prop, err := schema.GetPropertyByName(class, propName)
 			if err != nil {
-				return NewErrInvalidUserInput("get prop", err)
+				return NewErrInvalidUserInput("get prop: %v", err)
 			}
 			target = prop.DataType[0] // datatype is the name of the class that is referenced
 			classPropTarget[className+propName] = target
