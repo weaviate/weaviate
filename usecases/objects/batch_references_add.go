@@ -53,6 +53,10 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 	}
 
 	batchReferences := b.validateReferencesConcurrently(ctx, principal, refs)
+	if err := b.autodetectToClass(ctx, principal, batchReferences); err != nil {
+		return nil, err
+	}
+
 	if res, err := b.vectorRepo.AddBatchReferences(ctx, batchReferences, repl); err != nil {
 		return nil, NewErrInternal("could not add batch request to connector: %v", err)
 	} else {
@@ -82,7 +86,44 @@ func (b *BatchManager) validateReferencesConcurrently(ctx context.Context,
 
 	wg.Wait()
 	close(c)
+
 	return referencesChanToSlice(c)
+}
+
+// autodetectToClass gets the class name of the referenced class through the schema definition
+func (b *BatchManager) autodetectToClass(ctx context.Context,
+	principal *models.Principal, batchReferences BatchReferences,
+) error {
+	classPropTarget := make(map[string]string)
+	scheme, err := b.schemaManager.GetSchema(principal)
+	if err != nil {
+		return NewErrInvalidUserInput("get schema", err)
+	}
+	for i, ref := range batchReferences {
+		// get to class from property datatype
+		if ref.To.Class != "" {
+			continue
+		}
+		className := string(ref.From.Class)
+		propName := schema.LowercaseFirstLetter(string(ref.From.Property))
+
+		target, ok := classPropTarget[className+propName]
+		if !ok {
+			class := scheme.FindClassByName(ref.From.Class)
+			if class == nil {
+				return NewErrInvalidUserInput("class for ref does not exist: "+className, err)
+			}
+
+			prop, err := schema.GetPropertyByName(class, propName)
+			if err != nil {
+				return NewErrInvalidUserInput("get prop", err)
+			}
+			target = prop.DataType[0] // datatype is the name of the class that is referenced
+			classPropTarget[className+propName] = target
+		}
+		batchReferences[i].To.Class = target
+	}
+	return nil
 }
 
 func (b *BatchManager) validateReference(ctx context.Context, principal *models.Principal,
@@ -105,19 +146,6 @@ func (b *BatchManager) validateReference(ctx context.Context, principal *models.
 		validateErrors = append(validateErrors, fmt.Errorf("importing network references in batch is not possible. "+
 			"Please perform a regular non-batch import for network references, got peer %s",
 			target.PeerName))
-	}
-
-	// get to class from property datatype
-	if target.Class == "" {
-		class, err := b.schemaManager.GetClass(ctx, principal, string(source.Class))
-		if err != nil {
-			validateErrors = append(validateErrors, err)
-		}
-		prop, err := schema.GetPropertyByName(class, schema.LowercaseFirstLetter(string(source.Property)))
-		if err != nil {
-			validateErrors = append(validateErrors, err)
-		}
-		target.Class = prop.DataType[0] // datatype is the name of the class that is referenced
 	}
 
 	if len(validateErrors) == 0 {
