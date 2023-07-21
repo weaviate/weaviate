@@ -16,7 +16,6 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
 type pools struct {
@@ -29,7 +28,6 @@ type pools struct {
 	pqCandidates *pqMinPool
 
 	tempVectors *tempVectorsPool
-	sortedSets  *ssdhelpers.SortedSetPool
 }
 
 func newPools(maxConnectionsLayerZero int) *pools {
@@ -45,7 +43,6 @@ func newPools(maxConnectionsLayerZero int) *pools {
 		pqResults:    newPqMaxPool(maxConnectionsLayerZero),
 		pqCandidates: newPqMinPool(maxConnectionsLayerZero),
 		tempVectors:  newTempVectorsPool(),
-		sortedSets:   ssdhelpers.NewSortedSetPool(),
 	}
 }
 
