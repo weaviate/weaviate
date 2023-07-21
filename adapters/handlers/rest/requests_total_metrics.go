@@ -49,7 +49,7 @@ func newRequestsTotalMetric(prom *monitoring.PrometheusMetrics, api string) *req
 	}
 	return &requestsTotalMetric{
 		requestsTotal: prom.RequestsTotal,
-		groupClasses:  prom.GroupClasses,
+		groupClasses:  prom.Group,
 		api:           api,
 	}
 }

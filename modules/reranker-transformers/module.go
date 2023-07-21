@@ -66,7 +66,7 @@ func (m *ReRankerModule) initAdditional(ctx context.Context,
 ) error {
 	uri := os.Getenv("RERANKER_INFERENCE_API")
 	if uri == "" {
-		return nil
+		return errors.Errorf("required variable RERANKER_INFERENCE_API is not set")
 	}
 
 	client := client.New(uri, logger)

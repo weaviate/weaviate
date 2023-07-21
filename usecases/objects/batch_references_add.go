@@ -17,8 +17,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 )
 
@@ -141,22 +143,30 @@ func validateReferenceMultiTenancy(ctx context.Context,
 		return err
 	}
 
-	// if both classes have MT enabled but different tenant keys,
-	// no cross-tenant references can be made
-	if sourceClass.MultiTenancyConfig != nil && targetClass.MultiTenancyConfig != nil &&
-		sourceClass.MultiTenancyConfig.Enabled && targetClass.MultiTenancyConfig.Enabled {
-		err = validateTenantRefObjects(ctx, repo,
-			sourceClass, targetClass, source, target, tenant)
-		if err != nil {
-			return err
-		}
-	}
+	sourceEnabled := schema.MultiTenancyEnabled(sourceClass)
+	targetEnabled := schema.MultiTenancyEnabled(targetClass)
 
-	// the other way around is ok, a MT-enabled class may reference a
-	// non-MT-enabled class.
-	if sourceClass.MultiTenancyConfig == nil && targetClass.MultiTenancyConfig != nil {
+	if !sourceEnabled && targetEnabled {
 		return fmt.Errorf("invalid reference: cannot reference a multi-tenant " +
 			"enabled class from a non multi-tenant enabled class")
+	}
+	if sourceEnabled && !targetEnabled {
+		if err := validateTenantRefObject(ctx, repo, sourceClass, source.TargetID, tenant); err != nil {
+			return fmt.Errorf("source: %w", err)
+		}
+		if err := validateTenantRefObject(ctx, repo, targetClass, target.TargetID, ""); err != nil {
+			return fmt.Errorf("target: %w", err)
+		}
+	}
+	// if both classes have MT enabled but different tenant keys,
+	// no cross-tenant references can be made
+	if sourceEnabled && targetEnabled {
+		if err := validateTenantRefObject(ctx, repo, sourceClass, source.TargetID, tenant); err != nil {
+			return fmt.Errorf("source: %w", err)
+		}
+		if err := validateTenantRefObject(ctx, repo, targetClass, target.TargetID, tenant); err != nil {
+			return fmt.Errorf("target: %w", err)
+		}
 	}
 
 	return nil
@@ -194,34 +204,20 @@ func getReferenceClasses(ctx context.Context,
 	return
 }
 
-// validateTenantRefObjects ensures that both source and target objects
-// exist for the given tenant key. This asserts that no cross-tenant
-// references can occur, as a class+id which belongs to a different
+// validateTenantRefObject ensures that object exist for the given tenant key.
+// This asserts that no cross-tenant references can occur,
+// as a class+id which belongs to a different
 // tenant will not be found in the searched tenant shard
-func validateTenantRefObjects(ctx context.Context, repo VectorRepo,
-	sourceClass, targetClass *models.Class, source *crossref.RefSource,
-	target *crossref.Ref, tenant string,
+func validateTenantRefObject(ctx context.Context, repo VectorRepo,
+	class *models.Class, ID strfmt.UUID, tenant string,
 ) error {
-	exists, err := repo.Exists(ctx, sourceClass.Class,
-		source.TargetID, nil, tenant)
+	exists, err := repo.Exists(ctx, class.Class, ID, nil, tenant)
 	if err != nil {
-		return fmt.Errorf("get source object %s/%s: %w", sourceClass.Class, source.TargetID, err)
+		return fmt.Errorf("get object %s/%s: %w", class.Class, ID, err)
 	}
 	if !exists {
-		return fmt.Errorf("source object %s/%s not found for tenant %q",
-			source.Class, source.TargetID, tenant)
+		return fmt.Errorf("object %s/%s not found for tenant %q", class.Class, ID, tenant)
 	}
-
-	exists, err = repo.Exists(ctx, targetClass.Class,
-		target.TargetID, nil, tenant)
-	if err != nil {
-		return fmt.Errorf("get target object %s/%s: %w", targetClass.Class, target.TargetID, err)
-	}
-	if !exists {
-		return fmt.Errorf("target object %s/%s not found for tenant %q",
-			target.Class, target.TargetID, tenant)
-	}
-
 	return nil
 }
 

@@ -23,7 +23,6 @@ import (
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
-	uco "github.com/weaviate/weaviate/usecases/objects"
 )
 
 type batchObjectHandlers struct {
@@ -52,6 +51,9 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 		case objects.ErrInvalidUserInput:
 			return batch.NewBatchObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
+		case objects.ErrMultiTenancy:
+			return batch.NewBatchObjectsCreateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return batch.NewBatchObjectsCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -67,8 +69,10 @@ func (h *batchObjectHandlers) objectsResponse(input objects.BatchObjects) []*mod
 	response := make([]*models.ObjectsGetResponse, len(input))
 	for i, object := range input {
 		var errorResponse *models.ErrorResponse
+		status := models.ObjectsGetResponseAO2ResultStatusSUCCESS
 		if object.Err != nil {
 			errorResponse = errPayloadFromSingleErr(object.Err)
+			status = models.ObjectsGetResponseAO2ResultStatusFAILED
 		}
 
 		object.Object.ID = object.UUID
@@ -76,6 +80,7 @@ func (h *batchObjectHandlers) objectsResponse(input objects.BatchObjects) []*mod
 			Object: *object.Object,
 			Result: &models.ObjectsGetResponseAO2Result{
 				Errors: errorResponse,
+				Status: &status,
 			},
 		}
 	}
@@ -101,6 +106,9 @@ func (h *batchObjectHandlers) addReferences(params batch.BatchReferencesCreatePa
 			return batch.NewBatchReferencesCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case objects.ErrInvalidUserInput:
+			return batch.NewBatchReferencesCreateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		case objects.ErrMultiTenancy:
 			return batch.NewBatchReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -158,6 +166,9 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		if errors.As(err, &objects.ErrInvalidUserInput{}) {
+			return batch.NewBatchObjectsDeleteUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		} else if errors.As(err, &objects.ErrMultiTenancy{}) {
 			return batch.NewBatchObjectsDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		} else if errors.As(err, &autherrs.Forbidden{}) {
@@ -249,10 +260,17 @@ func (e *batchRequestsTotal) logError(className string, err error) {
 	switch err.(type) {
 	case errReplication:
 		e.logUserError(className)
-	case autherrs.Forbidden, uco.ErrInvalidUserInput:
+	case autherrs.Forbidden, objects.ErrInvalidUserInput:
 		e.logUserError(className)
-		return
+	case objects.ErrMultiTenancy:
+		e.logUserError(className)
 	default:
-		e.logServerError(className, err)
+		if errors.As(err, &objects.ErrMultiTenancy{}) ||
+			errors.As(err, &objects.ErrInvalidUserInput{}) ||
+			errors.As(err, &autherrs.Forbidden{}) {
+			e.logUserError(className)
+		} else {
+			e.logServerError(className, err)
+		}
 	}
 }

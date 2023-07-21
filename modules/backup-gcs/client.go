@@ -18,8 +18,10 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/storage"
+	"github.com/googleapis/gax-go/v2"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -60,6 +62,14 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcs
 	if err != nil {
 		return nil, errors.Wrap(err, "create client")
 	}
+
+	client.SetRetry(storage.WithBackoff(gax.Backoff{
+		Initial:    2 * time.Second, // Note: the client uses a jitter internally
+		Max:        60 * time.Second,
+		Multiplier: 3,
+	}),
+		storage.WithPolicy(storage.RetryAlways),
+	)
 	return &gcsClient{client, *config, projectID, dataPath}, nil
 }
 

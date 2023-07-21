@@ -43,6 +43,7 @@ func graphqlSearch(t *testing.T) {
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
+	paragraphClass.Vectorizer = "text2vec-contextionary"
 	articleClass := articles.ArticlesClass()
 
 	t.Run("create schema", func(t *testing.T) {
@@ -105,6 +106,14 @@ func graphqlSearch(t *testing.T) {
 
 	t.Run("get consistent search results with ONE (2/2 nodes up)", func(t *testing.T) {
 		resp := gqlGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, replica.One)
+		checkResultsConsistency(t, resp, true)
+	})
+
+	t.Run("get consistent search results with ONE (2/2 nodes up)", func(t *testing.T) {
+		resp := gqlGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, replica.One)
+		require.GreaterOrEqual(t, len(resp), 1)
+		vec := resp[0].(map[string]interface{})["_additional"].(map[string]interface{})["vector"].([]interface{})
+		resp = gqlGetNearVec(t, compose.GetWeaviate().URI(), paragraphClass.Class, vec, replica.Quorum)
 		checkResultsConsistency(t, resp, true)
 	})
 }

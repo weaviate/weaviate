@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"runtime"
 	golangSort "sort"
 	"strings"
 	"sync"
@@ -48,7 +49,10 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-var errTenantNotFound = errors.New("tenant not found")
+var (
+	errTenantNotFound = errors.New("tenant not found")
+	_NUMCPU           = runtime.NumCPU()
+)
 
 // shardMap is a syn.Map which specialized in storing shards
 type shardMap sync.Map
@@ -230,6 +234,7 @@ func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard *
 
 func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
 	eg := &errgroup.Group{}
+	eg.SetLimit(_NUMCPU)
 
 	i.ForEachShard(func(key string, shard *Shard) error {
 		shard.createPropertyIndex(ctx, prop, eg)
@@ -328,7 +333,7 @@ func (i *Index) determineObjectShard(id strfmt.UUID, tenant string) (string, err
 		if shard := i.getSchema.TenantShard(className, tenant); shard != "" {
 			return shard, nil
 		}
-		return "", fmt.Errorf("%w: %q", errTenantNotFound, tenant)
+		return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
 	}
 
 	uuid, err := uuid.Parse(id.String())
@@ -676,7 +681,12 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 
 	shardName, err := i.determineObjectShard(id, tenant)
 	if err != nil {
-		return nil, objects.NewErrInvalidUserInput("determine shard: %v", err)
+		switch err.(type) {
+		case objects.ErrMultiTenancy:
+			return nil, objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
+		default:
+			return nil, objects.NewErrInvalidUserInput("determine shard: %v", err)
+		}
 	}
 
 	var obj *storobj.Object
@@ -824,7 +834,12 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 
 	shardName, err := i.determineObjectShard(id, tenant)
 	if err != nil {
-		return false, objects.NewErrInvalidUserInput("determine shard: %v", err)
+		switch err.(type) {
+		case objects.ErrMultiTenancy:
+			return false, objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
+		default:
+			return false, objects.NewErrInvalidUserInput("determine shard: %v", err)
+		}
 	}
 
 	var exists bool
@@ -999,6 +1014,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
 	eg := errgroup.Group{}
+	eg.SetLimit(_NUMCPU * 2)
 	shardResultLock := sync.Mutex{}
 	for _, shardName := range shards {
 		shardName := shardName
@@ -1130,13 +1146,13 @@ func (i *Index) targetShardNames(tenant string) ([]string, error) {
 			return []string{shard}, nil
 		}
 	}
-	return nil, fmt.Errorf("%w: %q", errTenantNotFound, tenant)
+	return nil, objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
-	dist float32, limit int, filters *filters.LocalFilter,
-	sort []filters.Sort, groupBy *searchparams.GroupBy,
-	additional additional.Properties, tenant string,
+	dist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort,
+	groupBy *searchparams.GroupBy, additional additional.Properties,
+	replProps *additional.ReplicationProperties, tenant string,
 ) ([]*storobj.Object, []float32, error) {
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
@@ -1162,14 +1178,15 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 		shardCap = len(shardNames) * limit
 	}
 
-	errgrp := &errgroup.Group{}
+	eg := &errgroup.Group{}
+	eg.SetLimit(_NUMCPU * 2)
 	m := &sync.Mutex{}
 
 	out := make([]*storobj.Object, 0, shardCap)
 	dists := make([]float32, 0, shardCap)
 	for _, shardName := range shardNames {
 		shardName := shardName
-		errgrp.Go(func() error {
+		eg.Go(func() error {
 			var res []*storobj.Object
 			var resDists []float32
 			var err error
@@ -1179,6 +1196,9 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 					ctx, searchVector, dist, limit, filters, sort, groupBy, additional)
 				if err != nil {
 					return errors.Wrapf(err, "shard %s", shard.ID())
+				}
+				if i.replicationEnabled() {
+					storobj.AddOwnership(res, i.getSchema.NodeName(), shardName)
 				}
 			} else {
 				res, resDists, err = i.remote.SearchShard(ctx,
@@ -1198,7 +1218,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 		})
 	}
 
-	if err := errgrp.Wait(); err != nil {
+	if err := eg.Wait(); err != nil {
 		return nil, nil, err
 	}
 
@@ -1218,6 +1238,18 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]
 		dists = dists[:limit]
+	}
+
+	if i.replicationEnabled() {
+		if replProps == nil {
+			replProps = defaultConsistency(replica.One)
+		}
+		l := replica.ConsistencyLevel(replProps.ConsistencyLevel)
+		err = i.replicator.CheckConsistency(ctx, l, out)
+		if err != nil {
+			i.logger.WithField("action", "object_vector_search").
+				Errorf("failed to check consistency of search results: %v", err)
+		}
 	}
 
 	return out, dists, nil
@@ -1410,23 +1442,81 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 }
 
 func (i *Index) drop() error {
+	var eg errgroup.Group
+	eg.SetLimit(_NUMCPU * 2)
+	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName}
+	dropShard := func(name string, shard *Shard) error {
+		if shard == nil {
+			return nil
+		}
+		eg.Go(func() error {
+			if err := shard.drop(); err != nil {
+				logrus.WithFields(fields).WithField("id", shard.ID()).Error(err)
+			}
+			return nil
+		})
+		return nil
+	}
+
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
-	for _, name := range i.getSchema.CopyShardingState(i.Config.ClassName.String()).
-		AllPhysicalShards() {
-		shard := i.shards.Load(name)
-		if shard == nil {
-			// skip non-local, but do delete everything that exists - even if it
-			// shouldn't
+
+	i.shards.Range(dropShard)
+	return eg.Wait()
+}
+
+// dropShards deletes shards in a transactional manner.
+// To confirm the deletion, the user must call Commit(true).
+// To roll back the deletion, the user must call Commit(false)
+func (i *Index) dropShards(names []string) (commit func(success bool), err error) {
+	shards := make(map[string]*Shard, len(names))
+	i.backupStateLock.RLock()
+	defer i.backupStateLock.RUnlock()
+
+	// mark deleted shards
+	for _, name := range names {
+		prev, ok := i.shards.Swap(name, nil) // mark
+		if !ok {                             // shard doesn't exit
+			i.shards.LoadAndDelete(name) // rollback nil value created by swap()
 			continue
 		}
-		err := shard.drop()
-		if err != nil {
-			return errors.Wrapf(err, "delete shard %s", shard.ID())
+		if prev != nil {
+			shards[name] = prev
 		}
 	}
 
-	return nil
+	rollback := func() {
+		for name, shard := range shards {
+			i.shards.CompareAndSwap(name, nil, shard)
+		}
+	}
+
+	var eg errgroup.Group
+	eg.SetLimit(_NUMCPU * 2)
+	commit = func(success bool) {
+		if !success {
+			rollback()
+			return
+		}
+		// detach shards
+		for name := range shards {
+			i.shards.LoadAndDelete(name)
+		}
+
+		// drop shards
+		for _, shard := range shards {
+			shard := shard
+			eg.Go(func() error {
+				if err := shard.drop(); err != nil {
+					i.logger.WithField("action", "drop_shard").
+						WithField("shard", shard.ID()).Error(err)
+				}
+				return nil
+			})
+		}
+	}
+
+	return commit, eg.Wait()
 }
 
 func (i *Index) Shutdown(ctx context.Context) error {
@@ -1505,16 +1595,13 @@ func (i *Index) findDocIDs(ctx context.Context,
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "filter_total")
 
-	var shardNames []string
-	// TODO targetShardNames
-	// If this index is multi-tenant-enabled, we are only
-	// interested in deleting objects from the target
-	// tenant's shard
-	if tenant != "" {
-		shardNames = []string{tenant}
-	} else {
-		shardState := i.getSchema.CopyShardingState(i.Config.ClassName.String())
-		shardNames = shardState.AllPhysicalShards()
+	if err := i.validateMultiTenancy(tenant); err != nil {
+		return nil, err
+	}
+
+	shardNames, err := i.targetShardNames(tenant)
+	if err != nil {
+		return nil, err
 	}
 
 	results := make(map[string][]uint64)
@@ -1656,11 +1743,13 @@ func (i *Index) addNewShard(ctx context.Context,
 
 func (i *Index) validateMultiTenancy(tenant string) error {
 	if i.partitioningEnabled && tenant == "" {
-		return objects.NewErrInvalidUserInput(
-			fmt.Sprintf("class %s has multi-tenancy enabled, but request was without tenant", i.Config.ClassName))
+		return objects.NewErrMultiTenancy(
+			fmt.Errorf("class %s has multi-tenancy enabled, but request was without tenant", i.Config.ClassName),
+		)
 	} else if !i.partitioningEnabled && tenant != "" {
-		return objects.NewErrInvalidUserInput(
-			fmt.Sprintf("class %s has multi-tenancy disabled, but request was with tenant", i.Config.ClassName))
+		return objects.NewErrMultiTenancy(
+			fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", i.Config.ClassName),
+		)
 	}
 	return nil
 }

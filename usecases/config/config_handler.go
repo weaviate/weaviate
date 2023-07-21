@@ -47,9 +47,6 @@ const (
 	// These BM25 tuning params can be overwritten on a per-class basis
 	DefaultBM25k1 = float32(1.2)
 	DefaultBM25b  = float32(0.75)
-
-	// These hybrid tuning params can be overwritten on a per-class basis
-	DefaultAlpha = float64(0.75)
 )
 
 const (
@@ -169,10 +166,10 @@ type Contextionary struct {
 }
 
 type Monitoring struct {
-	Enabled      bool   `json:"enabled" yaml:"enabled"`
-	Tool         string `json:"tool" yaml:"tool"`
-	Port         int    `json:"port" yaml:"port"`
-	GroupClasses bool   `json:"group_classes" yaml:"group_classes"`
+	Enabled bool   `json:"enabled" yaml:"enabled"`
+	Tool    string `json:"tool" yaml:"tool"`
+	Port    int    `json:"port" yaml:"port"`
+	Group   bool   `json:"group_classes" yaml:"group_classes"`
 }
 
 type GRPC struct {

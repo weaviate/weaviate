@@ -113,7 +113,17 @@ func (v *Validator) ValidateSingleRef(ctx context.Context, cref *models.SingleRe
 	// locally check for object existence
 	ok, err := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, tenant)
 	if err != nil {
-		return err
+		if tenant == "" {
+			return err
+		}
+		// since refs can be created to non-MT classes, check again if non-MT object exists
+		// (use empty tenant, if previously was given)
+		ok2, err2 := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, "")
+		if err2 != nil {
+			// return orig error
+			return err
+		}
+		ok = ok2
 	}
 	if !ok {
 		return fmt.Errorf(ErrorNotFoundInDatabase, errorVal, ref.TargetID)

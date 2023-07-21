@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/pkg/errors"
@@ -40,18 +41,20 @@ func (m *Manager) handleCommit(ctx context.Context, tx *cluster.Transaction) err
 
 func (m *Manager) handleTxResponse(ctx context.Context,
 	tx *cluster.Transaction,
-) error {
-	switch tx.Type {
-	case ReadSchema:
+) (data []byte, err error) {
+	if tx.Type != ReadSchema {
+		return nil, nil
+	}
+	m.schemaCache.RLockGuard(func() error {
 		tx.Payload = ReadSchemaPayload{
 			Schema: &m.schemaCache.State,
 		}
-		return nil
-	// TODO
-	default:
-		// silently ignore. Not all types support responses
-		return nil
-	}
+
+		data, err = json.Marshal(tx)
+		tx.Payload = ReadSchemaPayload{}
+		return err
+	})
+	return
 }
 
 func (m *Manager) handleAddClassCommit(ctx context.Context,
@@ -116,7 +119,7 @@ func (m *Manager) handleDeleteClassCommit(ctx context.Context,
 			tx.Payload)
 	}
 
-	return m.deleteClassApplyChanges(ctx, pl.ClassName, pl.Force)
+	return m.deleteClassApplyChanges(ctx, pl.ClassName)
 }
 
 func (m *Manager) handleUpdateClassCommit(ctx context.Context,

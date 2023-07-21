@@ -112,7 +112,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 	targetDist := extractDistanceFromParams(params)
 	res, dists, err := idx.objectVectorSearch(ctx, params.SearchVector,
 		targetDist, totalLimit, params.Filters, params.Sort, params.GroupBy,
-		params.AdditionalProperties, params.Tenant)
+		params.AdditionalProperties, params.ReplicationProperties, params.Tenant)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
 	}
@@ -154,8 +154,8 @@ func (db *DB) DenseObjectSearch(ctx context.Context, class string, vector []floa
 	}
 
 	// TODO: groupBy think of this
-	objs, dist, err := index.objectVectorSearch(
-		ctx, vector, 0, totalLimit, filters, nil, nil, addl, tenant)
+	objs, dist, err := index.objectVectorSearch(ctx, vector, 0,
+		totalLimit, filters, nil, nil, addl, nil, tenant)
 	if err != nil {
 		return nil, nil, fmt.Errorf("search index %s: %w", index.ID(), err)
 	}
@@ -179,8 +179,9 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, offs
 		go func(index *Index, wg *sync.WaitGroup) {
 			defer wg.Done()
 
-			objs, dist, err := index.objectVectorSearch(
-				ctx, vector, 0, totalLimit, filters, nil, nil, additional.Properties{}, "")
+			objs, dist, err := index.objectVectorSearch(ctx, vector,
+				0, totalLimit, filters, nil, nil,
+				additional.Properties{}, nil, "")
 			if err != nil {
 				mutex.Lock()
 				searchErrors = append(searchErrors, errors.Wrapf(err, "search index %s", index.ID()))
@@ -240,7 +241,12 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters,
 		nil, q.Sort, q.Cursor, q.Additional, nil, q.Tenant, 0)
 	if err != nil {
-		return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}
+		switch err.(type) {
+		case objects.ErrMultiTenancy:
+			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusUnprocessableEntity, Err: err}
+		default:
+			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}
+		}
 	}
 	return db.getSearchResults(storobj.SearchResults(res, q.Additional, ""), q.Offset, q.Limit), nil
 }
@@ -277,11 +283,8 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 			res, _, err := index.objectSearch(ctx, totalLimit,
 				filters, nil, sort, nil, additional, nil, tenant, 0)
 			if err != nil {
-				if errors.Is(err, errTenantNotFound) {
-					continue // tenant does belong to this class
-				}
-				// TODO find better way to recognise particular errors
-				if errors.As(err, &objects.ErrInvalidUserInput{}) {
+				// Multi tenancy specific errors
+				if errors.As(err, &objects.ErrMultiTenancy{}) {
 					// validation failed (either MT class without tenant or non-MT class with tenant)
 					if strings.Contains(err.Error(), "has multi-tenancy enabled, but request was without tenant") ||
 						strings.Contains(err.Error(), "has multi-tenancy disabled, but request was with tenant") {
@@ -290,6 +293,10 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 					// tenant not added to class
 					if strings.Contains(err.Error(), "no tenant found with key") {
 						continue
+					}
+					// tenant does belong to this class
+					if errors.As(err, &errTenantNotFound) {
+						continue // tenant does belong to this class
 					}
 				}
 				return errors.Wrapf(err, "search index %s", index.ID())

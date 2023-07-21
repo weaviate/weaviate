@@ -24,7 +24,7 @@ var (
 
 const (
 	ClassNameRegexCore = `[A-Z][_0-9A-Za-z]*`
-	ShardNameRegexCore = `[A-Za-z0-9\-\_]{4,64}`
+	ShardNameRegexCore = `[A-Za-z0-9\-\_]{1,64}`
 )
 
 func init() {

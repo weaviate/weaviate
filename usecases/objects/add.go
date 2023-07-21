@@ -81,6 +81,8 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, class string, id strfm
 		switch err.(type) {
 		case ErrInvalidUserInput:
 			return "", err
+		case ErrMultiTenancy:
+			return "", err
 		default:
 			return "", NewErrInternal(err.Error())
 		}

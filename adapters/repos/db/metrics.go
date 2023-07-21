@@ -44,7 +44,7 @@ func NewMetrics(
 		return m
 	}
 
-	if prom.GroupClasses {
+	if prom.Group {
 		className = "n/a"
 		shardName = "n/a"
 	}

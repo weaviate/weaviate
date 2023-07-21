@@ -653,7 +653,8 @@ func (p *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 		if searcher, ok := mod.(modulecapabilities.Searcher); ok {
 			if vectorSearches := searcher.VectorSearches(); vectorSearches != nil {
 				if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
-					vector, err := searchVectorFn(ctx, params, "", findVectorFn, nil)
+					cfg := NewCrossClassModuleConfig()
+					vector, err := searchVectorFn(ctx, params, "", findVectorFn, cfg)
 					if err != nil {
 						return nil, errors.Errorf("vectorize params: %v", err)
 					}

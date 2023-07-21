@@ -93,12 +93,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 }
 
 func (m *Migrator) DropClass(ctx context.Context, className string) error {
-	err := m.db.DeleteIndex(schema.ClassName(className))
-	if err != nil {
-		return errors.Wrapf(err, "delete idx for class '%s'", className)
-	}
-
-	return nil
+	return m.db.DeleteIndex(schema.ClassName(className))
 }
 
 func (m *Migrator) UpdateClass(ctx context.Context, className string, newClassName *string) error {
@@ -205,40 +200,7 @@ func (m *Migrator) DeleteTenants(ctx context.Context, class *models.Class, tenan
 	if idx == nil {
 		return func(bool) {}, nil
 	}
-
-	shards := make(map[string]*Shard, len(tenants))
-	for _, name := range tenants {
-		prev, ok := idx.shards.Swap(name, nil)
-		if !ok { // shard doesn't exits
-			idx.shards.LoadAndDelete(name) // rollback created key-value = {name, nil}
-		}
-		if prev != nil {
-			shards[name] = prev
-			idx.shards.Store(name, nil) // prevent update during deletion
-		}
-	}
-
-	rollback := func() {
-		for name, shard := range shards {
-			idx.shards.CompareAndSwap(name, nil, shard)
-		}
-	}
-	commit = func(success bool) {
-		if !success {
-			rollback()
-			return
-		}
-
-		for name, shard := range shards {
-			idx.shards.LoadAndDelete(name)
-			if err := shard.drop(); err != nil {
-				m.logger.WithField("action", "drop_shard").
-					WithField("class", class.Class).WithField("shard", name).Error(err)
-			}
-		}
-	}
-
-	return commit, nil
+	return idx.dropShards(tenants)
 }
 
 func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
@@ -395,10 +357,11 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) e
 		return nil
 	}
 
-	errgrp := &errgroup.Group{}
+	eg := &errgroup.Group{}
+	eg.SetLimit(_NUMCPU)
 	for _, index := range m.db.indices {
 		index.ForEachShard(func(name string, shard *Shard) error {
-			errgrp.Go(func() error {
+			eg.Go(func() error {
 				reindexer := NewShardInvertedReindexer(shard, m.logger)
 				for taskName, task := range tasks {
 					reindexer.AddTask(task)
@@ -419,7 +382,7 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) e
 			return nil
 		})
 	}
-	return errgrp.Wait()
+	return eg.Wait()
 }
 
 func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, taskNames ...string) error {
@@ -448,8 +411,8 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 
 	m.logMissingFilterable().Info("staring missing text filterable task")
 
-	errgrpIndexes := &errgroup.Group{}
-	errgrpIndexes.SetLimit(50)
+	eg := &errgroup.Group{}
+	eg.SetLimit(_NUMCPU * 2)
 	for _, index := range m.db.indices {
 		index := index
 		className := index.Config.ClassName.String()
@@ -458,7 +421,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 			continue
 		}
 
-		errgrpIndexes.Go(func() error {
+		eg.Go(func() error {
 			errgrpShards := &errgroup.Group{}
 			index.ForEachShard(func(_ string, shard *Shard) error {
 				errgrpShards.Go(func() error {
@@ -503,7 +466,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 		})
 	}
 
-	if err := errgrpIndexes.Wait(); err != nil {
+	if err := eg.Wait(); err != nil {
 		m.logMissingFilterable().
 			WithError(err).
 			Error("failed missing text filterable task")
