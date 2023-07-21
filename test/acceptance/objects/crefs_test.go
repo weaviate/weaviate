@@ -73,6 +73,34 @@ func Test_refs_without_to_class(t *testing.T) {
 		},
 	}, objWithRef)
 
+	// update prop with multiple references
+	updateRefParams := objects.NewObjectsClassReferencesPutParams().
+		WithID(refFromId).
+		WithPropertyName("ref").WithClassName(refFromClass.Class).
+		WithBody(models.MultipleRef{
+			{Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", refToId.String()))},
+			{Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/ReferenceTo/%s", refToId.String()))},
+		})
+	updateRefResponse, err := helper.Client(t).Objects.ObjectsClassReferencesPut(updateRefParams, nil)
+	helper.AssertRequestOk(t, updateRefResponse, err, nil)
+
+	objWithTwoRef := func() interface{} {
+		obj := assertGetObjectWithClass(t, refFromId, "ReferenceFrom")
+		return obj.Properties
+	}
+	testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+		"ref": []interface{}{
+			map[string]interface{}{
+				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", "ReferenceTo", refToId.String()),
+				"href":   fmt.Sprintf("/v1/objects/%s/%s", "ReferenceTo", refToId.String()),
+			},
+			map[string]interface{}{
+				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", "ReferenceTo", refToId.String()),
+				"href":   fmt.Sprintf("/v1/objects/%s/%s", "ReferenceTo", refToId.String()),
+			},
+		},
+	}, objWithTwoRef)
+
 	// delete reference without class
 	deleteRefParams := objects.NewObjectsClassReferencesDeleteParams().
 		WithID(refFromId).

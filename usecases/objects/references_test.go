@@ -247,9 +247,9 @@ func Test_ReferenceUpdate(t *testing.T) {
 		prop   = "hasAnimals"
 		id     = strfmt.UUID("d18c8e5e-000-0000-0000-56b0cfe33ce7")
 		refID  = strfmt.UUID("d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
-		uri    = strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
+		uri    = strfmt.URI("weaviate://localhost/Animals/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
 		anyErr = errors.New("any")
-		refs   = models.MultipleRef{&models.SingleRef{Beacon: uri}}
+		refs   = models.MultipleRef{&models.SingleRef{Beacon: uri, Class: "Animals"}}
 		req    = PutReferenceInput{
 			Class:    cls,
 			ID:       id,
@@ -368,7 +368,7 @@ func Test_ReferenceUpdate(t *testing.T) {
 			}
 
 			if tc.Stage >= 2 {
-				m.repo.On("Exists", "", refID).Return(true, tc.ErrTargetExists).Once()
+				m.repo.On("Exists", "Animals", refID).Return(true, tc.ErrTargetExists).Once()
 			}
 
 			if tc.Stage >= 3 {
