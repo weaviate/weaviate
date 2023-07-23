@@ -49,6 +49,7 @@ func readRepair(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor: 2,
 		}
+		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor: 2,
@@ -89,7 +90,6 @@ func readRepair(t *testing.T) {
 		Properties: map[string]interface{}{
 			"contents": "a new paragraph",
 		},
-		Vector: []float32{1, 2, 3, 4, 5},
 	}
 
 	t.Run("add new object to node one", func(t *testing.T) {
@@ -102,7 +102,7 @@ func readRepair(t *testing.T) {
 	})
 
 	t.Run("run fetch to trigger read repair", func(t *testing.T) {
-		_, err := getObject(t, compose.GetWeaviate().URI(), repairObj.Class, repairObj.ID)
+		_, err := getObject(t, compose.GetWeaviate().URI(), repairObj.Class, repairObj.ID, true)
 		require.Nil(t, err)
 	})
 
@@ -116,6 +116,7 @@ func readRepair(t *testing.T) {
 		assert.Equal(t, repairObj.ID, resp.ID)
 		assert.Equal(t, repairObj.Class, resp.Class)
 		assert.EqualValues(t, repairObj.Properties, resp.Properties)
+		assert.EqualValues(t, repairObj.Vector, resp.Vector)
 	})
 
 	replaceObj := repairObj
@@ -153,5 +154,6 @@ func readRepair(t *testing.T) {
 		assert.Equal(t, replaceObj.ID, resp.ID)
 		assert.Equal(t, replaceObj.Class, resp.Class)
 		assert.EqualValues(t, replaceObj.Properties, resp.Properties)
+		assert.EqualValues(t, replaceObj.Vector, resp.Vector)
 	})
 }
