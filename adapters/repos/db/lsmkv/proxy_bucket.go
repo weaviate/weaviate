@@ -44,7 +44,7 @@ func NewBucketProxyWithPrefix(realB BucketInterface, propName string, propid_byt
 	return &BucketProxy{
 		realB:           realB,
 		property_prefix: propid_bytes,
-		PropertyName:    string(propName),
+		PropertyName:    propName,
 	}
 }
 
@@ -65,7 +65,7 @@ func (b *BucketProxy)  RoaringSetAddList(key []byte, values []uint64) error{
 
 
 func (b *BucketProxy) makePropertyKey(key []byte) []byte {
-	return helpers.MakePropertyKey([]byte(b.property_prefix), key)
+	return helpers.MakePropertyKey(b.property_prefix, key)
 }
 
 func (b *BucketProxy) CursorRoaringSet() CursorRoaringSet {

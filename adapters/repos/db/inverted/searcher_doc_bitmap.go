@@ -70,7 +70,7 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b lsmkv.Buck
 		return true, nil
 	}
 
-	rr := NewRowReaderRoaringSet(b, pv.value, pv.operator, false)
+	rr := NewRowReaderRoaringSet(b, pv.Value(), pv.operator, false)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, errors.Wrap(err, "read row")
 	}
@@ -97,7 +97,7 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, property []byte, b 
 	}
 
 	
-	rr := NewRowReader(b, pv.value, pv.operator, false)
+	rr := NewRowReader(b, pv.Value(), pv.operator, false)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, errors.Wrap(err, "read row")
 	}
@@ -127,7 +127,7 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, property []byte, b 
 		return true, nil
 	}
 
-	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false, s.shardVersion)
+	rr := NewRowReaderFrequency(b, pv.Value(), pv.operator, false, s.shardVersion)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, errors.Wrap(err, "read row")
 	}

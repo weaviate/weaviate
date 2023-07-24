@@ -29,7 +29,7 @@ type propValuePair struct {
 
 	// set for all values that can be served by an inverted index, i.e. anything
 	// that's not a geoRange
-	value []byte
+	_value []byte
 
 	// only set if operator=OperatorWithinGeoRange, as that cannot be served by a
 	// byte value from an inverted index
@@ -48,11 +48,26 @@ func newPropValuePair(class *models.Class) propValuePair {
 	return propValuePair{docIDs: newDocBitmap(), Class: class}
 }
 
+func (pv *propValuePair) SetValue(value []byte) {
+	pv._value = value
+}
+
+func (pv *propValuePair) Value() []byte {
+	//copy pv.value so other code can't modify it
+	if pv._value == nil {
+		return nil
+	}
+	value := make([]byte, len(pv._value))
+	copy(value, pv._value)
+	return value
+}
+
 func (pv *propValuePair) DocIds() []uint64 {
 	return pv.docIDs.IDs()
 }
 
 func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
+	
 	if pv.operator.OnValue() {
 		var bucketName string
 		if pv.hasFilterableIndex {
@@ -67,14 +82,14 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 		
 
 		// TODO text_rbm_inverted_index find better way check whether prop len
-		if b == nil && strings.HasSuffix(pv.prop, filters.InternalPropertyLength) { //FIXME check that propname length will be the internal propname length name
+			if b == nil && strings.HasSuffix(pv.prop, filters.InternalPropertyLength) { //FIXME check that propname length will be the internal propname length name
 			return errors.Errorf("Property length must be indexed to be filterable! " +
 				"add `IndexPropertyLength: true` to the invertedIndexConfig." +
 				"Geo-coordinates, phone numbers and data blobs are not supported by property length.")
 		}
 
 		if pv.operator == filters.OperatorIsNull {
-			if pv.Class.InvertedIndexConfig.IndexNullState {
+			if !pv.Class.InvertedIndexConfig.IndexNullState {
 				return errors.Errorf("Nullstate must be indexed to be filterable! " +
 					"add `indexNullState: true` to the invertedIndexConfig")
 			}
@@ -105,9 +120,10 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 		pv.docIDs = dbm
 	} else {
 
+	//	FIXME iterating throught this reduces the results from 2 to 1, when we should be returning both.  why?
+
 		for i, child := range pv.children {
 			i, child := i, child
-
 			// Explicitly set the limit to 0 (=unlimited) as this is a nested filter,
 			// otherwise we run into situations where each subfilter on their own
 			// runs into the limit, possibly yielding in "less than limit" results

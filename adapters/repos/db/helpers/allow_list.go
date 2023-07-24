@@ -52,7 +52,7 @@ func MakePropertyKey(propPrefix []byte, key []byte) []byte {
 		fmt.Println("Empty property name, this is almost certainly wrong")
 	}
 	//t := append([]byte(propName), byte('|'))
-	t := key
+	t := key[:]
 	val := append(t, propPrefix...)
 	//log.Printf("Property key: %s\n", val)
 	//log.Printf("Property key bytes: %v\n", val)
@@ -78,7 +78,10 @@ func UnMakePropertyKey(propName []byte, key []byte) []byte {
 		debug.PrintStack()
 	}
 	//return key[len(propName)+1:]
-	return key[:len(key)-len(propName)]
+	//duplicate slice
+	out := make([]byte, len(key)-len(propName))
+	copy(out, key[:len(key)-len(propName)])
+	return out
 }
 
 type AllowListIterator interface {

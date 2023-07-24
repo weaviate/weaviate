@@ -172,7 +172,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter, addi
 }
 
 func (s *Searcher) buildPropValuePair(filter *filters.Clause, className schema.ClassName) (*propValuePair, error) {
-	class := s.schema.FindClassByName(schema.ClassName(className))
+	class := s.schema.FindClassByName(schema.ClassName(className)) //FIXME errorcheck
 	out := newPropValuePair(class)
 	if filter.Operands != nil {
 		// nested filter
@@ -336,7 +336,7 @@ func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.D
 	}
 
 	return &propValuePair{
-		value:              byteValue,
+		_value:              byteValue,
 		prop:               prop.Name,
 		operator:           operator,
 		hasFilterableIndex: hasFilterableIndex,
@@ -360,7 +360,7 @@ func (s *Searcher) extractReferenceCount(prop *models.Property, value interface{
 	}
 
 	return &propValuePair{
-		value:              byteValue,
+		_value:              byteValue,
 		prop:               helpers.MetaCountProp(prop.Name),
 		operator:           operator,
 		hasFilterableIndex: hasFilterableIndex,
@@ -379,7 +379,7 @@ func (s *Searcher) extractGeoFilter(prop *models.Property, value interface{},
 	parsed := value.(filters.GeoRange)
 
 	return &propValuePair{
-		value:              nil, // not going to be served by an inverted index
+		_value:              nil, // not going to be served by an inverted index
 		valueGeoRange:      &parsed,
 		prop:               prop.Name,
 		operator:           operator,
@@ -417,7 +417,7 @@ func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
 	}
 
 	return &propValuePair{
-		value:              byteValue,
+		_value:              byteValue,
 		prop:               prop.Name,
 		operator:           operator,
 		hasFilterableIndex: hasFilterableIndex,
@@ -455,7 +455,7 @@ func (s *Searcher) extractIDProp(propName string, propType schema.DataType, valu
 	}
 
 	return &propValuePair{
-		value:              byteValue,
+		_value:              byteValue,
 		prop:               filters.InternalPropID,
 		operator:           operator,
 		hasFilterableIndex: HasFilterableIndexIdProp,
@@ -497,7 +497,7 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 	}
 
 	return &propValuePair{
-		value:              byteValue,
+		_value:              byteValue,
 		prop:               propName,
 		operator:           operator,
 		hasFilterableIndex: HasFilterableIndexTimestampProp, // TODO text_rbm_inverted_index & with settings
@@ -534,7 +534,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 			continue
 		}
 		propValuePairs = append(propValuePairs, &propValuePair{
-			value:              []byte(term),
+			_value:              []byte(term),
 			prop:               prop.Name,
 			operator:           operator,
 			hasFilterableIndex: hasFilterableIndex,
@@ -567,7 +567,7 @@ func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.
 	}
 
 	return &propValuePair{
-		value:              byteValue,
+		_value:              byteValue,
 		prop:               helpers.PropLength(prop.Name),
 		operator:           operator,
 		hasFilterableIndex: HasFilterableIndexPropLength, // TODO text_rbm_inverted_index & with settings
@@ -591,7 +591,7 @@ func (s *Searcher) extractPropertyNull(prop *models.Property, propType schema.Da
 	}
 
 	return &propValuePair{
-		value:              valResult,
+		_value:              valResult,
 		prop:               helpers.PropNull(prop.Name),
 		operator:           operator,
 		hasFilterableIndex: HasFilterableIndexPropNull, // TODO text_rbm_inverted_index & with settings
