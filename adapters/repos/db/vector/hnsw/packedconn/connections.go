@@ -40,7 +40,7 @@ func NewWithMaxLayer(maxLayer uint8) (Connections, error) {
 }
 
 func (c *Connections) AddLayer() {
-	layers := c.layers()
+	layers := c.Layers()
 	c.expandDataIfRequired(3)
 	c.shiftRightBy(1+uint16(layers)*3, 3)
 	c.data[layerPos] = layers + 1
@@ -79,8 +79,8 @@ func (c *Connections) ReplaceLayer(layer uint8, conns []uint64) {
 }
 
 func (c Connections) LenAtLayer(layer uint8) int {
-	if layer >= c.layers() {
-		panic(fmt.Sprintf("only has %d layers", c.layers()))
+	if layer >= c.Layers() {
+		panic(fmt.Sprintf("only has %d layers", c.Layers()))
 	}
 
 	return int(c.layerLength(layer))
@@ -122,6 +122,10 @@ func (c *Connections) InsertAtLayer(conn uint64, layer uint8) {
 	end := c.layerEndOffset(layer)
 	val := uint64(0)
 	var n int
+	if int(offset) > len(c.data) {
+		fmt.Println(len(c.data), offset, layer, c.Layers())
+		fmt.Println(c.data)
+	}
 	val, n = binary.Uvarint(c.data[offset:])
 	offset += uint16(n)
 	for end > offset-uint16(n) && val < conn {
@@ -172,7 +176,7 @@ func (c *Connections) initLayers(maxLayer uint8) {
 
 // number of layers, e.g. if the maxLayer is 7, the number of layers is 8, as 0
 // is a valid layer
-func (c *Connections) layers() uint8 {
+func (c *Connections) Layers() uint8 {
 	return c.data[layerPos]
 }
 
@@ -214,7 +218,7 @@ func (c *Connections) setLayerOffset(layer uint8, offset uint16) {
 
 func (c *Connections) initialLayerOffset() uint16 {
 	// 1 byte for the uint8 indicating len
-	return uint16(1 + c.layers()*3)
+	return uint16(1 + c.Layers()*3)
 }
 
 func (c *Connections) expandDataIfRequired(delta uint16) {

@@ -94,7 +94,7 @@ func TestGraphIntegrity(t *testing.T) {
 			continue
 		}
 
-		conlen := len(node.connections[0])
+		conlen := node.packedConnections.LenAtLayer(0)
 
 		// it is debatable how much value this test still adds. It used to check
 		// that a lot of connections are present before we had the heurisitic. But

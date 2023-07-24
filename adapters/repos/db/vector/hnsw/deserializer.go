@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
@@ -178,9 +179,13 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 	}
 
 	if res.Nodes[id] == nil {
-		res.Nodes[id] = &vertex{level: int(level), id: id, connections: make([][]uint64, level+1)}
+		packedConns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return err
+		}
+		res.Nodes[id] = &vertex{level: int(level), id: id, packedConnections: &packedConns}
 	} else {
-		maybeGrowConnectionsForLevel(&res.Nodes[id].connections, level)
+		maybeGrowConnectionsForLevel(res.Nodes[id].packedConnections, level)
 		res.Nodes[id].level = int(level)
 	}
 	return nil
@@ -226,12 +231,16 @@ func (d *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 	}
 
 	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: source, connections: make([][]uint64, level+1)}
+		packedConns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return err
+		}
+		res.Nodes[int(source)] = &vertex{id: source, packedConnections: &packedConns}
 	}
 
-	maybeGrowConnectionsForLevel(&res.Nodes[int(source)].connections, level)
+	maybeGrowConnectionsForLevel(res.Nodes[int(source)].packedConnections, level)
 
-	res.Nodes[int(source)].connections[int(level)] = append(res.Nodes[int(source)].connections[int(level)], target)
+	res.Nodes[int(source)].packedConnections.InsertAtLayer(target, uint8(level))
 	return nil
 }
 
@@ -263,12 +272,15 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 	}
 
 	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: source, connections: make([][]uint64, level+1)}
+		packedConns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return 0, err
+		}
+		res.Nodes[int(source)] = &vertex{id: source, packedConnections: &packedConns}
 	}
 
-	maybeGrowConnectionsForLevel(&res.Nodes[int(source)].connections, level)
-	res.Nodes[int(source)].connections[int(level)] = make([]uint64, len(targets))
-	copy(res.Nodes[int(source)].connections[int(level)], targets)
+	maybeGrowConnectionsForLevel(res.Nodes[int(source)].packedConnections, level)
+	res.Nodes[int(source)].packedConnections.ReplaceLayer(uint8(level), targets)
 
 	if keepReplaceInfo {
 		// mark the replace flag for this node and level, so that new commit logs
@@ -312,13 +324,18 @@ func (d *Deserializer) ReadAddLinks(r io.Reader,
 	}
 
 	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: source, connections: make([][]uint64, level+1)}
+		packedConns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return 0, err
+		}
+		res.Nodes[int(source)] = &vertex{id: source, packedConnections: &packedConns}
 	}
 
-	maybeGrowConnectionsForLevel(&res.Nodes[int(source)].connections, level)
+	maybeGrowConnectionsForLevel(res.Nodes[int(source)].packedConnections, level)
 
-	res.Nodes[int(source)].connections[int(level)] = append(
-		res.Nodes[int(source)].connections[int(level)], targets...)
+	for _, target := range targets {
+		res.Nodes[int(source)].packedConnections.InsertAtLayer(target, uint8(level))
+	}
 
 	return 12 + int(length)*8, nil
 }
@@ -367,7 +384,6 @@ func (d *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult,
 		return nil
 	}
 
-	res.Nodes[id].connections = make([][]uint64, len(res.Nodes[id].connections))
 	return nil
 }
 
@@ -414,17 +430,25 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 		// we need to keep the replace info, meaning we have to explicitly create
 		// this node in order to be able to store the "clear links" information for
 		// it
+		packedConns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return err
+		}
 		res.Nodes[id] = &vertex{
-			id:          id,
-			connections: make([][]uint64, level+1),
+			id:                id,
+			packedConnections: &packedConns,
 		}
 	}
 
-	if res.Nodes[id].connections == nil {
-		res.Nodes[id].connections = make([][]uint64, level+1)
+	if res.Nodes[id].packedConnections == nil {
+		packedConns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return err
+		}
+		res.Nodes[id].packedConnections = &packedConns
 	} else {
-		maybeGrowConnectionsForLevel(&res.Nodes[id].connections, level)
-		res.Nodes[id].connections[int(level)] = []uint64{}
+		maybeGrowConnectionsForLevel(res.Nodes[id].packedConnections, level)
+		res.Nodes[id].packedConnections.ReplaceLayer(uint8(level), []uint64{})
 	}
 
 	if keepReplaceInfo {
@@ -664,12 +688,9 @@ func (d *Deserializer) readUint64Slice(r io.Reader, length int) ([]uint64, error
 
 // If the connections array is to small to contain the current target-levelit
 // will be grown. Otherwise, nothing happens.
-func maybeGrowConnectionsForLevel(connsPtr *[][]uint64, level uint16) {
-	conns := *connsPtr
-	if len(conns) <= int(level) {
+func maybeGrowConnectionsForLevel(packedConnections *packedconn.Connections, level uint16) {
+	for packedConnections.Layers() <= uint8(level) {
 		// we need to grow the connections slice
-		newConns := make([][]uint64, level+1)
-		copy(newConns, conns)
-		*connsPtr = newConns
+		packedConnections.AddLayer()
 	}
 }

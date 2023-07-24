@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -39,7 +40,8 @@ func (h *hnsw) Dump(labels ...string) {
 		}
 
 		fmt.Printf("  Node %d (level %d)\n", node.id, node.level)
-		for level, conns := range node.connections {
+		for level := uint8(0); level < node.packedConnections.Layers(); level++ {
+			conns := node.packedConnections.GetLayer(level)
 			fmt.Printf("    Level %d: Connections: %v\n", level, conns)
 		}
 	}
@@ -61,10 +63,14 @@ func (h *hnsw) DumpJSON(labels ...string) {
 			continue
 		}
 
+		flatConns := make([][]uint64, node.packedConnections.Layers())
+		for level := uint8(0); level < node.packedConnections.Layers(); level++ {
+			flatConns[level] = node.packedConnections.GetLayer(level)
+		}
 		dumpNode := JSONDumpNode{
 			ID:          node.id,
 			Level:       node.level,
-			Connections: node.connections,
+			Connections: flatConns,
 		}
 		dump.Nodes = append(dump.Nodes, dumpNode)
 	}
@@ -132,10 +138,17 @@ func NewFromJSONDump(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
 	index.tombstones = dump.Tombstones
 
 	for _, n := range dump.Nodes {
+		packedConns, err := packedconn.NewWithMaxLayer(uint8(len(n.Connections)))
+		if err != nil {
+			return nil, err
+		}
 		index.nodes[n.ID] = &vertex{
-			id:          n.ID,
-			level:       n.Level,
-			connections: n.Connections,
+			id:                n.ID,
+			level:             n.Level,
+			packedConnections: &packedConns,
+		}
+		for level, conns := range n.Connections {
+			index.nodes[n.ID].packedConnections.ReplaceLayer(uint8(level), conns)
 		}
 	}
 
@@ -168,13 +181,17 @@ func NewFromJSONDumpMap(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
 	index.tombstones = dump.Tombstones
 
 	for _, n := range dump.Nodes {
+		packedConns, err := packedconn.NewWithMaxLayer(uint8(len(n.Connections)))
+		if err != nil {
+			return nil, err
+		}
 		index.nodes[n.ID] = &vertex{
-			id:          n.ID,
-			level:       n.Level,
-			connections: make([][]uint64, len(n.Connections)),
+			id:                n.ID,
+			level:             n.Level,
+			packedConnections: &packedConns,
 		}
 		for level, conns := range n.Connections {
-			index.nodes[n.ID].connections[level] = conns
+			index.nodes[n.ID].packedConnections.ReplaceLayer(uint8(level), conns)
 		}
 	}
 
@@ -196,7 +213,8 @@ func (h *hnsw) ValidateLinkIntegrity() {
 			continue
 		}
 
-		for level, conns := range node.connections {
+		for level := uint8(0); level < node.packedConnections.Layers(); level++ {
+			conns := node.packedConnections.GetLayer(level)
 			m := h.maximumConnections
 			if level == 0 {
 				m = h.maximumConnectionsLayerZero

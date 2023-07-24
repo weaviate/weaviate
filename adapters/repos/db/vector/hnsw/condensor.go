@@ -74,9 +74,10 @@ func (c *MemoryCondensor) Do(fileName string) error {
 			}
 		}
 
-		for level, links := range node.connections {
+		for level := uint8(0); level < node.packedConnections.Layers(); level++ {
+			links := node.packedConnections.GetLayer(level)
 			if res.ReplaceLinks(node.id, uint16(level)) {
-				if err := c.SetLinksAtLevel(node.id, level, links); err != nil {
+				if err := c.SetLinksAtLevel(node.id, int(level), links); err != nil {
 					return errors.Wrapf(err,
 						"write links for node %d at level %d to commit log", node.id, level)
 				}

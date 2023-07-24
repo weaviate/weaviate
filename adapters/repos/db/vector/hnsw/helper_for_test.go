@@ -35,7 +35,8 @@ func dumpIndex(index *hnsw, labels ...string) {
 		}
 
 		fmt.Printf("  Node %d\n", node.id)
-		for level, conns := range node.connections {
+		for level := uint8(0); level < node.packedConnections.Layers(); level++ {
+			conns := node.packedConnections.GetLayer(level)
 			fmt.Printf("    Level %d: Connections: %v\n", level, conns)
 		}
 	}

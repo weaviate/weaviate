@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -58,21 +59,21 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 	t.Run("manually add the nodes", func(t *testing.T) {
 		vectorIndex.entryPointID = 0
 		vectorIndex.currentMaximumLayer = 1
+		packedConns0, _ := packedconn.NewWithMaxLayer(1)
+		packedConns0.ReplaceLayer(0, []uint64{1, 2})
+		packedConns0.ReplaceLayer(1, []uint64{1})
+		packedConns1, _ := packedconn.NewWithMaxLayer(0)
+		packedConns1.ReplaceLayer(0, []uint64{0, 1, 2})
 		vectorIndex.nodes = []*vertex{
 			{
 				// must be on a non-zero layer for this bug to occur
-				level: 1,
-				connections: [][]uint64{
-					{1, 2},
-					{1},
-				},
+				level:             1,
+				packedConnections: &packedConns0,
 			},
 			nil, // corrupt node
 			{
-				level: 0,
-				connections: [][]uint64{
-					{0, 1, 2},
-				},
+				level:             0,
+				packedConnections: &packedConns1,
 			},
 		}
 	})

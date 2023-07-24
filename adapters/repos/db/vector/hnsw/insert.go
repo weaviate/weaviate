@@ -76,9 +76,8 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 
 	h.entryPointID = node.id
 	h.currentMaximumLayer = 0
-	node.connections = [][]uint64{
-		make([]uint64, 0, h.maximumConnectionsLayerZero),
-	}
+	packedConns, _ := packedconn.NewWithMaxLayer(0)
+	node.packedConnections = &packedConns
 	node.level = 0
 	if err := h.commitLog.AddNode(node); err != nil {
 		return err
@@ -139,24 +138,11 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	// before = time.Now()
 	// m.addBuildingItemLocking(before)
 	node.level = targetLevel
-	if h.compressedConnections.Load() {
-		packedConnections, err := packedconn.NewWithMaxLayer(uint8(targetLevel + 1))
-		if err != nil {
-			return err
-		}
-		node.packedConnections = &packedConnections
-	} else {
-		node.connections = make([][]uint64, targetLevel+1)
-
-		for i := targetLevel; i >= 0; i-- {
-			capacity := h.maximumConnections
-			if i == 0 {
-				capacity = h.maximumConnectionsLayerZero
-			}
-
-			node.connections[i] = make([]uint64, 0, capacity)
-		}
+	packedConnections, err := packedconn.NewWithMaxLayer(uint8(targetLevel + 1))
+	if err != nil {
+		return err
 	}
+	node.packedConnections = &packedConnections
 
 	if err := h.commitLog.AddNode(node); err != nil {
 		return err
@@ -167,7 +153,7 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	// before = time.Now()
 	h.Lock()
 	// m.addBuildingLocking(before)
-	err := h.growIndexToAccomodateNode(node.id, h.logger)
+	err = h.growIndexToAccomodateNode(node.id, h.logger)
 	if err != nil {
 		h.Unlock()
 		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)

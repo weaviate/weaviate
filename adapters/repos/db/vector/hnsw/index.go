@@ -147,7 +147,6 @@ type hnsw struct {
 	deleteVsInsertLock sync.RWMutex
 
 	compressed             atomic.Bool
-	compressedConnections  atomic.Bool
 	doNotRescore           bool
 	pq                     *ssdhelpers.ProductQuantizer
 	pqConfig               ent.PQConfig
@@ -558,7 +557,7 @@ func (h *hnsw) Stats() {
 			continue
 		}
 		l := node.level
-		if l == 0 && len(node.connections) == 0 {
+		if l == 0 && node.packedConnections.Layers() == 0 {
 			// filter out allocated space without nodes
 			continue
 		}

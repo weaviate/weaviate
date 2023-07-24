@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -309,7 +310,7 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 	}
 	neighborNode.Lock()
 	neighborLevel := neighborNode.level
-	if !connectionsPointTo(neighborNode.connections, deleteList) {
+	if !connectionsPointTo(neighborNode.packedConnections, deleteList) {
 		// nothing needs to be changed, skip
 		neighborNode.Unlock()
 		return true, nil
@@ -331,7 +332,11 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 			neighborNode.Lock()
 			// delete all existing connections before re-assigning
 			neighborLevel = neighborNode.level
-			neighborNode.connections = make([][]uint64, neighborLevel+1)
+			packedConns, err := packedconn.NewWithMaxLayer(uint8(neighborLevel + 1))
+			if err != nil {
+				return false, err
+			}
+			neighborNode.packedConnections = &packedConns
 			neighborNode.Unlock()
 
 			if err := h.commitLog.ClearLinks(neighbor); err != nil {
@@ -348,7 +353,11 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 		if level > neighborLevel {
 			neighborNode.Lock()
 			// reset connections according to level
-			neighborNode.connections = make([][]uint64, level+1)
+			packedConns, err := packedconn.NewWithMaxLayer(uint8(neighborLevel + 1))
+			if err != nil {
+				return false, err
+			}
+			neighborNode.packedConnections = &packedConns
 			neighborNode.Unlock()
 		}
 		neighborLevel = level
@@ -358,8 +367,9 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 	neighborNode.markAsMaintenance()
 	neighborNode.Lock()
 	// delete all existing connections before re-assigning
-	for level := range neighborNode.connections {
-		neighborNode.connections[level] = neighborNode.connections[level][:0]
+	neighborNode.packedConnections.Layers()
+	for level := uint8(0); level < neighborNode.packedConnections.Layers(); level++ {
+		neighborNode.packedConnections.ReplaceLayer(level, []uint64{})
 	}
 	neighborNode.Unlock()
 	if err := h.commitLog.ClearLinks(neighbor); err != nil {
@@ -376,10 +386,11 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 	return true, nil
 }
 
-func connectionsPointTo(connections [][]uint64, needles helpers.AllowList) bool {
-	for _, atLevel := range connections {
-		for _, pointer := range atLevel {
-			if needles.Contains(pointer) {
+func connectionsPointTo(connections *packedconn.Connections, needles helpers.AllowList) bool {
+
+	for level := uint8(0); level < connections.Layers(); level++ {
+		for _, conn := range connections.GetLayer(level) {
+			if needles.Contains(conn) {
 				return true
 			}
 		}

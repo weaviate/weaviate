@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 )
 
 func BenchmarkDeserializer2ReadUint64(b *testing.B) {
@@ -175,6 +176,7 @@ func TestDeserializerReadClearLinks(t *testing.T) {
 }
 
 func dummyInitialDeserializerState() *DeserializationResult {
+	packedConns, _ := packedconn.NewWithMaxLayer(16)
 	return &DeserializationResult{
 		LinksReplaced: make(map[uint64]map[uint16]struct{}),
 		Nodes: []*vertex{
@@ -188,8 +190,8 @@ func dummyInitialDeserializerState() *DeserializationResult {
 			{
 				// This is a lower level than we will read, so this node will require
 				// growing
-				level:       8,
-				connections: make([][]uint64, 16),
+				level:             8,
+				packedConnections: &packedConns,
 			},
 		},
 	}
@@ -258,7 +260,8 @@ func TestDeserializerReadLink(t *testing.T) {
 		err := d.ReadLink(reader, res)
 		require.Nil(t, err)
 		require.NotNil(t, res.Nodes[id])
-		lastAddedConnection := res.Nodes[id].connections[level][len(res.Nodes[id].connections[level])-1]
+		conns := res.Nodes[id].packedConnections.GetLayer(uint8(level))
+		lastAddedConnection := conns[len(conns)-1]
 		assert.Equal(t, target, lastAddedConnection)
 	}
 }
@@ -287,7 +290,8 @@ func TestDeserializerReadLinks(t *testing.T) {
 		_, err := d.ReadLinks(reader, res, true)
 		require.Nil(t, err)
 		require.NotNil(t, res.Nodes[id])
-		lastAddedConnection := res.Nodes[id].connections[level][len(res.Nodes[id].connections[level])-1]
+		conns := res.Nodes[id].packedConnections.GetLayer(uint8(level))
+		lastAddedConnection := conns[len(conns)-1]
 		assert.Equal(t, id+uint64(connLen)-1, lastAddedConnection)
 	}
 }
@@ -316,7 +320,8 @@ func TestDeserializerReadAddLinks(t *testing.T) {
 		_, err := d.ReadAddLinks(reader, res)
 		require.Nil(t, err)
 		require.NotNil(t, res.Nodes[id])
-		lastAddedConnection := res.Nodes[id].connections[level][len(res.Nodes[id].connections[level])-1]
+		conns := res.Nodes[id].packedConnections.GetLayer(uint8(level))
+		lastAddedConnection := conns[len(conns)-1]
 		assert.Equal(t, id+uint64(connLen)-1, lastAddedConnection)
 	}
 }
@@ -380,6 +385,7 @@ func TestDeserializerRemoveTombstone(t *testing.T) {
 }
 
 func TestDeserializerClearLinksAtLevel(t *testing.T) {
+	packedConns, _ := packedconn.NewWithMaxLayer(4)
 	res := &DeserializationResult{
 		LinksReplaced: make(map[uint64]map[uint16]struct{}),
 		Nodes: []*vertex{
@@ -393,8 +399,8 @@ func TestDeserializerClearLinksAtLevel(t *testing.T) {
 			{
 				// This is a lower level than we will read, so this node will require
 				// growing
-				level:       4,
-				connections: make([][]uint64, 4),
+				level:             4,
+				packedConnections: &packedConns,
 			},
 			nil,
 			nil,
