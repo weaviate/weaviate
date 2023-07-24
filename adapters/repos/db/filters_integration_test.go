@@ -500,9 +500,6 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 					require.Contains(t, err.Error(), test.ErrMsg)
 				} else {
 					require.Nil(t, err)
-					if len(res) != len(test.expectedIDs) {
-						panic("here")
-					}
 					require.Len(t, res, len(test.expectedIDs))
 
 					ids := make([]strfmt.UUID, len(test.expectedIDs))
