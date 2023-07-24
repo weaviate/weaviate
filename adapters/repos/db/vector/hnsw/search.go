@@ -487,6 +487,10 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		return nil, nil, nil
 	}
 
+	if k < 0 {
+		return nil, nil, fmt.Errorf("k must be greater than zero")
+	}
+
 	entryPointID := h.entryPointID
 	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
 	if err != nil {
