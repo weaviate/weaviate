@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -66,7 +67,16 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		}
 		return &Error{"validate inputs", StatusBadRequest, err}
 	}
+
 	if !deprecatedEndpoint {
+		if input.Class != "" && strings.Count(string(input.Ref.Beacon), "/") == 3 {
+			toClass, toBeacon, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, input.Ref.Beacon)
+			if err != nil {
+				return err
+			}
+			input.Ref.Class = toClass
+			input.Ref.Beacon = toBeacon
+		}
 		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl, tenant)
 		if err != nil {
 			switch err.(type) {
