@@ -892,63 +892,63 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 	index.entryPointID = 6
 	index.currentMaximumLayer = 1
 	index.nodes = make([]*vertex, 50)
-	packedConns, _ := packedconn.NewWithMaxLayer(0)
-	packedConns.ReplaceLayer(0, []uint64{1, 2, 3, 4, 5, 6, 7, 8})
+	packedConns0, _ := packedconn.NewWithMaxLayer(0)
+	packedConns0.ReplaceLayer(0, []uint64{1, 2, 3, 4, 5, 6, 7, 8})
 	index.nodes[0] = &vertex{
 		id:                0,
-		packedConnections: &packedConns,
+		packedConnections: &packedConns0,
 	}
-	packedConns, _ = packedconn.NewWithMaxLayer(0)
-	packedConns.ReplaceLayer(0, []uint64{0, 2, 3, 4, 5, 6, 7, 8})
+	packedConns1, _ := packedconn.NewWithMaxLayer(0)
+	packedConns1.ReplaceLayer(0, []uint64{0, 2, 3, 4, 5, 6, 7, 8})
 	index.nodes[1] = &vertex{
 		id:                1,
-		packedConnections: &packedConns,
+		packedConnections: &packedConns1,
 	}
-	packedConns, _ = packedconn.NewWithMaxLayer(0)
-	packedConns.ReplaceLayer(0, []uint64{1, 0, 3, 4, 5, 6, 7, 8})
+	packedConns2, _ := packedconn.NewWithMaxLayer(0)
+	packedConns2.ReplaceLayer(0, []uint64{1, 0, 3, 4, 5, 6, 7, 8})
 	index.nodes[2] = &vertex{
 		id:                2,
-		packedConnections: &packedConns,
+		packedConnections: &packedConns2,
 	}
-	packedConns, _ = packedconn.NewWithMaxLayer(0)
-	packedConns.ReplaceLayer(0, []uint64{2, 1, 0, 4, 5, 6, 7, 8})
+	packedConns3, _ := packedconn.NewWithMaxLayer(0)
+	packedConns3.ReplaceLayer(0, []uint64{2, 1, 0, 4, 5, 6, 7, 8})
 	index.nodes[3] = &vertex{
 		id:                3,
-		packedConnections: &packedConns,
+		packedConnections: &packedConns3,
 	}
-	packedConns, _ = packedconn.NewWithMaxLayer(0)
-	packedConns.ReplaceLayer(0, []uint64{3, 2, 1, 0, 5, 6, 7, 8})
+	packedConns4, _ := packedconn.NewWithMaxLayer(0)
+	packedConns4.ReplaceLayer(0, []uint64{3, 2, 1, 0, 5, 6, 7, 8})
 	index.nodes[4] = &vertex{
 		id:                4,
-		packedConnections: &packedConns,
+		packedConnections: &packedConns4,
 	}
-	packedConns, _ = packedconn.NewWithMaxLayer(0)
-	packedConns.ReplaceLayer(0, []uint64{3, 4, 2, 1, 0, 6, 7, 8})
+	packedConns5, _ := packedconn.NewWithMaxLayer(0)
+	packedConns5.ReplaceLayer(0, []uint64{3, 4, 2, 1, 0, 6, 7, 8})
 	index.nodes[5] = &vertex{
 		id:                5,
-		packedConnections: &packedConns,
+		packedConnections: &packedConns5,
 	}
-	packedConns, _ = packedconn.NewWithMaxLayer(1)
-	packedConns.ReplaceLayer(0, []uint64{4, 3, 1, 3, 5, 0, 7, 8})
-	packedConns.ReplaceLayer(1, []uint64{7})
+	packedConns6, _ := packedconn.NewWithMaxLayer(1)
+	packedConns6.ReplaceLayer(0, []uint64{4, 3, 1, 3, 5, 0, 7, 8})
+	packedConns6.ReplaceLayer(1, []uint64{7})
 	index.nodes[6] = &vertex{
 		id:                6,
-		packedConnections: &packedConns,
+		packedConnections: &packedConns6,
 		level:             1,
 	}
-	packedConns, _ = packedconn.NewWithMaxLayer(1)
-	packedConns.ReplaceLayer(0, []uint64{6, 4, 3, 5, 2, 1, 0, 8})
-	packedConns.ReplaceLayer(1, []uint64{6})
+	packedConns7, _ := packedconn.NewWithMaxLayer(1)
+	packedConns7.ReplaceLayer(0, []uint64{6, 4, 3, 5, 2, 1, 0, 8})
+	packedConns7.ReplaceLayer(1, []uint64{6})
 	index.nodes[7] = &vertex{
 		id:                7,
-		packedConnections: &packedConns,
+		packedConnections: &packedConns7,
 		level:             1,
 	}
-	packedConns, _ = packedconn.NewWithMaxLayer(8)
-	packedConns.ReplaceLayer(8, []uint64{7, 6, 4, 3, 5, 2, 1, 0})
+	packedConns8, _ := packedconn.NewWithMaxLayer(8)
+	packedConns8.ReplaceLayer(8, []uint64{7, 6, 4, 3, 5, 2, 1, 0})
 	index.nodes[8] = &vertex{
 		id:                8,
-		packedConnections: &packedConns,
+		packedConnections: &packedConns8,
 	}
 
 	dumpIndex(index, "before delete")
