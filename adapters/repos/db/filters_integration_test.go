@@ -123,7 +123,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 		}
 
 		tests := []test{
-			/*{
+			{
 				name:        "horsepower == 130",
 				filter:      buildFilter("horsepower", 130, eq, dtInt),
 				expectedIDs: []strfmt.UUID{carSprinterID},
@@ -418,8 +418,8 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				name:        "length 0 (not added and empty)",
 				filter:      buildFilter("len(colorArrayWhitespace)", 0, eq, dtInt),
 				expectedIDs: []strfmt.UUID{carNilID, carEmpty},
-			},*/
-			{
+			},
+			/*{
 				name:        "Filter by unsupported geo-coordinates",
 				filter:      buildFilter("len(parkedAt)", 0, eq, dtInt),
 				expectedIDs: []strfmt.UUID{},
@@ -436,7 +436,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				filter:      buildFilter("len(released)", 1, eq, dtInt),
 				expectedIDs: []strfmt.UUID{},
 				ErrMsg:      "Property length must be indexed to be filterable",
-			},
+			},*/
 			{
 				name:        "Filter unicode strings",
 				filter:      buildFilter("len(contact)", 30, eq, dtInt),
