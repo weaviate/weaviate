@@ -20,18 +20,15 @@ import (
 )
 
 type Searcher struct {
-	vectorizer imgVectorizer
+	vectorizer bindVectorizer
 }
 
-func NewSearcher(vectorizer imgVectorizer) *Searcher {
+func NewSearcher(vectorizer bindVectorizer) *Searcher {
 	return &Searcher{vectorizer}
 }
 
-type imgVectorizer interface {
-	VectorizeImage(ctx context.Context, image string) ([]float32, error)
-	Vectorize(ctx context.Context,
-		texts, images, audio, video, imu, thermal, depth []string,
-	) ([]float32, error)
+type bindVectorizer interface {
+	VectorizeAudio(ctx context.Context, audio string) ([]float32, error)
 }
 
 func (s *Searcher) VectorSearches() map[string]modulecapabilities.VectorForParams {
@@ -53,8 +50,7 @@ func (s *Searcher) vectorFromNearAudioParam(ctx context.Context,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	// find vector for given search query
-	audio := []string{params.Audio}
-	vector, err := s.vectorizer.Vectorize(ctx, []string{}, []string{}, audio, []string{}, []string{}, []string{}, []string{})
+	vector, err := s.vectorizer.VectorizeAudio(ctx, params.Audio)
 	if err != nil {
 		return nil, errors.Errorf("vectorize audio: %v", err)
 	}
