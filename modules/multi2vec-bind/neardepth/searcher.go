@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package nearVideo
+package neardepth
 
 import (
 	"context"
@@ -28,31 +28,31 @@ func NewSearcher(vectorizer bindVectorizer) *Searcher {
 }
 
 type bindVectorizer interface {
-	VectorizeVideo(ctx context.Context, video string) ([]float32, error)
+	VectorizeDepth(ctx context.Context, thermal string) ([]float32, error)
 }
 
 func (s *Searcher) VectorSearches() map[string]modulecapabilities.VectorForParams {
 	vectorSearches := map[string]modulecapabilities.VectorForParams{}
-	vectorSearches["nearVideo"] = s.vectorForNearVideoParam
+	vectorSearches["nearDepth"] = s.vectorForNearDepthParam
 	return vectorSearches
 }
 
-func (s *Searcher) vectorForNearVideoParam(ctx context.Context, params interface{},
+func (s *Searcher) vectorForNearDepthParam(ctx context.Context, params interface{},
 	className string,
 	findVectorFn modulecapabilities.FindVectorFn,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return s.vectorFromNearVideoParam(ctx, params.(*NearVideoParams), className, findVectorFn, cfg)
+	return s.vectorFromNearDepthParam(ctx, params.(*NearDepthParams), className, findVectorFn, cfg)
 }
 
-func (s *Searcher) vectorFromNearVideoParam(ctx context.Context,
-	params *NearVideoParams, className string, findVectorFn modulecapabilities.FindVectorFn,
+func (s *Searcher) vectorFromNearDepthParam(ctx context.Context,
+	params *NearDepthParams, className string, findVectorFn modulecapabilities.FindVectorFn,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	// find vector for given search query
-	vector, err := s.vectorizer.VectorizeVideo(ctx, params.Video)
+	vector, err := s.vectorizer.VectorizeDepth(ctx, params.Depth)
 	if err != nil {
-		return nil, errors.Errorf("vectorize audio: %v", err)
+		return nil, errors.Errorf("vectorize thermal: %v", err)
 	}
 
 	return vector, nil

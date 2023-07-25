@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package nearVideo
+package nearimu
 
 import (
 	"context"
@@ -28,31 +28,31 @@ func NewSearcher(vectorizer bindVectorizer) *Searcher {
 }
 
 type bindVectorizer interface {
-	VectorizeVideo(ctx context.Context, video string) ([]float32, error)
+	VectorizeIMU(ctx context.Context, video string) ([]float32, error)
 }
 
 func (s *Searcher) VectorSearches() map[string]modulecapabilities.VectorForParams {
 	vectorSearches := map[string]modulecapabilities.VectorForParams{}
-	vectorSearches["nearVideo"] = s.vectorForNearVideoParam
+	vectorSearches["nearIMU"] = s.vectorForNearIMUParam
 	return vectorSearches
 }
 
-func (s *Searcher) vectorForNearVideoParam(ctx context.Context, params interface{},
+func (s *Searcher) vectorForNearIMUParam(ctx context.Context, params interface{},
 	className string,
 	findVectorFn modulecapabilities.FindVectorFn,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return s.vectorFromNearVideoParam(ctx, params.(*NearVideoParams), className, findVectorFn, cfg)
+	return s.vectorFromNearIMUParam(ctx, params.(*NearIMUParams), className, findVectorFn, cfg)
 }
 
-func (s *Searcher) vectorFromNearVideoParam(ctx context.Context,
-	params *NearVideoParams, className string, findVectorFn modulecapabilities.FindVectorFn,
+func (s *Searcher) vectorFromNearIMUParam(ctx context.Context,
+	params *NearIMUParams, className string, findVectorFn modulecapabilities.FindVectorFn,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	// find vector for given search query
-	vector, err := s.vectorizer.VectorizeVideo(ctx, params.Video)
+	vector, err := s.vectorizer.VectorizeIMU(ctx, params.IMU)
 	if err != nil {
-		return nil, errors.Errorf("vectorize audio: %v", err)
+		return nil, errors.Errorf("vectorize imu: %v", err)
 	}
 
 	return vector, nil

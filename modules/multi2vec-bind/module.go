@@ -33,31 +33,39 @@ func New() *BindModule {
 }
 
 type BindModule struct {
-	imageVectorizer          imageVectorizer
-	nearImageGraphqlProvider modulecapabilities.GraphQLArguments
-	nearImageSearcher        modulecapabilities.Searcher
-	nearAudioGraphqlProvider modulecapabilities.GraphQLArguments
-	nearAudioSearcher        modulecapabilities.Searcher
-	nearVideoGraphqlProvider modulecapabilities.GraphQLArguments
-	nearVideoSearcher        modulecapabilities.Searcher
-	textVectorizer           textVectorizer
-	nearTextGraphqlProvider  modulecapabilities.GraphQLArguments
-	nearTextSearcher         modulecapabilities.Searcher
-	nearTextTransformer      modulecapabilities.TextTransform
-	metaClient               metaClient
+	bindVectorizer             bindVectorizer
+	nearImageGraphqlProvider   modulecapabilities.GraphQLArguments
+	nearImageSearcher          modulecapabilities.Searcher
+	nearAudioGraphqlProvider   modulecapabilities.GraphQLArguments
+	nearAudioSearcher          modulecapabilities.Searcher
+	nearVideoGraphqlProvider   modulecapabilities.GraphQLArguments
+	nearVideoSearcher          modulecapabilities.Searcher
+	nearIMUGraphqlProvider     modulecapabilities.GraphQLArguments
+	nearIMUSearcher            modulecapabilities.Searcher
+	nearThermalGraphqlProvider modulecapabilities.GraphQLArguments
+	nearThermalSearcher        modulecapabilities.Searcher
+	nearDepthGraphqlProvider   modulecapabilities.GraphQLArguments
+	nearDepthSearcher          modulecapabilities.Searcher
+	textVectorizer             textVectorizer
+	nearTextGraphqlProvider    modulecapabilities.GraphQLArguments
+	nearTextSearcher           modulecapabilities.Searcher
+	nearTextTransformer        modulecapabilities.TextTransform
+	metaClient                 metaClient
 }
 
 type metaClient interface {
 	MetaInfo() (map[string]interface{}, error)
 }
 
-type imageVectorizer interface {
+type bindVectorizer interface {
 	Object(ctx context.Context, object *models.Object, objDiff *moduletools.ObjectDiff,
 		settings vectorizer.ClassSettings) error
 	VectorizeImage(ctx context.Context, image string) ([]float32, error)
-	Vectorize(ctx context.Context,
-		texts, images, audio, video, imu, thermal, depth []string,
-	) ([]float32, error)
+	VectorizeAudio(ctx context.Context, audio string) ([]float32, error)
+	VectorizeVideo(ctx context.Context, video string) ([]float32, error)
+	VectorizeIMU(ctx context.Context, imu string) ([]float32, error)
+	VectorizeThermal(ctx context.Context, thermal string) ([]float32, error)
+	VectorizeDepth(ctx context.Context, depth string) ([]float32, error)
 }
 
 type textVectorizer interface {
@@ -93,6 +101,18 @@ func (m *BindModule) Init(ctx context.Context,
 
 	if err := m.initNearVideo(); err != nil {
 		return errors.Wrap(err, "init near video")
+	}
+
+	if err := m.initNearIMU(); err != nil {
+		return errors.Wrap(err, "init near imu")
+	}
+
+	if err := m.initNearThermal(); err != nil {
+		return errors.Wrap(err, "init near thermal")
+	}
+
+	if err := m.initNearDepth(); err != nil {
+		return errors.Wrap(err, "init near depth")
 	}
 
 	return nil
@@ -131,7 +151,7 @@ func (m *BindModule) initVectorizer(ctx context.Context,
 		return errors.Wrap(err, "init remote vectorizer")
 	}
 
-	m.imageVectorizer = vectorizer.New(client)
+	m.bindVectorizer = vectorizer.New(client)
 	m.textVectorizer = vectorizer.New(client)
 	m.metaClient = client
 
@@ -147,7 +167,7 @@ func (m *BindModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
 ) error {
 	icheck := vectorizer.NewClassSettings(cfg)
-	return m.imageVectorizer.Object(ctx, obj, objDiff, icheck)
+	return m.bindVectorizer.Object(ctx, obj, objDiff, icheck)
 }
 
 func (m *BindModule) MetaInfo() (map[string]interface{}, error) {

@@ -44,6 +44,16 @@ type ClassSettings interface {
 	ImageFieldsWeights() ([]float32, error)
 	TextField(property string) bool
 	TextFieldsWeights() ([]float32, error)
+	AudioField(property string) bool
+	AudioFieldsWeights() ([]float32, error)
+	VideoField(property string) bool
+	VideoFieldsWeights() ([]float32, error)
+	IMUField(property string) bool
+	IMUFieldsWeights() ([]float32, error)
+	ThermalField(property string) bool
+	ThermalFieldsWeights() ([]float32, error)
+	DepthField(property string) bool
+	DepthFieldsWeights() ([]float32, error)
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
@@ -58,30 +68,65 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 	return nil
 }
 
-func (v *Vectorizer) Vectorize(ctx context.Context,
-	texts, images, audio, video, imu, thermal, depth []string,
-) ([]float32, error) {
-	res, err := v.client.Vectorize(ctx, texts, images, audio, video, imu, thermal, depth)
+func (v *Vectorizer) VectorizeImage(ctx context.Context, image string) ([]float32, error) {
+	res, err := v.client.Vectorize(ctx, []string{}, []string{image}, []string{}, []string{},
+		[]string{}, []string{}, []string{})
 	if err != nil {
 		return nil, err
 	}
-	if len(res.ImageVectors) != 1 {
-		return nil, errors.New("empty vector")
-	}
-
-	return res.ImageVectors[0], nil
+	return v.getVector(res.ImageVectors)
 }
 
-func (v *Vectorizer) VectorizeImage(ctx context.Context, image string) ([]float32, error) {
-	res, err := v.client.Vectorize(ctx, []string{}, []string{image}, []string{}, []string{}, []string{}, []string{}, []string{})
+func (v *Vectorizer) VectorizeAudio(ctx context.Context, audio string) ([]float32, error) {
+	res, err := v.client.Vectorize(ctx, []string{}, []string{}, []string{audio}, []string{},
+		[]string{}, []string{}, []string{})
 	if err != nil {
 		return nil, err
 	}
-	if len(res.ImageVectors) != 1 {
+	return v.getVector(res.AudioVectors)
+}
+
+func (v *Vectorizer) VectorizeVideo(ctx context.Context, video string) ([]float32, error) {
+	res, err := v.client.Vectorize(ctx, []string{}, []string{}, []string{}, []string{video},
+		[]string{}, []string{}, []string{})
+	if err != nil {
+		return nil, err
+	}
+	return v.getVector(res.VideoVectors)
+}
+
+func (v *Vectorizer) VectorizeIMU(ctx context.Context, imu string) ([]float32, error) {
+	res, err := v.client.Vectorize(ctx, []string{}, []string{}, []string{}, []string{},
+		[]string{imu}, []string{}, []string{})
+	if err != nil {
+		return nil, err
+	}
+	return v.getVector(res.IMUVectors)
+}
+
+func (v *Vectorizer) VectorizeThermal(ctx context.Context, thermal string) ([]float32, error) {
+	res, err := v.client.Vectorize(ctx, []string{}, []string{}, []string{}, []string{},
+		[]string{}, []string{thermal}, []string{})
+	if err != nil {
+		return nil, err
+	}
+	return v.getVector(res.ThermalVectors)
+}
+
+func (v *Vectorizer) VectorizeDepth(ctx context.Context, depth string) ([]float32, error) {
+	res, err := v.client.Vectorize(ctx, []string{}, []string{}, []string{}, []string{},
+		[]string{}, []string{}, []string{depth})
+	if err != nil {
+		return nil, err
+	}
+	return v.getVector(res.DepthVectors)
+}
+
+func (v *Vectorizer) getVector(vectors [][]float32) ([]float32, error) {
+	if len(vectors) != 1 {
 		return nil, errors.New("empty vector")
 	}
-
-	return res.ImageVectors[0], nil
+	return vectors[0], nil
 }
 
 func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
@@ -92,6 +137,11 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 	// vectorize image and text
 	texts := []string{}
 	images := []string{}
+	audio := []string{}
+	video := []string{}
+	imu := []string{}
+	thermal := []string{}
+	depth := []string{}
 	if schema != nil {
 		for prop, value := range schema.(map[string]interface{}) {
 			if ichek.ImageField(prop) {
@@ -108,6 +158,41 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 					vectorize = vectorize || (objDiff != nil && objDiff.IsChangedProp(prop))
 				}
 			}
+			if ichek.AudioField(prop) {
+				valueString, ok := value.(string)
+				if ok {
+					audio = append(audio, valueString)
+					vectorize = vectorize || (objDiff != nil && objDiff.IsChangedProp(prop))
+				}
+			}
+			if ichek.VideoField(prop) {
+				valueString, ok := value.(string)
+				if ok {
+					video = append(video, valueString)
+					vectorize = vectorize || (objDiff != nil && objDiff.IsChangedProp(prop))
+				}
+			}
+			if ichek.IMUField(prop) {
+				valueString, ok := value.(string)
+				if ok {
+					imu = append(imu, valueString)
+					vectorize = vectorize || (objDiff != nil && objDiff.IsChangedProp(prop))
+				}
+			}
+			if ichek.ThermalField(prop) {
+				valueString, ok := value.(string)
+				if ok {
+					thermal = append(thermal, valueString)
+					vectorize = vectorize || (objDiff != nil && objDiff.IsChangedProp(prop))
+				}
+			}
+			if ichek.DepthField(prop) {
+				valueString, ok := value.(string)
+				if ok {
+					depth = append(depth, valueString)
+					vectorize = vectorize || (objDiff != nil && objDiff.IsChangedProp(prop))
+				}
+			}
 		}
 	}
 
@@ -117,13 +202,19 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 	}
 
 	vectors := [][]float32{}
-	if len(texts) > 0 || len(images) > 0 {
-		res, err := v.client.Vectorize(ctx, texts, images, []string{}, []string{}, []string{}, []string{}, []string{})
+	if len(texts) > 0 || len(images) > 0 || len(audio) > 0 || len(video) > 0 ||
+		len(imu) > 0 || len(thermal) > 0 || len(depth) > 0 {
+		res, err := v.client.Vectorize(ctx, texts, images, audio, video, imu, thermal, depth)
 		if err != nil {
 			return nil, err
 		}
 		vectors = append(vectors, res.TextVectors...)
 		vectors = append(vectors, res.ImageVectors...)
+		vectors = append(vectors, res.AudioVectors...)
+		vectors = append(vectors, res.VideoVectors...)
+		vectors = append(vectors, res.IMUVectors...)
+		vectors = append(vectors, res.ThermalVectors...)
+		vectors = append(vectors, res.DepthVectors...)
 	}
 	weights, err := v.getWeights(ichek)
 	if err != nil {
@@ -143,9 +234,34 @@ func (v *Vectorizer) getWeights(ichek ClassSettings) ([]float32, error) {
 	if err != nil {
 		return nil, err
 	}
+	audioFieldsWeights, err := ichek.AudioFieldsWeights()
+	if err != nil {
+		return nil, err
+	}
+	videoFieldsWeights, err := ichek.VideoFieldsWeights()
+	if err != nil {
+		return nil, err
+	}
+	imuFieldsWeights, err := ichek.IMUFieldsWeights()
+	if err != nil {
+		return nil, err
+	}
+	thermalFieldsWeights, err := ichek.ThermalFieldsWeights()
+	if err != nil {
+		return nil, err
+	}
+	depthFieldsWeights, err := ichek.DepthFieldsWeights()
+	if err != nil {
+		return nil, err
+	}
 
 	weights = append(weights, textFieldsWeights...)
 	weights = append(weights, imageFieldsWeights...)
+	weights = append(weights, audioFieldsWeights...)
+	weights = append(weights, videoFieldsWeights...)
+	weights = append(weights, imuFieldsWeights...)
+	weights = append(weights, thermalFieldsWeights...)
+	weights = append(weights, depthFieldsWeights...)
 
 	normalizedWeights := v.normalizeWeights(weights)
 
