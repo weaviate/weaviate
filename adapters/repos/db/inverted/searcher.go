@@ -46,6 +46,7 @@ type Searcher struct {
 	stopwords              stopwords.StopwordDetector
 	shardVersion           uint16
 	isFallbackToSearchable IsFallbackToSearchable
+	tenant                 string
 }
 
 type DeletedDocIDChecker interface {
@@ -57,6 +58,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	propIndices propertyspecific.Indices, classSearcher ClassSearcher,
 	deletedDocIDs DeletedDocIDChecker, stopwords stopwords.StopwordDetector,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
+	tenant string,
 ) *Searcher {
 	return &Searcher{
 		logger:                 logger,
@@ -68,6 +70,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		stopwords:              stopwords,
 		shardVersion:           shardVersion,
 		isFallbackToSearchable: isFallbackToSearchable,
+		tenant:                 tenant,
 	}
 }
 
@@ -272,7 +275,7 @@ func (s *Searcher) extractReferenceFilter(prop *models.Property,
 	filter *filters.Clause,
 ) (*propValuePair, error) {
 	ctx := context.TODO()
-	return newRefFilterExtractor(s.logger, s.classSearcher, filter, prop).
+	return newRefFilterExtractor(s.logger, s.classSearcher, filter, prop, s.tenant).
 		Do(ctx)
 }
 
