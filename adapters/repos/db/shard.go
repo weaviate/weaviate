@@ -604,6 +604,11 @@ func (s *Shard) shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "close prop length tracker")
 	}
 
+	if err := s.propIds.Close(); err != nil {
+		return errors.Wrap(err, "close prop id tracker")
+	}
+
+
 	// to ensure that all commitlog entries are written to disk.
 	// otherwise in some cases the tombstone cleanup process'
 	// 'RemoveTombstone' entry is not picked up on restarts

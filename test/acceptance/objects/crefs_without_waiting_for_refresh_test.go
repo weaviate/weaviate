@@ -97,7 +97,7 @@ func Test_AddingReferenceWithoutWaiting_UsingPostObjects(t *testing.T) {
 		"hasPlace": []interface{}{
 			map[string]interface{}{
 				"beacon": fmt.Sprintf("weaviate://localhost/%s", placeID.String()),
-				"href":   fmt.Sprintf("/v1/objects/%s", placeID.String()),
+				"href":   fmt.Sprintf("%s/v1/objects/%s", hostname, placeID.String()),
 			},
 		},
 	}, actualThunk)
