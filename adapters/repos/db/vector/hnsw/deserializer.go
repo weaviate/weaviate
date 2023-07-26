@@ -185,7 +185,7 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 		}
 		res.Nodes[id] = &vertex{level: int(level), id: id, packedConnections: packedConns}
 	} else {
-		maybeGrowConnectionsForLevel(res.Nodes[id].packedConnections, level)
+		maybeGrowConnectionsForLevel(res.Nodes[id], level)
 		res.Nodes[id].level = int(level)
 	}
 	return nil
@@ -238,7 +238,7 @@ func (d *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 		res.Nodes[int(source)] = &vertex{id: source, packedConnections: packedConns}
 	}
 
-	maybeGrowConnectionsForLevel(res.Nodes[int(source)].packedConnections, level)
+	maybeGrowConnectionsForLevel(res.Nodes[int(source)], level)
 
 	res.Nodes[int(source)].packedConnections.InsertAtLayer(target, uint8(level))
 	return nil
@@ -279,7 +279,7 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 		res.Nodes[int(source)] = &vertex{id: source, packedConnections: packedConns}
 	}
 
-	maybeGrowConnectionsForLevel(res.Nodes[int(source)].packedConnections, level)
+	maybeGrowConnectionsForLevel(res.Nodes[int(source)], level)
 	res.Nodes[int(source)].packedConnections.ReplaceLayer(uint8(level), targets)
 
 	if keepReplaceInfo {
@@ -331,7 +331,7 @@ func (d *Deserializer) ReadAddLinks(r io.Reader,
 		res.Nodes[int(source)] = &vertex{id: source, packedConnections: packedConns}
 	}
 
-	maybeGrowConnectionsForLevel(res.Nodes[int(source)].packedConnections, level)
+	maybeGrowConnectionsForLevel(res.Nodes[int(source)], level)
 
 	for _, target := range targets {
 		res.Nodes[int(source)].packedConnections.InsertAtLayer(target, uint8(level))
@@ -447,7 +447,7 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 		}
 		res.Nodes[id].packedConnections = packedConns
 	} else {
-		maybeGrowConnectionsForLevel(res.Nodes[id].packedConnections, level)
+		maybeGrowConnectionsForLevel(res.Nodes[id], level)
 		res.Nodes[id].packedConnections.ReplaceLayer(uint8(level), []uint64{})
 	}
 
@@ -688,9 +688,13 @@ func (d *Deserializer) readUint64Slice(r io.Reader, length int) ([]uint64, error
 
 // If the connections array is to small to contain the current target-levelit
 // will be grown. Otherwise, nothing happens.
-func maybeGrowConnectionsForLevel(packedConnections *packedconn.Connections, level uint16) {
-	for packedConnections.Layers() <= uint8(level) {
-		// we need to grow the connections slice
-		packedConnections.AddLayer()
+func maybeGrowConnectionsForLevel(node *vertex, level uint16) {
+	if node.packedConnections == nil {
+		node.packedConnections, _ = packedconn.NewWithMaxLayer(uint8(level))
+	} else {
+		for node.packedConnections.Layers() <= uint8(level) {
+			// we need to grow the connections slice
+			node.packedConnections.AddLayer()
+		}
 	}
 }
