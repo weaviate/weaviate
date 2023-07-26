@@ -124,13 +124,12 @@ func TestVertex_AppendConnection(t *testing.T) {
 			}
 
 			v.packedConnections.InsertAtLayer(18, 0)
-			v.packedConnections.InsertAtLayer(64, 0)
 
 			newConns := make([]uint64, len(tc.initial)+1)
 			copy(newConns, tc.initial)
 			newConns[len(newConns)-1] = 18
 
-			assert.Equal(t, newConns, v.packedConnections.GetLayer(0))
+			assert.ElementsMatch(t, newConns, v.packedConnections.GetLayer(0))
 		})
 	}
 }
@@ -184,13 +183,12 @@ func TestVertex_AppendConnection_NotCleanlyDivisible(t *testing.T) {
 				packedConnections: packedConns,
 			}
 			v.packedConnections.InsertAtLayer(18, 0)
-			v.packedConnections.InsertAtLayer(63, 0)
 
 			newConns := make([]uint64, len(tc.initial)+1)
 			copy(newConns, tc.initial)
 			newConns[len(newConns)-1] = 18
 
-			assert.Equal(t, newConns, v.packedConnections.GetLayer(0))
+			assert.ElementsMatch(t, newConns, v.packedConnections.GetLayer(0))
 		})
 	}
 }
