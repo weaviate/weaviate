@@ -116,10 +116,17 @@ func (h *hnsw) restoreFromDisk() error {
 		h.metrics.TrackStartupIndividual(beforeIndividual)
 	}
 
+	h.Lock()
 	h.nodes = state.Nodes
+	h.Unlock()
+
 	h.currentMaximumLayer = int(state.Level)
 	h.entryPointID = state.Entrypoint
+
+	h.tombstoneLock.Lock()
 	h.tombstones = state.Tombstones
+	h.tombstoneLock.Unlock()
+
 	h.compressed.Store(state.Compressed)
 
 	if state.Compressed {
