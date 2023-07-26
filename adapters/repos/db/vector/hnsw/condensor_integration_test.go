@@ -583,7 +583,12 @@ func assertIndicesFromCommitLogsMatch(t *testing.T, fileNameControl string,
 	control := readFromCommitLogs(t, fileNameControl)
 	actual := readFromCommitLogs(t, fileNames...)
 
-	assert.Equal(t, control, actual)
+	assert.Equal(t, len(control.nodes), len(actual.nodes))
+	for i := range control.nodes {
+		assert.Equal(t, control.nodes[i].id, actual.nodes[i].id)
+		assert.Equal(t, control.nodes[i].level, actual.nodes[i].level)
+		assert.Equal(t, control.nodes[i].packedConnections.Layers(), actual.nodes[i].packedConnections.Layers())
+		for j := uint8(0); j < control.nodes[i].packedConnections.Layers(); j++ {
 }
 
 func readFromCommitLogs(t *testing.T, fileNames ...string) *hnsw {
