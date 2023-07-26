@@ -33,6 +33,7 @@ type refFilterExtractor struct {
 	classSearcher ClassSearcher
 	filter        *filters.Clause
 	property      *models.Property
+	tenant        string
 }
 
 // ClassSearcher is anything that allows a root-level ClassSearch
@@ -43,13 +44,14 @@ type ClassSearcher interface {
 }
 
 func newRefFilterExtractor(logger logrus.FieldLogger, classSearcher ClassSearcher,
-	filter *filters.Clause, property *models.Property,
+	filter *filters.Clause, property *models.Property, tenant string,
 ) *refFilterExtractor {
 	return &refFilterExtractor{
 		logger:        logger,
 		classSearcher: classSearcher,
 		filter:        filter,
 		property:      property,
+		tenant:        tenant,
 	}
 }
 
@@ -94,6 +96,7 @@ func (r *refFilterExtractor) paramsForNestedRequest() (dto.GetParams, error) {
 		// to perform the same search limits cutoff check that we do with
 		// the root query
 		AdditionalProperties: additional.Properties{ReferenceQuery: true},
+		Tenant:               r.tenant,
 	}, nil
 }
 
