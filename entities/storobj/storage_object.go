@@ -547,16 +547,11 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 // UnmarshalPropertiesFromObject only unmarshals and returns the properties part of the object
 //
 // Check MarshalBinary for the order of elements in the input array
-func UnmarshalPropertiesFromObject(data []byte, properties *map[string]interface{}, aggregationProperties []string, propStrings [][]string) error {
+func UnmarshalPropertiesFromObject(data []byte, aggregationProperties []string, propStrings [][]string) (*map[string]interface{},error) {
 	if data[0] != uint8(1) {
-		return errors.Errorf("unsupported binary marshaller version %d", data[0])
+		return nil,errors.Errorf("unsupported binary marshaller version %d", data[0])
 	}
-
-	// clear out old values in case an object misses values. This should NOT shrink the capacity of the map, eg there
-	// are no allocations when adding the properties of the next object again
-	for k := range *properties {
-		delete(*properties, k)
-	}
+	properties := &map[string]interface{}{}
 
 	startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
 	byteOps := byte_operations.ByteOperations{Position: startPos, Buffer: data}
@@ -614,7 +609,7 @@ func UnmarshalPropertiesFromObject(data []byte, properties *map[string]interface
 		}
 	}, propStrings...)
 
-	return nil
+	return properties,nil
 }
 
 func parseValues(dt jsonparser.ValueType, value []byte) (interface{}, error) {

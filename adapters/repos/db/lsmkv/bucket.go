@@ -216,15 +216,22 @@ func (b *Bucket) PropertyPrefix() []byte {
 // Iterate over every entry in the bucket and create a human-readable display of the bucket's contents, and return it as a string.
 func (b *Bucket) DumpString() string {
 	var buf bytes.Buffer
+	buf.WriteString(fmt.Sprintf("Bucket: %s\n", b.dir))
 	b.IterateObjects(context.Background(), func(object *storobj.Object) error {
+	/*	str := fmt.Sprintf(`
+		DocID: %v
+		ClassName: %v
+		Properties: %v
+		`, object.DocID(), object.ClassName(), object.Properties())*/
 		// Marshall the object to json
 		json, err := json.Marshal(object)
 		if err != nil {
 			return err
 		}
-		buf.WriteString(fmt.Sprintf("%v: %v\n", object.ID(), json))
+		buf.WriteString(fmt.Sprintf("%v, %v: %v\n", object.ID(), object.DocID(), string(json)))
 		return nil
 	})
+	buf.WriteString("Bucket end\n")
 	return buf.String()
 }
 

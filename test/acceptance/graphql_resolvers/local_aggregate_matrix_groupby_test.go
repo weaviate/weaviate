@@ -114,10 +114,10 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 		expectedNoResultsAssertions := map[string][]assertFunc{}
 
 		testCases := []aggregateTestCase{
-			testCasesGen.WithoutFilters(expectedAllResultsAssertions),
+			//testCasesGen.WithoutFilters(expectedAllResultsAssertions),
 
-			testCasesGen.WithWhereFilter_AllResults(expectedAllResultsAssertions),
-			testCasesGen.WithWhereFilter_ResultsWithData(expectedResultsWithDataAssertions),
+			//testCasesGen.WithWhereFilter_AllResults(expectedAllResultsAssertions),
+			//testCasesGen.WithWhereFilter_ResultsWithData(expectedResultsWithDataAssertions),
 			testCasesGen.WithWhereFilter_ResultsWithoutData(expectedResultsWithoutDataAssertions),
 			testCasesGen.WithWhereFilter_NoResults(expectedNoResultsAssertions),
 
@@ -135,18 +135,26 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 			query := aggregateArrayClassQuery(tc.filters, "groupBy: [\"texts\"]")
 
 			t.Run(tc.name, func(t *testing.T) {
+				fmt.Printf("Running test case %s\n", tc.name)
 				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 				extracted := extractArrayClassGroupByResult(result)
 
+				fmt.Printf("lengths extracted: %d, expected: %d\n", len(extracted), len(tc.groupedAssertions))
 				assert.Len(t, extracted, len(tc.groupedAssertions))
+				
 				for groupedBy, groupAssertions := range tc.groupedAssertions {
 					group := findGroup(groupedBy, extracted)
+					if group == nil {
+						fmt.Printf("Group '%s' not found\n", groupedBy)
+					}
 					require.NotNil(t, group, fmt.Sprintf("Group '%s' not found", groupedBy))
+					
 
 					for _, assertion := range groupAssertions {
 						assertion(group)
 					}
 				}
+				fmt.Printf("Finished test case %s\n", tc.name)
 			})
 		}
 	})

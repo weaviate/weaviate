@@ -76,6 +76,7 @@ func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
 		return nil, err
 	}
 
+	// values are empty
 	if err := docid.ScanObjectsLSM(g.store, ids,
 		func(prop *models.PropertySchema, docID uint64) (bool, error) {
 			return true, g.addElementById(prop, docID)
@@ -162,7 +163,10 @@ func (g *grouper) addElementById(s *models.PropertySchema, docID uint64) error {
 		return nil
 	}
 
-	item, ok := (*s).(map[string]interface{})[g.params.GroupBy.Property.String()]
+	key := g.params.GroupBy.Property.String()
+	S := *s
+	m:=S.(map[string]interface{})
+	item, ok := m[key]
 	if !ok {
 		return nil
 	}

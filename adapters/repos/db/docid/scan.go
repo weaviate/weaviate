@@ -12,6 +12,7 @@
 package docid
 
 import (
+	"fmt"
 	"encoding/binary"
 
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -86,15 +87,14 @@ func (os *objectScannerLSM) scan() error {
 		propStrings[i] = []string{os.properties[i]}
 	}
 
-	// The typed properties are needed for extraction from json
-	var properties models.PropertySchema
-	propertiesTyped := map[string]interface{}{}
+	
+	
 
-	for _, prop := range os.properties {
-		propertiesTyped[prop] = nil
-	}
 
+//adsfsdf
 	for _, id := range os.pointers {
+		fmt.Printf("%v", os.objectsBucket.DumpString())
+		var properties models.PropertySchema
 		binary.LittleEndian.PutUint64(docIDBytes, id)
 		res, err := os.objectsBucket.GetBySecondary(0, docIDBytes)
 		if err != nil {
@@ -106,11 +106,11 @@ func (os *objectScannerLSM) scan() error {
 		}
 
 		if len(os.properties) > 0 {
-			err = storobj.UnmarshalPropertiesFromObject(res, &propertiesTyped, os.properties, propStrings)
+			propertiesTyped, err := storobj.UnmarshalPropertiesFromObject(res,  os.properties, propStrings)
 			if err != nil {
 				return errors.Wrapf(err, "unmarshal data object")
 			}
-			properties = propertiesTyped
+			properties = *propertiesTyped
 		}
 
 		continueScan, err := os.scanFn(&properties, id)

@@ -47,13 +47,18 @@ func (a *aggregateResponseAssert) groupedBy(value string, path ...interface{}) a
 	return func(response map[string]interface{}) bool {
 		groupedByKey := "groupedBy"
 		if !a.assert.Contains(response, groupedByKey) {
+			fmt.Printf("'%s' does not have '%s'\n%#v", groupedByKey, groupedByKey, response)
 			return false
 		}
 		aggMap := response[groupedByKey].(map[string]interface{})
-		return combinedAssert(
+		out := combinedAssert(
 			a.hasString(aggMap, groupedByKey, "value", value),
 			a.hasArray(aggMap, groupedByKey, "path", path),
 		)
+		if !out {
+			fmt.Printf("combinedAssert: %v\n", out)
+		}
+		return out
 	}
 }
 
@@ -73,6 +78,7 @@ func (a *aggregateResponseAssert) typedBoolean(dataType schema.DataType, propNam
 ) assertFunc {
 	return func(response map[string]interface{}) bool {
 		if !a.assert.Contains(response, propName) {
+			fmt.Printf("'%s' does not have '%s'\n%#v", propName, propName, response)
 			return false
 		}
 		aggMap := response[propName].(map[string]interface{})
@@ -265,6 +271,7 @@ func (a *aggregateResponseAssert) dateArray(propName string, count int64) assert
 func (a *aggregateResponseAssert) date(propName string, count int64) assertFunc {
 	return func(response map[string]interface{}) bool {
 		if !a.assert.Contains(response, propName) {
+			fmt.Printf("'%s' does not have '%s'\n%#v", propName, propName, response)
 			return false
 		}
 		return a.hasInt(response[propName].(map[string]interface{}), propName, "count", count)

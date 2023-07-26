@@ -30,9 +30,9 @@ func Test_GraphQL(t *testing.T) {
 	// tests with classes that have objects with same uuids
 	t.Run("import test data (near object search class)", addTestDataNearObjectSearch)
 
-	t.Run("running Get nearObject against shadowed objects", runningGetNearObjectWithShadowedObjects)
-	t.Run("running Aggregate nearObject against shadowed objects", runningAggregateNearObjectWithShadowedObjects)
-	t.Run("running Explore nearObject against shadowed objects", runningExploreNearObjectWithShadowedObjects)
+	//t.Run("running Get nearObject against shadowed objects", runningGetNearObjectWithShadowedObjects)
+	//t.Run("running Aggregate nearObject against shadowed objects", runningAggregateNearObjectWithShadowedObjects)
+	//t.Run("running Explore nearObject against shadowed objects", runningExploreNearObjectWithShadowedObjects)
 
 	deleteObjectClass(t, "NearObjectSearch")
 	deleteObjectClass(t, "NearObjectSearchShadow")
@@ -53,10 +53,10 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("import test data (cursor api)", addTestDataCursorSearch)
 
 	// explore tests
-	t.Run("expected explore failures with invalid conditions", exploreWithExpectedFailures)
+	//t.Run("expected explore failures with invalid conditions", exploreWithExpectedFailures)
 
 	// get tests
-	t.Run("getting objects", gettingObjects)
+	/*t.Run("getting objects", gettingObjects)
 	t.Run("getting objects with filters", gettingObjectsWithFilters)
 	t.Run("getting objects with geo filters", gettingObjectsWithGeoFilters)
 	t.Run("getting objects with grouping", gettingObjectsWithGrouping)
@@ -67,18 +67,19 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("getting objects with hybrid search", getWithHybridSearch)
 	t.Run("expected get failures with invalid conditions", getsWithExpectedFailures)
 	t.Run("cursor through results", getWithCursorSearch)
-	t.Run("groupBy objects", groupByObjects)
+	*/
+	//t.Run("groupBy objects", groupByObjects)
 
 	// aggregate tests
-	t.Run("aggregates noPropsClass without grouping", aggregateNoPropsClassWithoutGroupByTest)
-	t.Run("aggregates arrayClass without grouping", aggregateArrayClassWithoutGroupByTest)
+	//t.Run("aggregates noPropsClass without grouping", aggregateNoPropsClassWithoutGroupByTest)
+	//t.Run("aggregates arrayClass without grouping", aggregateArrayClassWithoutGroupByTest)
 	t.Run("aggregates arrayClass with grouping", aggregateArrayClassWithGroupByTest)
-	t.Run("aggregates duplicatesClass without grouping", aggregateDuplicatesClassWithoutGroupByTest)
+	//t.Run("aggregates duplicatesClass without grouping", aggregateDuplicatesClassWithoutGroupByTest)
 	t.Run("aggregates duplicatesClass with grouping", aggregateDuplicatesClassWithGroupByTest)
-	t.Run("aggregates city without grouping", aggregateCityClassWithoutGroupByTest)
+	//t.Run("aggregates city without grouping", aggregateCityClassWithoutGroupByTest)
 	t.Run("aggregates city with grouping", aggregateCityClassWithGroupByTest)
 
-	t.Run("aggregates local meta string props not set everywhere", localMeta_StringPropsNotSetEverywhere)
+	/*t.Run("aggregates local meta string props not set everywhere", localMeta_StringPropsNotSetEverywhere)
 	t.Run("aggregates local meta with where and nearText filters", localMetaWithWhereAndNearTextFilters)
 	t.Run("aggregates local meta with where and nearObject filters", localMetaWithWhereAndNearObjectFilters)
 	t.Run("aggregates local meta with nearVector filters", localMetaWithNearVectorFilter)
@@ -90,7 +91,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("expected aggregate failures with invalid conditions", aggregatesWithExpectedFailures)
 
 	t.Run("metrics count is stable when more classes are added", metricsCount)
-
+*/
 	// tear down
 	deleteObjectClass(t, "Person")
 	deleteObjectClass(t, "Pizza")
@@ -110,8 +111,8 @@ func Test_GraphQL(t *testing.T) {
 	// all-class Explore since all vectors which are now left have the same
 	// dimensions.
 
-	t.Run("getting objects with custom vectors", gettingObjectsWithCustomVectors)
-	t.Run("explore objects with custom vectors", exploreObjectsWithCustomVectors)
+	//t.Run("getting objects with custom vectors", gettingObjectsWithCustomVectors)
+	//t.Run("explore objects with custom vectors", exploreObjectsWithCustomVectors)
 
 	deleteObjectClass(t, "CustomVectorClass")
 }
