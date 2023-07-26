@@ -184,10 +184,13 @@ jobs:
           cache: true
       - name: start weaviate
         shell: bash
+        # Weaviate is started without a Vectorizer as running text2vec-contextionary on GH actions is difficult:
+        # - docker on GHA only supports windows container - which we currently are not build
+        # - building those containers without a windows machine is difficult to figure out
         run: ./weaviate.exe --scheme http --port 8080 &
       - name: run acceptance tests
         shell: bash
-        run: go test -count 1 -race test/acceptance/actions/*.go
+        run: go test -count 1 -race test/acceptance/actions/*.go  # tests that don't need a Vectorizer
 
   Push-Docker:
     needs: [Acceptance-Tests, Modules-Acceptance-Tests, Unit-Tests, Integration-Tests, Vulnerability-Scanning, Run-Swagger]
