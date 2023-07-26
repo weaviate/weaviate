@@ -29,7 +29,7 @@ func NewWithMaxLayer(maxLayer uint8) (*Connections, error) {
 	}
 	c := Connections{
 		// TODO: low initial size and grow dynamically
-		data: make([]byte, initialSize),
+		data: make([]byte, initialSize+1+(maxLayer+1)*3),
 	}
 
 	c.initLayers(maxLayer)

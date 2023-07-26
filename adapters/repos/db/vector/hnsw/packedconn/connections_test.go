@@ -269,3 +269,8 @@ func TestConnections_stress(t *testing.T) {
 		}
 	}
 }
+
+func TestInitialSizeShouldAccommodateLayers(t *testing.T) {
+	_, err := NewWithMaxLayer(50)
+	require.Nil(t, err)
+}
