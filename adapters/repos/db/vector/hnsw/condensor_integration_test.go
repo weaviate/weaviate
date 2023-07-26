@@ -9,6 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
+//go:build integrationTest
+// +build integrationTest
+
 package hnsw
 
 import (
