@@ -7,6 +7,8 @@
 //  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
+//
+
 //go:build windows
 
 package db
