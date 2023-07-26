@@ -41,6 +41,7 @@ type segment struct {
 	logger                logrus.FieldLogger
 	metrics               *Metrics
 	bloomFilterMetrics    *bloomFilterMetrics
+	size                  int
 
 	// the net addition this segment adds with respect to all previous segments
 	countNetAdditions int
@@ -115,6 +116,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		logger:              logger,
 		metrics:             metrics,
 		bloomFilterMetrics:  newBloomFilterMetrics(metrics),
+		size:                int(fileInfo.Size()),
 	}
 
 	if ind.secondaryIndexCount > 0 {
@@ -185,13 +187,7 @@ func (s *segment) drop() error {
 // Size returns the total size of the segment in bytes, including the header
 // and index
 func (s *segment) Size() int {
-	stat, err := s.contentFile.Stat()
-	if err != nil {
-		s.logger.WithField("action", "stat segment file").
-			Error(err.Error())
-		return 0
-	}
-	return int(stat.Size())
+	return s.size
 }
 
 // Payload Size is only the payload of the index, excluding the index
