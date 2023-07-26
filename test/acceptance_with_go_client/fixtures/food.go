@@ -274,6 +274,22 @@ func CreateDataPizzaForTenants(t *testing.T, client *weaviate.Client, tenantName
 	})
 }
 
+func CreateDataSoupChickenForTenants(t *testing.T, client *weaviate.Client, tenantNames ...string) {
+	createDataForTenants(t, client, tenantNames, func() []*models.Object {
+		return []*models.Object{
+			objectSoupChicken(),
+		}
+	})
+}
+
+func CreateDataSoupBeautifulForTenants(t *testing.T, client *weaviate.Client, tenantNames ...string) {
+	createDataForTenants(t, client, tenantNames, func() []*models.Object {
+		return []*models.Object{
+			objectSoupBeautiful(),
+		}
+	})
+}
+
 func CreateDataSoupForTenants(t *testing.T, client *weaviate.Client, tenantNames ...string) {
 	createDataForTenants(t, client, tenantNames, func() []*models.Object {
 		return []*models.Object{

@@ -198,7 +198,7 @@ func immediateReplicaCRUD(t *testing.T) {
 	})
 
 	t.Run("patch an object", func(t *testing.T) {
-		before, err := getObject(t, compose.GetWeaviate().URI(), "Article", articleIDs[0])
+		before, err := getObject(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], false)
 		require.Nil(t, err)
 		newTitle := "Article#9000"
 
@@ -350,7 +350,7 @@ func eventualReplicaCRUD(t *testing.T) {
 
 	t.Run("assert any future writes are replicated", func(t *testing.T) {
 		t.Run("patch an object", func(t *testing.T) {
-			before, err := getObject(t, compose.GetWeaviate().URI(), "Article", articleIDs[0])
+			before, err := getObject(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], false)
 			require.Nil(t, err)
 			newTitle := "Article#9000"
 
