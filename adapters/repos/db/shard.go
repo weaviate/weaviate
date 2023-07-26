@@ -596,3 +596,11 @@ func (s *Shard) objectCount() int {
 func (s *Shard) isFallbackToSearchable() bool {
 	return s.fallbackToSearchable
 }
+
+func (s *Shard) tenant() string {
+	// TODO provide better impl
+	if s.index.partitioningEnabled {
+		return s.name
+	}
+	return ""
+}

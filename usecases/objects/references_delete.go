@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -40,6 +41,15 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	defer m.metrics.DeleteReferenceDec()
 
 	deprecatedEndpoint := input.Class == ""
+	if input.Class != "" && strings.Count(string(input.Reference.Beacon), "/") == 3 {
+		toClass, toBeacon, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, input.Reference.Beacon)
+		if err != nil {
+			return err
+		}
+		input.Reference.Class = toClass
+		input.Reference.Beacon = toBeacon
+	}
+
 	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID,
 		additional.Properties{}, nil, tenant)
 	if err != nil {

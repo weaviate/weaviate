@@ -64,9 +64,13 @@ func createTenantObjects(t *testing.T, host string, batch []*models.Object) {
 	helper.CreateObjectsBatch(t, batch)
 }
 
-func getObject(t *testing.T, host, class string, id strfmt.UUID) (*models.Object, error) {
+func getObject(t *testing.T, host, class string, id strfmt.UUID, withVec bool) (*models.Object, error) {
 	helper.SetupClient(host)
-	return helper.GetObject(t, class, id)
+	var include string
+	if withVec {
+		include = "vector"
+	}
+	return helper.GetObject(t, class, id, include)
 }
 
 func getTenantObject(t *testing.T, host, class string, id strfmt.UUID, tenant string) (*models.Object, error) {
