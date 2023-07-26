@@ -387,7 +387,6 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 }
 
 func connectionsPointTo(connections *packedconn.Connections, needles helpers.AllowList) bool {
-
 	for level := uint8(0); level < connections.Layers(); level++ {
 		for _, conn := range connections.GetLayer(level) {
 			if needles.Contains(conn) {

@@ -19,8 +19,10 @@ type Connections struct {
 	buff []byte
 }
 
-const layerPos = 0
-const initialSize = 50
+const (
+	layerPos    = 0
+	initialSize = 50
+)
 
 func NewWithMaxLayer(maxLayer uint8) (*Connections, error) {
 	if maxLayer+1 > math.MaxUint8 {

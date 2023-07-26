@@ -20,8 +20,7 @@ import (
 type vertex struct {
 	id uint64
 	sync.Mutex
-	level int
-	//connections       [][]uint64
+	level             int
 	packedConnections *packedconn.Connections
 	maintenance       bool
 }
