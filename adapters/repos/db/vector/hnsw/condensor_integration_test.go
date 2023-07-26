@@ -9,9 +9,6 @@
 //  CONTACT: hello@weaviate.io
 //
 
-//go:build integrationTest
-// +build integrationTest
-
 package hnsw
 
 import (
@@ -476,8 +473,18 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		res, _, err := NewDeserializer(logger).Do(bufr, &initialState, false)
 		require.Nil(t, err)
 
-		packedConns, _ := packedconn.NewWithMaxLayer(4)
-		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, packedConnections: packedConns})
+		packedConns, _ := packedconn.NewWithMaxLayer(3)
+		var matchedNode *vertex
+		for _, node := range res.Nodes {
+			if node != nil && node.id == 0 && node.level == 3 {
+				matchedNode = node
+			}
+		}
+		assert.NotNil(t, matchedNode)
+		assert.Equal(t, packedConns.Layers(), matchedNode.packedConnections.Layers())
+		for layer := uint8(0); layer < packedConns.Layers(); layer++ {
+			assert.ElementsMatch(t, packedConns.GetLayer(layer), matchedNode.packedConnections.GetLayer(layer))
+		}
 		assert.Equal(t, uint64(17), res.Entrypoint)
 		assert.Equal(t, uint16(3), res.Level)
 	})
