@@ -143,8 +143,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 	if level > neighbor.level {
 		neighbor.upgradePackedToLevelNoLock(level)
 	}
-	var currentConnections []uint64
-	currentConnections = neighbor.packedConnections.GetLayer(uint8(level))
+	currentConnections := neighbor.packedConnections.GetLayer(uint8(level))
 
 	maximumConnections := n.maximumConnections(level)
 	if len(currentConnections) < maximumConnections {

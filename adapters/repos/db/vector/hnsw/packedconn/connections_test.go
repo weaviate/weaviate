@@ -204,7 +204,6 @@ func TestConnections_InsertLayerAfterAddingLayer(t *testing.T) {
 	c.ReplaceLayer(0, []uint64{})
 	shuffled := make([]uint64, len(connsSlice1))
 	copy(shuffled, connsSlice1)
-	shuffled = append(shuffled)
 	rand.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
 	for _, item := range shuffled {
 		c.InsertAtLayer(item, 0)
@@ -213,7 +212,6 @@ func TestConnections_InsertLayerAfterAddingLayer(t *testing.T) {
 	c.ReplaceLayer(2, []uint64{})
 	shuffled = make([]uint64, len(connsSlice3))
 	copy(shuffled, connsSlice3)
-	shuffled = append(shuffled)
 	rand.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
 	for _, item := range shuffled {
 		c.InsertAtLayer(item, 2)

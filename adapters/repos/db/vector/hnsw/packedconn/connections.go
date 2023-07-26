@@ -25,7 +25,7 @@ const (
 )
 
 func NewWithMaxLayer(maxLayer uint8) (*Connections, error) {
-	if maxLayer+1 > math.MaxUint8 {
+	if int(maxLayer)+1 > math.MaxUint8 {
 		return nil, fmt.Errorf("max supported layer is %d",
 			math.MaxUint8-1)
 	}
