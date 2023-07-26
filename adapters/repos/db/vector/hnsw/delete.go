@@ -336,7 +336,7 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 			if err != nil {
 				return false, err
 			}
-			neighborNode.packedConnections = &packedConns
+			neighborNode.packedConnections = packedConns
 			neighborNode.Unlock()
 
 			if err := h.commitLog.ClearLinks(neighbor); err != nil {
@@ -357,7 +357,7 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 			if err != nil {
 				return false, err
 			}
-			neighborNode.packedConnections = &packedConns
+			neighborNode.packedConnections = packedConns
 			neighborNode.Unlock()
 		}
 		neighborLevel = level

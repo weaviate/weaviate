@@ -191,7 +191,7 @@ func dummyInitialDeserializerState() *DeserializationResult {
 				// This is a lower level than we will read, so this node will require
 				// growing
 				level:             8,
-				packedConnections: &packedConns,
+				packedConnections: packedConns,
 			},
 		},
 	}
@@ -400,7 +400,7 @@ func TestDeserializerClearLinksAtLevel(t *testing.T) {
 				// This is a lower level than we will read, so this node will require
 				// growing
 				level:             4,
-				packedConnections: &packedConns,
+				packedConnections: packedConns,
 			},
 			nil,
 			nil,

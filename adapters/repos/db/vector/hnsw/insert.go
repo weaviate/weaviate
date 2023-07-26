@@ -77,7 +77,7 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.entryPointID = node.id
 	h.currentMaximumLayer = 0
 	packedConns, _ := packedconn.NewWithMaxLayer(0)
-	node.packedConnections = &packedConns
+	node.packedConnections = packedConns
 	node.level = 0
 	if err := h.commitLog.AddNode(node); err != nil {
 		return err
@@ -142,7 +142,7 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	if err != nil {
 		return err
 	}
-	node.packedConnections = &packedConnections
+	node.packedConnections = packedConnections
 
 	if err := h.commitLog.AddNode(node); err != nil {
 		return err

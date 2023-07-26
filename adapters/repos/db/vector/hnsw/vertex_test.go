@@ -66,7 +66,7 @@ func TestVertex_SetConnections(t *testing.T) {
 			packedConns, _ := packedconn.NewWithMaxLayer(0)
 			packedConns.ReplaceLayer(0, tc.initial)
 			v := &vertex{
-				packedConnections: &packedConns,
+				packedConnections: packedConns,
 			}
 			v.packedConnections.ReplaceLayer(0, tc.updated)
 
@@ -120,7 +120,7 @@ func TestVertex_AppendConnection(t *testing.T) {
 			packedConns, _ := packedconn.NewWithMaxLayer(0)
 			packedConns.ReplaceLayer(0, tc.initial)
 			v := &vertex{
-				packedConnections: &packedConns,
+				packedConnections: packedConns,
 			}
 
 			v.packedConnections.InsertAtLayer(18, 0)
@@ -181,7 +181,7 @@ func TestVertex_AppendConnection_NotCleanlyDivisible(t *testing.T) {
 			packedConns, _ := packedconn.NewWithMaxLayer(0)
 			packedConns.ReplaceLayer(0, tc.initial)
 			v := &vertex{
-				packedConnections: &packedConns,
+				packedConnections: packedConns,
 			}
 			v.packedConnections.InsertAtLayer(18, 0)
 			v.packedConnections.InsertAtLayer(63, 0)
@@ -199,7 +199,7 @@ func TestVertex_ResetConnections(t *testing.T) {
 	packedConns, _ := packedconn.NewWithMaxLayer(0)
 	packedConns.ReplaceLayer(0, makeConnections(4, 4))
 	v := &vertex{
-		packedConnections: &packedConns,
+		packedConnections: packedConns,
 	}
 
 	v.packedConnections.ReplaceLayer(0, []uint64{})

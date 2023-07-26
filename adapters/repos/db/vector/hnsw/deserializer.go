@@ -183,7 +183,7 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 		if err != nil {
 			return err
 		}
-		res.Nodes[id] = &vertex{level: int(level), id: id, packedConnections: &packedConns}
+		res.Nodes[id] = &vertex{level: int(level), id: id, packedConnections: packedConns}
 	} else {
 		maybeGrowConnectionsForLevel(res.Nodes[id].packedConnections, level)
 		res.Nodes[id].level = int(level)
@@ -235,7 +235,7 @@ func (d *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 		if err != nil {
 			return err
 		}
-		res.Nodes[int(source)] = &vertex{id: source, packedConnections: &packedConns}
+		res.Nodes[int(source)] = &vertex{id: source, packedConnections: packedConns}
 	}
 
 	maybeGrowConnectionsForLevel(res.Nodes[int(source)].packedConnections, level)
@@ -276,7 +276,7 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 		if err != nil {
 			return 0, err
 		}
-		res.Nodes[int(source)] = &vertex{id: source, packedConnections: &packedConns}
+		res.Nodes[int(source)] = &vertex{id: source, packedConnections: packedConns}
 	}
 
 	maybeGrowConnectionsForLevel(res.Nodes[int(source)].packedConnections, level)
@@ -328,7 +328,7 @@ func (d *Deserializer) ReadAddLinks(r io.Reader,
 		if err != nil {
 			return 0, err
 		}
-		res.Nodes[int(source)] = &vertex{id: source, packedConnections: &packedConns}
+		res.Nodes[int(source)] = &vertex{id: source, packedConnections: packedConns}
 	}
 
 	maybeGrowConnectionsForLevel(res.Nodes[int(source)].packedConnections, level)
@@ -436,7 +436,7 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 		}
 		res.Nodes[id] = &vertex{
 			id:                id,
-			packedConnections: &packedConns,
+			packedConnections: packedConns,
 		}
 	}
 
@@ -445,7 +445,7 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 		if err != nil {
 			return err
 		}
-		res.Nodes[id].packedConnections = &packedConns
+		res.Nodes[id].packedConnections = packedConns
 	} else {
 		maybeGrowConnectionsForLevel(res.Nodes[id].packedConnections, level)
 		res.Nodes[id].packedConnections.ReplaceLayer(uint8(level), []uint64{})

@@ -145,7 +145,7 @@ func NewFromJSONDump(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
 		index.nodes[n.ID] = &vertex{
 			id:                n.ID,
 			level:             n.Level,
-			packedConnections: &packedConns,
+			packedConnections: packedConns,
 		}
 		for level, conns := range n.Connections {
 			index.nodes[n.ID].packedConnections.ReplaceLayer(uint8(level), conns)
@@ -188,7 +188,7 @@ func NewFromJSONDumpMap(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
 		index.nodes[n.ID] = &vertex{
 			id:                n.ID,
 			level:             n.Level,
-			packedConnections: &packedConns,
+			packedConnections: packedConns,
 		}
 		for level, conns := range n.Connections {
 			index.nodes[n.ID].packedConnections.ReplaceLayer(uint8(level), conns)

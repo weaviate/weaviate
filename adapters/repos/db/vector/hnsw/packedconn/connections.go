@@ -22,9 +22,9 @@ type Connections struct {
 const layerPos = 0
 const initialSize = 50
 
-func NewWithMaxLayer(maxLayer uint8) (Connections, error) {
+func NewWithMaxLayer(maxLayer uint8) (*Connections, error) {
 	if maxLayer+1 > math.MaxUint8 {
-		return Connections{}, fmt.Errorf("max supported layer is %d",
+		return nil, fmt.Errorf("max supported layer is %d",
 			math.MaxUint8-1)
 	}
 	c := Connections{
@@ -36,7 +36,7 @@ func NewWithMaxLayer(maxLayer uint8) (Connections, error) {
 
 	c.buff = make([]byte, 16)
 
-	return c, nil
+	return &c, nil
 }
 
 func (c *Connections) AddLayer() {
