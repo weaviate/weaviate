@@ -25,6 +25,14 @@ type vertex struct {
 	maintenance       bool
 }
 
+func newVertex(id uint64, level uint8) (*vertex, error) {
+	packedConns, err := packedconn.NewWithMaxLayer(level)
+	if err != nil {
+		return nil, err
+	}
+	return &vertex{id: id, packedConnections: packedConns}, nil
+}
+
 func (v *vertex) markAsMaintenance() {
 	v.Lock()
 	v.maintenance = true

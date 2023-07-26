@@ -231,11 +231,10 @@ func (d *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 	}
 
 	if res.Nodes[int(source)] == nil {
-		packedConns, err := packedconn.NewWithMaxLayer(uint8(level))
+		res.Nodes[int(source)], err = newVertex(source, uint8(level))
 		if err != nil {
 			return err
 		}
-		res.Nodes[int(source)] = &vertex{id: source, packedConnections: packedConns}
 	}
 
 	maybeGrowConnectionsForLevel(res.Nodes[int(source)], level)
@@ -272,11 +271,10 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 	}
 
 	if res.Nodes[int(source)] == nil {
-		packedConns, err := packedconn.NewWithMaxLayer(uint8(level))
+		res.Nodes[int(source)], err = newVertex(source, uint8(level))
 		if err != nil {
 			return 0, err
 		}
-		res.Nodes[int(source)] = &vertex{id: source, packedConnections: packedConns}
 	}
 
 	maybeGrowConnectionsForLevel(res.Nodes[int(source)], level)
@@ -324,11 +322,10 @@ func (d *Deserializer) ReadAddLinks(r io.Reader,
 	}
 
 	if res.Nodes[int(source)] == nil {
-		packedConns, err := packedconn.NewWithMaxLayer(uint8(level))
+		res.Nodes[int(source)], err = newVertex(source, uint8(level))
 		if err != nil {
 			return 0, err
 		}
-		res.Nodes[int(source)] = &vertex{id: source, packedConnections: packedConns}
 	}
 
 	maybeGrowConnectionsForLevel(res.Nodes[int(source)], level)
@@ -430,13 +427,9 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 		// we need to keep the replace info, meaning we have to explicitly create
 		// this node in order to be able to store the "clear links" information for
 		// it
-		packedConns, err := packedconn.NewWithMaxLayer(uint8(level))
+		res.Nodes[id], err = newVertex(id, uint8(level))
 		if err != nil {
 			return err
-		}
-		res.Nodes[id] = &vertex{
-			id:                id,
-			packedConnections: packedConns,
 		}
 	}
 

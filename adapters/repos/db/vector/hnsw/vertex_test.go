@@ -18,6 +18,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 )
 
+func packedConnectionsFromArray(values []uint64) *packedconn.Connections {
+	packedConns, _ := packedconn.NewWithMaxLayer(0)
+	packedConns.ReplaceLayer(0, values)
+	return packedConns
+}
+
 func TestVertex_SetConnections(t *testing.T) {
 	type test struct {
 		name        string
@@ -63,10 +69,8 @@ func TestVertex_SetConnections(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			packedConns, _ := packedconn.NewWithMaxLayer(0)
-			packedConns.ReplaceLayer(0, tc.initial)
 			v := &vertex{
-				packedConnections: packedConns,
+				packedConnections: packedConnectionsFromArray(tc.initial),
 			}
 			v.packedConnections.ReplaceLayer(0, tc.updated)
 
@@ -117,10 +121,8 @@ func TestVertex_AppendConnection(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			packedConns, _ := packedconn.NewWithMaxLayer(0)
-			packedConns.ReplaceLayer(0, tc.initial)
 			v := &vertex{
-				packedConnections: packedConns,
+				packedConnections: packedConnectionsFromArray(tc.initial),
 			}
 
 			v.packedConnections.InsertAtLayer(18, 0)
@@ -177,10 +179,8 @@ func TestVertex_AppendConnection_NotCleanlyDivisible(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			packedConns, _ := packedconn.NewWithMaxLayer(0)
-			packedConns.ReplaceLayer(0, tc.initial)
 			v := &vertex{
-				packedConnections: packedConns,
+				packedConnections: packedConnectionsFromArray(tc.initial),
 			}
 			v.packedConnections.InsertAtLayer(18, 0)
 
@@ -194,10 +194,8 @@ func TestVertex_AppendConnection_NotCleanlyDivisible(t *testing.T) {
 }
 
 func TestVertex_ResetConnections(t *testing.T) {
-	packedConns, _ := packedconn.NewWithMaxLayer(0)
-	packedConns.ReplaceLayer(0, makeConnections(4, 4))
 	v := &vertex{
-		packedConnections: packedConns,
+		packedConnections: packedConnectionsFromArray(makeConnections(4, 4)),
 	}
 
 	v.packedConnections.ReplaceLayer(0, []uint64{})
