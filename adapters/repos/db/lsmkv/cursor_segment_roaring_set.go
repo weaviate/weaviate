@@ -32,7 +32,7 @@ func (sg *SegmentGroup) newRoaringSetCursors() ([]roaringset.InnerCursor, func()
 	for i, seg := range sg.segments {
 		curs, err := seg.newRoaringSetCursor()
 		if err != nil {
-			return nil, nil, err
+			return nil, sg.maintenanceLock.RUnlock, err
 		}
 		out[i] = curs
 	}

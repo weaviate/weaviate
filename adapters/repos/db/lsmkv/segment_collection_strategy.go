@@ -16,8 +16,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -25,7 +25,7 @@ import (
 func (s *segment) getCollection(key []byte) ([]value, error) {
 	if s.strategy != segmentindex.StrategySetCollection &&
 		s.strategy != segmentindex.StrategyMapCollection {
-		return nil, errors.Errorf("get only possible for strategies %q, %q",
+		return nil, fmt.Errorf("get only possible for strategies %q, %q",
 			StrategySetCollection, StrategyMapCollection)
 	}
 
@@ -99,7 +99,7 @@ func (s *segment) bufferedReaderAt(offset uint64) (*bufio.Reader, error) {
 		return nil, fmt.Errorf("nil contentFile for segment at %s", s.path)
 	}
 
-	if _, err := s.contentFile.Seek(int64(offset), 0); err != nil {
+	if _, err := s.contentFile.Seek(int64(offset), io.SeekStart); err != nil {
 		return nil,
 			fmt.Errorf("bufferedReaderAt: seek to offset: %w", err)
 	}

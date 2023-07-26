@@ -19,10 +19,10 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/weaviate/weaviate/usecases/byte_operations"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
-// A RoaringSet Segment Node stores one Key-Value pair (without its index) in
+// SegmentNode stores one Key-Value pair (without its index) in
 // the LSM Segment.  It uses a single []byte internally. As a result there is
 // no decode step required at runtime. Instead you can use
 //
@@ -68,9 +68,9 @@ func (sn *SegmentNode) Len() uint64 {
 // maintenance lock or can otherwise be sure that no compaction can occur. If
 // you can't guarantee that, instead use [*SegmentNode.AdditionsWithCopy].
 func (sn *SegmentNode) Additions() *sroar.Bitmap {
-	bo := byte_operations.ByteOperations{Buffer: sn.data}
-	bo.MoveBufferToAbsolutePosition(8)
-	return sroar.FromBuffer(bo.ReadBytesFromBufferWithUint64LengthIndicator())
+	rw := byteops.NewReadWriter(sn.data)
+	rw.MoveBufferToAbsolutePosition(8)
+	return sroar.FromBuffer(rw.ReadBytesFromBufferWithUint64LengthIndicator())
 }
 
 // AdditionsWithCopy returns the additions roaring bitmap without sharing state. It
@@ -80,9 +80,9 @@ func (sn *SegmentNode) Additions() *sroar.Bitmap {
 // duration of time where a lock is held that prevents compactions, it is more
 // efficient to use [*SegmentNode.Additions].
 func (sn *SegmentNode) AdditionsWithCopy() *sroar.Bitmap {
-	bo := byte_operations.ByteOperations{Buffer: sn.data}
-	bo.MoveBufferToAbsolutePosition(8)
-	return sroar.FromBufferWithCopy(bo.ReadBytesFromBufferWithUint64LengthIndicator())
+	rw := byteops.NewReadWriter(sn.data)
+	rw.MoveBufferToAbsolutePosition(8)
+	return sroar.FromBufferWithCopy(rw.ReadBytesFromBufferWithUint64LengthIndicator())
 }
 
 // Deletions returns the deletions roaring bitmap with shared state. Only use
@@ -90,10 +90,10 @@ func (sn *SegmentNode) AdditionsWithCopy() *sroar.Bitmap {
 // maintenance lock or can otherwise be sure that no compaction can occur. If
 // you can't guarantee that, instead use [*SegmentNode.DeletionsWithCopy].
 func (sn *SegmentNode) Deletions() *sroar.Bitmap {
-	bo := byte_operations.ByteOperations{Buffer: sn.data}
-	bo.MoveBufferToAbsolutePosition(8)
-	bo.DiscardBytesFromBufferWithUint64LengthIndicator()
-	return sroar.FromBuffer(bo.ReadBytesFromBufferWithUint64LengthIndicator())
+	rw := byteops.NewReadWriter(sn.data)
+	rw.MoveBufferToAbsolutePosition(8)
+	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
+	return sroar.FromBuffer(rw.ReadBytesFromBufferWithUint64LengthIndicator())
 }
 
 // DeletionsWithCopy returns the deletions roaring bitmap without sharing state. It
@@ -103,18 +103,18 @@ func (sn *SegmentNode) Deletions() *sroar.Bitmap {
 // duration of time where a lock is held that prevents compactions, it is more
 // efficient to use [*SegmentNode.Deletions].
 func (sn *SegmentNode) DeletionsWithCopy() *sroar.Bitmap {
-	bo := byte_operations.ByteOperations{Buffer: sn.data}
-	bo.MoveBufferToAbsolutePosition(8)
-	bo.DiscardBytesFromBufferWithUint64LengthIndicator()
-	return sroar.FromBufferWithCopy(bo.ReadBytesFromBufferWithUint64LengthIndicator())
+	rw := byteops.NewReadWriter(sn.data)
+	rw.MoveBufferToAbsolutePosition(8)
+	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
+	return sroar.FromBufferWithCopy(rw.ReadBytesFromBufferWithUint64LengthIndicator())
 }
 
 func (sn *SegmentNode) PrimaryKey() []byte {
-	bo := byte_operations.ByteOperations{Buffer: sn.data}
-	bo.MoveBufferToAbsolutePosition(8)
-	bo.DiscardBytesFromBufferWithUint64LengthIndicator()
-	bo.DiscardBytesFromBufferWithUint64LengthIndicator()
-	return bo.ReadBytesFromBufferWithUint32LengthIndicator()
+	rw := byteops.NewReadWriter(sn.data)
+	rw.MoveBufferToAbsolutePosition(8)
+	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
+	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
+	return rw.ReadBytesFromBufferWithUint32LengthIndicator()
 }
 
 func NewSegmentNode(
@@ -133,26 +133,26 @@ func NewSegmentNode(
 		data: make([]byte, expectedSize),
 	}
 
-	bo := byte_operations.ByteOperations{Buffer: sn.data}
+	rw := byteops.NewReadWriter(sn.data)
 
 	// reserve the first 8 bytes for the offset, which we will write at the very
 	// end
-	bo.MoveBufferPositionForward(8)
-	if err := bo.CopyBytesToBufferWithUint64LengthIndicator(additionsBuf); err != nil {
+	rw.MoveBufferPositionForward(8)
+	if err := rw.CopyBytesToBufferWithUint64LengthIndicator(additionsBuf); err != nil {
 		return nil, err
 	}
 
-	if err := bo.CopyBytesToBufferWithUint64LengthIndicator(deletionsBuf); err != nil {
+	if err := rw.CopyBytesToBufferWithUint64LengthIndicator(deletionsBuf); err != nil {
 		return nil, err
 	}
 
-	if err := bo.CopyBytesToBufferWithUint32LengthIndicator(key); err != nil {
+	if err := rw.CopyBytesToBufferWithUint32LengthIndicator(key); err != nil {
 		return nil, err
 	}
 
-	offset := bo.Position
-	bo.MoveBufferToAbsolutePosition(0)
-	bo.WriteUint64(uint64(offset))
+	offset := rw.Position
+	rw.MoveBufferToAbsolutePosition(0)
+	rw.WriteUint64(uint64(offset))
 
 	return &sn, nil
 }

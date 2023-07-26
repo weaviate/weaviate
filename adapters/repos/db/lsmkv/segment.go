@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"syscall"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -30,6 +31,7 @@ type segment struct {
 	segmentEndPos         uint64
 	dataStartPos          uint64
 	dataEndPos            uint64
+	contents              []byte
 	contentFile           *os.File
 	bloomFilter           *bloom.BloomFilter
 	secondaryBloomFilters []*bloom.BloomFilter
@@ -73,14 +75,9 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, fmt.Errorf("stat file: %w", err)
 	}
 
-	contents := make([]byte, fileInfo.Size())
-	n, err := file.Read(contents)
+	contents, err := syscall.Mmap(int(file.Fd()), 0, int(fileInfo.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
 	if err != nil {
-		return nil, fmt.Errorf("read segment file %q: %w", fileInfo.Name(), err)
-	}
-	if int64(n) != fileInfo.Size() {
-		logger.WithField("action", "read segment file").
-			Warnf("only read %d out of %d segment bytes", n, fileInfo.Size())
+		return nil, fmt.Errorf("mmap file: %w", err)
 	}
 
 	header, err := segmentindex.ParseHeader(bytes.NewReader(contents[:segmentindex.HeaderSize]))
@@ -105,11 +102,12 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	ind := &segment{
 		level:               header.Level,
 		path:                path,
+		contents:            contents,
 		contentFile:         file,
 		version:             header.Version,
 		secondaryIndexCount: header.SecondaryIndices,
 		segmentStartPos:     header.IndexStart,
-		segmentEndPos:       uint64(len(contents)),
+		segmentEndPos:       uint64(fileInfo.Size()),
 		strategy:            header.Strategy,
 		dataStartPos:        segmentindex.HeaderSize, // fixed value that's the same for all strategies
 		dataEndPos:          header.IndexStart,

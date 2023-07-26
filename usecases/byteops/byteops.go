@@ -9,8 +9,8 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package byte_operations provides helper functions to (un-) marshal objects from or into a buffer
-package byte_operations
+// Package byteops provides helper functions to (un-) marshal objects from or into a buffer
+package byteops
 
 import (
 	"encoding/binary"
@@ -18,38 +18,52 @@ import (
 )
 
 const (
-	uint32Len = 4
 	uint64Len = 8
+	uint32Len = 4
 	uint16Len = 2
 	uint8Len  = 1
 )
 
-type ByteOperations struct {
+type ReadWriter struct {
 	Position uint64
 	Buffer   []byte
 }
 
-func (bo *ByteOperations) ReadUint64() uint64 {
+func WithPosition(pos uint64) func(*ReadWriter) {
+	return func(rw *ReadWriter) {
+		rw.Position = pos
+	}
+}
+
+func NewReadWriter(buf []byte, opts ...func(writer *ReadWriter)) *ReadWriter {
+	rw := &ReadWriter{Buffer: buf}
+	for _, opt := range opts {
+		opt(rw)
+	}
+	return rw
+}
+
+func (bo *ReadWriter) ReadUint64() uint64 {
 	bo.Position += uint64Len
 	return binary.LittleEndian.Uint64(bo.Buffer[bo.Position-uint64Len : bo.Position])
 }
 
-func (bo *ByteOperations) ReadUint16() uint16 {
+func (bo *ReadWriter) ReadUint16() uint16 {
 	bo.Position += uint16Len
 	return binary.LittleEndian.Uint16(bo.Buffer[bo.Position-uint16Len : bo.Position])
 }
 
-func (bo *ByteOperations) ReadUint32() uint32 {
+func (bo *ReadWriter) ReadUint32() uint32 {
 	bo.Position += uint32Len
 	return binary.LittleEndian.Uint32(bo.Buffer[bo.Position-uint32Len : bo.Position])
 }
 
-func (bo *ByteOperations) ReadUint8() uint8 {
+func (bo *ReadWriter) ReadUint8() uint8 {
 	bo.Position += uint8Len
 	return bo.Buffer[bo.Position-uint8Len]
 }
 
-func (bo *ByteOperations) CopyBytesFromBuffer(length uint64, out []byte) ([]byte, error) {
+func (bo *ReadWriter) CopyBytesFromBuffer(length uint64, out []byte) ([]byte, error) {
 	if out == nil {
 		out = make([]byte, length)
 	}
@@ -61,13 +75,13 @@ func (bo *ByteOperations) CopyBytesFromBuffer(length uint64, out []byte) ([]byte
 	return out, nil
 }
 
-func (bo *ByteOperations) ReadBytesFromBuffer(length uint64) []byte {
+func (bo *ReadWriter) ReadBytesFromBuffer(length uint64) []byte {
 	subslice := bo.Buffer[bo.Position : bo.Position+length]
 	bo.Position += length
 	return subslice
 }
 
-func (bo *ByteOperations) ReadBytesFromBufferWithUint64LengthIndicator() []byte {
+func (bo *ReadWriter) ReadBytesFromBufferWithUint64LengthIndicator() []byte {
 	bo.Position += uint64Len
 	bufLen := binary.LittleEndian.Uint64(bo.Buffer[bo.Position-uint64Len : bo.Position])
 
@@ -76,7 +90,7 @@ func (bo *ByteOperations) ReadBytesFromBufferWithUint64LengthIndicator() []byte 
 	return subslice
 }
 
-func (bo *ByteOperations) DiscardBytesFromBufferWithUint64LengthIndicator() uint64 {
+func (bo *ReadWriter) DiscardBytesFromBufferWithUint64LengthIndicator() uint64 {
 	bo.Position += uint64Len
 	bufLen := binary.LittleEndian.Uint64(bo.Buffer[bo.Position-uint64Len : bo.Position])
 
@@ -84,7 +98,7 @@ func (bo *ByteOperations) DiscardBytesFromBufferWithUint64LengthIndicator() uint
 	return bufLen
 }
 
-func (bo *ByteOperations) ReadBytesFromBufferWithUint32LengthIndicator() []byte {
+func (bo *ReadWriter) ReadBytesFromBufferWithUint32LengthIndicator() []byte {
 	bo.Position += uint32Len
 	bufLen := uint64(binary.LittleEndian.Uint32(bo.Buffer[bo.Position-uint32Len : bo.Position]))
 
@@ -93,7 +107,7 @@ func (bo *ByteOperations) ReadBytesFromBufferWithUint32LengthIndicator() []byte 
 	return subslice
 }
 
-func (bo *ByteOperations) DiscardBytesFromBufferWithUint32LengthIndicator() uint32 {
+func (bo *ReadWriter) DiscardBytesFromBufferWithUint32LengthIndicator() uint32 {
 	bo.Position += uint32Len
 	bufLen := binary.LittleEndian.Uint32(bo.Buffer[bo.Position-uint32Len : bo.Position])
 
@@ -101,22 +115,22 @@ func (bo *ByteOperations) DiscardBytesFromBufferWithUint32LengthIndicator() uint
 	return bufLen
 }
 
-func (bo *ByteOperations) WriteUint64(value uint64) {
+func (bo *ReadWriter) WriteUint64(value uint64) {
 	bo.Position += uint64Len
 	binary.LittleEndian.PutUint64(bo.Buffer[bo.Position-uint64Len:bo.Position], value)
 }
 
-func (bo *ByteOperations) WriteUint32(value uint32) {
+func (bo *ReadWriter) WriteUint32(value uint32) {
 	bo.Position += uint32Len
 	binary.LittleEndian.PutUint32(bo.Buffer[bo.Position-uint32Len:bo.Position], value)
 }
 
-func (bo *ByteOperations) WriteUint16(value uint16) {
+func (bo *ReadWriter) WriteUint16(value uint16) {
 	bo.Position += uint16Len
 	binary.LittleEndian.PutUint16(bo.Buffer[bo.Position-uint16Len:bo.Position], value)
 }
 
-func (bo *ByteOperations) CopyBytesToBuffer(copyBytes []byte) error {
+func (bo *ReadWriter) CopyBytesToBuffer(copyBytes []byte) error {
 	lenCopyBytes := uint64(len(copyBytes))
 	bo.Position += lenCopyBytes
 	numCopiedBytes := copy(bo.Buffer[bo.Position-lenCopyBytes:bo.Position], copyBytes)
@@ -128,7 +142,7 @@ func (bo *ByteOperations) CopyBytesToBuffer(copyBytes []byte) error {
 
 // Writes a uint64 length indicator about the buffer that's about to follow,
 // then writes the buffer itself
-func (bo *ByteOperations) CopyBytesToBufferWithUint64LengthIndicator(copyBytes []byte) error {
+func (bo *ReadWriter) CopyBytesToBufferWithUint64LengthIndicator(copyBytes []byte) error {
 	lenCopyBytes := uint64(len(copyBytes))
 	bo.Position += uint64Len
 	binary.LittleEndian.PutUint64(bo.Buffer[bo.Position-uint64Len:bo.Position], lenCopyBytes)
@@ -142,7 +156,7 @@ func (bo *ByteOperations) CopyBytesToBufferWithUint64LengthIndicator(copyBytes [
 
 // Writes a uint32 length indicator about the buffer that's about to follow,
 // then writes the buffer itself
-func (bo *ByteOperations) CopyBytesToBufferWithUint32LengthIndicator(copyBytes []byte) error {
+func (bo *ReadWriter) CopyBytesToBufferWithUint32LengthIndicator(copyBytes []byte) error {
 	lenCopyBytes := uint32(len(copyBytes))
 	bo.Position += uint32Len
 	binary.LittleEndian.PutUint32(bo.Buffer[bo.Position-uint32Len:bo.Position], lenCopyBytes)
@@ -154,15 +168,15 @@ func (bo *ByteOperations) CopyBytesToBufferWithUint32LengthIndicator(copyBytes [
 	return nil
 }
 
-func (bo *ByteOperations) MoveBufferPositionForward(length uint64) {
+func (bo *ReadWriter) MoveBufferPositionForward(length uint64) {
 	bo.Position += length
 }
 
-func (bo *ByteOperations) MoveBufferToAbsolutePosition(pos uint64) {
+func (bo *ReadWriter) MoveBufferToAbsolutePosition(pos uint64) {
 	bo.Position = pos
 }
 
-func (bo *ByteOperations) WriteByte(b byte) {
+func (bo *ReadWriter) WriteByte(b byte) {
 	bo.Buffer[bo.Position] = b
 	bo.Position += 1
 }
