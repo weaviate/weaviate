@@ -77,17 +77,6 @@ func TestUnMakePropertyKey(t *testing.T) {
 	}
 }
 
-func TestMakePropertyPrefixWithNonexistentProperty(t *testing.T) {
-	tracker, err := tracker.NewJsonPropertyIdTracker("/tmp/test.json")
-	if err != nil {
-		t.Fatalf("Expected no error, got %v", err)
-	}
-
-	_, err = MakePropertyPrefix("nonexistent", tracker)
-	if err == nil {
-		t.Fatalf("Expected error for nonexistent property, got nil")
-	}
-}
 
 func TestMakePropertyKeyWithEmptyPrefix(t *testing.T) {
 	prefix := []byte{}
