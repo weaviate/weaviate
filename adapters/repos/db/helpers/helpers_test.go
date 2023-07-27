@@ -77,7 +77,6 @@ func TestUnMakePropertyKey(t *testing.T) {
 	}
 }
 
-
 func TestMakePropertyKeyWithEmptyPrefix(t *testing.T) {
 	prefix := []byte{}
 	key := []byte{4, 5, 6}
