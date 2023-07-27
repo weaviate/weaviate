@@ -132,8 +132,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 				continue
 			}
 
-			for level := 0; level < int(node.packedConnections.Layers()); level++ {
-				conns := node.packedConnections.GetLayer(uint8(level))
+			node.packedConnections.IterateOnLayers(func(layer uint8, conns []uint64) {
 				m := index.maximumConnections
 				if level == 0 {
 					m = index.maximumConnectionsLayerZero
@@ -141,7 +140,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 
 				assert.LessOrEqualf(t, len(conns), m, "node %d at level %d with %d conns",
 					i, level, len(conns))
-			}
+			})
 		}
 	})
 
@@ -184,8 +183,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 				continue
 			}
 
-			for level := 0; level < int(node.packedConnections.Layers()); level++ {
-				conns := node.packedConnections.GetLayer(uint8(level))
+			node.packedConnections.IterateOnLayers(func(layer uint8, conns []uint64) {
 				m := index.maximumConnections
 				if level == 0 {
 					m = index.maximumConnectionsLayerZero
@@ -193,7 +191,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 
 				assert.LessOrEqualf(t, len(conns), m, "node %d at level %d with %d conns",
 					i, level, len(conns))
-			}
+			})
 		}
 	})
 
@@ -235,8 +233,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 				continue
 			}
 
-			for level := 0; level < int(node.packedConnections.Layers()); level++ {
-				conns := node.packedConnections.GetLayer(uint8(level))
+			node.packedConnections.IterateOnLayers(func(layer uint8, conns []uint64) {
 				m := index.maximumConnections
 				if level == 0 {
 					m = index.maximumConnectionsLayerZero
@@ -244,7 +241,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 
 				require.LessOrEqualf(t, len(conns), m, "node %d at level %d with %d conns",
 					i, level, len(conns))
-			}
+			})
 		}
 	})
 
