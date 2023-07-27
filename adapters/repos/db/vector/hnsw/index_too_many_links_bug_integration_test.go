@@ -132,7 +132,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 				continue
 			}
 
-			node.packedConnections.IterateOnLayers(func(layer uint8, conns []uint64) {
+			node.packedConnections.IterateOnLayers(func(level uint8, conns []uint64) {
 				m := index.maximumConnections
 				if level == 0 {
 					m = index.maximumConnectionsLayerZero
@@ -183,7 +183,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 				continue
 			}
 
-			node.packedConnections.IterateOnLayers(func(layer uint8, conns []uint64) {
+			node.packedConnections.IterateOnLayers(func(level uint8, conns []uint64) {
 				m := index.maximumConnections
 				if level == 0 {
 					m = index.maximumConnectionsLayerZero
@@ -233,7 +233,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 				continue
 			}
 
-			node.packedConnections.IterateOnLayers(func(layer uint8, conns []uint64) {
+			node.packedConnections.IterateOnLayers(func(level uint8, conns []uint64) {
 				m := index.maximumConnections
 				if level == 0 {
 					m = index.maximumConnectionsLayerZero
