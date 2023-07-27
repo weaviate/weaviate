@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package lsmkv
 
 import (
@@ -14,11 +25,11 @@ import (
 
 func TestBucketProxyCreation(t *testing.T) {
 	tmpDir := "/tmp/lsmkvtestdir"
-	os.Mkdir(tmpDir, 0777)
+	os.Mkdir(tmpDir, 0o777)
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
-	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir+"/propids.json")
+	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids.json")
 	if err != nil {
 		t.Fatalf("Failed to create tracker: %v", err)
 	}
@@ -35,7 +46,7 @@ func TestBucketProxyCreation(t *testing.T) {
 	}
 
 	propid_bytes, err := helpers.MakePropertyPrefix(propName, propids)
-	if !bytes.Equal( bp.PropertyPrefix(), propid_bytes) {
+	if !bytes.Equal(bp.PropertyPrefix(), propid_bytes) {
 		t.Fatalf("BucketProxy PropertyPrefix() does not match expected '%s', got '%s'", propName, bp.PropertyPrefix())
 	}
 
@@ -44,11 +55,11 @@ func TestBucketProxyCreation(t *testing.T) {
 
 func TestBucketProxyGetAndPut(t *testing.T) {
 	tmpDir := "/tmp/lsmkvtestdir"
-	os.Mkdir(tmpDir, 0777)
+	os.Mkdir(tmpDir, 0o777)
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
-	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir+"/propids.json")
+	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids.json")
 
 	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewNoop(), cyclemanager.NewNoop())
 	if err != nil {
@@ -75,16 +86,15 @@ func TestBucketProxyGetAndPut(t *testing.T) {
 	if string(retrieved) != string(value) {
 		t.Fatalf("Retrieved value does not match put value: expected '%s', got '%s'", string(value), string(retrieved))
 	}
-
 }
 
 func TestBucketProxyGetNotFound(t *testing.T) {
 	tmpDir := "/tmp/lsmkvtestdir"
-	os.Mkdir(tmpDir, 0777)
+	os.Mkdir(tmpDir, 0o777)
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
-	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir+"/propids1.json")
+	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids1.json")
 
 	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewNoop(), cyclemanager.NewNoop())
 	if err != nil {
@@ -107,11 +117,11 @@ func TestBucketProxyGetNotFound(t *testing.T) {
 
 func TestBucketProxyDelete(t *testing.T) {
 	tmpDir := "/tmp/lsmkvtestdir"
-	os.Mkdir(tmpDir, 0777)
+	os.Mkdir(tmpDir, 0o777)
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
-	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir+"/propids2.json")
+	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids2.json")
 
 	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewNoop(), cyclemanager.NewNoop())
 	if err != nil {
@@ -140,16 +150,15 @@ func TestBucketProxyDelete(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected an error when trying to get a deleted key, but got none")
 	}
-
 }
 
 func TestBucketProxyMapSetAndGet(t *testing.T) {
 	tmpDir := "/tmp/lsmkvtestdir"
-	os.Mkdir(tmpDir, 0777)
+	os.Mkdir(tmpDir, 0o777)
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
-	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir+"/propids3.json")
+	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids3.json")
 
 	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewNoop(), cyclemanager.NewNoop())
 	if err != nil {
@@ -183,11 +192,11 @@ func TestBucketProxyMapSetAndGet(t *testing.T) {
 
 func TestBucketProxyCount(t *testing.T) {
 	tmpDir := "/tmp/lsmkvtestdir"
-	os.Mkdir(tmpDir, 0777)
+	os.Mkdir(tmpDir, 0o777)
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
-	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir+"/propids4.json")
+	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids4.json")
 
 	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewNoop(), cyclemanager.NewNoop())
 	if err != nil {

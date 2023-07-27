@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -30,19 +31,18 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"encoding/json"
 )
 
 // BucketInterface supports wrapping the bucket with proxy objects to enable things like multiple properties per bucket
 type BucketInterface interface {
 	Shutdown(ctx context.Context) error
-	//Commit() error
-	//Rollback() error
+	// Commit() error
+	// Rollback() error
 
-	//CompactRange(start, end []byte) error
-	//DropIndex(pos int) error
-	//BuildSecondaryIndex(pos int, start, end []byte) error
-	//SecondaryIndexDelete(pos int, secondaryKey []byte) error
+	// CompactRange(start, end []byte) error
+	// DropIndex(pos int) error
+	// BuildSecondaryIndex(pos int, start, end []byte) error
+	// SecondaryIndexDelete(pos int, secondaryKey []byte) error
 	IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error
 	SetMemtableThreshold(size uint64)
 	Get(key []byte) ([]byte, error)
@@ -60,7 +60,7 @@ type BucketInterface interface {
 	Strategy() string
 	RoaringSetGet(key []byte) (*sroar.Bitmap, error)
 	SetCursorKeyOnly() *CursorSet
-	//SetCursorKey() *CursorSet
+	// SetCursorKey() *CursorSet
 	SetCursor() *CursorSet
 	MapCursorKeyOnly(cfgs ...MapListOption) *CursorMap
 	MapCursor(cfgs ...MapListOption) *CursorMap
@@ -209,7 +209,6 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	return b, nil
 }
 
-
 func (b *Bucket) PropertyPrefix() []byte {
 	return []byte("")
 }
@@ -219,11 +218,11 @@ func (b *Bucket) DumpString() string {
 	var buf bytes.Buffer
 	buf.WriteString(fmt.Sprintf("Bucket: %s\n", b.dir))
 	b.IterateObjects(context.Background(), func(object *storobj.Object) error {
-	/*	str := fmt.Sprintf(`
-		DocID: %v
-		ClassName: %v
-		Properties: %v
-		`, object.DocID(), object.ClassName(), object.Properties())*/
+		/*	str := fmt.Sprintf(`
+			DocID: %v
+			ClassName: %v
+			Properties: %v
+			`, object.DocID(), object.ClassName(), object.Properties())*/
 		// Marshall the object to json
 		json, err := json.Marshal(object)
 		if err != nil {
@@ -235,8 +234,6 @@ func (b *Bucket) DumpString() string {
 	buf.WriteString("Bucket end\n")
 	return buf.String()
 }
-
-
 
 func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error {
 	i := 0
@@ -279,7 +276,6 @@ func (b *Bucket) IterateObjectsRoaring(ctx context.Context, f func(object *storo
 
 	for k, sbmp := cursor.First(); k != nil; k, sbmp = cursor.Next() {
 		fmt.Printf("IterateObjectsRoaring k: %v, sbmp: %v\n", k, sbmp.ToArray())
-		
 	}
 
 	return nil
@@ -288,9 +284,6 @@ func (b *Bucket) IterateObjectsRoaring(ctx context.Context, f func(object *storo
 func (b *Bucket) IteratePropPrefixObjects(ctx context.Context, propPrefix []byte, f func(object *storobj.Object) error) error {
 	return b.IterateObjects(ctx, f)
 }
-
-
-
 
 func (b *Bucket) SetMemtableThreshold(size uint64) {
 	b.memtableThreshold = size

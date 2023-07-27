@@ -1,11 +1,22 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package tracker
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"sync"
-	"fmt"
 	"testing"
 )
 
@@ -111,9 +122,6 @@ func TestJsonPropertyIdTracker(t *testing.T) {
 	})
 }
 
-
-
-
 func TestJsonPropertyIdTracker_ConcurrentAccess(t *testing.T) {
 	path := "/tmp/test.json"
 	defer os.Remove(path)
@@ -128,7 +136,7 @@ func TestJsonPropertyIdTracker_ConcurrentAccess(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				property := fmt.Sprintf("property%v",i)
+				property := fmt.Sprintf("property%v", i)
 				_, err := tracker.CreateProperty(property)
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
@@ -165,7 +173,6 @@ func TestJsonPropertyIdTracker_ConcurrentAccess(t *testing.T) {
 		tracker.Drop()
 	})
 }
-
 
 func TestJsonPropertyIdTracker_ConcurrentOpenClose(t *testing.T) {
 	path := "/tmp/test.json"
