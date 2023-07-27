@@ -8,13 +8,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 )
 
-// Mock tracker
-type MockIdTracker struct{}
-
-func (t MockIdTracker) GetIdForProperty(property string) (uint64, error) {
-	return 1, nil
-}
-
 func TestMakePropertyPrefix(t *testing.T) {
 	tracker ,err:= tracker.NewJsonPropertyIdTracker("/tmp/test.json")
 	if err != nil {
