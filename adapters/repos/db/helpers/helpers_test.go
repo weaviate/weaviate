@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package helpers
 
 import (
@@ -9,7 +20,7 @@ import (
 )
 
 func TestMakePropertyPrefix(t *testing.T) {
-	tracker ,err:= tracker.NewJsonPropertyIdTracker("/tmp/test.json")
+	tracker, err := tracker.NewJsonPropertyIdTracker("/tmp/test.json")
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -18,7 +29,7 @@ func TestMakePropertyPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
-	
+
 	prefix, err := MakePropertyPrefix("property", tracker)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
@@ -66,13 +77,12 @@ func TestUnMakePropertyKey(t *testing.T) {
 	}
 }
 
-
 func TestMakePropertyPrefixWithNonexistentProperty(t *testing.T) {
 	tracker, err := tracker.NewJsonPropertyIdTracker("/tmp/test.json")
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
-	
+
 	_, err = MakePropertyPrefix("nonexistent", tracker)
 	if err == nil {
 		t.Fatalf("Expected error for nonexistent property, got nil")

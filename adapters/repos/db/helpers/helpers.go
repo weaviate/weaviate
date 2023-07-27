@@ -43,7 +43,7 @@ func MakePropertyKey(propPrefix []byte, key []byte) []byte {
 		fmt.Println(fmt.Errorf("Empty property name in MakePropertyKey, this is almost certainly wrong"))
 		return nil
 	}
-	
+
 	t := key[:]
 	val := append(t, propPrefix...)
 
@@ -55,7 +55,7 @@ func MatchesPropertyKeyPrefix(propName []byte, key []byte) bool {
 		fmt.Println(fmt.Errorf("Empty property name in MatchesPropertyKeyPrefix, this is almost certainly wrong"))
 		return false
 	}
-	
+
 	return bytes.HasSuffix(key, propName)
 }
 
