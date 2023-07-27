@@ -24,12 +24,55 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
+
+// BucketInterface supports wrapping the bucket with proxy objects to enable things like multiple properties per bucket
+type BucketInterface interface {
+	Shutdown(ctx context.Context) error
+	//Commit() error
+	//Rollback() error
+
+	//CompactRange(start, end []byte) error
+	//DropIndex(pos int) error
+	//BuildSecondaryIndex(pos int, start, end []byte) error
+	//SecondaryIndexDelete(pos int, secondaryKey []byte) error
+	IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error
+	SetMemtableThreshold(size uint64)
+	Get(key []byte) ([]byte, error)
+	GetBySecondary(pos int, key []byte) ([]byte, error)
+	SetList(key []byte) ([][]byte, error)
+	Put(key, value []byte, opts ...SecondaryKeyOption) error
+	SetAdd(key []byte, values [][]byte) error
+	SetDeleteSingle(key []byte, valueToDelete []byte) error
+	WasDeleted(key []byte) (bool, error)
+	MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error)
+	MapSet(rowKey []byte, kv MapPair) error
+	MapDeleteKey(rowKey, mapKey []byte) error
+	Delete(key []byte, opts ...SecondaryKeyOption) error
+	Count() int
+	Strategy() string
+	RoaringSetGet(key []byte) (*sroar.Bitmap, error)
+	SetCursorKeyOnly() *CursorSet
+	//SetCursorKey() *CursorSet
+	SetCursor() *CursorSet
+	MapCursorKeyOnly(cfgs ...MapListOption) *CursorMap
+	MapCursor(cfgs ...MapListOption) *CursorMap
+	CursorRoaringSet() CursorRoaringSet
+	RoaringSetAddOne(key []byte, value uint64) error
+	FlushAndSwitch() error
+	PropertyPrefix() []byte
+	Cursor() *CursorReplace
+	RoaringSetRemoveOne(key []byte, value uint64) error
+	RoaringSetAddList(key []byte, values []uint64) error
+
+	CursorRoaringSetKeyOnly() CursorRoaringSet
+}
 
 type Bucket struct {
 	dir      string
