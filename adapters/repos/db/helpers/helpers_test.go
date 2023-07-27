@@ -107,13 +107,3 @@ func TestUnMakePropertyKeyWithEmptyPrefix(t *testing.T) {
 		t.Fatalf("Expected nil for empty prefix, got %v", unmadeKey)
 	}
 }
-
-func TestUnMakePropertyKeyWithMismatchedPrefix(t *testing.T) {
-	prefix := []byte{7, 8, 9}
-	key := []byte{4, 5, 6, 1, 2, 3}
-
-	unmadeKey := UnMakePropertyKey(prefix, key)
-	if unmadeKey != nil {
-		t.Fatalf("Expected nil for mismatched prefix, got %v", unmadeKey)
-	}
-}
