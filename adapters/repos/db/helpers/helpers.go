@@ -12,8 +12,11 @@
 package helpers
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -24,6 +27,50 @@ var (
 	DimensionsBucketLSM        = "dimensions"
 	DocIDBucket                = []byte("doc_ids")
 )
+
+func MakePropertyPrefix(property string, propIds *tracker.JsonPropertyIdTracker) ([]byte, error) {
+	propid, err := propIds.GetIdForProperty(string(property))
+	if err != nil {
+		fmt.Printf("property '%s' not found in propIds, creating", property)
+	}
+	propid_bytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(propid_bytes, propid)
+	return propid_bytes, nil
+}
+
+func MakePropertyKey(propPrefix []byte, key []byte) []byte {
+	if len(propPrefix) == 0 {
+		fmt.Println(fmt.Errorf("Empty property name in MakePropertyKey, this is almost certainly wrong"))
+		return nil
+	}
+	
+	t := key[:]
+	val := append(t, propPrefix...)
+
+	return val
+}
+
+func MatchesPropertyKeyPrefix(propName []byte, key []byte) bool {
+	if len(propName) == 0 {
+		fmt.Println(fmt.Errorf("Empty property name in MatchesPropertyKeyPrefix, this is almost certainly wrong"))
+		return false
+	}
+	
+	return bytes.HasSuffix(key, propName)
+}
+
+func UnMakePropertyKey(propName []byte, key []byte) []byte {
+	if len(propName) == 0 {
+		fmt.Println(fmt.Errorf("Empty property name in UnMakePropertyKey, this is almost certainly wrong"))
+		return nil
+	}
+
+	// duplicate slice
+	out := make([]byte, len(key)-len(propName))
+	copy(out, key[:len(key)-len(propName)])
+
+	return out
+}
 
 // BucketFromPropName creates the byte-representation used as the bucket name
 // for a partiular prop in the inverted index
