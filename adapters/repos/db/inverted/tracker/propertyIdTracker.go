@@ -30,6 +30,7 @@ func NewJsonPropertyIdTracker(path string) (*JsonPropertyIdTracker, error) {
 	t := &JsonPropertyIdTracker{
 		path:        path,
 		PropertyIds: make(map[string]uint64),
+		LastId: 	1,
 	}
 
 	log.Printf("Loading property id tracker from %v\n", path)
