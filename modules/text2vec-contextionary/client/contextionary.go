@@ -30,6 +30,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+const ModelUncontactable = "module uncontactable"
+
 // Client establishes a gRPC connection to a remote contextionary service
 type Client struct {
 	grpcClient pb.ContextionaryClient
@@ -161,7 +163,9 @@ func (c *Client) VectorForWord(ctx context.Context, word string) ([]float32, err
 
 func logConnectionRefused(logger logrus.FieldLogger, err error) {
 	if strings.Contains(fmt.Sprintf("%v", err), "connect: connection refused") {
-		logger.WithError(err).WithField("module", "contextionary").Warnf("module uncontactable")
+		logger.WithError(err).WithField("module", "contextionary").Warnf(ModelUncontactable)
+	} else if strings.Contains(err.Error(), "connectex: No connection could be made because the target machine actively refused it.") {
+		logger.WithError(err).WithField("module", "contextionary").Warnf(ModelUncontactable)
 	}
 }
 
@@ -253,7 +257,9 @@ func (c *Client) VectorForCorpi(ctx context.Context, corpi []string, overridesMa
 	res, err := c.grpcClient.VectorForCorpi(ctx, &pb.Corpi{Corpi: corpi, Overrides: overrides})
 	if err != nil {
 		if strings.Contains(err.Error(), "connect: connection refused") {
-			c.logger.WithError(err).WithField("module", "contextionary").Warnf("module uncontactable")
+			c.logger.WithError(err).WithField("module", "contextionary").Warnf(ModelUncontactable)
+		} else if strings.Contains(err.Error(), "connectex: No connection could be made because the target machine actively refused it.") {
+			c.logger.WithError(err).WithField("module", "contextionary").Warnf(ModelUncontactable)
 		}
 		st, ok := status.FromError(err)
 		if !ok || st.Code() != codes.InvalidArgument {
