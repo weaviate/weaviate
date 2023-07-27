@@ -50,7 +50,7 @@ func TestBucketProxyCreation(t *testing.T) {
 		t.Fatalf("BucketProxy PropertyPrefix() does not match expected '%s', got '%s'", propName, bp.PropertyPrefix())
 	}
 
-	// ... Add other assertions as necessary
+	
 }
 
 func TestBucketProxyGetAndPut(t *testing.T) {
@@ -105,14 +105,13 @@ func TestBucketProxyGetNotFound(t *testing.T) {
 
 	// Attempt to retrieve a value that doesn't exist
 	key := []byte("nonexistentKey")
-	_, err = bp.Get(key)
+	val, err := bp.Get(key)
 
-	// Here, we're expecting an error because the key doesn't exist
-	if err == nil {
-		t.Fatal("Expected an error when trying to get a nonexistent value, but got none")
+	if ! (val ==nil && err == nil) {
+		t.Fatalf("Expected nil value and nil error, got '%s' and '%s'", string(val), err)
 	}
 
-	// ... Add other assertions as necessary
+	
 }
 
 func TestBucketProxyDelete(t *testing.T) {
@@ -145,10 +144,9 @@ func TestBucketProxyDelete(t *testing.T) {
 	}
 
 	// Attempt to retrieve the deleted value
-	_, err = bp.Get(key)
-	// We're expecting an error here because we deleted the key
-	if err == nil {
-		t.Fatal("Expected an error when trying to get a deleted key, but got none")
+	val, err := bp.Get(key)
+	if ! (val ==nil && err == nil) {
+		t.Fatalf("Expected nil value and nil error, got '%s' and '%s'", string(val), err)
 	}
 }
 
@@ -160,7 +158,7 @@ func TestBucketProxyMapSetAndGet(t *testing.T) {
 	propName := "testPropertyName"
 	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids3.json")
 
-	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewNoop(), cyclemanager.NewNoop())
+	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewNoop(), cyclemanager.NewNoop(),WithStrategy(StrategyMapCollection))
 	if err != nil {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
