@@ -40,10 +40,9 @@ func (h *hnsw) Dump(labels ...string) {
 		}
 
 		fmt.Printf("  Node %d (level %d)\n", node.id, node.level)
-		for level := uint8(0); level < node.packedConnections.Layers(); level++ {
-			conns := node.packedConnections.GetLayer(level)
-			fmt.Printf("    Level %d: Connections: %v\n", level, conns)
-		}
+		node.packedConnections.IterateOnLayers(func(layer uint8, conns []uint64) {
+			fmt.Printf("    Level %d: Connections: %v\n", layer, conns)
+		})
 	}
 
 	fmt.Printf("--------------------------------------------------\n")
@@ -213,18 +212,16 @@ func (h *hnsw) ValidateLinkIntegrity() {
 			continue
 		}
 
-		for level := uint8(0); level < node.packedConnections.Layers(); level++ {
-			conns := node.packedConnections.GetLayer(level)
+		node.packedConnections.IterateOnLayers(func(layer uint8, conns []uint64) {
 			m := h.maximumConnections
-			if level == 0 {
+			if layer == 0 {
 				m = h.maximumConnectionsLayerZero
 			}
 
 			if len(conns) > m {
-				h.logger.Warnf("node %d at level %d has %d connections", i, level, len(conns))
+				h.logger.Warnf("node %d at level %d has %d connections", i, layer, len(conns))
 			}
-
-		}
+		})
 	}
 
 	h.logger.Infof("completed link integrity check")

@@ -367,7 +367,6 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 	neighborNode.markAsMaintenance()
 	neighborNode.Lock()
 	// delete all existing connections before re-assigning
-	neighborNode.packedConnections.Layers()
 	for level := uint8(0); level < neighborNode.packedConnections.Layers(); level++ {
 		neighborNode.packedConnections.ReplaceLayer(level, []uint64{})
 	}

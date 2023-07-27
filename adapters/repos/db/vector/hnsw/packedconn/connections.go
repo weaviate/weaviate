@@ -157,6 +157,19 @@ func (c *Connections) InsertAtLayer(conn uint64, layer uint8) {
 	}
 }
 
+// number of layers, e.g. if the maxLayer is 7, the number of layers is 8, as 0
+// is a valid layer
+func (c *Connections) Layers() uint8 {
+	return c.data[layerPos]
+}
+
+func (c *Connections) IterateOnLayers(f func(layer uint8, conns []uint64)) {
+	for layer := uint8(0); layer < c.Layers(); layer++ {
+		conns := c.GetLayer(layer)
+		f(layer, conns)
+	}
+}
+
 func (c *Connections) replaceElement(layer uint8, pos uint16, formerLen int, value uint64) uint16 {
 	len := binary.PutUvarint(c.buff, value)
 	if len > formerLen {
@@ -185,12 +198,6 @@ func (c *Connections) initLayers(maxLayer uint8) {
 		}
 		layer--
 	}
-}
-
-// number of layers, e.g. if the maxLayer is 7, the number of layers is 8, as 0
-// is a valid layer
-func (c *Connections) Layers() uint8 {
-	return c.data[layerPos]
 }
 
 func (c *Connections) layerLengthPos(layer uint8) int {
