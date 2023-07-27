@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -38,10 +39,14 @@ type propValuePair struct {
 	children           []*propValuePair
 	hasFilterableIndex bool
 	hasSearchableIndex bool
+	Class              *models.Class //The schema
 }
 
-func newPropValuePair() propValuePair {
-	return propValuePair{docIDs: newDocBitmap()}
+func newPropValuePair(class *models.Class) propValuePair {
+	if class == nil {
+		panic("class must not be nil")
+	}
+	return propValuePair{docIDs: newDocBitmap(), Class: class}
 }
 
 func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
@@ -58,23 +63,26 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 		b := s.store.Bucket(bucketName)
 
 		// TODO text_rbm_inverted_index find better way check whether prop len
-		if b == nil && strings.HasSuffix(bucketName, filters.InternalPropertyLength) {
+		if strings.HasSuffix(pv.prop, filters.InternalPropertyLength) &&
+			!pv.Class.InvertedIndexConfig.IndexPropertyLength {
 			return errors.Errorf("Property length must be indexed to be filterable! " +
 				"add `IndexPropertyLength: true` to the invertedIndexConfig." +
 				"Geo-coordinates, phone numbers and data blobs are not supported by property length.")
 		}
 
-		if b == nil && pv.operator == filters.OperatorIsNull {
+		if pv.operator == filters.OperatorIsNull && !pv.Class.InvertedIndexConfig.IndexNullState {
 			return errors.Errorf("Nullstate must be indexed to be filterable! " +
 				"add `indexNullState: true` to the invertedIndexConfig")
 		}
 
-		if b == nil && (pv.prop == filters.InternalPropCreationTimeUnix ||
-			pv.prop == filters.InternalPropLastUpdateTimeUnix) {
+		if pv.prop == filters.InternalPropCreationTimeUnix ||
+			pv.prop == filters.InternalPropLastUpdateTimeUnix &&
+				!pv.Class.InvertedIndexConfig.IndexTimestamps {
 			return errors.Errorf("timestamps must be indexed to be filterable! " +
 				"add `indexTimestamps: true` to the invertedIndexConfig")
 		}
 
+		//TODO:  I think we can delete this check entirely.  The bucket will never be nill, and routines should now check if their particular feature is active in the schema.  However, not all those routines have checks yet.
 		if b == nil && pv.operator != filters.OperatorWithinGeoRange {
 			// a nil bucket is ok for a WithinGeoRange filter, as this query is not
 			// served by the inverted index, but propagated to a secondary index in
