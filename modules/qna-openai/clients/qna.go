@@ -94,6 +94,11 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey, settings.IsAzure()))
 	req.Header.Add("Content-Type", "application/json")
 
+	organization := v.getOrganizationFromContext(ctx)
+    if organization != "" {
+        req.Header.Add("OPENAI_ORGANIZATION", organization)
+    }
+
 	res, err := v.httpClient.Do(req)
 	if err != nil {
 		return nil, errors.Wrap(err, "send POST request")
@@ -183,6 +188,15 @@ func (v *qna) getApiKeyFromContext(ctx context.Context, apiKey, envVar string) (
 		}
 	}
 	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
+}
+
+func (v *openai) getOrganizationFromContext(ctx context.Context) string {
+	if orgValue := ctx.Value("X-Openai-Organization"); orgValue != nil {
+		if orgHeader, ok := orgValue.([]string); ok && len(orgHeader) > 0 && len(orgHeader[0]) > 0 {
+			return orgHeader[0]
+		}
+	}
+	return ""
 }
 
 type answersInput struct {
