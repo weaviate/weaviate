@@ -49,8 +49,6 @@ func TestBucketProxyCreation(t *testing.T) {
 	if !bytes.Equal(bp.PropertyPrefix(), propid_bytes) {
 		t.Fatalf("BucketProxy PropertyPrefix() does not match expected '%s', got '%s'", propName, bp.PropertyPrefix())
 	}
-
-	
 }
 
 func TestBucketProxyGetAndPut(t *testing.T) {
@@ -107,11 +105,9 @@ func TestBucketProxyGetNotFound(t *testing.T) {
 	key := []byte("nonexistentKey")
 	val, err := bp.Get(key)
 
-	if ! (val ==nil && err == nil) {
+	if !(val == nil && err == nil) {
 		t.Fatalf("Expected nil value and nil error, got '%s' and '%s'", string(val), err)
 	}
-
-	
 }
 
 func TestBucketProxyDelete(t *testing.T) {
@@ -145,7 +141,7 @@ func TestBucketProxyDelete(t *testing.T) {
 
 	// Attempt to retrieve the deleted value
 	val, err := bp.Get(key)
-	if ! (val ==nil && err == nil) {
+	if !(val == nil && err == nil) {
 		t.Fatalf("Expected nil value and nil error, got '%s' and '%s'", string(val), err)
 	}
 }
@@ -158,7 +154,7 @@ func TestBucketProxyMapSetAndGet(t *testing.T) {
 	propName := "testPropertyName"
 	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids3.json")
 
-	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewNoop(), cyclemanager.NewNoop(),WithStrategy(StrategyMapCollection))
+	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewNoop(), cyclemanager.NewNoop(), WithStrategy(StrategyMapCollection))
 	if err != nil {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
