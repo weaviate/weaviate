@@ -65,3 +65,56 @@ func TestUnMakePropertyKey(t *testing.T) {
 		t.Fatalf("Expected key to be %v, got %v", expectedKey, unmadeKey)
 	}
 }
+
+
+func TestMakePropertyPrefixWithNonexistentProperty(t *testing.T) {
+	tracker, err := tracker.NewJsonPropertyIdTracker("/tmp/test.json")
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	
+	_, err = MakePropertyPrefix("nonexistent", tracker)
+	if err == nil {
+		t.Fatalf("Expected error for nonexistent property, got nil")
+	}
+}
+
+func TestMakePropertyKeyWithEmptyPrefix(t *testing.T) {
+	prefix := []byte{}
+	key := []byte{4, 5, 6}
+
+	propertyKey := MakePropertyKey(prefix, key)
+	if propertyKey != nil {
+		t.Fatalf("Expected nil for empty prefix, got %v", propertyKey)
+	}
+}
+
+func TestMatchesPropertyKeyPrefixWithEmptyPrefix(t *testing.T) {
+	prefix := []byte{}
+	key := []byte{4, 5, 6, 1, 2, 3}
+
+	matches := MatchesPropertyKeyPrefix(prefix, key)
+	if matches {
+		t.Fatalf("Expected false for empty prefix, got true")
+	}
+}
+
+func TestUnMakePropertyKeyWithEmptyPrefix(t *testing.T) {
+	prefix := []byte{}
+	key := []byte{4, 5, 6, 1, 2, 3}
+
+	unmadeKey := UnMakePropertyKey(prefix, key)
+	if unmadeKey != nil {
+		t.Fatalf("Expected nil for empty prefix, got %v", unmadeKey)
+	}
+}
+
+func TestUnMakePropertyKeyWithMismatchedPrefix(t *testing.T) {
+	prefix := []byte{7, 8, 9}
+	key := []byte{4, 5, 6, 1, 2, 3}
+
+	unmadeKey := UnMakePropertyKey(prefix, key)
+	if unmadeKey != nil {
+		t.Fatalf("Expected nil for mismatched prefix, got %v", unmadeKey)
+	}
+}
