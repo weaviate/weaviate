@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"encoding/json"
 )
 
 // BucketInterface supports wrapping the bucket with proxy objects to enable things like multiple properties per bucket
@@ -212,6 +213,35 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	return b, nil
 }
 
+
+func (b *Bucket) PropertyPrefix() []byte {
+	return []byte("")
+}
+
+// Iterate over every entry in the bucket and create a human-readable display of the bucket's contents, and return it as a string.
+func (b *Bucket) DumpString() string {
+	var buf bytes.Buffer
+	buf.WriteString(fmt.Sprintf("Bucket: %s\n", b.dir))
+	b.IterateObjects(context.Background(), func(object *storobj.Object) error {
+	/*	str := fmt.Sprintf(`
+		DocID: %v
+		ClassName: %v
+		Properties: %v
+		`, object.DocID(), object.ClassName(), object.Properties())*/
+		// Marshall the object to json
+		json, err := json.Marshal(object)
+		if err != nil {
+			return err
+		}
+		buf.WriteString(fmt.Sprintf("%v, %v: %v\n", object.ID(), object.DocID(), string(json)))
+		return nil
+	})
+	buf.WriteString("Bucket end\n")
+	return buf.String()
+}
+
+
+
 func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error {
 	i := 0
 	cursor := b.Cursor()
@@ -231,6 +261,40 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 
 	return nil
 }
+
+// Iterate over every entry in the bucket and create a human-readable display of the bucket's contents, and return it as a string.
+func (b *Bucket) DumpStringRoaring() string {
+	var buf bytes.Buffer
+	b.IterateObjectsRoaring(context.Background(), func(object *storobj.Object) error {
+		// Marshall the object to json
+		json, err := json.Marshal(object)
+		if err != nil {
+			return err
+		}
+		buf.WriteString(fmt.Sprintf("%v: %v\n", object.ID(), json))
+		return nil
+	})
+	return buf.String()
+}
+
+func (b *Bucket) IterateObjectsRoaring(ctx context.Context, f func(object *storobj.Object) error) error {
+	cursor := b.cursorRoaringSet(false)
+	defer cursor.Close()
+
+	for k, sbmp := cursor.First(); k != nil; k, sbmp = cursor.Next() {
+		fmt.Printf("IterateObjectsRoaring k: %v, sbmp: %v\n", k, sbmp.ToArray())
+		
+	}
+
+	return nil
+}
+
+func (b *Bucket) IteratePropPrefixObjects(ctx context.Context, propPrefix []byte, f func(object *storobj.Object) error) error {
+	return b.IterateObjects(ctx, f)
+}
+
+
+
 
 func (b *Bucket) SetMemtableThreshold(size uint64) {
 	b.memtableThreshold = size
