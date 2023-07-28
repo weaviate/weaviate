@@ -139,6 +139,7 @@ func (i *replicatedIndices) Indices() http.Handler {
 		case regxObjects.MatchString(path):
 			if r.Method == http.MethodGet {
 				i.getObjectsMulti().ServeHTTP(w, r)
+				return
 			}
 
 			if r.Method == http.MethodPost {
