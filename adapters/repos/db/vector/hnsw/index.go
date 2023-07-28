@@ -423,8 +423,13 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 }
 
 func (h *hnsw) findBestEntrypointForNodeWithFilter(currentMaxLevel, targetLevel int,
-	entryPointID uint64, nodeVec []float32, filters map[int]int,
+	entryPointID uint64, nodeVec []float32, filter map[int]int,
 ) (uint64, error) {
+	/*
+		We randomly select 1 out of the K filters a node may have for insert search.
+		We keep it
+	*/
+
 	// in case the new target is lower than the current max, we need to search
 	// each layer for a better candidate and update the candidate
 	for level := currentMaxLevel; level > targetLevel; level-- {
@@ -439,7 +444,7 @@ func (h *hnsw) findBestEntrypointForNodeWithFilter(currentMaxLevel, targetLevel 
 		}
 
 		eps.Insert(entryPointID, dist)
-		res, err := h.searchLayerByVectorWithFilters(nodeVec, eps, 1, level, filters, nil)
+		res, err := h.searchLayerByVectorWithFilters(nodeVec, eps, 1, level, filter, nil)
 		if err != nil {
 			return 0,
 				errors.Wrapf(err, "update candidate: search layer at level %d", level)

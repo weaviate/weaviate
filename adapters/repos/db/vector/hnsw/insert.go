@@ -397,8 +397,10 @@ func (h *hnsw) filteredInsert(node *vertex, nodeVec []float32) error {
 	=======================================================================
 
 	*/
-	entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
-		entryPointID, nodeVec)
+	epFilterMap := make(map[int]int)
+	epFilterMap[epFilter] = node.filters[epFilter]
+	entryPointID, err = h.findBestEntrypointForNodeWithFilter(currentMaximumLayer, targetLevel,
+		entryPointID, nodeVec, epFilterMap)
 	if err != nil {
 		return errors.Wrap(err, "find best entrypoint")
 	}
@@ -406,8 +408,8 @@ func (h *hnsw) filteredInsert(node *vertex, nodeVec []float32) error {
 	h.insertMetrics.findEntrypoint(before)
 	before = time.Now()
 
-	if err := h.findAndConnectNeighbors(node, entryPointID, nodeVec,
-		targetLevel, currentMaximumLayer, helpers.NewAllowList()); err != nil {
+	if err := h.findAndConnectNeighborsWithFilters(node, entryPointID, nodeVec,
+		targetLevel, currentMaximumLayer, node.filters, helpers.NewAllowList()); err != nil {
 		return errors.Wrap(err, "find and connect neighbors")
 	}
 
@@ -419,26 +421,12 @@ func (h *hnsw) filteredInsert(node *vertex, nodeVec []float32) error {
 	node.unmarkAsMaintenance()
 
 	h.Lock()
-	/* Ok, so here is where we need to think about this scenario:
-
-	=======================================================================
-
-	we have 3 filters, 0, 1, 2 and we insert at layer 1 using 0 as the ep
-	— we want to make this the entrypoint for 1 and 2 as well.
-
-	=======================================================================
-
-	*/
-	if targetLevel > h.currentMaximumLayer {
-		// before = time.Now()
-		// m.addBuildingLocking(before)
-		if err := h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel); err != nil {
-			h.Unlock()
-			return err
+	for _, filter := range node.filters {
+		if targetLevel > h.currentMaximumLayerPerFilterPerValue[filter][node.filters[filter]] {
+			/* h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel).. */
+			h.entryPointIDperFilterPerValue[filter][node.filters[filter]] = nodeId
+			h.currentMaximumLayerPerFilterPerValue[filter][node.filters[filter]] = targetLevel
 		}
-
-		h.entryPointID = nodeId
-		h.currentMaximumLayer = targetLevel
 	}
 	h.Unlock()
 

@@ -168,6 +168,7 @@ func (h *hnsw) filteredRobustPrune(input *priorityqueue.Queue,
 
 		for closestFirst.Len() > 0 && len(returnList) < max {
 			curr := closestFirst.Pop()
+			currFilters := h.nodes[curr.ID].filters
 			if denyList != nil && denyList.Contains(curr.ID) {
 				continue
 			}
@@ -177,6 +178,14 @@ func (h *hnsw) filteredRobustPrune(input *priorityqueue.Queue,
 			good := true
 			for _, item := range returnList {
 				peerDist := h.pq.DistanceBetweenCompressedVectors(currVec, vecs[item.Index])
+				peerFilters := h.nodes[item.ID].filters
+
+				// populate intersection
+				peer_query_intersection := computeIntersection(nodeFilters, currFilters)
+
+				if !intersectIsNull(peer_query_intersection, peerFilters) {
+					break // good remains true
+				}
 
 				if peerDist < distToQuery {
 					good = false
