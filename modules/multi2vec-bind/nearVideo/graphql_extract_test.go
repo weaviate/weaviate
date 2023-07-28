@@ -11,64 +11,64 @@
 
 package nearVideo
 
-// import (
-// 	"reflect"
-// 	"testing"
-// )
-//
-// func Test_extractNearImageFn(t *testing.T) {
-// 	type args struct {
-// 		source map[string]interface{}
-// 	}
-// 	tests := []struct {
-// 		name string
-// 		args args
-// 		want interface{}
-// 	}{
-// 		{
-// 			name: "should extract properly with distance and image params set",
-// 			args: args{
-// 				source: map[string]interface{}{
-// 					"image":    "base64;encoded",
-// 					"distance": float64(0.9),
-// 				},
-// 			},
-// 			want: &NearAudioParams{
-// 				Image:        "base64;encoded",
-// 				Distance:     0.9,
-// 				WithDistance: true,
-// 			},
-// 		},
-// 		{
-// 			name: "should extract properly with certainty and image params set",
-// 			args: args{
-// 				source: map[string]interface{}{
-// 					"image":     "base64;encoded",
-// 					"certainty": float64(0.9),
-// 				},
-// 			},
-// 			want: &NearAudioParams{
-// 				Image:     "base64;encoded",
-// 				Certainty: 0.9,
-// 			},
-// 		},
-// 		{
-// 			name: "should extract properly with only image set",
-// 			args: args{
-// 				source: map[string]interface{}{
-// 					"image": "base64;encoded",
-// 				},
-// 			},
-// 			want: &NearAudioParams{
-// 				Image: "base64;encoded",
-// 			},
-// 		},
-// 	}
-// 	for _, tt := range tests {
-// 		t.Run(tt.name, func(t *testing.T) {
-// 			if got := extractNearImageFn(tt.args.source); !reflect.DeepEqual(got, tt.want) {
-// 				t.Errorf("extractNearImageFn() = %v, want %v", got, tt.want)
-// 			}
-// 		})
-// 	}
-// }
+import (
+	"reflect"
+	"testing"
+)
+
+func Test_extractNearVideoFn(t *testing.T) {
+	type args struct {
+		source map[string]interface{}
+	}
+	tests := []struct {
+		name string
+		args args
+		want interface{}
+	}{
+		{
+			name: "should extract properly with distance and video params set",
+			args: args{
+				source: map[string]interface{}{
+					"video":    "base64;encoded",
+					"distance": float64(0.9),
+				},
+			},
+			want: &NearVideoParams{
+				Video:        "base64;encoded",
+				Distance:     0.9,
+				WithDistance: true,
+			},
+		},
+		{
+			name: "should extract properly with certainty and video params set",
+			args: args{
+				source: map[string]interface{}{
+					"video":     "base64;encoded",
+					"certainty": float64(0.9),
+				},
+			},
+			want: &NearVideoParams{
+				Video:     "base64;encoded",
+				Certainty: 0.9,
+			},
+		},
+		{
+			name: "should extract properly with only video set",
+			args: args{
+				source: map[string]interface{}{
+					"video": "base64;encoded",
+				},
+			},
+			want: &NearVideoParams{
+				Video: "base64;encoded",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := extractNearVideoFn(tt.args.source); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("extractNearVideoFn() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

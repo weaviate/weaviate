@@ -13,8 +13,8 @@ package nearAudio
 
 import (
 	"context"
+	"fmt"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
@@ -52,7 +52,7 @@ func (s *Searcher) vectorFromNearAudioParam(ctx context.Context,
 	// find vector for given search query
 	vector, err := s.vectorizer.VectorizeAudio(ctx, params.Audio)
 	if err != nil {
-		return nil, errors.Errorf("vectorize audio: %v", err)
+		return nil, fmt.Errorf("vectorize audio: %w", err)
 	}
 
 	return vector, nil

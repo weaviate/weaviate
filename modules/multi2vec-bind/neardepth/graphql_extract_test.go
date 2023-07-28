@@ -11,64 +11,64 @@
 
 package neardepth
 
-// import (
-// 	"reflect"
-// 	"testing"
-// )
-//
-// func Test_extractNearImageFn(t *testing.T) {
-// 	type args struct {
-// 		source map[string]interface{}
-// 	}
-// 	tests := []struct {
-// 		name string
-// 		args args
-// 		want interface{}
-// 	}{
-// 		{
-// 			name: "should extract properly with distance and image params set",
-// 			args: args{
-// 				source: map[string]interface{}{
-// 					"image":    "base64;encoded",
-// 					"distance": float64(0.9),
-// 				},
-// 			},
-// 			want: &NearAudioParams{
-// 				Image:        "base64;encoded",
-// 				Distance:     0.9,
-// 				WithDistance: true,
-// 			},
-// 		},
-// 		{
-// 			name: "should extract properly with certainty and image params set",
-// 			args: args{
-// 				source: map[string]interface{}{
-// 					"image":     "base64;encoded",
-// 					"certainty": float64(0.9),
-// 				},
-// 			},
-// 			want: &NearAudioParams{
-// 				Image:     "base64;encoded",
-// 				Certainty: 0.9,
-// 			},
-// 		},
-// 		{
-// 			name: "should extract properly with only image set",
-// 			args: args{
-// 				source: map[string]interface{}{
-// 					"image": "base64;encoded",
-// 				},
-// 			},
-// 			want: &NearAudioParams{
-// 				Image: "base64;encoded",
-// 			},
-// 		},
-// 	}
-// 	for _, tt := range tests {
-// 		t.Run(tt.name, func(t *testing.T) {
-// 			if got := extractNearImageFn(tt.args.source); !reflect.DeepEqual(got, tt.want) {
-// 				t.Errorf("extractNearImageFn() = %v, want %v", got, tt.want)
-// 			}
-// 		})
-// 	}
-// }
+import (
+	"reflect"
+	"testing"
+)
+
+func Test_extractNearDepthFn(t *testing.T) {
+	type args struct {
+		source map[string]interface{}
+	}
+	tests := []struct {
+		name string
+		args args
+		want interface{}
+	}{
+		{
+			name: "should extract properly with distance and depth params set",
+			args: args{
+				source: map[string]interface{}{
+					"depth":    "base64;encoded",
+					"distance": float64(0.9),
+				},
+			},
+			want: &NearDepthParams{
+				Depth:        "base64;encoded",
+				Distance:     0.9,
+				WithDistance: true,
+			},
+		},
+		{
+			name: "should extract properly with certainty and depth params set",
+			args: args{
+				source: map[string]interface{}{
+					"depth":     "base64;encoded",
+					"certainty": float64(0.9),
+				},
+			},
+			want: &NearDepthParams{
+				Depth:     "base64;encoded",
+				Certainty: 0.9,
+			},
+		},
+		{
+			name: "should extract properly with only depth set",
+			args: args{
+				source: map[string]interface{}{
+					"depth": "base64;encoded",
+				},
+			},
+			want: &NearDepthParams{
+				Depth: "base64;encoded",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := extractNearDepthFn(tt.args.source); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("extractNearDepthFn() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

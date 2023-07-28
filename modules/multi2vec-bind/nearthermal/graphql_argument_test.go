@@ -11,40 +11,40 @@
 
 package nearthermal
 
-// import (
-// 	"testing"
+import (
+	"testing"
 
-// 	"github.com/stretchr/testify/assert"
-// 	"github.com/tailor-inc/graphql"
-// )
+	"github.com/stretchr/testify/assert"
+	"github.com/tailor-inc/graphql"
+)
 
-// func TestNearImageGraphQLArgument(t *testing.T) {
-// 	t.Run("should generate nearImage argument properly", func(t *testing.T) {
-// 		// given
-// 		prefix := "Prefix"
-// 		classname := "Class"
-// 		// when
-// 		nearImage := nearAudioArgument(prefix, classname)
+func TestNearThermalGraphQLArgument(t *testing.T) {
+	t.Run("should generate nearThermal argument properly", func(t *testing.T) {
+		// given
+		prefix := "Prefix"
+		classname := "Class"
+		// when
+		nearThermal := nearThermalArgument(prefix, classname)
 
-// 		// then
-// 		// the built graphQL field needs to support this structure:
-// 		// nearImage: {
-// 		//   image: "base64;encoded,image",
-// 		//   distance: 0.9
-// 		// }
-// 		assert.NotNil(t, nearImage)
-// 		assert.Equal(t, "Img2VecImagePrefixClassNearImageInpObj", nearImage.Type.Name())
-// 		answerFields, ok := nearImage.Type.(*graphql.InputObject)
-// 		assert.True(t, ok)
-// 		assert.NotNil(t, answerFields)
-// 		assert.Equal(t, 3, len(answerFields.Fields()))
-// 		fields := answerFields.Fields()
-// 		image := fields["image"]
-// 		imageNonNull, imageNonNullOK := image.Type.(*graphql.NonNull)
-// 		assert.True(t, imageNonNullOK)
-// 		assert.Equal(t, "String", imageNonNull.OfType.Name())
-// 		assert.NotNil(t, image)
-// 		assert.NotNil(t, fields["certainty"])
-// 		assert.NotNil(t, fields["distance"])
-// 	})
-// }
+		// then
+		// the built graphQL field needs to support this structure:
+		// nearThermal: {
+		//   thermal: "base64;encoded,thermal_image",
+		//   distance: 0.9
+		// }
+		assert.NotNil(t, nearThermal)
+		assert.Equal(t, "Multi2VecBindPrefixClassNearThermalInpObj", nearThermal.Type.Name())
+		answerFields, ok := nearThermal.Type.(*graphql.InputObject)
+		assert.True(t, ok)
+		assert.NotNil(t, answerFields)
+		assert.Equal(t, 3, len(answerFields.Fields()))
+		fields := answerFields.Fields()
+		thermal := fields["thermal"]
+		thermalNonNull, thermalNonNullOK := thermal.Type.(*graphql.NonNull)
+		assert.True(t, thermalNonNullOK)
+		assert.Equal(t, "String", thermalNonNull.OfType.Name())
+		assert.NotNil(t, thermal)
+		assert.NotNil(t, fields["certainty"])
+		assert.NotNil(t, fields["distance"])
+	})
+}

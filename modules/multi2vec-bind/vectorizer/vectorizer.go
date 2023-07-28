@@ -69,8 +69,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 }
 
 func (v *Vectorizer) VectorizeImage(ctx context.Context, image string) ([]float32, error) {
-	res, err := v.client.Vectorize(ctx, []string{}, []string{image}, []string{}, []string{},
-		[]string{}, []string{}, []string{})
+	res, err := v.client.Vectorize(ctx, nil, []string{image}, nil, nil, nil, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -78,8 +77,7 @@ func (v *Vectorizer) VectorizeImage(ctx context.Context, image string) ([]float3
 }
 
 func (v *Vectorizer) VectorizeAudio(ctx context.Context, audio string) ([]float32, error) {
-	res, err := v.client.Vectorize(ctx, []string{}, []string{}, []string{audio}, []string{},
-		[]string{}, []string{}, []string{})
+	res, err := v.client.Vectorize(ctx, nil, nil, []string{audio}, nil, nil, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -87,8 +85,7 @@ func (v *Vectorizer) VectorizeAudio(ctx context.Context, audio string) ([]float3
 }
 
 func (v *Vectorizer) VectorizeVideo(ctx context.Context, video string) ([]float32, error) {
-	res, err := v.client.Vectorize(ctx, []string{}, []string{}, []string{}, []string{video},
-		[]string{}, []string{}, []string{})
+	res, err := v.client.Vectorize(ctx, nil, nil, nil, []string{video}, nil, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -96,8 +93,7 @@ func (v *Vectorizer) VectorizeVideo(ctx context.Context, video string) ([]float3
 }
 
 func (v *Vectorizer) VectorizeIMU(ctx context.Context, imu string) ([]float32, error) {
-	res, err := v.client.Vectorize(ctx, []string{}, []string{}, []string{}, []string{},
-		[]string{imu}, []string{}, []string{})
+	res, err := v.client.Vectorize(ctx, nil, nil, nil, nil, []string{imu}, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -105,8 +101,7 @@ func (v *Vectorizer) VectorizeIMU(ctx context.Context, imu string) ([]float32, e
 }
 
 func (v *Vectorizer) VectorizeThermal(ctx context.Context, thermal string) ([]float32, error) {
-	res, err := v.client.Vectorize(ctx, []string{}, []string{}, []string{}, []string{},
-		[]string{}, []string{thermal}, []string{})
+	res, err := v.client.Vectorize(ctx, nil, nil, nil, nil, nil, []string{thermal}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -114,8 +109,7 @@ func (v *Vectorizer) VectorizeThermal(ctx context.Context, thermal string) ([]fl
 }
 
 func (v *Vectorizer) VectorizeDepth(ctx context.Context, depth string) ([]float32, error) {
-	res, err := v.client.Vectorize(ctx, []string{}, []string{}, []string{}, []string{},
-		[]string{}, []string{}, []string{depth})
+	res, err := v.client.Vectorize(ctx, nil, nil, nil, nil, nil, nil, []string{depth})
 	if err != nil {
 		return nil, err
 	}
@@ -135,13 +129,7 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 	vectorize := objDiff == nil || objDiff.GetVec() == nil
 
 	// vectorize image and text
-	texts := []string{}
-	images := []string{}
-	audio := []string{}
-	video := []string{}
-	imu := []string{}
-	thermal := []string{}
-	depth := []string{}
+	var texts, images, audio, video, imu, thermal, depth []string
 	if schema != nil {
 		for prop, value := range schema.(map[string]interface{}) {
 			if ichek.ImageField(prop) {

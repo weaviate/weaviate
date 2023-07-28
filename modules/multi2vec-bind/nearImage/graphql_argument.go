@@ -31,7 +31,7 @@ func aggregateNearImageArgumentFn(classname string) *graphql.ArgumentConfig {
 }
 
 func nearImageArgument(prefix, className string) *graphql.ArgumentConfig {
-	prefixName := fmt.Sprintf("Img2VecImage%s%s", prefix, className)
+	prefixName := fmt.Sprintf("Multi2VecBind%s%s", prefix, className)
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{

@@ -12,7 +12,7 @@
 package nearthermal
 
 import (
-	"github.com/pkg/errors"
+	"errors"
 )
 
 type NearThermalParams struct {
@@ -41,11 +41,11 @@ func validateNearThermalFn(param interface{}) error {
 	}
 
 	if len(nearThermal.Thermal) == 0 {
-		return errors.Errorf("'nearThermal.thermal' needs to be defined")
+		return errors.New("'nearThermal.thermal' needs to be defined")
 	}
 
 	if nearThermal.Certainty != 0 && nearThermal.WithDistance {
-		return errors.Errorf(
+		return errors.New(
 			"nearThermal cannot provide both distance and certainty")
 	}
 

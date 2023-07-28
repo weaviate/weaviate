@@ -136,37 +136,37 @@ func (ic *classSettings) Validate() error {
 	}
 
 	if imageFieldsOk {
-		if err := ic.validateWeightFieldCount("image", imageFields.([]interface{})); err != nil {
+		if err := ic.validateWeightFieldCount("image", imageFields); err != nil {
 			return err
 		}
 	}
 	if textFieldsOk {
-		if err := ic.validateWeightFieldCount("text", textFields.([]interface{})); err != nil {
+		if err := ic.validateWeightFieldCount("text", textFields); err != nil {
 			return err
 		}
 	}
 	if audioFieldsOk {
-		if err := ic.validateWeightFieldCount("audio", audioFields.([]interface{})); err != nil {
+		if err := ic.validateWeightFieldCount("audio", audioFields); err != nil {
 			return err
 		}
 	}
 	if videoFieldsOk {
-		if err := ic.validateWeightFieldCount("video", videoFields.([]interface{})); err != nil {
+		if err := ic.validateWeightFieldCount("video", videoFields); err != nil {
 			return err
 		}
 	}
 	if imuFieldsOk {
-		if err := ic.validateWeightFieldCount("imu", imuFields.([]interface{})); err != nil {
+		if err := ic.validateWeightFieldCount("imu", imuFields); err != nil {
 			return err
 		}
 	}
 	if thermalFieldsOk {
-		if err := ic.validateWeightFieldCount("thermal", thermalFields.([]interface{})); err != nil {
+		if err := ic.validateWeightFieldCount("thermal", thermalFields); err != nil {
 			return err
 		}
 	}
 	if depthFieldsOk {
-		if err := ic.validateWeightFieldCount("depth", depthFields.([]interface{})); err != nil {
+		if err := ic.validateWeightFieldCount("depth", depthFields); err != nil {
 			return err
 		}
 	}
@@ -174,7 +174,7 @@ func (ic *classSettings) Validate() error {
 	return nil
 }
 
-func (ic *classSettings) validateWeightFieldCount(name string, fields []interface{}) error {
+func (ic *classSettings) validateWeightFieldCount(name string, fields interface{}) error {
 	imageFieldsCount, err := ic.validateFields(name, fields)
 	if err != nil {
 		return err

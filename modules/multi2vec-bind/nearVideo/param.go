@@ -12,7 +12,7 @@
 package nearVideo
 
 import (
-	"github.com/pkg/errors"
+	"errors"
 )
 
 type NearVideoParams struct {
@@ -41,11 +41,11 @@ func validateNearVideoFn(param interface{}) error {
 	}
 
 	if len(nearVideo.Video) == 0 {
-		return errors.Errorf("'nearVideo.audio' needs to be defined")
+		return errors.New("'nearVideo.video' needs to be defined")
 	}
 
 	if nearVideo.Certainty != 0 && nearVideo.WithDistance {
-		return errors.Errorf(
+		return errors.New(
 			"nearVideo cannot provide both distance and certainty")
 	}
 

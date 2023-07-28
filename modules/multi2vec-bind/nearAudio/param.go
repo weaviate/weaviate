@@ -12,7 +12,7 @@
 package nearAudio
 
 import (
-	"github.com/pkg/errors"
+	"errors"
 )
 
 type NearAudioParams struct {
@@ -41,11 +41,11 @@ func validateNearAudioFn(param interface{}) error {
 	}
 
 	if len(nearAudio.Audio) == 0 {
-		return errors.Errorf("'nearAudio.audio' needs to be defined")
+		return errors.New("'nearAudio.audio' needs to be defined")
 	}
 
 	if nearAudio.Certainty != 0 && nearAudio.WithDistance {
-		return errors.Errorf(
+		return errors.New(
 			"nearText cannot provide both distance and certainty")
 	}
 

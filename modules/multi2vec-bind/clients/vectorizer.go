@@ -60,7 +60,6 @@ func (v *vectorizer) Vectorize(ctx context.Context,
 		return nil, errors.Wrap(err, "create POST request")
 	}
 
-	fmt.Printf("--bind url: %v\n", v.url("/vectorize"))
 	res, err := v.httpClient.Do(req)
 	if err != nil {
 		return nil, errors.Wrap(err, "send POST request")
@@ -111,12 +110,12 @@ type vecRequest struct {
 }
 
 type vecResponse struct {
-	TextVectors    [][]float32 `json:"textVectors"`
-	ImageVectors   [][]float32 `json:"imageVectors"`
-	AudioVectors   [][]float32 `json:"audioVectors"`
-	VideoVectors   [][]float32 `json:"videoVectors"`
-	IMUVectors     [][]float32 `json:"imuVectors"`
-	ThermalVectors [][]float32 `json:"thermalVectors"`
-	DepthVectors   [][]float32 `json:"depthVectors"`
-	Error          string      `json:"error"`
+	TextVectors    [][]float32 `json:"textVectors,omitempty"`
+	ImageVectors   [][]float32 `json:"imageVectors,omitempty"`
+	AudioVectors   [][]float32 `json:"audioVectors,omitempty"`
+	VideoVectors   [][]float32 `json:"videoVectors,omitempty"`
+	IMUVectors     [][]float32 `json:"imuVectors,omitempty"`
+	ThermalVectors [][]float32 `json:"thermalVectors,omitempty"`
+	DepthVectors   [][]float32 `json:"depthVectors,omitempty"`
+	Error          string      `json:"error,omitempty"`
 }

@@ -11,40 +11,40 @@
 
 package nearVideo
 
-// import (
-// 	"testing"
+import (
+	"testing"
 
-// 	"github.com/stretchr/testify/assert"
-// 	"github.com/tailor-inc/graphql"
-// )
+	"github.com/stretchr/testify/assert"
+	"github.com/tailor-inc/graphql"
+)
 
-// func TestNearImageGraphQLArgument(t *testing.T) {
-// 	t.Run("should generate nearImage argument properly", func(t *testing.T) {
-// 		// given
-// 		prefix := "Prefix"
-// 		classname := "Class"
-// 		// when
-// 		nearImage := nearAudioArgument(prefix, classname)
+func TestNearVideoGraphQLArgument(t *testing.T) {
+	t.Run("should generate nearVideo argument properly", func(t *testing.T) {
+		// given
+		prefix := "Prefix"
+		classname := "Class"
+		// when
+		nearVideo := nearVideoArgument(prefix, classname)
 
-// 		// then
-// 		// the built graphQL field needs to support this structure:
-// 		// nearImage: {
-// 		//   image: "base64;encoded,image",
-// 		//   distance: 0.9
-// 		// }
-// 		assert.NotNil(t, nearImage)
-// 		assert.Equal(t, "Img2VecImagePrefixClassNearImageInpObj", nearImage.Type.Name())
-// 		answerFields, ok := nearImage.Type.(*graphql.InputObject)
-// 		assert.True(t, ok)
-// 		assert.NotNil(t, answerFields)
-// 		assert.Equal(t, 3, len(answerFields.Fields()))
-// 		fields := answerFields.Fields()
-// 		image := fields["image"]
-// 		imageNonNull, imageNonNullOK := image.Type.(*graphql.NonNull)
-// 		assert.True(t, imageNonNullOK)
-// 		assert.Equal(t, "String", imageNonNull.OfType.Name())
-// 		assert.NotNil(t, image)
-// 		assert.NotNil(t, fields["certainty"])
-// 		assert.NotNil(t, fields["distance"])
-// 	})
-// }
+		// then
+		// the built graphQL field needs to support this structure:
+		// nearVideo: {
+		//   video: "base64;encoded,video_file",
+		//   distance: 0.9
+		// }
+		assert.NotNil(t, nearVideo)
+		assert.Equal(t, "Multi2VecBindPrefixClassNearVideoInpObj", nearVideo.Type.Name())
+		answerFields, ok := nearVideo.Type.(*graphql.InputObject)
+		assert.True(t, ok)
+		assert.NotNil(t, answerFields)
+		assert.Equal(t, 3, len(answerFields.Fields()))
+		fields := answerFields.Fields()
+		video := fields["video"]
+		videoNonNull, videoNonNullOK := video.Type.(*graphql.NonNull)
+		assert.True(t, videoNonNullOK)
+		assert.Equal(t, "String", videoNonNull.OfType.Name())
+		assert.NotNil(t, video)
+		assert.NotNil(t, fields["certainty"])
+		assert.NotNil(t, fields["distance"])
+	})
+}
