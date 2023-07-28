@@ -52,7 +52,7 @@ func (s *Searcher) vectorFromNearVideoParam(ctx context.Context,
 	// find vector for given search query
 	vector, err := s.vectorizer.VectorizeVideo(ctx, params.Video)
 	if err != nil {
-		return nil, errors.Errorf("vectorize audio: %v", err)
+		return nil, errors.Errorf("vectorize video: %v", err)
 	}
 
 	return vector, nil

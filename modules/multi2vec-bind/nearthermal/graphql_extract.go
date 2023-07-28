@@ -11,7 +11,7 @@
 
 package nearthermal
 
-// extractNearThermalFn arguments, such as "imu" and "certainty"
+// extractNearThermalFn arguments, such as "thermal" and "certainty"
 func extractNearThermalFn(source map[string]interface{}) interface{} {
 	var args NearThermalParams
 

@@ -31,7 +31,7 @@ func aggregateNearThermalArgumentFn(classname string) *graphql.ArgumentConfig {
 }
 
 func nearThermalArgument(prefix, className string) *graphql.ArgumentConfig {
-	prefixName := fmt.Sprintf("Multi2VecIMU%s%s", prefix, className)
+	prefixName := fmt.Sprintf("Multi2VecBind%s%s", prefix, className)
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
@@ -46,7 +46,7 @@ func nearThermalArgument(prefix, className string) *graphql.ArgumentConfig {
 func nearThermalFields(prefix string) graphql.InputObjectConfigFieldMap {
 	return graphql.InputObjectConfigFieldMap{
 		"thermal": &graphql.InputObjectFieldConfig{
-			Description: "Base64 encoded Thermal data",
+			Description: "Base64 encoded thermal data",
 			Type:        graphql.NewNonNull(graphql.String),
 		},
 		"certainty": &graphql.InputObjectFieldConfig{

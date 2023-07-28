@@ -12,7 +12,7 @@
 package nearimu
 
 import (
-	"github.com/pkg/errors"
+	"errors"
 )
 
 type NearIMUParams struct {
@@ -41,11 +41,11 @@ func validateNearIMUFn(param interface{}) error {
 	}
 
 	if len(nearIMU.IMU) == 0 {
-		return errors.Errorf("'nearIMU.imu' needs to be defined")
+		return errors.New("'nearIMU.imu' needs to be defined")
 	}
 
 	if nearIMU.Certainty != 0 && nearIMU.WithDistance {
-		return errors.Errorf(
+		return errors.New(
 			"nearIMU cannot provide both distance and certainty")
 	}
 

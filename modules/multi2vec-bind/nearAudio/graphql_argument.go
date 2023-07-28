@@ -31,7 +31,7 @@ func aggregateNearAudioArgumentFn(classname string) *graphql.ArgumentConfig {
 }
 
 func nearAudioArgument(prefix, className string) *graphql.ArgumentConfig {
-	prefixName := fmt.Sprintf("Multi2VecAudio%s%s", prefix, className)
+	prefixName := fmt.Sprintf("Multi2VecBind%s%s", prefix, className)
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
@@ -46,7 +46,7 @@ func nearAudioArgument(prefix, className string) *graphql.ArgumentConfig {
 func nearAudioFields(prefix string) graphql.InputObjectConfigFieldMap {
 	return graphql.InputObjectConfigFieldMap{
 		"audio": &graphql.InputObjectFieldConfig{
-			Description: "Base64 encoded audio",
+			Description: "Base64 encoded audio file",
 			Type:        graphql.NewNonNull(graphql.String),
 		},
 		"certainty": &graphql.InputObjectFieldConfig{

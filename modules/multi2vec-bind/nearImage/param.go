@@ -12,7 +12,7 @@
 package nearImage
 
 import (
-	"github.com/pkg/errors"
+	"errors"
 )
 
 type NearImageParams struct {
@@ -41,11 +41,11 @@ func validateNearImageFn(param interface{}) error {
 	}
 
 	if len(nearImage.Image) == 0 {
-		return errors.Errorf("'nearImage.image' needs to be defined")
+		return errors.New("'nearImage.image' needs to be defined")
 	}
 
 	if nearImage.Certainty != 0 && nearImage.WithDistance {
-		return errors.Errorf(
+		return errors.New(
 			"nearText cannot provide both distance and certainty")
 	}
 

@@ -11,40 +11,40 @@
 
 package nearAudio
 
-// import (
-// 	"testing"
+import (
+	"testing"
 
-// 	"github.com/stretchr/testify/assert"
-// 	"github.com/tailor-inc/graphql"
-// )
+	"github.com/stretchr/testify/assert"
+	"github.com/tailor-inc/graphql"
+)
 
-// func TestNearImageGraphQLArgument(t *testing.T) {
-// 	t.Run("should generate nearAudio argument properly", func(t *testing.T) {
-// 		// given
-// 		prefix := "Prefix"
-// 		classname := "Class"
-// 		// when
-// 		nearImage := nearAudioArgument(prefix, classname)
+func TestNearAudioGraphQLArgument(t *testing.T) {
+	t.Run("should generate nearAudio argument properly", func(t *testing.T) {
+		// given
+		prefix := "Prefix"
+		classname := "Class"
+		// when
+		nearAudio := nearAudioArgument(prefix, classname)
 
-// 		// then
-// 		// the built graphQL field needs to support this structure:
-// 		// nearImage: {
-// 		//   image: "base64;encoded,image",
-// 		//   distance: 0.9
-// 		// }
-// 		assert.NotNil(t, nearImage)
-// 		assert.Equal(t, "Img2VecImagePrefixClassNearImageInpObj", nearImage.Type.Name())
-// 		answerFields, ok := nearImage.Type.(*graphql.InputObject)
-// 		assert.True(t, ok)
-// 		assert.NotNil(t, answerFields)
-// 		assert.Equal(t, 3, len(answerFields.Fields()))
-// 		fields := answerFields.Fields()
-// 		image := fields["image"]
-// 		imageNonNull, imageNonNullOK := image.Type.(*graphql.NonNull)
-// 		assert.True(t, imageNonNullOK)
-// 		assert.Equal(t, "String", imageNonNull.OfType.Name())
-// 		assert.NotNil(t, image)
-// 		assert.NotNil(t, fields["certainty"])
-// 		assert.NotNil(t, fields["distance"])
-// 	})
-// }
+		// then
+		// the built graphQL field needs to support this structure:
+		// nearAudio: {
+		//   audio: "base64;encoded,audio",
+		//   distance: 0.9
+		// }
+		assert.NotNil(t, nearAudio)
+		assert.Equal(t, "Multi2VecBindPrefixClassNearAudioInpObj", nearAudio.Type.Name())
+		nearAudioFields, ok := nearAudio.Type.(*graphql.InputObject)
+		assert.True(t, ok)
+		assert.NotNil(t, nearAudioFields)
+		assert.Equal(t, 3, len(nearAudioFields.Fields()))
+		fields := nearAudioFields.Fields()
+		audio := fields["audio"]
+		audioNonNull, audioNonNullOK := audio.Type.(*graphql.NonNull)
+		assert.True(t, audioNonNullOK)
+		assert.Equal(t, "String", audioNonNull.OfType.Name())
+		assert.NotNil(t, audio)
+		assert.NotNil(t, fields["certainty"])
+		assert.NotNil(t, fields["distance"])
+	})
+}

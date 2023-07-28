@@ -11,68 +11,68 @@
 
 package neardepth
 
-// import "testing"
+import "testing"
 
-// func Test_validateNearImageFn(t *testing.T) {
-// 	type args struct {
-// 		param interface{}
-// 	}
-// 	tests := []struct {
-// 		name    string
-// 		args    args
-// 		wantErr bool
-// 	}{
-// 		{
-// 			name: "should pass with proper values",
-// 			args: args{
-// 				param: &NearAudioParams{
-// 					Image: "base64;enncoded",
-// 				},
-// 			},
-// 		},
-// 		{
-// 			name: "should not pass with empty image",
-// 			args: args{
-// 				param: &NearAudioParams{
-// 					Image: "",
-// 				},
-// 			},
-// 			wantErr: true,
-// 		},
-// 		{
-// 			name: "should not pass with nil image",
-// 			args: args{
-// 				param: &NearAudioParams{},
-// 			},
-// 			wantErr: true,
-// 		},
-// 		{
-// 			name: "should not pass with struct param, not a pointer to struct",
-// 			args: args{
-// 				param: NearAudioParams{
-// 					Image: "image",
-// 				},
-// 			},
-// 			wantErr: true,
-// 		},
-// 		{
-// 			name: "should not pass with certainty and distance",
-// 			args: args{
-// 				param: NearAudioParams{
-// 					Image:        "image",
-// 					Distance:     0.9,
-// 					WithDistance: true,
-// 					Certainty:    0.1,
-// 				},
-// 			},
-// 			wantErr: true,
-// 		},
-// 	}
-// 	for _, tt := range tests {
-// 		t.Run(tt.name, func(t *testing.T) {
-// 			if err := validateNearImageFn(tt.args.param); (err != nil) != tt.wantErr {
-// 				t.Errorf("validateNearImageFn() error = %v, wantErr %v", err, tt.wantErr)
-// 			}
-// 		})
-// 	}
-// }
+func Test_validateNearDepthFn(t *testing.T) {
+	type args struct {
+		param interface{}
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr bool
+	}{
+		{
+			name: "should pass with proper values",
+			args: args{
+				param: &NearDepthParams{
+					Depth: "base64;enncoded",
+				},
+			},
+		},
+		{
+			name: "should not pass with empty depth",
+			args: args{
+				param: &NearDepthParams{
+					Depth: "",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "should not pass with nil depth",
+			args: args{
+				param: &NearDepthParams{},
+			},
+			wantErr: true,
+		},
+		{
+			name: "should not pass with struct param, not a pointer to struct",
+			args: args{
+				param: NearDepthParams{
+					Depth: "depth",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "should not pass with certainty and distance",
+			args: args{
+				param: NearDepthParams{
+					Depth:        "depth",
+					Distance:     0.9,
+					WithDistance: true,
+					Certainty:    0.1,
+				},
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := validateNearDepthFn(tt.args.param); (err != nil) != tt.wantErr {
+				t.Errorf("validateNearDepthFn() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

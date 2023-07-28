@@ -11,7 +11,7 @@
 
 package nearAudio
 
-// extractNearAudioFn arguments, such as "image" and "certainty"
+// extractNearAudioFn arguments, such as "audio" and "certainty"
 func extractNearAudioFn(source map[string]interface{}) interface{} {
 	var args NearAudioParams
 

@@ -12,7 +12,7 @@
 package neardepth
 
 import (
-	"github.com/pkg/errors"
+	"errors"
 )
 
 type NearDepthParams struct {
@@ -41,11 +41,11 @@ func validateNearDepthFn(param interface{}) error {
 	}
 
 	if len(nearDepth.Depth) == 0 {
-		return errors.Errorf("'nearDepth.depth' needs to be defined")
+		return errors.New("'nearDepth.depth' needs to be defined")
 	}
 
 	if nearDepth.Certainty != 0 && nearDepth.WithDistance {
-		return errors.Errorf(
+		return errors.New(
 			"nearDepth cannot provide both distance and certainty")
 	}
 

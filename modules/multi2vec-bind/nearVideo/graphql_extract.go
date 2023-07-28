@@ -11,7 +11,7 @@
 
 package nearVideo
 
-// extractNearVideoFn arguments, such as "image" and "certainty"
+// extractNearVideoFn arguments, such as "video" and "certainty"
 func extractNearVideoFn(source map[string]interface{}) interface{} {
 	var args NearVideoParams
 
