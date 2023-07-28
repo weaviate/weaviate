@@ -256,12 +256,12 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 		}
 		// set consistency flag
 		for i, n := range sum {
-			if n == maxCount { // if consistent
+			if x := res[i]; x != nil && n == maxCount { // if consistent
 				prev := batch.Data[batch.Index[i]]
-				res[i].BelongsToShard = prev.BelongsToShard
-				res[i].BelongsToNode = prev.BelongsToNode
-				batch.Data[batch.Index[i]] = res[i]
-				res[i].IsConsistent = true
+				x.BelongsToShard = prev.BelongsToShard
+				x.BelongsToNode = prev.BelongsToNode
+				batch.Data[batch.Index[i]] = x
+				x.IsConsistent = true
 			}
 		}
 
