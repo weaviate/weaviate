@@ -12,12 +12,13 @@
 package roaringset
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestCondense(t *testing.T) {
+func TestBitmap_Condense(t *testing.T) {
 	t.Run("And with itself (internal array)", func(t *testing.T) {
 		bm := NewBitmap(slice(0, 1000)...)
 		for i := 0; i < 10; i++ {
@@ -116,6 +117,55 @@ func TestCondense(t *testing.T) {
 
 		assert.Greater(t, bmLen, condensedLen)
 		assert.ElementsMatch(t, bm.ToArray(), condensed.ToArray())
+	})
+}
+
+func TestBitmap_Prefill(t *testing.T) {
+	t.Run("sequential", func(t *testing.T) {
+		for _, maxVal := range []uint64{1_000, 10_000, 100_000, 1_000_000} {
+			t.Run(fmt.Sprint(maxVal), func(t *testing.T) {
+				bm := newBitmapPrefillSequential(maxVal)
+
+				assert.Equal(t, int(maxVal), bm.GetCardinality())
+
+				bm.RemoveRange(1, maxVal)
+
+				assert.Equal(t, 1, bm.GetCardinality())
+				assert.True(t, bm.Contains(maxVal))
+			})
+		}
+	})
+
+	t.Run("parallel", func(t *testing.T) {
+		for _, maxVal := range []uint64{1_000, 10_000, 100_000, 1_000_000} {
+			for _, routinesLimit := range []int{2, 3, 4} {
+				t.Run(fmt.Sprint(maxVal), func(t *testing.T) {
+					bm := newBitmapPrefillParallel(maxVal, routinesLimit)
+
+					assert.Equal(t, int(maxVal), bm.GetCardinality())
+
+					bm.RemoveRange(1, maxVal)
+
+					assert.Equal(t, 1, bm.GetCardinality())
+					assert.True(t, bm.Contains(maxVal))
+				})
+			}
+		}
+	})
+
+	t.Run("conditional - sequential or parallel", func(t *testing.T) {
+		for _, maxVal := range []uint64{1_000, 10_000, 100_000, 1_000_000} {
+			t.Run(fmt.Sprint(maxVal), func(t *testing.T) {
+				bm := NewBitmapPrefill(maxVal)
+
+				assert.Equal(t, int(maxVal), bm.GetCardinality())
+
+				bm.RemoveRange(1, maxVal)
+
+				assert.Equal(t, 1, bm.GetCardinality())
+				assert.True(t, bm.Contains(maxVal))
+			})
+		}
 	})
 }
 
