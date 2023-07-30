@@ -99,10 +99,11 @@ func (s *segment) bufferedReaderAt(offset uint64) (*bufio.Reader, error) {
 		return nil, fmt.Errorf("nil contentFile for segment at %s", s.path)
 	}
 
-	if _, err := s.contentFile.Seek(int64(offset), io.SeekStart); err != nil {
-		return nil,
-			fmt.Errorf("bufferedReaderAt: seek to offset: %w", err)
-	}
+	r := io.NewSectionReader(s.contentFile, int64(offset), int64(s.size))
+	//if _, err := s.contentFile.Seek(int64(offset), io.SeekStart); err != nil {
+	//	return nil,
+	//		fmt.Errorf("bufferedReaderAt: seek to offset: %w", err)
+	//}
 
-	return bufio.NewReader(s.contentFile), nil
+	return bufio.NewReader(r), nil
 }

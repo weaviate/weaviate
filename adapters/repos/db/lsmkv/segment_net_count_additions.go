@@ -84,13 +84,8 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn) error {
 		}
 	}
 
-	contents := make([]byte, s.dataEndPos)
-	if err = s.pread(contents, 0, uint64(s.dataEndPos)); err != nil {
-		return err
-	}
-
-	extr := newBufferedKeyAndTombstoneExtractor(contents, s.dataStartPos,
-		s.dataEndPos, 10e6, s.secondaryIndexCount, cb)
+	extr := newBufferedKeyAndTombstoneExtractor(s.contents, s.dataStartPos,
+		s.dataEndPos, 10e6, s.secondaryIndexCount, cb, s.contentFile, s.size, s.mmapContents)
 
 	extr.do()
 

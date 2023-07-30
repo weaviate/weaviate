@@ -183,14 +183,8 @@ func (sg *SegmentGroup) compactOnce() error {
 		leftSegment := sg.segmentAtPos(pair[0])
 		rightSegment := sg.segmentAtPos(pair[1])
 
-		leftCursor, err := leftSegment.newRoaringSetCursor()
-		if err != nil {
-			return fmt.Errorf("new left segment roaringset cursor")
-		}
-		rightCursor, err := rightSegment.newRoaringSetCursor()
-		if err != nil {
-			return fmt.Errorf("new right segment roaringset cursor")
-		}
+		leftCursor := leftSegment.newRoaringSetCursor()
+		rightCursor := rightSegment.newRoaringSetCursor()
 
 		c := roaringset.NewCompactor(f, leftCursor, rightCursor,
 			level, scratchSpacePath)
@@ -271,7 +265,7 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		}
 	}
 
-	seg, err := newSegment(newPath, sg.logger, sg.metrics, nil)
+	seg, err := newSegment(newPath, sg.logger, sg.metrics, nil, sg.mmapContents)
 	if err != nil {
 		return errors.Wrap(err, "create new segment")
 	}

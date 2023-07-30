@@ -135,6 +135,7 @@ type Config struct {
 	TrackVectorDimensions     bool
 	ServerVersion             string
 	GitHash                   string
+	AvoidMMap                 bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

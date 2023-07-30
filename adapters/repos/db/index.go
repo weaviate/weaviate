@@ -324,6 +324,7 @@ type IndexConfig struct {
 	MemtablesMinActiveSeconds int
 	MemtablesMaxActiveSeconds int
 	ReplicationFactor         int64
+	AvoidMMap                 bool
 
 	TrackVectorDimensions bool
 }
