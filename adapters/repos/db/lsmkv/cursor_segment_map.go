@@ -41,17 +41,12 @@ func (s *segmentCursorMap) seek(key []byte) ([]byte, []MapPair, error) {
 		return nil, nil, err
 	}
 
-	contents := make([]byte, node.End-node.Start)
-	if err = s.segment.pread(contents, node.Start, node.End); err != nil {
-		return nil, nil, err
-	}
-
-	buf, err := s.segment.bytesReaderFrom(contents)
+	r, err := s.segment.bufferedReaderAt(node.Start)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	parsed, err := ParseCollectionNode(buf)
+	parsed, err := ParseCollectionNode(r)
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle

@@ -12,8 +12,6 @@
 package lsmkv
 
 import (
-	"bytes"
-
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -35,16 +33,21 @@ func (s *segmentCursorCollectionReusable) seek(key []byte) ([]byte, []value, err
 		return nil, nil, err
 	}
 
-	contents := make([]byte, node.End-node.Start)
-	if err = s.segment.pread(contents, node.Start, node.End); err != nil {
+	//contents := make([]byte, node.End-node.Start)
+	//if err = s.segment.pread(contents, node.Start, node.End); err != nil {
+	//	return nil, nil, err
+	//}
+
+	r, err := s.segment.bufferedReaderAt(node.Start)
+	if err != nil {
 		return nil, nil, err
 	}
 
-	if len(contents) == 0 {
+	/*	if len(contents) == 0 {
 		return nil, nil, lsmkv.NotFound
-	}
+	}*/
 
-	err = ParseCollectionNodeInto(bytes.NewReader(contents), &s.nodeBuf)
+	err = ParseCollectionNodeInto(r, &s.nodeBuf)
 	if err != nil {
 		return s.nodeBuf.primaryKey, nil, err
 	}
