@@ -77,15 +77,6 @@ type modulesProvider interface {
 		className string, input string) ([]float32, error)
 }
 
-type Searcher struct {
-	params           *Params
-	logger           logrus.FieldLogger
-	sparseSearchFunc sparseSearchFunc
-	denseSearchFunc  denseSearchFunc
-	postProcFunc     postProcFunc
-	modulesProvider  modulesProvider
-}
-
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
 func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc, denseSearch denseSearchFunc, postProc postProcFunc, modules modulesProvider) (Results, error) {
 	var (
