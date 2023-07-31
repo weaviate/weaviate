@@ -91,7 +91,7 @@ type objectsSearcher interface {
 }
 
 type hybridSearcher interface {
-	SparseObjectSearch(ctx context.Context, params dto.GetParams, limit int) ([]*storobj.Object, []float32, error)
+	SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error)
 	DenseObjectSearch(context.Context, string, []float32, int, int,
 		*filters.LocalFilter, additional.Properties, string) ([]*storobj.Object, []float32, error)
 	ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties,
@@ -273,9 +273,13 @@ func (e *Explorer) CalculateTotalLimit(pagination *filters.Pagination) (int, err
 		return 0, fmt.Errorf("invalid params, pagination object is nil")
 	}
 
+	if pagination.Limit == -1 {
+		return int(e.config.QueryDefaults.Limit + int64(pagination.Offset)), nil
+	}
+
 	TotalLimit := pagination.Offset + pagination.Limit
 	
-	return MaxInt(100, MinInt(TotalLimit, int(e.config.QueryDefaults.Limit), int(e.config.QueryMaximumResults))), nil
+	return  MinInt(TotalLimit, int(e.config.QueryMaximumResults)), nil
 }
 
 func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
@@ -295,9 +299,20 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			return nil, nil, err
 		}
 
-		res, dists, err := e.searcher.SparseObjectSearch(ctx, params, TotalLimit)
+		enforcedMin := MaxInt(params.Pagination.Offset+100, TotalLimit)
+
+		oldLimit := params.Pagination.Limit
+		params.Pagination.Limit = enforcedMin-params.Pagination.Offset
+
+		res, dists, err := e.searcher.SparseObjectSearch(ctx, params)
 		if err != nil {
 			return nil, nil, err
+		}
+		params.Pagination.Limit = oldLimit
+
+		if len(res) > TotalLimit {
+			res = res[:TotalLimit]
+			dists = dists[:TotalLimit]
 		}
 
 		return res, dists, nil
