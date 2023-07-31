@@ -147,6 +147,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 		if err != nil {
 			return nil, fmt.Errorf("hybrid search post-processing: %w", err)
 		}
+		fused = fused[:len(sr)]
 		for i := range fused {
 			fused[i].Result = &(sr[i])
 		}
