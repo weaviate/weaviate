@@ -299,7 +299,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			return nil, nil, err
 		}
 
-		enforcedMin := MaxInt(params.Pagination.Offset+100, TotalLimit)
+		enforcedMin := MaxInt(params.Pagination.Offset+hybrid.DefaultLimit, TotalLimit)
 
 		oldLimit := params.Pagination.Limit
 		params.Pagination.Limit = enforcedMin - params.Pagination.Offset
@@ -310,18 +310,16 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		}
 		params.Pagination.Limit = oldLimit
 
-		if len(res) > TotalLimit {
-			res = res[:TotalLimit]
-			dists = dists[:TotalLimit]
-		}
-
 		return res, dists, nil
 	}
 
 	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
-		hybridSearchLimit := params.Pagination.Limit + params.Pagination.Offset
-		if hybridSearchLimit <= 0 {
+		baseSearchLimit := params.Pagination.Limit + params.Pagination.Offset
+		hybridSearchLimit := -1
+		if baseSearchLimit <= hybrid.DefaultLimit {
 			hybridSearchLimit = hybrid.DefaultLimit
+		} else {
+			hybridSearchLimit = baseSearchLimit
 		}
 		res, dists, err := e.searcher.DenseObjectSearch(ctx,
 			params.ClassName, vec, 0, hybridSearchLimit, params.Filters,
@@ -334,8 +332,17 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 
 	postProcess := func(results hybrid.Results) ([]search.Result, error) {
-		res, err := e.searcher.ResolveReferences(ctx, results.SearchResults(),
-			params.Properties, nil, params.AdditionalProperties, "")
+		res1 := results.SearchResults()
+		TotalLimit, err := e.CalculateTotalLimit(params.Pagination)
+		if err != nil {
+			return nil,  err
+		}
+
+		if len(res1) > TotalLimit {
+			res1 = res1[:TotalLimit]
+		}
+
+		res, err := e.searcher.ResolveReferences(ctx, res1, params.Properties, nil, params.AdditionalProperties, "")
 		if err != nil {
 			return nil, err
 		}
