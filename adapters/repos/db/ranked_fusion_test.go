@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
@@ -49,6 +50,13 @@ type TestQuery struct {
 	QueryID        string
 	Query          string
 	MatchingDocIDs []string
+}
+
+var defaultConfig = config.Config{
+	QueryDefaults: config.QueryDefaults{
+		Limit: 100,
+	},
+	QueryMaximumResults: 100,
 }
 
 func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) {
@@ -428,7 +436,7 @@ func TestRFJourney(t *testing.T) {
 
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 
@@ -460,7 +468,7 @@ func TestRFJourney(t *testing.T) {
 
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
 		fmt.Println("--- Start results for hybrid with negative limit ---")
@@ -493,7 +501,7 @@ func TestRFJourney(t *testing.T) {
 
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
 		fmt.Println("--- Start results for hybrid with offset ---")
@@ -528,7 +536,7 @@ func TestRFJourney(t *testing.T) {
 
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
 		fmt.Println("--- Start results for hybrid with offset ---")
@@ -644,7 +652,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 0, len(hybridResults))
@@ -669,7 +677,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 3, len(hybridResults))
@@ -704,7 +712,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(hybridResults))
