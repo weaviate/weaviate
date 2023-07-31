@@ -848,12 +848,10 @@ func (m *fakeMetrics) AddUsageDimensions(class, query, op string, dims int) {
 	ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties,
 		groupBy *searchparams.GroupBy, additional additional.Properties, tenant string) (search.Results, error)
 */
-type fakeObjectSearcher struct {
-}
+type fakeObjectSearcher struct{}
 
 func (f *fakeObjectSearcher) Search(context.Context, dto.GetParams) ([]search.Result, error) {
 	out := search.Results{
-
 		search.Result{
 			ID:     "1889a225-3b28-477d-b8fc-5f6071bb4731",
 			Vector: []float32{1, 2, 3},
@@ -900,15 +898,14 @@ func (f *fakeObjectSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID, pr
 
 func (f *fakeObjectSearcher) SparseObjectSearch(context.Context, dto.GetParams) ([]*storobj.Object, []float32, error) {
 	out := []*storobj.Object{
-
-		&storobj.Object{
+		{
 			Object: models.Object{
 				ID: "1889a225-3b28-477d-b8fc-5f6071bb4731",
 			},
 
 			Vector: []float32{1, 2, 3},
 		},
-		&storobj.Object{
+		{
 			Object: models.Object{
 				ID: "abcdef12-3314-442e-a4d1-e94d7c0afc3a",
 			},
@@ -921,16 +918,14 @@ func (f *fakeObjectSearcher) SparseObjectSearch(context.Context, dto.GetParams) 
 
 func (f *fakeObjectSearcher) DenseObjectSearch(context.Context, string, []float32, int, int, *filters.LocalFilter, additional.Properties, string) ([]*storobj.Object, []float32, error) {
 	out := []*storobj.Object{
-
-
-		&storobj.Object{
+		{
 			Object: models.Object{
 				ID: "79a636c2-3314-442e-a4d1-e94d7c0afc3a",
 			},
-			
+
 			Vector: []float32{4, 5, 6},
 		},
-		&storobj.Object{
+		{
 			Object: models.Object{
 				ID: "1889a225-3b28-477d-b8fc-5f6071bb4731",
 			},
@@ -943,12 +938,11 @@ func (f *fakeObjectSearcher) DenseObjectSearch(context.Context, string, []float3
 }
 
 func (f *fakeObjectSearcher) ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties, groupBy *searchparams.GroupBy, additional additional.Properties, tenant string) (search.Results, error) {
-	//Convert res1 to search.Results
+	// Convert res1 to search.Results
 	out := search.Results{}
 	for _, obj := range objs {
 		out = append(out, obj)
 	}
-
 
 	return out, nil
 }
@@ -999,9 +993,7 @@ func TestHybridOverSearch(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, 1, len(hybridResults))
 		require.Equal(t, "1889a225-3b28-477d-b8fc-5f6071bb4731", hybridResults[0].ID)
-		//require.Equal(t, "79a636c2-3314-442e-a4d1-e94d7c0afc3a", hybridResults[1].ID)
-	
-
+		// require.Equal(t, "79a636c2-3314-442e-a4d1-e94d7c0afc3a", hybridResults[1].ID)
 
 		fmt.Println("--- Start results for hybrid ---")
 		for _, r := range hybridResults {
