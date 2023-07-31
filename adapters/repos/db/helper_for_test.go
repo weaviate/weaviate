@@ -24,7 +24,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -208,7 +208,9 @@ func getRandomSeed() *rand.Rand {
 
 func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (*Shard, *Index) {
 	tmpDir := t.TempDir()
-	repo, err := New(logrus.New(), Config{
+	logger, _ := test.NewNullLogger()
+
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  t.TempDir(),
 		QueryMaximumResults:       10000,
@@ -225,14 +227,16 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: shardState, schema: sch}
 	queue := make(chan job, 100000)
+
 	idx := &Index{
 		Config:                IndexConfig{RootPath: tmpDir, ClassName: schema.ClassName(className)},
 		invertedIndexConfig:   schema.InvertedIndexConfig{},
 		vectorIndexUserConfig: enthnsw.UserConfig{Skip: true},
-		logger:                logrus.New(),
+		logger:                logger,
 		getSchema:             schemaGetter,
 		centralJobQueue:       queue,
 	}
+	idx.initCycleCallbacksNoop()
 
 	for _, opt := range indexOpts {
 		opt(idx)

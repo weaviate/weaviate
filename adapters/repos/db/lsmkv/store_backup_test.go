@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
@@ -38,7 +39,10 @@ func TestStoreBackup_PauseCompaction(t *testing.T) {
 			t.Run(fmt.Sprintf("with %d buckets", len(buckets)), func(t *testing.T) {
 				dirName := t.TempDir()
 
-				store, err := New(dirName, dirName, logger, nil)
+				classCompactionCallbacks := cyclemanager.NewCycleCallbacks("classCompaction", logger, 1)
+				classFlushCallbacks := cyclemanager.NewCycleCallbacksNoop()
+
+				store, err := New(dirName, dirName, logger, nil, classCompactionCallbacks, classFlushCallbacks)
 				require.Nil(t, err)
 
 				for _, bucket := range buckets {
@@ -51,7 +55,9 @@ func TestStoreBackup_PauseCompaction(t *testing.T) {
 
 				err = store.PauseCompaction(expiredCtx)
 				require.NotNil(t, err)
-				assert.Equal(t, "long-running compaction in progress: context deadline exceeded", err.Error())
+				assert.Equal(t, "long-running compaction in progress:"+
+					" deactivating callback 'store/compaction/.' of 'classCompaction' failed:"+
+					" context deadline exceeded", err.Error())
 
 				err = store.Shutdown(ctx)
 				require.Nil(t, err)
@@ -68,7 +74,10 @@ func TestStoreBackup_PauseCompaction(t *testing.T) {
 			t.Run(fmt.Sprintf("with %d buckets", len(buckets)), func(t *testing.T) {
 				dirName := t.TempDir()
 
-				store, err := New(dirName, dirName, logger, nil)
+				classCompactionCallbacks := cyclemanager.NewCycleCallbacks("classCompaction", logger, 1)
+				classFlushCallbacks := cyclemanager.NewCycleCallbacksNoop()
+
+				store, err := New(dirName, dirName, logger, nil, classCompactionCallbacks, classFlushCallbacks)
 				require.Nil(t, err)
 
 				for _, bucket := range buckets {
@@ -110,7 +119,10 @@ func TestStoreBackup_ResumeCompaction(t *testing.T) {
 			t.Run(fmt.Sprintf("with %d buckets", len(buckets)), func(t *testing.T) {
 				dirName := t.TempDir()
 
-				store, err := New(dirName, dirName, logger, nil)
+				classCompactionCallbacks := cyclemanager.NewCycleCallbacks("classCompaction", logger, 1)
+				classFlushCallbacks := cyclemanager.NewCycleCallbacksNoop()
+
+				store, err := New(dirName, dirName, logger, nil, classCompactionCallbacks, classFlushCallbacks)
 				require.Nil(t, err)
 
 				for _, bucket := range buckets {
@@ -135,7 +147,7 @@ func TestStoreBackup_ResumeCompaction(t *testing.T) {
 				err = store.ResumeCompaction(expirableCtx)
 				require.Nil(t, err)
 
-				assert.True(t, store.compactionCycle.Running())
+				assert.True(t, store.cycleCallbacks.compactionCallbacksCtrl.IsActive())
 
 				err = store.Shutdown(ctx)
 				require.Nil(t, err)
@@ -157,7 +169,10 @@ func TestStoreBackup_FlushMemtable(t *testing.T) {
 			t.Run(fmt.Sprintf("with %d buckets", len(buckets)), func(t *testing.T) {
 				dirName := t.TempDir()
 
-				store, err := New(dirName, dirName, logger, nil)
+				classCompactionCallbacks := cyclemanager.NewCycleCallbacksNoop()
+				classFlushCallbacks := cyclemanager.NewCycleCallbacks("classFlush", logger, 1)
+
+				store, err := New(dirName, dirName, logger, nil, classCompactionCallbacks, classFlushCallbacks)
 				require.Nil(t, err)
 
 				for _, bucket := range buckets {
@@ -170,7 +185,9 @@ func TestStoreBackup_FlushMemtable(t *testing.T) {
 
 				err = store.FlushMemtables(expiredCtx)
 				require.NotNil(t, err)
-				assert.Equal(t, "long-running memtable flush in progress: context deadline exceeded", err.Error())
+				assert.Equal(t, "long-running memtable flush in progress:"+
+					" deactivating callback 'store/flush/.' of 'classFlush' failed:"+
+					" context deadline exceeded", err.Error())
 
 				err = store.Shutdown(ctx)
 				require.Nil(t, err)
@@ -187,7 +204,10 @@ func TestStoreBackup_FlushMemtable(t *testing.T) {
 			t.Run(fmt.Sprintf("with %d buckets", len(buckets)), func(t *testing.T) {
 				dirName := t.TempDir()
 
-				store, err := New(dirName, dirName, logger, nil)
+				classCompactionCallbacks := cyclemanager.NewCycleCallbacksNoop()
+				classFlushCallbacks := cyclemanager.NewCycleCallbacks("classFlush", logger, 1)
+
+				store, err := New(dirName, dirName, logger, nil, classCompactionCallbacks, classFlushCallbacks)
 				require.Nil(t, err)
 
 				err = store.CreateOrLoadBucket(ctx, "test_bucket")
@@ -236,7 +256,10 @@ func TestStoreBackup_FlushMemtable(t *testing.T) {
 			t.Run(fmt.Sprintf("with %d buckets", len(buckets)), func(t *testing.T) {
 				dirName := t.TempDir()
 
-				store, err := New(dirName, dirName, logger, nil)
+				classCompactionCallbacks := cyclemanager.NewCycleCallbacksNoop()
+				classFlushCallbacks := cyclemanager.NewCycleCallbacks("classFlush", logger, 1)
+
+				store, err := New(dirName, dirName, logger, nil, classCompactionCallbacks, classFlushCallbacks)
 				require.Nil(t, err)
 
 				for _, bucket := range buckets {

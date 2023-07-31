@@ -33,7 +33,7 @@ func TestCreateCNAOnFlush(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
 		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
@@ -57,7 +57,7 @@ func TestCreateCNAInit(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
 		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
@@ -83,7 +83,7 @@ func TestCreateCNAInit(t *testing.T) {
 
 	// now create a new bucket and assert that the file is re-created on init
 	b2, err := NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
 		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
@@ -103,7 +103,7 @@ func TestRepairCorruptedCNAOnInit(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
 		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
@@ -124,7 +124,7 @@ func TestRepairCorruptedCNAOnInit(t *testing.T) {
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches
 	b2, err := NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
 		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)

@@ -144,6 +144,8 @@ type Index struct {
 	centralJobQueue chan job
 
 	partitioningEnabled bool
+
+	cycleCallbacks *indexCycleCallbacks
 }
 
 func (i *Index) ID() string {
@@ -187,13 +189,13 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		centralJobQueue:     jobQueueCh,
 		partitioningEnabled: shardState.PartitioningEnabled,
 	}
+	index.initCycleCallbacks()
 
 	if err := index.checkSingleShardMigration(shardState); err != nil {
 		return nil, errors.Wrap(err, "migrating sharding state from previous version")
 	}
 
 	for _, shardName := range shardState.AllPhysicalShards() {
-
 		if !shardState.IsLocalShard(shardName) {
 			// do not create non-local shards
 			continue
@@ -206,6 +208,9 @@ func NewIndex(ctx context.Context, config IndexConfig,
 
 		index.shards.Store(shardName, shard)
 	}
+
+	index.cycleCallbacks.compactionCycle.Start()
+	index.cycleCallbacks.flushCycle.Start()
 
 	return index, nil
 }
@@ -1522,12 +1527,37 @@ func (i *Index) dropShards(names []string) (commit func(success bool), err error
 func (i *Index) Shutdown(ctx context.Context) error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
-	return i.ForEachShard(func(name string, shard *Shard) error {
+
+	// TODO run in parallel?
+	// TODO allow every resource cleanup to run, before returning early with error
+	if err := i.ForEachShard(func(name string, shard *Shard) error {
 		if err := shard.shutdown(ctx); err != nil {
 			return errors.Wrapf(err, "shutdown shard %q", name)
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	if err := i.cycleCallbacks.compactionCycle.StopAndWait(ctx); err != nil {
+		return fmt.Errorf("stop compaction cycle: %w", err)
+	}
+	if err := i.cycleCallbacks.flushCycle.StopAndWait(ctx); err != nil {
+		return fmt.Errorf("stop flush cycle: %w", err)
+	}
+	if err := i.cycleCallbacks.vectorCommitLoggerCycle.StopAndWait(ctx); err != nil {
+		return fmt.Errorf("stop vector commit logger cycle: %w", err)
+	}
+	if err := i.cycleCallbacks.vectorTombstoneCleanupCycle.StopAndWait(ctx); err != nil {
+		return fmt.Errorf("stop vector tombstone cleanup cycle: %w", err)
+	}
+	if err := i.cycleCallbacks.geoPropsCommitLoggerCycle.StopAndWait(ctx); err != nil {
+		return fmt.Errorf("stop geo props commit logger cycle: %w", err)
+	}
+	if err := i.cycleCallbacks.geoPropsTombstoneCleanupCycle.StopAndWait(ctx); err != nil {
+		return fmt.Errorf("stop geo props tombsobe cleanup cycle: %w", err)
+	}
+
+	return nil
 }
 
 func (i *Index) getShardsStatus(ctx context.Context) (map[string]string, error) {

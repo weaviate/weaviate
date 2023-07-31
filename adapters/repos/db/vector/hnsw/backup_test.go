@@ -33,7 +33,6 @@ func TestBackup_SwitchCommitLogs(t *testing.T) {
 
 	dirName := t.TempDir()
 	indexID := "backup-switch-commitlogs-test"
-	cycles := testInitedVectorCycles(enthnsw.DefaultCleanupIntervalSeconds)
 
 	idx, err := New(Config{
 		RootPath:         dirName,
@@ -42,9 +41,10 @@ func TestBackup_SwitchCommitLogs(t *testing.T) {
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logrus.New(), cycles.CommitLogMaintenance())
+			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCycleCallbacksNoop())
 		},
-	}, enthnsw.NewDefaultUserConfig(), cycles.TombstoneCleanup())
+	}, enthnsw.NewDefaultUserConfig(),
+		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
 	require.Nil(t, err)
 	idx.PostStartup()
 
@@ -56,9 +56,6 @@ func TestBackup_SwitchCommitLogs(t *testing.T) {
 
 	err = idx.Shutdown(ctx)
 	require.Nil(t, err)
-
-	err = cycles.Shutdown(ctx)
-	require.Nil(t, err)
 }
 
 func TestBackup_ListFiles(t *testing.T) {
@@ -66,7 +63,6 @@ func TestBackup_ListFiles(t *testing.T) {
 
 	dirName := t.TempDir()
 	indexID := "backup-list-files-test"
-	cycles := testInitedVectorCycles(enthnsw.DefaultCleanupIntervalSeconds)
 
 	idx, err := New(Config{
 		RootPath:         dirName,
@@ -75,9 +71,10 @@ func TestBackup_ListFiles(t *testing.T) {
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logrus.New(), cycles.CommitLogMaintenance())
+			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCycleCallbacksNoop())
 		},
-	}, enthnsw.NewDefaultUserConfig(), cycles.TombstoneCleanup())
+	}, enthnsw.NewDefaultUserConfig(),
+		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
 	require.Nil(t, err)
 	idx.PostStartup()
 
@@ -104,15 +101,4 @@ func TestBackup_ListFiles(t *testing.T) {
 
 	err = idx.Shutdown(ctx)
 	require.Nil(t, err)
-
-	err = cycles.Shutdown(ctx)
-	require.Nil(t, err)
-}
-
-func testInitedVectorCycles(cleanupInterval int) *MaintenanceCycles {
-	cycles := &MaintenanceCycles{}
-	cycles.Init(
-		cyclemanager.HnswCommitLoggerCycleTicker(),
-		cyclemanager.NewFixedIntervalTicker(time.Duration(cleanupInterval)*time.Second))
-	return cycles
 }

@@ -36,7 +36,7 @@ func TestPrecomputeSegmentMeta_Replace(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
@@ -99,7 +99,7 @@ func TestPrecomputeSegmentMeta_Set(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
 		WithStrategy(StrategySetCollection))
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
