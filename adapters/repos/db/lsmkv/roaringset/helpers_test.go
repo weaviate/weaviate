@@ -122,7 +122,7 @@ func TestBitmap_Condense(t *testing.T) {
 
 func TestBitmap_Prefill(t *testing.T) {
 	t.Run("sequential", func(t *testing.T) {
-		for _, maxVal := range []uint64{1_000, 10_000, 100_000, 1_000_000} {
+		for _, maxVal := range []uint64{1_000, 10_000, 100_000, 1_000_000, uint64(prefillBufferSize)} {
 			t.Run(fmt.Sprint(maxVal), func(t *testing.T) {
 				bm := newBitmapPrefillSequential(maxVal)
 
@@ -137,7 +137,7 @@ func TestBitmap_Prefill(t *testing.T) {
 	})
 
 	t.Run("parallel", func(t *testing.T) {
-		for _, maxVal := range []uint64{1_000, 10_000, 100_000, 1_000_000} {
+		for _, maxVal := range []uint64{1_000, 10_000, 100_000, 1_000_000, uint64(prefillBufferSize)} {
 			for _, routinesLimit := range []int{2, 3, 4} {
 				t.Run(fmt.Sprint(maxVal), func(t *testing.T) {
 					bm := newBitmapPrefillParallel(maxVal, routinesLimit)
@@ -154,7 +154,7 @@ func TestBitmap_Prefill(t *testing.T) {
 	})
 
 	t.Run("conditional - sequential or parallel", func(t *testing.T) {
-		for _, maxVal := range []uint64{1_000, 10_000, 100_000, 1_000_000} {
+		for _, maxVal := range []uint64{1_000, 10_000, 100_000, 1_000_000, uint64(prefillBufferSize)} {
 			t.Run(fmt.Sprint(maxVal), func(t *testing.T) {
 				bm := NewBitmapPrefill(maxVal)
 

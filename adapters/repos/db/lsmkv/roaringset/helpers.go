@@ -16,13 +16,12 @@ import (
 	"sync"
 
 	"github.com/weaviate/sroar"
-	"golang.org/x/sync/errgroup"
 )
 
 var (
-	filledToBufferSize  = 65_536
-	filledToMaxRoutines = 4
-	_NUMCPU             = runtime.NumCPU()
+	prefillBufferSize  = 65_536
+	prefillMaxRoutines = 4
+	_NUMCPU            = runtime.NumCPU()
 )
 
 func NewBitmap(values ...uint64) *sroar.Bitmap {
@@ -52,24 +51,32 @@ func Condense(bm *sroar.Bitmap) *sroar.Bitmap {
 	return condensed
 }
 
+// Creates prefilled bitmap with values from 1 to maxVal (included).
+//
+// It is designed to be more performant both
+// time-wise (compared to Set/SetMany)
+// and memory-wise (compared to FromSortedList accepting entire slice of elements)
+// Method creates multiple small bitmaps using FromSortedList (slice is reusable)
+// and ORs them together to get final bitmap.
+// For maxVal > prefillBufferSize (65_536) and multiple CPUs available task is performed
+// by up to prefillMaxRoutines (4) goroutines.
 func NewBitmapPrefill(maxVal uint64) *sroar.Bitmap {
-	routinesLimit := filledToMaxRoutines
+	routinesLimit := prefillMaxRoutines
 	if _NUMCPU < routinesLimit {
 		routinesLimit = _NUMCPU
 	}
-	// 1 routine available or maxVal less than values handled by 1 routine
-	if routinesLimit == 1 || maxVal < uint64(filledToBufferSize/routinesLimit) {
+	if routinesLimit == 1 || maxVal <= uint64(prefillBufferSize) {
 		return newBitmapPrefillSequential(maxVal)
 	}
 	return newBitmapPrefillParallel(maxVal, routinesLimit)
 }
 
 func newBitmapPrefillSequential(maxVal uint64) *sroar.Bitmap {
-	inc := uint64(filledToBufferSize)
-	buf := make([]uint64, filledToBufferSize)
+	inc := uint64(prefillBufferSize)
+	buf := make([]uint64, prefillBufferSize)
 	finalBM := sroar.NewBitmap()
 
-	for i := uint64(1); i < maxVal; i += inc {
+	for i := uint64(1); i <= maxVal; i += inc {
 		j := uint64(0)
 		for ; j < inc && i+j <= maxVal; j++ {
 			buf[j] = i + j
@@ -80,43 +87,36 @@ func newBitmapPrefillSequential(maxVal uint64) *sroar.Bitmap {
 }
 
 func newBitmapPrefillParallel(maxVal uint64, routinesLimit int) *sroar.Bitmap {
-	inc := uint64(filledToBufferSize / routinesLimit)
-	bufs := make([][]uint64, routinesLimit)
-	freeBufIdsFifo := make([]int, routinesLimit)
+	inc := uint64(prefillBufferSize / routinesLimit)
+	lock := new(sync.Mutex)
+	ch := make(chan uint64, routinesLimit)
+	wg := new(sync.WaitGroup)
+	wg.Add(routinesLimit)
 	finalBM := sroar.NewBitmap()
 
-	eg := new(errgroup.Group)
-	eg.SetLimit(routinesLimit)
-	lock := new(sync.Mutex)
+	for r := 0; r < routinesLimit; r++ {
+		go func() {
+			buf := make([]uint64, inc)
 
-	for i := range bufs {
-		bufs[i] = make([]uint64, inc)
-		freeBufIdsFifo[i] = i
-	}
+			for i := range ch {
+				j := uint64(0)
+				for ; j < inc && i+j <= maxVal; j++ {
+					buf[j] = i + j
+				}
+				bm := sroar.FromSortedList(buf[:j])
 
-	for i := uint64(1); i < maxVal; i += inc {
-		i := i
-
-		eg.Go(func() error {
-			lock.Lock()
-			bufId := freeBufIdsFifo[0]
-			freeBufIdsFifo = freeBufIdsFifo[1:]
-			lock.Unlock()
-
-			j := uint64(0)
-			for ; j < inc && i+j <= maxVal; j++ {
-				bufs[bufId][j] = i + j
+				lock.Lock()
+				finalBM.Or(bm)
+				lock.Unlock()
 			}
-			bm := sroar.FromSortedList(bufs[bufId][:j])
-
-			lock.Lock()
-			freeBufIdsFifo = append(freeBufIdsFifo, bufId)
-			finalBM.Or(bm)
-			lock.Unlock()
-
-			return nil
-		})
+			wg.Done()
+		}()
 	}
-	eg.Wait()
+
+	for i := uint64(1); i <= maxVal; i += inc {
+		ch <- i
+	}
+	close(ch)
+	wg.Wait()
 	return finalBM
 }
