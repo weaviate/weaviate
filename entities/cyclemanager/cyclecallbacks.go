@@ -16,7 +16,6 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
-	"golang.org/x/sync/errgroup"
 )
 
 // Container for multiple callbacks exposing CycleCallback method acting as single callback.
@@ -75,11 +74,7 @@ func (c *cycleCallbacks) Register(id string, active bool, cycleCallback CycleCal
 	}
 }
 
-func (c *cycleCallbacks) CycleCallback(shouldAbort ShouldAbortCallback) bool {
-	eg := &errgroup.Group{}
-	eg.SetLimit(c.routinesLimit)
-	lock := new(sync.Mutex)
-
+func (c *cycleCallbacks) cycleCallbackSequential(shouldAbort ShouldAbortCallback) bool {
 	executed := false
 	i := 0
 	for {
@@ -88,57 +83,116 @@ func (c *cycleCallbacks) CycleCallback(shouldAbort ShouldAbortCallback) bool {
 		}
 
 		c.Lock()
+		// no more callbacks left, exit the loop
 		if i >= len(c.callbackIds) {
 			c.Unlock()
 			break
 		}
 
 		callbackId := c.callbackIds[i]
-		_, ok := c.callbacks[callbackId]
-		// callback deleted in the meantime, adjust ids and proceed to the next one
-		// no "i" increment required
+		meta, ok := c.callbacks[callbackId]
+		// callback deleted in the meantime, remove its id
+		// and proceed to the next one (no "i" increment required)
 		if !ok {
 			c.callbackIds = append(c.callbackIds[:i], c.callbackIds[i+1:]...)
 			c.Unlock()
 			continue
 		}
 		i++
+		// callback deactivated, proceed to the next one
+		if !meta.active {
+			c.Unlock()
+			continue
+		}
+		// callback active, mark as running
+		runningCtx, cancel := context.WithCancel(context.Background())
+		meta.runningCtx = runningCtx
 		c.Unlock()
 
-		eg.Go(func() error {
-			// check again if valid to execute, as conditions may have changed
-			// between previous check and routine finally started
-			if shouldAbort() {
-				return nil
-			}
-
-			c.Lock()
-			meta, ok := c.callbacks[callbackId]
-			if !ok || !meta.active {
-				c.Unlock()
-				return nil
-			}
-
-			// callback active, mark as running and call
-			runningCtx, cancel := context.WithCancel(context.Background())
-			meta.runningCtx = runningCtx
-			c.Unlock()
-
+		func() {
 			// cancel called in recover, regardless of panic occurred or not
 			defer c.recover(meta.customId, cancel)
-			ex := meta.cycleCallback(shouldAbort)
-
-			// skipped in case of panic, ok since ex will be false anyway
-			lock.Lock()
-			executed = ex || executed
-			lock.Unlock()
-
-			return nil
-		})
+			executed = meta.cycleCallback(shouldAbort) || executed
+		}()
 	}
 
-	eg.Wait()
 	return executed
+}
+
+func (c *cycleCallbacks) cycleCallbackParallel(shouldAbort ShouldAbortCallback, routinesLimit int) bool {
+	executed := false
+	ch := make(chan uint32)
+	lock := new(sync.Mutex)
+	wg := new(sync.WaitGroup)
+	wg.Add(routinesLimit)
+
+	i := 0
+	for r := 0; r < routinesLimit; r++ {
+		go func() {
+			for callbackId := range ch {
+				c.Lock()
+				meta, ok := c.callbacks[callbackId]
+				// callback missing or deactivated, proceed to the next one
+				if !ok || !meta.active {
+					c.Unlock()
+					continue
+				}
+				// callback active, mark as running
+				runningCtx, cancel := context.WithCancel(context.Background())
+				meta.runningCtx = runningCtx
+				c.Unlock()
+
+				func() {
+					// cancel called in recover, regardless of panic occurred or not
+					defer c.recover(meta.customId, cancel)
+					if meta.cycleCallback(shouldAbort) {
+						lock.Lock()
+						executed = true
+						lock.Unlock()
+					}
+				}()
+			}
+			wg.Done()
+		}()
+	}
+
+	for {
+		if shouldAbort() {
+			close(ch)
+			break
+		}
+
+		c.Lock()
+		// no more callbacks left, exit the loop
+		if i >= len(c.callbackIds) {
+			c.Unlock()
+			close(ch)
+			break
+		}
+
+		callbackId := c.callbackIds[i]
+		_, ok := c.callbacks[callbackId]
+		// callback deleted in the meantime, remove its id
+		// and proceed to the next one (no "i" increment required)
+		if !ok {
+			c.callbackIds = append(c.callbackIds[:i], c.callbackIds[i+1:]...)
+			c.Unlock()
+			continue
+		}
+		c.Unlock()
+		ch <- callbackId
+		i++
+	}
+
+	wg.Wait()
+	return executed
+}
+
+func (c *cycleCallbacks) CycleCallback(shouldAbort ShouldAbortCallback) bool {
+	if c.routinesLimit <= 1 {
+		return c.cycleCallbackSequential(shouldAbort)
+	}
+	return c.cycleCallbackParallel(shouldAbort, c.routinesLimit)
 }
 
 func (c *cycleCallbacks) recover(callbackCustomId string, cancel context.CancelFunc) {
