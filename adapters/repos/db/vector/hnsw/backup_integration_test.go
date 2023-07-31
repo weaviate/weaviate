@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -32,25 +32,42 @@ import (
 
 func TestBackup_Integration(t *testing.T) {
 	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
 
 	dirName := t.TempDir()
 	indexID := "backup-integration-test"
 
-	cycles := &MaintenanceCycles{}
-	cycles.Init(
+	parentCommitLoggerCallbacks := cyclemanager.NewCycleCallbacks("parentCommitLogger", logger, 1)
+	parentCommitLoggerCycle := cyclemanager.New(
 		cyclemanager.HnswCommitLoggerCycleTicker(),
-		cyclemanager.NewFixedIntervalTicker(enthnsw.DefaultCleanupIntervalSeconds*time.Second))
+		parentCommitLoggerCallbacks.CycleCallback)
+	parentCommitLoggerCycle.Start()
+	defer parentCommitLoggerCycle.StopAndWait(ctx)
+	commitLoggerCallbacks := cyclemanager.NewCycleCallbacks("childCommitLogger", logger, 1)
+	commitLoggerCallbacksCtrl := parentCommitLoggerCallbacks.Register("commitLogger", true, commitLoggerCallbacks.CycleCallback)
+
+	parentTombstoneCleanupCallbacks := cyclemanager.NewCycleCallbacks("parentTombstoneCleanup", logger, 1)
+	parentTombstoneCleanupCycle := cyclemanager.New(
+		cyclemanager.NewFixedIntervalTicker(enthnsw.DefaultCleanupIntervalSeconds*time.Second),
+		parentTombstoneCleanupCallbacks.CycleCallback)
+	parentTombstoneCleanupCycle.Start()
+	defer parentTombstoneCleanupCycle.StopAndWait(ctx)
+	tombstoneCleanupCallbacks := cyclemanager.NewCycleCallbacks("childTombstoneCleanup", logger, 1)
+	tombstoneCleanupCallbacksCtrl := parentTombstoneCleanupCallbacks.Register("tombstoneCleanup", true, tombstoneCleanupCallbacks.CycleCallback)
+
+	combinedCtrl := cyclemanager.NewCycleCombinedCallbackCtrl(2, commitLoggerCallbacksCtrl, tombstoneCleanupCallbacksCtrl)
 
 	idx, err := New(Config{
 		RootPath:         dirName,
 		ID:               indexID,
-		Logger:           logrus.New(),
+		Logger:           logger,
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logrus.New(), cycles.CommitLogMaintenance())
+			return NewCommitLogger(dirName, indexID, logger, commitLoggerCallbacks)
 		},
-	}, enthnsw.NewDefaultUserConfig(), cycles.TombstoneCleanup())
+	}, enthnsw.NewDefaultUserConfig(),
+		tombstoneCleanupCallbacks, cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
 	require.Nil(t, err)
 	idx.PostStartup()
 
@@ -68,7 +85,7 @@ func TestBackup_Integration(t *testing.T) {
 	time.Sleep(time.Second)
 
 	t.Run("pause maintenance", func(t *testing.T) {
-		err = cycles.PauseMaintenance(ctx)
+		err = combinedCtrl.Deactivate(ctx)
 		require.Nil(t, err)
 	})
 
@@ -114,13 +131,13 @@ func TestBackup_Integration(t *testing.T) {
 	})
 
 	t.Run("resume maintenance", func(t *testing.T) {
-		err = cycles.ResumeMaintenance(ctx)
+		err = combinedCtrl.Activate()
 		require.Nil(t, err)
 	})
 
 	err = idx.Shutdown(ctx)
 	require.Nil(t, err)
 
-	err = cycles.Shutdown(ctx)
+	err = combinedCtrl.Unregister(ctx)
 	require.Nil(t, err)
 }

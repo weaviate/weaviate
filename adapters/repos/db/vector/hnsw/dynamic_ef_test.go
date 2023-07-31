@@ -91,7 +91,8 @@ func Test_DynamicEF(t *testing.T) {
 				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 					return nil, errors.Errorf("not implemented")
 				},
-			}, test.config, cyclemanager.NewNoop())
+			}, test.config,
+				cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
 			require.Nil(t, err)
 
 			actualEF := index.searchTimeEF(test.limit)
