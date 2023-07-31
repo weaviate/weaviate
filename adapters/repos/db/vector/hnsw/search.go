@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/rand"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
@@ -76,6 +77,23 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowLi
 		return h.flatSearch(vector, k, allowList)
 	}
 	return h.knnSearchByVector(vector, k, h.searchTimeEF(k), allowList)
+}
+
+func (h *hnsw) SearchByVectorWithFilters(vector []float32, k int, filters map[int]int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	h.compressActionLock.RLock()
+	defer h.compressActionLock.RUnlock()
+
+	if h.distancerProvider.Type() == "cosine-dot" {
+		// cosine-dot requires normalized vectors, as the dot product and cosine
+		// similarity are only identical if the vector is normalized
+		vector = distancer.Normalize(vector)
+	}
+
+	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
+	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
+		return h.flatSearch(vector, k, allowList)
+	}
+	return h.knnSearchByVectorWithFilters(vector, k, h.searchTimeEF(k), filters, allowList)
 }
 
 // SearchByVectorDistance wraps SearchByVector, and calls it recursively until
@@ -681,6 +699,124 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		eps.Insert(entryPointID, entryPointDistance)
 
 		res, err := h.searchLayerByVectorWithDistancer(searchVec, eps, 1, level, nil, byteDistancer)
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
+		}
+
+		// There might be situations where we did not find a better entrypoint at
+		// that particular level, so instead we're keeping whatever entrypoint we
+		// had before (i.e. either from a previous level or even the main
+		// entrypoint)
+		//
+		// If we do, however, have results, any candidate that's not nil (not
+		// deleted), and not under maintenance is a viable candidate
+		for res.Len() > 0 {
+			cand := res.Pop()
+			n := h.nodeByID(cand.ID)
+			if n == nil {
+				// we have found a node in results that is nil. This means it was
+				// deleted, but not cleaned up properly. Make sure to add a tombstone to
+				// this node, so it can be cleaned up in the next cycle.
+				if err := h.addTombstone(cand.ID); err != nil {
+					return nil, nil, err
+				}
+
+				// skip the nil node, as it does not make a valid entrypoint
+				continue
+			}
+
+			if !n.isUnderMaintenance() {
+				entryPointID = cand.ID
+				entryPointDistance = cand.Dist
+				break
+			}
+
+			// if we managed to go through the loop without finding a single
+			// suitable node, we simply stick with the original, i.e. the global
+			// entrypoint
+		}
+
+		h.pools.pqResults.Put(res)
+	}
+
+	eps := priorityqueue.NewMin(10)
+	eps.Insert(entryPointID, entryPointDistance)
+	res, err := h.searchLayerByVectorWithDistancer(searchVec, eps, ef, 0, allowList, byteDistancer)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
+	}
+
+	if h.shouldRescore() {
+		ids := make([]uint64, res.Len())
+		i := len(ids) - 1
+		for res.Len() > 0 {
+			res := res.Pop()
+			ids[i] = res.ID
+			i--
+		}
+		res.Reset()
+		for _, id := range ids {
+			dist, _, _ := h.distanceFromBytesToFloatNode(byteDistancer, id)
+			res.Insert(id, dist)
+			if res.Len() > ef {
+				res.Pop()
+			}
+		}
+
+	}
+
+	for res.Len() > k {
+		res.Pop()
+	}
+
+	ids := make([]uint64, res.Len())
+	dists := make([]float32, res.Len())
+
+	// results is ordered in reverse, we need to flip the order before presenting
+	// to the user!
+	i := len(ids) - 1
+	for res.Len() > 0 {
+		res := res.Pop()
+		ids[i] = res.ID
+		dists[i] = res.Dist
+		i--
+	}
+	h.pools.pqResults.Put(res)
+	return ids, dists, nil
+}
+
+func (h *hnsw) knnSearchByVectorWithFilters(searchVec []float32, k int,
+	ef int, filters map[int]int, allowList helpers.AllowList,
+) ([]uint64, []float32, error) {
+	if h.isEmpty() {
+		return nil, nil, nil
+	}
+
+	/* Select random filter for EP */
+	randomIndex := rand.Intn(len(filters))
+	epFilter := filters[randomIndex]
+	entryPointID := h.entryPointIDperFilterPerValue[epFilter][filters[epFilter]]
+	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
+	}
+
+	if !ok {
+		return nil, nil, fmt.Errorf("entrypoint was deleted in the object store, " +
+			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+	}
+
+	var byteDistancer *ssdhelpers.PQDistancer
+	if h.compressed.Load() {
+		byteDistancer = h.pq.NewDistancer(searchVec)
+		defer h.pq.ReturnDistancer(byteDistancer)
+	}
+	// stop at layer 1, not 0!
+	for level := h.currentMaximumLayer; level >= 1; level-- {
+		eps := priorityqueue.NewMin(10)
+		eps.Insert(entryPointID, entryPointDistance)
+
+		res, err := h.searchLayerByVectorWithDistancerWithFilters(searchVec, eps, 1, level, filters, nil, byteDistancer)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
 		}

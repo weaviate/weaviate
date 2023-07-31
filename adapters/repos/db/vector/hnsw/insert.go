@@ -395,7 +395,6 @@ func (h *hnsw) filteredInsert(node *vertex, nodeVec []float32) error {
 	— we want to make this the entrypoint for 1 and 2 as well.
 
 	=======================================================================
-
 	*/
 	epFilterMap := make(map[int]int)
 	epFilterMap[epFilter] = node.filters[epFilter]
@@ -420,12 +419,13 @@ func (h *hnsw) filteredInsert(node *vertex, nodeVec []float32) error {
 	// go h.insertHook(nodeId, targetLevel, neighborsAtLevel)
 	node.unmarkAsMaintenance()
 
+	// This might be wonky
 	h.Lock()
-	for _, filter := range node.filters {
-		if targetLevel > h.currentMaximumLayerPerFilterPerValue[filter][node.filters[filter]] {
+	for filter, filterValue := range node.filters {
+		if targetLevel > h.currentMaximumLayerPerFilterPerValue[filter][filterValue] {
 			/* h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel).. */
-			h.entryPointIDperFilterPerValue[filter][node.filters[filter]] = nodeId
-			h.currentMaximumLayerPerFilterPerValue[filter][node.filters[filter]] = targetLevel
+			h.entryPointIDperFilterPerValue[filter][filterValue] = nodeId
+			h.currentMaximumLayerPerFilterPerValue[filter][filterValue] = targetLevel
 		}
 	}
 	h.Unlock()
