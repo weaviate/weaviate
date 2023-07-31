@@ -45,7 +45,14 @@ message HybridSearchParams {
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated float vector = 3;
   float alpha = 4;
+  enum FusionType {
+    RANKED = 0;
+    RELATIVE_SCORE = 1;
+  }
+  FusionType fusion_type = 5;
 }
+
+
 
 message BM25SearchParams {
   string query = 1;

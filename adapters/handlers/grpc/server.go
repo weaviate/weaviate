@@ -17,6 +17,8 @@ import (
 	"net"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaManager "github.com/weaviate/weaviate/usecases/schema"
 
@@ -367,7 +369,13 @@ func searchParamsFromProto(req *pb.SearchRequest) (dto.GetParams, error) {
 	}
 
 	if hs := req.HybridSearch; hs != nil {
-		out.HybridSearch = &searchparams.HybridSearch{Query: hs.Query, Properties: hs.Properties, Vector: hs.Vector, Alpha: float64(hs.Alpha)}
+		fusionType := common_filters.HybridRankedFusion
+		if hs.FusionType == pb.HybridSearchParams_RANKED {
+			fusionType = common_filters.HybridRankedFusion
+		} else if hs.FusionType == pb.HybridSearchParams_RELATIVE_SCORE {
+			fusionType = common_filters.HybridRelativeScoreFusion
+		}
+		out.HybridSearch = &searchparams.HybridSearch{Query: hs.Query, Properties: hs.Properties, Vector: hs.Vector, Alpha: float64(hs.Alpha), FusionAlgorithm: fusionType}
 	}
 
 	if bm25 := req.Bm25Search; bm25 != nil {
