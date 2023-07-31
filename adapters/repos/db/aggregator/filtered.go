@@ -77,13 +77,10 @@ func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, 
 		return res, dists, nil
 	}
 
-	
-
 	res, err := hybrid.Search(ctx, &hybrid.Params{
 		HybridSearch: fa.params.Hybrid,
 		Class:        fa.params.ClassName.String(),
 	}, fa.logger, sparseSearch, denseSearch, nil, nil)
-
 	if err != nil {
 		return nil, err
 	}

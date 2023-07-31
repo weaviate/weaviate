@@ -278,8 +278,8 @@ func (e *Explorer) CalculateTotalLimit(pagination *filters.Pagination) (int, err
 	}
 
 	TotalLimit := pagination.Offset + pagination.Limit
-	
-	return  MinInt(TotalLimit, int(e.config.QueryMaximumResults)), nil
+
+	return MinInt(TotalLimit, int(e.config.QueryMaximumResults)), nil
 }
 
 func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
@@ -294,7 +294,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			return nil, nil, fmt.Errorf("invalid params, pagination object is nil")
 		}
 
-		TotalLimit ,err:= e.CalculateTotalLimit(params.Pagination)
+		TotalLimit, err := e.CalculateTotalLimit(params.Pagination)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -302,7 +302,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		enforcedMin := MaxInt(params.Pagination.Offset+100, TotalLimit)
 
 		oldLimit := params.Pagination.Limit
-		params.Pagination.Limit = enforcedMin-params.Pagination.Offset
+		params.Pagination.Limit = enforcedMin - params.Pagination.Offset
 
 		res, dists, err := e.searcher.SparseObjectSearch(ctx, params)
 		if err != nil {

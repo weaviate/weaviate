@@ -40,7 +40,6 @@ var defaultConfig = config.Config{
 	QueryMaximumResults: 100,
 }
 
-
 func Test_Explorer_GetClass(t *testing.T) {
 	t.Run("when an explore param is set for nearVector", func(t *testing.T) {
 		// TODO: this is a module specific test case, which relies on the

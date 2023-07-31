@@ -86,10 +86,8 @@ type Searcher struct {
 	modulesProvider  modulesProvider
 }
 
-
-
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
-func Search(ctx context.Context, params *Params, logger logrus.FieldLogger,  sparseSearch sparseSearchFunc, denseSearch denseSearchFunc , postProc postProcFunc, modules modulesProvider) (Results, error) {
+func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc, denseSearch denseSearchFunc, postProc postProcFunc, modules modulesProvider) (Results, error) {
 	var (
 		found   [][]*Result
 		weights []float64
@@ -173,7 +171,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger,  spa
 	return fused, nil
 }
 
-func  processSparseSearch(results []*storobj.Object, weights []float32, err error) ([]*Result, error) {
+func processSparseSearch(results []*storobj.Object, weights []float32, err error) ([]*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sparse search: %w", err)
 	}
@@ -188,7 +186,7 @@ func  processSparseSearch(results []*storobj.Object, weights []float32, err erro
 	return out, nil
 }
 
-func  processDenseSearch(ctx context.Context, denseSearch denseSearchFunc, params *Params, modules modulesProvider) ([]*Result, error) {
+func processDenseSearch(ctx context.Context, denseSearch denseSearchFunc, params *Params, modules modulesProvider) ([]*Result, error) {
 	vector, err := decideSearchVector(ctx, params, modules)
 	if err != nil {
 		return nil, err
@@ -211,7 +209,7 @@ func  processDenseSearch(ctx context.Context, denseSearch denseSearchFunc, param
 	return out, nil
 }
 
-func  handleSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, sparseSearch sparseSearchFunc, params *Params, modules modulesProvider) ([]*Result, float64, error) {
+func handleSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, sparseSearch sparseSearchFunc, params *Params, modules modulesProvider) ([]*Result, float64, error) {
 	switch subsearch.Type {
 	case "bm25":
 		fallthrough
@@ -245,7 +243,7 @@ func sparseSubSearch(subsearch *searchparams.WeightedSearchResult, params *Param
 	return out, subsearch.Weight, nil
 }
 
-func  nearTextSubSearch(ctx context.Context,subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, params *Params, modules modulesProvider) ([]*Result, float64, error) {
+func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, params *Params, modules modulesProvider) ([]*Result, float64, error) {
 	sp := subsearch.SearchParams.(searchparams.NearTextParams)
 	if modules == nil {
 		return nil, 0, nil
