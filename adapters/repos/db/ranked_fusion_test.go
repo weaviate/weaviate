@@ -851,37 +851,15 @@ func (m *fakeMetrics) AddUsageDimensions(class, query, op string, dims int) {
 type fakeObjectSearcher struct{}
 
 func (f *fakeObjectSearcher) Search(context.Context, dto.GetParams) ([]search.Result, error) {
-	out := search.Results{
-		search.Result{
-			ID:     "1889a225-3b28-477d-b8fc-5f6071bb4731",
-			Vector: []float32{1, 2, 3},
-			Score:  0.008,
-		},
-		search.Result{
-			ID:     "79a636c2-3314-442e-a4d1-e94d7c0afc3a",
-			Vector: []float32{4, 5, 6},
-			Score:  0.001,
-		},
-	}
 
-	return out, nil
+
+	return nil, nil
 }
 
 func (f *fakeObjectSearcher) VectorSearch(context.Context, dto.GetParams) ([]search.Result, error) {
-	out := search.Results{
-		search.Result{
-			ID:     "79a636c2-3314-442e-a4d1-e94d7c0afc3a",
-			Vector: []float32{4, 5, 6},
-			Score:  0.001,
-		},
-		search.Result{
-			ID:     "1889a225-3b28-477d-b8fc-5f6071bb4731",
-			Vector: []float32{1, 2, 3},
-			Score:  0.008,
-		},
-	}
 
-	return out, nil
+
+	return nil, nil
 }
 
 func (f *fakeObjectSearcher) CrossClassVectorSearch(context.Context, []float32, int, int, *filters.LocalFilter) ([]search.Result, error) {
