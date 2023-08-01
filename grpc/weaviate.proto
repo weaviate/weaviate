@@ -20,6 +20,9 @@ message SearchRequest {
   Properties properties = 6;
   HybridSearchParams hybrid_search =7;
   BM25SearchParams bm25_search =8;
+  uint32 offset = 9;
+  uint32 autocut = 10;
+  string after = 11;
 }
 
 message AdditionalProperties {
