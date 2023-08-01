@@ -194,9 +194,9 @@ func extractAdditionalProps(asMap map[string]any, searchParams dto.GetParams) (*
 		additionalProps.CertaintyPresent = false
 		certainty, ok := additionalPropertiesMap["certainty"]
 		if ok {
-			certaintyfmt, ok2 := certainty.(float32)
+			certaintyfmt, ok2 := certainty.(float64)
 			if ok2 {
-				additionalProps.Certainty = certaintyfmt
+				additionalProps.Certainty = float32(certaintyfmt)
 				additionalProps.CertaintyPresent = true
 			}
 		}
@@ -362,7 +362,7 @@ func searchParamsFromProto(req *pb.SearchRequest) (dto.GetParams, error) {
 		out.AdditionalProperties.Vector = req.AdditionalProperties.Vector
 		out.AdditionalProperties.Distance = req.AdditionalProperties.Distance
 		out.AdditionalProperties.LastUpdateTimeUnix = req.AdditionalProperties.LastUpdateTimeUnix
-		out.AdditionalProperties.CreationTimeUnix = req.AdditionalProperties.Distance
+		out.AdditionalProperties.CreationTimeUnix = req.AdditionalProperties.CreationTimeUnix
 		out.AdditionalProperties.Score = req.AdditionalProperties.Score
 		out.AdditionalProperties.Certainty = req.AdditionalProperties.Certainty
 		explainScore = req.AdditionalProperties.ExplainScore
