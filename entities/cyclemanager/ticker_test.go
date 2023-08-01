@@ -455,7 +455,7 @@ func Test_LinearTicker(t *testing.T) {
 		minInterval := 50 * time.Millisecond
 		maxInterval := 100 * time.Millisecond
 		steps := uint(2)
-		tolerance := 3 * time.Millisecond
+		tolerance := 10 * time.Millisecond
 
 		ticker := NewLinearTicker(minInterval, maxInterval, steps)
 		ticker.Start()

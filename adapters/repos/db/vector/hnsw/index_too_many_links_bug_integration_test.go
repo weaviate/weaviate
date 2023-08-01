@@ -47,22 +47,22 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	ctx := context.Background()
 
-	parentCommitLoggerCallbacks := cyclemanager.NewCycleCallbacks("parentCommitLogger", logger, 1)
-	parentCommitLoggerCycle := cyclemanager.New(
+	parentCommitLoggerCallbacks := cyclemanager.NewCallbackGroup("parentCommitLogger", logger, 1)
+	parentCommitLoggerCycle := cyclemanager.NewManager(
 		cyclemanager.HnswCommitLoggerCycleTicker(),
 		parentCommitLoggerCallbacks.CycleCallback)
 	parentCommitLoggerCycle.Start()
 	defer parentCommitLoggerCycle.StopAndWait(ctx)
-	commitLoggerCallbacks := cyclemanager.NewCycleCallbacks("childCommitLogger", logger, 1)
+	commitLoggerCallbacks := cyclemanager.NewCallbackGroup("childCommitLogger", logger, 1)
 	commitLoggerCallbacksCtrl := parentCommitLoggerCallbacks.Register("commitLogger", commitLoggerCallbacks.CycleCallback)
 
-	parentTombstoneCleanupCallbacks := cyclemanager.NewCycleCallbacks("parentTombstoneCleanup", logger, 1)
-	parentTombstoneCleanupCycle := cyclemanager.New(
+	parentTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup("parentTombstoneCleanup", logger, 1)
+	parentTombstoneCleanupCycle := cyclemanager.NewManager(
 		cyclemanager.NewFixedTicker(1),
 		parentTombstoneCleanupCallbacks.CycleCallback)
 	parentTombstoneCleanupCycle.Start()
 	defer parentTombstoneCleanupCycle.StopAndWait(ctx)
-	tombstoneCleanupCallbacks := cyclemanager.NewCycleCallbacks("childTombstoneCleanup", logger, 1)
+	tombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup("childTombstoneCleanup", logger, 1)
 	tombstoneCleanupCallbacksCtrl := parentTombstoneCleanupCallbacks.Register("tombstoneCleanup", tombstoneCleanupCallbacks.CycleCallback)
 
 	original, err := NewCommitLogger(rootPath, "too_many_links_test", logger, commitLoggerCallbacks,
@@ -103,7 +103,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 2 * n,
 		},
-			tombstoneCleanupCallbacks, cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+			tombstoneCleanupCallbacks, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		require.Nil(t, err)
 		idx.PostStartup()
 		index = idx
@@ -238,7 +238,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 2 * n,
 		},
-			tombstoneCleanupCallbacks, cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+			tombstoneCleanupCallbacks, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		require.Nil(t, err)
 		idx.PostStartup()
 		index = idx

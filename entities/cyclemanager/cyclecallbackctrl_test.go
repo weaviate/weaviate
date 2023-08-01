@@ -35,12 +35,12 @@ func TestCycleCombineCallbackCtrl_Unregister(t *testing.T) {
 			return true
 		}
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl1 := callbacks.Register("c1", callback1)
 		ctrl2 := callbacks.Register("c2", callback2)
 		combinedCtrl := NewCycleCombinedCallbackCtrl(2, ctrl1, ctrl2)
 
-		cycle := New(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
+		cycle := NewManager(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
 		cycle.Start()
 		defer cycle.StopAndWait(ctx)
 
@@ -65,12 +65,12 @@ func TestCycleCombineCallbackCtrl_Unregister(t *testing.T) {
 			return true
 		}
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl1 := callbacks.Register("c1", callback1)
 		ctrl2 := callbacks.Register("c2", callback2)
 		combinedCtrl := NewCycleCombinedCallbackCtrl(2, ctrl1, ctrl2)
 
-		cycle := New(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
+		cycle := NewManager(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
 		cycle.Start()
 		defer cycle.StopAndWait(ctx)
 
@@ -94,12 +94,12 @@ func TestCycleCombineCallbackCtrl_Unregister(t *testing.T) {
 			return true
 		}
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrlShort := callbacks.Register("short", callbackShort)
 		ctrlLong := callbacks.Register("long", callbackLong)
 		combinedCtrl := NewCycleCombinedCallbackCtrl(2, ctrlShort, ctrlLong)
 
-		cycle := New(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
+		cycle := NewManager(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
 		cycle.Start()
 		defer cycle.StopAndWait(ctx)
 
@@ -133,12 +133,12 @@ func TestCycleCombineCallbackCtrl_Deactivate(t *testing.T) {
 			return true
 		}
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl1 := callbacks.Register("c1", callback1)
 		ctrl2 := callbacks.Register("c2", callback2)
 		combinedCtrl := NewCycleCombinedCallbackCtrl(2, ctrl1, ctrl2)
 
-		cycle := New(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
+		cycle := NewManager(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
 		cycle.Start()
 		defer cycle.StopAndWait(ctx)
 
@@ -163,12 +163,12 @@ func TestCycleCombineCallbackCtrl_Deactivate(t *testing.T) {
 			return true
 		}
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl1 := callbacks.Register("c1", callback1)
 		ctrl2 := callbacks.Register("c2", callback2)
 		combinedCtrl := NewCycleCombinedCallbackCtrl(2, ctrl1, ctrl2)
 
-		cycle := New(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
+		cycle := NewManager(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
 		cycle.Start()
 		defer cycle.StopAndWait(ctx)
 
@@ -192,12 +192,12 @@ func TestCycleCombineCallbackCtrl_Deactivate(t *testing.T) {
 			return true
 		}
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrlShort := callbacks.Register("short", callbackShort)
 		ctrlLong := callbacks.Register("long", callbackLong)
 		combinedCtrl := NewCycleCombinedCallbackCtrl(2, ctrlShort, ctrlLong)
 
-		cycle := New(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
+		cycle := NewManager(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
 		cycle.Start()
 		defer cycle.StopAndWait(ctx)
 
@@ -231,12 +231,12 @@ func TestCycleCombineCallbackCtrl_Activate(t *testing.T) {
 			return true
 		}
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl1 := callbacks.Register("c1", callback1, AsInactive())
 		ctrl2 := callbacks.Register("c2", callback2, AsInactive())
 		combinedCtrl := NewCycleCombinedCallbackCtrl(2, ctrl1, ctrl2)
 
-		cycle := New(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
+		cycle := NewManager(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
 		cycle.Start()
 		defer cycle.StopAndWait(ctx)
 

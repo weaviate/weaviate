@@ -21,14 +21,14 @@ import (
 
 // Container for multiple callbacks exposing CycleCallback method acting as single callback.
 // Can be provided to CycleManager.
-type CycleCallbacks interface {
+type CycleCallbackGroup interface {
 	// Adds CycleCallback method to container
 	Register(id string, cycleCallback CycleCallback, options ...RegisterOption) CycleCallbackCtrl
 	// Method of CycleCallback acting as single callback for all callbacks added to the container
 	CycleCallback(shouldAbort ShouldAbortCallback) bool
 }
 
-type cycleCallbacks struct {
+type cycleCallbackGroup struct {
 	sync.Mutex
 
 	logger        logrus.FieldLogger
@@ -39,8 +39,8 @@ type cycleCallbacks struct {
 	callbacks     map[uint32]*cycleCallbackMeta
 }
 
-func NewCycleCallbacks(id string, logger logrus.FieldLogger, routinesLimit int) CycleCallbacks {
-	return &cycleCallbacks{
+func NewCallbackGroup(id string, logger logrus.FieldLogger, routinesLimit int) CycleCallbackGroup {
+	return &cycleCallbackGroup{
 		logger:        logger,
 		customId:      id,
 		routinesLimit: routinesLimit,
@@ -50,7 +50,7 @@ func NewCycleCallbacks(id string, logger logrus.FieldLogger, routinesLimit int) 
 	}
 }
 
-func (c *cycleCallbacks) Register(id string, cycleCallback CycleCallback, options ...RegisterOption) CycleCallbackCtrl {
+func (c *cycleCallbackGroup) Register(id string, cycleCallback CycleCallback, options ...RegisterOption) CycleCallbackCtrl {
 	c.Lock()
 	defer c.Unlock()
 
@@ -84,14 +84,14 @@ func (c *cycleCallbacks) Register(id string, cycleCallback CycleCallback, option
 	}
 }
 
-func (c *cycleCallbacks) CycleCallback(shouldAbort ShouldAbortCallback) bool {
+func (c *cycleCallbackGroup) CycleCallback(shouldAbort ShouldAbortCallback) bool {
 	if c.routinesLimit <= 1 {
 		return c.cycleCallbackSequential(shouldAbort)
 	}
 	return c.cycleCallbackParallel(shouldAbort, c.routinesLimit)
 }
 
-func (c *cycleCallbacks) cycleCallbackSequential(shouldAbort ShouldAbortCallback) bool {
+func (c *cycleCallbackGroup) cycleCallbackSequential(shouldAbort ShouldAbortCallback) bool {
 	anyExecuted := false
 	i := 0
 	for {
@@ -152,7 +152,7 @@ func (c *cycleCallbacks) cycleCallbackSequential(shouldAbort ShouldAbortCallback
 	return anyExecuted
 }
 
-func (c *cycleCallbacks) cycleCallbackParallel(shouldAbort ShouldAbortCallback, routinesLimit int) bool {
+func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallback, routinesLimit int) bool {
 	anyExecuted := false
 	ch := make(chan uint32)
 	lock := new(sync.Mutex)
@@ -163,6 +163,11 @@ func (c *cycleCallbacks) cycleCallbackParallel(shouldAbort ShouldAbortCallback, 
 	for r := 0; r < routinesLimit; r++ {
 		go func() {
 			for callbackId := range ch {
+				if shouldAbort() {
+					// keep reading from channel until it is closed
+					continue
+				}
+
 				c.Lock()
 				meta, ok := c.callbacks[callbackId]
 				// callback missing or deactivated, proceed to the next one
@@ -236,7 +241,7 @@ func (c *cycleCallbacks) cycleCallbackParallel(shouldAbort ShouldAbortCallback, 
 	return anyExecuted
 }
 
-func (c *cycleCallbacks) recover(callbackCustomId string, cancel context.CancelFunc) {
+func (c *cycleCallbackGroup) recover(callbackCustomId string, cancel context.CancelFunc) {
 	if r := recover(); r != nil {
 		c.logger.WithFields(logrus.Fields{
 			"action":       "cyclemanager",
@@ -247,7 +252,7 @@ func (c *cycleCallbacks) recover(callbackCustomId string, cancel context.CancelF
 	cancel()
 }
 
-func (c *cycleCallbacks) mutateCallback(ctx context.Context, callbackId uint32,
+func (c *cycleCallbackGroup) mutateCallback(ctx context.Context, callbackId uint32,
 	onNotFound func(callbackId uint32) error,
 	onFound func(callbackId uint32, meta *cycleCallbackMeta) error,
 ) error {
@@ -292,7 +297,7 @@ func (c *cycleCallbacks) mutateCallback(ctx context.Context, callbackId uint32,
 	}
 }
 
-func (c *cycleCallbacks) unregister(ctx context.Context, callbackId uint32, callbackCustomId string) error {
+func (c *cycleCallbackGroup) unregister(ctx context.Context, callbackId uint32, callbackCustomId string) error {
 	err := c.mutateCallback(ctx, callbackId,
 		func(callbackId uint32) error {
 			return nil
@@ -305,7 +310,7 @@ func (c *cycleCallbacks) unregister(ctx context.Context, callbackId uint32, call
 	return errorUnregisterCallback(callbackCustomId, c.customId, err)
 }
 
-func (c *cycleCallbacks) deactivate(ctx context.Context, callbackId uint32, callbackCustomId string) error {
+func (c *cycleCallbackGroup) deactivate(ctx context.Context, callbackId uint32, callbackCustomId string) error {
 	err := c.mutateCallback(ctx, callbackId,
 		func(callbackId uint32) error {
 			return ErrorCallbackNotFound
@@ -318,7 +323,7 @@ func (c *cycleCallbacks) deactivate(ctx context.Context, callbackId uint32, call
 	return errorDeactivateCallback(callbackCustomId, c.customId, err)
 }
 
-func (c *cycleCallbacks) activate(callbackId uint32, callbackCustomId string) error {
+func (c *cycleCallbackGroup) activate(callbackId uint32, callbackCustomId string) error {
 	c.Lock()
 	defer c.Unlock()
 
@@ -331,7 +336,7 @@ func (c *cycleCallbacks) activate(callbackId uint32, callbackCustomId string) er
 	return nil
 }
 
-func (c *cycleCallbacks) isActive(callbackId uint32, callbackCustomId string) bool {
+func (c *cycleCallbackGroup) isActive(callbackId uint32, callbackCustomId string) bool {
 	c.Lock()
 	defer c.Unlock()
 
@@ -353,17 +358,17 @@ type cycleCallbackMeta struct {
 	intervals  CycleIntervals
 }
 
-type cycleCallbacksNoop struct{}
+type cycleCallbackGroupNoop struct{}
 
-func NewCycleCallbacksNoop() CycleCallbacks {
-	return &cycleCallbacksNoop{}
+func NewCallbackGroupNoop() CycleCallbackGroup {
+	return &cycleCallbackGroupNoop{}
 }
 
-func (c *cycleCallbacksNoop) Register(id string, cycleCallback CycleCallback, options ...RegisterOption) CycleCallbackCtrl {
+func (c *cycleCallbackGroupNoop) Register(id string, cycleCallback CycleCallback, options ...RegisterOption) CycleCallbackCtrl {
 	return NewCycleCallbackCtrlNoop()
 }
 
-func (c *cycleCallbacksNoop) CycleCallback(shouldAbort ShouldAbortCallback) bool {
+func (c *cycleCallbackGroupNoop) CycleCallback(shouldAbort ShouldAbortCallback) bool {
 	return false
 }
 

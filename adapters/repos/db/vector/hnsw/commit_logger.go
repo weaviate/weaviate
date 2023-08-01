@@ -41,7 +41,7 @@ func commitLogDirectory(rootPath, name string) string {
 }
 
 func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
-	maintenanceCallbacks cyclemanager.CycleCallbacks, opts ...CommitlogOption,
+	maintenanceCallbacks cyclemanager.CycleCallbackGroup, opts ...CommitlogOption,
 ) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
 		rootPath:  rootPath,
