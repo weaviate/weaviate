@@ -277,9 +277,9 @@ func (e *Explorer) CalculateTotalLimit(pagination *filters.Pagination) (int, err
 		return int(e.config.QueryDefaults.Limit + int64(pagination.Offset)), nil
 	}
 
-	TotalLimit := pagination.Offset + pagination.Limit
+	totalLimit := pagination.Offset + pagination.Limit
 
-	return MinInt(TotalLimit, int(e.config.QueryMaximumResults)), nil
+	return MinInt(totalLimit, int(e.config.QueryMaximumResults)), nil
 }
 
 func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
@@ -294,12 +294,12 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			return nil, nil, fmt.Errorf("invalid params, pagination object is nil")
 		}
 
-		TotalLimit, err := e.CalculateTotalLimit(params.Pagination)
+		totalLimit, err := e.CalculateTotalLimit(params.Pagination)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		enforcedMin := MaxInt(params.Pagination.Offset+hybrid.DefaultLimit, TotalLimit)
+		enforcedMin := MaxInt(params.Pagination.Offset+hybrid.DefaultLimit, totalLimit)
 
 		oldLimit := params.Pagination.Limit
 		params.Pagination.Limit = enforcedMin - params.Pagination.Offset
@@ -315,7 +315,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
 		baseSearchLimit := params.Pagination.Limit + params.Pagination.Offset
-		hybridSearchLimit := -1
+		var hybridSearchLimit int
 		if baseSearchLimit <= hybrid.DefaultLimit {
 			hybridSearchLimit = hybrid.DefaultLimit
 		} else {
@@ -333,13 +333,13 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 	postProcess := func(results hybrid.Results) ([]search.Result, error) {
 		res1 := results.SearchResults()
-		TotalLimit, err := e.CalculateTotalLimit(params.Pagination)
+		totalLimit, err := e.CalculateTotalLimit(params.Pagination)
 		if err != nil {
 			return nil, err
 		}
 
-		if len(res1) > TotalLimit {
-			res1 = res1[:TotalLimit]
+		if len(res1) > totalLimit {
+			res1 = res1[:totalLimit]
 		}
 
 		res, err := e.searcher.ResolveReferences(ctx, res1, params.Properties, nil, params.AdditionalProperties, "")
