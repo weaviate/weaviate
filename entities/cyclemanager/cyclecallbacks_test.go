@@ -52,8 +52,8 @@ func TestCycleCallback_Parallel(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		callbacks.Register("c1", true, callback1)
-		callbacks.Register("c2", true, callback2)
+		callbacks.Register("c1", callback1)
+		callbacks.Register("c2", callback2)
 
 		start := time.Now()
 		executed = callbacks.CycleCallback(shouldNotAbort)
@@ -82,8 +82,8 @@ func TestCycleCallback_Parallel(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		callbacks.Register("c1", true, callback1)
-		callbacks.Register("c2", true, callback2)
+		callbacks.Register("c1", callback1)
+		callbacks.Register("c2", callback2)
 
 		start := time.Now()
 		executed = callbacks.CycleCallback(shouldNotAbort)
@@ -117,8 +117,8 @@ func TestCycleCallback_Parallel(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		callbacks.Register("c1", true, callback1)
-		callbacks.Register("c2", true, callback2)
+		callbacks.Register("c1", callback1)
+		callbacks.Register("c2", callback2)
 
 		start := time.Now()
 		executed = callbacks.CycleCallback(shouldAbort)
@@ -161,9 +161,9 @@ func TestCycleCallback_Parallel(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		callbacks.Register("c1", true, callback1)
-		callbacks.Register("c2", true, callback2)
-		callbacks.Register("c3", true, callback3)
+		callbacks.Register("c1", callback1)
+		callbacks.Register("c2", callback2)
+		callbacks.Register("c3", callback3)
 
 		// register 4th callback while other are executed,
 		//
@@ -179,7 +179,7 @@ func TestCycleCallback_Parallel(t *testing.T) {
 		}()
 		<-chStarted
 		time.Sleep(25 * time.Millisecond)
-		callbacks.Register("c4", true, callback4)
+		callbacks.Register("c4", callback4)
 		<-chFinished
 
 		assert.True(t, executed)
@@ -188,6 +188,81 @@ func TestCycleCallback_Parallel(t *testing.T) {
 		assert.Equal(t, 1, executedCounter3)
 		assert.Equal(t, 1, executedCounter4)
 		assert.GreaterOrEqual(t, d, 100*time.Millisecond)
+	})
+
+	t.Run("run with intervals", func(T *testing.T) {
+		ticker := NewFixedTicker(10 * time.Millisecond)
+		intervals2 := NewSeriesIntervals([]time.Duration{
+			10 * time.Millisecond, 30 * time.Millisecond, 50 * time.Millisecond,
+		})
+		intervals3 := NewFixedIntervals(60 * time.Millisecond)
+		now := time.Now()
+
+		executionTimes1 := []time.Duration{}
+		callback1 := func(shouldAbort ShouldAbortCallback) bool {
+			executionTimes1 = append(executionTimes1, time.Since(now))
+			return true
+		}
+		executionCounter2 := 0
+		executionTimes2 := []time.Duration{}
+		callback2 := func(shouldAbort ShouldAbortCallback) bool {
+			executionCounter2++
+			executionTimes2 = append(executionTimes2, time.Since(now))
+			// reports executed every 3 calls, should result in 10, 30, 50, 50, 10, 30, 50, 50, ... intervals
+			return executionCounter2%4 == 0
+		}
+		executionTimes3 := []time.Duration{}
+		callback3 := func(shouldAbort ShouldAbortCallback) bool {
+			executionTimes3 = append(executionTimes3, time.Since(now))
+			return true
+		}
+
+		callbacks := NewCycleCallbacks("id", logger, 2)
+		// should be called on every tick, with 10 intervals
+		callbacks.Register("c1", callback1)
+		// should be called with 10, 30, 50, 50, 10, 30, 50, 50, ... intervals
+		callbacks.Register("c2", callback2, WithIntervals(intervals2))
+		// should be called with 60, 60, ... intervals
+		callbacks.Register("c3", callback3, WithIntervals(intervals3))
+
+		cm := New(ticker, callbacks.CycleCallback)
+		cm.Start()
+		time.Sleep(350 * time.Millisecond)
+		cm.StopAndWait(context.Background())
+
+		// within 350 ms c1 should be called at least 30x
+		require.GreaterOrEqual(t, len(executionTimes1), 30)
+		// 1st call on 1st tick after 10ms
+		sumDuration := time.Duration(10)
+		for i := 0; i < 30; i++ {
+			assert.GreaterOrEqual(t, executionTimes1[i], sumDuration)
+			sumDuration += 10 * time.Millisecond
+		}
+
+		// within 350 ms c2 should be called at least 8x
+		require.GreaterOrEqual(t, len(executionTimes2), 8)
+		// 1st call on 1st tick after 10ms
+		sumDuration = time.Duration(0)
+		for i := 0; i < 8; i++ {
+			assert.GreaterOrEqual(t, executionTimes2[i], sumDuration)
+			switch (i + 1) % 4 {
+			case 0:
+				sumDuration += 10 * time.Millisecond
+			case 1:
+				sumDuration += 30 * time.Millisecond
+			case 2, 3:
+				sumDuration += 50 * time.Millisecond
+			}
+		}
+
+		// within 350 ms c3 should be called at least 6x
+		require.GreaterOrEqual(t, len(executionTimes3), 6)
+		// 1st call on 1st tick after 10ms
+		sumDuration = time.Duration(0)
+		for i := 0; i < 6; i++ {
+			assert.GreaterOrEqual(t, executionTimes3[i], sumDuration)
+			sumDuration += 60 * time.Millisecond
+		}
 	})
 }
 
@@ -207,7 +282,7 @@ func TestCycleCallback_Parallel_Unregister(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		ctrl := callbacks.Register("c1", true, callback)
+		ctrl := callbacks.Register("c1", callback)
 		require.Nil(t, ctrl.Unregister(ctx))
 
 		start := time.Now()
@@ -236,8 +311,8 @@ func TestCycleCallback_Parallel_Unregister(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		ctrl1 := callbacks.Register("c1", true, callback1)
-		ctrl2 := callbacks.Register("c2", true, callback2)
+		ctrl1 := callbacks.Register("c1", callback1)
+		ctrl2 := callbacks.Register("c2", callback2)
 		require.Nil(t, ctrl1.Unregister(ctx))
 		require.Nil(t, ctrl2.Unregister(ctx))
 
@@ -268,8 +343,8 @@ func TestCycleCallback_Parallel_Unregister(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		ctrl1 := callbacks.Register("c1", true, callback1)
-		callbacks.Register("c2", true, callback2)
+		ctrl1 := callbacks.Register("c1", callback1)
+		callbacks.Register("c2", callback2)
 		require.Nil(t, ctrl1.Unregister(ctx))
 
 		start := time.Now()
@@ -317,10 +392,10 @@ func TestCycleCallback_Parallel_Unregister(t *testing.T) {
 		var d4 time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		ctrl1 := callbacks.Register("c1", true, callback1)
-		ctrl2 := callbacks.Register("c2", true, callback2)
-		ctrl3 := callbacks.Register("c3", true, callback3)
-		ctrl4 := callbacks.Register("c4", true, callback4)
+		ctrl1 := callbacks.Register("c1", callback1)
+		ctrl2 := callbacks.Register("c2", callback2)
+		ctrl3 := callbacks.Register("c3", callback3)
+		ctrl4 := callbacks.Register("c4", callback4)
 		require.Nil(t, ctrl3.Unregister(ctx))
 
 		start := time.Now()
@@ -372,7 +447,7 @@ func TestCycleCallback_Parallel_Unregister(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		ctrl := callbacks.Register("c", true, callback)
+		ctrl := callbacks.Register("c", callback)
 
 		go func() {
 			chStarted <- struct{}{}
@@ -409,7 +484,7 @@ func TestCycleCallback_Parallel_Unregister(t *testing.T) {
 		var d2 time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		ctrl := callbacks.Register("c", true, callback)
+		ctrl := callbacks.Register("c", callback)
 
 		go func() {
 			chStarted <- struct{}{}
@@ -474,10 +549,10 @@ func TestCycleCallback_Parallel_Unregister(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		callbacks.Register("c1", true, callback1)
-		callbacks.Register("c2", true, callback2)
-		ctrl3 := callbacks.Register("c3", true, callback3)
-		ctrl4 := callbacks.Register("c4", true, callback4)
+		callbacks.Register("c1", callback1)
+		callbacks.Register("c2", callback2)
+		ctrl3 := callbacks.Register("c3", callback3)
+		ctrl4 := callbacks.Register("c4", callback4)
 
 		go func() {
 			chStarted <- struct{}{}
@@ -517,7 +592,7 @@ func TestCycleCallback_Parallel_Deactivate(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		ctrl := callbacks.Register("c1", true, callback)
+		ctrl := callbacks.Register("c1", callback)
 		require.Nil(t, ctrl.Deactivate(ctx))
 
 		start := time.Now()
@@ -546,8 +621,8 @@ func TestCycleCallback_Parallel_Deactivate(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		ctrl1 := callbacks.Register("c1", true, callback1)
-		ctrl2 := callbacks.Register("c2", true, callback2)
+		ctrl1 := callbacks.Register("c1", callback1)
+		ctrl2 := callbacks.Register("c2", callback2)
 		require.Nil(t, ctrl1.Deactivate(ctx))
 		require.Nil(t, ctrl2.Deactivate(ctx))
 
@@ -578,8 +653,8 @@ func TestCycleCallback_Parallel_Deactivate(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		ctrl1 := callbacks.Register("c1", true, callback1)
-		callbacks.Register("c2", true, callback2)
+		ctrl1 := callbacks.Register("c1", callback1)
+		callbacks.Register("c2", callback2)
 		require.Nil(t, ctrl1.Deactivate(ctx))
 
 		start := time.Now()
@@ -627,10 +702,10 @@ func TestCycleCallback_Parallel_Deactivate(t *testing.T) {
 		var d4 time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		ctrl1 := callbacks.Register("c1", true, callback1)
-		ctrl2 := callbacks.Register("c2", true, callback2)
-		ctrl3 := callbacks.Register("c3", true, callback3)
-		ctrl4 := callbacks.Register("c4", true, callback4)
+		ctrl1 := callbacks.Register("c1", callback1)
+		ctrl2 := callbacks.Register("c2", callback2)
+		ctrl3 := callbacks.Register("c3", callback3)
+		ctrl4 := callbacks.Register("c4", callback4)
 		require.Nil(t, ctrl3.Deactivate(ctx))
 
 		start := time.Now()
@@ -682,7 +757,7 @@ func TestCycleCallback_Parallel_Deactivate(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		ctrl := callbacks.Register("c", true, callback)
+		ctrl := callbacks.Register("c", callback)
 
 		go func() {
 			chStarted <- struct{}{}
@@ -719,7 +794,7 @@ func TestCycleCallback_Parallel_Deactivate(t *testing.T) {
 		var d2 time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		ctrl := callbacks.Register("c", true, callback)
+		ctrl := callbacks.Register("c", callback)
 
 		go func() {
 			chStarted <- struct{}{}
@@ -784,10 +859,10 @@ func TestCycleCallback_Parallel_Deactivate(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		callbacks.Register("c1", true, callback1)
-		callbacks.Register("c2", true, callback2)
-		ctrl3 := callbacks.Register("c3", true, callback3)
-		ctrl4 := callbacks.Register("c4", true, callback4)
+		callbacks.Register("c1", callback1)
+		callbacks.Register("c2", callback2)
+		ctrl3 := callbacks.Register("c3", callback3)
+		ctrl4 := callbacks.Register("c4", callback4)
 
 		go func() {
 			chStarted <- struct{}{}
@@ -842,8 +917,8 @@ func TestCycleCallback_Sequential(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 1)
-		callbacks.Register("c1", true, callback1)
-		callbacks.Register("c2", true, callback2)
+		callbacks.Register("c1", callback1)
+		callbacks.Register("c2", callback2)
 
 		start := time.Now()
 		executed = callbacks.CycleCallback(shouldNotAbort)
@@ -872,8 +947,8 @@ func TestCycleCallback_Sequential(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 1)
-		callbacks.Register("c1", true, callback1)
-		callbacks.Register("c2", true, callback2)
+		callbacks.Register("c1", callback1)
+		callbacks.Register("c2", callback2)
 
 		start := time.Now()
 		executed = callbacks.CycleCallback(shouldNotAbort)
@@ -908,8 +983,8 @@ func TestCycleCallback_Sequential(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 1)
-		callbacks.Register("c1", true, callback1)
-		callbacks.Register("c2", true, callback2)
+		callbacks.Register("c1", callback1)
+		callbacks.Register("c2", callback2)
 
 		start := time.Now()
 		executed = callbacks.CycleCallback(shouldAbort)
@@ -940,7 +1015,7 @@ func TestCycleCallback_Sequential(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 1)
-		callbacks.Register("c1", true, callback1)
+		callbacks.Register("c1", callback1)
 
 		go func() {
 			chStarted <- struct{}{}
@@ -951,13 +1026,88 @@ func TestCycleCallback_Sequential(t *testing.T) {
 		}()
 		<-chStarted
 		time.Sleep(25 * time.Millisecond)
-		callbacks.Register("c2", true, callback2)
+		callbacks.Register("c2", callback2)
 		<-chFinished
 
 		assert.True(t, executed)
 		assert.Equal(t, 1, executedCounter1)
 		assert.Equal(t, 1, executedCounter2)
 		assert.GreaterOrEqual(t, d, 100*time.Millisecond)
+	})
+
+	t.Run("run with intervals", func(T *testing.T) {
+		ticker := NewFixedTicker(10 * time.Millisecond)
+		intervals2 := NewSeriesIntervals([]time.Duration{
+			10 * time.Millisecond, 30 * time.Millisecond, 50 * time.Millisecond,
+		})
+		intervals3 := NewFixedIntervals(60 * time.Millisecond)
+		now := time.Now()
+
+		executionTimes1 := []time.Duration{}
+		callback1 := func(shouldAbort ShouldAbortCallback) bool {
+			executionTimes1 = append(executionTimes1, time.Since(now))
+			return true
+		}
+		executionCounter2 := 0
+		executionTimes2 := []time.Duration{}
+		callback2 := func(shouldAbort ShouldAbortCallback) bool {
+			executionCounter2++
+			executionTimes2 = append(executionTimes2, time.Since(now))
+			// reports executed every 3 calls, should result in 10, 30, 50, 50, 10, 30, 50, 50, ... intervals
+			return executionCounter2%4 == 0
+		}
+		executionTimes3 := []time.Duration{}
+		callback3 := func(shouldAbort ShouldAbortCallback) bool {
+			executionTimes3 = append(executionTimes3, time.Since(now))
+			return true
+		}
+
+		callbacks := NewCycleCallbacks("id", logger, 1)
+		// should be called on every tick, with 10 intervals
+		callbacks.Register("c1", callback1)
+		// should be called with 10, 30, 50, 50, 10, 30, 50, 50, ... intervals
+		callbacks.Register("c2", callback2, WithIntervals(intervals2))
+		// should be called with 60, 60, ... intervals
+		callbacks.Register("c3", callback3, WithIntervals(intervals3))
+
+		cm := New(ticker, callbacks.CycleCallback)
+		cm.Start()
+		time.Sleep(350 * time.Millisecond)
+		cm.StopAndWait(context.Background())
+
+		// within 350 ms c1 should be called at least 30x
+		require.GreaterOrEqual(t, len(executionTimes1), 30)
+		// 1st call on 1st tick after 10ms
+		sumDuration := time.Duration(10)
+		for i := 0; i < 30; i++ {
+			assert.GreaterOrEqual(t, executionTimes1[i], sumDuration)
+			sumDuration += 10 * time.Millisecond
+		}
+
+		// within 350 ms c2 should be called at least 8x
+		require.GreaterOrEqual(t, len(executionTimes2), 8)
+		// 1st call on 1st tick after 10ms
+		sumDuration = time.Duration(0)
+		for i := 0; i < 8; i++ {
+			assert.GreaterOrEqual(t, executionTimes2[i], sumDuration)
+			switch (i + 1) % 4 {
+			case 0:
+				sumDuration += 10 * time.Millisecond
+			case 1:
+				sumDuration += 30 * time.Millisecond
+			case 2, 3:
+				sumDuration += 50 * time.Millisecond
+			}
+		}
+
+		// within 350 ms c3 should be called at least 6x
+		require.GreaterOrEqual(t, len(executionTimes3), 6)
+		// 1st call on 1st tick after 10ms
+		sumDuration = time.Duration(0)
+		for i := 0; i < 6; i++ {
+			assert.GreaterOrEqual(t, executionTimes3[i], sumDuration)
+			sumDuration += 60 * time.Millisecond
+		}
 	})
 }
 
@@ -977,7 +1127,7 @@ func TestCycleCallback_Sequential_Unregister(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 1)
-		ctrl := callbacks.Register("c1", true, callback)
+		ctrl := callbacks.Register("c1", callback)
 		require.Nil(t, ctrl.Unregister(ctx))
 
 		start := time.Now()
@@ -1006,8 +1156,8 @@ func TestCycleCallback_Sequential_Unregister(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 1)
-		ctrl1 := callbacks.Register("c1", true, callback1)
-		ctrl2 := callbacks.Register("c2", true, callback2)
+		ctrl1 := callbacks.Register("c1", callback1)
+		ctrl2 := callbacks.Register("c2", callback2)
 		require.Nil(t, ctrl1.Unregister(ctx))
 		require.Nil(t, ctrl2.Unregister(ctx))
 
@@ -1038,8 +1188,8 @@ func TestCycleCallback_Sequential_Unregister(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 1)
-		ctrl1 := callbacks.Register("c1", true, callback1)
-		callbacks.Register("c2", true, callback2)
+		ctrl1 := callbacks.Register("c1", callback1)
+		callbacks.Register("c2", callback2)
 		require.Nil(t, ctrl1.Unregister(ctx))
 
 		start := time.Now()
@@ -1087,10 +1237,10 @@ func TestCycleCallback_Sequential_Unregister(t *testing.T) {
 		var d4 time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 1)
-		ctrl1 := callbacks.Register("c1", true, callback1)
-		ctrl2 := callbacks.Register("c2", true, callback2)
-		ctrl3 := callbacks.Register("c3", true, callback3)
-		ctrl4 := callbacks.Register("c4", true, callback4)
+		ctrl1 := callbacks.Register("c1", callback1)
+		ctrl2 := callbacks.Register("c2", callback2)
+		ctrl3 := callbacks.Register("c3", callback3)
+		ctrl4 := callbacks.Register("c4", callback4)
 		require.Nil(t, ctrl3.Unregister(ctx))
 
 		start := time.Now()
@@ -1142,7 +1292,7 @@ func TestCycleCallback_Sequential_Unregister(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 1)
-		ctrl := callbacks.Register("c", true, callback)
+		ctrl := callbacks.Register("c", callback)
 
 		go func() {
 			chStarted <- struct{}{}
@@ -1179,7 +1329,7 @@ func TestCycleCallback_Sequential_Unregister(t *testing.T) {
 		var d2 time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 1)
-		ctrl := callbacks.Register("c", true, callback)
+		ctrl := callbacks.Register("c", callback)
 
 		go func() {
 			chStarted <- struct{}{}
@@ -1238,9 +1388,9 @@ func TestCycleCallback_Sequential_Unregister(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 1)
-		callbacks.Register("c1", true, callback1)
-		ctrl2 := callbacks.Register("c2", true, callback2)
-		ctrl3 := callbacks.Register("c3", true, callback3)
+		callbacks.Register("c1", callback1)
+		ctrl2 := callbacks.Register("c2", callback2)
+		ctrl3 := callbacks.Register("c3", callback3)
 
 		go func() {
 			chStarted <- struct{}{}
@@ -1279,7 +1429,7 @@ func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 1)
-		ctrl := callbacks.Register("c1", true, callback)
+		ctrl := callbacks.Register("c1", callback)
 		require.Nil(t, ctrl.Deactivate(ctx))
 
 		start := time.Now()
@@ -1308,8 +1458,8 @@ func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 1)
-		ctrl1 := callbacks.Register("c1", true, callback1)
-		ctrl2 := callbacks.Register("c2", true, callback2)
+		ctrl1 := callbacks.Register("c1", callback1)
+		ctrl2 := callbacks.Register("c2", callback2)
 		require.Nil(t, ctrl1.Deactivate(ctx))
 		require.Nil(t, ctrl2.Deactivate(ctx))
 
@@ -1340,8 +1490,8 @@ func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 1)
-		ctrl1 := callbacks.Register("c1", true, callback1)
-		callbacks.Register("c2", true, callback2)
+		ctrl1 := callbacks.Register("c1", callback1)
+		callbacks.Register("c2", callback2)
 		require.Nil(t, ctrl1.Deactivate(ctx))
 
 		start := time.Now()
@@ -1389,10 +1539,10 @@ func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
 		var d4 time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 1)
-		ctrl1 := callbacks.Register("c1", true, callback1)
-		ctrl2 := callbacks.Register("c2", true, callback2)
-		ctrl3 := callbacks.Register("c3", true, callback3)
-		ctrl4 := callbacks.Register("c4", true, callback4)
+		ctrl1 := callbacks.Register("c1", callback1)
+		ctrl2 := callbacks.Register("c2", callback2)
+		ctrl3 := callbacks.Register("c3", callback3)
+		ctrl4 := callbacks.Register("c4", callback4)
 		require.Nil(t, ctrl3.Deactivate(ctx))
 
 		start := time.Now()
@@ -1444,7 +1594,7 @@ func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 1)
-		ctrl := callbacks.Register("c", true, callback)
+		ctrl := callbacks.Register("c", callback)
 
 		go func() {
 			chStarted <- struct{}{}
@@ -1481,7 +1631,7 @@ func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
 		var d2 time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 1)
-		ctrl := callbacks.Register("c", true, callback)
+		ctrl := callbacks.Register("c", callback)
 
 		go func() {
 			chStarted <- struct{}{}
@@ -1540,9 +1690,9 @@ func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
 		var d time.Duration
 
 		callbacks := NewCycleCallbacks("id", logger, 1)
-		callbacks.Register("c1", true, callback1)
-		ctrl2 := callbacks.Register("c2", true, callback2)
-		ctrl3 := callbacks.Register("c3", true, callback3)
+		callbacks.Register("c1", callback1)
+		ctrl2 := callbacks.Register("c2", callback2)
+		ctrl3 := callbacks.Register("c3", callback3)
 
 		go func() {
 			chStarted <- struct{}{}

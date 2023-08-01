@@ -278,7 +278,7 @@ func New(cfg Config, uc ent.UserConfig,
 		"hnsw", "tombstone_cleanup",
 		index.className, index.shardName, index.id,
 	}, "/")
-	index.tombstoneCleanupCallbackCtrl = tombstoneCallbacks.Register(id, true, index.tombstoneCleanup)
+	index.tombstoneCleanupCallbackCtrl = tombstoneCallbacks.Register(id, index.tombstoneCleanup)
 	index.insertMetrics = newInsertMetrics(index.metrics)
 
 	if err := index.init(cfg); err != nil {
