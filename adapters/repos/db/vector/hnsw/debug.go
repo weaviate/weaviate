@@ -123,7 +123,7 @@ func NewFromJSONDump(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
 		MaxConnections: 30,
 		EFConstruction: 128,
 	},
-		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +160,7 @@ func NewFromJSONDumpMap(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
 		MaxConnections: 30,
 		EFConstruction: 128,
 	},
-		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		return nil, err
 	}

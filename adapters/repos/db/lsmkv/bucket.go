@@ -82,7 +82,7 @@ type Bucket struct {
 // [Store]. In this case the [Store] can manage buckets for you, using methods
 // such as CreateOrLoadBucket().
 func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
-	metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbacks,
+	metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
 	opts ...BucketOption,
 ) (*Bucket, error) {
 	beforeAll := time.Now()

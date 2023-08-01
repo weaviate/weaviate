@@ -31,7 +31,7 @@ func TestBucketBackup_FlushMemtable(t *testing.T) {
 		dirName := t.TempDir()
 
 		b, err := NewBucket(ctx, dirName, dirName, logrus.New(), nil,
-			cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
@@ -52,7 +52,7 @@ func TestBucketBackup_ListFiles(t *testing.T) {
 	dirName := t.TempDir()
 
 	b, err := NewBucket(ctx, dirName, dirName, logrus.New(), nil,
-		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 

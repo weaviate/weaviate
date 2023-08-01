@@ -13,6 +13,7 @@ package cyclemanager
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,7 +29,7 @@ func TestCycleCallback_Parallel(t *testing.T) {
 	t.Run("no callbacks", func(t *testing.T) {
 		var executed bool
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 
 		executed = callbacks.CycleCallback(shouldNotAbort)
 
@@ -51,7 +52,7 @@ func TestCycleCallback_Parallel(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		callbacks.Register("c1", callback1)
 		callbacks.Register("c2", callback2)
 
@@ -81,7 +82,7 @@ func TestCycleCallback_Parallel(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		callbacks.Register("c1", callback1)
 		callbacks.Register("c2", callback2)
 
@@ -108,15 +109,14 @@ func TestCycleCallback_Parallel(t *testing.T) {
 			executedCounter2++
 			return true
 		}
-		shouldAbortCounter := 0
+		shouldAbortCounter := uint32(0)
 		shouldAbort := func() bool {
-			shouldAbortCounter++
-			return shouldAbortCounter > 1
+			return atomic.AddUint32(&shouldAbortCounter, 1) > 3
 		}
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		callbacks.Register("c1", callback1)
 		callbacks.Register("c2", callback2)
 
@@ -160,7 +160,7 @@ func TestCycleCallback_Parallel(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		callbacks.Register("c1", callback1)
 		callbacks.Register("c2", callback2)
 		callbacks.Register("c3", callback3)
@@ -217,7 +217,7 @@ func TestCycleCallback_Parallel(t *testing.T) {
 			return true
 		}
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		// should be called on every tick, with 10 intervals
 		callbacks.Register("c1", callback1)
 		// should be called with 10, 30, 50, 50, 10, 30, 50, 50, ... intervals
@@ -225,12 +225,12 @@ func TestCycleCallback_Parallel(t *testing.T) {
 		// should be called with 60, 60, ... intervals
 		callbacks.Register("c3", callback3, WithIntervals(intervals3))
 
-		cm := New(ticker, callbacks.CycleCallback)
+		cm := NewManager(ticker, callbacks.CycleCallback)
 		cm.Start()
-		time.Sleep(350 * time.Millisecond)
+		time.Sleep(400 * time.Millisecond)
 		cm.StopAndWait(context.Background())
 
-		// within 350 ms c1 should be called at least 30x
+		// within 400 ms c1 should be called at least 30x
 		require.GreaterOrEqual(t, len(executionTimes1), 30)
 		// 1st call on 1st tick after 10ms
 		sumDuration := time.Duration(10)
@@ -239,7 +239,7 @@ func TestCycleCallback_Parallel(t *testing.T) {
 			sumDuration += 10 * time.Millisecond
 		}
 
-		// within 350 ms c2 should be called at least 8x
+		// within 400 ms c2 should be called at least 8x
 		require.GreaterOrEqual(t, len(executionTimes2), 8)
 		// 1st call on 1st tick after 10ms
 		sumDuration = time.Duration(0)
@@ -255,7 +255,7 @@ func TestCycleCallback_Parallel(t *testing.T) {
 			}
 		}
 
-		// within 350 ms c3 should be called at least 6x
+		// within 400 ms c3 should be called at least 6x
 		require.GreaterOrEqual(t, len(executionTimes3), 6)
 		// 1st call on 1st tick after 10ms
 		sumDuration = time.Duration(0)
@@ -281,7 +281,7 @@ func TestCycleCallback_Parallel_Unregister(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl := callbacks.Register("c1", callback)
 		require.Nil(t, ctrl.Unregister(ctx))
 
@@ -310,7 +310,7 @@ func TestCycleCallback_Parallel_Unregister(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl1 := callbacks.Register("c1", callback1)
 		ctrl2 := callbacks.Register("c2", callback2)
 		require.Nil(t, ctrl1.Unregister(ctx))
@@ -342,7 +342,7 @@ func TestCycleCallback_Parallel_Unregister(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl1 := callbacks.Register("c1", callback1)
 		callbacks.Register("c2", callback2)
 		require.Nil(t, ctrl1.Unregister(ctx))
@@ -391,7 +391,7 @@ func TestCycleCallback_Parallel_Unregister(t *testing.T) {
 		var d3 time.Duration
 		var d4 time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl1 := callbacks.Register("c1", callback1)
 		ctrl2 := callbacks.Register("c2", callback2)
 		ctrl3 := callbacks.Register("c3", callback3)
@@ -446,7 +446,7 @@ func TestCycleCallback_Parallel_Unregister(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl := callbacks.Register("c", callback)
 
 		go func() {
@@ -483,7 +483,7 @@ func TestCycleCallback_Parallel_Unregister(t *testing.T) {
 		var d1 time.Duration
 		var d2 time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl := callbacks.Register("c", callback)
 
 		go func() {
@@ -548,7 +548,7 @@ func TestCycleCallback_Parallel_Unregister(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		callbacks.Register("c1", callback1)
 		callbacks.Register("c2", callback2)
 		ctrl3 := callbacks.Register("c3", callback3)
@@ -591,7 +591,7 @@ func TestCycleCallback_Parallel_Deactivate(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl := callbacks.Register("c1", callback)
 		require.Nil(t, ctrl.Deactivate(ctx))
 
@@ -620,7 +620,7 @@ func TestCycleCallback_Parallel_Deactivate(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl1 := callbacks.Register("c1", callback1)
 		ctrl2 := callbacks.Register("c2", callback2)
 		require.Nil(t, ctrl1.Deactivate(ctx))
@@ -652,7 +652,7 @@ func TestCycleCallback_Parallel_Deactivate(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl1 := callbacks.Register("c1", callback1)
 		callbacks.Register("c2", callback2)
 		require.Nil(t, ctrl1.Deactivate(ctx))
@@ -701,7 +701,7 @@ func TestCycleCallback_Parallel_Deactivate(t *testing.T) {
 		var d3 time.Duration
 		var d4 time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl1 := callbacks.Register("c1", callback1)
 		ctrl2 := callbacks.Register("c2", callback2)
 		ctrl3 := callbacks.Register("c3", callback3)
@@ -756,7 +756,7 @@ func TestCycleCallback_Parallel_Deactivate(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl := callbacks.Register("c", callback)
 
 		go func() {
@@ -793,7 +793,7 @@ func TestCycleCallback_Parallel_Deactivate(t *testing.T) {
 		var d1 time.Duration
 		var d2 time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl := callbacks.Register("c", callback)
 
 		go func() {
@@ -858,7 +858,7 @@ func TestCycleCallback_Parallel_Deactivate(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 2)
+		callbacks := NewCallbackGroup("id", logger, 2)
 		callbacks.Register("c1", callback1)
 		callbacks.Register("c2", callback2)
 		ctrl3 := callbacks.Register("c3", callback3)
@@ -893,7 +893,7 @@ func TestCycleCallback_Sequential(t *testing.T) {
 	t.Run("no callbacks", func(t *testing.T) {
 		var executed bool
 
-		callbacks := NewCycleCallbacks("id", logger, 1)
+		callbacks := NewCallbackGroup("id", logger, 1)
 
 		executed = callbacks.CycleCallback(shouldNotAbort)
 
@@ -916,7 +916,7 @@ func TestCycleCallback_Sequential(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 1)
+		callbacks := NewCallbackGroup("id", logger, 1)
 		callbacks.Register("c1", callback1)
 		callbacks.Register("c2", callback2)
 
@@ -946,7 +946,7 @@ func TestCycleCallback_Sequential(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 1)
+		callbacks := NewCallbackGroup("id", logger, 1)
 		callbacks.Register("c1", callback1)
 		callbacks.Register("c2", callback2)
 
@@ -982,7 +982,7 @@ func TestCycleCallback_Sequential(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 1)
+		callbacks := NewCallbackGroup("id", logger, 1)
 		callbacks.Register("c1", callback1)
 		callbacks.Register("c2", callback2)
 
@@ -1014,7 +1014,7 @@ func TestCycleCallback_Sequential(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 1)
+		callbacks := NewCallbackGroup("id", logger, 1)
 		callbacks.Register("c1", callback1)
 
 		go func() {
@@ -1062,7 +1062,7 @@ func TestCycleCallback_Sequential(t *testing.T) {
 			return true
 		}
 
-		callbacks := NewCycleCallbacks("id", logger, 1)
+		callbacks := NewCallbackGroup("id", logger, 1)
 		// should be called on every tick, with 10 intervals
 		callbacks.Register("c1", callback1)
 		// should be called with 10, 30, 50, 50, 10, 30, 50, 50, ... intervals
@@ -1070,12 +1070,12 @@ func TestCycleCallback_Sequential(t *testing.T) {
 		// should be called with 60, 60, ... intervals
 		callbacks.Register("c3", callback3, WithIntervals(intervals3))
 
-		cm := New(ticker, callbacks.CycleCallback)
+		cm := NewManager(ticker, callbacks.CycleCallback)
 		cm.Start()
-		time.Sleep(350 * time.Millisecond)
+		time.Sleep(400 * time.Millisecond)
 		cm.StopAndWait(context.Background())
 
-		// within 350 ms c1 should be called at least 30x
+		// within 400 ms c1 should be called at least 30x
 		require.GreaterOrEqual(t, len(executionTimes1), 30)
 		// 1st call on 1st tick after 10ms
 		sumDuration := time.Duration(10)
@@ -1084,7 +1084,7 @@ func TestCycleCallback_Sequential(t *testing.T) {
 			sumDuration += 10 * time.Millisecond
 		}
 
-		// within 350 ms c2 should be called at least 8x
+		// within 400 ms c2 should be called at least 8x
 		require.GreaterOrEqual(t, len(executionTimes2), 8)
 		// 1st call on 1st tick after 10ms
 		sumDuration = time.Duration(0)
@@ -1100,7 +1100,7 @@ func TestCycleCallback_Sequential(t *testing.T) {
 			}
 		}
 
-		// within 350 ms c3 should be called at least 6x
+		// within 400 ms c3 should be called at least 6x
 		require.GreaterOrEqual(t, len(executionTimes3), 6)
 		// 1st call on 1st tick after 10ms
 		sumDuration = time.Duration(0)
@@ -1126,7 +1126,7 @@ func TestCycleCallback_Sequential_Unregister(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 1)
+		callbacks := NewCallbackGroup("id", logger, 1)
 		ctrl := callbacks.Register("c1", callback)
 		require.Nil(t, ctrl.Unregister(ctx))
 
@@ -1155,7 +1155,7 @@ func TestCycleCallback_Sequential_Unregister(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 1)
+		callbacks := NewCallbackGroup("id", logger, 1)
 		ctrl1 := callbacks.Register("c1", callback1)
 		ctrl2 := callbacks.Register("c2", callback2)
 		require.Nil(t, ctrl1.Unregister(ctx))
@@ -1187,7 +1187,7 @@ func TestCycleCallback_Sequential_Unregister(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 1)
+		callbacks := NewCallbackGroup("id", logger, 1)
 		ctrl1 := callbacks.Register("c1", callback1)
 		callbacks.Register("c2", callback2)
 		require.Nil(t, ctrl1.Unregister(ctx))
@@ -1236,7 +1236,7 @@ func TestCycleCallback_Sequential_Unregister(t *testing.T) {
 		var d3 time.Duration
 		var d4 time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 1)
+		callbacks := NewCallbackGroup("id", logger, 1)
 		ctrl1 := callbacks.Register("c1", callback1)
 		ctrl2 := callbacks.Register("c2", callback2)
 		ctrl3 := callbacks.Register("c3", callback3)
@@ -1291,7 +1291,7 @@ func TestCycleCallback_Sequential_Unregister(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 1)
+		callbacks := NewCallbackGroup("id", logger, 1)
 		ctrl := callbacks.Register("c", callback)
 
 		go func() {
@@ -1328,7 +1328,7 @@ func TestCycleCallback_Sequential_Unregister(t *testing.T) {
 		var d1 time.Duration
 		var d2 time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 1)
+		callbacks := NewCallbackGroup("id", logger, 1)
 		ctrl := callbacks.Register("c", callback)
 
 		go func() {
@@ -1387,7 +1387,7 @@ func TestCycleCallback_Sequential_Unregister(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 1)
+		callbacks := NewCallbackGroup("id", logger, 1)
 		callbacks.Register("c1", callback1)
 		ctrl2 := callbacks.Register("c2", callback2)
 		ctrl3 := callbacks.Register("c3", callback3)
@@ -1428,7 +1428,7 @@ func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 1)
+		callbacks := NewCallbackGroup("id", logger, 1)
 		ctrl := callbacks.Register("c1", callback)
 		require.Nil(t, ctrl.Deactivate(ctx))
 
@@ -1457,7 +1457,7 @@ func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 1)
+		callbacks := NewCallbackGroup("id", logger, 1)
 		ctrl1 := callbacks.Register("c1", callback1)
 		ctrl2 := callbacks.Register("c2", callback2)
 		require.Nil(t, ctrl1.Deactivate(ctx))
@@ -1489,7 +1489,7 @@ func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 1)
+		callbacks := NewCallbackGroup("id", logger, 1)
 		ctrl1 := callbacks.Register("c1", callback1)
 		callbacks.Register("c2", callback2)
 		require.Nil(t, ctrl1.Deactivate(ctx))
@@ -1538,7 +1538,7 @@ func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
 		var d3 time.Duration
 		var d4 time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 1)
+		callbacks := NewCallbackGroup("id", logger, 1)
 		ctrl1 := callbacks.Register("c1", callback1)
 		ctrl2 := callbacks.Register("c2", callback2)
 		ctrl3 := callbacks.Register("c3", callback3)
@@ -1593,7 +1593,7 @@ func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 1)
+		callbacks := NewCallbackGroup("id", logger, 1)
 		ctrl := callbacks.Register("c", callback)
 
 		go func() {
@@ -1630,7 +1630,7 @@ func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
 		var d1 time.Duration
 		var d2 time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 1)
+		callbacks := NewCallbackGroup("id", logger, 1)
 		ctrl := callbacks.Register("c", callback)
 
 		go func() {
@@ -1689,7 +1689,7 @@ func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
 		var executed bool
 		var d time.Duration
 
-		callbacks := NewCycleCallbacks("id", logger, 1)
+		callbacks := NewCallbackGroup("id", logger, 1)
 		callbacks.Register("c1", callback1)
 		ctrl2 := callbacks.Register("c2", callback2)
 		ctrl3 := callbacks.Register("c3", callback3)

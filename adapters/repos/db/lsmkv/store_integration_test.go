@@ -29,7 +29,7 @@ func TestStoreLifecycle(t *testing.T) {
 
 	t.Run("cycle 1", func(t *testing.T) {
 		store, err := New(dirName, dirName, logger, nil,
-			cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		require.Nil(t, err)
 
 		err = store.CreateOrLoadBucket(testCtx(), "bucket1", WithStrategy(StrategyReplace))
@@ -56,7 +56,7 @@ func TestStoreLifecycle(t *testing.T) {
 
 	t.Run("cycle 2", func(t *testing.T) {
 		store, err := New(dirName, dirName, logger, nil,
-			cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		require.Nil(t, err)
 
 		err = store.CreateOrLoadBucket(testCtx(), "bucket1", WithStrategy(StrategyReplace))
