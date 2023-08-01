@@ -33,6 +33,9 @@ issues:
     - linters:
         - govet
       text: "composites"
+    - linters:
+        - govet
+      text: "S1001"
 run:
   build-tags:
     - integrationTest
