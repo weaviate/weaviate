@@ -34,7 +34,7 @@ issues:
         - govet
       text: "composites"
     - linters:
-        - govet
+        - simple
       text: "S1001"
 run:
   build-tags:
