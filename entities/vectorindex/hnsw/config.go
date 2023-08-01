@@ -41,7 +41,7 @@ const (
 	DefaultDynamicEFFactor        = 8
 	DefaultVectorCacheMaxObjects  = 1e12
 	DefaultSkip                   = false
-	DefaultFlatSearchCutoff       = 0
+	DefaultFlatSearchCutoff       = 0 // testing Filtered HNSW
 	DefaultDistanceMetric         = DistanceCosine
 
 	// Fail validation if those criteria are not met
