@@ -42,20 +42,24 @@ func (s *Shard) initCycleCallbacks() {
 	compactionId := id("compaction")
 	compactionCallbacks := cyclemanager.NewCycleCallbacks(compactionId, s.index.logger, 1)
 	compactionCallbacksCtrl := s.index.cycleCallbacks.compactionCallbacks.Register(
-		compactionId, compactionCallbacks.CycleCallback)
+		compactionId, compactionCallbacks.CycleCallback,
+		cyclemanager.WithIntervals(cyclemanager.CompactionCycleIntervals()))
 
 	flushId := id("flush")
 	flushCallbacks := cyclemanager.NewCycleCallbacks(flushId, s.index.logger, 1)
 	flushCallbacksCtrl := s.index.cycleCallbacks.flushCallbacks.Register(
-		flushId, flushCallbacks.CycleCallback)
+		flushId, flushCallbacks.CycleCallback,
+		cyclemanager.WithIntervals(cyclemanager.MemtableFlushCycleIntervals()))
 
 	vectorCommitLoggerId := id("vector", "commit_logger")
 	vectorCommitLoggerCallbacks := cyclemanager.NewCycleCallbacks(vectorCommitLoggerId, s.index.logger, 1)
 	vectorCommitLoggerCallbacksCtrl := s.index.cycleCallbacks.vectorCommitLoggerCallbacks.Register(
-		vectorCommitLoggerId, vectorCommitLoggerCallbacks.CycleCallback)
+		vectorCommitLoggerId, vectorCommitLoggerCallbacks.CycleCallback,
+		cyclemanager.WithIntervals(cyclemanager.HnswCommitLoggerCycleIntervals()))
 
 	vectorTombstoneCleanupId := id("vector", "tombstone_cleanup")
 	vectorTombstoneCleanupCallbacks := cyclemanager.NewCycleCallbacks(vectorTombstoneCleanupId, s.index.logger, 1)
+	// fixed interval on class level, no need to specify separate on shard level
 	vectorTombstoneCleanupCallbacksCtrl := s.index.cycleCallbacks.vectorTombstoneCleanupCallbacks.Register(
 		vectorTombstoneCleanupId, vectorTombstoneCleanupCallbacks.CycleCallback)
 
@@ -65,10 +69,12 @@ func (s *Shard) initCycleCallbacks() {
 	geoPropsCommitLoggerId := id("geo_props", "commit_logger")
 	geoPropsCommitLoggerCallbacks := cyclemanager.NewCycleCallbacks(geoPropsCommitLoggerId, s.index.logger, 1)
 	geoPropsCommitLoggerCallbacksCtrl := s.index.cycleCallbacks.geoPropsCommitLoggerCallbacks.Register(
-		geoPropsCommitLoggerId, geoPropsCommitLoggerCallbacks.CycleCallback)
+		geoPropsCommitLoggerId, geoPropsCommitLoggerCallbacks.CycleCallback,
+		cyclemanager.WithIntervals(cyclemanager.GeoCommitLoggerCycleIntervals()))
 
 	geoPropsTombstoneCleanupId := id("geoProps", "tombstone_cleanup")
 	geoPropsTombstoneCleanupCallbacks := cyclemanager.NewCycleCallbacks(geoPropsTombstoneCleanupId, s.index.logger, 1)
+	// fixed interval on class level, no need to specify separate on shard level
 	geoPropsTombstoneCleanupCallbacksCtrl := s.index.cycleCallbacks.geoPropsTombstoneCleanupCallbacks.Register(
 		geoPropsTombstoneCleanupId, geoPropsTombstoneCleanupCallbacks.CycleCallback)
 
