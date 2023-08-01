@@ -377,7 +377,7 @@ func TestRefFilters(t *testing.T) {
 
 		t.Run("by reference count", func(t *testing.T) {
 			t.Run("equal to zero", func(t *testing.T) {
-				filter := filterCarParkedCount(filters.OperatorEqual, 0)
+				filter := filterCarParkedCount(filters.OperatorEqual, []int64{0})
 				params := getParamsWithFilter("MultiRefCar", filter)
 				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
@@ -386,7 +386,7 @@ func TestRefFilters(t *testing.T) {
 			})
 
 			t.Run("equal to one", func(t *testing.T) {
-				filter := filterCarParkedCount(filters.OperatorEqual, 1)
+				filter := filterCarParkedCount(filters.OperatorEqual, []int64{1})
 				params := getParamsWithFilter("MultiRefCar", filter)
 				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
@@ -398,7 +398,7 @@ func TestRefFilters(t *testing.T) {
 			})
 
 			t.Run("equal to more than one", func(t *testing.T) {
-				filter := filterCarParkedCount(filters.OperatorGreaterThan, 1)
+				filter := filterCarParkedCount(filters.OperatorGreaterThan, []int64{1})
 				params := getParamsWithFilter("MultiRefCar", filter)
 				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
@@ -409,7 +409,7 @@ func TestRefFilters(t *testing.T) {
 			})
 
 			t.Run("greater or equal one", func(t *testing.T) {
-				filter := filterCarParkedCount(filters.OperatorGreaterThanEqual, 1)
+				filter := filterCarParkedCount(filters.OperatorGreaterThanEqual, []int64{1})
 				params := getParamsWithFilter("MultiRefCar", filter)
 				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
@@ -422,7 +422,7 @@ func TestRefFilters(t *testing.T) {
 			})
 
 			t.Run("less than one", func(t *testing.T) {
-				filter := filterCarParkedCount(filters.OperatorLessThan, 1)
+				filter := filterCarParkedCount(filters.OperatorLessThan, []int64{1})
 				params := getParamsWithFilter("MultiRefCar", filter)
 				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
@@ -433,7 +433,7 @@ func TestRefFilters(t *testing.T) {
 			})
 
 			t.Run("less than or equal one", func(t *testing.T) {
-				filter := filterCarParkedCount(filters.OperatorLessThanEqual, 1)
+				filter := filterCarParkedCount(filters.OperatorLessThanEqual, []int64{1})
 				params := getParamsWithFilter("MultiRefCar", filter)
 				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
@@ -686,7 +686,7 @@ func filterCarParkedAtGarage(dataType schema.DataType,
 	}
 }
 
-func filterCarParkedCount(operator filters.Operator, value int) *filters.LocalFilter {
+func filterCarParkedCount(operator filters.Operator, value []int64) *filters.LocalFilter {
 	return &filters.LocalFilter{
 		Root: &filters.Clause{
 			Operator: operator,
@@ -737,7 +737,7 @@ func filterAirportsInGermanCitiesOver600k() *filters.LocalFilter {
 						},
 					},
 					Value: &filters.Value{
-						Value: 600000,
+						Value: []int64{600000},
 						Type:  dtInt,
 					},
 				},
@@ -756,7 +756,7 @@ func filterAirportsInGermanCitiesOver600k() *filters.LocalFilter {
 						},
 					},
 					Value: &filters.Value{
-						Value: "Germany",
+						Value: []string{"Germany"},
 						Type:  schema.DataTypeText,
 					},
 				},

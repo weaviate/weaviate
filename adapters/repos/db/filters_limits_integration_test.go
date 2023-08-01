@@ -85,8 +85,8 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 		limit := 20
 
 		filter := filterAnd(
-			buildFilter("price", 20, gte, dtInt),
-			buildFilter("price", 100, lt, dtInt),
+			buildFilter("price", []int64{20}, gte, dtInt),
+			buildFilter("price", []int64{100}, lt, dtInt),
 		)
 
 		res, err := repo.Search(context.Background(), dto.GetParams{
@@ -179,7 +179,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 
 	t.Run("verify all with ref count 0 are found", func(t *testing.T) {
 		limit := 100
-		filter := buildFilter("makesProduct", 0, eq, dtInt)
+		filter := buildFilter("makesProduct", []int64{0}, eq, dtInt)
 		res, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName: companyClass.Class,
 			Filters:   filter,
@@ -194,7 +194,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 
 	t.Run("verify a non refcount prop", func(t *testing.T) {
 		limit := 100
-		filter := buildFilter("price", float64(0), gte, dtNumber)
+		filter := buildFilter("price", []float64{0}, gte, dtNumber)
 		res, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName: companyClass.Class,
 			Filters:   filter,
@@ -221,7 +221,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 
 	t.Run("verify all with ref count 0 are found", func(t *testing.T) {
 		limit := 100
-		filter := buildFilter("makesProduct", 0, eq, dtInt)
+		filter := buildFilter("makesProduct", []int64{0}, eq, dtInt)
 		res, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName: companyClass.Class,
 			Filters:   filter,
@@ -236,7 +236,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 
 	t.Run("verify a non refcount prop", func(t *testing.T) {
 		limit := 100
-		filter := buildFilter("price", float64(0), gte, dtNumber)
+		filter := buildFilter("price", []float64{0}, gte, dtNumber)
 		res, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName: companyClass.Class,
 			Filters:   filter,
@@ -304,7 +304,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 
 	t.Run("verify all with ref count 0 are correctly aggregated",
 		func(t *testing.T) {
-			filter := buildFilter("makesProduct", 0, eq, dtInt)
+			filter := buildFilter("makesProduct", []int64{0}, eq, dtInt)
 			res, err := repo.Aggregate(context.Background(),
 				aggregation.Params{
 					ClassName:        schema.ClassName(companyClass.Class),
@@ -331,7 +331,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 
 	t.Run("verify all with ref count 0 are correctly aggregated",
 		func(t *testing.T) {
-			filter := buildFilter("makesProduct", 0, eq, dtInt)
+			filter := buildFilter("makesProduct", []int64{0}, eq, dtInt)
 			res, err := repo.Aggregate(context.Background(),
 				aggregation.Params{
 					ClassName:        schema.ClassName(companyClass.Class),
@@ -346,7 +346,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 
 	t.Run("verify all with ref count 0 are correctly aggregated",
 		func(t *testing.T) {
-			filter := buildFilter("makesProduct", 0, eq, dtInt)
+			filter := buildFilter("makesProduct", []int64{0}, eq, dtInt)
 			res, err := repo.Aggregate(context.Background(),
 				aggregation.Params{
 					ClassName:        schema.ClassName(companyClass.Class),

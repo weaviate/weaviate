@@ -113,7 +113,7 @@ func Test_Resolve(t *testing.T) {
 								Property: schema.PropertyName("modelName"),
 							},
 							Value: &filters.Value{
-								Value: "Fast",
+								Value: []string{"Fast"},
 								Type:  schema.DataTypeText,
 							},
 						},
@@ -124,7 +124,7 @@ func Test_Resolve(t *testing.T) {
 								Property: schema.PropertyName("modelName"),
 							},
 							Value: &filters.Value{
-								Value: "Slow",
+								Value: []string{"Slow"},
 								Type:  schema.DataTypeText,
 							},
 						},
@@ -522,7 +522,7 @@ func Test_Resolve(t *testing.T) {
 						Property: schema.PropertyName("horsepower"),
 					},
 					Value: &filters.Value{
-						Value: 200,
+						Value: []int64{200},
 						Type:  schema.DataTypeInt,
 					},
 					Operator: filters.OperatorLessThan,
@@ -893,7 +893,7 @@ func Test_Resolve(t *testing.T) {
 								Property: schema.PropertyName("modelName"),
 							},
 							Value: &filters.Value{
-								Value: "Fast",
+								Value: []string{"Fast"},
 								Type:  schema.DataTypeString,
 							},
 						},
@@ -904,7 +904,7 @@ func Test_Resolve(t *testing.T) {
 								Property: schema.PropertyName("modelName"),
 							},
 							Value: &filters.Value{
-								Value: "Slow",
+								Value: []string{"Slow"},
 								Type:  schema.DataTypeString,
 							},
 						},

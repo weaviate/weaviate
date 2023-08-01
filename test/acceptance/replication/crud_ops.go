@@ -154,7 +154,7 @@ func deleteObjects(t *testing.T, host, class string, path []string, valueText st
 			Where: &models.WhereFilter{
 				Operator:  filters.OperatorLike.Name(),
 				Path:      path,
-				ValueText: &valueText,
+				ValueText: []string{valueText},
 			},
 		},
 	}
@@ -173,7 +173,7 @@ func deleteTenantObjects(t *testing.T, host, class string, path []string, valueT
 			Where: &models.WhereFilter{
 				Operator:  filters.OperatorLike.Name(),
 				Path:      path,
-				ValueText: &valueText,
+				ValueText: []string{valueText},
 			},
 		},
 	}

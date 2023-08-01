@@ -160,19 +160,19 @@ func testPrimitivePropsWithNoLengthIndex(repo *DB) func(t *testing.T) {
 		tests := []test{
 			{
 				name:        "Filter by unsupported geo-coordinates",
-				filter:      buildFilter("len(parkedAt)", 0, eq, dtInt),
+				filter:      buildFilter("len(parkedAt)", []int64{0}, eq, dtInt),
 				expectedIDs: []strfmt.UUID{},
 				ErrMsg:      "Property length must be indexed to be filterable! add `IndexPropertyLength: true` to the invertedIndexConfig in",
 			},
 			{
 				name:        "Filter by unsupported number",
-				filter:      buildFilter("len(horsepower)", 1, eq, dtInt),
+				filter:      buildFilter("len(horsepower)", []int64{1}, eq, dtInt),
 				expectedIDs: []strfmt.UUID{},
 				ErrMsg:      "Property length must be indexed to be filterable",
 			},
 			{
 				name:        "Filter by unsupported date",
-				filter:      buildFilter("len(released)", 1, eq, dtInt),
+				filter:      buildFilter("len(released)", []int64{1}, eq, dtInt),
 				expectedIDs: []strfmt.UUID{},
 				ErrMsg:      "Property length must be indexed to be filterable! add `IndexPropertyLength: true` to the invertedIndexConfig in",
 			},
@@ -221,87 +221,87 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 		tests := []test{
 			{
 				name:        "horsepower == 130",
-				filter:      buildFilter("horsepower", 130, eq, dtInt),
+				filter:      buildFilter("horsepower", []int64{130}, eq, dtInt),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
 				name:        "horsepower < 200",
-				filter:      buildFilter("horsepower", 200, lt, dtInt),
+				filter:      buildFilter("horsepower", []int64{200}, lt, dtInt),
 				expectedIDs: []strfmt.UUID{carSprinterID, carPoloID},
 			},
 			{
 				name:        "horsepower <= 130",
-				filter:      buildFilter("horsepower", 130, lte, dtInt),
+				filter:      buildFilter("horsepower", []int64{130}, lte, dtInt),
 				expectedIDs: []strfmt.UUID{carSprinterID, carPoloID},
 			},
 			{
 				name:        "horsepower > 200",
-				filter:      buildFilter("horsepower", 200, gt, dtInt),
+				filter:      buildFilter("horsepower", []int64{200}, gt, dtInt),
 				expectedIDs: []strfmt.UUID{carE63sID},
 			},
 			{
 				name:        "horsepower >= 612",
-				filter:      buildFilter("horsepower", 612, gte, dtInt),
+				filter:      buildFilter("horsepower", []int64{612}, gte, dtInt),
 				expectedIDs: []strfmt.UUID{carE63sID},
 			},
 			{
 				name:        "modelName != sprinter",
-				filter:      buildFilter("modelName", "sprinter", neq, dtText),
+				filter:      buildFilter("modelName", []string{"sprinter"}, neq, dtText),
 				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carNilID},
 			},
 			{
 				name:        "modelName = spr*er (optimizable) dtText",
-				filter:      buildFilter("modelName", "spr*er", like, dtText),
+				filter:      buildFilter("modelName", []string{"spr*er"}, like, dtText),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
 				name:        "modelName = *rinte? (non-optimizable) dtText",
-				filter:      buildFilter("modelName", "*rinte?", like, dtText),
+				filter:      buildFilter("modelName", []string{"*rinte?"}, like, dtText),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
 				name:        "modelName = spr*er (optimizable) dtText",
-				filter:      buildFilter("modelName", "spr*er", like, dtText),
+				filter:      buildFilter("modelName", []string{"spr*er"}, like, dtText),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
 				name:        "modelName = *rinte? (non-optimizable) dtText",
-				filter:      buildFilter("modelName", "*rinte?", like, dtText),
+				filter:      buildFilter("modelName", []string{"*rinte?"}, like, dtText),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
 				name:        "weight == 3499.90",
-				filter:      buildFilter("weight", 3499.90, eq, dtNumber),
+				filter:      buildFilter("weight", []float64{3499.90}, eq, dtNumber),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
 				name:        "weight <= 3499.90",
-				filter:      buildFilter("weight", 3499.90, lte, dtNumber),
+				filter:      buildFilter("weight", []float64{3499.90}, lte, dtNumber),
 				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID, carPoloID},
 			},
 			{
 				name:        "weight < 3499.90",
-				filter:      buildFilter("weight", 3499.90, lt, dtNumber),
+				filter:      buildFilter("weight", []float64{3499.90}, lt, dtNumber),
 				expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
 			},
 			{
 				name:        "weight > 3000",
-				filter:      buildFilter("weight", 3000.0, gt, dtNumber),
+				filter:      buildFilter("weight", []float64{3000.0}, gt, dtNumber),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
 				name:        "weight == 2069.4",
-				filter:      buildFilter("weight", 2069.4, eq, dtNumber),
+				filter:      buildFilter("weight", []float64{2069.4}, eq, dtNumber),
 				expectedIDs: []strfmt.UUID{},
 			},
 			{
 				name:        "weight == 2069.5",
-				filter:      buildFilter("weight", 2069.5, eq, dtNumber),
+				filter:      buildFilter("weight", []float64{2069.5}, eq, dtNumber),
 				expectedIDs: []strfmt.UUID{carE63sID},
 			},
 			{
 				name:        "weight >= 2069.5",
-				filter:      buildFilter("weight", 2069.5, gte, dtNumber),
+				filter:      buildFilter("weight", []float64{2069.5}, gte, dtNumber),
 				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID},
 			},
 			{
@@ -336,67 +336,67 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			},
 			{
 				name:        "exactly matching a specific contact email",
-				filter:      buildFilter("contact", "john@heavycars.example.com", eq, dtText),
+				filter:      buildFilter("contact", []string{"john@heavycars.example.com"}, eq, dtText),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
 				name:        "matching an email from within a text (not string) field",
-				filter:      buildFilter("description", "john@heavycars.example.com", eq, dtText),
+				filter:      buildFilter("description", []string{"john@heavycars.example.com"}, eq, dtText),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
 				name:        "full-text matching the word engine",
-				filter:      buildFilter("description", "engine", eq, dtText),
+				filter:      buildFilter("description", []string{"engine"}, eq, dtText),
 				expectedIDs: []strfmt.UUID{carPoloID},
 			},
 			{
 				name:        "matching two words",
-				filter:      buildFilter("description", "this car", eq, dtText),
+				filter:      buildFilter("description", []string{"this car"}, eq, dtText),
 				expectedIDs: []strfmt.UUID{carSprinterID, carPoloID, carE63sID},
 			},
 			{
 				name:        "matching three words",
-				filter:      buildFilter("description", "but car has", eq, dtText),
+				filter:      buildFilter("description", []string{"but car has"}, eq, dtText),
 				expectedIDs: []strfmt.UUID{carPoloID, carE63sID},
 			},
 			{
 				name:        "matching words with special characters",
-				filter:      buildFilter("description", "it's also not exactly lightweight.", eq, dtText),
+				filter:      buildFilter("description", []string{"it's also not exactly lightweight."}, eq, dtText),
 				expectedIDs: []strfmt.UUID{carE63sID},
 			},
 			{
 				name:        "matching words without special characters",
-				filter:      buildFilter("description", "also not exactly lightweight", eq, dtText),
+				filter:      buildFilter("description", []string{"also not exactly lightweight"}, eq, dtText),
 				expectedIDs: []strfmt.UUID{carE63sID},
 			},
 			{
 				name:        "by id",
-				filter:      buildFilter("id", carPoloID.String(), eq, dtText),
+				filter:      buildFilter("id", []string{carPoloID.String()}, eq, dtText),
 				expectedIDs: []strfmt.UUID{carPoloID},
 			},
 			{
 				name:        "by id not equal",
-				filter:      buildFilter("id", carE63sID.String(), neq, dtText),
+				filter:      buildFilter("id", []string{carE63sID.String()}, neq, dtText),
 				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carNilID, carEmpty},
 			},
 			{
 				name:        "by id less then equal",
-				filter:      buildFilter("id", carPoloID.String(), lte, dtText),
+				filter:      buildFilter("id", []string{carPoloID.String()}, lte, dtText),
 				expectedIDs: []strfmt.UUID{carPoloID, carE63sID},
 			},
 			{
 				name:        "by id less then",
-				filter:      buildFilter("id", carPoloID.String(), lt, dtText),
+				filter:      buildFilter("id", []string{carPoloID.String()}, lt, dtText),
 				expectedIDs: []strfmt.UUID{carE63sID},
 			},
 			{
 				name:        "by id greater then equal",
-				filter:      buildFilter("id", carPoloID.String(), gte, dtText),
+				filter:      buildFilter("id", []string{carPoloID.String()}, gte, dtText),
 				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carNilID, carEmpty},
 			},
 			{
 				name:        "by id greater then",
-				filter:      buildFilter("id", carPoloID.String(), gt, dtText),
+				filter:      buildFilter("id", []string{carPoloID.String()}, gt, dtText),
 				expectedIDs: []strfmt.UUID{carSprinterID, carNilID, carEmpty},
 			},
 			{
@@ -417,112 +417,112 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			// },
 			{
 				name:        "by color with word tokenization",
-				filter:      buildFilter("colorWhitespace", "grey", eq, dtText),
+				filter:      buildFilter("colorWhitespace", []string{"grey"}, eq, dtText),
 				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
 			},
 			{
 				name:        "by color with word tokenization multiword (1)",
-				filter:      buildFilter("colorWhitespace", "light grey", eq, dtText),
+				filter:      buildFilter("colorWhitespace", []string{"light grey"}, eq, dtText),
 				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID},
 			},
 			{
 				name:        "by color with word tokenization multiword (2)",
-				filter:      buildFilter("colorWhitespace", "dark grey", eq, dtText),
+				filter:      buildFilter("colorWhitespace", []string{"dark grey"}, eq, dtText),
 				expectedIDs: []strfmt.UUID{carPoloID},
 			},
 			{
 				name:        "by color with field tokenization",
-				filter:      buildFilter("colorField", "grey", eq, dtText),
+				filter:      buildFilter("colorField", []string{"grey"}, eq, dtText),
 				expectedIDs: []strfmt.UUID{},
 			},
 			{
 				name:        "by color with field tokenization multiword (1)",
-				filter:      buildFilter("colorField", "light grey", eq, dtText),
+				filter:      buildFilter("colorField", []string{"light grey"}, eq, dtText),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
 				name:        "by color with field tokenization multiword (2)",
-				filter:      buildFilter("colorField", "dark grey", eq, dtText),
+				filter:      buildFilter("colorField", []string{"dark grey"}, eq, dtText),
 				expectedIDs: []strfmt.UUID{carPoloID},
 			},
 			{
 				name:        "by color array with word tokenization",
-				filter:      buildFilter("colorArrayWhitespace", "grey", eq, dtText),
+				filter:      buildFilter("colorArrayWhitespace", []string{"grey"}, eq, dtText),
 				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
 			},
 			{
 				name:        "by color array with word tokenization multiword (1)",
-				filter:      buildFilter("colorArrayWhitespace", "light grey", eq, dtText),
+				filter:      buildFilter("colorArrayWhitespace", []string{"light grey"}, eq, dtText),
 				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID},
 			},
 			{
 				name:        "by color array with word tokenization multiword (2)",
-				filter:      buildFilter("colorArrayWhitespace", "dark grey", eq, dtText),
+				filter:      buildFilter("colorArrayWhitespace", []string{"dark grey"}, eq, dtText),
 				expectedIDs: []strfmt.UUID{carPoloID},
 			},
 			{
 				name:        "by color array with field tokenization",
-				filter:      buildFilter("colorArrayField", "grey", eq, dtText),
+				filter:      buildFilter("colorArrayField", []string{"grey"}, eq, dtText),
 				expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
 			},
 			{
 				name:        "by color with array field tokenization multiword (1)",
-				filter:      buildFilter("colorArrayField", "light grey", eq, dtText),
+				filter:      buildFilter("colorArrayField", []string{"light grey"}, eq, dtText),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
 				name:        "by color with array field tokenization multiword (2)",
-				filter:      buildFilter("colorArrayField", "dark grey", eq, dtText),
+				filter:      buildFilter("colorArrayField", []string{"dark grey"}, eq, dtText),
 				expectedIDs: []strfmt.UUID{},
 			},
 			{
 				name:        "by null value",
-				filter:      buildFilter("colorArrayField", true, null, dtBool),
+				filter:      buildFilter("colorArrayField", []bool{true}, null, dtBool),
 				expectedIDs: []strfmt.UUID{carNilID, carEmpty},
 			},
 			{
 				name:        "by value not null",
-				filter:      buildFilter("colorArrayField", false, null, dtBool),
+				filter:      buildFilter("colorArrayField", []bool{false}, null, dtBool),
 				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carSprinterID},
 			},
 			{
 				name:        "by string length",
-				filter:      buildFilter("len(colorField)", 10, eq, dtInt),
+				filter:      buildFilter("len(colorField)", []int64{10}, eq, dtInt),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
 				name:        "by array length",
-				filter:      buildFilter("len(colorArrayField)", 2, eq, dtInt),
+				filter:      buildFilter("len(colorArrayField)", []int64{2}, eq, dtInt),
 				expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
 			},
 			{
 				name:        "by text length (equal)",
-				filter:      buildFilter("len(description)", 65, eq, dtInt),
+				filter:      buildFilter("len(description)", []int64{65}, eq, dtInt),
 				expectedIDs: []strfmt.UUID{carE63sID},
 			},
 			{
 				name:        "by text length (lte)",
-				filter:      buildFilter("len(description)", 65, lte, dtInt),
+				filter:      buildFilter("len(description)", []int64{65}, lte, dtInt),
 				expectedIDs: []strfmt.UUID{carE63sID, carNilID, carEmpty},
 			},
 			{
 				name:        "by text length (gte)",
-				filter:      buildFilter("len(description)", 65, gte, dtInt),
+				filter:      buildFilter("len(description)", []int64{65}, gte, dtInt),
 				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carSprinterID},
 			},
 			{
 				name:        "length 0 (not added and empty)",
-				filter:      buildFilter("len(colorArrayWhitespace)", 0, eq, dtInt),
+				filter:      buildFilter("len(colorArrayWhitespace)", []int64{0}, eq, dtInt),
 				expectedIDs: []strfmt.UUID{carNilID, carEmpty},
 			},
 			{
 				name:        "Filter unicode strings",
-				filter:      buildFilter("len(contact)", 30, eq, dtInt),
+				filter:      buildFilter("len(contact)", []int64{30}, eq, dtInt),
 				expectedIDs: []strfmt.UUID{carE63sID},
 			},
 			{
 				name:        "Filter unicode texts",
-				filter:      buildFilter("len(description)", 109, eq, dtInt),
+				filter:      buildFilter("len(description)", []int64{109}, eq, dtInt),
 				expectedIDs: []strfmt.UUID{carPoloID},
 			},
 			{
@@ -532,12 +532,12 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			},
 			{
 				name:        "Empty string by length",
-				filter:      buildFilter("len(description)", 0, eq, dtInt),
+				filter:      buildFilter("len(description)", []int64{0}, eq, dtInt),
 				expectedIDs: []strfmt.UUID{carEmpty, carNilID},
 			},
 			{
 				name:        "Empty array by length",
-				filter:      buildFilter("len(colorArrayWhitespace)", 0, eq, dtInt),
+				filter:      buildFilter("len(colorArrayWhitespace)", []int64{0}, eq, dtInt),
 				expectedIDs: []strfmt.UUID{carEmpty, carNilID},
 			},
 			{
@@ -601,7 +601,7 @@ func testPrimitivePropsWithLimit(repo *DB) func(t *testing.T) {
 				SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
 				ClassName:    carClass.Class,
 				Pagination:   &filters.Pagination{Limit: limit},
-				Filters:      buildFilter("horsepower", 2, gt, dtInt), // would otherwise return 3 results
+				Filters:      buildFilter("horsepower", []int64{2}, gt, dtInt), // would otherwise return 3 results
 			}
 			res, err := repo.Search(context.Background(), params)
 			require.Nil(t, err)
@@ -615,7 +615,7 @@ func testPrimitivePropsWithLimit(repo *DB) func(t *testing.T) {
 				SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
 				ClassName:    carClass.Class,
 				Pagination:   &filters.Pagination{Limit: limit},
-				Filters:      buildFilter("horsepower", 20000, lt, dtInt), // would otherwise return 3 results
+				Filters:      buildFilter("horsepower", []int64{20000}, lt, dtInt), // would otherwise return 3 results
 			}
 			res, err := repo.Search(context.Background(), params)
 			require.Nil(t, err)
@@ -638,16 +638,16 @@ func testChainedPrimitiveProps(repo *DB,
 			{
 				name: "modelName == sprinter AND  weight > 3000",
 				filter: filterAnd(
-					buildFilter("modelName", "sprinter", eq, dtText),
-					buildFilter("weight", float64(3000), gt, dtNumber),
+					buildFilter("modelName", []string{"sprinter"}, eq, dtText),
+					buildFilter("weight", []float64{3000}, gt, dtNumber),
 				),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
 				name: "modelName == sprinter OR modelName == e63s",
 				filter: filterOr(
-					buildFilter("modelName", "sprinter", eq, dtText),
-					buildFilter("modelName", "e63s", eq, dtText),
+					buildFilter("modelName", []string{"sprinter"}, eq, dtText),
+					buildFilter("modelName", []string{"e63s"}, eq, dtText),
 				),
 				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID},
 			},
@@ -671,10 +671,10 @@ func testChainedPrimitiveProps(repo *DB,
 				name: "(heavy AND powerful) OR light",
 				filter: filterOr(
 					filterAnd(
-						buildFilter("horsepower", 200, gt, dtInt),
-						buildFilter("weight", float64(1500), gt, dtNumber),
+						buildFilter("horsepower", []int64{200}, gt, dtInt),
+						buildFilter("weight", []float64{1500}, gt, dtNumber),
 					),
-					buildFilter("weight", float64(1500), lt, dtNumber),
+					buildFilter("weight", []float64{1500}, lt, dtNumber),
 				),
 				expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
 			},
@@ -684,8 +684,8 @@ func testChainedPrimitiveProps(repo *DB,
 			{
 				name: "Like ca* AND Like eng*",
 				filter: filterAnd(
-					buildFilter("description", "ca*", like, dtText),
-					buildFilter("description", "eng*", like, dtText),
+					buildFilter("description", []string{"ca*"}, like, dtText),
+					buildFilter("description", []string{"eng*"}, like, dtText),
 				),
 				expectedIDs: []strfmt.UUID{carPoloID},
 			},
@@ -1604,7 +1604,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 		assert.Equal(t, 1, len(resNil))
 		assert.Equal(t, UUID2, resNil[0].ID)
 
-		filterLen := buildFilter("len(name)", 9, eq, dtInt)
+		filterLen := buildFilter("len(name)", []int64{9}, eq, dtInt)
 		paramsLen := dto.GetParams{
 			ClassName:  class.Class,
 			Pagination: &filters.Pagination{Limit: 2},
@@ -1629,7 +1629,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, 0, len(resNil))
 
-		filterLen := buildFilter("len(name)", 9, eq, dtInt)
+		filterLen := buildFilter("len(name)", []int64{9}, eq, dtInt)
 		paramsLen := dto.GetParams{
 			ClassName:  class.Class,
 			Pagination: &filters.Pagination{Limit: 2},

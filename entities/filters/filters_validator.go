@@ -103,8 +103,17 @@ func validateClause(sch schema.Schema, cw *clauseWrapper) error {
 			return errors.Errorf("Filtering for property length supports operators (not) equal and greater/less than (equal), got %q instead",
 				op)
 		}
-		if val := cw.getValue(); val.(int) < 0 {
-			return errors.Errorf("Can only filter for positive property length got %v instead", val)
+		if val := cw.getValue(); val != nil {
+			v, ok := val.([]int64)
+			if !ok {
+				return errors.Errorf("Expected []int64 type got %T instead", val)
+			}
+			if len(v) > 1 {
+				return errors.Errorf("Can filter only on 1 value got %v values instead", len(v))
+			}
+			if v[0] < 0 {
+				return errors.Errorf("Can only filter for positive property length got %v instead", val)
+			}
 		}
 		return nil
 	}

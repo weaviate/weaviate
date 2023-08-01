@@ -56,7 +56,7 @@ var valueExtractors = []valueExtractorFunc{
 			return nil, nil
 		}
 
-		return valueFilter(int(*in.ValueInt), schema.DataTypeInt), nil
+		return valueFilter(in.ValueInt, schema.DataTypeInt), nil
 	},
 	// number
 	func(in *models.WhereFilter) (*filters.Value, error) {
@@ -64,7 +64,7 @@ var valueExtractors = []valueExtractorFunc{
 			return nil, nil
 		}
 
-		return valueFilter(*in.ValueNumber, schema.DataTypeNumber), nil
+		return valueFilter(in.ValueNumber, schema.DataTypeNumber), nil
 	},
 	// text
 	func(in *models.WhereFilter) (*filters.Value, error) {
@@ -72,7 +72,7 @@ var valueExtractors = []valueExtractorFunc{
 			return nil, nil
 		}
 
-		return valueFilter(*in.ValueText, schema.DataTypeText), nil
+		return valueFilter(in.ValueText, schema.DataTypeText), nil
 	},
 	// date (as string)
 	func(in *models.WhereFilter) (*filters.Value, error) {
@@ -80,7 +80,7 @@ var valueExtractors = []valueExtractorFunc{
 			return nil, nil
 		}
 
-		return valueFilter(*in.ValueDate, schema.DataTypeDate), nil
+		return valueFilter(in.ValueDate, schema.DataTypeDate), nil
 	},
 	// boolean
 	func(in *models.WhereFilter) (*filters.Value, error) {
@@ -88,7 +88,7 @@ var valueExtractors = []valueExtractorFunc{
 			return nil, nil
 		}
 
-		return valueFilter(*in.ValueBoolean, schema.DataTypeBoolean), nil
+		return valueFilter(in.ValueBoolean, schema.DataTypeBoolean), nil
 	},
 	// geo range
 	func(in *models.WhereFilter) (*filters.Value, error) {
@@ -122,7 +122,7 @@ var valueExtractors = []valueExtractorFunc{
 			return nil, nil
 		}
 
-		return valueFilter(*in.ValueString, schema.DataTypeString), nil
+		return valueFilter(in.ValueString, schema.DataTypeString), nil
 	},
 }
 

@@ -436,7 +436,7 @@ func Test_Classifier_WhereFilterValidation(t *testing.T) {
 			whereFilter := &models.WhereFilter{
 				Path:      []string{"id"},
 				Operator:  "Like",
-				ValueText: ptString("*"),
+				ValueText: []string{"*"},
 			}
 			testData := []struct {
 				name                  string
@@ -519,12 +519,12 @@ func Test_Classifier_WhereFilterValidation(t *testing.T) {
 		validFilter := &models.WhereFilter{
 			Path:      []string{"description"},
 			Operator:  "Equal",
-			ValueText: ptString("valueText is valid"),
+			ValueText: []string{"valueText is valid"},
 		}
 		deprecatedFilter := &models.WhereFilter{
 			Path:        []string{"description"},
 			Operator:    "Equal",
-			ValueString: ptString("valueString is accepted"),
+			ValueString: []string{"valueString is accepted"},
 		}
 
 		t.Run("with deprecated sourceFilter", func(t *testing.T) {

@@ -128,7 +128,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 
 	t.Run("verify ref count through filters", func(t *testing.T) {
 		t.Run("count==0 should return the source", func(t *testing.T) {
-			filter := buildFilter("toTarget", 0, eq, schema.DataTypeInt)
+			filter := buildFilter("toTarget", []int64{0}, eq, schema.DataTypeInt)
 			res, err := repo.Search(context.Background(), dto.GetParams{
 				Filters:   filter,
 				ClassName: "AddingBatchReferencesTestSource",
@@ -143,7 +143,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		})
 
 		t.Run("count>0 should not return anything", func(t *testing.T) {
-			filter := buildFilter("toTarget", 0, gt, schema.DataTypeInt)
+			filter := buildFilter("toTarget", []int64{0}, gt, schema.DataTypeInt)
 			res, err := repo.Search(context.Background(), dto.GetParams{
 				Filters:   filter,
 				ClassName: "AddingBatchReferencesTestSource",
@@ -182,7 +182,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	t.Run("verify ref count through filters", func(t *testing.T) {
 		// so far we have imported two refs (!)
 		t.Run("count==2 should return the source", func(t *testing.T) {
-			filter := buildFilter("toTarget", 2, eq, schema.DataTypeInt)
+			filter := buildFilter("toTarget", []int64{2}, eq, schema.DataTypeInt)
 			res, err := repo.Search(context.Background(), dto.GetParams{
 				Filters:   filter,
 				ClassName: "AddingBatchReferencesTestSource",
@@ -197,7 +197,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		})
 
 		t.Run("count==0 should not return anything", func(t *testing.T) {
-			filter := buildFilter("toTarget", 0, eq, schema.DataTypeInt)
+			filter := buildFilter("toTarget", []int64{0}, eq, schema.DataTypeInt)
 			res, err := repo.Search(context.Background(), dto.GetParams{
 				Filters:   filter,
 				ClassName: "AddingBatchReferencesTestSource",
@@ -286,7 +286,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	t.Run("verify ref count through filters", func(t *testing.T) {
 		// so far we have imported two refs (!)
 		t.Run("count==4 should return the source", func(t *testing.T) {
-			filter := buildFilter("toTarget", 4, eq, schema.DataTypeInt)
+			filter := buildFilter("toTarget", []int64{4}, eq, schema.DataTypeInt)
 			res, err := repo.Search(context.Background(), dto.GetParams{
 				Filters:   filter,
 				ClassName: "AddingBatchReferencesTestSource",
@@ -301,7 +301,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		})
 
 		t.Run("count==0 should not return anything", func(t *testing.T) {
-			filter := buildFilter("toTarget", 0, eq, schema.DataTypeInt)
+			filter := buildFilter("toTarget", []int64{0}, eq, schema.DataTypeInt)
 			res, err := repo.Search(context.Background(), dto.GetParams{
 				Filters:   filter,
 				ClassName: "AddingBatchReferencesTestSource",
@@ -315,7 +315,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		})
 
 		t.Run("count==2 should not return anything", func(t *testing.T) {
-			filter := buildFilter("toTarget", 2, eq, schema.DataTypeInt)
+			filter := buildFilter("toTarget", []int64{2}, eq, schema.DataTypeInt)
 			res, err := repo.Search(context.Background(), dto.GetParams{
 				Filters:   filter,
 				ClassName: "AddingBatchReferencesTestSource",

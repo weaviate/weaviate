@@ -594,7 +594,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Operator: filters.OperatorLessThan,
 						Value: &filters.Value{
 							Type:  schema.DataTypeInt,
-							Value: 600,
+							Value: []int64{600},
 						},
 						On: &filters.Path{
 							Property: "price",
@@ -1199,7 +1199,7 @@ func testDateAggregationsWithFilters(repo *DB) func(t *testing.T) {
 						Operator: filters.OperatorGreaterThan,
 						Value: &filters.Value{
 							Type:  schema.DataTypeDate,
-							Value: "0312-06-16T17:30:17.231346Z", // hello roman empire!
+							Value: []string{"0312-06-16T17:30:17.231346Z"}, // hello roman empire!
 						},
 						On: &filters.Path{
 							Property: "timeArrived",
@@ -1236,7 +1236,7 @@ func testNumericalAggregationsWithFilters(repo *DB) func(t *testing.T) {
 						Operator: filters.OperatorLessThan,
 						Value: &filters.Value{
 							Type:  schema.DataTypeInt,
-							Value: -5, // price is positive everywhere
+							Value: []int64{-5}, // price is positive everywhere
 						},
 						On: &filters.Path{
 							Property: "price",
