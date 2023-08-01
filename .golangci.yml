@@ -28,6 +28,9 @@ issues:
         - staticcheck
       text: "SA5011"
     - linters:
+        - staticcheck
+      text: "S1001"
+    - linters:
         - govet
       text: "composites"
 run:
