@@ -826,28 +826,6 @@ func (m *fakeMetrics) AddUsageDimensions(class, query, op string, dims int) {
 	m.Called(class, query, op, dims)
 }
 
-/*
-// GraphQL Get{} queries
-
-	Search(ctx context.Context, params dto.GetParams) ([]search.Result, error)
-	VectorSearch(ctx context.Context, params dto.GetParams) ([]search.Result, error)
-
-	// GraphQL Explore{} queries
-	CrossClassVectorSearch(ctx context.Context, vector []float32, offset, limit int,
-		filters *filters.LocalFilter) ([]search.Result, error)
-
-	// Near-params searcher
-	Object(ctx context.Context, className string, id strfmt.UUID,
-		props search.SelectProperties, additional additional.Properties,
-		properties *additional.ReplicationProperties, tenant string) (*search.Result, error)
-	ObjectsByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties, tenant string) (search.Results, error)
-
-		SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error)
-	DenseObjectSearch(context.Context, string, []float32, int, int,
-		*filters.LocalFilter, additional.Properties, string) ([]*storobj.Object, []float32, error)
-	ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties,
-		groupBy *searchparams.GroupBy, additional additional.Properties, tenant string) (search.Results, error)
-*/
 type fakeObjectSearcher struct{}
 
 func (f *fakeObjectSearcher) Search(context.Context, dto.GetParams) ([]search.Result, error) {
@@ -921,9 +899,9 @@ func (f *fakeObjectSearcher) DenseObjectSearch(ctx context.Context, class string
 
 func (f *fakeObjectSearcher) ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties, groupBy *searchparams.GroupBy, additional additional.Properties, tenant string) (search.Results, error) {
 	// Convert res1 to search.Results
-	out := search.Results{}
-	for _, obj := range objs {
-		out = append(out, obj)
+	out := make(search.Results, 0, len(objs)
+	for i, obj := range objs {
+		out[i] = obj
 	}
 
 	return out, nil
