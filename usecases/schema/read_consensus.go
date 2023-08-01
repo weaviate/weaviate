@@ -151,12 +151,26 @@ func equalSharding(l, r map[string]*sharding.State) error {
 		if u.Config != v.Config {
 			return fmt.Errorf("class %s: config mismatch", cls)
 		}
-		if !reflect.DeepEqual(u.Physical, v.Physical) {
-			return fmt.Errorf("class %s: physical shards mismatch", cls)
+
+		if nl, nr := len(u.Physical), len(v.Physical); nl != nr {
+			return fmt.Errorf("class %s: number of physical shards: local=%d remote=%d", cls, nl, nr)
 		}
-		if !reflect.DeepEqual(u.Virtual, v.Virtual) {
-			return fmt.Errorf("class %s: physical shards mismatch", cls)
+		for k, lu := range u.Physical {
+			if !reflect.DeepEqual(lu, v.Physical[k]) {
+				return fmt.Errorf("class %q: physical shard %q", cls, k)
+			}
 		}
+
+		if nl, nr := len(u.Virtual), len(v.Virtual); nl != nr {
+			return fmt.Errorf("class %s: number of virtual shards: local=%d remote=%d", cls, nl, nr)
+		}
+
+		for i, lu := range u.Virtual {
+			if !reflect.DeepEqual(lu, v.Virtual[i]) {
+				return fmt.Errorf("class %s: virtual shard at position %d", cls, i)
+			}
+		}
+
 	}
 	return nil
 }
