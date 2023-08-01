@@ -324,7 +324,7 @@ func (f *fakeBackupBackend) successGlobalMeta() backup.DistributedBackupDescript
 			},
 		},
 		Status:        "SUCCESS",
-		Version:       "some-version",
+		Version:       ubak.Version,
 		ServerVersion: "x.x.x",
 	}
 }
@@ -334,7 +334,7 @@ func (f *fakeBackupBackend) successLocalMeta() backup.BackupDescriptor {
 		ID:            f.backupID,
 		Status:        "SUCCESS",
 		ServerVersion: "x.x.x",
-		Version:       "some-version",
+		Version:       ubak.Version,
 		StartedAt:     f.startedAt,
 		Classes: []backup.ClassDescriptor{
 			{

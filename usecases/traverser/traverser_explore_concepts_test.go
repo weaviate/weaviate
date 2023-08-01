@@ -32,7 +32,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil, -1)
@@ -49,7 +49,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, nil, nil, -1)
@@ -70,7 +70,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil, -1)
@@ -133,7 +133,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, nil, nil, -1)
@@ -193,7 +193,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, nil, nil, -1)
@@ -259,7 +259,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, nil, nil, -1)
@@ -325,7 +325,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil, -1)
@@ -369,7 +369,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil, -1)
@@ -410,7 +410,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil, -1)
@@ -439,7 +439,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil, -1)
@@ -480,7 +480,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil, -1)
@@ -553,7 +553,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics, defaultConfig)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil, -1)

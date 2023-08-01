@@ -232,6 +232,9 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 	if err := meta.Validate(); err != nil {
 		return nil, nil, fmt.Errorf("corrupted backup file: %w", err)
 	}
+	if v := meta.Version; v > Version {
+		return nil, nil, fmt.Errorf("%s: %s > %s", errMsgHigherVersion, v, Version)
+	}
 	cs := meta.List()
 	if len(req.Classes) > 0 {
 		if first := meta.AllExist(req.Classes); first != "" {
