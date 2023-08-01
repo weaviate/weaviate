@@ -1616,7 +1616,9 @@
             "LessThan",
             "LessThanEqual",
             "WithinGeoRange",
-            "IsNull"
+            "IsNull",
+            "ContainsAny",
+            "ContainsAll"
           ],
           "example": "GreaterThanEqual"
         },
@@ -1634,39 +1636,65 @@
         },
         "valueInt": {
           "description": "value as integer",
-          "type": "integer",
-          "format": "int64",
-          "example": 2000,
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "example": "[100, 200]",
           "x-nullable": true
         },
         "valueNumber": {
           "description": "value as number/float",
-          "type": "number",
-          "format": "float64",
-          "example": 3.14,
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float64"
+          },
+          "example": [
+            3.14
+          ],
           "x-nullable": true
         },
         "valueBoolean": {
           "description": "value as boolean",
-          "type": "boolean",
-          "example": false,
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          },
+          "example": [
+            false
+          ],
           "x-nullable": true
         },
         "valueString": {
           "description": "value as text (deprecated as of v1.19; alias for valueText)",
-          "type": "string",
-          "example": "my search term",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": [
+            "my search term"
+          ],
           "x-nullable": true
         },
         "valueText": {
           "description": "value as text",
-          "type": "string",
-          "example": "my search term",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": [
+            "my search term"
+          ],
           "x-nullable": true
         },
         "valueDate": {
           "description": "value as date (as string)",
-          "type": "string",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
           "example": "TODO",
           "x-nullable": true
         },

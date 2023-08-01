@@ -105,7 +105,7 @@ func TestUpdateJourney(t *testing.T) {
 			assert.ElementsMatch(t, expectedInAnyOrder, extractPropValues(res, "name"))
 		})
 
-	searchInv := func(t *testing.T, op filters.Operator, value int) []interface{} {
+	searchInv := func(t *testing.T, op filters.Operator, value int64) []interface{} {
 		res, err := repo.ObjectSearch(context.Background(), 0, 100,
 			&filters.LocalFilter{
 				Root: &filters.Clause{
@@ -116,7 +116,7 @@ func TestUpdateJourney(t *testing.T) {
 					},
 					Value: &filters.Value{
 						Type:  libschema.DataTypeInt,
-						Value: value,
+						Value: []int64{value},
 					},
 				},
 			}, nil, additional.Properties{}, "")

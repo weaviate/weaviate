@@ -21,39 +21,36 @@ import (
 )
 
 func (s *Searcher) extractNumberValue(in interface{}) ([]byte, error) {
-	value, ok := in.(float64)
-	if !ok {
-		return nil, fmt.Errorf("expected value to be float64, got %T", in)
+	val, err := s.getFloat64FromValueNumber(in)
+	if err != nil {
+		return nil, err
 	}
-
-	return LexicographicallySortableFloat64(value)
+	return LexicographicallySortableFloat64(val)
 }
 
 // assumes an untyped int and stores as string-formatted int64
-func (s *Searcher) extractIntValue(in interface{}) ([]byte, error) {
-	value, ok := in.(int)
-	if !ok {
-		return nil, fmt.Errorf("expected value to be int, got %T", in)
+func (s *Searcher) extractInt64Value(in interface{}) ([]byte, error) {
+	val, err := s.getInt64FromValueInt(in)
+	if err != nil {
+		return nil, err
 	}
-
-	return LexicographicallySortableInt64(int64(value))
+	return LexicographicallySortableInt64(val)
 }
 
 // assumes an untyped int and stores as string-formatted int64
-func (s *Searcher) extractIntCountValue(in interface{}) ([]byte, error) {
-	value, ok := in.(int)
-	if !ok {
-		return nil, fmt.Errorf("expected value to be int, got %T", in)
+func (s *Searcher) extractInt64CountValue(in interface{}) ([]byte, error) {
+	val, err := s.getInt64FromValueInt(in)
+	if err != nil {
+		return nil, err
 	}
-
-	return LexicographicallySortableUint64(uint64(value))
+	return LexicographicallySortableUint64(uint64(val))
 }
 
 // assumes an untyped bool and stores as bool64
 func (s *Searcher) extractBoolValue(in interface{}) ([]byte, error) {
-	value, ok := in.(bool)
-	if !ok {
-		return nil, fmt.Errorf("expected value to be bool, got %T", in)
+	value, err := s.getBoolFromValueBoolean(in)
+	if err != nil {
+		return nil, err
 	}
 
 	buf := bytes.NewBuffer(nil)
@@ -70,6 +67,18 @@ func (s *Searcher) extractDateValue(in interface{}) ([]byte, error) {
 	var asInt64 int64
 
 	switch t := in.(type) {
+	case []string:
+		if len(t) > 1 {
+			return nil, fmt.Errorf("expected only one string value, got %v values", len(t))
+		}
+
+		parsed, err := time.Parse(time.RFC3339, t[0])
+		if err != nil {
+			return nil, errors.Wrap(err, "trying parse time as RFC3339 string")
+		}
+
+		asInt64 = parsed.UnixNano()
+
 	case string:
 		parsed, err := time.Parse(time.RFC3339, t)
 		if err != nil {

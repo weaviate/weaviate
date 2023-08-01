@@ -201,29 +201,59 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 	if filter.Operands != nil {
 		// nested filter
-		out.children = make([]*propValuePair, len(filter.Operands))
-
-		eg := errgroup.Group{}
-		// prevent unbounded concurrency, see
-		// https://github.com/weaviate/weaviate/issues/3179 for details
-		eg.SetLimit(2 * _NUMCPU)
-
-		for i, clause := range filter.Operands {
-			i, clause := i, clause
-			eg.Go(func() error {
-				child, err := s.extractPropValuePair(&clause, className)
-				if err != nil {
-					return errors.Wrapf(err, "nested clause at pos %d", i)
-				}
-				out.children[i] = child
-
-				return nil
-			})
+		children, err := s.extractPropValuePairs(filter.Operands, className)
+		if err != nil {
+			return nil, err
 		}
-		if err := eg.Wait(); err != nil {
-			return nil, fmt.Errorf("nested query: %w", err)
-		}
+		out.children = children
 		out.operator = filter.Operator
+		return out, nil
+	}
+
+	if filter.Operator == filters.ContainsAny || filter.Operator == filters.ContainsAll {
+		var operands []filters.Clause
+		value := filter.Value.Value
+		propType := filter.Value.Type
+		switch propType {
+		case schema.DataTypeText, schema.DataTypeTextArray:
+			valueStringArray, ok := value.([]string)
+			if !ok {
+				return nil, fmt.Errorf("value type should be []string but is %T", value)
+			}
+			operands = getContainsOperands(filter, valueStringArray)
+		case schema.DataTypeInt, schema.DataTypeIntArray:
+			valueInt64Array, ok := value.([]int64)
+			if !ok {
+				return nil, fmt.Errorf("value type should be []int64 but is %T", value)
+			}
+			operands = getContainsOperands(filter, valueInt64Array)
+		case schema.DataTypeNumber, schema.DataTypeNumberArray:
+			valueFloat64Array, ok := value.([]float64)
+			if !ok {
+				return nil, fmt.Errorf("value type should be []int64 but is %T", value)
+			}
+			operands = getContainsOperands(filter, valueFloat64Array)
+		case schema.DataTypeBoolean, schema.DataTypeBooleanArray:
+			valueBooleanArray, ok := value.([]bool)
+			if !ok {
+				return nil, fmt.Errorf("value type should be []bool but is %T", value)
+			}
+			operands = getContainsOperands(filter, valueBooleanArray)
+		default:
+			return nil, fmt.Errorf("unsupported type '%v'", propType)
+		}
+
+		children, err := s.extractPropValuePairs(operands, className)
+		if err != nil {
+			return nil, err
+		}
+		out.children = children
+
+		out.operator = filters.OperatorOr
+		if filter.Operator == filters.ContainsAll {
+			out.operator = filters.OperatorAnd
+		}
+		out.Class = class
 		return out, nil
 	}
 
@@ -322,6 +352,31 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	return pv, nil
 }
 
+func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className schema.ClassName) ([]*propValuePair, error) {
+	children := make([]*propValuePair, len(operands))
+	eg := errgroup.Group{}
+	// prevent unbounded concurrency, see
+	// https://github.com/weaviate/weaviate/issues/3179 for details
+	eg.SetLimit(2 * _NUMCPU)
+
+	for i, clause := range operands {
+		i, clause := i, clause
+		eg.Go(func() error {
+			child, err := s.extractPropValuePair(&clause, className)
+			if err != nil {
+				return errors.Wrapf(err, "nested clause at pos %d", i)
+			}
+			children[i] = child
+
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, fmt.Errorf("nested query: %w", err)
+	}
+	return children, nil
+}
+
 func (s *Searcher) extractReferenceFilter(prop *models.Property,
 	filter *filters.Clause,
 ) (*propValuePair, error) {
@@ -338,7 +393,7 @@ func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.D
 	case schema.DataTypeBoolean:
 		extractValueFn = s.extractBoolValue
 	case schema.DataTypeInt:
-		extractValueFn = s.extractIntValue
+		extractValueFn = s.extractInt64Value
 	case schema.DataTypeNumber:
 		extractValueFn = s.extractNumberValue
 	case schema.DataTypeDate:
@@ -373,7 +428,7 @@ func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.D
 func (s *Searcher) extractReferenceCount(prop *models.Property, value interface{},
 	operator filters.Operator,
 ) (*propValuePair, error) {
-	byteValue, err := s.extractIntCountValue(value)
+	byteValue, err := s.extractInt64CountValue(value)
 	if err != nil {
 		return nil, err
 	}
@@ -421,9 +476,9 @@ func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
 
 	switch valueType {
 	case schema.DataTypeText:
-		asStr, ok := value.(string)
-		if !ok {
-			return nil, fmt.Errorf("expected to see uuid as string in filter, got %T", value)
+		asStr, err := s.getStringFromValueText(value)
+		if err != nil {
+			return nil, err
 		}
 		parsed, err := uuid.Parse(asStr)
 		if err != nil {
@@ -472,9 +527,9 @@ func (s *Searcher) extractIDProp(propName string, propType schema.DataType,
 
 	switch propType {
 	case schema.DataTypeText:
-		v, ok := value.(string)
-		if !ok {
-			return nil, fmt.Errorf("expected value to be string, got '%T'", value)
+		v, err := s.getStringFromValueText(value)
+		if err != nil {
+			return nil, err
 		}
 		byteValue = []byte(v)
 	default:
@@ -498,19 +553,19 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 
 	switch propType {
 	case schema.DataTypeText:
-		v, ok := value.(string)
-		if !ok {
-			return nil, fmt.Errorf("expected value to be string, got '%T'", value)
+		v, err := s.getStringFromValueText(value)
+		if err != nil {
+			return nil, err
 		}
-		_, err := strconv.ParseInt(v, 10, 64)
+		_, err = strconv.ParseInt(v, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("expected value to be timestamp, got '%s'", v)
 		}
 		byteValue = []byte(v)
 	case schema.DataTypeDate:
-		v, ok := value.(string)
-		if !ok {
-			return nil, fmt.Errorf("expected value to be string, got '%T'", value)
+		v, err := s.getStringFromValueText(value)
+		if err != nil {
+			return nil, err
 		}
 		t, err := time.Parse(time.RFC3339, v)
 		if err != nil {
@@ -540,14 +595,21 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 ) (*propValuePair, error) {
 	var terms []string
 
+	var valueString string
+
+	valueString, err := s.getStringFromValueText(value)
+	if err != nil {
+		return nil, err
+	}
+
 	switch propType {
 	case schema.DataTypeText:
 		// if the operator is like, we cannot apply the regular text-splitting
 		// logic as it would remove all wildcard symbols
 		if operator == filters.OperatorLike {
-			terms = helpers.TokenizeWithWildcards(prop.Tokenization, value.(string))
+			terms = helpers.TokenizeWithWildcards(prop.Tokenization, valueString)
 		} else {
-			terms = helpers.Tokenize(prop.Tokenization, value.(string))
+			terms = helpers.Tokenize(prop.Tokenization, valueString)
 		}
 	default:
 		return nil, fmt.Errorf("expected value type to be text, got %v", propType)
@@ -590,7 +652,7 @@ func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.
 
 	switch propType {
 	case schema.DataTypeInt:
-		b, err := s.extractIntValue(value)
+		b, err := s.extractInt64Value(value)
 		if err != nil {
 			return nil, err
 		}
@@ -679,6 +741,77 @@ func (s *Searcher) onTokenizableProp(prop *models.Property) bool {
 	default:
 		return false
 	}
+}
+
+func (s *Searcher) getStringFromValueText(in interface{}) (string, error) {
+	switch val := in.(type) {
+	case []string:
+		if len(val) > 1 {
+			return "", fmt.Errorf("expected only one string value, got %v values", len(val))
+		}
+		return val[0], nil
+	case string:
+		return val, nil
+	default:
+		return "", fmt.Errorf("expected value to be []string, got %T", in)
+	}
+}
+
+func (s *Searcher) getInt64FromValueInt(in interface{}) (int64, error) {
+	switch val := in.(type) {
+	case []int64:
+		if len(val) > 1 {
+			return 0, fmt.Errorf("expected only one int64 value, got %v values", len(val))
+		}
+		return val[0], nil
+	case int64:
+		return val, nil
+	default:
+		return 0, fmt.Errorf("expected value to be []int64, got %T", in)
+	}
+}
+
+func (s *Searcher) getFloat64FromValueNumber(in interface{}) (float64, error) {
+	switch val := in.(type) {
+	case []float64:
+		if len(val) > 1 {
+			return 0, fmt.Errorf("expected only one float64 value, got %v values", len(val))
+		}
+		return val[0], nil
+	case float64:
+		return val, nil
+	default:
+		return 0, fmt.Errorf("expected value to be []float64, got %T", in)
+	}
+}
+
+func (s *Searcher) getBoolFromValueBoolean(in interface{}) (bool, error) {
+	switch val := in.(type) {
+	case []bool:
+		if len(val) > 1 {
+			return false, fmt.Errorf("expected only one bool value, got %v values", len(val))
+		}
+		return val[0], nil
+	case bool:
+		return val, nil
+	default:
+		return false, fmt.Errorf("expected value to be []bool, got %T", in)
+	}
+}
+
+func getContainsOperands[T any](filter *filters.Clause, values []T) []filters.Clause {
+	operands := make([]filters.Clause, len(values))
+	for i := range values {
+		operands[i] = filters.Clause{
+			Operator: filters.OperatorEqual,
+			On:       filter.On,
+			Value: &filters.Value{
+				Type:  filter.Value.Type,
+				Value: values[i],
+			},
+		}
+	}
+	return operands
 }
 
 type docIDsIterator interface {

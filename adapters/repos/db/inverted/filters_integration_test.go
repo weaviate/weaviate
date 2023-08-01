@@ -367,7 +367,7 @@ func Test_Filters_Int(t *testing.T) {
 						Property: schema.PropertyName(propName),
 					},
 					Value: &filters.Value{
-						Value: 7,
+						Value: []int64{7},
 						Type:  schema.DataTypeInt,
 					},
 				},
@@ -385,7 +385,7 @@ func Test_Filters_Int(t *testing.T) {
 						Property: schema.PropertyName(propName),
 					},
 					Value: &filters.Value{
-						Value: 13,
+						Value: []int64{13},
 						Type:  schema.DataTypeInt,
 					},
 				},
@@ -406,7 +406,7 @@ func Test_Filters_Int(t *testing.T) {
 								Property: schema.PropertyName(propName),
 							},
 							Value: &filters.Value{
-								Value: 7,
+								Value: []int64{7},
 								Type:  schema.DataTypeInt,
 							},
 						},
@@ -417,7 +417,7 @@ func Test_Filters_Int(t *testing.T) {
 								Property: schema.PropertyName(propName),
 							},
 							Value: &filters.Value{
-								Value: 8,
+								Value: []int64{8},
 								Type:  schema.DataTypeInt,
 							},
 						},
@@ -440,7 +440,7 @@ func Test_Filters_Int(t *testing.T) {
 								Property: schema.PropertyName(propName),
 							},
 							Value: &filters.Value{
-								Value: 7,
+								Value: []int64{7},
 								Type:  schema.DataTypeInt,
 							},
 						},
@@ -451,7 +451,7 @@ func Test_Filters_Int(t *testing.T) {
 								Property: schema.PropertyName(propName),
 							},
 							Value: &filters.Value{
-								Value: 14,
+								Value: []int64{14},
 								Type:  schema.DataTypeInt,
 							},
 						},

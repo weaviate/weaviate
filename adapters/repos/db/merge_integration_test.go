@@ -561,7 +561,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 	})
 
 	t.Run("retrieve by each individual prop", func(t *testing.T) {
-		retrieve := func(prefix string, id int) func(t *testing.T) {
+		retrieve := func(prefix string, id int64) func(t *testing.T) {
 			return func(t *testing.T) {
 				type test struct {
 					name   string
@@ -604,22 +604,22 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 					{
 						name: "int filter",
 						filter: buildFilter(
-							fmt.Sprintf("%s_int", prefix), id, eq, dtInt),
+							fmt.Sprintf("%s_int", prefix), []int64{id}, eq, dtInt),
 					},
 					{
 						name: "int array filter",
 						filter: buildFilter(
-							fmt.Sprintf("%s_int_array", prefix), id, eq, dtInt),
+							fmt.Sprintf("%s_int_array", prefix), []int64{id}, eq, dtInt),
 					},
 					{
 						name: "number filter",
 						filter: buildFilter(
-							fmt.Sprintf("%s_number", prefix), float64(id), eq, dtNumber),
+							fmt.Sprintf("%s_number", prefix), []float64{float64(id)}, eq, dtNumber),
 					},
 					{
 						name: "number array filter",
 						filter: buildFilter(
-							fmt.Sprintf("%s_number_array", prefix), float64(id), eq, dtNumber),
+							fmt.Sprintf("%s_number_array", prefix), []float64{float64(id)}, eq, dtNumber),
 					},
 					{
 						name: "date filter",

@@ -1603,7 +1603,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 
 	t.Run("verify inverted index works correctly", func(t *testing.T) {
 		res, err := repo.Search(context.Background(), dto.GetParams{
-			Filters:   buildFilter("int_prop", total+1, lte, dtInt),
+			Filters:   buildFilter("int_prop", []int64{int64(total) + 1}, lte, dtInt),
 			ClassName: className,
 			Pagination: &filters.Pagination{
 				Offset: 0,
@@ -1656,7 +1656,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 
 	t.Run("perform filtered vector search and verify correct matches", func(t *testing.T) {
 		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-			Filters:   buildFilter("int_prop", 50, lt, dtInt),
+			Filters:   buildFilter("int_prop", []int64{50}, lt, dtInt),
 			ClassName: className,
 			Pagination: &filters.Pagination{
 				Offset: 0,

@@ -608,7 +608,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 							Property: "len(name)",
 						},
 						Value: &filters.Value{
-							Value: 5,
+							Value: []int64{5},
 							Type:  schema.DataTypeInt,
 						},
 					},
@@ -625,7 +625,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 							Property: "len(name)",
 						},
 						Value: &filters.Value{
-							Value: 6,
+							Value: []int64{6},
 							Type:  schema.DataTypeInt,
 						},
 					},
@@ -642,7 +642,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 							Property: "len(int_array)",
 						},
 						Value: &filters.Value{
-							Value: 0,
+							Value: []int64{0},
 							Type:  schema.DataTypeInt,
 						},
 					},
@@ -659,7 +659,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 							Property: "len(int_array)",
 						},
 						Value: &filters.Value{
-							Value: 4,
+							Value: []int64{4},
 							Type:  schema.DataTypeInt,
 						},
 					},
@@ -703,7 +703,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 							},
 						},
 						Value: &filters.Value{
-							Value: 5,
+							Value: []int64{5},
 							Type:  schema.DataTypeInt,
 						},
 					},
@@ -724,7 +724,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 							},
 						},
 						Value: &filters.Value{
-							Value: 6,
+							Value: []int64{6},
 							Type:  schema.DataTypeInt,
 						},
 					},
@@ -745,7 +745,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 							},
 						},
 						Value: &filters.Value{
-							Value: 0,
+							Value: []int64{0},
 							Type:  schema.DataTypeInt,
 						},
 					},
@@ -766,7 +766,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 							},
 						},
 						Value: &filters.Value{
-							Value: 4,
+							Value: []int64{4},
 							Type:  schema.DataTypeInt,
 						},
 					},

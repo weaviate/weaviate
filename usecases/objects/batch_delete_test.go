@@ -89,7 +89,7 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 						Where: &models.WhereFilter{
 							Path:      []string{"some", "path"},
 							Operator:  "Equal",
-							ValueText: ptString("value"),
+							ValueText: []string{"value"},
 						},
 					},
 				},
@@ -104,7 +104,7 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 						Where: &models.WhereFilter{
 							Path:      []string{"some"},
 							Operator:  "Equal",
-							ValueText: ptString("value"),
+							ValueText: []string{"value"},
 						},
 					},
 				},
@@ -147,7 +147,7 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 						Where: &models.WhereFilter{
 							Path:      []string{},
 							Operator:  "Equal",
-							ValueText: ptString("name"),
+							ValueText: []string{"name"},
 						},
 					},
 				},
@@ -162,7 +162,7 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 						Where: &models.WhereFilter{
 							Path:      []string{"name"},
 							Operator:  "Equal",
-							ValueText: ptString("value"),
+							ValueText: []string{"value"},
 						},
 					},
 				},
