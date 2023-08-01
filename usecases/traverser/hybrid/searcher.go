@@ -77,41 +77,18 @@ type modulesProvider interface {
 		className string, input string) ([]float32, error)
 }
 
-type Searcher struct {
-	params           *Params
-	logger           logrus.FieldLogger
-	sparseSearchFunc sparseSearchFunc
-	denseSearchFunc  denseSearchFunc
-	postProcFunc     postProcFunc
-	modulesProvider  modulesProvider
-}
-
-func NewSearcher(params *Params, logger logrus.FieldLogger,
-	sparse sparseSearchFunc, dense denseSearchFunc,
-	postProc postProcFunc, modulesProvider modulesProvider,
-) *Searcher {
-	return &Searcher{
-		logger:           logger,
-		params:           params,
-		sparseSearchFunc: sparse,
-		denseSearchFunc:  dense,
-		postProcFunc:     postProc,
-		modulesProvider:  modulesProvider,
-	}
-}
-
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
-func (s *Searcher) Search(ctx context.Context) (Results, error) {
+func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc, denseSearch denseSearchFunc, postProc postProcFunc, modules modulesProvider) (Results, error) {
 	var (
 		found   [][]*Result
 		weights []float64
 	)
 
-	if s.params.Query != "" {
-		alpha := s.params.Alpha
+	if params.Query != "" {
+		alpha := params.Alpha
 
 		if alpha < 1 {
-			res, err := s.sparseSearch()
+			res, err := processSparseSearch(sparseSearch())
 			if err != nil {
 				return nil, err
 			}
@@ -121,7 +98,7 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 		}
 
 		if alpha > 0 {
-			res, err := s.denseSearch(ctx)
+			res, err := processDenseSearch(ctx, denseSearch, params, modules)
 			if err != nil {
 				return nil, err
 			}
@@ -130,16 +107,16 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 			weights = append(weights, alpha)
 		}
 	} else {
-		ss := s.params.SubSearches
+		ss := params.SubSearches
 
 		// To catch error if ss is empty
-		_, err := s.decideSearchVector(ctx)
+		_, err := decideSearchVector(ctx, params, modules)
 		if err != nil {
 			return nil, err
 		}
 
 		for _, subsearch := range ss.([]searchparams.WeightedSearchResult) {
-			res, weight, err := s.handleSubSearch(ctx, &subsearch)
+			res, weight, err := handleSubSearch(ctx, &subsearch, denseSearch, sparseSearch, params, modules)
 			if err != nil {
 				return nil, err
 			}
@@ -157,43 +134,43 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 	}
 
 	var fused []*Result
-	if s.params.FusionAlgorithm == common_filters.HybridRankedFusion {
+	if params.FusionAlgorithm == common_filters.HybridRankedFusion {
 		fused = FusionRanked(weights, found)
-	} else if s.params.FusionAlgorithm == common_filters.HybridRelativeScoreFusion {
+	} else if params.FusionAlgorithm == common_filters.HybridRelativeScoreFusion {
 		fused = FusionRelativeScore(weights, found)
 	} else {
-		return nil, fmt.Errorf("unknown ranking algorithm %v for hybrid search", s.params.FusionAlgorithm)
+		return nil, fmt.Errorf("unknown ranking algorithm %v for hybrid search", params.FusionAlgorithm)
 	}
 
-	if s.postProcFunc != nil {
-		sr, err := s.postProcFunc(fused)
+	if postProc != nil {
+		sr, err := postProc(fused)
 		if err != nil {
 			return nil, fmt.Errorf("hybrid search post-processing: %w", err)
 		}
+		fused = fused[:len(sr)]
 		for i := range fused {
 			fused[i].Result = &(sr[i])
 		}
 	}
-	if s.params.Autocut > 0 {
+	if params.Autocut > 0 {
 		scores := make([]float32, len(fused))
 		for i := range fused {
 			scores[i] = fused[i].Score
 		}
-		cutOff := autocut.Autocut(scores, s.params.Autocut)
+		cutOff := autocut.Autocut(scores, params.Autocut)
 		fused = fused[:cutOff]
 	}
 	return fused, nil
 }
 
-func (s *Searcher) sparseSearch() ([]*Result, error) {
-	res, dists, err := s.sparseSearchFunc()
+func processSparseSearch(results []*storobj.Object, weights []float32, err error) ([]*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sparse search: %w", err)
 	}
 
-	out := make([]*Result, len(res))
-	for i, obj := range res {
-		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
+	out := make([]*Result, len(results))
+	for i, obj := range results {
+		sr := obj.SearchResultWithDist(additional.Properties{}, weights[i])
 		sr.SecondarySortValue = sr.Score
 		sr.ExplainScore = "(bm25)" + sr.ExplainScore
 		out[i] = &Result{obj.DocID(), &sr}
@@ -201,13 +178,13 @@ func (s *Searcher) sparseSearch() ([]*Result, error) {
 	return out, nil
 }
 
-func (s *Searcher) denseSearch(ctx context.Context) ([]*Result, error) {
-	vector, err := s.decideSearchVector(ctx)
+func processDenseSearch(ctx context.Context, denseSearch denseSearchFunc, params *Params, modules modulesProvider) ([]*Result, error) {
+	vector, err := decideSearchVector(ctx, params, modules)
 	if err != nil {
 		return nil, err
 	}
 
-	res, dists, err := s.denseSearchFunc(vector)
+	res, dists, err := denseSearch(vector)
 	if err != nil {
 		return nil, fmt.Errorf("dense search: %w", err)
 	}
@@ -224,30 +201,26 @@ func (s *Searcher) denseSearch(ctx context.Context) ([]*Result, error) {
 	return out, nil
 }
 
-func (s *Searcher) handleSubSearch(ctx context.Context,
-	subsearch *searchparams.WeightedSearchResult,
-) ([]*Result, float64, error) {
+func handleSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, sparseSearch sparseSearchFunc, params *Params, modules modulesProvider) ([]*Result, float64, error) {
 	switch subsearch.Type {
 	case "bm25":
 		fallthrough
 	case "sparseSearch":
-		return s.sparseSubSearch(subsearch)
+		return sparseSubSearch(subsearch, params, sparseSearch)
 	case "nearText":
-		return s.nearTextSubSearch(ctx, subsearch)
+		return nearTextSubSearch(ctx, subsearch, denseSearch, params, modules)
 	case "nearVector":
-		return s.nearVectorSubSearch(subsearch)
+		return nearVectorSubSearch(subsearch, denseSearch)
 	default:
 		return nil, 0, fmt.Errorf("unknown hybrid search type %q", subsearch.Type)
 	}
 }
 
-func (s *Searcher) sparseSubSearch(
-	subsearch *searchparams.WeightedSearchResult,
-) ([]*Result, float64, error) {
+func sparseSubSearch(subsearch *searchparams.WeightedSearchResult, params *Params, sparseSearch sparseSearchFunc) ([]*Result, float64, error) {
 	sp := subsearch.SearchParams.(searchparams.KeywordRanking)
-	s.params.Keyword = &sp
+	params.Keyword = &sp
 
-	res, dists, err := s.sparseSearchFunc()
+	res, dists, err := sparseSearch()
 	if err != nil {
 		return nil, 0, fmt.Errorf("sparse subsearch: %w", err)
 	}
@@ -262,20 +235,18 @@ func (s *Searcher) sparseSubSearch(
 	return out, subsearch.Weight, nil
 }
 
-func (s *Searcher) nearTextSubSearch(ctx context.Context,
-	subsearch *searchparams.WeightedSearchResult,
-) ([]*Result, float64, error) {
+func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, params *Params, modules modulesProvider) ([]*Result, float64, error) {
 	sp := subsearch.SearchParams.(searchparams.NearTextParams)
-	if s.modulesProvider == nil {
+	if modules == nil {
 		return nil, 0, nil
 	}
 
-	vector, err := s.vectorFromModuleInput(ctx, s.params.Class, sp.Values[0])
+	vector, err := vectorFromModuleInput(ctx, params.Class, sp.Values[0], modules)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	res, dists, err := s.denseSearchFunc(vector)
+	res, dists, err := denseSearch(vector)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -291,12 +262,10 @@ func (s *Searcher) nearTextSubSearch(ctx context.Context,
 	return out, subsearch.Weight, nil
 }
 
-func (s *Searcher) nearVectorSubSearch(
-	subsearch *searchparams.WeightedSearchResult,
-) ([]*Result, float64, error) {
+func nearVectorSubSearch(subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc) ([]*Result, float64, error) {
 	sp := subsearch.SearchParams.(searchparams.NearVector)
 
-	res, dists, err := s.denseSearchFunc(sp.Vector)
+	res, dists, err := denseSearch(sp.Vector)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -312,17 +281,17 @@ func (s *Searcher) nearVectorSubSearch(
 	return out, subsearch.Weight, nil
 }
 
-func (s *Searcher) decideSearchVector(ctx context.Context) ([]float32, error) {
+func decideSearchVector(ctx context.Context, params *Params, modules modulesProvider) ([]float32, error) {
 	var (
 		vector []float32
 		err    error
 	)
 
-	if s.params.Vector != nil && len(s.params.Vector) != 0 {
-		vector = s.params.Vector
+	if params.Vector != nil && len(params.Vector) != 0 {
+		vector = params.Vector
 	} else {
-		if s.modulesProvider != nil {
-			vector, err = s.vectorFromModuleInput(ctx, s.params.Class, s.params.Query)
+		if modules != nil {
+			vector, err = vectorFromModuleInput(ctx, params.Class, params.Query, modules)
 			if err != nil {
 				return nil, err
 			}
@@ -332,8 +301,8 @@ func (s *Searcher) decideSearchVector(ctx context.Context) ([]float32, error) {
 	return vector, nil
 }
 
-func (s *Searcher) vectorFromModuleInput(ctx context.Context, class, input string) ([]float32, error) {
-	vector, err := s.modulesProvider.VectorFromInput(ctx, class, input)
+func vectorFromModuleInput(ctx context.Context, class, input string, modules modulesProvider) ([]float32, error) {
+	vector, err := modules.VectorFromInput(ctx, class, input)
 	if err != nil {
 		return nil, fmt.Errorf("get vector input from modules provider: %w", err)
 	}
