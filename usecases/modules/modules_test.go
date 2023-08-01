@@ -14,6 +14,7 @@ package modules
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"testing"
 
@@ -513,6 +514,14 @@ func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, backupID,
 
 func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
 	return nil
+}
+
+func (m *dummyBackupModuleWithAltNames) Write(ctx context.Context, backupID, key string, r io.ReadCloser) (int64, error) {
+	return 0, nil
+}
+
+func (m *dummyBackupModuleWithAltNames) Read(ctx context.Context, backupID, key string, w io.WriteCloser) (int64, error) {
+	return 0, nil
 }
 
 func (m *dummyBackupModuleWithAltNames) SourceDataPath() string {

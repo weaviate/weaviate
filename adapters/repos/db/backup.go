@@ -114,7 +114,7 @@ func (db *DB) ShardsBackup(
 			return cd, fmt.Errorf("class %q: shard %q: list backup files: %w", class, shardName, err)
 		}
 
-		cd.Shards = append(cd.Shards, sd)
+		cd.Shards = append(cd.Shards, &sd)
 	}
 
 	return cd, nil
@@ -196,12 +196,12 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 		if err = s.beginBackup(ctx); err != nil {
 			return fmt.Errorf("pause compaction and flush: %w", err)
 		}
-		var ddesc backup.ShardDescriptor
-		if err := s.listBackupFiles(ctx, &ddesc); err != nil {
+		var sd backup.ShardDescriptor
+		if err := s.listBackupFiles(ctx, &sd); err != nil {
 			return fmt.Errorf("list shard %v files: %w", s.name, err)
 		}
 
-		desc.Shards = append(desc.Shards, ddesc)
+		desc.Shards = append(desc.Shards, &sd)
 		return nil
 	}); err != nil {
 		return err

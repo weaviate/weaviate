@@ -107,28 +107,28 @@ func TestValidateBackup(t *testing.T) {
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
 				Name: "n", Schema: bytes, ShardingState: bytes,
-				Shards: []ShardDescriptor{{Name: ""}},
+				Shards: []*ShardDescriptor{{Name: ""}},
 			}},
 		}},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
 				Name: "n", Schema: bytes, ShardingState: bytes,
-				Shards: []ShardDescriptor{{Name: "n", Node: ""}},
+				Shards: []*ShardDescriptor{{Name: "n", Node: ""}},
 			}},
 		}},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
 				Name: "n", Schema: bytes, ShardingState: bytes,
-				Shards: []ShardDescriptor{{Name: "n", Node: "n"}},
+				Shards: []*ShardDescriptor{{Name: "n", Node: "n"}},
 			}},
 		}},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
 				Name: "n", Schema: bytes, ShardingState: bytes,
-				Shards: []ShardDescriptor{{
+				Shards: []*ShardDescriptor{{
 					Name: "n", Node: "n",
 					PropLengthTrackerPath: "n", DocIDCounterPath: "n", ShardVersionPath: "n",
 				}},
@@ -138,7 +138,7 @@ func TestValidateBackup(t *testing.T) {
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
 				Name: "n", Schema: bytes, ShardingState: bytes,
-				Shards: []ShardDescriptor{{
+				Shards: []*ShardDescriptor{{
 					Name: "n", Node: "n",
 					PropLengthTrackerPath: "n", DocIDCounterPath: "n", ShardVersionPath: "n",
 					Files: []string{"file"},
@@ -149,7 +149,7 @@ func TestValidateBackup(t *testing.T) {
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
 				Name: "n", Schema: bytes, ShardingState: bytes,
-				Shards: []ShardDescriptor{{
+				Shards: []*ShardDescriptor{{
 					Name: "n", Node: "n",
 					PropLengthTrackerPath: "n", DocIDCounterPath: "n", ShardVersionPath: "n",
 					DocIDCounter: bytes, Files: []string{"file"},
@@ -160,7 +160,7 @@ func TestValidateBackup(t *testing.T) {
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
 				Name: "n", Schema: bytes, ShardingState: bytes,
-				Shards: []ShardDescriptor{{
+				Shards: []*ShardDescriptor{{
 					Name: "n", Node: "n",
 					PropLengthTrackerPath: "n", DocIDCounterPath: "n", ShardVersionPath: "n",
 					DocIDCounter: bytes, Version: bytes, PropLengthTracker: bytes, Files: []string{""},
@@ -171,7 +171,7 @@ func TestValidateBackup(t *testing.T) {
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
 				Name: "n", Schema: bytes, ShardingState: bytes,
-				Shards: []ShardDescriptor{{
+				Shards: []*ShardDescriptor{{
 					Name: "n", Node: "n",
 					PropLengthTrackerPath: "n", DocIDCounterPath: "n", ShardVersionPath: "n",
 					DocIDCounter: bytes, Version: bytes, PropLengthTracker: bytes, Files: []string{"file"},
@@ -204,14 +204,14 @@ func TestBackwardCompatibility(t *testing.T) {
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
 				Name:   "n",
-				Shards: []ShardDescriptor{{Name: "n", Node: ""}},
+				Shards: []*ShardDescriptor{{Name: "n", Node: ""}},
 			}},
 		}},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
 				Name: "n",
-				Shards: []ShardDescriptor{{
+				Shards: []*ShardDescriptor{{
 					Name: "n", Node: "n",
 				}},
 			}},

@@ -178,7 +178,7 @@ func (d *DistributedBackupDescriptor) ResetStatus() *DistributedBackupDescriptor
 type ShardDescriptor struct {
 	Name  string   `json:"name"`
 	Node  string   `json:"node"`
-	Files []string `json:"files"`
+	Files []string `json:"files,omitempty"` // TODO: `json:"-"` since file paths are now track by the tarball
 
 	DocIDCounterPath      string `json:"docIdCounterPath"`
 	DocIDCounter          []byte `json:"docIdCounter"`
@@ -186,15 +186,17 @@ type ShardDescriptor struct {
 	PropLengthTracker     []byte `json:"propLengthTracker"`
 	ShardVersionPath      string `json:"shardVersionPath"`
 	Version               []byte `json:"version"`
+	Chunk                 int32  `json:"chunk"`
 }
 
 // ClassDescriptor contains everything needed to completely restore a class
 type ClassDescriptor struct {
-	Name          string            `json:"name"` // DB class name, also selected by user
-	Shards        []ShardDescriptor `json:"shards"`
-	ShardingState []byte            `json:"shardingState"`
-	Schema        []byte            `json:"schema"`
-	Error         error             `json:"-"`
+	Name          string             `json:"name"` // DB class name, also selected by user
+	Shards        []*ShardDescriptor `json:"shards"`
+	ShardingState []byte             `json:"shardingState"`
+	Schema        []byte             `json:"schema"`
+	Chunks        map[int32][]string `json:"chunks,omitempty"`
+	Error         error              `json:"-"`
 }
 
 // BackupDescriptor contains everything needed to completely restore a list of classes
