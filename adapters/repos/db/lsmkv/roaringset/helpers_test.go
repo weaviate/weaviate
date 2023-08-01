@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/sroar"
 )
 
 func TestBitmap_Condense(t *testing.T) {
@@ -167,6 +168,52 @@ func TestBitmap_Prefill(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestBitmap_Inverted(t *testing.T) {
+	type test struct {
+		name          string
+		source        []uint64
+		maxVal        uint64
+		shouldContain []uint64
+	}
+
+	tests := []test{
+		{
+			name:          "all empty",
+			source:        nil,
+			maxVal:        0,
+			shouldContain: []uint64{},
+		},
+		{
+			name:          "no matches in source",
+			source:        nil,
+			maxVal:        7,
+			shouldContain: []uint64{0, 1, 2, 3, 4, 5, 6, 7},
+		},
+		{
+			name:          "some matches in source",
+			source:        []uint64{3, 4, 5},
+			maxVal:        7,
+			shouldContain: []uint64{0, 1, 2, 6, 7},
+		},
+		{
+			name:          "source has higher val than max val",
+			source:        []uint64{3, 4, 5, 8},
+			maxVal:        7,
+			shouldContain: []uint64{0, 1, 2, 6, 7},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			source := sroar.NewBitmap()
+			source.SetMany(test.source)
+			out := NewInvertedBitmap(source, test.maxVal)
+			outSlice := out.ToArray()
+			assert.Equal(t, test.shouldContain, outSlice)
+		})
+	}
 }
 
 func slice(from, to uint64) []uint64 {

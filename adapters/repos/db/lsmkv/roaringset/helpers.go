@@ -51,6 +51,16 @@ func Condense(bm *sroar.Bitmap) *sroar.Bitmap {
 	return condensed
 }
 
+// NewInvertedBitmap creates a bitmap that as all IDs filled from 0 to maxVal.
+// Then the source bitmap is substracted (AndNot) from the all-ids bitmap,
+// resulting in a bitmap containing all ids from 0 to maxVal except the ones
+// that were set on the source.
+func NewInvertedBitmap(source *sroar.Bitmap, maxVal uint64) *sroar.Bitmap {
+	bm := NewBitmapPrefill(maxVal)
+	bm.AndNot(source)
+	return bm
+}
+
 // Creates prefilled bitmap with values from 1 to maxVal (included).
 //
 // It is designed to be more performant both
