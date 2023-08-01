@@ -127,9 +127,11 @@ func TestBitmap_Prefill(t *testing.T) {
 			t.Run(fmt.Sprint(maxVal), func(t *testing.T) {
 				bm := newBitmapPrefillSequential(maxVal)
 
-				assert.Equal(t, int(maxVal), bm.GetCardinality())
+				// +1, due to 0 included
+				assert.Equal(t, int(maxVal)+1, bm.GetCardinality())
 
-				bm.RemoveRange(1, maxVal)
+				// remove all except maxVal
+				bm.RemoveRange(0, maxVal)
 
 				assert.Equal(t, 1, bm.GetCardinality())
 				assert.True(t, bm.Contains(maxVal))
@@ -139,13 +141,15 @@ func TestBitmap_Prefill(t *testing.T) {
 
 	t.Run("parallel", func(t *testing.T) {
 		for _, maxVal := range []uint64{1_000, 10_000, 100_000, 1_000_000, uint64(prefillBufferSize)} {
-			for _, routinesLimit := range []int{2, 3, 4} {
+			for _, routinesLimit := range []int{2, 3, 4, 5, 6, 7, 8} {
 				t.Run(fmt.Sprint(maxVal), func(t *testing.T) {
 					bm := newBitmapPrefillParallel(maxVal, routinesLimit)
 
-					assert.Equal(t, int(maxVal), bm.GetCardinality())
+					// +1, due to 0 included
+					assert.Equal(t, int(maxVal)+1, bm.GetCardinality())
 
-					bm.RemoveRange(1, maxVal)
+					// remove all except maxVal
+					bm.RemoveRange(0, maxVal)
 
 					assert.Equal(t, 1, bm.GetCardinality())
 					assert.True(t, bm.Contains(maxVal))
@@ -159,9 +163,11 @@ func TestBitmap_Prefill(t *testing.T) {
 			t.Run(fmt.Sprint(maxVal), func(t *testing.T) {
 				bm := NewBitmapPrefill(maxVal)
 
-				assert.Equal(t, int(maxVal), bm.GetCardinality())
+				// +1, due to 0 included
+				assert.Equal(t, int(maxVal)+1, bm.GetCardinality())
 
-				bm.RemoveRange(1, maxVal)
+				// remove all except maxVal
+				bm.RemoveRange(0, maxVal)
 
 				assert.Equal(t, 1, bm.GetCardinality())
 				assert.True(t, bm.Contains(maxVal))
@@ -180,10 +186,10 @@ func TestBitmap_Inverted(t *testing.T) {
 
 	tests := []test{
 		{
-			name:          "all empty",
+			name:          "just 0, no source",
 			source:        nil,
 			maxVal:        0,
-			shouldContain: []uint64{},
+			shouldContain: []uint64{0},
 		},
 		{
 			name:          "no matches in source",

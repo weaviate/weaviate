@@ -61,7 +61,7 @@ func NewInvertedBitmap(source *sroar.Bitmap, maxVal uint64) *sroar.Bitmap {
 	return bm
 }
 
-// Creates prefilled bitmap with values from 1 to maxVal (included).
+// Creates prefilled bitmap with values from 0 to maxVal (included).
 //
 // It is designed to be more performant both
 // time-wise (compared to Set/SetMany)
@@ -86,7 +86,7 @@ func newBitmapPrefillSequential(maxVal uint64) *sroar.Bitmap {
 	buf := make([]uint64, prefillBufferSize)
 	finalBM := sroar.NewBitmap()
 
-	for i := uint64(1); i <= maxVal; i += inc {
+	for i := uint64(0); i <= maxVal; i += inc {
 		j := uint64(0)
 		for ; j < inc && i+j <= maxVal; j++ {
 			buf[j] = i + j
@@ -123,7 +123,7 @@ func newBitmapPrefillParallel(maxVal uint64, routinesLimit int) *sroar.Bitmap {
 		}()
 	}
 
-	for i := uint64(1); i <= maxVal; i += inc {
+	for i := uint64(0); i <= maxVal; i += inc {
 		ch <- i
 	}
 	close(ch)
