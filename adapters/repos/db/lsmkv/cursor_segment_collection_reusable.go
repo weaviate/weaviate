@@ -33,19 +33,10 @@ func (s *segmentCursorCollectionReusable) seek(key []byte) ([]byte, []value, err
 		return nil, nil, err
 	}
 
-	//contents := make([]byte, node.End-node.Start)
-	//if err = s.segment.pread(contents, node.Start, node.End); err != nil {
-	//	return nil, nil, err
-	//}
-
-	r, err := s.segment.bufferedReaderAt(node.Start)
+	r, err := s.segment.newNodeReader(nodeOffset{node.Start, node.End})
 	if err != nil {
 		return nil, nil, err
 	}
-
-	/*	if len(contents) == 0 {
-		return nil, nil, lsmkv.NotFound
-	}*/
 
 	err = ParseCollectionNodeInto(r, &s.nodeBuf)
 	if err != nil {
@@ -62,7 +53,7 @@ func (s *segmentCursorCollectionReusable) next() ([]byte, []value, error) {
 		return nil, nil, lsmkv.NotFound
 	}
 
-	r, err := s.segment.bufferedReaderAt(s.nextOffset)
+	r, err := s.segment.newNodeReader(nodeOffset{start: s.nextOffset})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -82,7 +73,7 @@ func (s *segmentCursorCollectionReusable) next() ([]byte, []value, error) {
 func (s *segmentCursorCollectionReusable) first() ([]byte, []value, error) {
 	s.nextOffset = s.segment.dataStartPos
 
-	r, err := s.segment.bufferedReaderAt(s.nextOffset)
+	r, err := s.segment.newNodeReader(nodeOffset{start: s.nextOffset})
 	if err != nil {
 		return nil, nil, err
 	}

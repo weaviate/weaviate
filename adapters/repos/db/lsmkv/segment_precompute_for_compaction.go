@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"syscall"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -49,15 +50,12 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		return nil, fmt.Errorf("stat file: %w", err)
 	}
 
-	contents := make([]byte, fileInfo.Size())
-	n, err := file.Read(contents)
+	contents, err := syscall.Mmap(int(file.Fd()), 0, int(fileInfo.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
 	if err != nil {
-		return nil, fmt.Errorf("read segment file %q: %w", fileInfo.Name(), err)
+		return nil, fmt.Errorf("mmap file: %w", err)
 	}
-	if int64(n) != fileInfo.Size() {
-		logger.WithField("action", "read segment file").
-			Warnf("only read %d out of %d segment bytes", n, fileInfo.Size())
-	}
+
+	defer syscall.Munmap(contents)
 
 	header, err := segmentindex.ParseHeader(bytes.NewReader(contents[:segmentindex.HeaderSize]))
 	if err != nil {
@@ -86,6 +84,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		// the path here, we would end up with filenames like
 		// segment.tmp.bloom.tmp, whereas we want to end up with segment.bloom.tmp
 		path:                strings.TrimSuffix(path, ".tmp"),
+		contents:            contents,
 		contentFile:         file,
 		version:             header.Version,
 		secondaryIndexCount: header.SecondaryIndices,

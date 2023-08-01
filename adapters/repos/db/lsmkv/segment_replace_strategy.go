@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -58,8 +57,8 @@ func (s *segment) get(key []byte) ([]byte, error) {
 	// Similar approach was used to fix SEGFAULT in collection strategy
 	// https://github.com/weaviate/weaviate/issues/1837
 	contentsCopy := make([]byte, node.End-node.Start)
-	if err = s.pread(contentsCopy, node.Start, node.End); err != nil {
-		return nil, fmt.Errorf("pread: %w", err)
+	if err = s.copyNode(contentsCopy, nodeOffset{node.Start, node.End}); err != nil {
+		return nil, err
 	}
 
 	return s.replaceStratParseData(contentsCopy)
@@ -100,8 +99,8 @@ func (s *segment) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) (
 	} else {
 		contentsCopy = make([]byte, node.End-node.Start)
 	}
-	if err = s.pread(contentsCopy, node.Start, node.End); err != nil {
-		return nil, fmt.Errorf("pread: %w", err), contentsCopy
+	if err = s.copyNode(contentsCopy, nodeOffset{node.Start, node.End}); err != nil {
+		return nil, err, nil
 	}
 	currContent, err := s.replaceStratParseData(contentsCopy)
 	return currContent, err, contentsCopy

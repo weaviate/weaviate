@@ -12,11 +12,8 @@
 package lsmkv
 
 import (
-	"bufio"
-	"bytes"
 	"encoding/binary"
 	"fmt"
-	"io"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -52,8 +49,8 @@ func (s *segment) getCollection(key []byte) ([]value, error) {
 	// compaction completes and the old segment is removed, we would be accessing
 	// invalid memory without the copy, thus leading to a SEGFAULT.
 	contentsCopy := make([]byte, node.End-node.Start)
-	if err = s.pread(contentsCopy, node.Start, node.End); err != nil {
-		return nil, fmt.Errorf("pread: %w", err)
+	if err = s.copyNode(contentsCopy, nodeOffset{node.Start, node.End}); err != nil {
+		return nil, err
 	}
 
 	return s.collectionStratParseData(contentsCopy)
@@ -85,20 +82,4 @@ func (s *segment) collectionStratParseData(in []byte) ([]value, error) {
 	}
 
 	return values, nil
-}
-
-func (s *segment) bytesReaderFrom(in []byte) (*bytes.Reader, error) {
-	if len(in) == 0 {
-		return nil, lsmkv.NotFound
-	}
-	return bytes.NewReader(in), nil
-}
-
-func (s *segment) bufferedReaderAt(offset uint64) (*bufio.Reader, error) {
-	if s.contentFile == nil {
-		return nil, fmt.Errorf("nil contentFile for segment at %s", s.path)
-	}
-
-	r := io.NewSectionReader(s.contentFile, int64(offset), s.size)
-	return bufio.NewReader(r), nil
 }

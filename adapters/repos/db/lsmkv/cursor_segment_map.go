@@ -41,7 +41,7 @@ func (s *segmentCursorMap) seek(key []byte) ([]byte, []MapPair, error) {
 		return nil, nil, err
 	}
 
-	r, err := s.segment.bufferedReaderAt(node.Start)
+	r, err := s.segment.newNodeReader(nodeOffset{node.Start, node.End})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -71,13 +71,12 @@ func (s *segmentCursorMap) next() ([]byte, []MapPair, error) {
 		return nil, nil, lsmkv.NotFound
 	}
 
-	// buffered reader to reduce syscalls
-	buf, err := s.segment.bufferedReaderAt(s.nextOffset)
+	r, err := s.segment.newNodeReader(nodeOffset{start: s.nextOffset})
 	if err != nil {
 		return nil, nil, err
 	}
 
-	parsed, err := ParseCollectionNode(buf)
+	parsed, err := ParseCollectionNode(r)
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle
@@ -99,13 +98,13 @@ func (s *segmentCursorMap) next() ([]byte, []MapPair, error) {
 
 func (s *segmentCursorMap) first() ([]byte, []MapPair, error) {
 	s.nextOffset = s.segment.dataStartPos
-	// buffered reader to reduce syscalls
-	buf, err := s.segment.bufferedReaderAt(s.nextOffset)
+
+	r, err := s.segment.newNodeReader(nodeOffset{start: s.nextOffset})
 	if err != nil {
 		return nil, nil, err
 	}
 
-	parsed, err := ParseCollectionNode(buf)
+	parsed, err := ParseCollectionNode(r)
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle

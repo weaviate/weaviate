@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"io"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/willf/bloom"
 )
 
@@ -198,12 +200,63 @@ func (s *segment) PayloadSize() int {
 	return int(s.dataEndPos)
 }
 
-func (s *segment) pread(buf []byte, start, end uint64) error {
-	r := io.NewSectionReader(s.contentFile, int64(start), int64(end))
-	n, err := r.Read(buf)
-	if n != int(end-start) {
-		s.logger.WithField("action", "pread").
-			Warnf("only read %d out of %d segment bytes", n, end-start)
+type nodeReader struct {
+	r io.Reader
+}
+
+func (n *nodeReader) Read(b []byte) (int, error) {
+	return n.r.Read(b)
+}
+
+type nodeOffset struct {
+	start, end uint64
+}
+
+func (s *segment) newNodeReader(offset nodeOffset) (*nodeReader, error) {
+	var (
+		r   io.Reader
+		err error
+	)
+	if s.mmapContents {
+		contents := s.contents[offset.start:]
+		if offset.end != 0 {
+			contents = s.contents[offset.start:offset.end]
+		}
+		r, err = s.bytesReaderFrom(contents)
+	} else {
+		r, err = s.bufferedReaderAt(offset.start)
 	}
+	if err != nil {
+		return nil, fmt.Errorf("new nodeReader: %w", err)
+	}
+	return &nodeReader{r: r}, nil
+}
+
+func (s *segment) copyNode(b []byte, offset nodeOffset) error {
+	if s.mmapContents {
+		copy(b, s.contents[offset.start:offset.end])
+		return nil
+	}
+	n, err := s.newNodeReader(offset)
+	if err != nil {
+		return fmt.Errorf("copy node: %w", err)
+	}
+	_, err = n.Read(b)
 	return err
+}
+
+func (s *segment) bytesReaderFrom(in []byte) (*bytes.Reader, error) {
+	if len(in) == 0 {
+		return nil, lsmkv.NotFound
+	}
+	return bytes.NewReader(in), nil
+}
+
+func (s *segment) bufferedReaderAt(offset uint64) (*bufio.Reader, error) {
+	if s.contentFile == nil {
+		return nil, fmt.Errorf("nil contentFile for segment at %s", s.path)
+	}
+
+	r := io.NewSectionReader(s.contentFile, int64(offset), s.size)
+	return bufio.NewReader(r), nil
 }

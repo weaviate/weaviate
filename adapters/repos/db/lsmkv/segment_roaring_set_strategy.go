@@ -35,11 +35,10 @@ func (s *segment) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 		return out, err
 	}
 
-	contents := make([]byte, node.End-node.Start)
-	if err = s.pread(contents, node.Start, node.End); err != nil {
-		return out, fmt.Errorf("pread: %w", err)
+	sn, err := s.segmentNodeFromBuffer(nodeOffset{node.Start, node.End})
+	if err != nil {
+		return out, err
 	}
-	sn := roaringset.NewSegmentNodeFromBuffer(contents)
 
 	// make sure that any data is copied before exiting this method, otherwise we
 	// risk a SEGFAULT as described in
@@ -47,4 +46,23 @@ func (s *segment) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 	out.Additions = sn.AdditionsWithCopy()
 	out.Deletions = sn.DeletionsWithCopy()
 	return out, nil
+}
+
+func (s *segment) segmentNodeFromBuffer(offset nodeOffset) (*roaringset.SegmentNode, error) {
+	var contents []byte
+	if s.mmapContents {
+		contents = s.contents[offset.start:offset.end]
+	} else {
+		contents = make([]byte, offset.end-offset.start)
+		r, err := s.bufferedReaderAt(offset.start)
+		if err != nil {
+			return nil, err
+		}
+		_, err = r.Read(contents)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return roaringset.NewSegmentNodeFromBuffer(contents), nil
 }

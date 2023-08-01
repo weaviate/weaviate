@@ -81,55 +81,6 @@ func (e *bufferedKeyAndTombstoneExtractor) do() {
 	e.flushAndCallback()
 }
 
-type contentsReader interface {
-	Read(uint64) ([]byte, error)
-}
-
-type pReader struct {
-	buf    []byte
-	r      *bufio.Reader
-	offset uint64
-}
-
-func newPReader(r io.ReaderAt, offset uint64, n int64) *pReader {
-	return &pReader{
-		buf: nil,
-		r:   bufio.NewReader(io.NewSectionReader(r, int64(offset), n)),
-	}
-}
-
-func (r *pReader) Read(n uint64) ([]byte, error) {
-	if uint64(len(r.buf)) <= r.offset+n {
-		r.grow(n)
-	}
-	_, err := r.r.Read(r.buf[r.offset : r.offset+n])
-	if err != nil {
-		return nil, fmt.Errorf("pReader: read %d bytes: %w", n, err)
-	}
-
-	defer func() { r.offset += n }()
-	return r.buf[r.offset : r.offset+n], nil
-}
-
-func (r *pReader) grow(n uint64) {
-	extend := make([]byte, n)
-	r.buf = append(r.buf, extend...)
-}
-
-type mmapReader struct {
-	contents []byte
-	offset   uint64
-}
-
-func newMmapReader(contents []byte, offset uint64) *mmapReader {
-	return &mmapReader{contents: contents, offset: offset}
-}
-
-func (r *mmapReader) Read(n uint64) ([]byte, error) {
-	defer func() { r.offset += n }()
-	return r.contents[r.offset : r.offset+n], nil
-}
-
 // returns true if the cycle completed, returns false if the cycle did not
 // complete because the output buffer was full. In that case, the offsets have
 // been reset to the values they had at the beginning of the cycle
@@ -148,7 +99,7 @@ func (e *bufferedKeyAndTombstoneExtractor) readSingleEntry() bool {
 		return false
 	}
 
-	var r contentsReader
+	var r tombstoneReader
 	if e.mmapedContents {
 		r = newMmapReader(e.rawSegment, e.offset)
 	} else {
@@ -253,4 +204,53 @@ func (e *bufferedKeyAndTombstoneExtractor) flushAndCallback() {
 	e.outputBufferOffset = 0
 
 	e.callbackCycle++
+}
+
+type tombstoneReader interface {
+	Read(uint64) ([]byte, error)
+}
+
+type pReader struct {
+	buf    []byte
+	r      *bufio.Reader
+	offset uint64
+}
+
+func newPReader(r io.ReaderAt, offset uint64, n int64) *pReader {
+	return &pReader{
+		r:      bufio.NewReader(io.NewSectionReader(r, int64(offset), n)),
+		offset: offset,
+	}
+}
+
+func (r *pReader) Read(n uint64) ([]byte, error) {
+	if uint64(len(r.buf)) <= r.offset+n {
+		r.grow(n)
+	}
+	_, err := r.r.Read(r.buf[r.offset : r.offset+n])
+	if err != nil {
+		return nil, fmt.Errorf("pReader: read %d bytes: %w", n, err)
+	}
+
+	defer func() { r.offset += n }()
+	return r.buf[r.offset : r.offset+n], nil
+}
+
+func (r *pReader) grow(n uint64) {
+	extend := make([]byte, n)
+	r.buf = append(r.buf, extend...)
+}
+
+type mmapReader struct {
+	contents []byte
+	offset   uint64
+}
+
+func newMmapReader(contents []byte, offset uint64) *mmapReader {
+	return &mmapReader{contents: contents, offset: offset}
+}
+
+func (r *mmapReader) Read(n uint64) ([]byte, error) {
+	defer func() { r.offset += n }()
+	return r.contents[r.offset : r.offset+n], nil
 }
