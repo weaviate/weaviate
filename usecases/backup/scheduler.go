@@ -27,6 +27,10 @@ var (
 	errIncludeExclude   = errors.New("malformed request: 'include' and 'exclude' cannot both contain values")
 )
 
+const (
+	errMsgHigherVersion = "unable to restore backup as it was produced by a higher version"
+)
+
 // Scheduler assigns backup operations to coordinators.
 type Scheduler struct {
 	// deps
@@ -269,6 +273,9 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	}
 	if err := meta.Validate(); err != nil {
 		return nil, fmt.Errorf("corrupted backup file: %w", err)
+	}
+	if v := meta.Version; v > Version {
+		return nil, fmt.Errorf("%s: %s > %s", errMsgHigherVersion, v, Version)
 	}
 	cs := meta.Classes()
 	if len(req.Include) > 0 {

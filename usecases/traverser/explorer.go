@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 	uc "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser/grouper"
@@ -48,6 +49,7 @@ type Explorer struct {
 	schemaGetter     uc.SchemaGetter
 	nearParamsVector *nearParamsVector
 	metrics          explorerMetrics
+	config           config.Config
 }
 
 type explorerMetrics interface {
@@ -97,9 +99,7 @@ type hybridSearcher interface {
 }
 
 // NewExplorer with search and connector repo
-func NewExplorer(searcher objectsSearcher, logger logrus.FieldLogger,
-	modulesProvider ModulesProvider, metrics explorerMetrics,
-) *Explorer {
+func NewExplorer(searcher objectsSearcher, logger logrus.FieldLogger, modulesProvider ModulesProvider, metrics explorerMetrics, conf config.Config) *Explorer {
 	return &Explorer{
 		searcher:         searcher,
 		logger:           logger,
@@ -107,6 +107,7 @@ func NewExplorer(searcher objectsSearcher, logger logrus.FieldLogger,
 		metrics:          metrics,
 		schemaGetter:     nil, // schemaGetter is set later
 		nearParamsVector: newNearParamsVector(modulesProvider, searcher),
+		config:           conf,
 	}
 }
 
@@ -247,6 +248,40 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	return e.searchResultsToGetResponse(ctx, res, searchVector, params)
 }
 
+func MinInt(ints ...int) int {
+	min := ints[0]
+	for _, i := range ints {
+		if i < min {
+			min = i
+		}
+	}
+	return min
+}
+
+func MaxInt(ints ...int) int {
+	max := ints[0]
+	for _, i := range ints {
+		if i > max {
+			max = i
+		}
+	}
+	return max
+}
+
+func (e *Explorer) CalculateTotalLimit(pagination *filters.Pagination) (int, error) {
+	if pagination == nil {
+		return 0, fmt.Errorf("invalid params, pagination object is nil")
+	}
+
+	if pagination.Limit == -1 {
+		return int(e.config.QueryDefaults.Limit + int64(pagination.Offset)), nil
+	}
+
+	totalLimit := pagination.Offset + pagination.Limit
+
+	return MinInt(totalLimit, int(e.config.QueryMaximumResults)), nil
+}
+
 func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
 	sparseSearch := func() ([]*storobj.Object, []float32, error) {
 		params.KeywordRanking = &searchparams.KeywordRanking{
@@ -255,18 +290,36 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			Properties: params.HybridSearch.Properties,
 		}
 
+		if params.Pagination == nil {
+			return nil, nil, fmt.Errorf("invalid params, pagination object is nil")
+		}
+
+		totalLimit, err := e.CalculateTotalLimit(params.Pagination)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		enforcedMin := MaxInt(params.Pagination.Offset+hybrid.DefaultLimit, totalLimit)
+
+		oldLimit := params.Pagination.Limit
+		params.Pagination.Limit = enforcedMin - params.Pagination.Offset
+
 		res, dists, err := e.searcher.SparseObjectSearch(ctx, params)
 		if err != nil {
 			return nil, nil, err
 		}
+		params.Pagination.Limit = oldLimit
 
 		return res, dists, nil
 	}
 
 	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
-		hybridSearchLimit := params.Pagination.Limit + params.Pagination.Offset
-		if hybridSearchLimit <= 0 {
+		baseSearchLimit := params.Pagination.Limit + params.Pagination.Offset
+		var hybridSearchLimit int
+		if baseSearchLimit <= hybrid.DefaultLimit {
 			hybridSearchLimit = hybrid.DefaultLimit
+		} else {
+			hybridSearchLimit = baseSearchLimit
 		}
 		res, dists, err := e.searcher.DenseObjectSearch(ctx,
 			params.ClassName, vec, 0, hybridSearchLimit, params.Filters,
@@ -279,23 +332,29 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 
 	postProcess := func(results hybrid.Results) ([]search.Result, error) {
-		res, err := e.searcher.ResolveReferences(ctx, results.SearchResults(),
-			params.Properties, nil, params.AdditionalProperties, "")
+		res1 := results.SearchResults()
+		totalLimit, err := e.CalculateTotalLimit(params.Pagination)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(res1) > totalLimit {
+			res1 = res1[:totalLimit]
+		}
+
+		res, err := e.searcher.ResolveReferences(ctx, res1, params.Properties, nil, params.AdditionalProperties, "")
 		if err != nil {
 			return nil, err
 		}
 		return res, nil
 	}
 
-	h := hybrid.NewSearcher(&hybrid.Params{
+	res, err := hybrid.Search(ctx, &hybrid.Params{
 		HybridSearch: params.HybridSearch,
 		Keyword:      params.KeywordRanking,
 		Class:        params.ClassName,
 		Autocut:      params.Pagination.Autocut,
-	}, e.logger, sparseSearch, denseSearch,
-		postProcess, e.modulesProvider)
-
-	res, err := h.Search(ctx)
+	}, e.logger, sparseSearch, denseSearch, postProcess, e.modulesProvider)
 	if err != nil {
 		return nil, err
 	}
