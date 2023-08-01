@@ -897,7 +897,7 @@ func (f *fakeObjectSearcher) DenseObjectSearch(ctx context.Context, class string
 	return out[:lim], []float32{0.009, 0.008}[:lim], nil
 }
 
-func  CopyElems[T any](list1, list2 []T, pos int) bool {
+func CopyElems[T any](list1, list2 []T, pos int) bool {
 	if len(list1) != len(list2) {
 		return false
 	}
@@ -906,7 +906,6 @@ func  CopyElems[T any](list1, list2 []T, pos int) bool {
 	}
 	list1[pos] = list2[pos]
 	return CopyElems(list1, list2, pos+1)
-
 }
 
 func (f *fakeObjectSearcher) ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties, groupBy *searchparams.GroupBy, additional additional.Properties, tenant string) (search.Results, error) {
