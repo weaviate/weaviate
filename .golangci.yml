@@ -28,14 +28,8 @@ issues:
         - staticcheck
       text: "SA5011"
     - linters:
-        - staticcheck
-      text: "S1001"
-    - linters:
         - govet
       text: "composites"
-    - linters:
-        - simple
-      text: "S1001"
 run:
   build-tags:
     - integrationTest
