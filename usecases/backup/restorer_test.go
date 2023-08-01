@@ -165,6 +165,30 @@ func TestRestoreRequestValidation(t *testing.T) {
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 	})
 
+	t.Run("BackupWithHigherVersion", func(t *testing.T) {
+		var (
+			backend = newFakeBackend()
+			meta    = backup.BackupDescriptor{
+				ID:            id,
+				StartedAt:     timept,
+				Version:       "1024",
+				ServerVersion: "1",
+				Status:        string(backup.Success),
+				Classes: []backup.ClassDescriptor{{
+					Name: cls, Schema: rawbytes, ShardingState: rawbytes,
+				}},
+			}
+			bytes = marshalMeta(meta)
+		)
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
+		backend.On("HomeDir", mock.Anything).Return(path)
+		m2 := createManager(nil, nil, backend, nil)
+		_, err := m2.Restore(ctx, nil, req)
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), errMsgHigherVersion)
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+	})
+
 	t.Run("FailedOldBackup", func(t *testing.T) {
 		backend := newFakeBackend()
 		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Failed)})

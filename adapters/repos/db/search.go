@@ -52,9 +52,7 @@ func (db *DB) GetQueryMaximumResults() int {
 // Earlier use cases required only []search.Result as a return value from the db, and the
 // Class ClassSearch method fit this need. Later on, other use cases presented the need
 // for the raw storage objects, such as hybrid search.
-func (db *DB) SparseObjectSearch(ctx context.Context,
-	params dto.GetParams,
-) ([]*storobj.Object, []float32, error) {
+func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error) {
 	idx := db.GetIndex(schema.ClassName(params.ClassName))
 	if idx == nil {
 		return nil, nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
@@ -79,9 +77,11 @@ func (db *DB) SparseObjectSearch(ctx context.Context,
 	return res, dist, nil
 }
 
-func (db *DB) Search(ctx context.Context,
-	params dto.GetParams,
-) ([]search.Result, error) {
+func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
+	if params.Pagination == nil {
+		return nil, fmt.Errorf("invalid params, pagination object is nil")
+	}
+
 	res, _, err := db.SparseObjectSearch(ctx, params)
 	if err != nil {
 		return nil, err
