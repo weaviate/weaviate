@@ -899,7 +899,7 @@ func (f *fakeObjectSearcher) DenseObjectSearch(ctx context.Context, class string
 
 func (f *fakeObjectSearcher) ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties, groupBy *searchparams.GroupBy, additional additional.Properties, tenant string) (search.Results, error) {
 	// Convert res1 to search.Results
-	out := make(search.Results, 0, len(objs)
+	out := make(search.Results, 0, len(objs))
 	for i, obj := range objs {
 		out[i] = obj
 	}
