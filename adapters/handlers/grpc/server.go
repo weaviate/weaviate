@@ -426,12 +426,16 @@ func searchParamsFromProto(req *pb.SearchRequest) (dto.GetParams, error) {
 		}
 	}
 
-	out.Pagination = &filters.Pagination{}
+	out.Pagination = &filters.Pagination{Offset: int(req.Offset), Autocut: int(req.Autocut)}
 	if req.Limit > 0 {
 		out.Pagination.Limit = int(req.Limit)
 	} else {
 		// TODO: align default with other APIs
 		out.Pagination.Limit = 10
+	}
+
+	if len(req.After) > 0 {
+		out.Cursor = &filters.Cursor{After: req.After, Limit: out.Pagination.Limit}
 	}
 
 	return out, nil
