@@ -158,7 +158,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	}
 
 	id := "bucket/flush/" + b.dir
-	b.flushCallbackCtrl = flushCallbacks.Register(id, true, b.flushAndSwitchIfThresholdsMet)
+	b.flushCallbackCtrl = flushCallbacks.Register(id, b.flushAndSwitchIfThresholdsMet)
 
 	b.metrics.TrackStartupBucket(beforeAll)
 

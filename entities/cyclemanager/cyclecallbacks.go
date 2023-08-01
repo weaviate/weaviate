@@ -14,6 +14,7 @@ package cyclemanager
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -22,7 +23,7 @@ import (
 // Can be provided to CycleManager.
 type CycleCallbacks interface {
 	// Adds CycleCallback method to container
-	Register(id string, active bool, cycleCallback CycleCallback) CycleCallbackCtrl
+	Register(id string, cycleCallback CycleCallback, options ...RegisterOption) CycleCallbackCtrl
 	// Method of CycleCallback acting as single callback for all callbacks added to the container
 	CycleCallback(shouldAbort ShouldAbortCallback) bool
 }
@@ -49,18 +50,27 @@ func NewCycleCallbacks(id string, logger logrus.FieldLogger, routinesLimit int) 
 	}
 }
 
-func (c *cycleCallbacks) Register(id string, active bool, cycleCallback CycleCallback) CycleCallbackCtrl {
+func (c *cycleCallbacks) Register(id string, cycleCallback CycleCallback, options ...RegisterOption) CycleCallbackCtrl {
 	c.Lock()
 	defer c.Unlock()
 
-	callbackId := c.nextId
-	c.callbackIds = append(c.callbackIds, callbackId)
-	c.callbacks[callbackId] = &cycleCallbackMeta{
+	meta := &cycleCallbackMeta{
 		customId:      id,
 		cycleCallback: cycleCallback,
-		active:        active,
+		active:        true,
 		runningCtx:    nil,
+		started:       time.Now(),
+		intervals:     nil,
 	}
+	for _, option := range options {
+		if option != nil {
+			option(meta)
+		}
+	}
+
+	callbackId := c.nextId
+	c.callbackIds = append(c.callbackIds, callbackId)
+	c.callbacks[callbackId] = meta
 	c.nextId++
 
 	return &cycleCallbackCtrl{
@@ -74,8 +84,15 @@ func (c *cycleCallbacks) Register(id string, active bool, cycleCallback CycleCal
 	}
 }
 
+func (c *cycleCallbacks) CycleCallback(shouldAbort ShouldAbortCallback) bool {
+	if c.routinesLimit <= 1 {
+		return c.cycleCallbackSequential(shouldAbort)
+	}
+	return c.cycleCallbackParallel(shouldAbort, c.routinesLimit)
+}
+
 func (c *cycleCallbacks) cycleCallbackSequential(shouldAbort ShouldAbortCallback) bool {
-	executed := false
+	anyExecuted := false
 	i := 0
 	for {
 		if shouldAbort() {
@@ -104,23 +121,39 @@ func (c *cycleCallbacks) cycleCallbackSequential(shouldAbort ShouldAbortCallback
 			c.Unlock()
 			continue
 		}
+		now := time.Now()
+		// not enough time passed since previous execution
+		if meta.intervals != nil && now.Sub(meta.started) < meta.intervals.Get() {
+			c.Unlock()
+			continue
+		}
 		// callback active, mark as running
 		runningCtx, cancel := context.WithCancel(context.Background())
 		meta.runningCtx = runningCtx
+		meta.started = now
 		c.Unlock()
 
 		func() {
 			// cancel called in recover, regardless of panic occurred or not
 			defer c.recover(meta.customId, cancel)
-			executed = meta.cycleCallback(shouldAbort) || executed
+			executed := meta.cycleCallback(shouldAbort)
+			anyExecuted = executed || anyExecuted
+
+			if meta.intervals != nil {
+				if executed {
+					meta.intervals.Reset()
+				} else {
+					meta.intervals.Advance()
+				}
+			}
 		}()
 	}
 
-	return executed
+	return anyExecuted
 }
 
 func (c *cycleCallbacks) cycleCallbackParallel(shouldAbort ShouldAbortCallback, routinesLimit int) bool {
-	executed := false
+	anyExecuted := false
 	ch := make(chan uint32)
 	lock := new(sync.Mutex)
 	wg := new(sync.WaitGroup)
@@ -137,18 +170,33 @@ func (c *cycleCallbacks) cycleCallbackParallel(shouldAbort ShouldAbortCallback, 
 					c.Unlock()
 					continue
 				}
+				now := time.Now()
+				// not enough time passed since previous execution
+				if meta.intervals != nil && now.Sub(meta.started) < meta.intervals.Get() {
+					c.Unlock()
+					continue
+				}
 				// callback active, mark as running
 				runningCtx, cancel := context.WithCancel(context.Background())
 				meta.runningCtx = runningCtx
+				meta.started = now
 				c.Unlock()
 
 				func() {
 					// cancel called in recover, regardless of panic occurred or not
 					defer c.recover(meta.customId, cancel)
-					if meta.cycleCallback(shouldAbort) {
+					executed := meta.cycleCallback(shouldAbort)
+					if executed {
 						lock.Lock()
-						executed = true
+						anyExecuted = true
 						lock.Unlock()
+					}
+					if meta.intervals != nil {
+						if executed {
+							meta.intervals.Reset()
+						} else {
+							meta.intervals.Advance()
+						}
 					}
 				}()
 			}
@@ -185,14 +233,7 @@ func (c *cycleCallbacks) cycleCallbackParallel(shouldAbort ShouldAbortCallback, 
 	}
 
 	wg.Wait()
-	return executed
-}
-
-func (c *cycleCallbacks) CycleCallback(shouldAbort ShouldAbortCallback) bool {
-	if c.routinesLimit <= 1 {
-		return c.cycleCallbackSequential(shouldAbort)
-	}
-	return c.cycleCallbackParallel(shouldAbort, c.routinesLimit)
+	return anyExecuted
 }
 
 func (c *cycleCallbacks) recover(callbackCustomId string, cancel context.CancelFunc) {
@@ -308,6 +349,8 @@ type cycleCallbackMeta struct {
 	// or not running (already finished) - context expired
 	// or not running (not yet started) - context nil
 	runningCtx context.Context
+	started    time.Time
+	intervals  Intervals
 }
 
 type cycleCallbacksNoop struct{}
@@ -316,10 +359,30 @@ func NewCycleCallbacksNoop() CycleCallbacks {
 	return &cycleCallbacksNoop{}
 }
 
-func (c *cycleCallbacksNoop) Register(id string, active bool, cycleCallback CycleCallback) CycleCallbackCtrl {
+func (c *cycleCallbacksNoop) Register(id string, cycleCallback CycleCallback, options ...RegisterOption) CycleCallbackCtrl {
 	return NewCycleCallbackCtrlNoop()
 }
 
 func (c *cycleCallbacksNoop) CycleCallback(shouldAbort ShouldAbortCallback) bool {
 	return false
+}
+
+type RegisterOption func(meta *cycleCallbackMeta)
+
+func AsInactive() RegisterOption {
+	return func(meta *cycleCallbackMeta) {
+		meta.active = false
+	}
+}
+
+func WithIntervals(intervals Intervals) RegisterOption {
+	if intervals == nil {
+		return nil
+	}
+	return func(meta *cycleCallbackMeta) {
+		meta.intervals = intervals
+		// adjusts start time to allow for immediate callback execution without
+		// having to wait for interval duration to pass
+		meta.started = time.Now().Add(-intervals.Get())
+	}
 }

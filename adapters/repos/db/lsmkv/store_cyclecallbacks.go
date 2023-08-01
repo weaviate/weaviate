@@ -40,12 +40,12 @@ func (s *Store) initCycleCallbacks(classCompactionCallbacks, classFlushCallbacks
 	compactionId := id("compaction")
 	compactionCallbacks := cyclemanager.NewCycleCallbacks(compactionId, s.logger, 1)
 	compactionCallbacksCtrl := classCompactionCallbacks.Register(
-		compactionId, true, compactionCallbacks.CycleCallback)
+		compactionId, compactionCallbacks.CycleCallback)
 
 	flushId := id("flush")
 	flushCallbacks := cyclemanager.NewCycleCallbacks(flushId, s.logger, 1)
 	flushCallbacksCtrl := classFlushCallbacks.Register(
-		flushId, true, flushCallbacks.CycleCallback)
+		flushId, flushCallbacks.CycleCallback)
 
 	s.cycleCallbacks = &storeCycleCallbacks{
 		compactionCallbacks:     compactionCallbacks,

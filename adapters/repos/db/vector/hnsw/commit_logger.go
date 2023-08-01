@@ -71,8 +71,8 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 		return strings.Join(elems, "/")
 	}
 	l.commitLogger = commitlog.NewLoggerWithFile(fd)
-	l.switchLogsCallbackCtrl = maintenanceCallbacks.Register(id("switch_logs"), true, l.startSwitchLogs)
-	l.condenseLogsCallbackCtrl = maintenanceCallbacks.Register(id("condense_logs"), true, l.startCombineAndCondenseLogs)
+	l.switchLogsCallbackCtrl = maintenanceCallbacks.Register(id("switch_logs"), l.startSwitchLogs)
+	l.condenseLogsCallbackCtrl = maintenanceCallbacks.Register(id("condense_logs"), l.startCombineAndCondenseLogs)
 
 	return l, nil
 }

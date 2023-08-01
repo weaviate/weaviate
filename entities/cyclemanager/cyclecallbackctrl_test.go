@@ -36,8 +36,8 @@ func TestCycleCombineCallbackCtrl_Unregister(t *testing.T) {
 		}
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		ctrl1 := callbacks.Register("c1", true, callback1)
-		ctrl2 := callbacks.Register("c2", true, callback2)
+		ctrl1 := callbacks.Register("c1", callback1)
+		ctrl2 := callbacks.Register("c2", callback2)
 		combinedCtrl := NewCycleCombinedCallbackCtrl(2, ctrl1, ctrl2)
 
 		cycle := New(NewFixedIntervalTicker(100*time.Millisecond), callbacks.CycleCallback)
@@ -66,8 +66,8 @@ func TestCycleCombineCallbackCtrl_Unregister(t *testing.T) {
 		}
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		ctrl1 := callbacks.Register("c1", true, callback1)
-		ctrl2 := callbacks.Register("c2", true, callback2)
+		ctrl1 := callbacks.Register("c1", callback1)
+		ctrl2 := callbacks.Register("c2", callback2)
 		combinedCtrl := NewCycleCombinedCallbackCtrl(2, ctrl1, ctrl2)
 
 		cycle := New(NewFixedIntervalTicker(100*time.Millisecond), callbacks.CycleCallback)
@@ -95,8 +95,8 @@ func TestCycleCombineCallbackCtrl_Unregister(t *testing.T) {
 		}
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		ctrlShort := callbacks.Register("short", true, callbackShort)
-		ctrlLong := callbacks.Register("long", true, callbackLong)
+		ctrlShort := callbacks.Register("short", callbackShort)
+		ctrlLong := callbacks.Register("long", callbackLong)
 		combinedCtrl := NewCycleCombinedCallbackCtrl(2, ctrlShort, ctrlLong)
 
 		cycle := New(NewFixedIntervalTicker(100*time.Millisecond), callbacks.CycleCallback)
@@ -134,8 +134,8 @@ func TestCycleCombineCallbackCtrl_Deactivate(t *testing.T) {
 		}
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		ctrl1 := callbacks.Register("c1", true, callback1)
-		ctrl2 := callbacks.Register("c2", true, callback2)
+		ctrl1 := callbacks.Register("c1", callback1)
+		ctrl2 := callbacks.Register("c2", callback2)
 		combinedCtrl := NewCycleCombinedCallbackCtrl(2, ctrl1, ctrl2)
 
 		cycle := New(NewFixedIntervalTicker(100*time.Millisecond), callbacks.CycleCallback)
@@ -164,8 +164,8 @@ func TestCycleCombineCallbackCtrl_Deactivate(t *testing.T) {
 		}
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		ctrl1 := callbacks.Register("c1", true, callback1)
-		ctrl2 := callbacks.Register("c2", true, callback2)
+		ctrl1 := callbacks.Register("c1", callback1)
+		ctrl2 := callbacks.Register("c2", callback2)
 		combinedCtrl := NewCycleCombinedCallbackCtrl(2, ctrl1, ctrl2)
 
 		cycle := New(NewFixedIntervalTicker(100*time.Millisecond), callbacks.CycleCallback)
@@ -193,8 +193,8 @@ func TestCycleCombineCallbackCtrl_Deactivate(t *testing.T) {
 		}
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		ctrlShort := callbacks.Register("short", true, callbackShort)
-		ctrlLong := callbacks.Register("long", true, callbackLong)
+		ctrlShort := callbacks.Register("short", callbackShort)
+		ctrlLong := callbacks.Register("long", callbackLong)
 		combinedCtrl := NewCycleCombinedCallbackCtrl(2, ctrlShort, ctrlLong)
 
 		cycle := New(NewFixedIntervalTicker(100*time.Millisecond), callbacks.CycleCallback)
@@ -232,8 +232,8 @@ func TestCycleCombineCallbackCtrl_Activate(t *testing.T) {
 		}
 
 		callbacks := NewCycleCallbacks("id", logger, 2)
-		ctrl1 := callbacks.Register("c1", false, callback1)
-		ctrl2 := callbacks.Register("c2", false, callback2)
+		ctrl1 := callbacks.Register("c1", callback1, AsInactive())
+		ctrl2 := callbacks.Register("c2", callback2, AsInactive())
 		combinedCtrl := NewCycleCombinedCallbackCtrl(2, ctrl1, ctrl2)
 
 		cycle := New(NewFixedIntervalTicker(100*time.Millisecond), callbacks.CycleCallback)
