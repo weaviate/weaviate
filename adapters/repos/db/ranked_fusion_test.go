@@ -992,15 +992,8 @@ func TestHybridOverSearch(t *testing.T) {
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(hybridResults))
-		require.Equal(t, strfmt.UUID("1889a225-3b28-477d-b8fc-5f6071bb4731"), hybridResults[0].ID)
+		require.Equal(t, strfmt.UUID("9889a225-3b28-477d-b8fc-5f6071bb4731"), hybridResults[0].ID)
 		// require.Equal(t, "79a636c2-3314-442e-a4d1-e94d7c0afc3a", hybridResults[1].ID)
 
-		fmt.Println("--- Start results for hybrid ---")
-		for _, r := range hybridResults {
-			schema := r.Schema.(map[string]interface{})
-			title := schema["title"].(string)
-			description := schema["description"].(string)
-			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
-		}
 	})
 }
