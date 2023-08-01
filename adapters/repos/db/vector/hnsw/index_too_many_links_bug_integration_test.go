@@ -58,7 +58,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 
 	parentTombstoneCleanupCallbacks := cyclemanager.NewCycleCallbacks("parentTombstoneCleanup", logger, 1)
 	parentTombstoneCleanupCycle := cyclemanager.New(
-		cyclemanager.NewFixedIntervalTicker(1),
+		cyclemanager.NewFixedTicker(1),
 		parentTombstoneCleanupCallbacks.CycleCallback)
 	parentTombstoneCleanupCycle.Start()
 	defer parentTombstoneCleanupCycle.StopAndWait(ctx)

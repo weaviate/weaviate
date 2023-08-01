@@ -22,7 +22,7 @@ import (
 func Test_FixedIntervalTicker(t *testing.T) {
 	t.Run("channel is empty before started", func(t *testing.T) {
 		interval := 10 * time.Millisecond
-		ticker := NewFixedIntervalTicker(10 * time.Millisecond)
+		ticker := NewFixedTicker(10 * time.Millisecond)
 
 		assert.Len(t, ticker.C(), 0)
 
@@ -36,7 +36,7 @@ func Test_FixedIntervalTicker(t *testing.T) {
 		interval := 50 * time.Millisecond
 		tolerance := 25 * time.Millisecond
 
-		ticker := NewFixedIntervalTicker(interval)
+		ticker := NewFixedTicker(interval)
 		ticker.Start()
 
 		t0 := time.Now()
@@ -64,7 +64,7 @@ func Test_FixedIntervalTicker(t *testing.T) {
 		interval := 50 * time.Millisecond
 		tolerance := 25 * time.Millisecond
 
-		ticker := NewFixedIntervalTicker(interval)
+		ticker := NewFixedTicker(interval)
 		ticker.Start()
 
 		t0 := time.Now()
@@ -106,7 +106,7 @@ func Test_FixedIntervalTicker(t *testing.T) {
 		interval := 50 * time.Millisecond
 		tolerance := 25 * time.Millisecond
 
-		ticker := NewFixedIntervalTicker(interval)
+		ticker := NewFixedTicker(interval)
 		ticker.Start()
 
 		t0 := time.Now()
@@ -139,7 +139,7 @@ func Test_FixedIntervalTicker(t *testing.T) {
 		interval := 50 * time.Millisecond
 		tolerance := 25 * time.Millisecond
 
-		ticker := NewFixedIntervalTicker(interval)
+		ticker := NewFixedTicker(interval)
 		ticker.Start()
 
 		t01 := time.Now()
@@ -170,7 +170,7 @@ func Test_FixedIntervalTicker(t *testing.T) {
 	t.Run("ticker does not run with <= 0 interval", func(t *testing.T) {
 		interval := time.Duration(0)
 
-		ticker := NewFixedIntervalTicker(interval)
+		ticker := NewFixedTicker(interval)
 		ticker.Start()
 
 		tickOccurred := false

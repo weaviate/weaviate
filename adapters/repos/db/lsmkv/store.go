@@ -46,7 +46,7 @@ type Store struct {
 // disk, it is loaded, if the folder is empty a new store is initialized in
 // there.
 func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
-	classCompactionCallbacks, classFlushCallbacks cyclemanager.CycleCallbacks,
+	shardCompactionCallbacks, shardFlushCallbacks cyclemanager.CycleCallbacks,
 ) (*Store, error) {
 	s := &Store{
 		dir:           dir,
@@ -55,7 +55,7 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
 		logger:        logger,
 		metrics:       metrics,
 	}
-	s.initCycleCallbacks(classCompactionCallbacks, classFlushCallbacks)
+	s.initCycleCallbacks(shardCompactionCallbacks, shardFlushCallbacks)
 
 	return s, s.init()
 }

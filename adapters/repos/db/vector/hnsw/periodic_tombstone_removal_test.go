@@ -30,7 +30,7 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 	cleanupIntervalSeconds := 1
 	tombstoneCallbacks := cyclemanager.NewCycleCallbacks("tombstone", logger, 1)
 	tombstoneCleanupCycle := cyclemanager.New(
-		cyclemanager.NewFixedIntervalTicker(time.Duration(cleanupIntervalSeconds)*time.Second),
+		cyclemanager.NewFixedTicker(time.Duration(cleanupIntervalSeconds)*time.Second),
 		tombstoneCallbacks.CycleCallback)
 	tombstoneCleanupCycle.Start()
 

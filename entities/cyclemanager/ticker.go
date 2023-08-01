@@ -28,11 +28,11 @@ type CycleTicker interface {
 }
 
 type cycleTicker struct {
-	intervals Intervals
+	intervals CycleIntervals
 	ticker    *time.Ticker
 }
 
-func newCycleTicker(intervals Intervals) CycleTicker {
+func newCycleTicker(intervals CycleIntervals) CycleTicker {
 	if intervals == nil {
 		return NewNoopTicker()
 	}
@@ -66,7 +66,7 @@ func (t *cycleTicker) CycleExecuted(executed bool) {
 // of execution results reported by cycle function
 //
 // If interval <= 0 given, ticker will not fire
-func NewFixedIntervalTicker(interval time.Duration) CycleTicker {
+func NewFixedTicker(interval time.Duration) CycleTicker {
 	return newCycleTicker(NewFixedIntervals(interval))
 }
 
@@ -131,7 +131,7 @@ func (t *noopTicker) CycleExecuted(executed bool) {
 
 // ===== Intervals =====
 
-type Intervals interface {
+type CycleIntervals interface {
 	Get() time.Duration
 	Reset()
 	Advance()
@@ -170,14 +170,14 @@ func (i *seriesIntervals) Advance() {
 	}
 }
 
-func NewFixedIntervals(interval time.Duration) Intervals {
+func NewFixedIntervals(interval time.Duration) CycleIntervals {
 	if interval <= 0 {
 		return nil
 	}
 	return &fixedIntervals{interval: interval}
 }
 
-func NewSeriesIntervals(intervals []time.Duration) Intervals {
+func NewSeriesIntervals(intervals []time.Duration) CycleIntervals {
 	if len(intervals) == 0 {
 		return nil
 	}
@@ -196,7 +196,7 @@ func NewSeriesIntervals(intervals []time.Duration) Intervals {
 	return &seriesIntervals{intervals: intervals, pos: 0}
 }
 
-func NewLinearIntervals(minInterval, maxInterval time.Duration, steps uint) Intervals {
+func NewLinearIntervals(minInterval, maxInterval time.Duration, steps uint) CycleIntervals {
 	if minInterval <= 0 || maxInterval <= 0 || steps == 0 || minInterval > maxInterval {
 		return nil
 	}
@@ -206,7 +206,7 @@ func NewLinearIntervals(minInterval, maxInterval time.Duration, steps uint) Inte
 	return &seriesIntervals{intervals: linearToIntervals(minInterval, maxInterval, steps), pos: 0}
 }
 
-func NewExpIntervals(minInterval, maxInterval time.Duration, base, steps uint) Intervals {
+func NewExpIntervals(minInterval, maxInterval time.Duration, base, steps uint) CycleIntervals {
 	if minInterval <= 0 || maxInterval <= 0 || base == 0 || steps == 0 || minInterval > maxInterval {
 		return nil
 	}
