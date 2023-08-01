@@ -30,6 +30,7 @@ import (
 	mod "github.com/weaviate/weaviate/modules/backup-s3"
 	"github.com/weaviate/weaviate/test/docker"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
+	ubak "github.com/weaviate/weaviate/usecases/backup"
 )
 
 func Test_S3Backend_Backup(t *testing.T) {
@@ -98,7 +99,8 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 						Name: className,
 					},
 				},
-				Status: string(backup.Started),
+				Status:  string(backup.Started),
+				Version: ubak.Version,
 			}
 
 			b, err := json.Marshal(desc)
@@ -125,6 +127,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			assert.Empty(t, meta.Error)
 			assert.Len(t, meta.Classes, 1)
 			assert.Equal(t, meta.Classes[0].Name, className)
+			assert.Equal(t, meta.Version, ubak.Version)
 			assert.Nil(t, meta.Classes[0].Error)
 		})
 	})
