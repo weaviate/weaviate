@@ -896,7 +896,7 @@ func (f *fakeObjectSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID, pr
 	return nil, nil
 }
 
-func (f *fakeObjectSearcher) SparseObjectSearch(context.Context, dto.GetParams) ([]*storobj.Object, []float32, error) {
+func (f *fakeObjectSearcher) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error) {
 	out := []*storobj.Object{
 		{
 			Object: models.Object{
@@ -912,11 +912,15 @@ func (f *fakeObjectSearcher) SparseObjectSearch(context.Context, dto.GetParams) 
 			Vector: []float32{4, 5, 6},
 		},
 	}
+	lim := params.Pagination.Offset + params.Pagination.Limit
+	if lim>len(out) {
+		lim = len(out)
+	}
 
-	return out, []float32{0.008, 0.001}, nil
+	return out[:lim], []float32{0.008, 0.001}[:lim], nil
 }
 
-func (f *fakeObjectSearcher) DenseObjectSearch(context.Context, string, []float32, int, int, *filters.LocalFilter, additional.Properties, string) ([]*storobj.Object, []float32, error) {
+func (f *fakeObjectSearcher) DenseObjectSearch(ctx context.Context, class string,  vector[]float32, offset int, limit int, filters *filters.LocalFilter,additinal additional.Properties, tenant string) ([]*storobj.Object, []float32, error) {
 	out := []*storobj.Object{
 		{
 			Object: models.Object{
@@ -933,8 +937,12 @@ func (f *fakeObjectSearcher) DenseObjectSearch(context.Context, string, []float3
 			Vector: []float32{1, 2, 3},
 		},
 	}
+	lim := offset + limit
+	if lim>len(out) {
+		lim = len(out)
+	}
 
-	return out, []float32{0.009, 0.008}, nil
+	return out[:lim], []float32{0.009, 0.008}[:lim], nil
 }
 
 func (f *fakeObjectSearcher) ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties, groupBy *searchparams.GroupBy, additional additional.Properties, tenant string) (search.Results, error) {
