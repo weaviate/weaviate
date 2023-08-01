@@ -897,7 +897,7 @@ func (f *fakeObjectSearcher) DenseObjectSearch(ctx context.Context, class string
 	return out[:lim], []float32{0.009, 0.008}[:lim], nil
 }
 
-func [T Any] CopyElems(list1, list2 []T, pos int) bool {
+func  CopyElems[T any](list1, list2 []T, pos int) bool {
 	if len(list1) != len(list2) {
 		return false
 	}
