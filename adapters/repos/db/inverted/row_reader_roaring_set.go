@@ -15,27 +15,30 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
 // RowReaderRoaringSet reads one or many row(s) depending on the specified
 // operator
 type RowReaderRoaringSet struct {
-	value     []byte
-	operator  filters.Operator
-	newCursor func() lsmkv.CursorRoaringSet
-	getter    func(key []byte) (*sroar.Bitmap, error)
+	value       []byte
+	operator    filters.Operator
+	newCursor   func() lsmkv.CursorRoaringSet
+	getter      func(key []byte) (*sroar.Bitmap, error)
+	maxIDGetter maxIDGetterFunc
 }
+
+type maxIDGetterFunc func() uint64
 
 // If keyOnly is set, the RowReaderRoaringSet will request key-only cursors
 // wherever cursors are used, the specified value arguments in the
 // RoaringSetReadFn will always be empty
 func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte,
-	operator filters.Operator, keyOnly bool,
+	operator filters.Operator, keyOnly bool, maxIDGetter maxIDGetterFunc,
 ) *RowReaderRoaringSet {
 	getter := bucket.RoaringSetGet
 	newCursor := bucket.CursorRoaringSet
@@ -44,10 +47,11 @@ func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte,
 	}
 
 	return &RowReaderRoaringSet{
-		value:     value,
-		operator:  operator,
-		newCursor: newCursor,
-		getter:    getter,
+		value:       value,
+		operator:    operator,
+		newCursor:   newCursor,
+		getter:      getter,
+		maxIDGetter: maxIDGetter,
 	}
 }
 
@@ -108,6 +112,26 @@ func (rr *RowReaderRoaringSet) equal(ctx context.Context,
 	return err
 }
 
+// notEqual is another special case, as it's the opposite of equal. So instead
+// of reading just one row, we read all but one row.
+func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
+	readFn RoaringSetReadFn,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	v, err := rr.getter(rr.value)
+	if err != nil {
+		return err
+	}
+
+	maxID := rr.maxIDGetter()
+	inverted := roaringset.NewInvertedBitmap(v, maxID)
+	_, err = readFn(rr.value, inverted)
+	return err
+}
+
 // greaterThan reads from the specified value to the end. The first row is only
 // included if allowEqual==true, otherwise it starts with the next one
 func (rr *RowReaderRoaringSet) greaterThan(ctx context.Context,
@@ -150,33 +174,6 @@ func (rr *RowReaderRoaringSet) lessThan(ctx context.Context,
 		}
 
 		if bytes.Equal(k, rr.value) && !allowEqual {
-			continue
-		}
-
-		if continueReading, err := readFn(k, v); err != nil {
-			return err
-		} else if !continueReading {
-			break
-		}
-	}
-
-	return nil
-}
-
-// notEqual is another special case, as it's the opposite of equal. So instead
-// of reading just one row, we read all but one row.
-func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
-	readFn RoaringSetReadFn,
-) error {
-	c := rr.newCursor()
-	defer c.Close()
-
-	for k, v := c.First(); k != nil; k, v = c.Next() {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		if bytes.Equal(k, rr.value) {
 			continue
 		}
 

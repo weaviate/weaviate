@@ -253,7 +253,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			{
 				name:        "modelName != sprinter",
 				filter:      buildFilter("modelName", "sprinter", neq, dtText),
-				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carNilID},
+				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carNilID, carEmpty},
 			},
 			{
 				name:        "modelName = spr*er (optimizable) dtText",
@@ -338,7 +338,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			{
 				name:        "not equal to 1995-08-17T12:47:00+02:00",
 				filter:      buildFilter("released", mustParseTime("1995-08-17T12:47:00+02:00"), neq, dtDate),
-				expectedIDs: []strfmt.UUID{carPoloID, carE63sID},
+				expectedIDs: []strfmt.UUID{carPoloID, carE63sID, carEmpty, carNilID},
 			},
 			{
 				name:        "exactly matching a specific contact email",
@@ -584,6 +584,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 					require.Contains(t, err.Error(), test.ErrMsg)
 				} else {
 					require.Nil(t, err)
+
 					require.Len(t, res, len(test.expectedIDs))
 
 					ids := make([]strfmt.UUID, len(test.expectedIDs))

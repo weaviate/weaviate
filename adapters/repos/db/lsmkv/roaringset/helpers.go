@@ -42,7 +42,7 @@ func NewBitmap(values ...uint64) *sroar.Bitmap {
 // minimal required size
 //
 // For most cases Or between empty bitmap and used bitmap
-// works pretty well for reducing its final size, except for usecase,
+// works pretty well for reducing its final size, except for use case,
 // where used bitmap uses internally bitmap - it will not be converted
 // to underlying array, even if there are single elements left
 func Condense(bm *sroar.Bitmap) *sroar.Bitmap {
@@ -52,7 +52,7 @@ func Condense(bm *sroar.Bitmap) *sroar.Bitmap {
 }
 
 // NewInvertedBitmap creates a bitmap that as all IDs filled from 0 to maxVal.
-// Then the source bitmap is substracted (AndNot) from the all-ids bitmap,
+// Then the source bitmap is subtracted (AndNot) from the all-ids bitmap,
 // resulting in a bitmap containing all ids from 0 to maxVal except the ones
 // that were set on the source.
 func NewInvertedBitmap(source *sroar.Bitmap, maxVal uint64) *sroar.Bitmap {
