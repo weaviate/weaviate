@@ -900,14 +900,14 @@ func (f *fakeObjectSearcher) SparseObjectSearch(context.Context, dto.GetParams) 
 	out := []*storobj.Object{
 		{
 			Object: models.Object{
-				ID: "1889a225-3b28-477d-b8fc-5f6071bb4731",
+				ID: "9889a225-3b28-477d-b8fc-5f6071bb4731",
 			},
 
 			Vector: []float32{1, 2, 3},
 		},
 		{
 			Object: models.Object{
-				ID: "abcdef12-3314-442e-a4d1-e94d7c0afc3a",
+				ID: "0bcdef12-3314-442e-a4d1-e94d7c0afc3a",
 			},
 			Vector: []float32{4, 5, 6},
 		},
@@ -927,7 +927,7 @@ func (f *fakeObjectSearcher) DenseObjectSearch(context.Context, string, []float3
 		},
 		{
 			Object: models.Object{
-				ID: "1889a225-3b28-477d-b8fc-5f6071bb4731",
+				ID: "9889a225-3b28-477d-b8fc-5f6071bb4731",
 			},
 
 			Vector: []float32{1, 2, 3},
