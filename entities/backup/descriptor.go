@@ -178,15 +178,28 @@ func (d *DistributedBackupDescriptor) ResetStatus() *DistributedBackupDescriptor
 type ShardDescriptor struct {
 	Name  string   `json:"name"`
 	Node  string   `json:"node"`
-	Files []string `json:"files,omitempty"` // TODO: `json:"-"` since file paths are now track by the tarball
+	Files []string `json:"files,omitempty"`
 
-	DocIDCounterPath      string `json:"docIdCounterPath"`
-	DocIDCounter          []byte `json:"docIdCounter"`
-	PropLengthTrackerPath string `json:"propLengthTrackerPath"`
-	PropLengthTracker     []byte `json:"propLengthTracker"`
-	ShardVersionPath      string `json:"shardVersionPath"`
-	Version               []byte `json:"version"`
+	DocIDCounterPath      string `json:"docIdCounterPath,omitempty"`
+	DocIDCounter          []byte `json:"docIdCounter,omitempty"`
+	PropLengthTrackerPath string `json:"propLengthTrackerPath,omitempty"`
+	PropLengthTracker     []byte `json:"propLengthTracker,omitempty"`
+	ShardVersionPath      string `json:"shardVersionPath,omitempty"`
+	Version               []byte `json:"version,omitempty"`
 	Chunk                 int32  `json:"chunk"`
+}
+
+// ClearTemporary clears fields that are no longer needed once compression is done.
+// These fields are not required in versions > 1 because they are stored in the tarball.
+func (s *ShardDescriptor) ClearTemporary() {
+	s.ShardVersionPath = ""
+	s.Version = nil
+
+	s.DocIDCounterPath = ""
+	s.DocIDCounter = nil
+
+	s.PropLengthTrackerPath = ""
+	s.PropLengthTracker = nil
 }
 
 // ClassDescriptor contains everything needed to completely restore a class
@@ -284,12 +297,8 @@ func (d *BackupDescriptor) Filter(pred func(s string) bool) {
 	d.Classes = cs
 }
 
-// Validate validates d
-func (d *BackupDescriptor) Validate() error {
-	if d.StartedAt.IsZero() || d.ID == "" ||
-		d.Version == "" || d.ServerVersion == "" || d.Error != "" {
-		return fmt.Errorf("attribute mismatch: [id versions time error]")
-	}
+// ValidateV1 validates d
+func (d *BackupDescriptor) validateV1() error {
 	for _, c := range d.Classes {
 		if c.Name == "" || len(c.Schema) == 0 || len(c.ShardingState) == 0 {
 			return fmt.Errorf("invalid class %q: [name schema sharding]", c.Name)
@@ -307,6 +316,27 @@ func (d *BackupDescriptor) Validate() error {
 				if fpath == "" {
 					return fmt.Errorf("invalid shard %q.%q: file number %d", c.Name, s.Name, i)
 				}
+			}
+		}
+	}
+	return nil
+}
+
+func (d *BackupDescriptor) Validate(newSchema bool) error {
+	if d.StartedAt.IsZero() || d.ID == "" ||
+		d.Version == "" || d.ServerVersion == "" || d.Error != "" {
+		return fmt.Errorf("attribute mismatch: [id versions time error]")
+	}
+	if !newSchema {
+		return d.validateV1()
+	}
+	for _, c := range d.Classes {
+		if c.Name == "" || len(c.Schema) == 0 || len(c.ShardingState) == 0 {
+			return fmt.Errorf("class=%q: invalid attributes [name schema sharding]", c.Name)
+		}
+		for _, s := range c.Shards {
+			if s.Name == "" || s.Node == "" {
+				return fmt.Errorf("class=%q: invalid shard %q node=%q", c.Name, s.Name, s.Node)
 			}
 		}
 	}
