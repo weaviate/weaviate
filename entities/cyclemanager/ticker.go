@@ -15,6 +15,8 @@ import (
 	"time"
 )
 
+// ===== Tickers =====
+
 type CycleTicker interface {
 	Start()
 	Stop()
@@ -25,9 +27,39 @@ type CycleTicker interface {
 	CycleExecuted(executed bool)
 }
 
-type FixedIntervalTicker struct {
-	interval time.Duration
-	ticker   *time.Ticker
+type cycleTicker struct {
+	intervals Intervals
+	ticker    *time.Ticker
+}
+
+func newCycleTicker(intervals Intervals) CycleTicker {
+	if intervals == nil {
+		return NewNoopTicker()
+	}
+	ticker := time.NewTicker(time.Second)
+	ticker.Stop()
+	return &cycleTicker{ticker: ticker, intervals: intervals}
+}
+
+func (t *cycleTicker) Start() {
+	t.ticker.Reset(t.intervals.Get())
+}
+
+func (t *cycleTicker) Stop() {
+	t.ticker.Stop()
+}
+
+func (t *cycleTicker) C() <-chan time.Time {
+	return t.ticker.C
+}
+
+func (t *cycleTicker) CycleExecuted(executed bool) {
+	if executed {
+		t.intervals.Reset()
+	} else {
+		t.intervals.Advance()
+	}
+	t.ticker.Reset(t.intervals.Get())
 }
 
 // Creates ticker with fixed interval. Interval is not changed regardless
@@ -35,44 +67,7 @@ type FixedIntervalTicker struct {
 //
 // If interval <= 0 given, ticker will not fire
 func NewFixedIntervalTicker(interval time.Duration) CycleTicker {
-	// for testing purposes allow interval of 0,
-	// meaning cycle manager not working
-	if interval <= 0 {
-		return NewNoopTicker()
-	}
-
-	return newFixedIntervalTicker(interval)
-}
-
-func newFixedIntervalTicker(interval time.Duration) CycleTicker {
-	ticker := time.NewTicker(time.Second)
-	ticker.Stop()
-	return &FixedIntervalTicker{
-		interval: interval,
-		ticker:   ticker,
-	}
-}
-
-func (t *FixedIntervalTicker) Start() {
-	t.ticker.Reset(t.interval)
-}
-
-func (t *FixedIntervalTicker) Stop() {
-	t.ticker.Stop()
-}
-
-func (t *FixedIntervalTicker) C() <-chan time.Time {
-	return t.ticker.C
-}
-
-func (t *FixedIntervalTicker) CycleExecuted(executed bool) {
-	t.ticker.Reset(t.interval)
-}
-
-type SeriesTicker struct {
-	intervals   []time.Duration
-	intervalPos int
-	ticker      *time.Ticker
+	return newCycleTicker(NewFixedIntervals(interval))
 }
 
 // Creates ticker with set of interval values.
@@ -82,56 +77,7 @@ type SeriesTicker struct {
 //
 // If any of intervals given is <= 0 given, ticker will not fire
 func NewSeriesTicker(intervals []time.Duration) CycleTicker {
-	if len(intervals) == 0 {
-		return NewNoopTicker()
-	}
-
-	allSame := true
-	for i := range intervals {
-		if intervals[i] <= 0 {
-			return NewNoopTicker()
-		}
-		if intervals[i] != intervals[0] {
-			allSame = false
-		}
-	}
-	if allSame {
-		return newFixedIntervalTicker(intervals[0])
-	}
-
-	return newSeriesTicker(intervals)
-}
-
-func newSeriesTicker(intervals []time.Duration) CycleTicker {
-	ticker := time.NewTicker(time.Second)
-	ticker.Stop()
-	return &SeriesTicker{
-		intervals:   intervals,
-		intervalPos: 0,
-		ticker:      ticker,
-	}
-}
-
-func (t *SeriesTicker) Start() {
-	t.intervalPos = 0
-	t.ticker.Reset(t.intervals[t.intervalPos])
-}
-
-func (t *SeriesTicker) Stop() {
-	t.ticker.Stop()
-}
-
-func (t *SeriesTicker) C() <-chan time.Time {
-	return t.ticker.C
-}
-
-func (t *SeriesTicker) CycleExecuted(executed bool) {
-	if executed {
-		t.intervalPos = 0
-	} else if t.intervalPos < len(t.intervals)-1 {
-		t.intervalPos++
-	}
-	t.ticker.Reset(t.intervals[t.intervalPos])
+	return newCycleTicker(NewSeriesIntervals(intervals))
 }
 
 // Creates ticker with intervals between minInterval and maxInterval values.
@@ -144,18 +90,7 @@ func (t *SeriesTicker) CycleExecuted(executed bool) {
 //
 // If min- or maxInterval is <= 0 or steps = 0 or min > maxInterval, ticker will not fire
 func NewLinearTicker(minInterval, maxInterval time.Duration, steps uint) CycleTicker {
-	if minInterval <= 0 || maxInterval <= 0 || steps == 0 || minInterval > maxInterval {
-		return NewNoopTicker()
-	}
-	if minInterval == maxInterval {
-		return newFixedIntervalTicker(minInterval)
-	}
-
-	return newLinearTicker(minInterval, maxInterval, steps)
-}
-
-func newLinearTicker(minInterval, maxInterval time.Duration, steps uint) CycleTicker {
-	return newSeriesTicker(linearToIntervals(minInterval, maxInterval, steps))
+	return newCycleTicker(NewLinearIntervals(minInterval, maxInterval, steps))
 }
 
 // Creates ticker with intervals between minInterval and maxInterval values.
@@ -168,45 +103,123 @@ func newLinearTicker(minInterval, maxInterval time.Duration, steps uint) CycleTi
 //
 // If min- or maxInterval is <= 0 or base = 0 or steps = 0 or min > maxInterval, ticker will not fire
 func NewExpTicker(minInterval, maxInterval time.Duration, base, steps uint) CycleTicker {
-	if minInterval <= 0 || maxInterval <= 0 || base == 0 || steps == 0 || minInterval > maxInterval {
-		return NewNoopTicker()
-	}
-	if minInterval == maxInterval {
-		return newFixedIntervalTicker(minInterval)
-	}
-	if base == 1 {
-		return newLinearTicker(minInterval, maxInterval, steps)
-	}
-
-	return newExpTicker(minInterval, maxInterval, base, steps)
+	return newCycleTicker(NewExpIntervals(minInterval, maxInterval, base, steps))
 }
 
-func newExpTicker(minInterval, maxInterval time.Duration, base, steps uint) CycleTicker {
-	return newSeriesTicker(expToIntervals(minInterval, maxInterval, base, steps))
-}
-
-type NoopTicker struct {
+type noopTicker struct {
 	ch chan time.Time
 }
 
 func NewNoopTicker() CycleTicker {
-	return &NoopTicker{
+	return &noopTicker{
 		ch: make(chan time.Time),
 	}
 }
 
-func (t *NoopTicker) Start() {
+func (t *noopTicker) Start() {
 }
 
-func (t *NoopTicker) Stop() {
+func (t *noopTicker) Stop() {
 }
 
-func (t *NoopTicker) C() <-chan time.Time {
+func (t *noopTicker) C() <-chan time.Time {
 	return t.ch
 }
 
-func (t *NoopTicker) CycleExecuted(executed bool) {
+func (t *noopTicker) CycleExecuted(executed bool) {
 }
+
+// ===== Intervals =====
+
+type Intervals interface {
+	Get() time.Duration
+	Reset()
+	Advance()
+}
+
+type fixedIntervals struct {
+	interval time.Duration
+}
+
+func (i *fixedIntervals) Get() time.Duration {
+	return i.interval
+}
+
+func (i *fixedIntervals) Reset() {
+}
+
+func (i *fixedIntervals) Advance() {
+}
+
+type seriesIntervals struct {
+	intervals []time.Duration
+	pos       int
+}
+
+func (i *seriesIntervals) Get() time.Duration {
+	return i.intervals[i.pos]
+}
+
+func (i *seriesIntervals) Reset() {
+	i.pos = 0
+}
+
+func (i *seriesIntervals) Advance() {
+	if i.pos < len(i.intervals)-1 {
+		i.pos++
+	}
+}
+
+func NewFixedIntervals(interval time.Duration) Intervals {
+	if interval <= 0 {
+		return nil
+	}
+	return &fixedIntervals{interval: interval}
+}
+
+func NewSeriesIntervals(intervals []time.Duration) Intervals {
+	if len(intervals) == 0 {
+		return nil
+	}
+	allSame := true
+	for i := range intervals {
+		if intervals[i] <= 0 {
+			return nil
+		}
+		if intervals[i] != intervals[0] {
+			allSame = false
+		}
+	}
+	if allSame {
+		return &fixedIntervals{interval: intervals[0]}
+	}
+	return &seriesIntervals{intervals: intervals, pos: 0}
+}
+
+func NewLinearIntervals(minInterval, maxInterval time.Duration, steps uint) Intervals {
+	if minInterval <= 0 || maxInterval <= 0 || steps == 0 || minInterval > maxInterval {
+		return nil
+	}
+	if minInterval == maxInterval {
+		return &fixedIntervals{interval: minInterval}
+	}
+	return &seriesIntervals{intervals: linearToIntervals(minInterval, maxInterval, steps), pos: 0}
+}
+
+func NewExpIntervals(minInterval, maxInterval time.Duration, base, steps uint) Intervals {
+	if minInterval <= 0 || maxInterval <= 0 || base == 0 || steps == 0 || minInterval > maxInterval {
+		return nil
+	}
+	if minInterval == maxInterval {
+		return &fixedIntervals{interval: minInterval}
+	}
+	if base == 1 {
+		return &seriesIntervals{intervals: linearToIntervals(minInterval, maxInterval, steps), pos: 0}
+	}
+	return &seriesIntervals{intervals: expToIntervals(minInterval, maxInterval, base, steps), pos: 0}
+}
+
+// ===== Helper funcs =====
 
 func linearToIntervals(minInterval, maxInterval time.Duration, steps uint) []time.Duration {
 	delta := float64(maxInterval-minInterval) / float64(steps)
