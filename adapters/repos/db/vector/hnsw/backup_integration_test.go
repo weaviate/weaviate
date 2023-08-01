@@ -48,7 +48,7 @@ func TestBackup_Integration(t *testing.T) {
 
 	parentTombstoneCleanupCallbacks := cyclemanager.NewCycleCallbacks("parentTombstoneCleanup", logger, 1)
 	parentTombstoneCleanupCycle := cyclemanager.New(
-		cyclemanager.NewFixedIntervalTicker(enthnsw.DefaultCleanupIntervalSeconds*time.Second),
+		cyclemanager.NewFixedTicker(enthnsw.DefaultCleanupIntervalSeconds*time.Second),
 		parentTombstoneCleanupCallbacks.CycleCallback)
 	parentTombstoneCleanupCycle.Start()
 	defer parentTombstoneCleanupCycle.StopAndWait(ctx)

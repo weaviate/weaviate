@@ -85,7 +85,7 @@ func (index *Index) initCycleCallbacks() {
 
 	vectorTombstoneCleanupCallbacks := cyclemanager.NewCycleCallbacks(id("vector", "tombstone_cleanup"), index.logger, _NUMCPU*2)
 	vectorTombstoneCleanupCycle := cyclemanager.New(
-		cyclemanager.NewFixedIntervalTicker(time.Duration(vectorTombstoneCleanupIntervalSeconds)*time.Second),
+		cyclemanager.NewFixedTicker(time.Duration(vectorTombstoneCleanupIntervalSeconds)*time.Second),
 		vectorTombstoneCleanupCallbacks.CycleCallback)
 
 	geoPropsCommitLoggerCallbacks := cyclemanager.NewCycleCallbacks(id("geo_props", "commit_logger"), index.logger, _NUMCPU*2)
@@ -95,7 +95,7 @@ func (index *Index) initCycleCallbacks() {
 
 	geoPropsTombstoneCleanupCallbacks := cyclemanager.NewCycleCallbacks(id("geo_props", "tombstone_cleanup"), index.logger, _NUMCPU*2)
 	geoPropsTombstoneCleanupCycle := cyclemanager.New(
-		cyclemanager.NewFixedIntervalTicker(enthnsw.DefaultCleanupIntervalSeconds*time.Second),
+		cyclemanager.NewFixedTicker(enthnsw.DefaultCleanupIntervalSeconds*time.Second),
 		geoPropsTombstoneCleanupCallbacks.CycleCallback)
 
 	index.cycleCallbacks = &indexCycleCallbacks{

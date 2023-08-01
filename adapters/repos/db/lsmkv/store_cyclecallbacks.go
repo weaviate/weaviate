@@ -26,7 +26,7 @@ type storeCycleCallbacks struct {
 	flushCallbacksCtrl cyclemanager.CycleCallbackCtrl
 }
 
-func (s *Store) initCycleCallbacks(classCompactionCallbacks, classFlushCallbacks cyclemanager.CycleCallbacks) {
+func (s *Store) initCycleCallbacks(shardCompactionCallbacks, shardFlushCallbacks cyclemanager.CycleCallbacks) {
 	id := func(elems ...string) string {
 		path, err := filepath.Rel(s.dir, s.rootDir)
 		if err != nil {
@@ -39,12 +39,12 @@ func (s *Store) initCycleCallbacks(classCompactionCallbacks, classFlushCallbacks
 
 	compactionId := id("compaction")
 	compactionCallbacks := cyclemanager.NewCycleCallbacks(compactionId, s.logger, 1)
-	compactionCallbacksCtrl := classCompactionCallbacks.Register(
+	compactionCallbacksCtrl := shardCompactionCallbacks.Register(
 		compactionId, compactionCallbacks.CycleCallback)
 
 	flushId := id("flush")
 	flushCallbacks := cyclemanager.NewCycleCallbacks(flushId, s.logger, 1)
-	flushCallbacksCtrl := classFlushCallbacks.Register(
+	flushCallbacksCtrl := shardFlushCallbacks.Register(
 		flushId, flushCallbacks.CycleCallback)
 
 	s.cycleCallbacks = &storeCycleCallbacks{

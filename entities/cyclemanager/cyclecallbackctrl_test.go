@@ -40,7 +40,7 @@ func TestCycleCombineCallbackCtrl_Unregister(t *testing.T) {
 		ctrl2 := callbacks.Register("c2", callback2)
 		combinedCtrl := NewCycleCombinedCallbackCtrl(2, ctrl1, ctrl2)
 
-		cycle := New(NewFixedIntervalTicker(100*time.Millisecond), callbacks.CycleCallback)
+		cycle := New(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
 		cycle.Start()
 		defer cycle.StopAndWait(ctx)
 
@@ -70,7 +70,7 @@ func TestCycleCombineCallbackCtrl_Unregister(t *testing.T) {
 		ctrl2 := callbacks.Register("c2", callback2)
 		combinedCtrl := NewCycleCombinedCallbackCtrl(2, ctrl1, ctrl2)
 
-		cycle := New(NewFixedIntervalTicker(100*time.Millisecond), callbacks.CycleCallback)
+		cycle := New(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
 		cycle.Start()
 		defer cycle.StopAndWait(ctx)
 
@@ -99,7 +99,7 @@ func TestCycleCombineCallbackCtrl_Unregister(t *testing.T) {
 		ctrlLong := callbacks.Register("long", callbackLong)
 		combinedCtrl := NewCycleCombinedCallbackCtrl(2, ctrlShort, ctrlLong)
 
-		cycle := New(NewFixedIntervalTicker(100*time.Millisecond), callbacks.CycleCallback)
+		cycle := New(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
 		cycle.Start()
 		defer cycle.StopAndWait(ctx)
 
@@ -138,7 +138,7 @@ func TestCycleCombineCallbackCtrl_Deactivate(t *testing.T) {
 		ctrl2 := callbacks.Register("c2", callback2)
 		combinedCtrl := NewCycleCombinedCallbackCtrl(2, ctrl1, ctrl2)
 
-		cycle := New(NewFixedIntervalTicker(100*time.Millisecond), callbacks.CycleCallback)
+		cycle := New(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
 		cycle.Start()
 		defer cycle.StopAndWait(ctx)
 
@@ -168,7 +168,7 @@ func TestCycleCombineCallbackCtrl_Deactivate(t *testing.T) {
 		ctrl2 := callbacks.Register("c2", callback2)
 		combinedCtrl := NewCycleCombinedCallbackCtrl(2, ctrl1, ctrl2)
 
-		cycle := New(NewFixedIntervalTicker(100*time.Millisecond), callbacks.CycleCallback)
+		cycle := New(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
 		cycle.Start()
 		defer cycle.StopAndWait(ctx)
 
@@ -197,7 +197,7 @@ func TestCycleCombineCallbackCtrl_Deactivate(t *testing.T) {
 		ctrlLong := callbacks.Register("long", callbackLong)
 		combinedCtrl := NewCycleCombinedCallbackCtrl(2, ctrlShort, ctrlLong)
 
-		cycle := New(NewFixedIntervalTicker(100*time.Millisecond), callbacks.CycleCallback)
+		cycle := New(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
 		cycle.Start()
 		defer cycle.StopAndWait(ctx)
 
@@ -236,7 +236,7 @@ func TestCycleCombineCallbackCtrl_Activate(t *testing.T) {
 		ctrl2 := callbacks.Register("c2", callback2, AsInactive())
 		combinedCtrl := NewCycleCombinedCallbackCtrl(2, ctrl1, ctrl2)
 
-		cycle := New(NewFixedIntervalTicker(100*time.Millisecond), callbacks.CycleCallback)
+		cycle := New(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
 		cycle.Start()
 		defer cycle.StopAndWait(ctx)
 

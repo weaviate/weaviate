@@ -26,7 +26,7 @@ import (
 
 func (h *hnsw) initCompressedStore() error {
 	store, err := lsmkv.New(fmt.Sprintf("%s/%s/%s", h.rootPath, h.className, h.shardName), "", h.logger, nil,
-		h.classCompactionCallbacks, h.classFlushCallbacks)
+		h.shardCompactionCallbacks, h.shardFlushCallbacks)
 	if err != nil {
 		return errors.Wrap(err, "Init lsmkv (compressed vectors store)")
 	}

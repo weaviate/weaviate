@@ -350,7 +350,7 @@ type cycleCallbackMeta struct {
 	// or not running (not yet started) - context nil
 	runningCtx context.Context
 	started    time.Time
-	intervals  Intervals
+	intervals  CycleIntervals
 }
 
 type cycleCallbacksNoop struct{}
@@ -375,7 +375,7 @@ func AsInactive() RegisterOption {
 	}
 }
 
-func WithIntervals(intervals Intervals) RegisterOption {
+func WithIntervals(intervals CycleIntervals) RegisterOption {
 	if intervals == nil {
 		return nil
 	}
