@@ -220,6 +220,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexNullState:  true,
 				IndexTimestamps: true,
+				IndexPropertyLength: true,
 			},
 			Properties: []*models.Property{
 				{
@@ -235,6 +236,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexTimestamps: true,
+				IndexPropertyLength: true,
 			},
 			Properties: []*models.Property{
 				{
@@ -836,6 +838,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexTimestamps: true,
+				IndexPropertyLength: true,
 			},
 			Properties: []*models.Property{
 				{
@@ -851,6 +854,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexTimestamps: true,
+				IndexPropertyLength: true,
 			},
 			Properties: []*models.Property{
 				{

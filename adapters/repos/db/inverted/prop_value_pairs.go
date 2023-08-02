@@ -65,7 +65,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 		// TODO text_rbm_inverted_index find better way check whether prop len
 		if strings.HasSuffix(pv.prop, filters.InternalPropertyLength) &&
 			!pv.Class.InvertedIndexConfig.IndexPropertyLength {
-			return errors.Errorf("Property length must be indexed to be filterable! add `IndexPropertyLength: true` to the invertedIndexConfig.  Geo-coordinates, phone numbers and data blobs are not supported by property length.")
+			return errors.Errorf("Property length must be indexed to be filterable! add `IndexPropertyLength: true` to the invertedIndexConfig in %v.  Geo-coordinates, phone numbers and data blobs are not supported by property length.", pv.Class.Class)
 		}
 
 		if pv.operator == filters.OperatorIsNull && !pv.Class.InvertedIndexConfig.IndexNullState {
