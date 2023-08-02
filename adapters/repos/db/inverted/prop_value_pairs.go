@@ -74,7 +74,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 
 		if (pv.prop == filters.InternalPropCreationTimeUnix ||
 			pv.prop == filters.InternalPropLastUpdateTimeUnix) &&
-				!pv.Class.InvertedIndexConfig.IndexTimestamps {
+			!pv.Class.InvertedIndexConfig.IndexTimestamps {
 			return errors.Errorf("Timestamps must be indexed to be filterable! Add `IndexTimestamps: true` to the InvertedIndexConfig in %v", pv.Class.Class)
 		}
 

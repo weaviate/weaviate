@@ -218,7 +218,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 			Class:             "TestClass",
 			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
-				IndexNullState: true,
+				IndexNullState:  true,
 				IndexTimestamps: true,
 			},
 			Properties: []*models.Property{
@@ -231,8 +231,8 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		}
 
 		refClass := &models.Class{
-			Class:               "RefClass",
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+			Class:             "RefClass",
+			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexTimestamps: true,
 			},
@@ -483,7 +483,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexPropertyLength: true,
-				IndexTimestamps: true,
+				IndexTimestamps:     true,
 			},
 			Properties: []*models.Property{
 				{
@@ -499,8 +499,8 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 		}
 
 		refClass := &models.Class{
-			Class:               "RefClass",
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+			Class:             "RefClass",
+			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexTimestamps: true,
 			},
@@ -836,7 +836,6 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexTimestamps: true,
-				
 			},
 			Properties: []*models.Property{
 				{
@@ -848,8 +847,8 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 		}
 
 		refClass := &models.Class{
-			Class:               "RefClass",
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+			Class:             "RefClass",
+			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexTimestamps: true,
 			},
