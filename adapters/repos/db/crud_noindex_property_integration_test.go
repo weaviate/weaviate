@@ -149,7 +149,6 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(),
-			"timestamps must be indexed to be filterable! "+
-				"add `indexTimestamps: true` to the invertedIndexConfig")
+			"timestamps must be indexed to be filterable! add `IndexTimestamps: true` to the InvertedIndexConfig")
 	})
 }
