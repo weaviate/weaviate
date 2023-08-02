@@ -104,11 +104,10 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 
 	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
 
-	ind := &segment{
+	seg := &segment{
 		level:               header.Level,
 		path:                path,
 		contents:            contents,
-		contentFile:         file,
 		version:             header.Version,
 		secondaryIndexCount: header.SecondaryIndices,
 		segmentStartPos:     header.IndexStart,
@@ -124,31 +123,38 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		mmapContents:        mmapContents,
 	}
 
-	if ind.secondaryIndexCount > 0 {
-		ind.secondaryIndices = make([]diskIndex, ind.secondaryIndexCount)
-		ind.secondaryBloomFilters = make([]*bloom.BloomFilter, ind.secondaryIndexCount)
-		for i := range ind.secondaryIndices {
+	// Using pread strategy requires file to remain open for segment lifetime
+	if seg.mmapContents {
+		defer file.Close()
+	} else {
+		seg.contentFile = file
+	}
+
+	if seg.secondaryIndexCount > 0 {
+		seg.secondaryIndices = make([]diskIndex, seg.secondaryIndexCount)
+		seg.secondaryBloomFilters = make([]*bloom.BloomFilter, seg.secondaryIndexCount)
+		for i := range seg.secondaryIndices {
 			secondary, err := header.SecondaryIndex(contents, uint16(i))
 			if err != nil {
 				return nil, fmt.Errorf("get position for secondary index at %d: %w", i, err)
 			}
 
-			ind.secondaryIndices[i] = segmentindex.NewDiskTree(secondary)
-			if err := ind.initSecondaryBloomFilter(i); err != nil {
+			seg.secondaryIndices[i] = segmentindex.NewDiskTree(secondary)
+			if err := seg.initSecondaryBloomFilter(i); err != nil {
 				return nil, fmt.Errorf("init bloom filter for secondary index at %d: %w", i, err)
 			}
 		}
 	}
 
-	if err := ind.initBloomFilter(); err != nil {
+	if err := seg.initBloomFilter(); err != nil {
 		return nil, err
 	}
 
-	if err := ind.initCountNetAdditions(existsLower); err != nil {
+	if err := seg.initCountNetAdditions(existsLower); err != nil {
 		return nil, err
 	}
 
-	return ind, nil
+	return seg, nil
 }
 
 func (s *segment) close() error {
