@@ -14,7 +14,6 @@ package tracker
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"sync"
 	"testing"
@@ -101,7 +100,7 @@ func TestJsonPropertyIdTracker(t *testing.T) {
 		}
 		tracker.Close()
 
-		fileBytes, _ := ioutil.ReadFile(path)
+		fileBytes, _ := os.ReadFile(path)
 		fileContents := &JsonPropertyIdTracker{}
 		json.Unmarshal(fileBytes, fileContents)
 
