@@ -67,6 +67,7 @@ message RefProperties {
   string linked_class = 1;
   string reference_property = 2;
   Properties linked_properties = 3;
+  AdditionalProperties metadata = 4;
 }
 
 message NearVectorParams {
@@ -113,6 +114,7 @@ message ResultProperties {
   google.protobuf.Struct non_ref_properties = 1;
   repeated ReturnRefProperties ref_props = 2;
   string class_name = 3;
+  ResultAdditionalProps metadata = 4;
 }
 
 message ReturnRefProperties {

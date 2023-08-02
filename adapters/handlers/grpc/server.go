@@ -17,6 +17,8 @@ import (
 	"net"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/additional"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 
 	"github.com/weaviate/weaviate/entities/schema"
@@ -136,12 +138,12 @@ func searchResultsToProto(res []any, start time.Time, searchParams dto.GetParams
 			continue
 		}
 
-		props, err := extractPropertiesAnswer(asMap, searchParams.Properties, searchParams.ClassName)
+		props, err := extractPropertiesAnswer(asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
 		if err != nil {
 			continue
 		}
 
-		additionalProps, err := extractAdditionalProps(asMap, searchParams)
+		additionalProps, err := extractAdditionalProps(asMap, searchParams.AdditionalProperties)
 		if err != nil {
 			continue
 		}
@@ -157,10 +159,10 @@ func searchResultsToProto(res []any, start time.Time, searchParams dto.GetParams
 	return out, nil
 }
 
-func extractAdditionalProps(asMap map[string]any, searchParams dto.GetParams) (*pb.ResultAdditionalProps, error) {
+func extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties) (*pb.ResultAdditionalProps, error) {
 	err := errors.New("could not extract additional prop")
 	additionalProps := &pb.ResultAdditionalProps{}
-	if searchParams.AdditionalProperties.ID {
+	if additionalPropsParams.ID {
 		idRaw, ok := asMap["id"]
 		if !ok {
 			return nil, err
@@ -180,7 +182,7 @@ func extractAdditionalProps(asMap map[string]any, searchParams dto.GetParams) (*
 	additionalPropertiesMap := asMap["_additional"].(map[string]interface{})
 
 	// additional properties are only present for certain searches/configs => don't return an error if not available
-	if searchParams.AdditionalProperties.Vector {
+	if additionalPropsParams.Vector {
 		vector, ok := additionalPropertiesMap["vector"]
 		if ok {
 			vectorfmt, ok2 := vector.([]float32)
@@ -190,7 +192,7 @@ func extractAdditionalProps(asMap map[string]any, searchParams dto.GetParams) (*
 		}
 	}
 
-	if searchParams.AdditionalProperties.Certainty {
+	if additionalPropsParams.Certainty {
 		additionalProps.CertaintyPresent = false
 		certainty, ok := additionalPropertiesMap["certainty"]
 		if ok {
@@ -202,7 +204,7 @@ func extractAdditionalProps(asMap map[string]any, searchParams dto.GetParams) (*
 		}
 	}
 
-	if searchParams.AdditionalProperties.Distance {
+	if additionalPropsParams.Distance {
 		additionalProps.DistancePresent = false
 		distance, ok := additionalPropertiesMap["distance"]
 		if ok {
@@ -214,7 +216,7 @@ func extractAdditionalProps(asMap map[string]any, searchParams dto.GetParams) (*
 		}
 	}
 
-	if searchParams.AdditionalProperties.CreationTimeUnix {
+	if additionalPropsParams.CreationTimeUnix {
 		additionalProps.CreationTimeUnixPresent = false
 		creationtime, ok := additionalPropertiesMap["creationTimeUnix"]
 		if ok {
@@ -226,7 +228,7 @@ func extractAdditionalProps(asMap map[string]any, searchParams dto.GetParams) (*
 		}
 	}
 
-	if searchParams.AdditionalProperties.LastUpdateTimeUnix {
+	if additionalPropsParams.LastUpdateTimeUnix {
 		additionalProps.LastUpdateTimeUnixPresent = false
 		lastUpdateTime, ok := additionalPropertiesMap["lastUpdateTimeUnix"]
 		if ok {
@@ -238,7 +240,7 @@ func extractAdditionalProps(asMap map[string]any, searchParams dto.GetParams) (*
 		}
 	}
 
-	if searchParams.AdditionalProperties.ExplainScore {
+	if additionalPropsParams.ExplainScore {
 		additionalProps.ExplainScorePresent = false
 		explainScore, ok := additionalPropertiesMap["explainScore"]
 		if ok {
@@ -250,7 +252,7 @@ func extractAdditionalProps(asMap map[string]any, searchParams dto.GetParams) (*
 		}
 	}
 
-	if searchParams.AdditionalProperties.Score {
+	if additionalPropsParams.Score {
 		additionalProps.ScorePresent = false
 		score, ok := additionalPropertiesMap["score"]
 		if ok {
@@ -265,7 +267,7 @@ func extractAdditionalProps(asMap map[string]any, searchParams dto.GetParams) (*
 	return additionalProps, nil
 }
 
-func extractPropertiesAnswer(results map[string]interface{}, properties search.SelectProperties, class string) (*pb.ResultProperties, error) {
+func extractPropertiesAnswer(results map[string]interface{}, properties search.SelectProperties, class string, additionalPropsParams additional.Properties) (*pb.ResultProperties, error) {
 	props := pb.ResultProperties{}
 	nonRefProps := make(map[string]interface{}, 0)
 	refProps := make([]*pb.ReturnRefProperties, 0)
@@ -283,21 +285,27 @@ func extractPropertiesAnswer(results map[string]interface{}, properties search.S
 			continue
 		}
 		extractedRefProps := make([]*pb.ResultProperties, 0, len(refs))
-		for _, ref := range refs {
+		for i, ref := range refs {
 			refLocal, ok := ref.(search.LocalRef)
 			if !ok {
 				continue
 			}
-			extractedRefProp, err := extractPropertiesAnswer(refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class)
+			extractedRefProp, err := extractPropertiesAnswer(refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class, additionalPropsParams)
 			if err != nil {
 				continue
 			}
+			additionalProps, err := extractAdditionalProps(refLocal.Fields, prop.Refs[i].AdditionalProperties)
+			if err != nil {
+				return nil, err
+			}
+			extractedRefProp.Metadata = additionalProps
 			extractedRefProps = append(extractedRefProps, extractedRefProp)
 		}
 
 		refProp := pb.ReturnRefProperties{PropName: prop.Name, Properties: extractedRefProps}
 		refProps = append(refProps, &refProp)
 	}
+
 	if len(nonRefProps) > 0 {
 		newStruct, err := structpb.NewStruct(nonRefProps)
 		if err != nil {
@@ -334,14 +342,28 @@ func extractPropertiesRequest(reqProps *pb.Properties) []search.SelectProperty {
 				Name:        prop.ReferenceProperty,
 				IsPrimitive: false,
 				Refs: []search.SelectClass{{
-					ClassName:     prop.LinkedClass,
-					RefProperties: extractPropertiesRequest(prop.LinkedProperties),
+					ClassName:            prop.LinkedClass,
+					RefProperties:        extractPropertiesRequest(prop.LinkedProperties),
+					AdditionalProperties: extractAdditionalPropsForRefs(prop.Metadata),
 				}},
 			})
 		}
 	}
 
 	return props
+}
+
+func extractAdditionalPropsForRefs(prop *pb.AdditionalProperties) additional.Properties {
+	return additional.Properties{
+		Vector:             prop.Vector,
+		Certainty:          prop.Certainty,
+		ID:                 prop.Uuid,
+		CreationTimeUnix:   prop.CreationTimeUnix,
+		LastUpdateTimeUnix: prop.LastUpdateTimeUnix,
+		Distance:           prop.Distance,
+		Score:              prop.Score,
+		ExplainScore:       prop.ExplainScore,
+	}
 }
 
 func searchParamsFromProto(req *pb.SearchRequest) (dto.GetParams, error) {
