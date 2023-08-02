@@ -187,17 +187,19 @@ func TestFilteredRecall(t *testing.T) {
 		wg.Wait()
 		fmt.Printf("importing took %s\n", time.Since(before))
 
-		fmt.Printf("With k=20")
+		fmt.Printf("With k=100")
 
 		fmt.Print(filterToIDs[0][3])
 
 		k := 100
 
 		var relevant_retrieved int
-		var recall float32
+		var total_recall float32
+		var total_latency float32
 
 		/* Will need to think of how to generalize this logging to multiple filters */
 		totalRecallPerFilter := make(map[int]float32)
+		totalLatencyPerFilter := make(map[int]float32)
 		totalCountPerFilter := make(map[int]float32)
 
 		for i := 0; i < len(queryVectorsWithFilters); i++ {
@@ -210,32 +212,44 @@ func TestFilteredRecall(t *testing.T) {
 			//construct an allowList from the []uint64 of ids that match the filter
 			queryAllowList := helpers.NewAllowList(allowListIDs...)
 			/* TEST FILTERED HNSW */
+			queryStart := time.Now()
 			results, _, err := vectorIndex.SearchByVectorWithFilters(queryVectorsWithFilters[i].Vector, k, queryFilters, queryAllowList)
+			local_latency := float32(time.Now().Sub(queryStart).Seconds())
 			/* TEST HNSW */
-			//results, _, err := vectorIndex.SearchByVector(queryVectorsWithFilters[i].Vector, k, queryAllowList)
-
+			/*
+				queryStart := time.Now()
+				results, _, err := vectorIndex.SearchByVector(queryVectorsWithFilters[i].Vector, k, queryAllowList)
+				local_latency := float32(time.Now().Sub(queryStart).Seconds())
+			*/
 			require.Nil(t, err)
 
 			relevant_retrieved = matchesInLists(truths[i].Truths, results)
 			local_recall := float32(relevant_retrieved) / 100 // might want to modify to len(Truths) for extreme filter cases
-			recall += local_recall
+			total_recall += local_recall
+			total_latency += local_latency
 			for _, filter := range queryFilters {
 				if _, ok := totalRecallPerFilter[filter]; !ok {
 					totalRecallPerFilter[filter] = local_recall
+					totalLatencyPerFilter[filter] = local_latency
 					totalCountPerFilter[filter] = 1.0
 				} else {
 					totalRecallPerFilter[filter] += local_recall
+					totalLatencyPerFilter[filter] += local_latency
 					totalCountPerFilter[filter] += 1.0
 				}
 			}
 		}
 
-		recall = float32(recall) / float32(len(queryVectorsWithFilters))
-		fmt.Printf("Average Recall for all filters = %f\n", recall)
+		average_recall := float32(total_recall) / float32(len(queryVectorsWithFilters))
+		fmt.Printf("Average Recall for all filters = %f\n", average_recall)
+		average_latency := float32(total_latency) / float32(len(queryVectorsWithFilters))
+		fmt.Printf("Average Latency for all filters = %f\n", average_latency)
 
 		fmt.Print("\n =========== \n")
 		fmt.Print("\n DEBUGGING \n")
 		fmt.Print(totalRecallPerFilter)
+		fmt.Print("\n DEBUGGING \n")
+		fmt.Print(totalLatencyPerFilter)
 		fmt.Print("\n DEBUGGING \n")
 		fmt.Print(totalCountPerFilter)
 		fmt.Print("\n =========== \n")
@@ -243,10 +257,12 @@ func TestFilteredRecall(t *testing.T) {
 		/* Loop through query filters, adding new recall score */
 		for filterKey, totalRecallValue := range totalRecallPerFilter {
 			RecallPerFilter := totalRecallValue / totalCountPerFilter[filterKey]
+			LatencyPerFilter := totalLatencyPerFilter[filterKey] / totalCountPerFilter[filterKey]
 			fmt.Printf("Recall for filter %d = %f \n", filterKey, RecallPerFilter)
+			fmt.Printf("Latency for filter %d = %f \n", filterKey, LatencyPerFilter)
 		}
 
-		assert.True(t, recall >= 0.09)
+		assert.True(t, average_recall >= 0.09)
 	})
 }
 
