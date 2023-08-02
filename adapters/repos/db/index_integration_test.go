@@ -334,7 +334,6 @@ func invertedConfig() *models.InvertedIndexConfig {
 			Preset: "none",
 		},
 		IndexNullState:      true,
-		IndexPropertyLength: true,
 	}
 }
 
