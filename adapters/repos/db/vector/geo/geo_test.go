@@ -43,7 +43,9 @@ func TestGeoJourney(t *testing.T) {
 		CoordinatesForID:   getCoordinates,
 		DisablePersistence: true,
 		RootPath:           "doesnt-matter-persistence-is-off",
-	}, cyclemanager.NewNoop(), cyclemanager.NewNoop())
+	},
+		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
+		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
 	require.Nil(t, err)
 
 	t.Run("importing all", func(t *testing.T) {

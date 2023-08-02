@@ -14,19 +14,21 @@ package cyclemanager
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 )
 
+var _NUMCPU = runtime.NumCPU()
+
 type (
 	// indicates whether cyclemanager's stop was requested to allow safely
-	// break execution of CycleFunc and stop cyclemanager earlier
-	ShouldBreakFunc func() bool
+	// abort execution of CycleCallback and stop cyclemanager earlier
+	ShouldAbortCallback func() bool
 	// return value indicates whether actual work was done in the cycle
-	CycleFunc func(shouldBreak ShouldBreakFunc) bool
+	CycleCallback func(shouldAbort ShouldAbortCallback) bool
 )
 
 type CycleManager interface {
-	Register(cycleFunc CycleFunc) UnregisterFunc
 	Start()
 	Stop(ctx context.Context) chan bool
 	StopAndWait(ctx context.Context) error
@@ -36,26 +38,22 @@ type CycleManager interface {
 type cycleManager struct {
 	sync.RWMutex
 
-	callbacks   callbacks
-	cycleTicker CycleTicker
-	running     bool
-	stopSignal  chan struct{}
+	cycleCallback CycleCallback
+	cycleTicker   CycleTicker
+	running       bool
+	stopSignal    chan struct{}
 
 	stopContexts []context.Context
 	stopResults  []chan bool
 }
 
-func NewMulti(cycleTicker CycleTicker) CycleManager {
+func New(cycleTicker CycleTicker, cycleCallback CycleCallback) CycleManager {
 	return &cycleManager{
-		callbacks:   newMultiCallbacks(),
-		cycleTicker: cycleTicker,
-		running:     false,
-		stopSignal:  make(chan struct{}, 1),
+		cycleCallback: cycleCallback,
+		cycleTicker:   cycleTicker,
+		running:       false,
+		stopSignal:    make(chan struct{}, 1),
 	}
-}
-
-func (c *cycleManager) Register(cycleFunc CycleFunc) UnregisterFunc {
-	return c.callbacks.register(cycleFunc)
 }
 
 // Starts instance, does not block
@@ -84,7 +82,7 @@ func (c *cycleManager) Start() {
 				c.Unlock()
 				continue
 			}
-			c.cycleTicker.CycleExecuted(c.callbacks.execute(c.shouldBreakCycleCallback))
+			c.cycleTicker.CycleExecuted(c.cycleCallback(c.shouldAbortCycleCallback))
 		}
 	}()
 
@@ -165,7 +163,7 @@ func (c *cycleManager) shouldStop() bool {
 	return false
 }
 
-func (c *cycleManager) shouldBreakCycleCallback() bool {
+func (c *cycleManager) shouldAbortCycleCallback() bool {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -203,12 +201,6 @@ func NewNoop() CycleManager {
 
 type noopCycleManager struct {
 	running bool
-}
-
-func (c *noopCycleManager) Register(cycleFunc CycleFunc) UnregisterFunc {
-	return func(ctx context.Context) error {
-		return nil
-	}
 }
 
 func (c *noopCycleManager) Start() {

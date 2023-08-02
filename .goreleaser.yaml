@@ -8,6 +8,7 @@ builds:
     goos:
       - linux
       - darwin
+      - windows
     main: ./cmd/weaviate-server
     goarch:
       - amd64

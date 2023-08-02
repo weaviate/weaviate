@@ -36,7 +36,7 @@ func TestPrecomputeSegmentMeta_Replace(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
@@ -99,7 +99,7 @@ func TestPrecomputeSegmentMeta_Set(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
 		WithStrategy(StrategySetCollection))
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
@@ -156,7 +156,9 @@ func TestPrecomputeSegmentMeta_UnhappyPaths(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		_, err := preComputeSegmentMeta("i-dont-exist.tmp", 7, logger)
 		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "no such file or directory")
+		unixErr := "no such file or directory"
+		windowsErr := "The system cannot find the file specified."
+		assert.True(t, strings.Contains(err.Error(), unixErr) || strings.Contains(err.Error(), windowsErr))
 	})
 
 	t.Run("segment header can't be parsed", func(t *testing.T) {

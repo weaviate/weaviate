@@ -663,7 +663,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 		nodes = []string{"A", "B", "C"}
 		ctx   = context.Background()
 	)
-	t.Run("GotMostRecentContent", func(t *testing.T) {
+	t.Run("GetMostRecentContent1", func(t *testing.T) {
 		var (
 			f       = newFakeFactory("C1", shard, nodes)
 			finder  = f.newFinder("A")
@@ -672,6 +672,12 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				objectEx(ids[1], 5, shard, "A"),
 				objectEx(ids[2], 6, shard, "A"),
 			}
+			directRe = []objects.Replica{
+				replica(ids[0], 4, false),
+				replica(ids[1], 5, false),
+				replica(ids[2], 6, false),
+			}
+
 			digestR2 = []RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 4},
 				{ID: ids[1].String(), UpdateTime: 2},
@@ -687,6 +693,13 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, anyVal).Return(digestR2, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, anyVal).Return(digestR3, nil)
+		// refresh
+		f.RClient.On("FetchObjects", anyVal, nodes[0], cls, shard, anyVal).Return(directRe, nil).
+			Once().
+			RunFn = func(a mock.Arguments) {
+			got := a[4].([]strfmt.UUID)
+			assert.ElementsMatch(t, ids, got)
+		}
 
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, anyVal).
 			Return(digestR2, nil).
@@ -729,7 +742,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 		assert.Equal(t, want, directR)
 	})
 
-	t.Run("GetMostRecentContent", func(t *testing.T) {
+	t.Run("GetMostRecentContent2", func(t *testing.T) {
 		var (
 			f      = newFakeFactory(cls, shard, nodes)
 			finder = f.newFinder("A")
@@ -741,12 +754,17 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				objectEx(ids[3], 4, shard, "A"),
 				objectEx(ids[4], 3, shard, "A"),
 			}
+
 			xs = []*storobj.Object{
 				objectEx(ids[0], 1, shard, "A"),
 				objectEx(ids[1], 1, shard, "A"),
 				objectEx(ids[2], 2, shard, "A"),
 				objectEx(ids[3], 4, shard, "A"), // latest
 				objectEx(ids[4], 2, shard, "A"),
+			}
+
+			directRe = []objects.Replica{
+				replica(ids[3], 4, false),
 			}
 			digestR2 = []RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 2}, // latest
@@ -774,6 +792,14 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 		)
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, ids).Return(digestR2, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, ids).Return(digestR3, nil)
+
+		// refetch objects
+		f.RClient.On("FetchObjects", anyVal, nodes[0], cls, shard, anyVal).Return(directRe, nil).
+			Once().
+			RunFn = func(a mock.Arguments) {
+			got := a[4].([]strfmt.UUID)
+			assert.ElementsMatch(t, ids[3:4], got)
+		}
 
 		// fetch most recent objects
 		f.RClient.On("FetchObjects", anyVal, nodes[1], cls, shard, anyVal).Return(directR2, nil).
@@ -908,11 +934,25 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				{ID: ids[1].String(), UpdateTime: 2},
 				{ID: ids[2].String(), UpdateTime: 1, Err: "conflict"}, // this one
 			}
+
+			directRe = []objects.Replica{
+				replica(ids[0], 4, false),
+				replica(ids[1], 5, false),
+				replica(ids[2], 6, false),
+			}
 		)
 		want := setObjectsConsistency(xs, true)
 		want[2].IsConsistent = false
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, ids).Return(digestR2, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, ids).Return(digestR3, nil)
+
+		// refetch objects
+		f.RClient.On("FetchObjects", anyVal, nodes[0], cls, shard, anyVal).Return(directRe, nil).
+			Once().
+			RunFn = func(a mock.Arguments) {
+			got := a[4].([]strfmt.UUID)
+			assert.ElementsMatch(t, ids, got)
+		}
 
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, anyVal).
 			Return(directR2, nil).
@@ -982,6 +1022,10 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			directR3 = []objects.Replica{
 				replica(ids[2], 4, false),
 			}
+			directRe = []objects.Replica{
+				replica(ids[0], 2, false),
+				replica(ids[1], 3, false),
+			}
 		)
 
 		want := setObjectsConsistency([]*storobj.Object{
@@ -999,6 +1043,14 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, ids).
 			Return(digestR3, nil).
 			Once()
+
+		// refetch objects
+		f.RClient.On("FetchObjects", anyVal, nodes[0], cls, shard, anyVal).Return(directRe, nil).
+			Once().
+			RunFn = func(a mock.Arguments) {
+			got := a[4].([]strfmt.UUID)
+			assert.ElementsMatch(t, ids[:2], got)
+		}
 
 		// fetch most recent objects
 		f.RClient.On("FetchObjects", anyVal, nodes[1], cls, shard, anyVal).
@@ -1061,6 +1113,11 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				replica(ids[1], 3, false),
 			}
 			directR3 = []objects.Replica{}
+
+			directRe = []objects.Replica{
+				replica(ids[0], 2, false),
+				replica(ids[1], 3, false),
+			}
 		)
 
 		want := setObjectsConsistency(xs, true)
@@ -1072,6 +1129,14 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, ids).
 			Return(digestR3, nil).
 			Once()
+
+		// refetch
+		f.RClient.On("FetchObjects", anyVal, nodes[0], cls, shard, anyVal).Return(directRe, nil).
+			Once().
+			RunFn = func(a mock.Arguments) {
+			got := a[4].([]strfmt.UUID)
+			assert.ElementsMatch(t, ids[:2], got)
+		}
 
 		// fetch most recent objects
 		f.RClient.On("FetchObjects", anyVal, nodes[1], cls, shard, anyVal).
@@ -1129,6 +1194,11 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			}
 			// unexpected response UpdateTime  is 3 instead of 4
 			directR3 = []objects.Replica{replica(ids[2], 3, false)}
+
+			directRe = []objects.Replica{
+				replica(ids[0], 2, false),
+				replica(ids[1], 3, false),
+			}
 		)
 
 		want := setObjectsConsistency(xs, true)
@@ -1140,6 +1210,14 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, ids).
 			Return(digestR3, nil).
 			Once()
+
+		// refetch
+		f.RClient.On("FetchObjects", anyVal, nodes[0], cls, shard, anyVal).Return(directRe, nil).
+			Once().
+			RunFn = func(a mock.Arguments) {
+			got := a[4].([]strfmt.UUID)
+			assert.ElementsMatch(t, ids[:2], got)
+		}
 
 		// fetch most recent objects
 		f.RClient.On("FetchObjects", anyVal, nodes[1], cls, shard, anyVal).
@@ -1195,6 +1273,11 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			directR2 = []objects.Replica{
 				replica(ids[1], 3, false),
 			}
+
+			directRe = []objects.Replica{
+				replica(ids[0], 2, false),
+				replica(ids[1], 3, false),
+			}
 		)
 
 		want := setObjectsConsistency(xs, true)
@@ -1206,6 +1289,14 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, ids).
 			Return(digestR3, nil).
 			Once()
+
+			// refetch
+		f.RClient.On("FetchObjects", anyVal, nodes[0], cls, shard, anyVal).Return(directRe, nil).
+			Once().
+			RunFn = func(a mock.Arguments) {
+			got := a[4].([]strfmt.UUID)
+			assert.ElementsMatch(t, ids[:2], got)
+		}
 
 		// fetch most recent objects
 		f.RClient.On("FetchObjects", anyVal, nodes[1], cls, shard, anyVal).
@@ -1260,10 +1351,23 @@ func TestRepairerCheckConsistencyQuorum(t *testing.T) {
 			{ID: ids[1].String(), UpdateTime: 5},
 			{ID: ids[2].String(), UpdateTime: 3},
 		}
+		directRe = []objects.Replica{
+			replica(ids[0], 4, false),
+			// replica(ids[1], 5, false),
+			replica(ids[2], 6, false),
+		}
 		want = setObjectsConsistency(xs, true)
 	)
 	f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, ids).Return(digestR2, errAny)
 	f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, ids).Return(digestR3, nil)
+
+	// refetch
+	f.RClient.On("FetchObjects", anyVal, nodes[0], cls, shard, anyVal).Return(directRe, nil).
+		Once().
+		RunFn = func(a mock.Arguments) {
+		got := a[4].([]strfmt.UUID)
+		assert.ElementsMatch(t, []strfmt.UUID{ids[0], ids[2]}, got)
+	}
 	f.RClient.On("OverwriteObjects", anyVal, nodes[2], cls, shard, anyVal).
 		Return(digestR2, nil).
 		Once().

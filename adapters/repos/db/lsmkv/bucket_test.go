@@ -26,8 +26,11 @@ func TestBucket_WasDeleted(t *testing.T) {
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	b, err := NewBucket(context.Background(), tmpDir, "", logger, nil,
-		cyclemanager.NewNoop(), cyclemanager.NewNoop())
+		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
 	require.Nil(t, err)
+	t.Cleanup(func() {
+		require.Nil(t, b.Shutdown(context.Background()))
+	})
 
 	var (
 		key = []byte("key")
@@ -130,7 +133,7 @@ func TestBucketReadsIntoMemory(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
@@ -149,7 +152,7 @@ func TestBucketReadsIntoMemory(t *testing.T) {
 	assert.True(t, ok)
 
 	b2, err := NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)

@@ -18,8 +18,7 @@ import (
 )
 
 const (
-	modelProperty   = "model"
-	returnDocuments = "returnDocuments"
+	modelProperty = "model"
 )
 
 var availableCohereModels = []string{
@@ -29,8 +28,7 @@ var availableCohereModels = []string{
 
 // note it might not like this -- might want int values for e.g. MaxTokens
 var (
-	DefaultCohereModel     = "rerank-english-v2.0"
-	DefaultReturnDocuments = false
+	DefaultCohereModel = "rerank-multilingual-v2.0"
 )
 
 type classSettings struct {
@@ -72,34 +70,12 @@ func (ic *classSettings) getStringProperty(name string, defaultValue string) *st
 	return &defaultValue
 }
 
-func (ic *classSettings) getBoolProperty(name string, defaultValue *bool) *bool {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	val, ok := ic.cfg.ClassByModuleName("reranker-cohere")[name]
-	if ok {
-		asBool, ok := val.(bool)
-		if ok {
-			return &asBool
-		}
-		var empty bool
-		return &empty
-	}
-	return defaultValue
-}
-
 func (ic *classSettings) validateModel(model string) bool {
 	return contains(availableCohereModels, model)
 }
 
 func (ic *classSettings) Model() string {
 	return *ic.getStringProperty(modelProperty, DefaultCohereModel)
-}
-
-func (ic *classSettings) ReturnDocuments() bool {
-	return *ic.getBoolProperty(returnDocuments, &DefaultReturnDocuments)
 }
 
 func contains[T comparable](s []T, e T) bool {

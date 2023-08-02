@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -40,12 +41,23 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	defer m.metrics.DeleteReferenceDec()
 
 	deprecatedEndpoint := input.Class == ""
+	if input.Class != "" && strings.Count(string(input.Reference.Beacon), "/") == 3 {
+		toClass, toBeacon, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, input.Reference.Beacon)
+		if err != nil {
+			return err
+		}
+		input.Reference.Class = toClass
+		input.Reference.Beacon = toBeacon
+	}
+
 	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID,
 		additional.Properties{}, nil, tenant)
 	if err != nil {
 		errnf := ErrNotFound{}
 		if errors.As(err, &errnf) {
 			return &Error{"source object", StatusNotFound, err}
+		} else if errors.As(err, &ErrMultiTenancy{}) {
+			return &Error{"source object", StatusUnprocessableEntity, err}
 		}
 		return &Error{"source object", StatusInternalServerError, err}
 	}
@@ -65,6 +77,9 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	if err := input.validate(ctx, principal, m.schemaManager); err != nil {
 		if deprecatedEndpoint { // for backward comp reasons
 			return &Error{"bad inputs deprecated", StatusNotFound, err}
+		}
+		if errors.As(err, &ErrMultiTenancy{}) {
+			return &Error{"bad inputs", StatusUnprocessableEntity, err}
 		}
 		return &Error{"bad inputs", StatusBadRequest, err}
 	}

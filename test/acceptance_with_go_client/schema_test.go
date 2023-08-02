@@ -83,9 +83,9 @@ func TestSchemaCasingClass(t *testing.T) {
 				require.Equal(t, data, 1.)
 			}
 
-			// class exists only once in Uppercase, so lowercase delete has to fail
+			// Regardless of whether a class exists or not, the delete operation will always return a success
 			require.Nil(t, c.Schema().ClassDeleter().WithClassName(tt.className1).Do(ctx))
-			require.NotNil(t, c.Schema().ClassDeleter().WithClassName(tt.className2).Do(ctx))
+			require.Nil(t, c.Schema().ClassDeleter().WithClassName(tt.className2).Do(ctx))
 		})
 	}
 }

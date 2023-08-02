@@ -43,7 +43,7 @@ func TestConcurrentWriting_Replace(t *testing.T) {
 	values := make([][]byte, amount)
 
 	bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
 		WithStrategy(StrategyReplace),
 		WithMemtableThreshold(10000))
 	require.Nil(t, err)
@@ -135,7 +135,7 @@ func TestConcurrentWriting_Set(t *testing.T) {
 	values := make([][][]byte, amount)
 
 	bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
 		WithStrategy(StrategySetCollection),
 		WithMemtableThreshold(10000))
 	require.Nil(t, err)
@@ -225,7 +225,7 @@ func TestConcurrentWriting_Map(t *testing.T) {
 	values := make([][]MapPair, amount)
 
 	bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
+		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
 		WithStrategy(StrategyMapCollection),
 		WithMemtableThreshold(5000))
 	require.Nil(t, err)
