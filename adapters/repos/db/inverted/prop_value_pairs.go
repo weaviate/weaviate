@@ -65,21 +65,17 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 		// TODO text_rbm_inverted_index find better way check whether prop len
 		if strings.HasSuffix(pv.prop, filters.InternalPropertyLength) &&
 			!pv.Class.InvertedIndexConfig.IndexPropertyLength {
-			return errors.Errorf("Property length must be indexed to be filterable! " +
-				"add `IndexPropertyLength: true` to the invertedIndexConfig." +
-				"Geo-coordinates, phone numbers and data blobs are not supported by property length.")
+			return errors.Errorf("Property length must be indexed to be filterable! add `IndexPropertyLength: true` to the invertedIndexConfig.  Geo-coordinates, phone numbers and data blobs are not supported by property length.")
 		}
 
 		if pv.operator == filters.OperatorIsNull && !pv.Class.InvertedIndexConfig.IndexNullState {
-			return errors.Errorf("Nullstate must be indexed to be filterable! " +
-				"add `indexNullState: true` to the invertedIndexConfig")
+			return errors.Errorf("Nullstate must be indexed to be filterable! Add `indexNullState: true` to the invertedIndexConfig")
 		}
 
-		if pv.prop == filters.InternalPropCreationTimeUnix ||
-			pv.prop == filters.InternalPropLastUpdateTimeUnix &&
+		if (pv.prop == filters.InternalPropCreationTimeUnix ||
+			pv.prop == filters.InternalPropLastUpdateTimeUnix) &&
 				!pv.Class.InvertedIndexConfig.IndexTimestamps {
-			return errors.Errorf("timestamps must be indexed to be filterable! " +
-				"add `indexTimestamps: true` to the invertedIndexConfig")
+			return errors.Errorf("Timestamps must be indexed to be filterable! Add `IndexTimestamps: true` to the InvertedIndexConfig in %v", pv.Class.Class)
 		}
 
 		// TODO:  I think we can delete this check entirely.  The bucket will never be nill, and routines should now check if their particular feature is active in the schema.  However, not all those routines have checks yet.

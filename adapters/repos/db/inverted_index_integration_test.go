@@ -219,6 +219,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexNullState: true,
+				IndexTimestamps: true,
 			},
 			Properties: []*models.Property{
 				{
@@ -232,7 +233,9 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		refClass := &models.Class{
 			Class:               "RefClass",
 			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-			InvertedIndexConfig: &models.InvertedIndexConfig{},
+			InvertedIndexConfig: &models.InvertedIndexConfig{
+				IndexTimestamps: true,
+			},
 			Properties: []*models.Property{
 				{
 					Name:         "name",
@@ -480,6 +483,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexPropertyLength: true,
+				IndexTimestamps: true,
 			},
 			Properties: []*models.Property{
 				{
@@ -497,7 +501,9 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 		refClass := &models.Class{
 			Class:               "RefClass",
 			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-			InvertedIndexConfig: &models.InvertedIndexConfig{},
+			InvertedIndexConfig: &models.InvertedIndexConfig{
+				IndexTimestamps: true,
+			},
 			Properties: []*models.Property{
 				{
 					Name:         "name",
@@ -830,6 +836,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexTimestamps: true,
+				
 			},
 			Properties: []*models.Property{
 				{
@@ -843,7 +850,9 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 		refClass := &models.Class{
 			Class:               "RefClass",
 			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-			InvertedIndexConfig: &models.InvertedIndexConfig{},
+			InvertedIndexConfig: &models.InvertedIndexConfig{
+				IndexTimestamps: true,
+			},
 			Properties: []*models.Property{
 				{
 					Name:         "name",
