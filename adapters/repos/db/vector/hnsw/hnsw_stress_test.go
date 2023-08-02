@@ -613,7 +613,7 @@ func readBigAnnDataset(t testing.TB, file string, maxObjects int) [][]float32 {
 
 	vectorBytes := make([]byte, d*bytesPerF)
 	for i := 0; i >= 0; i++ {
-		n, err = f.Read(vectorBytes)
+		_, err = f.Read(vectorBytes)
 		if err == io.EOF {
 			break
 		}
