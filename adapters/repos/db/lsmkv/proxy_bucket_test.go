@@ -46,6 +46,9 @@ func TestBucketProxyCreation(t *testing.T) {
 	}
 
 	propid_bytes, err := helpers.MakePropertyPrefix(propName, propids)
+	if err != nil {
+		t.Fatalf("Failed to create property prefix: %v", err)
+	}
 	if !bytes.Equal(bp.PropertyPrefix(), propid_bytes) {
 		t.Fatalf("BucketProxy PropertyPrefix() does not match expected '%s', got '%s'", propName, bp.PropertyPrefix())
 	}
@@ -58,6 +61,9 @@ func TestBucketProxyGetAndPut(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
 	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids.json")
+	if err != nil {
+		t.Fatalf("Failed to create tracker: %v", err)
+	}
 
 	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewNoop(), cyclemanager.NewNoop())
 	if err != nil {
@@ -93,6 +99,9 @@ func TestBucketProxyGetNotFound(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
 	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids1.json")
+	if err != nil {
+		t.Fatalf("Failed to create tracker: %v", err)
+	}
 
 	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewNoop(), cyclemanager.NewNoop())
 	if err != nil {
