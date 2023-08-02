@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.20.0"
+    "version": "1.20.4"
   },
   "basePath": "/v1",
   "paths": {
@@ -1229,6 +1229,12 @@ func init() {
           "404": {
             "description": "Successful query result but no resource was found."
           },
+          "422": {
+            "description": "Request is well-formed (i.e., syntactically correct), but erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -1365,6 +1371,12 @@ func init() {
           "404": {
             "description": "Successful query result but no resource was found."
           },
+          "422": {
+            "description": "Request is well-formed (i.e., syntactically correct), but erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -1424,6 +1436,12 @@ func init() {
           "404": {
             "description": "Object doesn't exist."
           },
+          "422": {
+            "description": "Request is well-formed (i.e., syntactically correct), but erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -1477,7 +1495,10 @@ func init() {
             "description": "Successfully applied. No content provided."
           },
           "400": {
-            "description": "The patch-JSON is malformed."
+            "description": "The patch-JSON is malformed.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -2500,11 +2521,6 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
-          },
-          {
-            "type": "boolean",
-            "name": "force",
-            "in": "query"
           }
         ],
         "responses": {
@@ -4681,7 +4697,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.20.0"
+    "version": "1.20.4"
   },
   "basePath": "/v1",
   "paths": {
@@ -5916,6 +5932,12 @@ func init() {
           "404": {
             "description": "Successful query result but no resource was found."
           },
+          "422": {
+            "description": "Request is well-formed (i.e., syntactically correct), but erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -6061,6 +6083,12 @@ func init() {
           "404": {
             "description": "Successful query result but no resource was found."
           },
+          "422": {
+            "description": "Request is well-formed (i.e., syntactically correct), but erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -6126,6 +6154,12 @@ func init() {
           "404": {
             "description": "Object doesn't exist."
           },
+          "422": {
+            "description": "Request is well-formed (i.e., syntactically correct), but erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -6182,7 +6216,10 @@ func init() {
             "description": "Successfully applied. No content provided."
           },
           "400": {
-            "description": "The patch-JSON is malformed."
+            "description": "The patch-JSON is malformed.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -7247,11 +7284,6 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
-          },
-          {
-            "type": "boolean",
-            "name": "force",
-            "in": "query"
           }
         ],
         "responses": {

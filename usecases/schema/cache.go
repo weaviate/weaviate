@@ -133,3 +133,29 @@ func (s *schemaCache) setState(st State) {
 	defer s.Unlock()
 	s.State = st
 }
+
+func (s *schemaCache) detachClass(name string) bool {
+	s.Lock()
+	defer s.Unlock()
+	schema, ci := s.ObjectSchema, -1
+	for i, cls := range schema.Classes {
+		if cls.Class == name {
+			ci = i
+			break
+		}
+	}
+	if ci == -1 {
+		return false
+	}
+	nc := len(schema.Classes)
+	schema.Classes[ci] = schema.Classes[nc-1]
+	schema.Classes[nc-1] = nil // to prevent leaking this pointer.
+	schema.Classes = schema.Classes[:nc-1]
+	return true
+}
+
+func (s *schemaCache) deleteClassState(name string) {
+	s.Lock()
+	defer s.Unlock()
+	delete(s.ShardingState, name)
+}

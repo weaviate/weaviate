@@ -45,12 +45,27 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	rootPath := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	cycles := &MaintenanceCycles{}
-	cycles.Init(
-		cyclemanager.HnswCommitLoggerCycleTicker(),
-		cyclemanager.NewFixedIntervalTicker(1))
+	ctx := context.Background()
 
-	original, err := NewCommitLogger(rootPath, "too_many_links_test", logger, cycles.CommitLogMaintenance(),
+	parentCommitLoggerCallbacks := cyclemanager.NewCycleCallbacks("parentCommitLogger", logger, 1)
+	parentCommitLoggerCycle := cyclemanager.New(
+		cyclemanager.HnswCommitLoggerCycleTicker(),
+		parentCommitLoggerCallbacks.CycleCallback)
+	parentCommitLoggerCycle.Start()
+	defer parentCommitLoggerCycle.StopAndWait(ctx)
+	commitLoggerCallbacks := cyclemanager.NewCycleCallbacks("childCommitLogger", logger, 1)
+	commitLoggerCallbacksCtrl := parentCommitLoggerCallbacks.Register("commitLogger", true, commitLoggerCallbacks.CycleCallback)
+
+	parentTombstoneCleanupCallbacks := cyclemanager.NewCycleCallbacks("parentTombstoneCleanup", logger, 1)
+	parentTombstoneCleanupCycle := cyclemanager.New(
+		cyclemanager.NewFixedIntervalTicker(1),
+		parentTombstoneCleanupCallbacks.CycleCallback)
+	parentTombstoneCleanupCycle.Start()
+	defer parentTombstoneCleanupCycle.StopAndWait(ctx)
+	tombstoneCleanupCallbacks := cyclemanager.NewCycleCallbacks("childTombstoneCleanup", logger, 1)
+	tombstoneCleanupCallbacksCtrl := parentTombstoneCleanupCallbacks.Register("tombstoneCleanup", true, tombstoneCleanupCallbacks.CycleCallback)
+
+	original, err := NewCommitLogger(rootPath, "too_many_links_test", logger, commitLoggerCallbacks,
 		WithCommitlogThreshold(1e5),
 		WithCommitlogThresholdForCombining(5e5))
 	require.Nil(t, err)
@@ -87,7 +102,8 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 2 * n,
-		}, cycles.TombstoneCleanup())
+		},
+			tombstoneCleanupCallbacks, cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
 		require.Nil(t, err)
 		idx.PostStartup()
 		index = idx
@@ -221,7 +237,8 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 2 * n,
-		}, cycles.TombstoneCleanup())
+		},
+			tombstoneCleanupCallbacks, cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
 		require.Nil(t, err)
 		idx.PostStartup()
 		index = idx
@@ -247,6 +264,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 
 	t.Run("destroy the index", func(t *testing.T) {
 		require.Nil(t, index.Drop(context.Background()))
-		require.Nil(t, cycles.Shutdown(context.Background()))
+		require.Nil(t, commitLoggerCallbacksCtrl.Unregister(ctx))
+		require.Nil(t, tombstoneCleanupCallbacksCtrl.Unregister(ctx))
 	})
 }

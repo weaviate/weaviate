@@ -2293,7 +2293,11 @@ func TestOverwriteObjects(t *testing.T) {
 
 	t.Run("overwrite with fresh object", func(t *testing.T) {
 		input := []*objects.VObject{
-			{LatestObject: fresh, StaleUpdateTime: stale.LastUpdateTimeUnix},
+			{
+				LatestObject:    fresh,
+				Vector:          []float32{4, 5, 6},
+				StaleUpdateTime: stale.LastUpdateTimeUnix,
+			},
 		}
 
 		idx := repo.GetIndex(schema.ClassName(class.Class))

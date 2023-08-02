@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -25,9 +26,12 @@ import (
 )
 
 func TestPeriodicTombstoneRemoval(t *testing.T) {
+	logger, _ := test.NewNullLogger()
 	cleanupIntervalSeconds := 1
-	tombstoneCleanupCycle := cyclemanager.NewMulti(
-		cyclemanager.NewFixedIntervalTicker(time.Duration(cleanupIntervalSeconds) * time.Second))
+	tombstoneCallbacks := cyclemanager.NewCycleCallbacks("tombstone", logger, 1)
+	tombstoneCleanupCycle := cyclemanager.New(
+		cyclemanager.NewFixedIntervalTicker(time.Duration(cleanupIntervalSeconds)*time.Second),
+		tombstoneCallbacks.CycleCallback)
 	tombstoneCleanupCycle.Start()
 
 	index, err := New(Config{
@@ -40,7 +44,8 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 		CleanupIntervalSeconds: cleanupIntervalSeconds,
 		MaxConnections:         30,
 		EFConstruction:         128,
-	}, tombstoneCleanupCycle)
+	},
+		tombstoneCallbacks, cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
 	index.PostStartup()
 
 	require.Nil(t, err)

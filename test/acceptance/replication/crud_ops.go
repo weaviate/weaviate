@@ -64,9 +64,13 @@ func createTenantObjects(t *testing.T, host string, batch []*models.Object) {
 	helper.CreateObjectsBatch(t, batch)
 }
 
-func getObject(t *testing.T, host, class string, id strfmt.UUID) (*models.Object, error) {
+func getObject(t *testing.T, host, class string, id strfmt.UUID, withVec bool) (*models.Object, error) {
 	helper.SetupClient(host)
-	return helper.GetObject(t, class, id)
+	var include string
+	if withVec {
+		include = "vector"
+	}
+	return helper.GetObject(t, class, id, include)
 }
 
 func getTenantObject(t *testing.T, host, class string, id strfmt.UUID, tenant string) (*models.Object, error) {
@@ -189,11 +193,32 @@ func gqlGet(t *testing.T, host, class string, cl replica.ConsistencyLevel, field
 
 	q := fmt.Sprintf("{Get {%s (consistencyLevel: %s)", class, cl) + " {%s}}}"
 	if len(fields) == 0 {
+		fields = []string{"_additional{id isConsistent vector}"}
+	}
+	q = fmt.Sprintf(q, strings.Join(fields, " "))
+
+	return gqlDo(t, class, q)
+}
+
+func gqlGetNearVec(t *testing.T, host, class string, vec []interface{}, cl replica.ConsistencyLevel, fields ...string) []interface{} {
+	helper.SetupClient(host)
+
+	if cl == "" {
+		cl = replica.Quorum
+	}
+
+	q := fmt.Sprintf("{Get {%s (consistencyLevel: %s, nearVector: {vector: %s, certainty: 0.8})",
+		class, cl, vec2String(vec)) + " {%s}}}"
+	if len(fields) == 0 {
 		fields = []string{"_additional{id isConsistent}"}
 	}
 	q = fmt.Sprintf(q, strings.Join(fields, " "))
 
-	resp := graphqlhelper.AssertGraphQL(t, helper.RootAuth, q)
+	return gqlDo(t, class, q)
+}
+
+func gqlDo(t *testing.T, class, query string) []interface{} {
+	resp := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 
 	result := resp.Get("Get").Get(class)
 	return result.Result.([]interface{})
@@ -243,4 +268,13 @@ func getNodes(t *testing.T, host string) *models.NodesStatusResponse {
 	resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 	return resp.Payload
+}
+
+func vec2String(v []interface{}) (s string) {
+	for _, n := range v {
+		x := n.(json.Number)
+		s = fmt.Sprintf("%s, %s", s, x.String())
+	}
+	s = strings.TrimLeft(s, ", ")
+	return fmt.Sprintf("[%s]", s)
 }

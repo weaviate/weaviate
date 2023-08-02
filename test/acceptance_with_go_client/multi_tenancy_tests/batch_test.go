@@ -527,7 +527,7 @@ func TestBatchDelete_MultiTenancy(t *testing.T) {
 
 			require.NotNil(t, err)
 			clientErr := err.(*fault.WeaviateClientError)
-			assert.Equal(t, 500, clientErr.StatusCode) // TODO 422?
+			assert.Equal(t, 422, clientErr.StatusCode)
 			assert.Contains(t, clientErr.Msg, "tenant not found")
 			require.Nil(t, resp)
 		}
@@ -584,6 +584,123 @@ func TestBatchDelete_MultiTenancy(t *testing.T) {
 
 					require.Nil(t, err)
 					require.True(t, exists)
+				}
+			}
+		})
+	})
+
+	t.Run("deletes objects from MT class by ref", func(t *testing.T) {
+		defer cleanup()
+
+		tenant1 := "tenantNo1"
+		tenant2 := "tenantNo2"
+		soupIdByTenantAndPizza := map[string]map[string]string{
+			tenant1: {
+				fixtures.PIZZA_QUATTRO_FORMAGGI_ID: fixtures.SOUP_CHICKENSOUP_ID,
+				fixtures.PIZZA_FRUTTI_DI_MARE_ID:   fixtures.SOUP_CHICKENSOUP_ID,
+			},
+			tenant2: {
+				fixtures.PIZZA_HAWAII_ID: fixtures.SOUP_BEAUTIFUL_ID,
+				fixtures.PIZZA_DOENER_ID: fixtures.SOUP_BEAUTIFUL_ID,
+			},
+		}
+
+		t.Run("add data", func(t *testing.T) {
+			fixtures.CreateSchemaPizzaForTenants(t, client)
+			fixtures.CreateTenantsPizza(t, client, tenant1, tenant2)
+			fixtures.CreateDataPizzaQuattroFormaggiForTenants(t, client, tenant1)
+			fixtures.CreateDataPizzaFruttiDiMareForTenants(t, client, tenant1)
+			fixtures.CreateDataPizzaHawaiiForTenants(t, client, tenant2)
+			fixtures.CreateDataPizzaDoenerForTenants(t, client, tenant2)
+
+			fixtures.CreateSchemaSoupForTenants(t, client)
+			fixtures.CreateTenantsSoup(t, client, tenant1, tenant2)
+			fixtures.CreateDataSoupChickenForTenants(t, client, tenant1)
+			fixtures.CreateDataSoupBeautifulForTenants(t, client, tenant2)
+		})
+
+		t.Run("create ref property", func(t *testing.T) {
+			err := client.Schema().PropertyCreator().
+				WithClassName("Soup").
+				WithProperty(&models.Property{
+					Name:     "relatedToPizza",
+					DataType: []string{"Pizza"},
+				}).
+				Do(context.Background())
+
+			require.Nil(t, err)
+		})
+
+		t.Run("create refs", func(t *testing.T) {
+			references := []*models.BatchReference{}
+
+			for tenant, pizzaToSoup := range soupIdByTenantAndPizza {
+				for pizzaId, soupId := range pizzaToSoup {
+					rpb := client.Batch().ReferencePayloadBuilder().
+						WithFromClassName("Soup").
+						WithFromRefProp("relatedToPizza").
+						WithFromID(soupId).
+						WithToClassName("Pizza").
+						WithToID(pizzaId).
+						WithTenant(tenant)
+
+					references = append(references, rpb.Payload())
+				}
+			}
+
+			resp, err := client.Batch().ReferencesBatcher().
+				WithReferences(references...).
+				Do(context.Background())
+
+			require.Nil(t, err)
+			require.NotNil(t, resp)
+			assert.Len(t, resp, len(references))
+			for i := range resp {
+				require.NotNil(t, resp[i].Result)
+				assert.Nil(t, resp[i].Result.Errors)
+			}
+		})
+
+		for tenant, pizzaToSoup := range soupIdByTenantAndPizza {
+			i := 0
+			for pizzaId := range pizzaToSoup {
+				resp, err := client.Batch().ObjectsBatchDeleter().
+					WithClassName("Soup").
+					WithWhere(filters.Where().
+						WithOperator(filters.Like).
+						WithPath([]string{"relatedToPizza", "Pizza", "_id"}).
+						WithValueText(pizzaId)).
+					WithOutput("minimal").
+					WithTenant(tenant).
+					Do(context.Background())
+
+				require.Nil(t, err)
+				require.NotNil(t, resp)
+				require.NotNil(t, resp.Results)
+
+				// single soup references two pizzas, so soup will be deleted only for 1st pizza
+				if i == 0 {
+					assert.Equal(t, int64(1), resp.Results.Matches)
+					assert.Equal(t, int64(1), resp.Results.Successful)
+				} else {
+					assert.Equal(t, int64(0), resp.Results.Matches)
+					assert.Equal(t, int64(0), resp.Results.Successful)
+				}
+				i++
+			}
+		}
+
+		t.Run("verify deleted", func(t *testing.T) {
+			for tenant, pizzaToSoup := range soupIdByTenantAndPizza {
+				for _, soupId := range pizzaToSoup {
+					exists, err := client.Data().Checker().
+						WithID(soupId).
+						WithClassName("Soup").
+						WithTenant(tenant).
+						Do(context.Background())
+
+					require.Nil(t, err)
+					require.False(t, exists)
 				}
 			}
 		})

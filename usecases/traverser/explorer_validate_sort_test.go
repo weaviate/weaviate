@@ -380,7 +380,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 					metrics := &fakeMetrics{}
 					metrics.On("AddUsageDimensions", mock.Anything, mock.Anything, mock.Anything,
 						mock.Anything)
-					explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
+					explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
 					explorer.SetSchemaGetter(sg)
 
 					if td.expectedError == nil {

@@ -64,8 +64,9 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 				copy(container.Slice, vectors[int(id)])
 				return container.Slice, nil
 			},
-		}, uc, cyclemanager.NewNoop(),
-	)
+		}, uc,
+		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+	defer index.Shutdown(context.Background())
 	ssdhelpers.Concurrently(uint64(len(vectors)), func(id uint64) {
 		index.Add(uint64(id), vectors[id])
 	})

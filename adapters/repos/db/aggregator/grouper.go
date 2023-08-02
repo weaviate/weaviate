@@ -135,13 +135,11 @@ func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList) ([]ui
 		return res, dists, nil
 	}
 
-	h := hybrid.NewSearcher(&hybrid.Params{
+	res, err := hybrid.Search(ctx, &hybrid.Params{
 		HybridSearch: g.params.Hybrid,
 		Keyword:      nil,
 		Class:        g.params.ClassName.String(),
 	}, g.logger, sparseSearch, denseSearch, nil, nil)
-
-	res, err := h.Search(ctx)
 	if err != nil {
 		return nil, err
 	}

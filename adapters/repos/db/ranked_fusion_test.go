@@ -34,7 +34,9 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
@@ -49,6 +51,13 @@ type TestQuery struct {
 	QueryID        string
 	Query          string
 	MatchingDocIDs []string
+}
+
+var defaultConfig = config.Config{
+	QueryDefaults: config.QueryDefaults{
+		Limit: 100,
+	},
+	QueryMaximumResults: 100,
 }
 
 func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) {
@@ -428,7 +437,7 @@ func TestRFJourney(t *testing.T) {
 
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 
@@ -460,7 +469,7 @@ func TestRFJourney(t *testing.T) {
 
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
 		fmt.Println("--- Start results for hybrid with negative limit ---")
@@ -493,7 +502,7 @@ func TestRFJourney(t *testing.T) {
 
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
 		fmt.Println("--- Start results for hybrid with offset ---")
@@ -528,7 +537,7 @@ func TestRFJourney(t *testing.T) {
 
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
 		fmt.Println("--- Start results for hybrid with offset ---")
@@ -644,7 +653,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 0, len(hybridResults))
@@ -669,7 +678,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 3, len(hybridResults))
@@ -704,7 +713,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(hybridResults))
@@ -815,4 +824,144 @@ type fakeMetrics struct {
 
 func (m *fakeMetrics) AddUsageDimensions(class, query, op string, dims int) {
 	m.Called(class, query, op, dims)
+}
+
+type fakeObjectSearcher struct{}
+
+func (f *fakeObjectSearcher) Search(context.Context, dto.GetParams) ([]search.Result, error) {
+	return nil, nil
+}
+
+func (f *fakeObjectSearcher) VectorSearch(context.Context, dto.GetParams) ([]search.Result, error) {
+	return nil, nil
+}
+
+func (f *fakeObjectSearcher) CrossClassVectorSearch(context.Context, []float32, int, int, *filters.LocalFilter) ([]search.Result, error) {
+	return nil, nil
+}
+
+func (f *fakeObjectSearcher) Object(ctx context.Context, className string, id strfmt.UUID, props search.SelectProperties, additional additional.Properties, properties *additional.ReplicationProperties, tenant string) (*search.Result, error) {
+	return nil, nil
+}
+
+func (f *fakeObjectSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties, tenant string) (search.Results, error) {
+	return nil, nil
+}
+
+func (f *fakeObjectSearcher) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error) {
+	out := []*storobj.Object{
+		{
+			Object: models.Object{
+				ID: "9889a225-3b28-477d-b8fc-5f6071bb4731",
+			},
+
+			Vector: []float32{1, 2, 3},
+		},
+		{
+			Object: models.Object{
+				ID: "0bcdef12-3314-442e-a4d1-e94d7c0afc3a",
+			},
+			Vector: []float32{4, 5, 6},
+		},
+	}
+	lim := params.Pagination.Offset + params.Pagination.Limit
+	if lim > len(out) {
+		lim = len(out)
+	}
+
+	return out[:lim], []float32{0.008, 0.001}[:lim], nil
+}
+
+func (f *fakeObjectSearcher) DenseObjectSearch(ctx context.Context, class string, vector []float32, offset int, limit int, filters *filters.LocalFilter, additinal additional.Properties, tenant string) ([]*storobj.Object, []float32, error) {
+	out := []*storobj.Object{
+		{
+			Object: models.Object{
+				ID: "79a636c2-3314-442e-a4d1-e94d7c0afc3a",
+			},
+
+			Vector: []float32{4, 5, 6},
+		},
+		{
+			Object: models.Object{
+				ID: "9889a225-3b28-477d-b8fc-5f6071bb4731",
+			},
+
+			Vector: []float32{1, 2, 3},
+		},
+	}
+	lim := offset + limit
+	if lim > len(out) {
+		lim = len(out)
+	}
+
+	return out[:lim], []float32{0.009, 0.008}[:lim], nil
+}
+
+func CopyElems[T any](list1, list2 []T, pos int) bool {
+	if len(list1) != len(list2) {
+		return false
+	}
+	if pos < 0 || pos >= len(list1) {
+		return true
+	}
+	list1[pos] = list2[pos]
+	return CopyElems(list1, list2, pos+1)
+}
+
+func (f *fakeObjectSearcher) ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties, groupBy *searchparams.GroupBy, additional additional.Properties, tenant string) (search.Results, error) {
+	// Convert res1 to search.Results
+	out := make(search.Results, len(objs))
+	CopyElems(out, objs, 0)
+
+	return out, nil
+}
+
+func TestHybridOverSearch(t *testing.T) {
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo, err := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+		QueryLimit:                20,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
+	defer repo.Shutdown(context.Background())
+
+	fos := &fakeObjectSearcher{}
+
+	class := SetupFusionClass(t, repo, schemaGetter, logger, 1.2, 0.75)
+	idx := repo.GetIndex("MyClass")
+	require.NotNil(t, idx)
+
+	t.Run("Hybrid", func(t *testing.T) {
+		params := dto.GetParams{
+			ClassName: "MyClass",
+			HybridSearch: &searchparams.HybridSearch{
+				Query:  "elephant",
+				Vector: elephantVector(),
+				Alpha:  0.5,
+			},
+			Pagination: &filters.Pagination{
+				Offset: 0,
+				Limit:  1,
+			},
+		}
+
+		prov := modules.NewProvider()
+		prov.SetClassDefaults(class)
+
+		metrics := &fakeMetrics{}
+		log, _ := test.NewNullLogger()
+		explorer := traverser.NewExplorer(fos, log, prov, metrics, defaultConfig)
+		hybridResults, err := explorer.Hybrid(context.TODO(), params)
+		require.Nil(t, err)
+		require.Equal(t, 1, len(hybridResults))
+		require.Equal(t, strfmt.UUID("9889a225-3b28-477d-b8fc-5f6071bb4731"), hybridResults[0].ID)
+		// require.Equal(t, "79a636c2-3314-442e-a4d1-e94d7c0afc3a", hybridResults[1].ID)
+	})
 }

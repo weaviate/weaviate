@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -41,6 +42,8 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 			errnf := ErrNotFound{} // treated as StatusBadRequest for backward comp
 			if errors.As(err, &errnf) {
 				return &Error{"source object deprecated", StatusBadRequest, err}
+			} else if errors.As(err, &ErrMultiTenancy{}) {
+				return &Error{"source object deprecated", StatusUnprocessableEntity, err}
 			}
 			return &Error{"source object deprecated", StatusInternalServerError, err}
 		}
@@ -59,12 +62,29 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
 	if err := input.validate(ctx, principal, validator, m.schemaManager, tenant); err != nil {
+		if errors.As(err, &ErrMultiTenancy{}) {
+			return &Error{"validate inputs", StatusUnprocessableEntity, err}
+		}
 		return &Error{"validate inputs", StatusBadRequest, err}
 	}
+
 	if !deprecatedEndpoint {
+		if input.Class != "" && strings.Count(string(input.Ref.Beacon), "/") == 3 {
+			toClass, toBeacon, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, input.Ref.Beacon)
+			if err != nil {
+				return err
+			}
+			input.Ref.Class = toClass
+			input.Ref.Beacon = toBeacon
+		}
 		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl, tenant)
 		if err != nil {
-			return &Error{"source object", StatusInternalServerError, err}
+			switch err.(type) {
+			case ErrMultiTenancy:
+				return &Error{"source object", StatusUnprocessableEntity, err}
+			default:
+				return &Error{"source object", StatusInternalServerError, err}
+			}
 		}
 		if !ok {
 			return &Error{"source object", StatusNotFound, err}

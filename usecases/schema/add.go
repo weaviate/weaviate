@@ -454,19 +454,18 @@ func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 	return nil
 }
 
-func (m *Manager) parseShardingConfig(ctx context.Context,
-	class *models.Class,
-) error {
+func (m *Manager) parseShardingConfig(ctx context.Context, class *models.Class) (err error) {
 	// multiTenancyConfig and shardingConfig are mutually exclusive
+	cfg := sharding.Config{} // cfg is empty in case of MT
 	if !schema.MultiTenancyEnabled(class) {
-		parsed, err := sharding.ParseConfig(class.ShardingConfig,
+		cfg, err = sharding.ParseConfig(class.ShardingConfig,
 			m.clusterState.NodeCount())
 		if err != nil {
 			return fmt.Errorf("parse sharding config: %w", err)
 		}
 
-		class.ShardingConfig = parsed
 	}
+	class.ShardingConfig = cfg
 	return nil
 }
 
