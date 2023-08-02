@@ -35,10 +35,10 @@ func WithPosition(pos uint64) func(*ReadWriter) {
 	}
 }
 
-func NewReadWriter(buf []byte, opts ...func(writer *ReadWriter)) *ReadWriter {
-	rw := &ReadWriter{Buffer: buf}
+func NewReadWriter(buf []byte, opts ...func(writer *ReadWriter)) ReadWriter {
+	rw := ReadWriter{Buffer: buf}
 	for _, opt := range opts {
-		opt(rw)
+		opt(&rw)
 	}
 	return rw
 }

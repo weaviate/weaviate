@@ -27,7 +27,7 @@ import (
 // based on expected input params. If those requirements get exceeded, it will
 // still be safe to use, but will fallback to allocating dynamically.
 type BulkBuilder struct {
-	*byteops.ReadWriter
+	byteops.ReadWriter
 	prefix []byte
 }
 
