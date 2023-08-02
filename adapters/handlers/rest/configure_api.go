@@ -60,6 +60,7 @@ import (
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
+	modkserve "github.com/weaviate/weaviate/modules/text2vec-kserve"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modtext2vecpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
@@ -617,6 +618,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modhuggingface.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modkserve.Name]; ok {
+		appState.Modules.Register(modkserve.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modkserve.Name).
 			Debug("enabled module")
 	}
 
