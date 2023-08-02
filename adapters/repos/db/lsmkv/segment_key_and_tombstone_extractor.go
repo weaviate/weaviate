@@ -211,15 +211,16 @@ type tombstoneReader interface {
 }
 
 type pReader struct {
-	buf    []byte
-	r      *bufio.Reader
+	buf []byte
+	r   *bufio.Reader
+	// the relative offset of the reader,
+	// not the absolute offset of the segment
 	offset uint64
 }
 
 func newPReader(r io.ReaderAt, offset uint64, n int64) *pReader {
 	return &pReader{
-		r:      bufio.NewReader(io.NewSectionReader(r, int64(offset), n)),
-		offset: offset,
+		r: bufio.NewReader(io.NewSectionReader(r, int64(offset), n)),
 	}
 }
 
