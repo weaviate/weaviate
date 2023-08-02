@@ -226,7 +226,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	propName := props[0]
 
 	if s.onInternalProp(propName) {
-		pv , err := s.extractInternalProp(propName, filter.Value.Type, filter.Value.Value, filter.Operator)
+		pv, err := s.extractInternalProp(propName, filter.Value.Type, filter.Value.Value, filter.Operator)
 		if err != nil {
 			return nil, err
 		}
@@ -253,7 +253,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 
 	if s.onRefProp(property) && len(props) != 1 {
-		pv,err := s.extractReferenceFilter(property, filter)
+		pv, err := s.extractReferenceFilter(property, filter)
 		if err != nil {
 			return nil, err
 		}
@@ -264,7 +264,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	if s.onRefProp(property) && filter.Value.Type == schema.DataTypeInt {
 		// ref prop and int type is a special case, the user is looking for the
 		// reference count as opposed to the content
-		pv,err :=  s.extractReferenceCount(property, filter.Value.Value, filter.Operator)
+		pv, err := s.extractReferenceCount(property, filter.Value.Value, filter.Operator)
 		if err != nil {
 			return nil, err
 		}
@@ -273,7 +273,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 
 	if filter.Operator == filters.OperatorIsNull {
-		pv,err :=  s.extractPropertyNull(property, filter.Value.Type, filter.Value.Value, filter.Operator)
+		pv, err := s.extractPropertyNull(property, filter.Value.Type, filter.Value.Value, filter.Operator)
 		if err != nil {
 			return nil, err
 		}
@@ -282,7 +282,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 
 	if s.onGeoProp(property) {
-		pv,err :=  s.extractGeoFilter(property, filter.Value.Value, filter.Value.Type, filter.Operator)
+		pv, err := s.extractGeoFilter(property, filter.Value.Value, filter.Value.Type, filter.Operator)
 		if err != nil {
 			return nil, err
 		}
@@ -291,7 +291,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 
 	if s.onUUIDProp(property) {
-		pv,err :=  s.extractUUIDFilter(property, filter.Value.Value, filter.Value.Type, filter.Operator)
+		pv, err := s.extractUUIDFilter(property, filter.Value.Value, filter.Value.Type, filter.Operator)
 		if err != nil {
 			return nil, err
 		}
@@ -300,7 +300,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 
 	if s.onTokenizableProp(property) {
-		pv,err :=  s.extractTokenizableProp(property, filter.Value.Type, filter.Value.Value, filter.Operator)
+		pv, err := s.extractTokenizableProp(property, filter.Value.Type, filter.Value.Value, filter.Operator)
 		if err != nil {
 			return nil, err
 		}
@@ -308,7 +308,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 		return pv, nil
 	}
 
-	pv,err :=  s.extractPrimitiveProp(property, filter.Value.Type, filter.Value.Value, filter.Operator)
+	pv, err := s.extractPrimitiveProp(property, filter.Value.Type, filter.Value.Value, filter.Operator)
 	if err != nil {
 		return nil, err
 	}

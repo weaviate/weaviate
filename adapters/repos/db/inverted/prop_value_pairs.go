@@ -39,7 +39,7 @@ type propValuePair struct {
 	children           []*propValuePair
 	hasFilterableIndex bool
 	hasSearchableIndex bool
-	Class              *models.Class //The schema
+	Class              *models.Class // The schema
 }
 
 func newPropValuePair(class *models.Class) propValuePair {
@@ -82,7 +82,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 				"add `indexTimestamps: true` to the invertedIndexConfig")
 		}
 
-		//TODO:  I think we can delete this check entirely.  The bucket will never be nill, and routines should now check if their particular feature is active in the schema.  However, not all those routines have checks yet.
+		// TODO:  I think we can delete this check entirely.  The bucket will never be nill, and routines should now check if their particular feature is active in the schema.  However, not all those routines have checks yet.
 		if b == nil && pv.operator != filters.OperatorWithinGeoRange {
 			// a nil bucket is ok for a WithinGeoRange filter, as this query is not
 			// served by the inverted index, but propagated to a secondary index in
