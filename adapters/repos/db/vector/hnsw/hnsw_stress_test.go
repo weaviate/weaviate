@@ -27,9 +27,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"golang.org/x/sync/errgroup"
 	"gopkg.in/yaml.v3"
 )
@@ -78,17 +76,7 @@ func TestHnswStress(t *testing.T) {
 	t.Run("Insert and search and maybe delete", func(t *testing.T) {
 		for n := 0; n < 1; n++ { // increase if you don't want to reread SIFT for every run
 			wg := sync.WaitGroup{}
-			index, err := New(Config{
-				RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-				ID:                    "unittest",
-				MakeCommitLoggerThunk: MakeNoopCommitLogger,
-				DistanceProvider:      distancer.NewCosineDistanceProvider(),
-				VectorForIDThunk:      idVector,
-			}, ent.UserConfig{
-				MaxConnections: 30,
-				EFConstruction: 60,
-			}, cyclemanager.NewNoop())
-			require.Nil(t, err)
+			index := createEmptyHnswIndexForTests(t, idVector)
 			for k := 0; k < parallelGoroutines; k++ {
 				wg.Add(2)
 				goroutineIndex := k * vectorsPerGoroutine
@@ -126,17 +114,7 @@ func TestHnswStress(t *testing.T) {
 	t.Run("Insert and delete", func(t *testing.T) {
 		for i := 0; i < 1; i++ { // increase if you don't want to reread SIFT for every run
 			wg := sync.WaitGroup{}
-			index, err := New(Config{
-				RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-				ID:                    "unittest",
-				MakeCommitLoggerThunk: MakeNoopCommitLogger,
-				DistanceProvider:      distancer.NewCosineDistanceProvider(),
-				VectorForIDThunk:      idVector,
-			}, ent.UserConfig{
-				MaxConnections: 30,
-				EFConstruction: 60,
-			}, cyclemanager.NewNoop())
-			require.Nil(t, err)
+			index := createEmptyHnswIndexForTests(t, idVector)
 			for k := 0; k < parallelGoroutines; k++ {
 				wg.Add(1)
 				goroutineIndex := k * vectorsPerGoroutine
@@ -162,22 +140,10 @@ func TestHnswStress(t *testing.T) {
 		for i := 0; i < 10; i++ { // increase if you don't want to reread SIFT for every run
 			wg := sync.WaitGroup{}
 
-			cycle := cyclemanager.NewMulti(cyclemanager.NewFixedIntervalTicker(time.Nanosecond))
-			cycle.Start()
-			index, err := New(Config{
-				RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-				ID:                    "unittest",
-				MakeCommitLoggerThunk: MakeNoopCommitLogger,
-				DistanceProvider:      distancer.NewCosineDistanceProvider(),
-				VectorForIDThunk:      idVector,
-			}, ent.UserConfig{
-				MaxConnections: 30,
-				EFConstruction: 60,
-			}, cycle)
-			require.Nil(t, err)
+			index := createEmptyHnswIndexForTests(t, idVector)
 			deleteIds := make([]uint64, 50)
 			for j := 0; j < len(deleteIds); j++ {
-				err = index.Add(uint64(j), vectors[j])
+				err := index.Add(uint64(j), vectors[j])
 				require.Nil(t, err)
 				deleteIds[j] = uint64(j)
 			}
@@ -212,19 +178,7 @@ func TestHnswStressRandom(t *testing.T) {
 	}
 	vectors := readSiftFloat(siftFile, 10_000)
 
-	cycle := cyclemanager.NewMulti(cyclemanager.NewFixedIntervalTicker(time.Nanosecond))
-	cycle.Start()
-	index, err := New(Config{
-		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-		ID:                    "unittest",
-		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewCosineDistanceProvider(),
-		VectorForIDThunk:      idVector,
-	}, ent.UserConfig{
-		MaxConnections: 30,
-		EFConstruction: 60,
-	}, cycle)
-	require.Nil(t, err)
+	index := createEmptyHnswIndexForTests(t, idVector)
 
 	var inserted struct {
 		sync.Mutex
@@ -450,37 +404,22 @@ func TestHnswStressNeurips23(t *testing.T) {
 
 					vectors := readBigAnnDataset(t, file, step.MaxPts)
 
-					cycle := cyclemanager.NewMulti(cyclemanager.NewFixedIntervalTicker(time.Nanosecond))
-					cycle.Start()
-					index, err := New(Config{
-						RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-						ID:                    "unittest",
-						MakeCommitLoggerThunk: MakeNoopCommitLogger,
-						DistanceProvider:      distancer.NewCosineDistanceProvider(),
-						VectorForIDThunk:      idVectorSize(len(vectors[0])),
-					}, ent.UserConfig{
-						MaxConnections: 30,
-						EFConstruction: 60,
-					}, cycle)
-					require.Nil(t, err)
+					index := createEmptyHnswIndexForTests(t, idVectorSize(len(vectors[0])))
 
 					var queryVectors [][]float32
 
 					for _, op := range step.Operations {
 						switch op.Operation {
 						case "insert":
-							for i := op.Start; i < op.End; i++ {
-								err = index.Add(uint64(i), vectors[i])
+							ssdhelpers.Concurrently(uint64(op.End-op.Start), func(i uint64) {
+								err := index.Add(uint64(op.Start+int(i)), vectors[op.Start+int(i)])
 								require.NoError(t, err)
-							}
+							})
 						case "delete":
-							ids := make([]uint64, 0, op.End-op.Start)
-							for i := op.Start; i < op.End; i++ {
-								ids = append(ids, uint64(i))
-							}
-
-							err = index.Delete(ids...)
-							require.NoError(t, err)
+							ssdhelpers.Concurrently(uint64(op.End-op.Start), func(i uint64) {
+								err := index.Delete(uint64(op.Start + int(i)))
+								require.NoError(t, err)
+							})
 						case "search":
 							if len(queryVectors) == 0 {
 								file, ok := queries[step.Dataset]
@@ -491,10 +430,10 @@ func TestHnswStressNeurips23(t *testing.T) {
 								queryVectors = readBigAnnDataset(t, file, 0)
 							}
 
-							for _, queryVector := range queryVectors {
-								_, _, err = index.SearchByVector(queryVector, 0, nil)
+							ssdhelpers.Concurrently(uint64(len(queryVectors)), func(i uint64) {
+								_, _, err := index.SearchByVector(queryVectors[i], 0, nil)
 								require.NoError(t, err)
-							}
+							})
 						default:
 							t.Errorf("Unknown operation %s", op.Operation)
 						}
