@@ -91,7 +91,9 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
 
-	searchParams, err := searchParamsFromProto(req)
+	schema := s.schemaManager.GetSchemaSkipAuth()
+
+	searchParams, err := searchParamsFromProto(req, schema)
 	if err != nil {
 		return nil, fmt.Errorf("extract params: %w", err)
 	}
@@ -322,7 +324,7 @@ func extractPropertiesAnswer(results map[string]interface{}, properties search.S
 	return &props, nil
 }
 
-func extractPropertiesRequest(reqProps *pb.Properties) []search.SelectProperty {
+func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, className string) []search.SelectProperty {
 	var props []search.SelectProperty
 	if reqProps == nil {
 		return props
@@ -337,13 +339,21 @@ func extractPropertiesRequest(reqProps *pb.Properties) []search.SelectProperty {
 	}
 
 	if reqProps.RefProperties != nil && len(reqProps.RefProperties) > 0 {
+		class := scheme.GetClass(schema.ClassName(className))
+
 		for _, prop := range reqProps.RefProperties {
+			schemaProp, err := schema.GetPropertyByName(class, prop.ReferenceProperty)
+			if err != nil {
+				return nil
+			}
+			linkedClass := schemaProp.DataType[0]
+
 			props = append(props, search.SelectProperty{
 				Name:        prop.ReferenceProperty,
 				IsPrimitive: false,
 				Refs: []search.SelectClass{{
-					ClassName:            prop.LinkedClass,
-					RefProperties:        extractPropertiesRequest(prop.LinkedProperties),
+					ClassName:            linkedClass,
+					RefProperties:        extractPropertiesRequest(prop.LinkedProperties, scheme, linkedClass),
 					AdditionalProperties: extractAdditionalPropsForRefs(prop.Metadata),
 				}},
 			})
@@ -366,11 +376,11 @@ func extractAdditionalPropsForRefs(prop *pb.AdditionalProperties) additional.Pro
 	}
 }
 
-func searchParamsFromProto(req *pb.SearchRequest) (dto.GetParams, error) {
+func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.GetParams, error) {
 	out := dto.GetParams{}
 	out.ClassName = req.ClassName
 
-	out.Properties = extractPropertiesRequest(req.Properties)
+	out.Properties = extractPropertiesRequest(req.Properties, scheme, req.ClassName)
 
 	if len(out.Properties) == 0 {
 		// This is a pure-ID query without any props. Indicate this to the DB, so

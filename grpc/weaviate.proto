@@ -64,7 +64,6 @@ message BM25SearchParams {
 
 
 message RefProperties {
-  string linked_class = 1;
   string reference_property = 2;
   Properties linked_properties = 3;
   AdditionalProperties metadata = 4;
