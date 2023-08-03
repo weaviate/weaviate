@@ -174,6 +174,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		MaxImportGoroutinesFactor: appState.ServerConfig.Config.MaxImportGoroutinesFactor,
 		TrackVectorDimensions:     appState.ServerConfig.Config.TrackVectorDimensions,
 		ResourceUsage:             appState.ServerConfig.Config.ResourceUsage,
+		AvoidMMap:                 appState.ServerConfig.Config.AvoidMmap,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics) // TODO client
 	if err != nil {
 		appState.Logger.

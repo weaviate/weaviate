@@ -12,12 +12,7 @@
 package lsmkv
 
 import (
-	"bufio"
 	"encoding/binary"
-	"fmt"
-	"io"
-	"log"
-	"os"
 )
 
 // bufferedKeyAndTombstoneExtractor is a tool to build up the count stats for
@@ -30,37 +25,30 @@ import (
 // key, the output buffer is reset. If the input segment it not at EOF yet,
 // this cycle repeats
 type bufferedKeyAndTombstoneExtractor struct {
-	rawSegment          []byte
 	outputBuffer        []byte
 	outputBufferOffset  uint64
 	offset              uint64
 	end                 uint64
-	segmentFile         io.ReaderAt
-	segmentSize         int64
+	rawSegment          []byte
 	secondaryIndexCount uint16
 	callback            keyAndTombstoneCallbackFn
 	callbackCycle       int
-	mmapedContents      bool
 }
 
 type keyAndTombstoneCallbackFn func(key []byte, tombstone bool)
 
 func newBufferedKeyAndTombstoneExtractor(rawSegment []byte, initialOffset uint64,
 	end uint64, outputBufferSize uint64, secondaryIndexCount uint16,
-	callback keyAndTombstoneCallbackFn, seg *os.File, segSize int64,
-	mmappedContents bool,
+	callback keyAndTombstoneCallbackFn,
 ) *bufferedKeyAndTombstoneExtractor {
 	return &bufferedKeyAndTombstoneExtractor{
 		rawSegment:          rawSegment,
-		segmentFile:         seg,
-		segmentSize:         segSize,
 		offset:              initialOffset,
 		end:                 end,
 		outputBuffer:        make([]byte, outputBufferSize),
 		outputBufferOffset:  0,
 		secondaryIndexCount: secondaryIndexCount,
 		callback:            callback,
-		mmapedContents:      mmappedContents,
 	}
 }
 
@@ -87,7 +75,7 @@ func (e *bufferedKeyAndTombstoneExtractor) do() {
 func (e *bufferedKeyAndTombstoneExtractor) readSingleEntry() bool {
 	// if we discover during an iteration that the next entry can't fit in the
 	// buffer anymore, we must return to the start of this iteration, so that
-	// this work can be picked up here once the buffer has been flushed
+	// the this work can be picked up here once the buffer has been flushed
 	offsetAtLoopStart := e.offset
 	outputOffsetAtLoopStart := e.outputBufferOffset
 
@@ -99,74 +87,38 @@ func (e *bufferedKeyAndTombstoneExtractor) readSingleEntry() bool {
 		return false
 	}
 
-	var r tombstoneReader
-	if e.mmapedContents {
-		r = newMmapReader(e.rawSegment, e.offset)
-	} else {
-		r = newPReader(e.segmentFile, e.offset, e.segmentSize)
-	}
-
-	buf, err := r.Read(1 + 8)
-	if err != nil {
-		log.Printf("failed to read 9 bytes: %v", err)
-		return false
-	}
-	e.outputBuffer[e.outputBufferOffset] = buf[0]
+	// copy tombstone value into output buffer
+	e.outputBuffer[e.outputBufferOffset] = e.rawSegment[e.offset]
 	e.offset++
 	e.outputBufferOffset++
 
-	valueLen := binary.LittleEndian.Uint64(buf[1:9])
+	valueLen := binary.LittleEndian.Uint64(e.rawSegment[e.offset : e.offset+8])
 	e.offset += 8
 
 	// we're not actually interested in the value, so we can skip it entirely
-	_, err = r.Read(valueLen)
-	if err != nil {
-		log.Printf("failed to read %d bytes: %v", valueLen, err)
-		return false
-	}
 	e.offset += valueLen
 
-	buf, err = r.Read(4)
-	if err != nil {
-		log.Printf("failed to read 4 bytes: %v", err)
-		return false
-	}
-	primaryKeyLen := binary.LittleEndian.Uint32(buf[:4])
+	primaryKeyLen := binary.LittleEndian.Uint32(e.rawSegment[e.offset : e.offset+4])
 	if !e.outputBufferCanFit(uint64(primaryKeyLen) + 4) {
 		e.offset = offsetAtLoopStart
 		e.outputBufferOffset = outputOffsetAtLoopStart
 		return false
 	}
 
-	copy(e.outputBuffer[e.outputBufferOffset:e.outputBufferOffset+4], buf[:4])
+	// copy the primary key len indicator into the output buffer
+	copy(e.outputBuffer[e.outputBufferOffset:e.outputBufferOffset+4],
+		e.rawSegment[e.offset:e.offset+4])
 	e.offset += 4
 	e.outputBufferOffset += 4
 
 	// then copy the key itself
-	buf, err = r.Read(uint64(primaryKeyLen))
-	if err != nil {
-		log.Printf("failed to read %d bytes: %v", primaryKeyLen, err)
-		return false
-	}
-	copy(e.outputBuffer[e.outputBufferOffset:e.outputBufferOffset+uint64(primaryKeyLen)], buf[:primaryKeyLen])
+	copy(e.outputBuffer[e.outputBufferOffset:e.outputBufferOffset+uint64(primaryKeyLen)], e.rawSegment[e.offset:e.offset+uint64(primaryKeyLen)])
 	e.offset += uint64(primaryKeyLen)
 	e.outputBufferOffset += uint64(primaryKeyLen)
 
 	for i := uint16(0); i < e.secondaryIndexCount; i++ {
-		buf, err = r.Read(4)
-		if err != nil {
-			log.Printf("failed to read 4 bytes: %v", err)
-			return false
-		}
-
-		secKeyLen := binary.LittleEndian.Uint32(buf[:4])
+		secKeyLen := binary.LittleEndian.Uint32(e.rawSegment[e.offset : e.offset+4])
 		e.offset += 4
-
-		_, err = r.Read(uint64(secKeyLen))
-		if err != nil {
-			log.Printf("failed to read %d bytes: %v", secKeyLen, err)
-			return false
-		}
 		e.offset += uint64(secKeyLen)
 	}
 
@@ -204,54 +156,4 @@ func (e *bufferedKeyAndTombstoneExtractor) flushAndCallback() {
 	e.outputBufferOffset = 0
 
 	e.callbackCycle++
-}
-
-type tombstoneReader interface {
-	Read(uint64) ([]byte, error)
-}
-
-type pReader struct {
-	buf []byte
-	r   *bufio.Reader
-	// the relative offset of the reader,
-	// not the absolute offset of the segment
-	offset uint64
-}
-
-func newPReader(r io.ReaderAt, offset uint64, n int64) *pReader {
-	return &pReader{
-		r: bufio.NewReader(io.NewSectionReader(r, int64(offset), n)),
-	}
-}
-
-func (r *pReader) Read(n uint64) ([]byte, error) {
-	if uint64(len(r.buf)) <= r.offset+n {
-		r.grow(n)
-	}
-	_, err := r.r.Read(r.buf[r.offset : r.offset+n])
-	if err != nil {
-		return nil, fmt.Errorf("pReader: read %d bytes: %w", n, err)
-	}
-
-	defer func() { r.offset += n }()
-	return r.buf[r.offset : r.offset+n], nil
-}
-
-func (r *pReader) grow(n uint64) {
-	extend := make([]byte, n)
-	r.buf = append(r.buf, extend...)
-}
-
-type mmapReader struct {
-	contents []byte
-	offset   uint64
-}
-
-func newMmapReader(contents []byte, offset uint64) *mmapReader {
-	return &mmapReader{contents: contents, offset: offset}
-}
-
-func (r *mmapReader) Read(n uint64) ([]byte, error) {
-	defer func() { r.offset += n }()
-	return r.contents[r.offset : r.offset+n], nil
 }

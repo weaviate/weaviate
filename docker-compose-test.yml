@@ -21,6 +21,7 @@ services:
       ENABLE_MODULES: text2vec-contextionary
       PROMETHEUS_MONITORING_ENABLED: 'true'
       PROMETHEUS_MONITORING_GROUP_CLASSES: 'true'
+      PERSISTENCE_LSM_ACCESS_STRATEGY: 'pread'
 
       # necessary for the metrics tests, some metrics only exist once segments
       # are flushed. If we wait to long the before run is completely in

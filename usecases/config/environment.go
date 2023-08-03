@@ -26,10 +26,6 @@ import (
 // provided by other means (e.g. a config file) and will only extend those that
 // are set
 func FromEnv(config *Config) error {
-	if enabled(os.Getenv("AVOID_MMAP")) {
-		config.AvoidMmap = true
-	}
-
 	if enabled(os.Getenv("PROMETHEUS_MONITORING_ENABLED")) {
 		config.Monitoring.Enabled = true
 		config.Monitoring.Tool = "prometheus"
@@ -138,6 +134,10 @@ func FromEnv(config *Config) error {
 		if ok {
 			config.Authorization.AdminList.ReadOnlyUsers = strings.Split(roUsersString, ",")
 		}
+	}
+
+	if os.Getenv("PERSISTENCE_LSM_ACCESS_STRATEGY") == "pread" {
+		config.AvoidMmap = true
 	}
 
 	clusterCfg, err := parseClusterConfig()
