@@ -51,16 +51,7 @@ func newPropValuePair(class *models.Class) propValuePair {
 
 func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 	if pv.operator.OnValue() {
-		var bucketName string
-		if pv.hasFilterableIndex {
-			bucketName = helpers.BucketFromPropNameLSM(pv.prop)
-		} else if pv.hasSearchableIndex {
-			bucketName = helpers.BucketSearchableFromPropNameLSM(pv.prop)
-		} else {
-			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
-		}
-
-		b := s.store.Bucket(bucketName)
+		
 
 		// TODO text_rbm_inverted_index find better way check whether prop len
 		if strings.HasSuffix(pv.prop, filters.InternalPropertyLength) &&
@@ -77,6 +68,17 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			!pv.Class.InvertedIndexConfig.IndexTimestamps {
 			return errors.Errorf("Timestamps must be indexed to be filterable! Add `IndexTimestamps: true` to the InvertedIndexConfig in %v", pv.Class.Class)
 		}
+
+		var bucketName string
+		if pv.hasFilterableIndex {
+			bucketName = helpers.BucketFromPropNameLSM(pv.prop)
+		} else if pv.hasSearchableIndex {
+			bucketName = helpers.BucketSearchableFromPropNameLSM(pv.prop)
+		} else {
+			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
+		}
+
+		b := s.store.Bucket(bucketName)
 
 		// TODO:  I think we can delete this check entirely.  The bucket will never be nill, and routines should now check if their particular feature is active in the schema.  However, not all those routines have checks yet.
 		if b == nil && pv.operator != filters.OperatorWithinGeoRange {
