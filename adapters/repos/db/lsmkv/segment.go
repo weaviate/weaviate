@@ -158,11 +158,17 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 }
 
 func (s *segment) close() error {
+	var munmapErr, fileCloseErr error
+
+	munmapErr = syscall.Munmap(s.contents)
 	if s.contentFile != nil {
-		if err := s.contentFile.Close(); err != nil {
-			return err
-		}
+		fileCloseErr = s.contentFile.Close()
 	}
+
+	if munmapErr != nil || fileCloseErr != nil {
+		return fmt.Errorf("close segment: munmap: %v, close contents file: %w", munmapErr, fileCloseErr)
+	}
+
 	return nil
 }
 
