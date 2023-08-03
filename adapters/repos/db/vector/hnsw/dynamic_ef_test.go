@@ -92,7 +92,7 @@ func Test_DynamicEF(t *testing.T) {
 					return nil, errors.Errorf("not implemented")
 				},
 			}, test.config,
-				cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 			require.Nil(t, err)
 
 			actualEF := index.searchTimeEF(test.limit)

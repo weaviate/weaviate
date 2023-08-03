@@ -59,7 +59,7 @@ type Config struct {
 
 func NewIndex(config Config,
 	commitLogMaintenanceCallbacks, tombstoneCleanupCallbacks,
-	compactionCallbacks, flushCallbacks cyclemanager.CycleCallbacks,
+	compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
 ) (*Index, error) {
 	vi, err := hnsw.New(hnsw.Config{
 		VectorForIDThunk:      config.CoordinatesForID.VectorForID,
@@ -98,7 +98,7 @@ func (i *Index) PostStartup() {
 	i.vectorIndex.PostStartup()
 }
 
-func makeCommitLoggerFromConfig(config Config, maintenanceCallbacks cyclemanager.CycleCallbacks,
+func makeCommitLoggerFromConfig(config Config, maintenanceCallbacks cyclemanager.CycleCallbackGroup,
 ) hnsw.MakeCommitLogger {
 	makeCL := hnsw.MakeNoopCommitLogger
 	if !config.DisablePersistence {

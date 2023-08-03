@@ -28,9 +28,9 @@ import (
 func TestPeriodicTombstoneRemoval(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	cleanupIntervalSeconds := 1
-	tombstoneCallbacks := cyclemanager.NewCycleCallbacks("tombstone", logger, 1)
-	tombstoneCleanupCycle := cyclemanager.New(
-		cyclemanager.NewFixedIntervalTicker(time.Duration(cleanupIntervalSeconds)*time.Second),
+	tombstoneCallbacks := cyclemanager.NewCallbackGroup("tombstone", logger, 1)
+	tombstoneCleanupCycle := cyclemanager.NewManager(
+		cyclemanager.NewFixedTicker(time.Duration(cleanupIntervalSeconds)*time.Second),
 		tombstoneCallbacks.CycleCallback)
 	tombstoneCleanupCycle.Start()
 
@@ -45,7 +45,7 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 		MaxConnections:         30,
 		EFConstruction:         128,
 	},
-		tombstoneCallbacks, cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+		tombstoneCallbacks, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	index.PostStartup()
 
 	require.Nil(t, err)

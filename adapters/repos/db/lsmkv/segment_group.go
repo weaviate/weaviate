@@ -58,7 +58,7 @@ type SegmentGroup struct {
 
 func newSegmentGroup(dir string, logger logrus.FieldLogger,
 	mapRequiresSorting bool, metrics *Metrics, strategy string,
-	monitorCount bool, compactionCallbacks cyclemanager.CycleCallbacks,
+	monitorCount bool, compactionCallbacks cyclemanager.CycleCallbackGroup,
 ) (*SegmentGroup, error) {
 	list, err := os.ReadDir(dir)
 	if err != nil {
@@ -132,7 +132,7 @@ func newSegmentGroup(dir string, logger logrus.FieldLogger,
 	}
 
 	id := "segmentgroup/compaction/" + out.dir
-	out.compactionCallbackCtrl = compactionCallbacks.Register(id, true, out.compactIfLevelsMatch)
+	out.compactionCallbackCtrl = compactionCallbacks.Register(id, out.compactIfLevelsMatch)
 
 	return out, nil
 }

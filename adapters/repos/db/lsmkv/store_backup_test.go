@@ -39,10 +39,10 @@ func TestStoreBackup_PauseCompaction(t *testing.T) {
 			t.Run(fmt.Sprintf("with %d buckets", len(buckets)), func(t *testing.T) {
 				dirName := t.TempDir()
 
-				classCompactionCallbacks := cyclemanager.NewCycleCallbacks("classCompaction", logger, 1)
-				classFlushCallbacks := cyclemanager.NewCycleCallbacksNoop()
+				shardCompactionCallbacks := cyclemanager.NewCallbackGroup("classCompaction", logger, 1)
+				shardFlushCallbacks := cyclemanager.NewCallbackGroupNoop()
 
-				store, err := New(dirName, dirName, logger, nil, classCompactionCallbacks, classFlushCallbacks)
+				store, err := New(dirName, dirName, logger, nil, shardCompactionCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
 				for _, bucket := range buckets {
@@ -74,10 +74,10 @@ func TestStoreBackup_PauseCompaction(t *testing.T) {
 			t.Run(fmt.Sprintf("with %d buckets", len(buckets)), func(t *testing.T) {
 				dirName := t.TempDir()
 
-				classCompactionCallbacks := cyclemanager.NewCycleCallbacks("classCompaction", logger, 1)
-				classFlushCallbacks := cyclemanager.NewCycleCallbacksNoop()
+				shardCompactionCallbacks := cyclemanager.NewCallbackGroup("classCompaction", logger, 1)
+				shardFlushCallbacks := cyclemanager.NewCallbackGroupNoop()
 
-				store, err := New(dirName, dirName, logger, nil, classCompactionCallbacks, classFlushCallbacks)
+				store, err := New(dirName, dirName, logger, nil, shardCompactionCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
 				for _, bucket := range buckets {
@@ -119,10 +119,10 @@ func TestStoreBackup_ResumeCompaction(t *testing.T) {
 			t.Run(fmt.Sprintf("with %d buckets", len(buckets)), func(t *testing.T) {
 				dirName := t.TempDir()
 
-				classCompactionCallbacks := cyclemanager.NewCycleCallbacks("classCompaction", logger, 1)
-				classFlushCallbacks := cyclemanager.NewCycleCallbacksNoop()
+				shardCompactionCallbacks := cyclemanager.NewCallbackGroup("classCompaction", logger, 1)
+				shardFlushCallbacks := cyclemanager.NewCallbackGroupNoop()
 
-				store, err := New(dirName, dirName, logger, nil, classCompactionCallbacks, classFlushCallbacks)
+				store, err := New(dirName, dirName, logger, nil, shardCompactionCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
 				for _, bucket := range buckets {
@@ -169,10 +169,10 @@ func TestStoreBackup_FlushMemtable(t *testing.T) {
 			t.Run(fmt.Sprintf("with %d buckets", len(buckets)), func(t *testing.T) {
 				dirName := t.TempDir()
 
-				classCompactionCallbacks := cyclemanager.NewCycleCallbacksNoop()
-				classFlushCallbacks := cyclemanager.NewCycleCallbacks("classFlush", logger, 1)
+				shardCompactionCallbacks := cyclemanager.NewCallbackGroupNoop()
+				shardFlushCallbacks := cyclemanager.NewCallbackGroup("classFlush", logger, 1)
 
-				store, err := New(dirName, dirName, logger, nil, classCompactionCallbacks, classFlushCallbacks)
+				store, err := New(dirName, dirName, logger, nil, shardCompactionCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
 				for _, bucket := range buckets {
@@ -204,10 +204,10 @@ func TestStoreBackup_FlushMemtable(t *testing.T) {
 			t.Run(fmt.Sprintf("with %d buckets", len(buckets)), func(t *testing.T) {
 				dirName := t.TempDir()
 
-				classCompactionCallbacks := cyclemanager.NewCycleCallbacksNoop()
-				classFlushCallbacks := cyclemanager.NewCycleCallbacks("classFlush", logger, 1)
+				shardCompactionCallbacks := cyclemanager.NewCallbackGroupNoop()
+				shardFlushCallbacks := cyclemanager.NewCallbackGroup("classFlush", logger, 1)
 
-				store, err := New(dirName, dirName, logger, nil, classCompactionCallbacks, classFlushCallbacks)
+				store, err := New(dirName, dirName, logger, nil, shardCompactionCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
 				err = store.CreateOrLoadBucket(ctx, "test_bucket")
@@ -256,10 +256,10 @@ func TestStoreBackup_FlushMemtable(t *testing.T) {
 			t.Run(fmt.Sprintf("with %d buckets", len(buckets)), func(t *testing.T) {
 				dirName := t.TempDir()
 
-				classCompactionCallbacks := cyclemanager.NewCycleCallbacksNoop()
-				classFlushCallbacks := cyclemanager.NewCycleCallbacks("classFlush", logger, 1)
+				shardCompactionCallbacks := cyclemanager.NewCallbackGroupNoop()
+				shardFlushCallbacks := cyclemanager.NewCallbackGroup("classFlush", logger, 1)
 
-				store, err := New(dirName, dirName, logger, nil, classCompactionCallbacks, classFlushCallbacks)
+				store, err := New(dirName, dirName, logger, nil, shardCompactionCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
 				for _, bucket := range buckets {

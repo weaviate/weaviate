@@ -62,7 +62,7 @@ func TestGraphIntegrity(t *testing.T) {
 			MaxConnections: maxNeighbors,
 			EFConstruction: efConstruction,
 		},
-			cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		require.Nil(t, err)
 		vectorIndex = index
 
