@@ -47,7 +47,7 @@ type cycleManager struct {
 	stopResults  []chan bool
 }
 
-func New(cycleTicker CycleTicker, cycleCallback CycleCallback) CycleManager {
+func NewManager(cycleTicker CycleTicker, cycleCallback CycleCallback) CycleManager {
 	return &cycleManager{
 		cycleCallback: cycleCallback,
 		cycleTicker:   cycleTicker,
@@ -195,19 +195,19 @@ func (c *cycleManager) handleStopRequest(stopped bool) {
 	c.stopResults = nil
 }
 
-func NewNoop() CycleManager {
-	return &noopCycleManager{running: false}
+func NewManagerNoop() CycleManager {
+	return &cycleManagerNoop{running: false}
 }
 
-type noopCycleManager struct {
+type cycleManagerNoop struct {
 	running bool
 }
 
-func (c *noopCycleManager) Start() {
+func (c *cycleManagerNoop) Start() {
 	c.running = true
 }
 
-func (c *noopCycleManager) Stop(ctx context.Context) chan bool {
+func (c *cycleManagerNoop) Stop(ctx context.Context) chan bool {
 	if !c.running {
 		return c.closedChan(true)
 	}
@@ -219,18 +219,18 @@ func (c *noopCycleManager) Stop(ctx context.Context) chan bool {
 	return c.closedChan(true)
 }
 
-func (c *noopCycleManager) StopAndWait(ctx context.Context) error {
+func (c *cycleManagerNoop) StopAndWait(ctx context.Context) error {
 	if <-c.Stop(ctx) {
 		return nil
 	}
 	return ctx.Err()
 }
 
-func (c *noopCycleManager) Running() bool {
+func (c *cycleManagerNoop) Running() bool {
 	return c.running
 }
 
-func (c *noopCycleManager) closedChan(val bool) chan bool {
+func (c *cycleManagerNoop) closedChan(val bool) chan bool {
 	ch := make(chan bool, 1)
 	ch <- val
 	close(ch)

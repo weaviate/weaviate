@@ -51,7 +51,7 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
 		},
-			cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		require.Nil(t, err)
 		vectorIndex = index
 	})

@@ -58,7 +58,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
 		},
-			cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -153,7 +153,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
 		},
-			cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -268,7 +268,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
 		},
-			cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		// makes sure index is build only with level 0. To be removed after fixing WEAVIATE-179
 		index.randFunc = func() float64 { return 0.1 }
 
@@ -388,7 +388,7 @@ func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32)
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
 	},
-		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
 	// makes sure index is build only with level 0. To be removed after fixing WEAVIATE-179
@@ -555,7 +555,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 		}, userConfig,
-			cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -693,7 +693,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 		}, userConfig,
-			cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -891,7 +891,7 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
 	},
-		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
 	// manually build the index
@@ -1036,7 +1036,7 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
 	},
-		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
 	// manually build the index
@@ -1113,7 +1113,7 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
 	},
-		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
 	objVec := []float32{0.1, 0.2}
@@ -1286,7 +1286,7 @@ func Test_DeleteEPVecInUnderlyingObjectStore(t *testing.T) {
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
 		},
-			cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		require.Nil(t, err)
 		vectorIndex = index
 

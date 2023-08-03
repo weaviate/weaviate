@@ -89,7 +89,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 					return container.Slice, nil
 				},
 			}, uc,
-			cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		init := time.Now()
 		ssdhelpers.Concurrently(uint64(vectors_size), func(id uint64) {
 			index.Add(id, vectors[id])
