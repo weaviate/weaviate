@@ -324,6 +324,29 @@ func extractPropertiesAnswer(results map[string]interface{}, properties search.S
 	return &props, nil
 }
 
+func getAllNonRefNonBlobProperties(scheme schema.Schema, className string) ([]search.SelectProperty, error) {
+	var props []search.SelectProperty
+	class := scheme.GetClass(schema.ClassName(className))
+
+	for _, prop := range class.Properties {
+		dt, err := schema.GetPropertyDataType(class, prop.Name)
+		if err != nil {
+			return []search.SelectProperty{}, err
+		}
+		if *dt == schema.DataTypeCRef || *dt == schema.DataTypeBlob {
+			continue
+		}
+
+		props = append(props, search.SelectProperty{
+			Name:        prop.Name,
+			IsPrimitive: true,
+		})
+
+	}
+
+	return props, nil
+}
+
 func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, className string) []search.SelectProperty {
 	var props []search.SelectProperty
 	if reqProps == nil {
@@ -380,14 +403,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	out := dto.GetParams{}
 	out.ClassName = req.ClassName
 
-	out.Properties = extractPropertiesRequest(req.Properties, scheme, req.ClassName)
 	out.Tenant = req.Tenant
-
-	if len(out.Properties) == 0 {
-		// This is a pure-ID query without any props. Indicate this to the DB, so
-		// it can optimize accordingly
-		out.AdditionalProperties.NoProps = true
-	}
 
 	explainScore := false
 	if req.AdditionalProperties != nil {
@@ -399,6 +415,28 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.AdditionalProperties.Score = req.AdditionalProperties.Score
 		out.AdditionalProperties.Certainty = req.AdditionalProperties.Certainty
 		explainScore = req.AdditionalProperties.ExplainScore
+	}
+
+	out.Properties = extractPropertiesRequest(req.Properties, scheme, req.ClassName)
+	if len(out.Properties) == 0 && req.AdditionalProperties != nil {
+		// This is a pure-ID query without any props. Indicate this to the DB, so
+		// it can optimize accordingly
+		out.AdditionalProperties.NoProps = true
+	} else if len(out.Properties) == 0 && req.AdditionalProperties == nil {
+		// no return values selected, return all properties and metadata. Ignore blobs and refs to not overload the
+		// response
+		out.AdditionalProperties.ID = true
+		out.AdditionalProperties.Vector = true
+		out.AdditionalProperties.Distance = true
+		out.AdditionalProperties.LastUpdateTimeUnix = true
+		out.AdditionalProperties.CreationTimeUnix = true
+		out.AdditionalProperties.Score = true
+		out.AdditionalProperties.Certainty = true
+		returnProps, err := getAllNonRefNonBlobProperties(scheme, req.ClassName)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
+		out.Properties = returnProps
 	}
 
 	if hs := req.HybridSearch; hs != nil {
