@@ -76,9 +76,13 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 
 	h.compressActionLock.Lock()
 	defer h.compressActionLock.Unlock()
-	ssdhelpers.Concurrently(uint64(len(cleanData)),
+	ssdhelpers.Concurrently(uint64(len(data)),
 		func(index uint64) {
-			encoded := h.pq.Encode(cleanData[index])
+			if data[index] == nil {
+				return
+			}
+
+			encoded := h.pq.Encode(data[index])
 			h.storeCompressedVector(index, encoded)
 			h.compressedVectorsCache.preload(index, encoded)
 		})
