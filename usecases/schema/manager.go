@@ -64,7 +64,7 @@ type SchemaGetter interface {
 
 	CopyShardingState(class string) *sharding.State
 	ShardOwner(class, shard string) (string, error)
-	TenantShard(class, tenant string) string
+	TenantShard(class, tenant string) (string, string)
 	ShardFromUUID(class string, uuid []byte) string
 }
 
@@ -98,6 +98,10 @@ type SchemaStore interface {
 
 	// NewShards creates new shards of an existing class
 	NewShards(ctx context.Context, class string, shards []KeyValuePair) error
+
+	// UpdateShards updates (replaces) shards of on existing class
+	// Error is returned if class or shard does not exist
+	UpdateShards(ctx context.Context, class string, shards []KeyValuePair) error
 
 	// DeleteShards deletes shards from a class
 	// If the class or a shard does not exist then nothing is done and a nil error is returned

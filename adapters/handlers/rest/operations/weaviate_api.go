@@ -204,6 +204,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaTenantsGetHandler: schema.TenantsGetHandlerFunc(func(params schema.TenantsGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantsGet has not yet been implemented")
 		}),
+		SchemaTenantsUpdateHandler: schema.TenantsUpdateHandlerFunc(func(params schema.TenantsUpdateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.TenantsUpdate has not yet been implemented")
+		}),
 		WeaviateRootHandler: WeaviateRootHandlerFunc(func(params WeaviateRootParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateRoot has not yet been implemented")
 		}),
@@ -357,6 +360,8 @@ type WeaviateAPI struct {
 	SchemaTenantsDeleteHandler schema.TenantsDeleteHandler
 	// SchemaTenantsGetHandler sets the operation handler for the tenants get operation
 	SchemaTenantsGetHandler schema.TenantsGetHandler
+	// SchemaTenantsUpdateHandler sets the operation handler for the tenants update operation
+	SchemaTenantsUpdateHandler schema.TenantsUpdateHandler
 	// WeaviateRootHandler sets the operation handler for the weaviate root operation
 	WeaviateRootHandler WeaviateRootHandler
 	// WeaviateWellknownLivenessHandler sets the operation handler for the weaviate wellknown liveness operation
@@ -584,6 +589,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaTenantsGetHandler == nil {
 		unregistered = append(unregistered, "schema.TenantsGetHandler")
+	}
+	if o.SchemaTenantsUpdateHandler == nil {
+		unregistered = append(unregistered, "schema.TenantsUpdateHandler")
 	}
 	if o.WeaviateRootHandler == nil {
 		unregistered = append(unregistered, "WeaviateRootHandler")
@@ -878,6 +886,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/schema/{className}/tenants"] = schema.NewTenantsGet(o.context, o.SchemaTenantsGetHandler)
+	if o.handlers["PUT"] == nil {
+		o.handlers["PUT"] = make(map[string]http.Handler)
+	}
+	o.handlers["PUT"]["/schema/{className}/tenants"] = schema.NewTenantsUpdate(o.context, o.SchemaTenantsUpdateHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

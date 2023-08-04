@@ -16,10 +16,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	uco "github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/migrate"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -38,13 +40,19 @@ func (m *Manager) AddTenants(ctx context.Context,
 	if err := m.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
 		return err
 	}
-	tenantNames := make([]string, len(tenants))
+
+	names := make([]string, len(tenants))
+	statuses := make([]string, len(tenants))
 	for i, tenant := range tenants {
-		tenantNames[i] = tenant.Name
+		names[i] = tenant.Name
+		statuses[i] = tenant.ActivityStatus
 	}
 
 	// validation
-	if err := validateTenants(tenantNames); err != nil {
+	if err := validateTenants(names); err != nil {
+		return err
+	}
+	if err := validateActivityStatuses(statuses, true); err != nil {
 		return err
 	}
 	cls := m.getClassByName(class)
@@ -56,18 +64,20 @@ func (m *Manager) AddTenants(ctx context.Context,
 	}
 
 	// create transaction payload
-	partitions, err := m.getPartitions(cls, tenantNames)
+	partitions, err := m.getPartitions(cls, names)
 	if err != nil {
 		return fmt.Errorf("get partitions from class %q: %w", class, err)
 	}
 	request := AddTenantsPayload{
 		Class:   class,
-		Tenants: make([]Tenant, len(partitions)),
+		Tenants: make([]TenantCreate, len(partitions)),
 	}
-	i := 0
-	for name, owners := range partitions {
-		request.Tenants[i] = Tenant{Name: name, Nodes: owners}
-		i++
+	for i, tenant := range tenants {
+		request.Tenants[i] = TenantCreate{
+			Name:   tenant.Name,
+			Nodes:  partitions[tenant.Name],
+			Status: schema.ActivityStatus(tenant.ActivityStatus),
+		}
 	}
 
 	// open cluster-wide transaction
@@ -122,6 +132,29 @@ func validateTenants(tenants []string) error {
 	return nil
 }
 
+func validateActivityStatuses(statuses []string, allowEmpty bool) error {
+	msgs := make([]string, 0, len(statuses))
+
+	for i, status := range statuses {
+		switch status {
+		case models.TenantActivityStatusHOT, models.TenantActivityStatusCOLD:
+			// ok
+		case models.TenantActivityStatusWARM, models.TenantActivityStatusFROZEN:
+			msgs = append(msgs, fmt.Sprintf("not yet supported activity status '%s' at index %d", status, i))
+		default:
+			if status == "" && allowEmpty {
+				continue
+			}
+			msgs = append(msgs, fmt.Sprintf("invalid activity status '%s' at index %d", status, i))
+		}
+	}
+
+	if len(msgs) != 0 {
+		return uco.NewErrInvalidUserInput(strings.Join(msgs, ", "))
+	}
+	return nil
+}
+
 func (m *Manager) onAddTenants(ctx context.Context, class *models.Class, request AddTenantsPayload,
 ) error {
 	st := sharding.State{
@@ -131,7 +164,7 @@ func (m *Manager) onAddTenants(ctx context.Context, class *models.Class, request
 	pairs := make([]KeyValuePair, 0, len(request.Tenants))
 	for _, p := range request.Tenants {
 		if _, ok := st.Physical[p.Name]; !ok {
-			p := st.AddPartition(p.Name, p.Nodes)
+			p := st.AddPartition(p.Name, p.Nodes, p.Status)
 			data, err := json.Marshal(p)
 			if err != nil {
 				return fmt.Errorf("cannot marshal partition %s: %w", p.Name, err)
@@ -139,14 +172,17 @@ func (m *Manager) onAddTenants(ctx context.Context, class *models.Class, request
 			pairs = append(pairs, KeyValuePair{p.Name, data})
 		}
 	}
-	shards := make([]string, 0, len(request.Tenants))
+	creates := make([]*migrate.CreateTenantPayload, 0, len(request.Tenants))
 	for _, p := range request.Tenants {
 		if st.IsLocalShard(p.Name) {
-			shards = append(shards, p.Name)
+			creates = append(creates, &migrate.CreateTenantPayload{
+				Name:   p.Name,
+				Status: p.Status,
+			})
 		}
 	}
 
-	commit, err := m.migrator.NewTenants(ctx, class, shards)
+	commit, err := m.migrator.NewTenants(ctx, class, creates)
 	if err != nil {
 		return fmt.Errorf("migrator.new_tenants: %w", err)
 	}
@@ -164,6 +200,139 @@ func (m *Manager) onAddTenants(ctx context.Context, class *models.Class, request
 		ost := m.schemaCache.ShardingState[request.Class]
 		for name, p := range st.Physical {
 			ost.Physical[name] = p
+		}
+	})
+
+	return nil
+}
+
+// UpdateTenants is used to set activity status of tenants of a class.
+//
+// Class must exist and has partitioning enabled
+func (m *Manager) UpdateTenants(ctx context.Context, principal *models.Principal,
+	class string, tenants []*models.Tenant,
+) error {
+	if err := m.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
+		return err
+	}
+
+	names := make([]string, len(tenants))
+	statuses := make([]string, len(tenants))
+	for i, tenant := range tenants {
+		names[i] = tenant.Name
+		statuses[i] = tenant.ActivityStatus
+	}
+
+	// validation
+	if err := validateTenants(names); err != nil {
+		return err
+	}
+	if err := validateActivityStatuses(statuses, false); err != nil {
+		return err
+	}
+	cls := m.getClassByName(class)
+	if cls == nil {
+		return fmt.Errorf("class %q: %w", class, ErrNotFound)
+	}
+	if !schema.MultiTenancyEnabled(cls) {
+		return fmt.Errorf("multi-tenancy is not enabled for class %q", class)
+	}
+
+	request := UpdateTenantsPayload{
+		Class:   class,
+		Tenants: make([]TenantUpdate, len(tenants)),
+	}
+	for i, tenant := range tenants {
+		request.Tenants[i] = TenantUpdate{Name: tenant.Name, Status: tenant.ActivityStatus}
+	}
+
+	// open cluster-wide transaction
+	tx, err := m.cluster.BeginTransaction(ctx, updateTenants,
+		request, DefaultTxTTL)
+	if err != nil {
+		return fmt.Errorf("open cluster-wide transaction: %w", err)
+	}
+
+	if err := m.cluster.CommitWriteTransaction(ctx, tx); err != nil {
+		m.logger.WithError(err).Errorf("not every node was able to commit")
+	}
+
+	return m.onUpdateTenants(ctx, cls, request) // actual update
+}
+
+func (m *Manager) onUpdateTenants(ctx context.Context, class *models.Class, request UpdateTenantsPayload,
+) error {
+	ssCopy := sharding.State{Physical: make(map[string]sharding.Physical)}
+	ssCopy.SetLocalName(m.clusterState.LocalName())
+
+	if err := m.schemaCache.RLockGuard(func() error {
+		ss, ok := m.schemaCache.ShardingState[class.Class]
+		if !ok {
+			return fmt.Errorf("sharding state for class '%s' not found", class.Class)
+		}
+		for _, tu := range request.Tenants {
+			physical, ok := ss.Physical[tu.Name]
+			if !ok {
+				return fmt.Errorf("tenant '%s' not found", tu.Name)
+			}
+			// skip if status does not change
+			if physical.ActivityStatus() == tu.Status {
+				continue
+			}
+			ssCopy.Physical[tu.Name] = physical.DeepCopy()
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	schemaUpdates := make([]KeyValuePair, 0, len(ssCopy.Physical))
+	migratorUpdates := make([]*migrate.UpdateTenantPayload, 0, len(ssCopy.Physical))
+	for _, tu := range request.Tenants {
+		physical, ok := ssCopy.Physical[tu.Name]
+		if !ok { // not present due to status not changed, skip
+			continue
+		}
+
+		physical.Status = tu.Status
+		ssCopy.Physical[tu.Name] = physical
+		data, err := json.Marshal(physical)
+		if err != nil {
+			return fmt.Errorf("cannot marshal shard %s: %w", tu.Name, err)
+		}
+		schemaUpdates = append(schemaUpdates, KeyValuePair{tu.Name, data})
+
+		// skip if not local
+		if ssCopy.IsLocalShard(tu.Name) {
+			migratorUpdates = append(migratorUpdates, &migrate.UpdateTenantPayload{
+				Name:   tu.Name,
+				Status: tu.Status,
+			})
+		}
+	}
+
+	commit, err := m.migrator.UpdateTenants(ctx, class, migratorUpdates)
+	if err != nil {
+		m.logger.WithField("action", "update_tenants").
+			WithField("class", request.Class).Error(err)
+	}
+
+	m.logger.
+		WithField("action", "schema.update_tenants").
+		WithField("n", len(request.Tenants)).Debugf("persist schema updates")
+
+	if err := m.repo.UpdateShards(ctx, class.Class, schemaUpdates); err != nil {
+		commit(false) // rollback update of tenants
+		return err
+	}
+	commit(true) // commit update of tenants
+
+	// update cache
+	m.schemaCache.LockGuard(func() {
+		if ss := m.schemaCache.ShardingState[request.Class]; ss != nil {
+			for name, physical := range ssCopy.Physical {
+				ss.Physical[name] = physical
+			}
 		}
 	})
 

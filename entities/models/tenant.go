@@ -18,9 +18,12 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
 // Tenant attributes representing a single tenant within weaviate
@@ -28,12 +31,73 @@ import (
 // swagger:model Tenant
 type Tenant struct {
 
+	// activity status of the tenant's shard. Optional for creating tenant (implicit `HOT`) and required for updating tenant. Allowed values are `HOT` - tenant is fully active, `WARM` - tenant is active, some restrictions are imposed (TBD; not supported yet), `COLD` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, `FROZEN` - as COLD, but files are stored on cloud storage (not supported yet)
+	// Enum: [HOT WARM COLD FROZEN]
+	ActivityStatus string `json:"activityStatus,omitempty"`
+
 	// name of the tenant
 	Name string `json:"name,omitempty"`
 }
 
 // Validate validates this tenant
 func (m *Tenant) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateActivityStatus(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+var tenantTypeActivityStatusPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["HOT","WARM","COLD","FROZEN"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		tenantTypeActivityStatusPropEnum = append(tenantTypeActivityStatusPropEnum, v)
+	}
+}
+
+const (
+
+	// TenantActivityStatusHOT captures enum value "HOT"
+	TenantActivityStatusHOT string = "HOT"
+
+	// TenantActivityStatusWARM captures enum value "WARM"
+	TenantActivityStatusWARM string = "WARM"
+
+	// TenantActivityStatusCOLD captures enum value "COLD"
+	TenantActivityStatusCOLD string = "COLD"
+
+	// TenantActivityStatusFROZEN captures enum value "FROZEN"
+	TenantActivityStatusFROZEN string = "FROZEN"
+)
+
+// prop value enum
+func (m *Tenant) validateActivityStatusEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, tenantTypeActivityStatusPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *Tenant) validateActivityStatus(formats strfmt.Registry) error {
+	if swag.IsZero(m.ActivityStatus) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateActivityStatusEnum("activityStatus", "body", m.ActivityStatus); err != nil {
+		return err
+	}
+
 	return nil
 }
 

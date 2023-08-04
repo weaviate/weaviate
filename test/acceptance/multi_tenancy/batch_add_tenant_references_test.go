@@ -338,7 +338,7 @@ func TestAddMultipleTenantsForBatch(t *testing.T) {
 
 	for _, class := range classes[1:] {
 		for k := range tenants {
-			helper.CreateTenants(t, class.Class, []*models.Tenant{{tenants[k]}})
+			helper.CreateTenants(t, class.Class, []*models.Tenant{{Name: tenants[k]}})
 		}
 	}
 
