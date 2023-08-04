@@ -23,6 +23,7 @@ message SearchRequest {
   uint32 offset = 9;
   uint32 autocut = 10;
   string after = 11;
+  string tenant = 12;
 }
 
 message AdditionalProperties {

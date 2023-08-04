@@ -381,6 +381,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	out.ClassName = req.ClassName
 
 	out.Properties = extractPropertiesRequest(req.Properties, scheme, req.ClassName)
+	out.Tenant = req.Tenant
 
 	if len(out.Properties) == 0 {
 		// This is a pure-ID query without any props. Indicate this to the DB, so
