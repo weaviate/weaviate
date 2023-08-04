@@ -34,7 +34,7 @@ func TestBucketProxyCreation(t *testing.T) {
 		t.Fatalf("Failed to create tracker: %v", err)
 	}
 
-	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewNoop(), cyclemanager.NewNoop())
+	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewManagerNoop(), cyclemanager.NewManagerNoop())
 	if err != nil {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestBucketProxyGetAndPut(t *testing.T) {
 		t.Fatalf("Failed to create tracker: %v", err)
 	}
 
-	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewNoop(), cyclemanager.NewNoop())
+	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewManagerNoop(), cyclemanager.NewManagerNoop())
 	if err != nil {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestBucketProxyGetNotFound(t *testing.T) {
 		t.Fatalf("Failed to create tracker: %v", err)
 	}
 
-	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewNoop(), cyclemanager.NewNoop())
+	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewManagerNoop(), cyclemanager.NewManagerNoop())
 	if err != nil {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestBucketProxyDelete(t *testing.T) {
 	propName := "testPropertyName"
 	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids2.json")
 
-	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewNoop(), cyclemanager.NewNoop())
+	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewManagerNoop(), cyclemanager.NewManagerNoop())
 	if err != nil {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestBucketProxyMapSetAndGet(t *testing.T) {
 	propName := "testPropertyName"
 	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids3.json")
 
-	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewNoop(), cyclemanager.NewNoop(), WithStrategy(StrategyMapCollection))
+	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewManagerNoop(), cyclemanager.NewManagerNoop(), WithStrategy(StrategyMapCollection))
 	if err != nil {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestBucketProxyCount(t *testing.T) {
 	propName := "testPropertyName"
 	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids4.json")
 
-	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewNoop(), cyclemanager.NewNoop())
+	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewManagerNoop(), cyclemanager.NewManagerNoop())
 	if err != nil {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
