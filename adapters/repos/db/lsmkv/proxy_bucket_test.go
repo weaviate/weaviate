@@ -34,7 +34,7 @@ func TestBucketProxyCreation(t *testing.T) {
 		t.Fatalf("Failed to create tracker: %v", err)
 	}
 
-	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),)
+	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestBucketProxyGetAndPut(t *testing.T) {
 		t.Fatalf("Failed to create tracker: %v", err)
 	}
 
-	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),)
+	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestBucketProxyDelete(t *testing.T) {
 	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids2.json")
 
 	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-	WithStrategy(StrategyReplace))
+		WithStrategy(StrategyReplace))
 	if err != nil {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
