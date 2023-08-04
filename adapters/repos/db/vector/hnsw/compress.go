@@ -101,3 +101,11 @@ func (h *hnsw) storeCompressedVector(index uint64, vector []byte) {
 	binary.LittleEndian.PutUint64(Id, index)
 	h.compressedStore.Bucket(helpers.CompressedObjectsBucketLSM).Put(Id, vector)
 }
+
+func (h *hnsw) getCompressedVectorForID(ctx context.Context, id uint64) ([]byte, error) {
+	vec, err := h.vectorForID(ctx, id)
+	if err != nil {
+		return nil, errors.Wrap(err, "Getting vector for id")
+	}
+	return h.pq.Encode(vec), nil
+}

@@ -189,9 +189,10 @@ type BufferedLinksLogger interface {
 type MakeCommitLogger func() (CommitLogger, error)
 
 type (
-	VectorForID      func(ctx context.Context, id uint64) ([]float32, error)
-	TempVectorForID  func(ctx context.Context, id uint64, container *VectorSlice) ([]float32, error)
-	MultiVectorForID func(ctx context.Context, ids []uint64) ([][]float32, []error)
+	VectorForID           func(ctx context.Context, id uint64) ([]float32, error)
+	TempVectorForID       func(ctx context.Context, id uint64, container *VectorSlice) ([]float32, error)
+	MultiVectorForID      func(ctx context.Context, ids []uint64) ([][]float32, []error)
+	CompressedVectorForID func(ctx context.Context, id uint64) ([]byte, error)
 )
 
 // New creates a new HNSW index, the commit logger is provided through a thunk
@@ -222,9 +223,6 @@ func New(cfg Config, uc ent.UserConfig,
 		cfg.Logger, normalizeOnRead, defaultDeletionInterval)
 
 	var compressedVectorsCache *compressedShardedLockCache
-	if uc.PQ.Enabled {
-		compressedVectorsCache = newCompressedShardedLockCache(uc.VectorCacheMaxObjects, cfg.Logger)
-	}
 
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	index := &hnsw{
@@ -271,6 +269,10 @@ func New(cfg Config, uc ent.UserConfig,
 
 		classCompactionCallbacks: classCompactionCallbacks,
 		classFlushCallbacks:      classFlushCallbacks,
+	}
+
+	if uc.PQ.Enabled {
+		index.compressedVectorsCache = newCompressedShardedLockCache(index.getCompressedVectorForID, uc.VectorCacheMaxObjects, cfg.Logger)
 	}
 
 	// TODO common_cycle_manager move to poststartup?

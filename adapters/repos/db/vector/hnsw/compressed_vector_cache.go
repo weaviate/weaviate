@@ -13,7 +13,6 @@ package hnsw
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,6 +27,7 @@ type compressedShardedLockCache struct {
 	maxSize      int64
 	count        int64
 	cancel       chan bool
+	vectorForID  CompressedVectorForID
 	logger       logrus.FieldLogger
 	//nolint:unused
 	dims int32
@@ -39,13 +39,14 @@ type compressedShardedLockCache struct {
 	maintenanceLock sync.Mutex
 }
 
-func newCompressedShardedLockCache(maxSize int, logger logrus.FieldLogger) *compressedShardedLockCache {
+func newCompressedShardedLockCache(vecForID CompressedVectorForID, maxSize int, logger logrus.FieldLogger) *compressedShardedLockCache {
 	vc := &compressedShardedLockCache{
 		cache:           make([][]byte, initialSize),
 		count:           0,
 		maxSize:         int64(maxSize),
 		cancel:          make(chan bool),
 		logger:          logger,
+		vectorForID:     vecForID,
 		shardedLocks:    make([]sync.RWMutex, shardFactor),
 		maintenanceLock: sync.Mutex{},
 	}
@@ -90,7 +91,21 @@ func (c *compressedShardedLockCache) delete(ctx context.Context, id uint64) {
 
 //nolint:unused
 func (c *compressedShardedLockCache) handleCacheMiss(ctx context.Context, id uint64) ([]byte, error) {
-	return nil, errors.New("Not implemented")
+	vec, err := c.vectorForID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	atomic.AddInt64(&c.count, 1)
+	c.trackDimensionsOnce.Do(func() {
+		atomic.StoreInt32(&c.dims, int32(len(vec)))
+	})
+
+	c.shardedLocks[id%shardFactor].Lock()
+	c.cache[id] = vec
+	c.shardedLocks[id%shardFactor].Unlock()
+
+	return vec, nil
 }
 
 //nolint:unused
