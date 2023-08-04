@@ -43,12 +43,7 @@ func (s *segmentCursorCollection) seek(key []byte) ([]byte, []value, error) {
 		return nil, nil, err
 	}
 
-	r, err := s.segment.newNodeReader(nodeOffset{node.Start, node.End})
-	if err != nil {
-		return nil, nil, err
-	}
-
-	parsed, err := ParseCollectionNode(r)
+	parsed, err := s.parseCollectionNode(nodeOffset{node.Start, node.End})
 	// make sure to set the next offset before checking the error. The error
 	// could be 'entities.Deleted' which would require that the offset is still advanced
 	// for the next cycle
@@ -65,12 +60,7 @@ func (s *segmentCursorCollection) next() ([]byte, []value, error) {
 		return nil, nil, lsmkv.NotFound
 	}
 
-	r, err := s.segment.newNodeReader(nodeOffset{start: s.nextOffset})
-	if err != nil {
-		return nil, nil, err
-	}
-
-	parsed, err := ParseCollectionNode(r)
+	parsed, err := s.parseCollectionNode(nodeOffset{start: s.nextOffset})
 	// make sure to set the next offset before checking the error. The error
 	// could be 'entities.Deleted' which would require that the offset is still advanced
 	// for the next cycle
@@ -85,12 +75,7 @@ func (s *segmentCursorCollection) next() ([]byte, []value, error) {
 func (s *segmentCursorCollection) first() ([]byte, []value, error) {
 	s.nextOffset = s.segment.dataStartPos
 
-	r, err := s.segment.newNodeReader(nodeOffset{start: s.nextOffset})
-	if err != nil {
-		return nil, nil, err
-	}
-
-	parsed, err := ParseCollectionNode(r)
+	parsed, err := s.parseCollectionNode(nodeOffset{start: s.nextOffset})
 	// make sure to set the next offset before checking the error. The error
 	// could be 'entities.Deleted' which would require that the offset is still advanced
 	// for the next cycle
@@ -100,4 +85,13 @@ func (s *segmentCursorCollection) first() ([]byte, []value, error) {
 	}
 
 	return parsed.primaryKey, parsed.values, nil
+}
+
+func (s *segmentCursorCollection) parseCollectionNode(offset nodeOffset) (segmentCollectionNode, error) {
+	r, err := s.segment.newNodeReader(offset)
+	if err != nil {
+		return segmentCollectionNode{}, err
+	}
+
+	return ParseCollectionNode(r)
 }
