@@ -499,3 +499,44 @@ func TestStorageObjectMarshallingWithGroup(t *testing.T) {
 		assert.Equal(t, "value2", group.Hits[1]["property1"])
 	})
 }
+
+func TestStorage50kVectorObjectMarshalling(t *testing.T) {
+	generateVector := func(dims uint16) []float32 {
+		vector := make([]float32, dims)
+		for i := range vector {
+			vector[i] = 0.1
+		}
+		return vector
+	}
+	// 65535 is max uint16 number
+	vector := generateVector(65535)
+	before := FromObject(
+		&models.Object{
+			Class:            "MyFavoriteClass",
+			CreationTimeUnix: 123456,
+			ID:               strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Properties: map[string]interface{}{
+				"name": "myName",
+			},
+		},
+		vector,
+	)
+	before.SetDocID(7)
+
+	asBinary, err := before.MarshalBinary()
+	require.Nil(t, err)
+
+	after, err := FromBinary(asBinary)
+	require.Nil(t, err)
+
+	t.Run("compare", func(t *testing.T) {
+		assert.Equal(t, before, after)
+	})
+
+	t.Run("try to extract a property", func(t *testing.T) {
+		prop, ok, err := ParseAndExtractTextProp(asBinary, "name")
+		require.Nil(t, err)
+		require.True(t, ok)
+		assert.Equal(t, []string{"myName"}, prop)
+	})
+}
