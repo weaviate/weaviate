@@ -152,7 +152,7 @@ func (r *store) Close() {
 // migrate from old to new schema
 // It will back up the old schema file if it exists
 func (r *store) migrate(filePath string, from, to int) (err error) {
-	r.log.Infoln("schema migration from v%d to v%d process has started", to, from)
+	r.log.Infof("schema migration from v%d to v%d process has started", from, to)
 	defer func() {
 		if err == nil {
 			r.log.Infof("successfully completed schema migration from v%d to v%d", from, to)
