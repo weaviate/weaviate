@@ -133,7 +133,7 @@ func TestHnswPqNilVectors(t *testing.T) {
 			return vectors[int(id)], nil
 		},
 		TempVectorForIDThunk: hnsw.TempVectorForIDThunk(vectors),
-	}, userConfig, cyclemanager.NewNoop())
+	}, userConfig, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 
 	require.NoError(t, err)
 
