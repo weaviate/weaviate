@@ -24,13 +24,40 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-func TestMapCollectionStrategy_InsertAndAppend(t *testing.T) {
+func TestMapCollectionStrategy(t *testing.T) {
+	ctx := testCtx()
+	tests := bucketIntegrationTests{
+		{
+			name: "mapInsertAndAppend",
+			f:    mapInsertAndAppend,
+			opts: []BucketOption{
+				WithStrategy(StrategyMapCollection),
+			},
+		},
+		{
+			name: "mapInsertAndDelete",
+			f:    mapInsertAndDelete,
+			opts: []BucketOption{
+				WithStrategy(StrategyMapCollection),
+			},
+		},
+		{
+			name: "mapCursors",
+			f:    mapCursors,
+			opts: []BucketOption{
+				WithStrategy(StrategyMapCollection),
+			},
+		},
+	}
+	tests.run(ctx, t)
+}
+
+func mapInsertAndAppend(ctx context.Context, t *testing.T, opts []BucketOption) {
 	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyMapCollection))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -119,9 +146,8 @@ func TestMapCollectionStrategy_InsertAndAppend(t *testing.T) {
 	})
 
 	t.Run("with a single flush between updates", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyMapCollection))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -214,9 +240,8 @@ func TestMapCollectionStrategy_InsertAndAppend(t *testing.T) {
 	})
 
 	t.Run("with flushes after initial and update", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyMapCollection))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -312,9 +337,8 @@ func TestMapCollectionStrategy_InsertAndAppend(t *testing.T) {
 	})
 
 	t.Run("update in memtable, then do an orderly shutdown, and re-init", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyMapCollection))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -375,9 +399,8 @@ func TestMapCollectionStrategy_InsertAndAppend(t *testing.T) {
 		})
 
 		t.Run("init another bucket on the same files", func(t *testing.T) {
-			b2, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(StrategyMapCollection))
+			b2, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 			require.Nil(t, err)
 
 			row1Updated := []MapPair{
@@ -414,13 +437,12 @@ func TestMapCollectionStrategy_InsertAndAppend(t *testing.T) {
 	})
 }
 
-func TestMapCollectionStrategy_InsertAndDelete(t *testing.T) {
+func mapInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOption) {
 	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyMapCollection))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -513,9 +535,8 @@ func TestMapCollectionStrategy_InsertAndDelete(t *testing.T) {
 	})
 
 	t.Run("with flushes between updates", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyMapCollection))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -616,9 +637,8 @@ func TestMapCollectionStrategy_InsertAndDelete(t *testing.T) {
 	})
 
 	t.Run("with memtable only, then an orderly shutdown and restart", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyMapCollection))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -683,9 +703,8 @@ func TestMapCollectionStrategy_InsertAndDelete(t *testing.T) {
 		})
 
 		t.Run("init another bucket on the same files", func(t *testing.T) {
-			b2, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(StrategyMapCollection))
+			b2, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 			require.Nil(t, err)
 
 			row1Updated := []MapPair{
@@ -720,14 +739,13 @@ func TestMapCollectionStrategy_InsertAndDelete(t *testing.T) {
 	})
 }
 
-func TestMapCollectionStrategy_Cursors(t *testing.T) {
+func mapCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 	t.Run("memtable-only", func(t *testing.T) {
 		r := getRandomSeed()
 		dirName := t.TempDir()
 
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyMapCollection))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -912,9 +930,8 @@ func TestMapCollectionStrategy_Cursors(t *testing.T) {
 		r := getRandomSeed()
 		dirName := t.TempDir()
 
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyMapCollection))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
