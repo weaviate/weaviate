@@ -116,10 +116,17 @@ func (h *hnsw) restoreFromDisk() error {
 		h.metrics.TrackStartupIndividual(beforeIndividual)
 	}
 
+	h.Lock()
 	h.nodes = state.Nodes
+	h.Unlock()
+
 	h.currentMaximumLayer = int(state.Level)
 	h.entryPointID = state.Entrypoint
+
+	h.tombstoneLock.Lock()
 	h.tombstones = state.Tombstones
+	h.tombstoneLock.Unlock()
+
 	h.compressed.Store(state.Compressed)
 
 	if state.Compressed {
@@ -138,6 +145,9 @@ func (h *hnsw) restoreFromDisk() error {
 		if err != nil {
 			return errors.Wrap(err, "Restoring PQ data.")
 		}
+
+		// make sure the compressed cache fits the current size
+		h.compressedVectorsCache.grow(uint64(len(h.nodes)))
 	} else {
 		// make sure the cache fits the current size
 		h.cache.grow(uint64(len(h.nodes)))
