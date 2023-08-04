@@ -599,8 +599,8 @@ func (h *hnsw) isEmpty() bool {
 }
 
 func (h *hnsw) isEmptyUnsecured() bool {
-	h.shardedNodeLocks[h.entryPointID%NodeLockStripe].Lock()
-	defer h.shardedNodeLocks[h.entryPointID%NodeLockStripe].Unlock()
+	h.shardedNodeLocks[h.entryPointID%NodeLockStripe].RLock()
+	defer h.shardedNodeLocks[h.entryPointID%NodeLockStripe].RUnlock()
 	entryPoint := h.nodes[h.entryPointID]
 	return entryPoint == nil
 }

@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"math/rand"
 	"os"
@@ -169,140 +170,136 @@ func TestHnswStress(t *testing.T) {
 
 		}
 	})
-}
 
-func TestHnswStressRandom(t *testing.T) {
-	siftFile := "datasets/siftsmall/siftsmall_base.fvecs"
-	if _, err := os.Stat(siftFile); err != nil {
-		t.Skip("Sift data needs to be present")
-	}
-	vectors := readSiftFloat(siftFile, 10_000)
+	t.Run("Random operations", func(t *testing.T) {
+		for i := 0; i < 1; i++ { // increase if you don't want to reread SIFT for every run
+			index := createEmptyHnswIndexForTests(t, idVector)
 
-	index := createEmptyHnswIndexForTests(t, idVector)
-
-	var inserted struct {
-		sync.Mutex
-		ids []uint64
-		set map[uint64]struct{}
-	}
-	inserted.set = make(map[uint64]struct{})
-
-	claimUnusedID := func() (uint64, bool) {
-		inserted.Lock()
-		defer inserted.Unlock()
-
-		if len(inserted.ids) == len(vectors) {
-			return 0, false
-		}
-
-		try := 0
-		for {
-			id := uint64(rand.Intn(len(vectors)))
-			if _, ok := inserted.set[id]; !ok {
-				inserted.ids = append(inserted.ids, id)
-				inserted.set[id] = struct{}{}
-				return id, true
+			var inserted struct {
+				sync.Mutex
+				ids []uint64
+				set map[uint64]struct{}
 			}
+			inserted.set = make(map[uint64]struct{})
 
-			try++
-			if try > 50 {
-				fmt.Printf("[WARN] tried %d times, retrying...\n", try)
-			}
-		}
-	}
+			claimUnusedID := func() (uint64, bool) {
+				inserted.Lock()
+				defer inserted.Unlock()
 
-	getInsertedIDs := func(n int) []uint64 {
-		inserted.Lock()
-		defer inserted.Unlock()
+				if len(inserted.ids) == len(vectors) {
+					return 0, false
+				}
 
-		if len(inserted.ids) < n {
-			return nil
-		}
+				try := 0
+				for {
+					id := uint64(rand.Intn(len(vectors)))
+					if _, ok := inserted.set[id]; !ok {
+						inserted.ids = append(inserted.ids, id)
+						inserted.set[id] = struct{}{}
+						return id, true
+					}
 
-		if n > len(inserted.ids) {
-			n = len(inserted.ids)
-		}
-
-		ids := make([]uint64, n)
-		copy(ids, inserted.ids[:n])
-
-		return ids
-	}
-
-	removeInsertedIDs := func(ids ...uint64) {
-		inserted.Lock()
-		defer inserted.Unlock()
-
-		for _, id := range ids {
-			delete(inserted.set, id)
-			for i, insertedID := range inserted.ids {
-				if insertedID == id {
-					inserted.ids = append(inserted.ids[:i], inserted.ids[i+1:]...)
-					break
+					try++
+					if try > 50 {
+						log.Printf("[WARN] tried %d times, retrying...\n", try)
+					}
 				}
 			}
-		}
-	}
 
-	ops := []func(){
-		// Add
-		func() {
-			id, ok := claimUnusedID()
-			if !ok {
-				return
+			getInsertedIDs := func(n int) []uint64 {
+				inserted.Lock()
+				defer inserted.Unlock()
+
+				if len(inserted.ids) < n {
+					return nil
+				}
+
+				if n > len(inserted.ids) {
+					n = len(inserted.ids)
+				}
+
+				ids := make([]uint64, n)
+				copy(ids, inserted.ids[:n])
+
+				return ids
 			}
 
-			err := index.Add(id, vectors[id])
-			require.Nil(t, err)
-		},
-		// Delete
-		func() {
-			// delete 5% of the time
-			if rand.Int31()%20 == 0 {
-				return
-			}
+			removeInsertedIDs := func(ids ...uint64) {
+				inserted.Lock()
+				defer inserted.Unlock()
 
-			ids := getInsertedIDs(rand.Intn(100) + 1)
-
-			err := index.Delete(ids...)
-			require.Nil(t, err)
-
-			removeInsertedIDs(ids...)
-		},
-		// Search
-		func() {
-			// search 50% of the time
-			if rand.Int31()%2 == 0 {
-				return
-			}
-
-			id := rand.Intn(len(vectors))
-
-			_, _, err := index.SearchByVector(vectors[id], 0, nil)
-			require.Nil(t, err)
-		},
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
-	defer cancel()
-
-	g, ctx := errgroup.WithContext(ctx)
-
-	// run parallelGoroutines goroutines
-	for i := 0; i < parallelGoroutines; i++ {
-		g.Go(func() error {
-			for {
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				default:
-					ops[rand.Intn(len(ops))]()
+				for _, id := range ids {
+					delete(inserted.set, id)
+					for i, insertedID := range inserted.ids {
+						if insertedID == id {
+							inserted.ids = append(inserted.ids[:i], inserted.ids[i+1:]...)
+							break
+						}
+					}
 				}
 			}
-		})
-	}
 
-	g.Wait()
+			ops := []func(){
+				// Add
+				func() {
+					id, ok := claimUnusedID()
+					if !ok {
+						return
+					}
+
+					err := index.Add(id, vectors[id])
+					require.Nil(t, err)
+				},
+				// Delete
+				func() {
+					// delete 5% of the time
+					if rand.Int31()%20 == 0 {
+						return
+					}
+
+					ids := getInsertedIDs(rand.Intn(100) + 1)
+
+					err := index.Delete(ids...)
+					require.Nil(t, err)
+
+					removeInsertedIDs(ids...)
+				},
+				// Search
+				func() {
+					// search 50% of the time
+					if rand.Int31()%2 == 0 {
+						return
+					}
+
+					id := rand.Intn(len(vectors))
+
+					_, _, err := index.SearchByVector(vectors[id], 0, nil)
+					require.Nil(t, err)
+				},
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
+			defer cancel()
+
+			g, ctx := errgroup.WithContext(ctx)
+
+			// run parallelGoroutines goroutines
+			for i := 0; i < parallelGoroutines; i++ {
+				g.Go(func() error {
+					for {
+						select {
+						case <-ctx.Done():
+							return ctx.Err()
+						default:
+							ops[rand.Intn(len(ops))]()
+						}
+					}
+				})
+			}
+
+			g.Wait()
+		}
+	})
 }
 
 func readSiftFloat(file string, maxObjects int) [][]float32 {

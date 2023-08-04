@@ -215,9 +215,9 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			break
 		}
 		h.RLock()
-		h.shardedNodeLocks[candidate.ID%NodeLockStripe].Lock()
+		h.shardedNodeLocks[candidate.ID%NodeLockStripe].RLock()
 		candidateNode := h.nodes[candidate.ID]
-		h.shardedNodeLocks[candidate.ID%NodeLockStripe].Unlock()
+		h.shardedNodeLocks[candidate.ID%NodeLockStripe].RUnlock()
 		h.RUnlock()
 		if candidateNode == nil {
 			// could have been a node that already had a tombstone attached and was
