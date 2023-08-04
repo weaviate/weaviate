@@ -366,11 +366,36 @@ func (n *neighborFinderConnectorWithFilters) doAtLevel(level int) error {
 	eps.Insert(n.entryPointID, n.entryPointDist)
 
 	// This is where you might want to have some mix of search by distance and with filters
+
+	/*
+		distance_candidates := k
+		filter_candidates := n.graph.efConstruction - k
+
+		// results := h.pools.pqResults.GetMax(ef) // need to see how to join these
+
+		distance_results, err := n.graph.searchLayerByVector(n.nodeVec, eps, n.graph.efConstruction)
+	*/
+
 	results, err := n.graph.searchLayerByVector(n.nodeVec, eps, n.graph.efConstruction,
 		level, nil)
 	if err != nil {
 		return errors.Wrapf(err, "search layer at level %d", level)
 	}
+	/*
+		distanceResults, err := n.graph.searchLayerByVector(n.nodeVec, eps, n.graph.efConstruction,
+			level, nil)
+		if err != nil {
+			return errors.Wrapf(err, "search layer at level %d", level)
+		}
+
+		filterResults, err := n.graph.searchLayerByVectorWithFilters(n.nodeVec, eps, n.graph.efConstruction,
+			level, nil)
+		if err != nil {
+			return errors.Wrapf(err, "search layer at level %d", level)
+		}
+	*/
+
+	// merge them here
 
 	n.graph.insertMetrics.findAndConnectSearch(before)
 	before = time.Now()
