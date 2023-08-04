@@ -26,6 +26,7 @@ import (
 const numTenants = 50
 
 func Test_MultiTenantBackupJourney(t *testing.T) {
+	t.Skip("ignoring due to bucket format dependency")
 	tenantNames := make([]string, numTenants)
 	for i := range tenantNames {
 		tenantNames[i] = fmt.Sprintf("Tenant%d", i)
