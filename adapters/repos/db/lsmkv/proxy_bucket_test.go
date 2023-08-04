@@ -126,6 +126,10 @@ func TestBucketProxyDelete(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
 	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids2.json")
+	if err != nil {
+		t.Fatalf("Failed to create tracker: %v", err)
+	}
+	
 
 	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace))
@@ -163,6 +167,9 @@ func TestBucketProxyMapSetAndGet(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
 	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids3.json")
+	if err != nil {
+		t.Fatalf("Failed to create tracker: %v", err)
+	}
 
 	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithStrategy(StrategyMapCollection))
 	if err != nil {
@@ -201,6 +208,9 @@ func TestBucketProxyCount(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
 	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids4.json")
+	if err != nil {
+		t.Fatalf("Failed to create tracker: %v", err)
+	}
 
 	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
