@@ -129,7 +129,6 @@ func TestBucketProxyDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create tracker: %v", err)
 	}
-	
 
 	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace))
