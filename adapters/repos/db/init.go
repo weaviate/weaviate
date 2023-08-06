@@ -50,7 +50,7 @@ func (db *DB) init(ctx context.Context) error {
 					},
 				}
 			}
-			if err := replica.ValidateConfig(class); err != nil {
+			if err := replica.ValidateConfig(class, db.config.Replication); err != nil {
 				return fmt.Errorf("replication config: %w", err)
 			}
 
