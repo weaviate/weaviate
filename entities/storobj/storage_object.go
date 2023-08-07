@@ -155,7 +155,7 @@ func FromBinaryOptional(data []byte,
 		ko.Vector = make([]float32, vectorLength)
 		ec.AddWrap(binary.Read(r, le, &ko.Vector), "read vector")
 	} else {
-		io.CopyN(io.Discard, r, int64(vectorLength*4))
+		io.CopyN(io.Discard, r, int64(vectorLength)*4)
 	}
 	ec.AddWrap(binary.Read(r, le, &classNameLength), "class name length")
 	className := make([]byte, classNameLength)
