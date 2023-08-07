@@ -42,11 +42,11 @@ type propValuePair struct {
 	Class              *models.Class // The schema
 }
 
-func newPropValuePair(class *models.Class) propValuePair {
+func newPropValuePair(class *models.Class) (*propValuePair, error) {
 	if class == nil {
-		panic("class must not be nil")
+		return nil, errors.Errorf("class must not be nil")
 	}
-	return propValuePair{docIDs: newDocBitmap(), Class: class}
+	return &propValuePair{docIDs: newDocBitmap(), Class: class}, nil
 }
 
 func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {

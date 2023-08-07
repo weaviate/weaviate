@@ -192,7 +192,10 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	if class == nil {
 		return nil, fmt.Errorf("class %q not found", className)
 	}
-	out := newPropValuePair(class)
+	out , err:= newPropValuePair(class)
+	if err != nil {
+		return nil, errors.Wrap(err, "new prop value pair")
+	}
 	if filter.Operands != nil {
 		// nested filter
 		out.children = make([]*propValuePair, len(filter.Operands))
@@ -218,7 +221,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 			return nil, fmt.Errorf("nested query: %w", err)
 		}
 		out.operator = filter.Operator
-		return &out, nil
+		return out, nil
 	}
 
 	// on value or non-nested filter
