@@ -192,7 +192,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	if class == nil {
 		return nil, fmt.Errorf("class %q not found", className)
 	}
-	out , err:= newPropValuePair(class)
+	out, err := newPropValuePair(class)
 	if err != nil {
 		return nil, errors.Wrap(err, "new prop value pair")
 	}
