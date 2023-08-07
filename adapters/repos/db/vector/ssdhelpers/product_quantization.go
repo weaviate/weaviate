@@ -161,6 +161,7 @@ type ProductQuantizer struct {
 	encoderDistribution EncoderDistribution
 	dlutPool            *DLUTPool
 	trainingLimit       int
+	globalDistances     []float32
 }
 
 type PQData struct {
@@ -223,6 +224,16 @@ func NewProductQuantizerWithEncoders(cfg ent.PQConfig, distance distancer.Provid
 	}
 
 	pq.kms = encoders
+	pq.globalDistances = make([]float32, pq.ks*pq.ks)
+	for segment := 0; segment < pq.m; segment++ {
+		for i := 0; i < pq.ks; i++ {
+			for j := 0; j < pq.ks; j++ {
+				cX := pq.kms[segment].Centroid(byte(i))
+				cY := pq.kms[segment].Centroid(byte(j))
+				pq.globalDistances[i*pq.ks+j] = pq.distance.Step(cX, cY)
+			}
+		}
+	}
 	return pq, nil
 }
 
@@ -274,9 +285,9 @@ func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) float3
 	dist := float32(0)
 
 	for i := 0; i < pq.m; i++ {
-		cX := pq.kms[i].Centroid(ExtractCode8(x, i))
-		cY := pq.kms[i].Centroid(ExtractCode8(y, i))
-		dist += pq.distance.Step(cX, cY)
+		cX := ExtractCode8(x, i)
+		cY := ExtractCode8(y, i)
+		dist += pq.globalDistances[int(cX)*pq.ks+int(cY)]
 	}
 
 	return pq.distance.Wrap(dist)
@@ -355,6 +366,16 @@ func (pq *ProductQuantizer) Fit(data [][]float32) {
 		hist := histogram.Hist(60, centers)
 		histogram.Fprint(os.Stdout, hist, histogram.Linear(5))
 	}*/
+	pq.globalDistances = make([]float32, pq.ks*pq.ks)
+	for segment := 0; segment < pq.m; segment++ {
+		for i := 0; i < pq.ks; i++ {
+			for j := 0; j < pq.ks; j++ {
+				cX := pq.kms[segment].Centroid(byte(i))
+				cY := pq.kms[segment].Centroid(byte(j))
+				pq.globalDistances[i*pq.ks+j] = pq.distance.Step(cX, cY)
+			}
+		}
+	}
 }
 
 func (pq *ProductQuantizer) Encode(vec []float32) []byte {
