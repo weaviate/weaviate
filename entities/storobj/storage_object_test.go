@@ -12,6 +12,7 @@
 package storobj
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -500,7 +501,7 @@ func TestStorageObjectMarshallingWithGroup(t *testing.T) {
 	})
 }
 
-func TestStorage50kVectorObjectMarshalling(t *testing.T) {
+func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 	generateVector := func(dims uint16) []float32 {
 		vector := make([]float32, dims)
 		for i := range vector {
@@ -509,34 +510,93 @@ func TestStorage50kVectorObjectMarshalling(t *testing.T) {
 		return vector
 	}
 	// 65535 is max uint16 number
-	vector := generateVector(65535)
-	before := FromObject(
-		&models.Object{
-			Class:            "MyFavoriteClass",
-			CreationTimeUnix: 123456,
-			ID:               strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
-			Properties: map[string]interface{}{
-				"name": "myName",
-			},
-		},
-		vector,
-	)
-	before.SetDocID(7)
+	edgeVectorLengths := []uint16{0, 1, 768, 50000, 65535}
+	for _, vectorLength := range edgeVectorLengths {
+		t.Run(fmt.Sprintf("%v vector dimensions", vectorLength), func(t *testing.T) {
+			t.Run("marshal binary", func(t *testing.T) {
+				vector := generateVector(vectorLength)
+				before := FromObject(
+					&models.Object{
+						Class:            "MyFavoriteClass",
+						CreationTimeUnix: 123456,
+						ID:               strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+						Properties: map[string]interface{}{
+							"name": "myName",
+						},
+					},
+					vector,
+				)
+				before.SetDocID(7)
 
-	asBinary, err := before.MarshalBinary()
-	require.Nil(t, err)
+				asBinary, err := before.MarshalBinary()
+				require.Nil(t, err)
 
-	after, err := FromBinary(asBinary)
-	require.Nil(t, err)
+				after, err := FromBinary(asBinary)
+				require.Nil(t, err)
 
-	t.Run("compare", func(t *testing.T) {
-		assert.Equal(t, before, after)
-	})
+				t.Run("compare", func(t *testing.T) {
+					assert.Equal(t, before, after)
+				})
 
-	t.Run("try to extract a property", func(t *testing.T) {
-		prop, ok, err := ParseAndExtractTextProp(asBinary, "name")
-		require.Nil(t, err)
-		require.True(t, ok)
-		assert.Equal(t, []string{"myName"}, prop)
-	})
+				t.Run("try to extract a property", func(t *testing.T) {
+					prop, ok, err := ParseAndExtractTextProp(asBinary, "name")
+					require.Nil(t, err)
+					require.True(t, ok)
+					assert.Equal(t, []string{"myName"}, prop)
+				})
+			})
+
+			t.Run("marshal optional binary", func(t *testing.T) {
+				vector := generateVector(vectorLength)
+				before := FromObject(
+					&models.Object{
+						Class:            "MyFavoriteClass",
+						CreationTimeUnix: 123456,
+						ID:               strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+						Properties: map[string]interface{}{
+							"name": "myName",
+						},
+					},
+					vector,
+				)
+				before.SetDocID(7)
+
+				asBinary, err := before.MarshalBinary()
+				require.Nil(t, err)
+
+				t.Run("get without additional properties", func(t *testing.T) {
+					after, err := FromBinaryOptional(asBinary, additional.Properties{})
+					require.Nil(t, err)
+					// modify before to match expectations of after
+					before.Object.Additional = nil
+					before.Vector = nil
+					before.VectorLen = int(vectorLength)
+					assert.Equal(t, before, after)
+
+					assert.Equal(t, before.docID, after.docID)
+
+					// The vector length should always be returned (for usage metrics
+					// purposes) even if the vector itself is skipped
+					assert.Equal(t, after.VectorLen, int(vectorLength))
+				})
+
+				t.Run("get with additional property vector", func(t *testing.T) {
+					after, err := FromBinaryOptional(asBinary, additional.Properties{Vector: true})
+					require.Nil(t, err)
+					// modify before to match expectations of after
+					before.Object.Additional = nil
+					before.Vector = vector
+					before.VectorLen = int(vectorLength)
+					assert.Equal(t, before, after)
+
+					assert.Equal(t, before.docID, after.docID)
+
+					// The vector length should always be returned (for usage metrics
+					// purposes) even if the vector itself is skipped
+					assert.Equal(t, after.VectorLen, int(vectorLength))
+					assert.Equal(t, vector, after.Vector)
+				})
+			})
+		})
+	}
 }
