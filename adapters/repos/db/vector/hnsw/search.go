@@ -573,7 +573,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 			id := ids[i]
 			dist, _, _ := h.distanceFromBytesToFloatNode(byteDistancer, id)
 			if dist < res.Top().Dist {
-				res.SubstitudeTop(id, dist)
+				res.ReplaceTop(id, dist)
 			}
 		}
 

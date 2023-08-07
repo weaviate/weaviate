@@ -95,7 +95,7 @@ func (l *Queue) Pop() Item {
 	return out
 }
 
-func (l *Queue) SubstitudeTop(id uint64, distance float32) {
+func (l *Queue) ReplaceTop(id uint64, distance float32) {
 	l.items[0].ID = id
 	l.items[0].Dist = distance
 	l.heapify(0)
