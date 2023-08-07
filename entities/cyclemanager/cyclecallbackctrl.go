@@ -59,6 +59,9 @@ type cycleCombinedCallbackCtrl struct {
 	ctrls         []CycleCallbackCtrl
 }
 
+// Creates combined controller to manage all provided controllers at once as it was single instance.
+// Methods (activate, deactivate, unregister) calls nested controllers' methods in parallel by number of
+// goroutines given as argument. If < 1 value given, NumCPU is used.
 func NewCycleCombinedCallbackCtrl(routinesLimit int, ctrls ...CycleCallbackCtrl) CycleCallbackCtrl {
 	if routinesLimit <= 0 {
 		routinesLimit = _NUMCPU
