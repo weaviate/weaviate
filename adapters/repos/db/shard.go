@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -275,11 +276,14 @@ func (s *Shard) drop() error {
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
 
-	if err := s.cycleCallbacks.vectorCombinedCallbacksCtrl.Unregister(ctx); err != nil {
-		return fmt.Errorf("drop shard '%s': %w", s.name, err)
-	}
-	if err := s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Unregister(ctx); err != nil {
-		return fmt.Errorf("drop shard '%s': %w", s.name, err)
+	// unregister all callbacks at once, in parallel
+	if err := cyclemanager.NewCycleCombinedCallbackCtrl(0,
+		s.cycleCallbacks.compactionCallbacksCtrl,
+		s.cycleCallbacks.flushCallbacksCtrl,
+		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
+		s.cycleCallbacks.geoPropsCombinedCallbacksCtrl,
+	).Unregister(ctx); err != nil {
+		return err
 	}
 
 	if err := s.store.Shutdown(ctx); err != nil {
@@ -547,16 +551,13 @@ func (s *Shard) shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "shut down vector index")
 	}
 
-	if err := s.cycleCallbacks.compactionCallbacksCtrl.Unregister(ctx); err != nil {
-		return err
-	}
-	if err := s.cycleCallbacks.flushCallbacksCtrl.Unregister(ctx); err != nil {
-		return err
-	}
-	if err := s.cycleCallbacks.vectorCombinedCallbacksCtrl.Unregister(ctx); err != nil {
-		return err
-	}
-	if err := s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Unregister(ctx); err != nil {
+	// unregister all callbacks at once, in parallel
+	if err := cyclemanager.NewCycleCombinedCallbackCtrl(0,
+		s.cycleCallbacks.compactionCallbacksCtrl,
+		s.cycleCallbacks.flushCallbacksCtrl,
+		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
+		s.cycleCallbacks.geoPropsCombinedCallbacksCtrl,
+	).Unregister(ctx); err != nil {
 		return err
 	}
 
