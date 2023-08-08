@@ -374,7 +374,7 @@ func ParseCollectionNodeInto(r io.Reader, node *segmentCollectionNode) error {
 		return fmt.Errorf("read values len: %w", err)
 	}
 
-	valuesLen := binary.LittleEndian.Uint64(buf[offset : offset+8])
+	valuesLen := binary.LittleEndian.Uint64(buf[0:8])
 	offset += 8
 
 	resizeValuesOfCollectionNode(node, valuesLen)

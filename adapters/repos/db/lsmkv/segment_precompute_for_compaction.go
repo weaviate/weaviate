@@ -44,6 +44,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	if err != nil {
 		return nil, fmt.Errorf("open file: %w", err)
 	}
+	defer file.Close()
 
 	fileInfo, err := file.Stat()
 	if err != nil {
