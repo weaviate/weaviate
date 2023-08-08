@@ -18,6 +18,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/storobj"
 
 	"github.com/pkg/errors"
@@ -135,6 +136,7 @@ type Config struct {
 	TrackVectorDimensions     bool
 	ServerVersion             string
 	GitHash                   string
+	Replication               replication.GlobalConfig
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
