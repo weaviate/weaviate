@@ -57,7 +57,7 @@ func TestScalerScaleOut(t *testing.T) {
 		old     = sharding.Config{}
 		bak     = backup.ClassDescriptor{
 			Name: "C",
-			Shards: []backup.ShardDescriptor{
+			Shards: []*backup.ShardDescriptor{
 				{
 					Name: "S1", Files: []string{"f1"},
 					PropLengthTrackerPath: "f4",
