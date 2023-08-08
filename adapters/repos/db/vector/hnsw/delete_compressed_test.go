@@ -26,7 +26,7 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-func TestPrefill_CompressedDeletes(t *testing.T) {
+func TestCompressed_DeletesFromBucket(t *testing.T) {
 	ctx := context.Background()
 	vectors := vectorsForDeleteTest()
 
