@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"sync"
 	"time"
@@ -585,6 +586,15 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 			h.Unlock()
 			if h.compressed.Load() {
 				h.compressedVectorsCache.delete(context.TODO(), id)
+
+				Id := make([]byte, 8)
+				binary.LittleEndian.PutUint64(Id, id)
+				bucket := h.compressedStore.Bucket(helpers.CompressedObjectsBucketLSM)
+				err = bucket.Delete(Id)
+				if err != nil {
+					return false, errors.Wrap(err, "delete compressed vector from bucket")
+				}
+
 			} else {
 				h.cache.delete(context.TODO(), id)
 			}
