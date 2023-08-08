@@ -68,6 +68,9 @@ func (m *Manager) AddTenants(ctx context.Context,
 	if err != nil {
 		return fmt.Errorf("get partitions from class %q: %w", class, err)
 	}
+	if len(partitions) != len(tenants) {
+		return fmt.Errorf("number of partitions for class %q does not match number of requested tenants", class)
+	}
 	request := AddTenantsPayload{
 		Class:   class,
 		Tenants: make([]TenantCreate, len(partitions)),
