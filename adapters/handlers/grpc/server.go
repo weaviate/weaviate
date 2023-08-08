@@ -541,9 +541,11 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 		returnFilter.Operands = clauses
 
 	} else {
-		path := filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(filterIn.On[0])}
-		returnFilter.On = &path
-		prop, _ := scheme.GetProperty(schema.ClassName(className), schema.PropertyName(filterIn.On[0]))
+		path, err := extractPath(scheme, className, filterIn.On)
+		if err != nil {
+			return filters.Clause{}, err
+		}
+		returnFilter.On = path
 
 		switch filterIn.Operator {
 		case pb.Filters_OperatorEqual:
@@ -568,14 +570,12 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			return filters.Clause{}, fmt.Errorf("unknown filter operator %v", filterIn.Operator)
 		}
 
-		var val interface{}
-		var dataType schema.DataType
-		if returnFilter.Operator == filters.OperatorIsNull {
-			dataType = schema.DataTypeBoolean
-		} else {
-			dataType = schema.DataType(prop.DataType[0])
+		dataType, err := extractDataType(scheme, returnFilter.Operator, className, filterIn.On)
+		if err != nil {
+			return filters.Clause{}, err
 		}
 
+		var val interface{}
 		switch filterIn.TestValue.(type) {
 		case *pb.Filters_ValueStr:
 			val = filterIn.GetValueStr()
@@ -602,4 +602,46 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 	}
 
 	return returnFilter, nil
+}
+
+func extractDataType(scheme schema.Schema, operator filters.Operator, classname string, on []string) (schema.DataType, error) {
+	var dataType schema.DataType
+	if operator == filters.OperatorIsNull {
+		dataType = schema.DataTypeBoolean
+	} else if len(on) > 1 {
+		for {
+			prop, err := scheme.GetProperty(schema.ClassName(classname), schema.PropertyName(on[0]))
+			if err != nil {
+				return dataType, err
+			}
+			on = on[1:]
+			if len(on) == 0 {
+				return schema.DataType(prop.DataType[0]), nil
+			}
+			classname = prop.DataType[0]
+		}
+	} else {
+		prop, err := scheme.GetProperty(schema.ClassName(classname), schema.PropertyName(on[0]))
+		if err != nil {
+			return dataType, err
+		}
+		dataType = schema.DataType(prop.DataType[0])
+	}
+	return dataType, nil
+}
+
+func extractPath(scheme schema.Schema, className string, on []string) (*filters.Path, error) {
+	var child *filters.Path = nil
+	if len(on) > 1 {
+		prop, err := scheme.GetProperty(schema.ClassName(className), schema.PropertyName(on[0]))
+		if err != nil {
+			return nil, err
+		}
+		child, err = extractPath(scheme, prop.DataType[0], on[1:])
+		if err != nil {
+			return nil, err
+		}
+
+	}
+	return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(on[0]), Child: child}, nil
 }
