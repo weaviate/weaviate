@@ -16,7 +16,7 @@ This is the core part of the effort to merge property buckets into 2 buckets.  A
 
 However, the original bucket class needs to continue operating as before, because there are still parts of the code that do not need to be merged.
 
-In order to accomodate this, we need to modify the keys of the requests as they access the bucket.  This is what the proxy bucket does.  It takes a legacy bucket and a property name, and then it intercepts calls to the bucket, modifies the keys of the requests to add the property id as a prefix to every call, and then passes the request on to the legacy bucket.
+In order to accommodate this, we need to modify the keys of the requests as they access the bucket.  This is what the proxy bucket does.  It takes a legacy bucket and a property name, and then it intercepts calls to the bucket, modifies the keys of the requests to add the property id as a prefix to every call, and then passes the request on to the legacy bucket.
 
 Then we have to go through the code and alter every line that creates or loads a property bucket, and wrap it with a proxy bucket (and a property name).  Then the rest of the code will perform identical calls to the proxy bucket as it would to the real bucket, but the keys will be quietly modified.
 
