@@ -558,21 +558,39 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 
 	if h.shouldRescore() {
 		ids := make([]uint64, res.Len())
+		dists := make([]float32, res.Len())
 		i := len(ids) - 1
 		for res.Len() > 0 {
 			res := res.Pop()
 			ids[i] = res.ID
+			dists[i] = res.Dist
 			i--
 		}
 		res.Reset()
-		for _, id := range ids {
-			dist, _, _ := h.distanceFromBytesToFloatNode(byteDistancer, id)
-			res.Insert(id, dist)
-			if res.Len() > ef {
-				res.Pop()
+		for index, id := range ids {
+			if res.Len() == k {
+				vec, _ := h.compressedVectorsCache.get(context.Background(), id)
+				if dists[index]-h.pq.Distortion(vec) < res.Top().Dist {
+					dist, _, _ := h.distanceFromBytesToFloatNode(byteDistancer, id)
+					res.Insert(id, dist)
+					res.Pop()
+				}
+			} else {
+				dist, _, _ := h.distanceFromBytesToFloatNode(byteDistancer, id)
+				res.Insert(id, dist)
 			}
 		}
-
+		ids = ids[:k]
+		dists = dists[:k]
+		i = len(ids) - 1
+		for res.Len() > 0 {
+			res := res.Pop()
+			ids[i] = res.ID
+			dists[i] = res.Dist
+			i--
+		}
+		h.pools.pqResults.Put(res)
+		return ids, dists, nil
 	}
 
 	for res.Len() > k {

@@ -12,6 +12,7 @@
 package ssdhelpers
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
@@ -379,15 +380,26 @@ func (pq *ProductQuantizer) Fit(data [][]float32) {
 }
 
 func (pq *ProductQuantizer) Encode(vec []float32) []byte {
-	codes := make([]byte, pq.m)
+	codes := make([]byte, pq.m+4)
 	for i := 0; i < pq.m; i++ {
 		PutCode8(pq.kms[i].Encode(vec), codes, i)
 	}
+	dist := pq.DistanceBetweenCompressedAndUncompressedVectors(vec, codes)
+	dist = float32(math.Abs(float64(dist)))
+	binary.LittleEndian.PutUint32(codes[pq.m:], math.Float32bits(dist))
 	return codes
 }
 
+func (pq *ProductQuantizer) Distortion(codes []byte) float32 {
+	dist := math.Float32frombits(binary.LittleEndian.Uint32(codes[pq.m:]))
+	if dist < 0 {
+		return -dist
+	}
+	return dist
+}
+
 func (pq *ProductQuantizer) Decode(code []byte) []float32 {
-	vec := make([]float32, 0, len(code))
+	vec := make([]float32, 0, pq.m)
 	for i := 0; i < pq.m; i++ {
 		vec = append(vec, pq.kms[i].Centroid(ExtractCode8(code, i))...)
 	}
