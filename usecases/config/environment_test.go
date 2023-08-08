@@ -472,3 +472,33 @@ func TestEnvironmentPrometheusGroupClasses_NewName(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvironmentMinimumReplicationFactor(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    int
+		expectedErr bool
+	}{
+		{"Valid", []string{"3"}, 3, false},
+		{"not given", []string{}, DefaultMinimumReplicationFactor, false},
+		{"invalid factor", []string{"-1"}, -1, true},
+		{"zero factor", []string{"0"}, -1, true},
+		{"not parsable", []string{"I'm not a number"}, -1, true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("REPLICATION_MINIMUM_FACTOR", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.Replication.MinimumFactor)
+			}
+		})
+	}
+}

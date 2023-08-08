@@ -39,6 +39,7 @@ import (
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/replication"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
@@ -175,6 +176,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		TrackVectorDimensions:     appState.ServerConfig.Config.TrackVectorDimensions,
 		ResourceUsage:             appState.ServerConfig.Config.ResourceUsage,
 		AvoidMMap:                 appState.ServerConfig.Config.AvoidMmap,
+		// Pass dummy replication config with minimum factor 1. Otherwise the
+		// setting is not backward-compatible. The user may have created a class
+		// with factor=1 before the change was introduced. Now their setup would no
+		// longer start up if the required minimum is now higher than 1. We want
+		// the required minimum to only apply to newly created classes - not block
+		// loading existing ones.
+		Replication: replication.GlobalConfig{MinimumFactor: 1},
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics) // TODO client
 	if err != nil {
 		appState.Logger.
