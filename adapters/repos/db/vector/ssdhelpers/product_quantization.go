@@ -224,6 +224,11 @@ func NewProductQuantizerWithEncoders(cfg ent.PQConfig, distance distancer.Provid
 	}
 
 	pq.kms = encoders
+	pq.buildGlobalDistances()
+	return pq, nil
+}
+
+func (pq *ProductQuantizer) buildGlobalDistances() {
 	pq.globalDistances = make([]float32, pq.ks*pq.ks)
 	for segment := 0; segment < pq.m; segment++ {
 		for i := 0; i < pq.ks; i++ {
@@ -234,7 +239,6 @@ func NewProductQuantizerWithEncoders(cfg ent.PQConfig, distance distancer.Provid
 			}
 		}
 	}
-	return pq, nil
 }
 
 // Only made public for testing purposes... Not sure we need it outside
@@ -357,16 +361,7 @@ func (pq *ProductQuantizer) Fit(data [][]float32) {
 			}
 		})
 	}
-	pq.globalDistances = make([]float32, pq.ks*pq.ks)
-	for segment := 0; segment < pq.m; segment++ {
-		for i := 0; i < pq.ks; i++ {
-			for j := 0; j < pq.ks; j++ {
-				cX := pq.kms[segment].Centroid(byte(i))
-				cY := pq.kms[segment].Centroid(byte(j))
-				pq.globalDistances[i*pq.ks+j] = pq.distance.Step(cX, cY)
-			}
-		}
-	}
+	pq.buildGlobalDistances()
 }
 
 func (pq *ProductQuantizer) Encode(vec []float32) []byte {
