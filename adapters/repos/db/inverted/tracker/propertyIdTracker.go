@@ -148,7 +148,6 @@ func (t *JsonPropertyIdTracker) CreateProperty(property string) (uint64, error) 
 }
 
 func (t *JsonPropertyIdTracker) _createProperty(property string) (uint64, error) {
-
 	if id, ok := t.PropertyIds[property]; ok {
 		fmt.Printf("property %v already exists\n", property)
 		return id, fmt.Errorf("property %v already exists\n", property)
