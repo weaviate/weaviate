@@ -52,4 +52,23 @@ func TestSerializeValue(t *testing.T) {
 
 		assert.Equal(t, before, after)
 	})
+
+	t.Run("with a geo value", func(t *testing.T) {
+		before := Value{
+			Value: GeoRange{
+				GeoCoordinates: nil,
+				Distance:       0,
+			},
+			Type: schema.DataTypeGeoCoordinates,
+		}
+
+		bytes, err := json.Marshal(before)
+		require.Nil(t, err)
+
+		var after Value
+		err = json.Unmarshal(bytes, &after)
+		require.Nil(t, err)
+
+		assert.Equal(t, before, after)
+	})
 }
