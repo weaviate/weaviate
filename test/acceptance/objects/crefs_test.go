@@ -15,6 +15,9 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/batch"
 
 	"github.com/go-openapi/strfmt"
@@ -174,7 +177,6 @@ func TestBatchRefsWithoutToClass(t *testing.T) {
 	helper.AssertRequestOk(t, postRefResponse, err, nil)
 
 	for i := range uuidsFrom {
-
 		// validate that ref was create for the correct class
 		objWithRef := func() interface{} {
 			obj := assertGetObjectWithClass(t, uuidsFrom[i], refFromClassName)
@@ -188,6 +190,52 @@ func TestBatchRefsWithoutToClass(t *testing.T) {
 				},
 			},
 		}, objWithRef)
+	}
+}
+
+func TestObjectCrefWithoutToClass(t *testing.T) {
+	refToClassName := "ReferenceTo"
+	refFromClassName := "ReferenceFrom"
+
+	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{Class: refToClassName})
+	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+
+	refFromClass := &models.Class{
+		Class: refFromClassName,
+		Properties: []*models.Property{
+			{
+				DataType: []string{refToClassName},
+				Name:     "ref",
+			},
+		},
+	}
+	params2 := clschema.NewSchemaObjectsCreateParams().WithObjectClass(refFromClass)
+	resp2, err := helper.Client(t).Schema.SchemaObjectsCreate(params2, nil)
+	helper.AssertRequestOk(t, resp2, err, nil)
+
+	defer deleteObjectClass(t, refToClassName)
+	defer deleteObjectClass(t, refFromClassName)
+
+	refs := make([]interface{}, 10)
+	uuids := make([]strfmt.UUID, 10)
+	for i := 0; i < 10; i++ {
+		uuidTo := assertCreateObject(t, refToClassName, map[string]interface{}{})
+		assertGetObjectEventually(t, uuidTo)
+		refs[i] = map[string]interface{}{
+			"beacon": beaconStart + uuidTo,
+		}
+		uuids[i] = uuidTo
+	}
+
+	uuidFrom := assertCreateObject(t, refFromClassName, map[string]interface{}{"ref": refs})
+	assertGetObjectEventually(t, uuidFrom)
+
+	objWithRef := assertGetObjectWithClass(t, uuidFrom, refFromClassName)
+	assert.NotNil(t, objWithRef.Properties)
+	refsReturned := objWithRef.Properties.(map[string]interface{})["ref"].([]interface{})
+	for i := range refsReturned {
+		require.Equal(t, refsReturned[i].(map[string]interface{})["beacon"], string(beaconStart+"ReferenceTo/"+uuids[i]))
 	}
 }
 
