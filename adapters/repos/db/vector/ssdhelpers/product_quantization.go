@@ -12,7 +12,6 @@
 package ssdhelpers
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
@@ -358,15 +357,6 @@ func (pq *ProductQuantizer) Fit(data [][]float32) {
 			}
 		})
 	}
-	/*for i := 0; i < 1; i++ {
-		fmt.Println("********")
-		centers := make([]float64, 0)
-		for c := 0; c < pq.ks; c++ {
-			centers = append(centers, float64(pq.kms[i].Centroid(byte(c))[0]))
-		}
-		hist := histogram.Hist(60, centers)
-		histogram.Fprint(os.Stdout, hist, histogram.Linear(5))
-	}*/
 	pq.globalDistances = make([]float32, pq.ks*pq.ks)
 	for segment := 0; segment < pq.m; segment++ {
 		for i := 0; i < pq.ks; i++ {
@@ -380,22 +370,11 @@ func (pq *ProductQuantizer) Fit(data [][]float32) {
 }
 
 func (pq *ProductQuantizer) Encode(vec []float32) []byte {
-	codes := make([]byte, pq.m+4)
+	codes := make([]byte, pq.m)
 	for i := 0; i < pq.m; i++ {
 		PutCode8(pq.kms[i].Encode(vec), codes, i)
 	}
-	dist := pq.DistanceBetweenCompressedAndUncompressedVectors(vec, codes)
-	dist = float32(math.Abs(float64(dist)))
-	binary.LittleEndian.PutUint32(codes[pq.m:], math.Float32bits(dist))
 	return codes
-}
-
-func (pq *ProductQuantizer) Distortion(codes []byte) float32 {
-	dist := math.Float32frombits(binary.LittleEndian.Uint32(codes[pq.m:]))
-	if dist < 0 {
-		return -dist
-	}
-	return dist
 }
 
 func (pq *ProductQuantizer) Decode(code []byte) []float32 {
