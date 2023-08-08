@@ -39,6 +39,9 @@ fi
 if [[ "$*" == *--clip* ]]; then
   ADDITIONAL_SERVICES+=('multi2vec-clip')
 fi
+if [[ "$*" == *--bind* ]]; then
+  ADDITIONAL_SERVICES+=('multi2vec-bind')
+fi
 if [[ "$*" == *--reranker* ]]; then
   ADDITIONAL_SERVICES+=('reranker-transformers')
 fi

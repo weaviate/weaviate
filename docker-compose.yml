@@ -91,6 +91,10 @@ services:
     image: semitechnologies/gpt4all-inference:all-MiniLM-L6-v2
     ports:
       - "8010:8080"
+  multi2vec-bind:
+    image: semitechnologies/multi2vec-bind:imagebind
+    ports:
+      - "8011:8080"
   backup-s3:
     image: minio/minio
     ports:
