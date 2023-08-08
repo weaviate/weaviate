@@ -17,28 +17,22 @@ import (
 	"net"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/additional"
-
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
-
-	"github.com/weaviate/weaviate/entities/schema"
-	schemaManager "github.com/weaviate/weaviate/usecases/schema"
-
-	"github.com/pkg/errors"
-
-	"github.com/weaviate/weaviate/entities/search"
-
-	"google.golang.org/protobuf/types/known/structpb"
-
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	pb "github.com/weaviate/weaviate/grpc"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
+	schemaManager "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func CreateGRPCServer(state *state.State) *GRPCServer {
@@ -369,6 +363,8 @@ func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, cla
 			if err != nil {
 				return nil
 			}
+
+			// use datatype of the reference property to get the name of the linked class
 			linkedClass := schemaProp.DataType[0]
 
 			props = append(props, search.SelectProperty{
