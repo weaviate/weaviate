@@ -39,7 +39,10 @@ func TestBucketProxyCreation(t *testing.T) {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
 
-	bp := NewBucketProxy(b, propName, propids)
+	bp, err := NewBucketProxy(b, propName, propids)
+	if err != nil {
+		t.Fatalf("Failed to create BucketProxy: %v", err)
+	}
 
 	if bp == nil {
 		t.Fatal("Failed to create BucketProxy")
@@ -70,7 +73,10 @@ func TestBucketProxyGetAndPut(t *testing.T) {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
 
-	bp := NewBucketProxy(b, propName, propids)
+	bp, err := NewBucketProxy(b, propName, propids)
+	if err != nil {
+		t.Fatalf("Failed to create BucketProxy: %v", err)
+	}
 
 	// Put a value into the BucketProxy
 	key := []byte("testKey")
@@ -108,7 +114,10 @@ func TestBucketProxyGetNotFound(t *testing.T) {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
 
-	bp := NewBucketProxy(b, propName, propids)
+	bp, err := NewBucketProxy(b, propName, propids)
+	if err != nil {
+		t.Fatalf("Failed to create BucketProxy: %v", err)
+	}
 
 	// Attempt to retrieve a value that doesn't exist
 	key := []byte("nonexistentKey")
@@ -136,7 +145,10 @@ func TestBucketProxyDelete(t *testing.T) {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
 
-	bp := NewBucketProxy(b, propName, propids)
+	bp, err := NewBucketProxy(b, propName, propids)
+	if err != nil {
+		t.Fatalf("Failed to create BucketProxy: %v", err)
+	}
 
 	// Put a value into the BucketProxy
 	key := []byte("testKey")
@@ -175,7 +187,10 @@ func TestBucketProxyMapSetAndGet(t *testing.T) {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
 
-	bp := NewBucketProxy(b, propName, propids)
+	bp, err := NewBucketProxy(b, propName, propids)
+	if err != nil {
+		t.Fatalf("Failed to create BucketProxy: %v", err)
+	}
 
 	// Create a MapPair to set
 	key := []byte("testKey")
@@ -216,7 +231,10 @@ func TestBucketProxyCount(t *testing.T) {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
 
-	bp := NewBucketProxy(b, propName, propids)
+	bp, err := NewBucketProxy(b, propName, propids)
+	if err != nil {
+		t.Fatalf("Failed to create BucketProxy: %v", err)
+	}
 
 	// Put a value into the BucketProxy
 	key := []byte("testKey")
