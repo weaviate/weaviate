@@ -81,7 +81,7 @@ func knnClassification(t *testing.T) {
 		schema, ok := res.Payload.Properties.(map[string]interface{})
 		require.True(t, ok)
 
-		expectedRefTarget := fmt.Sprintf("weaviate://localhost/%s",
+		expectedRefTarget := fmt.Sprintf("weaviate://localhost/RecipeType/%s",
 			recipeTypeSavory)
 		ref := schema["ofType"].([]interface{})[0].(map[string]interface{})
 		assert.Equal(t, ref["beacon"].(string), expectedRefTarget)
@@ -99,7 +99,7 @@ func knnClassification(t *testing.T) {
 		schema, ok := res.Payload.Properties.(map[string]interface{})
 		require.True(t, ok)
 
-		expectedRefTarget := fmt.Sprintf("weaviate://localhost/%s",
+		expectedRefTarget := fmt.Sprintf("weaviate://localhost/RecipeType/%s",
 			recipeTypeSweet)
 		ref := schema["ofType"].([]interface{})[0].(map[string]interface{})
 		assert.Equal(t, ref["beacon"].(string), expectedRefTarget)
