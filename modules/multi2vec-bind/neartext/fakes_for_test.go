@@ -9,14 +9,18 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package ent
+package neartext
 
-type VectorizationResult struct {
-	TextVectors    [][]float32
-	ImageVectors   [][]float32
-	AudioVectors   [][]float32
-	VideoVectors   [][]float32
-	IMUVectors     [][]float32
-	ThermalVectors [][]float32
-	DepthVectors   [][]float32
+type fakeTransformer struct{}
+
+func (t *fakeTransformer) Transform(in []string) ([]string, error) {
+	result := make([]string, len(in))
+	for i, txt := range in {
+		if txt == "transform this" {
+			result[i] = "transformed text"
+		} else {
+			result[i] = txt
+		}
+	}
+	return result, nil
 }
