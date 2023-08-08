@@ -249,5 +249,7 @@ func determineRefLimit() int {
 	} else if limit < 0 {
 		limit = math.MaxInt
 	}
+	// Zero is an allowable value, which will
+	// prevent any refs from being returned.
 	return int(limit)
 }
