@@ -18,12 +18,11 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/weaviate/weaviate/entities/replication"
-	"github.com/weaviate/weaviate/entities/storobj"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -136,6 +135,7 @@ type Config struct {
 	TrackVectorDimensions     bool
 	ServerVersion             string
 	GitHash                   string
+	AvoidMMap                 bool
 	Replication               replication.GlobalConfig
 }
 

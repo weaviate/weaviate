@@ -136,6 +136,10 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if os.Getenv("PERSISTENCE_LSM_ACCESS_STRATEGY") == "pread" {
+		config.AvoidMmap = true
+	}
+
 	clusterCfg, err := parseClusterConfig()
 	if err != nil {
 		return err

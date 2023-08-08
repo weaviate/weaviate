@@ -54,11 +54,13 @@ type SegmentGroup struct {
 	// produce a meaningful count. Typically, the only count we're interested in
 	// is that of the bucket that holds objects
 	monitorCount bool
+
+	mmapContents bool
 }
 
 func newSegmentGroup(dir string, logger logrus.FieldLogger,
 	mapRequiresSorting bool, metrics *Metrics, strategy string,
-	monitorCount bool, compactionCallbacks cyclemanager.CycleCallbackGroup,
+	monitorCount bool, compactionCallbacks cyclemanager.CycleCallbackGroup, mmapContents bool,
 ) (*SegmentGroup, error) {
 	list, err := os.ReadDir(dir)
 	if err != nil {
@@ -73,6 +75,7 @@ func newSegmentGroup(dir string, logger logrus.FieldLogger,
 		monitorCount:       monitorCount,
 		mapRequiresSorting: mapRequiresSorting,
 		strategy:           strategy,
+		mmapContents:       mmapContents,
 	}
 
 	segmentIndex := 0
@@ -116,7 +119,7 @@ func newSegmentGroup(dir string, logger logrus.FieldLogger,
 		}
 
 		segment, err := newSegment(filepath.Join(dir, entry.Name()), logger,
-			metrics, out.makeExistsOnLower(segmentIndex))
+			metrics, out.makeExistsOnLower(segmentIndex), mmapContents)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init segment %s", entry.Name())
 		}
@@ -161,7 +164,7 @@ func (sg *SegmentGroup) add(path string) error {
 
 	newSegmentIndex := len(sg.segments)
 	segment, err := newSegment(path, sg.logger, sg.metrics,
-		sg.makeExistsOnLower(newSegmentIndex))
+		sg.makeExistsOnLower(newSegmentIndex), sg.mmapContents)
 	if err != nil {
 		return errors.Wrapf(err, "init segment %s", path)
 	}
