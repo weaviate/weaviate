@@ -299,6 +299,24 @@ func (r *store) NewShards(_ context.Context, class string, shards []ucs.KeyValue
 	return r.db.Update(f)
 }
 
+// Update shards updates (replaces) shards of existing class
+// Error is returned if class or shard does not exist
+func (r *store) UpdateShards(_ context.Context, class string, shards []ucs.KeyValuePair) error {
+	classKey := encodeClassName(class)
+	f := func(tx *bolt.Tx) error {
+		b := tx.Bucket(schemaBucket).Bucket(classKey)
+		if b == nil {
+			return fmt.Errorf("class not found")
+		}
+		keyBuf := make([]byte, 1, 68)
+		if !existShards(b, shards, keyBuf) {
+			return fmt.Errorf("shard not found")
+		}
+		return appendShards(b, shards, keyBuf)
+	}
+	return r.db.Update(f)
+}
+
 // DeleteShards of a specific class
 //
 //	If the class or a shard does not exist then nothing is done and a nil error is returned
@@ -458,6 +476,19 @@ func saveConfig(root *bolt.Bucket, cfg config) error {
 		return fmt.Errorf("write config: %w", err)
 	}
 	return nil
+}
+
+func existShards(b *bolt.Bucket, shards []ucs.KeyValuePair, keyBuf []byte) bool {
+	keyBuf[0] = eTypeShard
+	for _, pair := range shards {
+		kLen := len(pair.Key) + 1
+		keyBuf = append(keyBuf, pair.Key...)
+		if val := b.Get(keyBuf[:kLen]); val == nil {
+			return false
+		}
+		keyBuf = keyBuf[:1]
+	}
+	return true
 }
 
 func appendShards(b *bolt.Bucket, shards []ucs.KeyValuePair, key []byte) error {

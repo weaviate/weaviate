@@ -22,6 +22,16 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+type CreateTenantPayload struct {
+	Name   string
+	Status string
+}
+
+type UpdateTenantPayload struct {
+	Name   string
+	Status string
+}
+
 // Migrator represents both the input and output interface of the Composer
 type Migrator interface {
 	AddClass(ctx context.Context, class *models.Class, shardingState *sharding.State) error
@@ -35,7 +45,8 @@ type Migrator interface {
 	UpdateProperty(ctx context.Context, className string,
 		propName string, newName *string) error
 
-	NewTenants(ctx context.Context, class *models.Class, tenants []string) (commit func(success bool), err error)
+	NewTenants(ctx context.Context, class *models.Class, creates []*CreateTenantPayload) (commit func(success bool), err error)
+	UpdateTenants(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload) (commit func(success bool), err error)
 	DeleteTenants(ctx context.Context, class *models.Class, tenants []string) (commit func(success bool), err error)
 
 	ValidateVectorIndexConfigUpdate(ctx context.Context,
