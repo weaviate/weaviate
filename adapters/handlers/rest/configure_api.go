@@ -240,7 +240,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Cluster,
 		appState.Logger)
 
-	backupManager := backup.NewManager(appState.Logger, appState.Authorizer,
+	backupManager := backup.NewHandler(appState.Logger, appState.Authorizer,
 		schemaManager, repo, appState.Modules)
 	appState.BackupManager = backupManager
 
