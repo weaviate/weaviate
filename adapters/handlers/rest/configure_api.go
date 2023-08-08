@@ -60,6 +60,7 @@ import (
 	modspellcheck "github.com/weaviate/weaviate/modules/text-spellcheck"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
+	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modtext2vecpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
@@ -522,6 +523,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", "text2vec-transformers").
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgpt4all.Name]; ok {
+		appState.Modules.Register(modgpt4all.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgpt4all.Name).
 			Debug("enabled module")
 	}
 
