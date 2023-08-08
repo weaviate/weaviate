@@ -365,7 +365,7 @@ func NewCallbackGroupNoop() CycleCallbackGroup {
 }
 
 func (c *cycleCallbackGroupNoop) Register(id string, cycleCallback CycleCallback, options ...RegisterOption) CycleCallbackCtrl {
-	return NewCycleCallbackCtrlNoop()
+	return NewCallbackCtrlNoop()
 }
 
 func (c *cycleCallbackGroupNoop) CycleCallback(shouldAbort ShouldAbortCallback) bool {
