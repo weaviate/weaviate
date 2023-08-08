@@ -16,8 +16,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"syscall"
 
+	"github.com/edsrzf/mmap-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -51,12 +51,12 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		return nil, fmt.Errorf("stat file: %w", err)
 	}
 
-	contents, err := syscall.Mmap(int(file.Fd()), 0, int(fileInfo.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
+	contents, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
 	if err != nil {
 		return nil, fmt.Errorf("mmap file: %w", err)
 	}
 
-	defer syscall.Munmap(contents)
+	defer contents.Unmap()
 
 	header, err := segmentindex.ParseHeader(bytes.NewReader(contents[:segmentindex.HeaderSize]))
 	if err != nil {

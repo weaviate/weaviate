@@ -17,8 +17,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"syscall"
 
+	"github.com/edsrzf/mmap-go"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -80,7 +80,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, fmt.Errorf("stat file: %w", err)
 	}
 
-	contents, err := syscall.Mmap(int(file.Fd()), 0, int(fileInfo.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
+	contents, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
 	if err != nil {
 		return nil, fmt.Errorf("mmap file: %w", err)
 	}
@@ -160,7 +160,8 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 func (s *segment) close() error {
 	var munmapErr, fileCloseErr error
 
-	munmapErr = syscall.Munmap(s.contents)
+	m := mmap.MMap(s.contents)
+	munmapErr = m.Unmap()
 	if s.contentFile != nil {
 		fileCloseErr = s.contentFile.Close()
 	}
