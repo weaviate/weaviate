@@ -1583,7 +1583,6 @@
             "Or",
             "Equal",
             "Like",
-            "Not",
             "NotEqual",
             "GreaterThan",
             "GreaterThanEqual",
