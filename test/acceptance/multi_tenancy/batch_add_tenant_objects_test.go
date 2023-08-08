@@ -106,7 +106,7 @@ func TestBatchWithMixedTenants(t *testing.T) {
 	for i := range classes {
 		helper.CreateClass(t, &classes[i])
 		for k := range tenants {
-			helper.CreateTenants(t, classes[i].Class, []*models.Tenant{{tenants[k]}})
+			helper.CreateTenants(t, classes[i].Class, []*models.Tenant{{Name: tenants[k]}})
 		}
 	}
 	defer func() {
@@ -162,7 +162,7 @@ func TestAddNonTenantBatchToMultiClass(t *testing.T) {
 	defer func() {
 		helper.DeleteClass(t, testClass.Class)
 	}()
-	helper.CreateTenants(t, className, []*models.Tenant{{"randomTenant1"}})
+	helper.CreateTenants(t, className, []*models.Tenant{{Name: "randomTenant1"}})
 	params := batch.NewBatchObjectsCreateParams().
 		WithBody(batch.BatchObjectsCreateBody{
 			Objects: nonTenantObjects,
@@ -245,7 +245,7 @@ func TestAddBatchWithNonExistentTenant(t *testing.T) {
 	defer func() {
 		helper.DeleteClass(t, testClass.Class)
 	}()
-	helper.CreateTenants(t, className, []*models.Tenant{{"somethingElse"}})
+	helper.CreateTenants(t, className, []*models.Tenant{{Name: "somethingElse"}})
 
 	params := batch.NewBatchObjectsCreateParams().
 		WithBody(batch.BatchObjectsCreateBody{

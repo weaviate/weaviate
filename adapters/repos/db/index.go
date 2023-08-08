@@ -50,8 +50,9 @@ import (
 )
 
 var (
-	errTenantNotFound = errors.New("tenant not found")
-	_NUMCPU           = runtime.NumCPU()
+	errTenantNotFound  = errors.New("tenant not found")
+	errTenantNotActive = errors.New("tenant not active")
+	_NUMCPU            = runtime.NumCPU()
 )
 
 // shardMap is a syn.Map which specialized in storing shards
@@ -200,6 +201,11 @@ func NewIndex(ctx context.Context, config IndexConfig,
 			// do not create non-local shards
 			continue
 		}
+		physical := shardState.Physical[shardName]
+		if physical.ActivityStatus() != models.TenantActivityStatusHOT {
+			// do not instantiate inactive shard
+			continue
+		}
 
 		shard, err := NewShard(ctx, promMetrics, shardName, index, class, jobQueueCh)
 		if err != nil {
@@ -335,8 +341,11 @@ func indexID(class schema.ClassName) string {
 func (i *Index) determineObjectShard(id strfmt.UUID, tenant string) (string, error) {
 	className := i.Config.ClassName.String()
 	if tenant != "" {
-		if shard := i.getSchema.TenantShard(className, tenant); shard != "" {
-			return shard, nil
+		if shard, status := i.getSchema.TenantShard(className, tenant); shard != "" {
+			if status == models.TenantActivityStatusHOT {
+				return shard, nil
+			}
+			return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))
 		}
 		return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
 	}
@@ -1147,8 +1156,11 @@ func (i *Index) targetShardNames(tenant string) ([]string, error) {
 		return shardingState.AllPhysicalShards(), nil
 	}
 	if tenant != "" {
-		if shard := i.getSchema.TenantShard(className, tenant); shard != "" {
-			return []string{shard}, nil
+		if shard, status := i.getSchema.TenantShard(className, tenant); shard != "" {
+			if status == models.TenantActivityStatusHOT {
+				return []string{shard}, nil
+			}
+			return nil, objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))
 		}
 	}
 	return nil, objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))

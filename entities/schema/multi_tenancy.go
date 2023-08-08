@@ -19,3 +19,10 @@ func MultiTenancyEnabled(class *models.Class) bool {
 	}
 	return false
 }
+
+func ActivityStatus(status string) string {
+	if status == "" {
+		return models.TenantActivityStatusHOT
+	}
+	return status
+}

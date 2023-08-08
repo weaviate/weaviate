@@ -155,8 +155,8 @@ func (f *fakeSchemaManager) ShardOwner(class, shard string) (string, error) {
 	return ss.Physical[shard].BelongsToNodes[0], nil
 }
 
-func (f *fakeSchemaManager) TenantShard(class, tenant string) string {
-	return tenant
+func (f *fakeSchemaManager) TenantShard(class, tenant string) (string, string) {
+	return tenant, models.TenantActivityStatusHOT
 }
 
 func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string {

@@ -75,7 +75,7 @@ func TestHeadTenantObjects(t *testing.T) {
 	t.Run("create tenants", func(t *testing.T) {
 		tenants := make([]*models.Tenant, len(tenantNames))
 		for i := range tenants {
-			tenants[i] = &models.Tenant{tenantNames[i]}
+			tenants[i] = &models.Tenant{Name: tenantNames[i]}
 		}
 		helper.CreateTenants(t, testClass.Class, tenants)
 	})

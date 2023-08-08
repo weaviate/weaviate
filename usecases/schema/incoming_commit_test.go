@@ -27,6 +27,7 @@ import (
 func TestIncommingTxCommit(t *testing.T) {
 	type test struct {
 		name                string
+		before              func(t *testing.T, SM *Manager)
 		tx                  *cluster.Transaction
 		assertSchema        func(t *testing.T, sm *Manager)
 		expectedErrContains string
@@ -215,7 +216,7 @@ func TestIncommingTxCommit(t *testing.T) {
 				Type: addTenants,
 				Payload: AddTenantsPayload{
 					Class:   "FirstClass",
-					Tenants: []Tenant{{Name: "P1"}, {Name: "P2"}},
+					Tenants: []TenantCreate{{Name: "P1"}, {Name: "P2"}},
 				},
 			},
 			assertSchema: func(t *testing.T, sm *Manager) {
@@ -231,7 +232,7 @@ func TestIncommingTxCommit(t *testing.T) {
 				Type: addTenants,
 				Payload: AddTenantsPayload{
 					Class:   "UnknownClass",
-					Tenants: []Tenant{{Name: "P1"}, {Name: "P2"}},
+					Tenants: []TenantCreate{{Name: "P1"}, {Name: "P2"}},
 				},
 			},
 			expectedErrContains: "UnknownClass",
@@ -240,6 +241,63 @@ func TestIncommingTxCommit(t *testing.T) {
 			name: "add tenants with incorrect payload",
 			tx: &cluster.Transaction{
 				Type:    addTenants,
+				Payload: AddPropertyPayload{},
+			},
+			expectedErrContains: "expected commit payload to be",
+		},
+
+		{
+			name: "successfully update tenants",
+			before: func(t *testing.T, sm *Manager) {
+				err := sm.handleCommit(context.Background(), &cluster.Transaction{
+					Type: addTenants,
+					Payload: AddTenantsPayload{
+						Class: "FirstClass",
+						Tenants: []TenantCreate{
+							{Name: "P1"},
+							{Name: "P2", Status: models.TenantActivityStatusHOT},
+						},
+					},
+				})
+				require.Nil(t, err)
+			},
+			tx: &cluster.Transaction{
+				Type: updateTenants,
+				Payload: UpdateTenantsPayload{
+					Class: "FirstClass",
+					Tenants: []TenantUpdate{
+						{Name: "P1", Status: models.TenantActivityStatusCOLD},
+						{Name: "P2", Status: models.TenantActivityStatusCOLD},
+					},
+				},
+			},
+			assertSchema: func(t *testing.T, sm *Manager) {
+				st := sm.CopyShardingState("FirstClass")
+				require.NotNil(t, st)
+				require.Contains(t, st.Physical, "P1")
+				require.Contains(t, st.Physical, "P2")
+				assert.Equal(t, st.Physical["P1"].Status, models.TenantActivityStatusCOLD)
+				assert.Equal(t, st.Physical["P2"].Status, models.TenantActivityStatusCOLD)
+			},
+		},
+		{
+			name: "update tenants of unknown class",
+			tx: &cluster.Transaction{
+				Type: updateTenants,
+				Payload: UpdateTenantsPayload{
+					Class: "UnknownClass",
+					Tenants: []TenantUpdate{
+						{Name: "P1", Status: models.TenantActivityStatusCOLD},
+						{Name: "P2", Status: models.TenantActivityStatusCOLD},
+					},
+				},
+			},
+			expectedErrContains: "UnknownClass",
+		},
+		{
+			name: "update tenants with incorrect payload",
+			tx: &cluster.Transaction{
+				Type:    updateTenants,
 				Payload: AddPropertyPayload{},
 			},
 			expectedErrContains: "expected commit payload to be",
@@ -262,6 +320,10 @@ func TestIncommingTxCommit(t *testing.T) {
 				&fakeClusterState{hosts: []string{"node1"}}, &fakeTxClient{},
 				schemaBefore)
 			require.Nil(t, err)
+
+			if test.before != nil {
+				test.before(t, sm)
+			}
 
 			err = sm.handleCommit(context.Background(), test.tx)
 			if test.expectedErrContains == "" {
