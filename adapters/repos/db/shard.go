@@ -277,7 +277,7 @@ func (s *Shard) drop() error {
 	defer cancel()
 
 	// unregister all callbacks at once, in parallel
-	if err := cyclemanager.NewCycleCombinedCallbackCtrl(0,
+	if err := cyclemanager.NewCombinedCallbackCtrl(0,
 		s.cycleCallbacks.compactionCallbacksCtrl,
 		s.cycleCallbacks.flushCallbacksCtrl,
 		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
@@ -552,7 +552,7 @@ func (s *Shard) shutdown(ctx context.Context) error {
 	}
 
 	// unregister all callbacks at once, in parallel
-	if err := cyclemanager.NewCycleCombinedCallbackCtrl(0,
+	if err := cyclemanager.NewCombinedCallbackCtrl(0,
 		s.cycleCallbacks.compactionCallbacksCtrl,
 		s.cycleCallbacks.flushCallbacksCtrl,
 		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
