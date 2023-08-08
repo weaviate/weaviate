@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -56,8 +57,11 @@ func TestSerializeValue(t *testing.T) {
 	t.Run("with a geo value", func(t *testing.T) {
 		before := Value{
 			Value: GeoRange{
-				GeoCoordinates: nil,
-				Distance:       0,
+				GeoCoordinates: &models.GeoCoordinates{
+					Latitude:  ptFloat32(51.51),
+					Longitude: ptFloat32(-0.09),
+				},
+				Distance: 2000,
 			},
 			Type: schema.DataTypeGeoCoordinates,
 		}
@@ -71,4 +75,8 @@ func TestSerializeValue(t *testing.T) {
 
 		assert.Equal(t, before, after)
 	})
+}
+
+func ptFloat32(v float32) *float32 {
+	return &v
 }
