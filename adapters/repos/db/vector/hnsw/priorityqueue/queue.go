@@ -87,12 +87,6 @@ func (l *Queue) Insert(id uint64, distance float32) int {
 	return i
 }
 
-func (l *Queue) InsertAndRemoveTop(id uint64, distance float32) {
-	l.items[0].Dist = distance
-	l.items[0].ID = id
-	l.heapify(0)
-}
-
 func (l *Queue) Pop() Item {
 	out := l.items[0]
 	l.items[0] = l.items[len(l.items)-1]
