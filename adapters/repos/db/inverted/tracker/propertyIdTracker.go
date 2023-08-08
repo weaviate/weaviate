@@ -136,10 +136,8 @@ func (t *JsonPropertyIdTracker) GetIdForProperty(property string) (uint64, error
 		return id, nil
 	}
 
-	// panic(fmt.Sprintf("property %v not found\n", property))
 	log.Printf("FIXME: property %v not created before use!\n", property)
 	return t._createProperty(property)
-	// return 0, fmt.Errorf("property %v not found\n", property)
 }
 
 func (t *JsonPropertyIdTracker) CreateProperty(property string) (uint64, error) {
@@ -150,7 +148,6 @@ func (t *JsonPropertyIdTracker) CreateProperty(property string) (uint64, error) 
 }
 
 func (t *JsonPropertyIdTracker) _createProperty(property string) (uint64, error) {
-	fmt.Printf("Creating property %v\n", property)
 
 	if id, ok := t.PropertyIds[property]; ok {
 		fmt.Printf("property %v already exists\n", property)

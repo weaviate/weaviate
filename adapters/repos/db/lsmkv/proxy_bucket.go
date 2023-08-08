@@ -9,6 +9,30 @@
 //  CONTACT: hello@weaviate.io
 //
 
+/*
+Proxy Buckets wrap the current buckets and modify the key value as requests are passed through, adding the property id as a prefix.
+
+This is the core part of the effort to merge property buckets into 2 buckets.  At the moment, each property can have around 5 bucket files: index, filter, length, timestamp and probably more I don't remember.  This causes issues for the operating system when there are many properties, as the OS can only have a certain number of open files.  Therefore, we want to merge all the properties into 2 buckets: one for the index and one for filters.
+
+However, the original bucket class needs to continue operating as before, because there are still parts of the code that do not need to be merged.
+
+In order to accomodate this, we need to modify the keys of the requests as they access the bucket.  This is what the proxy bucket does.  It takes a legacy bucket and a property name, and then it intercepts calls to the bucket, modifies the keys of the requests to add the property id as a prefix to every call, and then passes the request on to the legacy bucket.
+
+Then we have to go through the code and alter every line that creates or loads a property bucket, and wrap it with a proxy bucket (and a property name).  Then the rest of the code will perform identical calls to the proxy bucket as it would to the real bucket, but the keys will be quietly modified.
+
+From now on, all property data MUST go through a proxy bucket. e.g.
+
+    	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		if err != nil {
+			t.Fatalf("Failed to create bucket: %v", err)
+		}
+
+		bp := NewBucketProxy(b, propName, propids)
+
+In order to speed up access, the property name is not used as a prefix, instead each property is given a number and that is used as a prefix.  The property name is only used for debugging.
+
+*/
+
 package lsmkv
 
 import (
@@ -23,32 +47,29 @@ import (
 )
 
 type BucketProxy struct {
-	realBucket      BucketInterface // the real storage bucket
-	property_prefix []byte          // the property id as a byte prefix, only keys with this prefix will be  accessed
-	PropertyName    string          // the property name, used mainly for debugging
+	realBucket     BucketInterface // the real storage bucket
+	propertyPrefix []byte          // the property id as a byte prefix, only keys with this prefix will be  accessed
+	PropertyName   string          // the property name, used mainly for debugging
 }
 
-func NewBucketProxy(realB BucketInterface, propName string, propids *tracker.JsonPropertyIdTracker) *BucketProxy {
+func NewBucketProxy(realB BucketInterface, propName string, propids *tracker.JsonPropertyIdTracker) (*BucketProxy, error) {
 	if propids == nil {
-		panic("propids is nil")
+		return nil, fmt.Errorf("propids is nil")
 	}
 	propid_bytes, err := helpers.MakePropertyPrefix(propName, propids)
 	if err != nil {
 		fmt.Printf("property '%s' not found in propLengths", propName)
 	}
-	return NewBucketProxyWithPrefix(realB, propName, propid_bytes)
-}
 
-func NewBucketProxyWithPrefix(realB BucketInterface, propName string, propid_bytes []byte) *BucketProxy {
 	return &BucketProxy{
-		realBucket:      realB,
-		property_prefix: propid_bytes,
-		PropertyName:    propName,
-	}
+		realBucket:     realB,
+		propertyPrefix: propid_bytes,
+		PropertyName:   propName,
+	}, nil
 }
 
 func (b *BucketProxy) PropertyPrefix() []byte {
-	return b.property_prefix
+	return b.propertyPrefix
 }
 
 func (b *BucketProxy) RoaringSetRemoveOne(key []byte, value uint64) error {
@@ -62,7 +83,7 @@ func (b *BucketProxy) RoaringSetAddList(key []byte, values []uint64) error {
 }
 
 func (b *BucketProxy) makePropertyKey(key []byte) []byte {
-	return helpers.MakePropertyKey(b.property_prefix, key)
+	return helpers.MakePropertyKey(b.propertyPrefix, key)
 }
 
 func (b *BucketProxy) CursorRoaringSet() CursorRoaringSet {

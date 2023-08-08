@@ -40,7 +40,6 @@ func MakePropertyPrefix(property string, propIds *tracker.JsonPropertyIdTracker)
 
 func MakePropertyKey(propPrefix []byte, key []byte) []byte {
 	if len(propPrefix) == 0 {
-		fmt.Println(fmt.Errorf("Empty property name in MakePropertyKey, this is almost certainly wrong"))
 		return nil
 	}
 
