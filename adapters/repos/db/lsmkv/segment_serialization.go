@@ -368,7 +368,6 @@ func ParseCollectionNodeInto(r io.Reader, node *segmentCollectionNode) error {
 	offset := 0
 
 	buf := make([]byte, 9)
-
 	_, err := io.ReadFull(r, buf[0:8])
 	if err != nil {
 		return fmt.Errorf("read values len: %w", err)
@@ -379,7 +378,6 @@ func ParseCollectionNodeInto(r io.Reader, node *segmentCollectionNode) error {
 
 	resizeValuesOfCollectionNode(node, valuesLen)
 	for i := range node.values {
-		buf = make([]byte, 9)
 		_, err = io.ReadFull(r, buf)
 		if err != nil {
 			return fmt.Errorf("read values len: %w", err)
@@ -401,8 +399,7 @@ func ParseCollectionNodeInto(r io.Reader, node *segmentCollectionNode) error {
 		offset += int(valueLen)
 	}
 
-	buf = make([]byte, 4)
-	_, err = io.ReadFull(r, buf)
+	_, err = io.ReadFull(r, buf[0:4])
 	if err != nil {
 		return fmt.Errorf("read values len: %w", err)
 	}
