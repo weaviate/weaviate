@@ -3925,6 +3925,12 @@ func init() {
     "NodeStats": {
       "description": "The summary of Weaviate's statistics.",
       "properties": {
+        "batchQueueLength": {
+          "description": "How many objects are currently in the batch queue.",
+          "type": "number",
+          "format": "int",
+          "x-omitempty": false
+        },
         "objectCount": {
           "description": "The total number of objects in DB.",
           "type": "number",
@@ -8914,6 +8920,12 @@ func init() {
     "NodeStats": {
       "description": "The summary of Weaviate's statistics.",
       "properties": {
+        "batchQueueLength": {
+          "description": "How many objects are currently in the batch queue.",
+          "type": "number",
+          "format": "int",
+          "x-omitempty": false
+        },
         "objectCount": {
           "description": "The total number of objects in DB.",
           "type": "number",

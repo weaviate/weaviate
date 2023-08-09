@@ -28,6 +28,9 @@ import (
 // swagger:model NodeStats
 type NodeStats struct {
 
+	// How many objects are currently in the batch queue.
+	BatchQueueLength int64 `json:"batchQueueLength"`
+
 	// The total number of objects in DB.
 	ObjectCount int64 `json:"objectCount"`
 

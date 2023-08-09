@@ -93,8 +93,9 @@ func (db *DB) localNodeStatus(className string) *models.NodeStatus {
 		Status:  &clusterHealthStatus,
 		Shards:  shards,
 		Stats: &models.NodeStats{
-			ShardCount:  int64(len(shards)),
-			ObjectCount: objectCount,
+			ShardCount:       int64(len(shards)),
+			ObjectCount:      objectCount,
+			BatchQueueLength: int64(len(db.jobQueueCh)),
 		},
 	}
 }
