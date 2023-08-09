@@ -161,6 +161,7 @@ type ProductQuantizer struct {
 	encoderDistribution EncoderDistribution
 	dlutPool            *DLUTPool
 	trainingLimit       int
+	globalDistances     []float32
 }
 
 type PQData struct {
@@ -223,7 +224,25 @@ func NewProductQuantizerWithEncoders(cfg ent.PQConfig, distance distancer.Provid
 	}
 
 	pq.kms = encoders
+	pq.buildGlobalDistances()
 	return pq, nil
+}
+
+func (pq *ProductQuantizer) buildGlobalDistances() {
+	// This hosts the partial distances between the centroids. This way we do not need
+	// to recalculate all the time when calculating full distances between compressed vecs
+	pq.globalDistances = make([]float32, pq.m*pq.ks*pq.ks)
+	for segment := 0; segment < pq.m; segment++ {
+		for i := 0; i < pq.ks; i++ {
+			cX := pq.kms[segment].Centroid(byte(i))
+			for j := 0; j <= i; j++ {
+				cY := pq.kms[segment].Centroid(byte(j))
+				pq.globalDistances[segment*pq.ks*pq.ks+i*pq.ks+j] = pq.distance.Step(cX, cY)
+				// Just copy from already calculated cell since step should be symmetric.
+				pq.globalDistances[segment*pq.ks*pq.ks+j*pq.ks+i] = pq.globalDistances[segment*pq.ks*pq.ks+i*pq.ks+j]
+			}
+		}
+	}
 }
 
 // Only made public for testing purposes... Not sure we need it outside
@@ -274,9 +293,9 @@ func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) float3
 	dist := float32(0)
 
 	for i := 0; i < pq.m; i++ {
-		cX := pq.kms[i].Centroid(ExtractCode8(x, i))
-		cY := pq.kms[i].Centroid(ExtractCode8(y, i))
-		dist += pq.distance.Step(cX, cY)
+		cX := ExtractCode8(x, i)
+		cY := ExtractCode8(y, i)
+		dist += pq.globalDistances[i*pq.ks*pq.ks+int(cX)*pq.ks+int(cY)]
 	}
 
 	return pq.distance.Wrap(dist)
@@ -346,15 +365,7 @@ func (pq *ProductQuantizer) Fit(data [][]float32) {
 			}
 		})
 	}
-	/*for i := 0; i < 1; i++ {
-		fmt.Println("********")
-		centers := make([]float64, 0)
-		for c := 0; c < pq.ks; c++ {
-			centers = append(centers, float64(pq.kms[i].Centroid(byte(c))[0]))
-		}
-		hist := histogram.Hist(60, centers)
-		histogram.Fprint(os.Stdout, hist, histogram.Linear(5))
-	}*/
+	pq.buildGlobalDistances()
 }
 
 func (pq *ProductQuantizer) Encode(vec []float32) []byte {
@@ -366,7 +377,7 @@ func (pq *ProductQuantizer) Encode(vec []float32) []byte {
 }
 
 func (pq *ProductQuantizer) Decode(code []byte) []float32 {
-	vec := make([]float32, 0, len(code))
+	vec := make([]float32, 0, pq.m)
 	for i := 0; i < pq.m; i++ {
 		vec = append(vec, pq.kms[i].Centroid(ExtractCode8(code, i))...)
 	}
