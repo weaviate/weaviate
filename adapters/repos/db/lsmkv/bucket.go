@@ -36,13 +36,6 @@ import (
 // BucketInterface supports wrapping the bucket with proxy objects to enable things like multiple properties per bucket
 type BucketInterface interface {
 	Shutdown(ctx context.Context) error
-	// Commit() error
-	// Rollback() error
-
-	// CompactRange(start, end []byte) error
-	// DropIndex(pos int) error
-	// BuildSecondaryIndex(pos int, start, end []byte) error
-	// SecondaryIndexDelete(pos int, secondaryKey []byte) error
 	IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error
 	SetMemtableThreshold(size uint64)
 	Get(key []byte) ([]byte, error)
@@ -60,7 +53,6 @@ type BucketInterface interface {
 	Strategy() string
 	RoaringSetGet(key []byte) (*sroar.Bitmap, error)
 	SetCursorKeyOnly() *CursorSet
-	// SetCursorKey() *CursorSet
 	SetCursor() *CursorSet
 	MapCursorKeyOnly(cfgs ...MapListOption) *CursorMap
 	MapCursor(cfgs ...MapListOption) *CursorMap
