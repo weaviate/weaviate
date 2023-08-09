@@ -949,21 +949,26 @@
           "type": "number",
           "x-omitempty": false
         },
-        "batchQueueLength": {
+        "objectCount": {
+          "description": "The total number of objects in DB.",
+          "format": "int64",
+          "type": "number",
+          "x-omitempty": false
+        }
+      }
+    },
+    "BatchStats": {
+      "description": "The summary of a nodes batch queue congestion status.",
+      "properties": {
+        "queueLength": {
           "description": "How many objects are currently in the batch queue.",
           "format": "int",
           "type": "number",
           "x-omitempty": false
         },
-        "batchRatePerSecond": {
+        "ratePerSecond": {
           "description": "How many objects are approximately processed from the batch queue per second.",
           "format": "int",
-          "type": "number",
-          "x-omitempty": false
-        },
-        "objectCount": {
-          "description": "The total number of objects in DB.",
-          "format": "int64",
           "type": "number",
           "x-omitempty": false
         }
@@ -1019,6 +1024,11 @@
           "description": "Weaviate overall statistics.",
           "type": "object",
           "$ref": "#/definitions/NodeStats"
+        },
+        "batchStats": {
+          "description": "Weaviate batch statistics.",
+          "type": "object",
+          "$ref": "#/definitions/BatchStats"
         },
         "shards": {
           "description": "The list of the shards with it's statistics.",

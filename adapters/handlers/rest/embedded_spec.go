@@ -3336,6 +3336,23 @@ func init() {
         }
       ]
     },
+    "BatchStats": {
+      "description": "The summary of a nodes batch queue congestion status.",
+      "properties": {
+        "queueLength": {
+          "description": "How many objects are currently in the batch queue.",
+          "type": "number",
+          "format": "int",
+          "x-omitempty": false
+        },
+        "ratePerSecond": {
+          "description": "How many objects are approximately processed from the batch queue per second.",
+          "type": "number",
+          "format": "int",
+          "x-omitempty": false
+        }
+      }
+    },
     "C11yExtension": {
       "description": "A resource describing an extension to the contextinoary, containing both the identifier and the definition of the extension",
       "properties": {
@@ -3925,18 +3942,6 @@ func init() {
     "NodeStats": {
       "description": "The summary of Weaviate's statistics.",
       "properties": {
-        "batchQueueLength": {
-          "description": "How many objects are currently in the batch queue.",
-          "type": "number",
-          "format": "int",
-          "x-omitempty": false
-        },
-        "batchRatePerSecond": {
-          "description": "How many objects are approximately processed from the batch queue per second.",
-          "type": "number",
-          "format": "int",
-          "x-omitempty": false
-        },
         "objectCount": {
           "description": "The total number of objects in DB.",
           "type": "number",
@@ -3954,6 +3959,11 @@ func init() {
     "NodeStatus": {
       "description": "The definition of a backup node status response body",
       "properties": {
+        "batchStats": {
+          "description": "Weaviate batch statistics.",
+          "type": "object",
+          "$ref": "#/definitions/BatchStats"
+        },
         "gitHash": {
           "description": "The gitHash of Weaviate.",
           "type": "string"
@@ -8267,6 +8277,23 @@ func init() {
         }
       }
     },
+    "BatchStats": {
+      "description": "The summary of a nodes batch queue congestion status.",
+      "properties": {
+        "queueLength": {
+          "description": "How many objects are currently in the batch queue.",
+          "type": "number",
+          "format": "int",
+          "x-omitempty": false
+        },
+        "ratePerSecond": {
+          "description": "How many objects are approximately processed from the batch queue per second.",
+          "type": "number",
+          "format": "int",
+          "x-omitempty": false
+        }
+      }
+    },
     "C11yExtension": {
       "description": "A resource describing an extension to the contextinoary, containing both the identifier and the definition of the extension",
       "properties": {
@@ -8926,18 +8953,6 @@ func init() {
     "NodeStats": {
       "description": "The summary of Weaviate's statistics.",
       "properties": {
-        "batchQueueLength": {
-          "description": "How many objects are currently in the batch queue.",
-          "type": "number",
-          "format": "int",
-          "x-omitempty": false
-        },
-        "batchRatePerSecond": {
-          "description": "How many objects are approximately processed from the batch queue per second.",
-          "type": "number",
-          "format": "int",
-          "x-omitempty": false
-        },
         "objectCount": {
           "description": "The total number of objects in DB.",
           "type": "number",
@@ -8955,6 +8970,11 @@ func init() {
     "NodeStatus": {
       "description": "The definition of a backup node status response body",
       "properties": {
+        "batchStats": {
+          "description": "Weaviate batch statistics.",
+          "type": "object",
+          "$ref": "#/definitions/BatchStats"
+        },
         "gitHash": {
           "description": "The gitHash of Weaviate.",
           "type": "string"
