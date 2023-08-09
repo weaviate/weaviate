@@ -235,7 +235,7 @@ func (pq *ProductQuantizer) buildGlobalDistances() {
 	for segment := 0; segment < pq.m; segment++ {
 		for i := 0; i < pq.ks; i++ {
 			cX := pq.kms[segment].Centroid(byte(i))
-			for j := 0; j <= pq.ks; j++ {
+			for j := 0; j <= i; j++ {
 				cY := pq.kms[segment].Centroid(byte(j))
 				pq.globalDistances[i*pq.ks+j] = pq.distance.Step(cX, cY)
 				// Just copy from already calculated cell since step should be symmetric.
