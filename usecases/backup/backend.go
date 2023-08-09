@@ -15,9 +15,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"runtime"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -33,8 +35,18 @@ const (
 	storeTimeout = 24 * time.Hour
 	metaTimeout  = 20 * time.Minute
 
-	// createTimeout  = 5 * time.Minute
-	// releaseTimeout = 30 * time.Second
+	// defaultChunkSize if size is not specified
+	defaultChunkSize = 1 << 27 // 128MB
+
+	// maxChunkSize is the upper bound on the chunk size
+	maxChunkSize = 1 << 29 // 512MB
+
+	//
+	minChunkSize = 1 << 21 // 2MB
+
+	// goPoolPercentage specifies maximal number of go routines which can be allocated
+	goPoolMaxPercentage     = 80
+	goPoolDefaultPercentage = 50
 )
 
 const (
@@ -66,8 +78,12 @@ func (s *objStore) SourceDataPath() string {
 	return s.b.SourceDataPath()
 }
 
-func (s *objStore) PutFile(ctx context.Context, key, srcPath string) error {
-	return s.b.PutFile(ctx, s.BasePath, key, srcPath)
+func (s *objStore) Write(ctx context.Context, key string, r io.ReadCloser) (int64, error) {
+	return s.b.Write(ctx, s.BasePath, key, r)
+}
+
+func (s *objStore) Read(ctx context.Context, key string, w io.WriteCloser) (int64, error) {
+	return s.b.Read(ctx, s.BasePath, key, w)
 }
 
 func (s *objStore) Initialize(ctx context.Context) error {
@@ -152,17 +168,29 @@ func (s *coordStore) Meta(ctx context.Context, filename string) (*backup.Distrib
 
 // uploader uploads backup artifacts. This includes db files and metadata
 type uploader struct {
-	sourcer   Sourcer
-	backend   nodeStore
-	backupID  string
+	sourcer  Sourcer
+	backend  nodeStore
+	backupID string
+	zipConfig
 	setStatus func(st backup.Status)
 	log       logrus.FieldLogger
 }
 
 func newUploader(sourcer Sourcer, backend nodeStore,
-	backupID string, setstaus func(st backup.Status), l logrus.FieldLogger,
+	backupID string, setstatus func(st backup.Status), l logrus.FieldLogger,
 ) *uploader {
-	return &uploader{sourcer, backend, backupID, setstaus, l}
+	return &uploader{
+		sourcer, backend,
+		backupID,
+		newZipConfig(0, 50, defaultChunkSize),
+		setstatus,
+		l,
+	}
+}
+
+func (u *uploader) withCompression(cfg zipConfig) *uploader {
+	u.zipConfig = cfg
+	return u
 }
 
 // all uploads all files in addition to the metadata file
@@ -196,7 +224,7 @@ Loop:
 				return cdesc.Error
 			}
 			u.log.WithField("class", cdesc.Name).Info("start uploading files")
-			if err := u.class(ctx, desc.ID, cdesc); err != nil {
+			if err := u.class(ctx, desc.ID, &cdesc); err != nil {
 				return err
 			}
 			desc.Classes = append(desc.Classes, cdesc)
@@ -212,7 +240,7 @@ Loop:
 }
 
 // class uploads one class
-func (u *uploader) class(ctx context.Context, id string, desc backup.ClassDescriptor) (err error) {
+func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescriptor) (err error) {
 	metric, err := monitoring.GetMetrics().BackupStoreDurations.GetMetricWithLabelValues(getType(u.backend.b), desc.Name)
 	if err == nil {
 		timer := prometheus.NewTimer(metric)
@@ -224,26 +252,131 @@ func (u *uploader) class(ctx context.Context, id string, desc backup.ClassDescri
 	}()
 	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
 	defer cancel()
+	nShards := len(desc.Shards)
+	if nShards == 0 {
+		return nil
+	}
 
-	eg, ctx := errgroup.WithContext(ctx)
-	eg.SetLimit(2 * _NUMCPU)
+	desc.Chunks = make(map[int32][]string, 1+nShards/2)
+	var (
+		hasJobs   atomic.Bool
+		lastChunk = int32(0)
+		nWorker   = u.GoPoolSize
+	)
+	if nWorker > nShards {
+		nWorker = nShards
+	}
+	hasJobs.Store(nShards > 0)
 
-	for _, shard := range desc.Shards {
-		shard := shard
-		eg.Go(func() error {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			for _, fpath := range shard.Files {
-				if err := u.backend.PutFile(ctx, fpath, fpath); err != nil {
-					return fmt.Errorf("put shard: %q: %w", shard.Name, err)
+	// jobs produces work for the processor
+	jobs := func(xs []*backup.ShardDescriptor) <-chan *backup.ShardDescriptor {
+		sendCh := make(chan *backup.ShardDescriptor)
+		go func() {
+			defer close(sendCh)
+			defer hasJobs.Store(false)
+
+			for _, shard := range xs {
+				select {
+				case sendCh <- shard:
+				// cancellation will happen for two reasons:
+				//  - 1. if the whole operation has been aborted,
+				//  - 2. or if the processor routine returns an error
+				case <-ctx.Done():
+					return
 				}
 			}
-
-			return nil
-		})
+		}()
+		return sendCh
 	}
-	return eg.Wait()
+
+	// processor
+	processor := func(nWorker int, sender <-chan *backup.ShardDescriptor) <-chan chuckShards {
+		eg, ctx := errgroup.WithContext(ctx)
+		eg.SetLimit(nWorker)
+		recvCh := make(chan chuckShards, nWorker)
+		go func() {
+			defer close(recvCh)
+			for i := 0; i < nWorker; i++ {
+				eg.Go(func() error {
+					// operation might have been aborted see comment above
+					if err := ctx.Err(); err != nil {
+						return err
+					}
+					for hasJobs.Load() {
+						chunk := atomic.AddInt32(&lastChunk, 1)
+						shards, err := u.compress(ctx, desc.Name, chunk, sender)
+						if err != nil {
+							return err
+						}
+						if m := int32(len(shards)); m > 0 {
+							recvCh <- chuckShards{chunk, shards}
+						}
+					}
+					return err
+				})
+			}
+			err = eg.Wait()
+		}()
+		return recvCh
+	}
+
+	for x := range processor(nWorker, jobs(desc.Shards)) {
+		desc.Chunks[x.chunk] = x.shards
+	}
+	return
+}
+
+type chuckShards struct {
+	chunk  int32
+	shards []string
+}
+
+func (u *uploader) compress(ctx context.Context,
+	class string, // class name
+	chunk int32, // chunk index
+	ch <-chan *backup.ShardDescriptor, // chan of shards
+) ([]string, error) {
+	var (
+		chunkKey = chunkKey(class, chunk)
+		shards   = make([]string, 0, 10)
+		// add tolerance to enable better optimization of the chunk size
+		maxSize = int64(u.ChunkSize + u.ChunkSize/20) // size + 5%
+	)
+	zip, reader := NewZip(u.backend.SourceDataPath(), u.Level)
+	producer := func() error {
+		defer zip.Close()
+		lastShardSize := int64(0)
+		for shard := range ch {
+			if _, err := zip.WriteShard(ctx, shard); err != nil {
+				return err
+			}
+			shard.Chunk = chunk
+			shards = append(shards, shard.Name)
+			shard.ClearTemporary()
+
+			zip.gzw.Flush() // flush new shard
+			lastShardSize = zip.lastWritten() - lastShardSize
+			if zip.lastWritten()+lastShardSize > maxSize {
+				break
+			}
+		}
+		return nil
+	}
+
+	// consumer
+	var eg errgroup.Group
+	eg.Go(func() error {
+		if _, err := u.backend.Write(ctx, chunkKey, reader); err != nil {
+			return err
+		}
+		return nil
+	})
+
+	if err := producer(); err != nil {
+		return shards, err
+	}
+	// wait for the consumer to finish
+	return shards, eg.Wait()
 }
 
 // fileWriter downloads files from object store and writes files to the destination folder destDir
@@ -253,10 +386,12 @@ type fileWriter struct {
 	tempDir    string
 	destDir    string
 	movedFiles []string // files successfully moved to destination folder
+	compressed bool
+	GoPoolSize int
 }
 
 func newFileWriter(sourcer Sourcer, backend nodeStore,
-	backupID string,
+	backupID string, compressed bool,
 ) *fileWriter {
 	destDir := backend.SourceDataPath()
 	return &fileWriter{
@@ -265,7 +400,14 @@ func newFileWriter(sourcer Sourcer, backend nodeStore,
 		destDir:    destDir,
 		tempDir:    path.Join(destDir, _TempDirectory),
 		movedFiles: make([]string, 0, 64),
+		compressed: compressed,
+		GoPoolSize: routinePoolSize(50),
 	}
+}
+
+func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
+	fw.GoPoolSize = routinePoolSize(p)
+	return fw
 }
 
 // Write downloads files and put them in the destination directory
@@ -302,17 +444,38 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir string, d
 	if err := os.MkdirAll(classTempDir, os.ModePerm); err != nil {
 		return fmt.Errorf("create temp class folder %s: %w", classTempDir, err)
 	}
-	eg, ctx := errgroup.WithContext(ctx)
-	eg.SetLimit(2 * _NUMCPU)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
-	for _, shard := range desc.Shards {
-		shard := shard
-		eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir) })
+	// no compression processed as before
+	eg, ctx := errgroup.WithContext(ctx)
+	if !fw.compressed {
+		eg.SetLimit(2 * _NUMCPU)
+		for _, shard := range desc.Shards {
+			shard := shard
+			eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir) })
+		}
+		return eg.Wait()
+	}
+
+	// source files are compressed
+
+	eg.SetLimit(fw.GoPoolSize)
+	for k := range desc.Chunks {
+		chunk := chunkKey(desc.Name, k)
+		eg.Go(func() error {
+			uz, w := NewUnzip(classTempDir)
+			go func() {
+				fw.backend.Read(ctx, chunk, w)
+			}()
+			_, err := uz.ReadChunk()
+			return err
+		})
 	}
 	return eg.Wait()
 }
 
-func (fw *fileWriter) writeTempShard(ctx context.Context, sd backup.ShardDescriptor, classTempDir string) error {
+func (fw *fileWriter) writeTempShard(ctx context.Context, sd *backup.ShardDescriptor, classTempDir string) error {
 	for _, key := range sd.Files {
 		destPath := path.Join(classTempDir, key)
 		destDir := path.Dir(destPath)
@@ -366,4 +529,20 @@ func (fw *fileWriter) rollBack(classTempDir string) (err error) {
 		}
 	}
 	return err
+}
+
+func chunkKey(class string, id int32) string {
+	return fmt.Sprintf("%s/chunk-%d", class, id)
+}
+
+func routinePoolSize(percentage int) int {
+	if percentage == 0 { // default value
+		percentage = goPoolDefaultPercentage
+	} else if percentage > goPoolMaxPercentage {
+		percentage = goPoolMaxPercentage
+	}
+	if x := (_NUMCPU * percentage) / 100; x > 0 {
+		return x
+	}
+	return 1
 }

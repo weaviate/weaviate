@@ -32,6 +32,8 @@ func (m *Manager) handleCommit(ctx context.Context, tx *cluster.Transaction) err
 		return m.handleUpdateClassCommit(ctx, tx)
 	case addTenants:
 		return m.handleAddTenantsCommit(ctx, tx)
+	case updateTenants:
+		return m.handleUpdateTenantsCommit(ctx, tx)
 	case deleteTenants:
 		return m.handleDeleteTenantsCommit(ctx, tx)
 	default:
@@ -162,6 +164,31 @@ func (m *Manager) handleAddTenantsCommit(ctx context.Context,
 	}
 
 	err := m.onAddTenants(ctx, cls, req)
+	if err != nil {
+		m.logger.WithField("action", "on_add_tenants").
+			WithField("n", len(req.Tenants)).
+			WithField("class", cls.Class).Error(err)
+	}
+	return err
+}
+
+func (m *Manager) handleUpdateTenantsCommit(ctx context.Context,
+	tx *cluster.Transaction,
+) error {
+	m.Lock()
+	defer m.Unlock()
+
+	req, ok := tx.Payload.(UpdateTenantsPayload)
+	if !ok {
+		return errors.Errorf("expected commit payload to be UpdateTenants, but got %T",
+			tx.Payload)
+	}
+	cls := m.getClassByName(req.Class)
+	if cls == nil {
+		return fmt.Errorf("class %q: %w", req.Class, ErrNotFound)
+	}
+
+	err := m.onUpdateTenants(ctx, cls, req)
 	if err != nil {
 		m.logger.WithField("action", "on_add_tenants").
 			WithField("n", len(req.Tenants)).

@@ -28,6 +28,7 @@ const (
 
 	// tenant types
 	addTenants    cluster.TransactionType = "add_tenants"
+	updateTenants cluster.TransactionType = "update_tenants"
 	deleteTenants cluster.TransactionType = "delete_tenants"
 
 	DeleteClass cluster.TransactionType = "delete_class"
@@ -49,16 +50,27 @@ type AddPropertyPayload struct {
 	Property  *models.Property `json:"property"`
 }
 
-// Tenant represents properties of a specific tenant (physical shard)
-type Tenant struct {
-	Name  string   `json:"name"`
-	Nodes []string `json:"nodes"`
+// TenantCreate represents properties of a specific tenant (physical shard)
+type TenantCreate struct {
+	Name   string   `json:"name"`
+	Nodes  []string `json:"nodes"`
+	Status string   `json:"status"`
+}
+
+type TenantUpdate struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
 }
 
 // AddTenantsPayload allows for adding multiple tenants to a class
 type AddTenantsPayload struct {
-	Class   string   `json:"class_name"`
-	Tenants []Tenant `json:"tenants"`
+	Class   string         `json:"class_name"`
+	Tenants []TenantCreate `json:"tenants"`
+}
+
+type UpdateTenantsPayload struct {
+	Class   string         `json:"class_name"`
+	Tenants []TenantUpdate `json:"tenants"`
 }
 
 // DeleteTenantsPayload allows for removing multiple tenants from a class
@@ -101,6 +113,8 @@ func UnmarshalTransaction(txType cluster.TransactionType,
 		return unmarshalRawJson[ReadSchemaPayload](payload)
 	case addTenants:
 		return unmarshalRawJson[AddTenantsPayload](payload)
+	case updateTenants:
+		return unmarshalRawJson[UpdateTenantsPayload](payload)
 	case deleteTenants:
 		return unmarshalRawJson[DeleteTenantsPayload](payload)
 	default:

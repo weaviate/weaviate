@@ -13,11 +13,11 @@ package segmentindex
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
-	"github.com/weaviate/weaviate/usecases/byte_operations"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 // DiskTree is a read-only wrapper around a marshalled index search tree, which
@@ -47,7 +47,7 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 		return Node{}, lsmkv.NotFound
 	}
 	var out Node
-	byteOps := byte_operations.ByteOperations{Buffer: t.data}
+	rw := byteops.NewReadWriter(t.data)
 
 	// jump to the buffer until the node with _key_ is found or return a NotFound error.
 	// This function avoids allocations by reusing the same buffer for all keys and avoids memory reads by only
@@ -55,33 +55,33 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 	NodeKeyBuffer := make([]byte, len(key))
 	for {
 		// detect if there is no node with the wanted key.
-		if byteOps.Position+4 > uint64(len(t.data)) || byteOps.Position+4 < 4 {
+		if rw.Position+4 > uint64(len(t.data)) || rw.Position+4 < 4 {
 			return out, lsmkv.NotFound
 		}
 
-		keyLen := byteOps.ReadUint32()
+		keyLen := rw.ReadUint32()
 		if int(keyLen) > len(NodeKeyBuffer) {
 			NodeKeyBuffer = make([]byte, int(keyLen))
 		} else if int(keyLen) < len(NodeKeyBuffer) {
 			NodeKeyBuffer = NodeKeyBuffer[:keyLen]
 		}
-		_, err := byteOps.CopyBytesFromBuffer(uint64(keyLen), NodeKeyBuffer)
+		_, err := rw.CopyBytesFromBuffer(uint64(keyLen), NodeKeyBuffer)
 		if err != nil {
-			return out, errors.Wrap(err, "Could not copy node key")
+			return out, fmt.Errorf("copy node key: %w", err)
 		}
 
 		keyEqual := bytes.Compare(key, NodeKeyBuffer)
 		if keyEqual == 0 {
 			out.Key = NodeKeyBuffer
-			out.Start = byteOps.ReadUint64()
-			out.End = byteOps.ReadUint64()
+			out.Start = rw.ReadUint64()
+			out.End = rw.ReadUint64()
 			return out, nil
 		} else if keyEqual < 0 {
-			byteOps.MoveBufferPositionForward(2 * 8) // jump over start+end position
-			byteOps.Position = byteOps.ReadUint64()  // left child
+			rw.MoveBufferPositionForward(2 * 8) // jump over start+end position
+			rw.Position = rw.ReadUint64()       // left child
 		} else {
-			byteOps.MoveBufferPositionForward(3 * 8) // jump over start+end position and left child
-			byteOps.Position = byteOps.ReadUint64()  // right child
+			rw.MoveBufferPositionForward(3 * 8) // jump over start+end position and left child
+			rw.Position = rw.ReadUint64()       // right child
 		}
 	}
 }
@@ -99,20 +99,20 @@ func (t *DiskTree) readNode(in []byte) (dtNode, int, error) {
 		return out, 0, io.EOF
 	}
 
-	byteOps := byte_operations.ByteOperations{Buffer: in}
+	rw := byteops.NewReadWriter(in)
 
-	keyLen := uint64(byteOps.ReadUint32())
-	copiedBytes, err := byteOps.CopyBytesFromBuffer(keyLen, nil)
+	keyLen := uint64(rw.ReadUint32())
+	copiedBytes, err := rw.CopyBytesFromBuffer(keyLen, nil)
 	if err != nil {
-		return out, int(byteOps.Position), errors.Wrap(err, "Could not copy node key")
+		return out, int(rw.Position), fmt.Errorf("copy node key: %w", err)
 	}
 	out.key = copiedBytes
 
-	out.startPos = byteOps.ReadUint64()
-	out.endPos = byteOps.ReadUint64()
-	out.leftChild = int64(byteOps.ReadUint64())
-	out.rightChild = int64(byteOps.ReadUint64())
-	return out, int(byteOps.Position), nil
+	out.startPos = rw.ReadUint64()
+	out.endPos = rw.ReadUint64()
+	out.leftChild = int64(rw.ReadUint64())
+	out.rightChild = int64(rw.ReadUint64())
+	return out, int(rw.Position), nil
 }
 
 func (t *DiskTree) Seek(key []byte) (Node, error) {

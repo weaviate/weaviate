@@ -12,10 +12,9 @@
 package lsmkv
 
 import (
-	"bytes"
 	"encoding/binary"
+	"fmt"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -23,7 +22,7 @@ import (
 func (s *segment) getCollection(key []byte) ([]value, error) {
 	if s.strategy != segmentindex.StrategySetCollection &&
 		s.strategy != segmentindex.StrategyMapCollection {
-		return nil, errors.Errorf("get only possible for strategies %q, %q",
+		return nil, fmt.Errorf("get only possible for strategies %q, %q",
 			StrategySetCollection, StrategyMapCollection)
 	}
 
@@ -50,7 +49,9 @@ func (s *segment) getCollection(key []byte) ([]value, error) {
 	// compaction completes and the old segment is removed, we would be accessing
 	// invalid memory without the copy, thus leading to a SEGFAULT.
 	contentsCopy := make([]byte, node.End-node.Start)
-	copy(contentsCopy, s.contents[node.Start:node.End])
+	if err = s.copyNode(contentsCopy, nodeOffset{node.Start, node.End}); err != nil {
+		return nil, err
+	}
 
 	return s.collectionStratParseData(contentsCopy)
 }
@@ -81,22 +82,4 @@ func (s *segment) collectionStratParseData(in []byte) ([]value, error) {
 	}
 
 	return values, nil
-}
-
-func (s *segment) collectionStratParseDataWithKey(in []byte) (segmentCollectionNode, error) {
-	r := bytes.NewReader(in)
-
-	if len(in) == 0 {
-		return segmentCollectionNode{}, lsmkv.NotFound
-	}
-
-	return ParseCollectionNode(r)
-}
-
-func (s *segment) collectionStratParseDataWithKeyInto(in []byte, node *segmentCollectionNode) error {
-	if len(in) == 0 {
-		return lsmkv.NotFound
-	}
-
-	return ParseCollectionNodeInto(in, node)
 }

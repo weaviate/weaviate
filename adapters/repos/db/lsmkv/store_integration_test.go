@@ -20,16 +20,33 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func TestStoreLifecycle(t *testing.T) {
+	ctx := testCtx()
+	tests := bucketIntegrationTests{
+		{
+			name: "testStoreLifecycle",
+			f:    testStoreLifecycle,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+			},
+		},
+	}
+	tests.run(ctx, t)
+}
+
+func testStoreLifecycle(ctx context.Context, t *testing.T, opts []BucketOption) {
 	dirName := t.TempDir()
+	logger := nullLogger()
 
 	t.Run("cycle 1", func(t *testing.T) {
-		store, err := New(dirName, "", nullLogger(), nil)
+		store, err := New(dirName, dirName, logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		require.Nil(t, err)
 
-		err = store.CreateOrLoadBucket(testCtx(), "bucket1", WithStrategy(StrategyReplace))
+		err = store.CreateOrLoadBucket(testCtx(), "bucket1", opts...)
 		require.Nil(t, err)
 
 		b1 := store.Bucket("bucket1")
@@ -38,7 +55,7 @@ func TestStoreLifecycle(t *testing.T) {
 		err = b1.Put([]byte("name"), []byte("Jane Doe"))
 		require.Nil(t, err)
 
-		err = store.CreateOrLoadBucket(testCtx(), "bucket2", WithStrategy(StrategyReplace))
+		err = store.CreateOrLoadBucket(testCtx(), "bucket2", opts...)
 		require.Nil(t, err)
 
 		b2 := store.Bucket("bucket2")
@@ -52,16 +69,17 @@ func TestStoreLifecycle(t *testing.T) {
 	})
 
 	t.Run("cycle 2", func(t *testing.T) {
-		store, err := New(dirName, "", nullLogger(), nil)
+		store, err := New(dirName, dirName, logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		require.Nil(t, err)
 
-		err = store.CreateOrLoadBucket(testCtx(), "bucket1", WithStrategy(StrategyReplace))
+		err = store.CreateOrLoadBucket(testCtx(), "bucket1", opts...)
 		require.Nil(t, err)
 
 		b1 := store.Bucket("bucket1")
 		require.NotNil(t, b1)
 
-		err = store.CreateOrLoadBucket(testCtx(), "bucket2", WithStrategy(StrategyReplace))
+		err = store.CreateOrLoadBucket(testCtx(), "bucket2", opts...)
 		require.Nil(t, err)
 
 		b2 := store.Bucket("bucket2")

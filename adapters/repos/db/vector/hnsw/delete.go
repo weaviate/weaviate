@@ -175,12 +175,12 @@ func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanU
 
 // CleanUpTombstonedNodes removes nodes with a tombstone and reassigns
 // edges that were previously pointing to the tombstoned nodes
-func (h *hnsw) CleanUpTombstonedNodes(shouldBreak cyclemanager.ShouldBreakFunc) error {
-	_, err := h.cleanUpTombstonedNodes(shouldBreak)
+func (h *hnsw) CleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) error {
+	_, err := h.cleanUpTombstonedNodes(shouldAbort)
 	return err
 }
 
-func (h *hnsw) cleanUpTombstonedNodes(shouldBreak cyclemanager.ShouldBreakFunc) (bool, error) {
+func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) (bool, error) {
 	h.metrics.StartCleanup(1)
 	defer h.metrics.EndCleanup(1)
 
@@ -189,7 +189,7 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldBreak cyclemanager.ShouldBreakFunc) 
 	h.resetLock.Unlock()
 
 	breakCleanUpTombstonedNodes := func() bool {
-		return resetCtx.Err() != nil || shouldBreak()
+		return resetCtx.Err() != nil || shouldAbort()
 	}
 
 	executed := false
@@ -289,7 +289,8 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 
 	var neighborVec []float32
 	if h.compressed.Load() {
-		vec, err := h.compressedVectorsCache.get(context.Background(), neighbor)
+		var vec []byte
+		vec, err = h.compressedVectorsCache.get(context.Background(), neighbor)
 		if err == nil {
 			neighborVec = h.pq.Decode(vec)
 		}
@@ -579,7 +580,9 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 
 		h.resetLock.Lock()
 		if !breakCleanUpTombstonedNodes() {
+			h.Lock()
 			h.nodes[id] = nil
+			h.Unlock()
 			if h.compressed.Load() {
 				h.compressedVectorsCache.delete(context.TODO(), id)
 			} else {

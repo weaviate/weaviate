@@ -29,7 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/byte_operations"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 type Object struct {
@@ -83,27 +83,27 @@ func FromBinary(data []byte) (*Object, error) {
 func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 	ko := &Object{}
 
-	byteOps := byte_operations.ByteOperations{Buffer: data}
-	version := byteOps.ReadUint8()
+	rw := byteops.NewReadWriter(data)
+	version := rw.ReadUint8()
 	if version != 1 {
 		return nil, errors.Errorf("unsupported binary marshaller version %d", version)
 	}
 
-	ko.docID = byteOps.ReadUint64()
-	byteOps.MoveBufferPositionForward(1) // ignore kind-byte
-	uuidObj, err := uuid.FromBytes(byteOps.ReadBytesFromBuffer(16))
+	ko.docID = rw.ReadUint64()
+	rw.MoveBufferPositionForward(1) // ignore kind-byte
+	uuidObj, err := uuid.FromBytes(rw.ReadBytesFromBuffer(16))
 	if err != nil {
 		return nil, fmt.Errorf("parse uuid: %w", err)
 	}
 	ko.Object.ID = strfmt.UUID(uuidObj.String())
 
-	byteOps.MoveBufferPositionForward(16)
+	rw.MoveBufferPositionForward(16)
 
-	vecLen := byteOps.ReadUint16()
-	byteOps.MoveBufferPositionForward(uint64(vecLen * 4))
-	classNameLen := byteOps.ReadUint16()
+	vecLen := rw.ReadUint16()
+	rw.MoveBufferPositionForward(uint64(vecLen * 4))
+	classNameLen := rw.ReadUint16()
 
-	ko.Object.Class = string(byteOps.ReadBytesFromBuffer(uint64(classNameLen)))
+	ko.Object.Class = string(rw.ReadBytesFromBuffer(uint64(classNameLen)))
 
 	return ko, nil
 }
@@ -155,7 +155,7 @@ func FromBinaryOptional(data []byte,
 		ko.Vector = make([]float32, vectorLength)
 		ec.AddWrap(binary.Read(r, le, &ko.Vector), "read vector")
 	} else {
-		io.CopyN(io.Discard, r, int64(vectorLength*4))
+		io.CopyN(io.Discard, r, int64(vectorLength)*4)
 	}
 	ec.AddWrap(binary.Read(r, le, &classNameLength), "class name length")
 	className := make([]byte, classNameLength)
@@ -504,40 +504,40 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 
 	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 + 2 + vectorLength*4 + 2 + classNameLength + 4 + schemaLength + 4 + metaLength + 4 + vectorWeightsLength
 	byteBuffer := make([]byte, totalBufferLength)
-	byteOps := byte_operations.ByteOperations{Buffer: byteBuffer}
-	byteOps.WriteByte(ko.MarshallerVersion)
-	byteOps.WriteUint64(ko.docID)
-	byteOps.WriteByte(kindByte)
+	rw := byteops.NewReadWriter(byteBuffer)
+	rw.WriteByte(ko.MarshallerVersion)
+	rw.WriteUint64(ko.docID)
+	rw.WriteByte(kindByte)
 
-	byteOps.CopyBytesToBuffer(idBytes)
+	rw.CopyBytesToBuffer(idBytes)
 
-	byteOps.WriteUint64(uint64(ko.CreationTimeUnix()))
-	byteOps.WriteUint64(uint64(ko.LastUpdateTimeUnix()))
-	byteOps.WriteUint16(uint16(vectorLength))
+	rw.WriteUint64(uint64(ko.CreationTimeUnix()))
+	rw.WriteUint64(uint64(ko.LastUpdateTimeUnix()))
+	rw.WriteUint16(uint16(vectorLength))
 
 	for j := uint32(0); j < vectorLength; j++ {
-		byteOps.WriteUint32(math.Float32bits(ko.Vector[j]))
+		rw.WriteUint32(math.Float32bits(ko.Vector[j]))
 	}
 
-	byteOps.WriteUint16(uint16(classNameLength))
-	err = byteOps.CopyBytesToBuffer(className)
+	rw.WriteUint16(uint16(classNameLength))
+	err = rw.CopyBytesToBuffer(className)
 	if err != nil {
 		return byteBuffer, errors.Wrap(err, "Could not copy className")
 	}
 
-	byteOps.WriteUint32(schemaLength)
-	err = byteOps.CopyBytesToBuffer(schema)
+	rw.WriteUint32(schemaLength)
+	err = rw.CopyBytesToBuffer(schema)
 	if err != nil {
 		return byteBuffer, errors.Wrap(err, "Could not copy schema")
 	}
 
-	byteOps.WriteUint32(metaLength)
-	err = byteOps.CopyBytesToBuffer(meta)
+	rw.WriteUint32(metaLength)
+	err = rw.CopyBytesToBuffer(meta)
 	if err != nil {
 		return byteBuffer, errors.Wrap(err, "Could not copy meta")
 	}
-	byteOps.WriteUint32(vectorWeightsLength)
-	err = byteOps.CopyBytesToBuffer(vectorWeights)
+	rw.WriteUint32(vectorWeightsLength)
+	err = rw.CopyBytesToBuffer(vectorWeights)
 	if err != nil {
 		return byteBuffer, errors.Wrap(err, "Could not copy vectorWeights")
 	}
@@ -560,16 +560,16 @@ func UnmarshalPropertiesFromObject(data []byte, properties *map[string]interface
 	}
 
 	startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
-	byteOps := byte_operations.ByteOperations{Position: startPos, Buffer: data}
+	rw := byteops.NewReadWriter(data, byteops.WithPosition(startPos))
 	// get the length of the vector, each element is a float32 (4 bytes)
-	vectorLength := uint64(byteOps.ReadUint16())
-	byteOps.MoveBufferPositionForward(vectorLength * 4)
+	vectorLength := uint64(rw.ReadUint16())
+	rw.MoveBufferPositionForward(vectorLength * 4)
 
-	classnameLength := uint64(byteOps.ReadUint16())
-	byteOps.MoveBufferPositionForward(classnameLength)
-	propertyLength := uint64(byteOps.ReadUint32())
+	classnameLength := uint64(rw.ReadUint16())
+	rw.MoveBufferPositionForward(classnameLength)
+	propertyLength := uint64(rw.ReadUint32())
 
-	jsonparser.EachKey(data[byteOps.Position:byteOps.Position+propertyLength], func(idx int, value []byte, dataType jsonparser.ValueType, err error) {
+	jsonparser.EachKey(data[rw.Position:rw.Position+propertyLength], func(idx int, value []byte, dataType jsonparser.ValueType, err error) {
 		var errParse error
 		switch dataType {
 		case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
@@ -640,46 +640,46 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	}
 	ko.MarshallerVersion = version
 
-	byteOps := byte_operations.ByteOperations{Position: 1, Buffer: data}
-	ko.docID = byteOps.ReadUint64()
-	byteOps.MoveBufferPositionForward(1) // kind-byte
+	rw := byteops.NewReadWriter(data, byteops.WithPosition(1))
+	ko.docID = rw.ReadUint64()
+	rw.MoveBufferPositionForward(1) // kind-byte
 
-	uuidParsed, err := uuid.FromBytes(data[byteOps.Position : byteOps.Position+16])
+	uuidParsed, err := uuid.FromBytes(data[rw.Position : rw.Position+16])
 	if err != nil {
 		return err
 	}
-	byteOps.MoveBufferPositionForward(16)
+	rw.MoveBufferPositionForward(16)
 
-	createTime := int64(byteOps.ReadUint64())
-	updateTime := int64(byteOps.ReadUint64())
+	createTime := int64(rw.ReadUint64())
+	updateTime := int64(rw.ReadUint64())
 
-	vectorLength := byteOps.ReadUint16()
+	vectorLength := rw.ReadUint16()
 	ko.VectorLen = int(vectorLength)
 	ko.Vector = make([]float32, vectorLength)
 	for j := 0; j < int(vectorLength); j++ {
-		ko.Vector[j] = math.Float32frombits(byteOps.ReadUint32())
+		ko.Vector[j] = math.Float32frombits(rw.ReadUint32())
 	}
 
-	classNameLength := uint64(byteOps.ReadUint16())
-	className, err := byteOps.CopyBytesFromBuffer(classNameLength, nil)
+	classNameLength := uint64(rw.ReadUint16())
+	className, err := rw.CopyBytesFromBuffer(classNameLength, nil)
 	if err != nil {
 		return errors.Wrap(err, "Could not copy class name")
 	}
 
-	schemaLength := uint64(byteOps.ReadUint32())
-	schema, err := byteOps.CopyBytesFromBuffer(schemaLength, nil)
+	schemaLength := uint64(rw.ReadUint32())
+	schema, err := rw.CopyBytesFromBuffer(schemaLength, nil)
 	if err != nil {
 		return errors.Wrap(err, "Could not copy schema")
 	}
 
-	metaLength := uint64(byteOps.ReadUint32())
-	meta, err := byteOps.CopyBytesFromBuffer(metaLength, nil)
+	metaLength := uint64(rw.ReadUint32())
+	meta, err := rw.CopyBytesFromBuffer(metaLength, nil)
 	if err != nil {
 		return errors.Wrap(err, "Could not copy meta")
 	}
 
-	vectorWeightsLength := uint64(byteOps.ReadUint32())
-	vectorWeights, err := byteOps.CopyBytesFromBuffer(vectorWeightsLength, nil)
+	vectorWeightsLength := uint64(rw.ReadUint32())
+	vectorWeights, err := rw.CopyBytesFromBuffer(vectorWeightsLength, nil)
 	if err != nil {
 		return errors.Wrap(err, "Could not copy vectorWeights")
 	}

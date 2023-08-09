@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/scaler"
+	"github.com/weaviate/weaviate/usecases/schema/migrate"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -55,7 +56,11 @@ func (n *NilMigrator) AddProperty(ctx context.Context, className string, prop *m
 	return nil
 }
 
-func (n *NilMigrator) NewTenants(ctx context.Context, class *models.Class, tenants []string) (commit func(success bool), err error) {
+func (n *NilMigrator) NewTenants(ctx context.Context, class *models.Class, creates []*migrate.CreateTenantPayload) (commit func(success bool), err error) {
+	return func(bool) {}, nil
+}
+
+func (n *NilMigrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*migrate.UpdateTenantPayload) (commit func(success bool), err error) {
 	return func(bool) {}, nil
 }
 

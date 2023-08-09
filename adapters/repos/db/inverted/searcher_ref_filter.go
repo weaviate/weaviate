@@ -32,6 +32,7 @@ type refFilterExtractor struct {
 	classSearcher ClassSearcher
 	filter        *filters.Clause
 	property      *models.Property
+	tenant        string
 	limit         int64
 }
 
@@ -43,13 +44,14 @@ type ClassSearcher interface {
 }
 
 func newRefFilterExtractor(logger logrus.FieldLogger, classSearcher ClassSearcher,
-	filter *filters.Clause, property *models.Property, limit int64,
+	filter *filters.Clause, property *models.Property, tenant string, limit int64,
 ) *refFilterExtractor {
 	return &refFilterExtractor{
 		logger:        logger,
 		classSearcher: classSearcher,
 		filter:        filter,
 		property:      property,
+		tenant:        tenant,
 		limit:         limit,
 	}
 }
@@ -88,6 +90,7 @@ func (r *refFilterExtractor) paramsForNestedRequest() (dto.GetParams, error) {
 		// to perform the same search limits cutoff check that we do with
 		// the root query
 		AdditionalProperties: additional.Properties{ReferenceQuery: true},
+		Tenant:               r.tenant,
 	}, nil
 }
 

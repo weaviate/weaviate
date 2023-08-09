@@ -265,7 +265,7 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		}
 	}
 
-	seg, err := newSegment(newPath, sg.logger, sg.metrics, nil)
+	seg, err := newSegment(newPath, sg.logger, sg.metrics, nil, sg.mmapContents)
 	if err != nil {
 		return errors.Wrap(err, "create new segment")
 	}
@@ -291,7 +291,7 @@ func (sg *SegmentGroup) stripTmpExtension(oldPath string) (string, error) {
 	return newPath, nil
 }
 
-func (sg *SegmentGroup) compactIfLevelsMatch(shouldBreak cyclemanager.ShouldBreakFunc) bool {
+func (sg *SegmentGroup) compactIfLevelsMatch(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	sg.monitorSegments()
 
 	if sg.eligibleForCompaction() {

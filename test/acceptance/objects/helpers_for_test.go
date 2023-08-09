@@ -66,6 +66,18 @@ func assertGetObject(t *testing.T, uuid strfmt.UUID) *models.Object {
 	return object
 }
 
+func assertGetObjectWithClass(t *testing.T, uuid strfmt.UUID, class string) *models.Object {
+	getResp, err := helper.Client(t).Objects.ObjectsClassGet(objects.NewObjectsClassGetParams().WithID(uuid).WithClassName(class), nil)
+
+	var object *models.Object
+
+	helper.AssertRequestOk(t, getResp, err, func() {
+		object = getResp.Payload
+	})
+
+	return object
+}
+
 func assertGetObjectEventually(t *testing.T, uuid strfmt.UUID) *models.Object {
 	var (
 		resp *objects.ObjectsGetOK

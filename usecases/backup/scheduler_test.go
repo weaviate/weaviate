@@ -615,6 +615,29 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 	})
 
+	t.Run("BackupWithHigherVersion", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		version := "3.0"
+		meta := backup.DistributedBackupDescriptor{
+			ID:            id,
+			StartedAt:     timePt,
+			Version:       version,
+			ServerVersion: "2",
+			Status:        backup.Success,
+			Nodes: map[string]*backup.NodeDescriptor{
+				nodeName: {Classes: []string{cls}},
+			},
+		}
+
+		bytes := marshalCoordinatorMeta(meta)
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
+		fs.backend.On("HomeDir", mock.Anything).Return(path)
+		_, err := fs.scheduler().Restore(ctx, nil, req)
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), errMsgHigherVersion)
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+	})
+
 	t.Run("CorruptedBackupFile", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Success)})

@@ -36,7 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Scan for Vulnerabilities in Code
-        uses: Templum/govulncheck-action@v0.10.1
+        uses: Templum/govulncheck-action@v1.0.0
         with:
           go-version: '1.20'
           package: ./...
@@ -80,9 +80,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          # we cannot use 1.20.6 version of go bc of a bug in go 1.20.6 that affects testcontainers
-          # should be changed back '1.20' once this is fixed
-          go-version: '1.20.5'
+          go-version: '1.20'
           cache: true
       - name: Acceptance tests (modules)
         run: ./test/run.sh --acceptance-module-tests-only
@@ -93,9 +91,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          # we cannot use 1.20.6 version of go bc of a bug in go 1.20.6 that affects testcontainers
-          # should be changed back '1.20' once this is fixed
-          go-version: '1.20.5'
+          go-version: '1.20'
           cache: true
       - name: Acceptance tests
         env:
@@ -122,6 +118,75 @@ jobs:
           fail_ci_if_error: true
           files: ./coverage-integration.txt, ./coverage-unit.txt
           verbose: true
+  Compile-and-upload-binaries:
+    runs-on: ubuntu-latest-8-cores
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+          cache: true
+      - name: goreleaser
+        run: |
+          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' | sudo tee /etc/apt/sources.list.d/goreleaser.list
+          sudo apt update
+          sudo apt install goreleaser
+          GIT_HASH=$(git rev-parse --short HEAD) goreleaser build  --clean --snapshot
+      - name: Upload macos
+        uses: actions/upload-artifact@v3
+        with:
+          name: binaries-macos-unsigned
+          path: dist/weaviate_darwin_all
+      - name: Upload windows
+        uses: actions/upload-artifact@v3
+        with:
+          name: binaries-windows-amd64
+          path: dist/weaviate_windows_amd64_v1
+      - name: Upload windows
+        uses: actions/upload-artifact@v3
+        with:
+          name: binaries-windows-arm64
+          path: dist/weaviate_windows_arm64
+      - name: Upload linux amd64
+        uses: actions/upload-artifact@v3
+        with:
+          name: binaries-linux-amd64
+          path: dist/weaviate_linux_amd64_v1
+      - name: Upload linux arm64
+        uses: actions/upload-artifact@v3
+        with:
+          name: binaries-linux-arm64
+          path: dist/weaviate_linux_arm64
+
+
+  Acceptance-Tests-windows:
+    needs: Compile-and-upload-binaries
+    runs-on: windows-latest
+    env:
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: true
+      PERSISTENCE_DATA_PATH: /tmp
+      QUERY_DEFAULTS_LIMIT: 20
+    steps:
+      - uses: actions/checkout@v3
+      - name: Download binaries
+        uses: actions/download-artifact@v3
+        with:
+          name: binaries-windows-amd64
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+          cache: true
+      - name: start weaviate
+        shell: bash
+        # Weaviate is started without a Vectorizer as running text2vec-contextionary on GH actions is difficult:
+        # - docker on GHA only supports windows container - which we currently are not build
+        # - building those containers without a windows machine is difficult to figure out
+        run: ./weaviate.exe --scheme http --port 8080 &
+      - name: run acceptance tests
+        shell: bash
+        run: go test -count 1 -race test/acceptance/actions/*.go  # tests that don't need a Vectorizer
 
   Push-Docker:
     needs: [Acceptance-Tests, Modules-Acceptance-Tests, Unit-Tests, Integration-Tests, Vulnerability-Scanning, Run-Swagger]

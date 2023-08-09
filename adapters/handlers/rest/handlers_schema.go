@@ -233,6 +233,29 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 	return schema.NewTenantsCreateOK().WithPayload(payload)
 }
 
+func (s *schemaHandlers) updateTenants(params schema.TenantsUpdateParams,
+	principal *models.Principal,
+) middleware.Responder {
+	err := s.manager.UpdateTenants(
+		params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
+	if err != nil {
+		s.metricRequestsTotal.logError(params.ClassName, err)
+		switch err.(type) {
+		case errors.Forbidden:
+			return schema.NewTenantsUpdateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewTenantsUpdateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	payload := params.Body
+
+	s.metricRequestsTotal.logOk(params.ClassName)
+	return schema.NewTenantsUpdateOK().WithPayload(payload)
+}
+
 func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
 	principal *models.Principal,
 ) middleware.Responder {
@@ -299,11 +322,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager,
 	api.SchemaSchemaObjectsShardsUpdateHandler = schema.
 		SchemaObjectsShardsUpdateHandlerFunc(h.updateShardStatus)
 
-	api.SchemaTenantsCreateHandler = schema.
-		TenantsCreateHandlerFunc(h.createTenants)
-	api.SchemaTenantsDeleteHandler = schema.
-		TenantsDeleteHandlerFunc(h.deleteTenants)
-
+	api.SchemaTenantsCreateHandler = schema.TenantsCreateHandlerFunc(h.createTenants)
+	api.SchemaTenantsUpdateHandler = schema.TenantsUpdateHandlerFunc(h.updateTenants)
+	api.SchemaTenantsDeleteHandler = schema.TenantsDeleteHandlerFunc(h.deleteTenants)
 	api.SchemaTenantsGetHandler = schema.TenantsGetHandlerFunc(h.getTenants)
 }
 

@@ -14,23 +14,21 @@ package db
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func (s *Shard) initGeoProp(prop *models.Property) error {
-	s.geoPropsCycles.Init(
-		cyclemanager.GeoCommitLoggerCycleTicker(),
-		cyclemanager.NewFixedIntervalTicker(hnsw.DefaultCleanupIntervalSeconds*time.Second))
+	// starts geo props cycles if actual geo property is present
+	// (safe to start multiple times)
+	s.index.cycleCallbacks.geoPropsCommitLoggerCycle.Start()
+	s.index.cycleCallbacks.geoPropsTombstoneCleanupCycle.Start()
 
 	idx, err := geo.NewIndex(geo.Config{
 		ID:                 geoPropID(s.ID(), prop.Name),
@@ -38,7 +36,12 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 		CoordinatesForID:   s.makeCoordinatesForID(prop.Name),
 		DisablePersistence: false,
 		Logger:             s.index.logger,
-	}, s.geoPropsCycles.TombstoneCleanup(), s.geoPropsCycles.CommitLogMaintenance())
+	},
+		s.cycleCallbacks.geoPropsCommitLoggerCallbacks,
+		s.cycleCallbacks.geoPropsTombstoneCleanupCallbacks,
+		s.cycleCallbacks.compactionCallbacks,
+		s.cycleCallbacks.flushCallbacks,
+	)
 	if err != nil {
 		return errors.Wrapf(err, "create geo index for prop %q", prop.Name)
 	}

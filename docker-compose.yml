@@ -63,10 +63,6 @@ services:
     image: semitechnologies/ner-transformers:latest
     ports:
       - "8003:8080"
-  sum-transformers:
-    image: semitechnologies/sum-transformers:facebook-bart-large-cnn
-    ports:
-      - "8008:8080"
   text-spellcheck:
     image: semitechnologies/text-spellcheck-model:pyspellchecker-en
     ports:
@@ -83,10 +79,22 @@ services:
     image: semitechnologies/transformers-inference:facebook-dpr-question_encoder-single-nq-base
     ports:
       - "8007:8080"
+  sum-transformers:
+    image: semitechnologies/sum-transformers:facebook-bart-large-cnn
+    ports:
+      - "8008:8080"
   reranker-transformers:
     image: semitechnologies/reranker-transformers:cross-encoder-ms-marco-MiniLM-L-6-v2
     ports:
-      - "8008:8080"
+      - "8009:8080"
+  t2v-gpt4all:
+    image: semitechnologies/gpt4all-inference:all-MiniLM-L6-v2
+    ports:
+      - "8010:8080"
+  multi2vec-bind:
+    image: semitechnologies/multi2vec-bind:imagebind
+    ports:
+      - "8011:8080"
   backup-s3:
     image: minio/minio
     ports:

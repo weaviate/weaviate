@@ -152,6 +152,58 @@ func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath string
 	return nil
 }
 
+func (m *Module) Write(ctx context.Context, backupID, key string, r io.ReadCloser) (int64, error) {
+	defer r.Close()
+	backupPath := path.Join(m.makeBackupDirPath(backupID), key)
+	dir := path.Dir(backupPath)
+	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+		return 0, fmt.Errorf("make dir %q: %w", dir, err)
+	}
+	f, err := os.OpenFile(backupPath, os.O_RDWR|os.O_CREATE, os.ModePerm)
+	if err != nil {
+		return 0, fmt.Errorf("open file %q: %w", backupPath, err)
+	}
+	defer f.Close()
+
+	written, err := io.Copy(f, r)
+	if err != nil {
+		return 0, fmt.Errorf("write file %q: %w", backupPath, err)
+	}
+	if metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.
+		GetMetricWithLabelValues(m.Name(), "class"); err == nil {
+		metric.Add(float64(written))
+	}
+
+	return written, err
+}
+
+func (m *Module) Read(ctx context.Context, backupID, key string, w io.WriteCloser) (int64, error) {
+	defer w.Close()
+	sourcePath, err := m.getObjectPath(ctx, backupID, key)
+	if err != nil {
+		return 0, fmt.Errorf("source path %s/%s: %w", backupID, key, err)
+	}
+
+	// open file
+	f, err := os.Open(sourcePath)
+	if err != nil {
+		return 0, fmt.Errorf("open file %q: %w", sourcePath, err)
+	}
+	defer f.Close()
+
+	// copy file
+	read, err := io.Copy(w, f)
+	if err != nil {
+		return 0, fmt.Errorf("write : %w", err)
+	}
+
+	if metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.
+		GetMetricWithLabelValues(m.Name(), "class"); err == nil {
+		metric.Add(float64(read))
+	}
+	return read, err
+}
+
 func (m *Module) SourceDataPath() string {
 	return m.dataPath
 }

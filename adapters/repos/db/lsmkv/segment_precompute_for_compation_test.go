@@ -26,18 +26,37 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-func TestPrecomputeSegmentMeta_Replace(t *testing.T) {
+func TestPrecomputeForCompaction(t *testing.T) {
+	ctx := context.Background()
+	tests := bucketTests{
+		{
+			name: "precomputeSegmentMeta_Replace",
+			f:    precomputeSegmentMeta_Replace,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithSecondaryIndices(1),
+			},
+		},
+		{
+			name: "precomputeSegmentMeta_Set",
+			f:    precomputeSegmentMeta_Set,
+			opts: []BucketOption{
+				WithStrategy(StrategySetCollection),
+			},
+		},
+	}
+	tests.run(ctx, t)
+}
+
+func precomputeSegmentMeta_Replace(ctx context.Context, t *testing.T, opts []BucketOption) {
 	// first build a complete reference segment of which we can then strip its
 	// meta
-
-	ctx := context.Background()
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
-		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
 
@@ -89,18 +108,15 @@ func TestPrecomputeSegmentMeta_Replace(t *testing.T) {
 // Precomputing of segment is almost identical across segment types, however,
 // only Replace supports CNA, so we should test at least one other segment type
 // which does not support CNA, represented here by using the "Set" type
-func TestPrecomputeSegmentMeta_Set(t *testing.T) {
+func precomputeSegmentMeta_Set(ctx context.Context, t *testing.T, opts []BucketOption) {
 	// first build a complete reference segment of which we can then strip its
 	// meta
-
-	ctx := context.Background()
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
-		WithStrategy(StrategySetCollection))
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
 
@@ -156,7 +172,9 @@ func TestPrecomputeSegmentMeta_UnhappyPaths(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		_, err := preComputeSegmentMeta("i-dont-exist.tmp", 7, logger)
 		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "no such file or directory")
+		unixErr := "no such file or directory"
+		windowsErr := "The system cannot find the file specified."
+		assert.True(t, strings.Contains(err.Error(), unixErr) || strings.Contains(err.Error(), windowsErr))
 	})
 
 	t.Run("segment header can't be parsed", func(t *testing.T) {

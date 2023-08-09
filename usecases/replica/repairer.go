@@ -87,6 +87,7 @@ func (r *repairer) repairOne(ctx context.Context,
 		gr.Go(func() error {
 			ups := []*objects.VObject{{
 				LatestObject:    &updates.Object.Object,
+				Vector:          updates.Object.Vector,
 				StaleUpdateTime: vote.UTime,
 			}}
 			resp, err := cl.Overwrite(ctx, vote.sender, r.class, shard, ups)
@@ -150,6 +151,7 @@ func (r *repairer) repairExist(ctx context.Context,
 		gr.Go(func() error {
 			ups := []*objects.VObject{{
 				LatestObject:    &resp.Object.Object,
+				Vector:          resp.Object.Vector,
 				StaleUpdateTime: vote.UTime,
 			}}
 			resp, err := cl.Overwrite(ctx, vote.sender, r.class, shard, ups)
@@ -180,6 +182,9 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		nDeletions = 0
 		cl         = r.client
 		nVotes     = len(votes)
+		// The input objects cannot be used for repair because
+		// their attributes might have been filtered out
+		reFetchSet = make(map[int]struct{})
 	)
 
 	// find most recent objects
@@ -187,25 +192,30 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		lastTimes[i] = iTuple{S: contentIdx, O: i, T: x.UpdateTime(), Deleted: x.Deleted}
 		votes[contentIdx].Count[i] = nVotes // reuse Count[] to check consistency
 	}
+
 	for i, vote := range votes {
 		if i != contentIdx {
 			for j, x := range vote.DigestData {
 				deleted := lastTimes[j].Deleted || x.Deleted
-				if x.UpdateTime > lastTimes[j].T {
+				if curTime := lastTimes[j].T; x.UpdateTime > curTime {
 					lastTimes[j] = iTuple{S: i, O: j, T: x.UpdateTime}
+					delete(reFetchSet, j) // input object is not up to date
+				} else if x.UpdateTime < curTime {
+					reFetchSet[j] = struct{}{} // we need to fetch this object again
 				}
 				lastTimes[j].Deleted = deleted
 				votes[i].Count[j] = nVotes
 			}
 		}
 	}
+
 	// find missing content (diff)
 	for i, p := range votes[contentIdx].FullData {
 		if lastTimes[i].Deleted { // conflict
 			nDeletions++
 			result[i] = nil
 			votes[contentIdx].Count[i] = 0
-		} else if contentIdx != lastTimes[i].S {
+		} else if _, ok := reFetchSet[i]; ok || (contentIdx != lastTimes[i].S) {
 			ms = append(ms, lastTimes[i])
 		} else {
 			result[i] = p.Object
@@ -263,7 +273,12 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		for j, x := range lastTimes {
 			cTime := vote.UpdateTimeAt(j)
 			if x.T != cTime && !x.Deleted && result[j] != nil && vote.Count[j] == nVotes {
-				query = append(query, &objects.VObject{LatestObject: &result[j].Object, StaleUpdateTime: cTime})
+				obj := objects.VObject{
+					LatestObject:    &result[j].Object,
+					Vector:          result[j].Vector,
+					StaleUpdateTime: cTime,
+				}
+				query = append(query, &obj)
 				m[string(result[j].ID())] = j
 			}
 		}

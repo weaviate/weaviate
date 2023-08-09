@@ -33,8 +33,7 @@ func (s *segmentCursorCollectionReusable) seek(key []byte) ([]byte, []value, err
 		return nil, nil, err
 	}
 
-	err = s.segment.collectionStratParseDataWithKeyInto(
-		s.segment.contents[node.Start:node.End], &s.nodeBuf)
+	err = s.parseCollectionNodeInto(nodeOffset{node.Start, node.End})
 	if err != nil {
 		return s.nodeBuf.primaryKey, nil, err
 	}
@@ -49,9 +48,7 @@ func (s *segmentCursorCollectionReusable) next() ([]byte, []value, error) {
 		return nil, nil, lsmkv.NotFound
 	}
 
-	err := s.segment.collectionStratParseDataWithKeyInto(
-		s.segment.contents[s.nextOffset:], &s.nodeBuf)
-
+	err := s.parseCollectionNodeInto(nodeOffset{start: s.nextOffset})
 	// make sure to set the next offset before checking the error. The error
 	// could be 'entities.Deleted' which would require that the offset is still advanced
 	// for the next cycle
@@ -65,8 +62,8 @@ func (s *segmentCursorCollectionReusable) next() ([]byte, []value, error) {
 
 func (s *segmentCursorCollectionReusable) first() ([]byte, []value, error) {
 	s.nextOffset = s.segment.dataStartPos
-	err := s.segment.collectionStratParseDataWithKeyInto(
-		s.segment.contents[s.nextOffset:], &s.nodeBuf)
+
+	err := s.parseCollectionNodeInto(nodeOffset{start: s.nextOffset})
 	if err != nil {
 		return s.nodeBuf.primaryKey, nil, err
 	}
@@ -74,4 +71,13 @@ func (s *segmentCursorCollectionReusable) first() ([]byte, []value, error) {
 	s.nextOffset = s.nextOffset + uint64(s.nodeBuf.offset)
 
 	return s.nodeBuf.primaryKey, s.nodeBuf.values, nil
+}
+
+func (s *segmentCursorCollectionReusable) parseCollectionNodeInto(offset nodeOffset) error {
+	r, err := s.segment.newNodeReader(offset)
+	if err != nil {
+		return err
+	}
+
+	return ParseCollectionNodeInto(r, &s.nodeBuf)
 }

@@ -25,16 +25,30 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
-func TestBucketBackup_FlushMemtable(t *testing.T) {
+func Test_BucketBackup(t *testing.T) {
+	ctx := context.Background()
+	tests := bucketTests{
+		{
+			name: "bucketBackup_FlushMemtable",
+			f:    bucketBackup_FlushMemtable,
+			opts: []BucketOption{WithStrategy(StrategyReplace)},
+		},
+		{
+			name: "bucketBackup_ListFiles",
+			f:    bucketBackup_ListFiles,
+			opts: []BucketOption{WithStrategy(StrategyReplace)},
+		},
+	}
+	tests.run(ctx, t)
+}
+
+func bucketBackup_FlushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 	t.Run("assert that readonly bucket fails to flush", func(t *testing.T) {
-		ctx := context.Background()
 		dirName := t.TempDir()
 
 		b, err := NewBucket(ctx, dirName, dirName, logrus.New(), nil,
-			cyclemanager.NewNoop(), cyclemanager.NewNoop(),
-			WithStrategy(StrategyReplace))
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
-
 		b.UpdateStatus(storagestate.StatusReadOnly)
 
 		err = b.FlushMemtable()
@@ -47,13 +61,11 @@ func TestBucketBackup_FlushMemtable(t *testing.T) {
 	})
 }
 
-func TestBucketBackup_ListFiles(t *testing.T) {
-	ctx := context.Background()
+func bucketBackup_ListFiles(ctx context.Context, t *testing.T, opts []BucketOption) {
 	dirName := t.TempDir()
 
 	b, err := NewBucket(ctx, dirName, dirName, logrus.New(), nil,
-		cyclemanager.NewNoop(), cyclemanager.NewNoop(),
-		WithStrategy(StrategyReplace))
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 
 	t.Run("insert contents into bucket", func(t *testing.T) {

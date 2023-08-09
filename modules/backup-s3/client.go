@@ -179,6 +179,51 @@ func (s *s3Client) WriteToFile(ctx context.Context, backupID, key, destPath stri
 	return nil
 }
 
+func (s *s3Client) Write(ctx context.Context, backupID, key string, r io.ReadCloser) (int64, error) {
+	defer r.Close()
+	path := s.makeObjectName(backupID, key)
+	opt := minio.PutObjectOptions{
+		ContentType:      "application/octet-stream",
+		DisableMultipart: false,
+	}
+
+	info, err := s.client.PutObject(ctx, s.config.Bucket, path, r, -1, opt)
+	if err != nil {
+		return info.Size, fmt.Errorf("write object %q", path)
+	}
+
+	if metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.
+		GetMetricWithLabelValues(Name, "class"); err == nil {
+		metric.Add(float64(float64(info.Size)))
+	}
+	return info.Size, nil
+}
+
+func (s *s3Client) Read(ctx context.Context, backupID, key string, w io.WriteCloser) (int64, error) {
+	defer w.Close()
+	path := s.makeObjectName(backupID, key)
+	obj, err := s.client.GetObject(ctx, s.config.Bucket, path, minio.GetObjectOptions{})
+	if err != nil {
+		return 0, fmt.Errorf("get object %q: %w", path, err)
+	}
+
+	read, err := io.Copy(w, obj)
+	if err != nil {
+		err = fmt.Errorf("get object %q: %w", path, err)
+		if s3Err, ok := err.(minio.ErrorResponse); ok && s3Err.StatusCode == http.StatusNotFound {
+			err = backup.NewErrNotFound(err)
+		}
+		return 0, err
+	}
+
+	if metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.
+		GetMetricWithLabelValues(Name, "class"); err == nil {
+		metric.Add(float64(float64(read)))
+	}
+
+	return read, nil
+}
+
 func (s *s3Client) SourceDataPath() string {
 	return s.dataPath
 }

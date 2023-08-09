@@ -57,10 +57,13 @@ type Bucket struct {
 	desiredStrategy  string
 	secondaryIndices uint16
 
+	// Optional to avoid syscalls
+	mmapContents bool
+
 	// for backward compatibility
 	legacyMapSortingBeforeCompaction bool
 
-	unregisterFlush cyclemanager.UnregisterFunc
+	flushCallbackCtrl cyclemanager.CycleCallbackCtrl
 
 	status     storagestate.Status
 	statusLock sync.RWMutex
@@ -82,8 +85,8 @@ type Bucket struct {
 // [Store]. In this case the [Store] can manage buckets for you, using methods
 // such as CreateOrLoadBucket().
 func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
-	metrics *Metrics, compactionCycle cyclemanager.CycleManager,
-	flushCycle cyclemanager.CycleManager, opts ...BucketOption,
+	metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
+	opts ...BucketOption,
 ) (*Bucket, error) {
 	beforeAll := time.Now()
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
@@ -102,6 +105,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		walThreshold:      defaultWalThreshold,
 		flushAfterIdle:    defaultFlushAfterIdle,
 		strategy:          defaultStrategy,
+		mmapContents:      true,
 		logger:            logger,
 		metrics:           metrics,
 	}
@@ -117,7 +121,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	}
 
 	sg, err := newSegmentGroup(dir, logger, b.legacyMapSortingBeforeCompaction,
-		metrics, b.strategy, b.monitorCount, compactionCycle)
+		metrics, b.strategy, b.monitorCount, compactionCallbacks, b.mmapContents)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
 	}
@@ -157,7 +161,8 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		return nil, err
 	}
 
-	b.unregisterFlush = flushCycle.Register(b.flushAndSwitchIfThresholdsMet)
+	id := "bucket/flush/" + b.dir
+	b.flushCallbackCtrl = flushCallbacks.Register(id, b.flushAndSwitchIfThresholdsMet)
 
 	b.metrics.TrackStartupBucket(beforeAll)
 
@@ -721,7 +726,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 		return err
 	}
 
-	if err := b.unregisterFlush(ctx); err != nil {
+	if err := b.flushCallbackCtrl.Unregister(ctx); err != nil {
 		return errors.Wrap(ctx.Err(), "long-running flush in progress")
 	}
 
@@ -752,7 +757,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldBreak cyclemanager.ShouldBreakFunc) bool {
+func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	b.flushLock.RLock()
 	commitLogSize := b.active.commitlog.Size()
 	memtableTooLarge := b.active.Size() >= b.memtableThreshold
