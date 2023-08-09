@@ -21,8 +21,6 @@ import (
 type pools struct {
 	visitedLists     *visited.Pool
 	visitedListsLock *sync.Mutex
-	//visitedListsForFilteredSearch     *visited.Pool
-	//visitedListsLockForFilteredSearch *sync.Mutex
 
 	pqItemSlice  *sync.Pool
 	pqHeuristic  *pqMinWithIndexPool

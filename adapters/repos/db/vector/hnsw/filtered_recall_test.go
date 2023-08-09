@@ -160,7 +160,7 @@ func TestFilteredRecall(t *testing.T) {
 					originalIndex := (i * workerCount) + workerID
 					nodeId := uint64(originalIndex)
 					/* TEST FILTERED HNSW */
-					err := vectorIndex.FilteredAdd(nodeId, vec.Vector, vec.FilterMap) // change signature to add vec.Label
+					err := vectorIndex.HybridAdd(nodeId, vec.Vector, vec.FilterMap, 0) // change signature to add vec.Label
 					/* TEST HNSW */
 					//err := vectorIndex.Add(nodeId, vec.Vector)
 					require.Nil(t, err)
@@ -183,8 +183,10 @@ func TestFilteredRecall(t *testing.T) {
 				}
 			}(workerID, jobs)
 		}
-
 		wg.Wait()
+
+		fmt.Printf("Average filter sharing neighbors per node = %d", AverageMatchingFiltersPerNode(vectorIndex, 0))
+
 		fmt.Printf("importing took %s\n", time.Since(before))
 
 		fmt.Printf("With k=100")
@@ -212,8 +214,12 @@ func TestFilteredRecall(t *testing.T) {
 			//construct an allowList from the []uint64 of ids that match the filter
 			queryAllowList := helpers.NewAllowList(allowListIDs...)
 			/* TEST FILTERED HNSW */
+
+			// THIS COULD BE CONFOUNDING LATENCY MEASUREMENT, TRY SEARCH WITH ALLOWLIST AS WELL! IN THE SAME INDEX TEST!
+
 			queryStart := time.Now()
-			results, _, err := vectorIndex.SearchByVectorWithFilters(queryVectorsWithFilters[i].Vector, k, queryFilters, queryAllowList)
+			//results, _, err := vectorIndex.SearchByVectorWithFilters(queryVectorsWithFilters[i].Vector, k, queryFilters, queryAllowList)
+			results, _, err := vectorIndex.SearchByVector(queryVectorsWithFilters[i].Vector, k, queryAllowList)
 			local_latency := float32(time.Now().Sub(queryStart).Seconds())
 			/* TEST HNSW */
 			/*
@@ -301,4 +307,38 @@ func matchesInLists(control []uint64, results []uint64) int {
 	}
 
 	return matches
+}
+
+func AverageMatchingFiltersPerNode(vectorIndex *hnsw, level int) int {
+	total := 0
+	for _, node := range vectorIndex.nodes {
+		if node == nil {
+			continue // Weaviate allocates a larger array than we may insert
+		}
+		node.Lock()
+		count := 0 // might want to plot a distribution of this
+		for _, connectionID := range node.connections[level] {
+			neighbor := vectorIndex.nodes[connectionID]
+			neighbor.Lock()
+			if filtersEqual(node.filters, neighbor.filters) {
+				count++
+			}
+			neighbor.Unlock()
+		}
+		total += count
+		node.Unlock()
+	}
+	return total / len(vectorIndex.nodes)
+}
+
+func filtersEqual(a, b map[int]int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	return true
 }

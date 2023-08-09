@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"math"
 	"time"
 
 	"github.com/pkg/errors"
@@ -306,17 +307,17 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 	return true, nil
 }
 
-func (h *hnsw) findAndConnectNeighborsWithFilters(node *vertex,
+func (h *hnsw) findAndConnectNeighborsHybrid(node *vertex,
 	entryPointID uint64, nodeVec []float32, targetLevel, currentMaxLevel int,
-	filters map[int]int, denyList helpers.AllowList,
+	filters map[int]int, lambda float32, denyList helpers.AllowList,
 ) error {
-	nfc := newNeighborFinderConnectorWithFilters(h, node, entryPointID, nodeVec, targetLevel,
-		currentMaxLevel, filters, denyList)
+	nfc := newNeighborFinderConnectorHybrid(h, node, entryPointID, nodeVec, targetLevel,
+		currentMaxLevel, filters, lambda, denyList)
 
 	return nfc.Do()
 }
 
-type neighborFinderConnectorWithFilters struct {
+type neighborFinderConnectorHybrid struct {
 	graph           *hnsw
 	node            *vertex
 	entryPointID    uint64
@@ -325,15 +326,17 @@ type neighborFinderConnectorWithFilters struct {
 	targetLevel     int
 	currentMaxLevel int
 	filters         map[int]int
+	lambda          float32
 	denyList        helpers.AllowList
 	// bufLinksLog     BufferedLinksLogger
 }
 
-func newNeighborFinderConnectorWithFilters(graph *hnsw, node *vertex, entryPointID uint64,
+// Change with Filters to Hybrid, lambda = 1 recreates filtered inserts
+func newNeighborFinderConnectorHybrid(graph *hnsw, node *vertex, entryPointID uint64,
 	nodeVec []float32, targetLevel, currentMaxLevel int,
-	filters map[int]int, denyList helpers.AllowList,
-) *neighborFinderConnectorWithFilters {
-	return &neighborFinderConnectorWithFilters{
+	filters map[int]int, lambda float32, denyList helpers.AllowList,
+) *neighborFinderConnectorHybrid {
+	return &neighborFinderConnectorHybrid{
 		graph:           graph,
 		node:            node,
 		entryPointID:    entryPointID,
@@ -341,22 +344,30 @@ func newNeighborFinderConnectorWithFilters(graph *hnsw, node *vertex, entryPoint
 		targetLevel:     targetLevel,
 		currentMaxLevel: currentMaxLevel,
 		filters:         filters,
+		lambda:          lambda,
 		denyList:        denyList,
 	}
 }
 
-func (n *neighborFinderConnectorWithFilters) Do() error {
+func (n *neighborFinderConnectorHybrid) Do() error {
 	for level := min(n.targetLevel, n.currentMaxLevel); level >= 0; level-- {
-		err := n.doAtLevel(level)
-		if err != nil {
-			return errors.Wrapf(err, "at level %d", level)
+		if level == 0 {
+			err := n.doAtLevelHybrid(level, n.lambda)
+			if err != nil {
+				return errors.Wrapf(err, "at level %d", level)
+			}
+		} else {
+			err := n.doAtLevel(level)
+			if err != nil {
+				return errors.Wrapf(err, "at level %d", level)
+			}
 		}
 	}
 
 	return nil
 }
 
-func (n *neighborFinderConnectorWithFilters) doAtLevel(level int) error {
+func (n *neighborFinderConnectorHybrid) doAtLevel(level int) error {
 	before := time.Now()
 	if err := n.pickEntrypoint(); err != nil {
 		return errors.Wrap(err, "pick entrypoint at level beginning")
@@ -381,21 +392,6 @@ func (n *neighborFinderConnectorWithFilters) doAtLevel(level int) error {
 	if err != nil {
 		return errors.Wrapf(err, "search layer at level %d", level)
 	}
-	/*
-		distanceResults, err := n.graph.searchLayerByVector(n.nodeVec, eps, n.graph.efConstruction,
-			level, nil)
-		if err != nil {
-			return errors.Wrapf(err, "search layer at level %d", level)
-		}
-
-		filterResults, err := n.graph.searchLayerByVectorWithFilters(n.nodeVec, eps, n.graph.efConstruction,
-			level, nil)
-		if err != nil {
-			return errors.Wrapf(err, "search layer at level %d", level)
-		}
-	*/
-
-	// merge them here
 
 	n.graph.insertMetrics.findAndConnectSearch(before)
 	before = time.Now()
@@ -445,7 +441,96 @@ func (n *neighborFinderConnectorWithFilters) doAtLevel(level int) error {
 	return nil
 }
 
-func (n *neighborFinderConnectorWithFilters) connectNeighborAtLevel(neighborID uint64,
+func (n *neighborFinderConnectorHybrid) doAtLevelHybrid(level int, lambda float32) error {
+	before := time.Now()
+	if err := n.pickEntrypoint(); err != nil {
+		return errors.Wrap(err, "pick entrypoint at level beginning")
+	}
+
+	eps := priorityqueue.NewMin(1)
+	eps.Insert(n.entryPointID, n.entryPointDist)
+
+	// This is where you might want to have some mix of search by distance and with filters
+
+	/*
+		distance_candidates := k
+		filter_candidates := n.graph.efConstruction - k
+
+		// results := h.pools.pqResults.GetMax(ef) // need to see how to join these
+
+		distance_results, err := n.graph.searchLayerByVector(n.nodeVec, eps, n.graph.efConstruction)
+	*/
+	num_filter_candidates := int(math.Ceil(float64(float32(n.graph.efConstruction) * lambda)))
+	num_distance_candidates := n.graph.efConstruction - num_filter_candidates
+
+	// could alternatively be named `distanceResults`, but I think this is nicer once merged
+	results, err := n.graph.searchLayerByVector(n.nodeVec, eps, num_distance_candidates,
+		level, nil)
+	if err != nil {
+		return errors.Wrapf(err, "search layer at level %d", level)
+	}
+	filterResults, err := n.graph.searchLayerByVectorWithFilters(n.nodeVec, eps, num_filter_candidates,
+		level, n.filters, nil)
+	if err != nil {
+		return errors.Wrapf(err, "search layer at level %d", level)
+	}
+
+	// merge them here
+	for filterResults.Len() > 0 {
+		item := filterResults.Pop()
+		results.Insert(item.ID, item.Dist)
+	}
+	// loop through elements in filterResults and put them into the distanceResults queue
+
+	n.graph.insertMetrics.findAndConnectSearch(before)
+	before = time.Now()
+
+	// max := n.maximumConnections(level)
+	max := n.graph.maximumConnections
+	if err := n.graph.filteredRobustPrune(results, max, n.filters, n.denyList); err != nil {
+		return errors.Wrap(err, "heuristic")
+	}
+
+	n.graph.insertMetrics.findAndConnectHeuristic(before)
+	before = time.Now()
+
+	// // for distributed spike
+	// neighborsAtLevel[level] = neighbors
+
+	neighbors := make([]uint64, 0, results.Len())
+	for results.Len() > 0 {
+		id := results.Pop().ID
+		neighbors = append(neighbors, id)
+	}
+
+	n.graph.pools.pqResults.Put(results)
+
+	// set all outoing in one go
+	n.node.setConnectionsAtLevel(level, neighbors)
+	n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighbors)
+
+	for _, neighborID := range neighbors {
+		if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
+			return errors.Wrapf(err, "connect neighbor %d", neighborID)
+		}
+	}
+
+	if len(neighbors) > 0 {
+		// there could be no neighbors left, if all are marked deleted, in this
+		// case, don't change the entrypoint
+		nextEntryPointID := neighbors[len(neighbors)-1]
+		if nextEntryPointID == n.node.id {
+			return nil
+		}
+
+		n.entryPointID = nextEntryPointID
+	}
+
+	n.graph.insertMetrics.findAndConnectUpdateConnections(before)
+	return nil
+}
+
+func (n *neighborFinderConnectorHybrid) connectNeighborAtLevel(neighborID uint64,
 	level int,
 ) error {
 	neighbor := n.graph.nodeByID(neighborID)
@@ -522,7 +607,7 @@ func (n *neighborFinderConnectorWithFilters) connectNeighborAtLevel(neighborID u
 	return nil
 }
 
-func (n *neighborFinderConnectorWithFilters) skipNeighbor(neighbor *vertex) bool {
+func (n *neighborFinderConnectorHybrid) skipNeighbor(neighbor *vertex) bool {
 	if neighbor == n.node {
 		// don't connect to self
 		return true
@@ -540,7 +625,7 @@ func (n *neighborFinderConnectorWithFilters) skipNeighbor(neighbor *vertex) bool
 	return false
 }
 
-func (n *neighborFinderConnectorWithFilters) maximumConnections(level int) int {
+func (n *neighborFinderConnectorHybrid) maximumConnections(level int) int {
 	if level == 0 {
 		return n.graph.maximumConnectionsLayerZero
 	}
@@ -548,7 +633,7 @@ func (n *neighborFinderConnectorWithFilters) maximumConnections(level int) int {
 	return n.graph.maximumConnections
 }
 
-func (n *neighborFinderConnectorWithFilters) pickEntrypoint() error {
+func (n *neighborFinderConnectorHybrid) pickEntrypoint() error {
 	// the neighborFinderConnector always has a suggestion for an entrypoint that
 	// it got from the outside, most of the times we can use this, but in some
 	// cases we can't. To see if we can use it, three conditions need to be met:
@@ -594,7 +679,7 @@ func (n *neighborFinderConnectorWithFilters) pickEntrypoint() error {
 	}
 }
 
-func (n *neighborFinderConnectorWithFilters) tryEpCandidate(candidate uint64) (bool, error) {
+func (n *neighborFinderConnectorHybrid) tryEpCandidate(candidate uint64) (bool, error) {
 	node := n.graph.nodeByID(candidate)
 	if node == nil {
 		return false, nil

@@ -221,7 +221,7 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	return nil
 }
 
-func (h *hnsw) FilteredAdd(id uint64, vector []float32, filters map[int]int) error {
+func (h *hnsw) HybridAdd(id uint64, vector []float32, filters map[int]int, lambda float32) error {
 	before := time.Now()
 	if len(vector) == 0 {
 		return errors.Errorf("insert called with nil-vector")
@@ -243,7 +243,7 @@ func (h *hnsw) FilteredAdd(id uint64, vector []float32, filters map[int]int) err
 
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
-	return h.filteredInsert(node, vector)
+	return h.hybridInsert(node, vector, lambda)
 }
 
 func (h *hnsw) insertInitialElementPerFilterPerValue(node *vertex, nodeVec []float32) error {
@@ -293,7 +293,7 @@ func (h *hnsw) insertInitialElementPerFilterPerValue(node *vertex, nodeVec []flo
 	return nil
 }
 
-func (h *hnsw) filteredInsert(node *vertex, nodeVec []float32) error {
+func (h *hnsw) hybridInsert(node *vertex, nodeVec []float32, lambda float32) error {
 	h.trackDimensionsOnce.Do(func() {
 		atomic.StoreInt32(&h.dims, int32(len(nodeVec)))
 	})
@@ -407,8 +407,9 @@ func (h *hnsw) filteredInsert(node *vertex, nodeVec []float32) error {
 	h.insertMetrics.findEntrypoint(before)
 	before = time.Now()
 
-	if err := h.findAndConnectNeighborsWithFilters(node, entryPointID, nodeVec,
-		targetLevel, currentMaximumLayer, node.filters, helpers.NewAllowList()); err != nil {
+	// Add Lambda Here
+	if err := h.findAndConnectNeighborsHybrid(node, entryPointID, nodeVec,
+		targetLevel, currentMaximumLayer, node.filters, lambda, helpers.NewAllowList()); err != nil {
 		return errors.Wrap(err, "find and connect neighbors")
 	}
 
