@@ -16,9 +16,9 @@ import (
 	"fmt"
 
 	"github.com/sirupsen/logrus"
-	grpc "github.com/weaviate/weaviate/modules/text2vec-kserve/clients/grpc"
-	httpv1 "github.com/weaviate/weaviate/modules/text2vec-kserve/clients/httpv1"
-	httpv2 "github.com/weaviate/weaviate/modules/text2vec-kserve/clients/httpv2"
+	httpv1 "github.com/weaviate/weaviate/modules/text2vec-kserve/clients/v1/http"
+	grpc "github.com/weaviate/weaviate/modules/text2vec-kserve/clients/v2/grpc"
+	httpv2 "github.com/weaviate/weaviate/modules/text2vec-kserve/clients/v2/http"
 	"github.com/weaviate/weaviate/modules/text2vec-kserve/ent"
 )
 

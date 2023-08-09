@@ -18,7 +18,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	pb "github.com/weaviate/weaviate/modules/text2vec-kserve/grpc"
+	"github.com/weaviate/weaviate/modules/text2vec-kserve/clients/v2/grpc/codegen"
 )
 
 func Test_byteArrayToFloatArray(t *testing.T) {
@@ -143,25 +143,25 @@ func Test_makeInferRequest(t *testing.T) {
 	tests := []struct {
 		name string
 		args args
-		want *pb.ModelInferRequest
+		want *codegen.ModelInferRequest
 	}{
 		{
 			name: "Empty",
 			args: args{},
-			want: &pb.ModelInferRequest{
+			want: &codegen.ModelInferRequest{
 				ModelName:    "",
 				ModelVersion: "",
-				Inputs: []*pb.ModelInferRequest_InferInputTensor{
+				Inputs: []*codegen.ModelInferRequest_InferInputTensor{
 					{
 						Name:     "",
 						Datatype: "BYTES",
 						Shape:    []int64{1, 1},
-						Contents: &pb.InferTensorContents{
+						Contents: &codegen.InferTensorContents{
 							BytesContents: [][]byte{{}},
 						},
 					},
 				},
-				Outputs: []*pb.ModelInferRequest_InferRequestedOutputTensor{
+				Outputs: []*codegen.ModelInferRequest_InferRequestedOutputTensor{
 					{
 						Name: "",
 					},

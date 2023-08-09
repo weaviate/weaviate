@@ -15,7 +15,7 @@
 syntax = "proto3";
 package inference;
 
-option go_package = "modules/text2vec-kserve/grpc";
+option go_package = "./codegen";
 
 // Inference Server GRPC endpoints.
 service GRPCInferenceService

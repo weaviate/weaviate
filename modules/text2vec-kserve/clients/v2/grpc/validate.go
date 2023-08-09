@@ -17,8 +17,8 @@ import (
 
 	"github.com/pkg/errors"
 	utils "github.com/weaviate/weaviate/modules/text2vec-kserve/clients/utils"
+	"github.com/weaviate/weaviate/modules/text2vec-kserve/clients/v2/grpc/codegen"
 	"github.com/weaviate/weaviate/modules/text2vec-kserve/ent"
-	"github.com/weaviate/weaviate/modules/text2vec-kserve/grpc"
 )
 
 func (c *GrpcClient) Validate(ctx context.Context, config ent.ModuleConfig) error {
@@ -48,8 +48,8 @@ func (c *GrpcClient) Validate(ctx context.Context, config ent.ModuleConfig) erro
 	return validate(*resp, config)
 }
 
-func (c *GrpcClient) modelMetadata(ctx context.Context, conn grpc.GRPCInferenceServiceClient, modelName string, modelVersion string) (*grpc.ModelMetadataResponse, error) {
-	request := grpc.ModelMetadataRequest{
+func (c *GrpcClient) modelMetadata(ctx context.Context, conn codegen.GRPCInferenceServiceClient, modelName string, modelVersion string) (*codegen.ModelMetadataResponse, error) {
+	request := codegen.ModelMetadataRequest{
 		Name:    modelName,
 		Version: modelVersion,
 	}
@@ -61,7 +61,7 @@ func (c *GrpcClient) modelMetadata(ctx context.Context, conn grpc.GRPCInferenceS
 	return resp, nil
 }
 
-func validate(metadata grpc.ModelMetadataResponse, config ent.ModuleConfig) error {
+func validate(metadata codegen.ModelMetadataResponse, config ent.ModuleConfig) error {
 	inputTensor := findTensor(metadata.Inputs, config.Input)
 	if inputTensor == nil {
 		return fmt.Errorf("no input %v for model %v", config.Input, config.Model)
@@ -91,7 +91,7 @@ func validate(metadata grpc.ModelMetadataResponse, config ent.ModuleConfig) erro
 	return nil
 }
 
-func findTensor(tensors []*grpc.ModelMetadataResponse_TensorMetadata, tensorName string) *grpc.ModelMetadataResponse_TensorMetadata {
+func findTensor(tensors []*codegen.ModelMetadataResponse_TensorMetadata, tensorName string) *codegen.ModelMetadataResponse_TensorMetadata {
 	for _, i := range tensors {
 		if i.Name == tensorName {
 			return i

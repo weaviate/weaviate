@@ -15,13 +15,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/modules/text2vec-kserve/clients/v2/grpc/codegen"
 	"github.com/weaviate/weaviate/modules/text2vec-kserve/ent"
-	"github.com/weaviate/weaviate/modules/text2vec-kserve/grpc"
 )
 
 func Test_findTensor(t *testing.T) {
 	type args struct {
-		inputs []*grpc.ModelMetadataResponse_TensorMetadata
+		inputs []*codegen.ModelMetadataResponse_TensorMetadata
 		input  string
 	}
 	tests := []struct {
@@ -32,7 +32,7 @@ func Test_findTensor(t *testing.T) {
 		{
 			name: "Doesn't contain the tensor",
 			args: args{
-				inputs: []*grpc.ModelMetadataResponse_TensorMetadata{
+				inputs: []*codegen.ModelMetadataResponse_TensorMetadata{
 					{
 						Name:     "tensor0",
 						Datatype: "BYTES",
@@ -46,7 +46,7 @@ func Test_findTensor(t *testing.T) {
 		{
 			name: "Contains the tensor",
 			args: args{
-				inputs: []*grpc.ModelMetadataResponse_TensorMetadata{
+				inputs: []*codegen.ModelMetadataResponse_TensorMetadata{
 					{
 						Name:     "tensor0",
 						Datatype: "BYTES",
@@ -67,7 +67,7 @@ func Test_findTensor(t *testing.T) {
 
 func Test_validate(t *testing.T) {
 	type args struct {
-		metadata grpc.ModelMetadataResponse
+		metadata codegen.ModelMetadataResponse
 		config   ent.ModuleConfig
 	}
 	tests := []struct {
@@ -78,7 +78,7 @@ func Test_validate(t *testing.T) {
 		{
 			name: "Empty metadata",
 			args: args{
-				metadata: grpc.ModelMetadataResponse{},
+				metadata: codegen.ModelMetadataResponse{},
 				config:   ent.ModuleConfig{},
 			},
 			wantErr: true,
@@ -86,15 +86,15 @@ func Test_validate(t *testing.T) {
 		{
 			name: "No matching input tensor",
 			args: args{
-				metadata: grpc.ModelMetadataResponse{
-					Inputs: []*grpc.ModelMetadataResponse_TensorMetadata{
+				metadata: codegen.ModelMetadataResponse{
+					Inputs: []*codegen.ModelMetadataResponse_TensorMetadata{
 						{
 							Name:     "input0",
 							Datatype: "BYTES",
 							Shape:    []int64{-1, 1},
 						},
 					},
-					Outputs: []*grpc.ModelMetadataResponse_TensorMetadata{
+					Outputs: []*codegen.ModelMetadataResponse_TensorMetadata{
 						{
 							Name:     "output0",
 							Datatype: "FP32",
@@ -113,15 +113,15 @@ func Test_validate(t *testing.T) {
 		{
 			name: "No matching output tensor",
 			args: args{
-				metadata: grpc.ModelMetadataResponse{
-					Inputs: []*grpc.ModelMetadataResponse_TensorMetadata{
+				metadata: codegen.ModelMetadataResponse{
+					Inputs: []*codegen.ModelMetadataResponse_TensorMetadata{
 						{
 							Name:     "input0",
 							Datatype: "BYTES",
 							Shape:    []int64{-1, 1},
 						},
 					},
-					Outputs: []*grpc.ModelMetadataResponse_TensorMetadata{
+					Outputs: []*codegen.ModelMetadataResponse_TensorMetadata{
 						{
 							Name:     "output1",
 							Datatype: "FP32",
@@ -140,15 +140,15 @@ func Test_validate(t *testing.T) {
 		{
 			name: "Wrong embedding dimension",
 			args: args{
-				metadata: grpc.ModelMetadataResponse{
-					Inputs: []*grpc.ModelMetadataResponse_TensorMetadata{
+				metadata: codegen.ModelMetadataResponse{
+					Inputs: []*codegen.ModelMetadataResponse_TensorMetadata{
 						{
 							Name:     "input0",
 							Datatype: "BYTES",
 							Shape:    []int64{-1, 1},
 						},
 					},
-					Outputs: []*grpc.ModelMetadataResponse_TensorMetadata{
+					Outputs: []*codegen.ModelMetadataResponse_TensorMetadata{
 						{
 							Name:     "output0",
 							Datatype: "FP32",
@@ -167,15 +167,15 @@ func Test_validate(t *testing.T) {
 		{
 			name: "Passes validation",
 			args: args{
-				metadata: grpc.ModelMetadataResponse{
-					Inputs: []*grpc.ModelMetadataResponse_TensorMetadata{
+				metadata: codegen.ModelMetadataResponse{
+					Inputs: []*codegen.ModelMetadataResponse_TensorMetadata{
 						{
 							Name:     "input0",
 							Datatype: "BYTES",
 							Shape:    []int64{-1, 1},
 						},
 					},
-					Outputs: []*grpc.ModelMetadataResponse_TensorMetadata{
+					Outputs: []*codegen.ModelMetadataResponse_TensorMetadata{
 						{
 							Name:     "output0",
 							Datatype: "FP32",

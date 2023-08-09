@@ -21,8 +21,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/modules/text2vec-kserve/clients/v2/grpc/codegen"
 	"github.com/weaviate/weaviate/modules/text2vec-kserve/ent"
-	pb "github.com/weaviate/weaviate/modules/text2vec-kserve/grpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -33,14 +33,14 @@ type grpcConnectionArgs struct {
 }
 
 type GrpcClient struct {
-	grpcClients map[string]*pb.GRPCInferenceServiceClient
+	grpcClients map[string]*codegen.GRPCInferenceServiceClient
 	logger      logrus.FieldLogger
 	rwLock      sync.RWMutex
 }
 
 func NewGRPCClient(logger logrus.FieldLogger) *GrpcClient {
 	return &GrpcClient{
-		grpcClients: map[string]*pb.GRPCInferenceServiceClient{},
+		grpcClients: map[string]*codegen.GRPCInferenceServiceClient{},
 		logger:      logger,
 		rwLock:      sync.RWMutex{},
 	}
@@ -68,20 +68,20 @@ func (c *GrpcClient) Vectorize(ctx context.Context, input string,
 	return c.vectorize(ctx, conn, input, config)
 }
 
-func (c *GrpcClient) connection(target string) (*pb.GRPCInferenceServiceClient, bool) {
+func (c *GrpcClient) connection(target string) (*codegen.GRPCInferenceServiceClient, bool) {
 	c.rwLock.RLock()
 	conn, ok := c.grpcClients[target]
 	defer c.rwLock.RUnlock()
 	return conn, ok
 }
 
-func (c *GrpcClient) setConnection(target string, conn *pb.GRPCInferenceServiceClient) {
+func (c *GrpcClient) setConnection(target string, conn *codegen.GRPCInferenceServiceClient) {
 	c.rwLock.Lock()
 	c.grpcClients[target] = conn
 	defer c.rwLock.Unlock()
 }
 
-func (c *GrpcClient) createConnection(target string, dialOpts []grpc.DialOption) (*pb.GRPCInferenceServiceClient, error) {
+func (c *GrpcClient) createConnection(target string, dialOpts []grpc.DialOption) (*codegen.GRPCInferenceServiceClient, error) {
 	var (
 		conn *grpc.ClientConn
 		err  error
@@ -95,7 +95,7 @@ func (c *GrpcClient) createConnection(target string, dialOpts []grpc.DialOption)
 	if err != nil {
 		return nil, err
 	}
-	client := pb.NewGRPCInferenceServiceClient(conn)
+	client := codegen.NewGRPCInferenceServiceClient(conn)
 
 	c.setConnection(target, &client)
 
@@ -116,7 +116,7 @@ func toGrpcConnectionArgs(args map[string]interface{}) (*grpcConnectionArgs, err
 	}, nil
 }
 
-func (c *GrpcClient) vectorize(ctx context.Context, client *pb.GRPCInferenceServiceClient,
+func (c *GrpcClient) vectorize(ctx context.Context, client *codegen.GRPCInferenceServiceClient,
 	input string, settings ent.ModuleConfig,
 ) (*ent.VectorizationResult, error) {
 	request := makeInferRequest(input, settings.Model, settings.Version, settings.Input, input, settings.Output)
@@ -157,22 +157,22 @@ func byteArrayToFloatArray(arr []byte, floatArrLen int32) (*[]float32, error) {
 	return &result, nil
 }
 
-func makeInferRequest(s string, model string, version string, inputName string, inputValue string, outputName string) *pb.ModelInferRequest {
+func makeInferRequest(s string, model string, version string, inputName string, inputValue string, outputName string) *codegen.ModelInferRequest {
 	byte_input := stringToByteTensor(inputValue)
-	request := pb.ModelInferRequest{
+	request := codegen.ModelInferRequest{
 		ModelName:    model,
 		ModelVersion: version,
-		Inputs: []*pb.ModelInferRequest_InferInputTensor{
+		Inputs: []*codegen.ModelInferRequest_InferInputTensor{
 			{
 				Name:     inputName,
 				Shape:    []int64{1, 1},
 				Datatype: "BYTES",
-				Contents: &pb.InferTensorContents{
+				Contents: &codegen.InferTensorContents{
 					BytesContents: [][]byte{byte_input},
 				},
 			},
 		},
-		Outputs: []*pb.ModelInferRequest_InferRequestedOutputTensor{
+		Outputs: []*codegen.ModelInferRequest_InferRequestedOutputTensor{
 			{
 				Name: outputName,
 			},

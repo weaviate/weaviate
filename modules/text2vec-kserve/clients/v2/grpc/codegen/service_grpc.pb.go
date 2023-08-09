@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package grpc
+package codegen
 
 import (
 	context "context"
@@ -313,5 +313,5 @@ var GRPCInferenceService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "modules/text2vec-kserve/grpc/service.proto",
+	Metadata: "proto/service.proto",
 }
