@@ -48,7 +48,10 @@ func TestCreateTenants(t *testing.T) {
 
 		tenants := make([]*models.Tenant, len(expectedTenants))
 		for i := range tenants {
-			tenants[i] = &models.Tenant{Name: expectedTenants[i]}
+			tenants[i] = &models.Tenant{
+				Name:           expectedTenants[i],
+				ActivityStatus: models.TenantActivityStatusHOT,
+			}
 		}
 		helper.CreateTenants(t, testClass.Class, tenants)
 

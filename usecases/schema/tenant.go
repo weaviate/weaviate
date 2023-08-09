@@ -432,7 +432,10 @@ func (m *Manager) GetTenants(ctx context.Context, principal *models.Principal, c
 			tenants = make([]*models.Tenant, len(ss.Physical))
 			i := 0
 			for tenant := range ss.Physical {
-				tenants[i] = &models.Tenant{Name: tenant}
+				tenants[i] = &models.Tenant{
+					Name:           tenant,
+					ActivityStatus: schema.ActivityStatus(ss.Physical[tenant].Status),
+				}
 				i++
 			}
 		}
