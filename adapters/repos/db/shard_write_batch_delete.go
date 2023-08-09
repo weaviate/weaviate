@@ -148,7 +148,8 @@ func (s *Shard) findDocIDs(ctx context.Context,
 	allowList, err := inverted.NewSearcher(s.index.logger, s.store,
 		s.index.getSchema.GetSchemaSkipAuth(), nil,
 		s.index.classSearcher, s.deletedDocIDs, s.index.stopwords,
-		s.versioner.version, s.isFallbackToSearchable).
+		s.versioner.version, s.isFallbackToSearchable,
+		s.index.Config.QueryNestedRefLimit).
 		DocIDs(ctx, filters, additional.Properties{}, s.index.Config.ClassName)
 	if err != nil {
 		return nil, err

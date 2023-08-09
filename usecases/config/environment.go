@@ -13,6 +13,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -176,6 +177,18 @@ func FromEnv(config *Config) error {
 		config.QueryMaximumResults = int64(asInt)
 	} else {
 		config.QueryMaximumResults = DefaultQueryMaximumResults
+	}
+
+	if v := os.Getenv("QUERY_NESTED_CROSS_REFERENCE_LIMIT"); v != "" {
+		limit, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return errors.Wrapf(err, "parse QUERY_NESTED_CROSS_REFERENCE_LIMIT as int")
+		} else if limit <= 0 {
+			limit = math.MaxInt
+		}
+		config.QueryNestedRefLimit = limit
+	} else {
+		config.QueryNestedRefLimit = DefaultQueryReferenceLimit
 	}
 
 	if v := os.Getenv("MAX_IMPORT_GOROUTINES_FACTOR"); v != "" {

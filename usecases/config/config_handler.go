@@ -72,6 +72,7 @@ type Config struct {
 	Debug                               bool           `json:"debug" yaml:"debug"`
 	QueryDefaults                       QueryDefaults  `json:"query_defaults" yaml:"query_defaults"`
 	QueryMaximumResults                 int64          `json:"query_maximum_results" yaml:"query_maximum_results"`
+	QueryNestedRefLimit                 int64          `json:"query_ref_limit" yaml:"query_ref_limit"`
 	Contextionary                       Contextionary  `json:"contextionary" yaml:"contextionary"`
 	Authentication                      Authentication `json:"authentication" yaml:"authentication"`
 	Authorization                       Authorization  `json:"authorization" yaml:"authorization"`

@@ -14,9 +14,6 @@ package inverted
 import (
 	"context"
 	"fmt"
-	"math"
-	"os"
-	"strconv"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -27,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // a helper tool to extract the uuid beacon for any matching reference
@@ -36,6 +32,7 @@ type refFilterExtractor struct {
 	classSearcher ClassSearcher
 	filter        *filters.Clause
 	property      *models.Property
+	limit         int64
 }
 
 // ClassSearcher is anything that allows a root-level ClassSearch
@@ -46,13 +43,14 @@ type ClassSearcher interface {
 }
 
 func newRefFilterExtractor(logger logrus.FieldLogger, classSearcher ClassSearcher,
-	filter *filters.Clause, property *models.Property,
+	filter *filters.Clause, property *models.Property, limit int64,
 ) *refFilterExtractor {
 	return &refFilterExtractor{
 		logger:        logger,
 		classSearcher: classSearcher,
 		filter:        filter,
 		property:      property,
+		limit:         limit,
 	}
 }
 
@@ -83,8 +81,8 @@ func (r *refFilterExtractor) paramsForNestedRequest() (dto.GetParams, error) {
 		ClassName: r.filter.On.Child.Class.String(),
 		Pagination: &filters.Pagination{
 			Offset: 0,
-			// Limit can be set to dynamically with QUERY_CROSS_REFERENCE_LIMIT
-			Limit: determineRefLimit(),
+			// Limit can be set to dynamically with QUERY_NESTED_CROSS_REFERENCE_LIMIT
+			Limit: int(r.limit),
 		},
 		// set this to indicate that this is a sub-query, so we do not need
 		// to perform the same search limits cutoff check that we do with
@@ -231,6 +229,9 @@ func (r *refFilterExtractor) idsToPropValuePairs(ids []classUUIDPair,
 		out[(i*2)+1] = pv
 	}
 
+	if r.limit < int64(len(out)) {
+		out = out[:r.limit]
+	}
 	return out, nil
 }
 
@@ -240,16 +241,4 @@ func (r *refFilterExtractor) validate() error {
 	}
 
 	return nil
-}
-
-func determineRefLimit() int {
-	limit, err := strconv.ParseInt(os.Getenv("QUERY_CROSS_REFERENCE_LIMIT"), 10, 64)
-	if err != nil {
-		limit = config.DefaultQueryReferenceLimit
-	} else if limit < 0 {
-		limit = math.MaxInt
-	}
-	// Zero is an allowable value, which will
-	// prevent any refs from being returned.
-	return int(limit)
 }
