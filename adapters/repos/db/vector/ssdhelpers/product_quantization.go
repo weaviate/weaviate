@@ -231,15 +231,15 @@ func NewProductQuantizerWithEncoders(cfg ent.PQConfig, distance distancer.Provid
 func (pq *ProductQuantizer) buildGlobalDistances() {
 	// This hosts the partial distances between the centroids. This way we do not need
 	// to recalculate all the time when calculating full distances between compressed vecs
-	pq.globalDistances = make([]float32, pq.ks*pq.ks)
+	pq.globalDistances = make([]float32, pq.m*pq.ks*pq.ks)
 	for segment := 0; segment < pq.m; segment++ {
 		for i := 0; i < pq.ks; i++ {
 			cX := pq.kms[segment].Centroid(byte(i))
 			for j := 0; j <= i; j++ {
 				cY := pq.kms[segment].Centroid(byte(j))
-				pq.globalDistances[i*pq.ks+j] = pq.distance.Step(cX, cY)
+				pq.globalDistances[segment*pq.ks*pq.ks+i*pq.ks+j] = pq.distance.Step(cX, cY)
 				// Just copy from already calculated cell since step should be symmetric.
-				pq.globalDistances[j*pq.ks+i] = pq.globalDistances[i*pq.ks+j]
+				pq.globalDistances[segment*pq.ks*pq.ks+j*pq.ks+i] = pq.globalDistances[segment*pq.ks*pq.ks+i*pq.ks+j]
 			}
 		}
 	}
@@ -295,7 +295,7 @@ func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) float3
 	for i := 0; i < pq.m; i++ {
 		cX := ExtractCode8(x, i)
 		cY := ExtractCode8(y, i)
-		dist += pq.globalDistances[int(cX)*pq.ks+int(cY)]
+		dist += pq.globalDistances[i*pq.ks*pq.ks+int(cX)*pq.ks+int(cY)]
 	}
 
 	return pq.distance.Wrap(dist)
