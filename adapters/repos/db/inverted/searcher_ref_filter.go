@@ -232,9 +232,6 @@ func (r *refFilterExtractor) idsToPropValuePairs(ids []classUUIDPair,
 		out[(i*2)+1] = pv
 	}
 
-	if r.limit < int64(len(out)) {
-		out = out[:r.limit]
-	}
 	return out, nil
 }
 
