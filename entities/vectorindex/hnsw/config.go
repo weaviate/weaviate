@@ -185,6 +185,15 @@ func ParseAndValidateConfig(input interface{}) (schema.VectorIndexConfig, error)
 	return uc, uc.validate()
 }
 
+func ValidateDefaultVectorDistanceMetric(distance string) error {
+	switch distance {
+	case "", DistanceCosine, DistanceDot, DistanceL2Squared, DistanceManhattan, DistanceHamming:
+		return nil
+	default:
+		return fmt.Errorf("must be one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]")
+	}
+}
+
 func (u *UserConfig) validate() error {
 	var errMsgs []string
 	if u.MaxConnections < MinmumMaxConnections {
@@ -199,6 +208,11 @@ func (u *UserConfig) validate() error {
 			"efConstruction must be a positive integer with a minimum of %d",
 			MinmumMaxConnections,
 		))
+	}
+
+	err := ValidateDefaultVectorDistanceMetric(u.Distance)
+	if err != nil {
+		errMsgs = append(errMsgs, err.Error())
 	}
 
 	if len(errMsgs) > 0 {

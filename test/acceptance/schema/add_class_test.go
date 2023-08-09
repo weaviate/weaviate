@@ -305,6 +305,47 @@ func TestUpdateClassWithoutVectorIndex(t *testing.T) {
 	})
 }
 
+// This test makes sure that only valid arguments are allowed when creating a class with a "distance" parameter.
+func TestCreateDistanceSettings(t *testing.T) {
+	className := "Cosine_Class"
+
+	t.Run("asserting that this class does not exist yet", func(t *testing.T) {
+		assert.NotContains(t, GetObjectClassNames(t), className)
+	})
+
+	defer func(t *testing.T) {
+		params := clschema.NewSchemaObjectsDeleteParams().WithClassName(className)
+		_, err := helper.Client(t).Schema.SchemaObjectsDelete(params, nil)
+		assert.Nil(t, err)
+		if err != nil {
+			if typed, ok := err.(*clschema.SchemaObjectsDeleteBadRequest); ok {
+				fmt.Println(typed.Payload.Error[0].Message)
+			}
+		}
+	}(t)
+
+	t.Run("Creating class with wrong distance", func(t *testing.T) {
+		c := &models.Class{
+			Class:      className,
+			Vectorizer: "none",
+			Properties: []*models.Property{
+				{
+					Name:         "name",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
+				},
+			},
+			VectorIndexConfig: map[string]interface{}{
+				"distance": "wrong_distance",
+			},
+		}
+
+		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
+		_, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+		assert.NotNil(t, err)
+	})
+}
+
 // TODO: https://github.com/weaviate/weaviate/issues/973
 // // This test prevents a regression on the fix for this bug:
 // // https://github.com/weaviate/weaviate/issues/831

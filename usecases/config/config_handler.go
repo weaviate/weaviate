@@ -112,7 +112,7 @@ func (c Config) Validate(modProv moduleProvider) error {
 		return errors.Wrap(err, "default vectorizer module")
 	}
 
-	if err := c.validateDefaultVectorDistanceMetric(); err != nil {
+	if err := hnsw.ValidateDefaultVectorDistanceMetric(c.DefaultVectorDistanceMetric); err != nil {
 		return errors.Wrap(err, "default vector distance metric")
 	}
 
@@ -125,15 +125,6 @@ func (c Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
 	}
 
 	return modProv.ValidateVectorizer(c.DefaultVectorizerModule)
-}
-
-func (c Config) validateDefaultVectorDistanceMetric() error {
-	switch c.DefaultVectorDistanceMetric {
-	case "", hnsw.DistanceCosine, hnsw.DistanceDot, hnsw.DistanceL2Squared, hnsw.DistanceManhattan, hnsw.DistanceHamming:
-		return nil
-	default:
-		return fmt.Errorf("must be one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]")
-	}
 }
 
 type AutoSchema struct {
