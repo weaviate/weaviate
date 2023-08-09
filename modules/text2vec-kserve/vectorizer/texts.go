@@ -20,7 +20,7 @@ func (v *Vectorizer) Texts(ctx context.Context, input []string,
 	settings ClassSettings,
 ) ([]float32, error) {
 	config := settings.ToModuleConfig()
-	result, err := v.client.Vectorize(ctx, v.joinSentences(input), config)
+	result, err := v.client.Vectorize(ctx, joinSentences(input), config)
 
 	if result != nil {
 		return result.Vector, err
@@ -28,7 +28,7 @@ func (v *Vectorizer) Texts(ctx context.Context, input []string,
 	return nil, err
 }
 
-func (v *Vectorizer) joinSentences(input []string) string {
+func joinSentences(input []string) string {
 	if len(input) == 1 {
 		return input[0]
 	}
@@ -36,7 +36,7 @@ func (v *Vectorizer) joinSentences(input []string) string {
 	b := &strings.Builder{}
 	for i, sent := range input {
 		if i > 0 {
-			if v.endsWithPunctuation(input[i-1]) {
+			if endsWithPunctuation(input[i-1]) {
 				b.WriteString(" ")
 			} else {
 				b.WriteString(". ")
@@ -48,7 +48,7 @@ func (v *Vectorizer) joinSentences(input []string) string {
 	return b.String()
 }
 
-func (v *Vectorizer) endsWithPunctuation(sent string) bool {
+func endsWithPunctuation(sent string) bool {
 	if len(sent) == 0 {
 		// treat an empty string as if it ended with punctuation so we don't add
 		// additional punctuation
