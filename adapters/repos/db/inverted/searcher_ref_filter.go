@@ -83,7 +83,7 @@ func (r *refFilterExtractor) paramsForNestedRequest() (dto.GetParams, error) {
 		ClassName: r.filter.On.Child.Class.String(),
 		Pagination: &filters.Pagination{
 			Offset: 0,
-			// Limit can be set to dynamically with QUERY_REF_LIMIT
+			// Limit can be set to dynamically with QUERY_CROSS_REFERENCE_LIMIT
 			Limit: determineRefLimit(),
 		},
 		// set this to indicate that this is a sub-query, so we do not need
@@ -243,7 +243,7 @@ func (r *refFilterExtractor) validate() error {
 }
 
 func determineRefLimit() int {
-	limit, err := strconv.ParseInt(os.Getenv("QUERY_REF_LIMIT"), 10, 64)
+	limit, err := strconv.ParseInt(os.Getenv("QUERY_CROSS_REFERENCE_LIMIT"), 10, 64)
 	if err != nil {
 		limit = config.DefaultQueryReferenceLimit
 	} else if limit < 0 {
