@@ -229,13 +229,17 @@ func NewProductQuantizerWithEncoders(cfg ent.PQConfig, distance distancer.Provid
 }
 
 func (pq *ProductQuantizer) buildGlobalDistances() {
+	//This hosts the partial distances between the centroids. This way we do not need
+	//to recalculate all the time when calculating full distances between compressed vecs
 	pq.globalDistances = make([]float32, pq.ks*pq.ks)
 	for segment := 0; segment < pq.m; segment++ {
 		for i := 0; i < pq.ks; i++ {
-			for j := 0; j < pq.ks; j++ {
-				cX := pq.kms[segment].Centroid(byte(i))
+			cX := pq.kms[segment].Centroid(byte(i))
+			for j := 0; j <= pq.ks; j++ {
 				cY := pq.kms[segment].Centroid(byte(j))
 				pq.globalDistances[i*pq.ks+j] = pq.distance.Step(cX, cY)
+				//Just copy from already calculated cell since step should be symmetric.
+				pq.globalDistances[j*pq.ks+i] = pq.globalDistances[i*pq.ks+j]
 			}
 		}
 	}

@@ -557,9 +557,9 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	}
 
 	if h.shouldRescore() {
-		ids := make([]uint64, 0, res.Len())
-		for _, item := range res.Items() {
-			ids = append(ids, item.ID)
+		ids := make([]uint64, res.Len())
+		for i, item := range res.Items() {
+			ids[i] = item.ID
 		}
 		res.Reset()
 		for _, id := range ids {
