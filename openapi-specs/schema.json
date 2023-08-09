@@ -955,6 +955,12 @@
           "type": "number",
           "x-omitempty": false
         },
+        "batchRatePerSecond": {
+          "description": "How many objects are approximately processed from the batch queue per second.",
+          "format": "int",
+          "type": "number",
+          "x-omitempty": false
+        },
         "objectCount": {
           "description": "The total number of objects in DB.",
           "format": "int64",

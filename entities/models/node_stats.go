@@ -31,6 +31,9 @@ type NodeStats struct {
 	// How many objects are currently in the batch queue.
 	BatchQueueLength int64 `json:"batchQueueLength"`
 
+	// How many objects are approximately processed from the batch queue per second.
+	BatchRatePerSecond int64 `json:"batchRatePerSecond"`
+
 	// The total number of objects in DB.
 	ObjectCount int64 `json:"objectCount"`
 

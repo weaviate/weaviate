@@ -3931,6 +3931,12 @@ func init() {
           "format": "int",
           "x-omitempty": false
         },
+        "batchRatePerSecond": {
+          "description": "How many objects are approximately processed from the batch queue per second.",
+          "type": "number",
+          "format": "int",
+          "x-omitempty": false
+        },
         "objectCount": {
           "description": "The total number of objects in DB.",
           "type": "number",
@@ -8922,6 +8928,12 @@ func init() {
       "properties": {
         "batchQueueLength": {
           "description": "How many objects are currently in the batch queue.",
+          "type": "number",
+          "format": "int",
+          "x-omitempty": false
+        },
+        "batchRatePerSecond": {
+          "description": "How many objects are approximately processed from the batch queue per second.",
           "type": "number",
           "format": "int",
           "x-omitempty": false

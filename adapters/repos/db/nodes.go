@@ -85,6 +85,9 @@ func (db *DB) localNodeStatus(className string) *models.NodeStatus {
 	if db.schemaGetter.ClusterHealthScore() > 0 {
 		clusterHealthStatus = models.NodeStatusStatusUNHEALTHY
 	}
+	db.batchMonitorLock.Lock()
+	rate := db.ratePerSecond
+	db.batchMonitorLock.Unlock()
 
 	return &models.NodeStatus{
 		Name:    db.schemaGetter.NodeName(),
@@ -93,9 +96,10 @@ func (db *DB) localNodeStatus(className string) *models.NodeStatus {
 		Status:  &clusterHealthStatus,
 		Shards:  shards,
 		Stats: &models.NodeStats{
-			ShardCount:       int64(len(shards)),
-			ObjectCount:      objectCount,
-			BatchQueueLength: int64(len(db.jobQueueCh)),
+			ShardCount:         int64(len(shards)),
+			ObjectCount:        objectCount,
+			BatchQueueLength:   int64(len(db.jobQueueCh)),
+			BatchRatePerSecond: int64(rate),
 		},
 	}
 }
