@@ -164,7 +164,6 @@ type testRankHandler struct {
 	lock           sync.RWMutex
 	t              *testing.T
 	response       RankResponse
-	responseLock   sync.Mutex
 	batchedResults [][]Result
 	errorMessage   string
 }
@@ -206,14 +205,10 @@ func (f *testRankHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if containsDocument(req, "Response 7") {
 			index = 3
 		}
-		f.responseLock.Lock()
 		f.response.Results = f.batchedResults[index]
-		f.responseLock.Unlock()
 	}
 
-	f.responseLock.Lock()
 	outBytes, err := json.Marshal(f.response)
-	f.responseLock.Unlock()
 	require.Nil(f.t, err)
 
 	w.Write(outBytes)
