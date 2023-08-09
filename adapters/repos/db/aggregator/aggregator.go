@@ -44,6 +44,7 @@ type Aggregator struct {
 	shardVersion           uint16
 	propLengths            *inverted.JsonPropertyLengthTracker
 	isFallbackToSearchable inverted.IsFallbackToSearchable
+	nestedCrossRefLimit    int64
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,
@@ -51,6 +52,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	deletedDocIDs inverted.DeletedDocIDChecker, stopwords stopwords.StopwordDetector,
 	shardVersion uint16, vectorIndex vectorIndex, logger logrus.FieldLogger,
 	propLengths *inverted.JsonPropertyLengthTracker, isFallbackToSearchable inverted.IsFallbackToSearchable,
+	nestedCrossRefLimit int64,
 ) *Aggregator {
 	return &Aggregator{
 		logger:                 logger,
@@ -64,6 +66,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 		vectorIndex:            vectorIndex,
 		propLengths:            propLengths,
 		isFallbackToSearchable: isFallbackToSearchable,
+		nestedCrossRefLimit:    nestedCrossRefLimit,
 	}
 }
 
