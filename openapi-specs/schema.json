@@ -957,6 +957,23 @@
         }
       }
     },
+    "BatchStats": {
+      "description": "The summary of a nodes batch queue congestion status.",
+      "properties": {
+        "queueLength": {
+          "description": "How many objects are currently in the batch queue.",
+          "format": "int",
+          "type": "number",
+          "x-omitempty": false
+        },
+        "ratePerSecond": {
+          "description": "How many objects are approximately processed from the batch queue per second.",
+          "format": "int",
+          "type": "number",
+          "x-omitempty": false
+        }
+      }
+    },
     "NodeShardStatus": {
       "description": "The definition of a node shard status response body",
       "properties": {
@@ -1007,6 +1024,11 @@
           "description": "Weaviate overall statistics.",
           "type": "object",
           "$ref": "#/definitions/NodeStats"
+        },
+        "batchStats": {
+          "description": "Weaviate batch statistics.",
+          "type": "object",
+          "$ref": "#/definitions/BatchStats"
         },
         "shards": {
           "description": "The list of the shards with it's statistics.",
