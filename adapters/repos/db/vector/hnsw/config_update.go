@@ -30,7 +30,7 @@ func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
 		return errors.Errorf("updated is not UserConfig, but %T", updated)
 	}
 
-	immutableFields := []immutableInt{
+	immutableFields := []immutableParameter{
 		{
 			name:     "efConstruction",
 			accessor: func(c ent.UserConfig) interface{} { return c.EFConstruction },
@@ -62,12 +62,12 @@ func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
 	return nil
 }
 
-type immutableInt struct {
+type immutableParameter struct {
 	accessor func(c ent.UserConfig) interface{}
 	name     string
 }
 
-func validateImmutableIntField(u immutableInt,
+func validateImmutableIntField(u immutableParameter,
 	previous, next ent.UserConfig,
 ) error {
 	oldField := u.accessor(previous)
