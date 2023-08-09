@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -71,6 +72,8 @@ type DB struct {
 	jobQueueCh          chan job
 	shutDownWg          sync.WaitGroup
 	maxNumberGoroutines int
+	batchMonitorLock    sync.Mutex
+	ratePerSecond       int
 }
 
 func (db *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
@@ -115,7 +118,7 @@ func New(logger logrus.FieldLogger, config Config,
 	}
 	db.shutDownWg.Add(db.maxNumberGoroutines)
 	for i := 0; i < db.maxNumberGoroutines; i++ {
-		go db.worker()
+		go db.worker(i == 0)
 	}
 
 	return db, nil
@@ -223,7 +226,9 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (db *DB) worker() {
+func (db *DB) worker(first bool) {
+	objectCounter := 0
+	checkTime := time.Now().Add(time.Second)
 	for jobToAdd := range db.jobQueueCh {
 		if jobToAdd.index < 0 {
 			db.shutDownWg.Done()
@@ -231,6 +236,15 @@ func (db *DB) worker() {
 		}
 		jobToAdd.batcher.storeSingleObjectInAdditionalStorage(jobToAdd.ctx, jobToAdd.object, jobToAdd.status, jobToAdd.index)
 		jobToAdd.batcher.wg.Done()
+		objectCounter += 1
+		if first && time.Now().After(checkTime) { // only have one worker report the rate per second
+			db.batchMonitorLock.Lock()
+			db.ratePerSecond = objectCounter * db.maxNumberGoroutines
+			db.batchMonitorLock.Unlock()
+
+			objectCounter = 0
+			checkTime = time.Now().Add(time.Second)
+		}
 	}
 }
 

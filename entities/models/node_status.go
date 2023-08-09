@@ -32,6 +32,9 @@ import (
 // swagger:model NodeStatus
 type NodeStatus struct {
 
+	// Weaviate batch statistics.
+	BatchStats *BatchStats `json:"batchStats,omitempty"`
+
 	// The gitHash of Weaviate.
 	GitHash string `json:"gitHash,omitempty"`
 
@@ -56,6 +59,10 @@ type NodeStatus struct {
 func (m *NodeStatus) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateBatchStats(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateShards(formats); err != nil {
 		res = append(res, err)
 	}
@@ -71,6 +78,25 @@ func (m *NodeStatus) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *NodeStatus) validateBatchStats(formats strfmt.Registry) error {
+	if swag.IsZero(m.BatchStats) { // not required
+		return nil
+	}
+
+	if m.BatchStats != nil {
+		if err := m.BatchStats.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("batchStats")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("batchStats")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -168,6 +194,10 @@ func (m *NodeStatus) validateStatus(formats strfmt.Registry) error {
 func (m *NodeStatus) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.contextValidateBatchStats(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateShards(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -179,6 +209,22 @@ func (m *NodeStatus) ContextValidate(ctx context.Context, formats strfmt.Registr
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *NodeStatus) contextValidateBatchStats(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.BatchStats != nil {
+		if err := m.BatchStats.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("batchStats")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("batchStats")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 
