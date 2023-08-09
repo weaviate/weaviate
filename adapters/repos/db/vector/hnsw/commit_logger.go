@@ -41,7 +41,7 @@ func commitLogDirectory(rootPath, name string) string {
 }
 
 func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
-	maintenanceCycle cyclemanager.CycleManager, opts ...CommitlogOption,
+	maintenanceCallbacks cyclemanager.CycleCallbackGroup, opts ...CommitlogOption,
 ) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
 		rootPath:  rootPath,
@@ -65,9 +65,14 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 		return nil, err
 	}
 
+	id := func(elems ...string) string {
+		elems = append([]string{"commit_logger"}, elems...)
+		elems = append(elems, l.id)
+		return strings.Join(elems, "/")
+	}
 	l.commitLogger = commitlog.NewLoggerWithFile(fd)
-	l.unregisterSwitchLogs = maintenanceCycle.Register(l.startSwitchLogs)
-	l.unregisterCondenseLogs = maintenanceCycle.Register(l.startCombineAndCondenseLogs)
+	l.switchLogsCallbackCtrl = maintenanceCallbacks.Register(id("switch_logs"), l.startSwitchLogs)
+	l.condenseLogsCallbackCtrl = maintenanceCallbacks.Register(id("condense_logs"), l.startCombineAndCondenseLogs)
 
 	return l, nil
 }
@@ -250,8 +255,8 @@ type hnswCommitLogger struct {
 	maxSizeCombining  int64
 	commitLogger      *commitlog.Logger
 
-	unregisterSwitchLogs   cyclemanager.UnregisterFunc
-	unregisterCondenseLogs cyclemanager.UnregisterFunc
+	switchLogsCallbackCtrl   cyclemanager.CycleCallbackCtrl
+	condenseLogsCallbackCtrl cyclemanager.CycleCallbackCtrl
 }
 
 type HnswCommitType uint8 // 256 options, plenty of room for future extensions
@@ -389,10 +394,10 @@ func (l *hnswCommitLogger) Reset() error {
 // scheduling. The caller can be sure that state on disk is immutable after
 // calling Shutdown().
 func (l *hnswCommitLogger) Shutdown(ctx context.Context) error {
-	if err := l.unregisterSwitchLogs(ctx); err != nil {
+	if err := l.switchLogsCallbackCtrl.Unregister(ctx); err != nil {
 		return errors.Wrap(err, "failed to unregister commitlog switch from maintenance cycle")
 	}
-	if err := l.unregisterCondenseLogs(ctx); err != nil {
+	if err := l.condenseLogsCallbackCtrl.Unregister(ctx); err != nil {
 		return errors.Wrap(err, "failed to unregister commitlog condense from maintenance cycle")
 	}
 	return nil
@@ -402,7 +407,7 @@ func (l *hnswCommitLogger) RootPath() string {
 	return l.rootPath
 }
 
-func (l *hnswCommitLogger) startSwitchLogs(shouldBreak cyclemanager.ShouldBreakFunc) bool {
+func (l *hnswCommitLogger) startSwitchLogs(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	executed, err := l.switchCommitLogs(false)
 	if err != nil {
 		l.logger.WithError(err).
@@ -412,7 +417,7 @@ func (l *hnswCommitLogger) startSwitchLogs(shouldBreak cyclemanager.ShouldBreakF
 	return executed
 }
 
-func (l *hnswCommitLogger) startCombineAndCondenseLogs(shouldBreak cyclemanager.ShouldBreakFunc) bool {
+func (l *hnswCommitLogger) startCombineAndCondenseLogs(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	executed1, err := l.combineLogs()
 	if err != nil {
 		l.logger.WithError(err).

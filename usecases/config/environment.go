@@ -137,6 +137,10 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if os.Getenv("PERSISTENCE_LSM_ACCESS_STRATEGY") == "pread" {
+		config.AvoidMmap = true
+	}
+
 	clusterCfg, err := parseClusterConfig()
 	if err != nil {
 		return err
@@ -282,6 +286,14 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableGraphQL = enabled(os.Getenv("DISABLE_GRAPHQL"))
+
+	if err := parsePositiveInt(
+		"REPLICATION_MINIMUM_FACTOR",
+		func(val int) { config.Replication.MinimumFactor = val },
+		DefaultMinimumReplicationFactor,
+	); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -360,6 +372,7 @@ const (
 	DefaultPersistenceMemtablesMaxDuration    = 45
 	DefaultMaxConcurrentGetRequests           = 0
 	DefaultGRPCPort                           = 50051
+	DefaultMinimumReplicationFactor           = 1
 )
 
 const VectorizerModuleNone = "none"

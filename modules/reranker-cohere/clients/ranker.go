@@ -26,7 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/reranker-cohere/config"
-	"github.com/weaviate/weaviate/modules/reranker-cohere/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 	"golang.org/x/sync/errgroup"
 )
 

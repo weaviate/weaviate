@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
+	ubak "github.com/weaviate/weaviate/usecases/backup"
 )
 
 func Test_FilesystemBackend_Backup(t *testing.T) {
@@ -78,7 +79,8 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 						Name: className,
 					},
 				},
-				Status: string(backup.Started),
+				Status:  string(backup.Started),
+				Version: ubak.Version,
 			}
 
 			b, err := json.Marshal(desc)

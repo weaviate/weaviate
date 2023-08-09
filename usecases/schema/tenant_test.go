@@ -40,7 +40,7 @@ func TestAddTenants(t *testing.T) {
 		Class   string
 		tenants []*models.Tenant
 		initial *models.Class
-		errMsg  string
+		errMsgs []string
 	}
 	tests := []test{
 		{
@@ -53,11 +53,11 @@ func TestAddTenants(t *testing.T) {
 				Properties:         properties,
 				ReplicationConfig:  repConfig,
 			},
-			errMsg: ErrNotFound.Error(),
+			errMsgs: []string{ErrNotFound.Error()},
 		},
 		{
 			name:    "MTIsNil",
-			Class:   "C1",
+			Class:   cls,
 			tenants: tenants,
 			initial: &models.Class{
 				Class:              cls,
@@ -65,11 +65,11 @@ func TestAddTenants(t *testing.T) {
 				Properties:         properties,
 				ReplicationConfig:  repConfig,
 			},
-			errMsg: "not enabled",
+			errMsgs: []string{"not enabled"},
 		},
 		{
 			name:    "MTDisabled",
-			Class:   "C1",
+			Class:   cls,
 			tenants: tenants,
 			initial: &models.Class{
 				Class:              cls,
@@ -77,11 +77,11 @@ func TestAddTenants(t *testing.T) {
 				Properties:         properties,
 				ReplicationConfig:  repConfig,
 			},
-			errMsg: "not enabled",
+			errMsgs: []string{"not enabled"},
 		},
 		{
 			name:    "EmptyTenantValue",
-			Class:   "C1",
+			Class:   cls,
 			tenants: []*models.Tenant{{Name: "Aaaa"}, {Name: ""}, {Name: "Bbbb"}},
 			initial: &models.Class{
 				Class:              cls,
@@ -89,19 +89,61 @@ func TestAddTenants(t *testing.T) {
 				Properties:         properties,
 				ReplicationConfig:  repConfig,
 			},
-			errMsg: "tenant",
+			errMsgs: []string{"tenant"},
 		},
 		{
-			name:    "Success",
-			Class:   "C1",
-			tenants: []*models.Tenant{{Name: "Aaaa"}, {Name: "Bbbb"}},
+			name:  "InvalidActivityStatus",
+			Class: cls,
+			tenants: []*models.Tenant{
+				{Name: "Aaaa", ActivityStatus: "DOES_NOT_EXIST_1"},
+				{Name: "Bbbb", ActivityStatus: "DOES_NOT_EXIST_2"},
+			},
 			initial: &models.Class{
 				Class:              cls,
 				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 				Properties:         properties,
 				ReplicationConfig:  repConfig,
 			},
-			errMsg: "",
+			errMsgs: []string{
+				"invalid activity status",
+				"DOES_NOT_EXIST_1",
+				"DOES_NOT_EXIST_2",
+			},
+		},
+		{
+			name:  "UnsupportedActivityStatus",
+			Class: cls,
+			tenants: []*models.Tenant{
+				{Name: "Aaaa", ActivityStatus: models.TenantActivityStatusWARM},
+				{Name: "Bbbb", ActivityStatus: models.TenantActivityStatusFROZEN},
+			},
+			initial: &models.Class{
+				Class:              cls,
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				Properties:         properties,
+				ReplicationConfig:  repConfig,
+			},
+			errMsgs: []string{
+				"not yet supported activity status",
+				models.TenantActivityStatusWARM,
+				models.TenantActivityStatusFROZEN,
+			},
+		},
+		{
+			name:  "Success",
+			Class: cls,
+			tenants: []*models.Tenant{
+				{Name: "Aaaa"},
+				{Name: "Bbbb", ActivityStatus: models.TenantActivityStatusHOT},
+				{Name: "Cccc", ActivityStatus: models.TenantActivityStatusCOLD},
+			},
+			initial: &models.Class{
+				Class:              cls,
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				Properties:         properties,
+				ReplicationConfig:  repConfig,
+			},
+			errMsgs: []string{},
 		},
 		// TODO test with replication factor >= 2
 	}
@@ -113,15 +155,196 @@ func TestAddTenants(t *testing.T) {
 		if err == nil {
 			err = sm.AddTenants(ctx, nil, test.Class, test.tenants)
 		}
-		if test.errMsg == "" {
+		if len(test.errMsgs) == 0 {
 			assert.Nil(t, err)
 			ss := sm.schemaCache.ShardingState[test.Class]
 			assert.NotNil(t, ss, test.name)
 			assert.Equal(t, len(ss.Physical), len(test.tenants), test.name)
 		} else {
-			assert.ErrorContains(t, err, test.errMsg, test.name)
+			for _, msg := range test.errMsgs {
+				assert.ErrorContains(t, err, msg, test.name)
+			}
+		}
+	}
+}
+
+func TestUpdateTenants(t *testing.T) {
+	var (
+		ctx     = context.Background()
+		mt      = &models.MultiTenancyConfig{Enabled: true}
+		tenants = []*models.Tenant{
+			{Name: "USER1", ActivityStatus: models.TenantActivityStatusHOT},
+			{Name: "USER2", ActivityStatus: models.TenantActivityStatusHOT},
+		}
+		cls        = "C1"
+		properties = []*models.Property{
+			{
+				Name:     "uUID",
+				DataType: schema.DataTypeText.PropString(),
+			},
+		}
+		repConfig = &models.ReplicationConfig{Factor: 1}
+	)
+
+	type test struct {
+		name          string
+		Class         string
+		updateTenants []*models.Tenant
+		initial       *models.Class
+		errMsgs       []string
+		skipAdd       bool
+	}
+	tests := []test{
+		{
+			name:          "UnknownClass",
+			Class:         "UnknownClass",
+			updateTenants: tenants,
+			initial: &models.Class{
+				Class:              cls,
+				MultiTenancyConfig: mt,
+				Properties:         properties,
+				ReplicationConfig:  repConfig,
+			},
+			errMsgs: []string{ErrNotFound.Error()},
+		},
+		{
+			name:          "MTIsNil",
+			Class:         cls,
+			updateTenants: tenants,
+			initial: &models.Class{
+				Class:              cls,
+				MultiTenancyConfig: nil,
+				Properties:         properties,
+				ReplicationConfig:  repConfig,
+			},
+			errMsgs: []string{"not enabled"},
+			skipAdd: true,
+		},
+		{
+			name:          "MTDisabled",
+			Class:         cls,
+			updateTenants: tenants,
+			initial: &models.Class{
+				Class:              cls,
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false},
+				Properties:         properties,
+				ReplicationConfig:  repConfig,
+			},
+			errMsgs: []string{"not enabled"},
+			skipAdd: true,
+		},
+		{
+			name:          "EmptyTenantValue",
+			Class:         cls,
+			updateTenants: []*models.Tenant{{Name: ""}},
+			initial: &models.Class{
+				Class:              cls,
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				Properties:         properties,
+				ReplicationConfig:  repConfig,
+			},
+			errMsgs: []string{"tenant"},
+		},
+		{
+			name:  "InvalidActivityStatus",
+			Class: cls,
+			updateTenants: []*models.Tenant{
+				{Name: tenants[0].Name, ActivityStatus: "DOES_NOT_EXIST_1"},
+				{Name: tenants[1].Name, ActivityStatus: "DOES_NOT_EXIST_2"},
+			},
+			initial: &models.Class{
+				Class:              cls,
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				Properties:         properties,
+				ReplicationConfig:  repConfig,
+			},
+			errMsgs: []string{
+				"invalid activity status",
+				"DOES_NOT_EXIST_1",
+				"DOES_NOT_EXIST_2",
+			},
+		},
+		{
+			name:  "UnsupportedActivityStatus",
+			Class: cls,
+			updateTenants: []*models.Tenant{
+				{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusWARM},
+				{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusFROZEN},
+			},
+			initial: &models.Class{
+				Class:              cls,
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				Properties:         properties,
+				ReplicationConfig:  repConfig,
+			},
+			errMsgs: []string{
+				"not yet supported activity status",
+				models.TenantActivityStatusWARM,
+				models.TenantActivityStatusFROZEN,
+			},
+		},
+		{
+			name:  "EmptyActivityStatus",
+			Class: cls,
+			updateTenants: []*models.Tenant{
+				{Name: tenants[0].Name},
+				{Name: tenants[1].Name, ActivityStatus: ""},
+			},
+			initial: &models.Class{
+				Class:              cls,
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				Properties:         properties,
+				ReplicationConfig:  repConfig,
+			},
+			errMsgs: []string{"invalid activity status"},
+		},
+		{
+			name:  "Success",
+			Class: cls,
+			updateTenants: []*models.Tenant{
+				{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+				{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+			},
+			initial: &models.Class{
+				Class:              cls,
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				Properties:         properties,
+				ReplicationConfig:  repConfig,
+			},
+			errMsgs: []string{},
+		},
+	}
+
+	for _, test := range tests {
+		sm := newSchemaManager()
+		if err := sm.AddClass(ctx, nil, test.initial); err != nil {
+			t.Fatalf("%s: add class: %v", test.name, err)
+		}
+		if !test.skipAdd {
+			if err := sm.AddTenants(ctx, nil, cls, tenants); err != nil {
+				t.Fatalf("%s: add tenants: %v", test.name, err)
+			}
 		}
 
+		err := sm.UpdateTenants(ctx, nil, test.Class, test.updateTenants)
+		if len(test.errMsgs) == 0 {
+			if err != nil {
+				t.Fatalf("%s: update tenants: %v", test.name, err)
+			}
+			ss := sm.schemaCache.ShardingState[test.Class]
+			if ss == nil {
+				t.Fatalf("%s: sharding state equal nil", test.name)
+			}
+
+			assert.Len(t, ss.Physical, len(tenants))
+			for _, tenant := range test.updateTenants {
+				assert.Equal(t, tenant.ActivityStatus, ss.Physical[tenant.Name].Status, test.name)
+			}
+		} else {
+			for _, msg := range test.errMsgs {
+				assert.ErrorContains(t, err, msg, test.name)
+			}
+		}
 	}
 }
 

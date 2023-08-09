@@ -48,20 +48,35 @@ func TestFilters(t *testing.T) {
 	defer repo.Shutdown(testCtx())
 
 	migrator := NewMigrator(repo, logger)
-	t.Run("prepare test schema and data ",
-		prepareCarTestSchemaAndData(repo, migrator, schemaGetter))
+	t.Run("prepare test schema and data ", prepareCarTestSchemaAndData(repo, migrator, schemaGetter))
 
-	t.Run("primitive props without nesting",
-		testPrimitiveProps(repo))
+	t.Run("primitive props without nesting", testPrimitiveProps(repo))
 
-	t.Run("primitive props with limit",
-		testPrimitivePropsWithLimit(repo))
+	t.Run("primitive props with limit", testPrimitivePropsWithLimit(repo))
 
-	t.Run("chained primitive props",
-		testChainedPrimitiveProps(repo, migrator))
+	t.Run("chained primitive props", testChainedPrimitiveProps(repo, migrator))
 
-	t.Run("sort props",
-		testSortProperties(repo))
+	t.Run("sort props", testSortProperties(repo))
+}
+
+func TestFiltersNoLengthIndex(t *testing.T) {
+	dirName := t.TempDir()
+
+	logger, _ := test.NewNullLogger()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo, err := New(logger, Config{
+		MemtablesFlushIdleAfter:   60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
+	defer repo.Shutdown(testCtx())
+	migrator := NewMigrator(repo, logger)
+	t.Run("prepare test schema and data ", prepareCarTestSchemaAndDataNoLength(repo, migrator, schemaGetter))
+	t.Run("primitive props without nesting", testPrimitivePropsWithNoLengthIndex(repo))
 }
 
 var (
@@ -104,6 +119,90 @@ func prepareCarTestSchemaAndData(repo *DB,
 			t.Run(fmt.Sprintf("importing car %d", i), func(t *testing.T) {
 				require.Nil(t,
 					repo.PutObject(context.Background(), &fixture, carVectors[i], nil))
+			})
+		}
+	}
+}
+
+func prepareCarTestSchemaAndDataNoLength(repo *DB,
+	migrator *Migrator, schemaGetter *fakeSchemaGetter,
+) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Run("creating the class", func(t *testing.T) {
+			require.Nil(t,
+				migrator.AddClass(context.Background(), carClassNoLengthIndex, schemaGetter.shardState))
+			schemaGetter.schema.Objects = &models.Schema{
+				Classes: []*models.Class{
+					carClassNoLengthIndex,
+				},
+			}
+		})
+
+		for i, fixture := range cars {
+			t.Run(fmt.Sprintf("importing car %d", i), func(t *testing.T) {
+				require.Nil(t,
+					repo.PutObject(context.Background(), &fixture, carVectors[i], nil))
+			})
+		}
+	}
+}
+
+func testPrimitivePropsWithNoLengthIndex(repo *DB) func(t *testing.T) {
+	return func(t *testing.T) {
+		type test struct {
+			name        string
+			filter      *filters.LocalFilter
+			expectedIDs []strfmt.UUID
+			limit       int
+			ErrMsg      string
+		}
+
+		tests := []test{
+			{
+				name:        "Filter by unsupported geo-coordinates",
+				filter:      buildFilter("len(parkedAt)", 0, eq, dtInt),
+				expectedIDs: []strfmt.UUID{},
+				ErrMsg:      "Property length must be indexed to be filterable! add `IndexPropertyLength: true` to the invertedIndexConfig in",
+			},
+			{
+				name:        "Filter by unsupported number",
+				filter:      buildFilter("len(horsepower)", 1, eq, dtInt),
+				expectedIDs: []strfmt.UUID{},
+				ErrMsg:      "Property length must be indexed to be filterable",
+			},
+			{
+				name:        "Filter by unsupported date",
+				filter:      buildFilter("len(released)", 1, eq, dtInt),
+				expectedIDs: []strfmt.UUID{},
+				ErrMsg:      "Property length must be indexed to be filterable! add `IndexPropertyLength: true` to the invertedIndexConfig in",
+			},
+		}
+
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				if test.limit == 0 {
+					test.limit = 100
+				}
+				params := dto.GetParams{
+					SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
+					ClassName:    carClass.Class,
+					Pagination:   &filters.Pagination{Limit: test.limit},
+					Filters:      test.filter,
+				}
+				res, err := repo.Search(context.Background(), params)
+				if len(test.ErrMsg) > 0 {
+					require.Contains(t, err.Error(), test.ErrMsg)
+				} else {
+					require.Nil(t, err)
+					require.Len(t, res, len(test.expectedIDs))
+
+					ids := make([]strfmt.UUID, len(test.expectedIDs))
+					for pos, concept := range res {
+						ids[pos] = concept.ID
+					}
+					assert.ElementsMatch(t, ids, test.expectedIDs, "ids dont match")
+
+				}
 			})
 		}
 	}
@@ -417,24 +516,6 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				expectedIDs: []strfmt.UUID{carNilID, carEmpty},
 			},
 			{
-				name:        "Filter by unsupported geo-coordinates",
-				filter:      buildFilter("len(parkedAt)", 0, eq, dtInt),
-				expectedIDs: []strfmt.UUID{},
-				ErrMsg:      "Property length must be indexed to be filterable",
-			},
-			{
-				name:        "Filter by unsupported number",
-				filter:      buildFilter("len(horsepower)", 1, eq, dtInt),
-				expectedIDs: []strfmt.UUID{},
-				ErrMsg:      "Property length must be indexed to be filterable",
-			},
-			{
-				name:        "Filter by unsupported date",
-				filter:      buildFilter("len(released)", 1, eq, dtInt),
-				expectedIDs: []strfmt.UUID{},
-				ErrMsg:      "Property length must be indexed to be filterable",
-			},
-			{
 				name:        "Filter unicode strings",
 				filter:      buildFilter("len(contact)", 30, eq, dtInt),
 				expectedIDs: []strfmt.UUID{carE63sID},
@@ -681,6 +762,81 @@ var carClass = &models.Class{
 	Class:               "FilterTestCar",
 	VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 	InvertedIndexConfig: invertedConfig(),
+	Properties: []*models.Property{
+		{
+			DataType:     schema.DataTypeText.PropString(),
+			Name:         "modelName",
+			Tokenization: models.PropertyTokenizationWhitespace,
+		},
+		{
+			DataType:     schema.DataTypeText.PropString(),
+			Name:         "contact",
+			Tokenization: models.PropertyTokenizationWhitespace,
+		},
+		{
+			DataType:     schema.DataTypeText.PropString(),
+			Name:         "description",
+			Tokenization: models.PropertyTokenizationWord,
+		},
+		{
+			DataType: []string{string(schema.DataTypeInt)},
+			Name:     "horsepower",
+		},
+		{
+			DataType: []string{string(schema.DataTypeNumber)},
+			Name:     "weight",
+		},
+		{
+			DataType: []string{string(schema.DataTypeGeoCoordinates)},
+			Name:     "parkedAt",
+		},
+		{
+			DataType: []string{string(schema.DataTypeDate)},
+			Name:     "released",
+		},
+		{
+			DataType:     schema.DataTypeText.PropString(),
+			Name:         "colorWhitespace",
+			Tokenization: models.PropertyTokenizationWhitespace,
+		},
+		{
+			DataType:     schema.DataTypeText.PropString(),
+			Name:         "colorField",
+			Tokenization: models.PropertyTokenizationField,
+		},
+		{
+			DataType:     schema.DataTypeTextArray.PropString(),
+			Name:         "colorArrayWhitespace",
+			Tokenization: models.PropertyTokenizationWhitespace,
+		},
+		{
+			DataType:     schema.DataTypeTextArray.PropString(),
+			Name:         "colorArrayField",
+			Tokenization: models.PropertyTokenizationField,
+		},
+		{
+			DataType: []string{string(schema.DataTypeUUID)},
+			Name:     "manufacturerId",
+		},
+		{
+			DataType: []string{string(schema.DataTypeUUIDArray)},
+			Name:     "availableAtDealerships",
+		},
+	},
+}
+
+// test data
+var carClassNoLengthIndex = &models.Class{
+	Class:             "FilterTestCar",
+	VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+	InvertedIndexConfig: &models.InvertedIndexConfig{
+		CleanupIntervalSeconds: 60,
+		Stopwords: &models.StopwordConfig{
+			Preset: "none",
+		},
+		IndexNullState:      true,
+		IndexPropertyLength: false,
+	},
 	Properties: []*models.Property{
 		{
 			DataType:     schema.DataTypeText.PropString(),

@@ -390,7 +390,7 @@ func (m *Manager) validateCanAddClass(
 		return err
 	}
 
-	if err := replica.ValidateConfig(class); err != nil {
+	if err := replica.ValidateConfig(class, m.config.Replication); err != nil {
 		return err
 	}
 

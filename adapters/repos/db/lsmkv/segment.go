@@ -12,14 +12,16 @@
 package lsmkv
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"os"
-	"syscall"
 
-	"github.com/pkg/errors"
+	"github.com/edsrzf/mmap-go"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/willf/bloom"
 )
 
@@ -33,6 +35,7 @@ type segment struct {
 	dataStartPos          uint64
 	dataEndPos            uint64
 	contents              []byte
+	contentFile           *os.File
 	bloomFilter           *bloom.BloomFilter
 	secondaryBloomFilters []*bloom.BloomFilter
 	strategy              segmentindex.Strategy
@@ -41,6 +44,8 @@ type segment struct {
 	logger                logrus.FieldLogger
 	metrics               *Metrics
 	bloomFilterMetrics    *bloomFilterMetrics
+	size                  int64
+	mmapContents          bool
 
 	// the net addition this segment adds with respect to all previous segments
 	countNetAdditions int
@@ -63,51 +68,50 @@ type diskIndex interface {
 }
 
 func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
-	existsLower existsOnLowerSegmentsFn,
+	existsLower existsOnLowerSegmentsFn, mmapContents bool,
 ) (*segment, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, errors.Wrap(err, "open file")
+		return nil, fmt.Errorf("open file: %w", err)
 	}
-	defer file.Close()
 
 	fileInfo, err := file.Stat()
 	if err != nil {
-		return nil, errors.Wrap(err, "stat file")
+		return nil, fmt.Errorf("stat file: %w", err)
 	}
 
-	content, err := syscall.Mmap(int(file.Fd()), 0, int(fileInfo.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
+	contents, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
 	if err != nil {
-		return nil, errors.Wrap(err, "mmap file")
+		return nil, fmt.Errorf("mmap file: %w", err)
 	}
 
-	header, err := segmentindex.ParseHeader(bytes.NewReader(content[:segmentindex.HeaderSize]))
+	header, err := segmentindex.ParseHeader(bytes.NewReader(contents[:segmentindex.HeaderSize]))
 	if err != nil {
-		return nil, errors.Wrap(err, "parse header")
+		return nil, fmt.Errorf("parse header: %w", err)
 	}
 
 	switch header.Strategy {
 	case segmentindex.StrategyReplace, segmentindex.StrategySetCollection,
 		segmentindex.StrategyMapCollection, segmentindex.StrategyRoaringSet:
 	default:
-		return nil, errors.Errorf("unsupported strategy in segment")
+		return nil, fmt.Errorf("unsupported strategy in segment")
 	}
 
-	primaryIndex, err := header.PrimaryIndex(content)
+	primaryIndex, err := header.PrimaryIndex(contents)
 	if err != nil {
-		return nil, errors.Wrap(err, "extract primary index position")
+		return nil, fmt.Errorf("extract primary index position: %w", err)
 	}
 
 	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
 
-	ind := &segment{
+	seg := &segment{
 		level:               header.Level,
 		path:                path,
-		contents:            content,
+		contents:            contents,
 		version:             header.Version,
 		secondaryIndexCount: header.SecondaryIndices,
 		segmentStartPos:     header.IndexStart,
-		segmentEndPos:       uint64(len(content)),
+		segmentEndPos:       uint64(fileInfo.Size()),
 		strategy:            header.Strategy,
 		dataStartPos:        segmentindex.HeaderSize, // fixed value that's the same for all strategies
 		dataEndPos:          header.IndexStart,
@@ -115,37 +119,58 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		logger:              logger,
 		metrics:             metrics,
 		bloomFilterMetrics:  newBloomFilterMetrics(metrics),
+		size:                fileInfo.Size(),
+		mmapContents:        mmapContents,
 	}
 
-	if ind.secondaryIndexCount > 0 {
-		ind.secondaryIndices = make([]diskIndex, ind.secondaryIndexCount)
-		ind.secondaryBloomFilters = make([]*bloom.BloomFilter, ind.secondaryIndexCount)
-		for i := range ind.secondaryIndices {
-			secondary, err := header.SecondaryIndex(content, uint16(i))
+	// Using pread strategy requires file to remain open for segment lifetime
+	if seg.mmapContents {
+		defer file.Close()
+	} else {
+		seg.contentFile = file
+	}
+
+	if seg.secondaryIndexCount > 0 {
+		seg.secondaryIndices = make([]diskIndex, seg.secondaryIndexCount)
+		seg.secondaryBloomFilters = make([]*bloom.BloomFilter, seg.secondaryIndexCount)
+		for i := range seg.secondaryIndices {
+			secondary, err := header.SecondaryIndex(contents, uint16(i))
 			if err != nil {
-				return nil, errors.Wrapf(err, "get position for secondary index at %d", i)
+				return nil, fmt.Errorf("get position for secondary index at %d: %w", i, err)
 			}
 
-			ind.secondaryIndices[i] = segmentindex.NewDiskTree(secondary)
-			if err := ind.initSecondaryBloomFilter(i); err != nil {
-				return nil, errors.Wrapf(err, "init bloom filter for secondary index at %d", i)
+			seg.secondaryIndices[i] = segmentindex.NewDiskTree(secondary)
+			if err := seg.initSecondaryBloomFilter(i); err != nil {
+				return nil, fmt.Errorf("init bloom filter for secondary index at %d: %w", i, err)
 			}
 		}
 	}
 
-	if err := ind.initBloomFilter(); err != nil {
+	if err := seg.initBloomFilter(); err != nil {
 		return nil, err
 	}
 
-	if err := ind.initCountNetAdditions(existsLower); err != nil {
+	if err := seg.initCountNetAdditions(existsLower); err != nil {
 		return nil, err
 	}
 
-	return ind, nil
+	return seg, nil
 }
 
 func (s *segment) close() error {
-	return syscall.Munmap(s.contents)
+	var munmapErr, fileCloseErr error
+
+	m := mmap.MMap(s.contents)
+	munmapErr = m.Unmap()
+	if s.contentFile != nil {
+		fileCloseErr = s.contentFile.Close()
+	}
+
+	if munmapErr != nil || fileCloseErr != nil {
+		return fmt.Errorf("close segment: munmap: %v, close contents file: %w", munmapErr, fileCloseErr)
+	}
+
+	return nil
 }
 
 func (s *segment) drop() error {
@@ -168,7 +193,7 @@ func (s *segment) drop() error {
 	}
 
 	// for the segment itself, we're not using RemoveAll, but Remove. If there
-	// was a NotExists error here, something would be seriously wrong and we
+	// was a NotExists error here, something would be seriously wrong, and we
 	// don't want to ignore it.
 	if err := os.Remove(s.path); err != nil {
 		return fmt.Errorf("drop segment: %w", err)
@@ -180,10 +205,71 @@ func (s *segment) drop() error {
 // Size returns the total size of the segment in bytes, including the header
 // and index
 func (s *segment) Size() int {
-	return len(s.contents)
+	return int(s.size)
 }
 
-// Payload Size is only the payload of the index, excluding the index
+// PayloadSize is only the payload of the index, excluding the index
 func (s *segment) PayloadSize() int {
 	return int(s.dataEndPos)
+}
+
+type nodeReader struct {
+	r io.Reader
+}
+
+func (n *nodeReader) Read(b []byte) (int, error) {
+	return n.r.Read(b)
+}
+
+type nodeOffset struct {
+	start, end uint64
+}
+
+func (s *segment) newNodeReader(offset nodeOffset) (*nodeReader, error) {
+	var (
+		r   io.Reader
+		err error
+	)
+	if s.mmapContents {
+		contents := s.contents[offset.start:]
+		if offset.end != 0 {
+			contents = s.contents[offset.start:offset.end]
+		}
+		r, err = s.bytesReaderFrom(contents)
+	} else {
+		r, err = s.bufferedReaderAt(offset.start)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("new nodeReader: %w", err)
+	}
+	return &nodeReader{r: r}, nil
+}
+
+func (s *segment) copyNode(b []byte, offset nodeOffset) error {
+	if s.mmapContents {
+		copy(b, s.contents[offset.start:offset.end])
+		return nil
+	}
+	n, err := s.newNodeReader(offset)
+	if err != nil {
+		return fmt.Errorf("copy node: %w", err)
+	}
+	_, err = n.Read(b)
+	return err
+}
+
+func (s *segment) bytesReaderFrom(in []byte) (*bytes.Reader, error) {
+	if len(in) == 0 {
+		return nil, lsmkv.NotFound
+	}
+	return bytes.NewReader(in), nil
+}
+
+func (s *segment) bufferedReaderAt(offset uint64) (*bufio.Reader, error) {
+	if s.contentFile == nil {
+		return nil, fmt.Errorf("nil contentFile for segment at %s", s.path)
+	}
+
+	r := io.NewSectionReader(s.contentFile, int64(offset), s.size)
+	return bufio.NewReader(r), nil
 }

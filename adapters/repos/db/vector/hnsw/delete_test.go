@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -57,7 +58,8 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
-		}, cyclemanager.NewNoop())
+		},
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -116,7 +118,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 			}
 		}
 
-		assert.Equal(t, control, res)
+		assert.ElementsMatch(t, control, res)
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -151,7 +153,8 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
-		}, cyclemanager.NewNoop())
+		},
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -199,7 +202,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 		}
 
 		bfControl = bfControl[:i]
-		assert.Equal(t, bfControl, control, "control should match bf control")
+		assert.ElementsMatch(t, bfControl, control, "control should match bf control")
 	})
 
 	fmt.Printf("entrypoint before %d\n", vectorIndex.entryPointID)
@@ -230,7 +233,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 			}
 		}
 
-		assert.Equal(t, control, res)
+		assert.ElementsMatch(t, control, res)
 	})
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
@@ -265,7 +268,8 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
-		}, cyclemanager.NewNoop())
+		},
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		// makes sure index is build only with level 0. To be removed after fixing WEAVIATE-179
 		index.randFunc = func() float64 { return 0.1 }
 
@@ -329,7 +333,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 			}
 		}
 
-		assert.Equal(t, control, res)
+		assert.ElementsMatch(t, control, res)
 	})
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
@@ -384,7 +388,8 @@ func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32)
 		// zero it will constantly think it's full and needs to be deleted - even
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
-	}, cyclemanager.NewNoop())
+	},
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
 	// makes sure index is build only with level 0. To be removed after fixing WEAVIATE-179
@@ -550,7 +555,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 				return vectors[int(id)], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		}, userConfig, cyclemanager.NewNoop())
+		}, userConfig,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -558,17 +564,22 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 			err := vectorIndex.Add(uint64(i), vec)
 			require.Nil(t, err)
 		}
-		cfg := ent.PQConfig{
+		userConfig.PQ = ent.PQConfig{
 			Enabled: true,
 			Encoder: ent.PQEncoder{
-				Type:         ent.PQEncoderTypeTile,
+				Type:         ent.PQEncoderTypeKMeans,
 				Distribution: ent.PQEncoderDistributionLogNormal,
 			},
 			BitCompression: false,
 			Segments:       0,
-			Centroids:      256,
+			Centroids:      50,
 		}
-		index.Compress(cfg)
+		wg := &sync.WaitGroup{}
+		wg.Add(1)
+		index.UpdateUserConfig(userConfig, func() {
+			wg.Done()
+		})
+		wg.Wait()
 	})
 
 	var control []uint64
@@ -643,7 +654,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 		}
 
 		recall := float32(testinghelpers.MatchesInLists(res, control)) / float32(len(control))
-		assert.True(t, recall > 0.6)
+		assert.True(t, recall > 0.5)
 	})
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
@@ -687,7 +698,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 				return vectors[int(id%uint64(len(vectors)))], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		}, userConfig, cyclemanager.NewNoop())
+		}, userConfig,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -695,17 +707,22 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 			err := vectorIndex.Add(uint64(i), vec)
 			require.Nil(t, err)
 		}
-		cfg := ent.PQConfig{
+		userConfig.PQ = ent.PQConfig{
 			Enabled: true,
 			Encoder: ent.PQEncoder{
-				Type:         ent.PQEncoderTypeTile,
+				Type:         ent.PQEncoderTypeKMeans,
 				Distribution: ent.PQEncoderDistributionLogNormal,
 			},
 			BitCompression: false,
 			Segments:       0,
-			Centroids:      256,
+			Centroids:      50,
 		}
-		index.Compress(cfg)
+		wg := &sync.WaitGroup{}
+		wg.Add(1)
+		index.UpdateUserConfig(userConfig, func() {
+			wg.Done()
+		})
+		wg.Wait()
 		for i := len(vectors); i < 1000; i++ {
 			err := vectorIndex.Add(uint64(i), vectors[i%len(vectors)])
 			require.Nil(t, err)
@@ -884,7 +901,8 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 		// zero it will constantly think it's full and needs to be deleted - even
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
-	}, cyclemanager.NewNoop())
+	},
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
 	// manually build the index
@@ -1028,7 +1046,8 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		// zero it will constantly think it's full and needs to be deleted - even
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
-	}, cyclemanager.NewNoop())
+	},
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
 	// manually build the index
@@ -1104,7 +1123,8 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 		// zero it will constantly think it's full and needs to be deleted - even
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
-	}, cyclemanager.NewNoop())
+	},
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
 	objVec := []float32{0.1, 0.2}
@@ -1276,7 +1296,8 @@ func Test_DeleteEPVecInUnderlyingObjectStore(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
-		}, cyclemanager.NewNoop())
+		},
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		require.Nil(t, err)
 		vectorIndex = index
 

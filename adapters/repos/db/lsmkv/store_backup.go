@@ -29,7 +29,7 @@ import (
 // to fail the backup attempt and retry later, than to block
 // indefinitely.
 func (s *Store) PauseCompaction(ctx context.Context) error {
-	if err := s.compactionCycle.StopAndWait(ctx); err != nil {
+	if err := s.cycleCallbacks.compactionCallbacksCtrl.Deactivate(ctx); err != nil {
 		return errors.Wrap(err, "long-running compaction in progress")
 	}
 
@@ -46,7 +46,7 @@ func (s *Store) PauseCompaction(ctx context.Context) error {
 // ResumeCompaction starts the compaction cycle again.
 // It errors if compactions were not paused
 func (s *Store) ResumeCompaction(ctx context.Context) error {
-	s.compactionCycle.Start()
+	s.cycleCallbacks.compactionCallbacksCtrl.Activate()
 
 	// TODO common_cycle_manager maybe not necessary, or to be replaced with store pause stats
 	for _, b := range s.bucketsByName {
@@ -68,10 +68,10 @@ func (s *Store) ResumeCompaction(ctx context.Context) error {
 // to fail the backup attempt and retry later, than to block
 // indefinitely.
 func (s *Store) FlushMemtables(ctx context.Context) error {
-	if err := s.flushCycle.StopAndWait(ctx); err != nil {
+	if err := s.cycleCallbacks.flushCallbacksCtrl.Deactivate(ctx); err != nil {
 		return errors.Wrap(err, "long-running memtable flush in progress")
 	}
-	defer s.flushCycle.Start()
+	defer s.cycleCallbacks.flushCallbacksCtrl.Activate()
 
 	flushMemtable := func(ctx context.Context, b *Bucket) (interface{}, error) {
 		return nil, b.FlushMemtable()

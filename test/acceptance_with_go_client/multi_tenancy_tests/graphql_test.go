@@ -149,6 +149,117 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 		})
 	})
 
+	t.Run("GraphQL Get referenced class", func(t *testing.T) {
+		defer cleanup()
+
+		tenant1 := "tenantNo1"
+		tenant2 := "tenantNo2"
+		soupIdByTenantAndPizza := map[string]map[string]string{
+			tenant1: {
+				fixtures.PIZZA_QUATTRO_FORMAGGI_ID: fixtures.SOUP_CHICKENSOUP_ID,
+				fixtures.PIZZA_FRUTTI_DI_MARE_ID:   fixtures.SOUP_CHICKENSOUP_ID,
+			},
+			tenant2: {
+				fixtures.PIZZA_HAWAII_ID: fixtures.SOUP_BEAUTIFUL_ID,
+				fixtures.PIZZA_DOENER_ID: fixtures.SOUP_BEAUTIFUL_ID,
+			},
+		}
+
+		assertGetContainsIds := func(t *testing.T, response *models.GraphQLResponse,
+			className string, expectedIds ...string,
+		) {
+			require.NotNil(t, response)
+			assert.Nil(t, response.Errors)
+			require.NotNil(t, response.Data)
+
+			get := response.Data["Get"].(map[string]interface{})
+			objects := get[className].([]interface{})
+			require.Len(t, objects, len(expectedIds))
+
+			ids := []string{}
+			for i := range objects {
+				ids = append(ids, objects[i].(map[string]interface{})["_additional"].(map[string]interface{})["id"].(string))
+			}
+			assert.ElementsMatch(t, expectedIds, ids)
+		}
+
+		t.Run("add data", func(t *testing.T) {
+			fixtures.CreateSchemaPizzaForTenants(t, client)
+			fixtures.CreateTenantsPizza(t, client, tenant1, tenant2)
+			fixtures.CreateDataPizzaQuattroFormaggiForTenants(t, client, tenant1)
+			fixtures.CreateDataPizzaFruttiDiMareForTenants(t, client, tenant1)
+			fixtures.CreateDataPizzaHawaiiForTenants(t, client, tenant2)
+			fixtures.CreateDataPizzaDoenerForTenants(t, client, tenant2)
+
+			fixtures.CreateSchemaSoupForTenants(t, client)
+			fixtures.CreateTenantsSoup(t, client, tenant1, tenant2)
+			fixtures.CreateDataSoupChickenForTenants(t, client, tenant1)
+			fixtures.CreateDataSoupBeautifulForTenants(t, client, tenant2)
+		})
+
+		t.Run("create ref property", func(t *testing.T) {
+			err := client.Schema().PropertyCreator().
+				WithClassName("Soup").
+				WithProperty(&models.Property{
+					Name:     "relatedToPizza",
+					DataType: []string{"Pizza"},
+				}).
+				Do(context.Background())
+
+			require.Nil(t, err)
+		})
+
+		t.Run("create refs", func(t *testing.T) {
+			references := []*models.BatchReference{}
+
+			for tenant, pizzaToSoup := range soupIdByTenantAndPizza {
+				for pizzaId, soupId := range pizzaToSoup {
+					rpb := client.Batch().ReferencePayloadBuilder().
+						WithFromClassName("Soup").
+						WithFromRefProp("relatedToPizza").
+						WithFromID(soupId).
+						WithToClassName("Pizza").
+						WithToID(pizzaId).
+						WithTenant(tenant)
+
+					references = append(references, rpb.Payload())
+				}
+			}
+
+			resp, err := client.Batch().ReferencesBatcher().
+				WithReferences(references...).
+				Do(context.Background())
+
+			require.Nil(t, err)
+			require.NotNil(t, resp)
+			assert.Len(t, resp, len(references))
+			for i := range resp {
+				require.NotNil(t, resp[i].Result)
+				assert.Nil(t, resp[i].Result.Errors)
+			}
+		})
+
+		for tenant, pizzaToSoup := range soupIdByTenantAndPizza {
+			for pizzaId, expectedSoupId := range pizzaToSoup {
+				resp, err := client.GraphQL().Get().
+					WithClassName("Soup").
+					WithTenant(tenant).
+					WithFields(graphql.Field{
+						Name:   "_additional",
+						Fields: []graphql.Field{{Name: "id"}},
+					}).
+					WithWhere(filters.Where().
+						WithOperator(filters.Equal).
+						WithPath([]string{"relatedToPizza", "Pizza", "_id"}).
+						WithValueText(pizzaId)).
+					Do(context.Background())
+
+				assert.Nil(t, err)
+				assertGetContainsIds(t, resp, "Soup", expectedSoupId)
+			}
+		}
+	})
+
 	t.Run("GraphQL Aggregate", func(t *testing.T) {
 		defer cleanup()
 

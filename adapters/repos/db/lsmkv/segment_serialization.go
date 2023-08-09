@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 
 	"github.com/pkg/errors"
@@ -288,6 +289,15 @@ func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key
 	return out, nil
 }
 
+// ParseCollectionNode reads from r and parses the collection values into a segmentCollectionNode
+//
+// When only given an offset, r is constructed as a *bufio.Reader to avoid first reading the
+// entire segment (could be GBs). Each consecutive read will be buffered to avoid excessive
+// syscalls.
+//
+// When we already have a finite and manageable []byte (i.e. when we have already seeked to an
+// lsmkv node and have start+end offset), r should be constructed as a *bytes.Reader, since the
+// contents have already been `pread` from the segment contentFile.
 func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
 	out := segmentCollectionNode{}
 	// 9 bytes is the most we can ever read uninterrupted, i.e. without a dynamic
@@ -352,32 +362,55 @@ func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
 // As a result calling this method only makes sense if you plan on calling it
 // multiple times. Calling it just once on an uninitialized node does not have
 // major advantages over calling ParseCollectionNode.
-func ParseCollectionNodeInto(in []byte, node *segmentCollectionNode) error {
+func ParseCollectionNodeInto(r io.Reader, node *segmentCollectionNode) error {
 	// offset is only the local offset relative to "in". In the end we need to
 	// update the global offset.
 	offset := 0
 
-	valuesLen := binary.LittleEndian.Uint64(in[offset : offset+8])
+	buf := make([]byte, 9)
+	_, err := io.ReadFull(r, buf[0:8])
+	if err != nil {
+		return fmt.Errorf("read values len: %w", err)
+	}
+
+	valuesLen := binary.LittleEndian.Uint64(buf[0:8])
 	offset += 8
 
 	resizeValuesOfCollectionNode(node, valuesLen)
 	for i := range node.values {
-		node.values[i].tombstone = in[offset] == 0x1
+		_, err = io.ReadFull(r, buf)
+		if err != nil {
+			return fmt.Errorf("read values len: %w", err)
+		}
+
+		node.values[i].tombstone = buf[0] == 0x1
 		offset += 1
 
-		valueLen := binary.LittleEndian.Uint64(in[offset : offset+8])
+		valueLen := binary.LittleEndian.Uint64(buf[1:9])
 		offset += 8
 
 		resizeValueOfCollectionNodeAtPos(node, i, valueLen)
-		node.values[i].value = in[offset : offset+int(valueLen)]
+
+		_, err = io.ReadFull(r, node.values[i].value)
+		if err != nil {
+			return fmt.Errorf("read node value: %w", err)
+		}
+
 		offset += int(valueLen)
 	}
 
-	keyLen := binary.LittleEndian.Uint32(in[offset : offset+4])
+	_, err = io.ReadFull(r, buf[0:4])
+	if err != nil {
+		return fmt.Errorf("read values len: %w", err)
+	}
+	keyLen := binary.LittleEndian.Uint32(buf)
 	offset += 4
 
 	resizeKeyOfCollectionNode(node, keyLen)
-	node.primaryKey = in[offset : offset+int(keyLen)]
+	_, err = io.ReadFull(r, node.primaryKey)
+	if err != nil {
+		return fmt.Errorf("read primary key: %w", err)
+	}
 	offset += int(keyLen)
 
 	node.offset = offset

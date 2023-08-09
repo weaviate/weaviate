@@ -22,7 +22,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -54,25 +53,6 @@ func newRestorer(node string, logger logrus.FieldLogger,
 		schema:        schema,
 		shardSyncChan: shardSyncChan{coordChan: make(chan interface{}, 5)},
 	}
-}
-
-func (r *restorer) Restore(ctx context.Context,
-	req *Request,
-	desc *backup.BackupDescriptor,
-	store nodeStore,
-) (*models.BackupRestoreResponse, error) {
-	status := string(backup.Started)
-	returnData := &models.BackupRestoreResponse{
-		Classes: req.Classes,
-		ID:      req.ID,
-		Backend: req.Backend,
-		Status:  &status,
-		Path:    store.HomeDir(),
-	}
-	if _, err := r.restore(ctx, req, desc, store); err != nil {
-		return nil, err
-	}
-	return returnData, nil
 }
 
 func (r *restorer) restore(ctx context.Context,
@@ -125,7 +105,7 @@ func (r *restorer) restore(ctx context.Context,
 			return
 		}
 
-		err = r.restoreAll(context.Background(), desc, store)
+		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store)
 		if err != nil {
 			r.logger.WithField("action", "restore").WithField("backup_id", desc.ID).Error(err)
 		}
@@ -135,12 +115,13 @@ func (r *restorer) restore(ctx context.Context,
 }
 
 func (r *restorer) restoreAll(ctx context.Context,
-	desc *backup.BackupDescriptor,
+	desc *backup.BackupDescriptor, cpuPercentage int,
 	store nodeStore,
 ) (err error) {
+	compressed := desc.Version > version1
 	r.lastOp.set(backup.Transferring)
 	for _, cdesc := range desc.Classes {
-		if err := r.restoreOne(ctx, desc.ID, &cdesc, store); err != nil {
+		if err := r.restoreOne(ctx, desc.ID, &cdesc, compressed, cpuPercentage, store); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
 		}
 		r.logger.WithField("action", "restore").
@@ -160,7 +141,7 @@ func getType(myvar interface{}) string {
 
 func (r *restorer) restoreOne(ctx context.Context,
 	backupID string, desc *backup.ClassDescriptor,
-	store nodeStore,
+	compressed bool, cpuPercentage int, store nodeStore,
 ) (err error) {
 	metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store.b), desc.Name)
 	if err != nil {
@@ -171,7 +152,9 @@ func (r *restorer) restoreOne(ctx context.Context,
 	if r.sourcer.ClassExists(desc.Name) {
 		return fmt.Errorf("already exists")
 	}
-	fw := newFileWriter(r.sourcer, store, backupID)
+	fw := newFileWriter(r.sourcer, store, backupID, compressed).
+		WithPoolPercentage(cpuPercentage)
+
 	rollback, err := fw.Write(ctx, desc)
 	if err != nil {
 		return fmt.Errorf("write files: %w", err)
@@ -183,16 +166,6 @@ func (r *restorer) restoreOne(ctx context.Context,
 		return fmt.Errorf("restore schema: %w", err)
 	}
 	return nil
-}
-
-// AnyExists checks if any classes of cs exists in DB
-func (r *restorer) AnyExists(cs []string) string {
-	for _, cls := range cs {
-		if r.sourcer.ClassExists(cls) {
-			return cls
-		}
-	}
-	return ""
 }
 
 func (r *restorer) status(backend, ID string) (Status, error) {
@@ -229,8 +202,11 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 		err = fmt.Errorf("invalid backup %s status: %s", destPath, meta.Status)
 		return nil, nil, err
 	}
-	if err := meta.Validate(); err != nil {
+	if err := meta.Validate(meta.Version > version1); err != nil {
 		return nil, nil, fmt.Errorf("corrupted backup file: %w", err)
+	}
+	if v := meta.Version; v > Version {
+		return nil, nil, fmt.Errorf("%s: %s > %s", errMsgHigherVersion, v, Version)
 	}
 	cs := meta.List()
 	if len(req.Classes) > 0 {

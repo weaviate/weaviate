@@ -46,6 +46,8 @@ const (
 	envTestMulti2VecCLIPImage = "TEST_MULTI2VEC_CLIP_IMAGE"
 	// envTestImg2VecNeuralImage adds ability to pass a custom Im2Vec Neural image to module tests
 	envTestImg2VecNeuralImage = "TEST_IMG2VEC_NEURAL_IMAGE"
+	// envTestRerankerTransformersImage adds ability to pass a custom image to module tests
+	envTestRerankerTransformersImage = "TEST_RERANKER_TRANSFORMERS_IMAGE"
 )
 
 const (
@@ -75,6 +77,7 @@ type Compose struct {
 	withCentroid              bool
 	withCLIP                  bool
 	withImg2Vec               bool
+	withRerankerTransformers  bool
 }
 
 func New() *Compose {
@@ -205,6 +208,12 @@ func (d *Compose) WithGenerativePaLM() *Compose {
 
 func (d *Compose) WithQnAOpenAI() *Compose {
 	d.enableModules = append(d.enableModules, modqnaopenai.Name)
+	return d
+}
+
+func (d *Compose) WithRerankerTransformers() *Compose {
+	d.withRerankerTransformers = true
+	d.enableModules = append(d.enableModules, RerankerTransformers)
 	return d
 }
 
@@ -340,6 +349,17 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		container, err := startI2VNeural(ctx, networkName, image)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", Img2VecNeural)
+		}
+		for k, v := range container.envSettings {
+			envSettings[k] = v
+		}
+		containers = append(containers, container)
+	}
+	if d.withRerankerTransformers {
+		image := os.Getenv(envTestRerankerTransformersImage)
+		container, err := startRerankerTransformers(ctx, networkName, image)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", RerankerTransformers)
 		}
 		for k, v := range container.envSettings {
 			envSettings[k] = v

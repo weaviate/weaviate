@@ -24,7 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -88,8 +88,8 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 					copy(container.Slice, vectors[int(id)])
 					return container.Slice, nil
 				},
-			}, uc, cyclemanager.NewNoop(),
-		)
+			}, uc,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 		init := time.Now()
 		ssdhelpers.Concurrently(uint64(vectors_size), func(id uint64) {
 			index.Add(id, vectors[id])

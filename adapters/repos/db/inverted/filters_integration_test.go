@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -39,7 +40,8 @@ func Test_Filters_String(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	store, err := lsmkv.New(dirName, "", logger, nil)
+	store, err := lsmkv.New(dirName, dirName, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
 	propName := "inverted-with-frequency"
@@ -79,9 +81,8 @@ func Test_Filters_String(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-	searcher := NewSearcher(logger, store, createSchema(),
-		nil, nil, nil, fakeStopwordDetector{},
-		2, func() bool { return false }, config.DefaultQueryReferenceLimit)
+	searcher := NewSearcher(logger, store, createSchema(), nil, nil, nil,
+		fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryReferenceLimit)
 
 	type test struct {
 		name                     string
@@ -304,7 +305,8 @@ func Test_Filters_Int(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	store, err := lsmkv.New(dirName, "", logger, nil)
+	store, err := lsmkv.New(dirName, dirName, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
 	propName := "inverted-without-frequency"
@@ -344,9 +346,8 @@ func Test_Filters_Int(t *testing.T) {
 		require.Nil(t, bucket.FlushAndSwitch())
 	})
 
-	searcher := NewSearcher(logger, store, createSchema(),
-		nil, nil, nil, fakeStopwordDetector{}, 2,
-		func() bool { return false }, config.DefaultQueryReferenceLimit)
+	searcher := NewSearcher(logger, store, createSchema(), nil, nil, nil,
+		fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryReferenceLimit)
 
 	type test struct {
 		name                     string
@@ -500,7 +501,8 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	store, err := lsmkv.New(dirName, "", logger, nil)
+	store, err := lsmkv.New(dirName, dirName, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
 	propName := "inverted-with-frequency"
@@ -526,9 +528,8 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-	searcher := NewSearcher(logger, store, createSchema(),
-		nil, nil, nil, fakeStopwordDetector{}, 2,
-		func() bool { return false }, config.DefaultQueryReferenceLimit)
+	searcher := NewSearcher(logger, store, createSchema(), nil, nil, nil,
+		fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryReferenceLimit)
 
 	type test struct {
 		name                     string

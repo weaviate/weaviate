@@ -17,6 +17,7 @@ import (
 	"io"
 	"math"
 	"math/rand"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -25,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -105,8 +106,9 @@ type hnsw struct {
 	// This process should happen periodically.
 	tombstones map[uint64]struct{}
 
-	// used for cancellation of the tombstone cleanup goroutine
-	unregisterTombstoneCleanup cyclemanager.UnregisterFunc
+	tombstoneCleanupCallbackCtrl cyclemanager.CycleCallbackCtrl
+	shardCompactionCallbacks     cyclemanager.CycleCallbackGroup
+	shardFlushCallbacks          cyclemanager.CycleCallbackGroup
 
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
@@ -198,7 +200,8 @@ type (
 // criterium for the index to see if it has to recover from disk or if its a
 // truly new index. So instead the index is initialized, with un-biased disk
 // checks first and only then is the commit logger created
-func New(cfg Config, uc ent.UserConfig, tombstoneCleanupCycle cyclemanager.CycleManager,
+func New(cfg Config, uc ent.UserConfig,
+	tombstoneCallbacks, shardCompactionCallbacks, shardFlushCallbacks cyclemanager.CycleCallbackGroup,
 ) (*hnsw, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
@@ -250,7 +253,6 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCleanupCycle cyclemanager.Cycle
 		resetCtx:               resetCtx,
 		resetCtxCancel:         resetCtxCancel,
 		initialInsertOnce:      &sync.Once{},
-		// cleanupInterval:        time.Duration(uc.CleanupIntervalSeconds) * time.Second,
 
 		ef:       int64(uc.EF),
 		efMin:    int64(uc.DynamicEFMin),
@@ -266,10 +268,17 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCleanupCycle cyclemanager.Cycle
 		VectorForIDThunk:     cfg.VectorForIDThunk,
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 		pqConfig:             uc.PQ,
+
+		shardCompactionCallbacks: shardCompactionCallbacks,
+		shardFlushCallbacks:      shardFlushCallbacks,
 	}
 
 	// TODO common_cycle_manager move to poststartup?
-	index.unregisterTombstoneCleanup = tombstoneCleanupCycle.Register(index.tombstoneCleanup)
+	id := strings.Join([]string{
+		"hnsw", "tombstone_cleanup",
+		index.className, index.shardName, index.id,
+	}, "/")
+	index.tombstoneCleanupCallbackCtrl = tombstoneCallbacks.Register(id, index.tombstoneCleanup)
 	index.insertMetrics = newInsertMetrics(index.metrics)
 
 	if err := index.init(cfg); err != nil {
@@ -606,7 +615,7 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 
 func (h *hnsw) Drop(ctx context.Context) error {
 	// cancel tombstone cleanup goroutine
-	if err := h.unregisterTombstoneCleanup(ctx); err != nil {
+	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
 		return errors.Wrap(err, "hnsw drop")
 	}
 
@@ -632,7 +641,7 @@ func (h *hnsw) Shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "hnsw shutdown")
 	}
 
-	if err := h.unregisterTombstoneCleanup(ctx); err != nil {
+	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
 		return errors.Wrap(err, "hnsw shutdown")
 	}
 

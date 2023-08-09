@@ -77,7 +77,7 @@ func TestCreateTenants(t *testing.T) {
 			helper.DeleteClass(t, testClass.Class)
 		}()
 		helper.CreateClass(t, &testClass)
-		err := helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{"DoubleTenant"}, {"DoubleTenant"}})
+		err := helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{Name: "DoubleTenant"}, {Name: "DoubleTenant"}})
 		require.NotNil(t, err)
 
 		// nothing added
@@ -92,9 +92,9 @@ func TestCreateTenants(t *testing.T) {
 			helper.DeleteClass(t, testClass.Class)
 		}()
 		helper.CreateClass(t, &testClass)
-		helper.CreateTenants(t, testClass.Class, []*models.Tenant{{"AddTenantAgain"}})
+		helper.CreateTenants(t, testClass.Class, []*models.Tenant{{Name: "AddTenantAgain"}})
 
-		err := helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{"AddTenantAgain"}})
+		err := helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{Name: "AddTenantAgain"}})
 		require.NotNil(t, err)
 	})
 }

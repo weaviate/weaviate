@@ -13,7 +13,6 @@ package vectorizer
 
 import (
 	"context"
-	"strings"
 
 	"github.com/pkg/errors"
 )
@@ -21,50 +20,12 @@ import (
 func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 	settings ClassSettings,
 ) ([]float32, error) {
-	res, err := v.client.Vectorize(ctx, []string{v.joinSentences(inputs)}, []string{})
+	res, err := v.client.Vectorize(ctx, inputs, []string{})
 	if err != nil {
 		return nil, errors.Wrap(err, "remote client vectorize")
 	}
-	if len(res.TextVectors) != 1 {
-		return nil, errors.New("empty vector")
+	if len(inputs) != len(res.TextVectors) {
+		return nil, errors.New("inputs are not equal to vectors returned")
 	}
-
-	return res.TextVectors[0], nil
-}
-
-func (v *Vectorizer) joinSentences(input []string) string {
-	if len(input) == 1 {
-		return input[0]
-	}
-
-	b := &strings.Builder{}
-	for i, sent := range input {
-		if i > 0 {
-			if v.endsWithPunctuation(input[i-1]) {
-				b.WriteString(" ")
-			} else {
-				b.WriteString(". ")
-			}
-		}
-		b.WriteString(sent)
-	}
-
-	return b.String()
-}
-
-func (v *Vectorizer) endsWithPunctuation(sent string) bool {
-	if len(sent) == 0 {
-		// treat an empty string as if it ended with punctuation so we don't add
-		// additional punctuation
-		return true
-	}
-
-	lastChar := sent[len(sent)-1]
-	switch lastChar {
-	case '.', ',', '?', '!':
-		return true
-
-	default:
-		return false
-	}
+	return v.CombineVectors(res.TextVectors), nil
 }

@@ -29,13 +29,13 @@ import (
 // Store groups multiple buckets together, it "owns" one folder on the file
 // system
 type Store struct {
-	dir             string
-	rootDir         string
-	bucketsByName   map[string]*Bucket
-	logger          logrus.FieldLogger
-	metrics         *Metrics
-	compactionCycle cyclemanager.CycleManager
-	flushCycle      cyclemanager.CycleManager
+	dir           string
+	rootDir       string
+	bucketsByName map[string]*Bucket
+	logger        logrus.FieldLogger
+	metrics       *Metrics
+
+	cycleCallbacks *storeCycleCallbacks
 
 	// Prevent concurrent manipulations to the bucketsByNameMap, most notably
 	// when initializing buckets in parallel
@@ -45,18 +45,17 @@ type Store struct {
 // New initializes a new [Store] based on the root dir. If state is present on
 // disk, it is loaded, if the folder is empty a new store is initialized in
 // there.
-func New(dir, rootDir string, logger logrus.FieldLogger,
-	metrics *Metrics,
+func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
+	shardCompactionCallbacks, shardFlushCallbacks cyclemanager.CycleCallbackGroup,
 ) (*Store, error) {
 	s := &Store{
-		dir:             dir,
-		rootDir:         rootDir,
-		bucketsByName:   map[string]*Bucket{},
-		logger:          logger,
-		metrics:         metrics,
-		compactionCycle: cyclemanager.NewMulti(cyclemanager.CompactionCycleTicker()),
-		flushCycle:      cyclemanager.NewMulti(cyclemanager.MemtableFlushCycleTicker()),
+		dir:           dir,
+		rootDir:       rootDir,
+		bucketsByName: map[string]*Bucket{},
+		logger:        logger,
+		metrics:       metrics,
 	}
+	s.initCycleCallbacks(shardCompactionCallbacks, shardFlushCallbacks)
 
 	return s, s.init()
 }
@@ -94,8 +93,6 @@ func (s *Store) init() error {
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return err
 	}
-	s.compactionCycle.Start()
-	s.flushCycle.Start()
 	return nil
 }
 
@@ -122,7 +119,7 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 	}
 
 	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics,
-		s.compactionCycle, s.flushCycle, opts...)
+		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
 	if err != nil {
 		return err
 	}
@@ -285,7 +282,7 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 	}
 
 	b, err := NewBucket(ctx, bucketDir, s.rootDir, s.logger, s.metrics,
-		s.compactionCycle, s.flushCycle, opts...)
+		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
 	if err != nil {
 		return err
 	}

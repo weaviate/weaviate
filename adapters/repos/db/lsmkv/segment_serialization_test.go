@@ -54,7 +54,7 @@ func Test_SerializeAndParseCollectionNode(t *testing.T) {
 
 	t.Run("parse using the reusable way", func(t *testing.T) {
 		var node segmentCollectionNode
-		err := ParseCollectionNodeInto(encoded, &node)
+		err := ParseCollectionNodeInto(bytes.NewReader(encoded), &node)
 		assert.Nil(t, err)
 		assert.Equal(t, expected, node)
 	})
