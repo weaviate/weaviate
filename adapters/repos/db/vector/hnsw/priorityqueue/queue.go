@@ -114,7 +114,3 @@ func (l *Queue) Reset() {
 func (l *Queue) ResetCap(capacity int) {
 	l.items = make([]Item, 0, capacity)
 }
-
-func (l *Queue) Items() []Item {
-	return l.items
-}
