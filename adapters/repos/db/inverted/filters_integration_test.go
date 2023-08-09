@@ -82,7 +82,7 @@ func Test_Filters_String(t *testing.T) {
 	})
 
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil, nil,
-		fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryReferenceLimit)
+		fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit)
 
 	type test struct {
 		name                     string
@@ -347,7 +347,7 @@ func Test_Filters_Int(t *testing.T) {
 	})
 
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil, nil,
-		fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryReferenceLimit)
+		fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit)
 
 	type test struct {
 		name                     string
@@ -529,7 +529,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	})
 
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil, nil,
-		fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryReferenceLimit)
+		fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit)
 
 	type test struct {
 		name                     string

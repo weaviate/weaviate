@@ -190,9 +190,9 @@ func FromEnv(config *Config) error {
 		} else if limit <= 0 {
 			limit = math.MaxInt
 		}
-		config.QueryNestedRefLimit = limit
+		config.QueryNestedCrossReferenceLimit = limit
 	} else {
-		config.QueryNestedRefLimit = DefaultQueryReferenceLimit
+		config.QueryNestedCrossReferenceLimit = DefaultQueryNestedCrossReferenceLimit
 	}
 
 	if v := os.Getenv("MAX_IMPORT_GOROUTINES_FACTOR"); v != "" {
@@ -361,8 +361,8 @@ func parsePositiveInt(varName string, cb func(val int), defaultValue int) error 
 }
 
 const (
-	DefaultQueryMaximumResults = int64(10000)
-	DefaultQueryReferenceLimit = int64(100000)
+	DefaultQueryMaximumResults            = int64(10000)
+	DefaultQueryNestedCrossReferenceLimit = int64(100000)
 )
 
 const (
