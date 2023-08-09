@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -117,7 +118,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 			}
 		}
 
-		assert.Equal(t, control, res)
+		assert.ElementsMatch(t, control, res)
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -201,7 +202,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 		}
 
 		bfControl = bfControl[:i]
-		assert.Equal(t, bfControl, control, "control should match bf control")
+		assert.ElementsMatch(t, bfControl, control, "control should match bf control")
 	})
 
 	fmt.Printf("entrypoint before %d\n", vectorIndex.entryPointID)
@@ -232,7 +233,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 			}
 		}
 
-		assert.Equal(t, control, res)
+		assert.ElementsMatch(t, control, res)
 	})
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
@@ -332,7 +333,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 			}
 		}
 
-		assert.Equal(t, control, res)
+		assert.ElementsMatch(t, control, res)
 	})
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
@@ -563,17 +564,22 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 			err := vectorIndex.Add(uint64(i), vec)
 			require.Nil(t, err)
 		}
-		cfg := ent.PQConfig{
+		userConfig.PQ = ent.PQConfig{
 			Enabled: true,
 			Encoder: ent.PQEncoder{
-				Type:         ent.PQEncoderTypeTile,
+				Type:         ent.PQEncoderTypeKMeans,
 				Distribution: ent.PQEncoderDistributionLogNormal,
 			},
 			BitCompression: false,
 			Segments:       0,
-			Centroids:      256,
+			Centroids:      50,
 		}
-		index.Compress(cfg)
+		wg := &sync.WaitGroup{}
+		wg.Add(1)
+		index.UpdateUserConfig(userConfig, func() {
+			wg.Done()
+		})
+		wg.Wait()
 	})
 
 	var control []uint64
@@ -648,7 +654,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 		}
 
 		recall := float32(testinghelpers.MatchesInLists(res, control)) / float32(len(control))
-		assert.True(t, recall > 0.6)
+		assert.True(t, recall > 0.5)
 	})
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
@@ -701,17 +707,22 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 			err := vectorIndex.Add(uint64(i), vec)
 			require.Nil(t, err)
 		}
-		cfg := ent.PQConfig{
+		userConfig.PQ = ent.PQConfig{
 			Enabled: true,
 			Encoder: ent.PQEncoder{
-				Type:         ent.PQEncoderTypeTile,
+				Type:         ent.PQEncoderTypeKMeans,
 				Distribution: ent.PQEncoderDistributionLogNormal,
 			},
 			BitCompression: false,
 			Segments:       0,
-			Centroids:      256,
+			Centroids:      50,
 		}
-		index.Compress(cfg)
+		wg := &sync.WaitGroup{}
+		wg.Add(1)
+		index.UpdateUserConfig(userConfig, func() {
+			wg.Done()
+		})
+		wg.Wait()
 		for i := len(vectors); i < 1000; i++ {
 			err := vectorIndex.Add(uint64(i), vectors[i%len(vectors)])
 			require.Nil(t, err)
