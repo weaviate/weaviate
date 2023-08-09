@@ -232,7 +232,9 @@ func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {
 }
 
 func (f *fakeSchemaGetter) ShardOwner(class, shard string) (string, error) { return shard, nil }
-func (f *fakeSchemaGetter) TenantShard(class, tenant string) string        { return tenant }
+func (f *fakeSchemaGetter) TenantShard(class, tenant string) (string, string) {
+	return tenant, models.TenantActivityStatusHOT
+}
 func (f *fakeSchemaGetter) ShardFromUUID(class string, uuid []byte) string { return string(uuid) }
 
 func (f *fakeSchemaGetter) Nodes() []string {

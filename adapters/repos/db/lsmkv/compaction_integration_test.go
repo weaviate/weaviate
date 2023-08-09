@@ -33,7 +33,128 @@ func testCtx() context.Context {
 	return context.Background()
 }
 
-func Test_CompactionReplaceStrategy(t *testing.T) {
+type bucketIntegrationTest struct {
+	name string
+	f    func(context.Context, *testing.T, []BucketOption)
+	opts []BucketOption
+}
+
+type bucketIntegrationTests []bucketIntegrationTest
+
+func (tests bucketIntegrationTests) run(ctx context.Context, t *testing.T) {
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Run("mmap", func(t *testing.T) {
+				test.f(ctx, t, test.opts)
+			})
+			t.Run("pread", func(t *testing.T) {
+				test.f(ctx, t, append([]BucketOption{WithPread(true)}, test.opts...))
+			})
+		})
+	}
+}
+
+func TestCompaction(t *testing.T) {
+	ctx := testCtx()
+	tests := bucketIntegrationTests{
+		{
+			name: "compactionReplaceStrategy",
+			f:    compactionReplaceStrategy,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+			},
+		},
+		{
+			name: "compactionReplaceStrategy_WithSecondaryKeys",
+			f:    compactionReplaceStrategy_WithSecondaryKeys,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithSecondaryIndices(1),
+			},
+		},
+		{
+			name: "compactionReplaceStrategy_RemoveUnnecessaryDeletes",
+			f:    compactionReplaceStrategy_RemoveUnnecessaryDeletes,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+			},
+		},
+		{
+			name: "compactionReplaceStrategy_RemoveUnnecessaryUpdates",
+			f:    compactionReplaceStrategy_RemoveUnnecessaryUpdates,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+			},
+		},
+		{
+			name: "compactionSetStrategy",
+			f:    compactionSetStrategy,
+			opts: []BucketOption{
+				WithStrategy(StrategySetCollection),
+			},
+		},
+		{
+			name: "compactionSetStrategy_RemoveUnnecessary",
+			f:    compactionSetStrategy_RemoveUnnecessary,
+			opts: []BucketOption{
+				WithStrategy(StrategySetCollection),
+			},
+		},
+		{
+			name: "compactionMapStrategy",
+			f:    compactionMapStrategy,
+			opts: []BucketOption{
+				WithStrategy(StrategyMapCollection),
+			},
+		},
+		{
+			name: "compactionMapStrategy_RemoveUnnecessary",
+			f:    compactionMapStrategy_RemoveUnnecessary,
+			opts: []BucketOption{
+				WithStrategy(StrategyMapCollection),
+			},
+		},
+		{
+			name: "compactionReplaceStrategy_FrequentPutDeleteOperations",
+			f:    compactionReplaceStrategy_FrequentPutDeleteOperations,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+			},
+		},
+		{
+			name: "compaction_FrequentPutDeleteOperations_WithSecondaryKeys",
+			f:    compaction_FrequentPutDeleteOperations_WithSecondaryKeys,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithSecondaryIndices(1),
+			},
+		},
+		{
+			name: "compactionSetStrategy_FrequentPutDeleteOperations",
+			f:    compactionSetStrategy_FrequentPutDeleteOperations,
+			opts: []BucketOption{
+				WithStrategy(StrategySetCollection),
+			},
+		},
+		{
+			name: "compactionMapStrategy_FrequentPutDeleteOperations",
+			f:    compactionMapStrategy_FrequentPutDeleteOperations,
+			opts: []BucketOption{
+				WithStrategy(StrategyMapCollection),
+			},
+		},
+		{
+			name: "compactionRoaringSet",
+			f:    compactionRoaringSet,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSet),
+			},
+		},
+	}
+	tests.run(ctx, t)
+}
+
+func compactionReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketOption) {
 	size := 200
 
 	type kv struct {
@@ -134,9 +255,8 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -234,7 +354,7 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 	})
 }
 
-func Test_CompactionReplaceStrategy_WithSecondaryKeys(t *testing.T) {
+func compactionReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T, opts []BucketOption) {
 	size := 4
 
 	type kv struct {
@@ -346,9 +466,8 @@ func Test_CompactionReplaceStrategy_WithSecondaryKeys(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -444,7 +563,7 @@ func Test_CompactionReplaceStrategy_WithSecondaryKeys(t *testing.T) {
 	})
 }
 
-func Test_CompactionReplaceStrategy_RemoveUnnecessaryDeletes(t *testing.T) {
+func compactionReplaceStrategy_RemoveUnnecessaryDeletes(ctx context.Context, t *testing.T, opts []BucketOption) {
 	// in this test each segment reverses the action of the previous segment so
 	// that in the end a lot of information is present in the individual segments
 	// which is no longer needed. We then verify that after all compaction this
@@ -462,9 +581,8 @@ func Test_CompactionReplaceStrategy_RemoveUnnecessaryDeletes(t *testing.T) {
 	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -538,7 +656,7 @@ func Test_CompactionReplaceStrategy_RemoveUnnecessaryDeletes(t *testing.T) {
 	})
 }
 
-func Test_CompactionReplaceStrategy_RemoveUnnecessaryUpdates(t *testing.T) {
+func compactionReplaceStrategy_RemoveUnnecessaryUpdates(ctx context.Context, t *testing.T, opts []BucketOption) {
 	// in this test each segment reverses the action of the previous segment so
 	// that in the end a lot of information is present in the individual segments
 	// which is no longer needed. We then verify that after all compaction this
@@ -556,9 +674,8 @@ func Test_CompactionReplaceStrategy_RemoveUnnecessaryUpdates(t *testing.T) {
 	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -626,7 +743,7 @@ func Test_CompactionReplaceStrategy_RemoveUnnecessaryUpdates(t *testing.T) {
 	})
 }
 
-func Test_CompactionSetStrategy(t *testing.T) {
+func compactionSetStrategy(ctx context.Context, t *testing.T, opts []BucketOption) {
 	size := 30
 
 	type kv struct {
@@ -820,9 +937,8 @@ func Test_CompactionSetStrategy(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategySetCollection))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -922,7 +1038,7 @@ func Test_CompactionSetStrategy(t *testing.T) {
 	})
 }
 
-func Test_CompactionSetStrategy_RemoveUnnecessary(t *testing.T) {
+func compactionSetStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, opts []BucketOption) {
 	// in this test each segment reverses the action of the previous segment so
 	// that in the end a lot of information is present in the individual segments
 	// which is no longer needed. We then verify that after all compaction this
@@ -940,9 +1056,8 @@ func Test_CompactionSetStrategy_RemoveUnnecessary(t *testing.T) {
 	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategySetCollection))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -1023,7 +1138,7 @@ func Test_CompactionSetStrategy_RemoveUnnecessary(t *testing.T) {
 	})
 }
 
-func Test_CompactionMapStrategy(t *testing.T) {
+func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOption) {
 	size := 10
 
 	type kv struct {
@@ -1287,9 +1402,8 @@ func Test_CompactionMapStrategy(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyMapCollection))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -1395,7 +1509,7 @@ func Test_CompactionMapStrategy(t *testing.T) {
 	})
 }
 
-func Test_CompactionMapStrategy_RemoveUnnecessary(t *testing.T) {
+func compactionMapStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, opts []BucketOption) {
 	// in this test each segment reverses the action of the previous segment so
 	// that in the end a lot of information is present in the individual segments
 	// which is no longer needed. We then verify that after all compaction this
@@ -1413,9 +1527,8 @@ func Test_CompactionMapStrategy_RemoveUnnecessary(t *testing.T) {
 	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyMapCollection))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -1517,7 +1630,7 @@ func Test_CompactionMapStrategy_RemoveUnnecessary(t *testing.T) {
 	})
 }
 
-func Test_CompactionReplaceStrategy_FrequentPutDeleteOperations(t *testing.T) {
+func compactionReplaceStrategy_FrequentPutDeleteOperations(ctx context.Context, t *testing.T, opts []BucketOption) {
 	// In this test we are testing that the compaction doesn't make the object to disappear
 	// We are creating even number of segments in which first we create an object
 	// then we in the next segment with delete it and we do this operation in loop
@@ -1531,9 +1644,8 @@ func Test_CompactionReplaceStrategy_FrequentPutDeleteOperations(t *testing.T) {
 	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -1580,7 +1692,7 @@ func Test_CompactionReplaceStrategy_FrequentPutDeleteOperations(t *testing.T) {
 	})
 }
 
-func Test_Compaction_FrequentPutDeleteOperations_WithSecondaryKeys(t *testing.T) {
+func compaction_FrequentPutDeleteOperations_WithSecondaryKeys(ctx context.Context, t *testing.T, opts []BucketOption) {
 	// In this test we are testing that the compaction doesn't make the object to disappear
 	// We are creating even number of segments in which first we create an object
 	// then we in the next segment with delete it and we do this operation in loop
@@ -1600,9 +1712,8 @@ func Test_Compaction_FrequentPutDeleteOperations_WithSecondaryKeys(t *testing.T)
 			dirName := t.TempDir()
 
 			t.Run("init bucket", func(t *testing.T) {
-				b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-					WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+				b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 				require.Nil(t, err)
 
 				// so big it effectively never triggers as part of this test
@@ -1660,7 +1771,7 @@ func Test_Compaction_FrequentPutDeleteOperations_WithSecondaryKeys(t *testing.T)
 	}
 }
 
-func Test_CompactionSetStrategy_FrequentPutDeleteOperations(t *testing.T) {
+func compactionSetStrategy_FrequentPutDeleteOperations(ctx context.Context, t *testing.T, opts []BucketOption) {
 	// In this test we are testing that the compaction works well for set collection
 	maxSize := 10
 
@@ -1676,9 +1787,8 @@ func Test_CompactionSetStrategy_FrequentPutDeleteOperations(t *testing.T) {
 			dirName := t.TempDir()
 
 			t.Run("init bucket", func(t *testing.T) {
-				b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-					WithStrategy(StrategySetCollection))
+				b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 				require.Nil(t, err)
 
 				// so big it effectively never triggers as part of this test
@@ -1751,7 +1861,7 @@ func Test_CompactionSetStrategy_FrequentPutDeleteOperations(t *testing.T) {
 	}
 }
 
-func Test_CompactionMapStrategy_FrequentPutDeleteOperations(t *testing.T) {
+func compactionMapStrategy_FrequentPutDeleteOperations(ctx context.Context, t *testing.T, opts []BucketOption) {
 	// In this test we are testing that the compaction works well for map collection
 	maxSize := 10
 
@@ -1764,9 +1874,8 @@ func Test_CompactionMapStrategy_FrequentPutDeleteOperations(t *testing.T) {
 			dirName := t.TempDir()
 
 			t.Run("init bucket", func(t *testing.T) {
-				b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-					WithStrategy(StrategyMapCollection))
+				b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 				require.Nil(t, err)
 
 				// so big it effectively never triggers as part of this test

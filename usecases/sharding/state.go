@@ -18,6 +18,7 @@ import (
 	"sort"
 
 	"github.com/spaolacci/murmur3"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
@@ -63,6 +64,8 @@ type Physical struct {
 
 	LegacyBelongsToNodeForBackwardCompat string   `json:"belongsToNode,omitempty"`
 	BelongsToNodes                       []string `json:"belongsToNodes,omitempty"`
+
+	Status string `json:"status,omitempty"`
 }
 
 // BelongsToNode for backward-compatibility when there was no replication. It
@@ -112,6 +115,10 @@ func (p *Physical) AdjustReplicas(count int, nodes nodes) error {
 	}
 
 	return nil
+}
+
+func (p *Physical) ActivityStatus() string {
+	return schema.ActivityStatus(p.Status)
 }
 
 type nodes interface {
@@ -328,11 +335,12 @@ func (s *State) GetPartitions(nodes nodes, shards []string, replFactor int64) (m
 }
 
 // AddPartition to physical shards
-func (s *State) AddPartition(name string, nodes []string) Physical {
+func (s *State) AddPartition(name string, nodes []string, status string) Physical {
 	p := Physical{
 		Name:           name,
 		BelongsToNodes: nodes,
 		OwnsPercentage: 1.0,
+		Status:         status,
 	}
 	s.Physical[name] = p
 	return p
@@ -488,6 +496,7 @@ func (p Physical) DeepCopy() Physical {
 		OwnsVirtual:    ownsVirtualCopy,
 		OwnsPercentage: p.OwnsPercentage,
 		BelongsToNodes: belongsCopy,
+		Status:         p.Status,
 	}
 }
 

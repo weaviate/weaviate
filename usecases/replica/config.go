@@ -15,20 +15,26 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/replication"
 )
 
 type nodeCounter interface {
 	NodeCount() int
 }
 
-func ValidateConfig(class *models.Class) error {
+func ValidateConfig(class *models.Class, globalCfg replication.GlobalConfig) error {
 	if class.ReplicationConfig == nil {
-		class.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
+		class.ReplicationConfig = &models.ReplicationConfig{Factor: int64(globalCfg.MinimumFactor)}
 		return nil
 	}
 
+	if class.ReplicationConfig.Factor > 0 && class.ReplicationConfig.Factor < int64(globalCfg.MinimumFactor) {
+		return fmt.Errorf("invalid replication factor: setup requires a minimum replication factor of %d: got %d",
+			globalCfg.MinimumFactor, class.ReplicationConfig.Factor)
+	}
+
 	if class.ReplicationConfig.Factor < 1 {
-		class.ReplicationConfig.Factor = 1
+		class.ReplicationConfig.Factor = int64(globalCfg.MinimumFactor)
 	}
 
 	return nil

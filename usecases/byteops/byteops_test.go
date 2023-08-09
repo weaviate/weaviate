@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package byte_operations
+package byteops
 
 import (
 	"crypto/rand"
@@ -18,7 +18,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,7 +38,7 @@ func TestReadAnWrite(t *testing.T) {
 	rand.Read(valuesByteArray)
 
 	writeBuffer := make([]byte, 2*uint64Len+2*uint32Len+2*uint16Len+len(valuesByteArray))
-	byteOpsWrite := ByteOperations{Buffer: writeBuffer}
+	byteOpsWrite := NewReadWriter(writeBuffer)
 
 	byteOpsWrite.WriteUint64(valuesNumbers[0])
 	byteOpsWrite.WriteUint32(uint32(valuesNumbers[1]))
@@ -49,7 +48,7 @@ func TestReadAnWrite(t *testing.T) {
 	byteOpsWrite.WriteUint64(valuesNumbers[4])
 	byteOpsWrite.WriteUint16(uint16(valuesNumbers[5]))
 
-	byteOpsRead := ByteOperations{Buffer: writeBuffer}
+	byteOpsRead := NewReadWriter(writeBuffer)
 
 	require.Equal(t, byteOpsRead.ReadUint64(), valuesNumbers[0])
 	require.Equal(t, byteOpsRead.ReadUint32(), uint32(valuesNumbers[1]))
@@ -79,11 +78,11 @@ func TestReadAnWrite(t *testing.T) {
 // create buffer that is larger than uint32 and write to the end and then try to reread it
 func TestReadAnWriteLargeBuffer(t *testing.T) {
 	writeBuffer := make([]byte, uint64(MaxUint32)+4)
-	byteOpsWrite := ByteOperations{Buffer: writeBuffer}
+	byteOpsWrite := NewReadWriter(writeBuffer)
 	byteOpsWrite.MoveBufferPositionForward(uint64(MaxUint32))
 	byteOpsWrite.WriteUint16(uint16(10))
 
-	byteOpsRead := ByteOperations{Buffer: writeBuffer}
+	byteOpsRead := NewReadWriter(writeBuffer)
 	byteOpsRead.MoveBufferPositionForward(uint64(MaxUint32))
 	require.Equal(t, byteOpsRead.ReadUint16(), uint16(10))
 }
@@ -96,20 +95,20 @@ func TestWritingAndReadingBufferOfDynamicLength(t *testing.T) {
 
 		// uint64 length indicator + buffer + unrelated data at end of buffer
 		totalBuf := make([]byte, bufLen+16)
-		bo := ByteOperations{Buffer: totalBuf}
+		bo := NewReadWriter(totalBuf)
 
 		assert.Nil(t, bo.CopyBytesToBufferWithUint64LengthIndicator(buf))
 		bo.WriteUint64(17)
 		assert.Equal(t, buf, totalBuf[8:8+bufLen])
 
 		// read
-		bo = ByteOperations{Buffer: totalBuf}
+		bo = NewReadWriter(totalBuf)
 		bufRead := bo.ReadBytesFromBufferWithUint64LengthIndicator()
 		assert.Len(t, bufRead, int(bufLen))
 		assert.Equal(t, uint64(17), bo.ReadUint64())
 
 		// discard
-		bo = ByteOperations{Buffer: totalBuf}
+		bo = NewReadWriter(totalBuf)
 		discarded := bo.DiscardBytesFromBufferWithUint64LengthIndicator()
 		assert.Equal(t, bufLen, discarded)
 		assert.Equal(t, uint64(17), bo.ReadUint64())
@@ -122,20 +121,20 @@ func TestWritingAndReadingBufferOfDynamicLength(t *testing.T) {
 
 		// uint32 length indicator + buffer + unrelated data at end of buffer
 		totalBuf := make([]byte, bufLen+8)
-		bo := ByteOperations{Buffer: totalBuf}
+		bo := NewReadWriter(totalBuf)
 
 		assert.Nil(t, bo.CopyBytesToBufferWithUint32LengthIndicator(buf))
 		bo.WriteUint32(17)
 		assert.Equal(t, buf, totalBuf[4:4+bufLen])
 
 		// read
-		bo = ByteOperations{Buffer: totalBuf}
+		bo = NewReadWriter(totalBuf)
 		bufRead := bo.ReadBytesFromBufferWithUint32LengthIndicator()
 		assert.Len(t, bufRead, int(bufLen))
 		assert.Equal(t, uint32(17), bo.ReadUint32())
 
 		// discard
-		bo = ByteOperations{Buffer: totalBuf}
+		bo = NewReadWriter(totalBuf)
 		discarded := bo.DiscardBytesFromBufferWithUint32LengthIndicator()
 		assert.Equal(t, bufLen, discarded)
 		assert.Equal(t, uint32(17), bo.ReadUint32())

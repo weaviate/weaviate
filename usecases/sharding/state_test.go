@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func TestState(t *testing.T) {
@@ -272,12 +273,12 @@ func TestAddPartition(t *testing.T) {
 	s, err := InitState("my-index", cfg, nodes, 1, true)
 	require.Nil(t, err)
 
-	s.AddPartition("A", nodes1)
-	s.AddPartition("B", nodes2)
+	s.AddPartition("A", nodes1, models.TenantActivityStatusHOT)
+	s.AddPartition("B", nodes2, models.TenantActivityStatusCOLD)
 
 	want := map[string]Physical{
-		"A": {Name: "A", BelongsToNodes: nodes1, OwnsPercentage: 1},
-		"B": {Name: "B", BelongsToNodes: nodes2, OwnsPercentage: 1},
+		"A": {Name: "A", BelongsToNodes: nodes1, OwnsPercentage: 1, Status: models.TenantActivityStatusHOT},
+		"B": {Name: "B", BelongsToNodes: nodes2, OwnsPercentage: 1, Status: models.TenantActivityStatusCOLD},
 	}
 	require.Equal(t, want, s.Physical)
 }
@@ -302,6 +303,7 @@ func TestStateDeepCopy(t *testing.T) {
 				OwnsVirtual:    []string{"original"},
 				OwnsPercentage: 7,
 				BelongsToNodes: []string{"original"},
+				Status:         models.TenantActivityStatusHOT,
 			},
 		},
 		Virtual: []Virtual{
@@ -333,6 +335,7 @@ func TestStateDeepCopy(t *testing.T) {
 				OwnsVirtual:    []string{"original"},
 				OwnsPercentage: 7,
 				BelongsToNodes: []string{"original"},
+				Status:         models.TenantActivityStatusHOT,
 			},
 		},
 		Virtual: []Virtual{
@@ -366,6 +369,7 @@ func TestStateDeepCopy(t *testing.T) {
 	physical1.BelongsToNodes = append(physical1.BelongsToNodes, "changed")
 	physical1.OwnsPercentage = 100
 	physical1.OwnsVirtual = append(physical1.OwnsVirtual, "changed")
+	physical1.Status = models.TenantActivityStatusCOLD
 	copied.Physical["physical1"] = physical1
 	copied.Physical["physical2"] = Physical{}
 	copied.Virtual[0].Name = "original"

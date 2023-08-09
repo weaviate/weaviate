@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -413,7 +414,10 @@ func newManagerWithClusterAndTx(t *testing.T, clusterState clusterState,
 	}
 	repo.schema = *initialSchema
 	sm, err := NewManager(&NilMigrator{}, repo, logger, &fakeAuthorizer{},
-		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
+		config.Config{
+			DefaultVectorizerModule: config.VectorizerModuleNone,
+			Replication:             replication.GlobalConfig{MinimumFactor: 1},
+		},
 		dummyParseVectorConfig, // only option for now
 		&fakeVectorizerValidator{}, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, clusterState, txClient, &fakeScaleOutManager{},

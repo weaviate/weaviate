@@ -13,6 +13,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -136,6 +137,10 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if os.Getenv("PERSISTENCE_LSM_ACCESS_STRATEGY") == "pread" {
+		config.AvoidMmap = true
+	}
+
 	clusterCfg, err := parseClusterConfig()
 	if err != nil {
 		return err
@@ -176,6 +181,18 @@ func FromEnv(config *Config) error {
 		config.QueryMaximumResults = int64(asInt)
 	} else {
 		config.QueryMaximumResults = DefaultQueryMaximumResults
+	}
+
+	if v := os.Getenv("QUERY_NESTED_CROSS_REFERENCE_LIMIT"); v != "" {
+		limit, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return errors.Wrapf(err, "parse QUERY_NESTED_CROSS_REFERENCE_LIMIT as int")
+		} else if limit <= 0 {
+			limit = math.MaxInt
+		}
+		config.QueryNestedCrossReferenceLimit = limit
+	} else {
+		config.QueryNestedCrossReferenceLimit = DefaultQueryNestedCrossReferenceLimit
 	}
 
 	if v := os.Getenv("MAX_IMPORT_GOROUTINES_FACTOR"); v != "" {
@@ -269,6 +286,14 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableGraphQL = enabled(os.Getenv("DISABLE_GRAPHQL"))
+
+	if err := parsePositiveInt(
+		"REPLICATION_MINIMUM_FACTOR",
+		func(val int) { config.Replication.MinimumFactor = val },
+		DefaultMinimumReplicationFactor,
+	); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -335,7 +360,10 @@ func parsePositiveInt(varName string, cb func(val int), defaultValue int) error 
 	return nil
 }
 
-const DefaultQueryMaximumResults = int64(10000)
+const (
+	DefaultQueryMaximumResults            = int64(10000)
+	DefaultQueryNestedCrossReferenceLimit = int64(100000)
+)
 
 const (
 	DefaultPersistenceFlushIdleMemtablesAfter = 60
@@ -344,6 +372,7 @@ const (
 	DefaultPersistenceMemtablesMaxDuration    = 45
 	DefaultMaxConcurrentGetRequests           = 0
 	DefaultGRPCPort                           = 50051
+	DefaultMinimumReplicationFactor           = 1
 )
 
 const VectorizerModuleNone = "none"

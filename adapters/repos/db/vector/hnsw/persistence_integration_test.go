@@ -15,6 +15,7 @@
 package hnsw
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -145,6 +146,7 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 	})
 
 	// destroy the index
+	index.Shutdown(context.Background())
 	index = nil
 	indexDir := filepath.Join(dirName, "integrationtest_corrupt.hnsw.commitlog.d")
 
@@ -345,6 +347,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	})
 
 	// destroy the index
+	index.Shutdown(context.Background())
 	index = nil
 
 	// build a new index from the (uncondensed) commit log
@@ -389,7 +392,9 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 
 	dumpIndex(secondIndex)
 
+	secondIndex.Shutdown(context.Background())
 	secondIndex = nil
+
 	// build a new index from the (uncondensed) commit log
 	thirdIndex, err := New(Config{
 		RootPath:              dirName,
@@ -428,6 +433,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 
 	require.Nil(t, thirdIndex.Flush())
 
+	thirdIndex.Shutdown(context.Background())
 	thirdIndex = nil
 	// build a new index from the (uncondensed) commit log
 	fourthIndex, err := New(Config{
@@ -461,4 +467,6 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
 	})
+
+	fourthIndex.Shutdown(context.Background())
 }

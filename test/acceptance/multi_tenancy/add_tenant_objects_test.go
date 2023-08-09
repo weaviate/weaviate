@@ -153,7 +153,7 @@ func TestAddObjectWithNonexistentTenantToMultiClass(t *testing.T) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 	}
 	helper.CreateClass(t, &testClass)
-	helper.CreateTenants(t, className, []*models.Tenant{{"randomTenant1"}})
+	helper.CreateTenants(t, className, []*models.Tenant{{Name: "randomTenant1"}})
 
 	objWithTenant := &models.Object{
 		ID:     "0927a1e0-398e-4e76-91fb-04a7a8f0405c",

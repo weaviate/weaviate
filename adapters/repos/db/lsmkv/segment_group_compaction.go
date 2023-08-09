@@ -265,7 +265,7 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		}
 	}
 
-	seg, err := newSegment(newPath, sg.logger, sg.metrics, nil)
+	seg, err := newSegment(newPath, sg.logger, sg.metrics, nil, sg.mmapContents)
 	if err != nil {
 		return errors.Wrap(err, "create new segment")
 	}

@@ -29,7 +29,6 @@ const (
 	OperatorLessThanEqual
 	OperatorAnd
 	OperatorOr
-	OperatorNot
 	OperatorWithinGeoRange
 	OperatorLike
 	OperatorIsNull
@@ -70,8 +69,6 @@ func (o Operator) Name() string {
 		return "And"
 	case OperatorOr:
 		return "Or"
-	case OperatorNot:
-		return "Not"
 	case OperatorWithinGeoRange:
 		return "WithinGeoRange"
 	case OperatorLike:
