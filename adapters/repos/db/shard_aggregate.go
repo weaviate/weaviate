@@ -23,6 +23,7 @@ func (s *Shard) aggregate(ctx context.Context,
 ) (*aggregation.Result, error) {
 	return aggregator.New(s.store, params, s.index.getSchema,
 		s.index.classSearcher, s.deletedDocIDs, s.index.stopwords, s.versioner.Version(),
-		s.vectorIndex, s.index.logger, s.propLengths, s.isFallbackToSearchable, s.tenant()).
+		s.vectorIndex, s.index.logger, s.propLengths, s.isFallbackToSearchable, s.tenant(),
+		s.index.Config.QueryNestedRefLimit).
 		Do(ctx)
 }
