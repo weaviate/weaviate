@@ -138,24 +138,28 @@ type GRPCInferenceServiceServer interface {
 }
 
 // UnimplementedGRPCInferenceServiceServer must be embedded to have forward compatible implementations.
-type UnimplementedGRPCInferenceServiceServer struct {
-}
+type UnimplementedGRPCInferenceServiceServer struct{}
 
 func (UnimplementedGRPCInferenceServiceServer) ServerLive(context.Context, *ServerLiveRequest) (*ServerLiveResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ServerLive not implemented")
 }
+
 func (UnimplementedGRPCInferenceServiceServer) ServerReady(context.Context, *ServerReadyRequest) (*ServerReadyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ServerReady not implemented")
 }
+
 func (UnimplementedGRPCInferenceServiceServer) ModelReady(context.Context, *ModelReadyRequest) (*ModelReadyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ModelReady not implemented")
 }
+
 func (UnimplementedGRPCInferenceServiceServer) ServerMetadata(context.Context, *ServerMetadataRequest) (*ServerMetadataResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ServerMetadata not implemented")
 }
+
 func (UnimplementedGRPCInferenceServiceServer) ModelMetadata(context.Context, *ModelMetadataRequest) (*ModelMetadataResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ModelMetadata not implemented")
 }
+
 func (UnimplementedGRPCInferenceServiceServer) ModelInfer(context.Context, *ModelInferRequest) (*ModelInferResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ModelInfer not implemented")
 }
