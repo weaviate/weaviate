@@ -33,11 +33,11 @@ func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
 	immutableFields := []immutableInt{
 		{
 			name:     "efConstruction",
-			accessor: func(c ent.UserConfig) int { return c.EFConstruction },
+			accessor: func(c ent.UserConfig) interface{} { return c.EFConstruction },
 		},
 		{
 			name:     "maxConnections",
-			accessor: func(c ent.UserConfig) int { return c.MaxConnections },
+			accessor: func(c ent.UserConfig) interface{} { return c.MaxConnections },
 		},
 		{
 			// NOTE: There isn't a technical reason for this to be immutable, it
@@ -45,7 +45,11 @@ func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
 			// current timer and start a new one. Certainly possible, but let's see
 			// if anyone actually needs this before implementing it.
 			name:     "cleanupIntervalSeconds",
-			accessor: func(c ent.UserConfig) int { return c.CleanupIntervalSeconds },
+			accessor: func(c ent.UserConfig) interface{} { return c.CleanupIntervalSeconds },
+		},
+		{
+			name:     "distance",
+			accessor: func(c ent.UserConfig) interface{} { return c.Distance },
 		},
 	}
 
@@ -59,7 +63,7 @@ func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
 }
 
 type immutableInt struct {
-	accessor func(c ent.UserConfig) int
+	accessor func(c ent.UserConfig) interface{}
 	name     string
 }
 
