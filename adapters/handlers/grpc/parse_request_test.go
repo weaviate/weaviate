@@ -14,6 +14,9 @@ package grpc
 import (
 	"testing"
 
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/weaviate/weaviate/entities/searchparams"
+
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -93,15 +96,8 @@ func TestGRPCRequest(t *testing.T) {
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
 				AdditionalProperties: additional.Properties{
-					Vector:             true,
-					Certainty:          false,
-					ID:                 false,
-					CreationTimeUnix:   false,
-					LastUpdateTimeUnix: false,
-					Distance:           false,
-					Score:              false,
-					ExplainScore:       false,
-					NoProps:            true,
+					Vector:  true,
+					NoProps: true,
 				},
 			},
 			error: false,
@@ -141,6 +137,69 @@ func TestGRPCRequest(t *testing.T) {
 			req:   &grpc.SearchRequest{ClassName: classname, Properties: &grpc.Properties{RefProperties: []*grpc.RefProperties{{ReferenceProperty: "multiRef", Metadata: &grpc.AdditionalProperties{Vector: true, Certainty: false}, LinkedProperties: &grpc.Properties{NonRefProperties: []string{"something"}}}}}},
 			out:   dto.GetParams{},
 			error: true,
+		},
+		{
+			name: "Properties return values multi-ref",
+			req: &grpc.SearchRequest{ClassName: classname, Properties: &grpc.Properties{RefProperties: []*grpc.RefProperties{
+				{ReferenceProperty: "multiRef", WhichCollection: refClass1, Metadata: &grpc.AdditionalProperties{Vector: true, Certainty: false}, LinkedProperties: &grpc.Properties{NonRefProperties: []string{"something"}}},
+				{ReferenceProperty: "multiRef", WhichCollection: refClass2, Metadata: &grpc.AdditionalProperties{Uuid: true}, LinkedProperties: &grpc.Properties{NonRefProperties: []string{"else"}}},
+			}}},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{
+					{Name: "multiRef", IsPrimitive: false, Refs: []search.SelectClass{{ClassName: refClass1, RefProperties: search.SelectProperties{{Name: "something", IsPrimitive: true}}, AdditionalProperties: additional.Properties{Vector: true}}}},
+					{Name: "multiRef", IsPrimitive: false, Refs: []search.SelectClass{{ClassName: refClass2, RefProperties: search.SelectProperties{{Name: "else", IsPrimitive: true}}, AdditionalProperties: additional.Properties{ID: true}}}},
+				},
+				AdditionalProperties: additional.Properties{},
+			},
+			error: false,
+		},
+		{
+			name: "hybrid ranked",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true, Certainty: false},
+				HybridSearch: &grpc.HybridSearchParams{Query: "query", FusionType: grpc.HybridSearchParams_RANKED, Alpha: 0.75, Properties: []string{"name"}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion, Alpha: 0.75, Properties: []string{"name"}},
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+			},
+			error: false,
+		},
+		{
+			name: "hybrid relative",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true, Certainty: false},
+				HybridSearch: &grpc.HybridSearchParams{Query: "query", FusionType: grpc.HybridSearchParams_RELATIVE_SCORE},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRelativeScoreFusion},
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+			},
+			error: false,
+		},
+		{
+			name: "hybrid default",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true, Certainty: false},
+				HybridSearch: &grpc.HybridSearchParams{Query: "query"},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion},
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+			},
+			error: false,
+		},
+		{
+			name: "bm25",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				Bm25Search: &grpc.BM25SearchParams{Query: "query", Properties: []string{"name"}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, KeywordRanking: &searchparams.KeywordRanking{Query: "query", Properties: []string{"name"}, Type: "bm25"},
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+			},
+			error: false,
 		},
 	}
 
