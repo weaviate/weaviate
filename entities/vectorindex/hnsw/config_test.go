@@ -456,6 +456,22 @@ func Test_UserConfig(t *testing.T) {
 			expectErr:    true,
 			expectErrMsg: "distance must be one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]",
 		},
+		{
+			name: "invalid distance (int)",
+			input: map[string]interface{}{
+				"distance": 3,
+			},
+			expectErr:    true,
+			expectErrMsg: "distance is of the wrong type",
+		},
+		{
+			name: "invalid ef (string)",
+			input: map[string]interface{}{
+				"ef": "wrong_type",
+			},
+			expectErr:    true,
+			expectErrMsg: "ef is of the wrong type. Should be of type int, json.Number or float64",
+		},
 	}
 
 	for _, test := range tests {
