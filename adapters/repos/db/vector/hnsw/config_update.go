@@ -73,7 +73,7 @@ func validateImmutableIntField(u immutableParameter,
 	oldField := u.accessor(previous)
 	newField := u.accessor(next)
 	if oldField != newField {
-		return errors.Errorf("%s is immutable: attempted change from \"%d\" to \"%d\"",
+		return errors.Errorf("%s is immutable: attempted change from \"%v\" to \"%v\"",
 			u.name, oldField, newField)
 	}
 

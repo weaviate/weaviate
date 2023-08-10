@@ -305,6 +305,9 @@ func TestUpdateClassWithoutVectorIndex(t *testing.T) {
 	})
 }
 
+// This test prevents a regression of
+// https://github.com/weaviate/weaviate/issues//3177
+//
 // This test ensures that distance belongs to the immutable properties, i.e. no changes to it are possible after creating the class.
 func TestUpdateDistanceSettings(t *testing.T) {
 	className := "Cosine_Class"
