@@ -223,6 +223,76 @@ func TestSchema_Tenants(t *testing.T) {
 		assert.Contains(t, clientErr.Msg, "multi-tenancy is not enabled for class")
 		require.Nil(t, gotTenants)
 	})
+	
+	t.Run("updates tenants of MT class", func(t *testing.T) {
+		defer cleanup()
+
+		tenants := []models.Tenant{
+			{Name: "tenantNo1"},
+			{Name: "tenantNo2"},
+		}
+
+		fixtures.CreateSchemaPizzaForTenants(t, client)
+		fixtures.CreateTenantsPizza(t, client, tenants...)
+
+		t.Run("fails updating non existent tenant", func(t *testing.T) {
+			err := client.Schema().TenantsUpdater().
+				WithClassName(className).
+				WithTenants(models.Tenant{
+					Name:           "nonExistentTenant",
+					ActivityStatus: models.TenantActivityStatusCOLD,
+				}).Do(context.Background())
+
+			require.NotNil(t, err)
+			clientErr := err.(*fault.WeaviateClientError)
+			assert.Equal(t, 422, clientErr.StatusCode)
+			assert.Contains(t, clientErr.Msg, "not found")
+		})
+
+		t.Run("updates existent tenants", func(t *testing.T) {
+			err := client.Schema().TenantsUpdater().
+				WithClassName(className).
+				WithTenants(
+					models.Tenant{
+						Name:           tenants[0].Name,
+						ActivityStatus: models.TenantActivityStatusCOLD,
+					},
+					models.Tenant{
+						Name:           tenants[1].Name,
+						ActivityStatus: models.TenantActivityStatusCOLD,
+					},
+				).Do(context.Background())
+
+			require.Nil(t, err)
+		})
+	})
+
+	t.Run("fails updating tenants of non-MT class", func(t *testing.T) {
+		defer cleanup()
+
+		tenants := []models.Tenant{
+			{
+				Name:           "tenantNo1",
+				ActivityStatus: models.TenantActivityStatusCOLD,
+			},
+			{
+				Name:           "tenantNo2",
+				ActivityStatus: models.TenantActivityStatusCOLD,
+			},
+		}
+
+		fixtures.CreateSchemaPizza(t, client)
+
+		err := client.Schema().TenantsUpdater().
+			WithClassName(className).
+			WithTenants(tenants...).
+			Do(context.Background())
+
+		require.NotNil(t, err)
+		clientErr := err.(*fault.WeaviateClientError)
+		assert.Equal(t, 422, clientErr.StatusCode)
+		assert.Contains(t, clientErr.Msg, "multi-tenancy is not enabled for class")
+	})
 
 	t.Run("deletes tenants from MT class", func(t *testing.T) {
 		defer cleanup()
