@@ -14,6 +14,9 @@ package grpc
 import (
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -44,7 +47,10 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.AdditionalProperties.ExplainScore = req.AdditionalProperties.ExplainScore
 	}
 
-	out.Properties = extractPropertiesRequest(req.Properties)
+	out.Properties, err = extractPropertiesRequest(req.Properties, scheme, req.ClassName)
+	if err != nil {
+		return dto.GetParams{}, err
+	}
 	if len(out.Properties) == 0 && req.AdditionalProperties != nil {
 		// This is a pure-ID query without any props. Indicate this to the DB, so
 		// it can optimize accordingly
@@ -276,4 +282,71 @@ func extractPath(scheme schema.Schema, className string, on []string) (*filters.
 
 	}
 	return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(on[0]), Child: child}, nil
+}
+
+func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, className string) ([]search.SelectProperty, error) {
+	var props []search.SelectProperty
+	if reqProps == nil {
+		return props, nil
+	}
+	if reqProps.NonRefProperties != nil && len(reqProps.NonRefProperties) > 0 {
+		for _, prop := range reqProps.NonRefProperties {
+			props = append(props, search.SelectProperty{
+				Name:        prop,
+				IsPrimitive: true,
+			})
+		}
+	}
+
+	if reqProps.RefProperties != nil && len(reqProps.RefProperties) > 0 {
+		class := scheme.GetClass(schema.ClassName(className))
+		for _, prop := range reqProps.RefProperties {
+			schemaProp, err := schema.GetPropertyByName(class, prop.ReferenceProperty)
+			if err != nil {
+				return nil, err
+			}
+
+			var linkedClass string
+			if len(schemaProp.DataType) == 1 {
+				// use datatype of the reference property to get the name of the linked class
+				linkedClass = schemaProp.DataType[0]
+			} else {
+				linkedClass = prop.WhichCollection
+				if linkedClass == "" {
+					return nil, fmt.Errorf(
+						"multi target references from collection %v and property %v with need an explicit"+
+							"linked collection. Available linked collections are %v.",
+						className, prop.ReferenceProperty, schemaProp.DataType)
+				}
+			}
+			refProperties, err := extractPropertiesRequest(prop.LinkedProperties, scheme, linkedClass)
+			if err != nil {
+				return nil, err
+			}
+			props = append(props, search.SelectProperty{
+				Name:        prop.ReferenceProperty,
+				IsPrimitive: false,
+				Refs: []search.SelectClass{{
+					ClassName:            linkedClass,
+					RefProperties:        refProperties,
+					AdditionalProperties: extractAdditionalPropsForRefs(prop.Metadata),
+				}},
+			})
+		}
+	}
+
+	return props, nil
+}
+
+func extractAdditionalPropsForRefs(prop *pb.AdditionalProperties) additional.Properties {
+	return additional.Properties{
+		Vector:             prop.Vector,
+		Certainty:          prop.Certainty,
+		ID:                 prop.Uuid,
+		CreationTimeUnix:   prop.CreationTimeUnix,
+		LastUpdateTimeUnix: prop.LastUpdateTimeUnix,
+		Distance:           prop.Distance,
+		Score:              prop.Score,
+		ExplainScore:       prop.ExplainScore,
+	}
 }
