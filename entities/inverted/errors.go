@@ -18,7 +18,6 @@ type MissingIndexError struct {
 	args   []any
 }
 
-
 const (
 	missingFilterableFormat = "Filtering by property '%s' requires inverted index. " +
 		"Is `indexFilterable` option of property '%s' enabled? " +
@@ -30,6 +29,7 @@ const (
 		"Is `indexFilterable` option of property '%s' enabled? " +
 		"Set it to `true` or leave empty"
 )
+
 func NewMissingFilterableIndexError(propName string) error {
 	return MissingIndexError{missingFilterableFormat, []any{propName, propName}}
 }

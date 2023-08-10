@@ -27,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
-
 const (
 	// allways
 	HasFilterableIndexIdProp = true
@@ -51,6 +50,7 @@ const (
 	HasFilterableIndexPropLength = true
 	HasSearchableIndexPropLength = false
 )
+
 func (a *Analyzer) Object(input map[string]any, props []*models.Property,
 	uuid strfmt.UUID,
 ) ([]Property, error) {
