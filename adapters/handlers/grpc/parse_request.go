@@ -247,17 +247,13 @@ func extractDataType(scheme schema.Schema, operator filters.Operator, classname 
 	if operator == filters.OperatorIsNull {
 		dataType = schema.DataTypeBoolean
 	} else if len(on) > 1 {
-		for {
-			prop, err := scheme.GetProperty(schema.ClassName(classname), schema.PropertyName(on[0]))
-			if err != nil {
-				return dataType, err
-			}
-			on = on[1:]
-			if len(on) == 0 {
-				return schema.DataType(prop.DataType[0]), nil
-			}
-			classname = prop.DataType[0]
+		propToCheck := on[len(on)-1]
+		classOfProp := on[len(on)-2]
+		prop, err := scheme.GetProperty(schema.ClassName(classOfProp), schema.PropertyName(propToCheck))
+		if err != nil {
+			return dataType, err
 		}
+		return schema.DataType(prop.DataType[0]), nil
 	} else {
 		prop, err := scheme.GetProperty(schema.ClassName(classname), schema.PropertyName(on[0]))
 		if err != nil {
@@ -271,11 +267,8 @@ func extractDataType(scheme schema.Schema, operator filters.Operator, classname 
 func extractPath(scheme schema.Schema, className string, on []string) (*filters.Path, error) {
 	var child *filters.Path = nil
 	if len(on) > 1 {
-		prop, err := scheme.GetProperty(schema.ClassName(className), schema.PropertyName(on[0]))
-		if err != nil {
-			return nil, err
-		}
-		child, err = extractPath(scheme, prop.DataType[0], on[1:])
+		var err error
+		child, err = extractPath(scheme, on[1], on[2:])
 		if err != nil {
 			return nil, err
 		}
