@@ -26,6 +26,8 @@ import (
 
 func TestGRPCRequest(t *testing.T) {
 	classname := "TestClass"
+	refClass1 := "OtherClass"
+	refClass2 := "AnotherClass"
 	scheme := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
@@ -34,7 +36,20 @@ func TestGRPCRequest(t *testing.T) {
 					Properties: []*models.Property{
 						{Name: "name", DataType: schema.DataTypeText.PropString()},
 						{Name: "number", DataType: []string{"int"}},
-						{Name: "ref", DataType: []string{"OtherClass"}},
+						{Name: "ref", DataType: []string{refClass1}},
+						{Name: "multiRef", DataType: []string{refClass1, refClass2}},
+					},
+				},
+				{
+					Class: refClass1,
+					Properties: []*models.Property{
+						{Name: "something", DataType: schema.DataTypeText.PropString()},
+					},
+				},
+				{
+					Class: refClass2,
+					Properties: []*models.Property{
+						{Name: "else", DataType: schema.DataTypeText.PropString()},
 					},
 				},
 			},
@@ -71,6 +86,61 @@ func TestGRPCRequest(t *testing.T) {
 				},
 			},
 			error: false,
+		},
+		{
+			name: "Metadata return values",
+			req:  &grpc.SearchRequest{ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true, Certainty: false}},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{
+					Vector:             true,
+					Certainty:          false,
+					ID:                 false,
+					CreationTimeUnix:   false,
+					LastUpdateTimeUnix: false,
+					Distance:           false,
+					Score:              false,
+					ExplainScore:       false,
+					NoProps:            true,
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Properties return values ref",
+			req:  &grpc.SearchRequest{ClassName: classname, Properties: &grpc.Properties{RefProperties: []*grpc.RefProperties{{ReferenceProperty: "ref", WhichCollection: refClass1, Metadata: &grpc.AdditionalProperties{Vector: true, Certainty: false}, LinkedProperties: &grpc.Properties{NonRefProperties: []string{"something"}}}}}},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{{ClassName: refClass1, RefProperties: search.SelectProperties{{Name: "something", IsPrimitive: true}}, AdditionalProperties: additional.Properties{
+					Vector: true,
+				}}}}},
+				AdditionalProperties: additional.Properties{},
+			},
+			error: false,
+		},
+		{
+			name: "Properties return values non-ref",
+			req:  &grpc.SearchRequest{ClassName: classname, Properties: &grpc.Properties{NonRefProperties: []string{"name"}}},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}},
+				AdditionalProperties: additional.Properties{
+					Vector:             false,
+					Certainty:          false,
+					ID:                 false,
+					CreationTimeUnix:   false,
+					LastUpdateTimeUnix: false,
+					Distance:           false,
+					Score:              false,
+					ExplainScore:       false,
+					NoProps:            false,
+				},
+			},
+			error: false,
+		},
+		{
+			name:  "Properties return values multi-ref (no linked class with error)",
+			req:   &grpc.SearchRequest{ClassName: classname, Properties: &grpc.Properties{RefProperties: []*grpc.RefProperties{{ReferenceProperty: "multiRef", Metadata: &grpc.AdditionalProperties{Vector: true, Certainty: false}, LinkedProperties: &grpc.Properties{NonRefProperties: []string{"something"}}}}}},
+			out:   dto.GetParams{},
+			error: true,
 		},
 	}
 
