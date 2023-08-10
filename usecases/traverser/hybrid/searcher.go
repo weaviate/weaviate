@@ -47,6 +47,9 @@ type Result struct {
 
 type Results []*Result
 
+
+// SearchResults returns a slice of *search.Results.
+// It creates a new slice and populates it with the results of each search.Result in the Results struct.
 func (res Results) SearchResults() []search.Result {
 	out := make([]search.Result, len(res))
 	for i, r := range res {
@@ -54,7 +57,6 @@ func (res Results) SearchResults() []search.Result {
 	}
 	return out
 }
-
 // sparseSearchFunc is the signature of a closure which performs sparse search.
 // Any package which wishes use hybrid search must provide this. The weights are
 // used in calculating the final scores of the result set.
@@ -280,7 +282,7 @@ func nearVectorSubSearch(subsearch *searchparams.WeightedSearchResult, denseSear
 
 	return out, subsearch.Weight, nil
 }
-
+// Decide the search vector based on the given parameters and modulesProvider
 func decideSearchVector(ctx context.Context, params *Params, modules modulesProvider) ([]float32, error) {
 	var (
 		vector []float32
@@ -299,8 +301,7 @@ func decideSearchVector(ctx context.Context, params *Params, modules modulesProv
 	}
 
 	return vector, nil
-}
-
+}// Get vector input from modules provider given a class and input.
 func vectorFromModuleInput(ctx context.Context, class, input string, modules modulesProvider) ([]float32, error) {
 	vector, err := modules.VectorFromInput(ctx, class, input)
 	if err != nil {
@@ -308,7 +309,6 @@ func vectorFromModuleInput(ctx context.Context, class, input string, modules mod
 	}
 	return vector, nil
 }
-
 func truncateVectorString(maxLength int, vector []float32) string {
 	if len(vector) <= maxLength {
 		return fmt.Sprintf("%v", vector)

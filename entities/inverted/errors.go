@@ -18,6 +18,18 @@ type MissingIndexError struct {
 	args   []any
 }
 
+
+const (
+	missingFilterableFormat = "Filtering by property '%s' requires inverted index. " +
+		"Is `indexFilterable` option of property '%s' enabled? " +
+		"Set it to `true` or leave empty"
+	missingSearchableFormat = "Searching by property '%s' requires inverted index. " +
+		"Is `indexSearchable` option of property '%s' enabled? " +
+		"Set it to `true` or leave empty"
+	missingFilterableMetaCountFormat = "Searching by property '%s' count requires inverted index. " +
+		"Is `indexFilterable` option of property '%s' enabled? " +
+		"Set it to `true` or leave empty"
+)
 func NewMissingFilterableIndexError(propName string) error {
 	return MissingIndexError{missingFilterableFormat, []any{propName, propName}}
 }
@@ -33,15 +45,3 @@ func NewMissingFilterableMetaCountIndexError(propName string) error {
 func (e MissingIndexError) Error() string {
 	return fmt.Sprintf(e.format, e.args...)
 }
-
-const (
-	missingFilterableFormat = "Filtering by property '%s' requires inverted index. " +
-		"Is `indexFilterable` option of property '%s' enabled? " +
-		"Set it to `true` or leave empty"
-	missingSearchableFormat = "Searching by property '%s' requires inverted index. " +
-		"Is `indexSearchable` option of property '%s' enabled? " +
-		"Set it to `true` or leave empty"
-	missingFilterableMetaCountFormat = "Searching by property '%s' count requires inverted index. " +
-		"Is `indexFilterable` option of property '%s' enabled? " +
-		"Set it to `true` or leave empty"
-)

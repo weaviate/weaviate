@@ -27,6 +27,30 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
+
+const (
+	// allways
+	HasFilterableIndexIdProp = true
+	HasSearchableIndexIdProp = false
+
+	// only if index.invertedIndexConfig.IndexTimestamps set
+	HasFilterableIndexTimestampProp = true
+	HasSearchableIndexTimestampProp = false
+
+	// only if property.indexFilterable or property.indexSearchable set
+	HasFilterableIndexMetaCount = true
+	HasSearchableIndexMetaCount = false
+
+	// only if index.invertedIndexConfig.IndexNullState set
+	// and either property.indexFilterable or property.indexSearchable set
+	HasFilterableIndexPropNull = true
+	HasSearchableIndexPropNull = false
+
+	// only if index.invertedIndexConfig.IndexPropertyLength set
+	// and either property.indexFilterable or property.indexSearchable set
+	HasFilterableIndexPropLength = true
+	HasSearchableIndexPropLength = false
+)
 func (a *Analyzer) Object(input map[string]any, props []*models.Property,
 	uuid strfmt.UUID,
 ) ([]Property, error) {
@@ -596,27 +620,3 @@ func HasFilterableIndex(prop *models.Property) bool {
 func HasInvertedIndex(prop *models.Property) bool {
 	return HasFilterableIndex(prop) || HasSearchableIndex(prop)
 }
-
-const (
-	// allways
-	HasFilterableIndexIdProp = true
-	HasSearchableIndexIdProp = false
-
-	// only if index.invertedIndexConfig.IndexTimestamps set
-	HasFilterableIndexTimestampProp = true
-	HasSearchableIndexTimestampProp = false
-
-	// only if property.indexFilterable or property.indexSearchable set
-	HasFilterableIndexMetaCount = true
-	HasSearchableIndexMetaCount = false
-
-	// only if index.invertedIndexConfig.IndexNullState set
-	// and either property.indexFilterable or property.indexSearchable set
-	HasFilterableIndexPropNull = true
-	HasSearchableIndexPropNull = false
-
-	// only if index.invertedIndexConfig.IndexPropertyLength set
-	// and either property.indexFilterable or property.indexSearchable set
-	HasFilterableIndexPropLength = true
-	HasSearchableIndexPropLength = false
-)

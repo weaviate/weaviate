@@ -53,6 +53,12 @@ type DeletedDocIDChecker interface {
 	Contains(id uint64) bool
 }
 
+
+type docPointerWithScore struct {
+	id         uint64
+	frequency  float32
+	propLength float32
+}
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	schema schema.Schema,
 	propIndices propertyspecific.Indices, classSearcher ClassSearcher,
@@ -184,10 +190,13 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 
 	return helpers.NewAllowListFromBitmap(dbm.docIDs), nil
 }
-
-func (s *Searcher) extractPropValuePair(filter *filters.Clause,
-	className schema.ClassName,
-) (*propValuePair, error) {
+// extractPropValuePair extracts a property-value pair from a filter clause.
+// It takes a filter clause, a class name, and returns a propValuePair struct
+// and an error. 
+//
+// It is a recursive function that traverses a nested filter structure, and retrieves the 
+// records that match the filter.  It then combines them as specified in by the filter operands.
+func (s *Searcher) extractPropValuePair(filter *filters.Clause, className schema.ClassName) (*propValuePair, error) {
 	class := s.schema.FindClassByName(schema.ClassName(className))
 	if class == nil {
 		return nil, fmt.Errorf("class %q not found", className)
@@ -205,6 +214,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 		// https://github.com/weaviate/weaviate/issues/3179 for details
 		eg.SetLimit(2 * _NUMCPU)
 
+        // The recursive part of the filter
 		for i, clause := range filter.Operands {
 			i, clause := i, clause
 			eg.Go(func() error {
@@ -318,7 +328,6 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	pv.Class = class
 	return pv, nil
 }
-
 func (s *Searcher) extractReferenceFilter(prop *models.Property,
 	filter *filters.Clause,
 ) (*propValuePair, error) {
@@ -747,10 +756,4 @@ func (dbm *docBitmap) IDsWithLimit(limit int) []uint64 {
 	}
 
 	return out
-}
-
-type docPointerWithScore struct {
-	id         uint64
-	frequency  float32
-	propLength float32
 }
