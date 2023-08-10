@@ -448,6 +448,14 @@ func Test_UserConfig(t *testing.T) {
 			expectErrMsg: "efConstruction must be a positive integer " +
 				"with a minimum of 4",
 		},
+		{
+			name: "invalid distance (wrong_name)",
+			input: map[string]interface{}{
+				"distance": "wrong_name",
+			},
+			expectErr:    true,
+			expectErrMsg: "distance must be one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]",
+		},
 	}
 
 	for _, test := range tests {

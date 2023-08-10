@@ -212,7 +212,7 @@ func (u *UserConfig) validate() error {
 
 	err := ValidateDefaultVectorDistanceMetric(u.Distance)
 	if err != nil {
-		errMsgs = append(errMsgs, err.Error())
+		errMsgs = append(errMsgs, "distance "+err.Error())
 	}
 
 	if len(errMsgs) > 0 {
