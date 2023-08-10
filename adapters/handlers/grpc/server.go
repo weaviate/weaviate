@@ -505,5 +505,101 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.Cursor = &filters.Cursor{After: req.After, Limit: out.Pagination.Limit}
 	}
 
+	if req.Filters != nil {
+		clause, err := extractFilters(req.Filters, scheme, req.ClassName)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
+		filter := &filters.LocalFilter{Root: &clause}
+		if err := filters.ValidateFilters(scheme, filter); err != nil {
+			return dto.GetParams{}, err
+		}
+		out.Filters = filter
+	}
+
 	return out, nil
+}
+
+func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string) (filters.Clause, error) {
+	returnFilter := filters.Clause{}
+	if filterIn.Operator == pb.Filters_OperatorAnd || filterIn.Operator == pb.Filters_OperatorOr {
+		if filterIn.Operator == pb.Filters_OperatorAnd {
+			returnFilter.Operator = filters.OperatorAnd
+		} else {
+			returnFilter.Operator = filters.OperatorOr
+		}
+
+		clauses := make([]filters.Clause, len(filterIn.Filters))
+		for i, clause := range filterIn.Filters {
+			retClause, err := extractFilters(clause, scheme, className)
+			if err != nil {
+				return filters.Clause{}, err
+			}
+			clauses[i] = retClause
+		}
+
+		returnFilter.Operands = clauses
+
+	} else {
+		path := filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(filterIn.On[0])}
+		returnFilter.On = &path
+		prop, _ := scheme.GetProperty(schema.ClassName(className), schema.PropertyName(filterIn.On[0]))
+
+		switch filterIn.Operator {
+		case pb.Filters_OperatorEqual:
+			returnFilter.Operator = filters.OperatorEqual
+		case pb.Filters_OperatorNotEqual:
+			returnFilter.Operator = filters.OperatorNotEqual
+		case pb.Filters_OperatorGreaterThan:
+			returnFilter.Operator = filters.OperatorGreaterThan
+		case pb.Filters_OperatorGreaterThanEqual:
+			returnFilter.Operator = filters.OperatorGreaterThanEqual
+		case pb.Filters_OperatorLessThan:
+			returnFilter.Operator = filters.OperatorLessThan
+		case pb.Filters_OperatorLessThanEqual:
+			returnFilter.Operator = filters.OperatorLessThanEqual
+		case pb.Filters_OperatorWithinGeoRange:
+			returnFilter.Operator = filters.OperatorWithinGeoRange
+		case pb.Filters_OperatorLike:
+			returnFilter.Operator = filters.OperatorLike
+		case pb.Filters_OperatorIsNull:
+			returnFilter.Operator = filters.OperatorIsNull
+		default:
+			return filters.Clause{}, fmt.Errorf("unknown filter operator %v", filterIn.Operator)
+		}
+
+		var val interface{}
+		var dataType schema.DataType
+		if returnFilter.Operator == filters.OperatorIsNull {
+			dataType = schema.DataTypeBoolean
+		} else {
+			dataType = schema.DataType(prop.DataType[0])
+		}
+
+		switch filterIn.TestValue.(type) {
+		case *pb.Filters_ValueStr:
+			val = filterIn.GetValueStr()
+		case *pb.Filters_ValueInt:
+			val = int(filterIn.GetValueInt())
+		case *pb.Filters_ValueBool:
+			val = filterIn.GetValueBool()
+		case *pb.Filters_ValueFloat:
+			val = filterIn.GetValueFloat()
+		case *pb.Filters_ValueDate:
+			val = filterIn.GetValueDate().AsTime()
+		default:
+			return filters.Clause{}, fmt.Errorf("unknown value type %v", filterIn.TestValue)
+		}
+
+		// correct the type of value when filtering on a float property but sending an int. This is easy to get wrong
+		if number, ok := val.(int); ok && dataType == schema.DataTypeNumber {
+			val = float64(number)
+		}
+
+		value := filters.Value{Value: val, Type: dataType}
+		returnFilter.Value = &value
+
+	}
+
+	return returnFilter, nil
 }
