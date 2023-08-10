@@ -47,12 +47,14 @@ func TestGRPCRequest(t *testing.T) {
 					Class: refClass1,
 					Properties: []*models.Property{
 						{Name: "something", DataType: schema.DataTypeText.PropString()},
+						{Name: "ref2", DataType: []string{refClass2}},
 					},
 				},
 				{
 					Class: refClass2,
 					Properties: []*models.Property{
 						{Name: "else", DataType: schema.DataTypeText.PropString()},
+						{Name: "ref3", DataType: []string{refClass2}},
 					},
 				},
 			},
@@ -196,8 +198,117 @@ func TestGRPCRequest(t *testing.T) {
 				Bm25Search: &grpc.BM25SearchParams{Query: "query", Properties: []string{"name"}},
 			},
 			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, KeywordRanking: &searchparams.KeywordRanking{Query: "query", Properties: []string{"name"}, Type: "bm25"},
+				ClassName: classname, Pagination: defaultPagination,
+				KeywordRanking:       &searchparams.KeywordRanking{Query: "query", Properties: []string{"name"}, Type: "bm25"},
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+			},
+			error: false,
+		},
+		{
+			name: "filter simple",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				Filters: &grpc.Filters{Operator: grpc.Filters_OperatorEqual, TestValue: &grpc.Filters_ValueStr{"test"}, On: []string{"name"}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On:       &filters.Path{Class: schema.ClassName(classname), Property: "name"},
+						Operator: filters.OperatorEqual,
+						Value:    &filters.Value{Value: "test", Type: schema.DataTypeText},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "filter or",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				Filters: &grpc.Filters{Operator: grpc.Filters_OperatorOr, Filters: []*grpc.Filters{
+					{Operator: grpc.Filters_OperatorEqual, TestValue: &grpc.Filters_ValueStr{"test"}, On: []string{"name"}},
+					{Operator: grpc.Filters_OperatorNotEqual, TestValue: &grpc.Filters_ValueStr{"other"}, On: []string{"name"}},
+				}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorOr,
+						Operands: []filters.Clause{
+							{
+								Value:    &filters.Value{Value: "test", Type: schema.DataTypeText},
+								On:       &filters.Path{Class: schema.ClassName(classname), Property: "name"},
+								Operator: filters.OperatorEqual,
+							},
+							{
+								Value:    &filters.Value{Value: "other", Type: schema.DataTypeText},
+								On:       &filters.Path{Class: schema.ClassName(classname), Property: "name"},
+								Operator: filters.OperatorNotEqual,
+							},
+						},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "filter reference",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				Filters: &grpc.Filters{Operator: grpc.Filters_OperatorLessThan, TestValue: &grpc.Filters_ValueStr{"test"}, On: []string{"ref", refClass1, "something"}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "ref",
+							Child:    &filters.Path{Class: schema.ClassName(refClass1), Property: "something"},
+						},
+						Operator: filters.OperatorLessThan,
+						Value:    &filters.Value{Value: "test", Type: schema.DataTypeText},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "nested ref",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				Filters: &grpc.Filters{Operator: grpc.Filters_OperatorLessThan, TestValue: &grpc.Filters_ValueStr{"test"}, On: []string{"ref", refClass1, "ref2", refClass2, "ref3", refClass2, "else"}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "ref",
+							Child: &filters.Path{
+								Class:    schema.ClassName(refClass1),
+								Property: "ref2",
+								Child: &filters.Path{
+									Class:    schema.ClassName(refClass2),
+									Property: "ref3",
+									Child: &filters.Path{
+										Class:    schema.ClassName(refClass2),
+										Property: "else",
+									},
+								},
+							},
+						},
+						Operator: filters.OperatorLessThan,
+						Value:    &filters.Value{Value: "test", Type: schema.DataTypeText},
+					},
+				},
 			},
 			error: false,
 		},
