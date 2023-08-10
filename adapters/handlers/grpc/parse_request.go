@@ -44,7 +44,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.AdditionalProperties.ExplainScore = req.AdditionalProperties.ExplainScore
 	}
 
-	out.Properties = extractPropertiesRequest(req.Properties, scheme, req.ClassName)
+	out.Properties = extractPropertiesRequest(req.Properties)
 	if len(out.Properties) == 0 && req.AdditionalProperties != nil {
 		// This is a pure-ID query without any props. Indicate this to the DB, so
 		// it can optimize accordingly

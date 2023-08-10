@@ -96,6 +96,7 @@ message RefProperties {
   string reference_property = 2;
   Properties linked_properties = 3;
   AdditionalProperties metadata = 4;
+  string which_collection = 5;
 }
 
 message NearVectorParams {

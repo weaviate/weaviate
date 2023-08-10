@@ -244,7 +244,7 @@ func getAllNonRefNonBlobProperties(scheme schema.Schema, className string) ([]se
 	return props, nil
 }
 
-func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, className string) []search.SelectProperty {
+func extractPropertiesRequest(reqProps *pb.Properties) []search.SelectProperty {
 	var props []search.SelectProperty
 	if reqProps == nil {
 		return props
@@ -259,23 +259,13 @@ func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, cla
 	}
 
 	if reqProps.RefProperties != nil && len(reqProps.RefProperties) > 0 {
-		class := scheme.GetClass(schema.ClassName(className))
-
 		for _, prop := range reqProps.RefProperties {
-			schemaProp, err := schema.GetPropertyByName(class, prop.ReferenceProperty)
-			if err != nil {
-				return nil
-			}
-
-			// use datatype of the reference property to get the name of the linked class
-			linkedClass := schemaProp.DataType[0]
-
 			props = append(props, search.SelectProperty{
 				Name:        prop.ReferenceProperty,
 				IsPrimitive: false,
 				Refs: []search.SelectClass{{
-					ClassName:            linkedClass,
-					RefProperties:        extractPropertiesRequest(prop.LinkedProperties, scheme, linkedClass),
+					ClassName:            prop.WhichCollection,
+					RefProperties:        extractPropertiesRequest(prop.LinkedProperties),
 					AdditionalProperties: extractAdditionalPropsForRefs(prop.Metadata),
 				}},
 			})
