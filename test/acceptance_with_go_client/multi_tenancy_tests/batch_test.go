@@ -37,7 +37,10 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 	t.Run("creates objects of MT class", func(t *testing.T) {
 		defer cleanup()
 
-		tenants := []string{"tenantNo1", "tenantNo2"}
+		tenants := fixtures.Tenants{
+			{Name: "tenantNo1"},
+			{Name: "tenantNo2"},
+		}
 
 		fixtures.CreateSchemaPizzaForTenants(t, client)
 		fixtures.CreateSchemaSoupForTenants(t, client)
@@ -56,7 +59,7 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 							"price":       float32(1.1),
 							"best_before": "2022-05-03T12:04:40+02:00",
 						},
-						Tenant: tenant,
+						Tenant: tenant.Name,
 					},
 					&models.Object{
 						Class: "Pizza",
@@ -67,7 +70,7 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 							"price":       float32(1.2),
 							"best_before": "2022-05-05T07:16:30+02:00",
 						},
-						Tenant: tenant,
+						Tenant: tenant.Name,
 					},
 					&models.Object{
 						Class: "Soup",
@@ -77,7 +80,7 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 							"description": "Used by humans when their inferior genetics are attacked by microscopic organisms.",
 							"price":       float32(2.1),
 						},
-						Tenant: tenant,
+						Tenant: tenant.Name,
 					},
 					&models.Object{
 						Class: "Soup",
@@ -87,7 +90,7 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 							"description": "Putting the game of letter soups to a whole new level.",
 							"price":       float32(2.2),
 						},
-						Tenant: tenant,
+						Tenant: tenant.Name,
 					}).
 				Do(context.Background())
 
@@ -101,7 +104,7 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 				require.NotNil(t, resp[i].Result)
 				require.NotNil(t, resp[i].Result.Status)
 				assert.Equal(t, "SUCCESS", *resp[i].Result.Status)
-				assert.Equal(t, tenant, resp[i].Tenant)
+				assert.Equal(t, tenant.Name, resp[i].Tenant)
 
 				ids[i] = resp[i].ID.String()
 			}
@@ -124,7 +127,7 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 					exists, err := client.Data().Checker().
 						WithID(id).
 						WithClassName(className).
-						WithTenant(tenant).
+						WithTenant(tenant.Name).
 						Do(context.Background())
 
 					require.Nil(t, err)
@@ -137,7 +140,10 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 	t.Run("fails creating objects of MT class without tenant", func(t *testing.T) {
 		defer cleanup()
 
-		tenants := []string{"tenantNo1", "tenantNo2"}
+		tenants := fixtures.Tenants{
+			{Name: "tenantNo1"},
+			{Name: "tenantNo2"},
+		}
 
 		fixtures.CreateSchemaPizzaForTenants(t, client)
 		fixtures.CreateSchemaSoupForTenants(t, client)
@@ -213,7 +219,7 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 					exists, err := client.Data().Checker().
 						WithID(id).
 						WithClassName(className).
-						WithTenant(tenant).
+						WithTenant(tenant.Name).
 						Do(context.Background())
 
 					require.Nil(t, err)
@@ -226,7 +232,10 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 	t.Run("fails creating objects of MT class with non existent tenant", func(t *testing.T) {
 		defer cleanup()
 
-		tenants := []string{"tenantNo1", "tenantNo2"}
+		tenants := fixtures.Tenants{
+			{Name: "tenantNo1"},
+			{Name: "tenantNo2"},
+		}
 
 		fixtures.CreateSchemaPizzaForTenants(t, client)
 		fixtures.CreateSchemaSoupForTenants(t, client)
@@ -305,7 +314,7 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 					exists, err := client.Data().Checker().
 						WithID(id).
 						WithClassName(className).
-						WithTenant(tenant).
+						WithTenant(tenant.Name).
 						Do(context.Background())
 
 					require.Nil(t, err)
@@ -318,7 +327,10 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 	t.Run("fails creating objects of non-MT class when tenant given", func(t *testing.T) {
 		defer cleanup()
 
-		tenants := []string{"tenantNo1", "tenantNo2"}
+		tenants := fixtures.Tenants{
+			{Name: "tenantNo1"},
+			{Name: "tenantNo2"},
+		}
 
 		fixtures.CreateSchemaPizza(t, client)
 		fixtures.CreateSchemaSoup(t, client)
@@ -335,7 +347,7 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 							"price":       float32(1.1),
 							"best_before": "2022-05-03T12:04:40+02:00",
 						},
-						Tenant: tenant,
+						Tenant: tenant.Name,
 					},
 					&models.Object{
 						Class: "Pizza",
@@ -346,7 +358,7 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 							"price":       float32(1.2),
 							"best_before": "2022-05-05T07:16:30+02:00",
 						},
-						Tenant: tenant,
+						Tenant: tenant.Name,
 					},
 					&models.Object{
 						Class: "Soup",
@@ -356,7 +368,7 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 							"description": "Used by humans when their inferior genetics are attacked by microscopic organisms.",
 							"price":       float32(2.1),
 						},
-						Tenant: tenant,
+						Tenant: tenant.Name,
 					},
 					&models.Object{
 						Class: "Soup",
@@ -366,7 +378,7 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 							"description": "Putting the game of letter soups to a whole new level.",
 							"price":       float32(2.2),
 						},
-						Tenant: tenant,
+						Tenant: tenant.Name,
 					}).
 				Do(context.Background())
 
@@ -382,7 +394,7 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 				require.NotNil(t, resp[i].Result.Errors.Error)
 				require.Len(t, resp[i].Result.Errors.Error, 1)
 				assert.Contains(t, resp[i].Result.Errors.Error[0].Message, "has multi-tenancy disabled, but request was with tenant")
-				assert.Equal(t, tenant, resp[i].Tenant)
+				assert.Equal(t, tenant.Name, resp[i].Tenant)
 			}
 		}
 
@@ -417,11 +429,14 @@ func TestBatchDelete_MultiTenancy(t *testing.T) {
 	t.Run("deletes objects from MT class", func(t *testing.T) {
 		defer cleanup()
 
-		tenants := []string{"tenantNo1", "tenantNo2"}
+		tenants := fixtures.Tenants{
+			{Name: "tenantNo1"},
+			{Name: "tenantNo2"},
+		}
 
 		fixtures.CreateSchemaFoodForTenants(t, client)
 		fixtures.CreateTenantsFood(t, client, tenants...)
-		fixtures.CreateDataFoodForTenants(t, client, tenants...)
+		fixtures.CreateDataFoodForTenants(t, client, tenants.Names()...)
 
 		for _, tenant := range tenants {
 			for className, ids := range fixtures.IdsByClass {
@@ -432,7 +447,7 @@ func TestBatchDelete_MultiTenancy(t *testing.T) {
 						WithPath([]string{"name"}).
 						WithValueText("*")).
 					WithOutput("minimal").
-					WithTenant(tenant).
+					WithTenant(tenant.Name).
 					Do(context.Background())
 
 				require.Nil(t, err)
@@ -450,7 +465,7 @@ func TestBatchDelete_MultiTenancy(t *testing.T) {
 						exists, err := client.Data().Checker().
 							WithID(id).
 							WithClassName(className).
-							WithTenant(tenant).
+							WithTenant(tenant.Name).
 							Do(context.Background())
 
 						require.Nil(t, err)
@@ -464,11 +479,14 @@ func TestBatchDelete_MultiTenancy(t *testing.T) {
 	t.Run("fails deleting objects from MT class without tenant", func(t *testing.T) {
 		defer cleanup()
 
-		tenants := []string{"tenantNo1", "tenantNo2"}
+		tenants := fixtures.Tenants{
+			{Name: "tenantNo1"},
+			{Name: "tenantNo2"},
+		}
 
 		fixtures.CreateSchemaFoodForTenants(t, client)
 		fixtures.CreateTenantsFood(t, client, tenants...)
-		fixtures.CreateDataFoodForTenants(t, client, tenants...)
+		fixtures.CreateDataFoodForTenants(t, client, tenants.Names()...)
 
 		for className := range fixtures.IdsByClass {
 			resp, err := client.Batch().ObjectsBatchDeleter().
@@ -494,7 +512,7 @@ func TestBatchDelete_MultiTenancy(t *testing.T) {
 						exists, err := client.Data().Checker().
 							WithID(id).
 							WithClassName(className).
-							WithTenant(tenant).
+							WithTenant(tenant.Name).
 							Do(context.Background())
 
 						require.Nil(t, err)
@@ -508,11 +526,14 @@ func TestBatchDelete_MultiTenancy(t *testing.T) {
 	t.Run("fails deleting objects from MT class with non existent tenant", func(t *testing.T) {
 		defer cleanup()
 
-		tenants := []string{"tenantNo1", "tenantNo2"}
+		tenants := fixtures.Tenants{
+			{Name: "tenantNo1"},
+			{Name: "tenantNo2"},
+		}
 
 		fixtures.CreateSchemaFoodForTenants(t, client)
 		fixtures.CreateTenantsFood(t, client, tenants...)
-		fixtures.CreateDataFoodForTenants(t, client, tenants...)
+		fixtures.CreateDataFoodForTenants(t, client, tenants.Names()...)
 
 		for className := range fixtures.IdsByClass {
 			resp, err := client.Batch().ObjectsBatchDeleter().
@@ -539,7 +560,7 @@ func TestBatchDelete_MultiTenancy(t *testing.T) {
 						exists, err := client.Data().Checker().
 							WithID(id).
 							WithClassName(className).
-							WithTenant(tenant).
+							WithTenant(tenant.Name).
 							Do(context.Background())
 
 						require.Nil(t, err)
@@ -592,14 +613,14 @@ func TestBatchDelete_MultiTenancy(t *testing.T) {
 	t.Run("deletes objects from MT class by ref", func(t *testing.T) {
 		defer cleanup()
 
-		tenant1 := "tenantNo1"
-		tenant2 := "tenantNo2"
+		tenant1 := models.Tenant{Name: "tenantNo1"}
+		tenant2 := models.Tenant{Name: "tenantNo2"}
 		soupIdByTenantAndPizza := map[string]map[string]string{
-			tenant1: {
+			tenant1.Name: {
 				fixtures.PIZZA_QUATTRO_FORMAGGI_ID: fixtures.SOUP_CHICKENSOUP_ID,
 				fixtures.PIZZA_FRUTTI_DI_MARE_ID:   fixtures.SOUP_CHICKENSOUP_ID,
 			},
-			tenant2: {
+			tenant2.Name: {
 				fixtures.PIZZA_HAWAII_ID: fixtures.SOUP_BEAUTIFUL_ID,
 				fixtures.PIZZA_DOENER_ID: fixtures.SOUP_BEAUTIFUL_ID,
 			},
@@ -608,15 +629,15 @@ func TestBatchDelete_MultiTenancy(t *testing.T) {
 		t.Run("add data", func(t *testing.T) {
 			fixtures.CreateSchemaPizzaForTenants(t, client)
 			fixtures.CreateTenantsPizza(t, client, tenant1, tenant2)
-			fixtures.CreateDataPizzaQuattroFormaggiForTenants(t, client, tenant1)
-			fixtures.CreateDataPizzaFruttiDiMareForTenants(t, client, tenant1)
-			fixtures.CreateDataPizzaHawaiiForTenants(t, client, tenant2)
-			fixtures.CreateDataPizzaDoenerForTenants(t, client, tenant2)
+			fixtures.CreateDataPizzaQuattroFormaggiForTenants(t, client, tenant1.Name)
+			fixtures.CreateDataPizzaFruttiDiMareForTenants(t, client, tenant1.Name)
+			fixtures.CreateDataPizzaHawaiiForTenants(t, client, tenant2.Name)
+			fixtures.CreateDataPizzaDoenerForTenants(t, client, tenant2.Name)
 
 			fixtures.CreateSchemaSoupForTenants(t, client)
 			fixtures.CreateTenantsSoup(t, client, tenant1, tenant2)
-			fixtures.CreateDataSoupChickenForTenants(t, client, tenant1)
-			fixtures.CreateDataSoupBeautifulForTenants(t, client, tenant2)
+			fixtures.CreateDataSoupChickenForTenants(t, client, tenant1.Name)
+			fixtures.CreateDataSoupBeautifulForTenants(t, client, tenant2.Name)
 		})
 
 		t.Run("create ref property", func(t *testing.T) {
