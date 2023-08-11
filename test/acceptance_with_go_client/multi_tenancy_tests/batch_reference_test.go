@@ -35,17 +35,20 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 	t.Run("creates references between MT classes", func(t *testing.T) {
 		defer cleanup()
 
-		tenants := []string{"tenantNo1", "tenantNo2"}
+		tenants := fixtures.Tenants{
+			{Name: "tenantNo1"},
+			{Name: "tenantNo2"},
+		}
 		soupIds := fixtures.IdsByClass["Soup"]
 		pizzaIds := fixtures.IdsByClass["Pizza"]
 
 		fixtures.CreateSchemaSoupForTenants(t, client)
 		fixtures.CreateTenantsSoup(t, client, tenants...)
-		fixtures.CreateDataSoupForTenants(t, client, tenants...)
+		fixtures.CreateDataSoupForTenants(t, client, tenants.Names()...)
 
 		fixtures.CreateSchemaPizzaForTenants(t, client)
 		fixtures.CreateTenantsPizza(t, client, tenants...)
-		fixtures.CreateDataPizzaForTenants(t, client, tenants...)
+		fixtures.CreateDataPizzaForTenants(t, client, tenants.Names()...)
 
 		t.Run("create ref property", func(t *testing.T) {
 			err := client.Schema().PropertyCreator().
@@ -69,7 +72,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 						WithFromID(soupId).
 						WithToClassName("Pizza").
 						WithToID(pizzaId).
-						WithTenant(tenant)
+						WithTenant(tenant.Name)
 
 					references = append(references, rpb.Payload())
 				}
@@ -96,7 +99,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					objects, err := client.Data().ObjectsGetter().
 						WithClassName("Soup").
 						WithID(soupId).
-						WithTenant(tenant).
+						WithTenant(tenant.Name).
 						Do(context.Background())
 
 					require.Nil(t, err)
@@ -112,17 +115,20 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 	t.Run("fails creating references between MT classes without tenant", func(t *testing.T) {
 		defer cleanup()
 
-		tenants := []string{"tenantNo1", "tenantNo2"}
+		tenants := fixtures.Tenants{
+			{Name: "tenantNo1"},
+			{Name: "tenantNo2"},
+		}
 		soupIds := fixtures.IdsByClass["Soup"]
 		pizzaIds := fixtures.IdsByClass["Pizza"]
 
 		fixtures.CreateSchemaSoupForTenants(t, client)
 		fixtures.CreateTenantsSoup(t, client, tenants...)
-		fixtures.CreateDataSoupForTenants(t, client, tenants...)
+		fixtures.CreateDataSoupForTenants(t, client, tenants.Names()...)
 
 		fixtures.CreateSchemaPizzaForTenants(t, client)
 		fixtures.CreateTenantsPizza(t, client, tenants...)
-		fixtures.CreateDataPizzaForTenants(t, client, tenants...)
+		fixtures.CreateDataPizzaForTenants(t, client, tenants.Names()...)
 
 		t.Run("create ref property", func(t *testing.T) {
 			err := client.Schema().PropertyCreator().
@@ -172,7 +178,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					objects, err := client.Data().ObjectsGetter().
 						WithClassName("Soup").
 						WithID(soupId).
-						WithTenant(tenant).
+						WithTenant(tenant.Name).
 						Do(context.Background())
 
 					require.Nil(t, err)
@@ -187,17 +193,20 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 	t.Run("fails creating references between MT classes with non existent tenant", func(t *testing.T) {
 		defer cleanup()
 
-		tenants := []string{"tenantNo1", "tenantNo2"}
+		tenants := fixtures.Tenants{
+			{Name: "tenantNo1"},
+			{Name: "tenantNo2"},
+		}
 		soupIds := fixtures.IdsByClass["Soup"]
 		pizzaIds := fixtures.IdsByClass["Pizza"]
 
 		fixtures.CreateSchemaSoupForTenants(t, client)
 		fixtures.CreateTenantsSoup(t, client, tenants...)
-		fixtures.CreateDataSoupForTenants(t, client, tenants...)
+		fixtures.CreateDataSoupForTenants(t, client, tenants.Names()...)
 
 		fixtures.CreateSchemaPizzaForTenants(t, client)
 		fixtures.CreateTenantsPizza(t, client, tenants...)
-		fixtures.CreateDataPizzaForTenants(t, client, tenants...)
+		fixtures.CreateDataPizzaForTenants(t, client, tenants.Names()...)
 
 		t.Run("create ref property", func(t *testing.T) {
 			err := client.Schema().PropertyCreator().
@@ -248,7 +257,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					objects, err := client.Data().ObjectsGetter().
 						WithClassName("Soup").
 						WithID(soupId).
-						WithTenant(tenant).
+						WithTenant(tenant.Name).
 						Do(context.Background())
 
 					require.Nil(t, err)
@@ -263,17 +272,20 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 	t.Run("fails creating references between MT classes with different existing tenant", func(t *testing.T) {
 		defer cleanup()
 
-		tenants := []string{"tenantNo1", "tenantNo2"}
+		tenants := fixtures.Tenants{
+			{Name: "tenantNo1"},
+			{Name: "tenantNo2"},
+		}
 		soupIds := fixtures.IdsByClass["Soup"]
 		pizzaIds := fixtures.IdsByClass["Pizza"]
 
 		fixtures.CreateSchemaSoupForTenants(t, client)
 		fixtures.CreateTenantsSoup(t, client, tenants...)
-		fixtures.CreateDataSoupForTenants(t, client, tenants[0])
+		fixtures.CreateDataSoupForTenants(t, client, tenants[0].Name)
 
 		fixtures.CreateSchemaPizzaForTenants(t, client)
 		fixtures.CreateTenantsPizza(t, client, tenants...)
-		fixtures.CreateDataPizzaForTenants(t, client, tenants[0])
+		fixtures.CreateDataPizzaForTenants(t, client, tenants[0].Name)
 
 		t.Run("create ref property", func(t *testing.T) {
 			err := client.Schema().PropertyCreator().
@@ -296,7 +308,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					WithFromID(soupId).
 					WithToClassName("Pizza").
 					WithToID(pizzaId).
-					WithTenant(tenants[1])
+					WithTenant(tenants[1].Name)
 
 				references = append(references, rpb.Payload())
 			}
@@ -323,7 +335,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 				objects, err := client.Data().ObjectsGetter().
 					WithClassName("Soup").
 					WithID(soupId).
-					WithTenant(tenants[0]).
+					WithTenant(tenants[0].Name).
 					Do(context.Background())
 
 				require.Nil(t, err)
@@ -338,7 +350,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 				exists, err := client.Data().Checker().
 					WithClassName("Soup").
 					WithID(soupId).
-					WithTenant(tenants[1]).
+					WithTenant(tenants[1].Name).
 					Do(context.Background())
 
 				require.Nil(t, err)
@@ -349,7 +361,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 				exists, err := client.Data().Checker().
 					WithClassName("Pizza").
 					WithID(pizzaId).
-					WithTenant(tenants[1]).
+					WithTenant(tenants[1].Name).
 					Do(context.Background())
 
 				require.Nil(t, err)
@@ -359,8 +371,8 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 	})
 
 	t.Run("fails creating references between MT classes and different tenants", func(t *testing.T) {
-		tenantPizza := "tenantPizza"
-		tenantSoup := "tenantSoup"
+		tenantPizza := models.Tenant{Name: "tenantPizza"}
+		tenantSoup := models.Tenant{Name: "tenantSoup"}
 		soupIds := fixtures.IdsByClass["Soup"]
 		pizzaIds := fixtures.IdsByClass["Pizza"]
 
@@ -369,11 +381,11 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 
 			fixtures.CreateSchemaSoupForTenants(t, client)
 			fixtures.CreateTenantsSoup(t, client, tenantPizza, tenantSoup)
-			fixtures.CreateDataSoupForTenants(t, client, tenantSoup)
+			fixtures.CreateDataSoupForTenants(t, client, tenantSoup.Name)
 
 			fixtures.CreateSchemaPizzaForTenants(t, client)
 			fixtures.CreateTenantsPizza(t, client, tenantPizza, tenantSoup)
-			fixtures.CreateDataPizzaForTenants(t, client, tenantPizza)
+			fixtures.CreateDataPizzaForTenants(t, client, tenantPizza.Name)
 
 			t.Run("create ref property", func(t *testing.T) {
 				err := client.Schema().PropertyCreator().
@@ -396,7 +408,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 						WithFromID(soupId).
 						WithToClassName("Pizza").
 						WithToID(pizzaId).
-						WithTenant(tenantSoup) // SRC tenant
+						WithTenant(tenantSoup.Name) // SRC tenant
 
 					references = append(references, rpb.Payload())
 				}
@@ -423,7 +435,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					objects, err := client.Data().ObjectsGetter().
 						WithClassName("Soup").
 						WithID(soupId).
-						WithTenant(tenantSoup).
+						WithTenant(tenantSoup.Name).
 						Do(context.Background())
 
 					require.Nil(t, err)
@@ -438,7 +450,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					exists, err := client.Data().Checker().
 						WithClassName("Soup").
 						WithID(soupId).
-						WithTenant(tenantPizza).
+						WithTenant(tenantPizza.Name).
 						Do(context.Background())
 
 					require.Nil(t, err)
@@ -449,7 +461,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					exists, err := client.Data().Checker().
 						WithClassName("Pizza").
 						WithID(pizzaId).
-						WithTenant(tenantSoup).
+						WithTenant(tenantSoup.Name).
 						Do(context.Background())
 
 					require.Nil(t, err)
@@ -463,11 +475,11 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 
 			fixtures.CreateSchemaSoupForTenants(t, client)
 			fixtures.CreateTenantsSoup(t, client, tenantSoup)
-			fixtures.CreateDataSoupForTenants(t, client, tenantSoup)
+			fixtures.CreateDataSoupForTenants(t, client, tenantSoup.Name)
 
 			fixtures.CreateSchemaPizzaForTenants(t, client)
 			fixtures.CreateTenantsPizza(t, client, tenantPizza)
-			fixtures.CreateDataPizzaForTenants(t, client, tenantPizza)
+			fixtures.CreateDataPizzaForTenants(t, client, tenantPizza.Name)
 
 			t.Run("create ref property", func(t *testing.T) {
 				err := client.Schema().PropertyCreator().
@@ -490,7 +502,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 						WithFromID(soupId).
 						WithToClassName("Pizza").
 						WithToID(pizzaId).
-						WithTenant(tenantSoup) // SRC tenant
+						WithTenant(tenantSoup.Name) // SRC tenant
 
 					references = append(references, rpb.Payload())
 				}
@@ -517,7 +529,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					objects, err := client.Data().ObjectsGetter().
 						WithClassName("Soup").
 						WithID(soupId).
-						WithTenant(tenantSoup).
+						WithTenant(tenantSoup.Name).
 						Do(context.Background())
 
 					require.Nil(t, err)
@@ -532,7 +544,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					exists, err := client.Data().Checker().
 						WithClassName("Soup").
 						WithID(soupId).
-						WithTenant(tenantPizza).
+						WithTenant(tenantPizza.Name).
 						Do(context.Background())
 
 					require.NotNil(t, err)
@@ -543,7 +555,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					exists, err := client.Data().Checker().
 						WithClassName("Pizza").
 						WithID(pizzaId).
-						WithTenant(tenantSoup).
+						WithTenant(tenantSoup.Name).
 						Do(context.Background())
 
 					require.NotNil(t, err)
@@ -557,11 +569,11 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 
 			fixtures.CreateSchemaSoupForTenants(t, client)
 			fixtures.CreateTenantsSoup(t, client, tenantPizza, tenantSoup)
-			fixtures.CreateDataSoupForTenants(t, client, tenantSoup)
+			fixtures.CreateDataSoupForTenants(t, client, tenantSoup.Name)
 
 			fixtures.CreateSchemaPizzaForTenants(t, client)
 			fixtures.CreateTenantsPizza(t, client, tenantPizza, tenantSoup)
-			fixtures.CreateDataPizzaForTenants(t, client, tenantPizza)
+			fixtures.CreateDataPizzaForTenants(t, client, tenantPizza.Name)
 
 			t.Run("create ref property", func(t *testing.T) {
 				err := client.Schema().PropertyCreator().
@@ -584,7 +596,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 						WithFromID(soupId).
 						WithToClassName("Pizza").
 						WithToID(pizzaId).
-						WithTenant(tenantPizza) // DEST tenant
+						WithTenant(tenantPizza.Name) // DEST tenant
 
 					references = append(references, rpb.Payload())
 				}
@@ -611,7 +623,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					objects, err := client.Data().ObjectsGetter().
 						WithClassName("Soup").
 						WithID(soupId).
-						WithTenant(tenantSoup).
+						WithTenant(tenantSoup.Name).
 						Do(context.Background())
 
 					require.Nil(t, err)
@@ -626,7 +638,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					exists, err := client.Data().Checker().
 						WithClassName("Soup").
 						WithID(soupId).
-						WithTenant(tenantPizza).
+						WithTenant(tenantPizza.Name).
 						Do(context.Background())
 
 					require.Nil(t, err)
@@ -637,7 +649,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					exists, err := client.Data().Checker().
 						WithClassName("Pizza").
 						WithID(pizzaId).
-						WithTenant(tenantSoup).
+						WithTenant(tenantSoup.Name).
 						Do(context.Background())
 
 					require.Nil(t, err)
@@ -651,11 +663,11 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 
 			fixtures.CreateSchemaSoupForTenants(t, client)
 			fixtures.CreateTenantsSoup(t, client, tenantSoup)
-			fixtures.CreateDataSoupForTenants(t, client, tenantSoup)
+			fixtures.CreateDataSoupForTenants(t, client, tenantSoup.Name)
 
 			fixtures.CreateSchemaPizzaForTenants(t, client)
 			fixtures.CreateTenantsPizza(t, client, tenantPizza)
-			fixtures.CreateDataPizzaForTenants(t, client, tenantPizza)
+			fixtures.CreateDataPizzaForTenants(t, client, tenantPizza.Name)
 
 			t.Run("create ref property", func(t *testing.T) {
 				err := client.Schema().PropertyCreator().
@@ -678,7 +690,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 						WithFromID(soupId).
 						WithToClassName("Pizza").
 						WithToID(pizzaId).
-						WithTenant(tenantPizza) // DEST tenant
+						WithTenant(tenantPizza.Name) // DEST tenant
 
 					references = append(references, rpb.Payload())
 				}
@@ -705,7 +717,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					objects, err := client.Data().ObjectsGetter().
 						WithClassName("Soup").
 						WithID(soupId).
-						WithTenant(tenantSoup).
+						WithTenant(tenantSoup.Name).
 						Do(context.Background())
 
 					require.Nil(t, err)
@@ -720,7 +732,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					exists, err := client.Data().Checker().
 						WithClassName("Soup").
 						WithID(soupId).
-						WithTenant(tenantPizza).
+						WithTenant(tenantPizza.Name).
 						Do(context.Background())
 
 					require.NotNil(t, err)
@@ -731,7 +743,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					exists, err := client.Data().Checker().
 						WithClassName("Pizza").
 						WithID(pizzaId).
-						WithTenant(tenantSoup).
+						WithTenant(tenantSoup.Name).
 						Do(context.Background())
 
 					require.NotNil(t, err)
@@ -744,13 +756,13 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 	t.Run("creates references between MT and non-MT classes", func(t *testing.T) {
 		defer cleanup()
 
-		tenantSoup := "tenantSoup"
+		tenantSoup := models.Tenant{Name: "tenantSoup"}
 		pizzaIds := fixtures.IdsByClass["Pizza"]
 		soupIds := fixtures.IdsByClass["Soup"]
 
 		fixtures.CreateSchemaSoupForTenants(t, client)
 		fixtures.CreateTenantsSoup(t, client, tenantSoup)
-		fixtures.CreateDataSoupForTenants(t, client, tenantSoup)
+		fixtures.CreateDataSoupForTenants(t, client, tenantSoup.Name)
 
 		fixtures.CreateSchemaPizza(t, client)
 		fixtures.CreateDataPizza(t, client)
@@ -776,7 +788,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					WithFromID(soupId).
 					WithToClassName("Pizza").
 					WithToID(pizzaId).
-					WithTenant(tenantSoup)
+					WithTenant(tenantSoup.Name)
 
 				references = append(references, rpb.Payload())
 			}
@@ -801,7 +813,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 				objects, err := client.Data().ObjectsGetter().
 					WithClassName("Soup").
 					WithID(soupId).
-					WithTenant(tenantSoup).
+					WithTenant(tenantSoup.Name).
 					Do(context.Background())
 
 				require.Nil(t, err)
@@ -816,13 +828,13 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 	t.Run("fails creating references between MT and non-MT classes without tenant", func(t *testing.T) {
 		defer cleanup()
 
-		tenantSoup := "tenantSoup"
+		tenantSoup := models.Tenant{Name: "tenantSoup"}
 		pizzaIds := fixtures.IdsByClass["Pizza"]
 		soupIds := fixtures.IdsByClass["Soup"]
 
 		fixtures.CreateSchemaSoupForTenants(t, client)
 		fixtures.CreateTenantsSoup(t, client, tenantSoup)
-		fixtures.CreateDataSoupForTenants(t, client, tenantSoup)
+		fixtures.CreateDataSoupForTenants(t, client, tenantSoup.Name)
 
 		fixtures.CreateSchemaPizza(t, client)
 		fixtures.CreateDataPizza(t, client)
@@ -874,7 +886,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 				objects, err := client.Data().ObjectsGetter().
 					WithClassName("Soup").
 					WithID(soupId).
-					WithTenant(tenantSoup).
+					WithTenant(tenantSoup.Name).
 					Do(context.Background())
 
 				require.Nil(t, err)
@@ -899,7 +911,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 				exists, err := client.Data().Checker().
 					WithClassName("Pizza").
 					WithID(pizzaId).
-					WithTenant(tenantSoup).
+					WithTenant(tenantSoup.Name).
 					Do(context.Background())
 
 				require.NotNil(t, err)
@@ -911,13 +923,13 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 	t.Run("fails creating references between MT and non-MT classes with non existent tenant", func(t *testing.T) {
 		defer cleanup()
 
-		tenantSoup := "tenantSoup"
+		tenantSoup := models.Tenant{Name: "tenantSoup"}
 		pizzaIds := fixtures.IdsByClass["Pizza"]
 		soupIds := fixtures.IdsByClass["Soup"]
 
 		fixtures.CreateSchemaSoupForTenants(t, client)
 		fixtures.CreateTenantsSoup(t, client, tenantSoup)
-		fixtures.CreateDataSoupForTenants(t, client, tenantSoup)
+		fixtures.CreateDataSoupForTenants(t, client, tenantSoup.Name)
 
 		fixtures.CreateSchemaPizza(t, client)
 		fixtures.CreateDataPizza(t, client)
@@ -970,7 +982,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 				objects, err := client.Data().ObjectsGetter().
 					WithClassName("Soup").
 					WithID(soupId).
-					WithTenant(tenantSoup).
+					WithTenant(tenantSoup.Name).
 					Do(context.Background())
 
 				require.Nil(t, err)
@@ -995,7 +1007,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 				exists, err := client.Data().Checker().
 					WithClassName("Pizza").
 					WithID(pizzaId).
-					WithTenant(tenantSoup).
+					WithTenant(tenantSoup.Name).
 					Do(context.Background())
 
 				require.NotNil(t, err)
@@ -1007,13 +1019,16 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 	t.Run("fails creating references between MT and non-MT classes with different existing tenant", func(t *testing.T) {
 		defer cleanup()
 
-		tenants := []string{"tenantNo1", "tenantNo2"}
+		tenants := fixtures.Tenants{
+			{Name: "tenantNo1"},
+			{Name: "tenantNo2"},
+		}
 		pizzaIds := fixtures.IdsByClass["Pizza"]
 		soupIds := fixtures.IdsByClass["Soup"]
 
 		fixtures.CreateSchemaSoupForTenants(t, client)
 		fixtures.CreateTenantsSoup(t, client, tenants...)
-		fixtures.CreateDataSoupForTenants(t, client, tenants[0])
+		fixtures.CreateDataSoupForTenants(t, client, tenants[0].Name)
 
 		fixtures.CreateSchemaPizza(t, client)
 		fixtures.CreateDataPizza(t, client)
@@ -1039,7 +1054,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					WithFromID(soupId).
 					WithToClassName("Pizza").
 					WithToID(pizzaId).
-					WithTenant(tenants[1])
+					WithTenant(tenants[1].Name)
 
 				references = append(references, rpb.Payload())
 			}
@@ -1066,7 +1081,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 				objects, err := client.Data().ObjectsGetter().
 					WithClassName("Soup").
 					WithID(soupId).
-					WithTenant(tenants[0]).
+					WithTenant(tenants[0].Name).
 					Do(context.Background())
 
 				require.Nil(t, err)
@@ -1091,7 +1106,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 				exists, err := client.Data().Checker().
 					WithClassName("Soup").
 					WithID(soupId).
-					WithTenant(tenants[1]).
+					WithTenant(tenants[1].Name).
 					Do(context.Background())
 
 				require.Nil(t, err)
@@ -1103,7 +1118,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					exists, err := client.Data().Checker().
 						WithClassName("Pizza").
 						WithID(pizzaId).
-						WithTenant(tenant).
+						WithTenant(tenant.Name).
 						Do(context.Background())
 
 					require.NotNil(t, err)
@@ -1116,7 +1131,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 	t.Run("fails creating references between non-MT and MT classes", func(t *testing.T) {
 		defer cleanup()
 
-		tenantPizza := "tenantPizza"
+		tenantPizza := models.Tenant{Name: "tenantPizza"}
 		pizzaIds := fixtures.IdsByClass["Pizza"]
 		soupIds := fixtures.IdsByClass["Soup"]
 
@@ -1125,7 +1140,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 
 		fixtures.CreateSchemaPizzaForTenants(t, client)
 		fixtures.CreateTenantsPizza(t, client, tenantPizza)
-		fixtures.CreateDataPizzaForTenants(t, client, tenantPizza)
+		fixtures.CreateDataPizzaForTenants(t, client, tenantPizza.Name)
 
 		t.Run("create ref property", func(t *testing.T) {
 			err := client.Schema().PropertyCreator().
@@ -1148,7 +1163,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					WithFromID(soupId).
 					WithToClassName("Pizza").
 					WithToID(pizzaId).
-					WithTenant(tenantPizza)
+					WithTenant(tenantPizza.Name)
 
 				references = append(references, rpb.Payload())
 			}
@@ -1189,7 +1204,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 				exists, err := client.Data().Checker().
 					WithClassName("Soup").
 					WithID(soupId).
-					WithTenant(tenantPizza).
+					WithTenant(tenantPizza.Name).
 					Do(context.Background())
 
 				require.NotNil(t, err)
@@ -1201,7 +1216,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 	t.Run("fails creating references between non-MT and MT classes without tenant", func(t *testing.T) {
 		defer cleanup()
 
-		tenantPizza := "tenantPizza"
+		tenantPizza := models.Tenant{Name: "tenantPizza"}
 		pizzaIds := fixtures.IdsByClass["Pizza"]
 		soupIds := fixtures.IdsByClass["Soup"]
 
@@ -1210,7 +1225,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 
 		fixtures.CreateSchemaPizzaForTenants(t, client)
 		fixtures.CreateTenantsPizza(t, client, tenantPizza)
-		fixtures.CreateDataPizzaForTenants(t, client, tenantPizza)
+		fixtures.CreateDataPizzaForTenants(t, client, tenantPizza.Name)
 
 		t.Run("create ref property", func(t *testing.T) {
 			err := client.Schema().PropertyCreator().
@@ -1273,7 +1288,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 				exists, err := client.Data().Checker().
 					WithClassName("Soup").
 					WithID(soupId).
-					WithTenant(tenantPizza).
+					WithTenant(tenantPizza.Name).
 					Do(context.Background())
 
 				require.NotNil(t, err)
@@ -1285,7 +1300,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 	t.Run("fails creating references between non-MT and MT classes with non existent tenant", func(t *testing.T) {
 		defer cleanup()
 
-		tenantPizza := "tenantPizza"
+		tenantPizza := models.Tenant{Name: "tenantPizza"}
 		pizzaIds := fixtures.IdsByClass["Pizza"]
 		soupIds := fixtures.IdsByClass["Soup"]
 
@@ -1294,7 +1309,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 
 		fixtures.CreateSchemaPizzaForTenants(t, client)
 		fixtures.CreateTenantsPizza(t, client, tenantPizza)
-		fixtures.CreateDataPizzaForTenants(t, client, tenantPizza)
+		fixtures.CreateDataPizzaForTenants(t, client, tenantPizza.Name)
 
 		t.Run("create ref property", func(t *testing.T) {
 			err := client.Schema().PropertyCreator().
@@ -1358,7 +1373,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 				exists, err := client.Data().Checker().
 					WithClassName("Soup").
 					WithID(soupId).
-					WithTenant(tenantPizza).
+					WithTenant(tenantPizza.Name).
 					Do(context.Background())
 
 				require.NotNil(t, err)
@@ -1370,7 +1385,10 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 	t.Run("fails creating references between non-MT and MT classes with different existing tenant", func(t *testing.T) {
 		defer cleanup()
 
-		tenants := []string{"tenantNo1", "tenantNo2"}
+		tenants := fixtures.Tenants{
+			{Name: "tenantNo1"},
+			{Name: "tenantNo2"},
+		}
 		pizzaIds := fixtures.IdsByClass["Pizza"]
 		soupIds := fixtures.IdsByClass["Soup"]
 
@@ -1379,7 +1397,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 
 		fixtures.CreateSchemaPizzaForTenants(t, client)
 		fixtures.CreateTenantsPizza(t, client, tenants...)
-		fixtures.CreateDataPizzaForTenants(t, client, tenants[0])
+		fixtures.CreateDataPizzaForTenants(t, client, tenants[0].Name)
 
 		t.Run("create ref property", func(t *testing.T) {
 			err := client.Schema().PropertyCreator().
@@ -1402,7 +1420,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					WithFromID(soupId).
 					WithToClassName("Pizza").
 					WithToID(pizzaId).
-					WithTenant(tenants[1])
+					WithTenant(tenants[1].Name)
 
 				references = append(references, rpb.Payload())
 			}
@@ -1444,7 +1462,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					exists, err := client.Data().Checker().
 						WithClassName("Soup").
 						WithID(soupId).
-						WithTenant(tenant).
+						WithTenant(tenant.Name).
 						Do(context.Background())
 
 					require.NotNil(t, err)
@@ -1456,7 +1474,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 				exists, err := client.Data().Checker().
 					WithClassName("Soup").
 					WithID(pizzaId).
-					WithTenant(tenants[1]).
+					WithTenant(tenants[1].Name).
 					Do(context.Background())
 
 				require.NotNil(t, err)

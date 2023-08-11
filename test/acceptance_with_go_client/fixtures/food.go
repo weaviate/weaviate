@@ -459,34 +459,48 @@ func objectRisottoAlNeroDiSeppia() *models.Object {
 
 // ##### TENANTS #####
 
-func CreateTenantsPizza(t *testing.T, client *weaviate.Client, tenantNames ...string) {
-	createTenants(t, client, "Pizza", tenantNames)
+func CreateTenantsPizza(t *testing.T, client *weaviate.Client, tenants ...models.Tenant) {
+	createTenants(t, client, "Pizza", tenants)
 }
 
-func CreateTenantsSoup(t *testing.T, client *weaviate.Client, tenantNames ...string) {
-	createTenants(t, client, "Soup", tenantNames)
+func CreateTenantsSoup(t *testing.T, client *weaviate.Client, tenants ...models.Tenant) {
+	createTenants(t, client, "Soup", tenants)
 }
 
-func CreateTenantsRisotto(t *testing.T, client *weaviate.Client, tenantNames ...string) {
-	createTenants(t, client, "Risotto", tenantNames)
+func CreateTenantsRisotto(t *testing.T, client *weaviate.Client, tenants ...models.Tenant) {
+	createTenants(t, client, "Risotto", tenants)
 }
 
-func CreateTenantsFood(t *testing.T, client *weaviate.Client, tenantNames ...string) {
-	CreateTenantsPizza(t, client, tenantNames...)
-	CreateTenantsSoup(t, client, tenantNames...)
-	CreateTenantsRisotto(t, client, tenantNames...)
+func CreateTenantsFood(t *testing.T, client *weaviate.Client, tenants ...models.Tenant) {
+	CreateTenantsPizza(t, client, tenants...)
+	CreateTenantsSoup(t, client, tenants...)
+	CreateTenantsRisotto(t, client, tenants...)
 }
 
-func createTenants(t *testing.T, client *weaviate.Client, className string, tenantNames []string) {
-	tenants := make([]models.Tenant, len(tenantNames))
-	for i, name := range tenantNames {
-		tenants[i] = models.Tenant{Name: name}
-	}
-
+func createTenants(t *testing.T, client *weaviate.Client, className string, tenants []models.Tenant) {
 	err := client.Schema().TenantsCreator().
 		WithClassName(className).
 		WithTenants(tenants...).
 		Do(context.Background())
 
 	require.Nil(t, err)
+}
+
+type Tenants []models.Tenant
+
+func (t Tenants) Names() []string {
+	names := make([]string, len(t))
+	for i, tenant := range t {
+		names[i] = tenant.Name
+	}
+	return names
+}
+
+func (t Tenants) ByName(name string) *models.Tenant {
+	for _, tenant := range t {
+		if tenant.Name == name {
+			return &tenant
+		}
+	}
+	return nil
 }
