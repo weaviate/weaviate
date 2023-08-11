@@ -157,10 +157,13 @@ func TestFilteredRecall(t *testing.T) {
 			go func(workerID int, myJobs []vecWithFilters) {
 				defer wg.Done()
 				for i, vec := range myJobs {
+					if i > 10_000 {
+						break
+					}
 					originalIndex := (i * workerCount) + workerID
 					nodeId := uint64(originalIndex)
 					/* TEST FILTERED HNSW */
-					err := vectorIndex.HybridAdd(nodeId, vec.Vector, vec.FilterMap, 0) // change signature to add vec.Label
+					err := vectorIndex.HybridAdd(nodeId, vec.Vector, vec.FilterMap, 1) // change signature to add vec.Label
 					/* TEST HNSW */
 					//err := vectorIndex.Add(nodeId, vec.Vector)
 					require.Nil(t, err)
@@ -185,7 +188,7 @@ func TestFilteredRecall(t *testing.T) {
 		}
 		wg.Wait()
 
-		fmt.Printf("Average filter sharing neighbors per node = %d", AverageMatchingFiltersPerNode(vectorIndex, 0))
+		fmt.Printf("Average Matching Filters Per Node %v \n \n", AverageMatchingFiltersPerNode(vectorIndex, 0))
 
 		fmt.Printf("importing took %s\n", time.Since(before))
 
@@ -309,26 +312,74 @@ func matchesInLists(control []uint64, results []uint64) int {
 	return matches
 }
 
-func AverageMatchingFiltersPerNode(vectorIndex *hnsw, level int) int {
-	total := 0
+func AverageMatchingFiltersPerNode(vectorIndex *hnsw, level int) map[int]float32 {
+	results := make(map[int]float32)
+	resultsCount := make(map[int]float32)
+	resultsMutex := &sync.Mutex{}
+	resultsCountMutex := &sync.Mutex{}
+	results[0] = 0
+	results[1] = 0
+	resultsCount[0] = 0
+	resultsCount[1] = 0
+
+	nonNilnodes := 0
+
 	for _, node := range vectorIndex.nodes {
 		if node == nil {
 			continue // Weaviate allocates a larger array than we may insert
 		}
+
 		node.Lock()
 		count := 0 // might want to plot a distribution of this
+		totalNeighbors := 0
+
+		if len(node.connections[level]) == 0 {
+			fmt.Printf("nodeId %v has 0 neighbors \n", node)
+			node.Unlock()
+			continue
+		}
+
+		fmt.Printf("\n Here are the neighbors of node %v \n", node.id)
+		fmt.Printf("\n With Filters %v \n", node.filters)
 		for _, connectionID := range node.connections[level] {
 			neighbor := vectorIndex.nodes[connectionID]
+			if neighbor == nil {
+				continue
+			}
+			fmt.Printf("Neighbor ID: %v \n", neighbor.id)
+			fmt.Printf("Neighbor filters: %v \n", neighbor.filters)
+			totalNeighbors += 1
+
 			neighbor.Lock()
 			if filtersEqual(node.filters, neighbor.filters) {
-				count++
+				count += 1.0
 			}
 			neighbor.Unlock()
 		}
-		total += count
+		//fmt.Printf("Count: %v \n", count)
+		//fmt.Printf("totalNeighbors: %v \n", totalNeighbors)
+		resultsMutex.Lock()
+		results[node.filters[0]] += float32(count)
+		resultsMutex.Unlock()
+
+		resultsCountMutex.Lock()
+		resultsCount[node.filters[0]] += float32(totalNeighbors)
+		resultsCountMutex.Unlock()
+
+		nonNilnodes += 1
 		node.Unlock()
 	}
-	return total / len(vectorIndex.nodes)
+	fmt.Print("\n")
+	fmt.Print(results)
+	fmt.Print("\n")
+	fmt.Print(resultsCount)
+	fmt.Print("\n")
+
+	results[0] /= resultsCount[0]
+	results[1] /= resultsCount[1]
+
+	fmt.Printf("\n \n Number of nonNilnodes %d \n \n", nonNilnodes)
+	return results
 }
 
 func filtersEqual(a, b map[int]int) bool {

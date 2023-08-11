@@ -318,6 +318,9 @@ func (h *hnsw) hybridInsert(node *vertex, nodeVec []float32, lambda float32) err
 	}
 	h.Unlock()
 	//h.RUnlock()
+	/*
+		For example, if we have 3 filters, one of them may not have an entrypoint in the graph yet.
+	*/
 	if emptyEPfound {
 		//h.Lock()
 		firstInsertError = h.insertInitialElementPerFilterPerValue(node, nodeVec)
@@ -387,15 +390,6 @@ func (h *hnsw) hybridInsert(node *vertex, nodeVec []float32, lambda float32) err
 	h.insertMetrics.prepareAndInsertNode(before)
 	before = time.Now()
 
-	/* Ok, so here is where we need to think about this scenario:
-
-	=======================================================================
-
-	we have 3 filters, 0, 1, 2 and we insert at layer 1 using 0 as the ep
-	— we want to make this the entrypoint for 1 and 2 as well.
-
-	=======================================================================
-	*/
 	epFilterMap := make(map[int]int)
 	epFilterMap[epFilter] = node.filters[epFilter]
 	entryPointID, err = h.findBestEntrypointForNodeWithFilter(currentMaximumLayer, targetLevel,

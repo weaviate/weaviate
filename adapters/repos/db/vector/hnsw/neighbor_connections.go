@@ -12,7 +12,7 @@
 package hnsw
 
 import (
-	"context"
+	"context" // remove
 	"math"
 	"time"
 
@@ -357,87 +357,13 @@ func (n *neighborFinderConnectorHybrid) Do() error {
 				return errors.Wrapf(err, "at level %d", level)
 			}
 		} else {
-			err := n.doAtLevel(level)
+			err := n.doAtLevelHybrid(level, 0)
 			if err != nil {
 				return errors.Wrapf(err, "at level %d", level)
 			}
 		}
 	}
 
-	return nil
-}
-
-func (n *neighborFinderConnectorHybrid) doAtLevel(level int) error {
-	before := time.Now()
-	if err := n.pickEntrypoint(); err != nil {
-		return errors.Wrap(err, "pick entrypoint at level beginning")
-	}
-
-	eps := priorityqueue.NewMin(1)
-	eps.Insert(n.entryPointID, n.entryPointDist)
-
-	// This is where you might want to have some mix of search by distance and with filters
-
-	/*
-		distance_candidates := k
-		filter_candidates := n.graph.efConstruction - k
-
-		// results := h.pools.pqResults.GetMax(ef) // need to see how to join these
-
-		distance_results, err := n.graph.searchLayerByVector(n.nodeVec, eps, n.graph.efConstruction)
-	*/
-
-	results, err := n.graph.searchLayerByVector(n.nodeVec, eps, n.graph.efConstruction,
-		level, nil)
-	if err != nil {
-		return errors.Wrapf(err, "search layer at level %d", level)
-	}
-
-	n.graph.insertMetrics.findAndConnectSearch(before)
-	before = time.Now()
-
-	// max := n.maximumConnections(level)
-	max := n.graph.maximumConnections
-	if err := n.graph.filteredRobustPrune(results, max, n.filters, n.denyList); err != nil {
-		return errors.Wrap(err, "heuristic")
-	}
-
-	n.graph.insertMetrics.findAndConnectHeuristic(before)
-	before = time.Now()
-
-	// // for distributed spike
-	// neighborsAtLevel[level] = neighbors
-
-	neighbors := make([]uint64, 0, results.Len())
-	for results.Len() > 0 {
-		id := results.Pop().ID
-		neighbors = append(neighbors, id)
-	}
-
-	n.graph.pools.pqResults.Put(results)
-
-	// set all outoing in one go
-	n.node.setConnectionsAtLevel(level, neighbors)
-	n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighbors)
-
-	for _, neighborID := range neighbors {
-		if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
-			return errors.Wrapf(err, "connect neighbor %d", neighborID)
-		}
-	}
-
-	if len(neighbors) > 0 {
-		// there could be no neighbors left, if all are marked deleted, in this
-		// case, don't change the entrypoint
-		nextEntryPointID := neighbors[len(neighbors)-1]
-		if nextEntryPointID == n.node.id {
-			return nil
-		}
-
-		n.entryPointID = nextEntryPointID
-	}
-
-	n.graph.insertMetrics.findAndConnectUpdateConnections(before)
 	return nil
 }
 
@@ -450,20 +376,9 @@ func (n *neighborFinderConnectorHybrid) doAtLevelHybrid(level int, lambda float3
 	eps := priorityqueue.NewMin(1)
 	eps.Insert(n.entryPointID, n.entryPointDist)
 
-	// This is where you might want to have some mix of search by distance and with filters
-
-	/*
-		distance_candidates := k
-		filter_candidates := n.graph.efConstruction - k
-
-		// results := h.pools.pqResults.GetMax(ef) // need to see how to join these
-
-		distance_results, err := n.graph.searchLayerByVector(n.nodeVec, eps, n.graph.efConstruction)
-	*/
 	num_filter_candidates := int(math.Ceil(float64(float32(n.graph.efConstruction) * lambda)))
 	num_distance_candidates := n.graph.efConstruction - num_filter_candidates
 
-	// could alternatively be named `distanceResults`, but I think this is nicer once merged
 	results, err := n.graph.searchLayerByVector(n.nodeVec, eps, num_distance_candidates,
 		level, nil)
 	if err != nil {
@@ -474,7 +389,6 @@ func (n *neighborFinderConnectorHybrid) doAtLevelHybrid(level int, lambda float3
 	if err != nil {
 		return errors.Wrapf(err, "search layer at level %d", level)
 	}
-
 	// merge them here
 	for filterResults.Len() > 0 {
 		item := filterResults.Pop()
