@@ -223,7 +223,7 @@ func TestSchema_Tenants(t *testing.T) {
 		assert.Contains(t, clientErr.Msg, "multi-tenancy is not enabled for class")
 		require.Nil(t, gotTenants)
 	})
-	
+
 	t.Run("updates tenants of MT class", func(t *testing.T) {
 		defer cleanup()
 
