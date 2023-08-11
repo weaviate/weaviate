@@ -3022,7 +3022,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 	t.Run("fails creating references between non-MT and MT classes", func(t *testing.T) {
 		defer cleanup()
 
-		tenantPizza := models.Tenant{Name:"tenantPizza"}
+		tenantPizza := models.Tenant{Name: "tenantPizza"}
 		pizzaIds := fixtures.IdsByClass["Pizza"]
 		soupIds := fixtures.IdsByClass["Soup"]
 
@@ -3098,7 +3098,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 	t.Run("fails creating references between non-MT and MT classes without tenant", func(t *testing.T) {
 		defer cleanup()
 
-		tenantPizza := models.Tenant{Name:"tenantPizza"}
+		tenantPizza := models.Tenant{Name: "tenantPizza"}
 		pizzaIds := fixtures.IdsByClass["Pizza"]
 		soupIds := fixtures.IdsByClass["Soup"]
 
@@ -3174,7 +3174,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 	t.Run("fails creating references between non-MT and MT classes with non existent tenant", func(t *testing.T) {
 		defer cleanup()
 
-		tenantPizza := models.Tenant{Name:"tenantPizza"}
+		tenantPizza := models.Tenant{Name: "tenantPizza"}
 		pizzaIds := fixtures.IdsByClass["Pizza"]
 		soupIds := fixtures.IdsByClass["Soup"]
 
@@ -3344,7 +3344,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 	t.Run("fails replacing references between non-MT and MT classes", func(t *testing.T) {
 		defer cleanup()
 
-		tenantPizza := models.Tenant{Name:"tenantPizza"}
+		tenantPizza := models.Tenant{Name: "tenantPizza"}
 		pizzaIds := fixtures.IdsByClass["Pizza"]
 		soupIds := fixtures.IdsByClass["Soup"]
 
@@ -3422,7 +3422,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 	t.Run("fails replacing references between non-MT and MT classes without tenant", func(t *testing.T) {
 		defer cleanup()
 
-		tenantPizza := models.Tenant{Name:"tenantPizza"}
+		tenantPizza := models.Tenant{Name: "tenantPizza"}
 		pizzaIds := fixtures.IdsByClass["Pizza"]
 		soupIds := fixtures.IdsByClass["Soup"]
 
@@ -3500,7 +3500,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 	t.Run("fails replacing references between non-MT and MT classes with non existent tenant", func(t *testing.T) {
 		defer cleanup()
 
-		tenantPizza := models.Tenant{Name:"tenantPizza"}
+		tenantPizza := models.Tenant{Name: "tenantPizza"}
 		pizzaIds := fixtures.IdsByClass["Pizza"]
 		soupIds := fixtures.IdsByClass["Soup"]
 
