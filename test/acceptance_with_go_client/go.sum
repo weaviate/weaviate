@@ -478,10 +478,10 @@ github.com/tidwall/pretty v1.0.0/go.mod h1:XNkn88O1ChpSDQmQeStsy+sBenx6DDtFZJxhV
 github.com/urfave/cli v1.22.1/go.mod h1:Gos4lmkARVdJ6EkW0WaNv/tZAAMe9V7XWyB60NtXRu0=
 github.com/vishvananda/netlink v1.1.0/go.mod h1:cTgwzPIzzgDAYoQrMm0EdrjRUBkTqKYppBueQtXaqoE=
 github.com/vishvananda/netns v0.0.0-20191106174202-0a2b9b5464df/go.mod h1:JP3t17pCcGlemwknint6hfoeCVQrEMVwxRLRjXpq+BU=
-github.com/weaviate/weaviate v1.21.0-rc.0.0.20230809223851-01a556a58cf7 h1:1gHua+ixk4XJIb57xp+2hOJd0NiH5FAGCZcjO+EX4Ss=
-github.com/weaviate/weaviate v1.21.0-rc.0.0.20230809223851-01a556a58cf7/go.mod h1:SlIZ2aw5wiDAPe4iRLkSFTTBFbrCd33DfyvicBpOfYk=
-github.com/weaviate/weaviate-go-client/v4 v4.9.1-0.20230810095842-dba5e1b7870d h1:dE5NRcXD6cDMoJwhUhv/E1yRzPhphOJIDP0sXujVFvg=
-github.com/weaviate/weaviate-go-client/v4 v4.9.1-0.20230810095842-dba5e1b7870d/go.mod h1:b3gvnbcA5Nk43QLIYFDNuXD3TsCVbXLp3VpWx3vsdTg=
+github.com/weaviate/weaviate v1.21.0-rc.0.0.20230812181149-a9150020873b h1:L+mC2+r/fQS33hkmx4VPiO3lDInUensyk7USTBmPdEo=
+github.com/weaviate/weaviate v1.21.0-rc.0.0.20230812181149-a9150020873b/go.mod h1:SlIZ2aw5wiDAPe4iRLkSFTTBFbrCd33DfyvicBpOfYk=
+github.com/weaviate/weaviate-go-client/v4 v4.9.1-0.20230813103657-cb339717c929 h1:IGUvUKYgrek13p62jWVQsS7PSWxmP424bHazsNzO/fQ=
+github.com/weaviate/weaviate-go-client/v4 v4.9.1-0.20230813103657-cb339717c929/go.mod h1:GNs/6Pt3DNC9C/UCH2u3f+vr27LDYKJIox6y/27SJ6M=
 github.com/xdg-go/pbkdf2 v1.0.0/go.mod h1:jrpuAogTd400dnrH08LKmI/xc1MbPOebTwRqcT5RDeI=
 github.com/xdg-go/scram v1.0.2/go.mod h1:1WAq6h33pAW+iRreB34OORO2Nf7qel3VV3fjBj+hCSs=
 github.com/xdg-go/scram v1.1.1/go.mod h1:RaEWvsqvNKKvBPvcKeFjrG2cJqOkHTiyTpzz23ni57g=
