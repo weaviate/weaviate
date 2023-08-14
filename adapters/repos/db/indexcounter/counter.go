@@ -89,7 +89,9 @@ func (c *Counter) Drop() error {
 	if c.f == nil {
 		return nil
 	}
-	err := os.Remove(c.f.Name())
+	filename := c.FileName()
+	c.f.Close()
+	err := os.Remove(filename)
 	if err != nil {
 		return errors.Wrap(err, "drop counter file")
 	}
