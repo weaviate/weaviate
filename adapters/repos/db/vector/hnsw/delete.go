@@ -580,9 +580,9 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 
 		h.resetLock.Lock()
 		if !breakCleanUpTombstonedNodes() {
-			h.Lock()
+			h.shardedNodeLocks[id%NodeLockStripe].Lock()
 			h.nodes[id] = nil
-			h.Unlock()
+			h.shardedNodeLocks[id%NodeLockStripe].Unlock()
 			if h.compressed.Load() {
 				h.compressedVectorsCache.delete(context.TODO(), id)
 			} else {

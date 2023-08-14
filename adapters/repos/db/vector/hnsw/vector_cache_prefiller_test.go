@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -24,6 +25,10 @@ func TestVectorCachePrefilling(t *testing.T) {
 	index := &hnsw{
 		nodes:               generateDummyVertices(100),
 		currentMaximumLayer: 3,
+		shardedNodeLocks:    make([]sync.RWMutex, NodeLockStripe),
+	}
+	for i := uint64(0); i < NodeLockStripe; i++ {
+		index.shardedNodeLocks[i] = sync.RWMutex{}
 	}
 
 	logger, _ := test.NewNullLogger()
