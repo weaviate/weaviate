@@ -312,6 +312,19 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			error: false,
 		},
+		{
+			name: "filter reference",
+			req: &grpc.SearchRequest{
+				ClassName: classname,
+				Filters: &grpc.Filters{
+					Operator:  grpc.Filters_OperatorLessThan,
+					TestValue: &grpc.Filters_ValueStr{"test"},
+					On:        []string{"ref", refClass1}, // two values do not work, property is missing
+				},
+			},
+			out:   dto.GetParams{},
+			error: true,
+		},
 	}
 
 	for _, tt := range tests {

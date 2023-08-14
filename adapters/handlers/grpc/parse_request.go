@@ -179,6 +179,11 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 		returnFilter.Operands = clauses
 
 	} else {
+		if len(filterIn.On)%2 != 1 {
+			return filters.Clause{}, fmt.Errorf(
+				"paths needs to have a uneven number of components: property, class, property, ...., got %v", filterIn.On,
+			)
+		}
 		path, err := extractPath(scheme, className, filterIn.On)
 		if err != nil {
 			return filters.Clause{}, err
@@ -342,4 +347,27 @@ func extractAdditionalPropsForRefs(prop *pb.AdditionalProperties) additional.Pro
 		Score:              prop.Score,
 		ExplainScore:       prop.ExplainScore,
 	}
+}
+
+func getAllNonRefNonBlobProperties(scheme schema.Schema, className string) ([]search.SelectProperty, error) {
+	var props []search.SelectProperty
+	class := scheme.GetClass(schema.ClassName(className))
+
+	for _, prop := range class.Properties {
+		dt, err := schema.GetPropertyDataType(class, prop.Name)
+		if err != nil {
+			return []search.SelectProperty{}, err
+		}
+		if *dt == schema.DataTypeCRef || *dt == schema.DataTypeBlob {
+			continue
+		}
+
+		props = append(props, search.SelectProperty{
+			Name:        prop.Name,
+			IsPrimitive: true,
+		})
+
+	}
+
+	return props, nil
 }

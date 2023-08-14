@@ -18,7 +18,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	pb "github.com/weaviate/weaviate/grpc"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -39,12 +38,12 @@ func searchResultsToProto(res []any, start time.Time, searchParams dto.GetParams
 
 		props, err := extractPropertiesAnswer(asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
 		if err != nil {
-			continue
+			return nil, err
 		}
 
 		additionalProps, err := extractAdditionalProps(asMap, searchParams.AdditionalProperties)
 		if err != nil {
-			continue
+			return nil, err
 		}
 
 		result := &pb.SearchResult{
@@ -219,27 +218,4 @@ func extractPropertiesAnswer(results map[string]interface{}, properties search.S
 	props.ClassName = class
 
 	return &props, nil
-}
-
-func getAllNonRefNonBlobProperties(scheme schema.Schema, className string) ([]search.SelectProperty, error) {
-	var props []search.SelectProperty
-	class := scheme.GetClass(schema.ClassName(className))
-
-	for _, prop := range class.Properties {
-		dt, err := schema.GetPropertyDataType(class, prop.Name)
-		if err != nil {
-			return []search.SelectProperty{}, err
-		}
-		if *dt == schema.DataTypeCRef || *dt == schema.DataTypeBlob {
-			continue
-		}
-
-		props = append(props, search.SelectProperty{
-			Name:        prop.Name,
-			IsPrimitive: true,
-		})
-
-	}
-
-	return props, nil
 }
