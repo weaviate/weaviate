@@ -32,6 +32,8 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+const NodeLockStripe = uint64(512)
+
 type hnsw struct {
 	// global lock to prevent concurrent map read/write, etc.
 	sync.RWMutex
@@ -158,6 +160,7 @@ type hnsw struct {
 	className              string
 	shardName              string
 	VectorForIDThunk       VectorForID
+	shardedNodeLocks       []sync.RWMutex
 }
 
 type CommitLogger interface {
@@ -268,6 +271,7 @@ func New(cfg Config, uc ent.UserConfig,
 		VectorForIDThunk:     cfg.VectorForIDThunk,
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 		pqConfig:             uc.PQ,
+		shardedNodeLocks:     make([]sync.RWMutex, NodeLockStripe),
 
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
@@ -283,6 +287,10 @@ func New(cfg Config, uc ent.UserConfig,
 
 	if err := index.init(cfg); err != nil {
 		return nil, errors.Wrapf(err, "init index %q", index.id)
+	}
+
+	for i := uint64(0); i < NodeLockStripe; i++ {
+		index.shardedNodeLocks[i] = sync.RWMutex{}
 	}
 
 	return index, nil
@@ -591,12 +599,10 @@ func (h *hnsw) isEmpty() bool {
 }
 
 func (h *hnsw) isEmptyUnsecured() bool {
-	for _, node := range h.nodes {
-		if node != nil {
-			return false
-		}
-	}
-	return true
+	h.shardedNodeLocks[h.entryPointID%NodeLockStripe].RLock()
+	defer h.shardedNodeLocks[h.entryPointID%NodeLockStripe].RUnlock()
+	entryPoint := h.nodes[h.entryPointID]
+	return entryPoint == nil
 }
 
 func (h *hnsw) nodeByID(id uint64) *vertex {

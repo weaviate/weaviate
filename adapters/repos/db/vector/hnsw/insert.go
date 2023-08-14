@@ -155,18 +155,39 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 
 	nodeId := node.id
 
-	// before = time.Now()
-	h.Lock()
-	// m.addBuildingLocking(before)
-	err := h.growIndexToAccomodateNode(node.id, h.logger)
-	if err != nil {
+	// There are 3 different things going on in this block:
+	// 1) A global read lock to check if we need to grow the index and only upgrade to a RW lock if yes
+	// 2) The write to the nodes-slice needs to be behind a Rlock to secure it against growing from another thread. A
+	//    RW-lock is not necessary as the node is not discoverable until the connections with the neighboring nodes have
+	//	  been established.
+	// 3) The sharded-lock secures against searches with an allowList containing the id of the node that is currently
+	//    being added. An object can already be added to the object store before this insert completes and cause a race
+	//    between writing to the nodes-slice and reading all nodes from the allowlist.
+	h.RLock()
+	previousSize := uint64(len(h.nodes))
+	if nodeId >= previousSize {
+		h.RUnlock()
+		h.Lock()
+		if nodeId >= previousSize {
+			err := h.growIndexToAccomodateNode(node.id, h.logger)
+			if err != nil {
+				h.Unlock()
+				return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
+			}
+		}
+		h.shardedNodeLocks[nodeId%NodeLockStripe].Lock()
+		h.nodes[nodeId] = node
+		h.shardedNodeLocks[nodeId%NodeLockStripe].Unlock()
 		h.Unlock()
-		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
+	} else {
+		h.shardedNodeLocks[nodeId%NodeLockStripe].Lock()
+		h.nodes[nodeId] = node
+		h.shardedNodeLocks[nodeId%NodeLockStripe].Unlock()
+		h.RUnlock()
 	}
-	h.Unlock()
 
-	// // make sure this new vec is immediately present in the cache, so we don't
-	// // have to read it from disk again
+	// make sure this new vec is immediately present in the cache, so we don't
+	// have to read it from disk again
 	if h.compressed.Load() {
 		compressed := h.pq.Encode(nodeVec)
 		h.storeCompressedVector(node.id, compressed)
@@ -175,13 +196,10 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 		h.cache.preload(node.id, nodeVec)
 	}
 
-	h.Lock()
-	h.nodes[nodeId] = node
-	h.Unlock()
-
 	h.insertMetrics.prepareAndInsertNode(before)
 	before = time.Now()
 
+	var err error
 	entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
 		entryPointID, nodeVec)
 	if err != nil {
@@ -203,19 +221,26 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	// go h.insertHook(nodeId, targetLevel, neighborsAtLevel)
 	node.unmarkAsMaintenance()
 
-	h.Lock()
+	h.RLock()
 	if targetLevel > h.currentMaximumLayer {
-		// before = time.Now()
-		// m.addBuildingLocking(before)
-		if err := h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel); err != nil {
-			h.Unlock()
-			return err
-		}
+		h.RUnlock()
+		h.Lock()
+		// check again to avoid changes from RUnlock to Lock again
+		if targetLevel > h.currentMaximumLayer {
+			// before = time.Now()
+			// m.addBuildingLocking(before)
+			if err := h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel); err != nil {
+				h.Unlock()
+				return err
+			}
 
-		h.entryPointID = nodeId
-		h.currentMaximumLayer = targetLevel
+			h.entryPointID = nodeId
+			h.currentMaximumLayer = targetLevel
+		}
+		h.Unlock()
+	} else {
+		h.RUnlock()
 	}
-	h.Unlock()
 
 	return nil
 }

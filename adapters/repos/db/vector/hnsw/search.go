@@ -215,7 +215,9 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			break
 		}
 		h.RLock()
+		h.shardedNodeLocks[candidate.ID%NodeLockStripe].RLock()
 		candidateNode := h.nodes[candidate.ID]
+		h.shardedNodeLocks[candidate.ID%NodeLockStripe].RUnlock()
 		h.RUnlock()
 		if candidateNode == nil {
 			// could have been a node that already had a tombstone attached and was
@@ -486,8 +488,11 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	if h.isEmpty() {
 		return nil, nil, nil
 	}
-
+	h.RLock()
 	entryPointID := h.entryPointID
+	maxLayer := h.currentMaximumLayer
+	h.RUnlock()
+
 	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
@@ -504,7 +509,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		defer h.pq.ReturnDistancer(byteDistancer)
 	}
 	// stop at layer 1, not 0!
-	for level := h.currentMaximumLayer; level >= 1; level-- {
+	for level := maxLayer; level >= 1; level-- {
 		eps := priorityqueue.NewMin(10)
 		eps.Insert(entryPointID, entryPointDistance)
 
