@@ -20,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -107,5 +108,11 @@ func (h *hnsw) getCompressedVectorForID(ctx context.Context, id uint64) ([]byte,
 	if err != nil {
 		return nil, errors.Wrap(err, "Getting vector for id")
 	}
+	if h.distancerProvider.Type() == "cosine-dot" {
+		// cosine-dot requires normalized vectors, as the dot product and cosine
+		// similarity are only identical if the vector is normalized
+		vec = distancer.Normalize(vec)
+	}
+
 	return h.pq.Encode(vec), nil
 }
