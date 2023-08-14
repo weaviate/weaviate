@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -181,6 +182,14 @@ func (h *hnsw) CleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 }
 
 func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) (bool, error) {
+	defer func() {
+		err := recover()
+		if err != nil {
+			h.logger.WithField("panic", err).Errorf("class %s: tombstone cleanup panicked", h.className)
+			debug.PrintStack()
+		}
+	}()
+
 	h.metrics.StartCleanup(1)
 	defer h.metrics.EndCleanup(1)
 
