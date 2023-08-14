@@ -31,6 +31,7 @@ type refFilterExtractor struct {
 	logger        logrus.FieldLogger
 	classSearcher ClassSearcher
 	filter        *filters.Clause
+	class         *models.Class
 	property      *models.Property
 	tenant        string
 	limit         int64
@@ -44,12 +45,13 @@ type ClassSearcher interface {
 }
 
 func newRefFilterExtractor(logger logrus.FieldLogger, classSearcher ClassSearcher,
-	filter *filters.Clause, property *models.Property, tenant string, limit int64,
+	filter *filters.Clause, class *models.Class, property *models.Property, tenant string, limit int64,
 ) *refFilterExtractor {
 	return &refFilterExtractor{
 		logger:        logger,
 		classSearcher: classSearcher,
 		filter:        filter,
+		class:         class,
 		property:      property,
 		tenant:        tenant,
 		limit:         limit,
@@ -147,6 +149,7 @@ func (r *refFilterExtractor) emptyPropValuePair() *propValuePair {
 		operator:           filters.OperatorEqual,
 		hasFilterableIndex: HasFilterableIndex(r.property),
 		hasSearchableIndex: HasSearchableIndex(r.property),
+		Class:              r.class,
 	}
 }
 
@@ -174,6 +177,7 @@ func (r *refFilterExtractor) idToPropValuePairWithValue(v []byte,
 		operator:           filters.OperatorEqual,
 		hasFilterableIndex: hasFilterableIndex,
 		hasSearchableIndex: hasSearchableIndex,
+		Class:              r.class,
 	}, nil
 }
 
@@ -193,6 +197,7 @@ func (r *refFilterExtractor) chainedIDsToPropValuePair(ids []classUUIDPair) (*pr
 		children:           children,
 		hasFilterableIndex: hasFilterableIndex,
 		hasSearchableIndex: hasSearchableIndex,
+		Class:              r.class,
 	}, nil
 }
 
