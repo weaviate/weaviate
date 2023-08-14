@@ -393,14 +393,6 @@ func connectionsPointTo(connections [][]uint64, needles helpers.AllowList) bool 
 // node which also has a tombstone and is also in the process of being cleaned
 // up
 func (h *hnsw) deleteEntrypoint(node *vertex, denyList helpers.AllowList) error {
-	if node == nil {
-		return fmt.Errorf("class %s: delete entrypoint: the passed entry point is nil", h.className)
-	}
-
-	if denyList == nil {
-		return fmt.Errorf("class %s: delete entrypoint: the passed deny list is nil", h.className)
-	}
-
 	if h.isOnlyNode(node, denyList) {
 		// no point in finding another entrypoint if this is the only node
 		return nil
