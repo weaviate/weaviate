@@ -79,21 +79,53 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 
 	scheme := s.schemaManager.GetSchemaSkipAuth()
 
-	searchParams, err := searchParamsFromProto(req, scheme)
-	if err != nil {
-		return nil, fmt.Errorf("extract params: %w", err)
+	type reply struct {
+		Result *pb.SearchReply
+		Error  error
 	}
 
-	if err := s.validateClassAndProperty(searchParams); err != nil {
-		return nil, err
-	}
+	c := make(chan reply, 1)
+	go func() {
+		defer func() {
+			if err := recover(); err != nil {
+				c <- reply{
+					Result: nil,
+					Error:  fmt.Errorf("panic occurred: %v", err),
+				}
+			}
+		}()
 
-	res, err := s.traverser.GetClass(ctx, principal, searchParams)
-	if err != nil {
-		return nil, err
-	}
+		searchParams, err := searchParamsFromProto(req, scheme)
+		if err != nil {
+			c <- reply{
+				Result: nil,
+				Error:  fmt.Errorf("extract params: %w", err),
+			}
+		}
 
-	return searchResultsToProto(res, before, searchParams)
+		if err := s.validateClassAndProperty(searchParams); err != nil {
+			c <- reply{
+				Result: nil,
+				Error:  err,
+			}
+		}
+
+		res, err := s.traverser.GetClass(ctx, principal, searchParams)
+		if err != nil {
+			c <- reply{
+				Result: nil,
+				Error:  err,
+			}
+		}
+
+		proto, err := searchResultsToProto(res, before, searchParams)
+		c <- reply{
+			Result: proto,
+			Error:  err,
+		}
+	}()
+	res := <-c
+	return res.Result, res.Error
 }
 
 func (s *Server) validateClassAndProperty(searchParams dto.GetParams) error {
