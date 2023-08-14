@@ -34,6 +34,7 @@ type autoSchemaManager struct {
 	vectorRepo    VectorRepo
 	config        config.AutoSchema
 	logger        logrus.FieldLogger
+	recentTenants *tenantCache
 }
 
 func newAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
@@ -80,7 +81,7 @@ func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *mo
 	if schemaClass == nil {
 		return m.createClass(ctx, principal, object.Class, properties)
 	}
-	return m.updateClass(ctx, principal, object.Class, properties, schemaClass.Properties)
+	return m.updateClass(ctx, principal, object.Class, properties, schemaClass.Properties, object.Tenant)
 }
 
 func (m *autoSchemaManager) getClass(principal *models.Principal,
@@ -110,7 +111,7 @@ func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.P
 }
 
 func (m *autoSchemaManager) updateClass(ctx context.Context, principal *models.Principal,
-	className string, properties []*models.Property, existingProperties []*models.Property,
+	className string, properties []*models.Property, existingProperties []*models.Property, tenant string,
 ) error {
 	propertiesToAdd := []*models.Property{}
 	for _, prop := range properties {
@@ -125,6 +126,11 @@ func (m *autoSchemaManager) updateClass(ctx context.Context, principal *models.P
 			propertiesToAdd = append(propertiesToAdd, prop)
 		}
 	}
+
+	if err := m.addTenant(ctx, principal, className, tenant); err != nil {
+		return err
+	}
+
 	for _, newProp := range propertiesToAdd {
 		m.logger.
 			WithField("auto_schema", "updateClass").
