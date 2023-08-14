@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/schema/migrate"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"golang.org/x/sync/errgroup"
 )
@@ -37,7 +38,7 @@ type Migrator struct {
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	shardState *sharding.State,
 ) error {
-	if err := replica.ValidateConfig(class); err != nil {
+	if err := replica.ValidateConfig(class, m.db.config.Replication); err != nil {
 		return fmt.Errorf("replication config: %w", err)
 	}
 
@@ -47,12 +48,14 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			RootPath:                  m.db.config.RootPath,
 			ResourceUsage:             m.db.config.ResourceUsage,
 			QueryMaximumResults:       m.db.config.QueryMaximumResults,
+			QueryNestedRefLimit:       m.db.config.QueryNestedRefLimit,
 			MemtablesFlushIdleAfter:   m.db.config.MemtablesFlushIdleAfter,
 			MemtablesInitialSizeMB:    m.db.config.MemtablesInitialSizeMB,
 			MemtablesMaxSizeMB:        m.db.config.MemtablesMaxSizeMB,
 			MemtablesMinActiveSeconds: m.db.config.MemtablesMinActiveSeconds,
 			MemtablesMaxActiveSeconds: m.db.config.MemtablesMaxActiveSeconds,
 			TrackVectorDimensions:     m.db.config.TrackVectorDimensions,
+			AvoidMMap:                 m.db.config.AvoidMMap,
 			ReplicationFactor:         class.ReplicationConfig.Factor,
 		},
 		shardState,
@@ -147,13 +150,13 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 
 // NewTenants creates new partitions and returns a commit func
 // that can be used to either commit or rollback the partitions
-func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, tenants []string) (commit func(success bool), err error) {
+func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates []*migrate.CreateTenantPayload) (commit func(success bool), err error) {
 	idx := m.db.GetIndex(schema.ClassName(class.Class))
 	if idx == nil {
 		return nil, fmt.Errorf("cannot find index for %q", class.Class)
 	}
 
-	shards := make(map[string]*Shard, len(tenants))
+	shards := make(map[string]*Shard, len(creates))
 	rollback := func() {
 		for name, shard := range shards {
 			if err := shard.drop(); err != nil {
@@ -178,16 +181,148 @@ func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, tenants 
 		}
 	}()
 
-	for _, name := range tenants {
-		if shard := idx.shards.Load(name); shard != nil {
+	for _, pl := range creates {
+		if shard := idx.shards.Load(pl.Name); shard != nil {
 			continue
 		}
-		shard, err := NewShard(ctx, m.db.promMetrics, name, idx, class, idx.centralJobQueue)
+		if pl.Status != models.TenantActivityStatusHOT {
+			continue // skip creating inactive shards
+		}
+		shard, err := NewShard(ctx, m.db.promMetrics, pl.Name, idx, class, idx.centralJobQueue)
 		if err != nil {
-			return nil, fmt.Errorf("cannot create partition %q: %w", name, err)
+			return nil, fmt.Errorf("cannot create partition %q: %w", pl, err)
 		}
 
-		shards[name] = shard
+		shards[pl.Name] = shard
+	}
+
+	return commit, nil
+}
+
+// UpdateTenans activates or deactivates tenant partitions and returns a commit func
+// that can be used to either commit or rollback the changes
+func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*migrate.UpdateTenantPayload) (commit func(success bool), err error) {
+	idx := m.db.GetIndex(schema.ClassName(class.Class))
+	if idx == nil {
+		return nil, fmt.Errorf("cannot find index for %q", class.Class)
+	}
+
+	shardsToHot := make([]string, 0, len(updates))
+	shardsToCold := make([]string, 0, len(updates))
+	shardsHotted := make(map[string]*Shard)
+	shardsColded := make(map[string]*Shard)
+
+	rollbackHotted := func() {
+		eg := new(errgroup.Group)
+		eg.SetLimit(2 * _NUMCPU)
+		for name, shard := range shardsHotted {
+			name, shard := name, shard
+			eg.Go(func() error {
+				if err := shard.shutdown(ctx); err != nil {
+					idx.logger.WithField("action", "rollback_shutdown_shard").
+						WithField("shard", shard.ID()).
+						Errorf("cannot shutdown self activated shard %q: %s", name, err)
+				}
+				return nil
+			})
+		}
+		eg.Wait()
+	}
+	rollbackColded := func() {
+		for name, shard := range shardsColded {
+			idx.shards.CompareAndSwap(name, nil, shard)
+		}
+	}
+	rollback := func() {
+		rollbackHotted()
+		rollbackColded()
+	}
+
+	commitHotted := func() {
+		for name, shard := range shardsHotted {
+			idx.shards.Store(name, shard)
+		}
+	}
+	commitColded := func() {
+		for name := range shardsColded {
+			idx.shards.LoadAndDelete(name)
+		}
+
+		eg := new(errgroup.Group)
+		eg.SetLimit(_NUMCPU * 2)
+		for name, shard := range shardsColded {
+			name, shard := name, shard
+			eg.Go(func() error {
+				if err := shard.shutdown(ctx); err != nil {
+					idx.logger.WithField("action", "shutdown_shard").
+						WithField("shard", shard.ID()).
+						Errorf("cannot shutdown shard %q: %s", name, err)
+				}
+				return nil
+			})
+		}
+		eg.Wait()
+	}
+	commit = func(success bool) {
+		if !success {
+			rollback()
+			return
+		}
+		commitHotted()
+		commitColded()
+	}
+
+	applyHot := func() error {
+		for _, name := range shardsToHot {
+			// shard already hot
+			if shard := idx.shards.Load(name); shard != nil {
+				continue
+			}
+			shard, err := NewShard(ctx, m.db.promMetrics, name, idx, class, idx.centralJobQueue)
+			if err != nil {
+				return fmt.Errorf("cannot activate shard '%s': %w", name, err)
+			}
+			shardsHotted[name] = shard
+		}
+		return nil
+	}
+	applyCold := func() error {
+		idx.backupStateLock.RLock()
+		defer idx.backupStateLock.RUnlock()
+
+		for _, name := range shardsToCold {
+			shard, ok := idx.shards.Swap(name, nil) // mark as deactivated
+			if !ok {                                // shard doesn't exit (already cold)
+				idx.shards.LoadAndDelete(name) // rollback nil value created by swap()
+				continue
+			}
+			if shard != nil {
+				shardsColded[name] = shard
+			}
+		}
+		return nil
+	}
+
+	for _, tu := range updates {
+		switch tu.Status {
+		case models.TenantActivityStatusHOT:
+			shardsToHot = append(shardsToHot, tu.Name)
+		case models.TenantActivityStatusCOLD:
+			shardsToCold = append(shardsToCold, tu.Name)
+		}
+	}
+
+	defer func() {
+		if err != nil {
+			rollback()
+		}
+	}()
+
+	if err := applyHot(); err != nil {
+		return nil, err
+	}
+	if err := applyCold(); err != nil {
+		return nil, err
 	}
 
 	return commit, nil

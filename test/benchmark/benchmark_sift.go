@@ -50,6 +50,7 @@ func createSchemaSIFTRequest(url string) *http.Request {
 			"maxConnections":        64,
 			"vectorCacheMaxObjects": 1000000000,
 		},
+		Vectorizer: "none",
 	}
 	request := createRequest(url+"schema", "POST", classObj)
 	return request

@@ -155,14 +155,14 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 	if params.Include != nil {
 		class, err := h.manager.GetObjectsClass(params.HTTPRequest.Context(), principal, params.ID)
 		if err != nil {
-			h.metricRequestsTotal.logUserError(class.Class)
+			h.metricRequestsTotal.logUserError(params.ClassName)
 			return objects.NewObjectsClassGetBadRequest().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 
 		additional, err = parseIncludeParam(params.Include, h.modulesProvider, true, class)
 		if err != nil {
-			h.metricRequestsTotal.logError(class.Class, err)
+			h.metricRequestsTotal.logError(params.ClassName, err)
 			return objects.NewObjectsClassGetBadRequest().
 				WithPayload(errPayloadFromSingleErr(err))
 		}

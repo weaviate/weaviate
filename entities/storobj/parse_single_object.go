@@ -138,11 +138,11 @@ func extractPropsBytes(data []byte) ([]byte, error) {
 
 	vecLen := binary.LittleEndian.Uint16(data[discardBytesPreVector : discardBytesPreVector+2])
 
-	classNameStart := discardBytesPreVector + 2 + vecLen*4
+	classNameStart := int64(discardBytesPreVector) + 2 + int64(vecLen)*4
 
 	classNameLen := binary.LittleEndian.Uint16(data[classNameStart : classNameStart+2])
 
-	propsLenStart := classNameStart + 2 + classNameLen
+	propsLenStart := classNameStart + 2 + int64(classNameLen)
 	propsLen := binary.LittleEndian.Uint32(data[propsLenStart : propsLenStart+4])
 
 	start := int64(propsLenStart + 4)

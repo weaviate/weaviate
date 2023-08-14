@@ -71,7 +71,7 @@ func multiTenancyEnabled(t *testing.T) {
 	})
 
 	t.Run("add tenants", func(t *testing.T) {
-		tenants := []*models.Tenant{{tenantID.String()}}
+		tenants := []*models.Tenant{{Name: tenantID.String()}}
 		helper.CreateTenants(t, paragraphClass.Class, tenants)
 		helper.CreateTenants(t, articleClass.Class, tenants)
 	})

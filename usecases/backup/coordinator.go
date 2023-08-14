@@ -179,7 +179,12 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 }
 
 // Restore coordinates a distributed restoration among participants
-func (c *coordinator) Restore(ctx context.Context, store coordStore, backend string, desc *backup.DistributedBackupDescriptor) error {
+func (c *coordinator) Restore(
+	ctx context.Context,
+	store coordStore,
+	backend string,
+	desc *backup.DistributedBackupDescriptor,
+) error {
 	// make sure there is no active backup
 	if prevID := c.lastOp.renew(desc.ID, store.HomeDir()); prevID != "" {
 		return fmt.Errorf("restoration %s already in progress", prevID)

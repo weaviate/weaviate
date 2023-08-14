@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 
@@ -210,7 +211,7 @@ func TestRepositoryUpdateShards(t *testing.T) {
 	// add two shards
 	deleteClass(&schema, "C1")
 	_, ss = addClass(&schema, "C1", 0, 2, 5)
-	shards := serializeShards(*ss)
+	shards := serializeShards(ss.Physical)
 	if err := repo.NewShards(ctx, "C1", shards); err != nil {
 		t.Fatalf("add new shards: %v", err)
 	}
@@ -218,6 +219,30 @@ func TestRepositoryUpdateShards(t *testing.T) {
 		t.Fatal("add new shards to a non existing class must fail")
 	}
 	repo.asserEqualSchema(t, schema, "adding new shards")
+
+	t.Run("fails updating non existent shards", func(t *testing.T) {
+		nonExistentShards := createShards(4, 2, models.TenantActivityStatusCOLD)
+		nonExistentShardPairs := serializeShards(nonExistentShards)
+		err := repo.UpdateShards(ctx, "C1", nonExistentShardPairs)
+		require.NotNil(t, err)
+		assert.ErrorContains(t, err, "shard not found")
+	})
+
+	existentShards := createShards(3, 2, models.TenantActivityStatusCOLD)
+	existentShardPairs := serializeShards(existentShards)
+
+	t.Run("fails updating shards of non existent class", func(t *testing.T) {
+		err := repo.UpdateShards(ctx, "ClassNonExistent", existentShardPairs)
+		require.NotNil(t, err)
+		assert.ErrorContains(t, err, "class not found")
+	})
+	t.Run("succeeds updating shards", func(t *testing.T) {
+		err := repo.UpdateShards(ctx, "C1", existentShardPairs)
+		require.Nil(t, err)
+
+		replaceShards(ss, existentShards)
+		repo.asserEqualSchema(t, schema, "update shards")
+	})
 
 	xset := removeShards(ss, []int{0, 3, 4})
 	if err := repo.DeleteShards(ctx, "C1", xset); err != nil {
@@ -241,18 +266,33 @@ func createClass(name string, start, nProps, nShards int) (models.Class, shardin
 		cls.Properties = append(cls.Properties, &prop)
 	}
 	ss := sharding.State{IndexID: name}
-	if nShards > 0 {
-		ss.Physical = make(map[string]sharding.Physical, nShards)
+	ss.Physical = createShards(start, nShards, models.TenantActivityStatusHOT)
+
+	return cls, ss
+}
+
+func createShards(start, nShards int, activityStatus string) map[string]sharding.Physical {
+	if nShards < 1 {
+		return nil
 	}
+
+	shards := make(map[string]sharding.Physical, nShards)
 	for i := start; i < start+nShards; i++ {
 		name := fmt.Sprintf("shard-%d", i)
 		node := fmt.Sprintf("node-%d", i)
-		ss.Physical[name] = sharding.Physical{
+		shards[name] = sharding.Physical{
 			Name:           name,
 			BelongsToNodes: []string{node},
+			Status:         activityStatus,
 		}
 	}
-	return cls, ss
+	return shards
+}
+
+func replaceShards(ss *sharding.State, shards map[string]sharding.Physical) {
+	for name, shard := range shards {
+		ss.Physical[name] = shard
+	}
 }
 
 func removeShards(ss *sharding.State, shards []int) []string {
@@ -302,9 +342,9 @@ func (r *store) asserEqualSchema(t *testing.T, expected ucs.State, msg string) {
 	assert.Equal(t, expected, actual)
 }
 
-func serializeShards(ss sharding.State) []ucs.KeyValuePair {
-	xs := make([]ucs.KeyValuePair, 0, len(ss.Physical))
-	for k, v := range ss.Physical {
+func serializeShards(shards map[string]sharding.Physical) []ucs.KeyValuePair {
+	xs := make([]ucs.KeyValuePair, 0, len(shards))
+	for k, v := range shards {
 		val, _ := json.Marshal(&v)
 		xs = append(xs, ucs.KeyValuePair{Key: k, Value: val})
 	}

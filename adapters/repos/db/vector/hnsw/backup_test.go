@@ -41,10 +41,10 @@ func TestBackup_SwitchCommitLogs(t *testing.T) {
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCycleCallbacksNoop())
+			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
 		},
 	}, enthnsw.NewDefaultUserConfig(),
-		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	idx.PostStartup()
 
@@ -71,10 +71,10 @@ func TestBackup_ListFiles(t *testing.T) {
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCycleCallbacksNoop())
+			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
 		},
 	}, enthnsw.NewDefaultUserConfig(),
-		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	idx.PostStartup()
 

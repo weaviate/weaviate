@@ -17,7 +17,6 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -25,7 +24,12 @@ import (
 )
 
 // Version of backup structure
-const Version = "1.0"
+const (
+	// Version > version1 support compression
+	Version = "2.0"
+	// version1 store plain files without compression
+	version1 = "1.0"
+)
 
 // TODO error handling need to be implemented properly.
 // Current error handling is not idiomatic and relays on string comparisons which makes testing very brittle.
@@ -58,7 +62,7 @@ type Status struct {
 	Err         string
 }
 
-type Manager struct {
+type Handler struct {
 	node string
 	// deps
 	logger     logrus.FieldLogger
@@ -68,15 +72,15 @@ type Manager struct {
 	backends   BackupBackendProvider
 }
 
-func NewManager(
+func NewHandler(
 	logger logrus.FieldLogger,
 	authorizer authorizer,
 	schema schemaManger,
 	sourcer Sourcer,
 	backends BackupBackendProvider,
-) *Manager {
+) *Handler {
 	node := schema.NodeName()
-	m := &Manager{
+	m := &Handler{
 		node:       node,
 		logger:     logger,
 		authorizer: authorizer,
@@ -107,81 +111,9 @@ type BackupRequest struct {
 	Exclude []string
 }
 
-func (m *Manager) Backup(ctx context.Context, pr *models.Principal, req *BackupRequest,
-) (*models.BackupCreateResponse, error) {
-	store, err := nodeBackend(m.node, m.backends, req.Backend, req.ID)
-	if err != nil {
-		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
-		return nil, backup.NewErrUnprocessable(err)
-	}
-
-	classes, err := m.validateBackupRequest(ctx, store, req)
-	if err != nil {
-		return nil, backup.NewErrUnprocessable(err)
-	}
-
-	if err := store.Initialize(ctx); err != nil {
-		return nil, backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
-	}
-	if meta, err := m.backupper.Backup(ctx, store, req.ID, classes); err != nil {
-		return nil, err
-	} else {
-		status := string(meta.Status)
-		return &models.BackupCreateResponse{
-			Classes: classes,
-			ID:      req.ID,
-			Backend: req.Backend,
-			Status:  &status,
-			Path:    meta.Path,
-		}, nil
-	}
-}
-
-func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
-	req *BackupRequest,
-) (*models.BackupRestoreResponse, error) {
-	store, err := nodeBackend(m.node, m.backends, req.Backend, req.ID)
-	if err != nil {
-		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
-		return nil, backup.NewErrUnprocessable(err)
-	}
-	meta, err := m.validateRestoreRequest(ctx, store, req)
-	if err != nil {
-		return nil, err
-	}
-	cs := meta.List()
-	if cls := m.restorer.AnyExists(cs); cls != "" {
-		err := fmt.Errorf("cannot restore class %q because it already exists", cls)
-		return nil, backup.NewErrUnprocessable(err)
-	}
-	rreq := Request{
-		Method:  OpRestore,
-		ID:      meta.ID,
-		Backend: req.Backend,
-		Classes: cs,
-	}
-	data, err := m.restorer.Restore(ctx, &rreq, meta, store)
-	if err != nil {
-		return nil, backup.NewErrUnprocessable(err)
-	}
-
-	return data, nil
-}
-
-func (m *Manager) BackupStatus(ctx context.Context, principal *models.Principal,
-	backend, backupID string,
-) (*models.BackupCreateStatusResponse, error) {
-	return m.backupper.Status(ctx, backend, backupID)
-}
-
-func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Principal, backend, ID string,
-) (_ Status, err error) {
-	return m.restorer.status(backend, ID)
-}
-
 // OnCanCommit will be triggered when coordinator asks the node to participate
 // in a distributed backup operation
-func (m *Manager) OnCanCommit(ctx context.Context, req *Request) *CanCommitResponse {
+func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitResponse {
 	ret := &CanCommitResponse{Method: req.Method, ID: req.ID}
 	store, err := nodeBackend(m.node, m.backends, req.Backend, req.ID)
 	if err != nil {
@@ -226,7 +158,7 @@ func (m *Manager) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 }
 
 // OnCommit will be triggered when the coordinator confirms the execution of a previous operation
-func (m *Manager) OnCommit(ctx context.Context, req *StatusRequest) (err error) {
+func (m *Handler) OnCommit(ctx context.Context, req *StatusRequest) (err error) {
 	switch req.Method {
 	case OpCreate:
 		return m.backupper.OnCommit(ctx, req)
@@ -238,7 +170,7 @@ func (m *Manager) OnCommit(ctx context.Context, req *StatusRequest) (err error) 
 }
 
 // OnAbort will be triggered when the coordinator abort the execution of a previous operation
-func (m *Manager) OnAbort(ctx context.Context, req *AbortRequest) error {
+func (m *Handler) OnAbort(ctx context.Context, req *AbortRequest) error {
 	switch req.Method {
 	case OpCreate:
 		return m.backupper.OnAbort(ctx, req)
@@ -250,7 +182,7 @@ func (m *Manager) OnAbort(ctx context.Context, req *AbortRequest) error {
 	}
 }
 
-func (m *Manager) OnStatus(ctx context.Context, req *StatusRequest) *StatusResponse {
+func (m *Handler) OnStatus(ctx context.Context, req *StatusRequest) *StatusResponse {
 	ret := StatusResponse{
 		Method: req.Method,
 		ID:     req.ID,
@@ -279,56 +211,6 @@ func (m *Manager) OnStatus(ctx context.Context, req *StatusRequest) *StatusRespo
 	}
 
 	return &ret
-}
-
-func (m *Manager) validateBackupRequest(ctx context.Context, store nodeStore, req *BackupRequest) ([]string, error) {
-	if err := validateID(req.ID); err != nil {
-		return nil, err
-	}
-	if len(req.Include) > 0 && len(req.Exclude) > 0 {
-		return nil, fmt.Errorf("malformed request: 'include' and 'exclude' cannot both contain values")
-	}
-	classes := req.Include
-	if len(classes) == 0 {
-		classes = m.backupper.sourcer.ListBackupable()
-	}
-	if classes = filterClasses(classes, req.Exclude); len(classes) == 0 {
-		return nil, fmt.Errorf("empty class list: please choose from : %v", classes)
-	}
-
-	if err := m.backupper.sourcer.Backupable(ctx, classes); err != nil {
-		return nil, err
-	}
-	destPath := store.HomeDir()
-	// there is no backup with given id on the backend, regardless of its state (valid or corrupted)
-	_, err := store.Meta(ctx, req.ID, false)
-	if err == nil {
-		return nil, fmt.Errorf("backup %q already exists at %q", req.ID, destPath)
-	}
-	if _, ok := err.(backup.ErrNotFound); !ok {
-		return nil, fmt.Errorf("check if backup %q exists at %q: %w", req.ID, destPath, err)
-	}
-	return classes, nil
-}
-
-func (m *Manager) validateRestoreRequest(ctx context.Context, store nodeStore, req *BackupRequest) (*backup.BackupDescriptor, error) {
-	if len(req.Include) > 0 && len(req.Exclude) > 0 {
-		err := fmt.Errorf("malformed request: 'include' and 'exclude' cannot both contain values")
-		return nil, backup.NewErrUnprocessable(err)
-	}
-	meta, cs, err := m.restorer.validate(ctx, &store, &Request{ID: req.ID, Classes: req.Include})
-	if err != nil {
-		if errors.Is(err, errMetaNotFound) {
-			return nil, backup.NewErrNotFound(err)
-		}
-		return nil, backup.NewErrUnprocessable(err)
-	}
-	meta.Exclude(req.Exclude)
-	if len(meta.Classes) == 0 {
-		err = fmt.Errorf("empty class list: please choose from : %v", cs)
-		return nil, backup.NewErrUnprocessable(err)
-	}
-	return meta, nil
 }
 
 func validateID(backupID string) error {

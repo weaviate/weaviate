@@ -15,6 +15,7 @@
 package lsmkv
 
 import (
+	"context"
 	"encoding/binary"
 	"math/rand"
 	"testing"
@@ -25,22 +26,21 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-func Test_CompactionRoaringSet(t *testing.T) {
+func compactionRoaringSet(ctx context.Context, t *testing.T, opts []BucketOption) {
 	maxID := uint64(100)
 	maxElement := uint64(1e6)
 	iterations := uint64(100_000)
 
 	deleteRatio := 0.2   // 20% of all operations will be deletes, 80% additions
-	flushChance := 0.001 // on average one flus per 1000 iterations
+	flushChance := 0.001 // on average one flush per 1000 iterations
 
 	r := getRandomSeed()
 
 	instr := generateRandomInstructions(r, maxID, maxElement, iterations, deleteRatio)
 	control := controlFromInstructions(instr, maxID)
 
-	b, err := NewBucket(testCtx(), t.TempDir(), "", nullLogger(), nil,
-		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
-		WithStrategy(StrategyRoaringSet))
+	b, err := NewBucket(ctx, t.TempDir(), "", nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 
 	defer b.Shutdown(testCtx())

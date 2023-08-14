@@ -13,6 +13,8 @@ package backup
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -20,6 +22,80 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 )
+
+// helper methods
+func (m *Handler) Backup(ctx context.Context, pr *models.Principal, req *BackupRequest,
+) (*models.BackupCreateResponse, error) {
+	store, err := nodeBackend(m.node, m.backends, req.Backend, req.ID)
+	if err != nil {
+		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
+		return nil, backup.NewErrUnprocessable(err)
+	}
+
+	classes := req.Include
+	if err := store.Initialize(ctx); err != nil {
+		return nil, backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
+	}
+	if meta, err := m.backupper.Backup(ctx, store, req.ID, classes); err != nil {
+		return nil, err
+	} else {
+		status := string(meta.Status)
+		return &models.BackupCreateResponse{
+			Classes: classes,
+			ID:      req.ID,
+			Backend: req.Backend,
+			Status:  &status,
+			Path:    meta.Path,
+		}, nil
+	}
+}
+
+func (m *Handler) Restore(ctx context.Context, pr *models.Principal,
+	req *BackupRequest,
+) (*models.BackupRestoreResponse, error) {
+	store, err := nodeBackend(m.node, m.backends, req.Backend, req.ID)
+	if err != nil {
+		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
+		return nil, backup.NewErrUnprocessable(err)
+	}
+	meta, err := m.validateRestoreRequest(ctx, store, req)
+	if err != nil {
+		return nil, err
+	}
+	cs := meta.List()
+	// if cls := m.restorer.AnyExists(cs); cls != "" {
+	// 	err := fmt.Errorf("cannot restore class %q because it already exists", cls)
+	// 	return nil, backup.NewErrUnprocessable(err)
+	// }
+	rreq := Request{
+		Method:  OpRestore,
+		ID:      meta.ID,
+		Backend: req.Backend,
+		Classes: cs,
+	}
+	data, err := m.restorer.Restore(ctx, &rreq, meta, store)
+	if err != nil {
+		return nil, backup.NewErrUnprocessable(err)
+	}
+
+	return data, nil
+}
+
+func (m *Handler) validateRestoreRequest(ctx context.Context, store nodeStore, req *BackupRequest) (*backup.BackupDescriptor, error) {
+	meta, cs, err := m.restorer.validate(ctx, &store, &Request{ID: req.ID, Classes: req.Include})
+	if err != nil {
+		if errors.Is(err, errMetaNotFound) {
+			return nil, backup.NewErrNotFound(err)
+		}
+		return nil, backup.NewErrUnprocessable(err)
+	}
+	meta.Exclude(req.Exclude)
+	if len(meta.Classes) == 0 {
+		err = fmt.Errorf("empty class list: please choose from : %v", cs)
+		return nil, backup.NewErrUnprocessable(err)
+	}
+	return meta, nil
+}
 
 type fakeSchemaManger struct {
 	errRestoreClass error

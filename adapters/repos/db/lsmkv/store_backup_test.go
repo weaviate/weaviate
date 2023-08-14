@@ -26,9 +26,27 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
-func TestStoreBackup_PauseCompaction(t *testing.T) {
-	logger, _ := test.NewNullLogger()
+func TestStoreBackup(t *testing.T) {
 	ctx := context.Background()
+	tests := bucketTests{
+		{
+			name: "pauseCompaction",
+			f:    pauseCompaction,
+		},
+		{
+			name: "resumeCompaction",
+			f:    resumeCompaction,
+		},
+		{
+			name: "flushMemtable",
+			f:    flushMemtable,
+		},
+	}
+	tests.run(ctx, t)
+}
+
+func pauseCompaction(ctx context.Context, t *testing.T, opts []BucketOption) {
+	logger, _ := test.NewNullLogger()
 
 	t.Run("assert that context timeout works for long compactions", func(t *testing.T) {
 		for _, buckets := range [][]string{
@@ -39,14 +57,14 @@ func TestStoreBackup_PauseCompaction(t *testing.T) {
 			t.Run(fmt.Sprintf("with %d buckets", len(buckets)), func(t *testing.T) {
 				dirName := t.TempDir()
 
-				classCompactionCallbacks := cyclemanager.NewCycleCallbacks("classCompaction", logger, 1)
-				classFlushCallbacks := cyclemanager.NewCycleCallbacksNoop()
+				shardCompactionCallbacks := cyclemanager.NewCallbackGroup("classCompaction", logger, 1)
+				shardFlushCallbacks := cyclemanager.NewCallbackGroupNoop()
 
-				store, err := New(dirName, dirName, logger, nil, classCompactionCallbacks, classFlushCallbacks)
+				store, err := New(dirName, dirName, logger, nil, shardCompactionCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
 				for _, bucket := range buckets {
-					err = store.CreateOrLoadBucket(ctx, bucket)
+					err = store.CreateOrLoadBucket(ctx, bucket, opts...)
 					require.Nil(t, err)
 				}
 
@@ -74,14 +92,14 @@ func TestStoreBackup_PauseCompaction(t *testing.T) {
 			t.Run(fmt.Sprintf("with %d buckets", len(buckets)), func(t *testing.T) {
 				dirName := t.TempDir()
 
-				classCompactionCallbacks := cyclemanager.NewCycleCallbacks("classCompaction", logger, 1)
-				classFlushCallbacks := cyclemanager.NewCycleCallbacksNoop()
+				shardCompactionCallbacks := cyclemanager.NewCallbackGroup("classCompaction", logger, 1)
+				shardFlushCallbacks := cyclemanager.NewCallbackGroupNoop()
 
-				store, err := New(dirName, dirName, logger, nil, classCompactionCallbacks, classFlushCallbacks)
+				store, err := New(dirName, dirName, logger, nil, shardCompactionCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
 				for _, bucket := range buckets {
-					err = store.CreateOrLoadBucket(ctx, bucket)
+					err = store.CreateOrLoadBucket(ctx, bucket, opts...)
 					require.Nil(t, err)
 
 					t.Run("insert contents into bucket", func(t *testing.T) {
@@ -106,9 +124,8 @@ func TestStoreBackup_PauseCompaction(t *testing.T) {
 	})
 }
 
-func TestStoreBackup_ResumeCompaction(t *testing.T) {
+func resumeCompaction(ctx context.Context, t *testing.T, opts []BucketOption) {
 	logger, _ := test.NewNullLogger()
-	ctx := context.Background()
 
 	t.Run("assert compaction restarts after pausing", func(t *testing.T) {
 		for _, buckets := range [][]string{
@@ -119,14 +136,14 @@ func TestStoreBackup_ResumeCompaction(t *testing.T) {
 			t.Run(fmt.Sprintf("with %d buckets", len(buckets)), func(t *testing.T) {
 				dirName := t.TempDir()
 
-				classCompactionCallbacks := cyclemanager.NewCycleCallbacks("classCompaction", logger, 1)
-				classFlushCallbacks := cyclemanager.NewCycleCallbacksNoop()
+				shardCompactionCallbacks := cyclemanager.NewCallbackGroup("classCompaction", logger, 1)
+				shardFlushCallbacks := cyclemanager.NewCallbackGroupNoop()
 
-				store, err := New(dirName, dirName, logger, nil, classCompactionCallbacks, classFlushCallbacks)
+				store, err := New(dirName, dirName, logger, nil, shardCompactionCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
 				for _, bucket := range buckets {
-					err = store.CreateOrLoadBucket(ctx, bucket)
+					err = store.CreateOrLoadBucket(ctx, bucket, opts...)
 					require.Nil(t, err)
 
 					t.Run("insert contents into bucket", func(t *testing.T) {
@@ -156,9 +173,8 @@ func TestStoreBackup_ResumeCompaction(t *testing.T) {
 	})
 }
 
-func TestStoreBackup_FlushMemtable(t *testing.T) {
+func flushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 	logger, _ := test.NewNullLogger()
-	ctx := context.Background()
 
 	t.Run("assert that context timeout works for long flushes", func(t *testing.T) {
 		for _, buckets := range [][]string{
@@ -169,14 +185,14 @@ func TestStoreBackup_FlushMemtable(t *testing.T) {
 			t.Run(fmt.Sprintf("with %d buckets", len(buckets)), func(t *testing.T) {
 				dirName := t.TempDir()
 
-				classCompactionCallbacks := cyclemanager.NewCycleCallbacksNoop()
-				classFlushCallbacks := cyclemanager.NewCycleCallbacks("classFlush", logger, 1)
+				shardCompactionCallbacks := cyclemanager.NewCallbackGroupNoop()
+				shardFlushCallbacks := cyclemanager.NewCallbackGroup("classFlush", logger, 1)
 
-				store, err := New(dirName, dirName, logger, nil, classCompactionCallbacks, classFlushCallbacks)
+				store, err := New(dirName, dirName, logger, nil, shardCompactionCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
 				for _, bucket := range buckets {
-					err = store.CreateOrLoadBucket(ctx, bucket)
+					err = store.CreateOrLoadBucket(ctx, bucket, opts...)
 					require.Nil(t, err)
 				}
 
@@ -204,17 +220,17 @@ func TestStoreBackup_FlushMemtable(t *testing.T) {
 			t.Run(fmt.Sprintf("with %d buckets", len(buckets)), func(t *testing.T) {
 				dirName := t.TempDir()
 
-				classCompactionCallbacks := cyclemanager.NewCycleCallbacksNoop()
-				classFlushCallbacks := cyclemanager.NewCycleCallbacks("classFlush", logger, 1)
+				shardCompactionCallbacks := cyclemanager.NewCallbackGroupNoop()
+				shardFlushCallbacks := cyclemanager.NewCallbackGroup("classFlush", logger, 1)
 
-				store, err := New(dirName, dirName, logger, nil, classCompactionCallbacks, classFlushCallbacks)
+				store, err := New(dirName, dirName, logger, nil, shardCompactionCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
-				err = store.CreateOrLoadBucket(ctx, "test_bucket")
+				err = store.CreateOrLoadBucket(ctx, "test_bucket", opts...)
 				require.Nil(t, err)
 
 				for _, bucket := range buckets {
-					err = store.CreateOrLoadBucket(ctx, bucket)
+					err = store.CreateOrLoadBucket(ctx, bucket, opts...)
 					require.Nil(t, err)
 
 					t.Run("insert contents into bucket", func(t *testing.T) {
@@ -256,14 +272,14 @@ func TestStoreBackup_FlushMemtable(t *testing.T) {
 			t.Run(fmt.Sprintf("with %d buckets", len(buckets)), func(t *testing.T) {
 				dirName := t.TempDir()
 
-				classCompactionCallbacks := cyclemanager.NewCycleCallbacksNoop()
-				classFlushCallbacks := cyclemanager.NewCycleCallbacks("classFlush", logger, 1)
+				shardCompactionCallbacks := cyclemanager.NewCallbackGroupNoop()
+				shardFlushCallbacks := cyclemanager.NewCallbackGroup("classFlush", logger, 1)
 
-				store, err := New(dirName, dirName, logger, nil, classCompactionCallbacks, classFlushCallbacks)
+				store, err := New(dirName, dirName, logger, nil, shardCompactionCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
 				for _, bucket := range buckets {
-					err = store.CreateOrLoadBucket(ctx, bucket)
+					err = store.CreateOrLoadBucket(ctx, bucket, opts...)
 					require.Nil(t, err)
 				}
 

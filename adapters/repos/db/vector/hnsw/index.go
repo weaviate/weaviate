@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -109,8 +109,8 @@ type hnsw struct {
 	tombstones map[uint64]struct{}
 
 	tombstoneCleanupCallbackCtrl cyclemanager.CycleCallbackCtrl
-	classCompactionCallbacks     cyclemanager.CycleCallbacks
-	classFlushCallbacks          cyclemanager.CycleCallbacks
+	shardCompactionCallbacks     cyclemanager.CycleCallbackGroup
+	shardFlushCallbacks          cyclemanager.CycleCallbackGroup
 
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
@@ -204,7 +204,7 @@ type (
 // truly new index. So instead the index is initialized, with un-biased disk
 // checks first and only then is the commit logger created
 func New(cfg Config, uc ent.UserConfig,
-	tombstoneCallbacks, classCompactionCallbacks, classFlushCallbacks cyclemanager.CycleCallbacks,
+	tombstoneCallbacks, shardCompactionCallbacks, shardFlushCallbacks cyclemanager.CycleCallbackGroup,
 ) (*hnsw, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
@@ -273,8 +273,8 @@ func New(cfg Config, uc ent.UserConfig,
 		pqConfig:             uc.PQ,
 		shardedNodeLocks:     make([]sync.RWMutex, NodeLockStripe),
 
-		classCompactionCallbacks: classCompactionCallbacks,
-		classFlushCallbacks:      classFlushCallbacks,
+		shardCompactionCallbacks: shardCompactionCallbacks,
+		shardFlushCallbacks:      shardFlushCallbacks,
 	}
 
 	// TODO common_cycle_manager move to poststartup?
@@ -282,7 +282,7 @@ func New(cfg Config, uc ent.UserConfig,
 		"hnsw", "tombstone_cleanup",
 		index.className, index.shardName, index.id,
 	}, "/")
-	index.tombstoneCleanupCallbackCtrl = tombstoneCallbacks.Register(id, true, index.tombstoneCleanup)
+	index.tombstoneCleanupCallbackCtrl = tombstoneCallbacks.Register(id, index.tombstoneCleanup)
 	index.insertMetrics = newInsertMetrics(index.metrics)
 
 	if err := index.init(cfg); err != nil {

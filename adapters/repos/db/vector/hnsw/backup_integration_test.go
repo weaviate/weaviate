@@ -37,25 +37,25 @@ func TestBackup_Integration(t *testing.T) {
 	dirName := t.TempDir()
 	indexID := "backup-integration-test"
 
-	parentCommitLoggerCallbacks := cyclemanager.NewCycleCallbacks("parentCommitLogger", logger, 1)
-	parentCommitLoggerCycle := cyclemanager.New(
+	parentCommitLoggerCallbacks := cyclemanager.NewCallbackGroup("parentCommitLogger", logger, 1)
+	parentCommitLoggerCycle := cyclemanager.NewManager(
 		cyclemanager.HnswCommitLoggerCycleTicker(),
 		parentCommitLoggerCallbacks.CycleCallback)
 	parentCommitLoggerCycle.Start()
 	defer parentCommitLoggerCycle.StopAndWait(ctx)
-	commitLoggerCallbacks := cyclemanager.NewCycleCallbacks("childCommitLogger", logger, 1)
-	commitLoggerCallbacksCtrl := parentCommitLoggerCallbacks.Register("commitLogger", true, commitLoggerCallbacks.CycleCallback)
+	commitLoggerCallbacks := cyclemanager.NewCallbackGroup("childCommitLogger", logger, 1)
+	commitLoggerCallbacksCtrl := parentCommitLoggerCallbacks.Register("commitLogger", commitLoggerCallbacks.CycleCallback)
 
-	parentTombstoneCleanupCallbacks := cyclemanager.NewCycleCallbacks("parentTombstoneCleanup", logger, 1)
-	parentTombstoneCleanupCycle := cyclemanager.New(
-		cyclemanager.NewFixedIntervalTicker(enthnsw.DefaultCleanupIntervalSeconds*time.Second),
+	parentTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup("parentTombstoneCleanup", logger, 1)
+	parentTombstoneCleanupCycle := cyclemanager.NewManager(
+		cyclemanager.NewFixedTicker(enthnsw.DefaultCleanupIntervalSeconds*time.Second),
 		parentTombstoneCleanupCallbacks.CycleCallback)
 	parentTombstoneCleanupCycle.Start()
 	defer parentTombstoneCleanupCycle.StopAndWait(ctx)
-	tombstoneCleanupCallbacks := cyclemanager.NewCycleCallbacks("childTombstoneCleanup", logger, 1)
-	tombstoneCleanupCallbacksCtrl := parentTombstoneCleanupCallbacks.Register("tombstoneCleanup", true, tombstoneCleanupCallbacks.CycleCallback)
+	tombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup("childTombstoneCleanup", logger, 1)
+	tombstoneCleanupCallbacksCtrl := parentTombstoneCleanupCallbacks.Register("tombstoneCleanup", tombstoneCleanupCallbacks.CycleCallback)
 
-	combinedCtrl := cyclemanager.NewCycleCombinedCallbackCtrl(2, commitLoggerCallbacksCtrl, tombstoneCleanupCallbacksCtrl)
+	combinedCtrl := cyclemanager.NewCombinedCallbackCtrl(2, commitLoggerCallbacksCtrl, tombstoneCleanupCallbacksCtrl)
 
 	idx, err := New(Config{
 		RootPath:         dirName,
@@ -67,7 +67,7 @@ func TestBackup_Integration(t *testing.T) {
 			return NewCommitLogger(dirName, indexID, logger, commitLoggerCallbacks)
 		},
 	}, enthnsw.NewDefaultUserConfig(),
-		tombstoneCleanupCallbacks, cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+		tombstoneCleanupCallbacks, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	idx.PostStartup()
 

@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 const (
@@ -40,7 +41,7 @@ func Test_Filters_String(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	store, err := lsmkv.New(dirName, dirName, logger, nil,
-		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
 	propName := "inverted-with-frequency"
@@ -80,8 +81,8 @@ func Test_Filters_String(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-	searcher := NewSearcher(logger, store, createSchema(),
-		nil, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false }, "")
+	searcher := NewSearcher(logger, store, createSchema(), nil, nil, nil,
+		fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit)
 
 	type test struct {
 		name                     string
@@ -305,7 +306,7 @@ func Test_Filters_Int(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	store, err := lsmkv.New(dirName, dirName, logger, nil,
-		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
 	propName := "inverted-without-frequency"
@@ -345,8 +346,8 @@ func Test_Filters_Int(t *testing.T) {
 		require.Nil(t, bucket.FlushAndSwitch())
 	})
 
-	searcher := NewSearcher(logger, store, createSchema(),
-		nil, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false }, "")
+	searcher := NewSearcher(logger, store, createSchema(), nil, nil, nil,
+		fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit)
 
 	type test struct {
 		name                     string
@@ -501,7 +502,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	store, err := lsmkv.New(dirName, dirName, logger, nil,
-		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
 	propName := "inverted-with-frequency"
@@ -527,8 +528,8 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-	searcher := NewSearcher(logger, store, createSchema(),
-		nil, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false }, "")
+	searcher := NewSearcher(logger, store, createSchema(), nil, nil, nil,
+		fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit)
 
 	type test struct {
 		name                     string

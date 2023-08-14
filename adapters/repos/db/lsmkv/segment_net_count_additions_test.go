@@ -26,15 +26,41 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-func TestCreateCNAOnFlush(t *testing.T) {
+func TestCNA(t *testing.T) {
 	ctx := context.Background()
+	tests := bucketTests{
+		{
+			name: "createCNAOnFlush",
+			f:    createCNAOnFlush,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+			},
+		},
+		{
+			name: "createCNAInit",
+			f:    createCNAInit,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+			},
+		},
+		{
+			name: "repairCorruptedCNAOnInit",
+			f:    repairCorruptedCNAOnInit,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+			},
+		},
+	}
+	tests.run(ctx, t)
+}
+
+func createCNAOnFlush(ctx context.Context, t *testing.T, opts []BucketOption) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
-		WithStrategy(StrategyReplace))
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
 
@@ -48,17 +74,15 @@ func TestCreateCNAOnFlush(t *testing.T) {
 	assert.True(t, ok)
 }
 
-func TestCreateCNAInit(t *testing.T) {
+func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 	// this test deletes the initial cna and makes sure it gets recreated after
 	// the bucket is initialized
-	ctx := context.Background()
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
-		WithStrategy(StrategyReplace))
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
 
@@ -83,8 +107,7 @@ func TestCreateCNAInit(t *testing.T) {
 
 	// now create a new bucket and assert that the file is re-created on init
 	b2, err := NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
-		WithStrategy(StrategyReplace))
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
 
@@ -94,17 +117,15 @@ func TestCreateCNAInit(t *testing.T) {
 	require.True(t, ok)
 }
 
-func TestRepairCorruptedCNAOnInit(t *testing.T) {
+func repairCorruptedCNAOnInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 	// this test deletes the initial cna and makes sure it gets recreated after
 	// the bucket is initialized
-	ctx := context.Background()
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
-		WithStrategy(StrategyReplace))
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
 
@@ -124,8 +145,7 @@ func TestRepairCorruptedCNAOnInit(t *testing.T) {
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches
 	b2, err := NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(),
-		WithStrategy(StrategyReplace))
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
 
