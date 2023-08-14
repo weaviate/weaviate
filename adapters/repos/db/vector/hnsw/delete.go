@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -176,6 +177,14 @@ func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanU
 // CleanUpTombstonedNodes removes nodes with a tombstone and reassigns
 // edges that were previously pointing to the tombstoned nodes
 func (h *hnsw) CleanUpTombstonedNodes(shouldBreak cyclemanager.ShouldBreakFunc) error {
+	defer func() {
+		err := recover()
+		if err != nil {
+			h.logger.WithField("panic", err).Errorf("class %s: tombstone cleanup panicked", h.className)
+			debug.PrintStack()
+		}
+	}()
+
 	_, err := h.cleanUpTombstonedNodes(shouldBreak)
 	return err
 }
