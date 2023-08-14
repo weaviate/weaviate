@@ -133,10 +133,11 @@ func (c Config) validateDefaultVectorDistanceMetric() error {
 }
 
 type AutoSchema struct {
-	Enabled       bool   `json:"enabled" yaml:"enabled"`
-	DefaultString string `json:"defaultString" yaml:"defaultString"`
-	DefaultNumber string `json:"defaultNumber" yaml:"defaultNumber"`
-	DefaultDate   string `json:"defaultDate" yaml:"defaultDate"`
+	Enabled            bool   `json:"enabled" yaml:"enabled"`
+	AutoTenantsEnabled bool   `json:"autoTenantsEnabled" yaml:"autoTenantsEnabled"`
+	DefaultString      string `json:"defaultString" yaml:"defaultString"`
+	DefaultNumber      string `json:"defaultNumber" yaml:"defaultNumber"`
+	DefaultDate        string `json:"defaultDate" yaml:"defaultDate"`
 }
 
 func (a AutoSchema) Validate() error {
