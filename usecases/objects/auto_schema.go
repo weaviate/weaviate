@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,7 +35,6 @@ type autoSchemaManager struct {
 	vectorRepo    VectorRepo
 	config        config.AutoSchema
 	logger        logrus.FieldLogger
-	recentTenants *tenantCache
 }
 
 func newAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
@@ -245,4 +245,29 @@ func (m *autoSchemaManager) determineType(value interface{}) []schema.DataType {
 	default:
 		return fallbackDataType
 	}
+}
+
+func (m *autoSchemaManager) addTenant(ctx context.Context, principal *models.Principal, class, tenant string) error {
+	if !m.config.AutoTenantsEnabled {
+		return nil
+	}
+
+	cls, err := m.getClass(principal, &models.Object{Class: class, Tenant: tenant})
+	if err != nil {
+		return fmt.Errorf("get class to add tenant: %w", err)
+	}
+
+	if cls.MultiTenancyConfig.Enabled {
+		if tenant == "" {
+			return fmt.Errorf("tenant must be included for multitenant-enabled class %q", class)
+		}
+
+		tenants := []*models.Tenant{{Name: tenant}}
+		if err := m.schemaManager.AddTenants(ctx, principal, class, tenants); err != nil {
+			if !strings.Contains(err.Error(), fmt.Sprintf("tenant %s already exists", tenant)) {
+				return err
+			}
+		}
+	}
+	return nil
 }

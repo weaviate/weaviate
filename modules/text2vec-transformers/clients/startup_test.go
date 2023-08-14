@@ -50,7 +50,7 @@ func TestWaitForStartup(t *testing.T) {
 	t.Run("when common server is down", func(t *testing.T) {
 		url := "http://nothing-running-at-this-url"
 		v := New(url, url, nullLogger())
-		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 		defer cancel()
 		err := v.WaitForStartup(ctx, 150*time.Millisecond)
 
@@ -65,7 +65,7 @@ func TestWaitForStartup(t *testing.T) {
 		urlPassage := "http://nothing-running-at-this-url"
 		urlQuery := "http://nothing-running-at-this-url-either"
 		v := New(urlPassage, urlQuery, nullLogger())
-		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 		defer cancel()
 		err := v.WaitForStartup(ctx, 50*time.Millisecond)
 
