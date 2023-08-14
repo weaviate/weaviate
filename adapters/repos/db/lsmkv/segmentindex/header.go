@@ -12,15 +12,15 @@
 package segmentindex
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
-
-	"github.com/pkg/errors"
 )
 
-// SegmentOffset describes the general offset in a segment until the data
-// starts, it is comprised of 2 bytes for level, 2 bytes for version,
+// HeaderSize describes the general offset in a segment until the data
+// starts, it is composed of 2 bytes for level, 2 bytes for version,
 // 2 bytes for secondary index count, 2 bytes for strategy, 8 bytes
 // for the pointer to the index part
 const HeaderSize = 16
@@ -74,7 +74,7 @@ func (h *Header) secondaryIndexOffsetsEnd() uint64 {
 }
 
 func (h *Header) parseSecondaryIndexOffsets(source []byte) ([]uint64, error) {
-	r := bytes.NewReader(source)
+	r := bufio.NewReader(bytes.NewReader(source))
 
 	offsets := make([]uint64, h.SecondaryIndices)
 	if err := binary.Read(r, binary.LittleEndian, &offsets); err != nil {
@@ -86,7 +86,7 @@ func (h *Header) parseSecondaryIndexOffsets(source []byte) ([]uint64, error) {
 
 func (h *Header) SecondaryIndex(source []byte, indexID uint16) ([]byte, error) {
 	if indexID >= h.SecondaryIndices {
-		return nil, errors.Errorf("retrieve index %d with len %d",
+		return nil, fmt.Errorf("retrieve index %d with len %d",
 			indexID, h.SecondaryIndices)
 	}
 
@@ -122,7 +122,7 @@ func ParseHeader(r io.Reader) (*Header, error) {
 	}
 
 	if out.Version != 0 {
-		return nil, errors.Errorf("unsupported version %d", out.Version)
+		return nil, fmt.Errorf("unsupported version %d", out.Version)
 	}
 
 	if err := binary.Read(r, binary.LittleEndian, &out.Strategy); err != nil {

@@ -26,7 +26,7 @@ import (
 
 func (h *hnsw) initCompressedStore() error {
 	store, err := lsmkv.New(fmt.Sprintf("%s/%s/%s", h.rootPath, h.className, h.shardName), "", h.logger, nil,
-		h.classCompactionCallbacks, h.classFlushCallbacks)
+		h.shardCompactionCallbacks, h.shardFlushCallbacks)
 	if err != nil {
 		return errors.Wrap(err, "Init lsmkv (compressed vectors store)")
 	}
@@ -76,9 +76,13 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 
 	h.compressActionLock.Lock()
 	defer h.compressActionLock.Unlock()
-	ssdhelpers.Concurrently(uint64(len(cleanData)),
+	ssdhelpers.Concurrently(uint64(len(data)),
 		func(index uint64) {
-			encoded := h.pq.Encode(cleanData[index])
+			if data[index] == nil {
+				return
+			}
+
+			encoded := h.pq.Encode(data[index])
 			h.storeCompressedVector(index, encoded)
 			h.compressedVectorsCache.preload(index, encoded)
 		})

@@ -165,7 +165,7 @@ func TestUpdateTenantObjects_UpdateTenant(t *testing.T) {
 
 	t.Run("create class with multi-tenancy enabled", func(t *testing.T) {
 		helper.CreateClass(t, &testClass)
-		helper.CreateTenants(t, className, []*models.Tenant{{tenantName}})
+		helper.CreateTenants(t, className, []*models.Tenant{{Name: tenantName}})
 	})
 
 	t.Run("add tenant object", func(t *testing.T) {

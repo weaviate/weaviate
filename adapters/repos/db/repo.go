@@ -17,12 +17,13 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
-
-	"github.com/weaviate/weaviate/entities/storobj"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -71,6 +72,8 @@ type DB struct {
 	jobQueueCh          chan job
 	shutDownWg          sync.WaitGroup
 	maxNumberGoroutines int
+	batchMonitorLock    sync.Mutex
+	ratePerSecond       int
 }
 
 func (db *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
@@ -115,7 +118,7 @@ func New(logger logrus.FieldLogger, config Config,
 	}
 	db.shutDownWg.Add(db.maxNumberGoroutines)
 	for i := 0; i < db.maxNumberGoroutines; i++ {
-		go db.worker()
+		go db.worker(i == 0)
 	}
 
 	return db, nil
@@ -125,6 +128,7 @@ type Config struct {
 	RootPath                  string
 	QueryLimit                int64
 	QueryMaximumResults       int64
+	QueryNestedRefLimit       int64
 	ResourceUsage             config.ResourceUsage
 	MaxImportGoroutinesFactor float64
 	MemtablesFlushIdleAfter   int
@@ -135,6 +139,8 @@ type Config struct {
 	TrackVectorDimensions     bool
 	ServerVersion             string
 	GitHash                   string
+	AvoidMMap                 bool
+	Replication               replication.GlobalConfig
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
@@ -220,7 +226,9 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (db *DB) worker() {
+func (db *DB) worker(first bool) {
+	objectCounter := 0
+	checkTime := time.Now().Add(time.Second)
 	for jobToAdd := range db.jobQueueCh {
 		if jobToAdd.index < 0 {
 			db.shutDownWg.Done()
@@ -228,6 +236,15 @@ func (db *DB) worker() {
 		}
 		jobToAdd.batcher.storeSingleObjectInAdditionalStorage(jobToAdd.ctx, jobToAdd.object, jobToAdd.status, jobToAdd.index)
 		jobToAdd.batcher.wg.Done()
+		objectCounter += 1
+		if first && time.Now().After(checkTime) { // only have one worker report the rate per second
+			db.batchMonitorLock.Lock()
+			db.ratePerSecond = objectCounter * db.maxNumberGoroutines
+			db.batchMonitorLock.Unlock()
+
+			objectCounter = 0
+			checkTime = time.Now().Add(time.Second)
+		}
 	}
 }
 

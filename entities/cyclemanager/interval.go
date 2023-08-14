@@ -21,9 +21,15 @@ const (
 )
 
 // 3s . 6.8s .. 14.4s .... 29.6s ........ 60s
-func CompactionCycleTicker() CycleTicker {
-	return NewExpTicker(compactionMinInterval, compactionMaxInterval,
+func CompactionCycleIntervals() CycleIntervals {
+	return NewExpIntervals(compactionMinInterval, compactionMaxInterval,
 		compactionBase, compactionSteps)
+}
+
+// run cycle ticker with fixed minimal interval and let each shard
+// take care of its intervals
+func CompactionCycleTicker() CycleTicker {
+	return NewFixedTicker(compactionMinInterval)
 }
 
 const (
@@ -34,9 +40,15 @@ const (
 )
 
 // 100ms . 258ms .. 574ms .... 1.206s ........ 2.471s ................ 5s
-func MemtableFlushCycleTicker() CycleTicker {
-	return NewExpTicker(memtableFlushMinInterval, memtableFlushMaxInterval,
+func MemtableFlushCycleIntervals() CycleIntervals {
+	return NewExpIntervals(memtableFlushMinInterval, memtableFlushMaxInterval,
 		memtableFlushBase, memtableFlushSteps)
+}
+
+// run cycle ticker with fixed minimal interval and let each shard
+// take care of its intervals
+func MemtableFlushCycleTicker() CycleTicker {
+	return NewFixedTicker(memtableFlushMinInterval)
 }
 
 const (
@@ -47,9 +59,15 @@ const (
 )
 
 // 10s . 13.3s .. 20s .... 33.3s ........ 60s
-func GeoCommitLoggerCycleTicker() CycleTicker {
-	return NewExpTicker(geoCommitLoggerMinInterval, geoCommitLoggerMaxInterval,
+func GeoCommitLoggerCycleIntervals() CycleIntervals {
+	return NewExpIntervals(geoCommitLoggerMinInterval, geoCommitLoggerMaxInterval,
 		geoCommitLoggerBase, geoCommitLoggerSteps)
+}
+
+// run cycle ticker with fixed minimal interval and let each shard
+// take care of its intervals
+func GeoCommitLoggerCycleTicker() CycleTicker {
+	return NewFixedTicker(geoCommitLoggerMinInterval)
 }
 
 const (
@@ -60,7 +78,13 @@ const (
 )
 
 // 500ms . 806ms .. 1.42s .... 2.65s ........ 5.1s ................10s
-func HnswCommitLoggerCycleTicker() CycleTicker {
-	return NewExpTicker(hnswCommitLoggerMinInterval, hnswCommitLoggerMaxInterval,
+func HnswCommitLoggerCycleIntervals() CycleIntervals {
+	return NewExpIntervals(hnswCommitLoggerMinInterval, hnswCommitLoggerMaxInterval,
 		hnswCommitLoggerBase, hnswCommitLoggerSteps)
+}
+
+// run cycle ticker with fixed minimal interval and let each shard
+// take care of its intervals
+func HnswCommitLoggerCycleTicker() CycleTicker {
+	return NewFixedTicker(hnswCommitLoggerMinInterval)
 }

@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -247,6 +248,7 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
 		lsmkv.WithSecondaryIndices(1),
 		lsmkv.WithMonitorCount(),
+		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		s.dynamicMemtableSizing(),
 		s.memtableIdleConfig(),
 	)
@@ -275,11 +277,14 @@ func (s *Shard) drop() error {
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
 
-	if err := s.cycleCallbacks.vectorCombinedCallbacksCtrl.Unregister(ctx); err != nil {
-		return fmt.Errorf("drop shard '%s': %w", s.name, err)
-	}
-	if err := s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Unregister(ctx); err != nil {
-		return fmt.Errorf("drop shard '%s': %w", s.name, err)
+	// unregister all callbacks at once, in parallel
+	if err := cyclemanager.NewCombinedCallbackCtrl(0,
+		s.cycleCallbacks.compactionCallbacksCtrl,
+		s.cycleCallbacks.flushCallbacksCtrl,
+		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
+		s.cycleCallbacks.geoPropsCombinedCallbacksCtrl,
+	).Unregister(ctx); err != nil {
+		return err
 	}
 
 	if err := s.store.Shutdown(ctx); err != nil {
@@ -335,7 +340,8 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropID),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
+		lsmkv.WithPread(s.index.Config.AvoidMMap))
 }
 
 func (s *Shard) addDimensionsProperty(ctx context.Context) error {
@@ -347,7 +353,8 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 	// is currently optimized better, it is more efficient to use a Map here.
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.DimensionsBucketLSM,
-		lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
+		lsmkv.WithPread(s.index.Config.AvoidMMap))
 	if err != nil {
 		return err
 	}
@@ -374,14 +381,16 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithPread(s.index.Config.AvoidMMap))
 }
 
 func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithPread(s.index.Config.AvoidMMap))
 }
 
 func (s *Shard) memtableIdleConfig() lsmkv.BucketOption {
@@ -438,6 +447,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	bucketOpts := []lsmkv.BucketOption{
 		s.memtableIdleConfig(),
 		s.dynamicMemtableSizing(),
+		lsmkv.WithPread(s.index.Config.AvoidMMap),
 	}
 
 	if inverted.HasFilterableIndex(prop) {
@@ -463,7 +473,8 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	}
 
 	if inverted.HasSearchableIndex(prop) {
-		searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+		searchableBucketOpts := append(bucketOpts,
+			lsmkv.WithStrategy(lsmkv.StrategyMapCollection), lsmkv.WithPread(s.index.Config.AvoidMMap))
 		if s.versioner.Version() < 2 {
 			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
 		}
@@ -494,7 +505,8 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLengthLSM(prop.Name),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithPread(s.index.Config.AvoidMMap))
 }
 
 func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property) error {
@@ -504,7 +516,8 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameNullLSM(prop.Name),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithPread(s.index.Config.AvoidMMap))
 }
 
 func (s *Shard) updateVectorIndexConfig(ctx context.Context,
@@ -547,16 +560,13 @@ func (s *Shard) shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "shut down vector index")
 	}
 
-	if err := s.cycleCallbacks.compactionCallbacksCtrl.Unregister(ctx); err != nil {
-		return err
-	}
-	if err := s.cycleCallbacks.flushCallbacksCtrl.Unregister(ctx); err != nil {
-		return err
-	}
-	if err := s.cycleCallbacks.vectorCombinedCallbacksCtrl.Unregister(ctx); err != nil {
-		return err
-	}
-	if err := s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Unregister(ctx); err != nil {
+	// unregister all callbacks at once, in parallel
+	if err := cyclemanager.NewCombinedCallbackCtrl(0,
+		s.cycleCallbacks.compactionCallbacksCtrl,
+		s.cycleCallbacks.flushCallbacksCtrl,
+		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
+		s.cycleCallbacks.geoPropsCombinedCallbacksCtrl,
+	).Unregister(ctx); err != nil {
 		return err
 	}
 

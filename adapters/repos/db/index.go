@@ -50,8 +50,9 @@ import (
 )
 
 var (
-	errTenantNotFound = errors.New("tenant not found")
-	_NUMCPU           = runtime.NumCPU()
+	errTenantNotFound  = errors.New("tenant not found")
+	errTenantNotActive = errors.New("tenant not active")
+	_NUMCPU            = runtime.NumCPU()
 )
 
 // shardMap is a syn.Map which specialized in storing shards
@@ -158,7 +159,7 @@ type nodeResolver interface {
 
 // NewIndex creates an index with the specified amount of shards, using only
 // the shards that are local to a node
-func NewIndex(ctx context.Context, config IndexConfig,
+func NewIndex(ctx context.Context, cfg IndexConfig,
 	shardState *sharding.State, invertedIndexConfig schema.InvertedIndexConfig,
 	vectorIndexUserConfig schema.VectorIndexConfig, sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
@@ -171,11 +172,15 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		return nil, errors.Wrap(err, "failed to create new index")
 	}
 
-	repl := replica.NewReplicator(config.ClassName.String(),
+	repl := replica.NewReplicator(cfg.ClassName.String(),
 		sg, nodeResolver, replicaClient, logger)
 
+	if cfg.QueryNestedRefLimit == 0 {
+		cfg.QueryNestedRefLimit = config.DefaultQueryNestedCrossReferenceLimit
+	}
+
 	index := &Index{
-		Config:                config,
+		Config:                cfg,
 		getSchema:             sg,
 		logger:                logger,
 		classSearcher:         cs,
@@ -183,9 +188,9 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		invertedIndexConfig:   invertedIndexConfig,
 		stopwords:             sd,
 		replicator:            repl,
-		remote: sharding.NewRemoteIndex(config.ClassName.String(), sg,
+		remote: sharding.NewRemoteIndex(cfg.ClassName.String(), sg,
 			nodeResolver, remoteClient),
-		metrics:             NewMetrics(logger, promMetrics, config.ClassName.String(), "n/a"),
+		metrics:             NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
 		centralJobQueue:     jobQueueCh,
 		partitioningEnabled: shardState.PartitioningEnabled,
 	}
@@ -198,6 +203,11 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	for _, shardName := range shardState.AllPhysicalShards() {
 		if !shardState.IsLocalShard(shardName) {
 			// do not create non-local shards
+			continue
+		}
+		physical := shardState.Physical[shardName]
+		if physical.ActivityStatus() != models.TenantActivityStatusHOT {
+			// do not instantiate inactive shard
 			continue
 		}
 
@@ -317,6 +327,7 @@ type IndexConfig struct {
 	RootPath                  string
 	ClassName                 schema.ClassName
 	QueryMaximumResults       int64
+	QueryNestedRefLimit       int64
 	ResourceUsage             config.ResourceUsage
 	MemtablesFlushIdleAfter   int
 	MemtablesInitialSizeMB    int
@@ -324,6 +335,7 @@ type IndexConfig struct {
 	MemtablesMinActiveSeconds int
 	MemtablesMaxActiveSeconds int
 	ReplicationFactor         int64
+	AvoidMMap                 bool
 
 	TrackVectorDimensions bool
 }
@@ -335,8 +347,11 @@ func indexID(class schema.ClassName) string {
 func (i *Index) determineObjectShard(id strfmt.UUID, tenant string) (string, error) {
 	className := i.Config.ClassName.String()
 	if tenant != "" {
-		if shard := i.getSchema.TenantShard(className, tenant); shard != "" {
-			return shard, nil
+		if shard, status := i.getSchema.TenantShard(className, tenant); shard != "" {
+			if status == models.TenantActivityStatusHOT {
+				return shard, nil
+			}
+			return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))
 		}
 		return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
 	}
@@ -1147,8 +1162,11 @@ func (i *Index) targetShardNames(tenant string) ([]string, error) {
 		return shardingState.AllPhysicalShards(), nil
 	}
 	if tenant != "" {
-		if shard := i.getSchema.TenantShard(className, tenant); shard != "" {
-			return []string{shard}, nil
+		if shard, status := i.getSchema.TenantShard(className, tenant); shard != "" {
+			if status == models.TenantActivityStatusHOT {
+				return []string{shard}, nil
+			}
+			return nil, objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))
 		}
 	}
 	return nil, objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))

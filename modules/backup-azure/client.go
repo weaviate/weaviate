@@ -215,6 +215,63 @@ func (a *azureClient) WriteToFile(ctx context.Context, backupID, key, destPath s
 	return nil
 }
 
+func (a *azureClient) Write(ctx context.Context, backupID, key string, r io.ReadCloser) (written int64, err error) {
+	path := a.makeObjectName(backupID, key)
+	reader := &reader{src: r}
+	defer func() {
+		r.Close()
+		written = int64(reader.count)
+	}()
+
+	if _, err = a.client.UploadStream(ctx,
+		a.config.Container,
+		path,
+		reader,
+		&azblob.UploadStreamOptions{
+			Metadata: map[string]*string{"backupid": to.Ptr(backupID)},
+			Tags:     map[string]string{"backupid": backupID},
+		}); err != nil {
+		err = fmt.Errorf("upload stream %q: %w", path, err)
+	}
+
+	return
+}
+
+func (a *azureClient) Read(ctx context.Context, backupID, key string, w io.WriteCloser) (int64, error) {
+	defer w.Close()
+
+	path := a.makeObjectName(backupID, key)
+	resp, err := a.client.DownloadStream(ctx, a.config.Container, path, nil)
+	if err != nil {
+		err = fmt.Errorf("find object %q: %w", path, err)
+		if bloberror.HasCode(err, bloberror.BlobNotFound) {
+			err = backup.NewErrNotFound(err)
+		}
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	read, err := io.Copy(w, resp.Body)
+	if err != nil {
+		return read, fmt.Errorf("io.copy %q: %w", path, err)
+	}
+
+	return read, nil
+}
+
 func (a *azureClient) SourceDataPath() string {
 	return a.dataPath
+}
+
+// reader is a wrapper used to count number of written bytes
+// Unlike GCS and S3 Azure Interface does not provide this information
+type reader struct {
+	src   io.Reader
+	count int
+}
+
+func (r *reader) Read(p []byte) (n int, err error) {
+	n, err = r.src.Read(p)
+	r.count += n
+	return
 }

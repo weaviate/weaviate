@@ -50,7 +50,7 @@ func (db *DB) init(ctx context.Context) error {
 					},
 				}
 			}
-			if err := replica.ValidateConfig(class); err != nil {
+			if err := replica.ValidateConfig(class, db.config.Replication); err != nil {
 				return fmt.Errorf("replication config: %w", err)
 			}
 
@@ -59,12 +59,14 @@ func (db *DB) init(ctx context.Context) error {
 				RootPath:                  db.config.RootPath,
 				ResourceUsage:             db.config.ResourceUsage,
 				QueryMaximumResults:       db.config.QueryMaximumResults,
+				QueryNestedRefLimit:       db.config.QueryNestedRefLimit,
 				MemtablesFlushIdleAfter:   db.config.MemtablesFlushIdleAfter,
 				MemtablesInitialSizeMB:    db.config.MemtablesInitialSizeMB,
 				MemtablesMaxSizeMB:        db.config.MemtablesMaxSizeMB,
 				MemtablesMinActiveSeconds: db.config.MemtablesMinActiveSeconds,
 				MemtablesMaxActiveSeconds: db.config.MemtablesMaxActiveSeconds,
 				TrackVectorDimensions:     db.config.TrackVectorDimensions,
+				AvoidMMap:                 db.config.AvoidMMap,
 				ReplicationFactor:         class.ReplicationConfig.Factor,
 			}, db.schemaGetter.CopyShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),

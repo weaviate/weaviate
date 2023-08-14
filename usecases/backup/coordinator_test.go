@@ -53,6 +53,23 @@ func TestCoordinatedBackup(t *testing.T) {
 		nodeResolver = newFakeNodeResolver(nodes)
 	)
 
+	t.Run("PutMeta", func(t *testing.T) {
+		t.Parallel()
+		fc := newFakeCoordinator(nodeResolver)
+		fc.selector.On("Shards", ctx, classes[0]).Return(nodes)
+		fc.selector.On("Shards", ctx, classes[1]).Return(nodes)
+
+		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", any, nodes[1], creq).Return(cresp, nil)
+		fc.backend.On("HomeDir", backupID).Return("bucket/" + backupID)
+		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(ErrAny).Once()
+
+		coordinator := *fc.coordinator()
+		store := coordStore{objStore{fc.backend, req.ID}}
+		err := coordinator.Backup(ctx, store, &req)
+		assert.NotNil(t, err)
+	})
+
 	t.Run("Success", func(t *testing.T) {
 		t.Parallel()
 		fc := newFakeCoordinator(nodeResolver)

@@ -139,7 +139,7 @@ func createEmptyHnswIndexForTests(t *testing.T, vecForIDFn VectorForID) *hnsw {
 		MaxConnections: 30,
 		EFConstruction: 60,
 	},
-		cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop(), cyclemanager.NewCycleCallbacksNoop())
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	return index
 }

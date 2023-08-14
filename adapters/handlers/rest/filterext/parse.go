@@ -139,8 +139,6 @@ func parseOperator(in string) (filters.Operator, error) {
 		return filters.OperatorAnd, nil
 	case models.WhereFilterOperatorOr:
 		return filters.OperatorOr, nil
-	case models.WhereFilterOperatorNot:
-		return filters.OperatorNot, nil
 	case models.WhereFilterOperatorIsNull:
 		return filters.OperatorIsNull, nil
 	default:

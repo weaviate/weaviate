@@ -617,7 +617,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 
 	t.Run("BackupWithHigherVersion", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
-		version := "1024"
+		version := "3.0"
 		meta := backup.DistributedBackupDescriptor{
 			ID:            id,
 			StartedAt:     timePt,

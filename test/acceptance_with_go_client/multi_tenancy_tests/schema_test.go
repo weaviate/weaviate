@@ -152,7 +152,7 @@ func TestSchema_Tenants(t *testing.T) {
 		})
 
 		t.Run("adds multiple tenants", func(t *testing.T) {
-			tenants := []models.Tenant{
+			tenants := fixtures.Tenants{
 				{Name: "tenantNo2"},
 				{Name: "tenantNo3"},
 			}
@@ -169,7 +169,7 @@ func TestSchema_Tenants(t *testing.T) {
 	t.Run("fails adding tenants to non-MT class", func(t *testing.T) {
 		defer cleanup()
 
-		tenants := []models.Tenant{
+		tenants := fixtures.Tenants{
 			{Name: "tenantNo1"},
 			{Name: "tenantNo2"},
 		}
@@ -190,7 +190,10 @@ func TestSchema_Tenants(t *testing.T) {
 	t.Run("gets tenants of MT class", func(t *testing.T) {
 		defer cleanup()
 
-		tenants := []string{"tenantNo1", "tenantNo2"}
+		tenants := fixtures.Tenants{
+			{Name: "tenantNo1"},
+			{Name: "tenantNo2"},
+		}
 
 		fixtures.CreateSchemaPizzaForTenants(t, client)
 		fixtures.CreateTenantsPizza(t, client, tenants...)
@@ -202,11 +205,7 @@ func TestSchema_Tenants(t *testing.T) {
 		require.Nil(t, err)
 		require.Len(t, gotTenants, len(tenants))
 
-		names := make([]string, len(tenants))
-		for i, tenant := range gotTenants {
-			names[i] = tenant.Name
-		}
-		assert.ElementsMatch(t, tenants, names)
+		assert.ElementsMatch(t, tenants.Names(), fixtures.Tenants(gotTenants).Names())
 	})
 
 	t.Run("fails getting tenants from non-MT class", func(t *testing.T) {
@@ -225,10 +224,84 @@ func TestSchema_Tenants(t *testing.T) {
 		require.Nil(t, gotTenants)
 	})
 
+	t.Run("updates tenants of MT class", func(t *testing.T) {
+		defer cleanup()
+
+		tenants := []models.Tenant{
+			{Name: "tenantNo1"},
+			{Name: "tenantNo2"},
+		}
+
+		fixtures.CreateSchemaPizzaForTenants(t, client)
+		fixtures.CreateTenantsPizza(t, client, tenants...)
+
+		t.Run("fails updating non existent tenant", func(t *testing.T) {
+			err := client.Schema().TenantsUpdater().
+				WithClassName(className).
+				WithTenants(models.Tenant{
+					Name:           "nonExistentTenant",
+					ActivityStatus: models.TenantActivityStatusCOLD,
+				}).Do(context.Background())
+
+			require.NotNil(t, err)
+			clientErr := err.(*fault.WeaviateClientError)
+			assert.Equal(t, 422, clientErr.StatusCode)
+			assert.Contains(t, clientErr.Msg, "not found")
+		})
+
+		t.Run("updates existent tenants", func(t *testing.T) {
+			err := client.Schema().TenantsUpdater().
+				WithClassName(className).
+				WithTenants(
+					models.Tenant{
+						Name:           tenants[0].Name,
+						ActivityStatus: models.TenantActivityStatusCOLD,
+					},
+					models.Tenant{
+						Name:           tenants[1].Name,
+						ActivityStatus: models.TenantActivityStatusCOLD,
+					},
+				).Do(context.Background())
+
+			require.Nil(t, err)
+		})
+	})
+
+	t.Run("fails updating tenants of non-MT class", func(t *testing.T) {
+		defer cleanup()
+
+		tenants := []models.Tenant{
+			{
+				Name:           "tenantNo1",
+				ActivityStatus: models.TenantActivityStatusCOLD,
+			},
+			{
+				Name:           "tenantNo2",
+				ActivityStatus: models.TenantActivityStatusCOLD,
+			},
+		}
+
+		fixtures.CreateSchemaPizza(t, client)
+
+		err := client.Schema().TenantsUpdater().
+			WithClassName(className).
+			WithTenants(tenants...).
+			Do(context.Background())
+
+		require.NotNil(t, err)
+		clientErr := err.(*fault.WeaviateClientError)
+		assert.Equal(t, 422, clientErr.StatusCode)
+		assert.Contains(t, clientErr.Msg, "multi-tenancy is not enabled for class")
+	})
+
 	t.Run("deletes tenants from MT class", func(t *testing.T) {
 		defer cleanup()
 
-		tenants := []string{"tenantNo1", "tenantNo2", "tenantNo3"}
+		tenants := fixtures.Tenants{
+			{Name: "tenantNo1"},
+			{Name: "tenantNo2"},
+			{Name: "tenantNo3"},
+		}
 
 		fixtures.CreateSchemaPizzaForTenants(t, client)
 		fixtures.CreateTenantsPizza(t, client, tenants...)
@@ -236,7 +309,7 @@ func TestSchema_Tenants(t *testing.T) {
 		t.Run("does not error on deleting non existent tenant", func(t *testing.T) {
 			err := client.Schema().TenantsDeleter().
 				WithClassName(className).
-				WithTenants(tenants[0], "nonExistentTenant").
+				WithTenants(tenants[0].Name, "nonExistentTenant").
 				Do(context.Background())
 
 			require.Nil(t, err)
@@ -245,7 +318,7 @@ func TestSchema_Tenants(t *testing.T) {
 		t.Run("deletes multiple tenants", func(t *testing.T) {
 			err := client.Schema().TenantsDeleter().
 				WithClassName(className).
-				WithTenants(tenants[1:]...).
+				WithTenants(tenants[1:].Names()...).
 				Do(context.Background())
 
 			require.Nil(t, err)
@@ -255,13 +328,16 @@ func TestSchema_Tenants(t *testing.T) {
 	t.Run("fails deleting tenants from non-MT class", func(t *testing.T) {
 		defer cleanup()
 
-		tenants := []string{"tenantNo1", "tenantNo2"}
+		tenants := fixtures.Tenants{
+			{Name: "tenantNo1"},
+			{Name: "tenantNo2"},
+		}
 
 		fixtures.CreateSchemaPizza(t, client)
 
 		err := client.Schema().TenantsDeleter().
 			WithClassName(className).
-			WithTenants(tenants...).
+			WithTenants(tenants.Names()...).
 			Do(context.Background())
 
 		require.NotNil(t, err)
