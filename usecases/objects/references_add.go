@@ -70,12 +70,14 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 
 	if !deprecatedEndpoint {
 		if input.Class != "" && strings.Count(string(input.Ref.Beacon), "/") == 3 {
-			toClass, toBeacon, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, input.Ref.Beacon)
+			toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, input.Ref.Beacon)
 			if err != nil {
 				return err
 			}
-			input.Ref.Class = toClass
-			input.Ref.Beacon = toBeacon
+			if replace {
+				input.Ref.Class = toClass
+				input.Ref.Beacon = toBeacon
+			}
 		}
 		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl, tenant)
 		if err != nil {

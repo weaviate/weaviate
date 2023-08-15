@@ -131,6 +131,76 @@ func TestRefsWithoutToClass(t *testing.T) {
 	}, objWithoutRef)
 }
 
+func TestRefsMultiTarget(t *testing.T) {
+	refToClassName := "ReferenceTo"
+	refFromClassName := "ReferenceFrom"
+	defer deleteObjectClass(t, refToClassName)
+	defer deleteObjectClass(t, refFromClassName)
+
+	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{Class: refToClassName})
+	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+
+	refFromClass := &models.Class{
+		Class: refFromClassName,
+		Properties: []*models.Property{
+			{
+				DataType: []string{refToClassName, refFromClassName},
+				Name:     "ref",
+			},
+		},
+	}
+	params2 := clschema.NewSchemaObjectsCreateParams().WithObjectClass(refFromClass)
+	resp2, err := helper.Client(t).Schema.SchemaObjectsCreate(params2, nil)
+	helper.AssertRequestOk(t, resp2, err, nil)
+
+	refToId := assertCreateObject(t, refToClassName, map[string]interface{}{})
+	assertGetObjectEventually(t, refToId)
+	refFromId := assertCreateObject(t, refFromClassName, map[string]interface{}{})
+	assertGetObjectEventually(t, refFromId)
+
+	cases := []struct {
+		classRef string
+		id       string
+	}{
+		{classRef: "", id: refToId.String()},
+		{classRef: refToClassName + "/", id: refToId.String()},
+		{classRef: refFromClassName + "/", id: refFromId.String()},
+	}
+	for _, tt := range cases {
+		postRefParams := objects.NewObjectsClassReferencesCreateParams().
+			WithID(refFromId).
+			WithPropertyName("ref").WithClassName(refFromClass.Class).
+			WithBody(&models.SingleRef{
+				Beacon: strfmt.URI(fmt.Sprintf(beaconStart+"%s%s", tt.classRef, tt.id)),
+			})
+		postRefResponse, err := helper.Client(t).Objects.ObjectsClassReferencesCreate(postRefParams, nil)
+		helper.AssertRequestOk(t, postRefResponse, err, nil)
+
+		// validate that ref was create for the correct class
+		objWithRef := func() interface{} {
+			obj := assertGetObjectWithClass(t, refFromId, refFromClassName)
+			return obj.Properties
+		}
+		testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+			"ref": []interface{}{
+				map[string]interface{}{
+					"beacon": fmt.Sprintf(beaconStart+"%s%s", tt.classRef, tt.id),
+					"href":   fmt.Sprintf(pathStart+"%s%s", tt.classRef, tt.id),
+				},
+			},
+		}, objWithRef)
+
+		// delete refs
+		updateRefParams := objects.NewObjectsClassReferencesPutParams().
+			WithID(refFromId).
+			WithPropertyName("ref").WithClassName(refFromClass.Class).
+			WithBody(models.MultipleRef{})
+		updateRefResponse, err := helper.Client(t).Objects.ObjectsClassReferencesPut(updateRefParams, nil)
+		helper.AssertRequestOk(t, updateRefResponse, err, nil)
+	}
+}
+
 func TestBatchRefsMultiTarget(t *testing.T) {
 	refToClassName := "ReferenceTo"
 	refFromClassName := "ReferenceFrom"
@@ -441,8 +511,8 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 		"name": "My City",
 		"hasPlaces": []interface{}{
 			map[string]interface{}{
-				"beacon": fmt.Sprintf("weaviate://localhost/%s", place1ID.String()),
-				"href":   fmt.Sprintf("/v1/objects/%s", place1ID.String()),
+				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", placeClass.Class, place1ID.String()),
+				"href":   fmt.Sprintf("/v1/objects/%s/%s", placeClass.Class, place1ID.String()),
 			},
 		},
 	}, actualThunk)
@@ -471,12 +541,12 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 	t.Log("9. verify both cross refs are present")
 	expectedRefs := []interface{}{
 		map[string]interface{}{
-			"beacon": fmt.Sprintf("weaviate://localhost/%s", place1ID.String()),
-			"href":   fmt.Sprintf("/v1/objects/%s", place1ID.String()),
+			"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", placeClass.Class, place1ID.String()),
+			"href":   fmt.Sprintf("/v1/objects/%s/%s", placeClass.Class, place1ID.String()),
 		},
 		map[string]interface{}{
-			"beacon": fmt.Sprintf("weaviate://localhost/%s", place2ID.String()),
-			"href":   fmt.Sprintf("/v1/objects/%s", place2ID.String()),
+			"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", placeClass.Class, place2ID.String()),
+			"href":   fmt.Sprintf("/v1/objects/%s/%s", placeClass.Class, place2ID.String()),
 		},
 	}
 
