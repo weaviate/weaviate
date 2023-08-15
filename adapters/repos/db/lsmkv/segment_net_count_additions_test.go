@@ -84,7 +84,6 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
-	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
 	require.Nil(t, b.FlushMemtable())
@@ -127,7 +126,6 @@ func repairCorruptedCNAOnInit(ctx context.Context, t *testing.T, opts []BucketOp
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
-	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
 	require.Nil(t, b.FlushMemtable())
