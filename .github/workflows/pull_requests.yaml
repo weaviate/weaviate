@@ -187,6 +187,18 @@ jobs:
       - name: run acceptance tests
         shell: bash
         run: go test -count 1 -race test/acceptance/actions/*.go  # tests that don't need a Vectorizer
+  Integration-Tests-Windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+          cache: true
+      - name: Integration test
+        shell: bash
+        run: ./test/run.sh --integration-only
 
   Push-Docker:
     needs: [Acceptance-Tests, Modules-Acceptance-Tests, Unit-Tests, Integration-Tests, Vulnerability-Scanning, Run-Swagger]
