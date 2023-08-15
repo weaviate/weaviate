@@ -41,6 +41,10 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 	return nil
 }
 
+func (h *hnsw) AddBatch(id []uint64, vector [][]float32) error {
+	return nil
+}
+
 func (h *hnsw) Add(id uint64, vector []float32) error {
 	before := time.Now()
 	if len(vector) == 0 {
