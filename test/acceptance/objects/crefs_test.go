@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -360,6 +362,80 @@ func TestBatchRefsWithoutToClass(t *testing.T) {
 		// validate that ref was create for the correct class
 		objWithRef := func() interface{} {
 			obj := assertGetObjectWithClass(t, uuidsFrom[i], refFromClassName)
+			return obj.Properties
+		}
+		testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+			"ref": []interface{}{
+				map[string]interface{}{
+					"beacon": fmt.Sprintf(beaconStart+"%s/%s", refToClassName, uuidsTo[i].String()),
+					"href":   fmt.Sprintf(pathStart+"%s/%s", refToClassName, uuidsTo[i].String()),
+				},
+			},
+		}, objWithRef)
+	}
+}
+
+func TestObjectBatchToClassDetection(t *testing.T) {
+	// uses same code path as normal object add
+	refToClassName := "ReferenceTo"
+	refFromClassName := "ReferenceFrom"
+	defer deleteObjectClass(t, refToClassName)
+	defer deleteObjectClass(t, refFromClassName)
+
+	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{Class: refToClassName})
+	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+
+	refFromClass := &models.Class{
+		Class: refFromClassName,
+		Properties: []*models.Property{
+			{
+				DataType: []string{refToClassName},
+				Name:     "ref",
+			},
+		},
+	}
+	params2 := clschema.NewSchemaObjectsCreateParams().WithObjectClass(refFromClass)
+	resp2, err := helper.Client(t).Schema.SchemaObjectsCreate(params2, nil)
+	helper.AssertRequestOk(t, resp2, err, nil)
+
+	refs := make([]interface{}, 10)
+	uuidsTo := make([]strfmt.UUID, 10)
+
+	for i := 0; i < 10; i++ {
+		uuidTo := assertCreateObject(t, refToClassName, map[string]interface{}{})
+		uuidsTo[i] = uuidTo
+		assertGetObjectEventually(t, uuidTo)
+		refs[i] = map[string]interface{}{
+			"beacon": beaconStart + uuidTo,
+		}
+	}
+
+	fromBatch := make([]*models.Object, 10)
+	for i := 0; i < 10; i++ {
+		fromBatch[i] = &models.Object{
+			Class: refFromClassName,
+			ID:    strfmt.UUID(uuid.New().String()),
+			Properties: map[string]interface{}{
+				"ref": refs[i : i+1],
+			},
+		}
+	}
+	paramsBatch := batch.NewBatchObjectsCreateParams().WithBody(
+		batch.BatchObjectsCreateBody{
+			Objects: fromBatch,
+		},
+	)
+	res, err := helper.Client(t).Batch.BatchObjectsCreate(paramsBatch, nil)
+	require.Nil(t, err)
+	for _, elem := range res.Payload {
+		assert.Nil(t, elem.Result.Errors)
+	}
+
+	for i := range fromBatch {
+		// validate that ref was create for the correct class
+		objWithRef := func() interface{} {
+			obj := assertGetObjectWithClass(t, fromBatch[i].ID, refFromClassName)
 			return obj.Properties
 		}
 		testhelper.AssertEventuallyEqual(t, map[string]interface{}{
