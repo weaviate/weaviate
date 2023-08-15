@@ -90,6 +90,8 @@ func TestRepositorySaveLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create new repo: %v", err)
 	}
+	defer repo.Close()
+
 	// load empty schema
 	res, err := repo.Load(ctx)
 	if err != nil {
@@ -138,6 +140,7 @@ func TestRepositoryUpdateClass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create new repo: %v", err)
 	}
+	defer repo.Close()
 
 	// save and load non empty schema
 	schema := ucs.NewState(3)
@@ -198,6 +201,7 @@ func TestRepositoryUpdateShards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create new repo: %v", err)
 	}
+	defer repo.Close()
 
 	schema := ucs.NewState(2)
 	cls, ss := addClass(&schema, "C1", 0, 2, 1)
