@@ -27,6 +27,11 @@ func NewIndex() *Index {
 	return &Index{}
 }
 
+func (i *Index) AddBatch(id []uint64, vector [][]float32) error {
+	// silently ignore
+	return nil
+}
+
 func (i *Index) Add(id uint64, vector []float32) error {
 	// silently ignore
 	return nil
