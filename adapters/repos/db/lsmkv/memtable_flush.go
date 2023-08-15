@@ -21,12 +21,19 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
+func checkClose(c io.Closer, err *error) {
+	if cerr := c.Close(); cerr != nil && *err == nil {
+		*err = cerr
+	}
+}
+
 func (m *Memtable) flush() error {
 	// close the commit log first, this also forces it to be fsynced. If
 	// something fails there, don't proceed with flushing. The commit log will
 	// only be deleted at the very end, if the flush was successful
 	// (indicated by a successful close of the flush file - which indicates a
 	// successful fsync)
+	var err error
 
 	if err := m.commitlog.close(); err != nil {
 		return errors.Wrap(err, "close commit log file")
@@ -46,6 +53,7 @@ func (m *Memtable) flush() error {
 	if err != nil {
 		return err
 	}
+	defer checkClose(f, &err)
 
 	w := bufio.NewWriterSize(f, int(float64(m.size)*1.3)) // calculate 30% overhead for disk representation
 
@@ -96,7 +104,12 @@ func (m *Memtable) flush() error {
 	// only now that the file has been flushed is it safe to delete the commit log
 	// TODO: there might be an interest in keeping the commit logs around for
 	// longer as they might come in handy for replication
-	return m.commitlog.delete()
+	if err := m.commitlog.delete(); err != nil {
+		return err
+	}
+
+	// returns the nil error and allows for defer file close to also error here
+	return err
 }
 
 func (m *Memtable) flushDataReplace(f io.Writer) ([]segmentindex.Key, error) {
