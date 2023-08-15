@@ -88,7 +88,7 @@ func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *mo
 		}
 	}
 
-	return m.updateClass(ctx, principal, object.Class, properties, schemaClass.Properties, object.Tenant)
+	return m.updateClass(ctx, principal, object.Class, properties, schemaClass.Properties)
 }
 
 func (m *autoSchemaManager) getClass(principal *models.Principal,
@@ -118,7 +118,7 @@ func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.P
 }
 
 func (m *autoSchemaManager) updateClass(ctx context.Context, principal *models.Principal,
-	className string, properties []*models.Property, existingProperties []*models.Property, tenant string,
+	className string, properties []*models.Property, existingProperties []*models.Property,
 ) error {
 	propertiesToAdd := []*models.Property{}
 	for _, prop := range properties {
