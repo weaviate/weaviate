@@ -66,7 +66,13 @@ func int32FromBytes(bytes []byte) int {
 func TestHnswStress(t *testing.T) {
 	siftFile := "datasets/ann-benchmarks/siftsmall/siftsmall_base.fvecs"
 	if _, err := os.Stat(siftFile); err != nil {
-		t.Skip("Sift data needs to be present")
+		if !*download {
+			t.Skip(`Sift data needs to be present.
+Run test with -download to automatically download the dataset.
+Ex: go test -v -run TestHnswStress . -download
+`)
+		}
+		downloadDatasetFile(t, siftFile)
 	}
 	vectors := readSiftFloat(siftFile, parallelGoroutines*vectorsPerGoroutine)
 
