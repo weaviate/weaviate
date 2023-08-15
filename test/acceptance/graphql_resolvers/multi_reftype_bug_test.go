@@ -29,6 +29,9 @@ func TestMultipleRefTypeIssues(t *testing.T) {
 	className := func(suffix string) string {
 		return "MultiRefTypeBug" + suffix
 	}
+	defer deleteObjectClass(t, className("TargetOne"))
+	defer deleteObjectClass(t, className("TargetTwo"))
+	defer deleteObjectClass(t, className("Source"))
 
 	const (
 		targetOneID strfmt.UUID = "155c5914-6594-4cde-b3ab-f8570b561965"

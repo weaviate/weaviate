@@ -99,6 +99,9 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 					if err != nil {
 						return err
 					}
+					if len(prop.DataType) > 1 {
+						continue
+					}
 					toClass := prop.DataType[0] // datatype is the name of the class that is referenced
 					beaconElements := strings.Split(beacon, "/")
 					toUUID := beaconElements[len(beaconElements)-1]
