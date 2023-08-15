@@ -96,6 +96,16 @@ func TestGetTenantObjects(t *testing.T) {
 			assert.Equal(t, obj.Properties, resp.Properties)
 		}
 	})
+
+	t.Run("get tenant objects with include", func(t *testing.T) {
+		for i, obj := range tenantObjects {
+			resp, err := helper.TenantObjectWithInclude(t, obj.Class, obj.ID, tenantNames[i], "vector")
+			require.Nil(t, err)
+			assert.Equal(t, obj.ID, resp.ID)
+			assert.Equal(t, obj.Class, resp.Class)
+			assert.Equal(t, obj.Properties, resp.Properties)
+		}
+	})
 }
 
 func TestListTenantObjects(t *testing.T) {
