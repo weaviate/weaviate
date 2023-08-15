@@ -1091,6 +1091,16 @@ func (f *fakeManager) GetObjectsClass(ctx context.Context,
 	return class, nil
 }
 
+func (f *fakeManager) GetObjectClassFromName(ctx context.Context, principal *models.Principal,
+	className string,
+) (*models.Class, error) {
+	class := &models.Class{
+		Class:      f.getObjectReturn.Class,
+		Vectorizer: "text2vec-contextionary",
+	}
+	return class, nil
+}
+
 func (f *fakeManager) GetObjects(ctx context.Context, principal *models.Principal, offset *int64, limit *int64, sort *string, order *string, after *string, addl additional.Properties, tenant string) ([]*models.Object, error) {
 	return f.queryResult, nil
 }
