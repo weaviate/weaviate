@@ -163,7 +163,7 @@ func getShard(src, shardName string) (sd backup.ShardDescriptor, err error) {
 		if !fi.Mode().IsRegular() || !strings.Contains(fPath, shardName) {
 			return nil
 		}
-		relPath := strings.TrimPrefix(strings.Replace(fPath, src, "", -1), string(filepath.Separator))
+		relPath := strings.TrimPrefix(strings.Replace(fPath, filepath.FromSlash(src), "", -1), string(filepath.Separator))
 		name := fi.Name()
 
 		if strings.Contains(name, "indexcount") {
