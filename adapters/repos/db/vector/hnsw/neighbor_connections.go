@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context" // remove
 	"math"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -379,18 +380,29 @@ func (n *neighborFinderConnectorHybrid) doAtLevelHybrid(level int, lambda float3
 	num_filter_candidates := int(math.Ceil(float64(float32(n.graph.efConstruction) * lambda)))
 	num_distance_candidates := n.graph.efConstruction - num_filter_candidates
 
+	var waitForDistanceSearchLock sync.Mutex
+	// maybe want to add a if num_distance_candidates != 0
+	waitForDistanceSearchLock.Lock()
 	results, err := n.graph.searchLayerByVector(n.nodeVec, eps, num_distance_candidates,
 		level, nil)
 	if err != nil {
 		return errors.Wrapf(err, "search layer at level %d", level)
 	}
+	waitForDistanceSearchLock.Unlock()
+	n.graph.Lock()
+	eps.Insert(n.entryPointID, n.entryPointDist)
+	n.graph.Unlock()
 	filterResults, err := n.graph.searchLayerByVectorWithFilters(n.nodeVec, eps, num_filter_candidates,
 		level, n.filters, nil)
 	if err != nil {
 		return errors.Wrapf(err, "search layer at level %d", level)
 	}
+	//fmt.Printf("\n searchLayerByVector returned %d candidates", results.Len())
+	//fmt.Printf("\n searchLayerByVectorWithFilters returned %d candidates", filterResults.Len())
+
 	// merge them here
 	for filterResults.Len() > 0 {
+		// check if it's a duplicate!
 		item := filterResults.Pop()
 		results.Insert(item.ID, item.Dist)
 	}

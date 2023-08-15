@@ -157,13 +157,15 @@ func TestFilteredRecall(t *testing.T) {
 			go func(workerID int, myJobs []vecWithFilters) {
 				defer wg.Done()
 				for i, vec := range myJobs {
-					if i > 10_000 {
-						break
-					}
+					/*
+						if i > 1000 {
+							break
+						}
+					*/
 					originalIndex := (i * workerCount) + workerID
 					nodeId := uint64(originalIndex)
 					/* TEST FILTERED HNSW */
-					err := vectorIndex.HybridAdd(nodeId, vec.Vector, vec.FilterMap, 1) // change signature to add vec.Label
+					err := vectorIndex.HybridAdd(nodeId, vec.Vector, vec.FilterMap, 0.05) // change signature to add vec.Label
 					/* TEST HNSW */
 					//err := vectorIndex.Add(nodeId, vec.Vector)
 					require.Nil(t, err)
@@ -322,6 +324,8 @@ func AverageMatchingFiltersPerNode(vectorIndex *hnsw, level int) map[int]float32
 	resultsCount[0] = 0
 	resultsCount[1] = 0
 
+	totalNeighbors := 0
+
 	nonNilnodes := 0
 
 	for _, node := range vectorIndex.nodes {
@@ -331,7 +335,7 @@ func AverageMatchingFiltersPerNode(vectorIndex *hnsw, level int) map[int]float32
 
 		node.Lock()
 		count := 0 // might want to plot a distribution of this
-		totalNeighbors := 0
+		localTotalNeighbors := 0
 
 		if len(node.connections[level]) == 0 {
 			fmt.Printf("nodeId %v has 0 neighbors \n", node)
@@ -339,16 +343,16 @@ func AverageMatchingFiltersPerNode(vectorIndex *hnsw, level int) map[int]float32
 			continue
 		}
 
-		fmt.Printf("\n Here are the neighbors of node %v \n", node.id)
-		fmt.Printf("\n With Filters %v \n", node.filters)
+		//fmt.Printf("\n Here are the neighbors of node %v \n", node.id)
+		//fmt.Printf("\n With Filters %v \n", node.filters)
 		for _, connectionID := range node.connections[level] {
 			neighbor := vectorIndex.nodes[connectionID]
 			if neighbor == nil {
 				continue
 			}
-			fmt.Printf("Neighbor ID: %v \n", neighbor.id)
-			fmt.Printf("Neighbor filters: %v \n", neighbor.filters)
-			totalNeighbors += 1
+			//fmt.Printf("Neighbor ID: %v \n", neighbor.id)
+			//fmt.Printf("Neighbor filters: %v \n", neighbor.filters)
+			localTotalNeighbors += 1
 
 			neighbor.Lock()
 			if filtersEqual(node.filters, neighbor.filters) {
@@ -363,8 +367,10 @@ func AverageMatchingFiltersPerNode(vectorIndex *hnsw, level int) map[int]float32
 		resultsMutex.Unlock()
 
 		resultsCountMutex.Lock()
-		resultsCount[node.filters[0]] += float32(totalNeighbors)
+		resultsCount[node.filters[0]] += float32(localTotalNeighbors)
 		resultsCountMutex.Unlock()
+
+		totalNeighbors += localTotalNeighbors
 
 		nonNilnodes += 1
 		node.Unlock()
@@ -378,6 +384,7 @@ func AverageMatchingFiltersPerNode(vectorIndex *hnsw, level int) map[int]float32
 	results[0] /= resultsCount[0]
 	results[1] /= resultsCount[1]
 
+	fmt.Printf("\n \n Average Neighbors per Node %d \n \n", totalNeighbors/len(vectorIndex.nodes))
 	fmt.Printf("\n \n Number of nonNilnodes %d \n \n", nonNilnodes)
 	return results
 }
