@@ -56,6 +56,8 @@ func Test_CommitlogCombiner(t *testing.T) {
 	t.Run("we are now left with combined files", func(t *testing.T) {
 		dir, err := os.Open(commitLogDirectory(rootPath, id))
 		require.Nil(t, err)
+		defer dir.Close()
+		require.Nil(t, err)
 
 		fileNames, err := dir.Readdirnames(0)
 		require.Nil(t, err)
