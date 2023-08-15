@@ -81,6 +81,13 @@ func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *mo
 	if schemaClass == nil {
 		return m.createClass(ctx, principal, object.Class, properties)
 	}
+
+	if shouldAutoCreateTenants(schemaClass) {
+		if err = m.addTenant(ctx, principal, schemaClass, object.Tenant); err != nil {
+			return err
+		}
+	}
+
 	return m.updateClass(ctx, principal, object.Class, properties, schemaClass.Properties, object.Tenant)
 }
 
@@ -125,10 +132,6 @@ func (m *autoSchemaManager) updateClass(ctx context.Context, principal *models.P
 		if !found {
 			propertiesToAdd = append(propertiesToAdd, prop)
 		}
-	}
-
-	if err := m.addTenant(ctx, principal, className, tenant); err != nil {
-		return err
 	}
 
 	for _, newProp := range propertiesToAdd {
@@ -247,27 +250,25 @@ func (m *autoSchemaManager) determineType(value interface{}) []schema.DataType {
 	}
 }
 
-func (m *autoSchemaManager) addTenant(ctx context.Context, principal *models.Principal, class, tenant string) error {
-	if !m.config.AutoTenantsEnabled {
-		return nil
+func (m *autoSchemaManager) addTenant(ctx context.Context, principal *models.Principal,
+	class *models.Class, tenant string,
+) error {
+	if tenant == "" {
+		return fmt.Errorf(
+			"tenant must be included for multitenant-enabled class %q", class.Class)
 	}
-
-	cls, err := m.getClass(principal, &models.Object{Class: class, Tenant: tenant})
-	if err != nil {
-		return fmt.Errorf("get class to add tenant: %w", err)
-	}
-
-	if cls.MultiTenancyConfig.Enabled {
-		if tenant == "" {
-			return fmt.Errorf("tenant must be included for multitenant-enabled class %q", class)
-		}
-
-		tenants := []*models.Tenant{{Name: tenant}}
-		if err := m.schemaManager.AddTenants(ctx, principal, class, tenants); err != nil {
-			if !strings.Contains(err.Error(), fmt.Sprintf("tenant %s already exists", tenant)) {
-				return err
-			}
+	tenants := []*models.Tenant{{Name: tenant}}
+	if err := m.schemaManager.AddTenants(ctx, principal, class.Class, tenants); err != nil {
+		if !strings.Contains(err.Error(), fmt.Sprintf("tenant %s already exists", tenant)) {
+			return err
 		}
 	}
 	return nil
+}
+
+func shouldAutoCreateTenants(class *models.Class) bool {
+	if class.MultiTenancyConfig == nil {
+		return false
+	}
+	return class.MultiTenancyConfig.Enabled && class.MultiTenancyConfig.AutoTenantCreation
 }

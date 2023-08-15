@@ -225,10 +225,6 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("AUTOSCHEMA_DEFAULT_DATE"); v != "" {
 		config.AutoSchema.DefaultDate = v
 	}
-	config.AutoSchema.AutoTenantsEnabled = true
-	if v := os.Getenv("AUTOSCHEMA_AUTOTENANTS_ENABLED"); v != "" {
-		config.AutoSchema.AutoTenantsEnabled = !(strings.ToLower(v) == "false")
-	}
 
 	ru, err := parseResourceUsageEnvVars()
 	if err != nil {
