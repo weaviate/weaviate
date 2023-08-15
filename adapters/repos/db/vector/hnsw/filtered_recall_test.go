@@ -165,7 +165,7 @@ func TestFilteredRecall(t *testing.T) {
 					originalIndex := (i * workerCount) + workerID
 					nodeId := uint64(originalIndex)
 					/* TEST FILTERED HNSW */
-					err := vectorIndex.HybridAdd(nodeId, vec.Vector, vec.FilterMap, 0.05) // change signature to add vec.Label
+					err := vectorIndex.HybridAdd(nodeId, vec.Vector, vec.FilterMap, 1) // change signature to add vec.Label
 					/* TEST HNSW */
 					//err := vectorIndex.Add(nodeId, vec.Vector)
 					require.Nil(t, err)

@@ -83,11 +83,11 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 		returnList = h.pools.pqItemSlice.Get().([]priorityqueue.ItemWithIndex)
 
 		for closestFirst.Len() > 0 && len(returnList) < max {
-			curr := closestFirst.Pop()
+			curr := closestFirst.Pop() // p*
 			if denyList != nil && denyList.Contains(curr.ID) {
 				continue
 			}
-			distToQuery := curr.Dist
+			distToQuery := curr.Dist // d(p*, p)
 
 			currVec := vecs[curr.Index]
 			if err := errs[curr.Index]; err != nil {
@@ -104,7 +104,7 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 			good := true
 			for _, item := range returnList {
 				peerDist, _, _ := h.distancerProvider.SingleDist(currVec,
-					vecs[item.Index])
+					vecs[item.Index]) // d(p, p')
 
 				if peerDist < distToQuery {
 					good = false
@@ -184,7 +184,7 @@ func (h *hnsw) filteredRobustPrune(input *priorityqueue.Queue,
 				peer_query_intersection := computeIntersection(nodeFilters, currFilters)
 
 				if !intersectIsNull(peer_query_intersection, peerFilters) {
-					break // good remains true
+					continue // good remains true
 				}
 
 				if peerDist < distToQuery {
@@ -233,18 +233,17 @@ func (h *hnsw) filteredRobustPrune(input *priorityqueue.Queue,
 				}
 			}
 			good := true
-			// if currFilter == filter, good to add to returnList
+
+			// populate intersection
+			peer_query_intersection := computeIntersection(nodeFilters, currFilters)
 			for _, item := range returnList {
 				peerDist, _, _ := h.distancerProvider.SingleDist(currVec,
 					vecs[item.Index])
 				// do I need to lock this?
 				peerFilters := h.nodes[item.ID].filters
 
-				// populate intersection
-				peer_query_intersection := computeIntersection(nodeFilters, currFilters)
-
 				if !intersectIsNull(peer_query_intersection, peerFilters) {
-					break // good remains true
+					continue // good remains true
 				}
 
 				if peerDist < distToQuery {
@@ -256,7 +255,6 @@ func (h *hnsw) filteredRobustPrune(input *priorityqueue.Queue,
 			if good {
 				returnList = append(returnList, curr)
 			}
-
 		}
 	}
 

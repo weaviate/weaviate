@@ -435,8 +435,9 @@ func (n *neighborFinderConnectorHybrid) doAtLevelHybrid(level int, lambda float3
 	n.node.setConnectionsAtLevel(level, neighbors)
 	n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighbors)
 
+	// CHECK THIS!!!
 	for _, neighborID := range neighbors {
-		if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
+		if err := n.connectNeighborAtLevelHybrid(neighborID, level); err != nil {
 			return errors.Wrapf(err, "connect neighbor %d", neighborID)
 		}
 	}
@@ -456,7 +457,7 @@ func (n *neighborFinderConnectorHybrid) doAtLevelHybrid(level int, lambda float3
 	return nil
 }
 
-func (n *neighborFinderConnectorHybrid) connectNeighborAtLevel(neighborID uint64,
+func (n *neighborFinderConnectorHybrid) connectNeighborAtLevelHybrid(neighborID uint64,
 	level int,
 ) error {
 	neighbor := n.graph.nodeByID(neighborID)
