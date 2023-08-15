@@ -394,6 +394,9 @@ func (l *hnswCommitLogger) Reset() error {
 // scheduling. The caller can be sure that state on disk is immutable after
 // calling Shutdown().
 func (l *hnswCommitLogger) Shutdown(ctx context.Context) error {
+	if err := l.commitLogger.Close(); err != nil {
+		return errors.Wrap(err, "failed to close the commitlog file during shutdown")
+	}
 	if err := l.switchLogsCallbackCtrl.Unregister(ctx); err != nil {
 		return errors.Wrap(err, "failed to unregister commitlog switch from maintenance cycle")
 	}
