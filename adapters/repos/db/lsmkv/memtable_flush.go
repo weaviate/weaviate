@@ -97,10 +97,6 @@ func (m *Memtable) flush() error {
 		return err
 	}
 
-	if err := f.Close(); err != nil {
-		return err
-	}
-
 	// only now that the file has been flushed is it safe to delete the commit log
 	// TODO: there might be an interest in keeping the commit logs around for
 	// longer as they might come in handy for replication
