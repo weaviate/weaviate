@@ -128,7 +128,9 @@ func bucketReadsIntoMemory(ctx context.Context, t *testing.T, opts []BucketOptio
 	_, ok = findFileWithExt(files, "secondary.0.bloom")
 	assert.True(t, ok)
 
-	b.Shutdown(ctx) // Must shutdown so that all commit logs are closed before being reopened in NewBucket
+	// on Windows we have to shutdown the bucket before opening it again
+	require.Nil(t, b.Shutdown(ctx))
+
 	b2, err := NewBucket(ctx, b.dir, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
