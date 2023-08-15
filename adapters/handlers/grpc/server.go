@@ -17,6 +17,11 @@ import (
 	"net"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/objects"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -37,6 +42,7 @@ func CreateGRPCServer(state *state.State) *GRPCServer {
 			state.APIKey, state.OIDC),
 		allowAnonymousAccess: state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
 		schemaManager:        state.SchemaManager,
+		batchManager:         state.BatchManager,
 	})
 
 	return &GRPCServer{s}
@@ -67,6 +73,41 @@ type Server struct {
 	authComposer         composer.TokenFunc
 	allowAnonymousAccess bool
 	schemaManager        *schemaManager.Manager
+	batchManager         *objects.BatchManager
+}
+
+func (s *Server) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+	before := time.Now()
+
+	if len(req.Objects) == 0 {
+		return nil, errors.New("cannot send empty batch")
+	}
+	principal, err := s.principalFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("extract auth: %w", err)
+	}
+
+	objectsBatch := req.Objects
+
+	objs := make([]*models.Object, len(objectsBatch))
+	for i, obj := range objectsBatch {
+		objs[i] = &models.Object{
+			Class:      obj.ClassName,
+			Tenant:     obj.Tenant,
+			Vector:     obj.Vector,
+			Properties: obj.Properties.NonRefProperties.AsMap(),
+			ID:         strfmt.UUID(obj.Uuid),
+		}
+	}
+
+	all := "ALL"
+	_, err = s.batchManager.AddObjects(ctx, principal, objs, []*string{&all}, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &pb.BatchObjectsReply{Took: float32(time.Since(before).Seconds())}
+	return result, nil
 }
 
 func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
