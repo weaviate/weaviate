@@ -3,7 +3,7 @@ syntax = "proto3";
 package weaviategrpc;
 
 import "google/protobuf/struct.proto";
-
+import "google/protobuf/timestamp.proto";
 option go_package = "github.com/weaviate/weaviate/grpc";
 
 
@@ -20,7 +20,39 @@ message SearchRequest {
   Properties properties = 6;
   HybridSearchParams hybrid_search =7;
   BM25SearchParams bm25_search =8;
+  uint32 offset = 9;
+  uint32 autocut = 10;
+  string after = 11;
+  string tenant = 12;
+  Filters filters = 13;
 }
+
+message Filters {
+  enum OperatorType {
+    OperatorEqual = 0;
+      OperatorNotEqual = 1;
+      OperatorGreaterThan = 2;
+      OperatorGreaterThanEqual = 3;
+      OperatorLessThan = 4;
+      OperatorLessThanEqual = 5;
+      OperatorAnd = 6;
+      OperatorOr = 7;
+      OperatorWithinGeoRange = 8;
+      OperatorLike = 9;
+      OperatorIsNull = 10;
+  }
+  OperatorType operator = 1;
+  repeated string on = 2;
+  repeated Filters filters = 3;
+  oneof test_value{
+    string value_str = 4;
+    int64 value_int = 5;
+    bool value_bool = 6;
+    float value_float = 7;
+    google.protobuf.Timestamp value_date = 8;
+  };
+}
+
 
 message AdditionalProperties {
   bool uuid = 1;
@@ -45,7 +77,14 @@ message HybridSearchParams {
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated float vector = 3;
   float alpha = 4;
+  enum FusionType {
+    RANKED = 0;
+    RELATIVE_SCORE = 1;
+  }
+  FusionType fusion_type = 5;
 }
+
+
 
 message BM25SearchParams {
   string query = 1;
@@ -54,9 +93,10 @@ message BM25SearchParams {
 
 
 message RefProperties {
-  string linked_class = 1;
   string reference_property = 2;
   Properties linked_properties = 3;
+  AdditionalProperties metadata = 4;
+  string which_collection = 5;
 }
 
 message NearVectorParams {
@@ -103,6 +143,7 @@ message ResultProperties {
   google.protobuf.Struct non_ref_properties = 1;
   repeated ReturnRefProperties ref_props = 2;
   string class_name = 3;
+  ResultAdditionalProps metadata = 4;
 }
 
 message ReturnRefProperties {
