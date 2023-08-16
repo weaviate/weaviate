@@ -113,6 +113,12 @@ func (r *rsync) PushShard(ctx context.Context, className string, desc *backup.Sh
 	return nil
 }
 
+func checkClose(c io.Closer, err *error) {
+	if cerr := c.Close(); cerr != nil && *err == nil {
+		*err = cerr
+	}
+}
+
 func (r *rsync) PutFile(ctx context.Context, sourceFileName string,
 	hostname, className, shardName string,
 ) error {
@@ -121,6 +127,12 @@ func (r *rsync) PutFile(ctx context.Context, sourceFileName string,
 	if err != nil {
 		return fmt.Errorf("open file %q for reading: %w", absPath, err)
 	}
+	defer checkClose(f, &err)
 
-	return r.client.PutFile(ctx, hostname, className, shardName, sourceFileName, f)
+	err = r.client.PutFile(ctx, hostname, className, shardName, sourceFileName, f)
+	if err != nil {
+		return err
+	}
+
+	return err
 }
