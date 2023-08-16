@@ -111,4 +111,8 @@ func (r *Repo) Get(ctx context.Context, id strfmt.UUID) (*models.Classification,
 	return &c, nil
 }
 
+func (r *Repo) Close() error {
+	return r.db.Close()
+}
+
 var _ = classification.Repo(&Repo{})

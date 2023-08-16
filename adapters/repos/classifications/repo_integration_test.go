@@ -31,6 +31,7 @@ func Test_ClassificationsRepo(t *testing.T) {
 
 	r, err := NewRepo(dirName, logger)
 	require.Nil(t, err)
+	defer r.Close()
 	_ = r
 
 	t.Run("asking for a non-existing classification", func(t *testing.T) {
