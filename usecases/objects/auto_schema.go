@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -80,6 +81,13 @@ func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *mo
 	if schemaClass == nil {
 		return m.createClass(ctx, principal, object.Class, properties)
 	}
+
+	if shouldAutoCreateTenants(schemaClass) {
+		if err = m.addTenant(ctx, principal, schemaClass, object.Tenant); err != nil {
+			return err
+		}
+	}
+
 	return m.updateClass(ctx, principal, object.Class, properties, schemaClass.Properties)
 }
 
@@ -125,6 +133,7 @@ func (m *autoSchemaManager) updateClass(ctx context.Context, principal *models.P
 			propertiesToAdd = append(propertiesToAdd, prop)
 		}
 	}
+
 	for _, newProp := range propertiesToAdd {
 		m.logger.
 			WithField("auto_schema", "updateClass").
@@ -239,4 +248,27 @@ func (m *autoSchemaManager) determineType(value interface{}) []schema.DataType {
 	default:
 		return fallbackDataType
 	}
+}
+
+func (m *autoSchemaManager) addTenant(ctx context.Context, principal *models.Principal,
+	class *models.Class, tenant string,
+) error {
+	if tenant == "" {
+		return fmt.Errorf(
+			"tenant must be included for multitenant-enabled class %q", class.Class)
+	}
+	tenants := []*models.Tenant{{Name: tenant}}
+	if err := m.schemaManager.AddTenants(ctx, principal, class.Class, tenants); err != nil {
+		if !strings.Contains(err.Error(), fmt.Sprintf("tenant %s already exists", tenant)) {
+			return err
+		}
+	}
+	return nil
+}
+
+func shouldAutoCreateTenants(class *models.Class) bool {
+	if class.MultiTenancyConfig == nil {
+		return false
+	}
+	return class.MultiTenancyConfig.Enabled && class.MultiTenancyConfig.AutoTenantCreation
 }
