@@ -651,7 +651,6 @@ func (h *hnsw) Close() error {
 }
 
 func (h *hnsw) Shutdown(ctx context.Context) error {
-
 	if err := h.commitLog.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "hnsw shutdown")
 	}
