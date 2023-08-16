@@ -228,13 +228,16 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 func TestIndex_DropReadOnlyEmptyIndex(t *testing.T) {
 	ctx := testCtx()
 	class := &models.Class{Class: "deletetest"}
-	shard, index := testShard(t, ctx, class.Class)
+	shard, index, repo := testShard(t, ctx, class.Class)
 
 	err := index.updateShardStatus(ctx, shard.name, storagestate.StatusReadOnly.String())
 	require.Nil(t, err)
 
 	err = index.drop()
 	require.Nil(t, err)
+
+	require.Nil(t, shard.shutdown(ctx))
+	require.Nil(t, repo.Shutdown(ctx))
 }
 
 func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
