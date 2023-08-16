@@ -43,11 +43,12 @@ message BatchObject {
 
 message BatchObjectsReply {
   message BatchResults {
+    int32 index = 1;
+    string error = 2;
   }
   
   repeated BatchResults results = 1;
   float took = 2;
-
 }
 
 message SearchRequest {

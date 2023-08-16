@@ -105,12 +105,22 @@ func (s *Server) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) 
 	}
 
 	all := "ALL"
-	_, err = s.batchManager.AddObjects(ctx, principal, objs, []*string{&all}, nil)
+	response, err := s.batchManager.AddObjects(ctx, principal, objs, []*string{&all}, nil)
 	if err != nil {
 		return nil, err
 	}
+	var objErrors []*pb.BatchObjectsReply_BatchResults
 
-	result := &pb.BatchObjectsReply{Took: float32(time.Since(before).Seconds())}
+	for i, obj := range response {
+		if obj.Err != nil {
+			objErrors = append(objErrors, &pb.BatchObjectsReply_BatchResults{Index: int32(i), Error: obj.Err.Error()})
+		}
+	}
+
+	result := &pb.BatchObjectsReply{
+		Took:    float32(time.Since(before).Seconds()),
+		Results: objErrors,
+	}
 	return result, nil
 }
 
