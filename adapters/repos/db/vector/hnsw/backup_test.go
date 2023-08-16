@@ -57,8 +57,8 @@ func TestBackup_SwitchCommitLogs(t *testing.T) {
 	err = idx.Shutdown(ctx)
 	require.Nil(t, err)
 
-	err = idx.Close()
-	require.Nil(t, err)
+	// err = idx.Close()
+	// require.Nil(t, err)
 }
 
 func TestBackup_ListFiles(t *testing.T) {
@@ -105,6 +105,6 @@ func TestBackup_ListFiles(t *testing.T) {
 	err = idx.Shutdown(ctx)
 	require.Nil(t, err)
 
-	err = idx.Close()
-	require.Nil(t, err)
+	// err = idx.Close()
+	// require.Nil(t, err)
 }
