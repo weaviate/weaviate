@@ -198,7 +198,8 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 			require.NotNil(t, resp[i].Result.Errors)
 			require.NotNil(t, resp[i].Result.Errors.Error)
 			require.Len(t, resp[i].Result.Errors.Error, 1)
-			assert.Contains(t, resp[i].Result.Errors.Error[0].Message, "has multi-tenancy enabled, but request was without tenant")
+			assert.Contains(t, resp[i].Result.Errors.Error[0].Message,
+				"has multi-tenancy enabled, but request was without tenant")
 			assert.Empty(t, resp[i].Tenant)
 		}
 
