@@ -21,11 +21,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
-// func checkClose(c io.Closer, err *error) {
-// 	if cerr := c.Close(); cerr != nil && *err == nil {
-// 		*err = cerr
-// 	}
-// }
+func checkClose(c io.Closer, err *error) {
+	if cerr := c.Close(); cerr != nil && *err == nil {
+		*err = cerr
+	}
+}
 
 func (m *Memtable) flush() error {
 	// close the commit log first, this also forces it to be fsynced. If
@@ -53,7 +53,7 @@ func (m *Memtable) flush() error {
 	if err != nil {
 		return err
 	}
-	// defer checkClose(f, &err)
+	defer checkClose(f, &err)
 
 	w := bufio.NewWriterSize(f, int(float64(m.size)*1.3)) // calculate 30% overhead for disk representation
 
