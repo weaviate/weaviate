@@ -644,9 +644,9 @@ func (h *hnsw) Drop(ctx context.Context) error {
 }
 
 func (h *hnsw) Shutdown(ctx context.Context) error {
-	if err := h.commitLog.Close(); err != nil {
-		return errors.Wrap(err, "hnsw shutdown")
-	}
+	// if err := h.commitLog.Close(); err != nil {
+	// 	return errors.Wrap(err, "hnsw shutdown")
+	// }
 	if err := h.commitLog.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "hnsw shutdown")
 	}
