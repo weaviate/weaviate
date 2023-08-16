@@ -17,9 +17,6 @@ import (
 	"net"
 	"time"
 
-	"github.com/go-openapi/strfmt"
-	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/objects"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -82,61 +79,15 @@ type Server struct {
 
 func (s *Server) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
 	before := time.Now()
-
-	if len(req.Objects) == 0 {
-		return nil, errors.New("cannot send empty batch")
-	}
 	principal, err := s.principalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
 	scheme := s.schemaManager.GetSchemaSkipAuth()
 
-	objectsBatch := req.Objects
-	objs := make([]*models.Object, len(objectsBatch))
-	for i, obj := range objectsBatch {
-		class := scheme.GetClass(schema.ClassName(obj.ClassName))
-		props := obj.Properties.NonRefProperties.AsMap()
-		for _, refSingle := range obj.Properties.RefPropsSingle {
-			propName := refSingle.GetPropName()
-			prop, err := schema.GetPropertyByName(class, propName)
-			if err != nil {
-				return nil, err
-			}
-			if len(prop.DataType) > 1 {
-				return nil, fmt.Errorf("target is a multi-target reference, need single target %v", prop.DataType)
-			}
-			toClass := prop.DataType[0]
-			beacons := make([]interface{}, len(refSingle.Uuids))
-			for j, uuid := range refSingle.Uuids {
-				beacons[j] = map[string]interface{}{"beacon": "weaviate://localhost/" + toClass + "/" + uuid}
-			}
-			props[propName] = beacons
-		}
-
-		for _, refMulti := range obj.Properties.RefPropsMulti {
-			propName := refMulti.GetPropName()
-			prop, err := schema.GetPropertyByName(class, propName)
-			if err != nil {
-				return nil, err
-			}
-			if len(prop.DataType) < 2 {
-				return nil, fmt.Errorf("target is a single-target reference, need multi-target %v", prop.DataType)
-			}
-			beacons := make([]interface{}, len(refMulti.Uuids))
-			for j, uuid := range refMulti.Uuids {
-				beacons[j] = map[string]interface{}{"beacon": "weaviate://localhost/" + refMulti.TargetCollection + "/" + uuid}
-			}
-			props[propName] = beacons
-		}
-
-		objs[i] = &models.Object{
-			Class:      obj.ClassName,
-			Tenant:     obj.Tenant,
-			Vector:     obj.Vector,
-			Properties: props,
-			ID:         strfmt.UUID(obj.Uuid),
-		}
+	objs, err := batchFromProto(req, scheme)
+	if err != nil {
+		return nil, err
 	}
 
 	all := "ALL"
