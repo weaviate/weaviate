@@ -78,42 +78,42 @@ func TestValidatePropertyLength(t *testing.T) {
 		schemaType schema.DataType
 		valid      bool
 		operator   Operator
-		value      []int64
+		value      int
 	}{
 		{
 			name:       "Valid datatype and operator",
 			schemaType: schema.DataTypeInt,
 			valid:      true,
 			operator:   OperatorEqual,
-			value:      []int64{0},
+			value:      0,
 		},
 		{
 			name:       "Invalid datatype (array)",
 			schemaType: schema.DataTypeBooleanArray,
 			valid:      false,
 			operator:   OperatorEqual,
-			value:      []int64{1},
+			value:      1,
 		},
 		{
 			name:       "Invalid datatype (text)",
 			schemaType: schema.DataTypeText,
 			valid:      false,
 			operator:   OperatorEqual,
-			value:      []int64{2},
+			value:      2,
 		},
 		{
 			name:       "Invalid operator (Or)",
 			schemaType: schema.DataTypeText,
 			valid:      false,
 			operator:   OperatorOr,
-			value:      []int64{10},
+			value:      10,
 		},
 		{
 			name:       "Invalid value (negative)",
 			schemaType: schema.DataTypeText,
 			valid:      false,
 			operator:   OperatorEqual,
-			value:      []int64{-5},
+			value:      -5,
 		},
 	}
 

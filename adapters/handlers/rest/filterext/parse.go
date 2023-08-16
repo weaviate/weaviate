@@ -170,5 +170,11 @@ func allValuesNil(in *models.WhereFilter) bool {
 		in.ValueText == nil &&
 		in.ValueInt == nil &&
 		in.ValueNumber == nil &&
-		in.ValueGeoRange == nil
+		in.ValueGeoRange == nil &&
+		len(in.ValueBooleanArray) == 0 &&
+		len(in.ValueDateArray) == 0 &&
+		len(in.ValueStringArray) == 0 &&
+		len(in.ValueTextArray) == 0 &&
+		len(in.ValueIntArray) == 0 &&
+		len(in.ValueNumberArray) == 0
 }

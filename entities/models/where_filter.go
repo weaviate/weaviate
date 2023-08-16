@@ -45,31 +45,55 @@ type WhereFilter struct {
 	Path []string `json:"path"`
 
 	// value as boolean
-	// Example: [false]
-	ValueBoolean []bool `json:"valueBoolean"`
+	// Example: false
+	ValueBoolean *bool `json:"valueBoolean,omitempty"`
+
+	// value as boolean
+	// Example: [true,false]
+	ValueBooleanArray []bool `json:"valueBooleanArray"`
 
 	// value as date (as string)
 	// Example: TODO
-	ValueDate []string `json:"valueDate"`
+	ValueDate *string `json:"valueDate,omitempty"`
+
+	// value as date (as string)
+	// Example: TODO
+	ValueDateArray []string `json:"valueDateArray"`
 
 	// value as geo coordinates and distance
 	ValueGeoRange *WhereFilterGeoRange `json:"valueGeoRange,omitempty"`
 
 	// value as integer
+	// Example: 2000
+	ValueInt *int64 `json:"valueInt,omitempty"`
+
+	// value as integer
 	// Example: [100, 200]
-	ValueInt []int64 `json:"valueInt"`
+	ValueIntArray []int64 `json:"valueIntArray"`
+
+	// value as number/float
+	// Example: 3.14
+	ValueNumber *float64 `json:"valueNumber,omitempty"`
 
 	// value as number/float
 	// Example: [3.14]
-	ValueNumber []float64 `json:"valueNumber"`
+	ValueNumberArray []float64 `json:"valueNumberArray"`
+
+	// value as text (deprecated as of v1.19; alias for valueText)
+	// Example: my search term
+	ValueString *string `json:"valueString,omitempty"`
 
 	// value as text (deprecated as of v1.19; alias for valueText)
 	// Example: ["my search term"]
-	ValueString []string `json:"valueString"`
+	ValueStringArray []string `json:"valueStringArray"`
+
+	// value as text
+	// Example: my search term
+	ValueText *string `json:"valueText,omitempty"`
 
 	// value as text
 	// Example: ["my search term"]
-	ValueText []string `json:"valueText"`
+	ValueTextArray []string `json:"valueTextArray"`
 }
 
 // Validate validates this where filter

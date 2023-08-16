@@ -1636,6 +1636,44 @@
         },
         "valueInt": {
           "description": "value as integer",
+          "type": "integer",
+          "format": "int64",
+          "example": 2000,
+          "x-nullable": true
+        },
+        "valueNumber": {
+          "description": "value as number/float",
+          "type": "number",
+          "format": "float64",
+          "example": 3.14,
+          "x-nullable": true
+        },
+        "valueBoolean": {
+          "description": "value as boolean",
+          "type": "boolean",
+          "example": false,
+          "x-nullable": true
+        },
+        "valueString": {
+          "description": "value as text (deprecated as of v1.19; alias for valueText)",
+          "type": "string",
+          "example": "my search term",
+          "x-nullable": true
+        },
+        "valueText": {
+          "description": "value as text",
+          "type": "string",
+          "example": "my search term",
+          "x-nullable": true
+        },
+        "valueDate": {
+          "description": "value as date (as string)",
+          "type": "string",
+          "example": "TODO",
+          "x-nullable": true
+        },
+        "valueIntArray": {
+          "description": "value as integer",
           "type": "array",
           "items": {
             "type": "integer",
@@ -1644,7 +1682,7 @@
           "example": "[100, 200]",
           "x-nullable": true
         },
-        "valueNumber": {
+        "valueNumberArray": {
           "description": "value as number/float",
           "type": "array",
           "items": {
@@ -1656,18 +1694,19 @@
           ],
           "x-nullable": true
         },
-        "valueBoolean": {
+        "valueBooleanArray": {
           "description": "value as boolean",
           "type": "array",
           "items": {
             "type": "boolean"
           },
           "example": [
+            true,
             false
           ],
           "x-nullable": true
         },
-        "valueString": {
+        "valueStringArray": {
           "description": "value as text (deprecated as of v1.19; alias for valueText)",
           "type": "array",
           "items": {
@@ -1678,7 +1717,7 @@
           ],
           "x-nullable": true
         },
-        "valueText": {
+        "valueTextArray": {
           "description": "value as text",
           "type": "array",
           "items": {
@@ -1689,7 +1728,7 @@
           ],
           "x-nullable": true
         },
-        "valueDate": {
+        "valueDateArray": {
           "description": "value as date (as string)",
           "type": "array",
           "items": {

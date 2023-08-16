@@ -305,7 +305,7 @@ func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.D
 	case schema.DataTypeBoolean:
 		extractValueFn = s.extractBoolValue
 	case schema.DataTypeInt:
-		extractValueFn = s.extractInt64Value
+		extractValueFn = s.extractIntValue
 	case schema.DataTypeNumber:
 		extractValueFn = s.extractNumberValue
 	case schema.DataTypeDate:
@@ -341,7 +341,7 @@ func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.D
 func (s *Searcher) extractReferenceCount(prop *models.Property, value interface{},
 	operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
-	byteValue, err := s.extractInt64CountValue(value)
+	byteValue, err := s.extractIntCountValue(value)
 	if err != nil {
 		return nil, err
 	}
@@ -391,9 +391,9 @@ func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
 
 	switch valueType {
 	case schema.DataTypeText:
-		asStr, err := s.getStringFromValueText(value)
-		if err != nil {
-			return nil, err
+		asStr, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("expected to see uuid as string in filter, got %T", value)
 		}
 		parsed, err := uuid.Parse(asStr)
 		if err != nil {
@@ -443,9 +443,9 @@ func (s *Searcher) extractIDProp(propName string, propType schema.DataType,
 
 	switch propType {
 	case schema.DataTypeText:
-		v, err := s.getStringFromValueText(value)
-		if err != nil {
-			return nil, err
+		v, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("expected value to be string, got '%T'", value)
 		}
 		byteValue = []byte(v)
 	default:
@@ -470,19 +470,19 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 
 	switch propType {
 	case schema.DataTypeText:
-		v, err := s.getStringFromValueText(value)
-		if err != nil {
-			return nil, err
+		v, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("expected value to be string, got '%T'", value)
 		}
-		_, err = strconv.ParseInt(v, 10, 64)
+		_, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("expected value to be timestamp, got '%s'", v)
 		}
 		byteValue = []byte(v)
 	case schema.DataTypeDate:
-		v, err := s.getStringFromValueText(value)
-		if err != nil {
-			return nil, err
+		v, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("expected value to be string, got '%T'", value)
 		}
 		t, err := time.Parse(time.RFC3339, v)
 		if err != nil {
@@ -513,11 +513,9 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 ) (*propValuePair, error) {
 	var terms []string
 
-	var valueString string
-
-	valueString, err := s.getStringFromValueText(value)
-	if err != nil {
-		return nil, err
+	valueString, ok := value.(string)
+	if !ok {
+		return nil, fmt.Errorf("expected value to be string, got '%T'", value)
 	}
 
 	switch propType {
@@ -571,7 +569,7 @@ func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.
 
 	switch propType {
 	case schema.DataTypeInt:
-		b, err := s.extractInt64Value(value)
+		b, err := s.extractIntValue(value)
 		if err != nil {
 			return nil, err
 		}
@@ -630,9 +628,9 @@ func (s *Searcher) extractContains(path *filters.Path, propType schema.DataType,
 		}
 		operands = getContainsOperands(propType, path, valueStringArray)
 	case schema.DataTypeInt, schema.DataTypeIntArray:
-		valueInt64Array, ok := value.([]int64)
+		valueInt64Array, ok := value.([]int)
 		if !ok {
-			return nil, fmt.Errorf("value type should be []int64 but is %T", value)
+			return nil, fmt.Errorf("value type should be []int but is %T", value)
 		}
 		operands = getContainsOperands(propType, path, valueInt64Array)
 	case schema.DataTypeNumber, schema.DataTypeNumberArray:
@@ -718,62 +716,6 @@ func (s *Searcher) onTokenizableProp(prop *models.Property) bool {
 		return true
 	default:
 		return false
-	}
-}
-
-func (s *Searcher) getStringFromValueText(in interface{}) (string, error) {
-	switch val := in.(type) {
-	case []string:
-		if len(val) > 1 {
-			return "", fmt.Errorf("expected only one string value, got %v values", len(val))
-		}
-		return val[0], nil
-	case string:
-		return val, nil
-	default:
-		return "", fmt.Errorf("expected value to be []string, got %T", in)
-	}
-}
-
-func (s *Searcher) getInt64FromValueInt(in interface{}) (int64, error) {
-	switch val := in.(type) {
-	case []int64:
-		if len(val) > 1 {
-			return 0, fmt.Errorf("expected only one int64 value, got %v values", len(val))
-		}
-		return val[0], nil
-	case int64:
-		return val, nil
-	default:
-		return 0, fmt.Errorf("expected value to be []int64, got %T", in)
-	}
-}
-
-func (s *Searcher) getFloat64FromValueNumber(in interface{}) (float64, error) {
-	switch val := in.(type) {
-	case []float64:
-		if len(val) > 1 {
-			return 0, fmt.Errorf("expected only one float64 value, got %v values", len(val))
-		}
-		return val[0], nil
-	case float64:
-		return val, nil
-	default:
-		return 0, fmt.Errorf("expected value to be []float64, got %T", in)
-	}
-}
-
-func (s *Searcher) getBoolFromValueBoolean(in interface{}) (bool, error) {
-	switch val := in.(type) {
-	case []bool:
-		if len(val) > 1 {
-			return false, fmt.Errorf("expected only one bool value, got %v values", len(val))
-		}
-		return val[0], nil
-	case bool:
-		return val, nil
-	default:
-		return false, fmt.Errorf("expected value to be []bool, got %T", in)
 	}
 }
 

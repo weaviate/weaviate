@@ -56,7 +56,7 @@ var valueExtractors = []valueExtractorFunc{
 			return nil, nil
 		}
 
-		return valueFilter(in.ValueInt, schema.DataTypeInt), nil
+		return valueFilter(int(*in.ValueInt), schema.DataTypeInt), nil
 	},
 	// number
 	func(in *models.WhereFilter) (*filters.Value, error) {
@@ -64,7 +64,7 @@ var valueExtractors = []valueExtractorFunc{
 			return nil, nil
 		}
 
-		return valueFilter(in.ValueNumber, schema.DataTypeNumber), nil
+		return valueFilter(*in.ValueNumber, schema.DataTypeNumber), nil
 	},
 	// text
 	func(in *models.WhereFilter) (*filters.Value, error) {
@@ -72,7 +72,7 @@ var valueExtractors = []valueExtractorFunc{
 			return nil, nil
 		}
 
-		return valueFilter(in.ValueText, schema.DataTypeText), nil
+		return valueFilter(*in.ValueText, schema.DataTypeText), nil
 	},
 	// date (as string)
 	func(in *models.WhereFilter) (*filters.Value, error) {
@@ -80,7 +80,7 @@ var valueExtractors = []valueExtractorFunc{
 			return nil, nil
 		}
 
-		return valueFilter(in.ValueDate, schema.DataTypeDate), nil
+		return valueFilter(*in.ValueDate, schema.DataTypeDate), nil
 	},
 	// boolean
 	func(in *models.WhereFilter) (*filters.Value, error) {
@@ -88,8 +88,54 @@ var valueExtractors = []valueExtractorFunc{
 			return nil, nil
 		}
 
-		return valueFilter(in.ValueBoolean, schema.DataTypeBoolean), nil
+		return valueFilter(*in.ValueBoolean, schema.DataTypeBoolean), nil
 	},
+
+	// int array
+	func(in *models.WhereFilter) (*filters.Value, error) {
+		if len(in.ValueIntArray) == 0 {
+			return nil, nil
+		}
+
+		valueInts := make([]int, len(in.ValueIntArray))
+		for i := range in.ValueIntArray {
+			valueInts[i] = int(in.ValueIntArray[i])
+		}
+		return valueFilter(valueInts, schema.DataTypeInt), nil
+	},
+	// number array
+	func(in *models.WhereFilter) (*filters.Value, error) {
+		if len(in.ValueNumberArray) == 0 {
+			return nil, nil
+		}
+
+		return valueFilter(in.ValueNumberArray, schema.DataTypeNumber), nil
+	},
+	// text array
+	func(in *models.WhereFilter) (*filters.Value, error) {
+		if len(in.ValueTextArray) == 0 {
+			return nil, nil
+		}
+
+		return valueFilter(in.ValueTextArray, schema.DataTypeText), nil
+	},
+	// date (as string) array
+	func(in *models.WhereFilter) (*filters.Value, error) {
+		if len(in.ValueDateArray) == 0 {
+			return nil, nil
+		}
+
+		return valueFilter(in.ValueDateArray, schema.DataTypeDate), nil
+	},
+	// boolean
+	func(in *models.WhereFilter) (*filters.Value, error) {
+		if len(in.ValueBooleanArray) == 0 {
+			return nil, nil
+		}
+
+		return valueFilter(in.ValueBooleanArray, schema.DataTypeBoolean), nil
+	},
+
 	// geo range
 	func(in *models.WhereFilter) (*filters.Value, error) {
 		if in.ValueGeoRange == nil {
@@ -122,7 +168,15 @@ var valueExtractors = []valueExtractorFunc{
 			return nil, nil
 		}
 
-		return valueFilter(in.ValueString, schema.DataTypeString), nil
+		return valueFilter(*in.ValueString, schema.DataTypeString), nil
+	},
+	// deprecated string array
+	func(in *models.WhereFilter) (*filters.Value, error) {
+		if len(in.ValueStringArray) == 0 {
+			return nil, nil
+		}
+
+		return valueFilter(in.ValueStringArray, schema.DataTypeString), nil
 	},
 }
 

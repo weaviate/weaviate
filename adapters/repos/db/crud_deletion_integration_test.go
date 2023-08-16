@@ -86,7 +86,7 @@ func TestDeleteJourney(t *testing.T) {
 			assert.Equal(t, expectedOrder, extractPropValues(res, "name"))
 		})
 
-	searchInv := func(t *testing.T, op filters.Operator, value int64) []interface{} {
+	searchInv := func(t *testing.T, op filters.Operator, value int) []interface{} {
 		res, err := repo.ObjectSearch(context.Background(), 0, 100,
 			&filters.LocalFilter{
 				Root: &filters.Clause{
@@ -97,7 +97,7 @@ func TestDeleteJourney(t *testing.T) {
 					},
 					Value: &filters.Value{
 						Type:  libschema.DataTypeInt,
-						Value: []int64{value},
+						Value: value,
 					},
 				},
 			}, nil, additional.Properties{}, "")

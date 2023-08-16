@@ -91,7 +91,7 @@ func TestBatchDeleteTenantObjects(t *testing.T) {
 		where := models.WhereFilter{
 			Operator:    filters.OperatorLike.Name(),
 			Path:        []string{"id"},
-			ValueString: []string{glob},
+			ValueString: &glob,
 		}
 		match := models.BatchDeleteMatch{
 			Class: className,

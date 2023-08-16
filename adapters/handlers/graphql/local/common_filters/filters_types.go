@@ -33,7 +33,7 @@ func newValueTextType(path string) graphql.Input {
 		ParseLiteral: func(valueAST ast.Value) interface{} {
 			switch valueAST := valueAST.(type) {
 			case *ast.StringValue:
-				return []string{valueAST.Value}
+				return valueAST.Value
 			case *ast.ListValue:
 				result := make([]string, len(valueAST.Values))
 				for i := range valueAST.Values {
@@ -68,13 +68,13 @@ func newValueIntType(path string) graphql.Input {
 			switch valueAST := valueAST.(type) {
 			case *ast.IntValue:
 				if intValue, err := strconv.Atoi(valueAST.Value); err == nil {
-					return []int64{int64(intValue)}
+					return intValue
 				}
 			case *ast.ListValue:
-				result := make([]int64, len(valueAST.Values))
+				result := make([]int, len(valueAST.Values))
 				for i := range valueAST.Values {
 					if intValue, err := strconv.Atoi(valueAST.Values[i].GetValue().(string)); err == nil {
-						result[i] = int64(intValue)
+						result[i] = int(intValue)
 					}
 				}
 				return result
@@ -98,11 +98,11 @@ func newValueNumberType(path string) graphql.Input {
 			switch valueAST := valueAST.(type) {
 			case *ast.FloatValue:
 				if floatValue, err := strconv.ParseFloat(valueAST.Value, 64); err == nil {
-					return []float64{floatValue}
+					return floatValue
 				}
 			case *ast.IntValue:
 				if floatValue, err := strconv.ParseFloat(valueAST.Value, 64); err == nil {
-					return []float64{floatValue}
+					return floatValue
 				}
 			case *ast.ListValue:
 				result := make([]float64, len(valueAST.Values))
@@ -131,7 +131,7 @@ func newValueBooleanType(path string) graphql.Input {
 		ParseLiteral: func(valueAST ast.Value) interface{} {
 			switch valueAST := valueAST.(type) {
 			case *ast.BooleanValue:
-				return []bool{valueAST.Value}
+				return valueAST.Value
 			case *ast.ListValue:
 				result := make([]bool, len(valueAST.Values))
 				for i, val := range valueAST.Values {
