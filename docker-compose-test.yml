@@ -11,6 +11,7 @@ services:
      - "8080:8080"
      - "6060:6060"
      - "2112:2112"
+     - "7101:7101"
     environment:
       LOG_LEVEL: "debug"
       CONTEXTIONARY_URL: contextionary:9999
@@ -21,6 +22,8 @@ services:
       ENABLE_MODULES: text2vec-contextionary
       PROMETHEUS_MONITORING_ENABLED: 'true'
       PROMETHEUS_MONITORING_GROUP_CLASSES: 'true'
+      CLUSTER_GOSSIP_BIND_PORT: "7100" 
+      CLUSTER_DATA_BIND_PORT: "7101"
 
       # necessary for the metrics tests, some metrics only exist once segments
       # are flushed. If we wait to long the before run is completely in
