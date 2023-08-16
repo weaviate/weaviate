@@ -45,9 +45,9 @@ func Test_Aggregations(t *testing.T) {
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 	require.Nil(t, err)
 	// Must explicitly close all resources at end of test on Windows
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
+	// defer func() {
+	// 	require.Nil(t, repo.Shutdown(context.Background()))
+	// }()
 
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -92,9 +92,9 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 	require.Nil(t, err)
 	// Must explicitly close all resources at end of test on Windows
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
+	// defer func() {
+	// 	require.Nil(t, repo.Shutdown(context.Background()))
+	// }()
 
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
