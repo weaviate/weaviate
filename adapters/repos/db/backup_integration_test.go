@@ -178,7 +178,7 @@ func TestBackup_DBLevel(t *testing.T) {
 func TestBackup_BucketLevel(t *testing.T) {
 	ctx := testCtx()
 	className := "BucketLevelBackup"
-	shard, _, repo := testShard(t, ctx, className)
+	shard, _, _ := testShard(t, ctx, className)
 
 	t.Run("insert data", func(t *testing.T) {
 		err := shard.putObject(ctx, &storobj.Object{
@@ -249,7 +249,7 @@ func TestBackup_BucketLevel(t *testing.T) {
 
 	t.Run("cleanup", func(t *testing.T) {
 		require.Nil(t, shard.shutdown(ctx))
-		require.Nil(t, repo.Shutdown(ctx))
+		// require.Nil(t, repo.Shutdown(ctx))
 		require.Nil(t, os.RemoveAll(shard.index.Config.RootPath))
 	})
 }

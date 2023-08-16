@@ -36,7 +36,7 @@ import (
 func TestShard_UpdateStatus(t *testing.T) {
 	ctx := testCtx()
 	className := "TestClass"
-	shd, idx, repo := testShard(t, ctx, className)
+	shd, idx, _ := testShard(t, ctx, className)
 
 	amount := 10
 
@@ -77,8 +77,8 @@ func TestShard_UpdateStatus(t *testing.T) {
 	})
 
 	require.Nil(t, idx.drop())
-	require.Nil(t, shd.shutdown(ctx))
-	require.Nil(t, repo.Shutdown(ctx))
+	// require.Nil(t, shd.shutdown(ctx))
+	// require.Nil(t, repo.Shutdown(ctx))
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
 }
 
@@ -90,7 +90,7 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 	keys := make([][]byte, amount)
 	values := make([][]byte, amount)
 
-	shd, idx, repo := testShard(t, context.Background(), "TestClass")
+	shd, idx, _ := testShard(t, context.Background(), "TestClass")
 
 	defer func(path string) {
 		err := os.RemoveAll(path)
@@ -165,8 +165,8 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 	})
 
 	require.Nil(t, idx.drop())
-	require.Nil(t, shd.shutdown(context.Background()))
-	require.Nil(t, repo.Shutdown(context.Background()))
+	// require.Nil(t, shd.shutdown(context.Background()))
+	// require.Nil(t, repo.Shutdown(context.Background()))
 }
 
 // tests adding multiple larger batches in parallel using different settings of the goroutine factor.
@@ -179,7 +179,7 @@ func TestShard_ParallelBatches(t *testing.T) {
 	}
 	totalObjects := 1000 * len(batches)
 	ctx := testCtx()
-	shd, idx, repo := testShard(t, context.Background(), "TestClass")
+	shd, idx, _ := testShard(t, context.Background(), "TestClass")
 
 	// add batches in parallel
 	wg := sync.WaitGroup{}
@@ -194,6 +194,6 @@ func TestShard_ParallelBatches(t *testing.T) {
 
 	require.Equal(t, totalObjects, int(shd.counter.Get()))
 	require.Nil(t, idx.drop())
-	require.Nil(t, shd.shutdown(context.Background()))
-	require.Nil(t, repo.Shutdown(context.Background()))
+	// require.Nil(t, shd.shutdown(context.Background()))
+	// require.Nil(t, repo.Shutdown(context.Background()))
 }

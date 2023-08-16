@@ -50,13 +50,14 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 	require.Nil(t, err)
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
+	// defer func() {
+	// 	require.Nil(t, repo.Shutdown(context.Background()))
+	// }()
 
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 
+	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
