@@ -177,6 +177,13 @@ func TestWhereFilter(t *testing.T) {
 	})
 
 	t.Run("where", func(t *testing.T) {
+		mustGetTime := func(date string) time.Time {
+			result, err := time.Parse(time.RFC3339Nano, date)
+			if err != nil {
+				panic(fmt.Sprintf("can't parse date: %v", date))
+			}
+			return result
+		}
 		getIds := func(data map[string]models.JSONObject) []string {
 			classMap, ok := data["Get"].(map[string]interface{})
 			require.True(t, ok)
@@ -431,12 +438,4 @@ func TestWhereFilter(t *testing.T) {
 			})
 		}
 	})
-}
-
-func mustGetTime(date string) time.Time {
-	result, err := time.Parse(time.RFC3339Nano, date)
-	if err != nil {
-		panic(fmt.Sprintf("can't parse date: %v", date))
-	}
-	return result
 }

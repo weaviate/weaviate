@@ -154,7 +154,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 						Property: "exactCategory",
 					},
 					Value: &filters.Value{
-						Value: []int64{0},
+						Value: 0,
 						Type:  schema.DataTypeInt,
 					},
 				},
@@ -270,7 +270,7 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 						Property: "ofFoodType",
 					},
 					Value: &filters.Value{
-						Value: []int64{0},
+						Value: 0,
 						Type:  schema.DataTypeInt,
 					},
 				},

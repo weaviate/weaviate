@@ -232,7 +232,7 @@ type neighborProp struct {
 type neighborBeacons map[string][]float32
 
 func mergeUserFilterWithRefCountFilter(userFilter *libfilters.LocalFilter, className string,
-	properties []string, op libfilters.Operator, refCount int64,
+	properties []string, op libfilters.Operator, refCount int,
 ) *libfilters.LocalFilter {
 	countFilters := make([]libfilters.Clause, len(properties))
 	for i, prop := range properties {
@@ -240,7 +240,7 @@ func mergeUserFilterWithRefCountFilter(userFilter *libfilters.LocalFilter, class
 			Operator: op,
 			Value: &libfilters.Value{
 				Type:  schema.DataTypeInt,
-				Value: []int64{refCount},
+				Value: refCount,
 			},
 			On: &libfilters.Path{
 				Class:    schema.ClassName(className),

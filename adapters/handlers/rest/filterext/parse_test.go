@@ -40,7 +40,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 				name: "valid int filter",
 				input: &models.WhereFilter{
 					Operator: "Equal",
-					ValueInt: []int64{42},
+					ValueInt: ptInt(42),
 					Path:     []string{"intField"},
 				},
 				expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
@@ -50,7 +50,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 						Property: schema.AssertValidPropertyName("intField"),
 					},
 					Value: &filters.Value{
-						Value: []int64{42},
+						Value: 42,
 						Type:  schema.DataTypeInt,
 					},
 				}},
@@ -59,7 +59,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 				name: "valid date filter",
 				input: &models.WhereFilter{
 					Operator:  "Equal",
-					ValueDate: []string{"foo bar"},
+					ValueDate: ptString("foo bar"),
 					Path:      []string{"dateField"},
 				},
 				expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
@@ -69,7 +69,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 						Property: schema.AssertValidPropertyName("dateField"),
 					},
 					Value: &filters.Value{
-						Value: []string{"foo bar"},
+						Value: "foo bar",
 						Type:  schema.DataTypeDate,
 					},
 				}},
@@ -78,7 +78,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 				name: "valid text filter",
 				input: &models.WhereFilter{
 					Operator:  "Equal",
-					ValueText: []string{"foo bar"},
+					ValueText: ptString("foo bar"),
 					Path:      []string{"textField"},
 				},
 				expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
@@ -88,7 +88,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 						Property: schema.AssertValidPropertyName("textField"),
 					},
 					Value: &filters.Value{
-						Value: []string{"foo bar"},
+						Value: "foo bar",
 						Type:  schema.DataTypeText,
 					},
 				}},
@@ -97,7 +97,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 				name: "valid number filter",
 				input: &models.WhereFilter{
 					Operator:    "Equal",
-					ValueNumber: []float64{20.20},
+					ValueNumber: ptFloat(20.20),
 					Path:        []string{"numberField"},
 				},
 				expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
@@ -107,7 +107,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 						Property: schema.AssertValidPropertyName("numberField"),
 					},
 					Value: &filters.Value{
-						Value: []float64{20.20},
+						Value: 20.20,
 						Type:  schema.DataTypeNumber,
 					},
 				}},
@@ -116,7 +116,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 				name: "valid bool filter",
 				input: &models.WhereFilter{
 					Operator:     "Equal",
-					ValueBoolean: []bool{true},
+					ValueBoolean: ptBool(true),
 					Path:         []string{"booleanField"},
 				},
 				expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
@@ -126,7 +126,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 						Property: schema.AssertValidPropertyName("booleanField"),
 					},
 					Value: &filters.Value{
-						Value: []bool{true},
+						Value: true,
 						Type:  schema.DataTypeBoolean,
 					},
 				}},
@@ -160,7 +160,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 				name: "[deprected string] valid string filter",
 				input: &models.WhereFilter{
 					Operator:    "Equal",
-					ValueString: []string{"foo bar"},
+					ValueString: ptString("foo bar"),
 					Path:        []string{"stringField"},
 				},
 				expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
@@ -170,7 +170,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 						Property: schema.AssertValidPropertyName("stringField"),
 					},
 					Value: &filters.Value{
-						Value: []string{"foo bar"},
+						Value: "foo bar",
 						Type:  schema.DataTypeString,
 					},
 				}},
@@ -249,7 +249,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 				name: "and operator and value set",
 				input: &models.WhereFilter{
 					Operator: "And",
-					ValueInt: []int64{43},
+					ValueInt: ptInt(43),
 				},
 				expectedErr: fmt.Errorf("invalid where filter: " +
 					"operator 'And' not compatible with field 'value<Type>', " +
@@ -276,7 +276,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 				name: "equal operator and no path set",
 				input: &models.WhereFilter{
 					Operator: "Equal",
-					ValueInt: []int64{43},
+					ValueInt: ptInt(43),
 				},
 				expectedErr: fmt.Errorf("invalid where filter: " +
 					"field 'path': must have at least one element"),
@@ -365,7 +365,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 									Property: schema.AssertValidPropertyName("intField"),
 								},
 								Value: &filters.Value{
-									Value: []int64{42},
+									Value: 42,
 									Type:  schema.DataTypeInt,
 								},
 							},
@@ -380,7 +380,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 									},
 								},
 								Value: &filters.Value{
-									Value: []int64{43},
+									Value: 43,
 									Type:  schema.DataTypeInt,
 								},
 							},
@@ -409,7 +409,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 									Property: schema.AssertValidPropertyName("intField"),
 								},
 								Value: &filters.Value{
-									Value: []int64{42},
+									Value: 42,
 									Type:  schema.DataTypeInt,
 								},
 							},
@@ -424,7 +424,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 									},
 								},
 								Value: &filters.Value{
-									Value: []int64{43},
+									Value: 43,
 									Type:  schema.DataTypeInt,
 								},
 							},
@@ -444,6 +444,23 @@ func Test_ExtractFlatFilters(t *testing.T) {
 	})
 }
 
+func ptInt(in int) *int64 {
+	a := int64(in)
+	return &a
+}
+
+func ptFloat(in float64) *float64 {
+	return &in
+}
+
+func ptString(in string) *string {
+	return &in
+}
+
+func ptBool(in bool) *bool {
+	return &in
+}
+
 func intFilterWithOp(op filters.Operator) *filters.LocalFilter {
 	return &filters.LocalFilter{
 		Root: &filters.Clause{
@@ -453,7 +470,7 @@ func intFilterWithOp(op filters.Operator) *filters.LocalFilter {
 				Property: schema.AssertValidPropertyName("intField"),
 			},
 			Value: &filters.Value{
-				Value: []int64{42},
+				Value: 42,
 				Type:  schema.DataTypeInt,
 			},
 		},
@@ -463,7 +480,7 @@ func intFilterWithOp(op filters.Operator) *filters.LocalFilter {
 func inputIntFilterWithOp(op string) *models.WhereFilter {
 	return &models.WhereFilter{
 		Operator: op,
-		ValueInt: []int64{42},
+		ValueInt: ptInt(42),
 		Path:     []string{"intField"},
 	}
 }
@@ -471,7 +488,7 @@ func inputIntFilterWithOp(op string) *models.WhereFilter {
 func inputIntFilterWithValue(value int) *models.WhereFilter {
 	return &models.WhereFilter{
 		Operator: "Equal",
-		ValueInt: []int64{int64(value)},
+		ValueInt: ptInt(value),
 		Path:     []string{"intField"},
 	}
 }
@@ -481,7 +498,7 @@ func inputIntFilterWithValueAndPath(value int,
 ) *models.WhereFilter {
 	return &models.WhereFilter{
 		Operator: "Equal",
-		ValueInt: []int64{int64(value)},
+		ValueInt: ptInt(value),
 		Path:     path,
 	}
 }

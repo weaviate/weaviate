@@ -35,7 +35,7 @@ func batchDeleteJourney(t *testing.T) {
 				Where: &models.WhereFilter{
 					Operator:  "Equal",
 					Path:      path,
-					ValueText: []string{valueText},
+					ValueText: &valueText,
 				},
 			},
 			DryRun: &dryRun,
@@ -173,7 +173,7 @@ func batchDeleteJourney(t *testing.T) {
 	t.Run("[deprecated string] perform batch delete by refs dry run", func(t *testing.T) {
 		params := getBatchDelete("BulkTestTarget", []string{"fromSource", "BulkTestSource", "name"}, equalThisName, true)
 		params.Body.Match.Where.ValueText = nil
-		params.Body.Match.Where.ValueString = []string{equalThisName}
+		params.Body.Match.Where.ValueString = &equalThisName
 
 		res, err := helper.Client(t).Batch.BatchObjectsDelete(params, nil)
 		require.Nil(t, err)

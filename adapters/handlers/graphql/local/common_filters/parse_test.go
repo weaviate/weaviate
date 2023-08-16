@@ -42,7 +42,7 @@ func TestExtractFilterToplevelField(t *testing.T) {
 			Property: schema.AssertValidPropertyName("intField"),
 		},
 		Value: &filters.Value{
-			Value: []int64{42},
+			Value: 42,
 			Type:  schema.DataTypeInt,
 		},
 	}}
@@ -66,7 +66,7 @@ func TestExtractFilterLike(t *testing.T) {
 				Property: schema.AssertValidPropertyName("name"),
 			},
 			Value: &filters.Value{
-				Value: []string{"Schn*el"},
+				Value: "Schn*el",
 				Type:  schema.DataTypeText,
 			},
 		}}
@@ -91,7 +91,7 @@ func TestExtractFilterLike(t *testing.T) {
 				Property: schema.AssertValidPropertyName("name"),
 			},
 			Value: &filters.Value{
-				Value: []string{"Schn*el"},
+				Value: "Schn*el",
 				Type:  schema.DataTypeString,
 			},
 		}}
@@ -119,7 +119,7 @@ func TestExtractFilterLike_ValueText(t *testing.T) {
 			Property: schema.AssertValidPropertyName("name"),
 		},
 		Value: &filters.Value{
-			Value: []string{"schn*el"},
+			Value: "schn*el",
 			Type:  schema.DataTypeText,
 		},
 	}}
@@ -144,7 +144,7 @@ func TestExtractFilterIsNull(t *testing.T) {
 			Property: schema.AssertValidPropertyName("name"),
 		},
 		Value: &filters.Value{
-			Value: []string{"true"},
+			Value: "true",
 			Type:  schema.DataTypeText,
 		},
 	}}
@@ -249,7 +249,7 @@ func TestExtractFilterNestedField(t *testing.T) {
 			},
 		},
 		Value: &filters.Value{
-			Value: []int64{42},
+			Value: 42,
 			Type:  schema.DataTypeInt,
 		},
 	}}
@@ -276,7 +276,7 @@ func TestExtractOperand(t *testing.T) {
 					Property: schema.AssertValidPropertyName("intField"),
 				},
 				Value: &filters.Value{
-					Value: []int64{42},
+					Value: 42,
 					Type:  schema.DataTypeInt,
 				},
 			},
@@ -291,7 +291,7 @@ func TestExtractOperand(t *testing.T) {
 					},
 				},
 				Value: &filters.Value{
-					Value: []int64{4242},
+					Value: 4242,
 					Type:  schema.DataTypeInt,
 				},
 			},

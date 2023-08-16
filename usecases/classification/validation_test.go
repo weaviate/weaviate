@@ -141,7 +141,7 @@ func Test_ValidateUserInput(t *testing.T) {
 				BasedOnProperties:  []string{"description"},
 				ClassifyProperties: []string{"exactCategory"},
 				Filters: &models.ClassificationFilters{
-					TargetWhere: &models.WhereFilter{Operator: "Equal", Path: []string{"foo"}, ValueText: []string{"bar"}},
+					TargetWhere: &models.WhereFilter{Operator: "Equal", Path: []string{"foo"}, ValueText: ptString("bar")},
 				},
 				Type: "knn",
 			},
@@ -167,7 +167,7 @@ func Test_ValidateUserInput(t *testing.T) {
 				BasedOnProperties:  []string{"description"},
 				ClassifyProperties: []string{"exactCategory"},
 				Filters: &models.ClassificationFilters{
-					TrainingSetWhere: &models.WhereFilter{Operator: "Equal", Path: []string{"foo"}, ValueText: []string{"bar"}},
+					TrainingSetWhere: &models.WhereFilter{Operator: "Equal", Path: []string{"foo"}, ValueText: ptString("bar")},
 				},
 				Type: "text2vec-contextionary-contextual",
 			},
@@ -182,4 +182,8 @@ func Test_ValidateUserInput(t *testing.T) {
 			assert.Equal(t, test.expectedError, err)
 		})
 	}
+}
+
+func ptString(in string) *string {
+	return &in
 }
