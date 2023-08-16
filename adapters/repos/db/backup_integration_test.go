@@ -178,7 +178,7 @@ func TestBackup_DBLevel(t *testing.T) {
 func TestBackup_BucketLevel(t *testing.T) {
 	ctx := testCtx()
 	className := "BucketLevelBackup"
-	shard, _ := testShard(t, ctx, className)
+	shard, _, repo := testShard(t, ctx, className)
 
 	t.Run("insert data", func(t *testing.T) {
 		err := shard.putObject(ctx, &storobj.Object{
@@ -216,7 +216,8 @@ func TestBackup_BucketLevel(t *testing.T) {
 			// know for sure is the actual name of the segment group, hence
 			// the `.*`
 			re := path.Clean(fmt.Sprintf("^bucketlevelbackup_%s_lsm\\/objects\\/.*\\.(wal|db|bloom|cna)", shard.name))
-
+			// Ensures that file paths are formatted with OS-specific slash convention
+			re = filepath.FromSlash(re)
 			// we expect to see only four files inside the bucket at this point:
 			//   1. a *.db file - the segment itself
 			//   2. a *.bloom file - the segments' bloom filter (only since v1.17)
@@ -248,6 +249,7 @@ func TestBackup_BucketLevel(t *testing.T) {
 
 	t.Run("cleanup", func(t *testing.T) {
 		require.Nil(t, shard.shutdown(ctx))
+		require.Nil(t, repo.Shutdown(ctx))
 		require.Nil(t, os.RemoveAll(shard.index.Config.RootPath))
 	})
 }

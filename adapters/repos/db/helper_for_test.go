@@ -206,7 +206,7 @@ func getRandomSeed() *rand.Rand {
 	return rand.New(rand.NewSource(time.Now().UnixNano()))
 }
 
-func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (*Shard, *Index) {
+func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (*Shard, *Index, *DB) {
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
@@ -251,7 +251,7 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 
 	idx.shards.Store(shardName, shd)
 
-	return shd, idx
+	return shd, idx, repo
 }
 
 func testObject(className string) *storobj.Object {
