@@ -32,9 +32,13 @@ import (
 	"google.golang.org/grpc"
 )
 
-func CreateGRPCServer(state *state.State) *GRPCServer {
-	s := grpc.NewServer()
+const maxMsgSize = 104858000 // 10mb, needs to be synchronized with clients
 
+func CreateGRPCServer(state *state.State) *GRPCServer {
+	s := grpc.NewServer(
+		grpc.MaxRecvMsgSize(maxMsgSize),
+		grpc.MaxSendMsgSize(maxMsgSize),
+	)
 	pb.RegisterWeaviateServer(s, &Server{
 		traverser: state.Traverser,
 		authComposer: composer.New(
