@@ -113,9 +113,9 @@ func (r *rsync) PushShard(ctx context.Context, className string, desc *backup.Sh
 	return nil
 }
 
-func checkClose(c io.Closer, err *error) {
+func checkClose(c io.Closer, path string, err *error) {
 	if cerr := c.Close(); cerr != nil && *err == nil {
-		*err = cerr
+		*err = fmt.Errorf("close file %q for writing: %w", path, cerr)
 	}
 }
 
@@ -125,9 +125,9 @@ func (r *rsync) PutFile(ctx context.Context, sourceFileName string,
 	absPath := filepath.Join(r.persistenceRoot, sourceFileName)
 	f, err := os.Open(absPath)
 	if err != nil {
-		return fmt.Errorf("open file %q for reading: %w", absPath, err)
+		return fmt.Errorf("open file %q for writing: %w", absPath, err)
 	}
-	defer checkClose(f, &err)
+	defer checkClose(f, absPath, &err)
 
 	err = r.client.PutFile(ctx, hostname, className, shardName, sourceFileName, f)
 	if err != nil {
