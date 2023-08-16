@@ -126,6 +126,17 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 	m.triggerSchemaUpdateCallbacks()
 
 	out := m.migrator.AddClass(ctx, class, &shardingState)
+
+	tx, err := m.cluster.BeginTransaction(ctx, AddClass,
+		AddClassPayload{class, &shardingState}, DefaultTxTTL)
+	if err != nil {
+		return errors.Wrap(err, "open cluster-wide transaction")
+	}
+
+	if err := m.cluster.CommitWriteTransaction(ctx, tx); err != nil {
+		m.logger.WithError(err).Errorf("not every node was able to commit")
+	}
+
 	return out
 }
 
