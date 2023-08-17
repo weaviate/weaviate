@@ -29,6 +29,7 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type WeaviateClient interface {
 	Search(ctx context.Context, in *SearchRequest, opts ...grpc.CallOption) (*SearchReply, error)
+	BatchObjects(ctx context.Context, in *BatchObjectsRequest, opts ...grpc.CallOption) (*BatchObjectsReply, error)
 }
 
 type weaviateClient struct {
@@ -48,11 +49,21 @@ func (c *weaviateClient) Search(ctx context.Context, in *SearchRequest, opts ...
 	return out, nil
 }
 
+func (c *weaviateClient) BatchObjects(ctx context.Context, in *BatchObjectsRequest, opts ...grpc.CallOption) (*BatchObjectsReply, error) {
+	out := new(BatchObjectsReply)
+	err := c.cc.Invoke(ctx, "/weaviategrpc.Weaviate/BatchObjects", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // WeaviateServer is the server API for Weaviate service.
 // All implementations must embed UnimplementedWeaviateServer
 // for forward compatibility
 type WeaviateServer interface {
 	Search(context.Context, *SearchRequest) (*SearchReply, error)
+	BatchObjects(context.Context, *BatchObjectsRequest) (*BatchObjectsReply, error)
 	mustEmbedUnimplementedWeaviateServer()
 }
 
@@ -61,6 +72,10 @@ type UnimplementedWeaviateServer struct{}
 
 func (UnimplementedWeaviateServer) Search(context.Context, *SearchRequest) (*SearchReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Search not implemented")
+}
+
+func (UnimplementedWeaviateServer) BatchObjects(context.Context, *BatchObjectsRequest) (*BatchObjectsReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BatchObjects not implemented")
 }
 func (UnimplementedWeaviateServer) mustEmbedUnimplementedWeaviateServer() {}
 
@@ -93,6 +108,24 @@ func _Weaviate_Search_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Weaviate_BatchObjects_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatchObjectsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeaviateServer).BatchObjects(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/weaviategrpc.Weaviate/BatchObjects",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeaviateServer).BatchObjects(ctx, req.(*BatchObjectsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Weaviate_ServiceDesc is the grpc.ServiceDesc for Weaviate service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -103,6 +136,10 @@ var Weaviate_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Search",
 			Handler:    _Weaviate_Search_Handler,
+		},
+		{
+			MethodName: "BatchObjects",
+			Handler:    _Weaviate_BatchObjects_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
