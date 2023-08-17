@@ -106,6 +106,6 @@ func Test_AddConcurrentBatches_differentObjects(t *testing.T) {
 	_, body, _ := performRequest(c, requestRead)
 	var result map[string]interface{}
 	json.Unmarshal(body, &result)
-	assert.Equal(t, 2, int(result["totalResults"].(float64)), fmt.Sprintf("%+v", result))
+	assert.Equal(t, 2, int(result["totalResults"].(float64)))
 	clearExistingObjects(c, url)
 }
