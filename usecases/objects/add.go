@@ -33,8 +33,6 @@ type schemaManager interface {
 	) (*models.Class, error)
 	AddClassProperty(ctx context.Context, principal *models.Principal,
 		class string, property *models.Property) error
-	AddTenants(ctx context.Context, principal *models.Principal,
-		class string, tenants []*models.Tenant) (err error)
 }
 
 // AddObject Class Instance to the connected DB.
