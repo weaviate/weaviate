@@ -37,7 +37,7 @@ type WhereFilter struct {
 
 	// operator to use
 	// Example: GreaterThanEqual
-	// Enum: [And Or Equal Like NotEqual GreaterThan GreaterThanEqual LessThan LessThanEqual WithinGeoRange IsNull]
+	// Enum: [And Or Equal Like NotEqual GreaterThan GreaterThanEqual LessThan LessThanEqual WithinGeoRange IsNull ContainsAny ContainsAll]
 	Operator string `json:"operator,omitempty"`
 
 	// path to the property currently being filtered
@@ -48,9 +48,17 @@ type WhereFilter struct {
 	// Example: false
 	ValueBoolean *bool `json:"valueBoolean,omitempty"`
 
+	// value as boolean
+	// Example: [true,false]
+	ValueBooleanArray []bool `json:"valueBooleanArray"`
+
 	// value as date (as string)
 	// Example: TODO
 	ValueDate *string `json:"valueDate,omitempty"`
+
+	// value as date (as string)
+	// Example: TODO
+	ValueDateArray []string `json:"valueDateArray"`
 
 	// value as geo coordinates and distance
 	ValueGeoRange *WhereFilterGeoRange `json:"valueGeoRange,omitempty"`
@@ -59,17 +67,33 @@ type WhereFilter struct {
 	// Example: 2000
 	ValueInt *int64 `json:"valueInt,omitempty"`
 
+	// value as integer
+	// Example: [100, 200]
+	ValueIntArray []int64 `json:"valueIntArray"`
+
 	// value as number/float
 	// Example: 3.14
 	ValueNumber *float64 `json:"valueNumber,omitempty"`
+
+	// value as number/float
+	// Example: [3.14]
+	ValueNumberArray []float64 `json:"valueNumberArray"`
 
 	// value as text (deprecated as of v1.19; alias for valueText)
 	// Example: my search term
 	ValueString *string `json:"valueString,omitempty"`
 
+	// value as text (deprecated as of v1.19; alias for valueText)
+	// Example: ["my search term"]
+	ValueStringArray []string `json:"valueStringArray"`
+
 	// value as text
 	// Example: my search term
 	ValueText *string `json:"valueText,omitempty"`
+
+	// value as text
+	// Example: ["my search term"]
+	ValueTextArray []string `json:"valueTextArray"`
 }
 
 // Validate validates this where filter
@@ -124,7 +148,7 @@ var whereFilterTypeOperatorPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["And","Or","Equal","Like","NotEqual","GreaterThan","GreaterThanEqual","LessThan","LessThanEqual","WithinGeoRange","IsNull"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["And","Or","Equal","Like","NotEqual","GreaterThan","GreaterThanEqual","LessThan","LessThanEqual","WithinGeoRange","IsNull","ContainsAny","ContainsAll"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -166,6 +190,12 @@ const (
 
 	// WhereFilterOperatorIsNull captures enum value "IsNull"
 	WhereFilterOperatorIsNull string = "IsNull"
+
+	// WhereFilterOperatorContainsAny captures enum value "ContainsAny"
+	WhereFilterOperatorContainsAny string = "ContainsAny"
+
+	// WhereFilterOperatorContainsAll captures enum value "ContainsAll"
+	WhereFilterOperatorContainsAll string = "ContainsAll"
 )
 
 // prop value enum

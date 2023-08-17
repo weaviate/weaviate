@@ -1616,7 +1616,9 @@
             "LessThan",
             "LessThanEqual",
             "WithinGeoRange",
-            "IsNull"
+            "IsNull",
+            "ContainsAny",
+            "ContainsAll"
           ],
           "example": "GreaterThanEqual"
         },
@@ -1667,6 +1669,71 @@
         "valueDate": {
           "description": "value as date (as string)",
           "type": "string",
+          "example": "TODO",
+          "x-nullable": true
+        },
+        "valueIntArray": {
+          "description": "value as integer",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "example": "[100, 200]",
+          "x-nullable": true
+        },
+        "valueNumberArray": {
+          "description": "value as number/float",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float64"
+          },
+          "example": [
+            3.14
+          ],
+          "x-nullable": true
+        },
+        "valueBooleanArray": {
+          "description": "value as boolean",
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          },
+          "example": [
+            true,
+            false
+          ],
+          "x-nullable": true
+        },
+        "valueStringArray": {
+          "description": "value as text (deprecated as of v1.19; alias for valueText)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": [
+            "my search term"
+          ],
+          "x-nullable": true
+        },
+        "valueTextArray": {
+          "description": "value as text",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": [
+            "my search term"
+          ],
+          "x-nullable": true
+        },
+        "valueDateArray": {
+          "description": "value as date (as string)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
           "example": "TODO",
           "x-nullable": true
         },

@@ -38,6 +38,8 @@ func BuildNew(path string) graphql.InputObjectConfigFieldMap {
 					"LessThanEqual":    &graphql.EnumValueConfig{},
 					"WithinGeoRange":   &graphql.EnumValueConfig{},
 					"IsNull":           &graphql.EnumValueConfig{},
+					"ContainsAny":      &graphql.EnumValueConfig{},
+					"ContainsAll":      &graphql.EnumValueConfig{},
 				},
 				Description: descriptions.WhereOperatorEnum,
 			}),
@@ -48,27 +50,27 @@ func BuildNew(path string) graphql.InputObjectConfigFieldMap {
 			Description: descriptions.WherePath,
 		},
 		"valueInt": &graphql.InputObjectFieldConfig{
-			Type:        graphql.Int,
+			Type:        newValueIntType(path),
 			Description: descriptions.WhereValueInt,
 		},
 		"valueNumber": &graphql.InputObjectFieldConfig{
-			Type:        graphql.Float,
+			Type:        newValueNumberType(path),
 			Description: descriptions.WhereValueNumber,
 		},
 		"valueBoolean": &graphql.InputObjectFieldConfig{
-			Type:        graphql.Boolean,
+			Type:        newValueBooleanType(path),
 			Description: descriptions.WhereValueBoolean,
 		},
 		"valueString": &graphql.InputObjectFieldConfig{
-			Type:        graphql.String,
+			Type:        newValueStringType(path),
 			Description: descriptions.WhereValueString,
 		},
 		"valueText": &graphql.InputObjectFieldConfig{
-			Type:        graphql.String,
+			Type:        newValueTextType(path),
 			Description: descriptions.WhereValueText,
 		},
 		"valueDate": &graphql.InputObjectFieldConfig{
-			Type:        graphql.String,
+			Type:        newValueDateType(path),
 			Description: descriptions.WhereValueString,
 		},
 		"valueGeoRange": &graphql.InputObjectFieldConfig{

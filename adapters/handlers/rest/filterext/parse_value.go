@@ -90,6 +90,52 @@ var valueExtractors = []valueExtractorFunc{
 
 		return valueFilter(*in.ValueBoolean, schema.DataTypeBoolean), nil
 	},
+
+	// int array
+	func(in *models.WhereFilter) (*filters.Value, error) {
+		if len(in.ValueIntArray) == 0 {
+			return nil, nil
+		}
+
+		valueInts := make([]int, len(in.ValueIntArray))
+		for i := range in.ValueIntArray {
+			valueInts[i] = int(in.ValueIntArray[i])
+		}
+		return valueFilter(valueInts, schema.DataTypeInt), nil
+	},
+	// number array
+	func(in *models.WhereFilter) (*filters.Value, error) {
+		if len(in.ValueNumberArray) == 0 {
+			return nil, nil
+		}
+
+		return valueFilter(in.ValueNumberArray, schema.DataTypeNumber), nil
+	},
+	// text array
+	func(in *models.WhereFilter) (*filters.Value, error) {
+		if len(in.ValueTextArray) == 0 {
+			return nil, nil
+		}
+
+		return valueFilter(in.ValueTextArray, schema.DataTypeText), nil
+	},
+	// date (as string) array
+	func(in *models.WhereFilter) (*filters.Value, error) {
+		if len(in.ValueDateArray) == 0 {
+			return nil, nil
+		}
+
+		return valueFilter(in.ValueDateArray, schema.DataTypeDate), nil
+	},
+	// boolean
+	func(in *models.WhereFilter) (*filters.Value, error) {
+		if len(in.ValueBooleanArray) == 0 {
+			return nil, nil
+		}
+
+		return valueFilter(in.ValueBooleanArray, schema.DataTypeBoolean), nil
+	},
+
 	// geo range
 	func(in *models.WhereFilter) (*filters.Value, error) {
 		if in.ValueGeoRange == nil {
@@ -123,6 +169,14 @@ var valueExtractors = []valueExtractorFunc{
 		}
 
 		return valueFilter(*in.ValueString, schema.DataTypeString), nil
+	},
+	// deprecated string array
+	func(in *models.WhereFilter) (*filters.Value, error) {
+		if len(in.ValueStringArray) == 0 {
+			return nil, nil
+		}
+
+		return valueFilter(in.ValueStringArray, schema.DataTypeString), nil
 	},
 }
 

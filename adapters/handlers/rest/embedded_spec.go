@@ -4580,7 +4580,9 @@ func init() {
             "LessThan",
             "LessThanEqual",
             "WithinGeoRange",
-            "IsNull"
+            "IsNull",
+            "ContainsAny",
+            "ContainsAll"
           ],
           "example": "GreaterThanEqual"
         },
@@ -4602,9 +4604,30 @@ func init() {
           "x-nullable": true,
           "example": false
         },
+        "valueBooleanArray": {
+          "description": "value as boolean",
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          },
+          "x-nullable": true,
+          "example": [
+            true,
+            false
+          ]
+        },
         "valueDate": {
           "description": "value as date (as string)",
           "type": "string",
+          "x-nullable": true,
+          "example": "TODO"
+        },
+        "valueDateArray": {
+          "description": "value as date (as string)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
           "x-nullable": true,
           "example": "TODO"
         },
@@ -4621,6 +4644,16 @@ func init() {
           "x-nullable": true,
           "example": 2000
         },
+        "valueIntArray": {
+          "description": "value as integer",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "x-nullable": true,
+          "example": "[100, 200]"
+        },
         "valueNumber": {
           "description": "value as number/float",
           "type": "number",
@@ -4628,17 +4661,51 @@ func init() {
           "x-nullable": true,
           "example": 3.14
         },
+        "valueNumberArray": {
+          "description": "value as number/float",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float64"
+          },
+          "x-nullable": true,
+          "example": [
+            3.14
+          ]
+        },
         "valueString": {
           "description": "value as text (deprecated as of v1.19; alias for valueText)",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
         },
+        "valueStringArray": {
+          "description": "value as text (deprecated as of v1.19; alias for valueText)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-nullable": true,
+          "example": [
+            "my search term"
+          ]
+        },
         "valueText": {
           "description": "value as text",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
+        },
+        "valueTextArray": {
+          "description": "value as text",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-nullable": true,
+          "example": [
+            "my search term"
+          ]
         }
       }
     },
@@ -9614,7 +9681,9 @@ func init() {
             "LessThan",
             "LessThanEqual",
             "WithinGeoRange",
-            "IsNull"
+            "IsNull",
+            "ContainsAny",
+            "ContainsAll"
           ],
           "example": "GreaterThanEqual"
         },
@@ -9636,9 +9705,30 @@ func init() {
           "x-nullable": true,
           "example": false
         },
+        "valueBooleanArray": {
+          "description": "value as boolean",
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          },
+          "x-nullable": true,
+          "example": [
+            true,
+            false
+          ]
+        },
         "valueDate": {
           "description": "value as date (as string)",
           "type": "string",
+          "x-nullable": true,
+          "example": "TODO"
+        },
+        "valueDateArray": {
+          "description": "value as date (as string)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
           "x-nullable": true,
           "example": "TODO"
         },
@@ -9655,6 +9745,16 @@ func init() {
           "x-nullable": true,
           "example": 2000
         },
+        "valueIntArray": {
+          "description": "value as integer",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "x-nullable": true,
+          "example": "[100, 200]"
+        },
         "valueNumber": {
           "description": "value as number/float",
           "type": "number",
@@ -9662,17 +9762,51 @@ func init() {
           "x-nullable": true,
           "example": 3.14
         },
+        "valueNumberArray": {
+          "description": "value as number/float",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float64"
+          },
+          "x-nullable": true,
+          "example": [
+            3.14
+          ]
+        },
         "valueString": {
           "description": "value as text (deprecated as of v1.19; alias for valueText)",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
         },
+        "valueStringArray": {
+          "description": "value as text (deprecated as of v1.19; alias for valueText)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-nullable": true,
+          "example": [
+            "my search term"
+          ]
+        },
         "valueText": {
           "description": "value as text",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
+        },
+        "valueTextArray": {
+          "description": "value as text",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-nullable": true,
+          "example": [
+            "my search term"
+          ]
         }
       }
     },
