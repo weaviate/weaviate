@@ -15,12 +15,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
@@ -80,8 +80,13 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	}
 
 	for i, ref := range input.Refs {
-		if strings.Count(string(ref.Beacon), "/") == 3 {
-			toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, ref.Beacon)
+		beacon, err := crossref.Parse(ref.Beacon.String())
+		if err != nil {
+			return &Error{"cannot parse beacon", StatusInternalServerError, err}
+		}
+
+		if beacon.Class == "" {
+			toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, beacon)
 			if err != nil {
 				return err
 			}
