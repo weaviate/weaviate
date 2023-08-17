@@ -81,12 +81,15 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 
 	for i, ref := range input.Refs {
 		if strings.Count(string(ref.Beacon), "/") == 3 {
-			toClass, toBeacon, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, ref.Beacon)
+			toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, ref.Beacon)
 			if err != nil {
 				return err
 			}
-			input.Refs[i].Class = toClass
-			input.Refs[i].Beacon = toBeacon
+
+			if replace {
+				input.Refs[i].Class = toClass
+				input.Refs[i].Beacon = toBeacon
+			}
 		}
 	}
 
