@@ -104,3 +104,6 @@ benchmark_results_*.json
 
 # local credentials
 creds.json
+
+# VSCode
+cmd/weaviate-server/__debug_bin
