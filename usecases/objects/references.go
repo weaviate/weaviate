@@ -13,14 +13,14 @@ package objects
 
 import (
 	"context"
-	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 )
 
-func (m *Manager) autodetectToClass(ctx context.Context, principal *models.Principal, fromClass, fromProperty string, beaconRef strfmt.URI) (strfmt.URI, strfmt.URI, bool, *Error) {
+func (m *Manager) autodetectToClass(ctx context.Context, principal *models.Principal, fromClass, fromProperty string, beaconRef *crossref.Ref) (strfmt.URI, strfmt.URI, bool, *Error) {
 	// autodetect to class from schema if not part of reference
 	class, err := m.schemaManager.GetClass(ctx, principal, fromClass)
 	if err != nil {
@@ -35,8 +35,7 @@ func (m *Manager) autodetectToClass(ctx context.Context, principal *models.Princ
 	}
 
 	toClass := prop.DataType[0] // datatype is the name of the class that is referenced
-	beaconElements := strings.Split(string(beaconRef), "/")
-	toUUID := beaconElements[len(beaconElements)-1]
-	toBeacon := "weaviate://localhost/" + string(toClass) + "/" + toUUID // datatype is the name of the class that is referenced
+	toBeacon := crossref.New("localhost", toClass, beaconRef.TargetID).String()
+
 	return strfmt.URI(toClass), strfmt.URI(toBeacon), true, nil
 }
