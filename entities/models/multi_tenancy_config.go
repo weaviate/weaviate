@@ -28,9 +28,6 @@ import (
 // swagger:model MultiTenancyConfig
 type MultiTenancyConfig struct {
 
-	// Nonexistent tenants should (not) be created implicitly
-	AutoTenantCreation bool `json:"autoTenantCreation"`
-
 	// Whether or not multi-tenancy is enabled for this class
 	Enabled bool `json:"enabled"`
 }
