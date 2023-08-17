@@ -43,7 +43,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	deprecatedEndpoint := input.Class == ""
 	beacon, err := crossref.Parse(input.Reference.Beacon.String())
 	if err != nil {
-		return &Error{"cannot parse beacon", StatusInternalServerError, err}
+		return &Error{"cannot parse beacon", StatusBadRequest, err}
 	}
 	if input.Class != "" && beacon.Class == "" {
 		toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, beacon)

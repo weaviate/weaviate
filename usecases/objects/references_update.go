@@ -82,7 +82,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	for i, ref := range input.Refs {
 		beacon, err := crossref.Parse(ref.Beacon.String())
 		if err != nil {
-			return &Error{"cannot parse beacon", StatusInternalServerError, err}
+			return &Error{"cannot parse beacon", StatusBadRequest, err}
 		}
 
 		if beacon.Class == "" {

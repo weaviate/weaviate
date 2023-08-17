@@ -554,8 +554,10 @@ func Test_ReferenceDelete(t *testing.T) {
 			if tc.SrcNotFound {
 				srcObj = nil
 			}
-			m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(srcObj, tc.ErrSrcExists)
-			m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
+			if tc.Stage >= 2 {
+				m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(srcObj, tc.ErrSrcExists)
+				m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
+			}
 
 			if tc.Stage >= 3 {
 				m.repo.On("PutObject", mock.Anything, mock.Anything).Return(tc.ErrPutRefs).Once()
