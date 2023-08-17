@@ -50,7 +50,7 @@ type WhereFilter struct {
 
 	// value as boolean
 	// Example: [true,false]
-	ValueBooleanArray []bool `json:"valueBooleanArray"`
+	ValueBooleanArray []bool `json:"valueBooleanArray,omitempty"`
 
 	// value as date (as string)
 	// Example: TODO
@@ -58,7 +58,7 @@ type WhereFilter struct {
 
 	// value as date (as string)
 	// Example: TODO
-	ValueDateArray []string `json:"valueDateArray"`
+	ValueDateArray []string `json:"valueDateArray,omitempty"`
 
 	// value as geo coordinates and distance
 	ValueGeoRange *WhereFilterGeoRange `json:"valueGeoRange,omitempty"`
@@ -69,7 +69,7 @@ type WhereFilter struct {
 
 	// value as integer
 	// Example: [100, 200]
-	ValueIntArray []int64 `json:"valueIntArray"`
+	ValueIntArray []int64 `json:"valueIntArray,omitempty"`
 
 	// value as number/float
 	// Example: 3.14
@@ -77,7 +77,7 @@ type WhereFilter struct {
 
 	// value as number/float
 	// Example: [3.14]
-	ValueNumberArray []float64 `json:"valueNumberArray"`
+	ValueNumberArray []float64 `json:"valueNumberArray,omitempty"`
 
 	// value as text (deprecated as of v1.19; alias for valueText)
 	// Example: my search term
@@ -85,7 +85,7 @@ type WhereFilter struct {
 
 	// value as text (deprecated as of v1.19; alias for valueText)
 	// Example: ["my search term"]
-	ValueStringArray []string `json:"valueStringArray"`
+	ValueStringArray []string `json:"valueStringArray,omitempty"`
 
 	// value as text
 	// Example: my search term
@@ -93,7 +93,7 @@ type WhereFilter struct {
 
 	// value as text
 	// Example: ["my search term"]
-	ValueTextArray []string `json:"valueTextArray"`
+	ValueTextArray []string `json:"valueTextArray,omitempty"`
 }
 
 // Validate validates this where filter

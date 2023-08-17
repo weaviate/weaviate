@@ -1675,7 +1675,8 @@
             "format": "int64"
           },
           "example": "[100, 200]",
-          "x-nullable": true
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "valueNumberArray": {
           "description": "value as number/float",
@@ -1687,7 +1688,8 @@
           "example": [
             3.14
           ],
-          "x-nullable": true
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "valueBooleanArray": {
           "description": "value as boolean",
@@ -1699,7 +1701,8 @@
             true,
             false
           ],
-          "x-nullable": true
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "valueStringArray": {
           "description": "value as text (deprecated as of v1.19; alias for valueText)",
@@ -1710,7 +1713,8 @@
           "example": [
             "my search term"
           ],
-          "x-nullable": true
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "valueTextArray": {
           "description": "value as text",
@@ -1721,7 +1725,8 @@
           "example": [
             "my search term"
           ],
-          "x-nullable": true
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "valueDateArray": {
           "description": "value as date (as string)",
@@ -1730,7 +1735,8 @@
             "type": "string"
           },
           "example": "TODO",
-          "x-nullable": true
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "valueGeoRange": {
           "description": "value as geo coordinates and distance",
