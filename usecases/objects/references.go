@@ -20,19 +20,23 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func (m *Manager) autodetectToClass(ctx context.Context, principal *models.Principal, fromClass, fromProperty string, beaconRef strfmt.URI) (strfmt.URI, strfmt.URI, *Error) {
+func (m *Manager) autodetectToClass(ctx context.Context, principal *models.Principal, fromClass, fromProperty string, beaconRef strfmt.URI) (strfmt.URI, strfmt.URI, bool, *Error) {
 	// autodetect to class from schema if not part of reference
 	class, err := m.schemaManager.GetClass(ctx, principal, fromClass)
 	if err != nil {
-		return "", "", &Error{"cannot get class", StatusInternalServerError, err}
+		return "", "", false, &Error{"cannot get class", StatusInternalServerError, err}
 	}
 	prop, err := schema.GetPropertyByName(class, schema.LowercaseFirstLetter(fromProperty))
 	if err != nil {
-		return "", "", &Error{"cannot get property", StatusInternalServerError, err}
+		return "", "", false, &Error{"cannot get property", StatusInternalServerError, err}
 	}
+	if len(prop.DataType) > 1 {
+		return "", "", false, nil // can't autodetect for multi target
+	}
+
 	toClass := prop.DataType[0] // datatype is the name of the class that is referenced
 	beaconElements := strings.Split(string(beaconRef), "/")
 	toUUID := beaconElements[len(beaconElements)-1]
 	toBeacon := "weaviate://localhost/" + string(toClass) + "/" + toUUID // datatype is the name of the class that is referenced
-	return strfmt.URI(toClass), strfmt.URI(toBeacon), nil
+	return strfmt.URI(toClass), strfmt.URI(toBeacon), true, nil
 }

@@ -15,6 +15,11 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/uuid"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/batch"
 
 	"github.com/go-openapi/strfmt"
@@ -128,6 +133,187 @@ func TestRefsWithoutToClass(t *testing.T) {
 	}, objWithoutRef)
 }
 
+func TestRefsMultiTarget(t *testing.T) {
+	refToClassName := "ReferenceTo"
+	refFromClassName := "ReferenceFrom"
+	defer deleteObjectClass(t, refToClassName)
+	defer deleteObjectClass(t, refFromClassName)
+
+	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{Class: refToClassName})
+	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+
+	refFromClass := &models.Class{
+		Class: refFromClassName,
+		Properties: []*models.Property{
+			{
+				DataType: []string{refToClassName, refFromClassName},
+				Name:     "ref",
+			},
+		},
+	}
+	params2 := clschema.NewSchemaObjectsCreateParams().WithObjectClass(refFromClass)
+	resp2, err := helper.Client(t).Schema.SchemaObjectsCreate(params2, nil)
+	helper.AssertRequestOk(t, resp2, err, nil)
+
+	refToId := assertCreateObject(t, refToClassName, map[string]interface{}{})
+	assertGetObjectEventually(t, refToId)
+	refFromId := assertCreateObject(t, refFromClassName, map[string]interface{}{})
+	assertGetObjectEventually(t, refFromId)
+
+	cases := []struct {
+		classRef string
+		id       string
+	}{
+		{classRef: "", id: refToId.String()},
+		{classRef: refToClassName + "/", id: refToId.String()},
+		{classRef: refFromClassName + "/", id: refFromId.String()},
+	}
+	for _, tt := range cases {
+		postRefParams := objects.NewObjectsClassReferencesCreateParams().
+			WithID(refFromId).
+			WithPropertyName("ref").WithClassName(refFromClass.Class).
+			WithBody(&models.SingleRef{
+				Beacon: strfmt.URI(fmt.Sprintf(beaconStart+"%s%s", tt.classRef, tt.id)),
+			})
+		postRefResponse, err := helper.Client(t).Objects.ObjectsClassReferencesCreate(postRefParams, nil)
+		helper.AssertRequestOk(t, postRefResponse, err, nil)
+
+		// validate that ref was create for the correct class
+		objWithRef := func() interface{} {
+			obj := assertGetObjectWithClass(t, refFromId, refFromClassName)
+			return obj.Properties
+		}
+		testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+			"ref": []interface{}{
+				map[string]interface{}{
+					"beacon": fmt.Sprintf(beaconStart+"%s%s", tt.classRef, tt.id),
+					"href":   fmt.Sprintf(pathStart+"%s%s", tt.classRef, tt.id),
+				},
+			},
+		}, objWithRef)
+
+		// delete refs
+		updateRefParams := objects.NewObjectsClassReferencesPutParams().
+			WithID(refFromId).
+			WithPropertyName("ref").WithClassName(refFromClass.Class).
+			WithBody(models.MultipleRef{})
+		updateRefResponse, err := helper.Client(t).Objects.ObjectsClassReferencesPut(updateRefParams, nil)
+		helper.AssertRequestOk(t, updateRefResponse, err, nil)
+	}
+}
+
+func TestBatchRefsMultiTarget(t *testing.T) {
+	refToClassName := "ReferenceTo"
+	refFromClassName := "ReferenceFrom"
+	defer deleteObjectClass(t, refToClassName)
+	defer deleteObjectClass(t, refFromClassName)
+
+	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{Class: refToClassName})
+	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+
+	refFromClass := &models.Class{
+		Class: refFromClassName,
+		Properties: []*models.Property{
+			{
+				DataType: []string{refToClassName, refFromClassName},
+				Name:     "ref",
+			},
+		},
+	}
+	params2 := clschema.NewSchemaObjectsCreateParams().WithObjectClass(refFromClass)
+	resp2, err := helper.Client(t).Schema.SchemaObjectsCreate(params2, nil)
+	helper.AssertRequestOk(t, resp2, err, nil)
+
+	uuidsTo := make([]strfmt.UUID, 10)
+	uuidsFrom := make([]strfmt.UUID, 10)
+	for i := 0; i < 10; i++ {
+		uuidsTo[i] = assertCreateObject(t, refToClassName, map[string]interface{}{})
+		assertGetObjectEventually(t, uuidsTo[i])
+		uuidsFrom[i] = assertCreateObject(t, refFromClassName, map[string]interface{}{})
+		assertGetObjectEventually(t, uuidsFrom[i])
+	}
+
+	// add refs without toClass
+	var batchRefs []*models.BatchReference
+	for i := range uuidsFrom[:2] {
+		from := beaconStart + "ReferenceFrom/" + uuidsFrom[i] + "/ref"
+		to := beaconStart + uuidsTo[i]
+		batchRefs = append(batchRefs, &models.BatchReference{From: strfmt.URI(from), To: strfmt.URI(to)})
+	}
+
+	// add refs with toClass target 1
+	for i := range uuidsFrom[2:5] {
+		j := i + 2
+		from := beaconStart + "ReferenceFrom/" + uuidsFrom[j] + "/ref"
+		to := beaconStart + "ReferenceTo/" + uuidsTo[j]
+		batchRefs = append(batchRefs, &models.BatchReference{From: strfmt.URI(from), To: strfmt.URI(to)})
+	}
+
+	// add refs with toClass target 2
+	for i := range uuidsFrom[5:] {
+		j := i + 5
+		from := beaconStart + "ReferenceFrom/" + uuidsFrom[j] + "/ref"
+		to := beaconStart + "ReferenceFrom/" + uuidsTo[j]
+		batchRefs = append(batchRefs, &models.BatchReference{From: strfmt.URI(from), To: strfmt.URI(to)})
+	}
+
+	postRefParams := batch.NewBatchReferencesCreateParams().WithBody(batchRefs)
+	postRefResponse, err := helper.Client(t).Batch.BatchReferencesCreate(postRefParams, nil)
+	helper.AssertRequestOk(t, postRefResponse, err, nil)
+
+	// no autodetect for multi-target
+	for i := range uuidsFrom[:2] {
+		objWithRef := func() interface{} {
+			obj := assertGetObjectWithClass(t, uuidsFrom[i], refFromClassName)
+			return obj.Properties
+		}
+		testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+			"ref": []interface{}{
+				map[string]interface{}{
+					"beacon": fmt.Sprintf(beaconStart+"%s", uuidsTo[i].String()),
+					"href":   fmt.Sprintf(pathStart+"%s", uuidsTo[i].String()),
+				},
+			},
+		}, objWithRef)
+	}
+
+	// refs for target 1
+	for i := range uuidsFrom[2:5] {
+		j := i + 2
+		objWithRef := func() interface{} {
+			obj := assertGetObjectWithClass(t, uuidsFrom[j], refFromClassName)
+			return obj.Properties
+		}
+		testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+			"ref": []interface{}{
+				map[string]interface{}{
+					"beacon": fmt.Sprintf(beaconStart+"%s/%s", refToClassName, uuidsTo[j].String()),
+					"href":   fmt.Sprintf(pathStart+"%s/%s", refToClassName, uuidsTo[j].String()),
+				},
+			},
+		}, objWithRef)
+	}
+
+	// refs for target 2
+	for i := range uuidsFrom[5:] {
+		j := i + 5
+		objWithRef := func() interface{} {
+			obj := assertGetObjectWithClass(t, uuidsFrom[j], refFromClassName)
+			return obj.Properties
+		}
+		testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+			"ref": []interface{}{
+				map[string]interface{}{
+					"beacon": fmt.Sprintf(beaconStart+"%s/%s", refFromClassName, uuidsTo[j].String()),
+					"href":   fmt.Sprintf(pathStart+"%s/%s", refFromClassName, uuidsTo[j].String()),
+				},
+			},
+		}, objWithRef)
+	}
+}
+
 func TestBatchRefsWithoutToClass(t *testing.T) {
 	refToClassName := "ReferenceTo"
 	refFromClassName := "ReferenceFrom"
@@ -161,8 +347,7 @@ func TestBatchRefsWithoutToClass(t *testing.T) {
 		assertGetObjectEventually(t, uuidsFrom[i])
 	}
 
-	batchRefs := []*models.BatchReference{}
-
+	var batchRefs []*models.BatchReference
 	for i := range uuidsFrom {
 		from := beaconStart + "ReferenceFrom/" + uuidsFrom[i] + "/ref"
 		to := beaconStart + uuidsTo[i]
@@ -174,7 +359,6 @@ func TestBatchRefsWithoutToClass(t *testing.T) {
 	helper.AssertRequestOk(t, postRefResponse, err, nil)
 
 	for i := range uuidsFrom {
-
 		// validate that ref was create for the correct class
 		objWithRef := func() interface{} {
 			obj := assertGetObjectWithClass(t, uuidsFrom[i], refFromClassName)
@@ -188,6 +372,126 @@ func TestBatchRefsWithoutToClass(t *testing.T) {
 				},
 			},
 		}, objWithRef)
+	}
+}
+
+func TestObjectBatchToClassDetection(t *testing.T) {
+	// uses same code path as normal object add
+	refToClassName := "ReferenceTo"
+	refFromClassName := "ReferenceFrom"
+	defer deleteObjectClass(t, refToClassName)
+	defer deleteObjectClass(t, refFromClassName)
+
+	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{Class: refToClassName})
+	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+
+	refFromClass := &models.Class{
+		Class: refFromClassName,
+		Properties: []*models.Property{
+			{
+				DataType: []string{refToClassName},
+				Name:     "ref",
+			},
+		},
+	}
+	params2 := clschema.NewSchemaObjectsCreateParams().WithObjectClass(refFromClass)
+	resp2, err := helper.Client(t).Schema.SchemaObjectsCreate(params2, nil)
+	helper.AssertRequestOk(t, resp2, err, nil)
+
+	refs := make([]interface{}, 10)
+	uuidsTo := make([]strfmt.UUID, 10)
+
+	for i := 0; i < 10; i++ {
+		uuidTo := assertCreateObject(t, refToClassName, map[string]interface{}{})
+		uuidsTo[i] = uuidTo
+		assertGetObjectEventually(t, uuidTo)
+		refs[i] = map[string]interface{}{
+			"beacon": beaconStart + uuidTo,
+		}
+	}
+
+	fromBatch := make([]*models.Object, 10)
+	for i := 0; i < 10; i++ {
+		fromBatch[i] = &models.Object{
+			Class: refFromClassName,
+			ID:    strfmt.UUID(uuid.New().String()),
+			Properties: map[string]interface{}{
+				"ref": refs[i : i+1],
+			},
+		}
+	}
+	paramsBatch := batch.NewBatchObjectsCreateParams().WithBody(
+		batch.BatchObjectsCreateBody{
+			Objects: fromBatch,
+		},
+	)
+	res, err := helper.Client(t).Batch.BatchObjectsCreate(paramsBatch, nil)
+	require.Nil(t, err)
+	for _, elem := range res.Payload {
+		assert.Nil(t, elem.Result.Errors)
+	}
+
+	for i := range fromBatch {
+		// validate that ref was create for the correct class
+		objWithRef := func() interface{} {
+			obj := assertGetObjectWithClass(t, fromBatch[i].ID, refFromClassName)
+			return obj.Properties
+		}
+		testhelper.AssertEventuallyEqual(t, map[string]interface{}{
+			"ref": []interface{}{
+				map[string]interface{}{
+					"beacon": fmt.Sprintf(beaconStart+"%s/%s", refToClassName, uuidsTo[i].String()),
+					"href":   fmt.Sprintf(pathStart+"%s/%s", refToClassName, uuidsTo[i].String()),
+				},
+			},
+		}, objWithRef)
+	}
+}
+
+func TestObjectCrefWithoutToClass(t *testing.T) {
+	refToClassName := "ReferenceTo"
+	refFromClassName := "ReferenceFrom"
+
+	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{Class: refToClassName})
+	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+
+	refFromClass := &models.Class{
+		Class: refFromClassName,
+		Properties: []*models.Property{
+			{
+				DataType: []string{refToClassName},
+				Name:     "ref",
+			},
+		},
+	}
+	params2 := clschema.NewSchemaObjectsCreateParams().WithObjectClass(refFromClass)
+	resp2, err := helper.Client(t).Schema.SchemaObjectsCreate(params2, nil)
+	helper.AssertRequestOk(t, resp2, err, nil)
+
+	defer deleteObjectClass(t, refToClassName)
+	defer deleteObjectClass(t, refFromClassName)
+
+	refs := make([]interface{}, 10)
+	uuids := make([]strfmt.UUID, 10)
+	for i := 0; i < 10; i++ {
+		uuidTo := assertCreateObject(t, refToClassName, map[string]interface{}{})
+		assertGetObjectEventually(t, uuidTo)
+		refs[i] = map[string]interface{}{
+			"beacon": beaconStart + uuidTo,
+		}
+		uuids[i] = uuidTo
+	}
+
+	uuidFrom := assertCreateObject(t, refFromClassName, map[string]interface{}{"ref": refs})
+	assertGetObjectEventually(t, uuidFrom)
+
+	objWithRef := assertGetObjectWithClass(t, uuidFrom, refFromClassName)
+	assert.NotNil(t, objWithRef.Properties)
+	refsReturned := objWithRef.Properties.(map[string]interface{})["ref"].([]interface{})
+	for i := range refsReturned {
+		require.Equal(t, refsReturned[i].(map[string]interface{})["beacon"], string(beaconStart+"ReferenceTo/"+uuids[i]))
 	}
 }
 
@@ -283,8 +587,8 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 		"name": "My City",
 		"hasPlaces": []interface{}{
 			map[string]interface{}{
-				"beacon": fmt.Sprintf("weaviate://localhost/%s", place1ID.String()),
-				"href":   fmt.Sprintf("/v1/objects/%s", place1ID.String()),
+				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", placeClass.Class, place1ID.String()),
+				"href":   fmt.Sprintf("/v1/objects/%s/%s", placeClass.Class, place1ID.String()),
 			},
 		},
 	}, actualThunk)
@@ -313,12 +617,12 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 	t.Log("9. verify both cross refs are present")
 	expectedRefs := []interface{}{
 		map[string]interface{}{
-			"beacon": fmt.Sprintf("weaviate://localhost/%s", place1ID.String()),
-			"href":   fmt.Sprintf("/v1/objects/%s", place1ID.String()),
+			"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", placeClass.Class, place1ID.String()),
+			"href":   fmt.Sprintf("/v1/objects/%s/%s", placeClass.Class, place1ID.String()),
 		},
 		map[string]interface{}{
-			"beacon": fmt.Sprintf("weaviate://localhost/%s", place2ID.String()),
-			"href":   fmt.Sprintf("/v1/objects/%s", place2ID.String()),
+			"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", placeClass.Class, place2ID.String()),
+			"href":   fmt.Sprintf("/v1/objects/%s/%s", placeClass.Class, place2ID.String()),
 		},
 	}
 
