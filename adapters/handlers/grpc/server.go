@@ -17,6 +17,8 @@ import (
 	"net"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/objects"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -27,9 +29,13 @@ import (
 	"google.golang.org/grpc"
 )
 
-func CreateGRPCServer(state *state.State) *GRPCServer {
-	s := grpc.NewServer()
+const maxMsgSize = 104858000 // 10mb, needs to be synchronized with clients
 
+func CreateGRPCServer(state *state.State) *GRPCServer {
+	s := grpc.NewServer(
+		grpc.MaxRecvMsgSize(maxMsgSize),
+		grpc.MaxSendMsgSize(maxMsgSize),
+	)
 	pb.RegisterWeaviateServer(s, &Server{
 		traverser: state.Traverser,
 		authComposer: composer.New(
@@ -37,6 +43,7 @@ func CreateGRPCServer(state *state.State) *GRPCServer {
 			state.APIKey, state.OIDC),
 		allowAnonymousAccess: state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
 		schemaManager:        state.SchemaManager,
+		batchManager:         state.BatchManager,
 	})
 
 	return &GRPCServer{s}
@@ -67,6 +74,40 @@ type Server struct {
 	authComposer         composer.TokenFunc
 	allowAnonymousAccess bool
 	schemaManager        *schemaManager.Manager
+	batchManager         *objects.BatchManager
+}
+
+func (s *Server) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+	before := time.Now()
+	principal, err := s.principalFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("extract auth: %w", err)
+	}
+	scheme := s.schemaManager.GetSchemaSkipAuth()
+
+	objs, err := batchFromProto(req, scheme)
+	if err != nil {
+		return nil, err
+	}
+
+	all := "ALL"
+	response, err := s.batchManager.AddObjects(ctx, principal, objs, []*string{&all}, nil)
+	if err != nil {
+		return nil, err
+	}
+	var objErrors []*pb.BatchObjectsReply_BatchResults
+
+	for i, obj := range response {
+		if obj.Err != nil {
+			objErrors = append(objErrors, &pb.BatchObjectsReply_BatchResults{Index: int32(i), Error: obj.Err.Error()})
+		}
+	}
+
+	result := &pb.BatchObjectsReply{
+		Took:    float32(time.Since(before).Seconds()),
+		Results: objErrors,
+	}
+	return result, nil
 }
 
 func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
