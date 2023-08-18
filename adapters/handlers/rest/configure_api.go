@@ -104,7 +104,7 @@ type vectorRepo interface {
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	ctx := context.Background()
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 180*time.Minute)
 	defer cancel()
 
 	config.ServerVersion = parseVersionFromSwaggerSpec()
