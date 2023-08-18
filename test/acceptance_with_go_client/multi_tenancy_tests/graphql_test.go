@@ -13,7 +13,11 @@ package multi_tenancy_tests
 
 import (
 	"context"
+	"fmt"
 	"testing"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/entities/schema"
 
 	"acceptance_tests_with_client/fixtures"
 
@@ -437,4 +441,72 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 			)
 		})
 	})
+}
+
+func TestGroupByMultiTenancy(t *testing.T) {
+	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: "localhost:8080"})
+	require.Nil(t, err)
+
+	ctx := context.Background()
+
+	defer client.Schema().ClassDeleter().WithClassName("TextContent").Do(ctx)
+	defer client.Schema().ClassDeleter().WithClassName("Document").Do(ctx)
+
+	err = client.Schema().ClassCreator().WithClass(
+		&models.Class{
+			Class:              "TextContent",
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			Vectorizer:         "text2vec-contextionary",
+			Properties: []*models.Property{
+				{
+					Name:     "text",
+					DataType: schema.DataTypeText.PropString(),
+				},
+			},
+		},
+	).Do(ctx)
+	require.Nil(t, err)
+
+	err = client.Schema().ClassCreator().WithClass(
+		&models.Class{
+			Class:              "Document",
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			Vectorizer:         "text2vec-contextionary",
+			Properties: []*models.Property{
+				{
+					Name:     "textContents",
+					DataType: []string{"TextContent"},
+				},
+				{
+					Name:     "title",
+					DataType: schema.DataTypeText.PropString(),
+				},
+			},
+		},
+	).Do(ctx)
+	require.Nil(t, err)
+
+	require.Nil(t, client.Schema().PropertyCreator().WithClassName("TextContent").WithProperty(&models.Property{
+		Name:     "contentOf",
+		DataType: []string{"Document"},
+	}).Do(ctx))
+
+	require.Nil(t, client.Schema().TenantsCreator().WithClassName("TextContent").WithTenants(models.Tenant{Name: "1"}).Do(ctx))
+	require.Nil(t, client.Schema().TenantsCreator().WithClassName("Document").WithTenants(models.Tenant{Name: "1"}).Do(ctx))
+
+	docCreator := client.Data().Creator().WithClassName("Document").WithTenant("1")
+	doc1, err := docCreator.WithProperties(map[string]interface{}{"title": "Foo"}).Do(ctx)
+	require.Nil(t, err)
+
+	textCreator := client.Data().Creator().WithClassName("TextContent").WithTenant("1")
+	text1, err := textCreator.WithProperties(map[string]interface{}{"text": "Text from Foo"}).Do(ctx)
+	require.Nil(t, err)
+
+	require.Nil(t, client.Data().ReferenceCreator().WithTenant("1").WithClassName("Document").WithID(doc1.Object.ID.String()).WithReferenceProperty("textContents").WithReference(&models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/TextContent/%s", text1.Object.ID.String()))}).Do(ctx))
+	require.Nil(t, client.Data().ReferenceCreator().WithTenant("1").WithClassName("TextContent").WithID(text1.Object.ID.String()).WithReferenceProperty("contentOf").WithReference(&models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/Document/%s", doc1.Object.ID.String()))}).Do(ctx))
+
+	result, err := client.GraphQL().Raw().WithQuery("{Get{TextContent(nearText: {concepts: [\"Foo\"] distance: 1.0} groupBy:{path:[\"contentOf\"], groups:2, objectsPerGroup:1}tenant: \"1\"){contentOf{... on Document{title}}}}}").Do(ctx)
+	require.Nil(t, err)
+	require.NotNil(t, result)
+	require.Nil(t, result.Errors)
 }
