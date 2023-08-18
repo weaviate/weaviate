@@ -14,8 +14,6 @@ package hnsw
 import (
 	"encoding/json"
 	"fmt"
-	"math"
-	"strconv"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -212,7 +210,7 @@ func (u *UserConfig) validate() error {
 
 	err := ValidateDefaultVectorDistanceMetric(u.Distance)
 	if err != nil {
-		errMsgs = append(errMsgs, "distance "+err.Error())
+		errMsgs = append(errMsgs, fmt.Sprintf("distance %v", err))
 	}
 
 	if len(errMsgs) > 0 {
@@ -223,9 +221,7 @@ func (u *UserConfig) validate() error {
 	return nil
 }
 
-// Tries to parse the int value from the map, if it overflows Int64, it
-// uses math.MaxInt64 instead. This is to protect from rounding errors from
-// json marshalling where the type may be assumed as float64
+// Tries to parse an int value from a map.
 func optionalIntFromMap(in map[string]interface{}, name string,
 	setFn func(v int),
 ) error {
@@ -234,35 +230,28 @@ func optionalIntFromMap(in map[string]interface{}, name string,
 		return nil
 	}
 
-	var asInt64 int64
-	var err error
-
 	// depending on whether we get the results from disk or from the REST API,
 	// numbers may be represented slightly differently
 	switch typed := value.(type) {
 	case int:
 		setFn(typed)
 		return nil
-	case json.Number:
-		asInt64, err = typed.Int64()
-		if err != nil {
-			// try to recover from error
-			if errors.Is(err, strconv.ErrRange) {
-				setFn(int(math.MaxInt64))
-				return nil
-			}
 
+	case json.Number:
+		asInt64, err := typed.Int64()
+		if err != nil {
 			return errors.Wrapf(err, "json.Number to int64 for %q", name)
 		}
+		setFn(int(asInt64))
+		return nil
+
 	case float64:
-		asInt64 = int64(typed)
+		setFn(int(typed))
+		return nil
 
 	default:
 		return fmt.Errorf("%s is of the wrong type. Should be of type int, json.Number or float64", name)
 	}
-
-	setFn(int(asInt64))
-	return nil
 }
 
 func optionalBoolFromMap(in map[string]interface{}, name string,
