@@ -443,7 +443,7 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 	})
 }
 
-func TestGroupBy_MultiTenancy(t *testing.T) {
+func TestGroupByMultiTenancy(t *testing.T) {
 	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: "localhost:8080"})
 	require.Nil(t, err)
 
@@ -505,8 +505,8 @@ func TestGroupBy_MultiTenancy(t *testing.T) {
 	require.Nil(t, client.Data().ReferenceCreator().WithTenant("1").WithClassName("Document").WithID(doc1.Object.ID.String()).WithReferenceProperty("textContents").WithReference(&models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/TextContent/%s", text1.Object.ID.String()))}).Do(ctx))
 	require.Nil(t, client.Data().ReferenceCreator().WithTenant("1").WithClassName("TextContent").WithID(text1.Object.ID.String()).WithReferenceProperty("contentOf").WithReference(&models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/Document/%s", doc1.Object.ID.String()))}).Do(ctx))
 
-	do, err := client.GraphQL().Raw().WithQuery("{Get{TextContent(nearText: {concepts: [\"Foo\"] distance: 1.0} groupBy:{path:[\"contentOf\"], groups:2, objectsPerGroup:1}tenant: \"1\"){contentOf{... on Document{title}}}}}").Do(ctx)
+	result, err := client.GraphQL().Raw().WithQuery("{Get{TextContent(nearText: {concepts: [\"Foo\"] distance: 1.0} groupBy:{path:[\"contentOf\"], groups:2, objectsPerGroup:1}tenant: \"1\"){contentOf{... on Document{title}}}}}").Do(ctx)
 	require.Nil(t, err)
-	require.NotNil(t, do)
-	require.Nil(t, do.Errors)
+	require.NotNil(t, result)
+	require.Nil(t, result.Errors)
 }
