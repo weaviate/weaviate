@@ -33,6 +33,10 @@ func (n *NoopCommitLogger) AddNode(node *vertex) error {
 	return nil
 }
 
+func (l *NoopCommitLogger) AddNodes(ids []uint64, levels []int) error {
+	return nil
+}
+
 func (n *NoopCommitLogger) Flush() error {
 	return nil
 }
@@ -46,6 +50,10 @@ func (n *NoopCommitLogger) AddLinkAtLevel(nodeid uint64, level int, target uint6
 }
 
 func (n *NoopCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
+	return nil
+}
+
+func (n *NoopCommitLogger) ConnectToAtLevel(sources []uint64, level int, target uint64) error {
 	return nil
 }
 

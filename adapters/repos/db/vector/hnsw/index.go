@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -33,6 +34,8 @@ import (
 )
 
 const NodeLockStripe = uint64(512)
+const TempSize = 1000
+const TempWorkers = 8
 
 type hnsw struct {
 	// global lock to prevent concurrent map read/write, etc.
@@ -161,14 +164,22 @@ type hnsw struct {
 	shardName              string
 	VectorForIDThunk       VectorForID
 	shardedNodeLocks       []sync.RWMutex
+
+	tempIds      [][]uint64
+	tempVectors  [][][]float32
+	currInserted int
+	tempLock     *sync.RWMutex
+	tempChannel  []chan int
 }
 
 type CommitLogger interface {
 	ID() string
 	AddNode(node *vertex) error
+	AddNodes(ids []uint64, levels []int) error
 	SetEntryPointWithMaxLayer(id uint64, level int) error
 	AddLinkAtLevel(nodeid uint64, level int, target uint64) error
 	ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error
+	ConnectToAtLevel(sources []uint64, level int, target uint64) error
 	AddTombstone(nodeid uint64) error
 	RemoveTombstone(nodeid uint64) error
 	DeleteNode(nodeid uint64) error
@@ -265,6 +276,7 @@ func New(cfg Config, uc ent.UserConfig,
 
 		randFunc:             rand.Float64,
 		compressActionLock:   &sync.RWMutex{},
+		tempLock:             &sync.RWMutex{},
 		className:            cfg.ClassName,
 		VectorForIDThunk:     cfg.VectorForIDThunk,
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
@@ -273,7 +285,13 @@ func New(cfg Config, uc ent.UserConfig,
 
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
+
+		tempIds:     make([][]uint64, 1),
+		tempVectors: make([][][]float32, 1),
+		tempChannel: make([]chan int, TempWorkers),
 	}
+	index.tempIds[0] = make([]uint64, TempSize)
+	index.tempVectors[0] = make([][]float32, TempSize)
 
 	if uc.PQ.Enabled {
 		index.compressedVectorsCache = newCompressedShardedLockCache(index.getCompressedVectorForID, uc.VectorCacheMaxObjects, cfg.Logger)
@@ -293,6 +311,17 @@ func New(cfg Config, uc ent.UserConfig,
 
 	for i := uint64(0); i < NodeLockStripe; i++ {
 		index.shardedNodeLocks[i] = sync.RWMutex{}
+	}
+
+	for i := 0; i < TempWorkers; i++ {
+		index.tempChannel[i] = make(chan int)
+		go func(channelId int) {
+			for {
+				ind := <-index.tempChannel[channelId]
+				index.AddBatch(index.tempIds[ind], index.tempVectors[ind])
+				fmt.Println("-------------------------------", time.Now())
+			}
+		}(i)
 	}
 
 	return index, nil

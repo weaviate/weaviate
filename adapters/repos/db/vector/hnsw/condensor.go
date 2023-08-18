@@ -140,6 +140,17 @@ func (c *MemoryCondensor) writeUint16(w *bufWriter, in uint16) error {
 	return nil
 }
 
+func (c *MemoryCondensor) writeUint32(w *bufWriter, in uint32) error {
+	toWrite := make([]byte, 4)
+	binary.LittleEndian.PutUint32(toWrite[0:4], in)
+	_, err := w.Write(toWrite)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (c *MemoryCondensor) writeCommitType(w *bufWriter, in HnswCommitType) error {
 	toWrite := make([]byte, 1)
 	toWrite[0] = byte(in)
@@ -168,6 +179,19 @@ func (c *MemoryCondensor) AddNode(node *vertex) error {
 	ec.Add(c.writeCommitType(c.newLog, AddNode))
 	ec.Add(c.writeUint64(c.newLog, node.id))
 	ec.Add(c.writeUint16(c.newLog, uint16(node.level)))
+
+	return ec.ToError()
+}
+
+// AddNode adds an empty node
+func (c *MemoryCondensor) AddNodes(ids []uint64, levels []int) error {
+	ec := &errorcompounder.ErrorCompounder{}
+	ec.Add(c.writeCommitType(c.newLog, AddNodes))
+	ec.Add(c.writeUint32(c.newLog, uint32(len(ids))))
+	for i := range ids {
+		ec.Add(c.writeUint64(c.newLog, ids[i]))
+		ec.Add(c.writeUint16(c.newLog, uint16(levels[i])))
+	}
 
 	return ec.ToError()
 }
