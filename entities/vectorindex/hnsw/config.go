@@ -14,6 +14,8 @@ package hnsw
 import (
 	"encoding/json"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -221,7 +223,9 @@ func (u *UserConfig) validate() error {
 	return nil
 }
 
-// Tries to parse an int value from a map.
+// Tries to parse the int value from the map, if it overflows Int64, it
+// uses math.MaxInt64 instead. This is to protect from rounding errors from
+// json marshalling where the type may be assumed as float64
 func optionalIntFromMap(in map[string]interface{}, name string,
 	setFn func(v int),
 ) error {
@@ -240,6 +244,12 @@ func optionalIntFromMap(in map[string]interface{}, name string,
 	case json.Number:
 		asInt64, err := typed.Int64()
 		if err != nil {
+			// try to recover from error
+			if errors.Is(err, strconv.ErrRange) {
+				setFn(int(math.MaxInt64))
+				return nil
+			}
+
 			return errors.Wrapf(err, "json.Number to int64 for %q", name)
 		}
 		setFn(int(asInt64))
