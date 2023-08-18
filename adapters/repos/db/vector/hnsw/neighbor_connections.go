@@ -110,10 +110,18 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	n.node.setConnectionsAtLevel(level, neighbors)
 	n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighbors)
 
+	pendingConnections := make([]uint64, 0, len(neighbors))
 	for _, neighborID := range neighbors {
-		if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
+		added, err := n.connectNeighborAtLevel(neighborID, level)
+		if err != nil {
 			return errors.Wrapf(err, "connect neighbor %d", neighborID)
 		}
+		if added {
+			pendingConnections = append(pendingConnections, neighborID)
+		}
+	}
+	if err := n.graph.commitLog.ConnectToAtLevel(pendingConnections, level, n.node.id); err != nil {
+		return err
 	}
 
 	if len(neighbors) > 0 {
@@ -133,10 +141,10 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 
 func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 	level int,
-) error {
+) (bool, error) {
 	neighbor := n.graph.nodeByID(neighborID)
 	if skip := n.skipNeighbor(neighbor); skip {
-		return nil
+		return false, nil
 	}
 
 	neighbor.Lock()
@@ -152,21 +160,19 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		// we can simply append
 		// updatedConnections = append(currentConnections, n.node.id)
 		neighbor.appendConnectionAtLevelNoLock(level, n.node.id, maximumConnections)
-		if err := n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, n.node.id); err != nil {
-			return err
-		}
+		return true, nil
 	} else {
 		// we need to run the heurisitc
 
 		dist, ok, err := n.graph.distBetweenNodes(n.node.id, neighborID)
 		if err != nil {
-			return errors.Wrapf(err, "dist between %d and %d", n.node.id, neighborID)
+			return false, errors.Wrapf(err, "dist between %d and %d", n.node.id, neighborID)
 		}
 
 		if !ok {
 			// it seems either the node or the neighbor were deleted in the meantime,
 			// there is nothing we can do now
-			return nil
+			return false, nil
 		}
 
 		candidates := priorityqueue.NewMax(len(currentConnections) + 1)
@@ -175,7 +181,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		for _, existingConnection := range currentConnections {
 			dist, ok, err := n.graph.distBetweenNodes(existingConnection, neighborID)
 			if err != nil {
-				return errors.Wrapf(err, "dist between %d and %d", existingConnection, neighborID)
+				return false, errors.Wrapf(err, "dist between %d and %d", existingConnection, neighborID)
 			}
 
 			if !ok {
@@ -188,24 +194,22 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 
 		err = n.graph.selectNeighborsHeuristic(candidates, maximumConnections, n.denyList)
 		if err != nil {
-			return errors.Wrap(err, "connect neighbors")
+			return false, errors.Wrap(err, "connect neighbors")
 		}
 
 		neighbor.resetConnectionsAtLevelNoLock(level)
-		if err := n.graph.commitLog.ClearLinksAtLevel(neighbor.id, uint16(level)); err != nil {
-			return err
-		}
-
+		neighbors := make([]uint64, 0, candidates.Len())
 		for candidates.Len() > 0 {
 			id := candidates.Pop().ID
 			neighbor.appendConnectionAtLevelNoLock(level, id, maximumConnections)
-			if err := n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, id); err != nil {
-				return err
-			}
+			neighbors = append(neighbors, id)
+		}
+		if err := n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighbors); err != nil {
+			return false, err
 		}
 	}
 
-	return nil
+	return false, nil
 }
 
 func (n *neighborFinderConnector) skipNeighbor(neighbor *vertex) bool {

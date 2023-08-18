@@ -106,6 +106,13 @@ func (d *Deserializer) Do(fd *bufio.Reader,
 		case AddNode:
 			err = d.ReadNode(fd, out)
 			readThisRound = 10
+		case AddNodes:
+			var len uint32
+			len, err = d.readUint32(fd)
+			for i := uint32(0); err == nil && i < len; i++ {
+				err = d.ReadNode(fd, out)
+			}
+			readThisRound = 4 + 10*int(len)
 		case SetEntryPointMaxLevel:
 			var entrypoint uint64
 			var level uint16
@@ -143,6 +150,8 @@ func (d *Deserializer) Do(fd *bufio.Reader,
 		case AddPQ:
 			err = d.ReadPQ(fd, out)
 			readThisRound = 9
+		case ConnectTo:
+			err = d.ConnectTo(fd, out)
 		default:
 			err = errors.Errorf("unrecognized commit type %d", ct)
 		}
@@ -441,6 +450,41 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 	return nil
 }
 
+func (d *Deserializer) ConnectTo(r io.Reader, res *DeserializationResult) error {
+	/*
+		toWrite := make([]byte, 17+len(sources)*8)
+		toWrite[0] = byte(ConnectTo)
+		binary.LittleEndian.PutUint64(toWrite[1:9], target)
+		binary.LittleEndian.PutUint16(toWrite[9:13], level)
+		binary.LittleEndian.PutUint16(toWrite[13:17], uint16(len(sources)))
+		for i, source := range sources {
+			binary.LittleEndian.PutUint64(toWrite[17+i*8:], source)
+		}
+		_, err := l.bufw.Write(toWrite)
+		return err
+	*/
+	id, err := d.readUint64(r)
+	if err != nil {
+		return err
+	}
+	level, err := d.readUint16(r)
+	if err != nil {
+		return err
+	}
+	len, err := d.readUint16(r)
+	if err != nil {
+		return err
+	}
+	for i := 0; i < int(len); i++ {
+		source, err := d.readUint64(r)
+		if err != nil {
+			return err
+		}
+		res.Nodes[int(source)].connections[int(level)] = append(res.Nodes[int(source)].connections[int(level)], id)
+	}
+	return nil
+}
+
 func (d *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult) error {
 	id, err := d.readUint64(r)
 	if err != nil {
@@ -624,6 +668,19 @@ func (d *Deserializer) readUint16(r io.Reader) (uint16, error) {
 	}
 
 	value = binary.LittleEndian.Uint16(d.reusableBuffer)
+
+	return value, nil
+}
+
+func (d *Deserializer) readUint32(r io.Reader) (uint32, error) {
+	var value uint32
+	d.resetResusableBuffer(4)
+	_, err := io.ReadFull(r, d.reusableBuffer)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to read uint32")
+	}
+
+	value = binary.LittleEndian.Uint32(d.reusableBuffer)
 
 	return value, nil
 }
