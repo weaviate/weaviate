@@ -100,7 +100,7 @@ func (db *DB) localNodeStatus(className string) *models.NodeStatus {
 			ObjectCount: objectCount,
 		},
 		BatchStats: &models.BatchStats{
-			QueueLength:   int64(len(db.jobQueueCh)),
+			QueueLength:   int64(len(db.batchJobQueueCh)),
 			RatePerSecond: int64(rate),
 		},
 	}

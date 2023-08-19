@@ -63,7 +63,7 @@ type Shard struct {
 	propertyIndicesLock sync.RWMutex
 	stopMetrics         chan struct{}
 
-	centralJobQueue chan job // reference to queue used by all shards
+	centralJobQueue chan batchJob // reference to queue used by all shards
 
 	docIdLock []sync.Mutex
 	// replication
@@ -84,7 +84,7 @@ type Shard struct {
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
-	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
+	shardName string, index *Index, class *models.Class, jobQueueCh chan batchJob,
 ) (*Shard, error) {
 	before := time.Now()
 

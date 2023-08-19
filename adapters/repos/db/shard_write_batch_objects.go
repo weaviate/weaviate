@@ -219,7 +219,7 @@ func (ob *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context)
 
 		ob.wg.Add(1)
 		status := ob.statuses[object.ID()]
-		ob.shard.centralJobQueue <- job{
+		ob.shard.centralJobQueue <- batchJob{
 			object:  object,
 			status:  status,
 			index:   i,

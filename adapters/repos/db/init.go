@@ -72,7 +72,7 @@ func (db *DB) init(ctx context.Context) error {
 				inverted.ConfigFromModel(invertedConfig),
 				class.VectorIndexConfig.(schema.VectorIndexConfig),
 				db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
-				db.replicaClient, db.promMetrics, class, db.jobQueueCh)
+				db.replicaClient, db.promMetrics, class, db.batchJobQueueCh)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}
