@@ -53,28 +53,17 @@ func (db *DB) GetQueryMaximumResults() int {
 // Class ClassSearch method fit this need. Later on, other use cases presented the need
 // for the raw storage objects, such as hybrid search.
 func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error) {
-	idx := db.GetIndex(schema.ClassName(params.ClassName))
-	if idx == nil {
-		return nil, nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
+	if params.KeywordRanking != nil || params.HybridSearch != nil {
+		resp := make(chan bM25fJobResponse, 1)
+		db.bm25fJobQueueCh <- bM25fJob{params, resp}
+		db.throttledSearch(ctx, resp)
+		res := <-resp
+		if res.err != nil {
+			return nil, nil, res.err
+		}
+		return res.objects, res.dists, nil
 	}
-
-	if params.Pagination == nil {
-		return nil, nil, fmt.Errorf("invalid params, pagination object is nil")
-	}
-
-	totalLimit, err := db.getTotalLimit(params.Pagination, params.AdditionalProperties)
-	if err != nil {
-		return nil, nil, errors.Wrapf(err, "invalid pagination params")
-	}
-
-	res, dist, err := idx.objectSearch(ctx, totalLimit,
-		params.Filters, params.KeywordRanking, params.Sort, params.Cursor,
-		params.AdditionalProperties, params.ReplicationProperties, params.Tenant, params.Pagination.Autocut)
-	if err != nil {
-		return nil, nil, errors.Wrapf(err, "object search at index %s", idx.ID())
-	}
-
-	return res, dist, nil
+	return db.search(ctx, params)
 }
 
 func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
@@ -90,6 +79,51 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 	return db.ResolveReferences(ctx,
 		storobj.SearchResults(db.getStoreObjects(res, params.Pagination), params.AdditionalProperties, params.Tenant),
 		params.Properties, params.GroupBy, params.AdditionalProperties, params.Tenant)
+}
+
+func (db *DB) search(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error) {
+	idx := db.GetIndex(schema.ClassName(params.ClassName))
+	if idx == nil {
+		return nil, nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
+	}
+
+	if params.Pagination == nil {
+		return nil, nil, fmt.Errorf("invalid params, pagination object is nil")
+	}
+
+	totalLimit, err := db.getTotalLimit(params.Pagination, params.AdditionalProperties)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid pagination params: %w", err)
+	}
+
+	objs, dists, err := idx.objectSearch(ctx, totalLimit,
+		params.Filters, params.KeywordRanking, params.Sort, params.Cursor,
+		params.AdditionalProperties, params.ReplicationProperties, params.Tenant, params.Pagination.Autocut)
+	if err != nil {
+		return nil, nil, fmt.Errorf("object search at index %s: %w", idx.ID(), err)
+	}
+
+	return objs, dists, nil
+}
+
+func (db *DB) throttledSearch(ctx context.Context, respChan chan bM25fJobResponse) {
+	for {
+		select {
+		case job := <-db.bm25fJobQueueCh:
+			var resp bM25fJobResponse
+			objs, dists, err := db.search(ctx, job.params)
+			if err != nil {
+				resp.err = err
+				respChan <- resp
+				return
+			}
+			resp.objects = objs
+			resp.dists = dists
+			respChan <- resp
+		default:
+			return
+		}
+	}
 }
 
 func (db *DB) VectorSearch(ctx context.Context,

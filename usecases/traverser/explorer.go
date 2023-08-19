@@ -16,12 +16,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/autocut"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/autocut"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/inverted"
@@ -304,13 +303,13 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		oldLimit := params.Pagination.Limit
 		params.Pagination.Limit = enforcedMin - params.Pagination.Offset
 
-		res, dists, err := e.searcher.SparseObjectSearch(ctx, params)
+		objs, dists, err := e.searcher.SparseObjectSearch(ctx, params)
 		if err != nil {
 			return nil, nil, err
 		}
 		params.Pagination.Limit = oldLimit
 
-		return res, dists, nil
+		return objs, dists, nil
 	}
 
 	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {

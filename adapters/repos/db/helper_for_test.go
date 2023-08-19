@@ -224,7 +224,8 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 		},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: shardState, schema: sch}
-	queue := make(chan job, 100000)
+	queue := make(chan batchJob, 100000)
+
 	idx := &Index{
 		Config:                IndexConfig{RootPath: tmpDir, ClassName: schema.ClassName(className)},
 		invertedIndexConfig:   schema.InvertedIndexConfig{},
@@ -240,7 +241,7 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 
 	shardName := shardState.AllPhysicalShards()[0]
 
-	shd, err := NewShard(ctx, nil, shardName, idx, &class, repo.jobQueueCh)
+	shd, err := NewShard(ctx, nil, shardName, idx, &class, repo.batchJobQueueCh)
 	if err != nil {
 		panic(err)
 	}

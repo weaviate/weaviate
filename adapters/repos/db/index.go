@@ -141,7 +141,7 @@ type Index struct {
 	dropIndex sync.RWMutex
 
 	metrics         *Metrics
-	centralJobQueue chan job
+	centralJobQueue chan batchJob
 
 	partitioningEnabled bool
 }
@@ -162,7 +162,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
-	promMetrics *monitoring.PrometheusMetrics, class *models.Class, jobQueueCh chan job,
+	promMetrics *monitoring.PrometheusMetrics, class *models.Class, jobQueueCh chan batchJob,
 ) (*Index, error) {
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
 	if err != nil {

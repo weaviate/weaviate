@@ -22,6 +22,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -68,7 +69,8 @@ type DB struct {
 	// mark a given index in use, lock that index directly.
 	indexLock sync.RWMutex
 
-	jobQueueCh          chan job
+	batchJobQueueCh     chan batchJob
+	bm25fJobQueueCh     chan bM25fJob
 	shutDownWg          sync.WaitGroup
 	maxNumberGoroutines int
 }
@@ -106,7 +108,8 @@ func New(logger logrus.FieldLogger, config Config,
 		replicaClient:       replicaClient,
 		promMetrics:         promMetrics,
 		shutdown:            make(chan struct{}),
-		jobQueueCh:          make(chan job, 100000),
+		batchJobQueueCh:     make(chan batchJob, 100000),
+		bm25fJobQueueCh:     make(chan bM25fJob, _NUMCPU),
 		maxNumberGoroutines: int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 		resourceScanState:   newResourceScanState(),
 	}
@@ -115,7 +118,7 @@ func New(logger logrus.FieldLogger, config Config,
 	}
 	db.shutDownWg.Add(db.maxNumberGoroutines)
 	for i := 0; i < db.maxNumberGoroutines; i++ {
-		go db.worker()
+		go db.batchWorker()
 	}
 
 	return db, nil
@@ -202,7 +205,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 
 	// shut down the workers that add objects to
 	for i := 0; i < db.maxNumberGoroutines; i++ {
-		db.jobQueueCh <- job{
+		db.batchJobQueueCh <- batchJob{
 			index: -1,
 		}
 	}
@@ -220,8 +223,8 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (db *DB) worker() {
-	for jobToAdd := range db.jobQueueCh {
+func (db *DB) batchWorker() {
+	for jobToAdd := range db.batchJobQueueCh {
 		if jobToAdd.index < 0 {
 			db.shutDownWg.Done()
 			return
@@ -231,10 +234,21 @@ func (db *DB) worker() {
 	}
 }
 
-type job struct {
+type batchJob struct {
 	object  *storobj.Object
 	status  objectInsertStatus
 	index   int
 	ctx     context.Context
 	batcher *objectsBatcher
+}
+
+type bM25fJob struct {
+	params   dto.GetParams
+	response chan bM25fJobResponse
+}
+
+type bM25fJobResponse struct {
+	objects []*storobj.Object
+	dists   []float32
+	err     error
 }
