@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
 
 func TestIndexQueue(t *testing.T) {
@@ -116,6 +117,35 @@ func TestIndexQueue(t *testing.T) {
 
 		require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 1}, content[:8])
 	})
+
+	t.Run("merges results from queries", func(t *testing.T) {
+		var idx mockBatchIndexer
+		q, err := NewIndexQueue(walPath, &idx, IndexQueueOptions{
+			MaxQueueSize: 3,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		err = q.Push(ctx, 1, []float32{1, 2, 3})
+		require.NoError(t, err)
+		require.Equal(t, 1, len(q.toIndex))
+
+		err = q.Push(ctx, 2, []float32{4, 5, 6})
+		require.NoError(t, err)
+		require.Equal(t, 2, len(q.toIndex))
+
+		err = q.Push(ctx, 3, []float32{7, 8, 9})
+		require.NoError(t, err)
+		require.Equal(t, 0, len(q.toIndex))
+
+		err = q.Push(ctx, 4, []float32{1, 2, 3})
+		require.NoError(t, err)
+		require.Equal(t, 1, len(q.toIndex))
+
+		ids, _, err := q.SearchByVector([]float32{1, 2, 3}, 2, nil)
+		require.NoError(t, err)
+		require.ElementsMatch(t, []uint64{1, 4}, ids)
+	})
 }
 
 type mockBatchIndexer struct {
@@ -134,4 +164,46 @@ func (m *mockBatchIndexer) AddBatch(id []uint64, vector [][]float32) (err error)
 	m.ids = append(m.ids, id)
 	m.vectors = append(m.vectors, vector)
 	return nil
+}
+
+func (m *mockBatchIndexer) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	results := newPqMaxPool(k).GetMax(k)
+	for i, v := range m.vectors {
+		for j := range v {
+			// skip filtered data
+			if allowList != nil && allowList.Contains(m.ids[i][j]) {
+				continue
+			}
+
+			dist, _, err := m.DistanceBetweenVectors(vector, m.vectors[i][j])
+			if err != nil {
+				return nil, nil, err
+			}
+
+			if results.Len() < k || dist < results.Top().Dist {
+				results.Insert(m.ids[i][j], dist)
+				for results.Len() > k {
+					results.Pop()
+				}
+			}
+		}
+	}
+	ids := make([]uint64, k)
+	distances := make([]float32, k)
+
+	for i := k - 1; i >= 0; i-- {
+		element := results.Pop()
+		ids[i] = element.ID
+		distances[i] = element.Dist
+	}
+	return ids, distances, nil
+}
+
+func (m *mockBatchIndexer) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
+	res := float32(0)
+	for i := range x {
+		diff := x[i] - y[i]
+		res += diff * diff
+	}
+	return res, true, nil
 }

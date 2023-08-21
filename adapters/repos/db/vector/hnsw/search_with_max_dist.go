@@ -16,7 +16,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 )
 
 func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
