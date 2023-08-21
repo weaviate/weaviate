@@ -25,8 +25,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -703,4 +703,8 @@ func (h *hnsw) Entrypoint() uint64 {
 	defer h.RUnlock()
 
 	return h.entryPointID
+}
+
+func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
+	return h.distancerProvider.SingleDist(x, y)
 }

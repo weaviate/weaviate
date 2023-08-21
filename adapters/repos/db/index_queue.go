@@ -22,6 +22,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 )
 
 // IndexQueue is a persistent queue of vectors to index.
@@ -30,6 +32,8 @@ import (
 // It is safe to use concurrently.
 type IndexQueue struct {
 	Index BatchIndexer
+
+	lock *sync.RWMutex
 
 	logger logrus.FieldLogger
 
@@ -58,6 +62,8 @@ type IndexQueue struct {
 
 	// keeps track of the last time the queue was indexed
 	staleTm *time.Ticker
+
+	pqMaxPool *pqMaxPool
 }
 
 type IndexQueueOptions struct {
@@ -80,6 +86,37 @@ type IndexQueueOptions struct {
 
 type BatchIndexer interface {
 	AddBatch(id []uint64, vector [][]float32) error
+	SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
+	DistanceBetweenVectors(x, y []float32) (float32, bool, error)
+}
+
+type pqMaxPool struct {
+	pool *sync.Pool
+}
+
+func newPqMaxPool(defaultCap int) *pqMaxPool {
+	return &pqMaxPool{
+		pool: &sync.Pool{
+			New: func() interface{} {
+				return priorityqueue.NewMax(defaultCap)
+			},
+		},
+	}
+}
+
+func (pqh *pqMaxPool) GetMax(capacity int) *priorityqueue.Queue {
+	pq := pqh.pool.Get().(*priorityqueue.Queue)
+	if pq.Cap() < capacity {
+		pq.ResetCap(capacity)
+	} else {
+		pq.Reset()
+	}
+
+	return pq
+}
+
+func (pqh *pqMaxPool) Put(pq *priorityqueue.Queue) {
+	pqh.pool.Put(pq)
 }
 
 func NewIndexQueue(
@@ -112,6 +149,8 @@ func NewIndexQueue(
 		closed:        make(chan struct{}),
 		toIndex:       make([]indexQueueJob, 0, opts.MaxQueueSize),
 		logger:        opts.Logger.WithField("component", "index_queue"),
+		pqMaxPool:     newPqMaxPool(0),
+		lock:          &sync.RWMutex{},
 	}
 
 	var err error
@@ -167,12 +206,15 @@ type indexQueueJob struct {
 	id     uint64
 	vector []float32
 	done   chan error
+	pqMax  *pqMaxPool
 }
 
 // Push adds a vector to the persistent indexing queue.
 // It waits until the vector is successfully persisted to the
 // on-disk queue or sent to the indexing worker.
 func (q *IndexQueue) Push(ctx context.Context, id uint64, vector []float32) error {
+	q.lock.Lock()
+	defer q.lock.Unlock()
 	// check if the queue is closed
 	select {
 	case <-ctx.Done():
@@ -197,6 +239,74 @@ func (q *IndexQueue) Push(ctx context.Context, id uint64, vector []float32) erro
 	}:
 		return <-done
 	}
+}
+
+// Search defer to the index and brute force the unindexed data
+func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	// copy first to avoid missing data
+	// lock for concurrent access. No push should occur during search
+	q.lock.RLock()
+	ids := make([]uint64, 0, len(q.toIndex))
+	vectors := make([][]float32, 0, len(q.toIndex))
+
+	for _, j := range q.toIndex {
+		ids = append(ids, j.id)
+		vectors = append(vectors, j.vector)
+	}
+	q.lock.RUnlock()
+
+	indexedResults, distances, err := q.Index.SearchByVector(vector, k, allowList)
+	if err != nil {
+		return nil, nil, err
+	}
+	results := q.pqMaxPool.GetMax(k)
+	defer q.pqMaxPool.Put(results)
+	for i := range indexedResults {
+		results.Insert(indexedResults[i], distances[i])
+	}
+
+	err = q.bruteForce(vector, k, ids, vectors, results, allowList)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if cap(ids) >= k {
+		ids = ids[:k]
+		distances = distances[:k]
+	} else {
+		ids = make([]uint64, k)
+		distances = make([]float32, k)
+	}
+
+	for i := k - 1; i >= 0; i-- {
+		element := results.Pop()
+		ids[i] = element.ID
+		distances[i] = element.Dist
+	}
+	return ids, distances, nil
+}
+
+func (q *IndexQueue) bruteForce(vector []float32, k int, ids []uint64, vectors [][]float32, results *priorityqueue.Queue, allowList helpers.AllowList) error {
+	// actual brute force. Consider moving to a separate
+	for i := range vectors {
+		// skip filtered data
+		if allowList != nil && allowList.Contains(ids[i]) {
+			continue
+		}
+
+		dist, _, err := q.Index.DistanceBetweenVectors(vector, vectors[i])
+		if err != nil {
+			return err
+		}
+
+		if results.Len() < k || dist < results.Top().Dist {
+			results.Insert(ids[i], dist)
+			for results.Len() > k {
+				results.Pop()
+			}
+		}
+	}
+	return nil
 }
 
 // This is the processor worker. Its job is to batch jobs together before
