@@ -47,6 +47,7 @@ const IdLockPoolSize = 128
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
 	index           *Index // a reference to the underlying index, which in turn contains schema information
+	queue           *IndexQueue
 	name            string
 	store           *lsmkv.Store
 	counter         *indexcounter.Counter
@@ -81,6 +82,10 @@ type Shard struct {
 	fallbackToSearchable bool
 
 	cycleCallbacks *shardCycleCallbacks
+}
+
+func indexedQueuePath(rootPath, className, shardName string) string {
+	return fmt.Sprintf("%s/%s_%s_queue.wal", rootPath, className, shardName)
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -123,6 +128,12 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
+	}
+
+	var err error
+	s.queue, err = NewIndexQueue(indexedQueuePath(s.index.Config.RootPath, s.index.Config.ClassName.String(), shardName), s.vectorIndex, IndexQueueOptions{MaxQueueSize: 1000})
+	if err != nil {
+		return nil, err
 	}
 
 	return s, nil

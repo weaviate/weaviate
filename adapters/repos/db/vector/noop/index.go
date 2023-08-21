@@ -98,3 +98,7 @@ func (i *Index) PostStartup() {
 
 func (i *Index) Dump(labels ...string) {
 }
+
+func (i *Index) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
+	return 0, true, nil
+}
