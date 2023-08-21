@@ -13,6 +13,7 @@ package schema
 
 import (
 	"fmt"
+	"math/rand"
 	"sync"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -53,10 +54,20 @@ func (s *schemaCache) ShardOwner(class, shard string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("shard not found")
 	}
-	if len(x.BelongsToNodes) < 1 || x.BelongsToNodes[0] == "" {
-		return "", fmt.Errorf("owner node not found")
+	n := len(x.BelongsToNodes)
+	if n == 0 {
+		return "", fmt.Errorf("found empty node list")
 	}
-	return x.BelongsToNodes[0], nil
+
+	idx := 0
+	if n > 1 {
+		idx = rand.Intn(n)
+	}
+	if owner := x.BelongsToNodes[idx]; owner == "" {
+		return "", fmt.Errorf("found empty node at position %d", idx)
+	} else {
+		return owner, nil
+	}
 }
 
 // ShardOwner returns the node owner of the specified shard
