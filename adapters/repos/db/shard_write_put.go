@@ -88,8 +88,7 @@ func (s *Shard) updateVectorIndexIgnoreDelete(vector []float32,
 		return nil
 	}
 
-	// Connect here our new code
-	if err := s.vectorIndex.Add(status.docID, vector); err != nil {
+	if err := s.queue.Push(context.Background(), status.docID, vector); err != nil {
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}
 
@@ -116,7 +115,7 @@ func (s *Shard) updateVectorIndex(vector []float32,
 	}
 
 	// Connect here our new code
-	if err := s.vectorIndex.Add(status.docID, vector); err != nil {
+	if err := s.queue.Push(context.Background(), status.docID, vector); err != nil {
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}
 

@@ -248,7 +248,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 			return nil, nil, errors.Wrap(err, "vector search by distance")
 		}
 	} else {
-		ids, dists, err = s.vectorIndex.SearchByVector(searchVector, limit, allowList)
+		ids, dists, err = s.queue.SearchByVector(searchVector, limit, allowList)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "vector search")
 		}
