@@ -41,20 +41,22 @@ func buildUrl(resourceName, deploymentID string) (string, error) {
 }
 
 type qna struct {
-	openAIApiKey string
-	azureApiKey  string
-	buildUrlFn   func(resourceName, deploymentID string) (string, error)
-	httpClient   *http.Client
-	logger       logrus.FieldLogger
+	openAIApiKey       string
+	openAIOrganization string
+	azureApiKey        string
+	buildUrlFn         func(resourceName, deploymentID string) (string, error)
+	httpClient         *http.Client
+	logger             logrus.FieldLogger
 }
 
-func New(openAIApiKey, azureApiKey string, logger logrus.FieldLogger) *qna {
+func New(openAIApiKey, openAIOrganization, azureApiKey string, logger logrus.FieldLogger) *qna {
 	return &qna{
-		openAIApiKey: openAIApiKey,
-		azureApiKey:  azureApiKey,
-		httpClient:   &http.Client{},
-		buildUrlFn:   buildUrl,
-		logger:       logger,
+		openAIApiKey:       openAIApiKey,
+		openAIOrganization: openAIOrganization,
+		azureApiKey:        azureApiKey,
+		httpClient:         &http.Client{},
+		buildUrlFn:         buildUrl,
+		logger:             logger,
 	}
 }
 
@@ -92,6 +94,9 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 		return nil, errors.Wrapf(err, "OpenAI API Key")
 	}
 	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey, settings.IsAzure()))
+	if openAIOrganization := v.getOpenAIOrganization(ctx); openAIOrganization != "" {
+		req.Header.Add("OpenAI-Organization", openAIOrganization)
+	}
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := v.httpClient.Do(req)
@@ -177,12 +182,26 @@ func (v *qna) getApiKey(ctx context.Context, isAzure bool) (string, error) {
 }
 
 func (v *qna) getApiKeyFromContext(ctx context.Context, apiKey, envVar string) (string, error) {
-	if apiValue := ctx.Value(apiKey); apiValue != nil {
-		if apiKeyHeader, ok := apiValue.([]string); ok && len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
-			return apiKeyHeader[0], nil
-		}
+	if apiKeyValue := v.getValueFromContext(ctx, apiKey); apiKeyValue != "" {
+		return apiKeyValue, nil
 	}
 	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
+}
+
+func (v *qna) getValueFromContext(ctx context.Context, key string) string {
+	if value := ctx.Value(key); value != nil {
+		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
+			return keyHeader[0]
+		}
+	}
+	return ""
+}
+
+func (v *qna) getOpenAIOrganization(ctx context.Context) string {
+	if value := v.getValueFromContext(ctx, "X-Openai-Organization"); value != "" {
+		return value
+	}
+	return v.openAIOrganization
 }
 
 type answersInput struct {

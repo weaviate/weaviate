@@ -85,7 +85,6 @@ func (v *palm) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt
 			{
 				Messages: []message{
 					{
-						Author:  "user",
 						Content: prompt,
 					},
 				},
@@ -231,8 +230,8 @@ type generateResponse struct {
 }
 
 type prediction struct {
-	Candidates       []candidate       `json:"candidates,omitempty"`
-	SafetyAttributes *safetyAttributes `json:"safetyAttributes,omitempty"`
+	Candidates       []candidate         `json:"candidates,omitempty"`
+	SafetyAttributes *[]safetyAttributes `json:"safetyAttributes,omitempty"`
 }
 
 type candidate struct {
