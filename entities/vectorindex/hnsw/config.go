@@ -185,7 +185,7 @@ func ParseAndValidateConfig(input interface{}) (schema.VectorIndexConfig, error)
 	return uc, uc.validate()
 }
 
-func ValidateDefaultVectorDistanceMetric(distance string) error {
+func ValidateVectorDistanceMetric(distance string) error {
 	switch distance {
 	case "", DistanceCosine, DistanceDot, DistanceL2Squared, DistanceManhattan, DistanceHamming:
 		return nil
@@ -210,7 +210,7 @@ func (u *UserConfig) validate() error {
 		))
 	}
 
-	err := ValidateDefaultVectorDistanceMetric(u.Distance)
+	err := ValidateVectorDistanceMetric(u.Distance)
 	if err != nil {
 		errMsgs = append(errMsgs, fmt.Sprintf("distance %v", err))
 	}

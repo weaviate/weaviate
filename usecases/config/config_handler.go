@@ -112,7 +112,7 @@ func (c Config) Validate(modProv moduleProvider) error {
 		return errors.Wrap(err, "default vectorizer module")
 	}
 
-	if err := hnsw.ValidateDefaultVectorDistanceMetric(c.DefaultVectorDistanceMetric); err != nil {
+	if err := hnsw.ValidateVectorDistanceMetric(c.DefaultVectorDistanceMetric); err != nil {
 		return errors.Wrap(err, "default vector distance metric")
 	}
 
