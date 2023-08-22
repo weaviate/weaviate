@@ -124,6 +124,10 @@ func New(logger logrus.FieldLogger, config Config,
 		go db.batchWorker(i == 0)
 	}
 
+	for i := 0; i < _NUMCPU; i++ {
+		go db.bm25Worker()
+	}
+
 	return db, nil
 }
 
@@ -259,7 +263,37 @@ type batchJob struct {
 	batcher *objectsBatcher
 }
 
+func (db *DB) bm25Worker() {
+	t := time.NewTicker(time.Millisecond)
+	for {
+		select {
+		case <-db.shutdown:
+			return
+		case <-t.C:
+			job := <-db.bm25fJobQueueCh
+
+			db.logger.WithField("bm25_queue_count", "sub").
+				Debugf("items in queue: %d", len(db.bm25fJobQueueCh))
+			metric, err := monitoring.GetMetrics().BM25fQueueCount.GetMetricWithLabelValues("class")
+			if err == nil {
+				metric.Sub(1)
+			}
+
+			objs, dists, err := db.search(job.ctx, job.params)
+			if err != nil {
+				job.response <- bM25fJobResponse{err: err}
+			} else {
+				job.response <- bM25fJobResponse{
+					objects: objs,
+					dists:   dists,
+				}
+			}
+		}
+	}
+}
+
 type bM25fJob struct {
+	ctx      context.Context
 	params   dto.GetParams
 	response chan bM25fJobResponse
 }
