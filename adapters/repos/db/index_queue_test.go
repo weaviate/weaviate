@@ -24,11 +24,13 @@ import (
 )
 
 func TestIndexQueue(t *testing.T) {
-	walPath := filepath.Join(t.TempDir(), "wal.bin")
+	var vl mockVectorLoader
 
 	ctx := context.Background()
 
 	t.Run("pushes to indexer if queue is full", func(t *testing.T) {
+		walPath := filepath.Join(t.TempDir(), "wal.bin")
+
 		var idx mockBatchIndexer
 		called := make(chan struct{}, 1)
 		idx.fn = func(id []uint64, vector [][]float32) error {
@@ -36,7 +38,7 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue(walPath, &idx, IndexQueueOptions{
+		q, err := NewIndexQueue(walPath, &idx, &vl, IndexQueueOptions{
 			MaxQueueSize: 3,
 		})
 		require.NoError(t, err)
@@ -62,6 +64,8 @@ func TestIndexQueue(t *testing.T) {
 	})
 
 	t.Run("retry on indexing error", func(t *testing.T) {
+		walPath := filepath.Join(t.TempDir(), "wal.bin")
+
 		var idx mockBatchIndexer
 		i := 0
 		called := make(chan struct{}, 1)
@@ -76,7 +80,7 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue(walPath, &idx, IndexQueueOptions{
+		q, err := NewIndexQueue(walPath, &idx, &vl, IndexQueueOptions{
 			MaxQueueSize:  1,
 			MaxStaleTime:  10 * time.Hour,
 			RetryInterval: time.Millisecond,
@@ -92,8 +96,10 @@ func TestIndexQueue(t *testing.T) {
 	})
 
 	t.Run("index if stale", func(t *testing.T) {
+		walPath := filepath.Join(t.TempDir(), "wal.bin")
+
 		var idx mockBatchIndexer
-		q, err := NewIndexQueue(walPath, &idx, IndexQueueOptions{
+		q, err := NewIndexQueue(walPath, &idx, &vl, IndexQueueOptions{
 			MaxQueueSize: 100,
 			MaxStaleTime: 300 * time.Millisecond,
 		})
@@ -109,8 +115,10 @@ func TestIndexQueue(t *testing.T) {
 	})
 
 	t.Run("data is persisted", func(t *testing.T) {
+		walPath := filepath.Join(t.TempDir(), "wal.bin")
+
 		var idx mockBatchIndexer
-		q, err := NewIndexQueue(walPath, &idx, IndexQueueOptions{
+		q, err := NewIndexQueue(walPath, &idx, &vl, IndexQueueOptions{
 			MaxQueueSize: 10,
 		})
 		require.NoError(t, err)
@@ -130,6 +138,8 @@ func TestIndexQueue(t *testing.T) {
 	})
 
 	t.Run("merges results from queries", func(t *testing.T) {
+		walPath := filepath.Join(t.TempDir(), "wal.bin")
+
 		var idx mockBatchIndexer
 		called := make(chan struct{}, 1)
 		idx.fn = func(id []uint64, vector [][]float32) error {
@@ -137,7 +147,7 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue(walPath, &idx, IndexQueueOptions{
+		q, err := NewIndexQueue(walPath, &idx, &vl, IndexQueueOptions{
 			MaxQueueSize: 3,
 		})
 		require.NoError(t, err)
@@ -216,4 +226,18 @@ func (m *mockBatchIndexer) DistanceBetweenVectors(x, y []float32) (float32, bool
 		res += diff * diff
 	}
 	return res, true, nil
+}
+
+type mockVectorLoader struct {
+	vectors map[uint64][]float32
+
+	fn func(ctx context.Context, indexID uint64) ([]float32, error)
+}
+
+func (m *mockVectorLoader) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32, error) {
+	if m.fn != nil {
+		return m.fn(ctx, indexID)
+	}
+
+	return m.vectors[indexID], nil
 }
