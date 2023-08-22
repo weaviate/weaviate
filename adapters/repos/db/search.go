@@ -14,10 +14,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"sort"
-	"strings"
-	"sync"
-
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -31,6 +27,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/traverser"
+	"sort"
+	"strings"
+	"sync"
 )
 
 func (db *DB) Aggregate(ctx context.Context,
@@ -56,7 +55,7 @@ func (db *DB) GetQueryMaximumResults() int {
 func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error) {
 	if params.KeywordRanking != nil || params.HybridSearch != nil {
 		resp := make(chan bM25fJobResponse, 1)
-		db.bm25fJobQueueCh <- bM25fJob{params, resp}
+		db.bm25fJobQueueCh <- bM25fJob{ctx, params, resp}
 
 		db.logger.WithField("bm25_queue_count", "add").
 			Debugf("items in queue: %d", len(db.bm25fJobQueueCh))
@@ -65,7 +64,6 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 			metric.Add(1)
 		}
 
-		db.throttledSearch(ctx, resp)
 		res := <-resp
 		if res.err != nil {
 			return nil, nil, res.err
@@ -113,31 +111,6 @@ func (db *DB) search(ctx context.Context, params dto.GetParams) ([]*storobj.Obje
 	}
 
 	return objs, dists, nil
-}
-
-func (db *DB) throttledSearch(ctx context.Context, respChan chan bM25fJobResponse) {
-	select {
-	case job := <-db.bm25fJobQueueCh:
-		db.logger.WithField("bm25_queue_count", "sub").
-			Debugf("items in queue: %d", len(db.bm25fJobQueueCh))
-		metric, err := monitoring.GetMetrics().BM25fQueueCount.GetMetricWithLabelValues("class")
-		if err == nil {
-			metric.Sub(1)
-		}
-
-		var resp bM25fJobResponse
-		objs, dists, err := db.search(ctx, job.params)
-		if err != nil {
-			resp.err = err
-			respChan <- resp
-			return
-		}
-		resp.objects = objs
-		resp.dists = dists
-		respChan <- resp
-	default:
-		return
-	}
 }
 
 func (db *DB) VectorSearch(ctx context.Context,
