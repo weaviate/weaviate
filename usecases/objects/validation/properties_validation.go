@@ -94,7 +94,12 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 					return fmt.Errorf("reference property is not a map %v", propertyValueMap)
 				}
 				beacon := propertyValueMap["beacon"].(string)
-				if strings.Count(beacon, "/") == 3 {
+				beaconParsed, err := crossref.Parse(beacon)
+				if err != nil {
+					return err
+				}
+
+				if beaconParsed.Class == "" {
 					prop, err := schema.GetPropertyByName(class, schema.LowercaseFirstLetter(propertyKey))
 					if err != nil {
 						return err
@@ -103,9 +108,7 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 						continue
 					}
 					toClass := prop.DataType[0] // datatype is the name of the class that is referenced
-					beaconElements := strings.Split(beacon, "/")
-					toUUID := beaconElements[len(beaconElements)-1]
-					toBeacon := "weaviate://localhost/" + string(toClass) + "/" + toUUID
+					toBeacon := crossref.NewLocalhost(toClass, beaconParsed.TargetID).String()
 
 					propertyValue.([]interface{})[i].(map[string]interface{})["beacon"] = toBeacon
 				}
