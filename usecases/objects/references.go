@@ -35,7 +35,7 @@ func (m *Manager) autodetectToClass(ctx context.Context, principal *models.Princ
 	}
 
 	toClass := prop.DataType[0] // datatype is the name of the class that is referenced
-	toBeacon := crossref.New("localhost", toClass, beaconRef.TargetID).String()
+	toBeacon := crossref.NewLocalhost(toClass, beaconRef.TargetID).String()
 
 	return strfmt.URI(toClass), strfmt.URI(toBeacon), true, nil
 }
