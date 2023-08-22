@@ -45,7 +45,6 @@ case $CONFIG in
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
-      LOG_LEVEL="trace" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
