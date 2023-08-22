@@ -133,9 +133,10 @@ func (m *QnAModule) initAdditional(ctx context.Context,
 	logger logrus.FieldLogger,
 ) error {
 	openAIApiKey := os.Getenv("OPENAI_APIKEY")
+	openAIOrganization := os.Getenv("OPENAI_ORGANIZATION")
 	azureApiKey := os.Getenv("AZURE_APIKEY")
 
-	client := clients.New(openAIApiKey, azureApiKey, logger)
+	client := clients.New(openAIApiKey, openAIOrganization, azureApiKey, logger)
 
 	m.qna = client
 
