@@ -55,6 +55,7 @@ type PrometheusMetrics struct {
 	BackupRestoreDataTransferred       *prometheus.CounterVec
 	BackupStoreDataTransferred         *prometheus.CounterVec
 	VectorDimensionsSum                *prometheus.GaugeVec
+	BM25fQueueCount                    *prometheus.GaugeVec
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.SummaryVec
@@ -246,6 +247,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "backup_store_data_transferred",
 			Help: "Total number of bytes transferred during a backup store",
 		}, []string{"backend_name", "class_name"}),
+		BM25fQueueCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "bm25_queued_requests_count",
+			Help: "Total number of BM25f requests waiting to be processed",
+		}, []string{"class_name"}),
 	}
 }
 
