@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
+	"io"
 	"os"
 	"runtime"
 	"sync"
@@ -99,9 +100,14 @@ type BatchIndexer interface {
 	DistanceBetweenVectors(x, y []float32) (float32, bool, error)
 }
 
+type VectorLoader interface {
+	vectorByIndexID(ctx context.Context, indexID uint64) ([]float32, error)
+}
+
 func NewIndexQueue(
 	walPath string,
 	index BatchIndexer,
+	vectorLoader VectorLoader,
 	opts IndexQueueOptions,
 ) (*IndexQueue, error) {
 	if opts.Logger == nil {
@@ -197,6 +203,66 @@ func (q *IndexQueue) Close() error {
 
 	// close the wal file
 	return q.walFile.Close()
+}
+
+func (q *IndexQueue) loadWalFile(vectorLoader VectorLoader, walPath string) error {
+	_, err := os.Stat(walPath)
+	if err != nil && !os.IsNotExist(err) {
+		return errors.Wrap(err, "failed to stat wal file")
+	}
+
+	if os.IsNotExist(err) {
+		q.walFile, err = os.Create(walPath)
+		if err != nil {
+			return errors.Wrap(err, "failed to open wal file")
+		}
+
+		q.walBuffer = bufio.NewWriter(q.walFile)
+		return nil
+	}
+
+	q.walFile, err = os.Open(walPath)
+	if err != nil {
+		return errors.Wrap(err, "failed to open wal file")
+	}
+
+	_, err = q.walFile.Seek(0, 0)
+	if err != nil {
+		return errors.Wrap(err, "failed to seek wal file")
+	}
+
+	rd := bufio.NewReader(q.walFile)
+
+	// read the file by chunks
+	buf := make([]byte, 8*1024)
+	for {
+		n, err := rd.Read(buf)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return errors.Wrap(err, "failed to read wal file")
+		}
+
+		// read the ids
+		for i := 0; i < n; i += 8 {
+			id := binary.BigEndian.Uint64(buf[i : i+8])
+
+			vector, err := vectorLoader.vectorByIndexID(context.Background(), id)
+			if err != nil {
+				return errors.Wrap(err, "failed to load vector")
+			}
+
+			q.queuedVectors.toIndex = append(q.queuedVectors.toIndex, indexQueueJob{
+				id:     id,
+				vector: vector,
+			})
+		}
+	}
+
+	q.walBuffer = bufio.NewWriter(q.walFile)
+
+	return nil
 }
 
 type indexQueueJob struct {

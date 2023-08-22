@@ -131,7 +131,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	var err error
-	s.queue, err = NewIndexQueue(indexedQueuePath(s.index.Config.RootPath, s.index.Config.ClassName.String(), shardName), s.vectorIndex, IndexQueueOptions{MaxQueueSize: 1000})
+	s.queue, err = NewIndexQueue(indexedQueuePath(s.index.Config.RootPath, s.index.Config.ClassName.String(), shardName), s.vectorIndex, s, IndexQueueOptions{MaxQueueSize: 1000})
 	if err != nil {
 		return nil, err
 	}
