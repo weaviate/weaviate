@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/binary"
 	"os"
+	"runtime"
 	"sync"
 	"time"
 
@@ -40,6 +41,9 @@ type IndexQueue struct {
 
 	// processCh is the channel used to send vectors to the indexing worker.
 	processCh chan indexQueueJob
+
+	// indexCh is the channel used to send vectors to the indexing worker.
+	indexCh chan batch
 
 	// if closed, prevents new vectors from being added to the queue.
 	closed chan struct{}
@@ -83,6 +87,10 @@ type IndexQueueOptions struct {
 	// RetryInterval is the interval between retries when
 	// indexing fails.
 	RetryInterval time.Duration
+
+	// IndexWorkerCount is the number of workers used to index
+	// the vectors.
+	IndexWorkerCount int
 }
 
 type BatchIndexer interface {
@@ -112,12 +120,18 @@ func NewIndexQueue(
 		opts.RetryInterval = 1 * time.Second
 	}
 
+	if opts.IndexWorkerCount == 0 {
+		// use the number of CPUs
+		opts.IndexWorkerCount = runtime.GOMAXPROCS(0)
+	}
+
 	q := IndexQueue{
 		Index:         index,
 		maxQueueSize:  opts.MaxQueueSize,
 		maxStaleTime:  opts.MaxStaleTime,
 		retryInterval: opts.RetryInterval,
 		processCh:     make(chan indexQueueJob),
+		indexCh:       make(chan batch),
 		closed:        make(chan struct{}),
 		logger:        opts.Logger.WithField("component", "index_queue"),
 		pqMaxPool:     newPqMaxPool(0),
@@ -138,9 +152,19 @@ func NewIndexQueue(
 	q.workerWg.Add(1)
 	go func() {
 		defer q.workerWg.Done()
+		defer close(q.indexCh)
 
 		q.processor()
 	}()
+
+	for i := 0; i < opts.IndexWorkerCount; i++ {
+		q.workerWg.Add(1)
+		go func() {
+			defer q.workerWg.Done()
+
+			q.indexer()
+		}()
+	}
 
 	return &q, nil
 }
@@ -160,6 +184,7 @@ func (q *IndexQueue) Close() error {
 	// wait for in-flight pushes to finish
 	q.wg.Wait()
 
+	// close the workers in cascade
 	close(q.processCh)
 
 	q.workerWg.Wait()
@@ -178,7 +203,6 @@ type indexQueueJob struct {
 	id     uint64
 	vector []float32
 	done   chan error
-	pqMax  *pqMaxPool
 }
 
 // Push adds a vector to the persistent indexing queue.
@@ -306,53 +330,39 @@ func (q *IndexQueue) processor() {
 				}
 			}
 
-			// if the queue is not stale and not full,
-			// persist it on disk
-			if !q.shouldIndex(received) {
-				err := q.persist(received)
-				if err != nil {
-					q.notifyError(received, err)
-					continue
-				}
-
-				// add the new jobs to the toIndex buffer
-				q.addToQueue(received)
-
-				// notify the jobs that they have been processed
-				q.notifySuccess(received)
-
-				continue
-			}
-
-			// we now need to index the vectors
-
-			// skip the disk write and send the jobs to the indexing worker.
-			// this will make the clients wait synchronously, but it will reduce
-			// the number of disk writes, which should be overall faster.
-			// TODO: confirm this assumption as it's only worth it
-			// if the indexing is faster than the disk write.
-			q.addToQueue(received)
-
-			err := q.indexQueuedVectors()
+			// persist the new jobs on disk
+			err := q.persist(received)
 			if err != nil {
-				// if the queue is closed, abort.
-				// best effort, try to persist the vectors
-				_ = q.persist(received)
-
 				q.notifyError(received, err)
 				continue
 			}
 
-			// indexing was successful, notify the clients
+			// add the new jobs to the queue
+			q.addToQueue(received)
+
+			// notify the jobs that they have been processed
+			// to avoid blocking the clients
 			q.notifySuccess(received)
+
+			// if the queue is not stale and not full
+			// continue processing
+			if !q.shouldIndex(nil) {
+				continue
+			}
+
+			// the queue is full or stale, we need to index the vectors
+			var b batch
+			b.ids, b.vectors = q.getQueuedVectors()
+
+			// send the batch to the indexing worker
+			q.indexCh <- b
 
 			// reset the on-disk queue
 			err = q.reset()
 			if err != nil {
 				// TODO: if we can't reset the file
 				// should we recreate it?
-
-				q.notifyError(received, err)
+				q.logger.WithError(err).Error("failed to reset wal file")
 				continue
 			}
 		case <-q.staleTm.C:
@@ -362,21 +372,26 @@ func (q *IndexQueue) processor() {
 				continue
 			}
 
-			err := q.indexQueuedVectors()
-			if err != nil {
-				// if the queue is closed, abort.
-				continue
-			}
+			var b batch
+			b.ids, b.vectors = q.getQueuedVectors()
+			q.indexCh <- b
 
 			// reset the queue
-			err = q.reset()
+			err := q.reset()
 			if err != nil {
+				q.logger.WithError(err).Error("failed to reset wal file")
 				continue
 			}
 		case <-q.closed:
 			// if the queue is closed, do nothing.
 			return
 		}
+	}
+}
+
+func (q *IndexQueue) indexer() {
+	for b := range q.indexCh {
+		q.indexVectors(&b)
 	}
 }
 
@@ -452,20 +467,19 @@ func (q *IndexQueue) persist(vectors []indexQueueJob) error {
 	return nil
 }
 
-func (q *IndexQueue) indexQueuedVectors() error {
-	ids, vectors := q.getQueuedVectors()
+type batch struct {
+	ids     []uint64
+	vectors [][]float32
+}
 
+func (q *IndexQueue) indexVectors(b *batch) error {
 	for {
-		err := q.Index.AddBatch(ids, vectors)
+		err := q.Index.AddBatch(b.ids, b.vectors)
 		if err == nil {
 			break
 		}
 
 		q.logger.WithError(err).Infof("failed to index vectors, retrying in %s", q.retryInterval.String())
-
-		// TODO: if we can't index the vectors
-		// we should maybe persist the additional vectors,
-		// release the clients and retry.
 
 		t := time.NewTimer(q.retryInterval)
 		select {
