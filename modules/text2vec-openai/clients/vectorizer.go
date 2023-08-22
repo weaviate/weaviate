@@ -62,20 +62,22 @@ func buildUrl(config ent.VectorizationConfig) (string, error) {
 }
 
 type vectorizer struct {
-	openAIApiKey string
-	azureApiKey  string
-	httpClient   *http.Client
-	buildUrlFn   func(config ent.VectorizationConfig) (string, error)
-	logger       logrus.FieldLogger
+	openAIApiKey       string
+	openAIOrganization string
+	azureApiKey        string
+	httpClient         *http.Client
+	buildUrlFn         func(config ent.VectorizationConfig) (string, error)
+	logger             logrus.FieldLogger
 }
 
-func New(openAIApiKey, azureApiKey string, logger logrus.FieldLogger) *vectorizer {
+func New(openAIApiKey, openAIOrganization, azureApiKey string, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
-		openAIApiKey: openAIApiKey,
-		azureApiKey:  azureApiKey,
-		httpClient:   &http.Client{},
-		buildUrlFn:   buildUrl,
-		logger:       logger,
+		openAIApiKey:       openAIApiKey,
+		openAIOrganization: openAIOrganization,
+		azureApiKey:        azureApiKey,
+		httpClient:         &http.Client{},
+		buildUrlFn:         buildUrl,
+		logger:             logger,
 	}
 }
 
@@ -112,6 +114,9 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string, model string
 		return nil, errors.Wrap(err, "API Key")
 	}
 	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey, config.IsAzure))
+	if openAIOrganization := v.getOpenAIOrganization(ctx); openAIOrganization != "" {
+		req.Header.Add("OpenAI-Organization", openAIOrganization)
+	}
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := v.httpClient.Do(req)
@@ -173,6 +178,13 @@ func (v *vectorizer) getApiKeyHeaderAndValue(apiKey string, isAzure bool) (strin
 	return "Authorization", fmt.Sprintf("Bearer %s", apiKey)
 }
 
+func (v *vectorizer) getOpenAIOrganization(ctx context.Context) string {
+	if value := v.getValueFromContext(ctx, "X-Openai-Organization"); value != "" {
+		return value
+	}
+	return v.openAIOrganization
+}
+
 func (v *vectorizer) getApiKey(ctx context.Context, isAzure bool) (string, error) {
 	var apiKey, envVar string
 
@@ -194,12 +206,19 @@ func (v *vectorizer) getApiKey(ctx context.Context, isAzure bool) (string, error
 }
 
 func (v *vectorizer) getApiKeyFromContext(ctx context.Context, apiKey, envVar string) (string, error) {
-	if apiValue := ctx.Value(apiKey); apiValue != nil {
-		if apiKeyHeader, ok := apiValue.([]string); ok && len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
-			return apiKeyHeader[0], nil
-		}
+	if apiKeyValue := v.getValueFromContext(ctx, apiKey); apiKeyValue != "" {
+		return apiKeyValue, nil
 	}
 	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
+}
+
+func (v *vectorizer) getValueFromContext(ctx context.Context, key string) string {
+	if value := ctx.Value(key); value != nil {
+		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
+			return keyHeader[0]
+		}
+	}
+	return ""
 }
 
 func (v *vectorizer) getModelString(docType, model, action, version string) string {
