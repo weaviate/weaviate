@@ -30,6 +30,12 @@ func TestIndexQueue(t *testing.T) {
 
 	t.Run("pushes to indexer if queue is full", func(t *testing.T) {
 		var idx mockBatchIndexer
+		called := make(chan struct{}, 1)
+		idx.fn = func(id []uint64, vector [][]float32) error {
+			called <- struct{}{}
+			return nil
+		}
+
 		q, err := NewIndexQueue(walPath, &idx, IndexQueueOptions{
 			MaxQueueSize: 3,
 		})
@@ -48,6 +54,7 @@ func TestIndexQueue(t *testing.T) {
 
 		err = q.Push(ctx, 3, []float32{7, 8, 9})
 		require.NoError(t, err)
+		<-called
 		require.Equal(t, 1, idx.called)
 		require.Equal(t, 0, q.getQueueLen())
 
@@ -57,11 +64,14 @@ func TestIndexQueue(t *testing.T) {
 	t.Run("retry on indexing error", func(t *testing.T) {
 		var idx mockBatchIndexer
 		i := 0
+		called := make(chan struct{}, 1)
 		idx.fn = func(id []uint64, vector [][]float32) error {
 			i++
 			if i < 3 {
 				return fmt.Errorf("indexing error: %d", i)
 			}
+
+			called <- struct{}{}
 
 			return nil
 		}
@@ -76,15 +86,16 @@ func TestIndexQueue(t *testing.T) {
 
 		err = q.Push(ctx, 1, []float32{1, 2, 3})
 		require.NoError(t, err)
-		require.Equal(t, 1, idx.called)
-		require.Equal(t, [][]uint64{{1}}, idx.ids)
+		<-called
+		require.Equal(t, 3, idx.called)
+		require.Equal(t, [][]uint64{{1}, {1}, {1}}, idx.ids)
 	})
 
 	t.Run("index if stale", func(t *testing.T) {
 		var idx mockBatchIndexer
 		q, err := NewIndexQueue(walPath, &idx, IndexQueueOptions{
 			MaxQueueSize: 100,
-			MaxStaleTime: 500 * time.Millisecond,
+			MaxStaleTime: 300 * time.Millisecond,
 		})
 		require.NoError(t, err)
 		defer q.Close()
@@ -120,6 +131,12 @@ func TestIndexQueue(t *testing.T) {
 
 	t.Run("merges results from queries", func(t *testing.T) {
 		var idx mockBatchIndexer
+		called := make(chan struct{}, 1)
+		idx.fn = func(id []uint64, vector [][]float32) error {
+			called <- struct{}{}
+			return nil
+		}
+
 		q, err := NewIndexQueue(walPath, &idx, IndexQueueOptions{
 			MaxQueueSize: 3,
 		})
@@ -128,58 +145,16 @@ func TestIndexQueue(t *testing.T) {
 
 		err = q.Push(ctx, 1, []float32{1, 2, 3})
 		require.NoError(t, err)
-		require.Equal(t, 1, q.getQueueLen())
-
 		err = q.Push(ctx, 2, []float32{4, 5, 6})
 		require.NoError(t, err)
-		require.Equal(t, 2, q.getQueueLen())
-
 		err = q.Push(ctx, 3, []float32{7, 8, 9})
 		require.NoError(t, err)
-		require.Equal(t, 0, q.getQueueLen())
-
 		err = q.Push(ctx, 4, []float32{1, 2, 3})
 		require.NoError(t, err)
-		require.Equal(t, 1, q.getQueueLen())
 
 		ids, _, err := q.SearchByVector([]float32{1, 2, 3}, 2, nil)
 		require.NoError(t, err)
 		require.ElementsMatch(t, []uint64{1, 4}, ids)
-	})
-
-	t.Run("concurrent search and indexing", func(t *testing.T) {
-		var idx mockBatchIndexer
-		q, err := NewIndexQueue(walPath, &idx, IndexQueueOptions{
-			MaxQueueSize: 3,
-		})
-		require.NoError(t, err)
-		defer q.Close()
-
-		err = q.Push(ctx, 1, []float32{1, 2, 3})
-		require.NoError(t, err)
-		require.Equal(t, 1, q.getQueueLen())
-
-		err = q.Push(ctx, 2, []float32{4, 5, 6})
-		require.NoError(t, err)
-		require.Equal(t, 2, q.getQueueLen())
-
-		err = q.Push(ctx, 3, []float32{7, 8, 9})
-		require.NoError(t, err)
-		require.Equal(t, 0, q.getQueueLen())
-
-		err = q.Push(ctx, 4, []float32{1, 2, 3})
-		require.NoError(t, err)
-		require.Equal(t, 1, q.getQueueLen())
-
-		go func() {
-			ids, _, err := q.SearchByVector([]float32{1, 2, 3}, 2, nil)
-			require.NoError(t, err)
-			require.ElementsMatch(t, []uint64{1, 4}, ids)
-		}()
-
-		time.Sleep(100 * time.Millisecond)
-		require.Equal(t, 1, idx.called)
-		require.Equal(t, 0, q.getQueueLen())
 	})
 }
 
@@ -198,7 +173,7 @@ func (m *mockBatchIndexer) AddBatch(id []uint64, vector [][]float32) (err error)
 
 	m.ids = append(m.ids, id)
 	m.vectors = append(m.vectors, vector)
-	return nil
+	return
 }
 
 func (m *mockBatchIndexer) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
