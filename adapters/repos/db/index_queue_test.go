@@ -39,24 +39,24 @@ func TestIndexQueue(t *testing.T) {
 		err = q.Push(ctx, 1, []float32{1, 2, 3})
 		require.NoError(t, err)
 		require.Equal(t, 0, idx.called)
-		require.Equal(t, 1, len(q.toIndex))
+		require.Equal(t, 1, q.getQueueLen())
 
 		err = q.Push(ctx, 2, []float32{4, 5, 6})
 		require.NoError(t, err)
 		require.Equal(t, 0, idx.called)
-		require.Equal(t, 2, len(q.toIndex))
+		require.Equal(t, 2, q.getQueueLen())
 
 		err = q.Push(ctx, 3, []float32{7, 8, 9})
 		require.NoError(t, err)
 		require.Equal(t, 1, idx.called)
-		require.Equal(t, 0, len(q.toIndex))
+		require.Equal(t, 0, q.getQueueLen())
 
 		require.Equal(t, [][]uint64{{1, 2, 3}}, idx.ids)
 	})
 
 	t.Run("retry on indexing error", func(t *testing.T) {
 		var idx mockBatchIndexer
-		i := 1
+		i := 0
 		idx.fn = func(id []uint64, vector [][]float32) error {
 			i++
 			if i < 3 {
@@ -128,23 +128,58 @@ func TestIndexQueue(t *testing.T) {
 
 		err = q.Push(ctx, 1, []float32{1, 2, 3})
 		require.NoError(t, err)
-		require.Equal(t, 1, len(q.toIndex))
+		require.Equal(t, 1, q.getQueueLen())
 
 		err = q.Push(ctx, 2, []float32{4, 5, 6})
 		require.NoError(t, err)
-		require.Equal(t, 2, len(q.toIndex))
+		require.Equal(t, 2, q.getQueueLen())
 
 		err = q.Push(ctx, 3, []float32{7, 8, 9})
 		require.NoError(t, err)
-		require.Equal(t, 0, len(q.toIndex))
+		require.Equal(t, 0, q.getQueueLen())
 
 		err = q.Push(ctx, 4, []float32{1, 2, 3})
 		require.NoError(t, err)
-		require.Equal(t, 1, len(q.toIndex))
+		require.Equal(t, 1, q.getQueueLen())
 
 		ids, _, err := q.SearchByVector([]float32{1, 2, 3}, 2, nil)
 		require.NoError(t, err)
 		require.ElementsMatch(t, []uint64{1, 4}, ids)
+	})
+
+	t.Run("concurrent search and indexing", func(t *testing.T) {
+		var idx mockBatchIndexer
+		q, err := NewIndexQueue(walPath, &idx, IndexQueueOptions{
+			MaxQueueSize: 3,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		err = q.Push(ctx, 1, []float32{1, 2, 3})
+		require.NoError(t, err)
+		require.Equal(t, 1, q.getQueueLen())
+
+		err = q.Push(ctx, 2, []float32{4, 5, 6})
+		require.NoError(t, err)
+		require.Equal(t, 2, q.getQueueLen())
+
+		err = q.Push(ctx, 3, []float32{7, 8, 9})
+		require.NoError(t, err)
+		require.Equal(t, 0, q.getQueueLen())
+
+		err = q.Push(ctx, 4, []float32{1, 2, 3})
+		require.NoError(t, err)
+		require.Equal(t, 1, q.getQueueLen())
+
+		go func() {
+			ids, _, err := q.SearchByVector([]float32{1, 2, 3}, 2, nil)
+			require.NoError(t, err)
+			require.ElementsMatch(t, []uint64{1, 4}, ids)
+		}()
+
+		time.Sleep(100 * time.Millisecond)
+		require.Equal(t, 1, idx.called)
+		require.Equal(t, 0, q.getQueueLen())
 	})
 }
 
