@@ -116,29 +116,27 @@ func (db *DB) search(ctx context.Context, params dto.GetParams) ([]*storobj.Obje
 }
 
 func (db *DB) throttledSearch(ctx context.Context, respChan chan bM25fJobResponse) {
-	for {
-		select {
-		case job := <-db.bm25fJobQueueCh:
-			db.logger.WithField("bm25_queue_count", "sub").
-				Debugf("items in queue: %d", len(db.bm25fJobQueueCh))
-			metric, err := monitoring.GetMetrics().BM25fQueueCount.GetMetricWithLabelValues("class")
-			if err == nil {
-				metric.Sub(1)
-			}
+	select {
+	case job := <-db.bm25fJobQueueCh:
+		db.logger.WithField("bm25_queue_count", "sub").
+			Debugf("items in queue: %d", len(db.bm25fJobQueueCh))
+		metric, err := monitoring.GetMetrics().BM25fQueueCount.GetMetricWithLabelValues("class")
+		if err == nil {
+			metric.Sub(1)
+		}
 
-			var resp bM25fJobResponse
-			objs, dists, err := db.search(ctx, job.params)
-			if err != nil {
-				resp.err = err
-				respChan <- resp
-				return
-			}
-			resp.objects = objs
-			resp.dists = dists
+		var resp bM25fJobResponse
+		objs, dists, err := db.search(ctx, job.params)
+		if err != nil {
+			resp.err = err
 			respChan <- resp
-		default:
 			return
 		}
+		resp.objects = objs
+		resp.dists = dists
+		respChan <- resp
+	default:
+		return
 	}
 }
 
