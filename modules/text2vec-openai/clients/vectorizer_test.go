@@ -33,7 +33,7 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 
-		c := New("apiKey", "", nullLogger())
+		c := New("apiKey", "", "", nullLogger())
 		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
 			return server.URL, nil
 		}
@@ -56,7 +56,7 @@ func TestClient(t *testing.T) {
 	t.Run("when the context is expired", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New("apiKey", "", nullLogger())
+		c := New("apiKey", "", "", nullLogger())
 		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
 			return server.URL, nil
 		}
@@ -76,7 +76,7 @@ func TestClient(t *testing.T) {
 			serverError: errors.Errorf("nope, not gonna happen"),
 		})
 		defer server.Close()
-		c := New("apiKey", "", nullLogger())
+		c := New("apiKey", "", "", nullLogger())
 		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
 			return server.URL, nil
 		}
@@ -91,7 +91,7 @@ func TestClient(t *testing.T) {
 	t.Run("when OpenAI key is passed using X-Openai-Api-Key header", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New("", "", nullLogger())
+		c := New("", "", "", nullLogger())
 		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
 			return server.URL, nil
 		}
@@ -117,7 +117,7 @@ func TestClient(t *testing.T) {
 	t.Run("when OpenAI key is empty", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New("", "", nullLogger())
+		c := New("", "", "", nullLogger())
 		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
 			return server.URL, nil
 		}
@@ -136,7 +136,7 @@ func TestClient(t *testing.T) {
 	t.Run("when X-Openai-Api-Key header is passed but empty", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New("", "", nullLogger())
+		c := New("", "", "", nullLogger())
 		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
 			return server.URL, nil
 		}
@@ -285,7 +285,7 @@ func Test_getModelString(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				v := New("apiKey", "", nullLogger())
+				v := New("apiKey", "", "", nullLogger())
 				if got := v.getModelString(tt.args.docType, tt.args.model, "document", tt.args.version); got != tt.want {
 					t.Errorf("vectorizer.getModelString() = %v, want %v", got, tt.want)
 				}
@@ -355,7 +355,7 @@ func Test_getModelString(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				v := New("apiKey", "", nullLogger())
+				v := New("apiKey", "", "", nullLogger())
 				if got := v.getModelString(tt.args.docType, tt.args.model, "query", tt.args.version); got != tt.want {
 					t.Errorf("vectorizer.getModelString() = %v, want %v", got, tt.want)
 				}
