@@ -200,7 +200,20 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 		// Extract any variables from the request
 		var variables map[string]interface{}
 		if unbatchedRequest.Variables != nil {
-			variables = unbatchedRequest.Variables.(map[string]interface{})
+			var ok bool
+			variables, ok = unbatchedRequest.Variables.(map[string]interface{})
+			if !ok {
+				errorCode := strconv.Itoa(graphql.GraphqlBatchUnprocessableEntityCode)
+				errorMessage := fmt.Sprintf("%s: %s", errorCode, fmt.Sprintf("expected map[string]interface{}, received %v", unbatchedRequest.Variables))
+
+				error := []*models.GraphQLError{{Message: errorMessage}}
+				graphQLResponse := models.GraphQLResponse{Data: nil, Errors: error}
+				*requestResults <- gqlUnbatchedRequestResponse{
+					requestIndex,
+					&graphQLResponse,
+				}
+				return
+			}
 		}
 
 		result := graphQL.Resolve(ctx, query, operationName, variables)
