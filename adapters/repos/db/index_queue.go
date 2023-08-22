@@ -15,7 +15,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
-	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -32,8 +31,6 @@ import (
 // It is safe to use concurrently.
 type IndexQueue struct {
 	Index BatchIndexer
-
-	lock *sync.RWMutex
 
 	logger logrus.FieldLogger
 
@@ -58,7 +55,11 @@ type IndexQueue struct {
 	walBuffer *bufio.Writer
 
 	// queue of not-yet-indexed vectors
-	toIndex []indexQueueJob
+	queuedVectors struct {
+		sync.RWMutex
+
+		toIndex []indexQueueJob
+	}
 
 	// keeps track of the last time the queue was indexed
 	staleTm *time.Ticker
@@ -90,35 +91,6 @@ type BatchIndexer interface {
 	DistanceBetweenVectors(x, y []float32) (float32, bool, error)
 }
 
-type pqMaxPool struct {
-	pool *sync.Pool
-}
-
-func newPqMaxPool(defaultCap int) *pqMaxPool {
-	return &pqMaxPool{
-		pool: &sync.Pool{
-			New: func() interface{} {
-				return priorityqueue.NewMax(defaultCap)
-			},
-		},
-	}
-}
-
-func (pqh *pqMaxPool) GetMax(capacity int) *priorityqueue.Queue {
-	pq := pqh.pool.Get().(*priorityqueue.Queue)
-	if pq.Cap() < capacity {
-		pq.ResetCap(capacity)
-	} else {
-		pq.Reset()
-	}
-
-	return pq
-}
-
-func (pqh *pqMaxPool) Put(pq *priorityqueue.Queue) {
-	pqh.pool.Put(pq)
-}
-
 func NewIndexQueue(
 	walPath string,
 	index BatchIndexer,
@@ -147,11 +119,11 @@ func NewIndexQueue(
 		retryInterval: opts.RetryInterval,
 		processCh:     make(chan indexQueueJob),
 		closed:        make(chan struct{}),
-		toIndex:       make([]indexQueueJob, 0, opts.MaxQueueSize),
 		logger:        opts.Logger.WithField("component", "index_queue"),
 		pqMaxPool:     newPqMaxPool(0),
-		lock:          &sync.RWMutex{},
 	}
+
+	q.queuedVectors.toIndex = make([]indexQueueJob, 0, q.maxQueueSize)
 
 	var err error
 
@@ -213,8 +185,6 @@ type indexQueueJob struct {
 // It waits until the vector is successfully persisted to the
 // on-disk queue or sent to the indexing worker.
 func (q *IndexQueue) Push(ctx context.Context, id uint64, vector []float32) error {
-	q.lock.Lock()
-	defer q.lock.Unlock()
 	// check if the queue is closed
 	select {
 	case <-ctx.Done():
@@ -243,17 +213,7 @@ func (q *IndexQueue) Push(ctx context.Context, id uint64, vector []float32) erro
 
 // Search defer to the index and brute force the unindexed data
 func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	// copy first to avoid missing data
-	// lock for concurrent access. No push should occur during search
-	q.lock.RLock()
-	ids := make([]uint64, 0, len(q.toIndex))
-	vectors := make([][]float32, 0, len(q.toIndex))
-
-	for _, j := range q.toIndex {
-		ids = append(ids, j.id)
-		vectors = append(vectors, j.vector)
-	}
-	q.lock.RUnlock()
+	ids, vectors := q.getQueuedVectors()
 
 	indexedResults, distances, err := q.Index.SearchByVector(vector, k, allowList)
 	if err != nil {
@@ -323,7 +283,11 @@ func (q *IndexQueue) processor() {
 		received = received[:0]
 
 		select {
-		case j := <-q.processCh:
+		case j, ok := <-q.processCh:
+			if !ok {
+				// the channel is closed, abort.
+				return
+			}
 			received = append(received, j)
 
 			// loop over the channel to dequeue it until it's empty
@@ -352,7 +316,7 @@ func (q *IndexQueue) processor() {
 				}
 
 				// add the new jobs to the toIndex buffer
-				q.toIndex = append(q.toIndex, received...)
+				q.addToQueue(received)
 
 				// notify the jobs that they have been processed
 				q.notifySuccess(received)
@@ -360,7 +324,6 @@ func (q *IndexQueue) processor() {
 				continue
 			}
 
-			fmt.Println("should index")
 			// we now need to index the vectors
 
 			// skip the disk write and send the jobs to the indexing worker.
@@ -368,9 +331,9 @@ func (q *IndexQueue) processor() {
 			// the number of disk writes, which should be overall faster.
 			// TODO: confirm this assumption as it's only worth it
 			// if the indexing is faster than the disk write.
-			q.toIndex = append(q.toIndex, received...)
+			q.addToQueue(received)
 
-			err := q.indexVectors(q.toIndex)
+			err := q.indexQueuedVectors()
 			if err != nil {
 				// if the queue is closed, abort.
 				// best effort, try to persist the vectors
@@ -394,12 +357,12 @@ func (q *IndexQueue) processor() {
 			}
 		case <-q.staleTm.C:
 			// if the queue is stale, send the jobs to the indexing worker.
-			if len(q.toIndex) == 0 {
+			if q.getQueueLen() == 0 {
 				q.staleTm.Reset(q.maxStaleTime)
 				continue
 			}
 
-			err := q.indexVectors(q.toIndex)
+			err := q.indexQueuedVectors()
 			if err != nil {
 				// if the queue is closed, abort.
 				continue
@@ -419,7 +382,7 @@ func (q *IndexQueue) processor() {
 
 func (q *IndexQueue) shouldIndex(received []indexQueueJob) bool {
 	// if the queue is not full, continue
-	if len(received)+len(q.toIndex) >= q.maxQueueSize {
+	if len(received)+q.getQueueLen() >= q.maxQueueSize {
 		return true
 	}
 
@@ -430,6 +393,35 @@ func (q *IndexQueue) shouldIndex(received []indexQueueJob) bool {
 	default:
 		return false
 	}
+}
+
+func (q *IndexQueue) addToQueue(jobs []indexQueueJob) {
+	q.queuedVectors.Lock()
+	q.queuedVectors.toIndex = append(q.queuedVectors.toIndex, jobs...)
+	q.queuedVectors.Unlock()
+}
+
+func (q *IndexQueue) getQueuedVectors() ([]uint64, [][]float32) {
+	q.queuedVectors.RLock()
+
+	ids := make([]uint64, 0, len(q.queuedVectors.toIndex))
+	vectors := make([][]float32, 0, len(q.queuedVectors.toIndex))
+
+	for _, j := range q.queuedVectors.toIndex {
+		ids = append(ids, j.id)
+		vectors = append(vectors, j.vector)
+	}
+
+	q.queuedVectors.RUnlock()
+
+	return ids, vectors
+}
+
+func (q *IndexQueue) getQueueLen() int {
+	q.queuedVectors.RLock()
+	defer q.queuedVectors.RUnlock()
+
+	return len(q.queuedVectors.toIndex)
 }
 
 func (q *IndexQueue) persist(vectors []indexQueueJob) error {
@@ -459,14 +451,9 @@ func (q *IndexQueue) persist(vectors []indexQueueJob) error {
 
 	return nil
 }
-func (q *IndexQueue) indexVectors(toIndex []indexQueueJob) error {
-	ids := make([]uint64, 0, len(toIndex))
-	vectors := make([][]float32, 0, len(toIndex))
 
-	for _, j := range toIndex {
-		ids = append(ids, j.id)
-		vectors = append(vectors, j.vector)
-	}
+func (q *IndexQueue) indexQueuedVectors() error {
+	ids, vectors := q.getQueuedVectors()
 
 	for {
 		err := q.Index.AddBatch(ids, vectors)
@@ -507,7 +494,9 @@ func (q *IndexQueue) notifySuccess(jobs []indexQueueJob) {
 
 func (q *IndexQueue) reset() error {
 	// reset the queue
-	q.toIndex = q.toIndex[:0]
+	q.queuedVectors.Lock()
+	q.queuedVectors.toIndex = q.queuedVectors.toIndex[:0]
+	q.queuedVectors.Unlock()
 
 	// reset the stale timer
 	q.staleTm.Reset(q.maxStaleTime)
@@ -531,4 +520,33 @@ func (q *IndexQueue) resetFile() error {
 	q.walBuffer.Reset(q.walFile)
 
 	return nil
+}
+
+type pqMaxPool struct {
+	pool *sync.Pool
+}
+
+func newPqMaxPool(defaultCap int) *pqMaxPool {
+	return &pqMaxPool{
+		pool: &sync.Pool{
+			New: func() interface{} {
+				return priorityqueue.NewMax(defaultCap)
+			},
+		},
+	}
+}
+
+func (pqh *pqMaxPool) GetMax(capacity int) *priorityqueue.Queue {
+	pq := pqh.pool.Get().(*priorityqueue.Queue)
+	if pq.Cap() < capacity {
+		pq.ResetCap(capacity)
+	} else {
+		pq.Reset()
+	}
+
+	return pq
+}
+
+func (pqh *pqMaxPool) Put(pq *priorityqueue.Queue) {
+	pqh.pool.Put(pq)
 }
