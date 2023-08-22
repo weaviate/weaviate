@@ -54,7 +54,7 @@ func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
 	}
 
 	for _, u := range immutableFields {
-		if err := validateImmutableIntField(u, initialParsed, updatedParsed); err != nil {
+		if err := validateImmutableField(u, initialParsed, updatedParsed); err != nil {
 			return err
 		}
 	}
@@ -67,7 +67,7 @@ type immutableParameter struct {
 	name     string
 }
 
-func validateImmutableIntField(u immutableParameter,
+func validateImmutableField(u immutableParameter,
 	previous, next ent.UserConfig,
 ) error {
 	oldField := u.accessor(previous)
