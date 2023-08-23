@@ -85,7 +85,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	err = m.modulesProvider.UpdateVector(ctx, updates, class, nil, m.findObject, m.logger)
+	err = m.modulesProvider.UpdateVector(ctx, updates, class, nil, m.findObject, m.logger, updates.Tenant)
 	if err != nil {
 		return nil, NewErrInternal("update object: %v", err)
 	}
