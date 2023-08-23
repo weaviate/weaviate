@@ -440,6 +440,10 @@
         "modules": {
           "description": "Module-specific meta information",
           "type": "object"
+        },
+        "grpcPort": {
+          "description": "Port of the GRPC endpoint",
+          "type": "integer"
         }
       },
       "type": "object"

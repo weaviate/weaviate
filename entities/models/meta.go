@@ -28,6 +28,9 @@ import (
 // swagger:model Meta
 type Meta struct {
 
+	// Port of the GRPC endpoint
+	GrpcPort int64 `json:"grpcPort,omitempty"`
+
 	// The url of the host.
 	Hostname string `json:"hostname,omitempty"`
 

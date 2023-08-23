@@ -3886,6 +3886,10 @@ func init() {
       "description": "Contains meta information of the current Weaviate instance.",
       "type": "object",
       "properties": {
+        "grpcPort": {
+          "description": "Port of the GRPC endpoint",
+          "type": "integer"
+        },
         "hostname": {
           "description": "The url of the host.",
           "type": "string",
@@ -8970,6 +8974,10 @@ func init() {
       "description": "Contains meta information of the current Weaviate instance.",
       "type": "object",
       "properties": {
+        "grpcPort": {
+          "description": "Port of the GRPC endpoint",
+          "type": "integer"
+        },
         "hostname": {
           "description": "The url of the host.",
           "type": "string",

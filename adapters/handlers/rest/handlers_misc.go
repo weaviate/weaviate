@@ -53,6 +53,7 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 			Hostname: serverConfig.GetHostAddress(),
 			Version:  config.ServerVersion,
 			Modules:  metaInfos,
+			GrpcPort: int64(serverConfig.Config.GRPC.Port),
 		}
 		metricRequestsTotal.logOk("")
 		return meta.NewMetaGetOK().WithPayload(res)
