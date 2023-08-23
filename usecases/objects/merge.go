@@ -175,7 +175,7 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 	if err != nil {
 		return nil, err
 	}
-	if err := m.modulesProvider.UpdateVector(ctx, obj, class, objDiff, m.findObject, m.logger); err != nil {
+	if err := m.modulesProvider.UpdateVector(ctx, obj, class, objDiff, m.findObject, m.logger, ""); err != nil {
 		return nil, err
 	}
 

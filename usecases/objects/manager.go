@@ -119,7 +119,7 @@ type ModulesProvider interface {
 	UsingRef2Vec(className string) bool
 	UpdateVector(ctx context.Context, object *models.Object, class *models.Class,
 		objectDiff *moduletools.ObjectDiff, repo modulecapabilities.FindObjectFn,
-		logger logrus.FieldLogger) error
+		logger logrus.FieldLogger, tenant string) error
 	VectorizerName(className string) (string, error)
 }
 
