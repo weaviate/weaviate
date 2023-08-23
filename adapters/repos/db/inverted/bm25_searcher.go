@@ -183,7 +183,7 @@ func (b *BM25Searcher) wand(
 	indices := make([]map[uint64]int, lengthAllResults)
 
 	var eg errgroup.Group
-	eg.SetLimit(_NUMCPU)
+	eg.SetLimit(4)
 	offset := 0
 
 	for _, tokenization := range tokenizationsOrdered {

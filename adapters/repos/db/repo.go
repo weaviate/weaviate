@@ -109,7 +109,7 @@ func New(logger logrus.FieldLogger, config Config,
 		promMetrics:         promMetrics,
 		shutdown:            make(chan struct{}),
 		batchJobQueueCh:     make(chan batchJob, 100000),
-		bm25fJobQueueCh:     make(chan bM25fJob, _NUMCPU),
+		bm25fJobQueueCh:     make(chan bM25fJob, _NUMCPU/2),
 		maxNumberGoroutines: int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 		resourceScanState:   newResourceScanState(),
 	}
@@ -121,7 +121,7 @@ func New(logger logrus.FieldLogger, config Config,
 		go db.batchWorker()
 	}
 
-	for i := 0; i < _NUMCPU; i++ {
+	for i := 0; i < _NUMCPU/2; i++ {
 		go db.bm25Worker()
 	}
 
