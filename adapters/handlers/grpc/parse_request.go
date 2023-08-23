@@ -253,6 +253,11 @@ func extractDataType(scheme schema.Schema, operator filters.Operator, classname 
 		dataType = schema.DataTypeBoolean
 	} else if len(on) > 1 {
 		propToCheck := on[len(on)-1]
+		_, isPropLengthFilter := schema.IsPropertyLength(propToCheck, 0)
+		if isPropLengthFilter {
+			return schema.DataTypeInt, nil
+		}
+
 		classOfProp := on[len(on)-2]
 		prop, err := scheme.GetProperty(schema.ClassName(classOfProp), schema.PropertyName(propToCheck))
 		if err != nil {
@@ -260,7 +265,13 @@ func extractDataType(scheme schema.Schema, operator filters.Operator, classname 
 		}
 		return schema.DataType(prop.DataType[0]), nil
 	} else {
-		prop, err := scheme.GetProperty(schema.ClassName(classname), schema.PropertyName(on[0]))
+		propToCheck := on[0]
+		_, isPropLengthFilter := schema.IsPropertyLength(propToCheck, 0)
+		if isPropLengthFilter {
+			return schema.DataTypeInt, nil
+		}
+
+		prop, err := scheme.GetProperty(schema.ClassName(classname), schema.PropertyName(propToCheck))
 		if err != nil {
 			return dataType, err
 		}

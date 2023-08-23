@@ -325,6 +325,62 @@ func TestGRPCRequest(t *testing.T) {
 			out:   dto.GetParams{},
 			error: true,
 		},
+		{
+			name: "length filter ref",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				Filters: &grpc.Filters{
+					Operator:  grpc.Filters_OperatorLessThan,
+					TestValue: &grpc.Filters_ValueInt{3},
+					On:        []string{"ref", refClass1, "len(something)"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "ref",
+							Child: &filters.Path{
+								Class:    schema.ClassName(refClass1),
+								Property: "len(something)",
+							},
+						},
+						Operator: filters.OperatorLessThan,
+						Value:    &filters.Value{Value: 3, Type: schema.DataTypeInt},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "length filter",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				Filters: &grpc.Filters{
+					Operator:  grpc.Filters_OperatorLessThan,
+					TestValue: &grpc.Filters_ValueInt{3},
+					On:        []string{"len(name)"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "len(name)",
+						},
+						Operator: filters.OperatorLessThan,
+						Value:    &filters.Value{Value: 3, Type: schema.DataTypeInt},
+					},
+				},
+			},
+			error: false,
+		},
 	}
 
 	for _, tt := range tests {
