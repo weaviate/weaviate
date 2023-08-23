@@ -119,7 +119,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	if err != nil {
 		return nil, err
 	}
-	err = m.modulesProvider.UpdateVector(ctx, object, class, nil, m.findObject, m.logger)
+	err = m.modulesProvider.UpdateVector(ctx, object, class, nil, m.findObject, m.logger, object.Tenant)
 	if err != nil {
 		return nil, err
 	}
