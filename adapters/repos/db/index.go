@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"runtime/debug"
 	golangSort "sort"
 	"strings"
 	"sync"
@@ -566,6 +567,17 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 		wg.Add(1)
 		go func(shardName string, group objsAndPos) {
 			defer wg.Done()
+
+			defer func() {
+				err := recover()
+				if err != nil {
+					for pos := range group.pos {
+						out[pos] = fmt.Errorf("an unexpected error occurred: %s", err)
+					}
+					fmt.Printf("panic: %s\n", err)
+					debug.PrintStack()
+				}
+			}()
 			var errs []error
 			if replProps != nil {
 				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
