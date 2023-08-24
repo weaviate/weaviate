@@ -30,6 +30,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/clients"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -103,7 +104,19 @@ type vectorRepo interface {
 	Shutdown(ctx context.Context) error
 }
 
-func configureAPI(api *operations.WeaviateAPI) http.Handler {
+func makeSharedPortHandlerFunc(grpcServer *grpc.GRPCServer, otherHandler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 && strings.Contains(r.Header.Get("Content-Type"), "application/grpc") {
+			fmt.Printf("Running grpc handler\n")
+			grpcServer.ServeHTTP(w, r)
+		} else {
+			fmt.Printf("Running http handler\n")
+			otherHandler.ServeHTTP(w, r)
+		}
+	})
+}
+
+func configureAPI(api *operations.WeaviateAPI) (http.Handler, *grpc.GRPCServer, *state.State) {
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
@@ -410,9 +423,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		migrator.RecountProperties(ctx)
 	}
 
-	startGrpcServer(grpcServer, appState)
+	// Start it later in server.go
+	// startGrpcServer(grpcServer, appState)
 
-	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
+	return setupGlobalMiddleware(api.Serve(setupMiddlewares)), grpcServer, appState
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState
