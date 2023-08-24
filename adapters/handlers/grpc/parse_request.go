@@ -13,6 +13,7 @@ package grpc
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/search"
@@ -209,6 +210,11 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			returnFilter.Operator = filters.OperatorLike
 		case pb.Filters_OperatorIsNull:
 			returnFilter.Operator = filters.OperatorIsNull
+		case pb.Filters_OperatorContainsAny:
+			returnFilter.Operator = filters.ContainsAny
+		case pb.Filters_OperatorContainsAll:
+			returnFilter.Operator = filters.ContainsAll
+
 		default:
 			return filters.Clause{}, fmt.Errorf("unknown filter operator %v", filterIn.Operator)
 		}
@@ -230,6 +236,28 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			val = filterIn.GetValueFloat()
 		case *pb.Filters_ValueDate:
 			val = filterIn.GetValueDate().AsTime()
+		case *pb.Filters_ValueIntArray:
+			// convert from int32 GRPC to go int
+			valInt32 := filterIn.GetValueIntArray().Vals
+			valInt := make([]int, len(valInt32))
+			for i := 0; i < len(valInt32); i++ {
+				valInt[i] = int(valInt32[i])
+			}
+			val = valInt
+		case *pb.Filters_ValueStrArray:
+			val = filterIn.GetValueStrArray().Vals
+		case *pb.Filters_ValueFloatArray:
+			val = filterIn.GetValueFloatArray().Vals
+		case *pb.Filters_ValueBoolArray:
+			val = filterIn.GetValueBoolArray().Vals
+		case *pb.Filters_ValueDateArray:
+			// convert from GRPC timestamp to go time
+			valTimestamps := filterIn.GetValueDateArray().Vals
+			valTime := make([]time.Time, len(valTimestamps))
+			for i := 0; i < len(valTime); i++ {
+				valTime[i] = valTimestamps[i].AsTime()
+			}
+			val = valTime
 		default:
 			return filters.Clause{}, fmt.Errorf("unknown value type %v", filterIn.TestValue)
 		}
@@ -237,6 +265,18 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 		// correct the type of value when filtering on a float property but sending an int. This is easy to get wrong
 		if number, ok := val.(int); ok && dataType == schema.DataTypeNumber {
 			val = float64(number)
+		}
+
+		// correct type for containsXXX in case users send int for a float array
+		if (returnFilter.Operator == filters.ContainsAll || returnFilter.Operator == filters.ContainsAny) && dataType == schema.DataTypeNumber {
+			valSlice, ok := val.([]int)
+			if ok {
+				val64 := make([]float64, len(valSlice))
+				for i := 0; i < len(valSlice); i++ {
+					val64[i] = float64(valSlice[i])
+				}
+				val = val64
+			}
 		}
 
 		value := filters.Value{Value: val, Type: dataType}
@@ -277,7 +317,20 @@ func extractDataType(scheme schema.Schema, operator filters.Operator, classname 
 		}
 		dataType = schema.DataType(prop.DataType[0])
 	}
-	return dataType, nil
+
+	if operator == filters.ContainsAll || operator == filters.ContainsAny {
+		if dataType == schema.DataTypeText {
+			return dataType, nil
+		}
+		baseType, isArray := schema.IsArrayType(dataType)
+		if !isArray {
+			return baseType, fmt.Errorf("operator %v can only be used on text and array fields, datatype is %v", operator, dataType)
+		}
+		return baseType, nil
+
+	} else {
+		return dataType, nil
+	}
 }
 
 func extractPath(scheme schema.Schema, className string, on []string) (*filters.Path, error) {
@@ -324,7 +377,7 @@ func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, cla
 				if linkedClass == "" {
 					return nil, fmt.Errorf(
 						"multi target references from collection %v and property %v with need an explicit"+
-							"linked collection. Available linked collections are %v.",
+							"linked collection. Available linked collections are %v",
 						className, prop.ReferenceProperty, schemaProp.DataType)
 				}
 			}
