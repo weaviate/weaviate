@@ -94,7 +94,6 @@ func TestJsonPropertyIdTracker(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected nil, got %v", err)
 		}
-	
 
 		fileBytes, _ := os.ReadFile(path)
 		fileContents := &JsonPropertyIdTracker{}
@@ -188,6 +187,4 @@ func TestJsonPropertyIdTracker_ConcurrentOpenClose(t *testing.T) {
 		}
 		wg.Wait()
 	})
-
-
 }

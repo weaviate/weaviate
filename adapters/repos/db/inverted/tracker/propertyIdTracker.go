@@ -98,7 +98,7 @@ func (t *JsonPropertyIdTracker) Flush(flushBackup bool) error {
 // Drop removes the tracker from disk
 func (t *JsonPropertyIdTracker) Drop() error {
 	t.Lock()
-	
+
 	defer t.Unlock()
 
 	if err := os.Remove(t.path); err != nil {
@@ -142,7 +142,6 @@ func (t *JsonPropertyIdTracker) doCreateProperty(property string) (uint64, error
 
 	t.LastId++
 	t.PropertyIds[property] = t.LastId
-
 
 	return t.LastId, nil
 }
