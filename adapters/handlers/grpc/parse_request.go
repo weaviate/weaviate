@@ -319,18 +319,11 @@ func extractDataType(scheme schema.Schema, operator filters.Operator, classname 
 	}
 
 	if operator == filters.ContainsAll || operator == filters.ContainsAny {
-		if dataType == schema.DataTypeText {
-			return dataType, nil
+		if baseType, isArray := schema.IsArrayType(dataType); isArray {
+			return baseType, nil
 		}
-		baseType, isArray := schema.IsArrayType(dataType)
-		if !isArray {
-			return dataType, nil
-		}
-		return baseType, nil
-
-	} else {
-		return dataType, nil
 	}
+	return dataType, nil
 }
 
 func extractPath(scheme schema.Schema, className string, on []string) (*filters.Path, error) {
