@@ -97,15 +97,15 @@ func (t *JsonPropertyIdTracker) Flush(flushBackup bool) error {
 
 // Drop removes the tracker from disk
 func (t *JsonPropertyIdTracker) Drop() error {
-
 	t.Lock()
+	
 	defer t.Unlock()
 
 	if err := os.Remove(t.path); err != nil {
-		return fmt.Errorf("remove prop length tracker state from disk:%v, %v", t.path, err)
+		return fmt.Errorf("remove prop length tracker state from disk:%v, %w", t.path, err)
 	}
 	if err := os.Remove(t.path + ".bak"); err != nil {
-		return fmt.Errorf("remove prop length tracker state from disk:%v, %v", t.path+".bak", err)
+		return fmt.Errorf("remove prop length tracker state from disk:%v, %w", t.path+".bak", err)
 	}
 
 	return nil

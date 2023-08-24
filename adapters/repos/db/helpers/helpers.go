@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"log"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -29,10 +30,7 @@ var (
 )
 
 func MakePropertyPrefix(property string, propIds *tracker.JsonPropertyIdTracker) ([]byte, error) {
-	propid, err := propIds.GetIdForProperty(string(property))
-	if err != nil {
-		fmt.Printf("property '%s' not found in propIds, creating", property)
-	}
+	propid, _ := propIds.GetIdForProperty(string(property))
 	propid_bytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(propid_bytes, propid)
 	return propid_bytes, nil
@@ -51,7 +49,7 @@ func MakePropertyKey(propPrefix []byte, key []byte) []byte {
 
 func MatchesPropertyKeyPrefix(propName []byte, key []byte) bool {
 	if len(propName) == 0 {
-		fmt.Println(fmt.Errorf("Empty property name in MatchesPropertyKeyPrefix, this is almost certainly wrong"))
+		log.Println(fmt.Errorf("Empty property name in MatchesPropertyKeyPrefix, this is almost certainly wrong"))
 		return false
 	}
 
@@ -60,7 +58,7 @@ func MatchesPropertyKeyPrefix(propName []byte, key []byte) bool {
 
 func UnMakePropertyKey(propName []byte, key []byte) []byte {
 	if len(propName) == 0 {
-		fmt.Println(fmt.Errorf("Empty property name in UnMakePropertyKey, this is almost certainly wrong"))
+		log.Println(fmt.Errorf("Empty property name in UnMakePropertyKey, this is almost certainly wrong"))
 		return nil
 	}
 

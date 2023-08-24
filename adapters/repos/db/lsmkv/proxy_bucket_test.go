@@ -29,7 +29,7 @@ func TestBucketProxyCreation(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
-	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids.json")
+	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/ids5.json")
 	if err != nil {
 		t.Fatalf("Failed to create tracker: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestBucketProxyGetAndPut(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
-	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids.json")
+	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/ids6.json")
 	if err != nil {
 		t.Fatalf("Failed to create tracker: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestBucketProxyGetNotFound(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
-	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids1.json")
+	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/ids1.json")
 	if err != nil {
 		t.Fatalf("Failed to create tracker: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestBucketProxyDelete(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
-	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids2.json")
+	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/ids2.json")
 	if err != nil {
 		t.Fatalf("Failed to create tracker: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestBucketProxyMapSetAndGet(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
-	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids3.json")
+	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/ids3.json")
 	if err != nil {
 		t.Fatalf("Failed to create tracker: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestBucketProxyCount(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
-	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/propids4.json")
+	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/ids4.json")
 	if err != nil {
 		t.Fatalf("Failed to create tracker: %v", err)
 	}
