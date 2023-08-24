@@ -95,21 +95,8 @@ func (t *JsonPropertyIdTracker) Flush(flushBackup bool) error {
 	return nil
 }
 
-// Closes the tracker and removes the backup file
-func (t *JsonPropertyIdTracker) Close() error {
-	if err := t.Flush(false); err != nil {
-		return fmt.Errorf("flush before closing: %w", err)
-	}
-
-	t.Lock()
-	defer t.Unlock()
-
-	return nil
-}
-
 // Drop removes the tracker from disk
 func (t *JsonPropertyIdTracker) Drop() error {
-	t.Close()
 
 	t.Lock()
 	defer t.Unlock()
