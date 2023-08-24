@@ -324,7 +324,7 @@ func extractDataType(scheme schema.Schema, operator filters.Operator, classname 
 		}
 		baseType, isArray := schema.IsArrayType(dataType)
 		if !isArray {
-			return baseType, fmt.Errorf("operator %v can only be used on text and array fields, datatype is %v", operator, dataType)
+			return dataType, nil
 		}
 		return baseType, nil
 
