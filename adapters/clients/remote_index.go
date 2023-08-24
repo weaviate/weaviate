@@ -34,10 +34,15 @@ import (
 	"github.com/weaviate/weaviate/usecases/scaler"
 )
 
-type RemoteIndex retryClient
+type RemoteIndex struct {
+	retryClient
+}
 
 func NewRemoteIndex(httpClient *http.Client) *RemoteIndex {
-	return &RemoteIndex{client: httpClient, retryer: newRetryer()}
+	return &RemoteIndex{retryClient: retryClient{
+		client:  httpClient,
+		retryer: newRetryer(),
+	}}
 }
 
 func (c *RemoteIndex) PutObject(ctx context.Context, hostName, indexName,
@@ -402,106 +407,81 @@ func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
 	return objs, nil
 }
 
-func (c *RemoteIndex) SearchShard(ctx context.Context, hostName, indexName,
-	shardName string, vector []float32, limit int, filters *filters.LocalFilter,
-	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
-	cursor *filters.Cursor, groupBy *searchparams.GroupBy,
+func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string,
+	vector []float32, limit int,
+	filters *filters.LocalFilter,
+	keywordRanking *searchparams.KeywordRanking,
+	sort []filters.Sort,
+	cursor *filters.Cursor,
+	groupBy *searchparams.GroupBy,
 	additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
-	paramsBytes, err := clusterapi.IndicesPayloads.SearchParams.
+	// new request
+	body, err := clusterapi.IndicesPayloads.SearchParams.
 		Marshal(vector, limit, filters, keywordRanking, sort, cursor, groupBy, additional)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "marshal request payload")
+		return nil, nil, fmt.Errorf("marshal request payload: %w", err)
 	}
-
-	path := fmt.Sprintf("/indices/%s/shards/%s/objects/_search", indexName, shardName)
-	method := http.MethodPost
-	url := url.URL{Scheme: "http", Host: hostName, Path: path}
-
-	req, err := http.NewRequestWithContext(ctx, method, url.String(),
-		bytes.NewReader(paramsBytes))
+	url := url.URL{
+		Scheme: "http",
+		Host:   host,
+		Path:   fmt.Sprintf("/indices/%s/shards/%s/objects/_search", index, shard),
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url.String(), bytes.NewReader(body))
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "open http request")
+		return nil, nil, fmt.Errorf("create http request: %w", err)
 	}
-
 	clusterapi.IndicesPayloads.SearchParams.SetContentTypeHeaderReq(req)
-	res, err := c.client.Do(req)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "send http request")
-	}
 
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(res.Body)
-		return nil, nil, errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
-			body)
-	}
-
-	resBytes, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "read body")
-	}
-
-	ct, ok := clusterapi.IndicesPayloads.SearchResults.CheckContentTypeHeader(res)
-	if !ok {
-		return nil, nil, errors.Errorf("unexpected content type: %s", ct)
-	}
-
-	objs, dists, err := clusterapi.IndicesPayloads.SearchResults.Unmarshal(resBytes)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "unmarshal body")
-	}
-	return objs, dists, nil
+	// send request
+	resp := &searchShardResp{}
+	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode)
+	return resp.Objects, resp.Distributions, err
 }
 
-func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, indexName,
-	shardName string, params aggregation.Params,
+type searchShardResp struct {
+	Objects       []*storobj.Object
+	Distributions []float32
+}
+
+func (r *searchShardResp) decode(data []byte) (err error) {
+	r.Objects, r.Distributions, err = clusterapi.IndicesPayloads.SearchResults.Unmarshal(data)
+	return
+}
+
+type aggregateResp struct {
+	Result *aggregation.Result
+}
+
+func (r *aggregateResp) decode(data []byte) (err error) {
+	r.Result, err = clusterapi.IndicesPayloads.AggregationResult.Unmarshal(data)
+	return
+}
+
+func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
+	shard string, params aggregation.Params,
 ) (*aggregation.Result, error) {
-	paramsBytes, err := clusterapi.IndicesPayloads.AggregationParams.
-		Marshal(params)
+	// create new request
+	body, err := clusterapi.IndicesPayloads.AggregationParams.Marshal(params)
 	if err != nil {
-		return nil, errors.Wrap(err, "marshal request payload")
+		return nil, fmt.Errorf("marshal request payload: %w", err)
 	}
 
-	path := fmt.Sprintf("/indices/%s/shards/%s/objects/_aggregations", indexName, shardName)
-	method := http.MethodPost
-	url := url.URL{Scheme: "http", Host: hostName, Path: path}
-
-	req, err := http.NewRequestWithContext(ctx, method, url.String(),
-		bytes.NewReader(paramsBytes))
-	if err != nil {
-		return nil, errors.Wrap(err, "open http request")
+	url := &url.URL{
+		Scheme: "http",
+		Host:   hostName,
+		Path:   fmt.Sprintf("/indices/%s/shards/%s/objects/_aggregations", index, shard),
 	}
-
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url.String(), bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create http request: %w", err)
+	}
 	clusterapi.IndicesPayloads.AggregationParams.SetContentTypeHeaderReq(req)
-	res, err := c.client.Do(req)
-	if err != nil {
-		return nil, errors.Wrap(err, "send http request")
-	}
 
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(res.Body)
-		return nil, errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
-			body)
-	}
-
-	resBytes, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, errors.Wrap(err, "read body")
-	}
-
-	ct, ok := clusterapi.IndicesPayloads.AggregationResult.CheckContentTypeHeader(res)
-	if !ok {
-		return nil, errors.Errorf("unexpected content type: %s", ct)
-	}
-
-	aggRes, err := clusterapi.IndicesPayloads.AggregationResult.Unmarshal(resBytes)
-	if err != nil {
-		return nil, errors.Wrap(err, "unmarshal body")
-	}
-
-	return aggRes, nil
+	// send request
+	resp := &aggregateResp{}
+	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode)
+	return resp.Result, err
 }
 
 func (c *RemoteIndex) FindDocIDs(ctx context.Context, hostName, indexName,
