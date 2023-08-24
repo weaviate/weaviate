@@ -67,6 +67,22 @@ message SearchRequest {
   Filters filters = 13;
 }
 
+message strArray{
+  repeated string vals = 1;
+}
+message intArray{
+  repeated int32 vals = 1;
+}
+message floatArray{
+  repeated double vals = 1;
+}
+message boolArray{
+  repeated bool vals = 1;
+}
+message dateArray{
+  repeated google.protobuf.Timestamp vals = 1;
+}
+
 message Filters {
   enum OperatorType {
     OperatorEqual = 0;
@@ -80,7 +96,11 @@ message Filters {
       OperatorWithinGeoRange = 8;
       OperatorLike = 9;
       OperatorIsNull = 10;
+      OperatorContainsAny = 11;
+      OperatorContainsAll = 12;
   }
+
+
   OperatorType operator = 1;
   repeated string on = 2;
   repeated Filters filters = 3;
@@ -90,6 +110,11 @@ message Filters {
     bool value_bool = 6;
     float value_float = 7;
     google.protobuf.Timestamp value_date = 8;
+    strArray value_str_array = 9;
+    intArray value_int_array = 10;
+    boolArray value_bool_array = 11;
+    floatArray value_float_array = 12;
+    dateArray value_date_array = 13;
   };
 }
 
