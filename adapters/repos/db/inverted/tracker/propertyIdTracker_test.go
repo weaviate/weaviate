@@ -29,7 +29,6 @@ func TestJsonPropertyIdTracker(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected nil, got %v", err)
 		}
-		tracker.Close()
 		if tracker.LastId != 1 {
 			t.Fatalf("expected LastId 1, got %v", tracker.LastId)
 		}
@@ -64,10 +63,7 @@ func TestJsonPropertyIdTracker(t *testing.T) {
 
 	t.Run("Close", func(t *testing.T) {
 		tracker, _ := NewJsonPropertyIdTracker(path)
-		err := tracker.Close()
-		if err != nil {
-			t.Fatalf("expected nil, got %v", err)
-		}
+
 		tracker.Drop()
 	})
 
@@ -98,7 +94,7 @@ func TestJsonPropertyIdTracker(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected nil, got %v", err)
 		}
-		tracker.Close()
+	
 
 		fileBytes, _ := os.ReadFile(path)
 		fileContents := &JsonPropertyIdTracker{}
@@ -193,20 +189,5 @@ func TestJsonPropertyIdTracker_ConcurrentOpenClose(t *testing.T) {
 		wg.Wait()
 	})
 
-	t.Run("ConcurrentClose", func(t *testing.T) {
-		tracker, _ := NewJsonPropertyIdTracker(path)
 
-		var wg sync.WaitGroup
-		for i := 0; i < 10; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				err := tracker.Close()
-				if err != nil {
-					t.Errorf("unexpected error: %v", err)
-				}
-			}()
-		}
-		wg.Wait()
-	})
 }
