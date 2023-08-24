@@ -33,6 +33,7 @@ type segment struct {
 	dataStartPos          uint64
 	dataEndPos            uint64
 	contents              []byte
+	contentFile           *os.File
 	bloomFilter           *bloom.BloomFilter
 	secondaryBloomFilters []*bloom.BloomFilter
 	strategy              segmentindex.Strategy
@@ -69,7 +70,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	if err != nil {
 		return nil, errors.Wrap(err, "open file")
 	}
-	defer file.Close()
+	//defer file.Close()
 
 	fileInfo, err := file.Stat()
 	if err != nil {
@@ -104,6 +105,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		level:               header.Level,
 		path:                path,
 		contents:            content,
+		contentFile:         file,
 		version:             header.Version,
 		secondaryIndexCount: header.SecondaryIndices,
 		segmentStartPos:     header.IndexStart,
