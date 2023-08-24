@@ -210,11 +210,6 @@ func (b *Bucket) DumpString() string {
 	var buf bytes.Buffer
 	buf.WriteString(fmt.Sprintf("Bucket: %s\n", b.dir))
 	b.IterateObjects(context.Background(), func(object *storobj.Object) error {
-		/*	str := fmt.Sprintf(`
-			DocID: %v
-			ClassName: %v
-			Properties: %v
-			`, object.DocID(), object.ClassName(), object.Properties())*/
 		// Marshall the object to json
 		json, err := json.Marshal(object)
 		if err != nil {
