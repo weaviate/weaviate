@@ -155,6 +155,15 @@ func (f *fakeSchemaManager) ShardOwner(class, shard string) (string, error) {
 	return ss.Physical[shard].BelongsToNodes[0], nil
 }
 
+func (f *fakeSchemaManager) ShardReplicas(class, shard string) ([]string, error) {
+	ss := f.shardState
+	x, ok := ss.Physical[shard]
+	if !ok {
+		return nil, fmt.Errorf("shard not found")
+	}
+	return x.BelongsToNodes, nil
+}
+
 func (f *fakeSchemaManager) TenantShard(class, tenant string) (string, string) {
 	return tenant, models.TenantActivityStatusHOT
 }
