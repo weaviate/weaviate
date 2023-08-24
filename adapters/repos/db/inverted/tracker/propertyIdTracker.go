@@ -113,7 +113,7 @@ func (t *JsonPropertyIdTracker) Drop() error {
 
 func (t *JsonPropertyIdTracker) GetIdForProperty(property string) (uint64, error) {
 	if t == nil {
-		return 0, fmt.Errorf("property id tracker not initialised\n")
+		return 0, fmt.Errorf("property id tracker not initialised")
 	}
 
 	t.Lock()
@@ -136,14 +136,13 @@ func (t *JsonPropertyIdTracker) CreateProperty(property string) (uint64, error) 
 
 func (t *JsonPropertyIdTracker) doCreateProperty(property string) (uint64, error) {
 	if id, ok := t.PropertyIds[property]; ok {
-		fmt.Printf("property %v already exists\n", property)
+		log.Printf("property %v already exists\n", property)
 		return id, fmt.Errorf("property %v already exists\n", property)
 	}
 
 	t.LastId++
 	t.PropertyIds[property] = t.LastId
 
-	fmt.Printf("Created property %v with id %v\n", property, t.LastId)
 
 	return t.LastId, nil
 }
