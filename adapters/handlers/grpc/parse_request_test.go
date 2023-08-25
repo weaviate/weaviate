@@ -38,7 +38,8 @@ func TestGRPCRequest(t *testing.T) {
 					Class: classname,
 					Properties: []*models.Property{
 						{Name: "name", DataType: schema.DataTypeText.PropString()},
-						{Name: "number", DataType: []string{"int"}},
+						{Name: "number", DataType: schema.DataTypeInt.PropString()},
+						{Name: "floats", DataType: schema.DataTypeNumberArray.PropString()},
 						{Name: "ref", DataType: []string{refClass1}},
 						{Name: "multiRef", DataType: []string{refClass1, refClass2}},
 					},
@@ -78,7 +79,7 @@ func TestGRPCRequest(t *testing.T) {
 			name: "No return values given",
 			req:  &grpc.SearchRequest{ClassName: classname},
 			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}},
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}, {Name: "floats", IsPrimitive: true}},
 				AdditionalProperties: additional.Properties{
 					Vector:             true,
 					Certainty:          true,
@@ -324,6 +325,88 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out:   dto.GetParams{},
 			error: true,
+		},
+		{
+			name: "length filter ref",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				Filters: &grpc.Filters{
+					Operator:  grpc.Filters_OperatorLessThan,
+					TestValue: &grpc.Filters_ValueInt{3},
+					On:        []string{"ref", refClass1, "len(something)"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "ref",
+							Child: &filters.Path{
+								Class:    schema.ClassName(refClass1),
+								Property: "len(something)",
+							},
+						},
+						Operator: filters.OperatorLessThan,
+						Value:    &filters.Value{Value: 3, Type: schema.DataTypeInt},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "length filter",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				Filters: &grpc.Filters{
+					Operator:  grpc.Filters_OperatorLessThan,
+					TestValue: &grpc.Filters_ValueInt{3},
+					On:        []string{"len(name)"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "len(name)",
+						},
+						Operator: filters.OperatorLessThan,
+						Value:    &filters.Value{Value: 3, Type: schema.DataTypeInt},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "contains filter with int value on float prop",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				Filters: &grpc.Filters{
+					Operator:  grpc.Filters_OperatorContainsAll,
+					TestValue: &grpc.Filters_ValueIntArray{&grpc.IntArray{Vals: []int32{3}}},
+					On:        []string{"floats"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "floats",
+						},
+						Operator: filters.ContainsAll,
+						Value:    &filters.Value{Value: []float64{3}, Type: schema.DataTypeNumber},
+					},
+				},
+			},
+			error: false,
 		},
 	}
 
