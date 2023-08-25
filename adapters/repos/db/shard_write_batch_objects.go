@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -254,7 +255,7 @@ func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Conte
 		err := recover()
 		if err != nil {
 			ob.setErrorAtIndex(fmt.Errorf("an unexpected error occurred: %s", err), index)
-			fmt.Printf("panic: %s\n", err)
+			fmt.Fprintf(os.Stderr, "panic: %s\n", err)
 			debug.PrintStack()
 		}
 	}()
