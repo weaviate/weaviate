@@ -45,6 +45,7 @@ import (
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
@@ -59,6 +60,7 @@ import (
 	modrerankertransformers "github.com/weaviate/weaviate/modules/reranker-transformers"
 	modsum "github.com/weaviate/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/weaviate/weaviate/modules/text-spellcheck"
+	modtext2vecaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
 	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
@@ -632,6 +634,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modgenerativeaws.Name]; ok {
+		appState.Modules.Register(modgenerativeaws.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativeaws.Name).
+			Debug("enabled module")
+	}
+
 	if _, ok := enabledModules[modhuggingface.Name]; ok {
 		appState.Modules.Register(modhuggingface.New())
 		appState.Logger.
@@ -653,6 +663,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modtext2vecpalm.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modtext2vecaws.Name]; ok {
+		appState.Modules.Register(modtext2vecaws.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modtext2vecaws.Name).
 			Debug("enabled module")
 	}
 

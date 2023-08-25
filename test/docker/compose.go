@@ -22,10 +22,12 @@ import (
 	modstgfilesystem "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
+	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
@@ -191,8 +193,18 @@ func (d *Compose) WithText2VecPaLM() *Compose {
 	return d
 }
 
+func (d *Compose) WithText2VecAWS() *Compose {
+	d.enableModules = append(d.enableModules, modaws.Name)
+	return d
+}
+
 func (d *Compose) WithGenerativeOpenAI() *Compose {
 	d.enableModules = append(d.enableModules, modgenerativeopenai.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeAWS() *Compose {
+	d.enableModules = append(d.enableModules, modgenerativeaws.Name)
 	return d
 }
 

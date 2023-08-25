@@ -31,6 +31,7 @@ func TestMain(m *testing.M) {
 		WithText2VecOpenAI().
 		WithText2VecCohere().
 		WithText2VecPaLM().
+		WithText2VecAWS().
 		WithGenerativeOpenAI().
 		WithGenerativeCohere().
 		WithGenerativePaLM().
