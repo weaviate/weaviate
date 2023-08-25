@@ -158,7 +158,7 @@ func (a *Analyzer) BoolArray(in []bool) ([]Countable, error) {
 	out := make([]Countable, len(in))
 	for i := range in {
 		b := bytes.NewBuffer(nil)
-		err := binary.Write(b, binary.LittleEndian, &in)
+		err := binary.Write(b, binary.LittleEndian, &in[i])
 		if err != nil {
 			return nil, err
 		}

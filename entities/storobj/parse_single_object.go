@@ -56,6 +56,17 @@ func ParseAndExtractNumberArrayProp(data []byte, propName string) ([]float64, bo
 	return vals, true, nil
 }
 
+func ParseAndExtractBoolArrayProp(data []byte, propName string) ([]bool, bool, error) {
+	vals := []bool{}
+	err := parseAndExtractValueProp(data, propName, func(value []byte) {
+		vals = append(vals, mustExtractBool(value))
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	return vals, true, nil
+}
+
 func parseAndExtractValueProp(data []byte, propName string, valueFn func(value []byte)) error {
 	propsBytes, err := extractPropsBytes(data)
 	if err != nil {
@@ -88,6 +99,14 @@ func mustExtractNumber(value []byte) float64 {
 		panic("not a float64")
 	}
 	return number
+}
+
+func mustExtractBool(value []byte) bool {
+	boolVal, err := strconv.ParseBool(string(value))
+	if err != nil {
+		panic("not a bool")
+	}
+	return boolVal
 }
 
 func extractID(data []byte) ([]string, bool, error) {

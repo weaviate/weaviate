@@ -40,7 +40,7 @@ func NewCacher(repo repo, logger logrus.FieldLogger, tenant string) *Cacher {
 	}
 }
 
-func NewCacherWithGroup(repo repo, logger logrus.FieldLogger) *Cacher {
+func NewCacherWithGroup(repo repo, logger logrus.FieldLogger, tenant string) *Cacher {
 	return &Cacher{
 		logger: logger,
 		repo:   repo,
@@ -48,6 +48,7 @@ func NewCacherWithGroup(repo repo, logger logrus.FieldLogger) *Cacher {
 		// for groupBy feature
 		withGroup:                true,
 		getGroupSelectProperties: getGroupSelectProperties,
+		tenant:                   tenant,
 	}
 }
 

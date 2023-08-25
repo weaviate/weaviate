@@ -52,11 +52,12 @@ var (
 
 // todo Need to parse the tokenLimits in a smarter way, as the prompt defines the max length
 var defaultMaxTokens = map[string]float64{
-	"text-davinci-002": 4097,
-	"text-davinci-003": 4097,
-	"gpt-3.5-turbo":    4097,
-	"gpt-4":            8192,
-	"gpt-4-32k":        32768,
+	"text-davinci-002":  4097,
+	"text-davinci-003":  4097,
+	"gpt-3.5-turbo":     4097,
+	"gpt-3.5-turbo-16k": 16384,
+	"gpt-4":             8192,
+	"gpt-4-32k":         32768,
 }
 
 type ClassSettings interface {

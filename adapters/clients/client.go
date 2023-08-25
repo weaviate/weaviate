@@ -12,8 +12,10 @@
 package clients
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
@@ -21,6 +23,39 @@ import (
 type retryClient struct {
 	client *http.Client
 	*retryer
+}
+
+func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
+	req *http.Request, body []byte, decode func([]byte) error,
+) (err error) {
+	ctx, cancel := context.WithTimeout(req.Context(), timeout)
+	defer cancel()
+	try := func(ctx context.Context) (bool, error) {
+		if body != nil {
+			req.Body = io.NopCloser(bytes.NewReader(body))
+		}
+		res, err := c.client.Do(req)
+		if err != nil {
+			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+		}
+
+		respBody, err := io.ReadAll(res.Body)
+		if err != nil {
+			return shouldRetry(res.StatusCode), fmt.Errorf("read response: %w", err)
+		}
+		defer res.Body.Close()
+
+		if code := res.StatusCode; code != http.StatusOK {
+			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, respBody)
+		}
+
+		if err := decode(respBody); err != nil {
+			return false, fmt.Errorf("unmarshal response: %w", err)
+		}
+
+		return false, nil
+	}
+	return c.retry(ctx, 9, try)
 }
 
 type retryer struct {
