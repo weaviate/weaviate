@@ -35,6 +35,7 @@ func TestMain(m *testing.M) {
 		WithGenerativeOpenAI().
 		WithGenerativeCohere().
 		WithGenerativePaLM().
+		WithGenerativeAWS().
 		WithSUMTransformers().
 		WithQnAOpenAI().
 		Start(ctx)
