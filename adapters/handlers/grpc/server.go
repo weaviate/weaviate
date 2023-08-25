@@ -159,7 +159,7 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 			}
 		}
 
-		proto, err := searchResultsToProto(res, before, searchParams)
+		proto, err := searchResultsToProto(res, before, searchParams, scheme)
 		c <- reply{
 			Result: proto,
 			Error:  err,
