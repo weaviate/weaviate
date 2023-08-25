@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime"
 	"runtime/debug"
 	golangSort "sort"
@@ -574,7 +575,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 					for pos := range group.pos {
 						out[pos] = fmt.Errorf("an unexpected error occurred: %s", err)
 					}
-					fmt.Printf("panic: %s\n", err)
+					fmt.Fprintf(os.Stderr, "panic: %s\n", err)
 					debug.PrintStack()
 				}
 			}()
