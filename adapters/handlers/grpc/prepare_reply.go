@@ -290,7 +290,12 @@ func extractArrayTypes(scheme schema.Schema, className string, props *pb.ResultP
 			}
 			props.UuidArrayProperties = append(props.UuidArrayProperties, &pb.UuidArrayProperties{Key: propName, Vals: propString})
 			delete(nonRefProps, propName)
-
+		default:
+			_, isArray := schema.IsArrayType(*dataType)
+			if isArray {
+				return fmt.Errorf("property %v with array type not handled %v", propName, dataType)
+			}
+			continue
 		}
 
 	}
