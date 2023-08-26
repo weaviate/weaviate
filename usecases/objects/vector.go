@@ -39,7 +39,7 @@ func (m *Manager) updateRefVector(ctx context.Context, principal *models.Princip
 			return err
 		}
 		if err := m.modulesProvider.UpdateVector(
-			ctx, obj, class, nil, m.findObject, m.logger, tenant); err != nil {
+			ctx, obj, class, nil, m.findObject, m.logger); err != nil {
 			return fmt.Errorf("calculate ref vector for '%s/%s': %w",
 				className, id, err)
 		}

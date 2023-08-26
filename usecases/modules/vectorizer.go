@@ -82,7 +82,7 @@ func (p *Provider) UsingRef2Vec(className string) bool {
 
 func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, class *models.Class,
 	objectDiff *moduletools.ObjectDiff, findObjectFn modulecapabilities.FindObjectFn,
-	logger logrus.FieldLogger, tenant string,
+	logger logrus.FieldLogger,
 ) error {
 	hnswConfig, ok := class.VectorIndexConfig.(hnsw.UserConfig)
 	if !ok {
