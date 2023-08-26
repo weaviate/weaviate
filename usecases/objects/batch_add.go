@@ -170,7 +170,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 
 		if err == nil {
 			// update vector only if we passed validation
-			err = b.modulesProvider.UpdateVector(ctx, object, class, nil, b.findObject, b.logger, object.Tenant)
+			err = b.modulesProvider.UpdateVector(ctx, object, class, nil, b.findObject, b.logger)
 			ec.Add(err)
 		}
 	}
