@@ -76,10 +76,10 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 
 	if hs := req.HybridSearch; hs != nil {
 		fusionType := common_filters.HybridRankedFusion
-		if hs.FusionType == pb.HybridSearchParams_RANKED {
-			fusionType = common_filters.HybridRankedFusion
-		} else if hs.FusionType == pb.HybridSearchParams_RELATIVE_SCORE {
+		if hs.FusionType == pb.HybridSearchParams_FUSION_TYPE_RELATIVE_SCORE {
 			fusionType = common_filters.HybridRelativeScoreFusion
+		} else {
+			fusionType = common_filters.HybridRankedFusion // default value
 		}
 		out.HybridSearch = &searchparams.HybridSearch{Query: hs.Query, Properties: hs.Properties, Vector: hs.Vector, Alpha: float64(hs.Alpha), FusionAlgorithm: fusionType}
 	}
@@ -161,8 +161,8 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 
 func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string) (filters.Clause, error) {
 	returnFilter := filters.Clause{}
-	if filterIn.Operator == pb.Filters_OperatorAnd || filterIn.Operator == pb.Filters_OperatorOr {
-		if filterIn.Operator == pb.Filters_OperatorAnd {
+	if filterIn.Operator == pb.Filters_OPERATOR_AND || filterIn.Operator == pb.Filters_OPERATOR_OR {
+		if filterIn.Operator == pb.Filters_OPERATOR_AND {
 			returnFilter.Operator = filters.OperatorAnd
 		} else {
 			returnFilter.Operator = filters.OperatorOr
@@ -192,27 +192,27 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 		returnFilter.On = path
 
 		switch filterIn.Operator {
-		case pb.Filters_OperatorEqual:
+		case pb.Filters_OPERATOR_EQUAL:
 			returnFilter.Operator = filters.OperatorEqual
-		case pb.Filters_OperatorNotEqual:
+		case pb.Filters_OPERATOR_NOT_EQUAL:
 			returnFilter.Operator = filters.OperatorNotEqual
-		case pb.Filters_OperatorGreaterThan:
+		case pb.Filters_OPERATOR_GREATER_THAN:
 			returnFilter.Operator = filters.OperatorGreaterThan
-		case pb.Filters_OperatorGreaterThanEqual:
+		case pb.Filters_OPERATOR_GREATER_THAN_EQUAL:
 			returnFilter.Operator = filters.OperatorGreaterThanEqual
-		case pb.Filters_OperatorLessThan:
+		case pb.Filters_OPERATOR_LESS_THAN:
 			returnFilter.Operator = filters.OperatorLessThan
-		case pb.Filters_OperatorLessThanEqual:
+		case pb.Filters_OPERATOR_LESS_THAN_EQUAL:
 			returnFilter.Operator = filters.OperatorLessThanEqual
-		case pb.Filters_OperatorWithinGeoRange:
+		case pb.Filters_OPERATOR_WITHING_GEO_RANGE:
 			returnFilter.Operator = filters.OperatorWithinGeoRange
-		case pb.Filters_OperatorLike:
+		case pb.Filters_OPERATOR_LIKE:
 			returnFilter.Operator = filters.OperatorLike
-		case pb.Filters_OperatorIsNull:
+		case pb.Filters_OPERATOR_IS_NULL:
 			returnFilter.Operator = filters.OperatorIsNull
-		case pb.Filters_OperatorContainsAny:
+		case pb.Filters_OPERATOR_CONTAINS_ANY:
 			returnFilter.Operator = filters.ContainsAny
-		case pb.Filters_OperatorContainsAll:
+		case pb.Filters_OPERATOR_CONTAINS_ALL:
 			returnFilter.Operator = filters.ContainsAll
 
 		default:
