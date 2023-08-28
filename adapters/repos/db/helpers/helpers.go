@@ -49,7 +49,6 @@ func MakePropertyKey(propPrefix []byte, key []byte) []byte {
 
 func MatchesPropertyKeyPrefix(propName []byte, key []byte) bool {
 	if len(propName) == 0 {
-		log.Println(fmt.Errorf("Empty property name in MatchesPropertyKeyPrefix, this is almost certainly wrong"))
 		return false
 	}
 
@@ -58,7 +57,6 @@ func MatchesPropertyKeyPrefix(propName []byte, key []byte) bool {
 
 func UnMakePropertyKey(propName []byte, key []byte) []byte {
 	if len(propName) == 0 {
-		log.Println(fmt.Errorf("Empty property name in UnMakePropertyKey, this is almost certainly wrong"))
 		return nil
 	}
 
