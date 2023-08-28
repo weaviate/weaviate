@@ -67,41 +67,42 @@ message SearchRequest {
   Filters filters = 13;
 }
 
-message strArray{
+message StrArray{
   repeated string vals = 1;
 }
-message intArray{
+message IntArray{
   repeated int32 vals = 1;
 }
-message floatArray{
+message FloatArray{
   repeated double vals = 1;
 }
-message boolArray{
+message BoolArray{
   repeated bool vals = 1;
 }
-message dateArray{
+message DateArray{
   repeated google.protobuf.Timestamp vals = 1;
 }
 
 message Filters {
-  enum OperatorType {
-    OperatorEqual = 0;
-      OperatorNotEqual = 1;
-      OperatorGreaterThan = 2;
-      OperatorGreaterThanEqual = 3;
-      OperatorLessThan = 4;
-      OperatorLessThanEqual = 5;
-      OperatorAnd = 6;
-      OperatorOr = 7;
-      OperatorWithinGeoRange = 8;
-      OperatorLike = 9;
-      OperatorIsNull = 10;
-      OperatorContainsAny = 11;
-      OperatorContainsAll = 12;
+  enum Operator {
+    OPERATOR_UNSPECIFIED = 0;
+    OPERATOR_EQUAL = 1;
+    OPERATOR_NOT_EQUAL = 2;
+    OPERATOR_GREATER_THAN = 3;
+    OPERATOR_GREATER_THAN_EQUAL = 4;
+    OPERATOR_LESS_THAN = 5;
+    OPERATOR_LESS_THAN_EQUAL = 6;
+    OPERATOR_AND = 7;
+    OPERATOR_OR = 8;
+    OPERATOR_WITHING_GEO_RANGE = 9;
+    OPERATOR_LIKE = 10;
+    OPERATOR_IS_NULL = 11;
+    OPERATOR_CONTAINS_ANY = 12;
+    OPERATOR_CONTAINS_ALL = 13;
   }
 
 
-  OperatorType operator = 1;
+  Operator operator = 1;
   repeated string on = 2;
   repeated Filters filters = 3;
   oneof test_value{
@@ -110,11 +111,11 @@ message Filters {
     bool value_bool = 6;
     float value_float = 7;
     google.protobuf.Timestamp value_date = 8;
-    strArray value_str_array = 9;
-    intArray value_int_array = 10;
-    boolArray value_bool_array = 11;
-    floatArray value_float_array = 12;
-    dateArray value_date_array = 13;
+    StrArray value_str_array = 9;
+    IntArray value_int_array = 10;
+    BoolArray value_bool_array = 11;
+    FloatArray value_float_array = 12;
+    DateArray value_date_array = 13;
   };
 }
 
@@ -143,8 +144,9 @@ message HybridSearchParams {
   repeated float vector = 3;
   float alpha = 4;
   enum FusionType {
-    RANKED = 0;
-    RELATIVE_SCORE = 1;
+    FUSION_TYPE_UNSPECIFIED = 0;
+    FUSION_TYPE_RANKED = 1;
+    FUSION_TYPE_RELATIVE_SCORE = 2;
   }
   FusionType fusion_type = 5;
 }
