@@ -204,11 +204,46 @@ message ResultAdditionalProps {
   bool explain_score_present = 14;
 }
 
+message FloatArrayProperties{
+  string key =1;
+  repeated double vals = 2;
+}
+
+message IntArrayProperties{
+  string key =1;
+  repeated int32 vals = 2;
+}
+
+message StringArrayProperties{
+  string key =1;
+  repeated string vals = 2;
+}
+
+message BoolArrayProperties{
+  string key =1;
+  repeated bool vals = 2;
+}
+
+message DateArrayProperties{
+  string key =1;
+  repeated google.protobuf.Timestamp vals = 2;
+}
+
+message UuidArrayProperties{
+  string key =1;
+  repeated string vals = 2;
+}
+
 message ResultProperties {
   google.protobuf.Struct non_ref_properties = 1;
   repeated ReturnRefProperties ref_props = 2;
   string class_name = 3;
   ResultAdditionalProps metadata = 4;
+  repeated FloatArrayProperties floatArrayProperties = 5;
+  repeated IntArrayProperties intArrayProperties = 6;
+  repeated StringArrayProperties stringArrayProperties = 7;
+  repeated BoolArrayProperties boolArrayProperties = 8;
+  repeated UuidArrayProperties uuidArrayProperties = 9;
 }
 
 message ReturnRefProperties {
