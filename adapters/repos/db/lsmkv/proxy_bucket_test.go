@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"bytes"
 	"context"
-	"os"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
