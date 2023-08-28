@@ -224,14 +224,14 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 
 		var val interface{}
 		switch filterIn.TestValue.(type) {
-		case *pb.Filters_ValueStr:
-			val = filterIn.GetValueStr()
+		case *pb.Filters_ValueText:
+			val = filterIn.GetValueText()
 		case *pb.Filters_ValueInt:
 			val = int(filterIn.GetValueInt())
-		case *pb.Filters_ValueBool:
-			val = filterIn.GetValueBool()
-		case *pb.Filters_ValueFloat:
-			val = filterIn.GetValueFloat()
+		case *pb.Filters_ValueBoolean:
+			val = filterIn.GetValueBoolean()
+		case *pb.Filters_ValueNumber:
+			val = filterIn.GetValueNumber()
 		case *pb.Filters_ValueDate:
 			val = filterIn.GetValueDate().AsTime()
 		case *pb.Filters_ValueIntArray:
@@ -242,12 +242,12 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 				valInt[i] = int(valInt32[i])
 			}
 			val = valInt
-		case *pb.Filters_ValueStrArray:
-			val = filterIn.GetValueStrArray().Vals
-		case *pb.Filters_ValueFloatArray:
-			val = filterIn.GetValueFloatArray().Vals
-		case *pb.Filters_ValueBoolArray:
-			val = filterIn.GetValueBoolArray().Vals
+		case *pb.Filters_ValueTextArray:
+			val = filterIn.GetValueTextArray().Vals
+		case *pb.Filters_ValueNumberArray:
+			val = filterIn.GetValueNumberArray().Vals
+		case *pb.Filters_ValueBooleanArray:
+			val = filterIn.GetValueBooleanArray().Vals
 		case *pb.Filters_ValueDateArray:
 			// convert from GRPC timestamp to go time
 			valTimestamps := filterIn.GetValueDateArray().Vals

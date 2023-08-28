@@ -209,7 +209,7 @@ func TestGRPCRequest(t *testing.T) {
 			name: "filter simple",
 			req: &grpc.SearchRequest{
 				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
-				Filters: &grpc.Filters{Operator: grpc.Filters_OPERATOR_EQUAL, TestValue: &grpc.Filters_ValueStr{ValueStr: "test"}, On: []string{"name"}},
+				Filters: &grpc.Filters{Operator: grpc.Filters_OPERATOR_EQUAL, TestValue: &grpc.Filters_ValueText{ValueText: "test"}, On: []string{"name"}},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
@@ -229,8 +229,8 @@ func TestGRPCRequest(t *testing.T) {
 			req: &grpc.SearchRequest{
 				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
 				Filters: &grpc.Filters{Operator: grpc.Filters_OPERATOR_OR, Filters: []*grpc.Filters{
-					{Operator: grpc.Filters_OPERATOR_EQUAL, TestValue: &grpc.Filters_ValueStr{ValueStr: "test"}, On: []string{"name"}},
-					{Operator: grpc.Filters_OPERATOR_NOT_EQUAL, TestValue: &grpc.Filters_ValueStr{ValueStr: "other"}, On: []string{"name"}},
+					{Operator: grpc.Filters_OPERATOR_EQUAL, TestValue: &grpc.Filters_ValueText{ValueText: "test"}, On: []string{"name"}},
+					{Operator: grpc.Filters_OPERATOR_NOT_EQUAL, TestValue: &grpc.Filters_ValueText{ValueText: "other"}, On: []string{"name"}},
 				}},
 			},
 			out: dto.GetParams{
@@ -260,7 +260,7 @@ func TestGRPCRequest(t *testing.T) {
 			name: "filter reference",
 			req: &grpc.SearchRequest{
 				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
-				Filters: &grpc.Filters{Operator: grpc.Filters_OPERATOR_LESS_THAN, TestValue: &grpc.Filters_ValueStr{ValueStr: "test"}, On: []string{"ref", refClass1, "something"}},
+				Filters: &grpc.Filters{Operator: grpc.Filters_OPERATOR_LESS_THAN, TestValue: &grpc.Filters_ValueText{ValueText: "test"}, On: []string{"ref", refClass1, "something"}},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
@@ -283,7 +283,7 @@ func TestGRPCRequest(t *testing.T) {
 			name: "nested ref",
 			req: &grpc.SearchRequest{
 				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
-				Filters: &grpc.Filters{Operator: grpc.Filters_OPERATOR_LESS_THAN, TestValue: &grpc.Filters_ValueStr{ValueStr: "test"}, On: []string{"ref", refClass1, "ref2", refClass2, "ref3", refClass2, "else"}},
+				Filters: &grpc.Filters{Operator: grpc.Filters_OPERATOR_LESS_THAN, TestValue: &grpc.Filters_ValueText{ValueText: "test"}, On: []string{"ref", refClass1, "ref2", refClass2, "ref3", refClass2, "else"}},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
@@ -319,7 +319,7 @@ func TestGRPCRequest(t *testing.T) {
 				ClassName: classname,
 				Filters: &grpc.Filters{
 					Operator:  grpc.Filters_OPERATOR_LESS_THAN,
-					TestValue: &grpc.Filters_ValueStr{ValueStr: "test"},
+					TestValue: &grpc.Filters_ValueText{ValueText: "test"},
 					On:        []string{"ref", refClass1}, // two values do not work, property is missing
 				},
 			},
