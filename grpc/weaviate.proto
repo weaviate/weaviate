@@ -127,12 +127,14 @@ message Filters {
 message AdditionalProperties {
   bool uuid = 1;
   bool vector = 2;
-  // protolint:disable FIELD_NAMES_LOWER_SNAKE_CASE
+  // protolint:disable:next FIELD_NAMES_LOWER_SNAKE_CASE
   bool creationTimeUnix = 3;
+  // protolint:disable:next FIELD_NAMES_LOWER_SNAKE_CASE
   bool lastUpdateTimeUnix = 4;
   bool distance = 5;
   bool certainty = 6;
   bool score = 7;
+  // protolint:disable:next FIELD_NAMES_LOWER_SNAKE_CASE
   bool explainScore = 8;
 }
 
@@ -247,11 +249,11 @@ message ResultProperties {
   repeated ReturnRefProperties ref_props = 2;
   string class_name = 3;
   ResultAdditionalProps metadata = 4;
-  repeated NumberArrayProperties numberArrayProperties = 5;
-  repeated IntArrayProperties intArrayProperties = 6;
-  repeated TextArrayProperties textArrayProperties = 7;
-  repeated BooleanArrayProperties booleanArrayProperties = 8;
-  repeated UuidArrayProperties uuidArrayProperties = 9;
+  repeated NumberArrayProperties number_array_properties = 5;
+  repeated IntArrayProperties int_array_properties = 6;
+  repeated TextArrayProperties text_array_properties = 7;
+  repeated BooleanArrayProperties boolean_array_properties = 8;
+  repeated UuidArrayProperties uuid_array_properties = 9;
 }
 
 message ReturnRefProperties {
