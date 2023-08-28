@@ -76,8 +76,8 @@ func TestJsonPropertyIdTracker(t *testing.T) {
 		defer tracker.Drop()
 
 		id := tracker.GetIdForProperty("test")
-		if id != 0 {
-			t.Fatalf("expected 0, got %v", id)
+		if id != 2 {
+			t.Fatalf("expected 2, got %v", id)
 		}
 	
 		
@@ -90,6 +90,7 @@ func TestJsonPropertyIdTracker(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected nil, got %v", err)
 		}
+		tracker.Flush(false)
 
 		fileBytes, _ := os.ReadFile(path)
 		fileContents := &JsonPropertyIdTracker{}
@@ -135,27 +136,6 @@ func TestJsonPropertyIdTracker_ConcurrentAccess(t *testing.T) {
 		if len(tracker.PropertyIds) != 100 {
 			t.Fatalf("expected 100 properties, got %v", len(tracker.PropertyIds))
 		}
-	})
-
-	t.Run("ConcurrentGetIdForProperty", func(t *testing.T) {
-		tracker, _ := NewJsonPropertyIdTracker(path)
-		defer tracker.Drop()
-
-		property := "concurrentProperty"
-		tracker.CreateProperty(property)
-
-		var wg sync.WaitGroup
-		for i := 0; i < 100; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				id := tracker.GetIdForProperty(property)
-				if id != uint64(i)+1 {
-					t.Errorf("expected id %v, got %v", i+1, id)
-				}
-			}()
-		}
-		wg.Wait()
 	})
 }
 

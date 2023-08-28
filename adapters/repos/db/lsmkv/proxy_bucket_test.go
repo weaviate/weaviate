@@ -47,10 +47,8 @@ func TestBucketProxyCreation(t *testing.T) {
 		t.Fatal("Failed to create BucketProxy")
 	}
 
-	propid_bytes, err := helpers.MakePropertyPrefix(propName, propids)
-	if err != nil {
-		t.Fatalf("Failed to create property prefix: %v", err)
-	}
+	propid_bytes := helpers.MakePropertyPrefix(propName, propids)
+
 	if !bytes.Equal(bp.PropertyPrefix(), propid_bytes) {
 		t.Fatalf("BucketProxy PropertyPrefix() does not match expected '%s', got '%s'", propName, bp.PropertyPrefix())
 	}
