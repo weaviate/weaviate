@@ -75,11 +75,9 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	}
 
 	if hs := req.HybridSearch; hs != nil {
-		fusionType := common_filters.HybridRankedFusion
+		fusionType := common_filters.HybridRankedFusion // default value
 		if hs.FusionType == pb.HybridSearchParams_FUSION_TYPE_RELATIVE_SCORE {
 			fusionType = common_filters.HybridRelativeScoreFusion
-		} else {
-			fusionType = common_filters.HybridRankedFusion // default value
 		}
 		out.HybridSearch = &searchparams.HybridSearch{Query: hs.Query, Properties: hs.Properties, Vector: hs.Vector, Alpha: float64(hs.Alpha), FusionAlgorithm: fusionType}
 	}
@@ -204,7 +202,7 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			returnFilter.Operator = filters.OperatorLessThan
 		case pb.Filters_OPERATOR_LESS_THAN_EQUAL:
 			returnFilter.Operator = filters.OperatorLessThanEqual
-		case pb.Filters_OPERATOR_WITHING_GEO_RANGE:
+		case pb.Filters_OPERATOR_WITHIN_GEO_RANGE:
 			returnFilter.Operator = filters.OperatorWithinGeoRange
 		case pb.Filters_OPERATOR_LIKE:
 			returnFilter.Operator = filters.OperatorLike
