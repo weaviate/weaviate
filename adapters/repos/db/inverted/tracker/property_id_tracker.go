@@ -33,8 +33,6 @@ func NewJsonPropertyIdTracker(path string) (*JsonPropertyIdTracker, error) {
 		LastId:      1,
 	}
 
-	log.Printf("Loading property id tracker from %v\n", path)
-
 	// read the file into memory
 	bytes, err := os.ReadFile(path)
 	if err != nil {
