@@ -25,7 +25,7 @@ import (
 
 func TestBucketProxyCreation(t *testing.T) {
 	tmpDir := t.TempDir()
-	os.Mkdir(tmpDir, 0o777)
+	
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
@@ -59,7 +59,7 @@ func TestBucketProxyCreation(t *testing.T) {
 
 func TestBucketProxyGetAndPut(t *testing.T) {
 	tmpDir := t.TempDir()
-	os.Mkdir(tmpDir, 0o777)
+	
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
@@ -100,7 +100,7 @@ func TestBucketProxyGetAndPut(t *testing.T) {
 
 func TestBucketProxyGetNotFound(t *testing.T) {
 	tmpDir := t.TempDir()
-	os.Mkdir(tmpDir, 0o777)
+	
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
@@ -130,7 +130,7 @@ func TestBucketProxyGetNotFound(t *testing.T) {
 
 func TestBucketProxyDelete(t *testing.T) {
 	tmpDir := t.TempDir()
-	os.Mkdir(tmpDir, 0o777)
+	
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
@@ -173,7 +173,7 @@ func TestBucketProxyDelete(t *testing.T) {
 
 func TestBucketProxyMapSetAndGet(t *testing.T) {
 	tmpDir := t.TempDir()
-	os.Mkdir(tmpDir, 0o777)
+	
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"
@@ -217,7 +217,7 @@ func TestBucketProxyMapSetAndGet(t *testing.T) {
 
 func TestBucketProxyCount(t *testing.T) {
 	tmpDir := t.TempDir()
-	os.Mkdir(tmpDir, 0o777)
+	
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	propName := "testPropertyName"

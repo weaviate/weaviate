@@ -21,8 +21,7 @@ import (
 
 func TestJsonPropertyIdTracker(t *testing.T) {
 	path := t.TempDir() + "/test.json"
-	defer os.Remove(path)
-	defer os.Remove(path + ".bak")
+
 
 	t.Run("NewJsonPropertyIdTracker", func(t *testing.T) {
 		tracker, err := NewJsonPropertyIdTracker(path)
@@ -118,8 +117,6 @@ func TestJsonPropertyIdTracker(t *testing.T) {
 
 func TestJsonPropertyIdTracker_ConcurrentAccess(t *testing.T) {
 	path := t.TempDir() + "/test.json"
-	defer os.Remove(path)
-	defer os.Remove(path + ".bak")
 
 	t.Run("ConcurrentCreateProperty", func(t *testing.T) {
 		tracker, _ := NewJsonPropertyIdTracker(path)
@@ -170,8 +167,6 @@ func TestJsonPropertyIdTracker_ConcurrentAccess(t *testing.T) {
 
 func TestJsonPropertyIdTracker_ConcurrentOpenClose(t *testing.T) {
 	path := t.TempDir() + "/test.json"
-	defer os.Remove(path)
-	defer os.Remove(path + ".bak")
 
 	t.Run("ConcurrentOpen", func(t *testing.T) {
 		var wg sync.WaitGroup
