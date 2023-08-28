@@ -24,17 +24,18 @@ func TestJsonPropertyIdTracker(t *testing.T) {
 
 	t.Run("NewJsonPropertyIdTracker", func(t *testing.T) {
 		tracker, err := NewJsonPropertyIdTracker(path)
+		defer tracker.Drop()
 		if err != nil {
 			t.Fatalf("expected nil, got %v", err)
 		}
 		if tracker.LastId != 1 {
 			t.Fatalf("expected LastId 1, got %v", tracker.LastId)
 		}
-		tracker.Drop()
 	})
 
 	t.Run("Flush", func(t *testing.T) {
 		tracker, _ := NewJsonPropertyIdTracker(path)
+		defer tracker.Drop()
 		err := tracker.Flush(false)
 		if err != nil {
 			t.Fatalf("expected nil, got %v", err)
@@ -43,11 +44,11 @@ func TestJsonPropertyIdTracker(t *testing.T) {
 		if os.IsNotExist(err) {
 			t.Fatalf("expected file to exist")
 		}
-		tracker.Drop()
 	})
 
 	t.Run("FlushBackup", func(t *testing.T) {
 		tracker, _ := NewJsonPropertyIdTracker(path)
+		defer tracker.Drop()
 		err := tracker.Flush(true)
 		if err != nil {
 			t.Fatalf("expected nil, got %v", err)
@@ -56,13 +57,6 @@ func TestJsonPropertyIdTracker(t *testing.T) {
 		if os.IsNotExist(err) {
 			t.Fatalf("expected backup file to exist")
 		}
-		tracker.Drop()
-	})
-
-	t.Run("Close", func(t *testing.T) {
-		tracker, _ := NewJsonPropertyIdTracker(path)
-
-		tracker.Drop()
 	})
 
 	t.Run("Drop", func(t *testing.T) {
@@ -79,15 +73,19 @@ func TestJsonPropertyIdTracker(t *testing.T) {
 
 	t.Run("GetIdForProperty", func(t *testing.T) {
 		tracker, _ := NewJsonPropertyIdTracker(path)
-		_, err := tracker.GetIdForProperty("test")
-		if err != nil {
-			t.Fatalf("expected nil, got %v", err)
+		defer tracker.Drop()
+
+		id := tracker.GetIdForProperty("test")
+		if id != 0 {
+			t.Fatalf("expected 0, got %v", id)
 		}
-		tracker.Drop()
+	
+		
 	})
 
 	t.Run("CreateProperty", func(t *testing.T) {
 		tracker, _ := NewJsonPropertyIdTracker(path)
+		defer tracker.Drop()
 		id, err := tracker.CreateProperty("test")
 		if err != nil {
 			t.Fatalf("expected nil, got %v", err)
@@ -100,17 +98,16 @@ func TestJsonPropertyIdTracker(t *testing.T) {
 		if fileContents.PropertyIds["test"] != id {
 			t.Fatalf("expected property id to match, got %v and %v", fileContents.PropertyIds["test"], id)
 		}
-		tracker.Drop()
 	})
 
 	t.Run("CreateExistingProperty", func(t *testing.T) {
 		tracker, _ := NewJsonPropertyIdTracker(path)
+		defer tracker.Drop()
 		tracker.CreateProperty("test")
 		_, err := tracker.CreateProperty("test")
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
-		tracker.Drop()
 	})
 }
 
@@ -138,7 +135,6 @@ func TestJsonPropertyIdTracker_ConcurrentAccess(t *testing.T) {
 		if len(tracker.PropertyIds) != 100 {
 			t.Fatalf("expected 100 properties, got %v", len(tracker.PropertyIds))
 		}
-		tracker.Drop()
 	})
 
 	t.Run("ConcurrentGetIdForProperty", func(t *testing.T) {
@@ -153,14 +149,13 @@ func TestJsonPropertyIdTracker_ConcurrentAccess(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_, err := tracker.GetIdForProperty(property)
-				if err != nil {
-					t.Errorf("unexpected error: %v", err)
+				id := tracker.GetIdForProperty(property)
+				if id != uint64(i)+1 {
+					t.Errorf("expected id %v, got %v", i+1, id)
 				}
 			}()
 		}
 		wg.Wait()
-		tracker.Drop()
 	})
 }
 

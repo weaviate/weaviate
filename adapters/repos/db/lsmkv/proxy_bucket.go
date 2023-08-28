@@ -56,10 +56,8 @@ func NewBucketProxy(realB BucketInterface, propName string, propids *tracker.Jso
 	if propids == nil {
 		return nil, fmt.Errorf("propids is nil")
 	}
-	propid_bytes, err := helpers.MakePropertyPrefix(propName, propids)
-	if err != nil {
-		fmt.Printf("property '%s' not found in propLengths", propName)
-	}
+	propid_bytes := helpers.MakePropertyPrefix(propName, propids)
+
 
 	return &BucketProxy{
 		realBucket:     realB,
