@@ -14,7 +14,6 @@ package tracker
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"sync"
 )
@@ -121,7 +120,6 @@ func (t *JsonPropertyIdTracker) GetIdForProperty(property string) (uint64, error
 		return id, nil
 	}
 
-	log.Printf("FIXME: property %v not created before use!\n", property)
 	return t.doCreateProperty(property)
 }
 
@@ -134,7 +132,6 @@ func (t *JsonPropertyIdTracker) CreateProperty(property string) (uint64, error) 
 
 func (t *JsonPropertyIdTracker) doCreateProperty(property string) (uint64, error) {
 	if id, ok := t.PropertyIds[property]; ok {
-		log.Printf("property %v already exists\n", property)
 		return id, fmt.Errorf("property %v already exists\n", property)
 	}
 
