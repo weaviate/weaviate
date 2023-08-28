@@ -28,11 +28,11 @@ var (
 	DocIDBucket                = []byte("doc_ids")
 )
 
-func MakePropertyPrefix(property string, propIds *tracker.JsonPropertyIdTracker) ([]byte, error) {
-	propid, _ := propIds.GetIdForProperty(string(property))
+func MakePropertyPrefix(property string, propIds *tracker.JsonPropertyIdTracker) []byte {
+	propid := propIds.GetIdForProperty(property)
 	propid_bytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(propid_bytes, propid)
-	return propid_bytes, nil
+	return propid_bytes
 }
 
 func MakePropertyKey(propPrefix []byte, key []byte) []byte {

@@ -108,19 +108,17 @@ func (t *JsonPropertyIdTracker) Drop() error {
 	return nil
 }
 
-func (t *JsonPropertyIdTracker) GetIdForProperty(property string) (uint64, error) {
-	if t == nil {
-		return 0, fmt.Errorf("property id tracker not initialised")
-	}
+func (t *JsonPropertyIdTracker) GetIdForProperty(property string) uint64{
 
 	t.Lock()
 	defer t.Unlock()
 
 	if id, ok := t.PropertyIds[property]; ok {
-		return id, nil
+		return id
 	}
 
-	return t.doCreateProperty(property)
+	id, _ := t.doCreateProperty(property)
+	return id
 }
 
 func (t *JsonPropertyIdTracker) CreateProperty(property string) (uint64, error) {

@@ -20,7 +20,8 @@ import (
 )
 
 func TestMakePropertyPrefix(t *testing.T) {
-	tracker, err := tracker.NewJsonPropertyIdTracker("/tmp/test.json")
+	path := t.TempDir() + "/test.json"
+	tracker, err := tracker.NewJsonPropertyIdTracker(path)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -30,7 +31,7 @@ func TestMakePropertyPrefix(t *testing.T) {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	prefix, err := MakePropertyPrefix("property", tracker)
+	prefix := MakePropertyPrefix("property", tracker)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
