@@ -114,11 +114,11 @@ func (o *BackupsRestoreStatusOK) Code() int {
 }
 
 func (o *BackupsRestoreStatusOK) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}/restore][%d] backupsRestoreStatusOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}/restore][%d] backupsRestoreStatusOK  %+v", 200, o.Payload)
 }
 
 func (o *BackupsRestoreStatusOK) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}/restore][%d] backupsRestoreStatusOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}/restore][%d] backupsRestoreStatusOK  %+v", 200, o.Payload)
 }
 
 func (o *BackupsRestoreStatusOK) GetPayload() *models.BackupRestoreStatusResponse {
@@ -181,11 +181,11 @@ func (o *BackupsRestoreStatusUnauthorized) Code() int {
 }
 
 func (o *BackupsRestoreStatusUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}/restore][%d] backupsRestoreStatusUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}/restore][%d] backupsRestoreStatusUnauthorized ", 401)
 }
 
 func (o *BackupsRestoreStatusUnauthorized) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}/restore][%d] backupsRestoreStatusUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}/restore][%d] backupsRestoreStatusUnauthorized ", 401)
 }
 
 func (o *BackupsRestoreStatusUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -238,11 +238,11 @@ func (o *BackupsRestoreStatusForbidden) Code() int {
 }
 
 func (o *BackupsRestoreStatusForbidden) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}/restore][%d] backupsRestoreStatusForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}/restore][%d] backupsRestoreStatusForbidden  %+v", 403, o.Payload)
 }
 
 func (o *BackupsRestoreStatusForbidden) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}/restore][%d] backupsRestoreStatusForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}/restore][%d] backupsRestoreStatusForbidden  %+v", 403, o.Payload)
 }
 
 func (o *BackupsRestoreStatusForbidden) GetPayload() *models.ErrorResponse {
@@ -306,11 +306,11 @@ func (o *BackupsRestoreStatusNotFound) Code() int {
 }
 
 func (o *BackupsRestoreStatusNotFound) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}/restore][%d] backupsRestoreStatusNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}/restore][%d] backupsRestoreStatusNotFound  %+v", 404, o.Payload)
 }
 
 func (o *BackupsRestoreStatusNotFound) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}/restore][%d] backupsRestoreStatusNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}/restore][%d] backupsRestoreStatusNotFound  %+v", 404, o.Payload)
 }
 
 func (o *BackupsRestoreStatusNotFound) GetPayload() *models.ErrorResponse {
@@ -374,11 +374,11 @@ func (o *BackupsRestoreStatusInternalServerError) Code() int {
 }
 
 func (o *BackupsRestoreStatusInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}/restore][%d] backupsRestoreStatusInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}/restore][%d] backupsRestoreStatusInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *BackupsRestoreStatusInternalServerError) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}/restore][%d] backupsRestoreStatusInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}/restore][%d] backupsRestoreStatusInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *BackupsRestoreStatusInternalServerError) GetPayload() *models.ErrorResponse {

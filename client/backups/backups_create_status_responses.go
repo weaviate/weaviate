@@ -120,11 +120,11 @@ func (o *BackupsCreateStatusOK) Code() int {
 }
 
 func (o *BackupsCreateStatusOK) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}][%d] backupsCreateStatusOK  %+v", 200, o.Payload)
 }
 
 func (o *BackupsCreateStatusOK) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}][%d] backupsCreateStatusOK  %+v", 200, o.Payload)
 }
 
 func (o *BackupsCreateStatusOK) GetPayload() *models.BackupCreateStatusResponse {
@@ -187,11 +187,11 @@ func (o *BackupsCreateStatusUnauthorized) Code() int {
 }
 
 func (o *BackupsCreateStatusUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}][%d] backupsCreateStatusUnauthorized ", 401)
 }
 
 func (o *BackupsCreateStatusUnauthorized) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}][%d] backupsCreateStatusUnauthorized ", 401)
 }
 
 func (o *BackupsCreateStatusUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -244,11 +244,11 @@ func (o *BackupsCreateStatusForbidden) Code() int {
 }
 
 func (o *BackupsCreateStatusForbidden) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}][%d] backupsCreateStatusForbidden  %+v", 403, o.Payload)
 }
 
 func (o *BackupsCreateStatusForbidden) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}][%d] backupsCreateStatusForbidden  %+v", 403, o.Payload)
 }
 
 func (o *BackupsCreateStatusForbidden) GetPayload() *models.ErrorResponse {
@@ -312,11 +312,11 @@ func (o *BackupsCreateStatusNotFound) Code() int {
 }
 
 func (o *BackupsCreateStatusNotFound) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}][%d] backupsCreateStatusNotFound  %+v", 404, o.Payload)
 }
 
 func (o *BackupsCreateStatusNotFound) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}][%d] backupsCreateStatusNotFound  %+v", 404, o.Payload)
 }
 
 func (o *BackupsCreateStatusNotFound) GetPayload() *models.ErrorResponse {
@@ -380,11 +380,11 @@ func (o *BackupsCreateStatusUnprocessableEntity) Code() int {
 }
 
 func (o *BackupsCreateStatusUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}][%d] backupsCreateStatusUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *BackupsCreateStatusUnprocessableEntity) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}][%d] backupsCreateStatusUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *BackupsCreateStatusUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -448,11 +448,11 @@ func (o *BackupsCreateStatusInternalServerError) Code() int {
 }
 
 func (o *BackupsCreateStatusInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}][%d] backupsCreateStatusInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *BackupsCreateStatusInternalServerError) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/backups/{backend}/{id}][%d] backupsCreateStatusInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *BackupsCreateStatusInternalServerError) GetPayload() *models.ErrorResponse {

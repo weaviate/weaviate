@@ -120,11 +120,11 @@ func (o *NodesGetOK) Code() int {
 }
 
 func (o *NodesGetOK) Error() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/nodes][%d] nodesGetOK  %+v", 200, o.Payload)
 }
 
 func (o *NodesGetOK) String() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/nodes][%d] nodesGetOK  %+v", 200, o.Payload)
 }
 
 func (o *NodesGetOK) GetPayload() *models.NodesStatusResponse {
@@ -187,11 +187,11 @@ func (o *NodesGetUnauthorized) Code() int {
 }
 
 func (o *NodesGetUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/nodes][%d] nodesGetUnauthorized ", 401)
 }
 
 func (o *NodesGetUnauthorized) String() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/nodes][%d] nodesGetUnauthorized ", 401)
 }
 
 func (o *NodesGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -244,11 +244,11 @@ func (o *NodesGetForbidden) Code() int {
 }
 
 func (o *NodesGetForbidden) Error() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/nodes][%d] nodesGetForbidden  %+v", 403, o.Payload)
 }
 
 func (o *NodesGetForbidden) String() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/nodes][%d] nodesGetForbidden  %+v", 403, o.Payload)
 }
 
 func (o *NodesGetForbidden) GetPayload() *models.ErrorResponse {
@@ -312,11 +312,11 @@ func (o *NodesGetNotFound) Code() int {
 }
 
 func (o *NodesGetNotFound) Error() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[GET /v1/nodes][%d] nodesGetNotFound  %+v", 404, o.Payload)
 }
 
 func (o *NodesGetNotFound) String() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[GET /v1/nodes][%d] nodesGetNotFound  %+v", 404, o.Payload)
 }
 
 func (o *NodesGetNotFound) GetPayload() *models.ErrorResponse {
@@ -380,11 +380,11 @@ func (o *NodesGetUnprocessableEntity) Code() int {
 }
 
 func (o *NodesGetUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[GET /v1/nodes][%d] nodesGetUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *NodesGetUnprocessableEntity) String() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[GET /v1/nodes][%d] nodesGetUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *NodesGetUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -448,11 +448,11 @@ func (o *NodesGetInternalServerError) Code() int {
 }
 
 func (o *NodesGetInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/nodes][%d] nodesGetInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *NodesGetInternalServerError) String() string {
-	return fmt.Sprintf("[GET /nodes][%d] nodesGetInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/nodes][%d] nodesGetInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *NodesGetInternalServerError) GetPayload() *models.ErrorResponse {

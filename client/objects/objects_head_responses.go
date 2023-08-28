@@ -113,11 +113,11 @@ func (o *ObjectsHeadNoContent) Code() int {
 }
 
 func (o *ObjectsHeadNoContent) Error() string {
-	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadNoContent ", 204)
+	return fmt.Sprintf("[HEAD /v1/objects/{id}][%d] objectsHeadNoContent ", 204)
 }
 
 func (o *ObjectsHeadNoContent) String() string {
-	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadNoContent ", 204)
+	return fmt.Sprintf("[HEAD /v1/objects/{id}][%d] objectsHeadNoContent ", 204)
 }
 
 func (o *ObjectsHeadNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -169,11 +169,11 @@ func (o *ObjectsHeadUnauthorized) Code() int {
 }
 
 func (o *ObjectsHeadUnauthorized) Error() string {
-	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadUnauthorized ", 401)
+	return fmt.Sprintf("[HEAD /v1/objects/{id}][%d] objectsHeadUnauthorized ", 401)
 }
 
 func (o *ObjectsHeadUnauthorized) String() string {
-	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadUnauthorized ", 401)
+	return fmt.Sprintf("[HEAD /v1/objects/{id}][%d] objectsHeadUnauthorized ", 401)
 }
 
 func (o *ObjectsHeadUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -226,11 +226,11 @@ func (o *ObjectsHeadForbidden) Code() int {
 }
 
 func (o *ObjectsHeadForbidden) Error() string {
-	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[HEAD /v1/objects/{id}][%d] objectsHeadForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsHeadForbidden) String() string {
-	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[HEAD /v1/objects/{id}][%d] objectsHeadForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsHeadForbidden) GetPayload() *models.ErrorResponse {
@@ -293,11 +293,11 @@ func (o *ObjectsHeadNotFound) Code() int {
 }
 
 func (o *ObjectsHeadNotFound) Error() string {
-	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadNotFound ", 404)
+	return fmt.Sprintf("[HEAD /v1/objects/{id}][%d] objectsHeadNotFound ", 404)
 }
 
 func (o *ObjectsHeadNotFound) String() string {
-	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadNotFound ", 404)
+	return fmt.Sprintf("[HEAD /v1/objects/{id}][%d] objectsHeadNotFound ", 404)
 }
 
 func (o *ObjectsHeadNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -350,11 +350,11 @@ func (o *ObjectsHeadInternalServerError) Code() int {
 }
 
 func (o *ObjectsHeadInternalServerError) Error() string {
-	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[HEAD /v1/objects/{id}][%d] objectsHeadInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsHeadInternalServerError) String() string {
-	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[HEAD /v1/objects/{id}][%d] objectsHeadInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsHeadInternalServerError) GetPayload() *models.ErrorResponse {

@@ -46,11 +46,11 @@ func (o *ObjectsValidateURL) SetBasePath(bp string) {
 func (o *ObjectsValidateURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/objects/validate"
+	var _path = "/v1/objects/validate"
 
 	_basePath := o._basePath
 	if _basePath == "" {
-		_basePath = "/v1"
+		_basePath = "/"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 

@@ -113,11 +113,11 @@ func (o *ObjectsReferencesDeleteNoContent) Code() int {
 }
 
 func (o *ObjectsReferencesDeleteNoContent) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteNoContent ", 204)
+	return fmt.Sprintf("[DELETE /v1/objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteNoContent ", 204)
 }
 
 func (o *ObjectsReferencesDeleteNoContent) String() string {
-	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteNoContent ", 204)
+	return fmt.Sprintf("[DELETE /v1/objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteNoContent ", 204)
 }
 
 func (o *ObjectsReferencesDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -169,11 +169,11 @@ func (o *ObjectsReferencesDeleteUnauthorized) Code() int {
 }
 
 func (o *ObjectsReferencesDeleteUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /v1/objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteUnauthorized ", 401)
 }
 
 func (o *ObjectsReferencesDeleteUnauthorized) String() string {
-	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /v1/objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteUnauthorized ", 401)
 }
 
 func (o *ObjectsReferencesDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -226,11 +226,11 @@ func (o *ObjectsReferencesDeleteForbidden) Code() int {
 }
 
 func (o *ObjectsReferencesDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsReferencesDeleteForbidden) String() string {
-	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsReferencesDeleteForbidden) GetPayload() *models.ErrorResponse {
@@ -294,11 +294,11 @@ func (o *ObjectsReferencesDeleteNotFound) Code() int {
 }
 
 func (o *ObjectsReferencesDeleteNotFound) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteNotFound  %+v", 404, o.Payload)
 }
 
 func (o *ObjectsReferencesDeleteNotFound) String() string {
-	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteNotFound  %+v", 404, o.Payload)
 }
 
 func (o *ObjectsReferencesDeleteNotFound) GetPayload() *models.ErrorResponse {
@@ -362,11 +362,11 @@ func (o *ObjectsReferencesDeleteInternalServerError) Code() int {
 }
 
 func (o *ObjectsReferencesDeleteInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsReferencesDeleteInternalServerError) String() string {
-	return fmt.Sprintf("[DELETE /objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/objects/{id}/references/{propertyName}][%d] objectsReferencesDeleteInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsReferencesDeleteInternalServerError) GetPayload() *models.ErrorResponse {

@@ -126,11 +126,11 @@ func (o *BatchObjectsCreateOK) Code() int {
 }
 
 func (o *BatchObjectsCreateOK) Error() string {
-	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /v1/batch/objects][%d] batchObjectsCreateOK  %+v", 200, o.Payload)
 }
 
 func (o *BatchObjectsCreateOK) String() string {
-	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /v1/batch/objects][%d] batchObjectsCreateOK  %+v", 200, o.Payload)
 }
 
 func (o *BatchObjectsCreateOK) GetPayload() []*models.ObjectsGetResponse {
@@ -192,11 +192,11 @@ func (o *BatchObjectsCreateBadRequest) Code() int {
 }
 
 func (o *BatchObjectsCreateBadRequest) Error() string {
-	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /v1/batch/objects][%d] batchObjectsCreateBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *BatchObjectsCreateBadRequest) String() string {
-	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /v1/batch/objects][%d] batchObjectsCreateBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *BatchObjectsCreateBadRequest) GetPayload() *models.ErrorResponse {
@@ -259,11 +259,11 @@ func (o *BatchObjectsCreateUnauthorized) Code() int {
 }
 
 func (o *BatchObjectsCreateUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/batch/objects][%d] batchObjectsCreateUnauthorized ", 401)
 }
 
 func (o *BatchObjectsCreateUnauthorized) String() string {
-	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/batch/objects][%d] batchObjectsCreateUnauthorized ", 401)
 }
 
 func (o *BatchObjectsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -316,11 +316,11 @@ func (o *BatchObjectsCreateForbidden) Code() int {
 }
 
 func (o *BatchObjectsCreateForbidden) Error() string {
-	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/batch/objects][%d] batchObjectsCreateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *BatchObjectsCreateForbidden) String() string {
-	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/batch/objects][%d] batchObjectsCreateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *BatchObjectsCreateForbidden) GetPayload() *models.ErrorResponse {
@@ -384,11 +384,11 @@ func (o *BatchObjectsCreateUnprocessableEntity) Code() int {
 }
 
 func (o *BatchObjectsCreateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /v1/batch/objects][%d] batchObjectsCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *BatchObjectsCreateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /v1/batch/objects][%d] batchObjectsCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *BatchObjectsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -452,11 +452,11 @@ func (o *BatchObjectsCreateInternalServerError) Code() int {
 }
 
 func (o *BatchObjectsCreateInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/batch/objects][%d] batchObjectsCreateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *BatchObjectsCreateInternalServerError) String() string {
-	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/batch/objects][%d] batchObjectsCreateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *BatchObjectsCreateInternalServerError) GetPayload() *models.ErrorResponse {

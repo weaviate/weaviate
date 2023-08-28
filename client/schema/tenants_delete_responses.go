@@ -113,11 +113,11 @@ func (o *TenantsDeleteOK) Code() int {
 }
 
 func (o *TenantsDeleteOK) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/tenants][%d] tenantsDeleteOK ", 200)
+	return fmt.Sprintf("[DELETE /v1/schema/{className}/tenants][%d] tenantsDeleteOK ", 200)
 }
 
 func (o *TenantsDeleteOK) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/tenants][%d] tenantsDeleteOK ", 200)
+	return fmt.Sprintf("[DELETE /v1/schema/{className}/tenants][%d] tenantsDeleteOK ", 200)
 }
 
 func (o *TenantsDeleteOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -169,11 +169,11 @@ func (o *TenantsDeleteUnauthorized) Code() int {
 }
 
 func (o *TenantsDeleteUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/tenants][%d] tenantsDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /v1/schema/{className}/tenants][%d] tenantsDeleteUnauthorized ", 401)
 }
 
 func (o *TenantsDeleteUnauthorized) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/tenants][%d] tenantsDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /v1/schema/{className}/tenants][%d] tenantsDeleteUnauthorized ", 401)
 }
 
 func (o *TenantsDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -226,11 +226,11 @@ func (o *TenantsDeleteForbidden) Code() int {
 }
 
 func (o *TenantsDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/tenants][%d] tenantsDeleteForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/schema/{className}/tenants][%d] tenantsDeleteForbidden  %+v", 403, o.Payload)
 }
 
 func (o *TenantsDeleteForbidden) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/tenants][%d] tenantsDeleteForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/schema/{className}/tenants][%d] tenantsDeleteForbidden  %+v", 403, o.Payload)
 }
 
 func (o *TenantsDeleteForbidden) GetPayload() *models.ErrorResponse {
@@ -294,11 +294,11 @@ func (o *TenantsDeleteUnprocessableEntity) Code() int {
 }
 
 func (o *TenantsDeleteUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/tenants][%d] tenantsDeleteUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/schema/{className}/tenants][%d] tenantsDeleteUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *TenantsDeleteUnprocessableEntity) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/tenants][%d] tenantsDeleteUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/schema/{className}/tenants][%d] tenantsDeleteUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *TenantsDeleteUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -362,11 +362,11 @@ func (o *TenantsDeleteInternalServerError) Code() int {
 }
 
 func (o *TenantsDeleteInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/tenants][%d] tenantsDeleteInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/schema/{className}/tenants][%d] tenantsDeleteInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *TenantsDeleteInternalServerError) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/tenants][%d] tenantsDeleteInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/schema/{className}/tenants][%d] tenantsDeleteInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *TenantsDeleteInternalServerError) GetPayload() *models.ErrorResponse {

@@ -120,11 +120,11 @@ func (o *SchemaObjectsShardsUpdateOK) Code() int {
 }
 
 func (o *SchemaObjectsShardsUpdateOK) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateOK  %+v", 200, o.Payload)
 }
 
 func (o *SchemaObjectsShardsUpdateOK) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateOK  %+v", 200, o.Payload)
 }
 
 func (o *SchemaObjectsShardsUpdateOK) GetPayload() *models.ShardStatus {
@@ -187,11 +187,11 @@ func (o *SchemaObjectsShardsUpdateUnauthorized) Code() int {
 }
 
 func (o *SchemaObjectsShardsUpdateUnauthorized) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsShardsUpdateUnauthorized) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsShardsUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -244,11 +244,11 @@ func (o *SchemaObjectsShardsUpdateForbidden) Code() int {
 }
 
 func (o *SchemaObjectsShardsUpdateForbidden) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *SchemaObjectsShardsUpdateForbidden) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *SchemaObjectsShardsUpdateForbidden) GetPayload() *models.ErrorResponse {
@@ -312,11 +312,11 @@ func (o *SchemaObjectsShardsUpdateNotFound) Code() int {
 }
 
 func (o *SchemaObjectsShardsUpdateNotFound) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateNotFound  %+v", 404, o.Payload)
 }
 
 func (o *SchemaObjectsShardsUpdateNotFound) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateNotFound  %+v", 404, o.Payload)
 }
 
 func (o *SchemaObjectsShardsUpdateNotFound) GetPayload() *models.ErrorResponse {
@@ -380,11 +380,11 @@ func (o *SchemaObjectsShardsUpdateUnprocessableEntity) Code() int {
 }
 
 func (o *SchemaObjectsShardsUpdateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *SchemaObjectsShardsUpdateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *SchemaObjectsShardsUpdateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -448,11 +448,11 @@ func (o *SchemaObjectsShardsUpdateInternalServerError) Code() int {
 }
 
 func (o *SchemaObjectsShardsUpdateInternalServerError) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaObjectsShardsUpdateInternalServerError) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaObjectsShardsUpdateInternalServerError) GetPayload() *models.ErrorResponse {

@@ -291,6 +291,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, objectsTraverser)
 	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
+	grpcServer := createGrpcServer(appState)
+
+	setupBasePathHandler(api, grpcServer)
 	setupSchemaHandlers(api, schemaManager, appState.Metrics, appState.Logger)
 	setupObjectHandlers(api, objectsManager, appState.ServerConfig.Config, appState.Logger,
 		appState.Modules, appState.Metrics)
@@ -334,14 +337,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}()
 	}
 
-	grpcServer := createGrpcServer(appState)
-
 	api.ServerShutdown = func() {
 		// stop reindexing on server shutdown
 		reindexCtxCancel()
 
 		// gracefully stop gRPC server
-		grpcServer.GracefulStop()
+		// grpcServer.GracefulStop()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
@@ -383,8 +384,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	if appState.ServerConfig.Config.RecountPropertiesAtStartup {
 		migrator.RecountProperties(ctx)
 	}
-
-	startGrpcServer(grpcServer, appState)
 
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }

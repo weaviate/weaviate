@@ -114,11 +114,11 @@ func (o *ClassificationsGetOK) Code() int {
 }
 
 func (o *ClassificationsGetOK) Error() string {
-	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/classifications/{id}][%d] classificationsGetOK  %+v", 200, o.Payload)
 }
 
 func (o *ClassificationsGetOK) String() string {
-	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/classifications/{id}][%d] classificationsGetOK  %+v", 200, o.Payload)
 }
 
 func (o *ClassificationsGetOK) GetPayload() *models.Classification {
@@ -181,11 +181,11 @@ func (o *ClassificationsGetUnauthorized) Code() int {
 }
 
 func (o *ClassificationsGetUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/classifications/{id}][%d] classificationsGetUnauthorized ", 401)
 }
 
 func (o *ClassificationsGetUnauthorized) String() string {
-	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/classifications/{id}][%d] classificationsGetUnauthorized ", 401)
 }
 
 func (o *ClassificationsGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -238,11 +238,11 @@ func (o *ClassificationsGetForbidden) Code() int {
 }
 
 func (o *ClassificationsGetForbidden) Error() string {
-	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/classifications/{id}][%d] classificationsGetForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ClassificationsGetForbidden) String() string {
-	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/classifications/{id}][%d] classificationsGetForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ClassificationsGetForbidden) GetPayload() *models.ErrorResponse {
@@ -305,11 +305,11 @@ func (o *ClassificationsGetNotFound) Code() int {
 }
 
 func (o *ClassificationsGetNotFound) Error() string {
-	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetNotFound ", 404)
+	return fmt.Sprintf("[GET /v1/classifications/{id}][%d] classificationsGetNotFound ", 404)
 }
 
 func (o *ClassificationsGetNotFound) String() string {
-	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetNotFound ", 404)
+	return fmt.Sprintf("[GET /v1/classifications/{id}][%d] classificationsGetNotFound ", 404)
 }
 
 func (o *ClassificationsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -362,11 +362,11 @@ func (o *ClassificationsGetInternalServerError) Code() int {
 }
 
 func (o *ClassificationsGetInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/classifications/{id}][%d] classificationsGetInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ClassificationsGetInternalServerError) String() string {
-	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/classifications/{id}][%d] classificationsGetInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ClassificationsGetInternalServerError) GetPayload() *models.ErrorResponse {

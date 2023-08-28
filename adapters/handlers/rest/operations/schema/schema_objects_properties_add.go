@@ -43,7 +43,7 @@ func NewSchemaObjectsPropertiesAdd(ctx *middleware.Context, handler SchemaObject
 }
 
 /*
-	SchemaObjectsPropertiesAdd swagger:route POST /schema/{className}/properties schema schemaObjectsPropertiesAdd
+	SchemaObjectsPropertiesAdd swagger:route POST /v1/schema/{className}/properties schema schemaObjectsPropertiesAdd
 
 Add a property to an Object class.
 */

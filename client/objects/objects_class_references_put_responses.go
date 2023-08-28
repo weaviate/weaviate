@@ -125,11 +125,11 @@ func (o *ObjectsClassReferencesPutOK) Code() int {
 }
 
 func (o *ObjectsClassReferencesPutOK) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutOK ", 200)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutOK ", 200)
 }
 
 func (o *ObjectsClassReferencesPutOK) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutOK ", 200)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutOK ", 200)
 }
 
 func (o *ObjectsClassReferencesPutOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -182,11 +182,11 @@ func (o *ObjectsClassReferencesPutBadRequest) Code() int {
 }
 
 func (o *ObjectsClassReferencesPutBadRequest) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *ObjectsClassReferencesPutBadRequest) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *ObjectsClassReferencesPutBadRequest) GetPayload() *models.ErrorResponse {
@@ -249,11 +249,11 @@ func (o *ObjectsClassReferencesPutUnauthorized) Code() int {
 }
 
 func (o *ObjectsClassReferencesPutUnauthorized) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutUnauthorized ", 401)
 }
 
 func (o *ObjectsClassReferencesPutUnauthorized) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutUnauthorized ", 401)
 }
 
 func (o *ObjectsClassReferencesPutUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -306,11 +306,11 @@ func (o *ObjectsClassReferencesPutForbidden) Code() int {
 }
 
 func (o *ObjectsClassReferencesPutForbidden) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsClassReferencesPutForbidden) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsClassReferencesPutForbidden) GetPayload() *models.ErrorResponse {
@@ -373,11 +373,11 @@ func (o *ObjectsClassReferencesPutNotFound) Code() int {
 }
 
 func (o *ObjectsClassReferencesPutNotFound) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutNotFound ", 404)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutNotFound ", 404)
 }
 
 func (o *ObjectsClassReferencesPutNotFound) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutNotFound ", 404)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutNotFound ", 404)
 }
 
 func (o *ObjectsClassReferencesPutNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -430,11 +430,11 @@ func (o *ObjectsClassReferencesPutUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsClassReferencesPutUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsClassReferencesPutUnprocessableEntity) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsClassReferencesPutUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -498,11 +498,11 @@ func (o *ObjectsClassReferencesPutInternalServerError) Code() int {
 }
 
 func (o *ObjectsClassReferencesPutInternalServerError) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsClassReferencesPutInternalServerError) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsClassReferencesPutInternalServerError) GetPayload() *models.ErrorResponse {

@@ -19,12 +19,3 @@ import (
 func createGrpcServer(state *state.State) *grpc.GRPCServer {
 	return grpc.CreateGRPCServer(state)
 }
-
-func startGrpcServer(server *grpc.GRPCServer, state *state.State) {
-	go func() {
-		if err := grpc.StartAndListen(server, state); err != nil {
-			state.Logger.WithField("action", "grpc_startup").WithError(err).
-				Fatal("failed to start grpc server")
-		}
-	}()
-}

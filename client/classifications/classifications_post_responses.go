@@ -114,11 +114,11 @@ func (o *ClassificationsPostCreated) Code() int {
 }
 
 func (o *ClassificationsPostCreated) Error() string {
-	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostCreated  %+v", 201, o.Payload)
+	return fmt.Sprintf("[POST /v1/classifications/][%d] classificationsPostCreated  %+v", 201, o.Payload)
 }
 
 func (o *ClassificationsPostCreated) String() string {
-	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostCreated  %+v", 201, o.Payload)
+	return fmt.Sprintf("[POST /v1/classifications/][%d] classificationsPostCreated  %+v", 201, o.Payload)
 }
 
 func (o *ClassificationsPostCreated) GetPayload() *models.Classification {
@@ -182,11 +182,11 @@ func (o *ClassificationsPostBadRequest) Code() int {
 }
 
 func (o *ClassificationsPostBadRequest) Error() string {
-	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /v1/classifications/][%d] classificationsPostBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *ClassificationsPostBadRequest) String() string {
-	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /v1/classifications/][%d] classificationsPostBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *ClassificationsPostBadRequest) GetPayload() *models.ErrorResponse {
@@ -249,11 +249,11 @@ func (o *ClassificationsPostUnauthorized) Code() int {
 }
 
 func (o *ClassificationsPostUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/classifications/][%d] classificationsPostUnauthorized ", 401)
 }
 
 func (o *ClassificationsPostUnauthorized) String() string {
-	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/classifications/][%d] classificationsPostUnauthorized ", 401)
 }
 
 func (o *ClassificationsPostUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -306,11 +306,11 @@ func (o *ClassificationsPostForbidden) Code() int {
 }
 
 func (o *ClassificationsPostForbidden) Error() string {
-	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/classifications/][%d] classificationsPostForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ClassificationsPostForbidden) String() string {
-	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/classifications/][%d] classificationsPostForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ClassificationsPostForbidden) GetPayload() *models.ErrorResponse {
@@ -374,11 +374,11 @@ func (o *ClassificationsPostInternalServerError) Code() int {
 }
 
 func (o *ClassificationsPostInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/classifications/][%d] classificationsPostInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ClassificationsPostInternalServerError) String() string {
-	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/classifications/][%d] classificationsPostInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ClassificationsPostInternalServerError) GetPayload() *models.ErrorResponse {

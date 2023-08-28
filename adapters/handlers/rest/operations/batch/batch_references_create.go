@@ -43,7 +43,7 @@ func NewBatchReferencesCreate(ctx *middleware.Context, handler BatchReferencesCr
 }
 
 /*
-	BatchReferencesCreate swagger:route POST /batch/references batch references batchReferencesCreate
+	BatchReferencesCreate swagger:route POST /v1/batch/references batch references batchReferencesCreate
 
 Creates new Cross-References between arbitrary classes in bulk.
 

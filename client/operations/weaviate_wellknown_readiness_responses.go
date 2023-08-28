@@ -92,11 +92,11 @@ func (o *WeaviateWellknownReadinessOK) Code() int {
 }
 
 func (o *WeaviateWellknownReadinessOK) Error() string {
-	return fmt.Sprintf("[GET /.well-known/ready][%d] weaviateWellknownReadinessOK ", 200)
+	return fmt.Sprintf("[GET /v1/.well-known/ready][%d] weaviateWellknownReadinessOK ", 200)
 }
 
 func (o *WeaviateWellknownReadinessOK) String() string {
-	return fmt.Sprintf("[GET /.well-known/ready][%d] weaviateWellknownReadinessOK ", 200)
+	return fmt.Sprintf("[GET /v1/.well-known/ready][%d] weaviateWellknownReadinessOK ", 200)
 }
 
 func (o *WeaviateWellknownReadinessOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -148,11 +148,11 @@ func (o *WeaviateWellknownReadinessServiceUnavailable) Code() int {
 }
 
 func (o *WeaviateWellknownReadinessServiceUnavailable) Error() string {
-	return fmt.Sprintf("[GET /.well-known/ready][%d] weaviateWellknownReadinessServiceUnavailable ", 503)
+	return fmt.Sprintf("[GET /v1/.well-known/ready][%d] weaviateWellknownReadinessServiceUnavailable ", 503)
 }
 
 func (o *WeaviateWellknownReadinessServiceUnavailable) String() string {
-	return fmt.Sprintf("[GET /.well-known/ready][%d] weaviateWellknownReadinessServiceUnavailable ", 503)
+	return fmt.Sprintf("[GET /v1/.well-known/ready][%d] weaviateWellknownReadinessServiceUnavailable ", 503)
 }
 
 func (o *WeaviateWellknownReadinessServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

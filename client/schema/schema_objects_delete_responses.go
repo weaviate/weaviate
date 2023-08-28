@@ -113,11 +113,11 @@ func (o *SchemaObjectsDeleteOK) Code() int {
 }
 
 func (o *SchemaObjectsDeleteOK) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteOK ", 200)
+	return fmt.Sprintf("[DELETE /v1/schema/{className}][%d] schemaObjectsDeleteOK ", 200)
 }
 
 func (o *SchemaObjectsDeleteOK) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteOK ", 200)
+	return fmt.Sprintf("[DELETE /v1/schema/{className}][%d] schemaObjectsDeleteOK ", 200)
 }
 
 func (o *SchemaObjectsDeleteOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -170,11 +170,11 @@ func (o *SchemaObjectsDeleteBadRequest) Code() int {
 }
 
 func (o *SchemaObjectsDeleteBadRequest) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/schema/{className}][%d] schemaObjectsDeleteBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *SchemaObjectsDeleteBadRequest) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/schema/{className}][%d] schemaObjectsDeleteBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *SchemaObjectsDeleteBadRequest) GetPayload() *models.ErrorResponse {
@@ -237,11 +237,11 @@ func (o *SchemaObjectsDeleteUnauthorized) Code() int {
 }
 
 func (o *SchemaObjectsDeleteUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /v1/schema/{className}][%d] schemaObjectsDeleteUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsDeleteUnauthorized) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /v1/schema/{className}][%d] schemaObjectsDeleteUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -294,11 +294,11 @@ func (o *SchemaObjectsDeleteForbidden) Code() int {
 }
 
 func (o *SchemaObjectsDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/schema/{className}][%d] schemaObjectsDeleteForbidden  %+v", 403, o.Payload)
 }
 
 func (o *SchemaObjectsDeleteForbidden) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/schema/{className}][%d] schemaObjectsDeleteForbidden  %+v", 403, o.Payload)
 }
 
 func (o *SchemaObjectsDeleteForbidden) GetPayload() *models.ErrorResponse {
@@ -362,11 +362,11 @@ func (o *SchemaObjectsDeleteInternalServerError) Code() int {
 }
 
 func (o *SchemaObjectsDeleteInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/schema/{className}][%d] schemaObjectsDeleteInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaObjectsDeleteInternalServerError) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/schema/{className}][%d] schemaObjectsDeleteInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaObjectsDeleteInternalServerError) GetPayload() *models.ErrorResponse {

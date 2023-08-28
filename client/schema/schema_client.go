@@ -81,7 +81,7 @@ func (a *Client) SchemaClusterStatus(params *SchemaClusterStatusParams, authInfo
 	op := &runtime.ClientOperation{
 		ID:                 "schema.cluster.status",
 		Method:             "GET",
-		PathPattern:        "/schema/cluster-status",
+		PathPattern:        "/v1/schema/cluster-status",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -120,7 +120,7 @@ func (a *Client) SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAut
 	op := &runtime.ClientOperation{
 		ID:                 "schema.dump",
 		Method:             "GET",
-		PathPattern:        "/schema",
+		PathPattern:        "/v1/schema",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -159,7 +159,7 @@ func (a *Client) SchemaObjectsCreate(params *SchemaObjectsCreateParams, authInfo
 	op := &runtime.ClientOperation{
 		ID:                 "schema.objects.create",
 		Method:             "POST",
-		PathPattern:        "/schema",
+		PathPattern:        "/v1/schema",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -198,7 +198,7 @@ func (a *Client) SchemaObjectsDelete(params *SchemaObjectsDeleteParams, authInfo
 	op := &runtime.ClientOperation{
 		ID:                 "schema.objects.delete",
 		Method:             "DELETE",
-		PathPattern:        "/schema/{className}",
+		PathPattern:        "/v1/schema/{className}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -237,7 +237,7 @@ func (a *Client) SchemaObjectsGet(params *SchemaObjectsGetParams, authInfo runti
 	op := &runtime.ClientOperation{
 		ID:                 "schema.objects.get",
 		Method:             "GET",
-		PathPattern:        "/schema/{className}",
+		PathPattern:        "/v1/schema/{className}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -276,7 +276,7 @@ func (a *Client) SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddPa
 	op := &runtime.ClientOperation{
 		ID:                 "schema.objects.properties.add",
 		Method:             "POST",
-		PathPattern:        "/schema/{className}/properties",
+		PathPattern:        "/v1/schema/{className}/properties",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -315,7 +315,7 @@ func (a *Client) SchemaObjectsShardsGet(params *SchemaObjectsShardsGetParams, au
 	op := &runtime.ClientOperation{
 		ID:                 "schema.objects.shards.get",
 		Method:             "GET",
-		PathPattern:        "/schema/{className}/shards",
+		PathPattern:        "/v1/schema/{className}/shards",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -354,7 +354,7 @@ func (a *Client) SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdatePara
 	op := &runtime.ClientOperation{
 		ID:                 "schema.objects.shards.update",
 		Method:             "PUT",
-		PathPattern:        "/schema/{className}/shards/{shardName}",
+		PathPattern:        "/v1/schema/{className}/shards/{shardName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -395,7 +395,7 @@ func (a *Client) SchemaObjectsUpdate(params *SchemaObjectsUpdateParams, authInfo
 	op := &runtime.ClientOperation{
 		ID:                 "schema.objects.update",
 		Method:             "PUT",
-		PathPattern:        "/schema/{className}",
+		PathPattern:        "/v1/schema/{className}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -434,7 +434,7 @@ func (a *Client) TenantsCreate(params *TenantsCreateParams, authInfo runtime.Cli
 	op := &runtime.ClientOperation{
 		ID:                 "tenants.create",
 		Method:             "POST",
-		PathPattern:        "/schema/{className}/tenants",
+		PathPattern:        "/v1/schema/{className}/tenants",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -473,7 +473,7 @@ func (a *Client) TenantsDelete(params *TenantsDeleteParams, authInfo runtime.Cli
 	op := &runtime.ClientOperation{
 		ID:                 "tenants.delete",
 		Method:             "DELETE",
-		PathPattern:        "/schema/{className}/tenants",
+		PathPattern:        "/v1/schema/{className}/tenants",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -512,7 +512,7 @@ func (a *Client) TenantsGet(params *TenantsGetParams, authInfo runtime.ClientAut
 	op := &runtime.ClientOperation{
 		ID:                 "tenants.get",
 		Method:             "GET",
-		PathPattern:        "/schema/{className}/tenants",
+		PathPattern:        "/v1/schema/{className}/tenants",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -551,7 +551,7 @@ func (a *Client) TenantsUpdate(params *TenantsUpdateParams, authInfo runtime.Cli
 	op := &runtime.ClientOperation{
 		ID:                 "tenants.update",
 		Method:             "PUT",
-		PathPattern:        "/schema/{className}/tenants",
+		PathPattern:        "/v1/schema/{className}/tenants",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},

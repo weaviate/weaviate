@@ -59,7 +59,7 @@ func (a *Client) NodesGet(params *NodesGetParams, authInfo runtime.ClientAuthInf
 	op := &runtime.ClientOperation{
 		ID:                 "nodes.get",
 		Method:             "GET",
-		PathPattern:        "/nodes",
+		PathPattern:        "/v1/nodes",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -98,7 +98,7 @@ func (a *Client) NodesGetClass(params *NodesGetClassParams, authInfo runtime.Cli
 	op := &runtime.ClientOperation{
 		ID:                 "nodes.get.class",
 		Method:             "GET",
-		PathPattern:        "/nodes/{className}",
+		PathPattern:        "/v1/nodes/{className}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},

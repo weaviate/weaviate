@@ -46,11 +46,11 @@ func (o *ClassificationsPostURL) SetBasePath(bp string) {
 func (o *ClassificationsPostURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/classifications/"
+	var _path = "/v1/classifications/"
 
 	_basePath := o._basePath
 	if _basePath == "" {
-		_basePath = "/v1"
+		_basePath = "/"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 

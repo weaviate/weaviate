@@ -114,11 +114,11 @@ func (o *SchemaObjectsPropertiesAddOK) Code() int {
 }
 
 func (o *SchemaObjectsPropertiesAddOK) Error() string {
-	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema/{className}/properties][%d] schemaObjectsPropertiesAddOK  %+v", 200, o.Payload)
 }
 
 func (o *SchemaObjectsPropertiesAddOK) String() string {
-	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema/{className}/properties][%d] schemaObjectsPropertiesAddOK  %+v", 200, o.Payload)
 }
 
 func (o *SchemaObjectsPropertiesAddOK) GetPayload() *models.Property {
@@ -181,11 +181,11 @@ func (o *SchemaObjectsPropertiesAddUnauthorized) Code() int {
 }
 
 func (o *SchemaObjectsPropertiesAddUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/schema/{className}/properties][%d] schemaObjectsPropertiesAddUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsPropertiesAddUnauthorized) String() string {
-	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/schema/{className}/properties][%d] schemaObjectsPropertiesAddUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsPropertiesAddUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -238,11 +238,11 @@ func (o *SchemaObjectsPropertiesAddForbidden) Code() int {
 }
 
 func (o *SchemaObjectsPropertiesAddForbidden) Error() string {
-	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema/{className}/properties][%d] schemaObjectsPropertiesAddForbidden  %+v", 403, o.Payload)
 }
 
 func (o *SchemaObjectsPropertiesAddForbidden) String() string {
-	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema/{className}/properties][%d] schemaObjectsPropertiesAddForbidden  %+v", 403, o.Payload)
 }
 
 func (o *SchemaObjectsPropertiesAddForbidden) GetPayload() *models.ErrorResponse {
@@ -306,11 +306,11 @@ func (o *SchemaObjectsPropertiesAddUnprocessableEntity) Code() int {
 }
 
 func (o *SchemaObjectsPropertiesAddUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema/{className}/properties][%d] schemaObjectsPropertiesAddUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *SchemaObjectsPropertiesAddUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema/{className}/properties][%d] schemaObjectsPropertiesAddUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *SchemaObjectsPropertiesAddUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -374,11 +374,11 @@ func (o *SchemaObjectsPropertiesAddInternalServerError) Code() int {
 }
 
 func (o *SchemaObjectsPropertiesAddInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema/{className}/properties][%d] schemaObjectsPropertiesAddInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaObjectsPropertiesAddInternalServerError) String() string {
-	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema/{className}/properties][%d] schemaObjectsPropertiesAddInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaObjectsPropertiesAddInternalServerError) GetPayload() *models.ErrorResponse {

@@ -46,11 +46,11 @@ func (o *WeaviateWellknownReadinessURL) SetBasePath(bp string) {
 func (o *WeaviateWellknownReadinessURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/.well-known/ready"
+	var _path = "/v1/.well-known/ready"
 
 	_basePath := o._basePath
 	if _basePath == "" {
-		_basePath = "/v1"
+		_basePath = "/"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 

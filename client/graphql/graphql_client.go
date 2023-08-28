@@ -61,7 +61,7 @@ func (a *Client) GraphqlBatch(params *GraphqlBatchParams, authInfo runtime.Clien
 	op := &runtime.ClientOperation{
 		ID:                 "graphql.batch",
 		Method:             "POST",
-		PathPattern:        "/graphql/batch",
+		PathPattern:        "/v1/graphql/batch",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -102,7 +102,7 @@ func (a *Client) GraphqlPost(params *GraphqlPostParams, authInfo runtime.ClientA
 	op := &runtime.ClientOperation{
 		ID:                 "graphql.post",
 		Method:             "POST",
-		PathPattern:        "/graphql",
+		PathPattern:        "/v1/graphql",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},

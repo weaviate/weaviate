@@ -61,7 +61,7 @@ func (a *Client) ClassificationsGet(params *ClassificationsGetParams, authInfo r
 	op := &runtime.ClientOperation{
 		ID:                 "classifications.get",
 		Method:             "GET",
-		PathPattern:        "/classifications/{id}",
+		PathPattern:        "/v1/classifications/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -102,7 +102,7 @@ func (a *Client) ClassificationsPost(params *ClassificationsPostParams, authInfo
 	op := &runtime.ClientOperation{
 		ID:                 "classifications.post",
 		Method:             "POST",
-		PathPattern:        "/classifications/",
+		PathPattern:        "/v1/classifications/",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},

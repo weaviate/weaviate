@@ -120,11 +120,11 @@ func (o *ObjectsClassPutOK) Code() int {
 }
 
 func (o *ObjectsClassPutOK) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}][%d] objectsClassPutOK  %+v", 200, o.Payload)
 }
 
 func (o *ObjectsClassPutOK) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}][%d] objectsClassPutOK  %+v", 200, o.Payload)
 }
 
 func (o *ObjectsClassPutOK) GetPayload() *models.Object {
@@ -187,11 +187,11 @@ func (o *ObjectsClassPutUnauthorized) Code() int {
 }
 
 func (o *ObjectsClassPutUnauthorized) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}][%d] objectsClassPutUnauthorized ", 401)
 }
 
 func (o *ObjectsClassPutUnauthorized) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}][%d] objectsClassPutUnauthorized ", 401)
 }
 
 func (o *ObjectsClassPutUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -244,11 +244,11 @@ func (o *ObjectsClassPutForbidden) Code() int {
 }
 
 func (o *ObjectsClassPutForbidden) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}][%d] objectsClassPutForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsClassPutForbidden) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}][%d] objectsClassPutForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsClassPutForbidden) GetPayload() *models.ErrorResponse {
@@ -311,11 +311,11 @@ func (o *ObjectsClassPutNotFound) Code() int {
 }
 
 func (o *ObjectsClassPutNotFound) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutNotFound ", 404)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}][%d] objectsClassPutNotFound ", 404)
 }
 
 func (o *ObjectsClassPutNotFound) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutNotFound ", 404)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}][%d] objectsClassPutNotFound ", 404)
 }
 
 func (o *ObjectsClassPutNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -368,11 +368,11 @@ func (o *ObjectsClassPutUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsClassPutUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}][%d] objectsClassPutUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsClassPutUnprocessableEntity) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}][%d] objectsClassPutUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsClassPutUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -436,11 +436,11 @@ func (o *ObjectsClassPutInternalServerError) Code() int {
 }
 
 func (o *ObjectsClassPutInternalServerError) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}][%d] objectsClassPutInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsClassPutInternalServerError) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{className}/{id}][%d] objectsClassPutInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsClassPutInternalServerError) GetPayload() *models.ErrorResponse {

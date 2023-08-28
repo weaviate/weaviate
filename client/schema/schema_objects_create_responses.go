@@ -114,11 +114,11 @@ func (o *SchemaObjectsCreateOK) Code() int {
 }
 
 func (o *SchemaObjectsCreateOK) Error() string {
-	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema][%d] schemaObjectsCreateOK  %+v", 200, o.Payload)
 }
 
 func (o *SchemaObjectsCreateOK) String() string {
-	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema][%d] schemaObjectsCreateOK  %+v", 200, o.Payload)
 }
 
 func (o *SchemaObjectsCreateOK) GetPayload() *models.Class {
@@ -181,11 +181,11 @@ func (o *SchemaObjectsCreateUnauthorized) Code() int {
 }
 
 func (o *SchemaObjectsCreateUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/schema][%d] schemaObjectsCreateUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsCreateUnauthorized) String() string {
-	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/schema][%d] schemaObjectsCreateUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -238,11 +238,11 @@ func (o *SchemaObjectsCreateForbidden) Code() int {
 }
 
 func (o *SchemaObjectsCreateForbidden) Error() string {
-	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema][%d] schemaObjectsCreateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *SchemaObjectsCreateForbidden) String() string {
-	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema][%d] schemaObjectsCreateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *SchemaObjectsCreateForbidden) GetPayload() *models.ErrorResponse {
@@ -306,11 +306,11 @@ func (o *SchemaObjectsCreateUnprocessableEntity) Code() int {
 }
 
 func (o *SchemaObjectsCreateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema][%d] schemaObjectsCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *SchemaObjectsCreateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema][%d] schemaObjectsCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *SchemaObjectsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -374,11 +374,11 @@ func (o *SchemaObjectsCreateInternalServerError) Code() int {
 }
 
 func (o *SchemaObjectsCreateInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema][%d] schemaObjectsCreateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaObjectsCreateInternalServerError) String() string {
-	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema][%d] schemaObjectsCreateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaObjectsCreateInternalServerError) GetPayload() *models.ErrorResponse {

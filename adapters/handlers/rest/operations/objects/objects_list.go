@@ -43,7 +43,7 @@ func NewObjectsList(ctx *middleware.Context, handler ObjectsListHandler) *Object
 }
 
 /*
-	ObjectsList swagger:route GET /objects objects objectsList
+	ObjectsList swagger:route GET /v1/objects objects objectsList
 
 Get a list of Objects.
 

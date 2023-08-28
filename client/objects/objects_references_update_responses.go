@@ -113,11 +113,11 @@ func (o *ObjectsReferencesUpdateOK) Code() int {
 }
 
 func (o *ObjectsReferencesUpdateOK) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateOK ", 200)
+	return fmt.Sprintf("[PUT /v1/objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateOK ", 200)
 }
 
 func (o *ObjectsReferencesUpdateOK) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateOK ", 200)
+	return fmt.Sprintf("[PUT /v1/objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateOK ", 200)
 }
 
 func (o *ObjectsReferencesUpdateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -169,11 +169,11 @@ func (o *ObjectsReferencesUpdateUnauthorized) Code() int {
 }
 
 func (o *ObjectsReferencesUpdateUnauthorized) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /v1/objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateUnauthorized ", 401)
 }
 
 func (o *ObjectsReferencesUpdateUnauthorized) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /v1/objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateUnauthorized ", 401)
 }
 
 func (o *ObjectsReferencesUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -226,11 +226,11 @@ func (o *ObjectsReferencesUpdateForbidden) Code() int {
 }
 
 func (o *ObjectsReferencesUpdateForbidden) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsReferencesUpdateForbidden) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsReferencesUpdateForbidden) GetPayload() *models.ErrorResponse {
@@ -294,11 +294,11 @@ func (o *ObjectsReferencesUpdateUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsReferencesUpdateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsReferencesUpdateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsReferencesUpdateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -362,11 +362,11 @@ func (o *ObjectsReferencesUpdateInternalServerError) Code() int {
 }
 
 func (o *ObjectsReferencesUpdateInternalServerError) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsReferencesUpdateInternalServerError) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsReferencesUpdateInternalServerError) GetPayload() *models.ErrorResponse {

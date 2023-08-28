@@ -43,7 +43,7 @@ func NewSchemaObjectsDelete(ctx *middleware.Context, handler SchemaObjectsDelete
 }
 
 /*
-	SchemaObjectsDelete swagger:route DELETE /schema/{className} schema schemaObjectsDelete
+	SchemaObjectsDelete swagger:route DELETE /v1/schema/{className} schema schemaObjectsDelete
 
 Remove an Object class (and all data in the instances) from the schema.
 */

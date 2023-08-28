@@ -51,7 +51,7 @@ func (o *TenantsUpdateURL) SetBasePath(bp string) {
 func (o *TenantsUpdateURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/schema/{className}/tenants"
+	var _path = "/v1/schema/{className}/tenants"
 
 	className := o.ClassName
 	if className != "" {
@@ -62,7 +62,7 @@ func (o *TenantsUpdateURL) Build() (*url.URL, error) {
 
 	_basePath := o._basePath
 	if _basePath == "" {
-		_basePath = "/v1"
+		_basePath = "/"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 

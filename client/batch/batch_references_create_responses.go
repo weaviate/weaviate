@@ -120,11 +120,11 @@ func (o *BatchReferencesCreateOK) Code() int {
 }
 
 func (o *BatchReferencesCreateOK) Error() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /v1/batch/references][%d] batchReferencesCreateOK  %+v", 200, o.Payload)
 }
 
 func (o *BatchReferencesCreateOK) String() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /v1/batch/references][%d] batchReferencesCreateOK  %+v", 200, o.Payload)
 }
 
 func (o *BatchReferencesCreateOK) GetPayload() []*models.BatchReferenceResponse {
@@ -186,11 +186,11 @@ func (o *BatchReferencesCreateBadRequest) Code() int {
 }
 
 func (o *BatchReferencesCreateBadRequest) Error() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /v1/batch/references][%d] batchReferencesCreateBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *BatchReferencesCreateBadRequest) String() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /v1/batch/references][%d] batchReferencesCreateBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *BatchReferencesCreateBadRequest) GetPayload() *models.ErrorResponse {
@@ -253,11 +253,11 @@ func (o *BatchReferencesCreateUnauthorized) Code() int {
 }
 
 func (o *BatchReferencesCreateUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/batch/references][%d] batchReferencesCreateUnauthorized ", 401)
 }
 
 func (o *BatchReferencesCreateUnauthorized) String() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/batch/references][%d] batchReferencesCreateUnauthorized ", 401)
 }
 
 func (o *BatchReferencesCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -310,11 +310,11 @@ func (o *BatchReferencesCreateForbidden) Code() int {
 }
 
 func (o *BatchReferencesCreateForbidden) Error() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/batch/references][%d] batchReferencesCreateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *BatchReferencesCreateForbidden) String() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/batch/references][%d] batchReferencesCreateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *BatchReferencesCreateForbidden) GetPayload() *models.ErrorResponse {
@@ -378,11 +378,11 @@ func (o *BatchReferencesCreateUnprocessableEntity) Code() int {
 }
 
 func (o *BatchReferencesCreateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /v1/batch/references][%d] batchReferencesCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *BatchReferencesCreateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /v1/batch/references][%d] batchReferencesCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *BatchReferencesCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -446,11 +446,11 @@ func (o *BatchReferencesCreateInternalServerError) Code() int {
 }
 
 func (o *BatchReferencesCreateInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/batch/references][%d] batchReferencesCreateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *BatchReferencesCreateInternalServerError) String() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/batch/references][%d] batchReferencesCreateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *BatchReferencesCreateInternalServerError) GetPayload() *models.ErrorResponse {

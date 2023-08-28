@@ -86,11 +86,11 @@ func (o *WeaviateWellknownLivenessOK) Code() int {
 }
 
 func (o *WeaviateWellknownLivenessOK) Error() string {
-	return fmt.Sprintf("[GET /.well-known/live][%d] weaviateWellknownLivenessOK ", 200)
+	return fmt.Sprintf("[GET /v1/.well-known/live][%d] weaviateWellknownLivenessOK ", 200)
 }
 
 func (o *WeaviateWellknownLivenessOK) String() string {
-	return fmt.Sprintf("[GET /.well-known/live][%d] weaviateWellknownLivenessOK ", 200)
+	return fmt.Sprintf("[GET /v1/.well-known/live][%d] weaviateWellknownLivenessOK ", 200)
 }
 
 func (o *WeaviateWellknownLivenessOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

@@ -114,11 +114,11 @@ func (o *SchemaObjectsGetOK) Code() int {
 }
 
 func (o *SchemaObjectsGetOK) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}][%d] schemaObjectsGetOK  %+v", 200, o.Payload)
 }
 
 func (o *SchemaObjectsGetOK) String() string {
-	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}][%d] schemaObjectsGetOK  %+v", 200, o.Payload)
 }
 
 func (o *SchemaObjectsGetOK) GetPayload() *models.Class {
@@ -181,11 +181,11 @@ func (o *SchemaObjectsGetUnauthorized) Code() int {
 }
 
 func (o *SchemaObjectsGetUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/schema/{className}][%d] schemaObjectsGetUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsGetUnauthorized) String() string {
-	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/schema/{className}][%d] schemaObjectsGetUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -238,11 +238,11 @@ func (o *SchemaObjectsGetForbidden) Code() int {
 }
 
 func (o *SchemaObjectsGetForbidden) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}][%d] schemaObjectsGetForbidden  %+v", 403, o.Payload)
 }
 
 func (o *SchemaObjectsGetForbidden) String() string {
-	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}][%d] schemaObjectsGetForbidden  %+v", 403, o.Payload)
 }
 
 func (o *SchemaObjectsGetForbidden) GetPayload() *models.ErrorResponse {
@@ -305,11 +305,11 @@ func (o *SchemaObjectsGetNotFound) Code() int {
 }
 
 func (o *SchemaObjectsGetNotFound) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetNotFound ", 404)
+	return fmt.Sprintf("[GET /v1/schema/{className}][%d] schemaObjectsGetNotFound ", 404)
 }
 
 func (o *SchemaObjectsGetNotFound) String() string {
-	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetNotFound ", 404)
+	return fmt.Sprintf("[GET /v1/schema/{className}][%d] schemaObjectsGetNotFound ", 404)
 }
 
 func (o *SchemaObjectsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -362,11 +362,11 @@ func (o *SchemaObjectsGetInternalServerError) Code() int {
 }
 
 func (o *SchemaObjectsGetInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}][%d] schemaObjectsGetInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaObjectsGetInternalServerError) String() string {
-	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}][%d] schemaObjectsGetInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaObjectsGetInternalServerError) GetPayload() *models.ErrorResponse {

@@ -43,7 +43,7 @@ func NewSchemaClusterStatus(ctx *middleware.Context, handler SchemaClusterStatus
 }
 
 /*
-	SchemaClusterStatus swagger:route GET /schema/cluster-status schema schemaClusterStatus
+	SchemaClusterStatus swagger:route GET /v1/schema/cluster-status schema schemaClusterStatus
 
 SchemaClusterStatus schema cluster status API
 */

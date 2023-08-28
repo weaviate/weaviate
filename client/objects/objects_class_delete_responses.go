@@ -125,11 +125,11 @@ func (o *ObjectsClassDeleteNoContent) Code() int {
 }
 
 func (o *ObjectsClassDeleteNoContent) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteNoContent ", 204)
+	return fmt.Sprintf("[DELETE /v1/objects/{className}/{id}][%d] objectsClassDeleteNoContent ", 204)
 }
 
 func (o *ObjectsClassDeleteNoContent) String() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteNoContent ", 204)
+	return fmt.Sprintf("[DELETE /v1/objects/{className}/{id}][%d] objectsClassDeleteNoContent ", 204)
 }
 
 func (o *ObjectsClassDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -182,11 +182,11 @@ func (o *ObjectsClassDeleteBadRequest) Code() int {
 }
 
 func (o *ObjectsClassDeleteBadRequest) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/objects/{className}/{id}][%d] objectsClassDeleteBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *ObjectsClassDeleteBadRequest) String() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/objects/{className}/{id}][%d] objectsClassDeleteBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *ObjectsClassDeleteBadRequest) GetPayload() *models.ErrorResponse {
@@ -249,11 +249,11 @@ func (o *ObjectsClassDeleteUnauthorized) Code() int {
 }
 
 func (o *ObjectsClassDeleteUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /v1/objects/{className}/{id}][%d] objectsClassDeleteUnauthorized ", 401)
 }
 
 func (o *ObjectsClassDeleteUnauthorized) String() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /v1/objects/{className}/{id}][%d] objectsClassDeleteUnauthorized ", 401)
 }
 
 func (o *ObjectsClassDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -306,11 +306,11 @@ func (o *ObjectsClassDeleteForbidden) Code() int {
 }
 
 func (o *ObjectsClassDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/objects/{className}/{id}][%d] objectsClassDeleteForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsClassDeleteForbidden) String() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/objects/{className}/{id}][%d] objectsClassDeleteForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsClassDeleteForbidden) GetPayload() *models.ErrorResponse {
@@ -373,11 +373,11 @@ func (o *ObjectsClassDeleteNotFound) Code() int {
 }
 
 func (o *ObjectsClassDeleteNotFound) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteNotFound ", 404)
+	return fmt.Sprintf("[DELETE /v1/objects/{className}/{id}][%d] objectsClassDeleteNotFound ", 404)
 }
 
 func (o *ObjectsClassDeleteNotFound) String() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteNotFound ", 404)
+	return fmt.Sprintf("[DELETE /v1/objects/{className}/{id}][%d] objectsClassDeleteNotFound ", 404)
 }
 
 func (o *ObjectsClassDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -430,11 +430,11 @@ func (o *ObjectsClassDeleteUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsClassDeleteUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/objects/{className}/{id}][%d] objectsClassDeleteUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsClassDeleteUnprocessableEntity) String() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/objects/{className}/{id}][%d] objectsClassDeleteUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsClassDeleteUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -498,11 +498,11 @@ func (o *ObjectsClassDeleteInternalServerError) Code() int {
 }
 
 func (o *ObjectsClassDeleteInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/objects/{className}/{id}][%d] objectsClassDeleteInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsClassDeleteInternalServerError) String() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/objects/{className}/{id}][%d] objectsClassDeleteInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsClassDeleteInternalServerError) GetPayload() *models.ErrorResponse {

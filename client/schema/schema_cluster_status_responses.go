@@ -96,11 +96,11 @@ func (o *SchemaClusterStatusOK) Code() int {
 }
 
 func (o *SchemaClusterStatusOK) Error() string {
-	return fmt.Sprintf("[GET /schema/cluster-status][%d] schemaClusterStatusOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/cluster-status][%d] schemaClusterStatusOK  %+v", 200, o.Payload)
 }
 
 func (o *SchemaClusterStatusOK) String() string {
-	return fmt.Sprintf("[GET /schema/cluster-status][%d] schemaClusterStatusOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/cluster-status][%d] schemaClusterStatusOK  %+v", 200, o.Payload)
 }
 
 func (o *SchemaClusterStatusOK) GetPayload() *models.SchemaClusterStatus {
@@ -164,11 +164,11 @@ func (o *SchemaClusterStatusInternalServerError) Code() int {
 }
 
 func (o *SchemaClusterStatusInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /schema/cluster-status][%d] schemaClusterStatusInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/cluster-status][%d] schemaClusterStatusInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaClusterStatusInternalServerError) String() string {
-	return fmt.Sprintf("[GET /schema/cluster-status][%d] schemaClusterStatusInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/cluster-status][%d] schemaClusterStatusInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaClusterStatusInternalServerError) GetPayload() *models.SchemaClusterStatus {

@@ -119,11 +119,11 @@ func (o *ObjectsClassHeadNoContent) Code() int {
 }
 
 func (o *ObjectsClassHeadNoContent) Error() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadNoContent ", 204)
+	return fmt.Sprintf("[HEAD /v1/objects/{className}/{id}][%d] objectsClassHeadNoContent ", 204)
 }
 
 func (o *ObjectsClassHeadNoContent) String() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadNoContent ", 204)
+	return fmt.Sprintf("[HEAD /v1/objects/{className}/{id}][%d] objectsClassHeadNoContent ", 204)
 }
 
 func (o *ObjectsClassHeadNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -175,11 +175,11 @@ func (o *ObjectsClassHeadUnauthorized) Code() int {
 }
 
 func (o *ObjectsClassHeadUnauthorized) Error() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadUnauthorized ", 401)
+	return fmt.Sprintf("[HEAD /v1/objects/{className}/{id}][%d] objectsClassHeadUnauthorized ", 401)
 }
 
 func (o *ObjectsClassHeadUnauthorized) String() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadUnauthorized ", 401)
+	return fmt.Sprintf("[HEAD /v1/objects/{className}/{id}][%d] objectsClassHeadUnauthorized ", 401)
 }
 
 func (o *ObjectsClassHeadUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -232,11 +232,11 @@ func (o *ObjectsClassHeadForbidden) Code() int {
 }
 
 func (o *ObjectsClassHeadForbidden) Error() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[HEAD /v1/objects/{className}/{id}][%d] objectsClassHeadForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsClassHeadForbidden) String() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[HEAD /v1/objects/{className}/{id}][%d] objectsClassHeadForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsClassHeadForbidden) GetPayload() *models.ErrorResponse {
@@ -299,11 +299,11 @@ func (o *ObjectsClassHeadNotFound) Code() int {
 }
 
 func (o *ObjectsClassHeadNotFound) Error() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadNotFound ", 404)
+	return fmt.Sprintf("[HEAD /v1/objects/{className}/{id}][%d] objectsClassHeadNotFound ", 404)
 }
 
 func (o *ObjectsClassHeadNotFound) String() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadNotFound ", 404)
+	return fmt.Sprintf("[HEAD /v1/objects/{className}/{id}][%d] objectsClassHeadNotFound ", 404)
 }
 
 func (o *ObjectsClassHeadNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -356,11 +356,11 @@ func (o *ObjectsClassHeadUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsClassHeadUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[HEAD /v1/objects/{className}/{id}][%d] objectsClassHeadUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsClassHeadUnprocessableEntity) String() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[HEAD /v1/objects/{className}/{id}][%d] objectsClassHeadUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsClassHeadUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -424,11 +424,11 @@ func (o *ObjectsClassHeadInternalServerError) Code() int {
 }
 
 func (o *ObjectsClassHeadInternalServerError) Error() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[HEAD /v1/objects/{className}/{id}][%d] objectsClassHeadInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsClassHeadInternalServerError) String() string {
-	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[HEAD /v1/objects/{className}/{id}][%d] objectsClassHeadInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsClassHeadInternalServerError) GetPayload() *models.ErrorResponse {

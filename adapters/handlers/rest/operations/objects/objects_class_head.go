@@ -43,7 +43,7 @@ func NewObjectsClassHead(ctx *middleware.Context, handler ObjectsClassHeadHandle
 }
 
 /*
-	ObjectsClassHead swagger:route HEAD /objects/{className}/{id} objects objectsClassHead
+	ObjectsClassHead swagger:route HEAD /v1/objects/{className}/{id} objects objectsClassHead
 
 Checks object's existence based on its class and uuid.
 

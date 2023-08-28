@@ -43,7 +43,7 @@ func NewClassificationsPost(ctx *middleware.Context, handler ClassificationsPost
 }
 
 /*
-	ClassificationsPost swagger:route POST /classifications/ classifications classificationsPost
+	ClassificationsPost swagger:route POST /v1/classifications/ classifications classificationsPost
 
 Starts a classification.
 

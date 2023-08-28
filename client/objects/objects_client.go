@@ -95,7 +95,7 @@ func (a *Client) ObjectsClassDelete(params *ObjectsClassDeleteParams, authInfo r
 	op := &runtime.ClientOperation{
 		ID:                 "objects.class.delete",
 		Method:             "DELETE",
-		PathPattern:        "/objects/{className}/{id}",
+		PathPattern:        "/v1/objects/{className}/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -136,7 +136,7 @@ func (a *Client) ObjectsClassGet(params *ObjectsClassGetParams, authInfo runtime
 	op := &runtime.ClientOperation{
 		ID:                 "objects.class.get",
 		Method:             "GET",
-		PathPattern:        "/objects/{className}/{id}",
+		PathPattern:        "/v1/objects/{className}/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -177,7 +177,7 @@ func (a *Client) ObjectsClassHead(params *ObjectsClassHeadParams, authInfo runti
 	op := &runtime.ClientOperation{
 		ID:                 "objects.class.head",
 		Method:             "HEAD",
-		PathPattern:        "/objects/{className}/{id}",
+		PathPattern:        "/v1/objects/{className}/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -218,7 +218,7 @@ func (a *Client) ObjectsClassPatch(params *ObjectsClassPatchParams, authInfo run
 	op := &runtime.ClientOperation{
 		ID:                 "objects.class.patch",
 		Method:             "PATCH",
-		PathPattern:        "/objects/{className}/{id}",
+		PathPattern:        "/v1/objects/{className}/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -259,7 +259,7 @@ func (a *Client) ObjectsClassPut(params *ObjectsClassPutParams, authInfo runtime
 	op := &runtime.ClientOperation{
 		ID:                 "objects.class.put",
 		Method:             "PUT",
-		PathPattern:        "/objects/{className}/{id}",
+		PathPattern:        "/v1/objects/{className}/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -300,7 +300,7 @@ func (a *Client) ObjectsClassReferencesCreate(params *ObjectsClassReferencesCrea
 	op := &runtime.ClientOperation{
 		ID:                 "objects.class.references.create",
 		Method:             "POST",
-		PathPattern:        "/objects/{className}/{id}/references/{propertyName}",
+		PathPattern:        "/v1/objects/{className}/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -341,7 +341,7 @@ func (a *Client) ObjectsClassReferencesDelete(params *ObjectsClassReferencesDele
 	op := &runtime.ClientOperation{
 		ID:                 "objects.class.references.delete",
 		Method:             "DELETE",
-		PathPattern:        "/objects/{className}/{id}/references/{propertyName}",
+		PathPattern:        "/v1/objects/{className}/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -382,7 +382,7 @@ func (a *Client) ObjectsClassReferencesPut(params *ObjectsClassReferencesPutPara
 	op := &runtime.ClientOperation{
 		ID:                 "objects.class.references.put",
 		Method:             "PUT",
-		PathPattern:        "/objects/{className}/{id}/references/{propertyName}",
+		PathPattern:        "/v1/objects/{className}/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -423,7 +423,7 @@ func (a *Client) ObjectsCreate(params *ObjectsCreateParams, authInfo runtime.Cli
 	op := &runtime.ClientOperation{
 		ID:                 "objects.create",
 		Method:             "POST",
-		PathPattern:        "/objects",
+		PathPattern:        "/v1/objects",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -464,7 +464,7 @@ func (a *Client) ObjectsDelete(params *ObjectsDeleteParams, authInfo runtime.Cli
 	op := &runtime.ClientOperation{
 		ID:                 "objects.delete",
 		Method:             "DELETE",
-		PathPattern:        "/objects/{id}",
+		PathPattern:        "/v1/objects/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -505,7 +505,7 @@ func (a *Client) ObjectsGet(params *ObjectsGetParams, authInfo runtime.ClientAut
 	op := &runtime.ClientOperation{
 		ID:                 "objects.get",
 		Method:             "GET",
-		PathPattern:        "/objects/{id}",
+		PathPattern:        "/v1/objects/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -546,7 +546,7 @@ func (a *Client) ObjectsHead(params *ObjectsHeadParams, authInfo runtime.ClientA
 	op := &runtime.ClientOperation{
 		ID:                 "objects.head",
 		Method:             "HEAD",
-		PathPattern:        "/objects/{id}",
+		PathPattern:        "/v1/objects/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -587,7 +587,7 @@ func (a *Client) ObjectsList(params *ObjectsListParams, authInfo runtime.ClientA
 	op := &runtime.ClientOperation{
 		ID:                 "objects.list",
 		Method:             "GET",
-		PathPattern:        "/objects",
+		PathPattern:        "/v1/objects",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -628,7 +628,7 @@ func (a *Client) ObjectsPatch(params *ObjectsPatchParams, authInfo runtime.Clien
 	op := &runtime.ClientOperation{
 		ID:                 "objects.patch",
 		Method:             "PATCH",
-		PathPattern:        "/objects/{id}",
+		PathPattern:        "/v1/objects/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -669,7 +669,7 @@ func (a *Client) ObjectsReferencesCreate(params *ObjectsReferencesCreateParams, 
 	op := &runtime.ClientOperation{
 		ID:                 "objects.references.create",
 		Method:             "POST",
-		PathPattern:        "/objects/{id}/references/{propertyName}",
+		PathPattern:        "/v1/objects/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -710,7 +710,7 @@ func (a *Client) ObjectsReferencesDelete(params *ObjectsReferencesDeleteParams, 
 	op := &runtime.ClientOperation{
 		ID:                 "objects.references.delete",
 		Method:             "DELETE",
-		PathPattern:        "/objects/{id}/references/{propertyName}",
+		PathPattern:        "/v1/objects/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -751,7 +751,7 @@ func (a *Client) ObjectsReferencesUpdate(params *ObjectsReferencesUpdateParams, 
 	op := &runtime.ClientOperation{
 		ID:                 "objects.references.update",
 		Method:             "PUT",
-		PathPattern:        "/objects/{id}/references/{propertyName}",
+		PathPattern:        "/v1/objects/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -792,7 +792,7 @@ func (a *Client) ObjectsUpdate(params *ObjectsUpdateParams, authInfo runtime.Cli
 	op := &runtime.ClientOperation{
 		ID:                 "objects.update",
 		Method:             "PUT",
-		PathPattern:        "/objects/{id}",
+		PathPattern:        "/v1/objects/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -833,7 +833,7 @@ func (a *Client) ObjectsValidate(params *ObjectsValidateParams, authInfo runtime
 	op := &runtime.ClientOperation{
 		ID:                 "objects.validate",
 		Method:             "POST",
-		PathPattern:        "/objects/validate",
+		PathPattern:        "/v1/objects/validate",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},

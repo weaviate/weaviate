@@ -58,28 +58,28 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 		return meta.NewMetaGetOK().WithPayload(res)
 	})
 
-	api.WellKnownGetWellKnownOpenidConfigurationHandler = well_known.GetWellKnownOpenidConfigurationHandlerFunc(
-		func(params well_known.GetWellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
+	api.WellKnownGetV1WellKnownOpenidConfigurationHandler = well_known.GetV1WellKnownOpenidConfigurationHandlerFunc(
+		func(params well_known.GetV1WellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
 			if !serverConfig.Config.Authentication.OIDC.Enabled {
 				metricRequestsTotal.logUserError("")
-				return well_known.NewGetWellKnownOpenidConfigurationNotFound()
+				return well_known.NewGetV1WellKnownOpenidConfigurationNotFound()
 			}
 
 			target, err := url.JoinPath(serverConfig.Config.Authentication.OIDC.Issuer, "/.well-known/openid-configuration")
 			if err != nil {
 				metricRequestsTotal.logError("", err)
-				return well_known.NewGetWellKnownOpenidConfigurationInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+				return well_known.NewGetV1WellKnownOpenidConfigurationInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 			}
 			clientID := serverConfig.Config.Authentication.OIDC.ClientID
 			scopes := serverConfig.Config.Authentication.OIDC.Scopes
-			body := &well_known.GetWellKnownOpenidConfigurationOKBody{
+			body := &well_known.GetV1WellKnownOpenidConfigurationOKBody{
 				Href:     target,
 				ClientID: clientID,
 				Scopes:   scopes,
 			}
 
 			metricRequestsTotal.logOk("")
-			return well_known.NewGetWellKnownOpenidConfigurationOK().WithPayload(body)
+			return well_known.NewGetV1WellKnownOpenidConfigurationOK().WithPayload(body)
 		})
 
 	api.WeaviateRootHandler = operations.WeaviateRootHandlerFunc(

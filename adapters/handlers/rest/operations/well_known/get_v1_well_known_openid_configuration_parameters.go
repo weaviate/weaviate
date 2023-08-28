@@ -23,19 +23,19 @@ import (
 	"github.com/go-openapi/runtime/middleware"
 )
 
-// NewGetWellKnownOpenidConfigurationParams creates a new GetWellKnownOpenidConfigurationParams object
+// NewGetV1WellKnownOpenidConfigurationParams creates a new GetV1WellKnownOpenidConfigurationParams object
 //
 // There are no default values defined in the spec.
-func NewGetWellKnownOpenidConfigurationParams() GetWellKnownOpenidConfigurationParams {
+func NewGetV1WellKnownOpenidConfigurationParams() GetV1WellKnownOpenidConfigurationParams {
 
-	return GetWellKnownOpenidConfigurationParams{}
+	return GetV1WellKnownOpenidConfigurationParams{}
 }
 
-// GetWellKnownOpenidConfigurationParams contains all the bound params for the get well known openid configuration operation
+// GetV1WellKnownOpenidConfigurationParams contains all the bound params for the get v1 well known openid configuration operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters GetWellKnownOpenidConfiguration
-type GetWellKnownOpenidConfigurationParams struct {
+// swagger:parameters GetV1WellKnownOpenidConfiguration
+type GetV1WellKnownOpenidConfigurationParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
@@ -44,8 +44,8 @@ type GetWellKnownOpenidConfigurationParams struct {
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls.
 //
-// To ensure default values, the struct must have been initialized with NewGetWellKnownOpenidConfigurationParams() beforehand.
-func (o *GetWellKnownOpenidConfigurationParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+// To ensure default values, the struct must have been initialized with NewGetV1WellKnownOpenidConfigurationParams() beforehand.
+func (o *GetV1WellKnownOpenidConfigurationParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 
 	o.HTTPRequest = r

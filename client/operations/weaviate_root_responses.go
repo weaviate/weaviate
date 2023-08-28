@@ -94,11 +94,11 @@ func (o *WeaviateRootOK) Code() int {
 }
 
 func (o *WeaviateRootOK) Error() string {
-	return fmt.Sprintf("[GET /][%d] weaviateRootOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1][%d] weaviateRootOK  %+v", 200, o.Payload)
 }
 
 func (o *WeaviateRootOK) String() string {
-	return fmt.Sprintf("[GET /][%d] weaviateRootOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1][%d] weaviateRootOK  %+v", 200, o.Payload)
 }
 
 func (o *WeaviateRootOK) GetPayload() *WeaviateRootOKBody {

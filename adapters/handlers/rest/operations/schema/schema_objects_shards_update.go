@@ -43,7 +43,7 @@ func NewSchemaObjectsShardsUpdate(ctx *middleware.Context, handler SchemaObjects
 }
 
 /*
-	SchemaObjectsShardsUpdate swagger:route PUT /schema/{className}/shards/{shardName} schema schemaObjectsShardsUpdate
+	SchemaObjectsShardsUpdate swagger:route PUT /v1/schema/{className}/shards/{shardName} schema schemaObjectsShardsUpdate
 
 Update shard status of an Object Class
 */

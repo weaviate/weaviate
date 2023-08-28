@@ -63,7 +63,7 @@ func (a *Client) BatchObjectsCreate(params *BatchObjectsCreateParams, authInfo r
 	op := &runtime.ClientOperation{
 		ID:                 "batch.objects.create",
 		Method:             "POST",
-		PathPattern:        "/batch/objects",
+		PathPattern:        "/v1/batch/objects",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -104,7 +104,7 @@ func (a *Client) BatchObjectsDelete(params *BatchObjectsDeleteParams, authInfo r
 	op := &runtime.ClientOperation{
 		ID:                 "batch.objects.delete",
 		Method:             "DELETE",
-		PathPattern:        "/batch/objects",
+		PathPattern:        "/v1/batch/objects",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -145,7 +145,7 @@ func (a *Client) BatchReferencesCreate(params *BatchReferencesCreateParams, auth
 	op := &runtime.ClientOperation{
 		ID:                 "batch.references.create",
 		Method:             "POST",
-		PathPattern:        "/batch/references",
+		PathPattern:        "/v1/batch/references",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},

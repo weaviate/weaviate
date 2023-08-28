@@ -43,7 +43,7 @@ func NewClassificationsGet(ctx *middleware.Context, handler ClassificationsGetHa
 }
 
 /*
-	ClassificationsGet swagger:route GET /classifications/{id} classifications classificationsGet
+	ClassificationsGet swagger:route GET /v1/classifications/{id} classifications classificationsGet
 
 # View previously created classification
 

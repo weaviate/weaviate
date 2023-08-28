@@ -43,7 +43,7 @@ func NewObjectsUpdate(ctx *middleware.Context, handler ObjectsUpdateHandler) *Ob
 }
 
 /*
-	ObjectsUpdate swagger:route PUT /objects/{id} objects objectsUpdate
+	ObjectsUpdate swagger:route PUT /v1/objects/{id} objects objectsUpdate
 
 Update an Object based on its UUID.
 

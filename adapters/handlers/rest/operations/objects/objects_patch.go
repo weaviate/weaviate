@@ -43,7 +43,7 @@ func NewObjectsPatch(ctx *middleware.Context, handler ObjectsPatchHandler) *Obje
 }
 
 /*
-	ObjectsPatch swagger:route PATCH /objects/{id} objects objectsPatch
+	ObjectsPatch swagger:route PATCH /v1/objects/{id} objects objectsPatch
 
 Update an Object based on its UUID (using patch semantics).
 

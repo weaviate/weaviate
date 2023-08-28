@@ -51,7 +51,7 @@ func (o *BackupsCreateURL) SetBasePath(bp string) {
 func (o *BackupsCreateURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/backups/{backend}"
+	var _path = "/v1/backups/{backend}"
 
 	backend := o.Backend
 	if backend != "" {
@@ -62,7 +62,7 @@ func (o *BackupsCreateURL) Build() (*url.URL, error) {
 
 	_basePath := o._basePath
 	if _basePath == "" {
-		_basePath = "/v1"
+		_basePath = "/"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 

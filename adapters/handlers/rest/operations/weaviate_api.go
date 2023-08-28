@@ -66,8 +66,8 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 
 		JSONProducer: runtime.JSONProducer(),
 
-		WellKnownGetWellKnownOpenidConfigurationHandler: well_known.GetWellKnownOpenidConfigurationHandlerFunc(func(params well_known.GetWellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation well_known.GetWellKnownOpenidConfiguration has not yet been implemented")
+		WellKnownGetV1WellKnownOpenidConfigurationHandler: well_known.GetV1WellKnownOpenidConfigurationHandlerFunc(func(params well_known.GetV1WellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation well_known.GetV1WellKnownOpenidConfiguration has not yet been implemented")
 		}),
 		BackupsBackupsCreateHandler: backups.BackupsCreateHandlerFunc(func(params backups.BackupsCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation backups.BackupsCreate has not yet been implemented")
@@ -207,6 +207,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaTenantsUpdateHandler: schema.TenantsUpdateHandlerFunc(func(params schema.TenantsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantsUpdate has not yet been implemented")
 		}),
+		WeaviateBaseHandler: WeaviateBaseHandlerFunc(func(params WeaviateBaseParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation WeaviateBase has not yet been implemented")
+		}),
 		WeaviateRootHandler: WeaviateRootHandlerFunc(func(params WeaviateRootParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateRoot has not yet been implemented")
 		}),
@@ -268,8 +271,8 @@ type WeaviateAPI struct {
 	// APIAuthorizer provides access control (ACL/RBAC/ABAC) by providing access to the request and authenticated principal
 	APIAuthorizer runtime.Authorizer
 
-	// WellKnownGetWellKnownOpenidConfigurationHandler sets the operation handler for the get well known openid configuration operation
-	WellKnownGetWellKnownOpenidConfigurationHandler well_known.GetWellKnownOpenidConfigurationHandler
+	// WellKnownGetV1WellKnownOpenidConfigurationHandler sets the operation handler for the get v1 well known openid configuration operation
+	WellKnownGetV1WellKnownOpenidConfigurationHandler well_known.GetV1WellKnownOpenidConfigurationHandler
 	// BackupsBackupsCreateHandler sets the operation handler for the backups create operation
 	BackupsBackupsCreateHandler backups.BackupsCreateHandler
 	// BackupsBackupsCreateStatusHandler sets the operation handler for the backups create status operation
@@ -362,6 +365,8 @@ type WeaviateAPI struct {
 	SchemaTenantsGetHandler schema.TenantsGetHandler
 	// SchemaTenantsUpdateHandler sets the operation handler for the tenants update operation
 	SchemaTenantsUpdateHandler schema.TenantsUpdateHandler
+	// WeaviateBaseHandler sets the operation handler for the weaviate base operation
+	WeaviateBaseHandler WeaviateBaseHandler
 	// WeaviateRootHandler sets the operation handler for the weaviate root operation
 	WeaviateRootHandler WeaviateRootHandler
 	// WeaviateWellknownLivenessHandler sets the operation handler for the weaviate wellknown liveness operation
@@ -452,8 +457,8 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "OidcAuth")
 	}
 
-	if o.WellKnownGetWellKnownOpenidConfigurationHandler == nil {
-		unregistered = append(unregistered, "well_known.GetWellKnownOpenidConfigurationHandler")
+	if o.WellKnownGetV1WellKnownOpenidConfigurationHandler == nil {
+		unregistered = append(unregistered, "well_known.GetV1WellKnownOpenidConfigurationHandler")
 	}
 	if o.BackupsBackupsCreateHandler == nil {
 		unregistered = append(unregistered, "backups.BackupsCreateHandler")
@@ -593,6 +598,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.SchemaTenantsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.TenantsUpdateHandler")
 	}
+	if o.WeaviateBaseHandler == nil {
+		unregistered = append(unregistered, "WeaviateBaseHandler")
+	}
 	if o.WeaviateRootHandler == nil {
 		unregistered = append(unregistered, "WeaviateRootHandler")
 	}
@@ -705,203 +713,207 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/.well-known/openid-configuration"] = well_known.NewGetWellKnownOpenidConfiguration(o.context, o.WellKnownGetWellKnownOpenidConfigurationHandler)
+	o.handlers["GET"]["/v1/.well-known/openid-configuration"] = well_known.NewGetV1WellKnownOpenidConfiguration(o.context, o.WellKnownGetV1WellKnownOpenidConfigurationHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/backups/{backend}"] = backups.NewBackupsCreate(o.context, o.BackupsBackupsCreateHandler)
+	o.handlers["POST"]["/v1/backups/{backend}"] = backups.NewBackupsCreate(o.context, o.BackupsBackupsCreateHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/backups/{backend}/{id}"] = backups.NewBackupsCreateStatus(o.context, o.BackupsBackupsCreateStatusHandler)
+	o.handlers["GET"]["/v1/backups/{backend}/{id}"] = backups.NewBackupsCreateStatus(o.context, o.BackupsBackupsCreateStatusHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/backups/{backend}/{id}/restore"] = backups.NewBackupsRestore(o.context, o.BackupsBackupsRestoreHandler)
+	o.handlers["POST"]["/v1/backups/{backend}/{id}/restore"] = backups.NewBackupsRestore(o.context, o.BackupsBackupsRestoreHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/backups/{backend}/{id}/restore"] = backups.NewBackupsRestoreStatus(o.context, o.BackupsBackupsRestoreStatusHandler)
+	o.handlers["GET"]["/v1/backups/{backend}/{id}/restore"] = backups.NewBackupsRestoreStatus(o.context, o.BackupsBackupsRestoreStatusHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/batch/objects"] = batch.NewBatchObjectsCreate(o.context, o.BatchBatchObjectsCreateHandler)
+	o.handlers["POST"]["/v1/batch/objects"] = batch.NewBatchObjectsCreate(o.context, o.BatchBatchObjectsCreateHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/batch/objects"] = batch.NewBatchObjectsDelete(o.context, o.BatchBatchObjectsDeleteHandler)
+	o.handlers["DELETE"]["/v1/batch/objects"] = batch.NewBatchObjectsDelete(o.context, o.BatchBatchObjectsDeleteHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/batch/references"] = batch.NewBatchReferencesCreate(o.context, o.BatchBatchReferencesCreateHandler)
+	o.handlers["POST"]["/v1/batch/references"] = batch.NewBatchReferencesCreate(o.context, o.BatchBatchReferencesCreateHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/classifications/{id}"] = classifications.NewClassificationsGet(o.context, o.ClassificationsClassificationsGetHandler)
+	o.handlers["GET"]["/v1/classifications/{id}"] = classifications.NewClassificationsGet(o.context, o.ClassificationsClassificationsGetHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/classifications"] = classifications.NewClassificationsPost(o.context, o.ClassificationsClassificationsPostHandler)
+	o.handlers["POST"]["/v1/classifications"] = classifications.NewClassificationsPost(o.context, o.ClassificationsClassificationsPostHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/graphql/batch"] = graphql.NewGraphqlBatch(o.context, o.GraphqlGraphqlBatchHandler)
+	o.handlers["POST"]["/v1/graphql/batch"] = graphql.NewGraphqlBatch(o.context, o.GraphqlGraphqlBatchHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/graphql"] = graphql.NewGraphqlPost(o.context, o.GraphqlGraphqlPostHandler)
+	o.handlers["POST"]["/v1/graphql"] = graphql.NewGraphqlPost(o.context, o.GraphqlGraphqlPostHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/meta"] = meta.NewMetaGet(o.context, o.MetaMetaGetHandler)
+	o.handlers["GET"]["/v1/meta"] = meta.NewMetaGet(o.context, o.MetaMetaGetHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/nodes"] = nodes.NewNodesGet(o.context, o.NodesNodesGetHandler)
+	o.handlers["GET"]["/v1/nodes"] = nodes.NewNodesGet(o.context, o.NodesNodesGetHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/nodes/{className}"] = nodes.NewNodesGetClass(o.context, o.NodesNodesGetClassHandler)
+	o.handlers["GET"]["/v1/nodes/{className}"] = nodes.NewNodesGetClass(o.context, o.NodesNodesGetClassHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/objects/{className}/{id}"] = objects.NewObjectsClassDelete(o.context, o.ObjectsObjectsClassDeleteHandler)
+	o.handlers["DELETE"]["/v1/objects/{className}/{id}"] = objects.NewObjectsClassDelete(o.context, o.ObjectsObjectsClassDeleteHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/objects/{className}/{id}"] = objects.NewObjectsClassGet(o.context, o.ObjectsObjectsClassGetHandler)
+	o.handlers["GET"]["/v1/objects/{className}/{id}"] = objects.NewObjectsClassGet(o.context, o.ObjectsObjectsClassGetHandler)
 	if o.handlers["HEAD"] == nil {
 		o.handlers["HEAD"] = make(map[string]http.Handler)
 	}
-	o.handlers["HEAD"]["/objects/{className}/{id}"] = objects.NewObjectsClassHead(o.context, o.ObjectsObjectsClassHeadHandler)
+	o.handlers["HEAD"]["/v1/objects/{className}/{id}"] = objects.NewObjectsClassHead(o.context, o.ObjectsObjectsClassHeadHandler)
 	if o.handlers["PATCH"] == nil {
 		o.handlers["PATCH"] = make(map[string]http.Handler)
 	}
-	o.handlers["PATCH"]["/objects/{className}/{id}"] = objects.NewObjectsClassPatch(o.context, o.ObjectsObjectsClassPatchHandler)
+	o.handlers["PATCH"]["/v1/objects/{className}/{id}"] = objects.NewObjectsClassPatch(o.context, o.ObjectsObjectsClassPatchHandler)
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
-	o.handlers["PUT"]["/objects/{className}/{id}"] = objects.NewObjectsClassPut(o.context, o.ObjectsObjectsClassPutHandler)
+	o.handlers["PUT"]["/v1/objects/{className}/{id}"] = objects.NewObjectsClassPut(o.context, o.ObjectsObjectsClassPutHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/objects/{className}/{id}/references/{propertyName}"] = objects.NewObjectsClassReferencesCreate(o.context, o.ObjectsObjectsClassReferencesCreateHandler)
+	o.handlers["POST"]["/v1/objects/{className}/{id}/references/{propertyName}"] = objects.NewObjectsClassReferencesCreate(o.context, o.ObjectsObjectsClassReferencesCreateHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/objects/{className}/{id}/references/{propertyName}"] = objects.NewObjectsClassReferencesDelete(o.context, o.ObjectsObjectsClassReferencesDeleteHandler)
+	o.handlers["DELETE"]["/v1/objects/{className}/{id}/references/{propertyName}"] = objects.NewObjectsClassReferencesDelete(o.context, o.ObjectsObjectsClassReferencesDeleteHandler)
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
-	o.handlers["PUT"]["/objects/{className}/{id}/references/{propertyName}"] = objects.NewObjectsClassReferencesPut(o.context, o.ObjectsObjectsClassReferencesPutHandler)
+	o.handlers["PUT"]["/v1/objects/{className}/{id}/references/{propertyName}"] = objects.NewObjectsClassReferencesPut(o.context, o.ObjectsObjectsClassReferencesPutHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/objects"] = objects.NewObjectsCreate(o.context, o.ObjectsObjectsCreateHandler)
+	o.handlers["POST"]["/v1/objects"] = objects.NewObjectsCreate(o.context, o.ObjectsObjectsCreateHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/objects/{id}"] = objects.NewObjectsDelete(o.context, o.ObjectsObjectsDeleteHandler)
+	o.handlers["DELETE"]["/v1/objects/{id}"] = objects.NewObjectsDelete(o.context, o.ObjectsObjectsDeleteHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/objects/{id}"] = objects.NewObjectsGet(o.context, o.ObjectsObjectsGetHandler)
+	o.handlers["GET"]["/v1/objects/{id}"] = objects.NewObjectsGet(o.context, o.ObjectsObjectsGetHandler)
 	if o.handlers["HEAD"] == nil {
 		o.handlers["HEAD"] = make(map[string]http.Handler)
 	}
-	o.handlers["HEAD"]["/objects/{id}"] = objects.NewObjectsHead(o.context, o.ObjectsObjectsHeadHandler)
+	o.handlers["HEAD"]["/v1/objects/{id}"] = objects.NewObjectsHead(o.context, o.ObjectsObjectsHeadHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/objects"] = objects.NewObjectsList(o.context, o.ObjectsObjectsListHandler)
+	o.handlers["GET"]["/v1/objects"] = objects.NewObjectsList(o.context, o.ObjectsObjectsListHandler)
 	if o.handlers["PATCH"] == nil {
 		o.handlers["PATCH"] = make(map[string]http.Handler)
 	}
-	o.handlers["PATCH"]["/objects/{id}"] = objects.NewObjectsPatch(o.context, o.ObjectsObjectsPatchHandler)
+	o.handlers["PATCH"]["/v1/objects/{id}"] = objects.NewObjectsPatch(o.context, o.ObjectsObjectsPatchHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/objects/{id}/references/{propertyName}"] = objects.NewObjectsReferencesCreate(o.context, o.ObjectsObjectsReferencesCreateHandler)
+	o.handlers["POST"]["/v1/objects/{id}/references/{propertyName}"] = objects.NewObjectsReferencesCreate(o.context, o.ObjectsObjectsReferencesCreateHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/objects/{id}/references/{propertyName}"] = objects.NewObjectsReferencesDelete(o.context, o.ObjectsObjectsReferencesDeleteHandler)
+	o.handlers["DELETE"]["/v1/objects/{id}/references/{propertyName}"] = objects.NewObjectsReferencesDelete(o.context, o.ObjectsObjectsReferencesDeleteHandler)
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
-	o.handlers["PUT"]["/objects/{id}/references/{propertyName}"] = objects.NewObjectsReferencesUpdate(o.context, o.ObjectsObjectsReferencesUpdateHandler)
+	o.handlers["PUT"]["/v1/objects/{id}/references/{propertyName}"] = objects.NewObjectsReferencesUpdate(o.context, o.ObjectsObjectsReferencesUpdateHandler)
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
-	o.handlers["PUT"]["/objects/{id}"] = objects.NewObjectsUpdate(o.context, o.ObjectsObjectsUpdateHandler)
+	o.handlers["PUT"]["/v1/objects/{id}"] = objects.NewObjectsUpdate(o.context, o.ObjectsObjectsUpdateHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/objects/validate"] = objects.NewObjectsValidate(o.context, o.ObjectsObjectsValidateHandler)
+	o.handlers["POST"]["/v1/objects/validate"] = objects.NewObjectsValidate(o.context, o.ObjectsObjectsValidateHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/schema/cluster-status"] = schema.NewSchemaClusterStatus(o.context, o.SchemaSchemaClusterStatusHandler)
+	o.handlers["GET"]["/v1/schema/cluster-status"] = schema.NewSchemaClusterStatus(o.context, o.SchemaSchemaClusterStatusHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/schema"] = schema.NewSchemaDump(o.context, o.SchemaSchemaDumpHandler)
+	o.handlers["GET"]["/v1/schema"] = schema.NewSchemaDump(o.context, o.SchemaSchemaDumpHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/schema"] = schema.NewSchemaObjectsCreate(o.context, o.SchemaSchemaObjectsCreateHandler)
+	o.handlers["POST"]["/v1/schema"] = schema.NewSchemaObjectsCreate(o.context, o.SchemaSchemaObjectsCreateHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/schema/{className}"] = schema.NewSchemaObjectsDelete(o.context, o.SchemaSchemaObjectsDeleteHandler)
+	o.handlers["DELETE"]["/v1/schema/{className}"] = schema.NewSchemaObjectsDelete(o.context, o.SchemaSchemaObjectsDeleteHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/schema/{className}"] = schema.NewSchemaObjectsGet(o.context, o.SchemaSchemaObjectsGetHandler)
+	o.handlers["GET"]["/v1/schema/{className}"] = schema.NewSchemaObjectsGet(o.context, o.SchemaSchemaObjectsGetHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/schema/{className}/properties"] = schema.NewSchemaObjectsPropertiesAdd(o.context, o.SchemaSchemaObjectsPropertiesAddHandler)
+	o.handlers["POST"]["/v1/schema/{className}/properties"] = schema.NewSchemaObjectsPropertiesAdd(o.context, o.SchemaSchemaObjectsPropertiesAddHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/schema/{className}/shards"] = schema.NewSchemaObjectsShardsGet(o.context, o.SchemaSchemaObjectsShardsGetHandler)
+	o.handlers["GET"]["/v1/schema/{className}/shards"] = schema.NewSchemaObjectsShardsGet(o.context, o.SchemaSchemaObjectsShardsGetHandler)
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
-	o.handlers["PUT"]["/schema/{className}/shards/{shardName}"] = schema.NewSchemaObjectsShardsUpdate(o.context, o.SchemaSchemaObjectsShardsUpdateHandler)
+	o.handlers["PUT"]["/v1/schema/{className}/shards/{shardName}"] = schema.NewSchemaObjectsShardsUpdate(o.context, o.SchemaSchemaObjectsShardsUpdateHandler)
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
-	o.handlers["PUT"]["/schema/{className}"] = schema.NewSchemaObjectsUpdate(o.context, o.SchemaSchemaObjectsUpdateHandler)
+	o.handlers["PUT"]["/v1/schema/{className}"] = schema.NewSchemaObjectsUpdate(o.context, o.SchemaSchemaObjectsUpdateHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/schema/{className}/tenants"] = schema.NewTenantsCreate(o.context, o.SchemaTenantsCreateHandler)
+	o.handlers["POST"]["/v1/schema/{className}/tenants"] = schema.NewTenantsCreate(o.context, o.SchemaTenantsCreateHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/schema/{className}/tenants"] = schema.NewTenantsDelete(o.context, o.SchemaTenantsDeleteHandler)
+	o.handlers["DELETE"]["/v1/schema/{className}/tenants"] = schema.NewTenantsDelete(o.context, o.SchemaTenantsDeleteHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/schema/{className}/tenants"] = schema.NewTenantsGet(o.context, o.SchemaTenantsGetHandler)
+	o.handlers["GET"]["/v1/schema/{className}/tenants"] = schema.NewTenantsGet(o.context, o.SchemaTenantsGetHandler)
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
-	o.handlers["PUT"]["/schema/{className}/tenants"] = schema.NewTenantsUpdate(o.context, o.SchemaTenantsUpdateHandler)
+	o.handlers["PUT"]["/v1/schema/{className}/tenants"] = schema.NewTenantsUpdate(o.context, o.SchemaTenantsUpdateHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"][""] = NewWeaviateRoot(o.context, o.WeaviateRootHandler)
+	o.handlers["GET"][""] = NewWeaviateBase(o.context, o.WeaviateBaseHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/.well-known/live"] = NewWeaviateWellknownLiveness(o.context, o.WeaviateWellknownLivenessHandler)
+	o.handlers["GET"]["/v1"] = NewWeaviateRoot(o.context, o.WeaviateRootHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/.well-known/ready"] = NewWeaviateWellknownReadiness(o.context, o.WeaviateWellknownReadinessHandler)
+	o.handlers["GET"]["/v1/.well-known/live"] = NewWeaviateWellknownLiveness(o.context, o.WeaviateWellknownLivenessHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/v1/.well-known/ready"] = NewWeaviateWellknownReadiness(o.context, o.WeaviateWellknownReadinessHandler)
 }
 
 // Serve creates a http handler to serve the API over HTTP

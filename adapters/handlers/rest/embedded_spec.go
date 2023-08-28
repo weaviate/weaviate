@@ -50,9 +50,20 @@ func init() {
     },
     "version": "1.21.1"
   },
-  "basePath": "/v1",
+  "basePath": "/",
   "paths": {
     "/": {
+      "get": {
+        "description": "Home. Discover the REST API",
+        "operationId": "weaviate.base",
+        "responses": {
+          "200": {
+            "description": "Weaviate is alive and ready to serve content"
+          }
+        }
+      }
+    },
+    "/v1": {
       "get": {
         "description": "Home. Discover the REST API",
         "operationId": "weaviate.root",
@@ -74,7 +85,7 @@ func init() {
         }
       }
     },
-    "/.well-known/live": {
+    "/v1/.well-known/live": {
       "get": {
         "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
         "operationId": "weaviate.wellknown.liveness",
@@ -85,7 +96,7 @@ func init() {
         }
       }
     },
-    "/.well-known/openid-configuration": {
+    "/v1/.well-known/openid-configuration": {
       "get": {
         "description": "OIDC Discovery page, redirects to the token issuer if one is configured",
         "tags": [
@@ -133,7 +144,7 @@ func init() {
         "x-available-in-websocket": false
       }
     },
-    "/.well-known/ready": {
+    "/v1/.well-known/ready": {
       "get": {
         "description": "Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.",
         "operationId": "weaviate.wellknown.readiness",
@@ -147,7 +158,7 @@ func init() {
         }
       }
     },
-    "/backups/{backend}": {
+    "/v1/backups/{backend}": {
       "post": {
         "description": "Starts a process of creating a backup for a set of classes",
         "tags": [
@@ -205,7 +216,7 @@ func init() {
         ]
       }
     },
-    "/backups/{backend}/{id}": {
+    "/v1/backups/{backend}/{id}": {
       "get": {
         "description": "Returns status of backup creation attempt for a set of classes",
         "tags": [
@@ -268,7 +279,7 @@ func init() {
         ]
       }
     },
-    "/backups/{backend}/{id}/restore": {
+    "/v1/backups/{backend}/{id}/restore": {
       "get": {
         "description": "Returns status of a backup restoration attempt for a set of classes",
         "tags": [
@@ -394,7 +405,7 @@ func init() {
         ]
       }
     },
-    "/batch/objects": {
+    "/v1/batch/objects": {
       "post": {
         "description": "Register new Objects in bulk. Provided meta-data and schema values are validated.",
         "tags": [
@@ -549,7 +560,7 @@ func init() {
         ]
       }
     },
-    "/batch/references": {
+    "/v1/batch/references": {
       "post": {
         "description": "Register cross-references between any class items (objects or objects) in bulk.",
         "tags": [
@@ -620,7 +631,7 @@ func init() {
         ]
       }
     },
-    "/classifications/": {
+    "/v1/classifications/": {
       "post": {
         "description": "Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/\u003cid\u003e to retrieve the status of your classification.",
         "tags": [
@@ -673,7 +684,7 @@ func init() {
         ]
       }
     },
-    "/classifications/{id}": {
+    "/v1/classifications/{id}": {
       "get": {
         "description": "Get status, results and metadata of a previously created classification",
         "tags": [
@@ -721,7 +732,7 @@ func init() {
         ]
       }
     },
-    "/graphql": {
+    "/v1/graphql": {
       "post": {
         "description": "Get an object based on GraphQL",
         "tags": [
@@ -779,7 +790,7 @@ func init() {
         ]
       }
     },
-    "/graphql/batch": {
+    "/v1/graphql/batch": {
       "post": {
         "description": "Perform a batched GraphQL query",
         "tags": [
@@ -837,7 +848,7 @@ func init() {
         ]
       }
     },
-    "/meta": {
+    "/v1/meta": {
       "get": {
         "description": "Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
         "tags": [
@@ -875,7 +886,7 @@ func init() {
         ]
       }
     },
-    "/nodes": {
+    "/v1/nodes": {
       "get": {
         "description": "Returns status of Weaviate DB.",
         "tags": [
@@ -922,7 +933,7 @@ func init() {
         ]
       }
     },
-    "/nodes/{className}": {
+    "/v1/nodes/{className}": {
       "get": {
         "description": "Returns status of Weaviate DB.",
         "tags": [
@@ -977,7 +988,7 @@ func init() {
         ]
       }
     },
-    "/objects": {
+    "/v1/objects": {
       "get": {
         "description": "Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.",
         "tags": [
@@ -1117,7 +1128,7 @@ func init() {
         ]
       }
     },
-    "/objects/validate": {
+    "/v1/objects/validate": {
       "post": {
         "description": "Validate an Object's schema and meta-data. It has to be based on a schema, which is related to the given Object to be accepted by this validation.",
         "tags": [
@@ -1168,7 +1179,7 @@ func init() {
         ]
       }
     },
-    "/objects/{className}/{id}": {
+    "/v1/objects/{className}/{id}": {
       "get": {
         "description": "Get a single data object",
         "tags": [
@@ -1532,7 +1543,7 @@ func init() {
         ]
       }
     },
-    "/objects/{className}/{id}/references/{propertyName}": {
+    "/v1/objects/{className}/{id}/references/{propertyName}": {
       "put": {
         "description": "Update all references of a property of a data object.",
         "tags": [
@@ -1795,7 +1806,7 @@ func init() {
         ]
       }
     },
-    "/objects/{id}": {
+    "/v1/objects/{id}": {
       "get": {
         "description": "Lists Objects.",
         "tags": [
@@ -2090,7 +2101,7 @@ func init() {
         ]
       }
     },
-    "/objects/{id}/references/{propertyName}": {
+    "/v1/objects/{id}/references/{propertyName}": {
       "put": {
         "description": "Replace all references to a class-property.",
         "tags": [
@@ -2296,7 +2307,7 @@ func init() {
         ]
       }
     },
-    "/schema": {
+    "/v1/schema": {
       "get": {
         "tags": [
           "schema"
@@ -2380,7 +2391,7 @@ func init() {
         ]
       }
     },
-    "/schema/cluster-status": {
+    "/v1/schema/cluster-status": {
       "get": {
         "tags": [
           "schema"
@@ -2402,7 +2413,7 @@ func init() {
         }
       }
     },
-    "/schema/{className}": {
+    "/v1/schema/{className}": {
       "get": {
         "tags": [
           "schema"
@@ -2554,7 +2565,7 @@ func init() {
         ]
       }
     },
-    "/schema/{className}/properties": {
+    "/v1/schema/{className}/properties": {
       "post": {
         "tags": [
           "schema"
@@ -2611,7 +2622,7 @@ func init() {
         ]
       }
     },
-    "/schema/{className}/shards": {
+    "/v1/schema/{className}/shards": {
       "get": {
         "tags": [
           "schema"
@@ -2660,7 +2671,7 @@ func init() {
         ]
       }
     },
-    "/schema/{className}/shards/{shardName}": {
+    "/v1/schema/{className}/shards/{shardName}": {
       "put": {
         "description": "Update shard status of an Object Class",
         "tags": [
@@ -2729,7 +2740,7 @@ func init() {
         ]
       }
     },
-    "/schema/{className}/tenants": {
+    "/v1/schema/{className}/tenants": {
       "get": {
         "description": "get all tenants from a specific class",
         "tags": [
@@ -4861,9 +4872,20 @@ func init() {
     },
     "version": "1.21.1"
   },
-  "basePath": "/v1",
+  "basePath": "/",
   "paths": {
     "/": {
+      "get": {
+        "description": "Home. Discover the REST API",
+        "operationId": "weaviate.base",
+        "responses": {
+          "200": {
+            "description": "Weaviate is alive and ready to serve content"
+          }
+        }
+      }
+    },
+    "/v1": {
       "get": {
         "description": "Home. Discover the REST API",
         "operationId": "weaviate.root",
@@ -4885,7 +4907,7 @@ func init() {
         }
       }
     },
-    "/.well-known/live": {
+    "/v1/.well-known/live": {
       "get": {
         "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
         "operationId": "weaviate.wellknown.liveness",
@@ -4896,7 +4918,7 @@ func init() {
         }
       }
     },
-    "/.well-known/openid-configuration": {
+    "/v1/.well-known/openid-configuration": {
       "get": {
         "description": "OIDC Discovery page, redirects to the token issuer if one is configured",
         "tags": [
@@ -4944,7 +4966,7 @@ func init() {
         "x-available-in-websocket": false
       }
     },
-    "/.well-known/ready": {
+    "/v1/.well-known/ready": {
       "get": {
         "description": "Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.",
         "operationId": "weaviate.wellknown.readiness",
@@ -4958,7 +4980,7 @@ func init() {
         }
       }
     },
-    "/backups/{backend}": {
+    "/v1/backups/{backend}": {
       "post": {
         "description": "Starts a process of creating a backup for a set of classes",
         "tags": [
@@ -5016,7 +5038,7 @@ func init() {
         ]
       }
     },
-    "/backups/{backend}/{id}": {
+    "/v1/backups/{backend}/{id}": {
       "get": {
         "description": "Returns status of backup creation attempt for a set of classes",
         "tags": [
@@ -5079,7 +5101,7 @@ func init() {
         ]
       }
     },
-    "/backups/{backend}/{id}/restore": {
+    "/v1/backups/{backend}/{id}/restore": {
       "get": {
         "description": "Returns status of a backup restoration attempt for a set of classes",
         "tags": [
@@ -5205,7 +5227,7 @@ func init() {
         ]
       }
     },
-    "/batch/objects": {
+    "/v1/batch/objects": {
       "post": {
         "description": "Register new Objects in bulk. Provided meta-data and schema values are validated.",
         "tags": [
@@ -5369,7 +5391,7 @@ func init() {
         ]
       }
     },
-    "/batch/references": {
+    "/v1/batch/references": {
       "post": {
         "description": "Register cross-references between any class items (objects or objects) in bulk.",
         "tags": [
@@ -5443,7 +5465,7 @@ func init() {
         ]
       }
     },
-    "/classifications/": {
+    "/v1/classifications/": {
       "post": {
         "description": "Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/\u003cid\u003e to retrieve the status of your classification.",
         "tags": [
@@ -5496,7 +5518,7 @@ func init() {
         ]
       }
     },
-    "/classifications/{id}": {
+    "/v1/classifications/{id}": {
       "get": {
         "description": "Get status, results and metadata of a previously created classification",
         "tags": [
@@ -5544,7 +5566,7 @@ func init() {
         ]
       }
     },
-    "/graphql": {
+    "/v1/graphql": {
       "post": {
         "description": "Get an object based on GraphQL",
         "tags": [
@@ -5602,7 +5624,7 @@ func init() {
         ]
       }
     },
-    "/graphql/batch": {
+    "/v1/graphql/batch": {
       "post": {
         "description": "Perform a batched GraphQL query",
         "tags": [
@@ -5660,7 +5682,7 @@ func init() {
         ]
       }
     },
-    "/meta": {
+    "/v1/meta": {
       "get": {
         "description": "Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
         "tags": [
@@ -5698,7 +5720,7 @@ func init() {
         ]
       }
     },
-    "/nodes": {
+    "/v1/nodes": {
       "get": {
         "description": "Returns status of Weaviate DB.",
         "tags": [
@@ -5745,7 +5767,7 @@ func init() {
         ]
       }
     },
-    "/nodes/{className}": {
+    "/v1/nodes/{className}": {
       "get": {
         "description": "Returns status of Weaviate DB.",
         "tags": [
@@ -5800,7 +5822,7 @@ func init() {
         ]
       }
     },
-    "/objects": {
+    "/v1/objects": {
       "get": {
         "description": "Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.",
         "tags": [
@@ -5970,7 +5992,7 @@ func init() {
         ]
       }
     },
-    "/objects/validate": {
+    "/v1/objects/validate": {
       "post": {
         "description": "Validate an Object's schema and meta-data. It has to be based on a schema, which is related to the given Object to be accepted by this validation.",
         "tags": [
@@ -6021,7 +6043,7 @@ func init() {
         ]
       }
     },
-    "/objects/{className}/{id}": {
+    "/v1/objects/{className}/{id}": {
       "get": {
         "description": "Get a single data object",
         "tags": [
@@ -6415,7 +6437,7 @@ func init() {
         ]
       }
     },
-    "/objects/{className}/{id}/references/{propertyName}": {
+    "/v1/objects/{className}/{id}/references/{propertyName}": {
       "put": {
         "description": "Update all references of a property of a data object.",
         "tags": [
@@ -6696,7 +6718,7 @@ func init() {
         ]
       }
     },
-    "/objects/{id}": {
+    "/v1/objects/{id}": {
       "get": {
         "description": "Lists Objects.",
         "tags": [
@@ -7006,7 +7028,7 @@ func init() {
         ]
       }
     },
-    "/objects/{id}/references/{propertyName}": {
+    "/v1/objects/{id}/references/{propertyName}": {
       "put": {
         "description": "Replace all references to a class-property.",
         "tags": [
@@ -7221,7 +7243,7 @@ func init() {
         ]
       }
     },
-    "/schema": {
+    "/v1/schema": {
       "get": {
         "tags": [
           "schema"
@@ -7305,7 +7327,7 @@ func init() {
         ]
       }
     },
-    "/schema/cluster-status": {
+    "/v1/schema/cluster-status": {
       "get": {
         "tags": [
           "schema"
@@ -7327,7 +7349,7 @@ func init() {
         }
       }
     },
-    "/schema/{className}": {
+    "/v1/schema/{className}": {
       "get": {
         "tags": [
           "schema"
@@ -7479,7 +7501,7 @@ func init() {
         ]
       }
     },
-    "/schema/{className}/properties": {
+    "/v1/schema/{className}/properties": {
       "post": {
         "tags": [
           "schema"
@@ -7536,7 +7558,7 @@ func init() {
         ]
       }
     },
-    "/schema/{className}/shards": {
+    "/v1/schema/{className}/shards": {
       "get": {
         "tags": [
           "schema"
@@ -7585,7 +7607,7 @@ func init() {
         ]
       }
     },
-    "/schema/{className}/shards/{shardName}": {
+    "/v1/schema/{className}/shards/{shardName}": {
       "put": {
         "description": "Update shard status of an Object Class",
         "tags": [
@@ -7654,7 +7676,7 @@ func init() {
         ]
       }
     },
-    "/schema/{className}/tenants": {
+    "/v1/schema/{className}/tenants": {
       "get": {
         "description": "get all tenants from a specific class",
         "tags": [

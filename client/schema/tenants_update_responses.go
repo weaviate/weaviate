@@ -114,11 +114,11 @@ func (o *TenantsUpdateOK) Code() int {
 }
 
 func (o *TenantsUpdateOK) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/tenants][%d] tenantsUpdateOK  %+v", 200, o.Payload)
 }
 
 func (o *TenantsUpdateOK) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/tenants][%d] tenantsUpdateOK  %+v", 200, o.Payload)
 }
 
 func (o *TenantsUpdateOK) GetPayload() []*models.Tenant {
@@ -179,11 +179,11 @@ func (o *TenantsUpdateUnauthorized) Code() int {
 }
 
 func (o *TenantsUpdateUnauthorized) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/tenants][%d] tenantsUpdateUnauthorized ", 401)
 }
 
 func (o *TenantsUpdateUnauthorized) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/tenants][%d] tenantsUpdateUnauthorized ", 401)
 }
 
 func (o *TenantsUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -236,11 +236,11 @@ func (o *TenantsUpdateForbidden) Code() int {
 }
 
 func (o *TenantsUpdateForbidden) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/tenants][%d] tenantsUpdateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *TenantsUpdateForbidden) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/tenants][%d] tenantsUpdateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *TenantsUpdateForbidden) GetPayload() *models.ErrorResponse {
@@ -304,11 +304,11 @@ func (o *TenantsUpdateUnprocessableEntity) Code() int {
 }
 
 func (o *TenantsUpdateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/tenants][%d] tenantsUpdateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *TenantsUpdateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/tenants][%d] tenantsUpdateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *TenantsUpdateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -372,11 +372,11 @@ func (o *TenantsUpdateInternalServerError) Code() int {
 }
 
 func (o *TenantsUpdateInternalServerError) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/tenants][%d] tenantsUpdateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *TenantsUpdateInternalServerError) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}/tenants][%d] tenantsUpdateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}/tenants][%d] tenantsUpdateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *TenantsUpdateInternalServerError) GetPayload() *models.ErrorResponse {

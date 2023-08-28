@@ -125,11 +125,11 @@ func (o *ObjectsClassReferencesCreateOK) Code() int {
 }
 
 func (o *ObjectsClassReferencesCreateOK) Error() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateOK ", 200)
+	return fmt.Sprintf("[POST /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateOK ", 200)
 }
 
 func (o *ObjectsClassReferencesCreateOK) String() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateOK ", 200)
+	return fmt.Sprintf("[POST /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateOK ", 200)
 }
 
 func (o *ObjectsClassReferencesCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -182,11 +182,11 @@ func (o *ObjectsClassReferencesCreateBadRequest) Code() int {
 }
 
 func (o *ObjectsClassReferencesCreateBadRequest) Error() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *ObjectsClassReferencesCreateBadRequest) String() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *ObjectsClassReferencesCreateBadRequest) GetPayload() *models.ErrorResponse {
@@ -249,11 +249,11 @@ func (o *ObjectsClassReferencesCreateUnauthorized) Code() int {
 }
 
 func (o *ObjectsClassReferencesCreateUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateUnauthorized ", 401)
 }
 
 func (o *ObjectsClassReferencesCreateUnauthorized) String() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateUnauthorized ", 401)
 }
 
 func (o *ObjectsClassReferencesCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -306,11 +306,11 @@ func (o *ObjectsClassReferencesCreateForbidden) Code() int {
 }
 
 func (o *ObjectsClassReferencesCreateForbidden) Error() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsClassReferencesCreateForbidden) String() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsClassReferencesCreateForbidden) GetPayload() *models.ErrorResponse {
@@ -373,11 +373,11 @@ func (o *ObjectsClassReferencesCreateNotFound) Code() int {
 }
 
 func (o *ObjectsClassReferencesCreateNotFound) Error() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateNotFound ", 404)
+	return fmt.Sprintf("[POST /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateNotFound ", 404)
 }
 
 func (o *ObjectsClassReferencesCreateNotFound) String() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateNotFound ", 404)
+	return fmt.Sprintf("[POST /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateNotFound ", 404)
 }
 
 func (o *ObjectsClassReferencesCreateNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -430,11 +430,11 @@ func (o *ObjectsClassReferencesCreateUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsClassReferencesCreateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsClassReferencesCreateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsClassReferencesCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -498,11 +498,11 @@ func (o *ObjectsClassReferencesCreateInternalServerError) Code() int {
 }
 
 func (o *ObjectsClassReferencesCreateInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsClassReferencesCreateInternalServerError) String() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsClassReferencesCreateInternalServerError) GetPayload() *models.ErrorResponse {

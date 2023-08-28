@@ -63,7 +63,7 @@ func (a *Client) BackupsCreate(params *BackupsCreateParams, authInfo runtime.Cli
 	op := &runtime.ClientOperation{
 		ID:                 "backups.create",
 		Method:             "POST",
-		PathPattern:        "/backups/{backend}",
+		PathPattern:        "/v1/backups/{backend}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -102,7 +102,7 @@ func (a *Client) BackupsCreateStatus(params *BackupsCreateStatusParams, authInfo
 	op := &runtime.ClientOperation{
 		ID:                 "backups.create.status",
 		Method:             "GET",
-		PathPattern:        "/backups/{backend}/{id}",
+		PathPattern:        "/v1/backups/{backend}/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -141,7 +141,7 @@ func (a *Client) BackupsRestore(params *BackupsRestoreParams, authInfo runtime.C
 	op := &runtime.ClientOperation{
 		ID:                 "backups.restore",
 		Method:             "POST",
-		PathPattern:        "/backups/{backend}/{id}/restore",
+		PathPattern:        "/v1/backups/{backend}/{id}/restore",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -180,7 +180,7 @@ func (a *Client) BackupsRestoreStatus(params *BackupsRestoreStatusParams, authIn
 	op := &runtime.ClientOperation{
 		ID:                 "backups.restore.status",
 		Method:             "GET",
-		PathPattern:        "/backups/{backend}/{id}/restore",
+		PathPattern:        "/v1/backups/{backend}/{id}/restore",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},

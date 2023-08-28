@@ -46,11 +46,11 @@ func (o *SchemaClusterStatusURL) SetBasePath(bp string) {
 func (o *SchemaClusterStatusURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/schema/cluster-status"
+	var _path = "/v1/schema/cluster-status"
 
 	_basePath := o._basePath
 	if _basePath == "" {
-		_basePath = "/v1"
+		_basePath = "/"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 

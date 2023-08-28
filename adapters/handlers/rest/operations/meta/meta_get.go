@@ -43,7 +43,7 @@ func NewMetaGet(ctx *middleware.Context, handler MetaGetHandler) *MetaGet {
 }
 
 /*
-	MetaGet swagger:route GET /meta meta metaGet
+	MetaGet swagger:route GET /v1/meta meta metaGet
 
 Returns meta information of the current Weaviate instance.
 

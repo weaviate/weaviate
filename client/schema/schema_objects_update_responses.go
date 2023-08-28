@@ -120,11 +120,11 @@ func (o *SchemaObjectsUpdateOK) Code() int {
 }
 
 func (o *SchemaObjectsUpdateOK) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}][%d] schemaObjectsUpdateOK  %+v", 200, o.Payload)
 }
 
 func (o *SchemaObjectsUpdateOK) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}][%d] schemaObjectsUpdateOK  %+v", 200, o.Payload)
 }
 
 func (o *SchemaObjectsUpdateOK) GetPayload() *models.Class {
@@ -187,11 +187,11 @@ func (o *SchemaObjectsUpdateUnauthorized) Code() int {
 }
 
 func (o *SchemaObjectsUpdateUnauthorized) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /v1/schema/{className}][%d] schemaObjectsUpdateUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsUpdateUnauthorized) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /v1/schema/{className}][%d] schemaObjectsUpdateUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -244,11 +244,11 @@ func (o *SchemaObjectsUpdateForbidden) Code() int {
 }
 
 func (o *SchemaObjectsUpdateForbidden) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}][%d] schemaObjectsUpdateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *SchemaObjectsUpdateForbidden) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}][%d] schemaObjectsUpdateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *SchemaObjectsUpdateForbidden) GetPayload() *models.ErrorResponse {
@@ -312,11 +312,11 @@ func (o *SchemaObjectsUpdateNotFound) Code() int {
 }
 
 func (o *SchemaObjectsUpdateNotFound) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}][%d] schemaObjectsUpdateNotFound  %+v", 404, o.Payload)
 }
 
 func (o *SchemaObjectsUpdateNotFound) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}][%d] schemaObjectsUpdateNotFound  %+v", 404, o.Payload)
 }
 
 func (o *SchemaObjectsUpdateNotFound) GetPayload() *models.ErrorResponse {
@@ -380,11 +380,11 @@ func (o *SchemaObjectsUpdateUnprocessableEntity) Code() int {
 }
 
 func (o *SchemaObjectsUpdateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}][%d] schemaObjectsUpdateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *SchemaObjectsUpdateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}][%d] schemaObjectsUpdateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *SchemaObjectsUpdateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -448,11 +448,11 @@ func (o *SchemaObjectsUpdateInternalServerError) Code() int {
 }
 
 func (o *SchemaObjectsUpdateInternalServerError) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}][%d] schemaObjectsUpdateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaObjectsUpdateInternalServerError) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[PUT /v1/schema/{className}][%d] schemaObjectsUpdateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaObjectsUpdateInternalServerError) GetPayload() *models.ErrorResponse {

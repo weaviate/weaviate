@@ -114,11 +114,11 @@ func (o *BackupsCreateOK) Code() int {
 }
 
 func (o *BackupsCreateOK) Error() string {
-	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /v1/backups/{backend}][%d] backupsCreateOK  %+v", 200, o.Payload)
 }
 
 func (o *BackupsCreateOK) String() string {
-	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /v1/backups/{backend}][%d] backupsCreateOK  %+v", 200, o.Payload)
 }
 
 func (o *BackupsCreateOK) GetPayload() *models.BackupCreateResponse {
@@ -181,11 +181,11 @@ func (o *BackupsCreateUnauthorized) Code() int {
 }
 
 func (o *BackupsCreateUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/backups/{backend}][%d] backupsCreateUnauthorized ", 401)
 }
 
 func (o *BackupsCreateUnauthorized) String() string {
-	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/backups/{backend}][%d] backupsCreateUnauthorized ", 401)
 }
 
 func (o *BackupsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -238,11 +238,11 @@ func (o *BackupsCreateForbidden) Code() int {
 }
 
 func (o *BackupsCreateForbidden) Error() string {
-	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/backups/{backend}][%d] backupsCreateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *BackupsCreateForbidden) String() string {
-	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/backups/{backend}][%d] backupsCreateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *BackupsCreateForbidden) GetPayload() *models.ErrorResponse {
@@ -306,11 +306,11 @@ func (o *BackupsCreateUnprocessableEntity) Code() int {
 }
 
 func (o *BackupsCreateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /v1/backups/{backend}][%d] backupsCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *BackupsCreateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /v1/backups/{backend}][%d] backupsCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *BackupsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -374,11 +374,11 @@ func (o *BackupsCreateInternalServerError) Code() int {
 }
 
 func (o *BackupsCreateInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/backups/{backend}][%d] backupsCreateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *BackupsCreateInternalServerError) String() string {
-	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/backups/{backend}][%d] backupsCreateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *BackupsCreateInternalServerError) GetPayload() *models.ErrorResponse {

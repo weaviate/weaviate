@@ -46,11 +46,11 @@ func (o *GraphqlPostURL) SetBasePath(bp string) {
 func (o *GraphqlPostURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/graphql"
+	var _path = "/v1/graphql"
 
 	_basePath := o._basePath
 	if _basePath == "" {
-		_basePath = "/v1"
+		_basePath = "/"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 

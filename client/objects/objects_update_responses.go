@@ -120,11 +120,11 @@ func (o *ObjectsUpdateOK) Code() int {
 }
 
 func (o *ObjectsUpdateOK) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{id}][%d] objectsUpdateOK  %+v", 200, o.Payload)
 }
 
 func (o *ObjectsUpdateOK) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{id}][%d] objectsUpdateOK  %+v", 200, o.Payload)
 }
 
 func (o *ObjectsUpdateOK) GetPayload() *models.Object {
@@ -187,11 +187,11 @@ func (o *ObjectsUpdateUnauthorized) Code() int {
 }
 
 func (o *ObjectsUpdateUnauthorized) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /v1/objects/{id}][%d] objectsUpdateUnauthorized ", 401)
 }
 
 func (o *ObjectsUpdateUnauthorized) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /v1/objects/{id}][%d] objectsUpdateUnauthorized ", 401)
 }
 
 func (o *ObjectsUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -244,11 +244,11 @@ func (o *ObjectsUpdateForbidden) Code() int {
 }
 
 func (o *ObjectsUpdateForbidden) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{id}][%d] objectsUpdateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsUpdateForbidden) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{id}][%d] objectsUpdateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsUpdateForbidden) GetPayload() *models.ErrorResponse {
@@ -311,11 +311,11 @@ func (o *ObjectsUpdateNotFound) Code() int {
 }
 
 func (o *ObjectsUpdateNotFound) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateNotFound ", 404)
+	return fmt.Sprintf("[PUT /v1/objects/{id}][%d] objectsUpdateNotFound ", 404)
 }
 
 func (o *ObjectsUpdateNotFound) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateNotFound ", 404)
+	return fmt.Sprintf("[PUT /v1/objects/{id}][%d] objectsUpdateNotFound ", 404)
 }
 
 func (o *ObjectsUpdateNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -368,11 +368,11 @@ func (o *ObjectsUpdateUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsUpdateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{id}][%d] objectsUpdateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsUpdateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{id}][%d] objectsUpdateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsUpdateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -436,11 +436,11 @@ func (o *ObjectsUpdateInternalServerError) Code() int {
 }
 
 func (o *ObjectsUpdateInternalServerError) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{id}][%d] objectsUpdateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsUpdateInternalServerError) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[PUT /v1/objects/{id}][%d] objectsUpdateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsUpdateInternalServerError) GetPayload() *models.ErrorResponse {

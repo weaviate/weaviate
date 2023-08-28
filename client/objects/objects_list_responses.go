@@ -126,11 +126,11 @@ func (o *ObjectsListOK) Code() int {
 }
 
 func (o *ObjectsListOK) Error() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/objects][%d] objectsListOK  %+v", 200, o.Payload)
 }
 
 func (o *ObjectsListOK) String() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/objects][%d] objectsListOK  %+v", 200, o.Payload)
 }
 
 func (o *ObjectsListOK) GetPayload() *models.ObjectsListResponse {
@@ -194,11 +194,11 @@ func (o *ObjectsListBadRequest) Code() int {
 }
 
 func (o *ObjectsListBadRequest) Error() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[GET /v1/objects][%d] objectsListBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *ObjectsListBadRequest) String() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[GET /v1/objects][%d] objectsListBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *ObjectsListBadRequest) GetPayload() *models.ErrorResponse {
@@ -261,11 +261,11 @@ func (o *ObjectsListUnauthorized) Code() int {
 }
 
 func (o *ObjectsListUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/objects][%d] objectsListUnauthorized ", 401)
 }
 
 func (o *ObjectsListUnauthorized) String() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/objects][%d] objectsListUnauthorized ", 401)
 }
 
 func (o *ObjectsListUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -318,11 +318,11 @@ func (o *ObjectsListForbidden) Code() int {
 }
 
 func (o *ObjectsListForbidden) Error() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/objects][%d] objectsListForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsListForbidden) String() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/objects][%d] objectsListForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsListForbidden) GetPayload() *models.ErrorResponse {
@@ -385,11 +385,11 @@ func (o *ObjectsListNotFound) Code() int {
 }
 
 func (o *ObjectsListNotFound) Error() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListNotFound ", 404)
+	return fmt.Sprintf("[GET /v1/objects][%d] objectsListNotFound ", 404)
 }
 
 func (o *ObjectsListNotFound) String() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListNotFound ", 404)
+	return fmt.Sprintf("[GET /v1/objects][%d] objectsListNotFound ", 404)
 }
 
 func (o *ObjectsListNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -442,11 +442,11 @@ func (o *ObjectsListUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsListUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[GET /v1/objects][%d] objectsListUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsListUnprocessableEntity) String() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[GET /v1/objects][%d] objectsListUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsListUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -510,11 +510,11 @@ func (o *ObjectsListInternalServerError) Code() int {
 }
 
 func (o *ObjectsListInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/objects][%d] objectsListInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsListInternalServerError) String() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/objects][%d] objectsListInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsListInternalServerError) GetPayload() *models.ErrorResponse {

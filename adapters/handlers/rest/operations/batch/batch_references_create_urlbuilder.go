@@ -50,11 +50,11 @@ func (o *BatchReferencesCreateURL) SetBasePath(bp string) {
 func (o *BatchReferencesCreateURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/batch/references"
+	var _path = "/v1/batch/references"
 
 	_basePath := o._basePath
 	if _basePath == "" {
-		_basePath = "/v1"
+		_basePath = "/"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 

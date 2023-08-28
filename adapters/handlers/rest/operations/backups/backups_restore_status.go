@@ -43,7 +43,7 @@ func NewBackupsRestoreStatus(ctx *middleware.Context, handler BackupsRestoreStat
 }
 
 /*
-	BackupsRestoreStatus swagger:route GET /backups/{backend}/{id}/restore backups backupsRestoreStatus
+	BackupsRestoreStatus swagger:route GET /v1/backups/{backend}/{id}/restore backups backupsRestoreStatus
 
 Returns status of a backup restoration attempt for a set of classes
 */

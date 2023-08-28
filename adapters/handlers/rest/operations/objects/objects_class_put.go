@@ -43,7 +43,7 @@ func NewObjectsClassPut(ctx *middleware.Context, handler ObjectsClassPutHandler)
 }
 
 /*
-	ObjectsClassPut swagger:route PUT /objects/{className}/{id} objects objectsClassPut
+	ObjectsClassPut swagger:route PUT /v1/objects/{className}/{id} objects objectsClassPut
 
 # Update a class object based on its uuid
 

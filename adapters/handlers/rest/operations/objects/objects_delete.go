@@ -43,7 +43,7 @@ func NewObjectsDelete(ctx *middleware.Context, handler ObjectsDeleteHandler) *Ob
 }
 
 /*
-	ObjectsDelete swagger:route DELETE /objects/{id} objects objectsDelete
+	ObjectsDelete swagger:route DELETE /v1/objects/{id} objects objectsDelete
 
 Delete an Object based on its UUID.
 

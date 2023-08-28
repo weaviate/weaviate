@@ -46,11 +46,11 @@ func (o *MetaGetURL) SetBasePath(bp string) {
 func (o *MetaGetURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/meta"
+	var _path = "/v1/meta"
 
 	_basePath := o._basePath
 	if _basePath == "" {
-		_basePath = "/v1"
+		_basePath = "/"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 

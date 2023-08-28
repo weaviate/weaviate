@@ -120,11 +120,11 @@ func (o *NodesGetClassOK) Code() int {
 }
 
 func (o *NodesGetClassOK) Error() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/nodes/{className}][%d] nodesGetClassOK  %+v", 200, o.Payload)
 }
 
 func (o *NodesGetClassOK) String() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/nodes/{className}][%d] nodesGetClassOK  %+v", 200, o.Payload)
 }
 
 func (o *NodesGetClassOK) GetPayload() *models.NodesStatusResponse {
@@ -187,11 +187,11 @@ func (o *NodesGetClassUnauthorized) Code() int {
 }
 
 func (o *NodesGetClassUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/nodes/{className}][%d] nodesGetClassUnauthorized ", 401)
 }
 
 func (o *NodesGetClassUnauthorized) String() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/nodes/{className}][%d] nodesGetClassUnauthorized ", 401)
 }
 
 func (o *NodesGetClassUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -244,11 +244,11 @@ func (o *NodesGetClassForbidden) Code() int {
 }
 
 func (o *NodesGetClassForbidden) Error() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/nodes/{className}][%d] nodesGetClassForbidden  %+v", 403, o.Payload)
 }
 
 func (o *NodesGetClassForbidden) String() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/nodes/{className}][%d] nodesGetClassForbidden  %+v", 403, o.Payload)
 }
 
 func (o *NodesGetClassForbidden) GetPayload() *models.ErrorResponse {
@@ -312,11 +312,11 @@ func (o *NodesGetClassNotFound) Code() int {
 }
 
 func (o *NodesGetClassNotFound) Error() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[GET /v1/nodes/{className}][%d] nodesGetClassNotFound  %+v", 404, o.Payload)
 }
 
 func (o *NodesGetClassNotFound) String() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[GET /v1/nodes/{className}][%d] nodesGetClassNotFound  %+v", 404, o.Payload)
 }
 
 func (o *NodesGetClassNotFound) GetPayload() *models.ErrorResponse {
@@ -380,11 +380,11 @@ func (o *NodesGetClassUnprocessableEntity) Code() int {
 }
 
 func (o *NodesGetClassUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[GET /v1/nodes/{className}][%d] nodesGetClassUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *NodesGetClassUnprocessableEntity) String() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[GET /v1/nodes/{className}][%d] nodesGetClassUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *NodesGetClassUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -448,11 +448,11 @@ func (o *NodesGetClassInternalServerError) Code() int {
 }
 
 func (o *NodesGetClassInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/nodes/{className}][%d] nodesGetClassInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *NodesGetClassInternalServerError) String() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/nodes/{className}][%d] nodesGetClassInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *NodesGetClassInternalServerError) GetPayload() *models.ErrorResponse {

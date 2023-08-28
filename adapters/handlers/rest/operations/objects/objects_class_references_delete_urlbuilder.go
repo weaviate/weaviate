@@ -58,7 +58,7 @@ func (o *ObjectsClassReferencesDeleteURL) SetBasePath(bp string) {
 func (o *ObjectsClassReferencesDeleteURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/objects/{className}/{id}/references/{propertyName}"
+	var _path = "/v1/objects/{className}/{id}/references/{propertyName}"
 
 	className := o.ClassName
 	if className != "" {
@@ -83,7 +83,7 @@ func (o *ObjectsClassReferencesDeleteURL) Build() (*url.URL, error) {
 
 	_basePath := o._basePath
 	if _basePath == "" {
-		_basePath = "/v1"
+		_basePath = "/"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 

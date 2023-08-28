@@ -43,7 +43,7 @@ func NewSchemaDump(ctx *middleware.Context, handler SchemaDumpHandler) *SchemaDu
 }
 
 /*
-	SchemaDump swagger:route GET /schema schema schemaDump
+	SchemaDump swagger:route GET /v1/schema schema schemaDump
 
 Dump the current the database schema.
 */

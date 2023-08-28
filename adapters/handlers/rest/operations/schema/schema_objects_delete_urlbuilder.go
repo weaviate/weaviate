@@ -51,7 +51,7 @@ func (o *SchemaObjectsDeleteURL) SetBasePath(bp string) {
 func (o *SchemaObjectsDeleteURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/schema/{className}"
+	var _path = "/v1/schema/{className}"
 
 	className := o.ClassName
 	if className != "" {
@@ -62,7 +62,7 @@ func (o *SchemaObjectsDeleteURL) Build() (*url.URL, error) {
 
 	_basePath := o._basePath
 	if _basePath == "" {
-		_basePath = "/v1"
+		_basePath = "/"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 

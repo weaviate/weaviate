@@ -114,11 +114,11 @@ func (o *TenantsGetOK) Code() int {
 }
 
 func (o *TenantsGetOK) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants][%d] tenantsGetOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}/tenants][%d] tenantsGetOK  %+v", 200, o.Payload)
 }
 
 func (o *TenantsGetOK) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants][%d] tenantsGetOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}/tenants][%d] tenantsGetOK  %+v", 200, o.Payload)
 }
 
 func (o *TenantsGetOK) GetPayload() []*models.Tenant {
@@ -179,11 +179,11 @@ func (o *TenantsGetUnauthorized) Code() int {
 }
 
 func (o *TenantsGetUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants][%d] tenantsGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/schema/{className}/tenants][%d] tenantsGetUnauthorized ", 401)
 }
 
 func (o *TenantsGetUnauthorized) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants][%d] tenantsGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/schema/{className}/tenants][%d] tenantsGetUnauthorized ", 401)
 }
 
 func (o *TenantsGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -236,11 +236,11 @@ func (o *TenantsGetForbidden) Code() int {
 }
 
 func (o *TenantsGetForbidden) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants][%d] tenantsGetForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}/tenants][%d] tenantsGetForbidden  %+v", 403, o.Payload)
 }
 
 func (o *TenantsGetForbidden) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants][%d] tenantsGetForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}/tenants][%d] tenantsGetForbidden  %+v", 403, o.Payload)
 }
 
 func (o *TenantsGetForbidden) GetPayload() *models.ErrorResponse {
@@ -304,11 +304,11 @@ func (o *TenantsGetUnprocessableEntity) Code() int {
 }
 
 func (o *TenantsGetUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants][%d] tenantsGetUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}/tenants][%d] tenantsGetUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *TenantsGetUnprocessableEntity) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants][%d] tenantsGetUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}/tenants][%d] tenantsGetUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *TenantsGetUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -372,11 +372,11 @@ func (o *TenantsGetInternalServerError) Code() int {
 }
 
 func (o *TenantsGetInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants][%d] tenantsGetInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}/tenants][%d] tenantsGetInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *TenantsGetInternalServerError) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants][%d] tenantsGetInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}/tenants][%d] tenantsGetInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *TenantsGetInternalServerError) GetPayload() *models.ErrorResponse {

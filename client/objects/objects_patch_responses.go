@@ -125,11 +125,11 @@ func (o *ObjectsPatchNoContent) Code() int {
 }
 
 func (o *ObjectsPatchNoContent) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchNoContent ", 204)
+	return fmt.Sprintf("[PATCH /v1/objects/{id}][%d] objectsPatchNoContent ", 204)
 }
 
 func (o *ObjectsPatchNoContent) String() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchNoContent ", 204)
+	return fmt.Sprintf("[PATCH /v1/objects/{id}][%d] objectsPatchNoContent ", 204)
 }
 
 func (o *ObjectsPatchNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -181,11 +181,11 @@ func (o *ObjectsPatchBadRequest) Code() int {
 }
 
 func (o *ObjectsPatchBadRequest) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchBadRequest ", 400)
+	return fmt.Sprintf("[PATCH /v1/objects/{id}][%d] objectsPatchBadRequest ", 400)
 }
 
 func (o *ObjectsPatchBadRequest) String() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchBadRequest ", 400)
+	return fmt.Sprintf("[PATCH /v1/objects/{id}][%d] objectsPatchBadRequest ", 400)
 }
 
 func (o *ObjectsPatchBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -237,11 +237,11 @@ func (o *ObjectsPatchUnauthorized) Code() int {
 }
 
 func (o *ObjectsPatchUnauthorized) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchUnauthorized ", 401)
+	return fmt.Sprintf("[PATCH /v1/objects/{id}][%d] objectsPatchUnauthorized ", 401)
 }
 
 func (o *ObjectsPatchUnauthorized) String() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchUnauthorized ", 401)
+	return fmt.Sprintf("[PATCH /v1/objects/{id}][%d] objectsPatchUnauthorized ", 401)
 }
 
 func (o *ObjectsPatchUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -294,11 +294,11 @@ func (o *ObjectsPatchForbidden) Code() int {
 }
 
 func (o *ObjectsPatchForbidden) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[PATCH /v1/objects/{id}][%d] objectsPatchForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsPatchForbidden) String() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[PATCH /v1/objects/{id}][%d] objectsPatchForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsPatchForbidden) GetPayload() *models.ErrorResponse {
@@ -361,11 +361,11 @@ func (o *ObjectsPatchNotFound) Code() int {
 }
 
 func (o *ObjectsPatchNotFound) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchNotFound ", 404)
+	return fmt.Sprintf("[PATCH /v1/objects/{id}][%d] objectsPatchNotFound ", 404)
 }
 
 func (o *ObjectsPatchNotFound) String() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchNotFound ", 404)
+	return fmt.Sprintf("[PATCH /v1/objects/{id}][%d] objectsPatchNotFound ", 404)
 }
 
 func (o *ObjectsPatchNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -418,11 +418,11 @@ func (o *ObjectsPatchUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsPatchUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[PATCH /v1/objects/{id}][%d] objectsPatchUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsPatchUnprocessableEntity) String() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[PATCH /v1/objects/{id}][%d] objectsPatchUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsPatchUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -486,11 +486,11 @@ func (o *ObjectsPatchInternalServerError) Code() int {
 }
 
 func (o *ObjectsPatchInternalServerError) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[PATCH /v1/objects/{id}][%d] objectsPatchInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsPatchInternalServerError) String() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[PATCH /v1/objects/{id}][%d] objectsPatchInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsPatchInternalServerError) GetPayload() *models.ErrorResponse {

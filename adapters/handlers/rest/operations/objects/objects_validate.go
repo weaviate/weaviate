@@ -43,7 +43,7 @@ func NewObjectsValidate(ctx *middleware.Context, handler ObjectsValidateHandler)
 }
 
 /*
-	ObjectsValidate swagger:route POST /objects/validate objects objectsValidate
+	ObjectsValidate swagger:route POST /v1/objects/validate objects objectsValidate
 
 Validate an Object based on a schema.
 

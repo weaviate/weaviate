@@ -46,11 +46,11 @@ func (o *WeaviateWellknownLivenessURL) SetBasePath(bp string) {
 func (o *WeaviateWellknownLivenessURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/.well-known/live"
+	var _path = "/v1/.well-known/live"
 
 	_basePath := o._basePath
 	if _basePath == "" {
-		_basePath = "/v1"
+		_basePath = "/"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 

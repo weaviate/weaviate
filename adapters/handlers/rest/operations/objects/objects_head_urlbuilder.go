@@ -53,7 +53,7 @@ func (o *ObjectsHeadURL) SetBasePath(bp string) {
 func (o *ObjectsHeadURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/objects/{id}"
+	var _path = "/v1/objects/{id}"
 
 	id := o.ID.String()
 	if id != "" {
@@ -64,7 +64,7 @@ func (o *ObjectsHeadURL) Build() (*url.URL, error) {
 
 	_basePath := o._basePath
 	if _basePath == "" {
-		_basePath = "/v1"
+		_basePath = "/"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 

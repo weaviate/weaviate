@@ -43,7 +43,7 @@ func NewObjectsGet(ctx *middleware.Context, handler ObjectsGetHandler) *ObjectsG
 }
 
 /*
-	ObjectsGet swagger:route GET /objects/{id} objects objectsGet
+	ObjectsGet swagger:route GET /v1/objects/{id} objects objectsGet
 
 Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.
 

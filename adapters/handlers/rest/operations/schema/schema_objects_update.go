@@ -43,7 +43,7 @@ func NewSchemaObjectsUpdate(ctx *middleware.Context, handler SchemaObjectsUpdate
 }
 
 /*
-	SchemaObjectsUpdate swagger:route PUT /schema/{className} schema schemaObjectsUpdate
+	SchemaObjectsUpdate swagger:route PUT /v1/schema/{className} schema schemaObjectsUpdate
 
 # Update settings of an existing schema class
 

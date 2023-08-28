@@ -114,11 +114,11 @@ func (o *GraphqlPostOK) Code() int {
 }
 
 func (o *GraphqlPostOK) Error() string {
-	return fmt.Sprintf("[POST /graphql][%d] graphqlPostOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /v1/graphql][%d] graphqlPostOK  %+v", 200, o.Payload)
 }
 
 func (o *GraphqlPostOK) String() string {
-	return fmt.Sprintf("[POST /graphql][%d] graphqlPostOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /v1/graphql][%d] graphqlPostOK  %+v", 200, o.Payload)
 }
 
 func (o *GraphqlPostOK) GetPayload() *models.GraphQLResponse {
@@ -181,11 +181,11 @@ func (o *GraphqlPostUnauthorized) Code() int {
 }
 
 func (o *GraphqlPostUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /graphql][%d] graphqlPostUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/graphql][%d] graphqlPostUnauthorized ", 401)
 }
 
 func (o *GraphqlPostUnauthorized) String() string {
-	return fmt.Sprintf("[POST /graphql][%d] graphqlPostUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/graphql][%d] graphqlPostUnauthorized ", 401)
 }
 
 func (o *GraphqlPostUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -238,11 +238,11 @@ func (o *GraphqlPostForbidden) Code() int {
 }
 
 func (o *GraphqlPostForbidden) Error() string {
-	return fmt.Sprintf("[POST /graphql][%d] graphqlPostForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/graphql][%d] graphqlPostForbidden  %+v", 403, o.Payload)
 }
 
 func (o *GraphqlPostForbidden) String() string {
-	return fmt.Sprintf("[POST /graphql][%d] graphqlPostForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/graphql][%d] graphqlPostForbidden  %+v", 403, o.Payload)
 }
 
 func (o *GraphqlPostForbidden) GetPayload() *models.ErrorResponse {
@@ -306,11 +306,11 @@ func (o *GraphqlPostUnprocessableEntity) Code() int {
 }
 
 func (o *GraphqlPostUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /graphql][%d] graphqlPostUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /v1/graphql][%d] graphqlPostUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *GraphqlPostUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /graphql][%d] graphqlPostUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /v1/graphql][%d] graphqlPostUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *GraphqlPostUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -374,11 +374,11 @@ func (o *GraphqlPostInternalServerError) Code() int {
 }
 
 func (o *GraphqlPostInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /graphql][%d] graphqlPostInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/graphql][%d] graphqlPostInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *GraphqlPostInternalServerError) String() string {
-	return fmt.Sprintf("[POST /graphql][%d] graphqlPostInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/graphql][%d] graphqlPostInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *GraphqlPostInternalServerError) GetPayload() *models.ErrorResponse {

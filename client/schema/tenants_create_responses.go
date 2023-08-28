@@ -114,11 +114,11 @@ func (o *TenantsCreateOK) Code() int {
 }
 
 func (o *TenantsCreateOK) Error() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema/{className}/tenants][%d] tenantsCreateOK  %+v", 200, o.Payload)
 }
 
 func (o *TenantsCreateOK) String() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema/{className}/tenants][%d] tenantsCreateOK  %+v", 200, o.Payload)
 }
 
 func (o *TenantsCreateOK) GetPayload() []*models.Tenant {
@@ -179,11 +179,11 @@ func (o *TenantsCreateUnauthorized) Code() int {
 }
 
 func (o *TenantsCreateUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/schema/{className}/tenants][%d] tenantsCreateUnauthorized ", 401)
 }
 
 func (o *TenantsCreateUnauthorized) String() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/schema/{className}/tenants][%d] tenantsCreateUnauthorized ", 401)
 }
 
 func (o *TenantsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -236,11 +236,11 @@ func (o *TenantsCreateForbidden) Code() int {
 }
 
 func (o *TenantsCreateForbidden) Error() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema/{className}/tenants][%d] tenantsCreateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *TenantsCreateForbidden) String() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema/{className}/tenants][%d] tenantsCreateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *TenantsCreateForbidden) GetPayload() *models.ErrorResponse {
@@ -304,11 +304,11 @@ func (o *TenantsCreateUnprocessableEntity) Code() int {
 }
 
 func (o *TenantsCreateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema/{className}/tenants][%d] tenantsCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *TenantsCreateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema/{className}/tenants][%d] tenantsCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *TenantsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -372,11 +372,11 @@ func (o *TenantsCreateInternalServerError) Code() int {
 }
 
 func (o *TenantsCreateInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema/{className}/tenants][%d] tenantsCreateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *TenantsCreateInternalServerError) String() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/schema/{className}/tenants][%d] tenantsCreateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *TenantsCreateInternalServerError) GetPayload() *models.ErrorResponse {

@@ -108,11 +108,11 @@ func (o *MetaGetOK) Code() int {
 }
 
 func (o *MetaGetOK) Error() string {
-	return fmt.Sprintf("[GET /meta][%d] metaGetOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/meta][%d] metaGetOK  %+v", 200, o.Payload)
 }
 
 func (o *MetaGetOK) String() string {
-	return fmt.Sprintf("[GET /meta][%d] metaGetOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/meta][%d] metaGetOK  %+v", 200, o.Payload)
 }
 
 func (o *MetaGetOK) GetPayload() *models.Meta {
@@ -175,11 +175,11 @@ func (o *MetaGetUnauthorized) Code() int {
 }
 
 func (o *MetaGetUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /meta][%d] metaGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/meta][%d] metaGetUnauthorized ", 401)
 }
 
 func (o *MetaGetUnauthorized) String() string {
-	return fmt.Sprintf("[GET /meta][%d] metaGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/meta][%d] metaGetUnauthorized ", 401)
 }
 
 func (o *MetaGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -232,11 +232,11 @@ func (o *MetaGetForbidden) Code() int {
 }
 
 func (o *MetaGetForbidden) Error() string {
-	return fmt.Sprintf("[GET /meta][%d] metaGetForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/meta][%d] metaGetForbidden  %+v", 403, o.Payload)
 }
 
 func (o *MetaGetForbidden) String() string {
-	return fmt.Sprintf("[GET /meta][%d] metaGetForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/meta][%d] metaGetForbidden  %+v", 403, o.Payload)
 }
 
 func (o *MetaGetForbidden) GetPayload() *models.ErrorResponse {
@@ -300,11 +300,11 @@ func (o *MetaGetInternalServerError) Code() int {
 }
 
 func (o *MetaGetInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /meta][%d] metaGetInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/meta][%d] metaGetInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *MetaGetInternalServerError) String() string {
-	return fmt.Sprintf("[GET /meta][%d] metaGetInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/meta][%d] metaGetInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *MetaGetInternalServerError) GetPayload() *models.ErrorResponse {

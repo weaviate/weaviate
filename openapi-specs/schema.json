@@ -1,5 +1,5 @@
 {
-  "basePath": "/v1",
+  "basePath": "/",
   "consumes": [
     "application/yaml",
     "application/json"
@@ -1879,6 +1879,17 @@
     "/": {
       "get": {
         "description": "Home. Discover the REST API",
+        "operationId": "weaviate.base",
+        "responses": {
+          "200": {
+            "description": "Weaviate is alive and ready to serve content"
+          }
+        }
+      }
+    },
+    "/v1": {
+      "get": {
+        "description": "Home. Discover the REST API",
         "operationId": "weaviate.root",
         "responses": {
           "200": {
@@ -1898,7 +1909,7 @@
         }
       }
     },
-    "/.well-known/live": {
+    "/v1/.well-known/live": {
       "get": {
         "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
         "operationId": "weaviate.wellknown.liveness",
@@ -1909,7 +1920,7 @@
         }
       }
     },
-    "/.well-known/ready": {
+    "/v1/.well-known/ready": {
       "get": {
         "description": "Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.",
         "operationId": "weaviate.wellknown.readiness",
@@ -1923,7 +1934,7 @@
         }
       }
     },
-    "/.well-known/openid-configuration": {
+    "/v1/.well-known/openid-configuration": {
       "get": {
         "description": "OIDC Discovery page, redirects to the token issuer if one is configured",
         "responses": {
@@ -1971,7 +1982,7 @@
         "x-available-in-websocket": false
       }
     },
-    "/objects": {
+    "/v1/objects": {
       "get": {
         "description": "Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.",
         "operationId": "objects.list",
@@ -2111,7 +2122,7 @@
         "x-available-in-websocket": false
       }
     },
-    "/objects/{id}": {
+    "/v1/objects/{id}": {
       "delete": {
         "description": "Deletes an Object from the system.",
         "operationId": "objects.delete",
@@ -2407,7 +2418,7 @@
         "deprecated": true
       }
     },
-    "/objects/{className}/{id}": {
+    "/v1/objects/{className}/{id}": {
       "get": {
         "description": "Get a single data object",
         "operationId": "objects.class.get",
@@ -2772,7 +2783,7 @@
         "x-available-in-websocket": true
       }
     },
-    "/objects/{id}/references/{propertyName}": {
+    "/v1/objects/{id}/references/{propertyName}": {
       "post": {
         "description": "Add a single reference to a class-property.",
         "operationId": "objects.references.create",
@@ -2978,7 +2989,7 @@
         "deprecated": true
       }
     },
-    "/objects/{className}/{id}/references/{propertyName}": {
+    "/v1/objects/{className}/{id}/references/{propertyName}": {
       "post": {
         "description": "Add a single reference to a class-property.",
         "operationId": "objects.class.references.create",
@@ -3241,7 +3252,7 @@
         "x-available-in-websocket": false
       }
     },
-    "/objects/validate": {
+    "/v1/objects/validate": {
       "post": {
         "description": "Validate an Object's schema and meta-data. It has to be based on a schema, which is related to the given Object to be accepted by this validation.",
         "operationId": "objects.validate",
@@ -3292,7 +3303,7 @@
         "x-available-in-websocket": false
       }
     },
-    "/batch/objects": {
+    "/v1/batch/objects": {
       "post": {
         "description": "Register new Objects in bulk. Provided meta-data and schema values are validated.",
         "operationId": "batch.objects.create",
@@ -3447,7 +3458,7 @@
         "x-available-in-websocket": false
       }
     },
-    "/batch/references": {
+    "/v1/batch/references": {
       "post": {
         "description": "Register cross-references between any class items (objects or objects) in bulk.",
         "operationId": "batch.references.create",
@@ -3518,7 +3529,7 @@
         "x-available-in-websocket": false
       }
     },
-    "/graphql": {
+    "/v1/graphql": {
       "post": {
         "description": "Get an object based on GraphQL",
         "operationId": "graphql.post",
@@ -3576,7 +3587,7 @@
         "x-available-in-websocket": false
       }
     },
-    "/graphql/batch": {
+    "/v1/graphql/batch": {
       "post": {
         "description": "Perform a batched GraphQL query",
         "operationId": "graphql.batch",
@@ -3634,7 +3645,7 @@
         "x-available-in-websocket": false
       }
     },
-    "/meta": {
+    "/v1/meta": {
       "get": {
         "description": "Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
         "operationId": "meta.get",
@@ -3672,7 +3683,7 @@
         "x-available-in-websocket": false
       }
     },
-    "/schema/cluster-status": {
+    "/v1/schema/cluster-status": {
       "get": {
         "operationId": "schema.cluster.status",
         "tags": [
@@ -3694,7 +3705,7 @@
         }
       }
     },
-    "/schema": {
+    "/v1/schema": {
       "get": {
         "summary": "Dump the current the database schema.",
         "operationId": "schema.dump",
@@ -3778,7 +3789,7 @@
         }
       }
     },
-    "/schema/{className}": {
+    "/v1/schema/{className}": {
       "get": {
         "summary": "Get a single class from the schema",
         "operationId": "schema.objects.get",
@@ -3930,7 +3941,7 @@
         }
       }
     },
-    "/schema/{className}/properties": {
+    "/v1/schema/{className}/properties": {
       "post": {
         "summary": "Add a property to an Object class.",
         "operationId": "schema.objects.properties.add",
@@ -3987,7 +3998,7 @@
         }
       }
     },
-    "/schema/{className}/shards": {
+    "/v1/schema/{className}/shards": {
       "get": {
         "summary": "Get the shards status of an Object class",
         "operationId": "schema.objects.shards.get",
@@ -4036,7 +4047,7 @@
         }
       }
     },
-    "/schema/{className}/shards/{shardName}": {
+    "/v1/schema/{className}/shards/{shardName}": {
       "put": {
         "description": "Update shard status of an Object Class",
         "operationId": "schema.objects.shards.update",
@@ -4105,7 +4116,7 @@
         }
       }
     },
-    "/schema/{className}/tenants": {
+    "/v1/schema/{className}/tenants": {
       "post": {
         "description": "Create a new tenant for a specific class",
         "operationId": "tenants.create",
@@ -4322,7 +4333,7 @@
         }
       }
     },
-    "/backups/{backend}": {
+    "/v1/backups/{backend}": {
       "post": {
         "description": "Starts a process of creating a backup for a set of classes",
         "operationId": "backups.create",
@@ -4380,7 +4391,7 @@
         }
       }
     },
-    "/backups/{backend}/{id}": {
+    "/v1/backups/{backend}/{id}": {
       "get": {
         "description": "Returns status of backup creation attempt for a set of classes",
         "operationId": "backups.create.status",
@@ -4443,7 +4454,7 @@
         }
       }
     },
-    "/backups/{backend}/{id}/restore": {
+    "/v1/backups/{backend}/{id}/restore": {
       "post": {
         "description": "Starts a process of restoring a backup for a set of classes",
         "operationId": "backups.restore",
@@ -4569,7 +4580,7 @@
         }
       }
     },
-    "/nodes": {
+    "/v1/nodes": {
       "get": {
         "description": "Returns status of Weaviate DB.",
         "operationId": "nodes.get",
@@ -4616,7 +4627,7 @@
         }
       }
     },
-    "/nodes/{className}": {
+    "/v1/nodes/{className}": {
       "get": {
         "description": "Returns status of Weaviate DB.",
         "operationId": "nodes.get.class",
@@ -4671,7 +4682,7 @@
         }
       }
     },
-    "/classifications/": {
+    "/v1/classifications/": {
       "post": {
         "description": "Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/<id> to retrieve the status of your classification.",
         "operationId": "classifications.post",
@@ -4724,7 +4735,7 @@
         ]
       }
     },
-    "/classifications/{id}": {
+    "/v1/classifications/{id}": {
       "get": {
         "description": "Get status, results and metadata of a previously created classification",
         "operationId": "classifications.get",

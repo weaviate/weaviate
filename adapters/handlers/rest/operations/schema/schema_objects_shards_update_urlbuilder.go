@@ -52,7 +52,7 @@ func (o *SchemaObjectsShardsUpdateURL) SetBasePath(bp string) {
 func (o *SchemaObjectsShardsUpdateURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/schema/{className}/shards/{shardName}"
+	var _path = "/v1/schema/{className}/shards/{shardName}"
 
 	className := o.ClassName
 	if className != "" {
@@ -70,7 +70,7 @@ func (o *SchemaObjectsShardsUpdateURL) Build() (*url.URL, error) {
 
 	_basePath := o._basePath
 	if _basePath == "" {
-		_basePath = "/v1"
+		_basePath = "/"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 

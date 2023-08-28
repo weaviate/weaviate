@@ -43,7 +43,7 @@ func NewSchemaObjectsShardsGet(ctx *middleware.Context, handler SchemaObjectsSha
 }
 
 /*
-	SchemaObjectsShardsGet swagger:route GET /schema/{className}/shards schema schemaObjectsShardsGet
+	SchemaObjectsShardsGet swagger:route GET /v1/schema/{className}/shards schema schemaObjectsShardsGet
 
 Get the shards status of an Object class
 */

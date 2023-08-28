@@ -120,11 +120,11 @@ func (o *BatchObjectsDeleteOK) Code() int {
 }
 
 func (o *BatchObjectsDeleteOK) Error() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/batch/objects][%d] batchObjectsDeleteOK  %+v", 200, o.Payload)
 }
 
 func (o *BatchObjectsDeleteOK) String() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/batch/objects][%d] batchObjectsDeleteOK  %+v", 200, o.Payload)
 }
 
 func (o *BatchObjectsDeleteOK) GetPayload() *models.BatchDeleteResponse {
@@ -188,11 +188,11 @@ func (o *BatchObjectsDeleteBadRequest) Code() int {
 }
 
 func (o *BatchObjectsDeleteBadRequest) Error() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/batch/objects][%d] batchObjectsDeleteBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *BatchObjectsDeleteBadRequest) String() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/batch/objects][%d] batchObjectsDeleteBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *BatchObjectsDeleteBadRequest) GetPayload() *models.ErrorResponse {
@@ -255,11 +255,11 @@ func (o *BatchObjectsDeleteUnauthorized) Code() int {
 }
 
 func (o *BatchObjectsDeleteUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /v1/batch/objects][%d] batchObjectsDeleteUnauthorized ", 401)
 }
 
 func (o *BatchObjectsDeleteUnauthorized) String() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /v1/batch/objects][%d] batchObjectsDeleteUnauthorized ", 401)
 }
 
 func (o *BatchObjectsDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -312,11 +312,11 @@ func (o *BatchObjectsDeleteForbidden) Code() int {
 }
 
 func (o *BatchObjectsDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/batch/objects][%d] batchObjectsDeleteForbidden  %+v", 403, o.Payload)
 }
 
 func (o *BatchObjectsDeleteForbidden) String() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/batch/objects][%d] batchObjectsDeleteForbidden  %+v", 403, o.Payload)
 }
 
 func (o *BatchObjectsDeleteForbidden) GetPayload() *models.ErrorResponse {
@@ -380,11 +380,11 @@ func (o *BatchObjectsDeleteUnprocessableEntity) Code() int {
 }
 
 func (o *BatchObjectsDeleteUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/batch/objects][%d] batchObjectsDeleteUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *BatchObjectsDeleteUnprocessableEntity) String() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/batch/objects][%d] batchObjectsDeleteUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *BatchObjectsDeleteUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -448,11 +448,11 @@ func (o *BatchObjectsDeleteInternalServerError) Code() int {
 }
 
 func (o *BatchObjectsDeleteInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/batch/objects][%d] batchObjectsDeleteInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *BatchObjectsDeleteInternalServerError) String() string {
-	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /v1/batch/objects][%d] batchObjectsDeleteInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *BatchObjectsDeleteInternalServerError) GetPayload() *models.ErrorResponse {

@@ -113,11 +113,11 @@ func (o *ObjectsValidateOK) Code() int {
 }
 
 func (o *ObjectsValidateOK) Error() string {
-	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateOK ", 200)
+	return fmt.Sprintf("[POST /v1/objects/validate][%d] objectsValidateOK ", 200)
 }
 
 func (o *ObjectsValidateOK) String() string {
-	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateOK ", 200)
+	return fmt.Sprintf("[POST /v1/objects/validate][%d] objectsValidateOK ", 200)
 }
 
 func (o *ObjectsValidateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -169,11 +169,11 @@ func (o *ObjectsValidateUnauthorized) Code() int {
 }
 
 func (o *ObjectsValidateUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/objects/validate][%d] objectsValidateUnauthorized ", 401)
 }
 
 func (o *ObjectsValidateUnauthorized) String() string {
-	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/objects/validate][%d] objectsValidateUnauthorized ", 401)
 }
 
 func (o *ObjectsValidateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -226,11 +226,11 @@ func (o *ObjectsValidateForbidden) Code() int {
 }
 
 func (o *ObjectsValidateForbidden) Error() string {
-	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects/validate][%d] objectsValidateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsValidateForbidden) String() string {
-	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects/validate][%d] objectsValidateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsValidateForbidden) GetPayload() *models.ErrorResponse {
@@ -294,11 +294,11 @@ func (o *ObjectsValidateUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsValidateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects/validate][%d] objectsValidateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsValidateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects/validate][%d] objectsValidateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsValidateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -362,11 +362,11 @@ func (o *ObjectsValidateInternalServerError) Code() int {
 }
 
 func (o *ObjectsValidateInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects/validate][%d] objectsValidateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsValidateInternalServerError) String() string {
-	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects/validate][%d] objectsValidateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsValidateInternalServerError) GetPayload() *models.ErrorResponse {

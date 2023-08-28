@@ -41,30 +41,30 @@ type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
 type ClientService interface {
-	GetWellKnownOpenidConfiguration(params *GetWellKnownOpenidConfigurationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetWellKnownOpenidConfigurationOK, error)
+	GetV1WellKnownOpenidConfiguration(params *GetV1WellKnownOpenidConfigurationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetV1WellKnownOpenidConfigurationOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
 }
 
 /*
-GetWellKnownOpenidConfiguration os ID c discovery information if o ID c auth is enabled
+GetV1WellKnownOpenidConfiguration os ID c discovery information if o ID c auth is enabled
 
 OIDC Discovery page, redirects to the token issuer if one is configured
 */
-func (a *Client) GetWellKnownOpenidConfiguration(params *GetWellKnownOpenidConfigurationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetWellKnownOpenidConfigurationOK, error) {
+func (a *Client) GetV1WellKnownOpenidConfiguration(params *GetV1WellKnownOpenidConfigurationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetV1WellKnownOpenidConfigurationOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewGetWellKnownOpenidConfigurationParams()
+		params = NewGetV1WellKnownOpenidConfigurationParams()
 	}
 	op := &runtime.ClientOperation{
-		ID:                 "GetWellKnownOpenidConfiguration",
+		ID:                 "GetV1WellKnownOpenidConfiguration",
 		Method:             "GET",
-		PathPattern:        "/.well-known/openid-configuration",
+		PathPattern:        "/v1/.well-known/openid-configuration",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &GetWellKnownOpenidConfigurationReader{formats: a.formats},
+		Reader:             &GetV1WellKnownOpenidConfigurationReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -77,13 +77,13 @@ func (a *Client) GetWellKnownOpenidConfiguration(params *GetWellKnownOpenidConfi
 	if err != nil {
 		return nil, err
 	}
-	success, ok := result.(*GetWellKnownOpenidConfigurationOK)
+	success, ok := result.(*GetV1WellKnownOpenidConfigurationOK)
 	if ok {
 		return success, nil
 	}
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for GetWellKnownOpenidConfiguration: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	msg := fmt.Sprintf("unexpected success response for GetV1WellKnownOpenidConfiguration: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

@@ -41,6 +41,8 @@ type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
 type ClientService interface {
+	WeaviateBase(params *WeaviateBaseParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateBaseOK, error)
+
 	WeaviateRoot(params *WeaviateRootParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateRootOK, error)
 
 	WeaviateWellknownLiveness(params *WeaviateWellknownLivenessParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateWellknownLivenessOK, error)
@@ -48,6 +50,45 @@ type ClientService interface {
 	WeaviateWellknownReadiness(params *WeaviateWellknownReadinessParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateWellknownReadinessOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
+}
+
+/*
+WeaviateBase Home. Discover the REST API
+*/
+func (a *Client) WeaviateBase(params *WeaviateBaseParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateBaseOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateBaseParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "weaviate.base",
+		Method:             "GET",
+		PathPattern:        "/",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateBaseReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*WeaviateBaseOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for weaviate.base: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -61,7 +102,7 @@ func (a *Client) WeaviateRoot(params *WeaviateRootParams, authInfo runtime.Clien
 	op := &runtime.ClientOperation{
 		ID:                 "weaviate.root",
 		Method:             "GET",
-		PathPattern:        "/",
+		PathPattern:        "/v1",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -100,7 +141,7 @@ func (a *Client) WeaviateWellknownLiveness(params *WeaviateWellknownLivenessPara
 	op := &runtime.ClientOperation{
 		ID:                 "weaviate.wellknown.liveness",
 		Method:             "GET",
-		PathPattern:        "/.well-known/live",
+		PathPattern:        "/v1/.well-known/live",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -139,7 +180,7 @@ func (a *Client) WeaviateWellknownReadiness(params *WeaviateWellknownReadinessPa
 	op := &runtime.ClientOperation{
 		ID:                 "weaviate.wellknown.readiness",
 		Method:             "GET",
-		PathPattern:        "/.well-known/ready",
+		PathPattern:        "/v1/.well-known/ready",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},

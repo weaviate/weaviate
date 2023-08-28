@@ -43,7 +43,7 @@ func NewTenantsCreate(ctx *middleware.Context, handler TenantsCreateHandler) *Te
 }
 
 /*
-	TenantsCreate swagger:route POST /schema/{className}/tenants schema tenantsCreate
+	TenantsCreate swagger:route POST /v1/schema/{className}/tenants schema tenantsCreate
 
 Create a new tenant for a specific class
 */

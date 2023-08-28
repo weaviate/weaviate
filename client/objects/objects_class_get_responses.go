@@ -126,11 +126,11 @@ func (o *ObjectsClassGetOK) Code() int {
 }
 
 func (o *ObjectsClassGetOK) Error() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/objects/{className}/{id}][%d] objectsClassGetOK  %+v", 200, o.Payload)
 }
 
 func (o *ObjectsClassGetOK) String() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/objects/{className}/{id}][%d] objectsClassGetOK  %+v", 200, o.Payload)
 }
 
 func (o *ObjectsClassGetOK) GetPayload() *models.Object {
@@ -194,11 +194,11 @@ func (o *ObjectsClassGetBadRequest) Code() int {
 }
 
 func (o *ObjectsClassGetBadRequest) Error() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[GET /v1/objects/{className}/{id}][%d] objectsClassGetBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *ObjectsClassGetBadRequest) String() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[GET /v1/objects/{className}/{id}][%d] objectsClassGetBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *ObjectsClassGetBadRequest) GetPayload() *models.ErrorResponse {
@@ -261,11 +261,11 @@ func (o *ObjectsClassGetUnauthorized) Code() int {
 }
 
 func (o *ObjectsClassGetUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/objects/{className}/{id}][%d] objectsClassGetUnauthorized ", 401)
 }
 
 func (o *ObjectsClassGetUnauthorized) String() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/objects/{className}/{id}][%d] objectsClassGetUnauthorized ", 401)
 }
 
 func (o *ObjectsClassGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -318,11 +318,11 @@ func (o *ObjectsClassGetForbidden) Code() int {
 }
 
 func (o *ObjectsClassGetForbidden) Error() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/objects/{className}/{id}][%d] objectsClassGetForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsClassGetForbidden) String() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/objects/{className}/{id}][%d] objectsClassGetForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsClassGetForbidden) GetPayload() *models.ErrorResponse {
@@ -385,11 +385,11 @@ func (o *ObjectsClassGetNotFound) Code() int {
 }
 
 func (o *ObjectsClassGetNotFound) Error() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetNotFound ", 404)
+	return fmt.Sprintf("[GET /v1/objects/{className}/{id}][%d] objectsClassGetNotFound ", 404)
 }
 
 func (o *ObjectsClassGetNotFound) String() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetNotFound ", 404)
+	return fmt.Sprintf("[GET /v1/objects/{className}/{id}][%d] objectsClassGetNotFound ", 404)
 }
 
 func (o *ObjectsClassGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -442,11 +442,11 @@ func (o *ObjectsClassGetUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsClassGetUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[GET /v1/objects/{className}/{id}][%d] objectsClassGetUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsClassGetUnprocessableEntity) String() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[GET /v1/objects/{className}/{id}][%d] objectsClassGetUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsClassGetUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -510,11 +510,11 @@ func (o *ObjectsClassGetInternalServerError) Code() int {
 }
 
 func (o *ObjectsClassGetInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/objects/{className}/{id}][%d] objectsClassGetInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsClassGetInternalServerError) String() string {
-	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/objects/{className}/{id}][%d] objectsClassGetInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsClassGetInternalServerError) GetPayload() *models.ErrorResponse {

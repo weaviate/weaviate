@@ -120,11 +120,11 @@ func (o *ObjectsCreateOK) Code() int {
 }
 
 func (o *ObjectsCreateOK) Error() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects][%d] objectsCreateOK  %+v", 200, o.Payload)
 }
 
 func (o *ObjectsCreateOK) String() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects][%d] objectsCreateOK  %+v", 200, o.Payload)
 }
 
 func (o *ObjectsCreateOK) GetPayload() *models.Object {
@@ -188,11 +188,11 @@ func (o *ObjectsCreateBadRequest) Code() int {
 }
 
 func (o *ObjectsCreateBadRequest) Error() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects][%d] objectsCreateBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *ObjectsCreateBadRequest) String() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects][%d] objectsCreateBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *ObjectsCreateBadRequest) GetPayload() *models.ErrorResponse {
@@ -255,11 +255,11 @@ func (o *ObjectsCreateUnauthorized) Code() int {
 }
 
 func (o *ObjectsCreateUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/objects][%d] objectsCreateUnauthorized ", 401)
 }
 
 func (o *ObjectsCreateUnauthorized) String() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /v1/objects][%d] objectsCreateUnauthorized ", 401)
 }
 
 func (o *ObjectsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -312,11 +312,11 @@ func (o *ObjectsCreateForbidden) Code() int {
 }
 
 func (o *ObjectsCreateForbidden) Error() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects][%d] objectsCreateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsCreateForbidden) String() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects][%d] objectsCreateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *ObjectsCreateForbidden) GetPayload() *models.ErrorResponse {
@@ -380,11 +380,11 @@ func (o *ObjectsCreateUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsCreateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects][%d] objectsCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsCreateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects][%d] objectsCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *ObjectsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -448,11 +448,11 @@ func (o *ObjectsCreateInternalServerError) Code() int {
 }
 
 func (o *ObjectsCreateInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects][%d] objectsCreateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsCreateInternalServerError) String() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /v1/objects][%d] objectsCreateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *ObjectsCreateInternalServerError) GetPayload() *models.ErrorResponse {

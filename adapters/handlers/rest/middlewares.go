@@ -46,13 +46,13 @@ func makeSetupMiddlewares(appState *state.State) func(http.Handler) http.Handler
 
 func addHandleRoot(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.String() == "/" {
-			w.Header().Add("Location", "/v1")
-			w.WriteHeader(http.StatusMovedPermanently)
-			w.Write([]byte(`{"links":{"href":"/v1","name":"api v1","documentationHref":` +
-				`"https://weaviate.io/developers/weaviate/current/"}}`))
-			return
-		}
+		// if r.URL.String() == "/" {
+		// 	w.Header().Add("Location", "/v1")
+		// 	w.WriteHeader(http.StatusMovedPermanently)
+		// 	w.Write([]byte(`{"links":{"href":"/v1","name":"api v1","documentationHref":` +
+		// 		`"https://weaviate.io/developers/weaviate/current/"}}`))
+		// 	return
+		// }
 
 		next.ServeHTTP(w, r)
 	})
@@ -97,7 +97,7 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 		}
 		handler = addPreflight(handler)
 		handler = addLiveAndReadyness(appState, handler)
-		handler = addHandleRoot(handler)
+		// handler = addHandleRoot(handler)
 		handler = makeAddModuleHandlers(appState.Modules)(handler)
 		handler = addInjectHeadersIntoContext(handler)
 		handler = makeCatchPanics(appState.Logger,

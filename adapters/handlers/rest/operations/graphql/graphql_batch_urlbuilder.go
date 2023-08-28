@@ -46,11 +46,11 @@ func (o *GraphqlBatchURL) SetBasePath(bp string) {
 func (o *GraphqlBatchURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/graphql/batch"
+	var _path = "/v1/graphql/batch"
 
 	_basePath := o._basePath
 	if _basePath == "" {
-		_basePath = "/v1"
+		_basePath = "/"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 

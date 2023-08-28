@@ -43,7 +43,7 @@ func NewObjectsCreate(ctx *middleware.Context, handler ObjectsCreateHandler) *Ob
 }
 
 /*
-	ObjectsCreate swagger:route POST /objects objects objectsCreate
+	ObjectsCreate swagger:route POST /v1/objects objects objectsCreate
 
 Create Objects between two Objects (object and subject).
 

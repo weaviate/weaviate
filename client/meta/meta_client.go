@@ -59,7 +59,7 @@ func (a *Client) MetaGet(params *MetaGetParams, authInfo runtime.ClientAuthInfoW
 	op := &runtime.ClientOperation{
 		ID:                 "meta.get",
 		Method:             "GET",
-		PathPattern:        "/meta",
+		PathPattern:        "/v1/meta",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},

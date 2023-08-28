@@ -108,11 +108,11 @@ func (o *SchemaDumpOK) Code() int {
 }
 
 func (o *SchemaDumpOK) Error() string {
-	return fmt.Sprintf("[GET /schema][%d] schemaDumpOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema][%d] schemaDumpOK  %+v", 200, o.Payload)
 }
 
 func (o *SchemaDumpOK) String() string {
-	return fmt.Sprintf("[GET /schema][%d] schemaDumpOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema][%d] schemaDumpOK  %+v", 200, o.Payload)
 }
 
 func (o *SchemaDumpOK) GetPayload() *models.Schema {
@@ -175,11 +175,11 @@ func (o *SchemaDumpUnauthorized) Code() int {
 }
 
 func (o *SchemaDumpUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /schema][%d] schemaDumpUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/schema][%d] schemaDumpUnauthorized ", 401)
 }
 
 func (o *SchemaDumpUnauthorized) String() string {
-	return fmt.Sprintf("[GET /schema][%d] schemaDumpUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/schema][%d] schemaDumpUnauthorized ", 401)
 }
 
 func (o *SchemaDumpUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -232,11 +232,11 @@ func (o *SchemaDumpForbidden) Code() int {
 }
 
 func (o *SchemaDumpForbidden) Error() string {
-	return fmt.Sprintf("[GET /schema][%d] schemaDumpForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema][%d] schemaDumpForbidden  %+v", 403, o.Payload)
 }
 
 func (o *SchemaDumpForbidden) String() string {
-	return fmt.Sprintf("[GET /schema][%d] schemaDumpForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema][%d] schemaDumpForbidden  %+v", 403, o.Payload)
 }
 
 func (o *SchemaDumpForbidden) GetPayload() *models.ErrorResponse {
@@ -300,11 +300,11 @@ func (o *SchemaDumpInternalServerError) Code() int {
 }
 
 func (o *SchemaDumpInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /schema][%d] schemaDumpInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema][%d] schemaDumpInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaDumpInternalServerError) String() string {
-	return fmt.Sprintf("[GET /schema][%d] schemaDumpInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema][%d] schemaDumpInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaDumpInternalServerError) GetPayload() *models.ErrorResponse {

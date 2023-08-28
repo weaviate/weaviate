@@ -114,11 +114,11 @@ func (o *SchemaObjectsShardsGetOK) Code() int {
 }
 
 func (o *SchemaObjectsShardsGetOK) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}/shards][%d] schemaObjectsShardsGetOK  %+v", 200, o.Payload)
 }
 
 func (o *SchemaObjectsShardsGetOK) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}/shards][%d] schemaObjectsShardsGetOK  %+v", 200, o.Payload)
 }
 
 func (o *SchemaObjectsShardsGetOK) GetPayload() models.ShardStatusList {
@@ -179,11 +179,11 @@ func (o *SchemaObjectsShardsGetUnauthorized) Code() int {
 }
 
 func (o *SchemaObjectsShardsGetUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/schema/{className}/shards][%d] schemaObjectsShardsGetUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsShardsGetUnauthorized) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /v1/schema/{className}/shards][%d] schemaObjectsShardsGetUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsShardsGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -236,11 +236,11 @@ func (o *SchemaObjectsShardsGetForbidden) Code() int {
 }
 
 func (o *SchemaObjectsShardsGetForbidden) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}/shards][%d] schemaObjectsShardsGetForbidden  %+v", 403, o.Payload)
 }
 
 func (o *SchemaObjectsShardsGetForbidden) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}/shards][%d] schemaObjectsShardsGetForbidden  %+v", 403, o.Payload)
 }
 
 func (o *SchemaObjectsShardsGetForbidden) GetPayload() *models.ErrorResponse {
@@ -304,11 +304,11 @@ func (o *SchemaObjectsShardsGetNotFound) Code() int {
 }
 
 func (o *SchemaObjectsShardsGetNotFound) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}/shards][%d] schemaObjectsShardsGetNotFound  %+v", 404, o.Payload)
 }
 
 func (o *SchemaObjectsShardsGetNotFound) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}/shards][%d] schemaObjectsShardsGetNotFound  %+v", 404, o.Payload)
 }
 
 func (o *SchemaObjectsShardsGetNotFound) GetPayload() *models.ErrorResponse {
@@ -372,11 +372,11 @@ func (o *SchemaObjectsShardsGetInternalServerError) Code() int {
 }
 
 func (o *SchemaObjectsShardsGetInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}/shards][%d] schemaObjectsShardsGetInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaObjectsShardsGetInternalServerError) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /v1/schema/{className}/shards][%d] schemaObjectsShardsGetInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaObjectsShardsGetInternalServerError) GetPayload() *models.ErrorResponse {
