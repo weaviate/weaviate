@@ -255,30 +255,30 @@ func extractArrayTypes(scheme schema.Schema, className string, props *pb.ResultP
 			if !ok {
 				return fmt.Errorf("property %v with datatype %v needs to be []float64, got %T", propName, dataType, prop)
 			}
-			if props.FloatArrayProperties == nil {
-				props.FloatArrayProperties = make([]*pb.FloatArrayProperties, 0)
+			if props.NumberArrayProperties == nil {
+				props.NumberArrayProperties = make([]*pb.NumberArrayProperties, 0)
 			}
-			props.FloatArrayProperties = append(props.FloatArrayProperties, &pb.FloatArrayProperties{Key: propName, Vals: propIntAsFloat})
+			props.NumberArrayProperties = append(props.NumberArrayProperties, &pb.NumberArrayProperties{Key: propName, Vals: propIntAsFloat})
 			delete(nonRefProps, propName)
 		case schema.DataTypeStringArray, schema.DataTypeTextArray, schema.DataTypeDateArray:
 			propString, ok := prop.([]string)
 			if !ok {
 				return fmt.Errorf("property %v with datatype %v needs to be []string, got %T", propName, dataType, prop)
 			}
-			if props.StringArrayProperties == nil {
-				props.StringArrayProperties = make([]*pb.StringArrayProperties, 0)
+			if props.TextArrayProperties == nil {
+				props.TextArrayProperties = make([]*pb.TextArrayProperties, 0)
 			}
-			props.StringArrayProperties = append(props.StringArrayProperties, &pb.StringArrayProperties{Key: propName, Vals: propString})
+			props.TextArrayProperties = append(props.TextArrayProperties, &pb.TextArrayProperties{Key: propName, Vals: propString})
 			delete(nonRefProps, propName)
 		case schema.DataTypeBooleanArray:
 			propBool, ok := prop.([]bool)
 			if !ok {
 				return fmt.Errorf("property %v with datatype %v needs to be []bool, got %T", propName, dataType, prop)
 			}
-			if props.BoolArrayProperties == nil {
-				props.BoolArrayProperties = make([]*pb.BoolArrayProperties, 0)
+			if props.BooleanArrayProperties == nil {
+				props.BooleanArrayProperties = make([]*pb.BooleanArrayProperties, 0)
 			}
-			props.BoolArrayProperties = append(props.BoolArrayProperties, &pb.BoolArrayProperties{Key: propName, Vals: propBool})
+			props.BooleanArrayProperties = append(props.BooleanArrayProperties, &pb.BooleanArrayProperties{Key: propName, Vals: propBool})
 			delete(nonRefProps, propName)
 		case schema.DataTypeUUIDArray:
 			propString, ok := prop.([]string)
