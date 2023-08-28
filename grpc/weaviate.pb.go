@@ -1681,21 +1681,356 @@ func (x *ResultAdditionalProps) GetExplainScorePresent() bool {
 	return false
 }
 
+type FloatArrayProperties struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Key  string    `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Vals []float64 `protobuf:"fixed64,2,rep,packed,name=vals,proto3" json:"vals,omitempty"`
+}
+
+func (x *FloatArrayProperties) Reset() {
+	*x = FloatArrayProperties{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_weaviate_proto_msgTypes[20]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *FloatArrayProperties) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FloatArrayProperties) ProtoMessage() {}
+
+func (x *FloatArrayProperties) ProtoReflect() protoreflect.Message {
+	mi := &file_weaviate_proto_msgTypes[20]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FloatArrayProperties.ProtoReflect.Descriptor instead.
+func (*FloatArrayProperties) Descriptor() ([]byte, []int) {
+	return file_weaviate_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *FloatArrayProperties) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *FloatArrayProperties) GetVals() []float64 {
+	if x != nil {
+		return x.Vals
+	}
+	return nil
+}
+
+type IntArrayProperties struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Key  string  `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Vals []int32 `protobuf:"varint,2,rep,packed,name=vals,proto3" json:"vals,omitempty"`
+}
+
+func (x *IntArrayProperties) Reset() {
+	*x = IntArrayProperties{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_weaviate_proto_msgTypes[21]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *IntArrayProperties) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IntArrayProperties) ProtoMessage() {}
+
+func (x *IntArrayProperties) ProtoReflect() protoreflect.Message {
+	mi := &file_weaviate_proto_msgTypes[21]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use IntArrayProperties.ProtoReflect.Descriptor instead.
+func (*IntArrayProperties) Descriptor() ([]byte, []int) {
+	return file_weaviate_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *IntArrayProperties) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *IntArrayProperties) GetVals() []int32 {
+	if x != nil {
+		return x.Vals
+	}
+	return nil
+}
+
+type StringArrayProperties struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Key  string   `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Vals []string `protobuf:"bytes,2,rep,name=vals,proto3" json:"vals,omitempty"`
+}
+
+func (x *StringArrayProperties) Reset() {
+	*x = StringArrayProperties{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_weaviate_proto_msgTypes[22]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *StringArrayProperties) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StringArrayProperties) ProtoMessage() {}
+
+func (x *StringArrayProperties) ProtoReflect() protoreflect.Message {
+	mi := &file_weaviate_proto_msgTypes[22]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StringArrayProperties.ProtoReflect.Descriptor instead.
+func (*StringArrayProperties) Descriptor() ([]byte, []int) {
+	return file_weaviate_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *StringArrayProperties) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *StringArrayProperties) GetVals() []string {
+	if x != nil {
+		return x.Vals
+	}
+	return nil
+}
+
+type BoolArrayProperties struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Key  string `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Vals []bool `protobuf:"varint,2,rep,packed,name=vals,proto3" json:"vals,omitempty"`
+}
+
+func (x *BoolArrayProperties) Reset() {
+	*x = BoolArrayProperties{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_weaviate_proto_msgTypes[23]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *BoolArrayProperties) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BoolArrayProperties) ProtoMessage() {}
+
+func (x *BoolArrayProperties) ProtoReflect() protoreflect.Message {
+	mi := &file_weaviate_proto_msgTypes[23]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BoolArrayProperties.ProtoReflect.Descriptor instead.
+func (*BoolArrayProperties) Descriptor() ([]byte, []int) {
+	return file_weaviate_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *BoolArrayProperties) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *BoolArrayProperties) GetVals() []bool {
+	if x != nil {
+		return x.Vals
+	}
+	return nil
+}
+
+type DateArrayProperties struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Key  string                   `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Vals []*timestamppb.Timestamp `protobuf:"bytes,2,rep,name=vals,proto3" json:"vals,omitempty"`
+}
+
+func (x *DateArrayProperties) Reset() {
+	*x = DateArrayProperties{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_weaviate_proto_msgTypes[24]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *DateArrayProperties) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DateArrayProperties) ProtoMessage() {}
+
+func (x *DateArrayProperties) ProtoReflect() protoreflect.Message {
+	mi := &file_weaviate_proto_msgTypes[24]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DateArrayProperties.ProtoReflect.Descriptor instead.
+func (*DateArrayProperties) Descriptor() ([]byte, []int) {
+	return file_weaviate_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *DateArrayProperties) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *DateArrayProperties) GetVals() []*timestamppb.Timestamp {
+	if x != nil {
+		return x.Vals
+	}
+	return nil
+}
+
+type UuidArrayProperties struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Key  string   `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Vals []string `protobuf:"bytes,2,rep,name=vals,proto3" json:"vals,omitempty"`
+}
+
+func (x *UuidArrayProperties) Reset() {
+	*x = UuidArrayProperties{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_weaviate_proto_msgTypes[25]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *UuidArrayProperties) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UuidArrayProperties) ProtoMessage() {}
+
+func (x *UuidArrayProperties) ProtoReflect() protoreflect.Message {
+	mi := &file_weaviate_proto_msgTypes[25]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UuidArrayProperties.ProtoReflect.Descriptor instead.
+func (*UuidArrayProperties) Descriptor() ([]byte, []int) {
+	return file_weaviate_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *UuidArrayProperties) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *UuidArrayProperties) GetVals() []string {
+	if x != nil {
+		return x.Vals
+	}
+	return nil
+}
+
 type ResultProperties struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	NonRefProperties *structpb.Struct       `protobuf:"bytes,1,opt,name=non_ref_properties,json=nonRefProperties,proto3" json:"non_ref_properties,omitempty"`
-	RefProps         []*ReturnRefProperties `protobuf:"bytes,2,rep,name=ref_props,json=refProps,proto3" json:"ref_props,omitempty"`
-	ClassName        string                 `protobuf:"bytes,3,opt,name=class_name,json=className,proto3" json:"class_name,omitempty"`
-	Metadata         *ResultAdditionalProps `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	NonRefProperties      *structpb.Struct         `protobuf:"bytes,1,opt,name=non_ref_properties,json=nonRefProperties,proto3" json:"non_ref_properties,omitempty"`
+	RefProps              []*ReturnRefProperties   `protobuf:"bytes,2,rep,name=ref_props,json=refProps,proto3" json:"ref_props,omitempty"`
+	ClassName             string                   `protobuf:"bytes,3,opt,name=class_name,json=className,proto3" json:"class_name,omitempty"`
+	Metadata              *ResultAdditionalProps   `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	FloatArrayProperties  []*FloatArrayProperties  `protobuf:"bytes,5,rep,name=floatArrayProperties,proto3" json:"floatArrayProperties,omitempty"`
+	IntArrayProperties    []*IntArrayProperties    `protobuf:"bytes,6,rep,name=intArrayProperties,proto3" json:"intArrayProperties,omitempty"`
+	StringArrayProperties []*StringArrayProperties `protobuf:"bytes,7,rep,name=stringArrayProperties,proto3" json:"stringArrayProperties,omitempty"`
+	BoolArrayProperties   []*BoolArrayProperties   `protobuf:"bytes,8,rep,name=boolArrayProperties,proto3" json:"boolArrayProperties,omitempty"`
+	UuidArrayProperties   []*UuidArrayProperties   `protobuf:"bytes,9,rep,name=uuidArrayProperties,proto3" json:"uuidArrayProperties,omitempty"`
 }
 
 func (x *ResultProperties) Reset() {
 	*x = ResultProperties{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_weaviate_proto_msgTypes[20]
+		mi := &file_weaviate_proto_msgTypes[26]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1708,7 +2043,7 @@ func (x *ResultProperties) String() string {
 func (*ResultProperties) ProtoMessage() {}
 
 func (x *ResultProperties) ProtoReflect() protoreflect.Message {
-	mi := &file_weaviate_proto_msgTypes[20]
+	mi := &file_weaviate_proto_msgTypes[26]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1721,7 +2056,7 @@ func (x *ResultProperties) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultProperties.ProtoReflect.Descriptor instead.
 func (*ResultProperties) Descriptor() ([]byte, []int) {
-	return file_weaviate_proto_rawDescGZIP(), []int{20}
+	return file_weaviate_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ResultProperties) GetNonRefProperties() *structpb.Struct {
@@ -1752,6 +2087,41 @@ func (x *ResultProperties) GetMetadata() *ResultAdditionalProps {
 	return nil
 }
 
+func (x *ResultProperties) GetFloatArrayProperties() []*FloatArrayProperties {
+	if x != nil {
+		return x.FloatArrayProperties
+	}
+	return nil
+}
+
+func (x *ResultProperties) GetIntArrayProperties() []*IntArrayProperties {
+	if x != nil {
+		return x.IntArrayProperties
+	}
+	return nil
+}
+
+func (x *ResultProperties) GetStringArrayProperties() []*StringArrayProperties {
+	if x != nil {
+		return x.StringArrayProperties
+	}
+	return nil
+}
+
+func (x *ResultProperties) GetBoolArrayProperties() []*BoolArrayProperties {
+	if x != nil {
+		return x.BoolArrayProperties
+	}
+	return nil
+}
+
+func (x *ResultProperties) GetUuidArrayProperties() []*UuidArrayProperties {
+	if x != nil {
+		return x.UuidArrayProperties
+	}
+	return nil
+}
+
 type ReturnRefProperties struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -1764,7 +2134,7 @@ type ReturnRefProperties struct {
 func (x *ReturnRefProperties) Reset() {
 	*x = ReturnRefProperties{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_weaviate_proto_msgTypes[21]
+		mi := &file_weaviate_proto_msgTypes[27]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1777,7 +2147,7 @@ func (x *ReturnRefProperties) String() string {
 func (*ReturnRefProperties) ProtoMessage() {}
 
 func (x *ReturnRefProperties) ProtoReflect() protoreflect.Message {
-	mi := &file_weaviate_proto_msgTypes[21]
+	mi := &file_weaviate_proto_msgTypes[27]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1790,7 +2160,7 @@ func (x *ReturnRefProperties) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReturnRefProperties.ProtoReflect.Descriptor instead.
 func (*ReturnRefProperties) Descriptor() ([]byte, []int) {
-	return file_weaviate_proto_rawDescGZIP(), []int{21}
+	return file_weaviate_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ReturnRefProperties) GetProperties() []*ResultProperties {
@@ -1820,7 +2190,7 @@ type BatchObject_Properties struct {
 func (x *BatchObject_Properties) Reset() {
 	*x = BatchObject_Properties{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_weaviate_proto_msgTypes[22]
+		mi := &file_weaviate_proto_msgTypes[28]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1833,7 +2203,7 @@ func (x *BatchObject_Properties) String() string {
 func (*BatchObject_Properties) ProtoMessage() {}
 
 func (x *BatchObject_Properties) ProtoReflect() protoreflect.Message {
-	mi := &file_weaviate_proto_msgTypes[22]
+	mi := &file_weaviate_proto_msgTypes[28]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1882,7 +2252,7 @@ type BatchObject_RefPropertiesSingleTarget struct {
 func (x *BatchObject_RefPropertiesSingleTarget) Reset() {
 	*x = BatchObject_RefPropertiesSingleTarget{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_weaviate_proto_msgTypes[23]
+		mi := &file_weaviate_proto_msgTypes[29]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1895,7 +2265,7 @@ func (x *BatchObject_RefPropertiesSingleTarget) String() string {
 func (*BatchObject_RefPropertiesSingleTarget) ProtoMessage() {}
 
 func (x *BatchObject_RefPropertiesSingleTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_weaviate_proto_msgTypes[23]
+	mi := &file_weaviate_proto_msgTypes[29]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1938,7 +2308,7 @@ type BatchObject_RefPropertiesMultiTarget struct {
 func (x *BatchObject_RefPropertiesMultiTarget) Reset() {
 	*x = BatchObject_RefPropertiesMultiTarget{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_weaviate_proto_msgTypes[24]
+		mi := &file_weaviate_proto_msgTypes[30]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1951,7 +2321,7 @@ func (x *BatchObject_RefPropertiesMultiTarget) String() string {
 func (*BatchObject_RefPropertiesMultiTarget) ProtoMessage() {}
 
 func (x *BatchObject_RefPropertiesMultiTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_weaviate_proto_msgTypes[24]
+	mi := &file_weaviate_proto_msgTypes[30]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2000,7 +2370,7 @@ type BatchObjectsReply_BatchResults struct {
 func (x *BatchObjectsReply_BatchResults) Reset() {
 	*x = BatchObjectsReply_BatchResults{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_weaviate_proto_msgTypes[25]
+		mi := &file_weaviate_proto_msgTypes[31]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2013,7 +2383,7 @@ func (x *BatchObjectsReply_BatchResults) String() string {
 func (*BatchObjectsReply_BatchResults) ProtoMessage() {}
 
 func (x *BatchObjectsReply_BatchResults) ProtoReflect() protoreflect.Message {
-	mi := &file_weaviate_proto_msgTypes[25]
+	mi := &file_weaviate_proto_msgTypes[31]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2352,44 +2722,95 @@ var file_weaviate_proto_rawDesc = []byte{
 	0x70, 0x6c, 0x61, 0x69, 0x6e, 0x53, 0x63, 0x6f, 0x72, 0x65, 0x12, 0x32, 0x0a, 0x15, 0x65, 0x78,
 	0x70, 0x6c, 0x61, 0x69, 0x6e, 0x5f, 0x73, 0x63, 0x6f, 0x72, 0x65, 0x5f, 0x70, 0x72, 0x65, 0x73,
 	0x65, 0x6e, 0x74, 0x18, 0x0e, 0x20, 0x01, 0x28, 0x08, 0x52, 0x13, 0x65, 0x78, 0x70, 0x6c, 0x61,
-	0x69, 0x6e, 0x53, 0x63, 0x6f, 0x72, 0x65, 0x50, 0x72, 0x65, 0x73, 0x65, 0x6e, 0x74, 0x22, 0xf9,
-	0x01, 0x0a, 0x10, 0x52, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74,
-	0x69, 0x65, 0x73, 0x12, 0x45, 0x0a, 0x12, 0x6e, 0x6f, 0x6e, 0x5f, 0x72, 0x65, 0x66, 0x5f, 0x70,
-	0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32,
-	0x17, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75,
-	0x66, 0x2e, 0x53, 0x74, 0x72, 0x75, 0x63, 0x74, 0x52, 0x10, 0x6e, 0x6f, 0x6e, 0x52, 0x65, 0x66,
-	0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x12, 0x3e, 0x0a, 0x09, 0x72, 0x65,
-	0x66, 0x5f, 0x70, 0x72, 0x6f, 0x70, 0x73, 0x18, 0x02, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x21, 0x2e,
-	0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x67, 0x72, 0x70, 0x63, 0x2e, 0x52, 0x65, 0x74,
-	0x75, 0x72, 0x6e, 0x52, 0x65, 0x66, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73,
-	0x52, 0x08, 0x72, 0x65, 0x66, 0x50, 0x72, 0x6f, 0x70, 0x73, 0x12, 0x1d, 0x0a, 0x0a, 0x63, 0x6c,
-	0x61, 0x73, 0x73, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x09,
-	0x63, 0x6c, 0x61, 0x73, 0x73, 0x4e, 0x61, 0x6d, 0x65, 0x12, 0x3f, 0x0a, 0x08, 0x6d, 0x65, 0x74,
-	0x61, 0x64, 0x61, 0x74, 0x61, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x23, 0x2e, 0x77, 0x65,
-	0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x67, 0x72, 0x70, 0x63, 0x2e, 0x52, 0x65, 0x73, 0x75, 0x6c,
-	0x74, 0x41, 0x64, 0x64, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x61, 0x6c, 0x50, 0x72, 0x6f, 0x70, 0x73,
-	0x52, 0x08, 0x6d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x22, 0x72, 0x0a, 0x13, 0x52, 0x65,
-	0x74, 0x75, 0x72, 0x6e, 0x52, 0x65, 0x66, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65,
-	0x73, 0x12, 0x3e, 0x0a, 0x0a, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x18,
-	0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x1e, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65,
-	0x67, 0x72, 0x70, 0x63, 0x2e, 0x52, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x50, 0x72, 0x6f, 0x70, 0x65,
-	0x72, 0x74, 0x69, 0x65, 0x73, 0x52, 0x0a, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65,
-	0x73, 0x12, 0x1b, 0x0a, 0x09, 0x70, 0x72, 0x6f, 0x70, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x02,
-	0x20, 0x01, 0x28, 0x09, 0x52, 0x08, 0x70, 0x72, 0x6f, 0x70, 0x4e, 0x61, 0x6d, 0x65, 0x32, 0xa4,
-	0x01, 0x0a, 0x08, 0x57, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x12, 0x42, 0x0a, 0x06, 0x53,
-	0x65, 0x61, 0x72, 0x63, 0x68, 0x12, 0x1b, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65,
-	0x67, 0x72, 0x70, 0x63, 0x2e, 0x53, 0x65, 0x61, 0x72, 0x63, 0x68, 0x52, 0x65, 0x71, 0x75, 0x65,
-	0x73, 0x74, 0x1a, 0x19, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x67, 0x72, 0x70,
-	0x63, 0x2e, 0x53, 0x65, 0x61, 0x72, 0x63, 0x68, 0x52, 0x65, 0x70, 0x6c, 0x79, 0x22, 0x00, 0x12,
-	0x54, 0x0a, 0x0c, 0x42, 0x61, 0x74, 0x63, 0x68, 0x4f, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x73, 0x12,
-	0x21, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x67, 0x72, 0x70, 0x63, 0x2e, 0x42,
-	0x61, 0x74, 0x63, 0x68, 0x4f, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65,
-	0x73, 0x74, 0x1a, 0x1f, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x67, 0x72, 0x70,
-	0x63, 0x2e, 0x42, 0x61, 0x74, 0x63, 0x68, 0x4f, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x73, 0x52, 0x65,
-	0x70, 0x6c, 0x79, 0x22, 0x00, 0x42, 0x23, 0x5a, 0x21, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e,
-	0x63, 0x6f, 0x6d, 0x2f, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2f, 0x77, 0x65, 0x61,
-	0x76, 0x69, 0x61, 0x74, 0x65, 0x2f, 0x67, 0x72, 0x70, 0x63, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74,
-	0x6f, 0x33,
+	0x69, 0x6e, 0x53, 0x63, 0x6f, 0x72, 0x65, 0x50, 0x72, 0x65, 0x73, 0x65, 0x6e, 0x74, 0x22, 0x3c,
+	0x0a, 0x14, 0x46, 0x6c, 0x6f, 0x61, 0x74, 0x41, 0x72, 0x72, 0x61, 0x79, 0x50, 0x72, 0x6f, 0x70,
+	0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x12, 0x10, 0x0a, 0x03, 0x6b, 0x65, 0x79, 0x18, 0x01, 0x20,
+	0x01, 0x28, 0x09, 0x52, 0x03, 0x6b, 0x65, 0x79, 0x12, 0x12, 0x0a, 0x04, 0x76, 0x61, 0x6c, 0x73,
+	0x18, 0x02, 0x20, 0x03, 0x28, 0x01, 0x52, 0x04, 0x76, 0x61, 0x6c, 0x73, 0x22, 0x3a, 0x0a, 0x12,
+	0x49, 0x6e, 0x74, 0x41, 0x72, 0x72, 0x61, 0x79, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69,
+	0x65, 0x73, 0x12, 0x10, 0x0a, 0x03, 0x6b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52,
+	0x03, 0x6b, 0x65, 0x79, 0x12, 0x12, 0x0a, 0x04, 0x76, 0x61, 0x6c, 0x73, 0x18, 0x02, 0x20, 0x03,
+	0x28, 0x05, 0x52, 0x04, 0x76, 0x61, 0x6c, 0x73, 0x22, 0x3d, 0x0a, 0x15, 0x53, 0x74, 0x72, 0x69,
+	0x6e, 0x67, 0x41, 0x72, 0x72, 0x61, 0x79, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65,
+	0x73, 0x12, 0x10, 0x0a, 0x03, 0x6b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03,
+	0x6b, 0x65, 0x79, 0x12, 0x12, 0x0a, 0x04, 0x76, 0x61, 0x6c, 0x73, 0x18, 0x02, 0x20, 0x03, 0x28,
+	0x09, 0x52, 0x04, 0x76, 0x61, 0x6c, 0x73, 0x22, 0x3b, 0x0a, 0x13, 0x42, 0x6f, 0x6f, 0x6c, 0x41,
+	0x72, 0x72, 0x61, 0x79, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x12, 0x10,
+	0x0a, 0x03, 0x6b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x6b, 0x65, 0x79,
+	0x12, 0x12, 0x0a, 0x04, 0x76, 0x61, 0x6c, 0x73, 0x18, 0x02, 0x20, 0x03, 0x28, 0x08, 0x52, 0x04,
+	0x76, 0x61, 0x6c, 0x73, 0x22, 0x57, 0x0a, 0x13, 0x44, 0x61, 0x74, 0x65, 0x41, 0x72, 0x72, 0x61,
+	0x79, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x12, 0x10, 0x0a, 0x03, 0x6b,
+	0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x6b, 0x65, 0x79, 0x12, 0x2e, 0x0a,
+	0x04, 0x76, 0x61, 0x6c, 0x73, 0x18, 0x02, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x67, 0x6f,
+	0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x54, 0x69,
+	0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x52, 0x04, 0x76, 0x61, 0x6c, 0x73, 0x22, 0x3b, 0x0a,
+	0x13, 0x55, 0x75, 0x69, 0x64, 0x41, 0x72, 0x72, 0x61, 0x79, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72,
+	0x74, 0x69, 0x65, 0x73, 0x12, 0x10, 0x0a, 0x03, 0x6b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28,
+	0x09, 0x52, 0x03, 0x6b, 0x65, 0x79, 0x12, 0x12, 0x0a, 0x04, 0x76, 0x61, 0x6c, 0x73, 0x18, 0x02,
+	0x20, 0x03, 0x28, 0x09, 0x52, 0x04, 0x76, 0x61, 0x6c, 0x73, 0x22, 0xa8, 0x05, 0x0a, 0x10, 0x52,
+	0x65, 0x73, 0x75, 0x6c, 0x74, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x12,
+	0x45, 0x0a, 0x12, 0x6e, 0x6f, 0x6e, 0x5f, 0x72, 0x65, 0x66, 0x5f, 0x70, 0x72, 0x6f, 0x70, 0x65,
+	0x72, 0x74, 0x69, 0x65, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x17, 0x2e, 0x67, 0x6f,
+	0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x53, 0x74,
+	0x72, 0x75, 0x63, 0x74, 0x52, 0x10, 0x6e, 0x6f, 0x6e, 0x52, 0x65, 0x66, 0x50, 0x72, 0x6f, 0x70,
+	0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x12, 0x3e, 0x0a, 0x09, 0x72, 0x65, 0x66, 0x5f, 0x70, 0x72,
+	0x6f, 0x70, 0x73, 0x18, 0x02, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x21, 0x2e, 0x77, 0x65, 0x61, 0x76,
+	0x69, 0x61, 0x74, 0x65, 0x67, 0x72, 0x70, 0x63, 0x2e, 0x52, 0x65, 0x74, 0x75, 0x72, 0x6e, 0x52,
+	0x65, 0x66, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x52, 0x08, 0x72, 0x65,
+	0x66, 0x50, 0x72, 0x6f, 0x70, 0x73, 0x12, 0x1d, 0x0a, 0x0a, 0x63, 0x6c, 0x61, 0x73, 0x73, 0x5f,
+	0x6e, 0x61, 0x6d, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x09, 0x63, 0x6c, 0x61, 0x73,
+	0x73, 0x4e, 0x61, 0x6d, 0x65, 0x12, 0x3f, 0x0a, 0x08, 0x6d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74,
+	0x61, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x23, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61,
+	0x74, 0x65, 0x67, 0x72, 0x70, 0x63, 0x2e, 0x52, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x41, 0x64, 0x64,
+	0x69, 0x74, 0x69, 0x6f, 0x6e, 0x61, 0x6c, 0x50, 0x72, 0x6f, 0x70, 0x73, 0x52, 0x08, 0x6d, 0x65,
+	0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x12, 0x56, 0x0a, 0x14, 0x66, 0x6c, 0x6f, 0x61, 0x74, 0x41,
+	0x72, 0x72, 0x61, 0x79, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x18, 0x05,
+	0x20, 0x03, 0x28, 0x0b, 0x32, 0x22, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x67,
+	0x72, 0x70, 0x63, 0x2e, 0x46, 0x6c, 0x6f, 0x61, 0x74, 0x41, 0x72, 0x72, 0x61, 0x79, 0x50, 0x72,
+	0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x52, 0x14, 0x66, 0x6c, 0x6f, 0x61, 0x74, 0x41,
+	0x72, 0x72, 0x61, 0x79, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x12, 0x50,
+	0x0a, 0x12, 0x69, 0x6e, 0x74, 0x41, 0x72, 0x72, 0x61, 0x79, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72,
+	0x74, 0x69, 0x65, 0x73, 0x18, 0x06, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x20, 0x2e, 0x77, 0x65, 0x61,
+	0x76, 0x69, 0x61, 0x74, 0x65, 0x67, 0x72, 0x70, 0x63, 0x2e, 0x49, 0x6e, 0x74, 0x41, 0x72, 0x72,
+	0x61, 0x79, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x52, 0x12, 0x69, 0x6e,
+	0x74, 0x41, 0x72, 0x72, 0x61, 0x79, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73,
+	0x12, 0x59, 0x0a, 0x15, 0x73, 0x74, 0x72, 0x69, 0x6e, 0x67, 0x41, 0x72, 0x72, 0x61, 0x79, 0x50,
+	0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x18, 0x07, 0x20, 0x03, 0x28, 0x0b, 0x32,
+	0x23, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x67, 0x72, 0x70, 0x63, 0x2e, 0x53,
+	0x74, 0x72, 0x69, 0x6e, 0x67, 0x41, 0x72, 0x72, 0x61, 0x79, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72,
+	0x74, 0x69, 0x65, 0x73, 0x52, 0x15, 0x73, 0x74, 0x72, 0x69, 0x6e, 0x67, 0x41, 0x72, 0x72, 0x61,
+	0x79, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x12, 0x53, 0x0a, 0x13, 0x62,
+	0x6f, 0x6f, 0x6c, 0x41, 0x72, 0x72, 0x61, 0x79, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69,
+	0x65, 0x73, 0x18, 0x08, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x21, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69,
+	0x61, 0x74, 0x65, 0x67, 0x72, 0x70, 0x63, 0x2e, 0x42, 0x6f, 0x6f, 0x6c, 0x41, 0x72, 0x72, 0x61,
+	0x79, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x52, 0x13, 0x62, 0x6f, 0x6f,
+	0x6c, 0x41, 0x72, 0x72, 0x61, 0x79, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73,
+	0x12, 0x53, 0x0a, 0x13, 0x75, 0x75, 0x69, 0x64, 0x41, 0x72, 0x72, 0x61, 0x79, 0x50, 0x72, 0x6f,
+	0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x18, 0x09, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x21, 0x2e,
+	0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x67, 0x72, 0x70, 0x63, 0x2e, 0x55, 0x75, 0x69,
+	0x64, 0x41, 0x72, 0x72, 0x61, 0x79, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73,
+	0x52, 0x13, 0x75, 0x75, 0x69, 0x64, 0x41, 0x72, 0x72, 0x61, 0x79, 0x50, 0x72, 0x6f, 0x70, 0x65,
+	0x72, 0x74, 0x69, 0x65, 0x73, 0x22, 0x72, 0x0a, 0x13, 0x52, 0x65, 0x74, 0x75, 0x72, 0x6e, 0x52,
+	0x65, 0x66, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x12, 0x3e, 0x0a, 0x0a,
+	0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b,
+	0x32, 0x1e, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x67, 0x72, 0x70, 0x63, 0x2e,
+	0x52, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73,
+	0x52, 0x0a, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x12, 0x1b, 0x0a, 0x09,
+	0x70, 0x72, 0x6f, 0x70, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52,
+	0x08, 0x70, 0x72, 0x6f, 0x70, 0x4e, 0x61, 0x6d, 0x65, 0x32, 0xa4, 0x01, 0x0a, 0x08, 0x57, 0x65,
+	0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x12, 0x42, 0x0a, 0x06, 0x53, 0x65, 0x61, 0x72, 0x63, 0x68,
+	0x12, 0x1b, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x67, 0x72, 0x70, 0x63, 0x2e,
+	0x53, 0x65, 0x61, 0x72, 0x63, 0x68, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x19, 0x2e,
+	0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x67, 0x72, 0x70, 0x63, 0x2e, 0x53, 0x65, 0x61,
+	0x72, 0x63, 0x68, 0x52, 0x65, 0x70, 0x6c, 0x79, 0x22, 0x00, 0x12, 0x54, 0x0a, 0x0c, 0x42, 0x61,
+	0x74, 0x63, 0x68, 0x4f, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x73, 0x12, 0x21, 0x2e, 0x77, 0x65, 0x61,
+	0x76, 0x69, 0x61, 0x74, 0x65, 0x67, 0x72, 0x70, 0x63, 0x2e, 0x42, 0x61, 0x74, 0x63, 0x68, 0x4f,
+	0x62, 0x6a, 0x65, 0x63, 0x74, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1f, 0x2e,
+	0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x67, 0x72, 0x70, 0x63, 0x2e, 0x42, 0x61, 0x74,
+	0x63, 0x68, 0x4f, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x73, 0x52, 0x65, 0x70, 0x6c, 0x79, 0x22, 0x00,
+	0x42, 0x23, 0x5a, 0x21, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x77,
+	0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2f, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65,
+	0x2f, 0x67, 0x72, 0x70, 0x63, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -2406,7 +2827,7 @@ func file_weaviate_proto_rawDescGZIP() []byte {
 
 var (
 	file_weaviate_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-	file_weaviate_proto_msgTypes  = make([]protoimpl.MessageInfo, 26)
+	file_weaviate_proto_msgTypes  = make([]protoimpl.MessageInfo, 32)
 	file_weaviate_proto_goTypes   = []interface{}{
 		(Filters_OperatorType)(0),                     // 0: weaviategrpc.Filters.OperatorType
 		(HybridSearchParams_FusionType)(0),            // 1: weaviategrpc.HybridSearchParams.FusionType
@@ -2430,21 +2851,27 @@ var (
 		(*SearchReply)(nil),                           // 19: weaviategrpc.SearchReply
 		(*SearchResult)(nil),                          // 20: weaviategrpc.SearchResult
 		(*ResultAdditionalProps)(nil),                 // 21: weaviategrpc.ResultAdditionalProps
-		(*ResultProperties)(nil),                      // 22: weaviategrpc.ResultProperties
-		(*ReturnRefProperties)(nil),                   // 23: weaviategrpc.ReturnRefProperties
-		(*BatchObject_Properties)(nil),                // 24: weaviategrpc.BatchObject.Properties
-		(*BatchObject_RefPropertiesSingleTarget)(nil), // 25: weaviategrpc.BatchObject.RefPropertiesSingleTarget
-		(*BatchObject_RefPropertiesMultiTarget)(nil),  // 26: weaviategrpc.BatchObject.RefPropertiesMultiTarget
-		(*BatchObjectsReply_BatchResults)(nil),        // 27: weaviategrpc.BatchObjectsReply.BatchResults
-		(*timestamppb.Timestamp)(nil),                 // 28: google.protobuf.Timestamp
-		(*structpb.Struct)(nil),                       // 29: google.protobuf.Struct
+		(*FloatArrayProperties)(nil),                  // 22: weaviategrpc.FloatArrayProperties
+		(*IntArrayProperties)(nil),                    // 23: weaviategrpc.IntArrayProperties
+		(*StringArrayProperties)(nil),                 // 24: weaviategrpc.StringArrayProperties
+		(*BoolArrayProperties)(nil),                   // 25: weaviategrpc.BoolArrayProperties
+		(*DateArrayProperties)(nil),                   // 26: weaviategrpc.DateArrayProperties
+		(*UuidArrayProperties)(nil),                   // 27: weaviategrpc.UuidArrayProperties
+		(*ResultProperties)(nil),                      // 28: weaviategrpc.ResultProperties
+		(*ReturnRefProperties)(nil),                   // 29: weaviategrpc.ReturnRefProperties
+		(*BatchObject_Properties)(nil),                // 30: weaviategrpc.BatchObject.Properties
+		(*BatchObject_RefPropertiesSingleTarget)(nil), // 31: weaviategrpc.BatchObject.RefPropertiesSingleTarget
+		(*BatchObject_RefPropertiesMultiTarget)(nil),  // 32: weaviategrpc.BatchObject.RefPropertiesMultiTarget
+		(*BatchObjectsReply_BatchResults)(nil),        // 33: weaviategrpc.BatchObjectsReply.BatchResults
+		(*timestamppb.Timestamp)(nil),                 // 34: google.protobuf.Timestamp
+		(*structpb.Struct)(nil),                       // 35: google.protobuf.Struct
 	}
 )
 
 var file_weaviate_proto_depIdxs = []int32{
 	3,  // 0: weaviategrpc.BatchObjectsRequest.objects:type_name -> weaviategrpc.BatchObject
-	24, // 1: weaviategrpc.BatchObject.properties:type_name -> weaviategrpc.BatchObject.Properties
-	27, // 2: weaviategrpc.BatchObjectsReply.results:type_name -> weaviategrpc.BatchObjectsReply.BatchResults
+	30, // 1: weaviategrpc.BatchObject.properties:type_name -> weaviategrpc.BatchObject.Properties
+	33, // 2: weaviategrpc.BatchObjectsReply.results:type_name -> weaviategrpc.BatchObjectsReply.BatchResults
 	12, // 3: weaviategrpc.SearchRequest.additional_properties:type_name -> weaviategrpc.AdditionalProperties
 	17, // 4: weaviategrpc.SearchRequest.near_vector:type_name -> weaviategrpc.NearVectorParams
 	18, // 5: weaviategrpc.SearchRequest.near_object:type_name -> weaviategrpc.NearObjectParams
@@ -2452,10 +2879,10 @@ var file_weaviate_proto_depIdxs = []int32{
 	14, // 7: weaviategrpc.SearchRequest.hybrid_search:type_name -> weaviategrpc.HybridSearchParams
 	15, // 8: weaviategrpc.SearchRequest.bm25_search:type_name -> weaviategrpc.BM25SearchParams
 	11, // 9: weaviategrpc.SearchRequest.filters:type_name -> weaviategrpc.Filters
-	28, // 10: weaviategrpc.dateArray.vals:type_name -> google.protobuf.Timestamp
+	34, // 10: weaviategrpc.dateArray.vals:type_name -> google.protobuf.Timestamp
 	0,  // 11: weaviategrpc.Filters.operator:type_name -> weaviategrpc.Filters.OperatorType
 	11, // 12: weaviategrpc.Filters.filters:type_name -> weaviategrpc.Filters
-	28, // 13: weaviategrpc.Filters.value_date:type_name -> google.protobuf.Timestamp
+	34, // 13: weaviategrpc.Filters.value_date:type_name -> google.protobuf.Timestamp
 	6,  // 14: weaviategrpc.Filters.value_str_array:type_name -> weaviategrpc.strArray
 	7,  // 15: weaviategrpc.Filters.value_int_array:type_name -> weaviategrpc.intArray
 	9,  // 16: weaviategrpc.Filters.value_bool_array:type_name -> weaviategrpc.boolArray
@@ -2466,24 +2893,30 @@ var file_weaviate_proto_depIdxs = []int32{
 	13, // 21: weaviategrpc.RefProperties.linked_properties:type_name -> weaviategrpc.Properties
 	12, // 22: weaviategrpc.RefProperties.metadata:type_name -> weaviategrpc.AdditionalProperties
 	20, // 23: weaviategrpc.SearchReply.results:type_name -> weaviategrpc.SearchResult
-	22, // 24: weaviategrpc.SearchResult.properties:type_name -> weaviategrpc.ResultProperties
+	28, // 24: weaviategrpc.SearchResult.properties:type_name -> weaviategrpc.ResultProperties
 	21, // 25: weaviategrpc.SearchResult.additional_properties:type_name -> weaviategrpc.ResultAdditionalProps
-	29, // 26: weaviategrpc.ResultProperties.non_ref_properties:type_name -> google.protobuf.Struct
-	23, // 27: weaviategrpc.ResultProperties.ref_props:type_name -> weaviategrpc.ReturnRefProperties
-	21, // 28: weaviategrpc.ResultProperties.metadata:type_name -> weaviategrpc.ResultAdditionalProps
-	22, // 29: weaviategrpc.ReturnRefProperties.properties:type_name -> weaviategrpc.ResultProperties
-	29, // 30: weaviategrpc.BatchObject.Properties.non_ref_properties:type_name -> google.protobuf.Struct
-	25, // 31: weaviategrpc.BatchObject.Properties.ref_props_single:type_name -> weaviategrpc.BatchObject.RefPropertiesSingleTarget
-	26, // 32: weaviategrpc.BatchObject.Properties.ref_props_multi:type_name -> weaviategrpc.BatchObject.RefPropertiesMultiTarget
-	5,  // 33: weaviategrpc.Weaviate.Search:input_type -> weaviategrpc.SearchRequest
-	2,  // 34: weaviategrpc.Weaviate.BatchObjects:input_type -> weaviategrpc.BatchObjectsRequest
-	19, // 35: weaviategrpc.Weaviate.Search:output_type -> weaviategrpc.SearchReply
-	4,  // 36: weaviategrpc.Weaviate.BatchObjects:output_type -> weaviategrpc.BatchObjectsReply
-	35, // [35:37] is the sub-list for method output_type
-	33, // [33:35] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	34, // 26: weaviategrpc.DateArrayProperties.vals:type_name -> google.protobuf.Timestamp
+	35, // 27: weaviategrpc.ResultProperties.non_ref_properties:type_name -> google.protobuf.Struct
+	29, // 28: weaviategrpc.ResultProperties.ref_props:type_name -> weaviategrpc.ReturnRefProperties
+	21, // 29: weaviategrpc.ResultProperties.metadata:type_name -> weaviategrpc.ResultAdditionalProps
+	22, // 30: weaviategrpc.ResultProperties.floatArrayProperties:type_name -> weaviategrpc.FloatArrayProperties
+	23, // 31: weaviategrpc.ResultProperties.intArrayProperties:type_name -> weaviategrpc.IntArrayProperties
+	24, // 32: weaviategrpc.ResultProperties.stringArrayProperties:type_name -> weaviategrpc.StringArrayProperties
+	25, // 33: weaviategrpc.ResultProperties.boolArrayProperties:type_name -> weaviategrpc.BoolArrayProperties
+	27, // 34: weaviategrpc.ResultProperties.uuidArrayProperties:type_name -> weaviategrpc.UuidArrayProperties
+	28, // 35: weaviategrpc.ReturnRefProperties.properties:type_name -> weaviategrpc.ResultProperties
+	35, // 36: weaviategrpc.BatchObject.Properties.non_ref_properties:type_name -> google.protobuf.Struct
+	31, // 37: weaviategrpc.BatchObject.Properties.ref_props_single:type_name -> weaviategrpc.BatchObject.RefPropertiesSingleTarget
+	32, // 38: weaviategrpc.BatchObject.Properties.ref_props_multi:type_name -> weaviategrpc.BatchObject.RefPropertiesMultiTarget
+	5,  // 39: weaviategrpc.Weaviate.Search:input_type -> weaviategrpc.SearchRequest
+	2,  // 40: weaviategrpc.Weaviate.BatchObjects:input_type -> weaviategrpc.BatchObjectsRequest
+	19, // 41: weaviategrpc.Weaviate.Search:output_type -> weaviategrpc.SearchReply
+	4,  // 42: weaviategrpc.Weaviate.BatchObjects:output_type -> weaviategrpc.BatchObjectsReply
+	41, // [41:43] is the sub-list for method output_type
+	39, // [39:41] is the sub-list for method input_type
+	39, // [39:39] is the sub-list for extension type_name
+	39, // [39:39] is the sub-list for extension extendee
+	0,  // [0:39] is the sub-list for field type_name
 }
 
 func init() { file_weaviate_proto_init() }
@@ -2733,7 +3166,7 @@ func file_weaviate_proto_init() {
 			}
 		}
 		file_weaviate_proto_msgTypes[20].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ResultProperties); i {
+			switch v := v.(*FloatArrayProperties); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -2745,7 +3178,7 @@ func file_weaviate_proto_init() {
 			}
 		}
 		file_weaviate_proto_msgTypes[21].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ReturnRefProperties); i {
+			switch v := v.(*IntArrayProperties); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -2757,7 +3190,7 @@ func file_weaviate_proto_init() {
 			}
 		}
 		file_weaviate_proto_msgTypes[22].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*BatchObject_Properties); i {
+			switch v := v.(*StringArrayProperties); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -2769,7 +3202,7 @@ func file_weaviate_proto_init() {
 			}
 		}
 		file_weaviate_proto_msgTypes[23].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*BatchObject_RefPropertiesSingleTarget); i {
+			switch v := v.(*BoolArrayProperties); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -2781,7 +3214,7 @@ func file_weaviate_proto_init() {
 			}
 		}
 		file_weaviate_proto_msgTypes[24].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*BatchObject_RefPropertiesMultiTarget); i {
+			switch v := v.(*DateArrayProperties); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -2793,6 +3226,78 @@ func file_weaviate_proto_init() {
 			}
 		}
 		file_weaviate_proto_msgTypes[25].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*UuidArrayProperties); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_weaviate_proto_msgTypes[26].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ResultProperties); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_weaviate_proto_msgTypes[27].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ReturnRefProperties); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_weaviate_proto_msgTypes[28].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*BatchObject_Properties); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_weaviate_proto_msgTypes[29].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*BatchObject_RefPropertiesSingleTarget); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_weaviate_proto_msgTypes[30].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*BatchObject_RefPropertiesMultiTarget); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_weaviate_proto_msgTypes[31].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*BatchObjectsReply_BatchResults); i {
 			case 0:
 				return &v.state
@@ -2825,7 +3330,7 @@ func file_weaviate_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_weaviate_proto_rawDesc,
 			NumEnums:      2,
-			NumMessages:   26,
+			NumMessages:   32,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
