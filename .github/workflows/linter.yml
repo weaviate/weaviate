@@ -8,7 +8,7 @@ on:
   pull_request:
 jobs:
   golangci:
-    name: lint
+    name: golangci
     runs-on: ubuntu-latest
     steps:
       - uses: actions/setup-go@v4
@@ -21,3 +21,9 @@ jobs:
           # Required: the version of golangci-lint is required and must be specified without patch version: we always use the latest patch version.
           version: v1.53
           args: --timeout=5m
+  protolint:
+    name: protolint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: yoheimuta/action-protolint@v1
