@@ -115,6 +115,17 @@ func (v *Value) UnmarshalJSON(data []byte) error {
 		v.Value = int(asFloat)
 	}
 
+	if v.Type == schema.DataTypeGeoCoordinates {
+		temp := struct {
+			Value GeoRange `json:"value"`
+		}{}
+
+		if err := json.Unmarshal(data, &temp); err != nil {
+			return err
+		}
+		v.Value = temp.Value
+	}
+
 	return nil
 }
 
