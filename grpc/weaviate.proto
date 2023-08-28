@@ -212,7 +212,7 @@ message ResultAdditionalProps {
   bool explain_score_present = 14;
 }
 
-message FloatArrayProperties{
+message NumberArrayProperties{
   string key =1;
   repeated double vals = 2;
 }
@@ -222,12 +222,12 @@ message IntArrayProperties{
   repeated int32 vals = 2;
 }
 
-message StringArrayProperties{
+message TextArrayProperties{
   string key =1;
   repeated string vals = 2;
 }
 
-message BoolArrayProperties{
+message BooleanArrayProperties{
   string key =1;
   repeated bool vals = 2;
 }
@@ -247,10 +247,10 @@ message ResultProperties {
   repeated ReturnRefProperties ref_props = 2;
   string class_name = 3;
   ResultAdditionalProps metadata = 4;
-  repeated FloatArrayProperties floatArrayProperties = 5;
+  repeated NumberArrayProperties numberArrayProperties = 5;
   repeated IntArrayProperties intArrayProperties = 6;
-  repeated StringArrayProperties stringArrayProperties = 7;
-  repeated BoolArrayProperties boolArrayProperties = 8;
+  repeated TextArrayProperties textArrayProperties = 7;
+  repeated BooleanArrayProperties booleanArrayProperties = 8;
   repeated UuidArrayProperties uuidArrayProperties = 9;
 }
 
