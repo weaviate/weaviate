@@ -70,16 +70,16 @@ message SearchRequest {
   Filters filters = 13;
 }
 
-message StrArray{
+message TextArray{
   repeated string vals = 1;
 }
 message IntArray{
   repeated int32 vals = 1;
 }
-message FloatArray{
+message NumberArray{
   repeated double vals = 1;
 }
-message BoolArray{
+message BooleanArray{
   repeated bool vals = 1;
 }
 message DateArray{
@@ -110,15 +110,15 @@ message Filters {
   repeated string on = 2;
   repeated Filters filters = 3;
   oneof test_value{
-    string value_str = 4;
+    string value_text = 4;
     int64 value_int = 5;
-    bool value_bool = 6;
-    float value_float = 7;
+    bool value_boolean = 6;
+    float value_number = 7;
     google.protobuf.Timestamp value_date = 8;
-    StrArray value_str_array = 9;
+    TextArray value_text_array = 9;
     IntArray value_int_array = 10;
-    BoolArray value_bool_array = 11;
-    FloatArray value_float_array = 12;
+    BooleanArray value_boolean_array = 11;
+    NumberArray value_number_array = 12;
     DateArray value_date_array = 13;
   };
 }
