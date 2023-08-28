@@ -22,7 +22,6 @@ import (
 func TestJsonPropertyIdTracker(t *testing.T) {
 	path := t.TempDir() + "/test.json"
 
-
 	t.Run("NewJsonPropertyIdTracker", func(t *testing.T) {
 		tracker, err := NewJsonPropertyIdTracker(path)
 		if err != nil {
