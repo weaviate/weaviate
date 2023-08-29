@@ -13,6 +13,8 @@ package grpc
 
 import (
 	"fmt"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -26,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/searchparams"
 	pb "github.com/weaviate/weaviate/grpc"
 )
 
@@ -153,7 +154,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 			return dto.GetParams{}, err
 		}
 
-		nearText := &searchparams.NearTextParams{
+		nearText := &nearText2.NearTextParams{
 			Values:       req.NearText.Query,
 			Limit:        out.Pagination.Limit,
 			MoveAwayFrom: moveAwayOut,
@@ -192,19 +193,19 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	return out, nil
 }
 
-func extractNearTextMove(classname string, Move *pb.NearTextSearchParams_Move) (searchparams.ExploreMove, error) {
-	var moveAwayOut searchparams.ExploreMove
+func extractNearTextMove(classname string, Move *pb.NearTextSearchParams_Move) (nearText2.ExploreMove, error) {
+	var moveAwayOut nearText2.ExploreMove
 
 	if moveAwayReq := Move; moveAwayReq != nil {
 		moveAwayOut.Force = moveAwayReq.Force
 		if moveAwayReq.Uuids != nil && len(moveAwayReq.Uuids) > 0 {
-			moveAwayOut.Objects = make([]searchparams.ObjectMove, len(moveAwayReq.Uuids))
+			moveAwayOut.Objects = make([]nearText2.ObjectMove, len(moveAwayReq.Uuids))
 			for i, objUUid := range moveAwayReq.Uuids {
 				uuidFormat, err := uuid.Parse(objUUid)
 				if err != nil {
 					return moveAwayOut, err
 				}
-				moveAwayOut.Objects[i] = searchparams.ObjectMove{
+				moveAwayOut.Objects[i] = nearText2.ObjectMove{
 					ID:     objUUid,
 					Beacon: crossref.NewLocalhost(classname, strfmt.UUID(uuidFormat.String())).String(),
 				}
