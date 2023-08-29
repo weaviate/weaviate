@@ -257,9 +257,6 @@ func (b *Bucket) DumpStringRoaring() string {
 	return buf.String()
 }
 
-func (b *Bucket) IteratePropPrefixObjects(ctx context.Context, propPrefix []byte, f func(object *storobj.Object) error) error {
-	return b.IterateObjects(ctx, f)
-}
 
 func (b *Bucket) SetMemtableThreshold(size uint64) {
 	b.memtableThreshold = size
