@@ -13,13 +13,13 @@ package neartext
 
 import (
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
 )
 
 func (g *GraphQLArgumentsProvider) validateNearTextFn(param interface{}) error {
-	nearText, ok := param.(*searchparams.NearTextParams)
+	text, ok := param.(*nearText.NearTextParams)
 	if !ok {
 		return errors.New("'nearText' invalid parameter")
 	}
-	return nearText.Validate()
+	return text.Validate()
 }
