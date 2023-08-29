@@ -448,20 +448,20 @@ func Test_ReferenceDelete(t *testing.T) {
 			Name: "source object internal error", Req: req,
 			WantCode:     StatusInternalServerError,
 			ErrSrcExists: anyErr,
-			WantErr:      NewErrInternal("repo: object by id: %v", anyErr),
+			WantErr:      NewErrInternal("repo: object by id: %v", anyErr), Stage: 2,
 		},
 		{
 			Name: "source object missing", Req: req,
 			WantCode:    StatusNotFound,
-			SrcNotFound: true,
+			SrcNotFound: true, Stage: 2,
 		},
 		{
 			Name: "locking", Req: req,
-			WantCode: StatusInternalServerError, WantErr: anyErr, ErrLock: anyErr,
+			WantCode: StatusInternalServerError, WantErr: anyErr, ErrLock: anyErr, Stage: 2,
 		},
 		{
 			Name: "authorization", Req: req,
-			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr,
+			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr, Stage: 2,
 		},
 		{
 			Name: "get schema",
@@ -554,8 +554,10 @@ func Test_ReferenceDelete(t *testing.T) {
 			if tc.SrcNotFound {
 				srcObj = nil
 			}
-			m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(srcObj, tc.ErrSrcExists)
-			m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
+			if tc.Stage >= 2 {
+				m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(srcObj, tc.ErrSrcExists)
+				m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
+			}
 
 			if tc.Stage >= 3 {
 				m.repo.On("PutObject", mock.Anything, mock.Anything).Return(tc.ErrPutRefs).Once()
