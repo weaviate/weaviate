@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"os"
 	"sync"
 	"time"
 
@@ -34,12 +35,22 @@ func (s *Shard) putObjectBatch(ctx context.Context,
 	return s.putBatch(ctx, objects)
 }
 
+// asyncEnabled is a quick and dirty way to create a feature flag for async
+// indexing.
+// TODO: replace this with a proper feature flag
+func asyncEnabled() bool {
+	return os.Getenv("WEAVIATE_ASYNC_INDEXING") == "true"
+}
+
 // Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch
 // adds its jobs (that contain the respective object) to a single queue that is then processed by the workers.
 // When the last batch finishes, all workers receive a shutdown signal and exit
 func (s *Shard) putBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
+	if asyncEnabled() {
+		return s.putBatchAsync(ctx, objects)
+	}
 	// Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch
 	// adds its jobs (that contain the respective object) to a single queue that is then processed by the workers.
 	// When the last batch finishes, all workers receive a shutdown signal and exit
@@ -51,6 +62,20 @@ func (s *Shard) putBatch(ctx context.Context,
 	s.metrics.VectorIndex(batcher.batchStartTime)
 
 	return err
+}
+
+func (s *Shard) putBatchAsync(ctx context.Context, objects []*storobj.Object) []error {
+	beforeBatch := time.Now()
+	defer s.metrics.BatchObject(beforeBatch, len(objects))
+
+	batcher := newObjectsBatcher(s)
+
+	batcher.init(objects)
+	batcher.storeInObjectStore(ctx)
+	batcher.markDeletedInVectorStorage(ctx)
+	batcher.storeAdditionalStorageWithAsyncQueue(ctx)
+
+	return batcher.errs
 }
 
 // objectsBatcher is a helper type wrapping around an underlying shard that can
@@ -226,6 +251,38 @@ func (ob *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context)
 			ctx:     ctx,
 			batcher: ob,
 		}
+	}
+}
+
+func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Context) {
+	if ok := ob.checkContext(ctx); !ok {
+		// if the context is no longer OK, there's no point in continuing - abort
+		// early
+		return
+	}
+
+	ob.batchStartTime = time.Now()
+
+	vectors := make([]vectorDescriptor, 0, len(ob.objects))
+	for i, object := range ob.objects {
+		if ob.shouldSkipInAdditionalStorage(i) {
+			continue
+		}
+		if len(object.Vector) == 0 {
+			continue
+		}
+
+		status := ob.statuses[object.ID()]
+
+		vectors = append(vectors, vectorDescriptor{
+			id:     status.docID,
+			vector: object.Vector,
+		})
+	}
+
+	err := ob.shard.queue.Push(ctx, vectors...)
+	if err != nil {
+		ob.setErrorAtIndex(err, 0)
 	}
 }
 

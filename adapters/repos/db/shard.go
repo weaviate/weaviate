@@ -84,10 +84,6 @@ type Shard struct {
 	cycleCallbacks *shardCycleCallbacks
 }
 
-func indexedQueuePath(rootPath, className, shardName string) string {
-	return fmt.Sprintf("%s/%s_%s_queue.wal", rootPath, className, shardName)
-}
-
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 ) (*Shard, error) {
@@ -131,7 +127,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	var err error
-	s.queue, err = NewIndexQueue(indexedQueuePath(s.index.Config.RootPath, s.index.Config.ClassName.String(), shardName), s.vectorIndex, s, IndexQueueOptions{MaxQueueSize: 1000})
+	s.queue, err = NewIndexQueue(s.vectorIndex, IndexQueueOptions{MaxQueueSize: 1000})
 	if err != nil {
 		return nil, err
 	}
