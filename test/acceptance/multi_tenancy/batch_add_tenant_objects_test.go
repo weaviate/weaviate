@@ -139,8 +139,7 @@ func TestAddNonTenantBatchToMultiClass(t *testing.T) {
 	testClass := models.Class{
 		Class: className,
 		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled:            true,
-			AutoTenantCreation: true,
+			Enabled: true,
 		},
 	}
 	nonTenantObjects := []*models.Object{
