@@ -58,7 +58,6 @@ func NewBucketProxy(realB BucketInterface, propName string, propids *tracker.Jso
 	}
 	propid_bytes := helpers.MakePropertyPrefix(propName, propids)
 
-
 	return &BucketProxy{
 		realBucket:     realB,
 		propertyPrefix: propid_bytes,

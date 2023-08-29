@@ -79,8 +79,6 @@ func TestJsonPropertyIdTracker(t *testing.T) {
 		if id != 2 {
 			t.Fatalf("expected 2, got %v", id)
 		}
-	
-		
 	})
 
 	t.Run("CreateProperty", func(t *testing.T) {
