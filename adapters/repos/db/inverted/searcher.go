@@ -336,7 +336,7 @@ func (s *Searcher) extractReferenceCount(prop *models.Property, value interface{
 
 	return &propValuePair{
 		value:              byteValue,
-		prop:               helpers.MetaCountProp(prop.Name),
+		prop:               helpers.MetaCountProperty(prop.Name),
 		operator:           operator,
 		hasFilterableIndex: hasFilterableIndex,
 		hasSearchableIndex: hasSearchableIndex,
@@ -551,7 +551,7 @@ func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.
 
 	return &propValuePair{
 		value:              byteValue,
-		prop:               helpers.PropLength(prop.Name),
+		prop:               helpers.PropertyLength(prop.Name),
 		operator:           operator,
 		hasFilterableIndex: HasFilterableIndexPropLength, // TODO text_rbm_inverted_index & with settings
 		hasSearchableIndex: HasSearchableIndexPropLength, // TODO text_rbm_inverted_index & with settings
@@ -577,7 +577,7 @@ func (s *Searcher) extractPropertyNull(prop *models.Property, propType schema.Da
 
 	return &propValuePair{
 		value:              valResult,
-		prop:               helpers.PropNull(prop.Name),
+		prop:               helpers.PropertyNull(prop.Name),
 		operator:           operator,
 		hasFilterableIndex: HasFilterableIndexPropNull, // TODO text_rbm_inverted_index & with settings
 		hasSearchableIndex: HasSearchableIndexPropNull, // TODO text_rbm_inverted_index & with settings

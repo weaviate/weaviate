@@ -447,7 +447,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 
 		if schema.IsRefDataType(prop.DataType) {
 			if err := s.store.CreateOrLoadBucket(ctx,
-				helpers.BucketFromPropNameMetaCountLSM(prop.Name),
+				helpers.BucketFromPropertyNameMetaCountLSM(prop.Name),
 				append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
 			); err != nil {
 				return err
@@ -493,7 +493,7 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 	}
 
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLengthLSM(prop.Name),
+		helpers.BucketFromPropertyNameLengthLSM(prop.Name),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 }
 
@@ -503,7 +503,7 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 	}
 
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameNullLSM(prop.Name),
+		helpers.BucketFromPropertyNameNullLSM(prop.Name),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 }
 
