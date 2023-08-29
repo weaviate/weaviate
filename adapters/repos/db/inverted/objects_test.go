@@ -477,7 +477,7 @@ func TestAnalyzeObject(t *testing.T) {
 
 			for _, elem := range res {
 				switch elem.Name {
-				case helpers.MetaCountProp("myRef"):
+				case helpers.MetaCountProperty("myRef"):
 					actualRefCount = elem.Items
 				case "_id":
 					actualUUID = elem.Items
@@ -537,7 +537,7 @@ func TestAnalyzeObject(t *testing.T) {
 
 			for _, elem := range res {
 				switch elem.Name {
-				case helpers.MetaCountProp("myRef"):
+				case helpers.MetaCountProperty("myRef"):
 					actualRefCount = elem.Items
 				case "_id":
 					actualUUID = elem.Items
@@ -580,7 +580,7 @@ func TestAnalyzeObject(t *testing.T) {
 			var actualUUID []Countable
 
 			for _, elem := range res {
-				if elem.Name == helpers.MetaCountProp("myRef") {
+				if elem.Name == helpers.MetaCountProperty("myRef") {
 					actualRefCount = elem.Items
 				}
 				if elem.Name == "_id" {
