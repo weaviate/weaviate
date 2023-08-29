@@ -21,17 +21,18 @@ import (
 
 func Serve(appState *state.State) {
 	port := appState.ServerConfig.Config.Cluster.DataBindPort
+	authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
 
 	appState.Logger.WithField("port", port).
 		WithField("action", "cluster_api_startup").
 		Debugf("serving cluster api on port %d", port)
 
-	schema := NewSchema(appState.SchemaManager.TxManager())
-	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB)
-	replicatedIndices := NewReplicatedIndices(appState.RemoteReplicaIncoming, appState.Scaler)
-	classifications := NewClassifications(appState.ClassificationRepo.TxManager())
-	nodes := NewNodes(appState.RemoteNodeIncoming)
-	backups := NewBackups(appState.BackupManager)
+	schema := NewSchema(appState.SchemaManager.TxManager(), authConfig)
+	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, authConfig)
+	replicatedIndices := NewReplicatedIndices(appState.RemoteReplicaIncoming, appState.Scaler, authConfig)
+	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), authConfig)
+	nodes := NewNodes(appState.RemoteNodeIncoming, authConfig)
+	backups := NewBackups(appState.BackupManager, authConfig)
 
 	mux := http.NewServeMux()
 	mux.Handle("/schema/transactions/",

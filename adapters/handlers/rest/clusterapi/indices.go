@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
@@ -36,6 +37,7 @@ import (
 type indices struct {
 	shards                    shards
 	db                        db
+	auth                      auth
 	regexpObjects             *regexp.Regexp
 	regexpObjectsOverwrite    *regexp.Regexp
 	regexObjectsDigest        *regexp.Regexp
@@ -132,7 +134,7 @@ type db interface {
 	StartupComplete() bool
 }
 
-func NewIndices(shards shards, db db) *indices {
+func NewIndices(shards shards, db db, authConfig cluster.AuthConfig) *indices {
 	return &indices{
 		regexpObjects:             regexp.MustCompile(urlPatternObjects),
 		regexpObjectsOverwrite:    regexp.MustCompile(urlPatternObjectsOverwrite),
@@ -148,11 +150,16 @@ func NewIndices(shards shards, db db) *indices {
 		regexpShardReinit:         regexp.MustCompile(urlPatternShardReinit),
 		shards:                    shards,
 		db:                        db,
+		auth:                      newBasicAuthHandler(authConfig),
 	}
 }
 
 func (i *indices) Indices() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return i.auth.handleFunc(i.indicesHandler())
+}
+
+func (i *indices) indicesHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		switch {
 		case i.regexpObjectsSearch.MatchString(path):
@@ -272,7 +279,7 @@ func (i *indices) Indices() http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-	})
+	}
 }
 
 func (i *indices) postObject() http.Handler {
