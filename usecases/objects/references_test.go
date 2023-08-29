@@ -364,7 +364,7 @@ func Test_ReferenceUpdate(t *testing.T) {
 				srcObj = nil
 			}
 			if tc.Stage >= 1 {
-				m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(srcObj, tc.ErrSrcExists)
+				m.repo.On("Object", cls, id, mock.Anything, mock.Anything, "").Return(srcObj, tc.ErrSrcExists)
 			}
 
 			if tc.Stage >= 2 {
@@ -554,7 +554,8 @@ func Test_ReferenceDelete(t *testing.T) {
 			if tc.SrcNotFound {
 				srcObj = nil
 			}
-			m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(srcObj, tc.ErrSrcExists)
+
+			m.repo.On("Object", cls, id, mock.Anything, mock.Anything, "").Return(srcObj, tc.ErrSrcExists)
 			m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 
 			if tc.Stage >= 3 {
@@ -607,6 +608,7 @@ func Test_ReferenceAdd_Ref2Vec(t *testing.T) {
 
 	source := crossref.NewSource(schema.ClassName(req.Class), schema.PropertyName(req.Property), req.ID)
 	target := crossref.New("localhost", "Paragraph", "494a2fe5-3e4c-4e9a-a47e-afcd9814f5ea")
+	tenant := "randomTenant"
 
 	parent := &search.Result{
 		ID:        strfmt.UUID("e1a60252-c38c-496d-8e54-306e1cedc5c4"),
@@ -622,15 +624,14 @@ func Test_ReferenceAdd_Ref2Vec(t *testing.T) {
 
 	m.repo.On("Exists", "Article", parent.ID).Return(true, nil)
 	m.repo.On("Exists", "Paragraph", ref1.ID).Return(true, nil)
-	m.repo.On("Object", "Article", parent.ID, search.SelectProperties{}, additional.Properties{}).Return(parent, nil)
-	m.repo.On("Object", "Paragraph", ref1.ID, search.SelectProperties{}, additional.Properties{}).Return(ref1, nil)
+	m.repo.On("Object", "Article", parent.ID, search.SelectProperties{}, additional.Properties{}, tenant).Return(parent, nil)
+	m.repo.On("Object", "Paragraph", ref1.ID, search.SelectProperties{}, additional.Properties{}, tenant).Return(ref1, nil)
 	m.repo.On("AddReference", source, target).Return(nil)
 	m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(true)
 	m.modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
 		Return(ref1.Vector, nil)
 	m.repo.On("PutObject", mock.Anything, ref1.Vector).Return(nil)
-
-	err := m.Manager.AddObjectReference(ctx, nil, &req, nil, "")
+	err := m.Manager.AddObjectReference(ctx, nil, &req, nil, tenant)
 	assert.Nil(t, err)
 }
 
@@ -651,6 +652,8 @@ func Test_ReferenceDelete_Ref2Vec(t *testing.T) {
 		},
 	}
 
+	tenant := "randomTenant"
+
 	parent := &search.Result{
 		ID:        strfmt.UUID("e1a60252-c38c-496d-8e54-306e1cedc5c4"),
 		ClassName: "Article",
@@ -665,11 +668,11 @@ func Test_ReferenceDelete_Ref2Vec(t *testing.T) {
 
 	m.repo.On("Exists", "Article", parent.ID).Return(true, nil)
 	m.repo.On("Exists", "Paragraph", ref1.ID).Return(true, nil)
-	m.repo.On("Object", req.Class, req.ID, search.SelectProperties{}, additional.Properties{}).Return(parent, nil)
+	m.repo.On("Object", req.Class, req.ID, search.SelectProperties{}, additional.Properties{}, tenant).Return(parent, nil)
 	m.repo.On("PutObject", parent.Object(), []float32(nil)).Return(nil)
 	m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(true)
 
-	err := m.Manager.DeleteObjectReference(ctx, nil, &req, nil, "")
+	err := m.Manager.DeleteObjectReference(ctx, nil, &req, nil, tenant)
 	assert.Nil(t, err)
 }
 
