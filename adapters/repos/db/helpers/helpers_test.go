@@ -49,7 +49,7 @@ func TestMakePropertyKey(t *testing.T) {
 	key := []byte{4, 5, 6}
 
 	propertyKey := MakePropertyKey(prefix, key)
-	expectedKey := []byte{ 1, 2, 3,4, 5, 6}
+	expectedKey := []byte{1, 2, 3, 4, 5, 6}
 
 	if !bytes.Equal(propertyKey, expectedKey) {
 		t.Fatalf("Expected key to be %v, got %v", expectedKey, propertyKey)
@@ -58,7 +58,7 @@ func TestMakePropertyKey(t *testing.T) {
 
 func TestMatchesPropertyKeyPrefix(t *testing.T) {
 	prefix := []byte{1, 2, 3}
-	key := []byte{1, 2, 3,4, 5, 6}
+	key := []byte{1, 2, 3, 4, 5, 6}
 
 	matches := MatchesPropertyKeyPrefix(prefix, key)
 	if !matches {
