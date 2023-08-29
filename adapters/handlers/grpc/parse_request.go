@@ -13,9 +13,10 @@ package grpc
 
 import (
 	"fmt"
+	"time"
+
 	"github.com/weaviate/weaviate/entities/searchparams"
 	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
