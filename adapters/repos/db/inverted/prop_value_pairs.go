@@ -70,9 +70,9 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 
 		var bucketName string
 		if pv.hasFilterableIndex {
-			bucketName = helpers.BucketFromPropNameLSM(pv.prop)
+			bucketName = helpers.BucketFromPropertyNameLSM(pv.prop)
 		} else if pv.hasSearchableIndex {
-			bucketName = helpers.BucketSearchableFromPropNameLSM(pv.prop)
+			bucketName = helpers.BucketSearchableFromPropertyNameLSM(pv.prop)
 		} else {
 			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 		}

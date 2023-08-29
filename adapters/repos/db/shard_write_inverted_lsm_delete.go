@@ -26,7 +26,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 ) error {
 	for _, prop := range props {
 		if prop.HasFilterableIndex {
-			bucket := s.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
+			bucket := s.store.Bucket(helpers.BucketFromPropertyNameLSM(prop.Name))
 			if bucket == nil {
 				return fmt.Errorf("no bucket for prop '%s' found", prop.Name)
 			}
@@ -41,7 +41,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 		}
 
 		if prop.HasSearchableIndex {
-			bucket := s.store.Bucket(helpers.BucketSearchableFromPropNameLSM(prop.Name))
+			bucket := s.store.Bucket(helpers.BucketSearchableFromPropertyNameLSM(prop.Name))
 			if bucket == nil {
 				return fmt.Errorf("no bucket searchable for prop '%s' found", prop.Name)
 			}

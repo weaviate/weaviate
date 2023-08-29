@@ -36,11 +36,11 @@ func GetPropNameAndIndexTypeFromBucketName(bucketName string) (string, PropertyI
 		},
 		{
 			IndexTypePropSearchableValue,
-			helpers.BucketSearchableFromPropNameLSM,
+			helpers.BucketSearchableFromPropertyNameLSM,
 		},
 		{
 			IndexTypePropValue,
-			helpers.BucketFromPropNameLSM,
+			helpers.BucketFromPropertyNameLSM,
 		},
 	}
 

@@ -338,7 +338,7 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 	}
 
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(filters.InternalPropID),
+		helpers.BucketFromPropertyNameLSM(filters.InternalPropID),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
@@ -379,7 +379,7 @@ func (s *Shard) addTimestampProperties(ctx context.Context) error {
 
 func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
+		helpers.BucketFromPropertyNameLSM(filters.InternalPropCreationTimeUnix),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
@@ -387,7 +387,7 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 
 func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
+		helpers.BucketFromPropertyNameLSM(filters.InternalPropLastUpdateTimeUnix),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
@@ -465,7 +465,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		}
 
 		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketFromPropNameLSM(prop.Name),
+			helpers.BucketFromPropertyNameLSM(prop.Name),
 			append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
 		); err != nil {
 			return err
@@ -480,7 +480,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		}
 
 		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketSearchableFromPropNameLSM(prop.Name),
+			helpers.BucketSearchableFromPropertyNameLSM(prop.Name),
 			searchableBucketOpts...,
 		); err != nil {
 			return err

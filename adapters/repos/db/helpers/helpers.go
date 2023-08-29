@@ -41,74 +41,74 @@ func MakePropertyKey(propPrefix []byte, key []byte) []byte {
 	}
 
 	t := key[:]
-	val := append(t, propPrefix...)
+	val := append(propPrefix, t...)
 
 	return val
 }
 
-func MatchesPropertyKeyPrefix(propName []byte, key []byte) bool {
-	if len(propName) == 0 {
+func MatchesPropertyKeyPrefix(propertyName []byte, prefixed_key []byte) bool {
+	if len(propertyName) == 0 {
 		return false
 	}
 
-	return bytes.HasSuffix(key, propName)
+	return bytes.HasPrefix(prefixed_key, propertyName)
 }
 
-func UnMakePropertyKey(propName []byte, key []byte) []byte {
-	if len(propName) == 0 {
+func UnMakePropertyKey(propertyName []byte, prefixed_key []byte) []byte {
+	if len(propertyName) == 0 {
 		return nil
 	}
 
 	// duplicate slice
-	out := make([]byte, len(key)-len(propName))
-	copy(out, key[:len(key)-len(propName)])
+	out := make([]byte, len(prefixed_key)-len(propertyName))
+	copy(out, prefixed_key[:len(prefixed_key)-len(propertyName)])
 
 	return out
 }
 
-// BucketFromPropName creates the byte-representation used as the bucket name
+// BucketFrompropertyName creates the byte-representation used as the bucket name
 // for a partiular prop in the inverted index
-func BucketFromPropName(propName string) []byte {
-	return []byte(fmt.Sprintf("property_%s", propName))
+func BucketFrompropertyName(propertyName string) []byte {
+	return []byte(fmt.Sprintf("property_%s", propertyName))
 }
 
-// MetaCountProp helps create an internally used propName for meta props that
+// MetaCountProp helps create an internally used propertyName for meta props that
 // don't explicitly exist in the user schema, but are required for proper
 // indexing, such as the count of arrays.
-func MetaCountProp(propName string) string {
-	return fmt.Sprintf("%s__meta_count", propName)
+func MetaCountProp(propertyName string) string {
+	return fmt.Sprintf("%s__meta_count", propertyName)
 }
 
-func PropLength(propName string) string {
-	return propName + filters.InternalPropertyLength
+func PropLength(propertyName string) string {
+	return propertyName + filters.InternalPropertyLength
 }
 
-func PropNull(propName string) string {
-	return propName + filters.InternalNullIndex
+func PropNull(propertyName string) string {
+	return propertyName + filters.InternalNullIndex
 }
 
-// BucketFromPropName creates string used as the bucket name
+// BucketFrompropertyName creates string used as the bucket name
 // for a particular prop in the inverted index
-func BucketFromPropNameLSM(propName string) string {
-	return fmt.Sprintf("property_%s", propName)
+func BucketFrompropertyNameLSM(propertyName string) string {
+	return fmt.Sprintf("property_%s", propertyName)
 }
 
-func BucketFromPropNameLengthLSM(propName string) string {
-	return BucketFromPropNameLSM(PropLength(propName))
+func BucketFrompropertyNameLengthLSM(propertyName string) string {
+	return BucketFrompropertyNameLSM(PropLength(propertyName))
 }
 
-func BucketFromPropNameNullLSM(propName string) string {
-	return BucketFromPropNameLSM(PropNull(propName))
+func BucketFrompropertyNameNullLSM(propertyName string) string {
+	return BucketFrompropertyNameLSM(PropNull(propertyName))
 }
 
-func BucketFromPropNameMetaCountLSM(propName string) string {
-	return BucketFromPropNameLSM(MetaCountProp(propName))
+func BucketFrompropertyNameMetaCountLSM(propertyName string) string {
+	return BucketFrompropertyNameLSM(MetaCountProp(propertyName))
 }
 
 func TempBucketFromBucketName(bucketName string) string {
 	return bucketName + "_temp"
 }
 
-func BucketSearchableFromPropNameLSM(propName string) string {
-	return BucketFromPropNameLSM(propName + "_searchable")
+func BucketSearchableFrompropertyNameLSM(propertyName string) string {
+	return BucketFrompropertyNameLSM(propertyName + "_searchable")
 }
