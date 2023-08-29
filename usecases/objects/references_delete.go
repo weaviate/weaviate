@@ -15,11 +15,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 )
 
 // DeleteReferenceInput represents required inputs to delete a reference from an existing object.
@@ -41,8 +41,12 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	defer m.metrics.DeleteReferenceDec()
 
 	deprecatedEndpoint := input.Class == ""
-	if input.Class != "" && strings.Count(string(input.Reference.Beacon), "/") == 3 {
-		toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, input.Reference.Beacon)
+	beacon, err := crossref.Parse(input.Reference.Beacon.String())
+	if err != nil {
+		return &Error{"cannot parse beacon", StatusBadRequest, err}
+	}
+	if input.Class != "" && beacon.Class == "" {
+		toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, beacon)
 		if err != nil {
 			return err
 		}
