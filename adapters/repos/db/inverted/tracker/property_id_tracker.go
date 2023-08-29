@@ -20,16 +20,16 @@ import (
 
 type JsonPropertyIdTracker struct {
 	path        string
-	LastId      uint64
-	PropertyIds map[string]uint64
+	lastId      uint64
+	propertyIds map[string]uint64
 	sync.Mutex
 }
 
 func NewJsonPropertyIdTracker(path string) (*JsonPropertyIdTracker, error) {
 	t := &JsonPropertyIdTracker{
 		path:        path,
-		PropertyIds: make(map[string]uint64),
-		LastId:      1,
+		propertyIds: make(map[string]uint64),
+		lastId:      1,
 	}
 
 	// read the file into memory
@@ -50,8 +50,8 @@ func NewJsonPropertyIdTracker(path string) (*JsonPropertyIdTracker, error) {
 	t.path = path
 
 	// Leave zero undefined to catch undefined key lookups
-	if t.LastId == 0 {
-		t.LastId = 1
+	if t.lastId == 0 {
+		t.lastId = 1
 	}
 
 	return t, nil
@@ -111,7 +111,7 @@ func (t *JsonPropertyIdTracker) GetIdForProperty(property string) uint64 {
 	t.Lock()
 	defer t.Unlock()
 
-	if id, ok := t.PropertyIds[property]; ok {
+	if id, ok := t.propertyIds[property]; ok {
 		return id
 	}
 
@@ -127,12 +127,12 @@ func (t *JsonPropertyIdTracker) CreateProperty(property string) (uint64, error) 
 }
 
 func (t *JsonPropertyIdTracker) doCreateProperty(property string) (uint64, error) {
-	if id, ok := t.PropertyIds[property]; ok {
+	if id, ok := t.propertyIds[property]; ok {
 		return id, fmt.Errorf("property %v already exists\n", property)
 	}
 
-	t.LastId++
-	t.PropertyIds[property] = t.LastId
+	t.lastId++
+	t.propertyIds[property] = t.lastId
 
-	return t.LastId, nil
+	return t.lastId, nil
 }
