@@ -213,7 +213,7 @@ func (b *referencesBatcher) writeInvertedDeletions(
 		// are guaranteed to be not have a frequency, meaning they will use the
 		// "Set" strategy in the lsmkv store
 		if prop.HasFilterableIndex {
-			bucket := b.shard.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
+			bucket := b.shard.store.Bucket(helpers.BucketFromPropertyNameLSM(prop.Name))
 			if bucket == nil {
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}
@@ -242,7 +242,7 @@ func (b *referencesBatcher) writeInvertedAdditions(
 		// are guaranteed to be not have a frequency, meaning they will use the
 		// "Set" strategy in the lsmkv store
 		if prop.HasFilterableIndex {
-			bucket := b.shard.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
+			bucket := b.shard.store.Bucket(helpers.BucketFromPropertyNameLSM(prop.Name))
 			if bucket == nil {
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}

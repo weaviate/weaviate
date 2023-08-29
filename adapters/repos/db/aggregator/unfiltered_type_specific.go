@@ -47,7 +47,7 @@ func (ua unfilteredAggregator) parseBoolProp(ctx context.Context,
 		Type: aggregation.PropertyTypeBoolean,
 	}
 
-	b := ua.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name.String()))
+	b := ua.store.Bucket(helpers.BucketFromPropertyNameLSM(prop.Name.String()))
 	if b == nil {
 		return nil, errors.Errorf("could not find bucket for prop %s", prop.Name)
 	}
@@ -148,7 +148,7 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 		NumericalAggregations: map[string]interface{}{},
 	}
 
-	b := ua.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name.String()))
+	b := ua.store.Bucket(helpers.BucketFromPropertyNameLSM(prop.Name.String()))
 	if b == nil {
 		return nil, errors.Errorf("could not find bucket for prop %s", prop.Name)
 	}
@@ -189,7 +189,7 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,
 		NumericalAggregations: map[string]interface{}{},
 	}
 
-	b := ua.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name.String()))
+	b := ua.store.Bucket(helpers.BucketFromPropertyNameLSM(prop.Name.String()))
 	if b == nil {
 		return nil, errors.Errorf("could not find bucket for prop %s", prop.Name)
 	}
@@ -231,7 +231,7 @@ func (ua unfilteredAggregator) dateProperty(ctx context.Context,
 		DateAggregations: map[string]interface{}{},
 	}
 
-	b := ua.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name.String()))
+	b := ua.store.Bucket(helpers.BucketFromPropertyNameLSM(prop.Name.String()))
 	if b == nil {
 		return nil, errors.Errorf("could not find bucket for prop %s", prop.Name)
 	}

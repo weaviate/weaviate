@@ -334,7 +334,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	allMsAndProps := make(AllMapPairsAndPropName, 0, len(propertyNames))
 	for _, propName := range propertyNames {
 
-		bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
+		bucket := b.store.Bucket(helpers.BucketSearchableFromPropertyNameLSM(propName))
 		if bucket == nil {
 			return termResult, nil, fmt.Errorf("could not find bucket for property %v", propName)
 		}

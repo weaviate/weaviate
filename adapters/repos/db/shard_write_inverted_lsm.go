@@ -70,7 +70,7 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []n
 
 func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property) error {
 	if property.HasFilterableIndex {
-		bucketValue := s.store.Bucket(helpers.BucketFromPropNameLSM(property.Name))
+		bucketValue := s.store.Bucket(helpers.BucketFromPropertyNameLSM(property.Name))
 		if bucketValue == nil {
 			return errors.Errorf("no bucket for prop '%s' found", property.Name)
 		}
@@ -84,7 +84,7 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 	}
 
 	if property.HasSearchableIndex {
-		bucketValue := s.store.Bucket(helpers.BucketSearchableFromPropNameLSM(property.Name))
+		bucketValue := s.store.Bucket(helpers.BucketSearchableFromPropertyNameLSM(property.Name))
 		if bucketValue == nil {
 			return errors.Errorf("no bucket searchable for prop '%s' found", property.Name)
 		}
