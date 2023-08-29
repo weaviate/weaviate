@@ -16,11 +16,9 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-
-	"github.com/weaviate/weaviate/client/batch"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
@@ -248,7 +246,7 @@ func TestAddBatchWithNonExistentTenant(t *testing.T) {
 	defer func() {
 		helper.DeleteClass(t, testClass.Class)
 	}()
-	helper.CreateTenants(t, className, []*models.Tenant{{"somethingElse"}})
+	helper.CreateTenants(t, className, []*models.Tenant{{Name: "somethingElse"}})
 
 	params := batch.NewBatchObjectsCreateParams().
 		WithBody(batch.BatchObjectsCreateBody{

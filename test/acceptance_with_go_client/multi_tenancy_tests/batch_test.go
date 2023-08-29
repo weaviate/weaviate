@@ -233,7 +233,7 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 	t.Run("fails creating objects of MT class with non existent tenant", func(t *testing.T) {
 		defer cleanup()
 
-		tenants := []string{"tenantNo1", "tenantNo2"}
+		tenants := []models.Tenant{{Name: "tenantNo1"}, {Name: "tenantNo2"}}
 
 		fixtures.CreateSchemaPizzaForTenants(t, client)
 		fixtures.CreateSchemaSoupForTenants(t, client)
@@ -312,7 +312,7 @@ func TestBatchCreate_MultiTenancy(t *testing.T) {
 					exists, err := client.Data().Checker().
 						WithID(id).
 						WithClassName(className).
-						WithTenant(tenant).
+						WithTenant(tenant.Name).
 						Do(context.Background())
 
 					require.Nil(t, err)
