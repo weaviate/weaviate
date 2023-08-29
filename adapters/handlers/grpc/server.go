@@ -17,6 +17,8 @@ import (
 	"net"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modules"
+
 	"github.com/weaviate/weaviate/usecases/objects"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -44,6 +46,7 @@ func CreateGRPCServer(state *state.State) *GRPCServer {
 		allowAnonymousAccess: state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
 		schemaManager:        state.SchemaManager,
 		batchManager:         state.BatchManager,
+		modulesProvider:      state.Modules,
 	})
 
 	return &GRPCServer{s}
@@ -75,6 +78,7 @@ type Server struct {
 	allowAnonymousAccess bool
 	schemaManager        *schemaManager.Manager
 	batchManager         *objects.BatchManager
+	modulesProvider      *modules.Provider
 }
 
 func (s *Server) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {

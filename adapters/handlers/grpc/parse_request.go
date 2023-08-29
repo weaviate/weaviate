@@ -15,6 +15,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/search"
 
@@ -138,6 +142,37 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.Pagination.Limit = 10
 	}
 
+	if req.NearText != nil {
+
+		moveAwayOut, err := extractNearTextMove(req.ClassName, req.NearText.MoveAway)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
+		moveToOut, err := extractNearTextMove(req.ClassName, req.NearText.MoveTo)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
+
+		nearText := &searchparams.NearTextParams{
+			Values:       req.NearText.Query,
+			Limit:        out.Pagination.Limit,
+			MoveAwayFrom: moveAwayOut,
+			MoveTo:       moveToOut,
+		}
+
+		if req.NearText.Certainty != nil {
+			nearText.Certainty = *req.NearText.Certainty
+		}
+		if req.NearText.Distance != nil {
+			nearText.Distance = *req.NearText.Distance
+		}
+		if out.ModuleParams == nil {
+			out.ModuleParams = make(map[string]interface{})
+		}
+		out.ModuleParams["nearText"] = nearText
+
+	}
+
 	if len(req.After) > 0 {
 		out.Cursor = &filters.Cursor{After: req.After, Limit: out.Pagination.Limit}
 	}
@@ -155,6 +190,30 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	}
 
 	return out, nil
+}
+
+func extractNearTextMove(classname string, Move *pb.NearTextSearchParams_Move) (searchparams.ExploreMove, error) {
+	var moveAwayOut searchparams.ExploreMove
+
+	if moveAwayReq := Move; moveAwayReq != nil {
+		moveAwayOut.Force = moveAwayReq.Force
+		if moveAwayReq.Uuids != nil && len(moveAwayReq.Uuids) > 0 {
+			moveAwayOut.Objects = make([]searchparams.ObjectMove, len(moveAwayReq.Uuids))
+			for i, objUUid := range moveAwayReq.Uuids {
+				uuidFormat, err := uuid.Parse(objUUid)
+				if err != nil {
+					return moveAwayOut, err
+				}
+				moveAwayOut.Objects[i] = searchparams.ObjectMove{
+					ID:     objUUid,
+					Beacon: crossref.NewLocalhost(classname, strfmt.UUID(uuidFormat.String())).String(),
+				}
+			}
+		}
+
+		moveAwayOut.Values = moveAwayReq.Concepts
+	}
+	return moveAwayOut, nil
 }
 
 func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string) (filters.Clause, error) {

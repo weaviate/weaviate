@@ -14,6 +14,8 @@ package neartext
 import (
 	"reflect"
 	"testing"
+
+	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
 func Test_extractNearTextFn(t *testing.T) {
@@ -23,7 +25,7 @@ func Test_extractNearTextFn(t *testing.T) {
 	tests := []struct {
 		name string
 		args args
-		want *NearTextParams
+		want *searchparams.NearTextParams
 	}{
 		{
 			"Extract with concepts",
@@ -32,7 +34,7 @@ func Test_extractNearTextFn(t *testing.T) {
 					"concepts": []interface{}{"c1", "c2", "c3"},
 				},
 			},
-			&NearTextParams{
+			&searchparams.NearTextParams{
 				Values: []string{"c1", "c2", "c3"},
 			},
 		},
@@ -46,7 +48,7 @@ func Test_extractNearTextFn(t *testing.T) {
 					"network":  true,
 				},
 			},
-			&NearTextParams{
+			&searchparams.NearTextParams{
 				Values:       []string{"c1", "c2", "c3"},
 				Distance:     0.4,
 				WithDistance: true,
@@ -64,7 +66,7 @@ func Test_extractNearTextFn(t *testing.T) {
 					"network":   true,
 				},
 			},
-			&NearTextParams{
+			&searchparams.NearTextParams{
 				Values:    []string{"c1", "c2", "c3"},
 				Certainty: 0.4,
 				Limit:     100,
@@ -89,17 +91,17 @@ func Test_extractNearTextFn(t *testing.T) {
 					},
 				},
 			},
-			&NearTextParams{
+			&searchparams.NearTextParams{
 				Values:       []string{"c1", "c2", "c3"},
 				Distance:     0.89,
 				WithDistance: true,
 				Limit:        500,
 				Network:      false,
-				MoveTo: ExploreMove{
+				MoveTo: searchparams.ExploreMove{
 					Values: []string{"positive"},
 					Force:  0.5,
 				},
-				MoveAwayFrom: ExploreMove{
+				MoveAwayFrom: searchparams.ExploreMove{
 					Values: []string{"epic"},
 					Force:  0.25,
 				},
@@ -123,16 +125,16 @@ func Test_extractNearTextFn(t *testing.T) {
 					},
 				},
 			},
-			&NearTextParams{
+			&searchparams.NearTextParams{
 				Values:    []string{"c1", "c2", "c3"},
 				Certainty: 0.89,
 				Limit:     500,
 				Network:   false,
-				MoveTo: ExploreMove{
+				MoveTo: searchparams.ExploreMove{
 					Values: []string{"positive"},
 					Force:  0.5,
 				},
-				MoveAwayFrom: ExploreMove{
+				MoveAwayFrom: searchparams.ExploreMove{
 					Values: []string{"epic"},
 					Force:  0.25,
 				},
@@ -181,25 +183,25 @@ func Test_extractNearTextFn(t *testing.T) {
 					},
 				},
 			},
-			&NearTextParams{
+			&searchparams.NearTextParams{
 				Values:       []string{"c1", "c2", "c3"},
 				Distance:     0.89,
 				WithDistance: true,
 				Limit:        500,
 				Network:      false,
-				MoveTo: ExploreMove{
+				MoveTo: searchparams.ExploreMove{
 					Values: []string{"positive"},
 					Force:  0.5,
-					Objects: []ObjectMove{
+					Objects: []searchparams.ObjectMove{
 						{ID: "moveTo-uuid1"},
 						{Beacon: "weaviate://localhost/moveTo-uuid2"},
 						{Beacon: "weaviate://localhost/moveTo-uuid3"},
 					},
 				},
-				MoveAwayFrom: ExploreMove{
+				MoveAwayFrom: searchparams.ExploreMove{
 					Values: []string{"epic"},
 					Force:  0.25,
-					Objects: []ObjectMove{
+					Objects: []searchparams.ObjectMove{
 						{ID: "moveAwayFrom-uuid1"},
 						{ID: "moveAwayFrom-uuid2"},
 						{Beacon: "weaviate://localhost/moveAwayFrom-uuid3"},
@@ -251,24 +253,24 @@ func Test_extractNearTextFn(t *testing.T) {
 					},
 				},
 			},
-			&NearTextParams{
+			&searchparams.NearTextParams{
 				Values:    []string{"c1", "c2", "c3"},
 				Certainty: 0.89,
 				Limit:     500,
 				Network:   false,
-				MoveTo: ExploreMove{
+				MoveTo: searchparams.ExploreMove{
 					Values: []string{"positive"},
 					Force:  0.5,
-					Objects: []ObjectMove{
+					Objects: []searchparams.ObjectMove{
 						{ID: "moveTo-uuid1"},
 						{Beacon: "weaviate://localhost/moveTo-uuid2"},
 						{Beacon: "weaviate://localhost/moveTo-uuid3"},
 					},
 				},
-				MoveAwayFrom: ExploreMove{
+				MoveAwayFrom: searchparams.ExploreMove{
 					Values: []string{"epic"},
 					Force:  0.25,
-					Objects: []ObjectMove{
+					Objects: []searchparams.ObjectMove{
 						{ID: "moveAwayFrom-uuid1"},
 						{ID: "moveAwayFrom-uuid2"},
 						{Beacon: "weaviate://localhost/moveAwayFrom-uuid3"},
@@ -321,24 +323,24 @@ func Test_extractNearTextFn(t *testing.T) {
 					},
 				},
 			},
-			&NearTextParams{
+			&searchparams.NearTextParams{
 				Values:       []string{"c1", "c2", "c3"},
 				Distance:     0.89,
 				WithDistance: true,
 				Limit:        500,
 				Network:      false,
-				MoveTo: ExploreMove{
+				MoveTo: searchparams.ExploreMove{
 					Values: []string{"positive"},
 					Force:  0.5,
-					Objects: []ObjectMove{
+					Objects: []searchparams.ObjectMove{
 						{ID: "moveTo-uuid1", Beacon: "weaviate://localhost/moveTo-uuid2"},
 						{ID: "moveTo-uuid1", Beacon: "weaviate://localhost/moveTo-uuid2"},
 					},
 				},
-				MoveAwayFrom: ExploreMove{
+				MoveAwayFrom: searchparams.ExploreMove{
 					Values: []string{"epic"},
 					Force:  0.25,
-					Objects: []ObjectMove{
+					Objects: []searchparams.ObjectMove{
 						{ID: "moveAwayFrom-uuid1", Beacon: "weaviate://localhost/moveAwayFrom-uuid1"},
 						{ID: "moveAwayFrom-uuid2", Beacon: "weaviate://localhost/moveAwayFrom-uuid2"},
 						{Beacon: "weaviate://localhost/moveAwayFrom-uuid3"},
@@ -391,23 +393,23 @@ func Test_extractNearTextFn(t *testing.T) {
 					},
 				},
 			},
-			&NearTextParams{
+			&searchparams.NearTextParams{
 				Values:    []string{"c1", "c2", "c3"},
 				Certainty: 0.89,
 				Limit:     500,
 				Network:   false,
-				MoveTo: ExploreMove{
+				MoveTo: searchparams.ExploreMove{
 					Values: []string{"positive"},
 					Force:  0.5,
-					Objects: []ObjectMove{
+					Objects: []searchparams.ObjectMove{
 						{ID: "moveTo-uuid1", Beacon: "weaviate://localhost/moveTo-uuid2"},
 						{ID: "moveTo-uuid1", Beacon: "weaviate://localhost/moveTo-uuid2"},
 					},
 				},
-				MoveAwayFrom: ExploreMove{
+				MoveAwayFrom: searchparams.ExploreMove{
 					Values: []string{"epic"},
 					Force:  0.25,
-					Objects: []ObjectMove{
+					Objects: []searchparams.ObjectMove{
 						{ID: "moveAwayFrom-uuid1", Beacon: "weaviate://localhost/moveAwayFrom-uuid1"},
 						{ID: "moveAwayFrom-uuid2", Beacon: "weaviate://localhost/moveAwayFrom-uuid2"},
 						{Beacon: "weaviate://localhost/moveAwayFrom-uuid3"},
@@ -421,7 +423,7 @@ func Test_extractNearTextFn(t *testing.T) {
 	testsWithAutocorrect := []struct {
 		name string
 		args args
-		want *NearTextParams
+		want *searchparams.NearTextParams
 	}{
 		{
 			"Extract with concepts",
@@ -431,7 +433,7 @@ func Test_extractNearTextFn(t *testing.T) {
 					"autocorrect": true,
 				},
 			},
-			&NearTextParams{
+			&searchparams.NearTextParams{
 				Values:      []string{"c1", "c2", "c3"},
 				Autocorrect: true,
 			},
@@ -444,7 +446,7 @@ func Test_extractNearTextFn(t *testing.T) {
 					"autocorrect": true,
 				},
 			},
-			&NearTextParams{
+			&searchparams.NearTextParams{
 				Values:      []string{"transformed text", "c2", "transformed text"},
 				Autocorrect: true,
 			},
@@ -494,25 +496,25 @@ func Test_extractNearTextFn(t *testing.T) {
 					},
 				},
 			},
-			&NearTextParams{
+			&searchparams.NearTextParams{
 				Values:       []string{"transformed text", "c1", "c2", "c3", "transformed text"},
 				Distance:     0.89,
 				WithDistance: true,
 				Limit:        500,
 				Network:      false,
 				Autocorrect:  true,
-				MoveTo: ExploreMove{
+				MoveTo: searchparams.ExploreMove{
 					Values: []string{"positive"},
 					Force:  0.5,
-					Objects: []ObjectMove{
+					Objects: []searchparams.ObjectMove{
 						{ID: "moveTo-uuid1", Beacon: "weaviate://localhost/moveTo-uuid2"},
 						{ID: "moveTo-uuid1", Beacon: "weaviate://localhost/moveTo-uuid2"},
 					},
 				},
-				MoveAwayFrom: ExploreMove{
+				MoveAwayFrom: searchparams.ExploreMove{
 					Values: []string{"epic"},
 					Force:  0.25,
-					Objects: []ObjectMove{
+					Objects: []searchparams.ObjectMove{
 						{ID: "moveAwayFrom-uuid1", Beacon: "weaviate://localhost/moveAwayFrom-uuid1"},
 						{ID: "moveAwayFrom-uuid2", Beacon: "weaviate://localhost/moveAwayFrom-uuid2"},
 						{Beacon: "weaviate://localhost/moveAwayFrom-uuid3"},
@@ -566,24 +568,24 @@ func Test_extractNearTextFn(t *testing.T) {
 					},
 				},
 			},
-			&NearTextParams{
+			&searchparams.NearTextParams{
 				Values:      []string{"transformed text", "c1", "c2", "c3", "transformed text"},
 				Certainty:   0.89,
 				Limit:       500,
 				Network:     false,
 				Autocorrect: true,
-				MoveTo: ExploreMove{
+				MoveTo: searchparams.ExploreMove{
 					Values: []string{"positive"},
 					Force:  0.5,
-					Objects: []ObjectMove{
+					Objects: []searchparams.ObjectMove{
 						{ID: "moveTo-uuid1", Beacon: "weaviate://localhost/moveTo-uuid2"},
 						{ID: "moveTo-uuid1", Beacon: "weaviate://localhost/moveTo-uuid2"},
 					},
 				},
-				MoveAwayFrom: ExploreMove{
+				MoveAwayFrom: searchparams.ExploreMove{
 					Values: []string{"epic"},
 					Force:  0.25,
-					Objects: []ObjectMove{
+					Objects: []searchparams.ObjectMove{
 						{ID: "moveAwayFrom-uuid1", Beacon: "weaviate://localhost/moveAwayFrom-uuid1"},
 						{ID: "moveAwayFrom-uuid2", Beacon: "weaviate://localhost/moveAwayFrom-uuid2"},
 						{Beacon: "weaviate://localhost/moveAwayFrom-uuid3"},
