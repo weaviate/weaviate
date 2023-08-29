@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -249,6 +250,8 @@ type classTenants map[*models.Class]map[string]struct{}
 func (m *autoSchemaManager) autoTenants(ctx context.Context,
 	principal *models.Principal, objects []*models.Object,
 ) error {
+	log.Printf("AUTOTENANTS!")
+
 	var (
 		ct         = make(classTenants)
 		autoTenant = false

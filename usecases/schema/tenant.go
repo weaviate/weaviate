@@ -83,6 +83,9 @@ func (m *Manager) AddTenants(ctx context.Context,
 		}
 	}
 
+	m.Lock()
+	defer m.Unlock()
+
 	// open cluster-wide transaction
 	tx, err := m.cluster.BeginTransaction(ctx, addTenants,
 		request, DefaultTxTTL)
@@ -249,6 +252,9 @@ func (m *Manager) UpdateTenants(ctx context.Context, principal *models.Principal
 		request.Tenants[i] = TenantUpdate{Name: tenant.Name, Status: tenant.ActivityStatus}
 	}
 
+	m.Lock()
+	defer m.Unlock()
+
 	// open cluster-wide transaction
 	tx, err := m.cluster.BeginTransaction(ctx, updateTenants,
 		request, DefaultTxTTL)
@@ -365,6 +371,9 @@ func (m *Manager) DeleteTenants(ctx context.Context, principal *models.Principal
 		Class:   class,
 		Tenants: tenants,
 	}
+
+	m.Lock()
+	defer m.Unlock()
 
 	// open cluster-wide transaction
 	tx, err := m.cluster.BeginTransaction(ctx, deleteTenants,
