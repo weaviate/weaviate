@@ -14,6 +14,8 @@ package neartext
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/entities/searchparams"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -48,11 +50,11 @@ func (s *Searcher) vectorForNearTextParam(ctx context.Context, params interface{
 	findVectorFn modulecapabilities.FindVectorFn,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return s.vectorFromNearTextParam(ctx, params.(*NearTextParams), className, findVectorFn, cfg)
+	return s.vectorFromNearTextParam(ctx, params.(*searchparams.NearTextParams), className, findVectorFn, cfg)
 }
 
 func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
-	params *NearTextParams, className string, findVectorFn modulecapabilities.FindVectorFn,
+	params *searchparams.NearTextParams, className string, findVectorFn modulecapabilities.FindVectorFn,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	// it is safe to call NewClassSettings even knowing that cfg can be nil, it
@@ -99,7 +101,7 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 }
 
 func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
-	values []string, objects []ObjectMove,
+	values []string, objects []searchparams.ObjectMove,
 	className string,
 	findVectorFn modulecapabilities.FindVectorFn,
 	settings localvectorizer.ClassSettings, tenant string,

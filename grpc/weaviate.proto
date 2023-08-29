@@ -68,6 +68,7 @@ message SearchRequest {
   string after = 11;
   string tenant = 12;
   Filters filters = 13;
+  NearTextSearchParams near_text = 14;
 }
 
 message TextArray{
@@ -158,6 +159,19 @@ message HybridSearchParams {
   FusionType fusion_type = 5;
 }
 
+message NearTextSearchParams{
+  message Move{
+    float force =1;
+    repeated string concepts = 2;
+    repeated string uuids = 3;
+  }
+
+  repeated string queries = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+  Move move_to = 5;
+  Move move_away = 6;
+};
 
 
 message BM25SearchParams {

@@ -11,6 +11,8 @@
 
 package searchparams
 
+import "github.com/pkg/errors"
+
 type NearVector struct {
 	Vector       []float32 `json:"vector"`
 	Certainty    float64   `json:"certainty"`
@@ -71,6 +73,39 @@ type NearTextParams struct {
 	WithDistance bool
 	Network      bool
 	Autocorrect  bool
+}
+
+func (n NearTextParams) GetCertainty() float64 {
+	return n.Certainty
+}
+
+func (n NearTextParams) GetDistance() float64 {
+	return n.Distance
+}
+
+func (n NearTextParams) SimilarityMetricProvided() bool {
+	return n.Certainty != 0 || n.WithDistance
+}
+
+func (n NearTextParams) Validate() error {
+	if n.MoveTo.Force > 0 &&
+		n.MoveTo.Values == nil && n.MoveTo.Objects == nil {
+		return errors.Errorf("'nearText.moveTo' parameter " +
+			"needs to have defined either 'concepts' or 'objects' fields")
+	}
+
+	if n.MoveAwayFrom.Force > 0 &&
+		n.MoveAwayFrom.Values == nil && n.MoveAwayFrom.Objects == nil {
+		return errors.Errorf("'nearText.moveAwayFrom' parameter " +
+			"needs to have defined either 'concepts' or 'objects' fields")
+	}
+
+	if n.Certainty != 0 && n.WithDistance {
+		return errors.Errorf(
+			"nearText cannot provide both distance and certainty")
+	}
+
+	return nil
 }
 
 type GroupBy struct {
