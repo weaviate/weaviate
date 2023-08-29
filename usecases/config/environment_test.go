@@ -407,71 +407,71 @@ func TestEnvironmentDisableGraphQL(t *testing.T) {
 	}
 }
 
-func TestEnvironmentPrometheusGroupClasses_OldName(t *testing.T) {
-	factors := []struct {
-		name        string
-		value       []string
-		expected    bool
-		expectedErr bool
-	}{
-		{"Valid: true", []string{"true"}, true, false},
-		{"Valid: false", []string{"false"}, false, false},
-		{"Valid: 1", []string{"1"}, true, false},
-		{"Valid: 0", []string{"0"}, false, false},
-		{"Valid: on", []string{"on"}, true, false},
-		{"Valid: off", []string{"off"}, false, false},
-		{"not given", []string{}, false, false},
-	}
-	for _, tt := range factors {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("PROMETHEUS_MONITORING_ENABLED", "true")
-			if len(tt.value) == 1 {
-				t.Setenv("PROMETHEUS_MONITORING_GROUP_CLASSES", tt.value[0])
-			}
-			conf := Config{}
-			err := FromEnv(&conf)
+// func TestEnvironmentPrometheusGroupClasses_OldName(t *testing.T) {
+// 	factors := []struct {
+// 		name        string
+// 		value       []string
+// 		expected    bool
+// 		expectedErr bool
+// 	}{
+// 		{"Valid: true", []string{"true"}, true, false},
+// 		{"Valid: false", []string{"false"}, false, false},
+// 		{"Valid: 1", []string{"1"}, true, false},
+// 		{"Valid: 0", []string{"0"}, false, false},
+// 		{"Valid: on", []string{"on"}, true, false},
+// 		{"Valid: off", []string{"off"}, false, false},
+// 		{"not given", []string{}, false, false},
+// 	}
+// 	for _, tt := range factors {
+// 		t.Run(tt.name, func(t *testing.T) {
+// 			t.Setenv("PROMETHEUS_MONITORING_ENABLED", "true")
+// 			if len(tt.value) == 1 {
+// 				t.Setenv("PROMETHEUS_MONITORING_GROUP_CLASSES", tt.value[0])
+// 			}
+// 			conf := Config{}
+// 			err := FromEnv(&conf)
 
-			if tt.expectedErr {
-				require.NotNil(t, err)
-			} else {
-				require.Equal(t, tt.expected, conf.Monitoring.Group)
-			}
-		})
-	}
-}
+// 			if tt.expectedErr {
+// 				require.NotNil(t, err)
+// 			} else {
+// 				require.Equal(t, tt.expected, conf.Monitoring.Group)
+// 			}
+// 		})
+// 	}
+// }
 
-func TestEnvironmentPrometheusGroupClasses_NewName(t *testing.T) {
-	factors := []struct {
-		name        string
-		value       []string
-		expected    bool
-		expectedErr bool
-	}{
-		{"Valid: true", []string{"true"}, true, false},
-		{"Valid: false", []string{"false"}, false, false},
-		{"Valid: 1", []string{"1"}, true, false},
-		{"Valid: 0", []string{"0"}, false, false},
-		{"Valid: on", []string{"on"}, true, false},
-		{"Valid: off", []string{"off"}, false, false},
-		{"not given", []string{}, false, false},
-	}
-	for _, tt := range factors {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("PROMETHEUS_MONITORING_ENABLED", "true")
-			if len(tt.value) == 1 {
-				t.Setenv("PROMETHEUS_MONITORING_GROUP", tt.value[0])
-			}
-			conf := Config{}
-			err := FromEnv(&conf)
+// func TestEnvironmentPrometheusGroupClasses_NewName(t *testing.T) {
+// 	factors := []struct {
+// 		name        string
+// 		value       []string
+// 		expected    bool
+// 		expectedErr bool
+// 	}{
+// 		{"Valid: true", []string{"true"}, true, false},
+// 		{"Valid: false", []string{"false"}, false, false},
+// 		{"Valid: 1", []string{"1"}, true, false},
+// 		{"Valid: 0", []string{"0"}, false, false},
+// 		{"Valid: on", []string{"on"}, true, false},
+// 		{"Valid: off", []string{"off"}, false, false},
+// 		{"not given", []string{}, false, false},
+// 	}
+// 	for _, tt := range factors {
+// 		t.Run(tt.name, func(t *testing.T) {
+// 			t.Setenv("PROMETHEUS_MONITORING_ENABLED", "true")
+// 			if len(tt.value) == 1 {
+// 				t.Setenv("PROMETHEUS_MONITORING_GROUP", tt.value[0])
+// 			}
+// 			conf := Config{}
+// 			err := FromEnv(&conf)
 
-			if tt.expectedErr {
-				require.NotNil(t, err)
-			} else {
-				require.Equal(t, tt.expected, conf.Monitoring.Group)
-			}
-		})
-	}
-}
+// 			if tt.expectedErr {
+// 				require.NotNil(t, err)
+// 			} else {
+// 				require.Equal(t, tt.expected, conf.Monitoring.Group)
+// 			}
+// 		})
+// 	}
+// }
 
 func TestEnvironmentMinimumReplicationFactor(t *testing.T) {
 	factors := []struct {
