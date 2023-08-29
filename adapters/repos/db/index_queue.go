@@ -12,12 +12,7 @@
 package db
 
 import (
-	"bufio"
 	"context"
-	"encoding/binary"
-	"io"
-	"os"
-	"runtime"
 	"sync"
 	"time"
 
@@ -41,41 +36,43 @@ type IndexQueue struct {
 	retryInterval time.Duration
 
 	// processCh is the channel used to send vectors to the indexing worker.
-	processCh chan indexQueueJob
+	processCh chan []vectorDescriptor
 
 	// indexCh is the channel used to send vectors to the indexing worker.
-	indexCh chan batch
+	indexCh chan *chunk
 
 	// if closed, prevents new vectors from being added to the queue.
 	closed chan struct{}
 
-	// tracks the number of in-flight pushes
+	// tracks the workers
 	wg sync.WaitGroup
 
 	// tracks the background workers
 	workerWg sync.WaitGroup
 
-	// walFile is the append-only file used to persist the pending vectors.
-	walFile   *os.File
-	walBuffer *bufio.Writer
-
 	// queue of not-yet-indexed vectors
-	queuedVectors struct {
-		sync.RWMutex
-
-		toIndex []indexQueueJob
-	}
+	queue *vectorQueue
 
 	// keeps track of the last time the queue was indexed
-	staleTm *time.Ticker
+	staleTm *time.Timer
 
 	pqMaxPool *pqMaxPool
+}
+
+type vectorDescriptor struct {
+	id     uint64
+	vector []float32
 }
 
 type IndexQueueOptions struct {
 	// MaxQueueSize is the maximum number of vectors to queue
 	// before sending them to the indexing worker.
+	// It must be a multiple of BatchSize.
 	MaxQueueSize int
+
+	// BatchSize is the number of vectors to batch together
+	// before sending them to the indexing worker.
+	BatchSize int
 
 	// MaxStaleTime is the maximum time to wait before sending
 	// the pending vectors to the indexing worker, regardless
@@ -100,14 +97,8 @@ type BatchIndexer interface {
 	DistanceBetweenVectors(x, y []float32) (float32, bool, error)
 }
 
-type VectorLoader interface {
-	vectorByIndexID(ctx context.Context, indexID uint64) ([]float32, error)
-}
-
 func NewIndexQueue(
-	walPath string,
 	index BatchIndexer,
-	vectorLoader VectorLoader,
 	opts IndexQueueOptions,
 ) (*IndexQueue, error) {
 	if opts.Logger == nil {
@@ -115,11 +106,19 @@ func NewIndexQueue(
 	}
 
 	if opts.MaxQueueSize == 0 {
-		opts.MaxQueueSize = 10_000
+		opts.MaxQueueSize = 1000
+	}
+
+	if opts.BatchSize == 0 {
+		opts.BatchSize = 100
 	}
 
 	if opts.MaxStaleTime == 0 {
 		opts.MaxStaleTime = 10 * time.Second
+	}
+
+	if opts.MaxQueueSize%opts.BatchSize != 0 {
+		return nil, errors.New("maxQueueSize must be a multiple of batchSize")
 	}
 
 	if opts.RetryInterval == 0 {
@@ -127,8 +126,8 @@ func NewIndexQueue(
 	}
 
 	if opts.IndexWorkerCount == 0 {
-		// use the number of CPUs
-		opts.IndexWorkerCount = runtime.GOMAXPROCS(0)
+		// TODO: use the number of CPUs
+		opts.IndexWorkerCount = 12
 	}
 
 	q := IndexQueue{
@@ -136,24 +135,13 @@ func NewIndexQueue(
 		maxQueueSize:  opts.MaxQueueSize,
 		maxStaleTime:  opts.MaxStaleTime,
 		retryInterval: opts.RetryInterval,
-		processCh:     make(chan indexQueueJob),
-		indexCh:       make(chan batch),
+		queue:         newVectorQueue(opts.MaxQueueSize, opts.BatchSize),
+		processCh:     make(chan []vectorDescriptor),
+		indexCh:       make(chan *chunk),
 		closed:        make(chan struct{}),
 		logger:        opts.Logger.WithField("component", "index_queue"),
 		pqMaxPool:     newPqMaxPool(0),
 	}
-
-	q.queuedVectors.toIndex = make([]indexQueueJob, 0, q.maxQueueSize)
-
-	var err error
-
-	// open append-only file
-	q.walFile, err = os.OpenFile(walPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to open wal file")
-	}
-
-	q.walBuffer = bufio.NewWriter(q.walFile)
 
 	q.workerWg.Add(1)
 	go func() {
@@ -195,86 +183,13 @@ func (q *IndexQueue) Close() error {
 
 	q.workerWg.Wait()
 
-	err := q.walBuffer.Flush()
-	if err != nil {
-		_ = q.walFile.Close()
-		return errors.Wrap(err, "failed to flush wal buffer")
-	}
-
-	// close the wal file
-	return q.walFile.Close()
-}
-
-func (q *IndexQueue) loadWalFile(vectorLoader VectorLoader, walPath string) error {
-	_, err := os.Stat(walPath)
-	if err != nil && !os.IsNotExist(err) {
-		return errors.Wrap(err, "failed to stat wal file")
-	}
-
-	if os.IsNotExist(err) {
-		q.walFile, err = os.Create(walPath)
-		if err != nil {
-			return errors.Wrap(err, "failed to open wal file")
-		}
-
-		q.walBuffer = bufio.NewWriter(q.walFile)
-		return nil
-	}
-
-	q.walFile, err = os.Open(walPath)
-	if err != nil {
-		return errors.Wrap(err, "failed to open wal file")
-	}
-
-	_, err = q.walFile.Seek(0, 0)
-	if err != nil {
-		return errors.Wrap(err, "failed to seek wal file")
-	}
-
-	rd := bufio.NewReader(q.walFile)
-
-	// read the file by chunks
-	buf := make([]byte, 8*1024)
-	for {
-		n, err := rd.Read(buf)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return errors.Wrap(err, "failed to read wal file")
-		}
-
-		// read the ids
-		for i := 0; i < n; i += 8 {
-			id := binary.BigEndian.Uint64(buf[i : i+8])
-
-			vector, err := vectorLoader.vectorByIndexID(context.Background(), id)
-			if err != nil {
-				return errors.Wrap(err, "failed to load vector")
-			}
-
-			q.queuedVectors.toIndex = append(q.queuedVectors.toIndex, indexQueueJob{
-				id:     id,
-				vector: vector,
-			})
-		}
-	}
-
-	q.walBuffer = bufio.NewWriter(q.walFile)
-
 	return nil
-}
-
-type indexQueueJob struct {
-	id     uint64
-	vector []float32
-	done   chan error
 }
 
 // Push adds a vector to the persistent indexing queue.
 // It waits until the vector is successfully persisted to the
 // on-disk queue or sent to the indexing worker.
-func (q *IndexQueue) Push(ctx context.Context, id uint64, vector []float32) error {
+func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) error {
 	// check if the queue is closed
 	select {
 	case <-ctx.Done():
@@ -288,23 +203,16 @@ func (q *IndexQueue) Push(ctx context.Context, id uint64, vector []float32) erro
 	q.wg.Add(1)
 	defer q.wg.Done()
 
-	done := make(chan error)
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case q.processCh <- indexQueueJob{
-		id:     id,
-		vector: vector,
-		done:   done,
-	}:
-		return <-done
+	case q.processCh <- vectors:
+		return nil
 	}
 }
 
 // Search defer to the index and brute force the unindexed data
 func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	ids, vectors := q.getQueuedVectors()
-
 	indexedResults, distances, err := q.Index.SearchByVector(vector, k, allowList)
 	if err != nil {
 		return nil, nil, err
@@ -313,6 +221,14 @@ func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.A
 	defer q.pqMaxPool.Put(results)
 	for i := range indexedResults {
 		results.Insert(indexedResults[i], distances[i])
+	}
+
+	snapshot := q.queue.AppendSnapshot(nil)
+	ids := make([]uint64, len(snapshot))
+	vectors := make([][]float32, len(snapshot))
+	for i, v := range snapshot {
+		ids[i] = v.id
+		vectors[i] = v.vector
 	}
 
 	err = q.bruteForce(vector, k, ids, vectors, results, allowList)
@@ -365,182 +281,102 @@ func (q *IndexQueue) bruteForce(vector []float32, k int, ids []uint64, vectors [
 // Once the queue is full or stale, it sends the jobs to the indexing worker.
 // It batches concurrent jobs to reduce the number of disk writes.
 func (q *IndexQueue) processor() {
-	received := make([]indexQueueJob, 0, q.maxQueueSize)
-
-	q.staleTm = time.NewTicker(q.maxStaleTime)
+	q.staleTm = time.NewTimer(q.maxStaleTime)
 
 	for {
-		received = received[:0]
-
 		select {
-		case j, ok := <-q.processCh:
+		case batch, ok := <-q.processCh:
 			if !ok {
 				// the channel is closed, abort.
+				// drain the timer
+				if !q.staleTm.Stop() {
+					<-q.staleTm.C
+				}
 				return
 			}
-			received = append(received, j)
 
-			// loop over the channel to dequeue it until it's empty
-			// or we have reached one of our thresholds
-		LOOP:
+			var n int
+			var err error
+
+			// q.logger.WithField("batch size", len(batch)).Info("adding vectors to queue")
 			for {
-				select {
-				case jj := <-q.processCh:
-					received = append(received, jj)
-					if q.shouldIndex(received) {
-						break LOOP
-					}
-				default:
-					// the channel is empty, break out of the loop
-					break LOOP
+				n = q.queue.Add(batch...)
+				if n == len(batch) {
+					break
+				}
+
+				// q.logger.WithField("batch size", len(batch)).Info("queue full, indexing vectors")
+
+				batch = batch[n:]
+
+				err = q.index(true)
+				if err != nil {
+					q.logger.WithError(err).Error("failed to index vectors")
+					return
 				}
 			}
 
-			// persist the new jobs on disk
-			err := q.persist(received)
+			err = q.index(true)
 			if err != nil {
-				q.notifyError(received, err)
-				continue
-			}
-
-			// add the new jobs to the queue
-			q.addToQueue(received)
-
-			// notify the jobs that they have been processed
-			// to avoid blocking the clients
-			q.notifySuccess(received)
-
-			// if the queue is not stale and not full
-			// continue processing
-			if !q.shouldIndex(nil) {
-				continue
-			}
-
-			// the queue is full or stale, we need to index the vectors
-			var b batch
-			b.ids, b.vectors = q.getQueuedVectors()
-
-			// send the batch to the indexing worker
-			q.indexCh <- b
-
-			// reset the on-disk queue
-			err = q.reset()
-			if err != nil {
-				// TODO: if we can't reset the file
-				// should we recreate it?
-				q.logger.WithError(err).Error("failed to reset wal file")
-				continue
+				q.logger.WithError(err).Error("failed to index vectors")
+				return
 			}
 		case <-q.staleTm.C:
-			// if the queue is stale, send the jobs to the indexing worker.
-			if q.getQueueLen() == 0 {
-				q.staleTm.Reset(q.maxStaleTime)
-				continue
-			}
-
-			var b batch
-			b.ids, b.vectors = q.getQueuedVectors()
-			q.indexCh <- b
-
-			// reset the queue
-			err := q.reset()
+			err := q.index(false)
 			if err != nil {
-				q.logger.WithError(err).Error("failed to reset wal file")
-				continue
+				q.logger.WithError(err).Error("failed to index vectors")
+				return
 			}
+
+			// reset the timer
+			q.staleTm.Reset(q.maxStaleTime)
 		case <-q.closed:
+			// drain the timer
+			if !q.staleTm.Stop() {
+				<-q.staleTm.C
+			}
 			// if the queue is closed, do nothing.
 			return
 		}
 	}
 }
 
-func (q *IndexQueue) indexer() {
-	for b := range q.indexCh {
-		q.indexVectors(&b)
-	}
-}
-
-func (q *IndexQueue) shouldIndex(received []indexQueueJob) bool {
-	// if the queue is not full, continue
-	if len(received)+q.getQueueLen() >= q.maxQueueSize {
-		return true
-	}
-
-	// if the queue is not stale, continue
-	select {
-	case <-q.staleTm.C:
-		return true
-	default:
-		return false
-	}
-}
-
-func (q *IndexQueue) addToQueue(jobs []indexQueueJob) {
-	q.queuedVectors.Lock()
-	q.queuedVectors.toIndex = append(q.queuedVectors.toIndex, jobs...)
-	q.queuedVectors.Unlock()
-}
-
-func (q *IndexQueue) getQueuedVectors() ([]uint64, [][]float32) {
-	q.queuedVectors.RLock()
-
-	ids := make([]uint64, 0, len(q.queuedVectors.toIndex))
-	vectors := make([][]float32, 0, len(q.queuedVectors.toIndex))
-
-	for _, j := range q.queuedVectors.toIndex {
-		ids = append(ids, j.id)
-		vectors = append(vectors, j.vector)
-	}
-
-	q.queuedVectors.RUnlock()
-
-	return ids, vectors
-}
-
-func (q *IndexQueue) getQueueLen() int {
-	q.queuedVectors.RLock()
-	defer q.queuedVectors.RUnlock()
-
-	return len(q.queuedVectors.toIndex)
-}
-
-func (q *IndexQueue) persist(vectors []indexQueueJob) error {
-	buf := make([]byte, 8)
-
-	for _, jj := range vectors {
-		// store the id only
-		binary.BigEndian.PutUint64(buf, jj.id)
-		_, err := q.walBuffer.Write(buf)
-		if err != nil {
-			jj.done <- err
-			continue
+func (q *IndexQueue) index(fullOnly bool) error {
+	for q.queue.HasChunksReady(fullOnly) {
+		c := q.queue.BorrowNextChunk(fullOnly)
+		// q.logger.WithField("index", c.id).Info("indexing chunk")
+		select {
+		case <-q.closed:
+			return errors.New("index queue closed")
+		case q.indexCh <- c:
 		}
-	}
-
-	// write to the file
-	err := q.walBuffer.Flush()
-	if err != nil {
-		return err
-	}
-
-	// ensure the data is persisted to disk
-	err = q.walFile.Sync()
-	if err != nil {
-		return err
 	}
 
 	return nil
 }
 
-type batch struct {
-	ids     []uint64
-	vectors [][]float32
+func (q *IndexQueue) indexer() {
+	var ids []uint64
+	var vectors [][]float32
+
+	for b := range q.indexCh {
+		for i := range b.chunk[:b.cursor] {
+			ids = append(ids, b.chunk[i].id)
+			vectors = append(vectors, b.chunk[i].vector)
+		}
+
+		q.indexVectors(ids, vectors)
+
+		q.queue.ReleaseChunk(b)
+
+		ids = ids[:0]
+		vectors = vectors[:0]
+	}
 }
 
-func (q *IndexQueue) indexVectors(b *batch) error {
+func (q *IndexQueue) indexVectors(ids []uint64, vectors [][]float32) error {
 	for {
-		err := q.Index.AddBatch(b.ids, b.vectors)
+		err := q.Index.AddBatch(ids, vectors)
 		if err == nil {
 			break
 		}
@@ -558,46 +394,6 @@ func (q *IndexQueue) indexVectors(b *batch) error {
 		case <-t.C:
 		}
 	}
-
-	return nil
-}
-
-func (q *IndexQueue) notifyError(jobs []indexQueueJob, err error) {
-	for _, j := range jobs {
-		j.done <- err
-	}
-}
-
-func (q *IndexQueue) notifySuccess(jobs []indexQueueJob) {
-	q.notifyError(jobs, nil)
-}
-
-func (q *IndexQueue) reset() error {
-	// reset the queue
-	q.queuedVectors.Lock()
-	q.queuedVectors.toIndex = q.queuedVectors.toIndex[:0]
-	q.queuedVectors.Unlock()
-
-	// reset the stale timer
-	q.staleTm.Reset(q.maxStaleTime)
-
-	// reset the on-disk queue
-	return q.resetFile()
-}
-
-func (q *IndexQueue) resetFile() error {
-	_, err := q.walFile.Seek(0, 0)
-	if err != nil {
-		return errors.Wrap(err, "failed to reset wal file position")
-	}
-
-	err = q.walFile.Truncate(0)
-	if err != nil {
-		return errors.Wrap(err, "failed to truncate wal file")
-	}
-
-	// reset the buffer
-	q.walBuffer.Reset(q.walFile)
 
 	return nil
 }
@@ -629,4 +425,164 @@ func (pqh *pqMaxPool) GetMax(capacity int) *priorityqueue.Queue {
 
 func (pqh *pqMaxPool) Put(pq *priorityqueue.Queue) {
 	pqh.pool.Put(pq)
+}
+
+type vectorQueue struct {
+	sync.RWMutex
+
+	vectors   []vectorDescriptor
+	maxSize   int
+	batchSize int
+
+	curBatch *chunk
+	chunks   []chunk
+}
+
+func newVectorQueue(maxSize, batchSize int) *vectorQueue {
+	if maxSize%batchSize != 0 {
+		panic("maxSize must be a multiple of batchSize")
+	}
+
+	q := vectorQueue{
+		maxSize:   maxSize,
+		batchSize: batchSize,
+		vectors:   make([]vectorDescriptor, maxSize),
+		chunks:    make([]chunk, maxSize/batchSize),
+	}
+
+	for i := range q.chunks {
+		q.chunks[i].id = i
+		q.chunks[i].free = true
+		q.chunks[i].chunk = q.vectors[i*q.batchSize : (i+1)*q.batchSize]
+	}
+
+	q.curBatch = &q.chunks[0]
+	q.curBatch.free = false
+
+	return &q
+}
+
+func (q *vectorQueue) Add(vectors ...vectorDescriptor) int {
+	q.Lock()
+	defer q.Unlock()
+
+	if !q.ensureHasSpace() {
+		return 0
+	}
+
+	for i, v := range vectors {
+		q.curBatch.chunk[q.curBatch.cursor] = v
+		q.curBatch.cursor++
+
+		if !q.ensureHasSpace() {
+			return i + 1
+		}
+	}
+
+	return len(vectors)
+}
+
+func (q *vectorQueue) ensureHasSpace() bool {
+	if q.curBatch.cursor < q.batchSize {
+		return true
+	}
+
+	// fmt.Println("batch full", q.curBatch.id)
+
+	q.curBatch.full = true
+
+	c := q.getFreeChunk()
+	if c == nil {
+		return false
+	}
+
+	q.curBatch = c
+	q.curBatch.free = false
+	q.curBatch.cursor = 0
+
+	return true
+}
+
+func (q *vectorQueue) getFreeChunk() *chunk {
+	for i := range q.chunks {
+		if q.chunks[i].free {
+			return &q.chunks[i]
+		}
+	}
+
+	return nil
+}
+
+func (q *vectorQueue) HasChunksReady(fullOnly bool) bool {
+	q.RLock()
+	defer q.RUnlock()
+
+	for i := range q.chunks {
+		if !q.chunks[i].free && !q.chunks[i].borrowed {
+			if fullOnly && !q.chunks[i].full {
+				continue
+			}
+
+			if q.chunks[i].cursor == 0 {
+				continue
+			}
+
+			return true
+		}
+	}
+
+	return false
+}
+
+func (q *vectorQueue) BorrowNextChunk(fullOnly bool) *chunk {
+	q.Lock()
+	defer q.Unlock()
+
+	for i := range q.chunks {
+		if !q.chunks[i].free && !q.chunks[i].borrowed {
+			if fullOnly && !q.chunks[i].full {
+				continue
+			}
+
+			q.chunks[i].borrowed = true
+			// fmt.Println("borrowed chunk", q.chunks[i].id)
+			return &q.chunks[i]
+		}
+	}
+
+	return nil
+}
+
+func (q *vectorQueue) ReleaseChunk(c *chunk) {
+	q.Lock()
+	defer q.Unlock()
+
+	// fmt.Println("released chunk", c.id)
+	c.full = false
+	c.free = true
+	c.borrowed = false
+	c.cursor = 0
+}
+
+func (q *vectorQueue) AppendSnapshot(buf []vectorDescriptor) []vectorDescriptor {
+	q.RLock()
+	defer q.RUnlock()
+
+	for i := range q.chunks {
+		if q.chunks[i].free {
+			continue
+		}
+		buf = append(buf, q.chunks[i].chunk[:q.chunks[i].cursor]...)
+	}
+
+	return buf
+}
+
+type chunk struct {
+	id       int
+	free     bool
+	full     bool
+	cursor   int
+	borrowed bool
+	chunk    []vectorDescriptor
 }
