@@ -432,14 +432,14 @@ func Test_MergeObject(t *testing.T) {
 				if tc.previous.Properties != nil && tc.updated.Vector == nil {
 					m.modulesProvider.On("VectorizerName", mock.Anything).Return("some-module", nil)
 				}
-				m.repo.On("Object", cls, uuid, search.SelectProperties(nil), additional.Properties{}).
+				m.repo.On("Object", cls, uuid, search.SelectProperties(nil), additional.Properties{}, "").
 					Return(&search.Result{
 						Schema:    tc.previous.Properties,
 						ClassName: tc.previous.Class,
 						Vector:    tc.previous.Vector,
 					}, nil)
 			} else if tc.stage >= stageAuthorization {
-				m.repo.On("Object", cls, uuid, search.SelectProperties(nil), additional.Properties{}).
+				m.repo.On("Object", cls, uuid, search.SelectProperties(nil), additional.Properties{}, "").
 					Return((*search.Result)(nil), tc.errGetObject)
 			}
 
