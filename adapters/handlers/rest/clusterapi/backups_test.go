@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 func TestInternalBackupsAPI(t *testing.T) {
@@ -60,9 +61,10 @@ func TestInternalBackupsAPI(t *testing.T) {
 
 func setupClusterAPI(t *testing.T, nodes []*backupNode) map[string]string {
 	hosts := make(map[string]string)
+	authConfig := cluster.AuthConfig{BasicAuth: cluster.BasicAuth{}}
 
 	for _, node := range nodes {
-		backupsHandler := clusterapi.NewBackups(node.backupManager)
+		backupsHandler := clusterapi.NewBackups(node.backupManager, authConfig)
 
 		mux := http.NewServeMux()
 		mux.Handle("/backups/can-commit", backupsHandler.CanCommit())

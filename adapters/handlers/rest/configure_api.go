@@ -148,7 +148,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
 	}
 
-	clusterHttpClient := reasonableHttpClient()
+	clusterHttpClient := reasonableHttpClient(appState.ServerConfig.Config.Cluster.AuthConfig)
 
 	var vectorRepo vectorRepo
 	var vectorMigrator migrate.Migrator
@@ -745,7 +745,17 @@ func initModules(ctx context.Context, appState *state.State) error {
 	return nil
 }
 
-func reasonableHttpClient() *http.Client {
+type clientWithAuth struct {
+	r         http.RoundTripper
+	basicAuth cluster.BasicAuth
+}
+
+func (c clientWithAuth) RoundTrip(r *http.Request) (*http.Response, error) {
+	r.SetBasicAuth(c.basicAuth.Username, c.basicAuth.Password)
+	return c.r.RoundTrip(r)
+}
+
+func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 	t := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
@@ -757,6 +767,9 @@ func reasonableHttpClient() *http.Client {
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+	}
+	if authConfig.BasicAuth.Enabled() {
+		return &http.Client{Transport: clientWithAuth{r: t, basicAuth: authConfig.BasicAuth}}
 	}
 	return &http.Client{Transport: t}
 }

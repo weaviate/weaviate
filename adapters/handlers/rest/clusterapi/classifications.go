@@ -11,10 +11,12 @@
 
 package clusterapi
 
+import "github.com/weaviate/weaviate/usecases/cluster"
+
 type classifications struct {
 	txHandler
 }
 
-func NewClassifications(manager txManager) *classifications {
-	return &classifications{txHandler{manager: manager}}
+func NewClassifications(manager txManager, authConfig cluster.AuthConfig) *classifications {
+	return &classifications{txHandler{manager: manager, auth: newBasicAuthHandler(authConfig)}}
 }
