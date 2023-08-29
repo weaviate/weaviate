@@ -59,16 +59,16 @@ func startWeaviate(ctx context.Context,
 	env := map[string]string{
 		"AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED": "true",
 		"LOG_LEVEL":                 "debug",
-		"QUERY_DEFAULTS_LIMIT":      "20",
+		"QUERY_DEFAULTS_LIMIT":      "10",
 		"PERSISTENCE_DATA_PATH":     "./data",
-		"DEFAULT_VECTORIZER_MODULE": "none",
+		// "DEFAULT_VECTORIZER_MODULE": "none",
 	}
 	if len(enableModules) > 0 {
 		env["ENABLE_MODULES"] = strings.Join(enableModules, ",")
 	}
-	if len(defaultVectorizerModule) > 0 {
-		env["DEFAULT_VECTORIZER_MODULE"] = defaultVectorizerModule
-	}
+	// if len(defaultVectorizerModule) > 0 {
+	// 	env["DEFAULT_VECTORIZER_MODULE"] = defaultVectorizerModule
+	// }
 	for key, value := range extraEnvSettings {
 		env[key] = value
 	}

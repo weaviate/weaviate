@@ -27,23 +27,23 @@ import (
 // provided by other means (e.g. a config file) and will only extend those that
 // are set
 func FromEnv(config *Config) error {
-	if enabled(os.Getenv("PROMETHEUS_MONITORING_ENABLED")) {
-		config.Monitoring.Enabled = true
-		config.Monitoring.Tool = "prometheus"
-		config.Monitoring.Port = 2112
+	// if enabled(os.Getenv("PROMETHEUS_MONITORING_ENABLED")) {
+	// 	config.Monitoring.Enabled = true
+	// 	config.Monitoring.Tool = "prometheus"
+	// 	config.Monitoring.Port = 2112
 
-		if enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) ||
-			enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP")) {
-			// The variable was renamed with v1.20. Prior to v1.20 the recommended
-			// way to do MT was using classes. This lead to a lot of metrics which
-			// could be grouped with this variable. With v1.20 we introduced native
-			// multi-tenancy. Now all you need is a single class, but you would
-			// still get one set of metrics per shard. To prevent this, you still
-			// want to group. The new name reflects that it's just about grouping,
-			// not about classes or shards.
-			config.Monitoring.Group = true
-		}
-	}
+	// 	if enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) ||
+	// 		enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP")) {
+	// 		// The variable was renamed with v1.20. Prior to v1.20 the recommended
+	// 		// way to do MT was using classes. This lead to a lot of metrics which
+	// 		// could be grouped with this variable. With v1.20 we introduced native
+	// 		// multi-tenancy. Now all you need is a single class, but you would
+	// 		// still get one set of metrics per shard. To prevent this, you still
+	// 		// want to group. The new name reflects that it's just about grouping,
+	// 		// not about classes or shards.
+	// 		config.Monitoring.Group = true
+	// 	}
+	// }
 
 	if enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
 		config.TrackVectorDimensions = true
@@ -208,15 +208,15 @@ func FromEnv(config *Config) error {
 		config.MaxImportGoroutinesFactor = DefaultMaxImportGoroutinesFactor
 	}
 
-	if v := os.Getenv("DEFAULT_VECTORIZER_MODULE"); v != "" {
-		config.DefaultVectorizerModule = v
-	} else {
-		// env not set, this could either mean, we already have a value from a file
-		// or we explicitly want to set the value to "none"
-		if config.DefaultVectorizerModule == "" {
-			config.DefaultVectorizerModule = VectorizerModuleNone
-		}
-	}
+	// if v := os.Getenv("DEFAULT_VECTORIZER_MODULE"); v != "" {
+	// 	config.DefaultVectorizerModule = v
+	// } else {
+	// 	// env not set, this could either mean, we already have a value from a file
+	// 	// or we explicitly want to set the value to "none"
+	// 	if config.DefaultVectorizerModule == "" {
+	// 		config.DefaultVectorizerModule = VectorizerModuleNone
+	// 	}
+	// }
 
 	if v := os.Getenv("DEFAULT_VECTOR_DISTANCE_METRIC"); v != "" {
 		config.DefaultVectorDistanceMetric = v

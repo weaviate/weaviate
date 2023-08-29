@@ -166,7 +166,7 @@ jobs:
     env:
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: true
       PERSISTENCE_DATA_PATH: /tmp
-      QUERY_DEFAULTS_LIMIT: 20
+      QUERY_DEFAULTS_LIMIT: 10
     steps:
       - uses: actions/checkout@v3
       - name: Download binaries

@@ -15,15 +15,15 @@ services:
     environment:
       LOG_LEVEL: "debug"
       CONTEXTIONARY_URL: contextionary:9999
-      QUERY_DEFAULTS_LIMIT: 20
+      QUERY_DEFAULTS_LIMIT: 10
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
       PERSISTENCE_DATA_PATH: "./data"
-      DEFAULT_VECTORIZER_MODULE: text2vec-contextionary
-      ENABLE_MODULES: text2vec-contextionary
-      PROMETHEUS_MONITORING_ENABLED: 'true'
-      PROMETHEUS_MONITORING_GROUP_CLASSES: 'true'
-      CLUSTER_GOSSIP_BIND_PORT: "7100" 
-      CLUSTER_DATA_BIND_PORT: "7101"
+      # DEFAULT_VECTORIZER_MODULE: text2vec-contextionary
+      # ENABLE_MODULES: text2vec-contextionary
+      # PROMETHEUS_MONITORING_ENABLED: 'true'
+      # PROMETHEUS_MONITORING_GROUP_CLASSES: 'true'
+      # CLUSTER_GOSSIP_BIND_PORT: "7100" 
+      # CLUSTER_DATA_BIND_PORT: "7101"
 
       # necessary for the metrics tests, some metrics only exist once segments
       # are flushed. If we wait to long the before run is completely in
