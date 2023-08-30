@@ -118,7 +118,7 @@ func setupManagers(t *testing.T) (*schemauc.Manager, *schemauc.Manager) {
 	remoteManager := newSchemaManagerWithClusterStateAndClient(
 		&fakeClusterState{hosts: []string{"node1"}}, nil)
 
-	schemaHandlers := clusterapi.NewSchema(remoteManager.TxManager())
+	schemaHandlers := clusterapi.NewSchema(remoteManager.TxManager(), clusterapi.NewNoopAuthHandler())
 	mux := http.NewServeMux()
 	mux.Handle("/schema/transactions/", http.StripPrefix("/schema/transactions/",
 		schemaHandlers.Transactions()))

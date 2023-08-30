@@ -28,11 +28,25 @@ type State struct {
 }
 
 type Config struct {
-	Hostname                string `json:"hostname" yaml:"hostname"`
-	GossipBindPort          int    `json:"gossipBindPort" yaml:"gossipBindPort"`
-	DataBindPort            int    `json:"dataBindPort" yaml:"dataBindPort"`
-	Join                    string `json:"join" yaml:"join"`
-	IgnoreStartupSchemaSync bool   `json:"ignoreStartupSchemaSync" yaml:"ignoreStartupSchemaSync"`
+	Hostname                string     `json:"hostname" yaml:"hostname"`
+	GossipBindPort          int        `json:"gossipBindPort" yaml:"gossipBindPort"`
+	DataBindPort            int        `json:"dataBindPort" yaml:"dataBindPort"`
+	Join                    string     `json:"join" yaml:"join"`
+	IgnoreStartupSchemaSync bool       `json:"ignoreStartupSchemaSync" yaml:"ignoreStartupSchemaSync"`
+	AuthConfig              AuthConfig `json:"auth" yaml:"auth"`
+}
+
+type AuthConfig struct {
+	BasicAuth BasicAuth `json:"basic" yaml:"basic"`
+}
+
+type BasicAuth struct {
+	Username string `json:"username" yaml:"username"`
+	Password string `json:"password" yaml:"password"`
+}
+
+func (ba BasicAuth) Enabled() bool {
+	return ba.Username != "" || ba.Password != ""
 }
 
 func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *State, err error) {
