@@ -67,7 +67,8 @@ message SearchRequest {
   uint32 autocut = 10;
   string after = 11;
   string tenant = 12;
-  Filters filters = 13;
+  optional Filters filters = 13;
+  optional NearTextSearchParams near_text = 14;
 }
 
 message TextArray{
@@ -158,6 +159,20 @@ message HybridSearchParams {
   FusionType fusion_type = 5;
 }
 
+message NearTextSearchParams{
+  message Move{
+    float force = 1;
+    repeated string concepts = 2;
+    repeated string uuids = 3;
+  }
+  
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated string query = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+  optional Move move_to = 4;
+  optional Move move_away = 5;
+};
 
 
 message BM25SearchParams {
