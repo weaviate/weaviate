@@ -156,7 +156,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		}
 
 		nearText := &nearText2.NearTextParams{
-			Values:       req.NearText.Queries,
+			Values:       req.NearText.Query,
 			Limit:        out.Pagination.Limit,
 			MoveAwayFrom: moveAwayOut,
 			MoveTo:       moveToOut,

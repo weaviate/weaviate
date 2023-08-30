@@ -165,8 +165,9 @@ message NearTextSearchParams{
     repeated string concepts = 2;
     repeated string uuids = 3;
   }
-
-  repeated string queries = 1;
+  
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated string query = 1;
   optional double certainty = 2;
   optional double distance = 3;
   optional Move move_to = 4;
