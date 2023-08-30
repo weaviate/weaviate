@@ -19,7 +19,9 @@ message BatchObjectsRequest {
 message BatchObject {
   message Properties {
     google.protobuf.Struct non_ref_properties = 1;
+    // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
     repeated RefPropertiesSingleTarget ref_props_single = 2;
+    // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
     repeated RefPropertiesMultiTarget ref_props_multi = 3;
   }
 
@@ -35,6 +37,7 @@ message BatchObject {
   }
 
   string uuid = 1;
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated float vector = 2;
   Properties properties = 3;
   string class_name = 4;
@@ -67,29 +70,56 @@ message SearchRequest {
   Filters filters = 13;
 }
 
+message TextArray{
+  repeated string vals = 1;
+}
+message IntArray{
+  repeated int32 vals = 1;
+}
+message NumberArray{
+  repeated double vals = 1;
+}
+message BooleanArray{
+  repeated bool vals = 1;
+}
+message DateArray{
+  repeated google.protobuf.Timestamp vals = 1;
+}
+
 message Filters {
-  enum OperatorType {
-    OperatorEqual = 0;
-      OperatorNotEqual = 1;
-      OperatorGreaterThan = 2;
-      OperatorGreaterThanEqual = 3;
-      OperatorLessThan = 4;
-      OperatorLessThanEqual = 5;
-      OperatorAnd = 6;
-      OperatorOr = 7;
-      OperatorWithinGeoRange = 8;
-      OperatorLike = 9;
-      OperatorIsNull = 10;
+  enum Operator {
+    OPERATOR_UNSPECIFIED = 0;
+    OPERATOR_EQUAL = 1;
+    OPERATOR_NOT_EQUAL = 2;
+    OPERATOR_GREATER_THAN = 3;
+    OPERATOR_GREATER_THAN_EQUAL = 4;
+    OPERATOR_LESS_THAN = 5;
+    OPERATOR_LESS_THAN_EQUAL = 6;
+    OPERATOR_AND = 7;
+    OPERATOR_OR = 8;
+    OPERATOR_WITHIN_GEO_RANGE = 9;
+    OPERATOR_LIKE = 10;
+    OPERATOR_IS_NULL = 11;
+    OPERATOR_CONTAINS_ANY = 12;
+    OPERATOR_CONTAINS_ALL = 13;
   }
-  OperatorType operator = 1;
+
+
+  Operator operator = 1;
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated string on = 2;
   repeated Filters filters = 3;
   oneof test_value{
-    string value_str = 4;
+    string value_text = 4;
     int64 value_int = 5;
-    bool value_bool = 6;
-    float value_float = 7;
+    bool value_boolean = 6;
+    float value_number = 7;
     google.protobuf.Timestamp value_date = 8;
+    TextArray value_text_array = 9;
+    IntArray value_int_array = 10;
+    BooleanArray value_boolean_array = 11;
+    NumberArray value_number_array = 12;
+    DateArray value_date_array = 13;
   };
 }
 
@@ -97,11 +127,14 @@ message Filters {
 message AdditionalProperties {
   bool uuid = 1;
   bool vector = 2;
+  // protolint:disable:next FIELD_NAMES_LOWER_SNAKE_CASE
   bool creationTimeUnix = 3;
+  // protolint:disable:next FIELD_NAMES_LOWER_SNAKE_CASE
   bool lastUpdateTimeUnix = 4;
   bool distance = 5;
   bool certainty = 6;
   bool score = 7;
+  // protolint:disable:next FIELD_NAMES_LOWER_SNAKE_CASE
   bool explainScore = 8;
 }
 
@@ -118,8 +151,9 @@ message HybridSearchParams {
   repeated float vector = 3;
   float alpha = 4;
   enum FusionType {
-    RANKED = 0;
-    RELATIVE_SCORE = 1;
+    FUSION_TYPE_UNSPECIFIED = 0;
+    FUSION_TYPE_RANKED = 1;
+    FUSION_TYPE_RELATIVE_SCORE = 2;
   }
   FusionType fusion_type = 5;
 }
@@ -164,6 +198,7 @@ message SearchResult {
 
 message ResultAdditionalProps {
   string id = 1;
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated float vector = 2;
   int64 creation_time_unix = 3;
   bool creation_time_unix_present = 4;
@@ -179,11 +214,46 @@ message ResultAdditionalProps {
   bool explain_score_present = 14;
 }
 
+message NumberArrayProperties{
+  string key =1;
+  repeated double vals = 2;
+}
+
+message IntArrayProperties{
+  string key =1;
+  repeated int32 vals = 2;
+}
+
+message TextArrayProperties{
+  string key =1;
+  repeated string vals = 2;
+}
+
+message BooleanArrayProperties{
+  string key =1;
+  repeated bool vals = 2;
+}
+
+message DateArrayProperties{
+  string key =1;
+  repeated google.protobuf.Timestamp vals = 2;
+}
+
+message UuidArrayProperties{
+  string key =1;
+  repeated string vals = 2;
+}
+
 message ResultProperties {
   google.protobuf.Struct non_ref_properties = 1;
   repeated ReturnRefProperties ref_props = 2;
   string class_name = 3;
   ResultAdditionalProps metadata = 4;
+  repeated NumberArrayProperties number_array_properties = 5;
+  repeated IntArrayProperties int_array_properties = 6;
+  repeated TextArrayProperties text_array_properties = 7;
+  repeated BooleanArrayProperties boolean_array_properties = 8;
+  repeated UuidArrayProperties uuid_array_properties = 9;
 }
 
 message ReturnRefProperties {

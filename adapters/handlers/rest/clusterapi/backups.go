@@ -30,14 +30,19 @@ type backupManager interface {
 
 type backups struct {
 	manager backupManager
+	auth    auth
 }
 
-func NewBackups(manager backupManager) *backups {
-	return &backups{manager: manager}
+func NewBackups(manager backupManager, auth auth) *backups {
+	return &backups{manager: manager, auth: auth}
 }
 
 func (b *backups) CanCommit() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return b.auth.handleFunc(b.canCommitHandler())
+}
+
+func (b *backups) canCommitHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			status := http.StatusInternalServerError
@@ -63,7 +68,7 @@ func (b *backups) CanCommit() http.Handler {
 
 		w.WriteHeader(http.StatusOK)
 		w.Write(b)
-	})
+	}
 }
 
 func (b *backups) Commit() http.Handler {

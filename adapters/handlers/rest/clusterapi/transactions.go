@@ -38,10 +38,15 @@ type txPayload struct {
 
 type txHandler struct {
 	manager txManager
+	auth    auth
 }
 
 func (h *txHandler) Transactions() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return h.auth.handleFunc(h.transactionsHandler())
+}
+
+func (h *txHandler) transactionsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		switch {
 		case path == "":
@@ -70,7 +75,7 @@ func (h *txHandler) Transactions() http.Handler {
 			h.incomingAbortTransaction().ServeHTTP(w, r)
 			return
 		}
-	})
+	}
 }
 
 func (h *txHandler) incomingTransaction() http.Handler {
