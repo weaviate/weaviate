@@ -11,12 +11,10 @@
 
 package clusterapi
 
-import "github.com/weaviate/weaviate/usecases/cluster"
-
 type schema struct {
 	txHandler
 }
 
-func NewSchema(manager txManager, authConfig cluster.AuthConfig) *schema {
-	return &schema{txHandler{manager: manager, auth: newBasicAuthHandler(authConfig)}}
+func NewSchema(manager txManager, auth auth) *schema {
+	return &schema{txHandler{manager: manager, auth: auth}}
 }

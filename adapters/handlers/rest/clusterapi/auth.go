@@ -25,7 +25,7 @@ type basicAuthHandler struct {
 	basicAuth cluster.BasicAuth
 }
 
-func newBasicAuthHandler(authConfig cluster.AuthConfig) auth {
+func NewBasicAuthHandler(authConfig cluster.AuthConfig) auth {
 	return &basicAuthHandler{authConfig.BasicAuth}
 }
 
@@ -42,4 +42,14 @@ func (h *basicAuthHandler) handleFunc(handler http.HandlerFunc) http.HandlerFunc
 		// unauthorized request, send 401
 		w.WriteHeader(401)
 	}
+}
+
+type noopAuthHandler struct{}
+
+func NewNoopAuthHandler() auth {
+	return &noopAuthHandler{}
+}
+
+func (h *noopAuthHandler) handleFunc(handler http.HandlerFunc) http.HandlerFunc {
+	return handler
 }
