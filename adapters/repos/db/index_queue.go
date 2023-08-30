@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 // IndexQueue is a persistent queue of vectors to index.
@@ -62,6 +63,9 @@ type IndexQueue struct {
 type vectorDescriptor struct {
 	id     uint64
 	vector []float32
+	object *storobj.Object
+	status objectInsertStatus
+	shard  *Shard
 }
 
 type IndexQueueOptions struct {
@@ -365,7 +369,15 @@ func (q *IndexQueue) indexer() {
 			vectors = append(vectors, b.chunk[i].vector)
 		}
 
-		q.indexVectors(ids, vectors)
+		if err := q.indexVectors(ids, vectors); err != nil {
+			q.logger.WithError(err).Error("failed to index vectors")
+			return
+		}
+
+		if err := q.updateShardProperties(b); err != nil {
+			q.logger.WithError(err).Error("failed to index vectors")
+			return
+		}
 
 		q.queue.ReleaseChunk(b)
 
@@ -383,6 +395,29 @@ func (q *IndexQueue) indexVectors(ids []uint64, vectors [][]float32) error {
 
 		q.logger.WithError(err).Infof("failed to index vectors, retrying in %s", q.retryInterval.String())
 
+		t := time.NewTimer(q.retryInterval)
+		select {
+		case <-q.closed:
+			// drain the timer
+			if !t.Stop() {
+				<-t.C
+			}
+			return errors.New("index queue closed")
+		case <-t.C:
+		}
+	}
+
+	return nil
+}
+
+func (q *IndexQueue) updateShardProperties(c *chunk) error {
+	for _, v := range c.chunk[:c.cursor] {
+		err := v.shard.updatePropertySpecificIndices(v.object, v.status)
+		if err == nil {
+			continue
+		}
+
+		q.logger.WithError(err).Infof("failed to update shard properties, retrying in %s", q.retryInterval.String())
 		t := time.NewTimer(q.retryInterval)
 		select {
 		case <-q.closed:
