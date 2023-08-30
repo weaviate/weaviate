@@ -99,11 +99,11 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 
 	n.migrator = db.NewMigrator(n.repo, logger)
 
-	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo), n.repo)
+	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo), n.repo, clusterapi.NewNoopAuthHandler())
 	mux := http.NewServeMux()
 	mux.Handle("/indices/", indices.Indices())
 
-	backups := clusterapi.NewBackups(n.backupManager)
+	backups := clusterapi.NewBackups(n.backupManager, clusterapi.NewNoopAuthHandler())
 	mux.Handle("/backups/can-commit", backups.CanCommit())
 	mux.Handle("/backups/commit", backups.Commit())
 	mux.Handle("/backups/abort", backups.Abort())
