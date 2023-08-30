@@ -220,7 +220,7 @@ func (i *Index) CommitReplication(shard, requestID string) interface{} {
 	if localShard == nil {
 		return nil
 	}
-	return localShard.commit(context.Background(), requestID, &i.backupStateLock)
+	return localShard.commit(context.Background(), requestID, &i.backupMutex)
 }
 
 func (i *Index) AbortReplication(shard, requestID string) interface{} {
