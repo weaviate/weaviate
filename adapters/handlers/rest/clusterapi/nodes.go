@@ -20,7 +20,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 type nodesManager interface {
@@ -32,8 +31,8 @@ type nodes struct {
 	auth         auth
 }
 
-func NewNodes(manager nodesManager, authConfig cluster.AuthConfig) *nodes {
-	return &nodes{nodesManager: manager, auth: newBasicAuthHandler(authConfig)}
+func NewNodes(manager nodesManager, auth auth) *nodes {
+	return &nodes{nodesManager: manager, auth: auth}
 }
 
 var (

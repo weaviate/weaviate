@@ -29,7 +29,6 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
@@ -134,7 +133,7 @@ type db interface {
 	StartupComplete() bool
 }
 
-func NewIndices(shards shards, db db, authConfig cluster.AuthConfig) *indices {
+func NewIndices(shards shards, db db, auth auth) *indices {
 	return &indices{
 		regexpObjects:             regexp.MustCompile(urlPatternObjects),
 		regexpObjectsOverwrite:    regexp.MustCompile(urlPatternObjectsOverwrite),
@@ -150,7 +149,7 @@ func NewIndices(shards shards, db db, authConfig cluster.AuthConfig) *indices {
 		regexpShardReinit:         regexp.MustCompile(urlPatternShardReinit),
 		shards:                    shards,
 		db:                        db,
-		auth:                      newBasicAuthHandler(authConfig),
+		auth:                      auth,
 	}
 }
 

@@ -19,7 +19,6 @@ import (
 	"net/http"
 
 	"github.com/weaviate/weaviate/usecases/backup"
-	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 type backupManager interface {
@@ -34,8 +33,8 @@ type backups struct {
 	auth    auth
 }
 
-func NewBackups(manager backupManager, authConfig cluster.AuthConfig) *backups {
-	return &backups{manager: manager, auth: newBasicAuthHandler(authConfig)}
+func NewBackups(manager backupManager, auth auth) *backups {
+	return &backups{manager: manager, auth: auth}
 }
 
 func (b *backups) CanCommit() http.Handler {

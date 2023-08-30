@@ -22,7 +22,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/scaler"
@@ -85,11 +84,11 @@ var (
 		`\/shards\/(` + sh + `):(commit|abort)`)
 )
 
-func NewReplicatedIndices(shards replicator, scaler localScaler, authConfig cluster.AuthConfig) *replicatedIndices {
+func NewReplicatedIndices(shards replicator, scaler localScaler, auth auth) *replicatedIndices {
 	return &replicatedIndices{
 		shards: shards,
 		scaler: scaler,
-		auth:   newBasicAuthHandler(authConfig),
+		auth:   auth,
 	}
 }
 
