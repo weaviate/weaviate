@@ -15,6 +15,6 @@ type classifications struct {
 	txHandler
 }
 
-func NewClassifications(manager txManager) *classifications {
-	return &classifications{txHandler{manager: manager}}
+func NewClassifications(manager txManager, auth auth) *classifications {
+	return &classifications{txHandler{manager: manager, auth: auth}}
 }
