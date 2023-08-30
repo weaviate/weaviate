@@ -74,6 +74,7 @@ func (s *Shard) putBatchAsync(ctx context.Context, objects []*storobj.Object) []
 	batcher.storeInObjectStore(ctx)
 	batcher.markDeletedInVectorStorage(ctx)
 	batcher.storeAdditionalStorageWithAsyncQueue(ctx)
+	batcher.flushWALs(ctx)
 
 	return batcher.errs
 }
@@ -264,7 +265,8 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 	ob.batchStartTime = time.Now()
 
 	vectors := make([]vectorDescriptor, 0, len(ob.objects))
-	for i, object := range ob.objects {
+	for i := range ob.objects {
+		object := ob.objects[i]
 		if ob.shouldSkipInAdditionalStorage(i) {
 			continue
 		}
@@ -273,10 +275,12 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 		}
 
 		status := ob.statuses[object.ID()]
-
 		vectors = append(vectors, vectorDescriptor{
 			id:     status.docID,
 			vector: object.Vector,
+			object: object,
+			status: status,
+			shard:  ob.shard,
 		})
 	}
 
