@@ -22,11 +22,11 @@ import (
 )
 
 func (m *Manager) updateRefVector(ctx context.Context, principal *models.Principal,
-	className string, id strfmt.UUID,
+	className string, id strfmt.UUID, tenant string,
 ) error {
 	if m.modulesProvider.UsingRef2Vec(className) {
 		parent, err := m.vectorRepo.Object(ctx, className, id,
-			search.SelectProperties{}, additional.Properties{}, nil, "")
+			search.SelectProperties{}, additional.Properties{}, nil, tenant)
 		if err != nil {
 			return fmt.Errorf("find parent '%s/%s': %w",
 				className, id, err)

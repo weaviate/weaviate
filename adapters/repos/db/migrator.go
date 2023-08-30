@@ -287,8 +287,8 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		return nil
 	}
 	applyCold := func() error {
-		idx.backupStateLock.RLock()
-		defer idx.backupStateLock.RUnlock()
+		idx.backupMutex.RLock()
+		defer idx.backupMutex.RUnlock()
 
 		for _, name := range shardsToCold {
 			shard, ok := idx.shards.Swap(name, nil) // mark as deactivated

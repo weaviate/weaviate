@@ -14,10 +14,13 @@ package db
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime"
+	"runtime/debug"
 	golangSort "sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -121,9 +124,6 @@ type Index struct {
 	stopwords             *stopwords.Detector
 	replicator            *replica.Replicator
 
-	backupState     BackupState
-	backupStateLock sync.RWMutex
-
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
 
@@ -147,6 +147,9 @@ type Index struct {
 	partitioningEnabled bool
 
 	cycleCallbacks *indexCycleCallbacks
+
+	backupMutex backupMutex
+	lastBackup  atomic.Pointer[BackupState]
 }
 
 func (i *Index) ID() string {
@@ -193,6 +196,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		metrics:             NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
 		centralJobQueue:     jobQueueCh,
 		partitioningEnabled: shardState.PartitioningEnabled,
+		backupMutex:         backupMutex{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
 	}
 	index.initCycleCallbacks()
 
@@ -381,8 +385,8 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 			object.Class(), i.Config.ClassName)
 	}
 
-	i.backupStateLock.RLock()
-	defer i.backupStateLock.RUnlock()
+	i.backupMutex.RLock()
+	defer i.backupMutex.RUnlock()
 	shardName, err := i.determineObjectShard(object.ID(), object.Object.Tenant)
 	if err != nil {
 		return objects.NewErrInvalidUserInput("determine shard: %v", err)
@@ -412,8 +416,8 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	object *storobj.Object,
 ) error {
-	i.backupStateLock.RLock()
-	defer i.backupStateLock.RUnlock()
+	i.backupMutex.RLock()
+	defer i.backupMutex.RUnlock()
 	localShard := i.localShard(shardName)
 	if localShard == nil {
 		return errors.Errorf("shard %q does not exist locally", shardName)
@@ -528,8 +532,8 @@ func parseAsStringToTime(in interface{}) (time.Time, error) {
 func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	replProps *additional.ReplicationProperties,
 ) []error {
-	i.backupStateLock.RLock()
-	defer i.backupStateLock.RUnlock()
+	i.backupMutex.RLock()
+	defer i.backupMutex.RUnlock()
 	type objsAndPos struct {
 		objects []*storobj.Object
 		pos     []int
@@ -566,6 +570,17 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 		wg.Add(1)
 		go func(shardName string, group objsAndPos) {
 			defer wg.Done()
+
+			defer func() {
+				err := recover()
+				if err != nil {
+					for pos := range group.pos {
+						out[pos] = fmt.Errorf("an unexpected error occurred: %s", err)
+					}
+					fmt.Fprintf(os.Stderr, "panic: %s\n", err)
+					debug.PrintStack()
+				}
+			}()
 			var errs []error
 			if replProps != nil {
 				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
@@ -599,8 +614,8 @@ func duplicateErr(in error, count int) []error {
 func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 	objects []*storobj.Object,
 ) []error {
-	i.backupStateLock.RLock()
-	defer i.backupStateLock.RUnlock()
+	i.backupMutex.RLock()
+	defer i.backupMutex.RUnlock()
 	localShard := i.shards.Load(shardName)
 	if localShard == nil {
 		return duplicateErr(errors.Errorf("shard %q does not exist locally",
@@ -628,8 +643,8 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchReferences,
 	replProps *additional.ReplicationProperties,
 ) []error {
-	i.backupStateLock.RLock()
-	defer i.backupStateLock.RUnlock()
+	i.backupMutex.RLock()
+	defer i.backupMutex.RUnlock()
 	type refsAndPos struct {
 		refs objects.BatchReferences
 		pos  []int
@@ -680,8 +695,8 @@ func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchRefere
 func (i *Index) IncomingBatchAddReferences(ctx context.Context, shardName string,
 	refs objects.BatchReferences,
 ) []error {
-	i.backupStateLock.RLock()
-	defer i.backupStateLock.RUnlock()
+	i.backupMutex.RLock()
+	defer i.backupMutex.RUnlock()
 	localShard := i.shards.Load(shardName)
 	if localShard == nil {
 		return duplicateErr(errors.Errorf("shard %q does not exist locally",
@@ -1310,8 +1325,8 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 	replProps *additional.ReplicationProperties, tenant string,
 ) error {
-	i.backupStateLock.RLock()
-	defer i.backupStateLock.RUnlock()
+	i.backupMutex.RLock()
+	defer i.backupMutex.RUnlock()
 
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return err
@@ -1343,8 +1358,8 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	id strfmt.UUID,
 ) error {
-	i.backupStateLock.RLock()
-	defer i.backupStateLock.RUnlock()
+	i.backupMutex.RLock()
+	defer i.backupMutex.RUnlock()
 	shard := i.localShard(shardName)
 	if shard == nil {
 		return errors.Errorf("shard %q does not exist locally", shardName)
@@ -1362,8 +1377,8 @@ func (i *Index) localShard(name string) *Shard {
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 	replProps *additional.ReplicationProperties, tenant string,
 ) error {
-	i.backupStateLock.RLock()
-	defer i.backupStateLock.RUnlock()
+	i.backupMutex.RLock()
+	defer i.backupMutex.RUnlock()
 
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return err
@@ -1402,8 +1417,8 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 	mergeDoc objects.MergeDocument,
 ) error {
-	i.backupStateLock.RLock()
-	defer i.backupStateLock.RUnlock()
+	i.backupMutex.RLock()
+	defer i.backupMutex.RUnlock()
 	shard := i.shards.Load(shardName)
 	if shard == nil {
 		return errors.Errorf("shard %q does not exist locally", shardName)
@@ -1481,8 +1496,8 @@ func (i *Index) drop() error {
 		return nil
 	}
 
-	i.backupStateLock.RLock()
-	defer i.backupStateLock.RUnlock()
+	i.backupMutex.RLock()
+	defer i.backupMutex.RUnlock()
 
 	i.shards.Range(dropShard)
 	return eg.Wait()
@@ -1493,8 +1508,8 @@ func (i *Index) drop() error {
 // To roll back the deletion, the user must call Commit(false)
 func (i *Index) dropShards(names []string) (commit func(success bool), err error) {
 	shards := make(map[string]*Shard, len(names))
-	i.backupStateLock.RLock()
-	defer i.backupStateLock.RUnlock()
+	i.backupMutex.RLock()
+	defer i.backupMutex.RUnlock()
 
 	// mark deleted shards
 	for _, name := range names {
@@ -1543,8 +1558,8 @@ func (i *Index) dropShards(names []string) (commit func(success bool), err error
 }
 
 func (i *Index) Shutdown(ctx context.Context) error {
-	i.backupStateLock.RLock()
-	defer i.backupStateLock.RUnlock()
+	i.backupMutex.RLock()
+	defer i.backupMutex.RUnlock()
 
 	// TODO run in parallel?
 	// TODO allow every resource cleanup to run, before returning early with error
@@ -1691,8 +1706,8 @@ func (i *Index) IncomingFindDocIDs(ctx context.Context, shardName string,
 func (i *Index) batchDeleteObjects(ctx context.Context, shardDocIDs map[string][]uint64,
 	dryRun bool, replProps *additional.ReplicationProperties,
 ) (objects.BatchSimpleObjects, error) {
-	i.backupStateLock.RLock()
-	defer i.backupStateLock.RUnlock()
+	i.backupMutex.RLock()
+	defer i.backupMutex.RUnlock()
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "delete_from_shards_total")
 
@@ -1737,8 +1752,8 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardDocIDs map[string][
 func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	docIDs []uint64, dryRun bool,
 ) objects.BatchSimpleObjects {
-	i.backupStateLock.RLock()
-	defer i.backupStateLock.RUnlock()
+	i.backupMutex.RLock()
+	defer i.backupMutex.RUnlock()
 	shard := i.shards.Load(shardName)
 	if shard == nil {
 		return objects.BatchSimpleObjects{

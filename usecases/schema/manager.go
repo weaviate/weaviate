@@ -67,6 +67,7 @@ type SchemaGetter interface {
 	ShardOwner(class, shard string) (string, error)
 	TenantShard(class, tenant string) (string, string)
 	ShardFromUUID(class string, uuid []byte) string
+	ShardReplicas(class, shard string) ([]string, error)
 }
 
 type VectorizerValidator interface {
