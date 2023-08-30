@@ -13,6 +13,7 @@ package grpc
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/search"
@@ -74,10 +75,8 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	}
 
 	if hs := req.HybridSearch; hs != nil {
-		fusionType := common_filters.HybridRankedFusion
-		if hs.FusionType == pb.HybridSearchParams_RANKED {
-			fusionType = common_filters.HybridRankedFusion
-		} else if hs.FusionType == pb.HybridSearchParams_RELATIVE_SCORE {
+		fusionType := common_filters.HybridRankedFusion // default value
+		if hs.FusionType == pb.HybridSearchParams_FUSION_TYPE_RELATIVE_SCORE {
 			fusionType = common_filters.HybridRelativeScoreFusion
 		}
 		out.HybridSearch = &searchparams.HybridSearch{Query: hs.Query, Properties: hs.Properties, Vector: hs.Vector, Alpha: float64(hs.Alpha), FusionAlgorithm: fusionType}
@@ -160,8 +159,8 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 
 func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string) (filters.Clause, error) {
 	returnFilter := filters.Clause{}
-	if filterIn.Operator == pb.Filters_OperatorAnd || filterIn.Operator == pb.Filters_OperatorOr {
-		if filterIn.Operator == pb.Filters_OperatorAnd {
+	if filterIn.Operator == pb.Filters_OPERATOR_AND || filterIn.Operator == pb.Filters_OPERATOR_OR {
+		if filterIn.Operator == pb.Filters_OPERATOR_AND {
 			returnFilter.Operator = filters.OperatorAnd
 		} else {
 			returnFilter.Operator = filters.OperatorOr
@@ -191,24 +190,29 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 		returnFilter.On = path
 
 		switch filterIn.Operator {
-		case pb.Filters_OperatorEqual:
+		case pb.Filters_OPERATOR_EQUAL:
 			returnFilter.Operator = filters.OperatorEqual
-		case pb.Filters_OperatorNotEqual:
+		case pb.Filters_OPERATOR_NOT_EQUAL:
 			returnFilter.Operator = filters.OperatorNotEqual
-		case pb.Filters_OperatorGreaterThan:
+		case pb.Filters_OPERATOR_GREATER_THAN:
 			returnFilter.Operator = filters.OperatorGreaterThan
-		case pb.Filters_OperatorGreaterThanEqual:
+		case pb.Filters_OPERATOR_GREATER_THAN_EQUAL:
 			returnFilter.Operator = filters.OperatorGreaterThanEqual
-		case pb.Filters_OperatorLessThan:
+		case pb.Filters_OPERATOR_LESS_THAN:
 			returnFilter.Operator = filters.OperatorLessThan
-		case pb.Filters_OperatorLessThanEqual:
+		case pb.Filters_OPERATOR_LESS_THAN_EQUAL:
 			returnFilter.Operator = filters.OperatorLessThanEqual
-		case pb.Filters_OperatorWithinGeoRange:
+		case pb.Filters_OPERATOR_WITHIN_GEO_RANGE:
 			returnFilter.Operator = filters.OperatorWithinGeoRange
-		case pb.Filters_OperatorLike:
+		case pb.Filters_OPERATOR_LIKE:
 			returnFilter.Operator = filters.OperatorLike
-		case pb.Filters_OperatorIsNull:
+		case pb.Filters_OPERATOR_IS_NULL:
 			returnFilter.Operator = filters.OperatorIsNull
+		case pb.Filters_OPERATOR_CONTAINS_ANY:
+			returnFilter.Operator = filters.ContainsAny
+		case pb.Filters_OPERATOR_CONTAINS_ALL:
+			returnFilter.Operator = filters.ContainsAll
+
 		default:
 			return filters.Clause{}, fmt.Errorf("unknown filter operator %v", filterIn.Operator)
 		}
@@ -220,16 +224,38 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 
 		var val interface{}
 		switch filterIn.TestValue.(type) {
-		case *pb.Filters_ValueStr:
-			val = filterIn.GetValueStr()
+		case *pb.Filters_ValueText:
+			val = filterIn.GetValueText()
 		case *pb.Filters_ValueInt:
 			val = int(filterIn.GetValueInt())
-		case *pb.Filters_ValueBool:
-			val = filterIn.GetValueBool()
-		case *pb.Filters_ValueFloat:
-			val = filterIn.GetValueFloat()
+		case *pb.Filters_ValueBoolean:
+			val = filterIn.GetValueBoolean()
+		case *pb.Filters_ValueNumber:
+			val = filterIn.GetValueNumber()
 		case *pb.Filters_ValueDate:
 			val = filterIn.GetValueDate().AsTime()
+		case *pb.Filters_ValueIntArray:
+			// convert from int32 GRPC to go int
+			valInt32 := filterIn.GetValueIntArray().Vals
+			valInt := make([]int, len(valInt32))
+			for i := 0; i < len(valInt32); i++ {
+				valInt[i] = int(valInt32[i])
+			}
+			val = valInt
+		case *pb.Filters_ValueTextArray:
+			val = filterIn.GetValueTextArray().Vals
+		case *pb.Filters_ValueNumberArray:
+			val = filterIn.GetValueNumberArray().Vals
+		case *pb.Filters_ValueBooleanArray:
+			val = filterIn.GetValueBooleanArray().Vals
+		case *pb.Filters_ValueDateArray:
+			// convert from GRPC timestamp to go time
+			valTimestamps := filterIn.GetValueDateArray().Vals
+			valTime := make([]time.Time, len(valTimestamps))
+			for i := 0; i < len(valTime); i++ {
+				valTime[i] = valTimestamps[i].AsTime()
+			}
+			val = valTime
 		default:
 			return filters.Clause{}, fmt.Errorf("unknown value type %v", filterIn.TestValue)
 		}
@@ -237,6 +263,18 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 		// correct the type of value when filtering on a float property but sending an int. This is easy to get wrong
 		if number, ok := val.(int); ok && dataType == schema.DataTypeNumber {
 			val = float64(number)
+		}
+
+		// correct type for containsXXX in case users send int for a float array
+		if (returnFilter.Operator == filters.ContainsAll || returnFilter.Operator == filters.ContainsAny) && dataType == schema.DataTypeNumber {
+			valSlice, ok := val.([]int)
+			if ok {
+				val64 := make([]float64, len(valSlice))
+				for i := 0; i < len(valSlice); i++ {
+					val64[i] = float64(valSlice[i])
+				}
+				val = val64
+			}
 		}
 
 		value := filters.Value{Value: val, Type: dataType}
@@ -253,6 +291,11 @@ func extractDataType(scheme schema.Schema, operator filters.Operator, classname 
 		dataType = schema.DataTypeBoolean
 	} else if len(on) > 1 {
 		propToCheck := on[len(on)-1]
+		_, isPropLengthFilter := schema.IsPropertyLength(propToCheck, 0)
+		if isPropLengthFilter {
+			return schema.DataTypeInt, nil
+		}
+
 		classOfProp := on[len(on)-2]
 		prop, err := scheme.GetProperty(schema.ClassName(classOfProp), schema.PropertyName(propToCheck))
 		if err != nil {
@@ -260,11 +303,23 @@ func extractDataType(scheme schema.Schema, operator filters.Operator, classname 
 		}
 		return schema.DataType(prop.DataType[0]), nil
 	} else {
-		prop, err := scheme.GetProperty(schema.ClassName(classname), schema.PropertyName(on[0]))
+		propToCheck := on[0]
+		_, isPropLengthFilter := schema.IsPropertyLength(propToCheck, 0)
+		if isPropLengthFilter {
+			return schema.DataTypeInt, nil
+		}
+
+		prop, err := scheme.GetProperty(schema.ClassName(classname), schema.PropertyName(propToCheck))
 		if err != nil {
 			return dataType, err
 		}
 		dataType = schema.DataType(prop.DataType[0])
+	}
+
+	if operator == filters.ContainsAll || operator == filters.ContainsAny {
+		if baseType, isArray := schema.IsArrayType(dataType); isArray {
+			return baseType, nil
+		}
 	}
 	return dataType, nil
 }
@@ -313,7 +368,7 @@ func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, cla
 				if linkedClass == "" {
 					return nil, fmt.Errorf(
 						"multi target references from collection %v and property %v with need an explicit"+
-							"linked collection. Available linked collections are %v.",
+							"linked collection. Available linked collections are %v",
 						className, prop.ReferenceProperty, schemaProp.DataType)
 				}
 			}

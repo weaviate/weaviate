@@ -56,7 +56,16 @@ func (f *fakeSchemaGetter) ShardOwner(class, shard string) (string, error) {
 	if len(x.BelongsToNodes) < 1 || x.BelongsToNodes[0] == "" {
 		return "", fmt.Errorf("owner node not found")
 	}
-	return ss.Physical[shard].BelongsToNodes[0], nil
+	return x.BelongsToNodes[0], nil
+}
+
+func (f *fakeSchemaGetter) ShardReplicas(class, shard string) ([]string, error) {
+	ss := f.shardState
+	x, ok := ss.Physical[shard]
+	if !ok {
+		return nil, fmt.Errorf("shard not found")
+	}
+	return x.BelongsToNodes, nil
 }
 
 func (f *fakeSchemaGetter) TenantShard(class, tenant string) (string, string) {

@@ -116,7 +116,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		return &Error{"add reference to repo", StatusInternalServerError, err}
 	}
 
-	if err := m.updateRefVector(ctx, principal, input.Class, input.ID); err != nil {
+	if err := m.updateRefVector(ctx, principal, input.Class, input.ID, tenant); err != nil {
 		return &Error{"update ref vector", StatusInternalServerError, err}
 	}
 

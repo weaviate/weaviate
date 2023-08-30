@@ -48,59 +48,59 @@ func TestWhereFilter(t *testing.T) {
 			Properties: []*models.Property{
 				{
 					Name:     "color",
-					DataType: []string{schema.DataTypeText.String()},
+					DataType: schema.DataTypeText.PropString(),
 				},
 				{
 					Name:     "colors",
-					DataType: []string{schema.DataTypeTextArray.String()},
+					DataType: schema.DataTypeTextArray.PropString(),
 				},
 				{
 					Name:     "author",
-					DataType: []string{schema.DataTypeString.String()},
+					DataType: schema.DataTypeString.PropString(),
 				},
 				{
 					Name:     "authors",
-					DataType: []string{schema.DataTypeStringArray.String()},
+					DataType: schema.DataTypeStringArray.PropString(),
 				},
 				{
 					Name:     "number",
-					DataType: []string{schema.DataTypeNumber.String()},
+					DataType: schema.DataTypeNumber.PropString(),
 				},
 				{
 					Name:     "numbers",
-					DataType: []string{schema.DataTypeNumberArray.String()},
+					DataType: schema.DataTypeNumberArray.PropString(),
 				},
 				{
 					Name:     "int",
-					DataType: []string{schema.DataTypeInt.String()},
+					DataType: schema.DataTypeInt.PropString(),
 				},
 				{
 					Name:     "ints",
-					DataType: []string{schema.DataTypeIntArray.String()},
+					DataType: schema.DataTypeIntArray.PropString(),
 				},
 				{
 					Name:     "date",
-					DataType: []string{schema.DataTypeDate.String()},
+					DataType: schema.DataTypeDate.PropString(),
 				},
 				{
 					Name:     "dates",
-					DataType: []string{schema.DataTypeDateArray.String()},
+					DataType: schema.DataTypeDateArray.PropString(),
 				},
 				{
 					Name:     "bool",
-					DataType: []string{schema.DataTypeBoolean.String()},
+					DataType: schema.DataTypeBoolean.PropString(),
 				},
 				{
 					Name:     "bools",
-					DataType: []string{schema.DataTypeBooleanArray.String()},
+					DataType: schema.DataTypeBooleanArray.PropString(),
 				},
 				{
 					Name:     "uuid",
-					DataType: []string{schema.DataTypeUUID.String()},
+					DataType: schema.DataTypeUUID.PropString(),
 				},
 				{
 					Name:     "uuids",
-					DataType: []string{schema.DataTypeUUIDArray.String()},
+					DataType: schema.DataTypeUUIDArray.PropString(),
 				},
 			},
 		}
@@ -279,6 +279,24 @@ func TestWhereFilter(t *testing.T) {
 				expectedIds: []string{id1, id2, id3},
 			},
 			{
+				name: "contains all bools with bool array",
+				where: filters.Where().
+					WithPath([]string{"bools"}).
+					WithOperator(filters.ContainsAll).
+					WithValueBoolean(true, false, true),
+				property:    "bools",
+				expectedIds: []string{id1, id2},
+			},
+			{
+				name: "contains any bools with bool array",
+				where: filters.Where().
+					WithPath([]string{"bools"}).
+					WithOperator(filters.ContainsAny).
+					WithValueBoolean(true, false),
+				property:    "bools",
+				expectedIds: []string{id1, id2, id3},
+			},
+			{
 				name: "contains all uuids with uuid array",
 				where: filters.Where().
 					WithPath([]string{"uuids"}).
@@ -387,6 +405,15 @@ func TestWhereFilter(t *testing.T) {
 					WithOperator(filters.ContainsAny).
 					WithValueInt(1, 2, 3),
 				property:    "int",
+				expectedIds: []string{id1, id2, id3},
+			},
+			{
+				name: "contains any bool with bool",
+				where: filters.Where().
+					WithPath([]string{"bool"}).
+					WithOperator(filters.ContainsAny).
+					WithValueBoolean(true, false, true),
+				property:    "bool",
 				expectedIds: []string{id1, id2, id3},
 			},
 			{
