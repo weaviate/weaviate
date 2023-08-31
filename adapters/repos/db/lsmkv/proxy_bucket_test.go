@@ -247,3 +247,67 @@ func TestBucketProxyCount(t *testing.T) {
 		t.Fatalf("BucketProxy count does not match expected: expected 1, got %d", count)
 	}
 }
+
+
+func TestMultiplePrefixes(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	propName1 := "testPropertyName"
+	propName2 := "mnsdakjhfklew"
+	propids, err := tracker.NewJsonPropertyIdTracker(tmpDir + "/ids6.json")
+	if err != nil {
+		t.Fatalf("Failed to create tracker: %v", err)
+	}
+
+	b, err := NewBucket(ctx, tmpDir, "", logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	if err != nil {
+		t.Fatalf("Failed to create bucket: %v", err)
+	}
+
+	bucketProxy1, err := NewBucketProxy(b, propName1, propids)
+	if err != nil {
+		t.Fatalf("Failed to create BucketProxy: %v", err)
+	}
+
+	bucketProxy2, err := NewBucketProxy(b, propName2, propids)
+	if err != nil {
+		t.Fatalf("Failed to create BucketProxy: %v", err)
+	}
+
+	// Put the same key and different values into the BucketProxies
+	key := []byte("testKey")
+	value := []byte("testValue")
+	value2 := []byte("testValue2")
+	err = bucketProxy1.Put(key, value)
+	if err != nil {
+		t.Fatalf("Failed to put value into BucketProxy: %v", err)
+	}
+
+	err = bucketProxy2.Put(key, value2)
+	if err != nil {
+		t.Fatalf("Failed to put value into BucketProxy: %v", err)
+	}
+
+	// Retrieve the value from the BucketProxy
+	retrieved1, err := bucketProxy1.Get(key)
+	if err != nil {
+		t.Fatalf("Failed to get value from BucketProxy: %v", err)
+	}
+
+	retrieved2, err := bucketProxy2.Get(key)
+	if err != nil {
+		t.Fatalf("Failed to get value from BucketProxy: %v", err)
+	}
+
+	// Check that the retrieved value matches the put value
+	if string(retrieved1) != string(value) {
+		t.Fatalf("Retrieved value does not match put value: expected '%s', got '%s'", string(value), string(retrieved1))
+	}
+
+	if string(retrieved2) != string(value2) {
+		t.Fatalf("Retrieved value does not match put value: expected '%s', got '%s'", string(value), string(retrieved2))
+	}
+
+}
