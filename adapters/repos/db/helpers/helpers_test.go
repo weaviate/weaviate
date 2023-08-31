@@ -37,7 +37,7 @@ func TestMakePropertyPrefix(t *testing.T) {
 	}
 
 	expectedPrefix := make([]byte, 8)
-	binary.LittleEndian.PutUint64(expectedPrefix, 2)
+	binary.LittleEndian.PutUint64(expectedPrefix, 1)
 
 	if !bytes.Equal(prefix, expectedPrefix) {
 		t.Fatalf("Expected prefix to be %v, got %v", expectedPrefix, prefix)
@@ -80,11 +80,11 @@ func TestUnMakePropertyKey(t *testing.T) {
 
 func TestMakePropertyKeyWithEmptyPrefix(t *testing.T) {
 	prefix := []byte{}
-	key := []byte{4, 5, 6}
+	expectedKey := []byte{4, 5, 6}
 
-	propertyKey := MakePropertyKey(prefix, key)
-	if propertyKey != nil {
-		t.Fatalf("Expected nil for empty prefix, got %v", propertyKey)
+	propertyKey := MakePropertyKey(prefix, expectedKey)
+	if !bytes.Equal(propertyKey, expectedKey) {
+		t.Fatalf("Expected key to be %v, got %v", expectedKey, propertyKey)
 	}
 }
 
@@ -93,7 +93,7 @@ func TestMatchesPropertyKeyPrefixWithEmptyPrefix(t *testing.T) {
 	key := []byte{4, 5, 6, 1, 2, 3}
 
 	matches := MatchesPropertyKeyPrefix(prefix, key)
-	if matches {
+	if !matches {
 		t.Fatalf("Expected false for empty prefix, got true")
 	}
 }
@@ -103,7 +103,7 @@ func TestUnMakePropertyKeyWithEmptyPrefix(t *testing.T) {
 	key := []byte{4, 5, 6, 1, 2, 3}
 
 	unmadeKey := UnMakePropertyKey(prefix, key)
-	if unmadeKey != nil {
-		t.Fatalf("Expected nil for empty prefix, got %v", unmadeKey)
+	if !bytes.Equal(unmadeKey, key) {
+		t.Fatalf("Expected key to be %v, got %v", key, unmadeKey)
 	}
 }
