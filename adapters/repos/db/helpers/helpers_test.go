@@ -107,3 +107,15 @@ func TestUnMakePropertyKeyWithEmptyPrefix(t *testing.T) {
 		t.Fatalf("Expected key to be %v, got %v", key, unmadeKey)
 	}
 }
+
+func TestMakePropertyKey2(t *testing.T) {
+	prefix := make([]byte, 2, 10)
+	prefix[0] = 'b'
+	prefix[1] = 'a'
+
+	a1 := MakePropertyKey(prefix, []byte("key1"))
+	a2 := MakePropertyKey(prefix, []byte("key2"))
+	if bytes.Equal(a1, a2) {
+		t.Fatalf("Expected a1 and a2 to be different, but they are equal")
+	}
+}
