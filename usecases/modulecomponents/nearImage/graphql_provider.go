@@ -33,6 +33,6 @@ func (g *GraphQLArgumentsProvider) getNearImage() modulecapabilities.GraphQLArgu
 		AggregateArgumentsFunction: aggregateNearImageArgumentFn,
 		ExploreArgumentsFunction:   exploreNearImageArgumentFn,
 		ExtractFunction:            extractNearImageFn,
-		ValidateFunction:           validateNearImageFn,
+		ValidateFunction:           ValidateNearImageFn,
 	}
 }

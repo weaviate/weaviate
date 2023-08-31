@@ -13,6 +13,7 @@ package nearImage
 
 import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
 )
 
 type GraphQLArgumentsProvider struct{}
@@ -33,6 +34,6 @@ func (g *GraphQLArgumentsProvider) getNearImage() modulecapabilities.GraphQLArgu
 		AggregateArgumentsFunction: aggregateNearImageArgumentFn,
 		ExploreArgumentsFunction:   exploreNearImageArgumentFn,
 		ExtractFunction:            extractNearImageFn,
-		ValidateFunction:           validateNearImageFn,
+		ValidateFunction:           nearImage.ValidateNearImageFn,
 	}
 }
