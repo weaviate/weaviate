@@ -56,6 +56,7 @@ var (
 	errTenantNotFound  = errors.New("tenant not found")
 	errTenantNotActive = errors.New("tenant not active")
 	_NUMCPU            = runtime.NumCPU()
+	errShardNotFound   = errors.New("shard not found")
 )
 
 // shardMap is a syn.Map which specialized in storing shards
@@ -385,8 +386,6 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 			object.Class(), i.Config.ClassName)
 	}
 
-	i.backupMutex.RLock()
-	defer i.backupMutex.RUnlock()
 	shardName, err := i.determineObjectShard(object.ID(), object.Object.Tenant)
 	if err != nil {
 		return objects.NewErrInvalidUserInput("determine shard: %v", err)
@@ -400,14 +399,26 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		if err := i.replicator.PutObject(ctx, shardName, object, cl); err != nil {
 			return fmt.Errorf("replicate insertion: shard=%q: %w", shardName, err)
 		}
-	} else if shard := i.localShard(shardName); shard != nil {
-		if err := shard.putObject(ctx, object); err != nil {
-			return fmt.Errorf("put local object: shard=%q: %w", shardName, err)
-		}
-	} else {
+		return nil
+	}
+
+	// no replication, remote shard
+	if i.localShard(shardName) == nil {
 		if err := i.remote.PutObject(ctx, shardName, object); err != nil {
 			return fmt.Errorf("put remote object: shard=%q: %w", shardName, err)
 		}
+		return nil
+	}
+
+	// no replication, local shard
+	i.backupMutex.RLock()
+	defer i.backupMutex.RUnlock()
+	err = errShardNotFound
+	if shard := i.localShard(shardName); shard != nil { // does shard still exist
+		err = shard.putObject(ctx, object)
+	}
+	if err != nil {
+		return fmt.Errorf("put local object: shard=%q: %w", shardName, err)
 	}
 
 	return nil
@@ -532,8 +543,6 @@ func parseAsStringToTime(in interface{}) (time.Time, error) {
 func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	replProps *additional.ReplicationProperties,
 ) []error {
-	i.backupMutex.RLock()
-	defer i.backupMutex.RUnlock()
 	type objsAndPos struct {
 		objects []*storobj.Object
 		pos     []int
@@ -585,10 +594,17 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			if replProps != nil {
 				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
 					replica.ConsistencyLevel(replProps.ConsistencyLevel))
-			} else if shard := i.localShard(shardName); shard != nil {
-				errs = shard.putObjectBatch(ctx, group.objects)
-			} else {
+			} else if i.localShard(shardName) == nil {
 				errs = i.remote.BatchPutObjects(ctx, shardName, group.objects)
+			} else {
+				i.backupMutex.RLockGuard(func() error {
+					if shard := i.localShard(shardName); shard != nil {
+						errs = shard.putObjectBatch(ctx, group.objects)
+					} else {
+						errs = duplicateErr(errShardNotFound, len(group.objects))
+					}
+					return nil
+				})
 			}
 			for i, err := range errs {
 				desiredPos := group.pos[i]
@@ -643,8 +659,6 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchReferences,
 	replProps *additional.ReplicationProperties,
 ) []error {
-	i.backupMutex.RLock()
-	defer i.backupMutex.RUnlock()
 	type refsAndPos struct {
 		refs objects.BatchReferences
 		pos  []int
@@ -678,10 +692,17 @@ func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchRefere
 			}
 			errs = i.replicator.AddReferences(ctx, shardName, group.refs,
 				replica.ConsistencyLevel(replProps.ConsistencyLevel))
-		} else if shard := i.localShard(shardName); shard != nil {
-			errs = shard.addReferencesBatch(ctx, group.refs)
-		} else {
+		} else if i.localShard(shardName) == nil {
 			errs = i.remote.BatchAddReferences(ctx, shardName, group.refs)
+		} else {
+			i.backupMutex.RLockGuard(func() error {
+				if shard := i.localShard(shardName); shard != nil {
+					errs = shard.addReferencesBatch(ctx, group.refs)
+				} else {
+					errs = duplicateErr(errShardNotFound, len(group.refs))
+				}
+				return nil
+			})
 		}
 		for i, err := range errs {
 			desiredPos := group.pos[i]
@@ -1325,9 +1346,6 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 	replProps *additional.ReplicationProperties, tenant string,
 ) error {
-	i.backupMutex.RLock()
-	defer i.backupMutex.RUnlock()
-
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return err
 	}
@@ -1345,12 +1363,26 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 		if err := i.replicator.DeleteObject(ctx, shardName, id, cl); err != nil {
 			return fmt.Errorf("replicate deletion: shard=%q %w", shardName, err)
 		}
-	} else if shard := i.localShard(shardName); shard != nil {
-		if err := shard.deleteObject(ctx, id); err != nil {
-			return fmt.Errorf("delete local object: shard=%q: %w", shardName, err)
+		return nil
+	}
+
+	// no replication, remote shard
+	if i.localShard(shardName) == nil {
+		if err := i.remote.DeleteObject(ctx, shardName, id); err != nil {
+			return fmt.Errorf("delete remote object: shard=%q: %w", shardName, err)
 		}
-	} else if err := i.remote.DeleteObject(ctx, shardName, id); err != nil {
-		return fmt.Errorf("delete remote object: shard=%q: %w", shardName, err)
+		return nil
+	}
+
+	// no replication, local shard
+	i.backupMutex.RLock()
+	defer i.backupMutex.RUnlock()
+	err = errShardNotFound
+	if shard := i.localShard(shardName); shard != nil {
+		err = shard.deleteObject(ctx, id)
+	}
+	if err != nil {
+		return fmt.Errorf("delete local object: shard=%q: %w", shardName, err)
 	}
 	return nil
 }
@@ -1377,9 +1409,6 @@ func (i *Index) localShard(name string) *Shard {
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 	replProps *additional.ReplicationProperties, tenant string,
 ) error {
-	i.backupMutex.RLock()
-	defer i.backupMutex.RUnlock()
-
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return err
 	}
@@ -1400,14 +1429,22 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 		return nil
 	}
 
-	if shard := i.localShard(shardName); shard != nil {
-		if err := shard.mergeObject(ctx, merge); err != nil {
-			return fmt.Errorf("update local object: shard=%q: %w", shardName, err)
+	// no replication, remote shard
+	if i.localShard(shardName) == nil {
+		if err := i.remote.MergeObject(ctx, shardName, merge); err != nil {
+			return fmt.Errorf("update remote object: shard=%q: %w", shardName, err)
 		}
 		return nil
 	}
 
-	if err := i.remote.MergeObject(ctx, shardName, merge); err != nil {
+	// no replication, local shard
+	i.backupMutex.RLock()
+	defer i.backupMutex.RUnlock()
+	err = errShardNotFound
+	if shard := i.localShard(shardName); shard != nil {
+		err = shard.mergeObject(ctx, merge)
+	}
+	if err != nil {
 		return fmt.Errorf("update local object: shard=%q: %w", shardName, err)
 	}
 
@@ -1706,8 +1743,6 @@ func (i *Index) IncomingFindDocIDs(ctx context.Context, shardName string,
 func (i *Index) batchDeleteObjects(ctx context.Context, shardDocIDs map[string][]uint64,
 	dryRun bool, replProps *additional.ReplicationProperties,
 ) (objects.BatchSimpleObjects, error) {
-	i.backupMutex.RLock()
-	defer i.backupMutex.RUnlock()
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "delete_from_shards_total")
 
@@ -1729,10 +1764,17 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardDocIDs map[string][
 				}
 				objs = i.replicator.DeleteObjects(ctx, shardName, docIDs,
 					dryRun, replica.ConsistencyLevel(replProps.ConsistencyLevel))
-			} else if shard := i.localShard(shardName); shard != nil {
-				objs = shard.deleteObjectBatch(ctx, docIDs, dryRun)
-			} else {
+			} else if i.localShard(shardName) == nil {
 				objs = i.remote.DeleteObjectBatch(ctx, shardName, docIDs, dryRun)
+			} else {
+				i.backupMutex.RLockGuard(func() error {
+					if shard := i.localShard(shardName); shard != nil {
+						objs = shard.deleteObjectBatch(ctx, docIDs, dryRun)
+					} else {
+						objs = objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: errShardNotFound}}
+					}
+					return nil
+				})
 			}
 			ch <- result{objs}
 		}(shardName, docIDs)
