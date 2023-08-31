@@ -19,17 +19,17 @@ import (
 )
 
 type JsonPropertyIdTracker struct {
-	path        string
-	lastId      uint64
-	propertyIds map[string]uint64
+	Path        string
+	LastId      uint64
+	PropertyIds map[string]uint64
 	sync.Mutex
 }
 
 func NewJsonPropertyIdTracker(path string) (*JsonPropertyIdTracker, error) {
 	t := &JsonPropertyIdTracker{
-		path:        path,
-		propertyIds: make(map[string]uint64),
-		lastId:      1,
+		Path:        path,
+		PropertyIds: make(map[string]uint64),
+		LastId:      0,
 	}
 
 	// read the file into memory
@@ -47,12 +47,7 @@ func NewJsonPropertyIdTracker(path string) (*JsonPropertyIdTracker, error) {
 	if err := json.Unmarshal(bytes, &t); err != nil {
 		return nil, err
 	}
-	t.path = path
-
-	// Leave zero undefined to catch undefined key lookups
-	if t.lastId == 0 {
-		t.lastId = 1
-	}
+	t.Path = path
 
 	return t, nil
 }
@@ -71,9 +66,9 @@ func (t *JsonPropertyIdTracker) Flush(flushBackup bool) error {
 		return err
 	}
 
-	filename := t.path
+	filename := t.Path
 	if flushBackup {
-		filename = t.path + ".bak"
+		filename = t.Path + ".bak"
 	}
 
 	// Do a write+rename to avoid corrupting the file if we crash while writing
@@ -97,11 +92,11 @@ func (t *JsonPropertyIdTracker) Drop() error {
 	t.Lock()
 	defer t.Unlock()
 
-	if err := os.Remove(t.path); err != nil {
-		return fmt.Errorf("remove prop length tracker state from disk:%v, %w", t.path, err)
+	if err := os.Remove(t.Path); err != nil {
+		return fmt.Errorf("remove prop length tracker state from disk:%v, %w", t.Path, err)
 	}
-	if err := os.Remove(t.path + ".bak"); err != nil {
-		return fmt.Errorf("remove prop length tracker state from disk:%v, %w", t.path+".bak", err)
+	if err := os.Remove(t.Path + ".bak"); err != nil {
+		return fmt.Errorf("remove prop length tracker state from disk:%v, %w", t.Path+".bak", err)
 	}
 
 	return nil
@@ -111,7 +106,7 @@ func (t *JsonPropertyIdTracker) GetIdForProperty(property string) uint64 {
 	t.Lock()
 	defer t.Unlock()
 
-	if id, ok := t.propertyIds[property]; ok {
+	if id, ok := t.PropertyIds[property]; ok {
 		return id
 	}
 
@@ -127,12 +122,12 @@ func (t *JsonPropertyIdTracker) CreateProperty(property string) (uint64, error) 
 }
 
 func (t *JsonPropertyIdTracker) doCreateProperty(property string) (uint64, error) {
-	if id, ok := t.propertyIds[property]; ok {
+	if id, ok := t.PropertyIds[property]; ok {
 		return id, fmt.Errorf("property %v already exists\n", property)
 	}
 
-	t.lastId++
-	t.propertyIds[property] = t.lastId
+	t.LastId++
+	t.PropertyIds[property] = t.LastId
 
-	return t.lastId, nil
+	return t.LastId, nil
 }
