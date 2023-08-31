@@ -31,7 +31,7 @@ func TestMakePropertyPrefix(t *testing.T) {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	prefix := MakePropertyPrefix("property", tracker)
+	prefix := MakeByteEncodedPropertyPrefix("property", tracker)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
