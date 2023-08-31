@@ -15,6 +15,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearAudio"
+
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
 
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -139,30 +143,37 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	}
 
 	if ni := req.NearImage; ni != nil {
-		nearImageOut := &nearImage.NearImageParams{
-			Image: ni.Image,
-		}
-
-		// The following business logic should not sit in the API. However, it is
-		// also part of the GraphQL API, so we need to duplicate it in order to get
-		// the same behavior
-		if ni.Distance != nil && ni.Certainty != nil {
-			return out, fmt.Errorf("near_image: cannot provide distance and certainty")
-		}
-
-		if ni.Certainty != nil {
-			nearImageOut.Certainty = *ni.Certainty
-		}
-
-		if ni.Distance != nil {
-			nearImageOut.Distance = *ni.Distance
-			nearImageOut.WithDistance = true
+		nearImageOut, err := parseNearImage(ni)
+		if err != nil {
+			return dto.GetParams{}, err
 		}
 
 		if out.ModuleParams == nil {
 			out.ModuleParams = make(map[string]interface{})
 		}
 		out.ModuleParams["nearImage"] = nearImageOut
+	}
+
+	if na := req.NearAudio; na != nil {
+		nearAudioOut, err := parseNearAudio(na)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
+		if out.ModuleParams == nil {
+			out.ModuleParams = make(map[string]interface{})
+		}
+		out.ModuleParams["nearAudio"] = nearAudioOut
+	}
+
+	if nv := req.NearVideo; nv != nil {
+		nearVideoOut, err := parseNearVideo(nv)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
+		if out.ModuleParams == nil {
+			out.ModuleParams = make(map[string]interface{})
+		}
+		out.ModuleParams["nearVideo"] = nearVideoOut
 	}
 
 	out.Pagination = &filters.Pagination{Offset: int(req.Offset), Autocut: int(req.Autocut)}
@@ -512,6 +523,77 @@ func getAllNonRefNonBlobProperties(scheme schema.Schema, className string) ([]se
 		})
 
 	}
-
 	return props, nil
+}
+
+func parseNearImage(ni *pb.NearImageSearchParams) (*nearImage.NearImageParams, error) {
+	nearImageOut := &nearImage.NearImageParams{
+		Image: ni.Image,
+	}
+
+	// The following business logic should not sit in the API. However, it is
+	// also part of the GraphQL API, so we need to duplicate it in order to get
+	// the same behavior
+	if ni.Distance != nil && ni.Certainty != nil {
+		return nil, fmt.Errorf("near_image: cannot provide distance and certainty")
+	}
+
+	if ni.Certainty != nil {
+		nearImageOut.Certainty = *ni.Certainty
+	}
+
+	if ni.Distance != nil {
+		nearImageOut.Distance = *ni.Distance
+		nearImageOut.WithDistance = true
+	}
+
+	return nearImageOut, nil
+}
+
+func parseNearAudio(na *pb.NearAudioSearchParams) (*nearAudio.NearAudioParams, error) {
+	nearAudioOut := &nearAudio.NearAudioParams{
+		Audio: na.Audio,
+	}
+
+	// The following business logic should not sit in the API. However, it is
+	// also part of the GraphQL API, so we need to duplicate it in order to get
+	// the same behavior
+	if na.Distance != nil && na.Certainty != nil {
+		return nil, fmt.Errorf("near_audio: cannot provide distance and certainty")
+	}
+
+	if na.Certainty != nil {
+		nearAudioOut.Certainty = *na.Certainty
+	}
+
+	if na.Distance != nil {
+		nearAudioOut.Distance = *na.Distance
+		nearAudioOut.WithDistance = true
+	}
+
+	return nearAudioOut, nil
+}
+
+func parseNearVideo(nv *pb.NearVideoSearchParams) (*nearVideo.NearVideoParams, error) {
+	nearVideoOut := &nearVideo.NearVideoParams{
+		Video: nv.Video,
+	}
+
+	// The following business logic should not sit in the API. However, it is
+	// also part of the GraphQL API, so we need to duplicate it in order to get
+	// the same behavior
+	if nv.Distance != nil && nv.Certainty != nil {
+		return nil, fmt.Errorf("near_video: cannot provide distance and certainty")
+	}
+
+	if nv.Certainty != nil {
+		nearVideoOut.Certainty = *nv.Certainty
+	}
+
+	if nv.Distance != nil {
+		nearVideoOut.Distance = *nv.Distance
+		nearVideoOut.WithDistance = true
+	}
+
+	return nearVideoOut, nil
 }

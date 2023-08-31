@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearAudio"
+
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
@@ -42,11 +44,11 @@ func (s *Searcher) vectorForNearAudioParam(ctx context.Context, params interface
 	findVectorFn modulecapabilities.FindVectorFn,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return s.vectorFromNearAudioParam(ctx, params.(*NearAudioParams), className, findVectorFn, cfg)
+	return s.vectorFromNearAudioParam(ctx, params.(*nearAudio.NearAudioParams), className, findVectorFn, cfg)
 }
 
 func (s *Searcher) vectorFromNearAudioParam(ctx context.Context,
-	params *NearAudioParams, className string, findVectorFn modulecapabilities.FindVectorFn,
+	params *nearAudio.NearAudioParams, className string, findVectorFn modulecapabilities.FindVectorFn,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	// find vector for given search query
