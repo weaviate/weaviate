@@ -238,11 +238,12 @@ func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard *
 }
 
 func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
-	eg := &errgroup.Group{}
-	eg.SetLimit(_NUMCPU)
 
-	i.ForEachShard(func(key string, shard *Shard) error {
-		shard.createPropertyIndex(ctx, prop, eg)
+	return i.ForEachShard(func(key string, shard *Shard) error {
+		err := shard.createPropertyIndex(ctx, prop)
+		if err != nil {
+			return errors.Wrapf(err, "extend idx '%s' with property '%s", i.ID(), prop.Name)
+		}
 		return nil
 	})
 	if err := eg.Wait(); err != nil {
@@ -1018,43 +1019,38 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 ) ([]*storobj.Object, []float32, error) {
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
-	eg := errgroup.Group{}
-	eg.SetLimit(_NUMCPU * 2)
 	shardResultLock := sync.Mutex{}
 	for _, shardName := range shards {
 		shardName := shardName
 
-		eg.Go(func() error {
-			var objs []*storobj.Object
-			var scores []float32
-			var err error
+		var objs []*storobj.Object
+		var scores []float32
+		var err error
 
-			if shard := i.localShard(shardName); shard != nil {
-				objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
-				if err != nil {
-					return fmt.Errorf(
-						"local shard object search %s: %w", shard.ID(), err)
-				}
-				if i.replicationEnabled() {
-					storobj.AddOwnership(objs, i.getSchema.NodeName(), shardName)
-				}
-			} else {
-				objs, scores, err = i.remote.SearchShard(
-					ctx, shardName, nil, limit, filters, keywordRanking,
-					sort, cursor, nil, addlProps, i.replicationEnabled())
-				if err != nil {
-					return fmt.Errorf(
-						"remote shard object search %s: %w", shardName, err)
-				}
+		if shard := i.localShard(shardName); shard != nil {
+			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
+			if err != nil {
+				return nil, nil, fmt.Errorf(
+					"local shard object search %s: %w", shard.ID(), err)
 			}
+			if i.replicationEnabled() {
+				storobj.AddOwnership(objs, i.getSchema.NodeName(), shardName)
+			}
+		} else {
+			objs, scores, err = i.remote.SearchShard(
+				ctx, shardName, nil, limit, filters, keywordRanking,
+				sort, cursor, nil, addlProps, i.replicationEnabled())
+			if err != nil {
+				return nil, nil, fmt.Errorf(
+					"remote shard object search %s: %w", shardName, err)
+			}
+		}
 
-			shardResultLock.Lock()
-			resultObjects = append(resultObjects, objs...)
-			resultScores = append(resultScores, scores...)
-			shardResultLock.Unlock()
+		shardResultLock.Lock()
+		resultObjects = append(resultObjects, objs...)
+		resultScores = append(resultScores, scores...)
+		shardResultLock.Unlock()
 
-			return nil
-		})
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
@@ -1341,9 +1337,7 @@ func (i *Index) localShard(name string) *Shard {
 	return i.shards.Load(name)
 }
 
-func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
-	replProps *additional.ReplicationProperties, tenant string,
-) error {
+func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,replProps *additional.ReplicationProperties, tenant string) error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 

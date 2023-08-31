@@ -95,6 +95,7 @@ func (os *objectScannerLSM) scan() error {
 	}
 
 	for _, id := range os.pointers {
+		var properties models.PropertySchema
 		binary.LittleEndian.PutUint64(docIDBytes, id)
 		res, err := os.objectsBucket.GetBySecondary(0, docIDBytes)
 		if err != nil {
@@ -106,11 +107,11 @@ func (os *objectScannerLSM) scan() error {
 		}
 
 		if len(os.properties) > 0 {
-			err = storobj.UnmarshalPropertiesFromObject(res, &propertiesTyped, os.properties, propStrings)
+			typedProperties, err := storobj.UnmarshalPropertiesFromObject(res,  os.properties, propStrings)
 			if err != nil {
 				return errors.Wrapf(err, "unmarshal data object")
 			}
-			properties = propertiesTyped
+			properties = *typedProperties
 		}
 
 		continueScan, err := os.scanFn(&properties, id)
