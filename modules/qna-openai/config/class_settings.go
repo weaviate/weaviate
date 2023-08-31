@@ -27,6 +27,7 @@ const (
 	frequencyPenaltyProperty = "frequencyPenalty"
 	presencePenaltyProperty  = "presencePenalty"
 	topPProperty             = "topP"
+	baseURLProperty          = "baseURL"
 )
 
 var (
@@ -36,6 +37,7 @@ var (
 	DefaultOpenAIFrequencyPenalty float64 = 0.0
 	DefaultOpenAIPresencePenalty  float64 = 0.0
 	DefaultOpenAITopP             float64 = 1.0
+	DefaultOpenAIBaseURL                  = "https://api.openai.com"
 )
 
 var maxTokensForModel = map[string]float64{
@@ -175,6 +177,10 @@ func (ic *classSettings) Model() string {
 
 func (ic *classSettings) MaxTokens() float64 {
 	return *ic.getFloatProperty(maxTokensProperty, &DefaultOpenAIMaxTokens)
+}
+
+func (ic *classSettings) BaseURL() string {
+	return *ic.getStringProperty(baseURLProperty, DefaultOpenAIBaseURL)
 }
 
 func (ic *classSettings) Temperature() float64 {
