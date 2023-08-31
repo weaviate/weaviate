@@ -143,5 +143,5 @@ var Weaviate_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "weaviate.proto",
+	Metadata: "grpc/weaviate.proto",
 }
