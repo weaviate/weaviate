@@ -36,9 +36,6 @@ func MakePropertyPrefix(property string, propertyIds *tracker.JsonPropertyIdTrac
 }
 
 func MakePropertyKey(propertyPrefix []byte, key []byte) []byte {
-	if len(propertyPrefix) == 0 {
-		return nil
-	}
 
 	t := key[:]
 	val := append(propertyPrefix, t...)
