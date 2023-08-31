@@ -34,7 +34,7 @@ func (n NearImageParams) SimilarityMetricProvided() bool {
 	return n.Certainty != 0 || n.WithDistance
 }
 
-func validateNearImageFn(param interface{}) error {
+func ValidateNearImageFn(param interface{}) error {
 	nearImage, ok := param.(*NearImageParams)
 	if !ok {
 		return errors.New("'nearImage' invalid parameter")

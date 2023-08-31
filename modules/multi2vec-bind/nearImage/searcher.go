@@ -14,6 +14,8 @@ package nearImage
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -42,11 +44,11 @@ func (s *Searcher) vectorForNearImageParam(ctx context.Context, params interface
 	findVectorFn modulecapabilities.FindVectorFn,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return s.vectorFromNearImageParam(ctx, params.(*NearImageParams), className, findVectorFn, cfg)
+	return s.vectorFromNearImageParam(ctx, params.(*nearImage.NearImageParams), className, findVectorFn, cfg)
 }
 
 func (s *Searcher) vectorFromNearImageParam(ctx context.Context,
-	params *NearImageParams, className string, findVectorFn modulecapabilities.FindVectorFn,
+	params *nearImage.NearImageParams, className string, findVectorFn modulecapabilities.FindVectorFn,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	// find vector for given search query

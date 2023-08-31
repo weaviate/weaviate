@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
+
 	"github.com/weaviate/weaviate/entities/searchparams"
 	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
 
@@ -136,6 +138,33 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		}
 	}
 
+	if ni := req.NearImage; ni != nil {
+		nearImageOut := &nearImage.NearImageParams{
+			Image: ni.Image,
+		}
+
+		// The following business logic should not sit in the API. However, it is
+		// also part of the GraphQL API, so we need to duplicate it in order to get
+		// the same behavior
+		if ni.Distance != nil && ni.Certainty != nil {
+			return out, fmt.Errorf("near_image: cannot provide distance and certainty")
+		}
+
+		if ni.Certainty != nil {
+			nearImageOut.Certainty = *ni.Certainty
+		}
+
+		if ni.Distance != nil {
+			nearImageOut.Distance = *ni.Distance
+			nearImageOut.WithDistance = true
+		}
+
+		if out.ModuleParams == nil {
+			out.ModuleParams = make(map[string]interface{})
+		}
+		out.ModuleParams["nearImage"] = nearImageOut
+	}
+
 	out.Pagination = &filters.Pagination{Offset: int(req.Offset), Autocut: int(req.Autocut)}
 	if req.Limit > 0 {
 		out.Pagination.Limit = int(req.Limit)
@@ -172,7 +201,6 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 			out.ModuleParams = make(map[string]interface{})
 		}
 		out.ModuleParams["nearText"] = nearText
-
 	}
 
 	if len(req.After) > 0 {
