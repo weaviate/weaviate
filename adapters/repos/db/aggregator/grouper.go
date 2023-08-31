@@ -34,6 +34,8 @@ type grouper struct {
 	values    map[interface{}]map[uint64]struct{} // map[value][docID]struct, to keep docIds unique
 	topGroups []group
 	limit     int
+	propertyName string
+	propertyPrefix []byte
 }
 
 func newGrouper(a *Aggregator, limit int) *grouper {
@@ -73,6 +75,7 @@ func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
 		return nil, err
 	}
 
+	// values are empty
 	if err := docid.ScanObjectsLSM(g.store, ids,
 		func(prop *models.PropertySchema, docID uint64) (bool, error) {
 			return true, g.addElementById(prop, docID)
@@ -152,12 +155,16 @@ func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList) ([]ui
 	return ids, nil
 }
 
-func (g *grouper) addElementById(s *models.PropertySchema, docID uint64) error {
-	if s == nil {
+func (g *grouper) addElementById(propertySchemaP *models.PropertySchema, docID uint64) error {
+	if propertySchemaP == nil {
 		return nil
 	}
 
-	item, ok := (*s).(map[string]interface{})[g.params.GroupBy.Property.String()]
+	
+	key := g.params.GroupBy.Property.String()
+       propertySchema := *propertySchemaP
+       m:=propertySchema.(map[string]interface{})
+       item, ok := m[key]
 	if !ok {
 		return nil
 	}
