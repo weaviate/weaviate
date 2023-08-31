@@ -36,11 +36,7 @@ func MakeByteEncodedPropertyPrefix(propertyName string, propertyIds *tracker.Jso
 }
 
 func MakePropertyKey(byteEncodedPropertyId []byte, key []byte) []byte {
-
-	t := key[:]
-	val := append(byteEncodedPropertyId, t...)
-
-	return val
+	return append(byteEncodedPropertyId, key...)
 }
 
 func MatchesPropertyKeyPrefix(byteEncodedPropertyId []byte, prefixed_key []byte) bool {
