@@ -14,6 +14,10 @@ package grpc
 import (
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearAudio"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
+
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
 
@@ -459,6 +463,63 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out:   dto.GetParams{},
 			error: true,
+		},
+		{
+			name: "near audio search",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				NearAudio: &grpc.NearAudioSearchParams{
+					Audio: "audio file",
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				ModuleParams: map[string]interface{}{
+					"nearAudio": &nearAudio.NearAudioParams{
+						Audio: "audio file",
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "near video search",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				NearVideo: &grpc.NearVideoSearchParams{
+					Video: "video file",
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				ModuleParams: map[string]interface{}{
+					"nearVideo": &nearVideo.NearVideoParams{
+						Video: "video file",
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "near image search",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				NearImage: &grpc.NearImageSearchParams{
+					Image: "image file",
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				ModuleParams: map[string]interface{}{
+					"nearImage": &nearImage.NearImageParams{
+						Image: "image file",
+					},
+				},
+			},
+			error: false,
 		},
 	}
 

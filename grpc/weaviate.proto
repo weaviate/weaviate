@@ -69,6 +69,9 @@ message SearchRequest {
   string tenant = 12;
   optional Filters filters = 13;
   optional NearTextSearchParams near_text = 14;
+  optional NearImageSearchParams near_image = 15;
+  optional NearAudioSearchParams near_audio = 16;
+  optional NearVideoSearchParams near_video = 17;
 }
 
 message TextArray{
@@ -174,6 +177,23 @@ message NearTextSearchParams{
   optional Move move_away = 5;
 };
 
+message NearImageSearchParams{
+  string image = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+};
+
+message NearAudioSearchParams{
+  string audio = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+};
+
+message NearVideoSearchParams{
+  string video = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+};
 
 message BM25SearchParams {
   string query = 1;

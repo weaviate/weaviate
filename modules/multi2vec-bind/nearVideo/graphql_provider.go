@@ -13,6 +13,7 @@ package nearVideo
 
 import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
 )
 
 type GraphQLArgumentsProvider struct{}
@@ -33,6 +34,6 @@ func (g *GraphQLArgumentsProvider) getNearVideo() modulecapabilities.GraphQLArgu
 		AggregateArgumentsFunction: aggregateNearVideoArgumentFn,
 		ExploreArgumentsFunction:   exploreNearVideoArgumentFn,
 		ExtractFunction:            extractNearVideoFn,
-		ValidateFunction:           validateNearVideoFn,
+		ValidateFunction:           nearVideo.ValidateNearVideoFn,
 	}
 }

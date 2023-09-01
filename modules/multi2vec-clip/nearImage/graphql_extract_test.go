@@ -14,6 +14,8 @@ package nearImage
 import (
 	"reflect"
 	"testing"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
 )
 
 func Test_extractNearImageFn(t *testing.T) {
@@ -33,7 +35,7 @@ func Test_extractNearImageFn(t *testing.T) {
 					"distance": float64(0.9),
 				},
 			},
-			want: &NearImageParams{
+			want: &nearImage.NearImageParams{
 				Image:        "base64;encoded",
 				Distance:     0.9,
 				WithDistance: true,
@@ -47,7 +49,7 @@ func Test_extractNearImageFn(t *testing.T) {
 					"certainty": float64(0.9),
 				},
 			},
-			want: &NearImageParams{
+			want: &nearImage.NearImageParams{
 				Image:     "base64;encoded",
 				Certainty: 0.9,
 			},
@@ -59,7 +61,7 @@ func Test_extractNearImageFn(t *testing.T) {
 					"image": "base64;encoded",
 				},
 			},
-			want: &NearImageParams{
+			want: &nearImage.NearImageParams{
 				Image: "base64;encoded",
 			},
 		},
