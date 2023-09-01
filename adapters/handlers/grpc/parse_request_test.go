@@ -14,6 +14,13 @@ package grpc
 import (
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearAudio"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
+
+	"github.com/weaviate/weaviate/entities/schema/crossref"
+	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/searchparams"
 
@@ -403,6 +410,112 @@ func TestGRPCRequest(t *testing.T) {
 						},
 						Operator: filters.ContainsAll,
 						Value:    &filters.Value{Value: []float64{3}, Type: schema.DataTypeNumber},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "near text search",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				NearText: &grpc.NearTextSearchParams{
+					Query:    []string{"first and", "second", "query"},
+					MoveTo:   &grpc.NearTextSearchParams_Move{Force: 0.5, Concepts: []string{"first", "and second"}, Uuids: []string{UUID3, UUID4}},
+					MoveAway: &grpc.NearTextSearchParams_Move{Force: 0.3, Concepts: []string{"second to last", "really last"}, Uuids: []string{UUID4}},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				ModuleParams: map[string]interface{}{
+					"nearText": &nearText2.NearTextParams{
+						Values: []string{"first and", "second", "query"},
+						MoveTo: nearText2.ExploreMove{
+							Force:  0.5,
+							Values: []string{"first", "and second"},
+							Objects: []nearText2.ObjectMove{
+								{ID: UUID3, Beacon: crossref.NewLocalhost(classname, UUID3).String()},
+								{ID: UUID4, Beacon: crossref.NewLocalhost(classname, UUID4).String()},
+							},
+						},
+						MoveAwayFrom: nearText2.ExploreMove{
+							Force:  0.3,
+							Values: []string{"second to last", "really last"},
+							Objects: []nearText2.ObjectMove{
+								{ID: UUID4, Beacon: crossref.NewLocalhost(classname, UUID4).String()},
+							},
+						},
+						Limit: 10, // default
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "near text wrong uuid format",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				NearText: &grpc.NearTextSearchParams{
+					Query:  []string{"first"},
+					MoveTo: &grpc.NearTextSearchParams_Move{Force: 0.5, Uuids: []string{"not a uuid"}},
+				},
+			},
+			out:   dto.GetParams{},
+			error: true,
+		},
+		{
+			name: "near audio search",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				NearAudio: &grpc.NearAudioSearchParams{
+					Audio: "audio file",
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				ModuleParams: map[string]interface{}{
+					"nearAudio": &nearAudio.NearAudioParams{
+						Audio: "audio file",
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "near video search",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				NearVideo: &grpc.NearVideoSearchParams{
+					Video: "video file",
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				ModuleParams: map[string]interface{}{
+					"nearVideo": &nearVideo.NearVideoParams{
+						Video: "video file",
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "near image search",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				NearImage: &grpc.NearImageSearchParams{
+					Image: "image file",
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				ModuleParams: map[string]interface{}{
+					"nearImage": &nearImage.NearImageParams{
+						Image: "image file",
 					},
 				},
 			},
