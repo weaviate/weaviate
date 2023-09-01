@@ -34,7 +34,7 @@ func (n NearVideoParams) SimilarityMetricProvided() bool {
 	return n.Certainty != 0 || n.WithDistance
 }
 
-func validateNearVideoFn(param interface{}) error {
+func ValidateNearVideoFn(param interface{}) error {
 	nearVideo, ok := param.(*NearVideoParams)
 	if !ok {
 		return errors.New("'nearVideo' invalid parameter")
