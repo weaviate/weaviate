@@ -431,7 +431,7 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	defer i.backupMutex.RUnlock()
 	localShard := i.localShard(shardName)
 	if localShard == nil {
-		return errors.Errorf("shard %q does not exist locally", shardName)
+		return errShardNotFound
 	}
 
 	// This is a bit hacky, the problem here is that storobj.Parse() currently
@@ -442,11 +442,11 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	// involve the schema, thus why we are doing it here. This was discovered as
 	// part of https://github.com/weaviate/weaviate/issues/1775
 	if err := i.parseDateFieldsInProps(object.Object.Properties); err != nil {
-		return errors.Wrapf(err, "shard %s", localShard.ID())
+		return err
 	}
 
 	if err := localShard.putObject(ctx, object); err != nil {
-		return errors.Wrapf(err, "shard %s", localShard.ID())
+		return err
 	}
 
 	return nil
@@ -632,10 +632,9 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 ) []error {
 	i.backupMutex.RLock()
 	defer i.backupMutex.RUnlock()
-	localShard := i.shards.Load(shardName)
+	localShard := i.localShard(shardName)
 	if localShard == nil {
-		return duplicateErr(errors.Errorf("shard %q does not exist locally",
-			shardName), len(objects))
+		return duplicateErr(errShardNotFound, len(objects))
 	}
 
 	// This is a bit hacky, the problem here is that storobj.Parse() currently
@@ -647,8 +646,7 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 	// part of https://github.com/weaviate/weaviate/issues/1775
 	for j := range objects {
 		if err := i.parseDateFieldsInProps(objects[j].Object.Properties); err != nil {
-			return duplicateErr(errors.Wrapf(err, "shard %s", localShard.ID()),
-				len(objects))
+			return duplicateErr(err, len(objects))
 		}
 	}
 
@@ -718,10 +716,9 @@ func (i *Index) IncomingBatchAddReferences(ctx context.Context, shardName string
 ) []error {
 	i.backupMutex.RLock()
 	defer i.backupMutex.RUnlock()
-	localShard := i.shards.Load(shardName)
+	localShard := i.localShard(shardName)
 	if localShard == nil {
-		return duplicateErr(errors.Errorf("shard %q does not exist locally",
-			shardName), len(refs))
+		return duplicateErr(errShardNotFound, len(refs))
 	}
 
 	return localShard.addReferencesBatch(ctx, refs)
@@ -779,33 +776,23 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 	id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties,
 ) (*storobj.Object, error) {
-	shard := i.shards.Load(shardName)
+	shard := i.localShard(shardName)
 	if shard == nil {
-		return nil, errors.Errorf("shard %q does not exist locally", shardName)
+		return nil, errShardNotFound
 	}
 
-	obj, err := shard.objectByID(ctx, id, props, additional)
-	if err != nil {
-		return nil, errors.Wrapf(err, "shard %s", shard.ID())
-	}
-
-	return obj, nil
+	return shard.objectByID(ctx, id, props, additional)
 }
 
 func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 	ids []strfmt.UUID,
 ) ([]*storobj.Object, error) {
-	shard := i.shards.Load(shardName)
+	shard := i.localShard(shardName)
 	if shard == nil {
-		return nil, errors.Errorf("shard %q does not exist locally", shardName)
+		return nil, errShardNotFound
 	}
 
-	objs, err := shard.multiObjectByID(ctx, wrapIDsInMulti(ids))
-	if err != nil {
-		return nil, errors.Wrapf(err, "shard %s", shard.ID())
-	}
-
-	return objs, nil
+	return shard.multiObjectByID(ctx, wrapIDsInMulti(ids))
 }
 
 func (i *Index) multiObjectByID(ctx context.Context,
@@ -924,17 +911,12 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 func (i *Index) IncomingExists(ctx context.Context, shardName string,
 	id strfmt.UUID,
 ) (bool, error) {
-	shard := i.shards.Load(shardName)
+	shard := i.localShard(shardName)
 	if shard == nil {
-		return false, errors.Errorf("shard %q does not exist locally", shardName)
+		return false, errShardNotFound
 	}
 
-	ok, err := shard.exists(ctx, id)
-	if err != nil {
-		return ok, errors.Wrapf(err, "shard %s", shard.ID())
-	}
-
-	return ok, nil
+	return shard.exists(ctx, id)
 }
 
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
@@ -1180,7 +1162,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 	shardName string,
 ) ([]*storobj.Object, []float32, error) {
-	shard := i.shards.Load(shardName)
+	shard := i.localShard(shardName)
 	res, resDists, err := shard.objectVectorSearch(
 		ctx, searchVector, dist, limit, filters, sort, groupBy, additional)
 	if err != nil {
@@ -1320,15 +1302,15 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
-	shard := i.shards.Load(shardName)
+	shard := i.localShard(shardName)
 	if shard == nil {
-		return nil, nil, errors.Errorf("shard %q does not exist locally", shardName)
+		return nil, nil, errShardNotFound
 	}
 
 	if searchVector == nil {
 		res, scores, err := shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional)
 		if err != nil {
-			return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
+			return nil, nil, err
 		}
 
 		return res, scores, nil
@@ -1394,12 +1376,9 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	defer i.backupMutex.RUnlock()
 	shard := i.localShard(shardName)
 	if shard == nil {
-		return errors.Errorf("shard %q does not exist locally", shardName)
+		return errShardNotFound
 	}
-	if err := shard.deleteObject(ctx, id); err != nil {
-		return fmt.Errorf("shard %s", shard.ID())
-	}
-	return nil
+	return shard.deleteObject(ctx, id)
 }
 
 func (i *Index) localShard(name string) *Shard {
@@ -1456,17 +1435,12 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 ) error {
 	i.backupMutex.RLock()
 	defer i.backupMutex.RUnlock()
-	shard := i.shards.Load(shardName)
+	shard := i.localShard(shardName)
 	if shard == nil {
-		return errors.Errorf("shard %q does not exist locally", shardName)
+		return errShardNotFound
 	}
 
-	err := shard.mergeObject(ctx, mergeDoc)
-	if err != nil {
-		return errors.Wrapf(err, "shard %s", shard.ID())
-	}
-
-	return nil
+	return shard.mergeObject(ctx, mergeDoc)
 }
 
 func (i *Index) aggregate(ctx context.Context,
@@ -1503,17 +1477,12 @@ func (i *Index) aggregate(ctx context.Context,
 func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 	params aggregation.Params,
 ) (*aggregation.Result, error) {
-	shard := i.shards.Load(shardName)
+	shard := i.localShard(shardName)
 	if shard == nil {
-		return nil, errors.Errorf("shard %q does not exist locally", shardName)
+		return nil, errShardNotFound
 	}
 
-	res, err := shard.aggregate(ctx, params)
-	if err != nil {
-		return nil, errors.Wrapf(err, "shard %s", shard.ID())
-	}
-
-	return res, nil
+	return shard.aggregate(ctx, params)
 }
 
 func (i *Index) drop() error {
@@ -1642,7 +1611,7 @@ func (i *Index) getShardsStatus(ctx context.Context) (map[string]string, error) 
 		if !shardState.IsLocalShard(shardName) {
 			status, err = i.remote.GetShardStatus(ctx, shardName)
 		} else {
-			shard := i.shards.Load(shardName)
+			shard := i.localShard(shardName)
 			if shard == nil {
 				err = errors.Errorf("shard %s does not exist", shardName)
 			} else {
@@ -1660,9 +1629,9 @@ func (i *Index) getShardsStatus(ctx context.Context) (map[string]string, error) 
 }
 
 func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {
-	shard := i.shards.Load(shardName)
+	shard := i.localShard(shardName)
 	if shard == nil {
-		return "", errors.Errorf("shard %q does not exist", shardName)
+		return "", errShardNotFound
 	}
 	return shard.getStatus().String(), nil
 }
@@ -1675,9 +1644,9 @@ func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus s
 }
 
 func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string) error {
-	shard := i.shards.Load(shardName)
+	shard := i.localShard(shardName)
 	if shard == nil {
-		return errors.Errorf("shard %s does not exist", shardName)
+		return errShardNotFound
 	}
 	return shard.updateStatus(targetStatus)
 }
@@ -1709,7 +1678,6 @@ func (i *Index) findDocIDs(ctx context.Context,
 		var err error
 		var res []uint64
 		if shard := i.localShard(shardName); shard != nil {
-			shard := i.shards.Load(shardName)
 			res, err = shard.findDocIDs(ctx, filters)
 		} else {
 			res, err = i.remote.FindDocIDs(ctx, shardName, filters)
@@ -1727,17 +1695,12 @@ func (i *Index) findDocIDs(ctx context.Context,
 func (i *Index) IncomingFindDocIDs(ctx context.Context, shardName string,
 	filters *filters.LocalFilter,
 ) ([]uint64, error) {
-	shard := i.shards.Load(shardName)
+	shard := i.localShard(shardName)
 	if shard == nil {
-		return nil, errors.Errorf("shard %q does not exist locally", shardName)
+		return nil, errShardNotFound
 	}
 
-	docIDs, err := shard.findDocIDs(ctx, filters)
-	if err != nil {
-		return nil, errors.Wrapf(err, "shard %s", shard.ID())
-	}
-
-	return docIDs, nil
+	return shard.findDocIDs(ctx, filters)
 }
 
 func (i *Index) batchDeleteObjects(ctx context.Context, shardDocIDs map[string][]uint64,
@@ -1796,10 +1759,10 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 ) objects.BatchSimpleObjects {
 	i.backupMutex.RLock()
 	defer i.backupMutex.RUnlock()
-	shard := i.shards.Load(shardName)
+	shard := i.localShard(shardName)
 	if shard == nil {
 		return objects.BatchSimpleObjects{
-			objects.BatchSimpleObject{Err: errors.Errorf("shard %q does not exist locally", shardName)},
+			objects.BatchSimpleObject{Err: errShardNotFound},
 		}
 	}
 
@@ -1831,7 +1794,7 @@ func objectSearchPreallocate(limit int, shards []string) ([]*storobj.Object, []f
 func (i *Index) addNewShard(ctx context.Context,
 	class *models.Class, shardName string,
 ) error {
-	if shard := i.shards.Load(shardName); shard != nil {
+	if shard := i.localShard(shardName); shard != nil {
 		return fmt.Errorf("shard %q exists already", shardName)
 	}
 
