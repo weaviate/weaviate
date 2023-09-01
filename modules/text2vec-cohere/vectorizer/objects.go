@@ -138,7 +138,11 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 		return nil, err
 	}
 
-	return res.Vector, nil
+	if len(res.Vector) > 1 {
+		return v.CombineVectors(res.Vector), nil
+	}
+
+	return res.Vector[0], nil
 }
 
 func camelCaseToLower(in string) string {

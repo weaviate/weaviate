@@ -26,7 +26,9 @@ import (
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
+	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
+	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 )
@@ -194,6 +196,11 @@ func (d *Compose) WithText2VecPaLM() *Compose {
 	return d
 }
 
+func (d *Compose) WithText2VecHuggingFace() *Compose {
+	d.enableModules = append(d.enableModules, modhuggingface.Name)
+	return d
+}
+
 func (d *Compose) WithGenerativeOpenAI() *Compose {
 	d.enableModules = append(d.enableModules, modgenerativeopenai.Name)
 	return d
@@ -211,6 +218,11 @@ func (d *Compose) WithGenerativePaLM() *Compose {
 
 func (d *Compose) WithQnAOpenAI() *Compose {
 	d.enableModules = append(d.enableModules, modqnaopenai.Name)
+	return d
+}
+
+func (d *Compose) WithRerankerCohere() *Compose {
+	d.enableModules = append(d.enableModules, modrerankercohere.Name)
 	return d
 }
 

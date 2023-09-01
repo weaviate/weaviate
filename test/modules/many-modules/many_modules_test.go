@@ -35,8 +35,9 @@ func Test_ManyModules(t *testing.T) {
 
 		expectedModuleNames := []string{
 			"generative-cohere", "generative-palm", "generative-openai",
-			"text2vec-cohere", "text2vec-contextionary", "text2vec-openai",
+			"text2vec-cohere", "text2vec-contextionary", "text2vec-openai", "text2vec-huggingface",
 			"text2vec-palm", "text2vec-transformers", "sum-transformers", "qna-openai",
+			"reranker-cohere",
 		}
 
 		modules, ok := meta.Modules.(map[string]interface{})
