@@ -65,13 +65,12 @@ func (v *palm) VectorizeQuery(ctx context.Context, input []string,
 func (v *palm) vectorize(ctx context.Context, input []string, config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
 	endpointURL := v.urlBuilderFn(v.getApiEndpoint(config), v.getProjectID(config), v.getModel(config))
 
-	body, err := json.Marshal(embeddingsRequest{
-		Instances: []instance{
-			{
-				Content: input[0],
-			},
-		},
-	})
+	instances := make([]instance, len(input))
+	for i := range input {
+		instances[i] = instance{Content: input[i]}
+	}
+
+	body, err := json.Marshal(embeddingsRequest{instances})
 	if err != nil {
 		return nil, errors.Wrapf(err, "marshal body")
 	}
@@ -117,10 +116,15 @@ func (v *palm) vectorize(ctx context.Context, input []string, config ent.Vectori
 		return nil, errors.Errorf("empty embeddings response")
 	}
 
+	vectors := make([][]float32, len(resBody.Predictions))
+	for i := range resBody.Predictions {
+		vectors[i] = resBody.Predictions[i].Embeddings.Values
+	}
+
 	return &ent.VectorizationResult{
-		Text:       input[0],
+		Text:       input,
 		Dimensions: len(resBody.Predictions[0].Embeddings.Values),
-		Vector:     resBody.Predictions[0].Embeddings.Values,
+		Vector:     vectors,
 	}, nil
 }
 
