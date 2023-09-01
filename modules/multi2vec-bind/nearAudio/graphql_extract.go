@@ -11,9 +11,11 @@
 
 package nearAudio
 
+import "github.com/weaviate/weaviate/usecases/modulecomponents/nearAudio"
+
 // extractNearAudioFn arguments, such as "audio" and "certainty"
 func extractNearAudioFn(source map[string]interface{}) interface{} {
-	var args NearAudioParams
+	var args nearAudio.NearAudioParams
 
 	audio, ok := source["audio"].(string)
 	if ok {
