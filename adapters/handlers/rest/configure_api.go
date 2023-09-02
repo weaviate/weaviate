@@ -346,6 +346,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
+		if err := schemaManager.Shutdown(ctx); err != nil {
+			panic(err)
+		}
+
 		if err := repo.Shutdown(ctx); err != nil {
 			panic(err)
 		}

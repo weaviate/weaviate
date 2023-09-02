@@ -188,6 +188,21 @@ func NewManager(migrator migrate.Migrator, repo SchemaStore,
 	return m, nil
 }
 
+func (m *Manager) Shutdown(ctx context.Context) error {
+	allCommitsDone := make(chan struct{})
+	go func() {
+		m.cluster.Shutdown()
+		allCommitsDone <- struct{}{}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("waiting for transactions to commit: %w", ctx.Err())
+	case <-allCommitsDone:
+		return nil
+	}
+}
+
 func (m *Manager) TxManager() *cluster.TxManager {
 	return m.cluster
 }

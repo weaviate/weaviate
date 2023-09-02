@@ -27,6 +27,7 @@ var (
 	ErrConcurrentTransaction = errors.New("concurrent transaction")
 	ErrInvalidTransaction    = errors.New("invalid transaction")
 	ErrExpiredTransaction    = errors.New("transaction TTL expired")
+	ErrShutdown              = errors.New("server is shutting down")
 )
 
 type Remote interface {
@@ -47,6 +48,15 @@ type TxManager struct {
 	currentTransaction        *Transaction
 	currentTransactionContext context.Context
 	clearTransaction          func()
+
+	// any time we start working on a commit, we need to add to this WaitGroup.
+	// It will block shutdwon until the commit has completed to make sure that we
+	// can't accidentally shutdown while a tx is committing.
+	ongoingCommits sync.WaitGroup
+
+	// when a shutdown signal has been received, we will no longer accept any new
+	// tx's or commits
+	accept bool
 
 	remote     Remote
 	commitFn   CommitFn
@@ -84,6 +94,9 @@ func NewTxManager(remote Remote, logger logrus.FieldLogger) *TxManager {
 		commitFn:   newDummyCommitResponseFn(),
 		responseFn: newDummyResponseFn(),
 		logger:     logger,
+
+		// ready to serve incoming requests
+		accept: true,
 	}
 }
 
@@ -201,6 +214,11 @@ func (c *TxManager) beginTransaction(ctx context.Context, trType TransactionType
 ) (*Transaction, error) {
 	c.Lock()
 
+	if !c.accept {
+		c.Unlock()
+		return nil, ErrShutdown
+	}
+
 	if c.currentTransaction != nil {
 		c.Unlock()
 		return nil, ErrConcurrentTransaction
@@ -260,6 +278,12 @@ func (c *TxManager) CommitWriteTransaction(ctx context.Context,
 	tx *Transaction,
 ) error {
 	c.Lock()
+
+	if !c.accept {
+		c.Unlock()
+		return ErrShutdown
+	}
+
 	if c.currentTransaction == nil || c.currentTransaction.ID != tx.ID {
 		expired := c.expired(tx.ID)
 		c.Unlock()
@@ -302,6 +326,10 @@ func (c *TxManager) IncomingBeginTransaction(ctx context.Context,
 	c.Lock()
 	defer c.Unlock()
 
+	if !c.accept {
+		return nil, ErrShutdown
+	}
+
 	if c.currentTransaction != nil && c.currentTransaction.ID != tx.ID {
 		return nil, ErrConcurrentTransaction
 	}
@@ -337,8 +365,15 @@ func (c *TxManager) IncomingAbortTransaction(ctx context.Context,
 func (c *TxManager) IncomingCommitTransaction(ctx context.Context,
 	tx *Transaction,
 ) error {
+	c.ongoingCommits.Add(1)
+	defer c.ongoingCommits.Done()
+
 	c.Lock()
 	defer c.Unlock()
+
+	if !c.accept {
+		return ErrShutdown
+	}
 
 	if c.currentTransaction == nil || c.currentTransaction.ID != tx.ID {
 		expired := c.expired(tx.ID)
@@ -361,6 +396,14 @@ func (c *TxManager) IncomingCommitTransaction(ctx context.Context,
 	// TODO: only clean up on success - does this make sense?
 	c.currentTransaction = nil
 	return nil
+}
+
+func (c *TxManager) Shutdown() {
+	c.Lock()
+	c.accept = false
+	c.Unlock()
+
+	c.ongoingCommits.Wait()
 }
 
 type Transaction struct {
