@@ -451,18 +451,6 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 }
 
 func (d *Deserializer) ConnectTo(r io.Reader, res *DeserializationResult) error {
-	/*
-		toWrite := make([]byte, 17+len(sources)*8)
-		toWrite[0] = byte(ConnectTo)
-		binary.LittleEndian.PutUint64(toWrite[1:9], target)
-		binary.LittleEndian.PutUint16(toWrite[9:13], level)
-		binary.LittleEndian.PutUint16(toWrite[13:17], uint16(len(sources)))
-		for i, source := range sources {
-			binary.LittleEndian.PutUint64(toWrite[17+i*8:], source)
-		}
-		_, err := l.bufw.Write(toWrite)
-		return err
-	*/
 	id, err := d.readUint64(r)
 	if err != nil {
 		return err
@@ -480,6 +468,19 @@ func (d *Deserializer) ConnectTo(r io.Reader, res *DeserializationResult) error 
 		if err != nil {
 			return err
 		}
+		newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, d.logger)
+		if err != nil {
+			return err
+		}
+
+		if changed {
+			res.Nodes = newNodes
+		}
+		if res.Nodes[int(source)] == nil {
+			res.Nodes[int(source)] = &vertex{id: source, connections: make([][]uint64, level+1)}
+		}
+
+		maybeGrowConnectionsForLevel(&res.Nodes[int(source)].connections, level)
 		res.Nodes[int(source)].connections[int(level)] = append(res.Nodes[int(source)].connections[int(level)], id)
 	}
 	return nil
