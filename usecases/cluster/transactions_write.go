@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -67,6 +68,8 @@ type TxManager struct {
 	// which no longer exists, they will get an explicit error message mentioning
 	// the timeout.
 	expiredTxIDs []string
+
+	persistence Persistence
 }
 
 func newDummyCommitResponseFn() func(ctx context.Context, tx *Transaction) error {
@@ -81,7 +84,11 @@ func newDummyResponseFn() func(ctx context.Context, tx *Transaction) ([]byte, er
 	}
 }
 
-func NewTxManager(remote Remote, logger logrus.FieldLogger) *TxManager {
+func NewTxManager(remote Remote, persistence Persistence,
+	logger logrus.FieldLogger,
+) *TxManager {
+	// TODO: check dangling txs
+
 	return &TxManager{
 		remote: remote,
 
@@ -91,9 +98,10 @@ func NewTxManager(remote Remote, logger logrus.FieldLogger) *TxManager {
 		// to set a responseFn. However, if the fn was nil, we'd panic. Thus a
 		// dummy function is a reasonable default - and much cleaner than a
 		// nil-check on every call.
-		commitFn:   newDummyCommitResponseFn(),
-		responseFn: newDummyResponseFn(),
-		logger:     logger,
+		commitFn:    newDummyCommitResponseFn(),
+		responseFn:  newDummyResponseFn(),
+		logger:      logger,
+		persistence: persistence,
 
 		// ready to serve incoming requests
 		accept: true,
@@ -334,6 +342,10 @@ func (c *TxManager) IncomingBeginTransaction(ctx context.Context,
 		return nil, ErrConcurrentTransaction
 	}
 
+	if err := c.persistence.StoreTx(ctx, tx); err != nil {
+		return nil, fmt.Errorf("make tx durable: %w", err)
+	}
+
 	c.currentTransaction = tx
 	data, err := c.responseFn(ctx, tx)
 	if err != nil {
@@ -360,6 +372,9 @@ func (c *TxManager) IncomingAbortTransaction(ctx context.Context,
 	}
 
 	c.currentTransaction = nil
+	if err := c.persistence.DeleteTx(ctx, tx.ID); err != nil {
+		c.logger.WithError(err).Errorf("abort tx: %s", err)
+	}
 }
 
 func (c *TxManager) IncomingCommitTransaction(ctx context.Context,
@@ -395,6 +410,11 @@ func (c *TxManager) IncomingCommitTransaction(ctx context.Context,
 
 	// TODO: only clean up on success - does this make sense?
 	c.currentTransaction = nil
+
+	if err := c.persistence.DeleteTx(ctx, tx.ID); err != nil {
+		return fmt.Errorf("close tx on disk: %w", err)
+	}
+
 	return nil
 }
 
@@ -416,4 +436,9 @@ type Transaction struct {
 	// opened or committed if a node is confirmed dead. If a node is only
 	// suspected dead, the TxManager will try, but abort unless all nodes ACK.
 	TolerateNodeFailures bool
+}
+
+type Persistence interface {
+	StoreTx(ctx context.Context, tx *Transaction) error
+	DeleteTx(ctx context.Context, txID string) error
 }

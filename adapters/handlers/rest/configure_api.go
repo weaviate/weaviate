@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
+	txstore "github.com/weaviate/weaviate/adapters/repos/transactions"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -227,10 +228,22 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	// TODO: configure http transport for efficient intra-cluster comm
 	schemaTxClient := clients.NewClusterSchema(clusterHttpClient)
+	schemaTxPersistence := txstore.NewStore(
+		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
+	schemaTxPersistence.SetUmarshalFn(schemaUC.UnmarshalTransaction)
+	if err := schemaTxPersistence.Open(); err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("could not open tx repo")
+		os.Exit(1)
+
+	}
+
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
 		enthnsw.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
-		appState.Modules, appState.Cluster, schemaTxClient, scaler,
+		appState.Modules, appState.Cluster, schemaTxClient,
+		schemaTxPersistence, scaler,
 	)
 	if err != nil {
 		appState.Logger.

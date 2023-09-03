@@ -42,7 +42,10 @@ func NewDistributeRepo(remoteClient cluster.Client,
 	logger logrus.FieldLogger,
 ) *DistributedRepo {
 	broadcaster := cluster.NewTxBroadcaster(memberLister, remoteClient)
-	txRemote := cluster.NewTxManager(broadcaster, logger)
+	// TODO: THIS WILL PANIC! The persistence can't be nil here. Either we
+	// introduce a dummy or we refactor the current one to work for multiple
+	// purposes.
+	txRemote := cluster.NewTxManager(broadcaster, nil, logger)
 	repo := &DistributedRepo{
 		txRemote:  txRemote,
 		localRepo: localRepo,

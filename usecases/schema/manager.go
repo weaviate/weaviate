@@ -155,7 +155,8 @@ func NewManager(migrator migrate.Migrator, repo SchemaStore,
 	hnswConfigParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
-	txClient cluster.Client, scaleoutManager scaleOut,
+	txClient cluster.Client, txPersistence cluster.Persistence,
+	scaleoutManager scaleOut,
 ) (*Manager, error) {
 	txBroadcaster := cluster.NewTxBroadcaster(clusterState, txClient)
 	m := &Manager{
@@ -169,7 +170,7 @@ func NewManager(migrator migrate.Migrator, repo SchemaStore,
 		vectorizerValidator:     vectorizerValidator,
 		invertedConfigValidator: invertedConfigValidator,
 		moduleConfig:            moduleConfig,
-		cluster:                 cluster.NewTxManager(txBroadcaster, logger),
+		cluster:                 cluster.NewTxManager(txBroadcaster, txPersistence, logger),
 		clusterState:            clusterState,
 		scaleOut:                scaleoutManager,
 	}
