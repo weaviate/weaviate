@@ -289,6 +289,10 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 // commiting a transaction are ready. In practice this means, the DB must be
 // ready to try and call this method.
 func (m *Manager) ResumeDanglingTxs(ctx context.Context) error {
+	// only start accepting incoming connections after dangling TXs have been
+	// resumed
+	defer m.cluster.StartAcceptIncoming()
+
 	ok, err := m.cluster.TryResumeDanglingTxs(ctx, resumableTxs)
 	if err != nil {
 		return fmt.Errorf("try resuming dangling transactions: %w", err)

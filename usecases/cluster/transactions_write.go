@@ -29,7 +29,7 @@ var (
 	ErrConcurrentTransaction = errors.New("concurrent transaction")
 	ErrInvalidTransaction    = errors.New("invalid transaction")
 	ErrExpiredTransaction    = errors.New("transaction TTL expired")
-	ErrShutdown              = errors.New("server is shutting down")
+	ErrNotReady              = errors.New("server is not ready: either starting up or shutting down")
 )
 
 type Remote interface {
@@ -58,7 +58,7 @@ type TxManager struct {
 
 	// when a shutdown signal has been received, we will no longer accept any new
 	// tx's or commits
-	accept bool
+	acceptIncoming bool
 
 	remote     Remote
 	commitFn   CommitFn
@@ -103,8 +103,15 @@ func NewTxManager(remote Remote, persistence Persistence,
 		persistence: persistence,
 
 		// ready to serve incoming requests
-		accept: true,
+		acceptIncoming: false,
 	}
+}
+
+func (c *TxManager) StartAcceptIncoming() {
+	c.Lock()
+	defer c.Unlock()
+
+	c.acceptIncoming = true
 }
 
 // TODO: Document
@@ -269,11 +276,6 @@ func (c *TxManager) beginTransaction(ctx context.Context, trType TransactionType
 ) (*Transaction, error) {
 	c.Lock()
 
-	if !c.accept {
-		c.Unlock()
-		return nil, ErrShutdown
-	}
-
 	if c.currentTransaction != nil {
 		c.Unlock()
 		return nil, ErrConcurrentTransaction
@@ -334,9 +336,9 @@ func (c *TxManager) CommitWriteTransaction(ctx context.Context,
 ) error {
 	c.Lock()
 
-	if !c.accept {
+	if !c.acceptIncoming {
 		c.Unlock()
-		return ErrShutdown
+		return ErrNotReady
 	}
 
 	if c.currentTransaction == nil || c.currentTransaction.ID != tx.ID {
@@ -381,8 +383,8 @@ func (c *TxManager) IncomingBeginTransaction(ctx context.Context,
 	c.Lock()
 	defer c.Unlock()
 
-	if !c.accept {
-		return nil, ErrShutdown
+	if !c.acceptIncoming {
+		return nil, ErrNotReady
 	}
 
 	if c.currentTransaction != nil && c.currentTransaction.ID != tx.ID {
@@ -433,8 +435,8 @@ func (c *TxManager) IncomingCommitTransaction(ctx context.Context,
 	c.Lock()
 	defer c.Unlock()
 
-	if !c.accept {
-		return ErrShutdown
+	if !c.acceptIncoming {
+		return ErrNotReady
 	}
 
 	if c.currentTransaction == nil || c.currentTransaction.ID != tx.ID {
@@ -467,7 +469,7 @@ func (c *TxManager) IncomingCommitTransaction(ctx context.Context,
 
 func (c *TxManager) Shutdown() {
 	c.Lock()
-	c.accept = false
+	c.acceptIncoming = false
 	c.Unlock()
 
 	c.ongoingCommits.Wait()
