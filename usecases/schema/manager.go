@@ -49,6 +49,9 @@ type Manager struct {
 	RestoreError            sync.Map
 	sync.RWMutex
 
+	// TODO: explain
+	shouldTryToResumeTx bool
+
 	schemaCache
 }
 
@@ -292,6 +295,17 @@ func (m *Manager) ResumeDanglingTxs(ctx context.Context) error {
 	// only start accepting incoming connections after dangling TXs have been
 	// resumed
 	defer m.cluster.StartAcceptIncoming()
+
+	var shouldResume bool
+	m.RLockGuard(func() error {
+		shouldResume = m.shouldTryToResumeTx
+		return nil
+	})
+
+	if !shouldResume {
+		// nothing to do for us
+		return nil
+	}
 
 	ok, err := m.cluster.TryResumeDanglingTxs(ctx, resumableTxs)
 	if err != nil {

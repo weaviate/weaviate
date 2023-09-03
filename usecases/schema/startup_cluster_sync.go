@@ -64,6 +64,10 @@ func (m *Manager) startupClusterSync(ctx context.Context) error {
 	if m.cluster.HaveDanglingTxs(ctx, resumableTxs) {
 		m.logger.WithFields(logrusStartupSyncFields()).
 			Infof("schema out of sync, but there are dangling transactions, the check will be repeated after an attempt to resume those transactions")
+
+		m.LockGuard(func() {
+			m.shouldTryToResumeTx = true
+		})
 		return nil
 	}
 
