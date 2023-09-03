@@ -40,6 +40,12 @@ const (
 	DefaultTxTTL = 60 * time.Second
 )
 
+// any tx that is listed here will be tried to commit if it is still open on
+// startup
+var resumableTxs = []cluster.TransactionType{
+	addTenants,
+}
+
 type AddClassPayload struct {
 	Class *models.Class   `json:"class"`
 	State *sharding.State `json:"state"`

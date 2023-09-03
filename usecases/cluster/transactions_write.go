@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/slices"
 )
 
 type TransactionType string
@@ -87,8 +88,6 @@ func newDummyResponseFn() func(ctx context.Context, tx *Transaction) ([]byte, er
 func NewTxManager(remote Remote, persistence Persistence,
 	logger logrus.FieldLogger,
 ) *TxManager {
-	// TODO: check dangling txs
-
 	return &TxManager{
 		remote: remote,
 
@@ -106,6 +105,54 @@ func NewTxManager(remote Remote, persistence Persistence,
 		// ready to serve incoming requests
 		accept: true,
 	}
+}
+
+// TODO: Document
+func (c *TxManager) HaveDanglingTxs(ctx context.Context,
+	allowedTypes []TransactionType,
+) (found bool) {
+	c.persistence.IterateAll(context.Background(), func(tx *Transaction) {
+		if !slices.Contains(allowedTypes, tx.Type) {
+			fmt.Printf("%s not contained\n", tx.Type)
+			return
+		}
+		fmt.Printf("%s contained\n", tx.Type)
+		found = true
+		return
+	})
+
+	return
+}
+
+// TODO: Document limitations
+func (c *TxManager) TryResumeDanglingTxs(ctx context.Context,
+	allowedTypes []TransactionType,
+) (applied bool, err error) {
+	c.persistence.IterateAll(context.Background(), func(tx *Transaction) {
+		if !slices.Contains(allowedTypes, tx.Type) {
+			c.logger.WithField("action", "resume_transaction").
+				WithField("transaction_id", tx.ID).
+				WithField("transaction_type", tx.Type).
+				Warnf("dangling transaction %q of type %q is not known to be resumable - skipping",
+					tx.ID, tx.Type)
+
+			return
+		}
+		// TODO: we can't just assume every tx was committed, we need to
+		// actually check if the other nodes agree
+		if err = c.commitFn(ctx, tx); err != nil {
+			return
+		}
+
+		applied = true
+		c.logger.WithField("action", "resume_transaction").
+			WithField("transaction_id", tx.ID).
+			WithField("transaction_type", tx.Type).
+			Infof("successfully resumed dangling transaction %q of type %q",
+				tx.ID, tx.Type)
+	})
+
+	return
 }
 
 func (c *TxManager) resetTxExpiry(ttl time.Duration, id string) {
@@ -441,4 +488,5 @@ type Transaction struct {
 type Persistence interface {
 	StoreTx(ctx context.Context, tx *Transaction) error
 	DeleteTx(ctx context.Context, txID string) error
+	IterateAll(ctx context.Context, cb func(tx *Transaction)) error
 }

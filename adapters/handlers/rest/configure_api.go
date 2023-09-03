@@ -284,6 +284,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
+	if err := schemaManager.ResumeDanglingTxs(ctx); err != nil {
+		appState.Logger.
+			WithError(err).
+			WithField("action", "startup").
+			Fatal("schema manager: resume dangling txs")
+		os.Exit(1)
+
+	}
+
 	objectsManager := objects.NewManager(appState.Locks,
 		schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, vectorRepo, appState.Modules,

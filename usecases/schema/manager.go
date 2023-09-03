@@ -282,6 +282,42 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	return nil
 }
 
+// ResumeDanglingTxs iterates over any transaction that may have been left
+// dangling after a restart and retries to commit them if appropriate.
+//
+// This can only be called when all areas responding to side effects of
+// commiting a transaction are ready. In practice this means, the DB must be
+// ready to try and call this method.
+func (m *Manager) ResumeDanglingTxs(ctx context.Context) error {
+	ok, err := m.cluster.TryResumeDanglingTxs(ctx, resumableTxs)
+	if err != nil {
+		return fmt.Errorf("try resuming dangling transactions: %w", err)
+	}
+
+	if !ok {
+		// no tx was applied, we are done
+		return nil
+	}
+
+	// a tx was applied which means the previous schema check was skipped, we
+	// now need to check the schema again
+	err = m.validateSchemaCorruption(ctx)
+	if err == nil {
+		// all is fine, continue as normal
+		return nil
+	}
+
+	if m.clusterState.SchemaSyncIgnored() {
+		m.logger.WithError(err).WithFields(logrusStartupSyncFields()).
+			Warning("schema out of sync, but ignored because " +
+				"CLUSTER_IGNORE_SCHEMA_SYNC=true")
+		return nil
+	}
+
+	return fmt.Errorf(
+		"applied dangling tx, but schema still out of sync: %w", err)
+}
+
 func (m *Manager) migrateSchemaIfNecessary(ctx context.Context, localSchema *State) error {
 	// introduced when Weaviate started supporting multi-shards per class in v1.8
 	if err := m.checkSingleShardMigration(ctx, localSchema); err != nil {

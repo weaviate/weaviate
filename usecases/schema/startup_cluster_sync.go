@@ -49,17 +49,25 @@ func (m *Manager) startupClusterSync(ctx context.Context) error {
 	}
 
 	err := m.validateSchemaCorruption(ctx)
-	if err != nil {
-		if m.clusterState.SchemaSyncIgnored() {
-			m.logger.WithError(err).WithFields(logrusStartupSyncFields()).
-				Warning("schema out of sync, but ignored because " +
-					"CLUSTER_IGNORE_SCHEMA_SYNC=true")
-		} else {
-			return err
-		}
+	if err == nil {
+		// schema is fine, we are done
+		return nil
 	}
 
-	return nil
+	if m.clusterState.SchemaSyncIgnored() {
+		m.logger.WithError(err).WithFields(logrusStartupSyncFields()).
+			Warning("schema out of sync, but ignored because " +
+				"CLUSTER_IGNORE_SCHEMA_SYNC=true")
+		return nil
+	}
+
+	if m.cluster.HaveDanglingTxs(ctx, resumableTxs) {
+		m.logger.WithFields(logrusStartupSyncFields()).
+			Infof("schema out of sync, but there are dangling transactions, the check will be repeated after an attempt to resume those transactions")
+		return nil
+	}
+
+	return err
 }
 
 // startupHandleSingleNode deals with the case where there is only a single
