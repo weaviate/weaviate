@@ -29,6 +29,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/edsrzf/mmap-go"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"

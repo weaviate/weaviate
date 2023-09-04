@@ -26,6 +26,7 @@ import (
 	"bufio"
 	"os"
 
+	"github.com/edsrzf/mmap-go"
 	"github.com/pkg/errors"
 )
 

@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"gopkg.in/yaml.v2"
 )
 
 // ServerVersion is set when the misc handlers are setup.
