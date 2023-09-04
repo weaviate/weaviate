@@ -95,7 +95,6 @@ func (os *objectScannerLSM) scan() error {
 	}
 
 	for _, id := range os.pointers {
-		var properties models.PropertySchema
 		binary.LittleEndian.PutUint64(docIDBytes, id)
 		res, err := os.objectsBucket.GetBySecondary(0, docIDBytes)
 		if err != nil {
