@@ -45,9 +45,7 @@ type Store struct {
 // New initializes a new [Store] based on the root dir. If state is present on
 // disk, it is loaded, if the folder is empty a new store is initialized in
 // there.
-func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
-	shardCompactionCallbacks, shardFlushCallbacks cyclemanager.CycleCallbackGroup,
-) (*Store, error) {
+func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics, shardCompactionCallbacks, shardFlushCallbacks cyclemanager.CycleCallbackGroup) (*Store, error) {
 	s := &Store{
 		dir:           dir,
 		rootDir:       rootDir,
@@ -58,6 +56,14 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
 	s.initCycleCallbacks(shardCompactionCallbacks, shardFlushCallbacks)
 
 	return s, s.init()
+}
+
+func (s *Store) GetStrategyFromOpts(opts []BucketOption) string {
+	fb := &Bucket{}
+	for _, opt := range opts {
+		opt(fb)
+	}
+	return fb.strategy
 }
 
 func (s *Store) Bucket(name string) *Bucket {
@@ -111,24 +117,51 @@ func (s *Store) bucketDir(bucketName string) string {
 //
 //	// you can now access the bucket using store.Bucket()
 //	b := store.Bucket("my_bucket_name")
-func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
-	opts ...BucketOption,
-) error {
-	if b := s.Bucket(bucketName); b != nil {
+func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string, opts ...BucketOption) error {
+	fmt.Println("Requested CreateOrLoadBucket", bucketFile, "in shard", s.dir)
+	//fmt.Println("Existing buckets:")
+	//for k := range s.bucketsByName {
+	//      fmt.Println(k)
+	//}
+
+	/*
+	   if strings.Contains(bucketFile, "_id") {
+	           fmt.Print("found")
+	   }
+	*/
+
+	if b := s.Bucket(bucketFile); b != nil {
+		// If the merged bucket as bucketFile already exists, we don't need to create it, but we do need to register it to the "RegisteredName"
+		// So first we create a fake bucket to get the registered name :O
+		fb := &Bucket{}
+		for _, opt := range opts {
+			opt(fb)
+		}
+		registeredName := fb.RegisteredName
+		if registeredName != "" {
+			s.SetBucket(registeredName, b)
+		}
 		return nil
 	}
 
-	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics,
-		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
+	b, err := NewBucket(ctx, s.bucketDir(bucketFile), s.rootDir, s.logger, s.metrics,
+		s.compactionCycle, s.flushCycle, opts...)
 	if err != nil {
 		return err
 	}
 
-	s.setBucket(bucketName, b)
+	s.SetBucket(bucketFile, b)
+
+	if b.RegisteredName != "" {
+		s.SetBucket(b.RegisteredName, b)
+
+		fmt.Printf("Registered bucket %v as '%v'\n", bucketFile, b.RegisteredName)
+	}
+
 	return nil
 }
 
-func (s *Store) setBucket(name string, b *Bucket) {
+func (s *Store) SetBucket(name string, b *Bucket) {
 	s.bucketAccessLock.Lock()
 	defer s.bucketAccessLock.Unlock()
 

@@ -62,7 +62,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	schema schema.Schema, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker,
 	propLengths propLengthRetriever, logger logrus.FieldLogger,
-	shardVersion uint16,
+	shardVersion uint16, propertyIds *tracker.JsonPropertyIdTracker,
 ) *BM25Searcher {
 	return &BM25Searcher{
 		config:        config,
@@ -74,6 +74,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 		propLengths:   propLengths,
 		logger:        logger.WithField("action", "bm25_search"),
 		shardVersion:  shardVersion,
+		propertyIds:   propertyIds,
 	}
 }
 

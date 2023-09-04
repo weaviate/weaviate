@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"errors"
 )
 
 type JsonPropertyIdTracker struct {
@@ -98,6 +99,21 @@ func (t *JsonPropertyIdTracker) Drop() error {
 	if err := os.Remove(t.Path + ".bak"); err != nil {
 		return fmt.Errorf("remove prop length tracker state from disk:%v, %w", t.Path+".bak", err)
 	}
+
+	return nil
+}
+
+// Closes the tracker and removes the backup file
+func (t *JsonPropertyIdTracker) Close() error {
+	if err := t.Flush(false); err != nil {
+		return fmt.Errorf( "flush before closing: %w", err)
+	}
+
+	t.Lock()
+	defer t.Unlock()
+
+	t.PropertyIds = nil
+	
 
 	return nil
 }

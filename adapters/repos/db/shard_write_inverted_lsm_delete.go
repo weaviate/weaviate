@@ -26,14 +26,14 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 ) error {
 	for _, prop := range props {
 		if prop.HasFilterableIndex {
-			bucket := s.store.Bucket(helpers.BucketFromPropertyNameLSM(prop.Name))
-			if bucket == nil {
-				return fmt.Errorf("no bucket for prop '%s' found", prop.Name)
+			bucket, err := lsmkv.NewBucketProxy(s.store.Bucket("filterable_properties"), prop.Name, s.propIds)
+
+			if err != nil {
+				return fmt.Errorf("no bucket for prop '%s' found: %v", prop.Name, err)
 			}
 
 			for _, item := range prop.Items {
-				if err := s.deleteInvertedIndexItemLSM(bucket, item,
-					docID); err != nil {
+				if err := s.deleteInvertedIndexItemLSM(bucket, item, docID); err != nil {
 					return errors.Wrapf(err, "delete item '%s' from index",
 						string(item.Data))
 				}
@@ -41,9 +41,9 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 		}
 
 		if prop.HasSearchableIndex {
-			bucket := s.store.Bucket(helpers.BucketSearchableFromPropertyNameLSM(prop.Name))
-			if bucket == nil {
-				return fmt.Errorf("no bucket searchable for prop '%s' found", prop.Name)
+			bucket, err := lsmkv.NewBucketProxy(s.store.Bucket("searchable_properties"), prop.Name, s.propIds)
+			if err != nil {
+				return fmt.Errorf("no bucket searchable for prop '%s: %v' found", prop.Name, err)
 			}
 
 			for _, item := range prop.Items {
@@ -59,7 +59,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 	return nil
 }
 
-func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket *lsmkv.Bucket,
+func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket lsmkv.BucketInterface,
 	item inverted.Countable, docID uint64,
 ) error {
 	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
@@ -76,7 +76,7 @@ func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket *lsmkv.Bucket,
 	return bucket.MapDeleteKey(item.Data, docIDBytes)
 }
 
-func (s *Shard) deleteInvertedIndexItemLSM(bucket *lsmkv.Bucket,
+func (s *Shard) deleteInvertedIndexItemLSM(bucket lsmkv.BucketInterface,
 	item inverted.Countable, docID uint64,
 ) error {
 	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)

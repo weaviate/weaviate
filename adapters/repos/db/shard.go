@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -36,7 +37,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"golang.org/x/sync/errgroup"
 )
 
 const IdLockPoolSize = 128
@@ -54,6 +54,7 @@ type Shard struct {
 	promMetrics     *monitoring.PrometheusMetrics
 	propertyIndices propertyspecific.Indices
 	deletedDocIDs   *docid.InMemDeletedTracker
+	propIds         *tracker.JsonPropertyIdTracker
 	propLengths     *inverted.JsonPropertyLengthTracker
 	versioner       *shardVersioner
 
@@ -82,9 +83,16 @@ type Shard struct {
 	cycleCallbacks *shardCycleCallbacks
 }
 
-func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
-	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-) (*Shard, error) {
+func (s *Shard) wrapBucketWithProp(bucket *lsmkv.Bucket, propName string, propIds *tracker.JsonPropertyIdTracker) (*lsmkv.BucketProxy, error) {
+	bucketValue, err := lsmkv.NewBucketProxy(bucket, propName, propIds)
+	if err != nil {
+		return nil, errors.Errorf("cannot wrap raw bucket with property prefixer '%s': %v", propName, err)
+	}
+
+	return bucketValue, nil
+}
+
+func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics, shardName string, index *Index, class *models.Class, jobQueueCh chan job) (*Shard, error) {
 	before := time.Now()
 
 	s := &Shard{
@@ -203,6 +211,13 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	}
 	s.propLengths = propLengths
 
+	piPath := path.Join(s.index.Config.RootPath, s.ID()+".propids")
+	propIds, err := tracker.NewJsonPropertyIdTracker(piPath)
+	if err != nil {
+		return errors.Wrapf(err, "init shard %q: prop id tracker", s.ID())
+	}
+	s.propIds = propIds
+
 	if err := s.initProperties(class); err != nil {
 		return errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}
@@ -315,6 +330,11 @@ func (s *Shard) drop() error {
 		return errors.Wrapf(err, "remove prop length tracker at %s", s.DBPathLSM())
 	}
 
+	err = s.propIds.Drop()
+	if err != nil {
+		return errors.Wrapf(err, "remove prop id tracker at %s", s.DBPathLSM())
+	}
+
 	// TODO: can we remove this?
 	s.deletedDocIDs.BulkRemove(s.deletedDocIDs.GetAll())
 	s.propertyIndicesLock.Lock()
@@ -332,10 +352,16 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 		return storagestate.ErrStatusReadOnly
 	}
 
+	bucketOpts := []lsmkv.BucketOption{lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter) * time.Second),
+		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
+		lsmkv.WithRegisteredName(helpers.BucketFromPropNameLSM(filters.InternalPropID)),
+	}
+
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropertyNameLSM(filters.InternalPropID),
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+		"filterable_properties",
+		bucketOpts...,
+	)
+
 }
 
 func (s *Shard) addDimensionsProperty(ctx context.Context) error {
@@ -372,16 +398,18 @@ func (s *Shard) addTimestampProperties(ctx context.Context) error {
 
 func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropertyNameLSM(filters.InternalPropCreationTimeUnix),
+		"filterable_properties",
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM(filters.InternalPropCreationTimeUnix)))
 }
 
 func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropertyNameLSM(filters.InternalPropLastUpdateTimeUnix),
+		"filterable_properties",
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM(filters.InternalPropLastUpdateTimeUnix)))
 }
 
 func (s *Shard) memtableIdleConfig() lsmkv.BucketOption {
@@ -398,36 +426,30 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 	)
 }
 
-func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *errgroup.Group) {
+func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property) error {
 	if !inverted.HasInvertedIndex(prop) {
-		return
+		return nil // FIXME nil or err?
 	}
 
-	eg.Go(func() error {
-		if err := s.createPropertyValueIndex(ctx, prop); err != nil {
-			return errors.Wrapf(err, "create property '%s' value index on shard '%s'", prop.Name, s.ID())
-		}
+	s.propIds.CreateProperty(prop.Name)
+	s.propIds.Flush(false)
 
-		if s.index.invertedIndexConfig.IndexNullState {
-			eg.Go(func() error {
-				if err := s.createPropertyNullIndex(ctx, prop); err != nil {
-					return errors.Wrapf(err, "create property '%s' null index on shard '%s'", prop.Name, s.ID())
-				}
-				return nil
-			})
-		}
+	if err := s.createPropertyValueIndex(ctx, prop); err != nil {
+		return errors.Wrapf(err, "create property '%s' value index on shard '%s'", prop.Name, s.ID())
+	}
 
-		if s.index.invertedIndexConfig.IndexPropertyLength {
-			eg.Go(func() error {
-				if err := s.createPropertyLengthIndex(ctx, prop); err != nil {
-					return errors.Wrapf(err, "create property '%s' length index on shard '%s'", prop.Name, s.ID())
-				}
-				return nil
-			})
+	if s.index.invertedIndexConfig.IndexNullState {
+		if err := s.createPropertyNullIndex(ctx, prop); err != nil {
+			return errors.Wrapf(err, "create property '%s' null index on shard '%s'", prop.Name, s.ID())
 		}
+	}
 
-		return nil
-	})
+	if s.index.invertedIndexConfig.IndexPropertyLength {
+		if err := s.createPropertyLengthIndex(ctx, prop); err != nil {
+			return errors.Wrapf(err, "create property '%s' length index on shard '%s'", prop.Name, s.ID())
+		}
+	}
+	return nil
 }
 
 func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property) error {
@@ -440,23 +462,48 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		s.dynamicMemtableSizing(),
 	}
 
+	//Force creation of filterable properties database file
+	filterableOpts := append(bucketOpts, lsmkv.WithRegisteredName(helpers.BucketFromPropNameLSM("_id")))
+	if err := s.store.CreateOrLoadBucket(ctx,
+		"filterable_properties",
+		append(filterableOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
+	); err != nil {
+		return err
+	}
+
+	//Force creation of searchable properties database file
+	searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+	if s.versioner.Version() < 2 {
+		searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
+	}
+
+	if err := s.store.CreateOrLoadBucket(ctx,
+		"searchable_properties",
+		searchableBucketOpts...,
+	); err != nil {
+		return err
+	}
+
 	if inverted.HasFilterableIndex(prop) {
+
 		if dt, _ := schema.AsPrimitive(prop.DataType); dt == schema.DataTypeGeoCoordinates {
 			return s.initGeoProp(prop)
 		}
 
 		if schema.IsRefDataType(prop.DataType) {
+			refOpts := append(bucketOpts, lsmkv.WithRegisteredName(helpers.BucketFromPropNameMetaCountLSM(prop.Name)))
 			if err := s.store.CreateOrLoadBucket(ctx,
-				helpers.BucketFromPropertyNameMetaCountLSM(prop.Name),
-				append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
+				"properties_meta_count",
+				append(refOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
 			); err != nil {
 				return err
 			}
 		}
 
+		filterableOpts := append(bucketOpts, lsmkv.WithRegisteredName(helpers.BucketFromPropNameLSM(prop.Name)))
 		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketFromPropertyNameLSM(prop.Name),
-			append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
+			"filterable_properties",
+			append(filterableOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
 		); err != nil {
 			return err
 		}
@@ -464,12 +511,13 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 
 	if inverted.HasSearchableIndex(prop) {
 		searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+		searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithRegisteredName(helpers.BucketSearchableFromPropNameLSM(prop.Name)))
 		if s.versioner.Version() < 2 {
 			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
 		}
 
 		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketSearchableFromPropertyNameLSM(prop.Name),
+			"searchable_properties",
 			searchableBucketOpts...,
 		); err != nil {
 			return err
@@ -493,8 +541,9 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 	}
 
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropertyNameLengthLSM(prop.Name),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+		"filterable_properties",
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLengthLSM(prop.Name)))
 }
 
 func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property) error {
@@ -503,8 +552,10 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 	}
 
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropertyNameNullLSM(prop.Name),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+		"null_properties",
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameNullLSM(prop.Name)),
+	)
 }
 
 func (s *Shard) updateVectorIndexConfig(ctx context.Context,
@@ -533,6 +584,10 @@ func (s *Shard) shutdown(ctx context.Context) error {
 	if err := s.propLengths.Close(); err != nil {
 		return errors.Wrap(err, "close prop length tracker")
 	}
+
+	if err := s.propIds.Close(); err != nil {
+		               return errors.Wrap(err, "close prop id tracker")
+		       }
 
 	// to ensure that all commitlog entries are written to disk.
 	// otherwise in some cases the tombstone cleanup process'

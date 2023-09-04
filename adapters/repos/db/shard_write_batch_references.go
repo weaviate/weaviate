@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
 // return value map[int]error gives the error for the index as it received it
@@ -213,8 +214,9 @@ func (b *referencesBatcher) writeInvertedDeletions(
 		// are guaranteed to be not have a frequency, meaning they will use the
 		// "Set" strategy in the lsmkv store
 		if prop.HasFilterableIndex {
-			bucket := b.shard.store.Bucket(helpers.BucketFromPropertyNameLSM(prop.Name))
-			if bucket == nil {
+			bucket,err :=  lsmkv.NewBucketProxy(  b.shard.store.Bucket("filterable_properties"), prop.Name, b.shard.propIds)
+
+			if err != nil {
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}
 
@@ -242,8 +244,9 @@ func (b *referencesBatcher) writeInvertedAdditions(
 		// are guaranteed to be not have a frequency, meaning they will use the
 		// "Set" strategy in the lsmkv store
 		if prop.HasFilterableIndex {
-			bucket := b.shard.store.Bucket(helpers.BucketFromPropertyNameLSM(prop.Name))
-			if bucket == nil {
+			bucket,err := lsmkv.NewBucketProxy(  b.shard.store.Bucket("filterable_properties"), prop.Name, b.shard.propIds)
+
+			if err != nil {
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}
 
