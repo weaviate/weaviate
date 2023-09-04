@@ -97,18 +97,20 @@ func TestGRPCRequest(t *testing.T) {
 					Distance:           true,
 					Score:              true,
 					ExplainScore:       true,
+					IsConsistent:       false,
 				},
 			},
 			error: false,
 		},
 		{
 			name: "Metadata return values",
-			req:  &grpc.SearchRequest{ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true, Certainty: false}},
+			req:  &grpc.SearchRequest{ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true, Certainty: false, IsConsistent: true}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
 				AdditionalProperties: additional.Properties{
-					Vector:  true,
-					NoProps: true,
+					Vector:       true,
+					NoProps:      true,
+					IsConsistent: true,
 				},
 			},
 			error: false,
