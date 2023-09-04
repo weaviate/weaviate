@@ -161,7 +161,7 @@ func downloadDatasetFile(t testing.TB, file string) {
 		return
 	}
 
-	err := os.MkdirAll(filepath.Dir(file), 0755)
+	err := os.MkdirAll(filepath.Dir(file), 0o755)
 	require.NoError(t, err)
 
 	path := strings.TrimPrefix(file, "datasets/")
