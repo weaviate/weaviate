@@ -373,16 +373,17 @@ func (c *TxManager) CommitWriteTransaction(ctx context.Context,
 	}()
 
 	if err := c.remote.BroadcastCommitTransaction(ctx, tx); err != nil {
-		// we could not open the transaction on every node, therefore we need to
-		// abort it everywhere.
-
-		if err := c.remote.BroadcastAbortTransaction(ctx, tx); err != nil {
-			c.logger.WithFields(logrus.Fields{
-				"action": "broadcast_abort_transaction",
-				"id":     tx.ID,
-			}).WithError(err).Errorf("broadcast tx abort failed")
-		}
-
+		// the broadcast failed, but we can't do anything about it. If we would
+		// broadcast an "abort" now (as a previous version did) we'd likely run
+		// into an inconsistency down the line. Network requests have variable
+		// time, so there's a chance some nodes would see the abort before the
+		// commit and vice-versa. Given enough nodes, we would end up with an
+		// inconsistent state.
+		//
+		// A failed commit means the node that didn't receive the commit needs to
+		// figure out itself how to get back to the correct state (e.g. by
+		// recovering from a persisted tx), don't jeopardize all the other nodes as
+		// a result!
 		return errors.Wrap(err, "broadcast commit transaction")
 	}
 
