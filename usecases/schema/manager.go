@@ -286,17 +286,33 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	return nil
 }
 
-// ResumeDanglingTxs iterates over any transaction that may have been left
+// StartServing indicates that the schema manager is ready to accept incoming
+// connections in cluster mode, i.e. it will accept opening transactions.
+//
+// Some transactions are exempt, such as ReadSchema which is required for nodes
+// to start up.
+//
+// This method should be called when all backends, primarily the DB, are ready
+// to serve.
+func (m *Manager) StartServing(ctx context.Context) error {
+	if err := m.resumeDanglingTransactions(ctx); err != nil {
+		return err
+	}
+
+	// only start accepting incoming connections when dangling txs have been
+	// resumed, otherwise there is potential for conflict
+	m.cluster.StartAcceptIncoming()
+
+	return nil
+}
+
+// resumeDanglingTransactions iterates over any transaction that may have been left
 // dangling after a restart and retries to commit them if appropriate.
 //
 // This can only be called when all areas responding to side effects of
 // commiting a transaction are ready. In practice this means, the DB must be
 // ready to try and call this method.
-func (m *Manager) ResumeDanglingTxs(ctx context.Context) error {
-	// only start accepting incoming connections after dangling TXs have been
-	// resumed
-	defer m.cluster.StartAcceptIncoming()
-
+func (m *Manager) resumeDanglingTransactions(ctx context.Context) error {
 	var shouldResume bool
 	m.RLockGuard(func() error {
 		shouldResume = m.shouldTryToResumeTx

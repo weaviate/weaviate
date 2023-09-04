@@ -132,7 +132,7 @@ func Test_Schema_Authorization(t *testing.T) {
 				"Nodes", "NodeName", "ClusterHealthScore", "ClusterStatus", "ResolveParentNodes",
 				"CopyShardingState", "TxManager", "RestoreClass",
 				"ShardOwner", "TenantShard", "ShardFromUUID", "LockGuard", "RLockGuard", "ShardReplicas",
-				"Shutdown":
+				"StartServing", "Shutdown": // internal methods to indicate readiness state
 				// don't require auth on methods which are exported because other
 				// packages need to call them for maintenance and other regular jobs,
 				// but aren't user facing
@@ -153,7 +153,7 @@ func Test_Schema_Authorization(t *testing.T) {
 					dummyParseVectorConfig, &fakeVectorizerValidator{},
 					dummyValidateInvertedConfig, &fakeModuleConfig{},
 					&fakeClusterState{hosts: []string{"node1"}}, &fakeTxClient{},
-					&fakeScaleOutManager{})
+					&fakeTxPersistence{}, &fakeScaleOutManager{})
 				require.Nil(t, err)
 
 				var args []interface{}

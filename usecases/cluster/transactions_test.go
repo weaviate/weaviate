@@ -229,7 +229,9 @@ func TestSuccessfulDistributedWriteTransaction(t *testing.T) {
 		remoteState = tx.Payload
 		return nil
 	})
-	local := NewTxManager(&wrapTxManagerAsBroadcaster{remote}, remote.logger)
+	local := NewTxManager(&wrapTxManagerAsBroadcaster{remote},
+		&fakeTxPersistence{}, remote.logger)
+	local.StartAcceptIncoming()
 
 	payload := "my-payload"
 	trType := TransactionType("my-type")
@@ -252,7 +254,8 @@ func TestConcurrentDistributedTransaction(t *testing.T) {
 		remoteState = tx.Payload
 		return nil
 	})
-	local := NewTxManager(&wrapTxManagerAsBroadcaster{remote}, remote.logger)
+	local := NewTxManager(&wrapTxManagerAsBroadcaster{remote},
+		&fakeTxPersistence{}, remote.logger)
 
 	payload := "my-payload"
 	trType := TransactionType("my-type")
@@ -395,7 +398,8 @@ func TestSuccessfulDistributedReadTransaction(t *testing.T) {
 		tx.Payload = payload
 		return nil, nil
 	})
-	local := NewTxManager(&wrapTxManagerAsBroadcaster{remote}, remote.logger)
+	local := NewTxManager(&wrapTxManagerAsBroadcaster{remote},
+		&fakeTxPersistence{}, remote.logger)
 	// TODO local.SetConsensusFn
 
 	trType := TransactionType("my-read-tx")
@@ -446,15 +450,42 @@ func TestTxWithDeadline(t *testing.T) {
 
 func newTestTxManager() *TxManager {
 	logger, _ := test.NewNullLogger()
-	return NewTxManager(&fakeBroadcaster{}, logger)
+	m := NewTxManager(&fakeBroadcaster{}, &fakeTxPersistence{}, logger)
+	m.StartAcceptIncoming()
+	return m
 }
 
 func newTestTxManagerWithRemote(remote Remote) *TxManager {
 	logger, _ := test.NewNullLogger()
-	return NewTxManager(remote, logger)
+	m := NewTxManager(remote, &fakeTxPersistence{}, logger)
+	m.StartAcceptIncoming()
+	return m
 }
 
 func newTestTxManagerWithRemoteLoggerHook(remote Remote) (*TxManager, *test.Hook) {
 	logger, hook := test.NewNullLogger()
-	return NewTxManager(remote, logger), hook
+	m := NewTxManager(remote, &fakeTxPersistence{}, logger)
+	m.StartAcceptIncoming()
+	return m, hook
+}
+
+// does nothing as these do not involve crashes
+type fakeTxPersistence struct{}
+
+func (f *fakeTxPersistence) StoreTx(ctx context.Context,
+	tx *Transaction,
+) error {
+	return nil
+}
+
+func (f *fakeTxPersistence) DeleteTx(ctx context.Context,
+	txID string,
+) error {
+	return nil
+}
+
+func (f *fakeTxPersistence) IterateAll(ctx context.Context,
+	cb func(tx *Transaction),
+) error {
+	return nil
 }

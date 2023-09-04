@@ -284,7 +284,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
-	if err := schemaManager.ResumeDanglingTxs(ctx); err != nil {
+	if err := schemaManager.StartServing(ctx); err != nil {
 		appState.Logger.
 			WithError(err).
 			WithField("action", "startup").
