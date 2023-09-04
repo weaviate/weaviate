@@ -22,8 +22,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/hashicorp/go-retryablehttp"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
@@ -171,7 +171,11 @@ func downloadDatasetFile(t testing.TB, file string) {
 
 	t.Logf("Downloading dataset from %s", u)
 
-	resp, err := retryablehttp.Get(u)
+	client := http.Client{
+		Timeout: 60 * time.Second,
+	}
+
+	resp, err := client.Get(u)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
