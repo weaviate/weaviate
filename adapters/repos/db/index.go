@@ -246,9 +246,7 @@ func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
 		}
 		return nil
 	})
-	if err := eg.Wait(); err != nil {
-		return errors.Wrapf(err, "extend idx '%s' with property '%s", i.ID(), prop.Name)
-	}
+
 	return nil
 }
 
@@ -1052,9 +1050,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		shardResultLock.Unlock()
 
 	}
-	if err := eg.Wait(); err != nil {
-		return nil, nil, err
-	}
+	
 
 	if len(resultObjects) == len(resultScores) {
 
