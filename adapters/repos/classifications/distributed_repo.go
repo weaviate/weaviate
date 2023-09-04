@@ -42,10 +42,8 @@ func NewDistributeRepo(remoteClient cluster.Client,
 	logger logrus.FieldLogger,
 ) *DistributedRepo {
 	broadcaster := cluster.NewTxBroadcaster(memberLister, remoteClient)
-	// TODO: THIS WILL PANIC! The persistence can't be nil here. Either we
-	// introduce a dummy or we refactor the current one to work for multiple
-	// purposes.
-	txRemote := cluster.NewTxManager(broadcaster, nil, logger)
+	txRemote := cluster.NewTxManager(broadcaster, &dummyTxPersistence{}, logger)
+	txRemote.StartAcceptIncoming()
 	repo := &DistributedRepo{
 		txRemote:  txRemote,
 		localRepo: localRepo,
@@ -100,4 +98,24 @@ func (r *DistributedRepo) incomingCommit(ctx context.Context,
 
 func (r *DistributedRepo) TxManager() *cluster.TxManager {
 	return r.txRemote
+}
+
+// TODO: classifications do not yet make use of the new durability guarantees
+// introduced by the txManager as part of v1.21.3. The reasoning behind this is
+// that the classification itself is not crash-safe anyway, so there is no
+// point. We need to decide down the line what to do with this? It is a rarely
+// used, but not used feature. For now we are not aware of anyone having any
+// issues with its stability.
+type dummyTxPersistence struct{}
+
+func (d *dummyTxPersistence) StoreTx(ctx context.Context, tx *cluster.Transaction) error {
+	return nil
+}
+
+func (d *dummyTxPersistence) DeleteTx(ctx context.Context, txID string) error {
+	return nil
+}
+
+func (d *dummyTxPersistence) IterateAll(ctx context.Context, cb func(tx *cluster.Transaction)) error {
+	return nil
 }
