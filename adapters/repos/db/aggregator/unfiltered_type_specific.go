@@ -196,7 +196,7 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,prop aggregation.
 
 	b, err := lsmkv.NewBucketProxy(ua.store.Bucket("filterable_properties"), prop.Name.String(), ua.propertyIds)
 	if err != nil {
-		return nil, errors.Errorf("could not create bucket for prop %s", prop.Name, err)
+		return nil, errors.Errorf("could not create bucket for prop %s: %v", prop.Name, err)
 	}
 
 	agg := newNumericalAggregator()
