@@ -45,7 +45,7 @@ func (s *Searcher) docBitmap(ctx context.Context, property []byte, b lsmkv.Bucke
 	if pv.hasSearchableIndex {
 		// bucket with strategy map serves docIds used to build bitmap
 		// and frequencies, which are ignored for filtering
-		return s.docBitmapInvertedMap(ctx, b, limit, pv)
+		return s.docBitmapInvertedMap(ctx, property, b, limit, pv)
 	}
 
 	return docBitmap{}, fmt.Errorf("property '%s' is neither filterable nor searchable", pv.prop)
