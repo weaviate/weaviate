@@ -354,7 +354,7 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 
 	bucketOpts := []lsmkv.BucketOption{lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter) * time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
-		lsmkv.WithRegisteredName(helpers.BucketFromPropNameLSM(filters.InternalPropID)),
+		lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM(filters.InternalPropID)),
 	}
 
 	return s.store.CreateOrLoadBucket(ctx,
@@ -463,7 +463,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	}
 
 	//Force creation of filterable properties database file
-	filterableOpts := append(bucketOpts, lsmkv.WithRegisteredName(helpers.BucketFromPropNameLSM("_id")))
+	filterableOpts := append(bucketOpts, lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM("_id")))
 	if err := s.store.CreateOrLoadBucket(ctx,
 		"filterable_properties",
 		append(filterableOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
@@ -491,7 +491,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		}
 
 		if schema.IsRefDataType(prop.DataType) {
-			refOpts := append(bucketOpts, lsmkv.WithRegisteredName(helpers.BucketFromPropNameMetaCountLSM(prop.Name)))
+			refOpts := append(bucketOpts, lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameMetaCountLSM(prop.Name)))
 			if err := s.store.CreateOrLoadBucket(ctx,
 				"properties_meta_count",
 				append(refOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
@@ -500,7 +500,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			}
 		}
 
-		filterableOpts := append(bucketOpts, lsmkv.WithRegisteredName(helpers.BucketFromPropNameLSM(prop.Name)))
+		filterableOpts := append(bucketOpts, lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM(prop.Name)))
 		if err := s.store.CreateOrLoadBucket(ctx,
 			"filterable_properties",
 			append(filterableOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
@@ -511,7 +511,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 
 	if inverted.HasSearchableIndex(prop) {
 		searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
-		searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithRegisteredName(helpers.BucketSearchableFromPropNameLSM(prop.Name)))
+		searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithRegisteredName(helpers.BucketSearchableFromPropertyNameLSM(prop.Name)))
 		if s.versioner.Version() < 2 {
 			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
 		}
