@@ -247,7 +247,7 @@ func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
 		return nil
 	})
 
-	return nil
+	
 }
 
 func (i *Index) addUUIDProperty(ctx context.Context) error {
