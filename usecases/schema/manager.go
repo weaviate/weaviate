@@ -310,7 +310,7 @@ func (m *Manager) StartServing(ctx context.Context) error {
 // dangling after a restart and retries to commit them if appropriate.
 //
 // This can only be called when all areas responding to side effects of
-// commiting a transaction are ready. In practice this means, the DB must be
+// committing a transaction are ready. In practice this means, the DB must be
 // ready to try and call this method.
 func (m *Manager) resumeDanglingTransactions(ctx context.Context) error {
 	var shouldResume bool
