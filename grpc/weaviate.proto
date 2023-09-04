@@ -12,8 +12,17 @@ service Weaviate {
   rpc BatchObjects(BatchObjectsRequest) returns (BatchObjectsReply) {};
 }
 
+enum ConsistencyLevel {
+  CONSISTENCY_LEVEL_UNSPECIFIED = 0;
+  CONSISTENCY_LEVEL_ONE = 1;
+  CONSISTENCY_LEVEL_QUORUM = 2;
+  CONSISTENCY_LEVEL_ALL = 3;
+}
+
+
 message BatchObjectsRequest {
   repeated BatchObject objects = 1;
+  optional ConsistencyLevel consistency_level = 2;
 }
 
 message BatchObject {
@@ -72,6 +81,7 @@ message SearchRequest {
   optional NearImageSearchParams near_image = 15;
   optional NearAudioSearchParams near_audio = 16;
   optional NearVideoSearchParams near_video = 17;
+  optional ConsistencyLevel consistency_level = 18;
 }
 
 message TextArray{

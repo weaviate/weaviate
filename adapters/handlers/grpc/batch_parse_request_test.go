@@ -73,6 +73,12 @@ func TestGRPCBatchRequest(t *testing.T) {
 			error: false,
 		},
 		{
+			name:  "Replication",
+			req:   []*grpc.BatchObject{{ClassName: classname}},
+			out:   []*models.Object{{Class: classname, Properties: nilMap}},
+			error: false,
+		},
+		{
 			name: "only normal props",
 			req: []*grpc.BatchObject{{ClassName: classname, Properties: &grpc.BatchObject_Properties{
 				NonRefProperties: newStruct(t, map[string]interface{}{
