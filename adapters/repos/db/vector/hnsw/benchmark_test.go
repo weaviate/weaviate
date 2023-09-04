@@ -12,25 +12,33 @@
 package hnsw
 
 import (
+	"flag"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"gopkg.in/yaml.v2"
 )
 
+var download = flag.Bool("download", false, "download datasets if not found locally")
+
 var datasets = map[string]string{
 	"random-xs":              "datasets/big-ann-benchmarks/random10000/data_10000_20",
 	"random-xs-clustered":    "datasets/big-ann-benchmarks/random-clustered10000/clu-random.fbin.crop_nb_10000",
-	"msturing-1M":            "datasets/big-ann-benchmarks/MSTuringANNS/base1b.fbin",
-	"msturing-10M":           "datasets/big-ann-benchmarks/MSTuringANNS/base1b.fbin",
-	"msspacev-1M":            "datasets/big-ann-benchmarks/MSSPACEV1B/spacev1b_base.i8bin",
-	"msspacev-10M":           "datasets/big-ann-benchmarks/MSSPACEV1B/spacev1b_base.i8bin",
+	"msturing-1M":            "datasets/big-ann-benchmarks/MSTuringANNS/base1b.fbin.crop_nb_1000000",
+	"msturing-10M":           "datasets/big-ann-benchmarks/MSTuringANNS/base1b.fbin.crop_nb_10000000",
+	"msspacev-1M":            "datasets/big-ann-benchmarks/MSSPACEV1B/spacev1b_base.i8bin.crop_nb_1000000",
+	"msspacev-10M":           "datasets/big-ann-benchmarks/MSSPACEV1B/spacev1b_base.i8bin.crop_nb_10000000",
 	"msturing-10M-clustered": "datasets/big-ann-benchmarks/MSTuring-10M-clustered/msturing-10M-clustered.fbin",
 }
 
@@ -72,7 +80,12 @@ func BenchmarkHnswNeurips23(b *testing.B) {
 						}
 
 						if _, err := os.Stat(file); err != nil {
-							b.Skipf("Neurips23 dataset %s not found", step.Dataset)
+							if !*download {
+								b.Skipf(`Neurips23 dataset %s not found.
+Run test with -download to automatically download the dataset.
+Ex: go test -v -benchmem -bench ^BenchmarkHnswNeurips23$ -download`, step.Dataset)
+							}
+							downloadDataset(b, step.Dataset)
 						}
 
 						readDatasets[datasetPoints{step.Dataset, step.MaxPts}] = readBigAnnDataset(b, file, step.MaxPts)
@@ -123,7 +136,62 @@ func BenchmarkHnswNeurips23(b *testing.B) {
 	}
 }
 
+func downloadDataset(t testing.TB, name string) {
+	t.Helper()
+
+	ds, ok := datasets[name]
+	if !ok {
+		t.Fatalf("Dataset %s not found", name)
+	}
+
+	qs, ok := queries[name]
+	if !ok {
+		t.Fatalf("Query file not found for %s dataset", name)
+	}
+
+	for _, f := range []string{ds, qs} {
+		downloadDatasetFile(t, f)
+	}
+}
+
+func downloadDatasetFile(t testing.TB, file string) {
+	t.Helper()
+
+	if _, err := os.Stat(file); err == nil {
+		return
+	}
+
+	err := os.MkdirAll(filepath.Dir(file), 0755)
+	require.NoError(t, err)
+
+	path := strings.TrimPrefix(file, "datasets/")
+
+	u, err := url.JoinPath("https://storage.googleapis.com/ann-datasets/", path)
+	require.NoError(t, err)
+
+	t.Logf("Downloading dataset from %s", u)
+
+	resp, err := retryablehttp.Get(u)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("Could not download dataset. Status code: %d", resp.StatusCode)
+	}
+
+	f, err := os.Create(file)
+	require.NoError(t, err)
+	defer f.Close()
+
+	_, err = io.Copy(f, resp.Body)
+	require.NoError(t, err)
+
+	t.Logf("Downloaded dataset %s", file)
+}
+
 func readBigAnnDataset(t testing.TB, file string, maxObjects int) [][]float32 {
+	t.Helper()
+
 	var vectors [][]float32
 
 	f, err := os.Open(file)
@@ -140,12 +208,12 @@ func readBigAnnDataset(t testing.TB, file string, maxObjects int) [][]float32 {
 
 	b := make([]byte, 4)
 
-	// The data is a binary file containing floating point vectors
+	// The data is a binary file containing either floating point vectors or int8 vectors
 	// It starts with 8 bytes of header data
 	// The first 4 bytes are the number of vectors in the file
 	// The second 4 bytes are the dimensionality of the vectors in the file
-	// The vector data needs to be converted from bytes to float
-	// Note that the vector entries are of type float but are integer numbers eg 2.0
+	// If the file is in fbin format, the vector data needs to be converted from bytes to float.
+	// If the file is in i8bin format, the vector data needs to be converted from bytes to int8 then to float.
 
 	// The first 4 bytes are the number of vectors in the file
 	_, err = f.Read(b)
@@ -157,12 +225,24 @@ func readBigAnnDataset(t testing.TB, file string, maxObjects int) [][]float32 {
 	require.NoError(t, err)
 	d := int32FromBytes(b)
 
-	bytesPerF := 4
+	var bytesPerVector int
+	switch {
+	case strings.Contains(file, "i8bin"):
+		bytesPerVector = 1
+	case strings.Contains(file, "fbin"):
+		fallthrough
+	default:
+		bytesPerVector = 4
+	}
 
-	require.Equal(t, 8+n*d*bytesPerF, int(fileSize))
+	require.Equal(t, 8+n*d*bytesPerVector, int(fileSize))
 
-	vectorBytes := make([]byte, d*bytesPerF)
-	for i := 0; i >= 0; i++ {
+	vectorBytes := make([]byte, d*bytesPerVector)
+	if maxObjects > 0 && maxObjects < n {
+		n = maxObjects
+	}
+
+	for i := 0; i < n; i++ {
 		_, err = f.Read(vectorBytes)
 		if err == io.EOF {
 			break
@@ -171,15 +251,18 @@ func readBigAnnDataset(t testing.TB, file string, maxObjects int) [][]float32 {
 
 		vectorFloat := make([]float32, 0, d)
 		for j := 0; j < d; j++ {
-			start := j * bytesPerF
-			vectorFloat = append(vectorFloat, float32FromBytes(vectorBytes[start:start+bytesPerF]))
+			start := j * bytesPerVector
+			var f float32
+			if bytesPerVector == 1 {
+				f = float32(vectorBytes[start])
+			} else {
+				f = float32FromBytes(vectorBytes[start : start+bytesPerVector])
+			}
+
+			vectorFloat = append(vectorFloat, f)
 		}
 
 		vectors = append(vectors, vectorFloat)
-
-		if maxObjects > 0 && i >= maxObjects {
-			break
-		}
 	}
 
 	if maxObjects > 0 {

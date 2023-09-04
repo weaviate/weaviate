@@ -48,6 +48,7 @@ require (
 	github.com/coreos/go-oidc/v3 v3.4.0
 	github.com/edsrzf/mmap-go v1.1.0
 	github.com/googleapis/gax-go/v2 v2.11.0
+	github.com/hashicorp/go-retryablehttp v0.7.4
 	github.com/pkoukk/tiktoken-go v0.1.1
 	github.com/tailor-inc/graphql v0.2.1
 	github.com/weaviate/sroar v0.0.0-20230210105426-26108af5465d
@@ -89,6 +90,7 @@ require (
 	github.com/google/s2a-go v0.1.4 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.2.3 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
+	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-immutable-radix v1.0.0 // indirect
 	github.com/hashicorp/go-msgpack v0.5.3 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
