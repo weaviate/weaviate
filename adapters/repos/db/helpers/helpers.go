@@ -36,7 +36,7 @@ func MakeByteEncodedPropertyPrefix(propertyName string, propertyIds *tracker.Jso
 }
 
 func MakePropertyKey(byteEncodedPropertyId []byte, key []byte) []byte {
-	ret := make([]byte, len(byteEncodedPropertyId),len(byteEncodedPropertyId)+len(key),)
+	ret := make([]byte, len(byteEncodedPropertyId),len(byteEncodedPropertyId)+len(key))
 	copy(ret, byteEncodedPropertyId)
 	return append(ret, key...)
 }
