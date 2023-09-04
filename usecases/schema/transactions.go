@@ -46,6 +46,12 @@ var resumableTxs = []cluster.TransactionType{
 	addTenants,
 }
 
+// any tx that is listed here will bypass the ready-check, i.e. they will
+// execute even if the DB is unready.
+var allowUnreadyTxs = []cluster.TransactionType{
+	ReadSchema, // required at startup, does not write
+}
+
 type AddClassPayload struct {
 	Class *models.Class   `json:"class"`
 	State *sharding.State `json:"state"`

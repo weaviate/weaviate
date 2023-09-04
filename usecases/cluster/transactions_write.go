@@ -60,6 +60,14 @@ type TxManager struct {
 	// tx's or commits
 	acceptIncoming bool
 
+	// read transactions that need to run at start can still be served, they have
+	// no side-effects on the node that accepts them.
+	//
+	// If we disallowed them completely, then two unready nodes would be in a
+	// deadlock as they each require information from the other(s) who can't
+	// answerbecause they're not ready.
+	allowUnready []TransactionType
+
 	remote     Remote
 	commitFn   CommitFn
 	responseFn ResponseFn
@@ -112,6 +120,13 @@ func (c *TxManager) StartAcceptIncoming() {
 	defer c.Unlock()
 
 	c.acceptIncoming = true
+}
+
+func (c *TxManager) SetAllowUnready(types []TransactionType) {
+	c.Lock()
+	defer c.Unlock()
+
+	c.allowUnready = types
 }
 
 // TODO: Document
@@ -383,7 +398,7 @@ func (c *TxManager) IncomingBeginTransaction(ctx context.Context,
 	c.Lock()
 	defer c.Unlock()
 
-	if !c.acceptIncoming {
+	if !c.acceptIncoming && !slices.Contains(c.allowUnready, tx.Type) {
 		return nil, ErrNotReady
 	}
 

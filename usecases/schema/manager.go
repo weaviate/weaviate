@@ -182,6 +182,7 @@ func NewManager(migrator migrate.Migrator, repo SchemaStore,
 
 	m.cluster.SetCommitFn(m.handleCommit)
 	m.cluster.SetResponseFn(m.handleTxResponse)
+	m.cluster.SetAllowUnready(allowUnreadyTxs)
 	txBroadcaster.SetConsensusFunction(newReadConsensus(m.parseConfigs, m.logger))
 
 	err := m.loadOrInitializeSchema(context.Background())
