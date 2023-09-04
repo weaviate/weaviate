@@ -154,7 +154,7 @@ func (rr *RowReaderRoaringSet) lessThan(ctx context.Context,
 	defer c.Close()
 
 	for compositeKey, v := c.First(); compositeKey != nil && bytes.Compare(helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey), rr.value) < 1; compositeKey, v = c.Next() {
-		if !helpers.MatchesPropertyKeyPrefix(rr.PropPrefix, k) {
+		if !helpers.MatchesPropertyKeyPrefix(rr.PropPrefix, compositeKey) {
 			continue
 		}
 		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)

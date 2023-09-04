@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"bytes"
 	"context"
+
 	"encoding/json"
 	"fmt"
 	"os"
@@ -109,6 +110,9 @@ type Bucket struct {
 	monitorCount bool
 
 	pauseTimer *prometheus.Timer // Times the pause
+
+	RegisteredName  string
+	PropertyTracker map[string]uint32
 }
 
 // NewBucket initializes a new bucket. It either loads the state from disk if
@@ -250,13 +254,12 @@ func (b *Bucket) DumpStringRoaring() string {
 
 	for k, sbmp := cursor.First(); k != nil; k, sbmp = cursor.Next() {
 		fmt.Printf("IterateObjectsRoaring k: %v, sbmp: %v\n", k, sbmp.ToArray())
-	
+
 		buf.WriteString(fmt.Sprintf("%v: %v\n", k, sbmp.ToArray()))
-		
+
 	}
 	return buf.String()
 }
-
 
 func (b *Bucket) SetMemtableThreshold(size uint64) {
 	b.memtableThreshold = size
