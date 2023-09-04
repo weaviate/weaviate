@@ -145,7 +145,7 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string, opts 
 	}
 
 	b, err := NewBucket(ctx, s.bucketDir(bucketFile), s.rootDir, s.logger, s.metrics,
-		s.compactionCycle, s.flushCycle, opts...)
+		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
 	if err != nil {
 		return err
 	}
@@ -320,7 +320,7 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 		return err
 	}
 
-	s.setBucket(bucketName, b)
+	s.SetBucket(bucketName, b)
 	return nil
 }
 
