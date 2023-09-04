@@ -69,6 +69,7 @@ func TestGRPCRequest(t *testing.T) {
 		},
 	}
 	defaultPagination := &filters.Pagination{Limit: 10}
+	quorum := grpc.ConsistencyLevel_CONSISTENCY_LEVEL_QUORUM
 
 	tests := []struct {
 		name  string
@@ -518,6 +519,19 @@ func TestGRPCRequest(t *testing.T) {
 						Image: "image file",
 					},
 				},
+			},
+			error: false,
+		},
+		{
+			name: "Consistency",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				ConsistencyLevel: &quorum,
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties:  additional.Properties{Vector: true, NoProps: true},
+				ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: "QUORUM"},
 			},
 			error: false,
 		},
