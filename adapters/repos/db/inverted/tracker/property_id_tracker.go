@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"os"
 	"sync"
-	"errors"
 )
 
 type JsonPropertyIdTracker struct {
