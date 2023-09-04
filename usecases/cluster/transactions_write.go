@@ -134,7 +134,7 @@ func (c *TxManager) HaveDanglingTxs(ctx context.Context,
 	allowedTypes []TransactionType,
 ) (found bool) {
 	c.persistence.IterateAll(context.Background(), func(tx *Transaction) {
-		if slices.Contains(allowedTypes, tx.Type) {
+		if !slices.Contains(allowedTypes, tx.Type) {
 			return
 		}
 		found = true
