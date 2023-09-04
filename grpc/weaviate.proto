@@ -150,6 +150,7 @@ message AdditionalProperties {
   bool score = 7;
   // protolint:disable:next FIELD_NAMES_LOWER_SNAKE_CASE
   bool explainScore = 8;
+  bool is_consistent = 9;
 }
 
 
@@ -257,6 +258,7 @@ message ResultAdditionalProps {
   bool score_present = 12;
   string explain_score = 13;
   bool explain_score_present = 14;
+  optional bool is_consistent = 15;
 }
 
 message NumberArrayProperties{

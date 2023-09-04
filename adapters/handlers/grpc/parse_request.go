@@ -59,6 +59,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.AdditionalProperties.Score = req.AdditionalProperties.Score
 		out.AdditionalProperties.Certainty = req.AdditionalProperties.Certainty
 		out.AdditionalProperties.ExplainScore = req.AdditionalProperties.ExplainScore
+		out.AdditionalProperties.IsConsistent = req.AdditionalProperties.IsConsistent
 	}
 
 	out.Properties, err = extractPropertiesRequest(req.Properties, scheme, req.ClassName)
