@@ -412,6 +412,32 @@ func TestSuccessfulDistributedReadTransaction(t *testing.T) {
 	assert.Equal(t, "my-payload", tx.Payload)
 }
 
+func TestSuccessfulDistributedTransactionSetAllowUnready(t *testing.T) {
+	ctx := context.Background()
+	payload := "my-payload"
+
+	types := []TransactionType{"type0", "type1"}
+	remote := newTestTxManagerAllowUnready(types)
+	remote.SetResponseFn(func(ctx context.Context, tx *Transaction) ([]byte, error) {
+		tx.Payload = payload
+		return nil, nil
+	})
+	local := NewTxManager(&wrapTxManagerAsBroadcaster{remote},
+		&fakeTxPersistence{}, remote.logger)
+	local.SetAllowUnready(types)
+
+	trType := TransactionType("my-read-tx")
+
+	tx, err := local.BeginTransaction(ctx, trType, nil, 0)
+	require.Nil(t, err)
+
+	local.CloseReadTransaction(ctx, tx)
+
+	assert.ElementsMatch(t, types, remote.allowUnready)
+	assert.ElementsMatch(t, types, local.allowUnready)
+	assert.Equal(t, "my-payload", tx.Payload)
+}
+
 func TestTxWithDeadline(t *testing.T) {
 	t.Run("expired", func(t *testing.T) {
 		payload := "my-payload"
@@ -467,6 +493,14 @@ func newTestTxManagerWithRemoteLoggerHook(remote Remote) (*TxManager, *test.Hook
 	m := NewTxManager(remote, &fakeTxPersistence{}, logger)
 	m.StartAcceptIncoming()
 	return m, hook
+}
+
+func newTestTxManagerAllowUnready(types []TransactionType) *TxManager {
+	logger, _ := test.NewNullLogger()
+	m := NewTxManager(&fakeBroadcaster{}, &fakeTxPersistence{}, logger)
+	m.SetAllowUnready(types)
+	m.StartAcceptIncoming()
+	return m
 }
 
 // does nothing as these do not involve crashes

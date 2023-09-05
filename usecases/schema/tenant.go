@@ -36,58 +36,63 @@ func (m *Manager) AddTenants(ctx context.Context,
 	principal *models.Principal,
 	class string,
 	tenants []*models.Tenant,
-) (err error) {
-	if err := m.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
-		return err
+) (created []*models.Tenant, err error) {
+	if err = m.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
+		return
 	}
 
-	names := make([]string, len(tenants))
-	statuses := make([]string, len(tenants))
-	for i, tenant := range tenants {
-		names[i] = tenant.Name
-		statuses[i] = tenant.ActivityStatus
+	validated, err := validateTenants(tenants)
+	if err != nil {
+		return
 	}
-
-	// validation
-	if err := validateTenants(names); err != nil {
-		return err
-	}
-	if err := validateActivityStatuses(statuses, true); err != nil {
-		return err
+	if err = validateActivityStatuses(validated, true); err != nil {
+		return
 	}
 	cls := m.getClassByName(class)
 	if cls == nil {
-		return fmt.Errorf("class %q: %w", class, ErrNotFound)
+		err = fmt.Errorf("class %q: %w", class, ErrNotFound)
+		return
 	}
 	if !schema.MultiTenancyEnabled(cls) {
-		return fmt.Errorf("multi-tenancy is not enabled for class %q", class)
+		err = fmt.Errorf("multi-tenancy is not enabled for class %q", class)
+		return
+	}
+
+	names := make([]string, len(validated))
+	for i, tenant := range validated {
+		names[i] = tenant.Name
 	}
 
 	// create transaction payload
 	partitions, err := m.getPartitions(cls, names)
 	if err != nil {
-		return fmt.Errorf("get partitions from class %q: %w", class, err)
+		err = fmt.Errorf("get partitions from class %q: %w", class, err)
+		return
 	}
-	if len(partitions) != len(tenants) {
-		return fmt.Errorf("number of partitions for class %q does not match number of requested tenants", class)
+	if len(partitions) != len(names) {
+		m.logger.WithField("action", "add_tenants").
+			WithField("#partitions", len(partitions)).
+			WithField("#requested", len(names)).
+			Tracef("number of partitions for class %q does not match number of requested tenants", class)
 	}
 	request := AddTenantsPayload{
 		Class:   class,
-		Tenants: make([]TenantCreate, len(partitions)),
+		Tenants: make([]TenantCreate, 0, len(partitions)),
 	}
-	for i, tenant := range tenants {
-		request.Tenants[i] = TenantCreate{
-			Name:   tenant.Name,
-			Nodes:  partitions[tenant.Name],
-			Status: schema.ActivityStatus(tenant.ActivityStatus),
-		}
+	for i := range names {
+		request.Tenants = append(request.Tenants, TenantCreate{
+			Name:   names[i],
+			Nodes:  partitions[names[i]],
+			Status: schema.ActivityStatus(validated[i].ActivityStatus),
+		})
 	}
 
 	// open cluster-wide transaction
 	tx, err := m.cluster.BeginTransaction(ctx, addTenants,
 		request, DefaultTxTTL)
 	if err != nil {
-		return fmt.Errorf("open cluster-wide transaction: %w", err)
+		err = fmt.Errorf("open cluster-wide transaction: %w", err)
+		return
 	}
 
 	if err := m.cluster.CommitWriteTransaction(ctx, tx); err != nil {
@@ -101,7 +106,8 @@ func (m *Manager) AddTenants(ctx context.Context,
 			WithField("class", cls.Class).Error(err)
 	}
 
-	return err
+	created = validated
+	return
 }
 
 func (m *Manager) getPartitions(cls *models.Class, shards []string) (map[string][]string, error) {
@@ -118,37 +124,45 @@ func (m *Manager) getPartitions(cls *models.Class, shards []string) (map[string]
 	return st.GetPartitions(m.clusterState, shards, rf)
 }
 
-func validateTenants(tenants []string) error {
-	names := make(map[string]struct{}, len(tenants)) // check for name uniqueness
-	for i, tenant := range tenants {
-		_, nameExists := names[tenant]
-		if nameExists {
-			return uco.NewErrInvalidUserInput("duplicate tenant name %s", tenant)
+func validateTenants(tenants []*models.Tenant) (validated []*models.Tenant, err error) {
+	uniq := make(map[string]*models.Tenant)
+	for i, requested := range tenants {
+		if !regexTenantName.MatchString(requested.Name) {
+			msg := "tenant name should only contain alphanumeric characters (a-z, A-Z, 0-9), " +
+				"underscore (_), and hyphen (-), with a length between 1 and 64 characters"
+			err = uco.NewErrInvalidUserInput("tenant name at index %d: %s", i, msg)
+			return
 		}
-		names[tenant] = struct{}{}
-
-		if !regexTenantName.MatchString(tenant) {
-			msg := "tenant name should only contain alphanumeric characters (a-z, A-Z, 0-9), underscore (_), and hyphen (-), with a length between 1 and 64 characters"
-			return uco.NewErrInvalidUserInput("tenant name at index %d: %s", i, msg)
+		_, found := uniq[requested.Name]
+		if !found {
+			uniq[requested.Name] = requested
 		}
 	}
-	return nil
+	validated = make([]*models.Tenant, len(uniq))
+	i := 0
+	for _, tenant := range uniq {
+		validated[i] = tenant
+		i++
+	}
+	return
 }
 
-func validateActivityStatuses(statuses []string, allowEmpty bool) error {
-	msgs := make([]string, 0, len(statuses))
+func validateActivityStatuses(tenants []*models.Tenant, allowEmpty bool) error {
+	msgs := make([]string, 0, len(tenants))
 
-	for i, status := range statuses {
-		switch status {
+	for _, tenant := range tenants {
+		switch status := tenant.ActivityStatus; status {
 		case models.TenantActivityStatusHOT, models.TenantActivityStatusCOLD:
 			// ok
 		case models.TenantActivityStatusWARM, models.TenantActivityStatusFROZEN:
-			msgs = append(msgs, fmt.Sprintf("not yet supported activity status '%s' at index %d", status, i))
+			msgs = append(msgs, fmt.Sprintf(
+				"not yet supported activity status '%s' for tenant %q", status, tenant.Name))
 		default:
 			if status == "" && allowEmpty {
 				continue
 			}
-			msgs = append(msgs, fmt.Sprintf("invalid activity status '%s' at index %d", status, i))
+			msgs = append(msgs, fmt.Sprintf(
+				"invalid activity status '%s' for tenant %q", status, tenant.Name))
 		}
 	}
 
@@ -218,19 +232,11 @@ func (m *Manager) UpdateTenants(ctx context.Context, principal *models.Principal
 	if err := m.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
 		return err
 	}
-
-	names := make([]string, len(tenants))
-	statuses := make([]string, len(tenants))
-	for i, tenant := range tenants {
-		names[i] = tenant.Name
-		statuses[i] = tenant.ActivityStatus
-	}
-
-	// validation
-	if err := validateTenants(names); err != nil {
+	validated, err := validateTenants(tenants)
+	if err != nil {
 		return err
 	}
-	if err := validateActivityStatuses(statuses, false); err != nil {
+	if err := validateActivityStatuses(validated, false); err != nil {
 		return err
 	}
 	cls := m.getClassByName(class)
@@ -349,9 +355,10 @@ func (m *Manager) DeleteTenants(ctx context.Context, principal *models.Principal
 	if err := m.Authorizer.Authorize(principal, "delete", tenantsPath); err != nil {
 		return err
 	}
-	// validation
-	if err := validateTenants(tenants); err != nil {
-		return err
+	for i, name := range tenants {
+		if name == "" {
+			return fmt.Errorf("empty tenant name at index %d", i)
+		}
 	}
 	cls := m.getClassByName(class)
 	if cls == nil {

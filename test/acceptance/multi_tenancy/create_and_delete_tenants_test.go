@@ -75,19 +75,19 @@ func TestCreateTenants(t *testing.T) {
 		assert.ElementsMatch(t, expectedTenants, foundTenants)
 	})
 
-	t.Run("Create duplicate tenant multiple times", func(Z *testing.T) {
+	t.Run("Create duplicate tenant once", func(Z *testing.T) {
 		defer func() {
 			helper.DeleteClass(t, testClass.Class)
 		}()
 		helper.CreateClass(t, &testClass)
 		err := helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{Name: "DoubleTenant"}, {Name: "DoubleTenant"}})
-		require.NotNil(t, err)
+		require.Nil(t, err)
 
-		// nothing added
+		// only added once
 		respGet, errGet := helper.GetTenants(t, testClass.Class)
 		require.Nil(t, errGet)
 		require.NotNil(t, respGet)
-		require.Len(t, respGet.Payload, 0)
+		require.Len(t, respGet.Payload, 1)
 	})
 
 	t.Run("Create same tenant multiple times", func(Z *testing.T) {
@@ -97,8 +97,9 @@ func TestCreateTenants(t *testing.T) {
 		helper.CreateClass(t, &testClass)
 		helper.CreateTenants(t, testClass.Class, []*models.Tenant{{Name: "AddTenantAgain"}})
 
+		// idempotent operation
 		err := helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{Name: "AddTenantAgain"}})
-		require.NotNil(t, err)
+		require.Nil(t, err)
 	})
 }
 
@@ -120,17 +121,18 @@ func TestDeleteTenants(t *testing.T) {
 	}
 	helper.CreateTenants(t, testClass.Class, tenantsObject)
 
-	t.Run("Delete same tenant multiple times", func(Z *testing.T) {
+	t.Run("Delete duplicate tenant once", func(Z *testing.T) {
 		err := helper.DeleteTenants(t, testClass.Class, []string{"tenant1", "tenant1"})
-		require.NotNil(t, err)
+		// idempotent operation
+		require.Nil(t, err)
 
-		// nothing deleted
+		// deleted once
 		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload)
 		require.NotNil(t, resp.Payload.Nodes)
 		require.Len(t, resp.Payload.Nodes, 1)
-		require.Len(t, resp.Payload.Nodes[0].Shards, 3)
+		require.Len(t, resp.Payload.Nodes[0].Shards, 2)
 	})
 
 	t.Run("Delete non-existent tenant alongside existing", func(Z *testing.T) {
