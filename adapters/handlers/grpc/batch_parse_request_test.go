@@ -164,6 +164,37 @@ func TestGRPCBatchRequest(t *testing.T) {
 			out:   []*models.Object{},
 			error: true,
 		},
+		{
+			name: "slice props",
+			req: []*grpc.BatchObject{{ClassName: classname, Properties: &grpc.BatchObject_Properties{
+				NonRefProperties: newStruct(t, map[string]interface{}{"name": "something"}),
+				BooleanArrayProperties: []*grpc.BooleanArrayProperties{
+					{Key: "boolArray1", Vals: []bool{true, true}},
+					{Key: "boolArray2", Vals: []bool{false, true}},
+				},
+				IntArrayProperties: []*grpc.IntArrayProperties{
+					{Key: "int1", Vals: []int64{2, 3, 4}}, {Key: "int2", Vals: []int64{7, 8}},
+				},
+				NumberArrayProperties: []*grpc.NumberArrayProperties{
+					{Key: "float1", Vals: []float64{1, 2, 3}}, {Key: "float2", Vals: []float64{4, 5}},
+				},
+				TextArrayProperties: []*grpc.TextArrayProperties{
+					{Key: "text1", Vals: []string{"first", "second"}}, {Key: "text2", Vals: []string{"third"}},
+				},
+			}}},
+			out: []*models.Object{{Class: classname, Properties: map[string]interface{}{
+				"name":       "something",
+				"boolArray1": []interface{}{true, true},
+				"boolArray2": []interface{}{false, true},
+				"int1":       []interface{}{int64(2), int64(3), int64(4)},
+				"int2":       []interface{}{int64(7), int64(8)},
+				"float1":     []interface{}{1., 2., 3.},
+				"float2":     []interface{}{4., 5.},
+				"text1":      []interface{}{"first", "second"},
+				"text2":      []interface{}{"third"},
+			}}},
+			error: false,
+		},
 	}
 
 	for _, tt := range tests {

@@ -251,9 +251,9 @@ func extractArrayTypes(scheme schema.Schema, className string, props *pb.ResultP
 			if !ok {
 				return fmt.Errorf("property %v with datatype %v needs to be []float64, got %T", propName, dataType, prop)
 			}
-			propInt := make([]int32, len(propIntAsFloat))
+			propInt := make([]int64, len(propIntAsFloat))
 			for i := range propIntAsFloat {
-				propInt[i] = int32(propIntAsFloat[i])
+				propInt[i] = int64(propIntAsFloat[i])
 			}
 			if props.IntArrayProperties == nil {
 				props.IntArrayProperties = make([]*pb.IntArrayProperties, 0)
