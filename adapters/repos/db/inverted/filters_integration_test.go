@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -43,11 +44,16 @@ func Test_Filters_String(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
+	propIds, err := tracker.NewJsonPropertyIdTracker("tempfile_propertyIds")
+	defer propIds.Drop()
+	require.Nil(t, err)
+
 	propName := "inverted-with-frequency"
-	bucketName := helpers.BucketSearchableFromPropertyNameLSM(propName)
-	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
-		bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
-	bWithFrequency := store.Bucket(bucketName)
+
+	bucketName := "searchable_properties"
+	require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection), lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM(propName))))
+	bWithFrequency, err := lsmkv.NewBucketProxy(store.Bucket(bucketName), propName, propIds)
+	require.Nil(t, err)
 
 	defer store.Shutdown(context.Background())
 
@@ -81,7 +87,7 @@ func Test_Filters_String(t *testing.T) {
 	})
 
 	searcher := NewSearcher(logger, store, createSchema(),
-		nil, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false }, "")
+		nil, propIds, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false }, "")
 
 	type test struct {
 		name                     string
@@ -300,6 +306,22 @@ func Test_Filters_String(t *testing.T) {
 	}
 }
 
+func DumpBucketToString(bucket lsmkv.BucketInterface) string {
+	var out string
+	rr := NewRowReader(bucket, nil, filters.OperatorAnd, false)
+
+	rr.Iterate(context.Background(), func(id []byte, values [][]byte) (bool, error) {
+		out += fmt.Sprintf("id: %v\n", id)
+		//Marshall values
+		out += fmt.Sprintf("values: \n")
+		for _, v := range values {
+			out += fmt.Sprintf("  %v\n", v)
+		}
+		return true, nil
+	})
+	return out
+}
+
 func Test_Filters_Int(t *testing.T) {
 	dirName := t.TempDir()
 
@@ -309,10 +331,25 @@ func Test_Filters_Int(t *testing.T) {
 	require.Nil(t, err)
 
 	propName := "inverted-without-frequency"
-	bucketName := helpers.BucketFromPropertyNameLSM(propName)
-	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
-		bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
-	bucket := store.Bucket(bucketName)
+
+	propIds, err := tracker.NewJsonPropertyIdTracker("temp_propIds")
+	defer propIds.Drop()
+	if err != nil {
+		t.Fail()
+	}
+
+	_, err = propIds.CreateProperty(propName)
+	if err != nil {
+		t.Fail()
+	}
+
+	bucketName := "filterable_properties"
+	require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
+	raw_bucket := store.Bucket(bucketName)
+	bucket, err := lsmkv.NewBucketProxy(raw_bucket, propName, propIds)
+	if err != nil {
+		t.Fail()
+	}
 
 	defer store.Shutdown(context.Background())
 
@@ -346,7 +383,7 @@ func Test_Filters_Int(t *testing.T) {
 	})
 
 	searcher := NewSearcher(logger, store, createSchema(),
-		nil, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false }, "")
+		nil, propIds, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false }, "")
 
 	type test struct {
 		name                     string
@@ -465,8 +502,7 @@ func Test_Filters_Int(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Run("before update", func(t *testing.T) {
-				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, className)
+				res, err := searcher.DocIDs(context.Background(), test.filter, additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
 			})
@@ -478,8 +514,7 @@ func Test_Filters_Int(t *testing.T) {
 			})
 
 			t.Run("after update", func(t *testing.T) {
-				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, className)
+				res, err := searcher.DocIDs(context.Background(), test.filter, additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListAfterUpdate.Slice(), res.Slice())
 			})
@@ -499,16 +534,22 @@ func Test_Filters_Int(t *testing.T) {
 func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	dirName := t.TempDir()
 
+	propIds, err := tracker.NewJsonPropertyIdTracker("tempfile_propertyIds")
+	defer propIds.Drop()
+	require.Nil(t, err)
+
 	logger, _ := test.NewNullLogger()
 	store, err := lsmkv.New(dirName, dirName, logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
 	propName := "inverted-with-frequency"
-	bucketName := helpers.BucketSearchableFromPropertyNameLSM(propName)
+	require.Nil(t, err)
+	bucketName := "searchable_properties"
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
 		bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
-	bWithFrequency := store.Bucket(bucketName)
+	bWithFrequency, err :=  lsmkv.NewBucketProxy(store.Bucket(bucketName), propName, propIds)
+	require.Nil(t, err)
 
 	defer store.Shutdown(context.Background())
 
@@ -528,7 +569,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	})
 
 	searcher := NewSearcher(logger, store, createSchema(),
-		nil, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false }, "")
+		nil, propIds,nil, nil, fakeStopwordDetector{}, 2, func() bool { return false }, "")
 
 	type test struct {
 		name                     string
@@ -577,8 +618,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Run("before update", func(t *testing.T) {
-				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, className)
+				res, err := searcher.DocIDs(context.Background(), test.filter, additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
 			})

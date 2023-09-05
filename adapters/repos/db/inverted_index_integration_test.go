@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
