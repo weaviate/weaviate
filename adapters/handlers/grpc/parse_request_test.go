@@ -398,7 +398,7 @@ func TestGRPCRequest(t *testing.T) {
 				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
 				Filters: &grpc.Filters{
 					Operator:  grpc.Filters_OPERATOR_CONTAINS_ALL,
-					TestValue: &grpc.Filters_ValueIntArray{ValueIntArray: &grpc.IntArray{Vals: []int32{3}}},
+					TestValue: &grpc.Filters_ValueIntArray{ValueIntArray: &grpc.IntArray{Vals: []int64{3}}},
 					On:        []string{"floats"},
 				},
 			},

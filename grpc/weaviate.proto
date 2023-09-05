@@ -32,6 +32,10 @@ message BatchObject {
     repeated RefPropertiesSingleTarget ref_props_single = 2;
     // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
     repeated RefPropertiesMultiTarget ref_props_multi = 3;
+    repeated NumberArrayProperties number_array_properties = 4;
+    repeated IntArrayProperties int_array_properties = 5;
+    repeated TextArrayProperties text_array_properties = 6;
+    repeated BooleanArrayProperties boolean_array_properties = 7;
   }
 
   message RefPropertiesSingleTarget {
@@ -88,7 +92,7 @@ message TextArray{
   repeated string vals = 1;
 }
 message IntArray{
-  repeated int32 vals = 1;
+  repeated int64 vals = 1;
 }
 message NumberArray{
   repeated double vals = 1;
@@ -268,7 +272,7 @@ message NumberArrayProperties{
 
 message IntArrayProperties{
   string key =1;
-  repeated int32 vals = 2;
+  repeated int64 vals = 2;
 }
 
 message TextArrayProperties{
