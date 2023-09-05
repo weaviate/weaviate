@@ -49,7 +49,10 @@ type Manager struct {
 	RestoreError            sync.Map
 	sync.RWMutex
 
-	// TODO: explain
+	// As outlined in [*cluster.TxManager.TryResumeDanglingTxs] the current
+	// implementation isn't perfect. It does not actually know if a tx was meant
+	// to be committed or not. Instead we do a simple workaround. We check if the
+	// schema is out of sync and only then do we try to resume transactions.
 	shouldTryToResumeTx bool
 
 	schemaCache

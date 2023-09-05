@@ -100,7 +100,7 @@ func (r *DistributedRepo) TxManager() *cluster.TxManager {
 	return r.txRemote
 }
 
-// TODO: classifications do not yet make use of the new durability guarantees
+// NOTE: classifications do not yet make use of the new durability guarantees
 // introduced by the txManager as part of v1.21.3. The reasoning behind this is
 // that the classification itself is not crash-safe anyway, so there is no
 // point. We need to decide down the line what to do with this? It is a rarely

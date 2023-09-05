@@ -129,7 +129,10 @@ func (c *TxManager) SetAllowUnready(types []TransactionType) {
 	c.allowUnready = types
 }
 
-// TODO: Document
+// HaveDanglingTxs is a way to check if there are any uncommitted transactions
+// in the durable storage. This can be used to make decisions about whether a
+// failed schema check can be temporarily ignored - with the assumption that
+// applying the dangling txs will fix the issue.
 func (c *TxManager) HaveDanglingTxs(ctx context.Context,
 	allowedTypes []TransactionType,
 ) (found bool) {
@@ -143,7 +146,27 @@ func (c *TxManager) HaveDanglingTxs(ctx context.Context,
 	return
 }
 
-// TODO: Document limitations
+// TryResumeDanglingTxs loops over the existing transactions and applies them.
+// It only does so if the transaction type is explicitly listed as allowed.
+// This is because - at the time of creating this - we were not sure if all
+// transaction commit functions are idempotent. If one would not be, then
+// reapplying a tx or tx commit could potentially be dangerous, as we don't
+// know if it was already applied prior to the node death.
+//
+// For example, think of a "add property 'foo'" tx, that does nothing but
+// append the property to the schema. If this ran twice, we might now end up
+// with two duplicate properties with the name 'foo' which could in turn create
+// other problems. To make sure all txs are resumable (which is what we want
+// because that's the only way to avoid schema issues), we need to make sure
+// that every single tx is idempotent, then add them to the allow list.
+//
+// One other limitation is that this method currently does nothing to check if
+// a tx was really committed or not. In an ideal world, the node would contact
+// the other nodes and ask. However, this sipmler implementation does not do
+// this check. Instead [HaveDanglingTxs] is used in combination with the schema
+// check. If the schema is not out of sync in the first place, no txs will be
+// applied. This does not cover all edge cases, but it seems to work for now.
+// This should be improved in the future.
 func (c *TxManager) TryResumeDanglingTxs(ctx context.Context,
 	allowedTypes []TransactionType,
 ) (applied bool, err error) {
@@ -157,8 +180,6 @@ func (c *TxManager) TryResumeDanglingTxs(ctx context.Context,
 
 			return
 		}
-		// TODO: we can't just assume every tx was committed, we need to
-		// actually check if the other nodes agree
 		if err = c.commitFn(ctx, tx); err != nil {
 			return
 		}
