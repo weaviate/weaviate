@@ -32,6 +32,10 @@ message BatchObject {
     repeated RefPropertiesSingleTarget ref_props_single = 2;
     // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
     repeated RefPropertiesMultiTarget ref_props_multi = 3;
+    repeated NumberArrayProperties number_array_properties = 4;
+    repeated IntArrayProperties int_array_properties = 5;
+    repeated TextArrayProperties text_array_properties = 6;
+    repeated BooleanArrayProperties boolean_array_properties = 7;
   }
 
   message RefPropertiesSingleTarget {
@@ -84,20 +88,20 @@ message SearchRequest {
   optional ConsistencyLevel consistency_level = 18;
 }
 
-message TextArray{
-  repeated string vals = 1;
+message TextArray {
+  repeated string values = 1;
 }
-message IntArray{
-  repeated int32 vals = 1;
+message IntArray {
+  repeated int64 values = 1;
 }
-message NumberArray{
-  repeated double vals = 1;
+message NumberArray {
+  repeated double values = 1;
 }
-message BooleanArray{
-  repeated bool vals = 1;
+message BooleanArray {
+  repeated bool values = 1;
 }
-message DateArray{
-  repeated google.protobuf.Timestamp vals = 1;
+message DateArray {
+  repeated google.protobuf.Timestamp values = 1;
 }
 
 message Filters {
@@ -173,7 +177,7 @@ message HybridSearchParams {
   FusionType fusion_type = 5;
 }
 
-message NearTextSearchParams{
+message NearTextSearchParams {
   message Move{
     float force = 1;
     repeated string concepts = 2;
@@ -188,19 +192,19 @@ message NearTextSearchParams{
   optional Move move_away = 5;
 };
 
-message NearImageSearchParams{
+message NearImageSearchParams {
   string image = 1;
   optional double certainty = 2;
   optional double distance = 3;
 };
 
-message NearAudioSearchParams{
+message NearAudioSearchParams {
   string audio = 1;
   optional double certainty = 2;
   optional double distance = 3;
 };
 
-message NearVideoSearchParams{
+message NearVideoSearchParams {
   string video = 1;
   optional double certainty = 2;
   optional double distance = 3;
@@ -261,34 +265,34 @@ message ResultAdditionalProps {
   optional bool is_consistent = 15;
 }
 
-message NumberArrayProperties{
-  string key =1;
-  repeated double vals = 2;
+message NumberArrayProperties {
+  repeated double values = 1;
+  string prop_name = 2;
 }
 
-message IntArrayProperties{
-  string key =1;
-  repeated int32 vals = 2;
+message IntArrayProperties {
+  repeated int64 values = 1;
+  string prop_name = 2;
 }
 
-message TextArrayProperties{
-  string key =1;
-  repeated string vals = 2;
+message TextArrayProperties {
+  repeated string values = 1;
+  string prop_name = 2;
 }
 
-message BooleanArrayProperties{
-  string key =1;
-  repeated bool vals = 2;
+message BooleanArrayProperties {
+  repeated bool values = 1;
+  string prop_name = 2;
 }
 
-message DateArrayProperties{
-  string key =1;
-  repeated google.protobuf.Timestamp vals = 2;
+message DateArrayProperties {
+  repeated google.protobuf.Timestamp values = 1;
+  string prop_name = 2;
 }
 
-message UuidArrayProperties{
-  string key =1;
-  repeated string vals = 2;
+message UuidArrayProperties {
+  repeated string values = 1;
+  string prop_name = 2;
 }
 
 message ResultProperties {
