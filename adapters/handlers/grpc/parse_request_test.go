@@ -116,10 +116,29 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
-			name: "Properties return values non-ref",
+			name: "Properties return values non-ref uncapitalized",
 			req:  &grpc.SearchRequest{ClassName: classname, Properties: &grpc.Properties{NonRefProperties: []string{"name"}}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}},
+				AdditionalProperties: additional.Properties{
+					Vector:             false,
+					Certainty:          false,
+					ID:                 false,
+					CreationTimeUnix:   false,
+					LastUpdateTimeUnix: false,
+					Distance:           false,
+					Score:              false,
+					ExplainScore:       false,
+					NoProps:            false,
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Properties return values non-ref capitalized",
+			req:  &grpc.SearchRequest{ClassName: classname, Properties: &grpc.Properties{NonRefProperties: []string{"CapitalizedName"}}},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "capitalizedName", IsPrimitive: true}},
 				AdditionalProperties: additional.Properties{
 					Vector:             false,
 					Certainty:          false,
