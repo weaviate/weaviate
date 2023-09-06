@@ -323,6 +323,11 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			return filters.Clause{}, err
 		}
 
+		// datatype UUID is just a string
+		if dataType == schema.DataTypeUUID {
+			dataType = schema.DataTypeText
+		}
+
 		var val interface{}
 		switch filterIn.TestValue.(type) {
 		case *pb.Filters_ValueText:
