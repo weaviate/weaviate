@@ -13,7 +13,6 @@ package grpc
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
@@ -438,16 +437,6 @@ func extractPath(scheme schema.Schema, className string, on []string) (*filters.
 	return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(on[0]), Child: child}, nil
 }
 
-func normalizeRequestPropertyName(propertyName string) string {
-	// properties in the class are saved with lower case first letter
-	// so must parse requests using the same logic
-	propertyKeyLowerCase := strings.ToLower(propertyName[:1])
-	if len(propertyName) > 1 {
-		propertyKeyLowerCase += propertyName[1:]
-	}
-	return propertyKeyLowerCase
-}
-
 func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, className string) ([]search.SelectProperty, error) {
 	var props []search.SelectProperty
 	if reqProps == nil {
@@ -456,7 +445,7 @@ func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, cla
 	if reqProps.NonRefProperties != nil && len(reqProps.NonRefProperties) > 0 {
 		for _, prop := range reqProps.NonRefProperties {
 			props = append(props, search.SelectProperty{
-				Name:        normalizeRequestPropertyName(prop),
+				Name:        schema.LowercaseFirstLetter(prop),
 				IsPrimitive: true,
 			})
 		}
@@ -465,7 +454,7 @@ func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, cla
 	if reqProps.RefProperties != nil && len(reqProps.RefProperties) > 0 {
 		class := scheme.GetClass(schema.ClassName(className))
 		for _, prop := range reqProps.RefProperties {
-			normalizedRefPropName := normalizeRequestPropertyName(prop.ReferenceProperty)
+			normalizedRefPropName := schema.LowercaseFirstLetter(prop.ReferenceProperty)
 			schemaProp, err := schema.GetPropertyByName(class, normalizedRefPropName)
 			if err != nil {
 				return nil, err
