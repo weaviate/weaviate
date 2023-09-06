@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestRef2VecCentroid(t *testing.T) {
@@ -36,7 +37,7 @@ func TestRef2VecCentroid(t *testing.T) {
 	defer cancel()
 	sp := newFakeStorageProvider(t)
 	logger, _ := test.NewNullLogger()
-	params := moduletools.NewInitParams(sp, nil, logger)
+	params := moduletools.NewInitParams(sp, nil, config.Config{}, logger)
 
 	mod := New()
 	classConfig := fakeClassConfig(mod.ClassConfigDefaults())
