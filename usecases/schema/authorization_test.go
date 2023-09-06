@@ -131,7 +131,7 @@ func Test_Schema_Authorization(t *testing.T) {
 				"TryLock", "RLocker", "TryRLock", // introduced by sync.Mutex in go 1.18
 				"Nodes", "NodeName", "ClusterHealthScore", "ClusterStatus", "ResolveParentNodes",
 				"CopyShardingState", "TxManager", "RestoreClass",
-				"ShardOwner", "TenantShard", "ShardFromUUID", "LockGuard", "RLockGuard", "ShardReplicas":
+				"ShardOwner", "TenantShard", "ShardFromUUID", "LockGuard", "RLockGuard", "ShardReplicas", "AddProperty":
 				// don't require auth on methods which are exported because other
 				// packages need to call them for maintenance and other regular jobs,
 				// but aren't user facing
