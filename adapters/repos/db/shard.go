@@ -360,9 +360,7 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 	bucketOpts := []lsmkv.BucketOption{lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter) * time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
 		lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM(filters.InternalPropID)),
-    lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
-		lsmkv.WithPread(s.index.Config.AvoidMMap))
+		lsmkv.WithPread(s.index.Config.AvoidMMap),
 	}
 
 	return s.store.CreateOrLoadBucket(ctx,
