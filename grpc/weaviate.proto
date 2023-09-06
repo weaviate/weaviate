@@ -132,12 +132,10 @@ message Filters {
     int64 value_int = 5;
     bool value_boolean = 6;
     float value_number = 7;
-    google.protobuf.Timestamp value_date = 8;
     TextArray value_text_array = 9;
     IntArray value_int_array = 10;
     BooleanArray value_boolean_array = 11;
     NumberArray value_number_array = 12;
-    DateArray value_date_array = 13;
   };
 }
 
@@ -285,10 +283,6 @@ message BooleanArrayProperties {
   string prop_name = 2;
 }
 
-message DateArrayProperties {
-  repeated google.protobuf.Timestamp values = 1;
-  string prop_name = 2;
-}
 
 message UuidArrayProperties {
   repeated string values = 1;
