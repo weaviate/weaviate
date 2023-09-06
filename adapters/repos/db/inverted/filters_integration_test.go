@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/binary"
 	"testing"
+	"fmt"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"

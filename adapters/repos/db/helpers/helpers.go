@@ -28,7 +28,7 @@ var (
 	DocIDBucket                = []byte("doc_ids")
 )
 
-func MakeByteEncodedPropertyPrefix(propertyName string, propertyIds *tracker.JsonPropertyIdTracker) []byte {
+func MakeByteEncodedPropertyPostfix(propertyName string, propertyIds *tracker.JsonPropertyIdTracker) []byte {
 	propertyid := propertyIds.GetIdForProperty(propertyName)
 	propertyid_bytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(propertyid_bytes, propertyid)
@@ -36,21 +36,29 @@ func MakeByteEncodedPropertyPrefix(propertyName string, propertyIds *tracker.Jso
 }
 
 func MakePropertyKey(byteEncodedPropertyId []byte, key []byte) []byte {
-	ret := make([]byte, len(byteEncodedPropertyId),len(byteEncodedPropertyId)+len(key))
-	copy(ret, byteEncodedPropertyId)
-	return append(ret, key...)
+	b:= make([]byte, len(byteEncodedPropertyId))
+	copy(b, byteEncodedPropertyId)
 
+	k:= make([]byte, len(key))
+	copy(k, key)
+
+	return append(k,b...)
 }
 
-func MatchesPropertyKeyPrefix(byteEncodedPropertyId []byte, prefixed_key []byte) bool {
+func MatchesPropertyKeyPostfix(byteEncodedPropertyId []byte, prefixed_key []byte) bool {
 
-	return bytes.HasPrefix(prefixed_key, byteEncodedPropertyId)
+	return bytes.HasSuffix(prefixed_key, byteEncodedPropertyId)
 }
 
-func UnMakePropertyKey(byteEncodedPropertyId []byte, prefixed_key []byte) []byte {
-
+func UnMakePropertyKey(byteEncodedPropertyId []byte, postfixed_key []byte) []byte {
+/*
+	//For prefix
 	out := make([]byte, len(prefixed_key)-len(byteEncodedPropertyId))
-	copy(out, prefixed_key[:len(prefixed_key)-len(byteEncodedPropertyId)])
+	copy(out, prefixed_key[len(byteEncodedPropertyId):])
+	*/
+	//For postfix propid
+	out := make([]byte, len(postfixed_key)-len(byteEncodedPropertyId))
+	copy(out, postfixed_key[:len(postfixed_key)-len(byteEncodedPropertyId)])
 
 	return out
 }

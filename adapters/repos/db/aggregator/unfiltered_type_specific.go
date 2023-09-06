@@ -54,7 +54,7 @@ func (ua unfilteredAggregator) parseBoolProp(ctx context.Context,prop aggregatio
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if !helpers.MatchesPropertyKeyPrefix(b.PropertyPrefix(), k) {
+			if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
 				continue
 			}
 			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
@@ -68,7 +68,7 @@ func (ua unfilteredAggregator) parseBoolProp(ctx context.Context,prop aggregatio
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if !helpers.MatchesPropertyKeyPrefix(b.PropertyPrefix(), k) {
+			if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
 				continue
 			}
 			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
@@ -159,7 +159,7 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,prop aggregatio
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if !helpers.MatchesPropertyKeyPrefix(b.PropertyPrefix(), k) {
+			if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
 				continue
 			}
 
@@ -173,7 +173,7 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,prop aggregatio
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if !helpers.MatchesPropertyKeyPrefix(b.PropertyPrefix(), k) {
+			if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
 				continue
 			}
 			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
@@ -207,7 +207,7 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,prop aggregation.
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if !helpers.MatchesPropertyKeyPrefix(b.PropertyPrefix(), k) {
+			if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
 				continue
 			}
 			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
@@ -221,7 +221,7 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,prop aggregation.
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if !helpers.MatchesPropertyKeyPrefix(b.PropertyPrefix(), k) {
+			if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
 				continue
 			}
 			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
@@ -255,7 +255,7 @@ func (ua unfilteredAggregator) dateProperty(ctx context.Context, prop aggregatio
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if !helpers.MatchesPropertyKeyPrefix(b.PropertyPrefix(), k) {
+			if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
 				continue
 			}
 			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
@@ -268,7 +268,7 @@ func (ua unfilteredAggregator) dateProperty(ctx context.Context, prop aggregatio
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if !helpers.MatchesPropertyKeyPrefix(b.PropertyPrefix(), k) {
+			if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
 				continue
 			}
 			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)

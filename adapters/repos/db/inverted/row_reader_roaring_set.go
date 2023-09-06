@@ -121,7 +121,7 @@ func (rr *RowReaderRoaringSet) greaterThan(ctx context.Context,
 	value_with_prop := helpers.MakePropertyKey(rr.PropPrefix, rr.value)
 
 	for compositeKey, v := c.Seek(value_with_prop); compositeKey != nil; compositeKey, v = c.Next() {
-		if !helpers.MatchesPropertyKeyPrefix(rr.PropPrefix, compositeKey) {
+		if !helpers.MatchesPropertyKeyPostfix(rr.PropPrefix, compositeKey) {
 			continue
 		}
 		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
@@ -154,7 +154,7 @@ func (rr *RowReaderRoaringSet) lessThan(ctx context.Context,
 	defer c.Close()
 
 	for compositeKey, v := c.First(); compositeKey != nil && bytes.Compare(helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey), rr.value) < 1; compositeKey, v = c.Next() {
-		if !helpers.MatchesPropertyKeyPrefix(rr.PropPrefix, compositeKey) {
+		if !helpers.MatchesPropertyKeyPostfix(rr.PropPrefix, compositeKey) {
 			continue
 		}
 		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
@@ -185,7 +185,7 @@ func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
 	defer c.Close()
 
 	for compositeKey, v := c.First(); compositeKey != nil; compositeKey, v = c.Next() {
-		if !helpers.MatchesPropertyKeyPrefix(rr.PropPrefix, compositeKey) {
+		if !helpers.MatchesPropertyKeyPostfix(rr.PropPrefix, compositeKey) {
 			continue
 		}
 
@@ -238,7 +238,7 @@ func (rr *RowReaderRoaringSet) like(ctx context.Context,
 			return err
 		}
 
-		if !helpers.MatchesPropertyKeyPrefix(rr.PropPrefix, compositeKey) {
+		if !helpers.MatchesPropertyKeyPostfix(rr.PropPrefix, compositeKey) {
 			continue
 		}
 

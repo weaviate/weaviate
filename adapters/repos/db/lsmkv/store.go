@@ -118,7 +118,7 @@ func (s *Store) bucketDir(bucketName string) string {
 //	// you can now access the bucket using store.Bucket()
 //	b := store.Bucket("my_bucket_name")
 func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string, opts ...BucketOption) error {
-	fmt.Println("Requested CreateOrLoadBucket", bucketFile, "in shard", s.dir)
+	
 	//fmt.Println("Existing buckets:")
 	//for k := range s.bucketsByName {
 	//      fmt.Println(k)

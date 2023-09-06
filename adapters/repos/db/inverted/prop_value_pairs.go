@@ -98,13 +98,6 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			}
 		}
 
-		if b == nil && pv.operator != filters.OperatorWithinGeoRange { //FIXME b can't be nil, how d we handle georange?
-			// a nil bucket is ok for a WithinGeoRange filter, as this query is not
-			// served by the inverted index, but propagated to a secondary index in
-			// .docPointers()
-			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
-		}
-
 		bproxy,err := lsmkv.NewBucketProxy(b, pv.prop, s.propIds)
 		if err != nil {
 			return err

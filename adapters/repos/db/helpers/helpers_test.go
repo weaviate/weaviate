@@ -31,7 +31,7 @@ func TestMakePropertyPrefix(t *testing.T) {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	prefix := MakeByteEncodedPropertyPrefix("property", tracker)
+	prefix := MakeByteEncodedPropertyPostfix("property", tracker)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -49,7 +49,7 @@ func TestMakePropertyKey(t *testing.T) {
 	key := []byte{4, 5, 6}
 
 	propertyKey := MakePropertyKey(prefix, key)
-	expectedKey := []byte{1, 2, 3, 4, 5, 6}
+	expectedKey := []byte{4, 5, 6, 1, 2, 3}
 
 	if !bytes.Equal(propertyKey, expectedKey) {
 		t.Fatalf("Expected key to be %v, got %v", expectedKey, propertyKey)
@@ -58,9 +58,9 @@ func TestMakePropertyKey(t *testing.T) {
 
 func TestMatchesPropertyKeyPrefix(t *testing.T) {
 	prefix := []byte{1, 2, 3}
-	key := []byte{1, 2, 3, 4, 5, 6}
+	key := []byte{4, 5, 6,1, 2, 3}
 
-	matches := MatchesPropertyKeyPrefix(prefix, key)
+	matches := MatchesPropertyKeyPostfix(prefix, key)
 	if !matches {
 		t.Fatalf("Expected key to match prefix, but it didn't")
 	}
@@ -92,7 +92,7 @@ func TestMatchesPropertyKeyPrefixWithEmptyPrefix(t *testing.T) {
 	prefix := []byte{}
 	key := []byte{4, 5, 6, 1, 2, 3}
 
-	matches := MatchesPropertyKeyPrefix(prefix, key)
+	matches := MatchesPropertyKeyPostfix(prefix, key)
 	if !matches {
 		t.Fatalf("Expected false for empty prefix, got true")
 	}

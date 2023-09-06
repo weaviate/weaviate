@@ -161,10 +161,12 @@ func (g *grouper) addElementById(propertySchemaP *models.PropertySchema, docID u
 	}
 
 	
-	key := g.params.GroupBy.Property.String()
-       propertySchema := *propertySchemaP
-       m:=propertySchema.(map[string]interface{})
+
+       key := g.params.GroupBy.Property.String()
+       S := *propertySchemaP
+       m:=S.(map[string]interface{})
        item, ok := m[key]
+
 	if !ok {
 		return nil
 	}
