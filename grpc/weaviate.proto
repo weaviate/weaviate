@@ -88,20 +88,20 @@ message SearchRequest {
   optional ConsistencyLevel consistency_level = 18;
 }
 
-message TextArray{
-  repeated string vals = 1;
+message TextArray {
+  repeated string values = 1;
 }
-message IntArray{
-  repeated int64 vals = 1;
+message IntArray {
+  repeated int64 values = 1;
 }
-message NumberArray{
-  repeated double vals = 1;
+message NumberArray {
+  repeated double values = 1;
 }
-message BooleanArray{
-  repeated bool vals = 1;
+message BooleanArray {
+  repeated bool values = 1;
 }
-message DateArray{
-  repeated google.protobuf.Timestamp vals = 1;
+message DateArray {
+  repeated google.protobuf.Timestamp values = 1;
 }
 
 message Filters {
@@ -266,38 +266,32 @@ message ResultAdditionalProps {
 }
 
 message NumberArrayProperties{
-  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated double value = 1;
+  repeated double values = 1;
   string prop_name = 2;
 }
 
 message IntArrayProperties{
-  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated int64 value = 1;
+  repeated int64 values = 1;
   string prop_name = 2;
 }
 
 message TextArrayProperties{
-  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated string value = 1;
+  repeated string values = 1;
   string prop_name = 2;
 }
 
 message BooleanArrayProperties{
-  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated bool value = 1;
+  repeated bool values = 1;
   string prop_name = 2;
 }
 
 message DateArrayProperties{
-  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated google.protobuf.Timestamp value = 1;
+  repeated google.protobuf.Timestamp values = 1;
   string prop_name = 2;
 }
 
 message UuidArrayProperties{
-  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated string value = 1;
+  repeated string values = 1;
   string prop_name = 2;
 }
 

@@ -338,21 +338,21 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			val = filterIn.GetValueDate().AsTime()
 		case *pb.Filters_ValueIntArray:
 			// convert from int32 GRPC to go int
-			valInt32 := filterIn.GetValueIntArray().Vals
+			valInt32 := filterIn.GetValueIntArray().Values
 			valInt := make([]int, len(valInt32))
 			for i := 0; i < len(valInt32); i++ {
 				valInt[i] = int(valInt32[i])
 			}
 			val = valInt
 		case *pb.Filters_ValueTextArray:
-			val = filterIn.GetValueTextArray().Vals
+			val = filterIn.GetValueTextArray().Values
 		case *pb.Filters_ValueNumberArray:
-			val = filterIn.GetValueNumberArray().Vals
+			val = filterIn.GetValueNumberArray().Values
 		case *pb.Filters_ValueBooleanArray:
-			val = filterIn.GetValueBooleanArray().Vals
+			val = filterIn.GetValueBooleanArray().Values
 		case *pb.Filters_ValueDateArray:
 			// convert from GRPC timestamp to go time
-			valTimestamps := filterIn.GetValueDateArray().Vals
+			valTimestamps := filterIn.GetValueDateArray().Values
 			valTime := make([]time.Time, len(valTimestamps))
 			for i := 0; i < len(valTime); i++ {
 				valTime[i] = valTimestamps[i].AsTime()
