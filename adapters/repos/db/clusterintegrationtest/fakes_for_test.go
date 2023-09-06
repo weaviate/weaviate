@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -42,7 +43,7 @@ type node struct {
 	name          string
 	repo          *db.DB
 	schemaManager *fakeSchemaManager
-	backupManager *ubak.Manager
+	backupManager *ubak.Handler
 	scheduler     *ubak.Scheduler
 	migrator      *db.Migrator
 	hostname      string
@@ -89,7 +90,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	}
 
 	backendProvider := newFakeBackupBackendProvider(localDir)
-	n.backupManager = ubak.NewManager(
+	n.backupManager = ubak.NewHandler(
 		logger, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider)
 
 	backupClient := clients.NewClusterBackups(&http.Client{})
@@ -98,11 +99,11 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 
 	n.migrator = db.NewMigrator(n.repo, logger)
 
-	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo), n.repo)
+	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo), n.repo, clusterapi.NewNoopAuthHandler())
 	mux := http.NewServeMux()
 	mux.Handle("/indices/", indices.Indices())
 
-	backups := clusterapi.NewBackups(n.backupManager)
+	backups := clusterapi.NewBackups(n.backupManager, clusterapi.NewNoopAuthHandler())
 	mux.Handle("/backups/can-commit", backups.CanCommit())
 	mux.Handle("/backups/commit", backups.Commit())
 	mux.Handle("/backups/abort", backups.Abort())
@@ -154,8 +155,17 @@ func (f *fakeSchemaManager) ShardOwner(class, shard string) (string, error) {
 	return ss.Physical[shard].BelongsToNodes[0], nil
 }
 
-func (f *fakeSchemaManager) TenantShard(class, tenant string) string {
-	return tenant
+func (f *fakeSchemaManager) ShardReplicas(class, shard string) ([]string, error) {
+	ss := f.shardState
+	x, ok := ss.Physical[shard]
+	if !ok {
+		return nil, fmt.Errorf("shard not found")
+	}
+	return x.BelongsToNodes, nil
+}
+
+func (f *fakeSchemaManager) TenantShard(class, tenant string) (string, string) {
+	return tenant, models.TenantActivityStatusHOT
 }
 
 func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string {
@@ -273,6 +283,20 @@ func (f *fakeBackupBackend) WriteToFile(ctx context.Context, backupID, key, dest
 	return nil
 }
 
+func (f *fakeBackupBackend) Write(ctx context.Context, backupID, key string, r io.ReadCloser) (int64, error) {
+	f.Lock()
+	defer f.Unlock()
+	defer r.Close()
+	return 0, nil
+}
+
+func (f *fakeBackupBackend) Read(ctx context.Context, backupID, key string, w io.WriteCloser) (int64, error) {
+	f.Lock()
+	defer f.Unlock()
+	defer w.Close()
+	return 0, nil
+}
+
 func (f *fakeBackupBackend) SourceDataPath() string {
 	f.Lock()
 	defer f.Unlock()
@@ -339,7 +363,7 @@ func (f *fakeBackupBackend) successLocalMeta() backup.BackupDescriptor {
 		Classes: []backup.ClassDescriptor{
 			{
 				Name: distributedClass,
-				Shards: []backup.ShardDescriptor{
+				Shards: []*backup.ShardDescriptor{
 					{
 						Name:                  "123",
 						Node:                  "node-0",

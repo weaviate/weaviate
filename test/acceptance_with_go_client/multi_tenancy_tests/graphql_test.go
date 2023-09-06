@@ -13,7 +13,11 @@ package multi_tenancy_tests
 
 import (
 	"context"
+	"fmt"
 	"testing"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/entities/schema"
 
 	"acceptance_tests_with_client/fixtures"
 
@@ -37,8 +41,8 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 	t.Run("GraphQL Get", func(t *testing.T) {
 		defer cleanup()
 
-		tenant1 := "tenantNo1"
-		tenant2 := "tenantNo2"
+		tenant1 := models.Tenant{Name: "tenantNo1"}
+		tenant2 := models.Tenant{Name: "tenantNo2"}
 
 		assertGetContainsIds := func(t *testing.T, response *models.GraphQLResponse,
 			className string, expectedIds []string,
@@ -61,19 +65,19 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 		t.Run("add data", func(t *testing.T) {
 			fixtures.CreateSchemaPizzaForTenants(t, client)
 			fixtures.CreateTenantsPizza(t, client, tenant1, tenant2)
-			fixtures.CreateDataPizzaQuattroFormaggiForTenants(t, client, tenant1)
-			fixtures.CreateDataPizzaFruttiDiMareForTenants(t, client, tenant1)
-			fixtures.CreateDataPizzaHawaiiForTenants(t, client, tenant2)
-			fixtures.CreateDataPizzaDoenerForTenants(t, client, tenant2)
+			fixtures.CreateDataPizzaQuattroFormaggiForTenants(t, client, tenant1.Name)
+			fixtures.CreateDataPizzaFruttiDiMareForTenants(t, client, tenant1.Name)
+			fixtures.CreateDataPizzaHawaiiForTenants(t, client, tenant2.Name)
+			fixtures.CreateDataPizzaDoenerForTenants(t, client, tenant2.Name)
 		})
 
 		t.Run("get all data for tenant", func(t *testing.T) {
 			expectedIdsByTenant := map[string][]string{
-				tenant1: {
+				tenant1.Name: {
 					fixtures.PIZZA_QUATTRO_FORMAGGI_ID,
 					fixtures.PIZZA_FRUTTI_DI_MARE_ID,
 				},
-				tenant2: {
+				tenant2.Name: {
 					fixtures.PIZZA_HAWAII_ID,
 					fixtures.PIZZA_DOENER_ID,
 				},
@@ -96,10 +100,10 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 
 		t.Run("get limited data for tenant", func(t *testing.T) {
 			expectedIdsByTenant := map[string][]string{
-				tenant1: {
+				tenant1.Name: {
 					fixtures.PIZZA_QUATTRO_FORMAGGI_ID,
 				},
-				tenant2: {
+				tenant2.Name: {
 					fixtures.PIZZA_HAWAII_ID,
 				},
 			}
@@ -122,8 +126,8 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 
 		t.Run("get filtered data for tenant", func(t *testing.T) {
 			expectedIdsByTenant := map[string][]string{
-				tenant1: {},
-				tenant2: {
+				tenant1.Name: {},
+				tenant2.Name: {
 					fixtures.PIZZA_DOENER_ID,
 				},
 			}
@@ -152,14 +156,14 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 	t.Run("GraphQL Get referenced class", func(t *testing.T) {
 		defer cleanup()
 
-		tenant1 := "tenantNo1"
-		tenant2 := "tenantNo2"
+		tenant1 := models.Tenant{Name: "tenantNo1"}
+		tenant2 := models.Tenant{Name: "tenantNo2"}
 		soupIdByTenantAndPizza := map[string]map[string]string{
-			tenant1: {
+			tenant1.Name: {
 				fixtures.PIZZA_QUATTRO_FORMAGGI_ID: fixtures.SOUP_CHICKENSOUP_ID,
 				fixtures.PIZZA_FRUTTI_DI_MARE_ID:   fixtures.SOUP_CHICKENSOUP_ID,
 			},
-			tenant2: {
+			tenant2.Name: {
 				fixtures.PIZZA_HAWAII_ID: fixtures.SOUP_BEAUTIFUL_ID,
 				fixtures.PIZZA_DOENER_ID: fixtures.SOUP_BEAUTIFUL_ID,
 			},
@@ -186,15 +190,15 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 		t.Run("add data", func(t *testing.T) {
 			fixtures.CreateSchemaPizzaForTenants(t, client)
 			fixtures.CreateTenantsPizza(t, client, tenant1, tenant2)
-			fixtures.CreateDataPizzaQuattroFormaggiForTenants(t, client, tenant1)
-			fixtures.CreateDataPizzaFruttiDiMareForTenants(t, client, tenant1)
-			fixtures.CreateDataPizzaHawaiiForTenants(t, client, tenant2)
-			fixtures.CreateDataPizzaDoenerForTenants(t, client, tenant2)
+			fixtures.CreateDataPizzaQuattroFormaggiForTenants(t, client, tenant1.Name)
+			fixtures.CreateDataPizzaFruttiDiMareForTenants(t, client, tenant1.Name)
+			fixtures.CreateDataPizzaHawaiiForTenants(t, client, tenant2.Name)
+			fixtures.CreateDataPizzaDoenerForTenants(t, client, tenant2.Name)
 
 			fixtures.CreateSchemaSoupForTenants(t, client)
 			fixtures.CreateTenantsSoup(t, client, tenant1, tenant2)
-			fixtures.CreateDataSoupChickenForTenants(t, client, tenant1)
-			fixtures.CreateDataSoupBeautifulForTenants(t, client, tenant2)
+			fixtures.CreateDataSoupChickenForTenants(t, client, tenant1.Name)
+			fixtures.CreateDataSoupBeautifulForTenants(t, client, tenant2.Name)
 		})
 
 		t.Run("create ref property", func(t *testing.T) {
@@ -263,8 +267,8 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 	t.Run("GraphQL Aggregate", func(t *testing.T) {
 		defer cleanup()
 
-		tenant1 := "tenantNo1"
-		tenant2 := "tenantNo2"
+		tenant1 := models.Tenant{Name: "tenantNo1"}
+		tenant2 := models.Tenant{Name: "tenantNo2"}
 
 		assertAggregateNumFieldHasValues := func(t *testing.T, response *models.GraphQLResponse,
 			className string, fieldName string, expectedAggValues map[string]*float64,
@@ -293,15 +297,15 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 		t.Run("add data", func(t *testing.T) {
 			fixtures.CreateSchemaPizzaForTenants(t, client)
 			fixtures.CreateTenantsPizza(t, client, tenant1, tenant2)
-			fixtures.CreateDataPizzaQuattroFormaggiForTenants(t, client, tenant1)
-			fixtures.CreateDataPizzaFruttiDiMareForTenants(t, client, tenant1)
-			fixtures.CreateDataPizzaHawaiiForTenants(t, client, tenant2)
-			fixtures.CreateDataPizzaDoenerForTenants(t, client, tenant2)
+			fixtures.CreateDataPizzaQuattroFormaggiForTenants(t, client, tenant1.Name)
+			fixtures.CreateDataPizzaFruttiDiMareForTenants(t, client, tenant1.Name)
+			fixtures.CreateDataPizzaHawaiiForTenants(t, client, tenant2.Name)
+			fixtures.CreateDataPizzaDoenerForTenants(t, client, tenant2.Name)
 		})
 
 		t.Run("aggregate all data for tenant", func(t *testing.T) {
 			expectedAggValuesByTenant := map[string]map[string]*float64{
-				tenant1: {
+				tenant1.Name: {
 					"count":   ptr(2),
 					"maximum": ptr(1.2),
 					"minimum": ptr(1.1),
@@ -310,7 +314,7 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 					"mode":    ptr(1.1),
 					"sum":     ptr(2.3),
 				},
-				tenant2: {
+				tenant2.Name: {
 					"count":   ptr(2),
 					"maximum": ptr(1.4),
 					"minimum": ptr(1.3),
@@ -346,7 +350,7 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 
 		t.Run("aggregate filtered data for tenant", func(t *testing.T) {
 			expectedAggValuesByTenant := map[string]map[string]*float64{
-				tenant1: {
+				tenant1.Name: {
 					"count":   ptr(0),
 					"maximum": nil,
 					"minimum": nil,
@@ -355,7 +359,7 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 					"mode":    nil,
 					"sum":     nil,
 				},
-				tenant2: {
+				tenant2.Name: {
 					"count":   ptr(1),
 					"maximum": ptr(1.4),
 					"minimum": ptr(1.4),
@@ -398,8 +402,8 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 	t.Run("GraphQL Explore", func(t *testing.T) {
 		defer cleanup()
 
-		tenant1 := "tenantNo1"
-		tenant2 := "tenantNo2"
+		tenant1 := models.Tenant{Name: "tenantNo1"}
+		tenant2 := models.Tenant{Name: "tenantNo2"}
 
 		assertExploreContainsErrors := func(t *testing.T, response *models.GraphQLResponse,
 			expectedErrorMessage string,
@@ -416,10 +420,10 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 		t.Run("add data", func(t *testing.T) {
 			fixtures.CreateSchemaPizzaForTenants(t, client)
 			fixtures.CreateTenantsPizza(t, client, tenant1, tenant2)
-			fixtures.CreateDataPizzaQuattroFormaggiForTenants(t, client, tenant1)
-			fixtures.CreateDataPizzaFruttiDiMareForTenants(t, client, tenant1)
-			fixtures.CreateDataPizzaHawaiiForTenants(t, client, tenant2)
-			fixtures.CreateDataPizzaDoenerForTenants(t, client, tenant2)
+			fixtures.CreateDataPizzaQuattroFormaggiForTenants(t, client, tenant1.Name)
+			fixtures.CreateDataPizzaFruttiDiMareForTenants(t, client, tenant1.Name)
+			fixtures.CreateDataPizzaHawaiiForTenants(t, client, tenant2.Name)
+			fixtures.CreateDataPizzaDoenerForTenants(t, client, tenant2.Name)
 		})
 
 		t.Run("explore with nearText", func(t *testing.T) {
@@ -437,4 +441,72 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 			)
 		})
 	})
+}
+
+func TestGroupByMultiTenancy(t *testing.T) {
+	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: "localhost:8080"})
+	require.Nil(t, err)
+
+	ctx := context.Background()
+
+	defer client.Schema().ClassDeleter().WithClassName("TextContent").Do(ctx)
+	defer client.Schema().ClassDeleter().WithClassName("Document").Do(ctx)
+
+	err = client.Schema().ClassCreator().WithClass(
+		&models.Class{
+			Class:              "TextContent",
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			Vectorizer:         "text2vec-contextionary",
+			Properties: []*models.Property{
+				{
+					Name:     "text",
+					DataType: schema.DataTypeText.PropString(),
+				},
+			},
+		},
+	).Do(ctx)
+	require.Nil(t, err)
+
+	err = client.Schema().ClassCreator().WithClass(
+		&models.Class{
+			Class:              "Document",
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			Vectorizer:         "text2vec-contextionary",
+			Properties: []*models.Property{
+				{
+					Name:     "textContents",
+					DataType: []string{"TextContent"},
+				},
+				{
+					Name:     "title",
+					DataType: schema.DataTypeText.PropString(),
+				},
+			},
+		},
+	).Do(ctx)
+	require.Nil(t, err)
+
+	require.Nil(t, client.Schema().PropertyCreator().WithClassName("TextContent").WithProperty(&models.Property{
+		Name:     "contentOf",
+		DataType: []string{"Document"},
+	}).Do(ctx))
+
+	require.Nil(t, client.Schema().TenantsCreator().WithClassName("TextContent").WithTenants(models.Tenant{Name: "1"}).Do(ctx))
+	require.Nil(t, client.Schema().TenantsCreator().WithClassName("Document").WithTenants(models.Tenant{Name: "1"}).Do(ctx))
+
+	docCreator := client.Data().Creator().WithClassName("Document").WithTenant("1")
+	doc1, err := docCreator.WithProperties(map[string]interface{}{"title": "Foo"}).Do(ctx)
+	require.Nil(t, err)
+
+	textCreator := client.Data().Creator().WithClassName("TextContent").WithTenant("1")
+	text1, err := textCreator.WithProperties(map[string]interface{}{"text": "Text from Foo"}).Do(ctx)
+	require.Nil(t, err)
+
+	require.Nil(t, client.Data().ReferenceCreator().WithTenant("1").WithClassName("Document").WithID(doc1.Object.ID.String()).WithReferenceProperty("textContents").WithReference(&models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/TextContent/%s", text1.Object.ID.String()))}).Do(ctx))
+	require.Nil(t, client.Data().ReferenceCreator().WithTenant("1").WithClassName("TextContent").WithID(text1.Object.ID.String()).WithReferenceProperty("contentOf").WithReference(&models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/Document/%s", doc1.Object.ID.String()))}).Do(ctx))
+
+	result, err := client.GraphQL().Raw().WithQuery("{Get{TextContent(nearText: {concepts: [\"Foo\"] distance: 1.0} groupBy:{path:[\"contentOf\"], groups:2, objectsPerGroup:1}tenant: \"1\"){contentOf{... on Document{title}}}}}").Do(ctx)
+	require.Nil(t, err)
+	require.NotNil(t, result)
+	require.Nil(t, result.Errors)
 }

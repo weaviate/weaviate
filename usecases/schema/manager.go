@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -64,8 +65,9 @@ type SchemaGetter interface {
 
 	CopyShardingState(class string) *sharding.State
 	ShardOwner(class, shard string) (string, error)
-	TenantShard(class, tenant string) string
+	TenantShard(class, tenant string) (string, string)
 	ShardFromUUID(class string, uuid []byte) string
+	ShardReplicas(class, shard string) ([]string, error)
 }
 
 type VectorizerValidator interface {
@@ -98,6 +100,10 @@ type SchemaStore interface {
 
 	// NewShards creates new shards of an existing class
 	NewShards(ctx context.Context, class string, shards []KeyValuePair) error
+
+	// UpdateShards updates (replaces) shards of on existing class
+	// Error is returned if class or shard does not exist
+	UpdateShards(ctx context.Context, class string, shards []KeyValuePair) error
 
 	// DeleteShards deletes shards from a class
 	// If the class or a shard does not exist then nothing is done and a nil error is returned
@@ -297,7 +303,7 @@ func (m *Manager) checkSingleShardMigration(ctx context.Context, localSchema *St
 			return err
 		}
 
-		if err := replica.ValidateConfig(c); err != nil {
+		if err := replica.ValidateConfig(c, m.config.Replication); err != nil {
 			return fmt.Errorf("validate replication config: %w", err)
 		}
 		shardState, err := sharding.InitState(c.Class,
@@ -349,7 +355,13 @@ func (m *Manager) parseConfigs(ctx context.Context, schema *State) error {
 			return errors.Wrapf(err, "class %s: sharding config", class.Class)
 		}
 
-		if err := replica.ValidateConfig(class); err != nil {
+		// Pass dummy replication config with minimum factor 1. Otherwise the
+		// setting is not backward-compatible. The user may have created a class
+		// with factor=1 before the change was introduced. Now their setup would no
+		// longer start up if the required minimum is now higher than 1. We want
+		// the required minimum to only apply to newly created classes - not block
+		// loading existing ones.
+		if err := replica.ValidateConfig(class, replication.GlobalConfig{MinimumFactor: 1}); err != nil {
 			return fmt.Errorf("replication config: %w", err)
 		}
 	}

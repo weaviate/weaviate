@@ -26,11 +26,13 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
+
+const NodeLockStripe = uint64(512)
 
 type hnsw struct {
 	// global lock to prevent concurrent map read/write, etc.
@@ -158,6 +160,7 @@ type hnsw struct {
 	className              string
 	shardName              string
 	VectorForIDThunk       VectorForID
+	shardedNodeLocks       []sync.RWMutex
 }
 
 type CommitLogger interface {
@@ -189,9 +192,10 @@ type BufferedLinksLogger interface {
 type MakeCommitLogger func() (CommitLogger, error)
 
 type (
-	VectorForID      func(ctx context.Context, id uint64) ([]float32, error)
-	TempVectorForID  func(ctx context.Context, id uint64, container *VectorSlice) ([]float32, error)
-	MultiVectorForID func(ctx context.Context, ids []uint64) ([][]float32, []error)
+	VectorForID           func(ctx context.Context, id uint64) ([]float32, error)
+	TempVectorForID       func(ctx context.Context, id uint64, container *VectorSlice) ([]float32, error)
+	MultiVectorForID      func(ctx context.Context, ids []uint64) ([][]float32, []error)
+	CompressedVectorForID func(ctx context.Context, id uint64) ([]byte, error)
 )
 
 // New creates a new HNSW index, the commit logger is provided through a thunk
@@ -222,9 +226,6 @@ func New(cfg Config, uc ent.UserConfig,
 		cfg.Logger, normalizeOnRead, defaultDeletionInterval)
 
 	var compressedVectorsCache *compressedShardedLockCache
-	if uc.PQ.Enabled {
-		compressedVectorsCache = newCompressedShardedLockCache(uc.VectorCacheMaxObjects, cfg.Logger)
-	}
 
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	index := &hnsw{
@@ -268,9 +269,14 @@ func New(cfg Config, uc ent.UserConfig,
 		VectorForIDThunk:     cfg.VectorForIDThunk,
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 		pqConfig:             uc.PQ,
+		shardedNodeLocks:     make([]sync.RWMutex, NodeLockStripe),
 
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
+	}
+
+	if uc.PQ.Enabled {
+		index.compressedVectorsCache = newCompressedShardedLockCache(index.getCompressedVectorForID, uc.VectorCacheMaxObjects, cfg.Logger)
 	}
 
 	// TODO common_cycle_manager move to poststartup?
@@ -283,6 +289,10 @@ func New(cfg Config, uc ent.UserConfig,
 
 	if err := index.init(cfg); err != nil {
 		return nil, errors.Wrapf(err, "init index %q", index.id)
+	}
+
+	for i := uint64(0); i < NodeLockStripe; i++ {
+		index.shardedNodeLocks[i] = sync.RWMutex{}
 	}
 
 	return index, nil
@@ -591,12 +601,10 @@ func (h *hnsw) isEmpty() bool {
 }
 
 func (h *hnsw) isEmptyUnsecured() bool {
-	for _, node := range h.nodes {
-		if node != nil {
-			return false
-		}
-	}
-	return true
+	h.shardedNodeLocks[h.entryPointID%NodeLockStripe].RLock()
+	defer h.shardedNodeLocks[h.entryPointID%NodeLockStripe].RUnlock()
+	entryPoint := h.nodes[h.entryPointID]
+	return entryPoint == nil
 }
 
 func (h *hnsw) nodeByID(id uint64) *vertex {

@@ -15,9 +15,12 @@ package hnsw_test
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -86,4 +89,88 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 		_, _, err := index.SearchByVector(v, k, nil)
 		assert.Nil(t, err)
 	}
+}
+
+func TestHnswPqNilVectors(t *testing.T) {
+	dimensions := 20
+	vectors_size := 10_000
+	queries_size := 10
+
+	vectors, _ := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
+
+	// set some vectors to nil
+	for i := range vectors {
+		if i == 500 {
+			vectors[i] = nil
+		}
+	}
+
+	userConfig := ent.UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 64,
+		EF:             32,
+
+		// The actual size does not matter for this test, but if it defaults to
+		// zero it will constantly think it's full and needs to be deleted - even
+		// after just being deleted, so make sure to use a positive number here.
+		VectorCacheMaxObjects: 1000000,
+	}
+
+	rootPath := "doesnt-matter-as-committlogger-is-mocked-out"
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(rootPath)
+
+	index, err := hnsw.New(hnsw.Config{
+		RootPath:              rootPath,
+		ID:                    "nil-vector-test",
+		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[int(id)], nil
+		},
+		TempVectorForIDThunk: hnsw.TempVectorForIDThunk(vectors),
+	}, userConfig, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+
+	require.NoError(t, err)
+
+	ssdhelpers.Concurrently(uint64(len(vectors)/2), func(id uint64) {
+		if vectors[id] == nil {
+			return
+		}
+
+		err := index.Add(uint64(id), vectors[id])
+		require.Nil(t, err)
+	})
+
+	userConfig.PQ = ent.PQConfig{
+		Enabled: true,
+		Encoder: ent.PQEncoder{
+			Type:         ent.PQEncoderTypeTile,
+			Distribution: ent.PQEncoderDistributionLogNormal,
+		},
+		BitCompression: false,
+		Segments:       0,
+		Centroids:      256,
+	}
+
+	ch := make(chan error)
+	err = index.UpdateUserConfig(userConfig, func() {
+		close(ch)
+	})
+	require.NoError(t, err)
+
+	<-ch
+	start := uint64(len(vectors) / 2)
+	ssdhelpers.Concurrently(uint64(len(vectors)/2), func(id uint64) {
+		if vectors[id+start] == nil {
+			return
+		}
+
+		err = index.Add(uint64(id)+start, vectors[id+start])
+		require.Nil(t, err)
+	})
 }

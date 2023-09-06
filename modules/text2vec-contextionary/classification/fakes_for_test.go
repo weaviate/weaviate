@@ -43,8 +43,12 @@ func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {
 	panic("not implemented")
 }
 
-func (f *fakeSchemaGetter) ShardOwner(class, shard string) (string, error) { return "", nil }
-func (f *fakeSchemaGetter) TenantShard(class, tenant string) string        { return tenant }
+func (f *fakeSchemaGetter) ShardOwner(class, shard string) (string, error)      { return "", nil }
+func (f *fakeSchemaGetter) ShardReplicas(class, shard string) ([]string, error) { return nil, nil }
+
+func (f *fakeSchemaGetter) TenantShard(class, tenant string) (string, string) {
+	return tenant, models.TenantActivityStatusHOT
+}
 func (f *fakeSchemaGetter) ShardFromUUID(class string, uuid []byte) string { return "" }
 
 func (f *fakeSchemaGetter) Nodes() []string {

@@ -118,6 +118,9 @@ func (b *BatchManager) autodetectToClass(ctx context.Context,
 			if err != nil {
 				return NewErrInvalidUserInput("get prop: %v", err)
 			}
+			if len(prop.DataType) > 1 {
+				continue // can't auto-detect for multi-target
+			}
 			target = prop.DataType[0] // datatype is the name of the class that is referenced
 			classPropTarget[className+propName] = target
 		}

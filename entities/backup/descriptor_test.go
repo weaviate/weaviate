@@ -77,15 +77,19 @@ func TestValidateBackup(t *testing.T) {
 	timept := time.Now().UTC()
 	bytes := []byte("hello")
 	tests := []struct {
-		desc    BackupDescriptor
-		success bool
+		desc      BackupDescriptor
+		successV1 bool
+		successV2 bool
 	}{
 		// first level check
 		{desc: BackupDescriptor{}},
 		{desc: BackupDescriptor{ID: "1"}},
 		{desc: BackupDescriptor{ID: "1", Version: "1"}},
 		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1"}},
-		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept}, success: true},
+		{
+			desc:      BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept},
+			successV1: true, successV2: true,
+		},
 		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept, Error: "err"}},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
@@ -102,87 +106,91 @@ func TestValidateBackup(t *testing.T) {
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{Name: "n", Schema: bytes, ShardingState: bytes}},
-		}, success: true},
+		}, successV1: true, successV2: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
 				Name: "n", Schema: bytes, ShardingState: bytes,
-				Shards: []ShardDescriptor{{Name: ""}},
+				Shards: []*ShardDescriptor{{Name: ""}},
 			}},
 		}},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
 				Name: "n", Schema: bytes, ShardingState: bytes,
-				Shards: []ShardDescriptor{{Name: "n", Node: ""}},
+				Shards: []*ShardDescriptor{{Name: "n", Node: ""}},
 			}},
 		}},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
 				Name: "n", Schema: bytes, ShardingState: bytes,
-				Shards: []ShardDescriptor{{Name: "n", Node: "n"}},
+				Shards: []*ShardDescriptor{{Name: "n", Node: "n"}},
 			}},
-		}},
+		}, successV2: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
 				Name: "n", Schema: bytes, ShardingState: bytes,
-				Shards: []ShardDescriptor{{
+				Shards: []*ShardDescriptor{{
 					Name: "n", Node: "n",
 					PropLengthTrackerPath: "n", DocIDCounterPath: "n", ShardVersionPath: "n",
 				}},
 			}},
-		}, success: true},
+		}, successV1: true, successV2: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
 				Name: "n", Schema: bytes, ShardingState: bytes,
-				Shards: []ShardDescriptor{{
+				Shards: []*ShardDescriptor{{
 					Name: "n", Node: "n",
 					PropLengthTrackerPath: "n", DocIDCounterPath: "n", ShardVersionPath: "n",
 					Files: []string{"file"},
 				}},
 			}},
-		}},
+		}, successV2: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
 				Name: "n", Schema: bytes, ShardingState: bytes,
-				Shards: []ShardDescriptor{{
+				Shards: []*ShardDescriptor{{
 					Name: "n", Node: "n",
 					PropLengthTrackerPath: "n", DocIDCounterPath: "n", ShardVersionPath: "n",
 					DocIDCounter: bytes, Files: []string{"file"},
 				}},
 			}},
-		}},
+		}, successV2: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
 				Name: "n", Schema: bytes, ShardingState: bytes,
-				Shards: []ShardDescriptor{{
+				Shards: []*ShardDescriptor{{
 					Name: "n", Node: "n",
 					PropLengthTrackerPath: "n", DocIDCounterPath: "n", ShardVersionPath: "n",
 					DocIDCounter: bytes, Version: bytes, PropLengthTracker: bytes, Files: []string{""},
 				}},
 			}},
-		}},
+		}, successV2: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
 				Name: "n", Schema: bytes, ShardingState: bytes,
-				Shards: []ShardDescriptor{{
+				Shards: []*ShardDescriptor{{
 					Name: "n", Node: "n",
 					PropLengthTrackerPath: "n", DocIDCounterPath: "n", ShardVersionPath: "n",
 					DocIDCounter: bytes, Version: bytes, PropLengthTracker: bytes, Files: []string{"file"},
 				}},
 			}},
-		}, success: true},
+		}, successV1: true, successV2: true},
 	}
 	for i, tc := range tests {
-		err := tc.desc.Validate()
-		if got := err == nil; got != tc.success {
-			t.Errorf("%d. validate(%+v): want=%v got=%v err=%v", i, tc.desc, tc.success, got, err)
+		err := tc.desc.Validate(false)
+		if got := err == nil; got != tc.successV1 {
+			t.Errorf("%d. validate(%+v): want=%v got=%v err=%v", i, tc.desc, tc.successV1, got, err)
+		}
+		err = tc.desc.Validate(true)
+		if got := err == nil; got != tc.successV2 {
+			t.Errorf("%d. validate(%+v): want=%v got=%v err=%v", i, tc.desc, tc.successV1, got, err)
 		}
 	}
 }
@@ -204,14 +212,14 @@ func TestBackwardCompatibility(t *testing.T) {
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
 				Name:   "n",
-				Shards: []ShardDescriptor{{Name: "n", Node: ""}},
+				Shards: []*ShardDescriptor{{Name: "n", Node: ""}},
 			}},
 		}},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
 				Name: "n",
-				Shards: []ShardDescriptor{{
+				Shards: []*ShardDescriptor{{
 					Name: "n", Node: "n",
 				}},
 			}},
@@ -440,4 +448,28 @@ func TestTestDistributedBackupResetStatus(t *testing.T) {
 		Status: Started,
 	}
 	assert.Equal(t, want, desc)
+}
+
+func TestShardDescriptorClear(t *testing.T) {
+	s := ShardDescriptor{
+		Name:                  "name",
+		Node:                  "node",
+		PropLengthTrackerPath: "a/b",
+		PropLengthTracker:     []byte{1},
+		DocIDCounterPath:      "a/c",
+		DocIDCounter:          []byte{2},
+		ShardVersionPath:      "a/d",
+		Version:               []byte{3},
+		Files:                 []string{"file"},
+		Chunk:                 1,
+	}
+
+	want := ShardDescriptor{
+		Name:  "name",
+		Node:  "node",
+		Files: []string{"file"},
+		Chunk: 1,
+	}
+	s.ClearTemporary()
+	assert.Equal(t, want, s)
 }

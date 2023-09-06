@@ -639,7 +639,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 		logger, _ := test.NewNullLogger()
-		cr := NewCacherWithGroup(repo, logger)
+		cr := NewCacherWithGroup(repo, logger, "")
 		input := []search.Result{
 			{
 				ID:        "foo",
@@ -748,7 +748,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 		logger, _ := test.NewNullLogger()
-		cr := NewCacherWithGroup(repo, logger)
+		cr := NewCacherWithGroup(repo, logger, "")
 		input := []search.Result{
 			{
 				ID:        "foo",
@@ -880,7 +880,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 		logger, _ := test.NewNullLogger()
-		cr := NewCacherWithGroup(repo, logger)
+		cr := NewCacherWithGroup(repo, logger, "")
 		input := []search.Result{
 			{
 				ID:        "foo",

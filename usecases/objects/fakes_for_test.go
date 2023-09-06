@@ -152,7 +152,7 @@ func (f *fakeVectorRepo) Object(ctx context.Context, cls string, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
 	repl *additional.ReplicationProperties, tenant string,
 ) (*search.Result, error) {
-	args := f.Called(cls, id, props, additional)
+	args := f.Called(cls, id, props, additional, tenant)
 	if args.Get(0) != nil {
 		return args.Get(0).(*search.Result), args.Error(1)
 	}

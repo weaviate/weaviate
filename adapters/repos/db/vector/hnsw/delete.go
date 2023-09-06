@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -181,6 +182,14 @@ func (h *hnsw) CleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 }
 
 func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) (bool, error) {
+	defer func() {
+		err := recover()
+		if err != nil {
+			h.logger.WithField("panic", err).Errorf("class %s: tombstone cleanup panicked", h.className)
+			debug.PrintStack()
+		}
+	}()
+
 	h.metrics.StartCleanup(1)
 	defer h.metrics.EndCleanup(1)
 
@@ -289,7 +298,8 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 
 	var neighborVec []float32
 	if h.compressed.Load() {
-		vec, err := h.compressedVectorsCache.get(context.Background(), neighbor)
+		var vec []byte
+		vec, err = h.compressedVectorsCache.get(context.Background(), neighbor)
 		if err == nil {
 			neighborVec = h.pq.Decode(vec)
 		}
@@ -579,7 +589,9 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 
 		h.resetLock.Lock()
 		if !breakCleanUpTombstonedNodes() {
+			h.shardedNodeLocks[id%NodeLockStripe].Lock()
 			h.nodes[id] = nil
+			h.shardedNodeLocks[id%NodeLockStripe].Unlock()
 			if h.compressed.Load() {
 				h.compressedVectorsCache.delete(context.TODO(), id)
 			} else {

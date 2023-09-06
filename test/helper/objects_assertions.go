@@ -121,6 +121,16 @@ func TenantObject(t *testing.T, class string, id strfmt.UUID, tenant string) (*m
 	return getResp.Payload, nil
 }
 
+func TenantObjectWithInclude(t *testing.T, class string, id strfmt.UUID, tenant string, includes string) (*models.Object, error) {
+	req := objects.NewObjectsClassGetParams().
+		WithClassName(class).WithID(id).WithTenant(&tenant).WithInclude(&includes)
+	getResp, err := Client(t).Objects.ObjectsClassGet(req, nil)
+	if err != nil {
+		return nil, err
+	}
+	return getResp.Payload, nil
+}
+
 func GetObjectCL(t *testing.T, class string, uuid strfmt.UUID,
 	cl replica.ConsistencyLevel, include ...string,
 ) (*models.Object, error) {

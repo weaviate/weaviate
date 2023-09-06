@@ -401,6 +401,10 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 			docMapPairs = make([]docPointerWithScore, 0, len(m))
 			docMapPairsIndices = make(map[uint64]int, len(m))
 			for k, val := range m {
+				if len(val.Value) < 8 {
+					b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(val.Value))
+					continue
+				}
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
 				propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
 				docMapPairs = append(docMapPairs,
@@ -415,6 +419,10 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 			}
 		} else {
 			for _, val := range m {
+				if len(val.Value) < 8 {
+					b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(val.Value))
+					continue
+				}
 				key := binary.BigEndian.Uint64(val.Key)
 				ind, ok := docMapPairsIndices[key]
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])

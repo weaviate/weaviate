@@ -67,7 +67,7 @@ func TestWaitForStartup(t *testing.T) {
 		v := New(urlPassage, urlQuery, nullLogger())
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
-		err := v.WaitForStartup(ctx, 150*time.Millisecond)
+		err := v.WaitForStartup(ctx, 50*time.Millisecond)
 
 		require.NotNil(t, err, nullLogger())
 		assert.Contains(t, err.Error(), "[passage] init context expired before remote was ready: send check ready request")

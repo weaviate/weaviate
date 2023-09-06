@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.20.4"
+    "version": "1.21.2"
   },
   "basePath": "/v1",
   "paths": {
@@ -2777,6 +2777,64 @@ func init() {
           }
         }
       },
+      "put": {
+        "description": "Update tenant of a specific class",
+        "tags": [
+          "schema"
+        ],
+        "operationId": "tenants.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated tenants of the specified class",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid Tenant class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
       "post": {
         "description": "Create a new tenant for a specific class",
         "tags": [
@@ -3277,6 +3335,23 @@ func init() {
           }
         }
       ]
+    },
+    "BatchStats": {
+      "description": "The summary of a nodes batch queue congestion status.",
+      "properties": {
+        "queueLength": {
+          "description": "How many objects are currently in the batch queue.",
+          "type": "number",
+          "format": "int",
+          "x-omitempty": false
+        },
+        "ratePerSecond": {
+          "description": "How many objects are approximately processed from the batch queue per second.",
+          "type": "number",
+          "format": "int",
+          "x-omitempty": false
+        }
+      }
     },
     "C11yExtension": {
       "description": "A resource describing an extension to the contextinoary, containing both the identifier and the definition of the extension",
@@ -3884,6 +3959,11 @@ func init() {
     "NodeStatus": {
       "description": "The definition of a backup node status response body",
       "properties": {
+        "batchStats": {
+          "description": "Weaviate batch statistics.",
+          "type": "object",
+          "$ref": "#/definitions/BatchStats"
+        },
         "gitHash": {
           "description": "The gitHash of Weaviate.",
           "type": "string"
@@ -4450,6 +4530,16 @@ func init() {
       "description": "attributes representing a single tenant within weaviate",
       "type": "object",
       "properties": {
+        "activityStatus": {
+          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. Allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active, ` + "`" + `WARM` + "`" + ` - tenant is active, some restrictions are imposed (TBD; not supported yet), ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage (not supported yet)",
+          "type": "string",
+          "enum": [
+            "HOT",
+            "WARM",
+            "COLD",
+            "FROZEN"
+          ]
+        },
         "name": {
           "description": "name of the tenant",
           "type": "string"
@@ -4479,14 +4569,15 @@ func init() {
             "Or",
             "Equal",
             "Like",
-            "Not",
             "NotEqual",
             "GreaterThan",
             "GreaterThanEqual",
             "LessThan",
             "LessThanEqual",
             "WithinGeoRange",
-            "IsNull"
+            "IsNull",
+            "ContainsAny",
+            "ContainsAll"
           ],
           "example": "GreaterThanEqual"
         },
@@ -4508,10 +4599,33 @@ func init() {
           "x-nullable": true,
           "example": false
         },
+        "valueBooleanArray": {
+          "description": "value as boolean",
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": [
+            true,
+            false
+          ]
+        },
         "valueDate": {
           "description": "value as date (as string)",
           "type": "string",
           "x-nullable": true,
+          "example": "TODO"
+        },
+        "valueDateArray": {
+          "description": "value as date (as string)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
           "example": "TODO"
         },
         "valueGeoRange": {
@@ -4527,6 +4641,17 @@ func init() {
           "x-nullable": true,
           "example": 2000
         },
+        "valueIntArray": {
+          "description": "value as integer",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": "[100, 200]"
+        },
         "valueNumber": {
           "description": "value as number/float",
           "type": "number",
@@ -4534,17 +4659,54 @@ func init() {
           "x-nullable": true,
           "example": 3.14
         },
+        "valueNumberArray": {
+          "description": "value as number/float",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float64"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": [
+            3.14
+          ]
+        },
         "valueString": {
           "description": "value as text (deprecated as of v1.19; alias for valueText)",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
         },
+        "valueStringArray": {
+          "description": "value as text (deprecated as of v1.19; alias for valueText)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": [
+            "my search term"
+          ]
+        },
         "valueText": {
           "description": "value as text",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
+        },
+        "valueTextArray": {
+          "description": "value as text",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": [
+            "my search term"
+          ]
         }
       }
     },
@@ -4697,7 +4859,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.20.4"
+    "version": "1.21.2"
   },
   "basePath": "/v1",
   "paths": {
@@ -7540,6 +7702,64 @@ func init() {
           }
         }
       },
+      "put": {
+        "description": "Update tenant of a specific class",
+        "tags": [
+          "schema"
+        ],
+        "operationId": "tenants.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated tenants of the specified class",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid Tenant class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
       "post": {
         "description": "Create a new tenant for a specific class",
         "tags": [
@@ -8127,6 +8347,23 @@ func init() {
             "PENDING",
             "FAILED"
           ]
+        }
+      }
+    },
+    "BatchStats": {
+      "description": "The summary of a nodes batch queue congestion status.",
+      "properties": {
+        "queueLength": {
+          "description": "How many objects are currently in the batch queue.",
+          "type": "number",
+          "format": "int",
+          "x-omitempty": false
+        },
+        "ratePerSecond": {
+          "description": "How many objects are approximately processed from the batch queue per second.",
+          "type": "number",
+          "format": "int",
+          "x-omitempty": false
         }
       }
     },
@@ -8806,6 +9043,11 @@ func init() {
     "NodeStatus": {
       "description": "The definition of a backup node status response body",
       "properties": {
+        "batchStats": {
+          "description": "Weaviate batch statistics.",
+          "type": "object",
+          "$ref": "#/definitions/BatchStats"
+        },
         "gitHash": {
           "description": "The gitHash of Weaviate.",
           "type": "string"
@@ -9390,6 +9632,16 @@ func init() {
       "description": "attributes representing a single tenant within weaviate",
       "type": "object",
       "properties": {
+        "activityStatus": {
+          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. Allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active, ` + "`" + `WARM` + "`" + ` - tenant is active, some restrictions are imposed (TBD; not supported yet), ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage (not supported yet)",
+          "type": "string",
+          "enum": [
+            "HOT",
+            "WARM",
+            "COLD",
+            "FROZEN"
+          ]
+        },
         "name": {
           "description": "name of the tenant",
           "type": "string"
@@ -9419,14 +9671,15 @@ func init() {
             "Or",
             "Equal",
             "Like",
-            "Not",
             "NotEqual",
             "GreaterThan",
             "GreaterThanEqual",
             "LessThan",
             "LessThanEqual",
             "WithinGeoRange",
-            "IsNull"
+            "IsNull",
+            "ContainsAny",
+            "ContainsAll"
           ],
           "example": "GreaterThanEqual"
         },
@@ -9448,10 +9701,33 @@ func init() {
           "x-nullable": true,
           "example": false
         },
+        "valueBooleanArray": {
+          "description": "value as boolean",
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": [
+            true,
+            false
+          ]
+        },
         "valueDate": {
           "description": "value as date (as string)",
           "type": "string",
           "x-nullable": true,
+          "example": "TODO"
+        },
+        "valueDateArray": {
+          "description": "value as date (as string)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
           "example": "TODO"
         },
         "valueGeoRange": {
@@ -9467,6 +9743,17 @@ func init() {
           "x-nullable": true,
           "example": 2000
         },
+        "valueIntArray": {
+          "description": "value as integer",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": "[100, 200]"
+        },
         "valueNumber": {
           "description": "value as number/float",
           "type": "number",
@@ -9474,17 +9761,54 @@ func init() {
           "x-nullable": true,
           "example": 3.14
         },
+        "valueNumberArray": {
+          "description": "value as number/float",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float64"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": [
+            3.14
+          ]
+        },
         "valueString": {
           "description": "value as text (deprecated as of v1.19; alias for valueText)",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
         },
+        "valueStringArray": {
+          "description": "value as text (deprecated as of v1.19; alias for valueText)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": [
+            "my search term"
+          ]
+        },
         "valueText": {
           "description": "value as text",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
+        },
+        "valueTextArray": {
+          "description": "value as text",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": [
+            "my search term"
+          ]
         }
       }
     },

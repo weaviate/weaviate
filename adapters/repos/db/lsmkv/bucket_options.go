@@ -75,6 +75,13 @@ func WithLegacyMapSorting() BucketOption {
 	}
 }
 
+func WithPread(with bool) BucketOption {
+	return func(b *Bucket) error {
+		b.mmapContents = !with
+		return nil
+	}
+}
+
 func WithDynamicMemtableSizing(
 	initialMB, maxMB, minActiveSeconds, maxActiveSeconds int,
 ) BucketOption {

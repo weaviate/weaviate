@@ -338,7 +338,7 @@ func Test_MergeObject(t *testing.T) {
 					"name": "My little pony zoo with extra sparkles",
 					"hasAnimals": []interface{}{
 						map[string]interface{}{
-							"beacon": "weaviate://localhost/a8ffc82c-9845-4014-876c-11369353c33c",
+							"beacon": "weaviate://localhost/AnimalAction/a8ffc82c-9845-4014-876c-11369353c33c",
 						},
 					},
 				},
@@ -360,7 +360,7 @@ func Test_MergeObject(t *testing.T) {
 				References: BatchReferences{
 					BatchReference{
 						From: crossrefMustParseSource("weaviate://localhost/ZooAction/dd59815b-142b-4c54-9b12-482434bd54ca/hasAnimals"),
-						To:   crossrefMustParse("weaviate://localhost/a8ffc82c-9845-4014-876c-11369353c33c"),
+						To:   crossrefMustParse("weaviate://localhost/AnimalAction/a8ffc82c-9845-4014-876c-11369353c33c"),
 					},
 				},
 			},
@@ -432,14 +432,14 @@ func Test_MergeObject(t *testing.T) {
 				if tc.previous.Properties != nil && tc.updated.Vector == nil {
 					m.modulesProvider.On("VectorizerName", mock.Anything).Return("some-module", nil)
 				}
-				m.repo.On("Object", cls, uuid, search.SelectProperties(nil), additional.Properties{}).
+				m.repo.On("Object", cls, uuid, search.SelectProperties(nil), additional.Properties{}, "").
 					Return(&search.Result{
 						Schema:    tc.previous.Properties,
 						ClassName: tc.previous.Class,
 						Vector:    tc.previous.Vector,
 					}, nil)
 			} else if tc.stage >= stageAuthorization {
-				m.repo.On("Object", cls, uuid, search.SelectProperties(nil), additional.Properties{}).
+				m.repo.On("Object", cls, uuid, search.SelectProperties(nil), additional.Properties{}, "").
 					Return((*search.Result)(nil), tc.errGetObject)
 			}
 

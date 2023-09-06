@@ -39,6 +39,7 @@ import (
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/replication"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
@@ -48,6 +49,7 @@ import (
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
+	modbind "github.com/weaviate/weaviate/modules/multi2vec-bind"
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
 	modner "github.com/weaviate/weaviate/modules/ner-transformers"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
@@ -59,6 +61,7 @@ import (
 	modspellcheck "github.com/weaviate/weaviate/modules/text-spellcheck"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
+	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modtext2vecpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
@@ -145,7 +148,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
 	}
 
-	clusterHttpClient := reasonableHttpClient()
+	clusterHttpClient := reasonableHttpClient(appState.ServerConfig.Config.Cluster.AuthConfig)
 
 	var vectorRepo vectorRepo
 	var vectorMigrator migrate.Migrator
@@ -171,9 +174,18 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		RootPath:                  appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                appState.ServerConfig.Config.QueryDefaults.Limit,
 		QueryMaximumResults:       appState.ServerConfig.Config.QueryMaximumResults,
+		QueryNestedRefLimit:       appState.ServerConfig.Config.QueryNestedCrossReferenceLimit,
 		MaxImportGoroutinesFactor: appState.ServerConfig.Config.MaxImportGoroutinesFactor,
 		TrackVectorDimensions:     appState.ServerConfig.Config.TrackVectorDimensions,
 		ResourceUsage:             appState.ServerConfig.Config.ResourceUsage,
+		AvoidMMap:                 appState.ServerConfig.Config.AvoidMmap,
+		// Pass dummy replication config with minimum factor 1. Otherwise the
+		// setting is not backward-compatible. The user may have created a class
+		// with factor=1 before the change was introduced. Now their setup would no
+		// longer start up if the required minimum is now higher than 1. We want
+		// the required minimum to only apply to newly created classes - not block
+		// loading existing ones.
+		Replication: replication.GlobalConfig{MinimumFactor: 1},
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -240,7 +252,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Cluster,
 		appState.Logger)
 
-	backupManager := backup.NewManager(appState.Logger, appState.Authorizer,
+	backupManager := backup.NewHandler(appState.Logger, appState.Authorizer,
 		schemaManager, repo, appState.Modules)
 	appState.BackupManager = backupManager
 
@@ -266,7 +278,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	batchObjectsManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Metrics)
-
+	appState.BatchManager = batchObjectsManager
 	objectsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
 		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager,
 		appState.Modules, traverser.NewMetrics(appState.Metrics),
@@ -516,6 +528,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modgpt4all.Name]; ok {
+		appState.Modules.Register(modgpt4all.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgpt4all.Name).
+			Debug("enabled module")
+	}
+
 	if _, ok := enabledModules[modrerankertransformers.Name]; ok {
 		appState.Modules.Register(modrerankertransformers.New())
 		appState.Logger.
@@ -684,6 +704,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modbind.Name]; ok {
+		appState.Modules.Register(modbind.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modbind.Name).
+			Debug("enabled module")
+	}
+
 	appState.Logger.
 		WithField("action", "startup").
 		Debug("completed registering modules")
@@ -717,7 +745,17 @@ func initModules(ctx context.Context, appState *state.State) error {
 	return nil
 }
 
-func reasonableHttpClient() *http.Client {
+type clientWithAuth struct {
+	r         http.RoundTripper
+	basicAuth cluster.BasicAuth
+}
+
+func (c clientWithAuth) RoundTrip(r *http.Request) (*http.Response, error) {
+	r.SetBasicAuth(c.basicAuth.Username, c.basicAuth.Password)
+	return c.r.RoundTrip(r)
+}
+
+func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 	t := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
@@ -729,6 +767,9 @@ func reasonableHttpClient() *http.Client {
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+	}
+	if authConfig.BasicAuth.Enabled() {
+		return &http.Client{Transport: clientWithAuth{r: t, basicAuth: authConfig.BasicAuth}}
 	}
 	return &http.Client{Transport: t}
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	schemaent "github.com/weaviate/weaviate/entities/schema"
 	ucs "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/migrate"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -53,6 +54,10 @@ func (f *fakeRepo) DeleteClass(ctx context.Context, class string) error {
 }
 
 func (f *fakeRepo) NewShards(ctx context.Context, class string, shards []ucs.KeyValuePair) error {
+	return nil
+}
+
+func (f *fakeRepo) UpdateShards(ctx context.Context, class string, shards []ucs.KeyValuePair) error {
 	return nil
 }
 
@@ -205,7 +210,11 @@ func (n *NilMigrator) AddProperty(ctx context.Context, className string, prop *m
 	return nil
 }
 
-func (n *NilMigrator) NewTenants(ctx context.Context, class *models.Class, partitions []string) (commit func(success bool), err error) {
+func (n *NilMigrator) NewTenants(ctx context.Context, class *models.Class, creates []*migrate.CreateTenantPayload) (commit func(success bool), err error) {
+	return nil, nil
+}
+
+func (n *NilMigrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*migrate.UpdateTenantPayload) (commit func(success bool), err error) {
 	return nil, nil
 }
 

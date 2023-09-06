@@ -14,7 +14,6 @@ package inverted
 import (
 	"context"
 	"fmt"
-	"math"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -32,8 +31,10 @@ type refFilterExtractor struct {
 	logger        logrus.FieldLogger
 	classSearcher ClassSearcher
 	filter        *filters.Clause
+	class         *models.Class
 	property      *models.Property
 	tenant        string
+	limit         int64
 }
 
 // ClassSearcher is anything that allows a root-level ClassSearch
@@ -44,14 +45,16 @@ type ClassSearcher interface {
 }
 
 func newRefFilterExtractor(logger logrus.FieldLogger, classSearcher ClassSearcher,
-	filter *filters.Clause, property *models.Property, tenant string,
+	filter *filters.Clause, class *models.Class, property *models.Property, tenant string, limit int64,
 ) *refFilterExtractor {
 	return &refFilterExtractor{
 		logger:        logger,
 		classSearcher: classSearcher,
 		filter:        filter,
+		class:         class,
 		property:      property,
 		tenant:        tenant,
+		limit:         limit,
 	}
 }
 
@@ -81,16 +84,9 @@ func (r *refFilterExtractor) paramsForNestedRequest() (dto.GetParams, error) {
 		Filters:   r.innerFilter(),
 		ClassName: r.filter.On.Child.Class.String(),
 		Pagination: &filters.Pagination{
-			// The limit is chosen arbitrarily, it used to be 1e4 in the ES-based
-			// implementation, so using a 10x as high value should be safe. However,
-			// we might come back to reduce this number in case this leads to
-			// unexpected performance issues
-			// Limit: int(config.DefaultQueryMaximumResults),
-
-			// due to reported issue https://github.com/weaviate/weaviate/issues/2537
-			// ref search is temporarily (until better solution) effectively unlimited
 			Offset: 0,
-			Limit:  math.MaxInt,
+			// Limit can be set to dynamically with QUERY_NESTED_CROSS_REFERENCE_LIMIT
+			Limit: int(r.limit),
 		},
 		// set this to indicate that this is a sub-query, so we do not need
 		// to perform the same search limits cutoff check that we do with
@@ -153,6 +149,7 @@ func (r *refFilterExtractor) emptyPropValuePair() *propValuePair {
 		operator:           filters.OperatorEqual,
 		hasFilterableIndex: HasFilterableIndex(r.property),
 		hasSearchableIndex: HasSearchableIndex(r.property),
+		Class:              r.class,
 	}
 }
 
@@ -180,6 +177,7 @@ func (r *refFilterExtractor) idToPropValuePairWithValue(v []byte,
 		operator:           filters.OperatorEqual,
 		hasFilterableIndex: hasFilterableIndex,
 		hasSearchableIndex: hasSearchableIndex,
+		Class:              r.class,
 	}, nil
 }
 
@@ -199,6 +197,7 @@ func (r *refFilterExtractor) chainedIDsToPropValuePair(ids []classUUIDPair) (*pr
 		children:           children,
 		hasFilterableIndex: hasFilterableIndex,
 		hasSearchableIndex: hasSearchableIndex,
+		Class:              r.class,
 	}, nil
 }
 

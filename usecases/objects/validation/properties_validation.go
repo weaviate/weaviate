@@ -82,6 +82,39 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 			return err
 		}
 
+		// autodetect to_class in references
+		if dataType.String() == schema.DataTypeCRef.String() {
+			propertyValueSlice, ok := propertyValue.([]interface{})
+			if !ok {
+				return fmt.Errorf("reference property is not a slice %v", propertyValue)
+			}
+			for i := range propertyValueSlice {
+				propertyValueMap, ok := propertyValueSlice[i].(map[string]interface{})
+				if !ok {
+					return fmt.Errorf("reference property is not a map %v", propertyValueMap)
+				}
+				beacon := propertyValueMap["beacon"].(string)
+				beaconParsed, err := crossref.Parse(beacon)
+				if err != nil {
+					return err
+				}
+
+				if beaconParsed.Class == "" {
+					prop, err := schema.GetPropertyByName(class, schema.LowercaseFirstLetter(propertyKey))
+					if err != nil {
+						return err
+					}
+					if len(prop.DataType) > 1 {
+						continue
+					}
+					toClass := prop.DataType[0] // datatype is the name of the class that is referenced
+					toBeacon := crossref.NewLocalhost(toClass, beaconParsed.TargetID).String()
+
+					propertyValue.([]interface{})[i].(map[string]interface{})["beacon"] = toBeacon
+				}
+			}
+		}
+
 		data, err := v.extractAndValidateProperty(ctx, propertyKeyLowerCase, propertyValue, className, dataType)
 		if err != nil {
 			return err

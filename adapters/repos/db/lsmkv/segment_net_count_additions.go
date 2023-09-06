@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
-// ErrInvalidChecksum indicates the the read file should not be trusted. For
+// ErrInvalidChecksum indicates that the read file should not be trusted. For
 // any pre-computed data this is a recoverable issue, as the data can simply be
 // re-computed at read-time.
 var ErrInvalidChecksum = errors.New("invalid checksum")

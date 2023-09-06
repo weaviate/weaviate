@@ -12,14 +12,31 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"os"
 	"sync"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 )
+
+var chunks map[string][]byte
+
+func init() {
+	path := "test_data/chunk-1.tar.gz"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		panic("missing test file: " + path)
+	}
+
+	chunks = map[string][]byte{
+		chunkKey("DemoClass", 1): data,
+	}
+}
 
 type fakeBackupBackendProvider struct {
 	backend modulecapabilities.BackupBackend
@@ -65,11 +82,17 @@ type fakeBackend struct {
 	sync.RWMutex
 	meta     backup.BackupDescriptor
 	glMeta   backup.DistributedBackupDescriptor
+	files    map[string][]byte
+	chunks   map[string][]byte
 	doneChan chan bool
 }
 
 func newFakeBackend() *fakeBackend {
-	return &fakeBackend{doneChan: make(chan bool)}
+	return &fakeBackend{
+		doneChan: make(chan bool),
+		files:    map[string][]byte{},
+		chunks:   chunks,
+	}
 }
 
 func (fb *fakeBackend) HomeDir(backupID string) string {
@@ -138,4 +161,36 @@ func (fb *fakeBackend) WriteToFile(ctx context.Context, backupID, key, destPath 
 	defer fb.Unlock()
 	args := fb.Called(ctx, backupID, key, destPath)
 	return args.Error(0)
+}
+
+func (fb *fakeBackend) Read(ctx context.Context, backupID, key string, w io.WriteCloser) (int64, error) {
+	fb.Lock()
+	defer fb.Unlock()
+	defer w.Close()
+
+	args := fb.Called(ctx, backupID, key, w)
+	if err := args.Error(1); err != nil {
+		return 0, err
+	}
+
+	if data := fb.chunks[key]; data != nil {
+		io.Copy(w, bytes.NewReader(data))
+	}
+	return 0, args.Error(1)
+}
+
+func (fb *fakeBackend) Write(ctx context.Context, backupID, key string, r io.ReadCloser) (int64, error) {
+	fb.Lock()
+	defer fb.Unlock()
+	defer r.Close()
+
+	args := fb.Called(ctx, backupID, key, r)
+	if err := args.Error(1); err != nil {
+		return 0, err
+	}
+	buf := bytes.Buffer{}
+	n, err := io.Copy(&buf, r)
+	fb.files[backupID+"/"+key] = buf.Bytes()
+
+	return n, err
 }

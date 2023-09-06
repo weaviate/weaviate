@@ -94,6 +94,9 @@ type Bucket struct {
 	desiredStrategy  string
 	secondaryIndices uint16
 
+	// Optional to avoid syscalls
+	mmapContents bool
+
 	// for backward compatibility
 	legacyMapSortingBeforeCompaction bool
 
@@ -142,6 +145,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		walThreshold:      defaultWalThreshold,
 		flushAfterIdle:    defaultFlushAfterIdle,
 		strategy:          defaultStrategy,
+		mmapContents:      true,
 		logger:            logger,
 		metrics:           metrics,
 	}
@@ -157,7 +161,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	}
 
 	sg, err := newSegmentGroup(dir, logger, b.legacyMapSortingBeforeCompaction,
-		metrics, b.strategy, b.monitorCount, compactionCallbacks)
+		metrics, b.strategy, b.monitorCount, compactionCallbacks, b.mmapContents)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
 	}

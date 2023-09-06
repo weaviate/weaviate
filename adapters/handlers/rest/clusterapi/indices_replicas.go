@@ -64,6 +64,7 @@ type localScaler interface {
 type replicatedIndices struct {
 	shards replicator
 	scaler localScaler
+	auth   auth
 }
 
 var (
@@ -83,15 +84,20 @@ var (
 		`\/shards\/(` + sh + `):(commit|abort)`)
 )
 
-func NewReplicatedIndices(shards replicator, scaler localScaler) *replicatedIndices {
+func NewReplicatedIndices(shards replicator, scaler localScaler, auth auth) *replicatedIndices {
 	return &replicatedIndices{
 		shards: shards,
 		scaler: scaler,
+		auth:   auth,
 	}
 }
 
 func (i *replicatedIndices) Indices() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return i.auth.handleFunc(i.indicesHandler())
+}
+
+func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		switch {
 		case regxObjectsDigest.MatchString(path):
@@ -177,7 +183,7 @@ func (i *replicatedIndices) Indices() http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-	})
+	}
 }
 
 func (i *replicatedIndices) executeCommitPhase() http.Handler {

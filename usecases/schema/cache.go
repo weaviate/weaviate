@@ -74,15 +74,19 @@ func (s *schemaCache) ShardReplicas(class, shard string) ([]string, error) {
 	return x.BelongsToNodes, nil
 }
 
-// TenantShard returns shard name for the provided tenant
-func (s *schemaCache) TenantShard(class, tenant string) string {
+// TenantShard returns shard name for the provided tenant and its activity status
+func (s *schemaCache) TenantShard(class, tenant string) (string, string) {
 	s.RLock()
 	defer s.RUnlock()
 	ss := s.ShardingState[class]
-	if ss == nil {
-		return ""
+	if ss == nil || !ss.PartitioningEnabled {
+		return "", ""
 	}
-	return ss.Shard(tenant, "")
+
+	if physical, ok := ss.Physical[tenant]; ok {
+		return tenant, physical.ActivityStatus()
+	}
+	return "", ""
 }
 
 // ShardFromUUID returns shard name of the provided uuid

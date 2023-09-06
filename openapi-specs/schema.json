@@ -957,6 +957,23 @@
         }
       }
     },
+    "BatchStats": {
+      "description": "The summary of a nodes batch queue congestion status.",
+      "properties": {
+        "queueLength": {
+          "description": "How many objects are currently in the batch queue.",
+          "format": "int",
+          "type": "number",
+          "x-omitempty": false
+        },
+        "ratePerSecond": {
+          "description": "How many objects are approximately processed from the batch queue per second.",
+          "format": "int",
+          "type": "number",
+          "x-omitempty": false
+        }
+      }
+    },
     "NodeShardStatus": {
       "description": "The definition of a node shard status response body",
       "properties": {
@@ -1007,6 +1024,11 @@
           "description": "Weaviate overall statistics.",
           "type": "object",
           "$ref": "#/definitions/NodeStats"
+        },
+        "batchStats": {
+          "description": "Weaviate batch statistics.",
+          "type": "object",
+          "$ref": "#/definitions/BatchStats"
         },
         "shards": {
           "description": "The list of the shards with it's statistics.",
@@ -1583,14 +1605,15 @@
             "Or",
             "Equal",
             "Like",
-            "Not",
             "NotEqual",
             "GreaterThan",
             "GreaterThanEqual",
             "LessThan",
             "LessThanEqual",
             "WithinGeoRange",
-            "IsNull"
+            "IsNull",
+            "ContainsAny",
+            "ContainsAll"
           ],
           "example": "GreaterThanEqual"
         },
@@ -1644,6 +1667,77 @@
           "example": "TODO",
           "x-nullable": true
         },
+        "valueIntArray": {
+          "description": "value as integer",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "example": "[100, 200]",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "valueNumberArray": {
+          "description": "value as number/float",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float64"
+          },
+          "example": [
+            3.14
+          ],
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "valueBooleanArray": {
+          "description": "value as boolean",
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          },
+          "example": [
+            true,
+            false
+          ],
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "valueStringArray": {
+          "description": "value as text (deprecated as of v1.19; alias for valueText)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": [
+            "my search term"
+          ],
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "valueTextArray": {
+          "description": "value as text",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": [
+            "my search term"
+          ],
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "valueDateArray": {
+          "description": "value as date (as string)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": "TODO",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
         "valueGeoRange": {
           "description": "value as geo coordinates and distance",
           "type": "object",
@@ -1679,6 +1773,16 @@
         "name": {
           "description": "name of the tenant",
           "type": "string"
+        },
+        "activityStatus": {
+          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit `HOT`) and required for updating tenant. Allowed values are `HOT` - tenant is fully active, `WARM` - tenant is active, some restrictions are imposed (TBD; not supported yet), `COLD` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, `FROZEN` - as COLD, but files are stored on cloud storage (not supported yet)",
+          "type": "string",
+          "enum": [
+            "HOT",
+            "WARM",
+            "COLD",
+            "FROZEN"
+          ]
         }
       }
     }
@@ -1694,7 +1798,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.20.4"
+    "version": "1.21.2"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -4030,6 +4134,64 @@
         "responses": {
           "200": {
             "description": "Added new tenants to the specified class",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid Tenant class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "put": {
+        "description": "Update tenant of a specific class",
+        "operationId": "tenants.update",
+        "tags": [
+          "schema"
+        ],
+        "parameters": [
+          {
+            "name": "className",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated tenants of the specified class",
             "schema": {
               "type": "array",
               "items": {

@@ -61,8 +61,8 @@ func TestFindObject(t *testing.T) {
 	// tear down
 	defer helper.DeleteClassObject(t, cls)
 	link1 := map[string]interface{}{
-		"beacon": crossref.NewLocalhost("", first_uuid).String(),
-		"href":   fmt.Sprintf("/v1/objects/%s", first_uuid),
+		"beacon": crossref.NewLocalhost(first_friend, first_uuid).String(),
+		"href":   fmt.Sprintf("/v1/objects/%s/%s", first_friend, first_uuid),
 	}
 	link2 := map[string]interface{}{
 		"beacon": crossref.NewLocalhost(second_friend, second_uuid).String(),
@@ -175,8 +175,8 @@ func TestPutObject(t *testing.T) {
 	})
 
 	link1 := map[string]interface{}{
-		"beacon": crossref.NewLocalhost("", friend_uuid).String(),
-		"href":   fmt.Sprintf("/v1/objects/%s", friend_uuid),
+		"beacon": crossref.NewLocalhost(friend_cls, friend_uuid).String(),
+		"href":   fmt.Sprintf("/v1/objects/%s/%s", friend_cls, friend_uuid),
 	}
 	link2 := map[string]interface{}{
 		"beacon": crossref.NewLocalhost(friend_cls, friend_uuid).String(),
@@ -253,8 +253,8 @@ func TestPatchObject(t *testing.T) {
 	})
 	friendID := helper.AssertCreateObject(t, friend_cls, nil)
 	link1 := map[string]interface{}{
-		"beacon": fmt.Sprintf("weaviate://localhost/%s", friendID),
-		"href":   fmt.Sprintf("/v1/objects/%s", friendID),
+		"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", friend_cls, friendID),
+		"href":   fmt.Sprintf("/v1/objects/%s/%s", friend_cls, friendID),
 	}
 	link2 := map[string]interface{}{
 		"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", friend_cls, friendID),

@@ -20,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -76,9 +77,13 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 
 	h.compressActionLock.Lock()
 	defer h.compressActionLock.Unlock()
-	ssdhelpers.Concurrently(uint64(len(cleanData)),
+	ssdhelpers.Concurrently(uint64(len(data)),
 		func(index uint64) {
-			encoded := h.pq.Encode(cleanData[index])
+			if data[index] == nil {
+				return
+			}
+
+			encoded := h.pq.Encode(data[index])
 			h.storeCompressedVector(index, encoded)
 			h.compressedVectorsCache.preload(index, encoded)
 		})
@@ -100,4 +105,18 @@ func (h *hnsw) storeCompressedVector(index uint64, vector []byte) {
 	Id := make([]byte, 8)
 	binary.LittleEndian.PutUint64(Id, index)
 	h.compressedStore.Bucket(helpers.CompressedObjectsBucketLSM).Put(Id, vector)
+}
+
+func (h *hnsw) getCompressedVectorForID(ctx context.Context, id uint64) ([]byte, error) {
+	vec, err := h.vectorForID(ctx, id)
+	if err != nil {
+		return nil, errors.Wrap(err, "Getting vector for id")
+	}
+	if h.distancerProvider.Type() == "cosine-dot" {
+		// cosine-dot requires normalized vectors, as the dot product and cosine
+		// similarity are only identical if the vector is normalized
+		vec = distancer.Normalize(vec)
+	}
+
+	return h.pq.Encode(vec), nil
 }

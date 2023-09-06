@@ -53,6 +53,10 @@ func (f *fakeRepo) NewShards(ctx context.Context, class string, shards []KeyValu
 	return nil
 }
 
+func (f *fakeRepo) UpdateShards(ctx context.Context, class string, shards []KeyValuePair) error {
+	return nil
+}
+
 func (f *fakeRepo) DeleteShards(_ context.Context, class string, _ []string) error {
 	return nil
 }

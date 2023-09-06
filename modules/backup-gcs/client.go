@@ -155,7 +155,7 @@ func (g *gcsClient) PutFile(ctx context.Context, backupID, key, srcPath string) 
 	filePath := path.Join(g.dataPath, srcPath)
 	file, err := os.Open(filePath)
 	if err != nil {
-		return fmt.Errorf("os.Open %q: %w", filePath, err)
+		return fmt.Errorf("os.open %q: %w", filePath, err)
 	}
 	defer file.Close()
 
@@ -175,11 +175,11 @@ func (g *gcsClient) PutFile(ctx context.Context, backupID, key, srcPath string) 
 
 	nBytes, err := io.Copy(writer, file)
 	if err != nil {
-		return fmt.Errorf("io.Copy %q %q: %w", object, filePath, err)
+		return fmt.Errorf("io.copy %q %q: %w", object, filePath, err)
 	}
 	closeWriter = false
 	if err := writer.Close(); err != nil {
-		return fmt.Errorf("Writer.Close %q: %w", filePath, err)
+		return fmt.Errorf("writer.close %q: %w", filePath, err)
 	}
 	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues("backup-gcs", "class")
 	if err == nil {
@@ -256,11 +256,11 @@ func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath str
 	// create empty file
 	dir := path.Dir(destPath)
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-		return fmt.Errorf("os.MkdirAll %q: %w", dir, err)
+		return fmt.Errorf("os.mkdir %q: %w", dir, err)
 	}
 	file, err := os.Create(destPath)
 	if err != nil {
-		return fmt.Errorf("os.Create %q: %w", destPath, err)
+		return fmt.Errorf("os.create %q: %w", destPath, err)
 	}
 
 	// make sure to close and delete in case we return early
@@ -276,7 +276,7 @@ func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath str
 	object := g.makeObjectName(backupID, key)
 	rc, err := bucket.Object(object).NewReader(ctx)
 	if err != nil {
-		return fmt.Errorf("Object(%q).NewReader: %v", object, err)
+		return fmt.Errorf("find object %q: %w", object, err)
 	}
 	defer rc.Close()
 
@@ -290,6 +290,82 @@ func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath str
 	}
 
 	return nil
+}
+
+func (g *gcsClient) Write(ctx context.Context, backupID, key string, r io.ReadCloser) (int64, error) {
+	defer r.Close()
+
+	bucket, err := g.findBucket(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("find bucket: %w", err)
+	}
+
+	// create a new writer
+	path := g.makeObjectName(backupID, key)
+	writer := bucket.Object(path).NewWriter(ctx)
+	writer.ContentType = "application/octet-stream"
+	writer.Metadata = map[string]string{"backup-id": backupID}
+
+	// if we return early make sure writer is closed
+	closeWriter := true
+	defer func() {
+		if closeWriter {
+			writer.Close()
+		}
+	}()
+
+	// copy
+	written, err := io.Copy(writer, r)
+	if err != nil {
+		return 0, fmt.Errorf("io.copy %q: %w", path, err)
+	}
+	closeWriter = false
+	if err := writer.Close(); err != nil {
+		return 0, fmt.Errorf("writer.close %q: %w", path, err)
+	}
+	if metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.
+		GetMetricWithLabelValues(Name, "class"); err == nil {
+		metric.Add(float64(written))
+	}
+	return written, nil
+}
+
+func (g *gcsClient) Read(ctx context.Context, backupID, key string, w io.WriteCloser) (int64, error) {
+	defer w.Close()
+
+	bucket, err := g.findBucket(ctx)
+	if err != nil {
+		err = fmt.Errorf("find bucket: %w", err)
+		if errors.Is(err, storage.ErrObjectNotExist) {
+			err = backup.NewErrNotFound(err)
+		}
+		return 0, err
+	}
+
+	// create reader
+	path := g.makeObjectName(backupID, key)
+	rc, err := bucket.Object(path).NewReader(ctx)
+	if err != nil {
+		err = fmt.Errorf("find object %s: %v", path, err)
+		if errors.Is(err, storage.ErrObjectNotExist) {
+			err = backup.NewErrNotFound(err)
+		}
+		return 0, err
+	}
+	defer rc.Close()
+
+	// copy
+	read, err := io.Copy(w, rc)
+	if err != nil {
+		return read, fmt.Errorf("io.copy %q: %w", path, err)
+	}
+
+	if metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.
+		GetMetricWithLabelValues(Name, "class"); err == nil {
+		metric.Add(float64(float64(read)))
+	}
+
+	return read, nil
 }
 
 func (g *gcsClient) SourceDataPath() string {

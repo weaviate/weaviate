@@ -38,16 +38,18 @@ type propValuePair struct {
 	children           []*propValuePair
 	hasFilterableIndex bool
 	hasSearchableIndex bool
-	Class              *models.Class
+  
+	Class              *models.Class // The schema
 }
 
-func newPropValuePair(class *models.Class) propValuePair {
+func newPropValuePair(class *models.Class) (*propValuePair, error) {
 	if class == nil {
-		panic("class must not be nil")
+		return nil, errors.Errorf("class must not be nil")
 	}
-	return propValuePair{docIDs: newDocBitmap(), Class: class}
+  
+	return &propValuePair{docIDs: newDocBitmap(), Class: class}, nil
 }
-
+  
 func (pv *propValuePair) SetValue(value []byte) {
 	pv._value = value
 }
@@ -62,12 +64,29 @@ func (pv *propValuePair) Value() []byte {
 	return value
 }
 
-func (pv *propValuePair) DocIds() []uint64 {
+  func (pv *propValuePair) DocIds() []uint64 {
 	return pv.docIDs.IDs()
 }
 
 func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 	if pv.operator.OnValue() {
+
+		// TODO text_rbm_inverted_index find better way check whether prop len
+		if strings.HasSuffix(pv.prop, filters.InternalPropertyLength) &&
+			!pv.Class.InvertedIndexConfig.IndexPropertyLength {
+			return errors.Errorf("Property length must be indexed to be filterable! add `IndexPropertyLength: true` to the invertedIndexConfig in %v.  Geo-coordinates, phone numbers and data blobs are not supported by property length.", pv.Class.Class)
+		}
+
+		if pv.operator == filters.OperatorIsNull && !pv.Class.InvertedIndexConfig.IndexNullState {
+			return errors.Errorf("Nullstate must be indexed to be filterable! Add `indexNullState: true` to the invertedIndexConfig")
+		}
+
+		if (pv.prop == filters.InternalPropCreationTimeUnix ||
+			pv.prop == filters.InternalPropLastUpdateTimeUnix) &&
+			!pv.Class.InvertedIndexConfig.IndexTimestamps {
+			return errors.Errorf("Timestamps must be indexed to be filterable! Add `IndexTimestamps: true` to the InvertedIndexConfig in %v", pv.Class.Class)
+		}
+
 		var bucketName string
 		if pv.hasFilterableIndex {
 			bucketName = "filterable_properties"
@@ -89,7 +108,6 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			if !pv.Class.InvertedIndexConfig.IndexNullState {
 				return errors.Errorf("Nullstate must be indexed to be filterable! add `indexNullState: true` to the invertedIndexConfig")
 			}
-
 		}
 
 		if pv.prop == filters.InternalPropCreationTimeUnix || pv.prop == filters.InternalPropLastUpdateTimeUnix {

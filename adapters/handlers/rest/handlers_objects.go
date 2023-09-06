@@ -72,6 +72,7 @@ type objectsManager interface {
 	DeleteObjectReference(context.Context, *models.Principal, *uco.DeleteReferenceInput,
 		*additional.ReplicationProperties, string) *uco.Error
 	GetObjectsClass(ctx context.Context, principal *models.Principal, id strfmt.UUID) (*models.Class, error)
+	GetObjectClassFromName(ctx context.Context, principal *models.Principal, className string) (*models.Class, error)
 }
 
 func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
@@ -153,16 +154,22 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 	// non-module specific params are contained and decide then, but we do not
 	// know if this path is critical enough for this level of optimization.
 	if params.Include != nil {
-		class, err := h.manager.GetObjectsClass(params.HTTPRequest.Context(), principal, params.ID)
+		var class *models.Class
+		var err error
+		if params.ClassName == "" { // deprecated request without classname
+			class, err = h.manager.GetObjectsClass(params.HTTPRequest.Context(), principal, params.ID)
+		} else {
+			class, err = h.manager.GetObjectClassFromName(params.HTTPRequest.Context(), principal, params.ClassName)
+		}
 		if err != nil {
-			h.metricRequestsTotal.logUserError(class.Class)
+			h.metricRequestsTotal.logUserError(params.ClassName)
 			return objects.NewObjectsClassGetBadRequest().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 
 		additional, err = parseIncludeParam(params.Include, h.modulesProvider, true, class)
 		if err != nil {
-			h.metricRequestsTotal.logError(class.Class, err)
+			h.metricRequestsTotal.logError(params.ClassName, err)
 			return objects.NewObjectsClassGetBadRequest().
 				WithPayload(errPayloadFromSingleErr(err))
 		}

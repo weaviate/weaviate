@@ -22,7 +22,7 @@ import (
 )
 
 func TestPropValuePairs_Merging(t *testing.T) {
-	t.Run("allways creates new underlying bitmap", func(t *testing.T) {
+	t.Run("always creates new underlying bitmap", func(t *testing.T) {
 		type testCase struct {
 			name string
 

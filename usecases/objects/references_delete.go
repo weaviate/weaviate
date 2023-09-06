@@ -15,11 +15,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 )
 
 // DeleteReferenceInput represents required inputs to delete a reference from an existing object.
@@ -41,13 +41,19 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	defer m.metrics.DeleteReferenceDec()
 
 	deprecatedEndpoint := input.Class == ""
-	if input.Class != "" && strings.Count(string(input.Reference.Beacon), "/") == 3 {
-		toClass, toBeacon, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, input.Reference.Beacon)
+	beacon, err := crossref.Parse(input.Reference.Beacon.String())
+	if err != nil {
+		return &Error{"cannot parse beacon", StatusBadRequest, err}
+	}
+	if input.Class != "" && beacon.Class == "" {
+		toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, beacon)
 		if err != nil {
 			return err
 		}
-		input.Reference.Class = toClass
-		input.Reference.Beacon = toBeacon
+		if replace {
+			input.Reference.Class = toClass
+			input.Reference.Beacon = toBeacon
+		}
 	}
 
 	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID,
@@ -100,7 +106,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}
 
-	if err := m.updateRefVector(ctx, principal, input.Class, input.ID); err != nil {
+	if err := m.updateRefVector(ctx, principal, input.Class, input.ID, tenant); err != nil {
 		return &Error{"update ref vector", StatusInternalServerError, err}
 	}
 

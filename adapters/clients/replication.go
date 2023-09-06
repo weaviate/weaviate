@@ -14,7 +14,6 @@ package clients
 import (
 	"bytes"
 	"context"
-	"encoding"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -54,7 +53,7 @@ func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.doCustomUnmarshal(c.timeoutUnit*20, req, nil, &resp)
+	err = c.doCustomUnmarshal(c.timeoutUnit*20, req, nil, resp.UnmarshalBinary)
 	return resp, err
 }
 
@@ -111,7 +110,7 @@ func (c *replicationClient) FetchObjects(ctx context.Context, host,
 	}
 
 	req.URL.RawQuery = url.Values{"ids": []string{idsEncoded}}.Encode()
-	err = c.doCustomUnmarshal(c.timeoutUnit*90, req, nil, &resp)
+	err = c.doCustomUnmarshal(c.timeoutUnit*90, req, nil, resp.UnmarshalBinary)
 	return resp, err
 }
 
@@ -282,7 +281,6 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 		defer res.Body.Close()
 
 		if code := res.StatusCode; code != http.StatusOK {
-			defer res.Body.Close()
 			b, _ := io.ReadAll(res.Body)
 			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, b)
 		}
@@ -295,37 +293,9 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 }
 
 func (c *replicationClient) doCustomUnmarshal(timeout time.Duration,
-	req *http.Request, body []byte, resp encoding.BinaryUnmarshaler,
+	req *http.Request, body []byte, decode func([]byte) error,
 ) (err error) {
-	ctx, cancel := context.WithTimeout(req.Context(), timeout)
-	defer cancel()
-	try := func(ctx context.Context) (bool, error) {
-		if body != nil {
-			req.Body = io.NopCloser(bytes.NewReader(body))
-		}
-		res, err := c.client.Do(req)
-		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
-		}
-
-		respBody, err := io.ReadAll(res.Body)
-		if err != nil {
-			return shouldRetry(res.StatusCode), fmt.Errorf("read response: %w", err)
-		}
-		defer res.Body.Close()
-
-		if code := res.StatusCode; code != http.StatusOK {
-			defer res.Body.Close()
-			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, respBody)
-		}
-
-		if err := resp.UnmarshalBinary(respBody); err != nil {
-			return false, fmt.Errorf("unmarshal response: %w", err)
-		}
-
-		return false, nil
-	}
-	return c.retry(ctx, 9, try)
+	return (*retryClient)(c).doWithCustomMarshaller(timeout, req, body, decode)
 }
 
 // backOff return a new random duration in the interval [d, 3d].

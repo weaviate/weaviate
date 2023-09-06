@@ -1,0 +1,29 @@
+name: golangci-lint
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - '**'
+  pull_request:
+jobs:
+  golangci:
+    name: golangci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+      - uses: actions/checkout@v3
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          # Required: the version of golangci-lint is required and must be specified without patch version: we always use the latest patch version.
+          version: v1.53
+          args: --timeout=5m
+  protolint:
+    name: protolint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: yoheimuta/action-protolint@v1

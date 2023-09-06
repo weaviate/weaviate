@@ -160,6 +160,6 @@ func updateObjectsDeprecated(t *testing.T) {
 			return refMap["beacon"]
 		}
 
-		helper.AssertEventuallyEqual(t, fmt.Sprintf("weaviate://localhost/%s", thingToRefID), actualThunk)
+		helper.AssertEventuallyEqual(t, fmt.Sprintf("weaviate://localhost/ObjectTestThing/%s", thingToRefID), actualThunk)
 	})
 }
