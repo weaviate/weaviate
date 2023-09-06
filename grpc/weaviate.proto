@@ -177,7 +177,7 @@ message HybridSearchParams {
   FusionType fusion_type = 5;
 }
 
-message NearTextSearchParams{
+message NearTextSearchParams {
   message Move{
     float force = 1;
     repeated string concepts = 2;
@@ -192,19 +192,19 @@ message NearTextSearchParams{
   optional Move move_away = 5;
 };
 
-message NearImageSearchParams{
+message NearImageSearchParams {
   string image = 1;
   optional double certainty = 2;
   optional double distance = 3;
 };
 
-message NearAudioSearchParams{
+message NearAudioSearchParams {
   string audio = 1;
   optional double certainty = 2;
   optional double distance = 3;
 };
 
-message NearVideoSearchParams{
+message NearVideoSearchParams {
   string video = 1;
   optional double certainty = 2;
   optional double distance = 3;
@@ -265,32 +265,32 @@ message ResultAdditionalProps {
   optional bool is_consistent = 15;
 }
 
-message NumberArrayProperties{
+message NumberArrayProperties {
   repeated double values = 1;
   string prop_name = 2;
 }
 
-message IntArrayProperties{
+message IntArrayProperties {
   repeated int64 values = 1;
   string prop_name = 2;
 }
 
-message TextArrayProperties{
+message TextArrayProperties {
   repeated string values = 1;
   string prop_name = 2;
 }
 
-message BooleanArrayProperties{
+message BooleanArrayProperties {
   repeated bool values = 1;
   string prop_name = 2;
 }
 
-message DateArrayProperties{
+message DateArrayProperties {
   repeated google.protobuf.Timestamp values = 1;
   string prop_name = 2;
 }
 
-message UuidArrayProperties{
+message UuidArrayProperties {
   repeated string values = 1;
   string prop_name = 2;
 }
