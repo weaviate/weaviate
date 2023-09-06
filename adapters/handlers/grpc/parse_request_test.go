@@ -116,29 +116,10 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
-			name: "Properties return values non-ref uncapitalized",
-			req:  &grpc.SearchRequest{ClassName: classname, Properties: &grpc.Properties{NonRefProperties: []string{"name"}}},
+			name: "Properties return values non-ref",
+			req:  &grpc.SearchRequest{ClassName: classname, Properties: &grpc.Properties{NonRefProperties: []string{"name", "CapitalizedName"}}},
 			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}},
-				AdditionalProperties: additional.Properties{
-					Vector:             false,
-					Certainty:          false,
-					ID:                 false,
-					CreationTimeUnix:   false,
-					LastUpdateTimeUnix: false,
-					Distance:           false,
-					Score:              false,
-					ExplainScore:       false,
-					NoProps:            false,
-				},
-			},
-			error: false,
-		},
-		{
-			name: "Properties return values non-ref capitalized",
-			req:  &grpc.SearchRequest{ClassName: classname, Properties: &grpc.Properties{NonRefProperties: []string{"CapitalizedName"}}},
-			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "capitalizedName", IsPrimitive: true}},
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "capitalizedName", IsPrimitive: true}},
 				AdditionalProperties: additional.Properties{
 					Vector:             false,
 					Certainty:          false,
@@ -163,7 +144,7 @@ func TestGRPCRequest(t *testing.T) {
 			name: "Properties return values multi-ref",
 			req: &grpc.SearchRequest{ClassName: classname, Properties: &grpc.Properties{RefProperties: []*grpc.RefProperties{
 				{ReferenceProperty: "multiRef", WhichCollection: refClass1, Metadata: &grpc.AdditionalProperties{Vector: true, Certainty: false}, LinkedProperties: &grpc.Properties{NonRefProperties: []string{"something"}}},
-				{ReferenceProperty: "multiRef", WhichCollection: refClass2, Metadata: &grpc.AdditionalProperties{Uuid: true}, LinkedProperties: &grpc.Properties{NonRefProperties: []string{"else"}}},
+				{ReferenceProperty: "MultiRef", WhichCollection: refClass2, Metadata: &grpc.AdditionalProperties{Uuid: true}, LinkedProperties: &grpc.Properties{NonRefProperties: []string{"else"}}},
 			}}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{
