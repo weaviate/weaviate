@@ -483,9 +483,11 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 		}
 
 		for _, test := range tests {
+			/* FIXME
 			if !strings.Contains(test.name, "within 600km of San Francisco") {
 				continue
 			}
+			*/
 			t.Run(test.name, func(t *testing.T) {
 				if test.limit == 0 {
 					test.limit = 100
