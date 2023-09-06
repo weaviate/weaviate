@@ -17,7 +17,7 @@ services:
       OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.75
       LOG_LEVEL: debug
   prometheus:
-    image: prom/prometheus:v2.1.0
+    image: prom/prometheus:v2.46.0
     volumes:
       - ./tools/dev/prometheus_config/:/etc/prometheus/
       - ./data/prometheus:/prometheus

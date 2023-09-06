@@ -15,6 +15,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -46,6 +49,40 @@ func TestGRPCReply(t *testing.T) {
 		ExplainScore:       true,
 		Score:              true,
 	}}
+	refClass1 := "RefClass1"
+	refClass2 := "RefClass2"
+	className := "className"
+	scheme := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class: className,
+					Properties: []*models.Property{
+						{Name: "word", DataType: schema.DataTypeText.PropString()},
+						{Name: "other", DataType: []string{"int"}},
+						{Name: "age", DataType: []string{"int"}},
+						{Name: "nums", DataType: schema.DataTypeIntArray.PropString()},
+						{Name: "ref", DataType: []string{refClass1}},
+						{Name: "multiRef", DataType: []string{refClass1, refClass2}},
+					},
+				},
+				{
+					Class: refClass1,
+					Properties: []*models.Property{
+						{Name: "something", DataType: schema.DataTypeText.PropString()},
+						{Name: "ref2", DataType: []string{refClass2}},
+					},
+				},
+				{
+					Class: refClass2,
+					Properties: []*models.Property{
+						{Name: "else", DataType: schema.DataTypeText.PropString()},
+						{Name: "ref3", DataType: []string{refClass2}},
+					},
+				},
+			},
+		},
+	}
 
 	tests := []struct {
 		name         string
@@ -143,25 +180,25 @@ func TestGRPCReply(t *testing.T) {
 			name: "primitive properties",
 			res: []interface{}{
 				map[string]interface{}{
-					"name": "word",
+					"word": "word",
 					"age":  21,
 				},
 				map[string]interface{}{
-					"name": "other",
+					"word": "other",
 					"age":  26,
 				},
 			},
 			searchParams: dto.GetParams{
-				ClassName:  "test",
-				Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "age", IsPrimitive: true}},
+				ClassName:  className,
+				Properties: search.SelectProperties{{Name: "word", IsPrimitive: true}, {Name: "age", IsPrimitive: true}},
 			},
 			out: []*grpc.SearchResult{
 				{
 					AdditionalProperties: &grpc.ResultAdditionalProps{},
 					Properties: &grpc.ResultProperties{
-						ClassName: "test",
+						ClassName: className,
 						NonRefProperties: newStruct(t, map[string]interface{}{
-							"name": "word",
+							"word": "word",
 							"age":  21,
 						}),
 					},
@@ -169,11 +206,31 @@ func TestGRPCReply(t *testing.T) {
 				{
 					AdditionalProperties: &grpc.ResultAdditionalProps{},
 					Properties: &grpc.ResultProperties{
-						ClassName: "test",
+						ClassName: className,
 						NonRefProperties: newStruct(t, map[string]interface{}{
-							"name": "other",
+							"word": "other",
 							"age":  26,
 						}),
+					},
+				},
+			},
+		},
+		{
+			name: "array properties",
+			res: []interface{}{
+				map[string]interface{}{"nums": []float64{1, 2, 3}}, // ints are encoded as float64 in json
+			},
+			searchParams: dto.GetParams{
+				ClassName:  className,
+				Properties: search.SelectProperties{{Name: "nums", IsPrimitive: true}},
+			},
+			out: []*grpc.SearchResult{
+				{
+					AdditionalProperties: &grpc.ResultAdditionalProps{},
+					Properties: &grpc.ResultProperties{
+						ClassName:          className,
+						NonRefProperties:   newStruct(t, map[string]interface{}{}),
+						IntArrayProperties: []*grpc.IntArrayProperties{{Key: "nums", Vals: []int32{1, 2, 3}}},
 					},
 				},
 			},
@@ -182,24 +239,24 @@ func TestGRPCReply(t *testing.T) {
 			name: "primitive and ref properties",
 			res: []interface{}{
 				map[string]interface{}{
-					"name": "word",
+					"word": "word",
 					"ref": []interface{}{
 						search.LocalRef{
-							Class: "Ref2",
+							Class: refClass1,
 							Fields: map[string]interface{}{
-								"name2":       "other",
+								"something":   "other",
 								"_additional": map[string]interface{}{"vector": []float32{3}},
 							},
 						},
 					},
 				},
 				map[string]interface{}{
-					"name": "other",
+					"word": "other",
 					"ref": []interface{}{
 						search.LocalRef{
-							Class: "Ref2",
+							Class: refClass1,
 							Fields: map[string]interface{}{
-								"name2":       "thing",
+								"something":   "thing",
 								"_additional": map[string]interface{}{"vector": []float32{4}},
 							},
 						},
@@ -207,13 +264,13 @@ func TestGRPCReply(t *testing.T) {
 				},
 			},
 			searchParams: dto.GetParams{
-				ClassName: "test",
+				ClassName: className,
 				Properties: search.SelectProperties{
-					{Name: "name", IsPrimitive: true},
+					{Name: "word", IsPrimitive: true},
 					{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{
 						{
-							ClassName:            "Ref2",
-							RefProperties:        search.SelectProperties{{Name: "name2", IsPrimitive: true}},
+							ClassName:            refClass1,
+							RefProperties:        search.SelectProperties{{Name: "something", IsPrimitive: true}},
 							AdditionalProperties: additional.Properties{Vector: true},
 						},
 					}},
@@ -223,17 +280,17 @@ func TestGRPCReply(t *testing.T) {
 				{
 					AdditionalProperties: &grpc.ResultAdditionalProps{},
 					Properties: &grpc.ResultProperties{
-						ClassName: "test",
+						ClassName: className,
 						NonRefProperties: newStruct(t, map[string]interface{}{
-							"name": "word",
+							"word": "word",
 						}),
 						RefProps: []*grpc.ReturnRefProperties{{
 							PropName: "ref",
 							Properties: []*grpc.ResultProperties{
 								{
-									ClassName:        "Ref2",
+									ClassName:        refClass1,
 									Metadata:         &grpc.ResultAdditionalProps{Vector: []float32{3}},
-									NonRefProperties: newStruct(t, map[string]interface{}{"name2": "other"}),
+									NonRefProperties: newStruct(t, map[string]interface{}{"something": "other"}),
 								},
 							},
 						}},
@@ -242,17 +299,17 @@ func TestGRPCReply(t *testing.T) {
 				{
 					AdditionalProperties: &grpc.ResultAdditionalProps{},
 					Properties: &grpc.ResultProperties{
-						ClassName: "test",
+						ClassName: className,
 						NonRefProperties: newStruct(t, map[string]interface{}{
-							"name": "other",
+							"word": "other",
 						}),
 						RefProps: []*grpc.ReturnRefProperties{{
 							PropName: "ref",
 							Properties: []*grpc.ResultProperties{
 								{
-									ClassName:        "Ref2",
+									ClassName:        refClass1,
 									Metadata:         &grpc.ResultAdditionalProps{Vector: []float32{4}},
-									NonRefProperties: newStruct(t, map[string]interface{}{"name2": "thing"}),
+									NonRefProperties: newStruct(t, map[string]interface{}{"something": "thing"}),
 								},
 							},
 						}},
@@ -264,7 +321,7 @@ func TestGRPCReply(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := searchResultsToProto(tt.res, time.Now(), tt.searchParams)
+			out, err := searchResultsToProto(tt.res, time.Now(), tt.searchParams, scheme)
 			require.Nil(t, err)
 			for i := range tt.out {
 				require.Equal(t, tt.out[i].Properties.String(), out.Results[i].Properties.String())

@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.21.0"
+    "version": "1.21.2"
   },
   "basePath": "/v1",
   "paths": {
@@ -4606,6 +4606,7 @@ func init() {
             "type": "boolean"
           },
           "x-nullable": true,
+          "x-omitempty": true,
           "example": [
             true,
             false
@@ -4624,6 +4625,7 @@ func init() {
             "type": "string"
           },
           "x-nullable": true,
+          "x-omitempty": true,
           "example": "TODO"
         },
         "valueGeoRange": {
@@ -4647,6 +4649,7 @@ func init() {
             "format": "int64"
           },
           "x-nullable": true,
+          "x-omitempty": true,
           "example": "[100, 200]"
         },
         "valueNumber": {
@@ -4664,6 +4667,7 @@ func init() {
             "format": "float64"
           },
           "x-nullable": true,
+          "x-omitempty": true,
           "example": [
             3.14
           ]
@@ -4681,6 +4685,7 @@ func init() {
             "type": "string"
           },
           "x-nullable": true,
+          "x-omitempty": true,
           "example": [
             "my search term"
           ]
@@ -4698,6 +4703,7 @@ func init() {
             "type": "string"
           },
           "x-nullable": true,
+          "x-omitempty": true,
           "example": [
             "my search term"
           ]
@@ -4853,7 +4859,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.21.0"
+    "version": "1.21.2"
   },
   "basePath": "/v1",
   "paths": {
@@ -9702,6 +9708,7 @@ func init() {
             "type": "boolean"
           },
           "x-nullable": true,
+          "x-omitempty": true,
           "example": [
             true,
             false
@@ -9720,6 +9727,7 @@ func init() {
             "type": "string"
           },
           "x-nullable": true,
+          "x-omitempty": true,
           "example": "TODO"
         },
         "valueGeoRange": {
@@ -9743,6 +9751,7 @@ func init() {
             "format": "int64"
           },
           "x-nullable": true,
+          "x-omitempty": true,
           "example": "[100, 200]"
         },
         "valueNumber": {
@@ -9760,6 +9769,7 @@ func init() {
             "format": "float64"
           },
           "x-nullable": true,
+          "x-omitempty": true,
           "example": [
             3.14
           ]
@@ -9777,6 +9787,7 @@ func init() {
             "type": "string"
           },
           "x-nullable": true,
+          "x-omitempty": true,
           "example": [
             "my search term"
           ]
@@ -9794,6 +9805,7 @@ func init() {
             "type": "string"
           },
           "x-nullable": true,
+          "x-omitempty": true,
           "example": [
             "my search term"
           ]

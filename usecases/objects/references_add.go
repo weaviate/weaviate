@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -69,8 +68,12 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 
 	if !deprecatedEndpoint {
-		if input.Class != "" && strings.Count(string(input.Ref.Beacon), "/") == 3 {
-			toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, input.Ref.Beacon)
+		beacon, err := crossref.Parse(input.Ref.Beacon.String())
+		if err != nil {
+			return &Error{"cannot parse beacon", StatusBadRequest, err}
+		}
+		if input.Class != "" && beacon.Class == "" {
+			toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, beacon)
 			if err != nil {
 				return err
 			}
@@ -113,7 +116,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		return &Error{"add reference to repo", StatusInternalServerError, err}
 	}
 
-	if err := m.updateRefVector(ctx, principal, input.Class, input.ID); err != nil {
+	if err := m.updateRefVector(ctx, principal, input.Class, input.ID, tenant); err != nil {
 		return &Error{"update ref vector", StatusInternalServerError, err}
 	}
 

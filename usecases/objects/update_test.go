@@ -154,7 +154,7 @@ func Test_UpdateObject(t *testing.T) {
 		Properties: map[string]interface{}{"foo": "baz"},
 	}
 	// the object might not exist
-	m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(nil, anyErr).Once()
+	m.repo.On("Object", cls, id, mock.Anything, mock.Anything, "").Return(nil, anyErr).Once()
 	_, err := m.UpdateObject(context.Background(), &models.Principal{}, cls, id, payload, nil)
 	if err == nil {
 		t.Fatalf("must return an error if object() fails")
@@ -167,7 +167,7 @@ func Test_UpdateObject(t *testing.T) {
 		Created:   beforeUpdate,
 		Updated:   beforeUpdate,
 	}
-	m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(result, nil).Once()
+	m.repo.On("Object", cls, id, mock.Anything, mock.Anything, "").Return(result, nil).Once()
 	m.modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
 		Return(vec, nil)
 	m.repo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
