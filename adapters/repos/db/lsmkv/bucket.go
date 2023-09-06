@@ -254,13 +254,12 @@ func (b *Bucket) DumpStringRoaring() string {
 
 	for k, sbmp := cursor.First(); k != nil; k, sbmp = cursor.Next() {
 		fmt.Printf("IterateObjectsRoaring k: %v, sbmp: %v\n", k, sbmp.ToArray())
-	
+
 		buf.WriteString(fmt.Sprintf("%v: %v\n", k, sbmp.ToArray()))
-		
+
 	}
 	return buf.String()
 }
-
 
 func (b *Bucket) SetMemtableThreshold(size uint64) {
 	b.memtableThreshold = size

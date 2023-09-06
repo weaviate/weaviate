@@ -72,7 +72,6 @@ func TestJsonPropertyIdTracker(t *testing.T) {
 	})
 
 	t.Run("GetIdForProperty", func(t *testing.T) {
-		
 		tracker, _ := NewJsonPropertyIdTracker(path)
 		defer tracker.Drop()
 

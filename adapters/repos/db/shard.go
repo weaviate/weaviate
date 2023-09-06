@@ -507,7 +507,6 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 		helpers.BucketFromPropertyNameLengthLSM(prop.Name),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
-
 }
 
 func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property) error {
@@ -520,7 +519,6 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 		helpers.BucketFromPropertyNameNullLSM(prop.Name),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
-
 }
 
 func (s *Shard) updateVectorIndexConfig(ctx context.Context,
