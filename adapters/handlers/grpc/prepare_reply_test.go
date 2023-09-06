@@ -237,7 +237,7 @@ func TestGRPCReply(t *testing.T) {
 					Properties: &grpc.ResultProperties{
 						ClassName:          className,
 						NonRefProperties:   newStruct(t, map[string]interface{}{}),
-						IntArrayProperties: []*grpc.IntArrayProperties{{Key: "nums", Vals: []int32{1, 2, 3}}},
+						IntArrayProperties: []*grpc.IntArrayProperties{{PropName: "nums", Values: []int64{1, 2, 3}}},
 					},
 				},
 			},
