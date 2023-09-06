@@ -169,17 +169,17 @@ func TestGRPCBatchRequest(t *testing.T) {
 			req: []*grpc.BatchObject{{ClassName: classname, Properties: &grpc.BatchObject_Properties{
 				NonRefProperties: newStruct(t, map[string]interface{}{"name": "something"}),
 				BooleanArrayProperties: []*grpc.BooleanArrayProperties{
-					{Key: "boolArray1", Vals: []bool{true, true}},
-					{Key: "boolArray2", Vals: []bool{false, true}},
+					{PropName: "boolArray1", Value: []bool{true, true}},
+					{PropName: "boolArray2", Value: []bool{false, true}},
 				},
 				IntArrayProperties: []*grpc.IntArrayProperties{
-					{Key: "int1", Vals: []int64{2, 3, 4}}, {Key: "int2", Vals: []int64{7, 8}},
+					{PropName: "int1", Value: []int64{2, 3, 4}}, {PropName: "int2", Value: []int64{7, 8}},
 				},
 				NumberArrayProperties: []*grpc.NumberArrayProperties{
-					{Key: "float1", Vals: []float64{1, 2, 3}}, {Key: "float2", Vals: []float64{4, 5}},
+					{PropName: "float1", Value: []float64{1, 2, 3}}, {PropName: "float2", Value: []float64{4, 5}},
 				},
 				TextArrayProperties: []*grpc.TextArrayProperties{
-					{Key: "text1", Vals: []string{"first", "second"}}, {Key: "text2", Vals: []string{"third"}},
+					{PropName: "text1", Value: []string{"first", "second"}}, {PropName: "text2", Value: []string{"third"}},
 				},
 			}}},
 			out: []*models.Object{{Class: classname, Properties: map[string]interface{}{

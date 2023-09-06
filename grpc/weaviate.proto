@@ -266,33 +266,39 @@ message ResultAdditionalProps {
 }
 
 message NumberArrayProperties{
-  string key =1;
-  repeated double vals = 2;
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated double value = 1;
+  string prop_name = 2;
 }
 
 message IntArrayProperties{
-  string key =1;
-  repeated int64 vals = 2;
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated int64 value = 1;
+  string prop_name = 2;
 }
 
 message TextArrayProperties{
-  string key =1;
-  repeated string vals = 2;
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated string value = 1;
+  string prop_name = 2;
 }
 
 message BooleanArrayProperties{
-  string key =1;
-  repeated bool vals = 2;
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated bool value = 1;
+  string prop_name = 2;
 }
 
 message DateArrayProperties{
-  string key =1;
-  repeated google.protobuf.Timestamp vals = 2;
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated google.protobuf.Timestamp value = 1;
+  string prop_name = 2;
 }
 
 message UuidArrayProperties{
-  string key =1;
-  repeated string vals = 2;
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated string value = 1;
+  string prop_name = 2;
 }
 
 message ResultProperties {

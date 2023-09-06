@@ -46,25 +46,25 @@ func batchFromProto(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*model
 			// arrays cannot be part of a GRPC map, so we need to handle each type separately
 			if obj.Properties.BooleanArrayProperties != nil {
 				for j := range obj.Properties.BooleanArrayProperties {
-					props[obj.Properties.BooleanArrayProperties[j].Key] = sliceToInterface(obj.Properties.BooleanArrayProperties[j].Vals)
+					props[obj.Properties.BooleanArrayProperties[j].PropName] = sliceToInterface(obj.Properties.BooleanArrayProperties[j].Value)
 				}
 			}
 
 			if obj.Properties.NumberArrayProperties != nil {
 				for j := range obj.Properties.NumberArrayProperties {
-					props[obj.Properties.NumberArrayProperties[j].Key] = sliceToInterface(obj.Properties.NumberArrayProperties[j].Vals)
+					props[obj.Properties.NumberArrayProperties[j].PropName] = sliceToInterface(obj.Properties.NumberArrayProperties[j].Value)
 				}
 			}
 
 			if obj.Properties.TextArrayProperties != nil {
 				for j := range obj.Properties.TextArrayProperties {
-					props[obj.Properties.TextArrayProperties[j].Key] = sliceToInterface(obj.Properties.TextArrayProperties[j].Vals)
+					props[obj.Properties.TextArrayProperties[j].PropName] = sliceToInterface(obj.Properties.TextArrayProperties[j].Value)
 				}
 			}
 
 			if obj.Properties.IntArrayProperties != nil {
 				for j := range obj.Properties.IntArrayProperties {
-					props[obj.Properties.IntArrayProperties[j].Key] = sliceToInterface(obj.Properties.IntArrayProperties[j].Vals)
+					props[obj.Properties.IntArrayProperties[j].PropName] = sliceToInterface(obj.Properties.IntArrayProperties[j].Value)
 				}
 			}
 
