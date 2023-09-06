@@ -310,7 +310,8 @@ func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, cla
 	if reqProps.RefProperties != nil && len(reqProps.RefProperties) > 0 {
 		class := scheme.GetClass(schema.ClassName(className))
 		for _, prop := range reqProps.RefProperties {
-			schemaProp, err := schema.GetPropertyByName(class, prop.ReferenceProperty)
+			normalizedRefPropName := normalizeRequestPropertyName(prop.ReferenceProperty)
+			schemaProp, err := schema.GetPropertyByName(class, normalizedRefPropName)
 			if err != nil {
 				return nil, err
 			}
@@ -333,7 +334,7 @@ func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, cla
 				return nil, err
 			}
 			props = append(props, search.SelectProperty{
-				Name:        prop.ReferenceProperty,
+				Name:        normalizedRefPropName,
 				IsPrimitive: false,
 				Refs: []search.SelectClass{{
 					ClassName:            linkedClass,
