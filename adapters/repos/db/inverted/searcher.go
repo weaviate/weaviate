@@ -245,8 +245,7 @@ func (s *Searcher) buildPropValuePair(filter *filters.Clause, className schema.C
 		if filter.Operator == filters.OperatorIsNull {
 		if class.InvertedIndexConfig.IndexNullState {
 		return s.extractPropertyNull(property, filter.Value.Type, filter.Value.Value, filter.Operator, class)
-	}
-      else {
+	} else {
 			return nil, errors.Errorf("property %s does not support null state", property.Name)
 		}
     }
@@ -272,9 +271,9 @@ func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className sc
 	for i, clause := range operands {
 		i, clause := i, clause
 	
-			child, err := s.extractPropValuePair(&clause, className)
+			child, err := s.buildPropValuePair(&clause, className)
 			if err != nil {
-				return errors.Wrapf(err, "nested clause at pos %d", i)
+				return []*propValuePair{}, errors.Wrapf(err, "nested clause at pos %d", i)
 			}
 			children[i] = child
 
