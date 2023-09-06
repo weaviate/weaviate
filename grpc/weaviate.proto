@@ -283,12 +283,6 @@ message BooleanArrayProperties {
   string prop_name = 2;
 }
 
-
-message UuidArrayProperties {
-  repeated string values = 1;
-  string prop_name = 2;
-}
-
 message ResultProperties {
   google.protobuf.Struct non_ref_properties = 1;
   repeated ReturnRefProperties ref_props = 2;
@@ -298,7 +292,6 @@ message ResultProperties {
   repeated IntArrayProperties int_array_properties = 6;
   repeated TextArrayProperties text_array_properties = 7;
   repeated BooleanArrayProperties boolean_array_properties = 8;
-  repeated UuidArrayProperties uuid_array_properties = 9;
 }
 
 message ReturnRefProperties {
