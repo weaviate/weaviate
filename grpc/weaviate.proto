@@ -3,7 +3,6 @@ syntax = "proto3";
 package weaviategrpc;
 
 import "google/protobuf/struct.proto";
-import "google/protobuf/timestamp.proto";
 option go_package = "github.com/weaviate/weaviate/grpc";
 
 
@@ -99,9 +98,6 @@ message NumberArray {
 }
 message BooleanArray {
   repeated bool values = 1;
-}
-message DateArray {
-  repeated google.protobuf.Timestamp values = 1;
 }
 
 message Filters {
