@@ -17,6 +17,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -216,6 +217,16 @@ func FromEnv(config *Config) error {
 		if config.DefaultVectorizerModule == "" {
 			config.DefaultVectorizerModule = VectorizerModuleNone
 		}
+	}
+
+	if v := os.Getenv("MODULES_CLIENT_TIMEOUT"); v != "" {
+		timeout, err := time.ParseDuration(v)
+		if err != nil {
+			return errors.Wrapf(err, "parse MODULES_CLIENT_TIMEOUT as time.Duration")
+		}
+		config.ModuleHttpClientTimeout = timeout
+	} else {
+		config.ModuleHttpClientTimeout = 60 * time.Second
 	}
 
 	if v := os.Getenv("DEFAULT_VECTOR_DISTANCE_METRIC"); v != "" {
