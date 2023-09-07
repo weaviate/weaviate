@@ -85,6 +85,13 @@ message SearchRequest {
   optional NearAudioSearchParams near_audio = 16;
   optional NearVideoSearchParams near_video = 17;
   optional ConsistencyLevel consistency_level = 18;
+  optional GenerativeSearch generative = 19;
+}
+
+message GenerativeSearch {
+  string single_response_prompt = 1;
+  string grouped_response_task = 2;
+  repeated string grouped_properties = 3;
 }
 
 message TextArray {
