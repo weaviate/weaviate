@@ -92,11 +92,11 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		if hs.FusionType == pb.HybridSearchParams_FUSION_TYPE_RELATIVE_SCORE {
 			fusionType = common_filters.HybridRelativeScoreFusion
 		}
-		out.HybridSearch = &searchparams.HybridSearch{Query: hs.Query, Properties: hs.Properties, Vector: hs.Vector, Alpha: float64(hs.Alpha), FusionAlgorithm: fusionType}
+		out.HybridSearch = &searchparams.HybridSearch{Query: hs.Query, Properties: schema.LowercaseFirstLetterOfStrings(hs.Properties), Vector: hs.Vector, Alpha: float64(hs.Alpha), FusionAlgorithm: fusionType}
 	}
 
 	if bm25 := req.Bm25Search; bm25 != nil {
-		out.KeywordRanking = &searchparams.KeywordRanking{Query: bm25.Query, Properties: bm25.Properties, Type: "bm25", AdditionalExplanations: out.AdditionalProperties.ExplainScore}
+		out.KeywordRanking = &searchparams.KeywordRanking{Query: bm25.Query, Properties: schema.LowercaseFirstLetterOfStrings(bm25.Properties), Type: "bm25", AdditionalExplanations: out.AdditionalProperties.ExplainScore}
 	}
 
 	if nv := req.NearVector; nv != nil {
@@ -442,7 +442,7 @@ func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, cla
 	if reqProps.NonRefProperties != nil && len(reqProps.NonRefProperties) > 0 {
 		for _, prop := range reqProps.NonRefProperties {
 			props = append(props, search.SelectProperty{
-				Name:        prop,
+				Name:        schema.LowercaseFirstLetter(prop),
 				IsPrimitive: true,
 			})
 		}
@@ -451,7 +451,8 @@ func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, cla
 	if reqProps.RefProperties != nil && len(reqProps.RefProperties) > 0 {
 		class := scheme.GetClass(schema.ClassName(className))
 		for _, prop := range reqProps.RefProperties {
-			schemaProp, err := schema.GetPropertyByName(class, prop.ReferenceProperty)
+			normalizedRefPropName := schema.LowercaseFirstLetter(prop.ReferenceProperty)
+			schemaProp, err := schema.GetPropertyByName(class, normalizedRefPropName)
 			if err != nil {
 				return nil, err
 			}
@@ -474,7 +475,7 @@ func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, cla
 				return nil, err
 			}
 			props = append(props, search.SelectProperty{
-				Name:        prop.ReferenceProperty,
+				Name:        normalizedRefPropName,
 				IsPrimitive: false,
 				Refs: []search.SelectClass{{
 					ClassName:            linkedClass,
