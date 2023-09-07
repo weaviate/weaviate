@@ -14,6 +14,8 @@ package grpc
 import (
 	"fmt"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
+
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearAudio"
@@ -186,7 +188,6 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	}
 
 	if req.NearText != nil {
-
 		moveAwayOut, err := extractNearTextMove(req.ClassName, req.NearText.MoveAway)
 		if err != nil {
 			return dto.GetParams{}, err
@@ -215,6 +216,10 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.ModuleParams["nearText"] = nearText
 	}
 
+	if req.Generative != nil {
+		out.ModuleParams["generative"] = extractGenerative(req.Generative)
+	}
+
 	if len(req.After) > 0 {
 		out.Cursor = &filters.Cursor{After: req.After, Limit: out.Pagination.Limit}
 	}
@@ -232,6 +237,20 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	}
 
 	return out, nil
+}
+
+func extractGenerative(generativeRequest *pb.GenerativeSearch) *generate.Params {
+	generative := generate.Params{}
+	if generativeRequest.SingleResponsePrompt != "" {
+		generative.Prompt = &generativeRequest.SingleResponsePrompt
+	}
+	if generativeRequest.GroupedResponseTask != "" {
+		generative.Task = &generativeRequest.GroupedResponseTask
+	}
+	if generativeRequest.GroupedProperties != nil && len(generativeRequest.GroupedProperties) > 0 {
+		generative.Properties = generativeRequest.GroupedProperties
+	}
+	return &generative
 }
 
 func extractNearTextMove(classname string, Move *pb.NearTextSearchParams_Move) (nearText2.ExploreMove, error) {
