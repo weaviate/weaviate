@@ -114,12 +114,31 @@ func TestDeleteTenants(t *testing.T) {
 	}()
 	helper.CreateClass(t, &testClass)
 
-	tenants := []string{"tenant1", "tenant2", "tenant3"}
+	tenants := []string{"tenant1", "tenant2", "tenant3", "tenant4"}
 	var tenantsObject []*models.Tenant
 	for _, tenant := range tenants {
 		tenantsObject = append(tenantsObject, &models.Tenant{Name: tenant})
 	}
 	helper.CreateTenants(t, testClass.Class, tenantsObject)
+
+	t.Run("Delete same tenant multiple times", func(t *testing.T) {
+		err := helper.DeleteTenants(t, testClass.Class, []string{"tenant4"})
+		require.Nil(t, err)
+
+		// deleted once
+		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+		require.Nil(t, err)
+		require.NotNil(t, resp.Payload)
+		require.NotNil(t, resp.Payload.Nodes)
+		require.Len(t, resp.Payload.Nodes, 1)
+		for _, shard := range resp.Payload.Nodes[0].Shards {
+			assert.NotEqual(t, "tenant4", shard.Name)
+		}
+
+		// idempotent operation
+		err = helper.DeleteTenants(t, testClass.Class, []string{"tenant4"})
+		require.Nil(t, err)
+	})
 
 	t.Run("Delete duplicate tenant once", func(Z *testing.T) {
 		err := helper.DeleteTenants(t, testClass.Class, []string{"tenant1", "tenant1"})

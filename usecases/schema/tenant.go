@@ -79,12 +79,15 @@ func (m *Manager) AddTenants(ctx context.Context,
 		Class:   class,
 		Tenants: make([]TenantCreate, 0, len(partitions)),
 	}
-	for i := range names {
-		request.Tenants = append(request.Tenants, TenantCreate{
-			Name:   names[i],
-			Nodes:  partitions[names[i]],
-			Status: schema.ActivityStatus(validated[i].ActivityStatus),
-		})
+	for i, name := range names {
+		part, ok := partitions[name]
+		if ok {
+			request.Tenants = append(request.Tenants, TenantCreate{
+				Name:   name,
+				Nodes:  part,
+				Status: schema.ActivityStatus(validated[i].ActivityStatus),
+			})
+		}
 	}
 
 	// open cluster-wide transaction
