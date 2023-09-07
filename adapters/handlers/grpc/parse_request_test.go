@@ -47,6 +47,7 @@ func TestGRPCRequest(t *testing.T) {
 						{Name: "name", DataType: schema.DataTypeText.PropString()},
 						{Name: "number", DataType: schema.DataTypeInt.PropString()},
 						{Name: "floats", DataType: schema.DataTypeNumberArray.PropString()},
+						{Name: "uuid", DataType: schema.DataTypeUUID.PropString()},
 						{Name: "ref", DataType: []string{refClass1}},
 						{Name: "multiRef", DataType: []string{refClass1, refClass2}},
 					},
@@ -87,7 +88,7 @@ func TestGRPCRequest(t *testing.T) {
 			name: "No return values given",
 			req:  &grpc.SearchRequest{ClassName: classname},
 			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}, {Name: "floats", IsPrimitive: true}},
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}, {Name: "floats", IsPrimitive: true}, {Name: "uuid", IsPrimitive: true}},
 				AdditionalProperties: additional.Properties{
 					Vector:             true,
 					Certainty:          true,
@@ -229,6 +230,25 @@ func TestGRPCRequest(t *testing.T) {
 						On:       &filters.Path{Class: schema.ClassName(classname), Property: "name"},
 						Operator: filters.OperatorEqual,
 						Value:    &filters.Value{Value: "test", Type: schema.DataTypeText},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "filter uuid",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				Filters: &grpc.Filters{Operator: grpc.Filters_OPERATOR_EQUAL, TestValue: &grpc.Filters_ValueText{ValueText: UUID3}, On: []string{"uuid"}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On:       &filters.Path{Class: schema.ClassName(classname), Property: "uuid"},
+						Operator: filters.OperatorEqual,
+						Value:    &filters.Value{Value: UUID3, Type: schema.DataTypeText},
 					},
 				},
 			},
