@@ -217,6 +217,9 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	}
 
 	if req.Generative != nil {
+		if out.ModuleParams == nil {
+			out.ModuleParams = make(map[string]interface{})
+		}
 		out.ModuleParams["generative"] = extractGenerative(req.Generative)
 	}
 

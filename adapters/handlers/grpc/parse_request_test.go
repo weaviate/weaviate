@@ -14,6 +14,8 @@ package grpc
 import (
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
+
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearAudio"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
@@ -71,6 +73,8 @@ func TestGRPCRequest(t *testing.T) {
 	}
 	defaultPagination := &filters.Pagination{Limit: 10}
 	quorum := grpc.ConsistencyLevel_CONSISTENCY_LEVEL_QUORUM
+	someString1 := "a word"
+	someString2 := "other"
 
 	tests := []struct {
 		name  string
@@ -554,6 +558,19 @@ func TestGRPCRequest(t *testing.T) {
 				ClassName: classname, Pagination: defaultPagination,
 				AdditionalProperties:  additional.Properties{Vector: true, NoProps: true},
 				ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: "QUORUM"},
+			},
+			error: false,
+		},
+		{
+			name: "Generative",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				Generative: &grpc.GenerativeSearch{SingleResponsePrompt: someString1, GroupedResponseTask: someString2, GroupedProperties: []string{"one", "two"}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				ModuleParams:         map[string]interface{}{"generative": &generate.Params{Prompt: &someString1, Task: &someString2, Properties: []string{"one", "two"}}},
 			},
 			error: false,
 		},
