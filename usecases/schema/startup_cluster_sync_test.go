@@ -420,7 +420,7 @@ func newManagerWithClusterAndTx(t *testing.T, clusterState clusterState,
 		},
 		dummyParseVectorConfig, // only option for now
 		&fakeVectorizerValidator{}, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, clusterState, txClient, &fakeScaleOutManager{},
+		&fakeModuleConfig{}, clusterState, txClient, &fakeTxPersistence{}, &fakeScaleOutManager{},
 	)
 
 	return sm, err
