@@ -61,6 +61,12 @@ func TestHnswIndex(t *testing.T) {
 			2, 1, 0, // cluster 1
 		}, res)
 	})
+
+	t.Run("searching with negative value of k", func(t *testing.T) {
+		position := 0
+		_, _, err := index.knnSearchByVector(testVectors[position], -1, 36, nil)
+		require.Error(t, err)
+	})
 }
 
 func TestHnswIndexGrow(t *testing.T) {
