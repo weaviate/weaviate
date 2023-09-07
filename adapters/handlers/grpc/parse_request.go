@@ -13,7 +13,6 @@ package grpc
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
 
@@ -324,6 +323,11 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			return filters.Clause{}, err
 		}
 
+		// datatype UUID is just a string
+		if dataType == schema.DataTypeUUID {
+			dataType = schema.DataTypeText
+		}
+
 		var val interface{}
 		switch filterIn.TestValue.(type) {
 		case *pb.Filters_ValueText:
@@ -334,8 +338,6 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			val = filterIn.GetValueBoolean()
 		case *pb.Filters_ValueNumber:
 			val = filterIn.GetValueNumber()
-		case *pb.Filters_ValueDate:
-			val = filterIn.GetValueDate().AsTime()
 		case *pb.Filters_ValueIntArray:
 			// convert from int32 GRPC to go int
 			valInt32 := filterIn.GetValueIntArray().Values
@@ -350,14 +352,7 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			val = filterIn.GetValueNumberArray().Values
 		case *pb.Filters_ValueBooleanArray:
 			val = filterIn.GetValueBooleanArray().Values
-		case *pb.Filters_ValueDateArray:
-			// convert from GRPC timestamp to go time
-			valTimestamps := filterIn.GetValueDateArray().Values
-			valTime := make([]time.Time, len(valTimestamps))
-			for i := 0; i < len(valTime); i++ {
-				valTime[i] = valTimestamps[i].AsTime()
-			}
-			val = valTime
+
 		default:
 			return filters.Clause{}, fmt.Errorf("unknown value type %v", filterIn.TestValue)
 		}
