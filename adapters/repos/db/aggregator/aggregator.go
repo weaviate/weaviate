@@ -48,6 +48,7 @@ type Aggregator struct {
 	isFallbackToSearchable inverted.IsFallbackToSearchable
 	tenant                 string
 	nestedCrossRefLimit    int64
+	PropertyName           string
 }
 
 func New(store *lsmkv.Store, params aggregation.Params, getSchema schemaUC.SchemaGetter, classSearcher inverted.ClassSearcher, deletedDocIDs inverted.DeletedDocIDChecker, stopwords stopwords.StopwordDetector, shardVersion uint16, vectorIndex vectorIndex, logger logrus.FieldLogger, propLengths *inverted.JsonPropertyLengthTracker, isFallbackToSearchable inverted.IsFallbackToSearchable, tenant string,propertyIds *tracker.JsonPropertyIdTracker, nestedCrossRefLimit int64) *Aggregator {

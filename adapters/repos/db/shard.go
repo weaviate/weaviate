@@ -357,7 +357,8 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 		return storagestate.ErrStatusReadOnly
 	}
 
-	bucketOpts := []lsmkv.BucketOption{lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter) * time.Second),
+	bucketOpts := []lsmkv.BucketOption{
+		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter) * time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
 		lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM(filters.InternalPropID)),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
@@ -437,7 +438,7 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 
 func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property) error {
 	if !inverted.HasInvertedIndex(prop) {
-		return nil // FIXME nil or err?
+		return nil // FIXME nil or err?  Previous code didn't return anything
 	}
 
 	s.propIds.CreateProperty(prop.Name)
@@ -472,7 +473,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 	}
 
-	//Force creation of filterable properties database file
+	//Force creation of filterable properties database file, because later code assumes it already exists
 	filterableOpts := append(bucketOpts, lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM("_id")))
 	if err := s.store.CreateOrLoadBucket(ctx,
 		"filterable_properties",
@@ -481,7 +482,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		return err
 	}
 
-	//Force creation of searchable properties database file
+	//Force creation of searchable properties database file, because later code assumes it already exists
 	searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
 	if s.versioner.Version() < 2 {
 		searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
@@ -500,6 +501,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			return s.initGeoProp(prop)
 		}
 
+		//This creates a single database file for all meta_count properties.  The registered names will redirect to this file, so we don't have to update every callsite
 		if schema.IsRefDataType(prop.DataType) {
 			refOpts := append(bucketOpts, lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameMetaCountLSM(prop.Name)))
 			if err := s.store.CreateOrLoadBucket(ctx,
@@ -522,7 +524,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	if inverted.HasSearchableIndex(prop) {
 		searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
 		searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithRegisteredName(helpers.BucketSearchableFromPropertyNameLSM(prop.Name)))
-    	searchableBucketOpts = append(searchableBucketOpts,lsmkv.WithPread(s.index.Config.AvoidMMap))
+		searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithPread(s.index.Config.AvoidMMap))
 		if s.versioner.Version() < 2 {
 			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
 		}
@@ -555,7 +557,6 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 		"filterable_properties",
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLengthLSM(prop.Name)),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
 }
 
@@ -568,7 +569,7 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 		"null_properties",
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameNullLSM(prop.Name)),
-                                    lsmkv.WithPread(s.index.Config.AvoidMMap),
+		lsmkv.WithPread(s.index.Config.AvoidMMap),
 	)
 }
 
@@ -600,8 +601,8 @@ func (s *Shard) shutdown(ctx context.Context) error {
 	}
 
 	if err := s.propIds.Close(); err != nil {
-		               return errors.Wrap(err, "close prop id tracker")
-		       }
+		return errors.Wrap(err, "close prop id tracker")
+	}
 
 	// to ensure that all commitlog entries are written to disk.
 	// otherwise in some cases the tombstone cleanup process'

@@ -103,8 +103,9 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 }
 
 func (s *Shard) addToPropertyLengthIndex(propName string, docID uint64, length int) error {
-	bucketLength := s.store.Bucket(helpers.BucketFromPropertyNameLengthLSM(propName))
-	if bucketLength == nil {
+	bucketLength, err:=  s.wrapBucketWithProp( s.store.Bucket("filterable_properties"), helpers.PropertyLength(propName), s.propIds)
+
+	if err != nil {
 		return errors.Errorf("no bucket for prop '%s' length found", propName)
 	}
 

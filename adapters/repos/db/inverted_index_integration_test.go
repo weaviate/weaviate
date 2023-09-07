@@ -19,7 +19,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -111,35 +110,6 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		IndexFilterable: &vFalse,
 		IndexSearchable: &vFalse,
 	}))
-
-	t.Run("check for additional buckets", func(t *testing.T) {
-		for _, idx := range migrator.db.indices {
-			idx.ForEachShard(func(_ string, shd *Shard) error {
-				createBucket := shd.store.Bucket("property__creationTimeUnix")
-				assert.NotNil(t, createBucket)
-
-				updateBucket := shd.store.Bucket("property__lastUpdateTimeUnix")
-				assert.NotNil(t, updateBucket)
-
-				cases := []struct {
-					prop        string
-					compareFunc func(t assert.TestingT, object interface{}, msgAndArgs ...interface{}) bool
-				}{
-					{prop: "initialWithIINil", compareFunc: assert.NotNil},
-					{prop: "initialWithIITrue", compareFunc: assert.NotNil},
-					{prop: "initialWithoutII", compareFunc: assert.Nil},
-					{prop: "updateWithIINil", compareFunc: assert.NotNil},
-					{prop: "updateWithIITrue", compareFunc: assert.NotNil},
-					{prop: "updateWithoutII", compareFunc: assert.Nil},
-				}
-				for _, tt := range cases {
-					tt.compareFunc(t, shd.store.Bucket("property_"+tt.prop+filters.InternalNullIndex))
-					tt.compareFunc(t, shd.store.Bucket("property_"+tt.prop+filters.InternalPropertyLength))
-				}
-				return nil
-			})
-		}
-	})
 
 	t.Run("Add Objects", func(t *testing.T) {
 		testID1 := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
@@ -576,20 +546,6 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 		}
 	})
 
-	t.Run("check buckets exist", func(t *testing.T) {
-		index := repo.indices["testclass"]
-		n := 0
-		index.ForEachShard(func(_ string, shard *Shard) error {
-			bucketPropLengthName := shard.store.Bucket(helpers.BucketFromPropertyNameLengthLSM("name"))
-			require.NotNil(t, bucketPropLengthName)
-			bucketPropLengthIntArray := shard.store.Bucket(helpers.BucketFromPropertyNameLengthLSM("int_array"))
-			require.NotNil(t, bucketPropLengthIntArray)
-			n++
-			return nil
-		})
-		require.Equal(t, 1, n)
-	})
-
 	type testCase struct {
 		name        string
 		filter      *filters.LocalFilter
@@ -927,21 +883,6 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			require.Nil(t, err)
 		}
 	})
-
-	t.Run("check buckets exist", func(t *testing.T) {
-		index := repo.indices["testclass"]
-		n := 0
-		index.ForEachShard(func(_ string, shard *Shard) error {
-			bucketCreated := shard.store.Bucket("property_" + filters.InternalPropCreationTimeUnix)
-			require.NotNil(t, bucketCreated)
-			bucketUpdated := shard.store.Bucket("property_" + filters.InternalPropLastUpdateTimeUnix)
-			require.NotNil(t, bucketUpdated)
-			n++
-			return nil
-		})
-		require.Equal(t, 1, n)
-	})
-
 	
        t.Run("by creation date 2", func(t *testing.T) {
                res, err := repo.Search(context.Background(), dto.GetParams{

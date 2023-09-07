@@ -38,18 +38,18 @@ type propValuePair struct {
 	children           []*propValuePair
 	hasFilterableIndex bool
 	hasSearchableIndex bool
-  
-	Class              *models.Class // The schema
+
+	Class *models.Class // The schema
 }
 
 func newPropValuePair(class *models.Class) (*propValuePair, error) {
 	if class == nil {
 		return nil, errors.Errorf("class must not be nil")
 	}
-  
+
 	return &propValuePair{docIDs: newDocBitmap(), Class: class}, nil
 }
-  
+
 func (pv *propValuePair) SetValue(value []byte) {
 	pv._value = value
 }
@@ -64,7 +64,7 @@ func (pv *propValuePair) Value() []byte {
 	return value
 }
 
-  func (pv *propValuePair) DocIds() []uint64 {
+func (pv *propValuePair) DocIds() []uint64 {
 	return pv.docIDs.IDs()
 }
 
@@ -104,6 +104,13 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			return errors.Errorf("Property length must be indexed to be filterable! add `IndexPropertyLength: true` to the invertedIndexConfig. Geo-coordinates, phone numbers and data blobs are not supported by property length.")
 		}
 
+		if !pv.Class.InvertedIndexConfig.IndexPropertyLength &&
+			filters.OperatorWithinGeoRange == pv.operator {
+			return errors.Errorf("Geo-coordinates are not supported by property length.")
+		}
+
+		//TODO how to check if prop is phone number or data blob?
+		
 		if pv.operator == filters.OperatorIsNull {
 			if !pv.Class.InvertedIndexConfig.IndexNullState {
 				return errors.Errorf("Nullstate must be indexed to be filterable! add `indexNullState: true` to the invertedIndexConfig")
@@ -116,7 +123,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			}
 		}
 
-		bproxy,err := lsmkv.NewBucketProxy(b, pv.prop, s.propIds)
+		bproxy, err := lsmkv.NewBucketProxy(b, pv.prop, s.propIds)
 		if err != nil {
 			return err
 		}

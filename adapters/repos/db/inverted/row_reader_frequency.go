@@ -116,6 +116,9 @@ func (rr *RowReaderFrequency) greaterThan(ctx context.Context, readFn ReadFnFreq
 	defer c.Close()
 
 	for compositeKey, v := c.Seek(rr.value); compositeKey != nil; compositeKey, v = c.Next() {
+		if !helpers.MatchesPropertyKeyPostfix(rr.PropPrefix, compositeKey) {
+			continue
+		}
 		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
 		if err := ctx.Err(); err != nil {
 			return err
@@ -227,7 +230,7 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFnFrequency) 
 	)
 
 	if like.optimizable {
-		initialK, initialV = c.Seek(helpers.MakePropertyKey(rr.PropPrefix, like.min))
+		initialK, initialV = c.Seek(like.min)  //FIXME may need to make key here?
 	} else {
 		initialK, initialV = c.First()
 	}

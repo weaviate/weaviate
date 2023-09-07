@@ -56,7 +56,7 @@ func (rr *RowReader) Iterate(ctx context.Context, readFn ReadFn) error {
 		}
 
 		k = helpers.UnMakePropertyKey(rr.PropPrefix, k)
-		fmt.Printf("k sans prop: %v\n", k)
+	
 
 		if err := ctx.Err(); err != nil {
 			return err

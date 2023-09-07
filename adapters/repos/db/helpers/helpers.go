@@ -36,25 +36,29 @@ func MakeByteEncodedPropertyPostfix(propertyName string, propertyIds *tracker.Js
 }
 
 func MakePropertyKey(byteEncodedPropertyId []byte, key []byte) []byte {
-	b:= make([]byte, len(byteEncodedPropertyId))
+	b := make([]byte, len(byteEncodedPropertyId))
 	copy(b, byteEncodedPropertyId)
 
-	k:= make([]byte, len(key))
+	k := make([]byte, len(key))
 	copy(k, key)
 
-	return append(k,b...)
+	return append(k, b...)
 }
 
 func MatchesPropertyKeyPostfix(byteEncodedPropertyId []byte, prefixed_key []byte) bool {
+	//Allows accessing every key
+	if byteEncodedPropertyId == nil || len(byteEncodedPropertyId) == 0 {
+		return true
+	}
 
 	return bytes.HasSuffix(prefixed_key, byteEncodedPropertyId)
 }
 
 func UnMakePropertyKey(byteEncodedPropertyId []byte, postfixed_key []byte) []byte {
-/*
-	//For prefix
-	out := make([]byte, len(prefixed_key)-len(byteEncodedPropertyId))
-	copy(out, prefixed_key[len(byteEncodedPropertyId):])
+	/*
+		//For prefix
+		out := make([]byte, len(prefixed_key)-len(byteEncodedPropertyId))
+		copy(out, prefixed_key[len(byteEncodedPropertyId):])
 	*/
 	//For postfix propid
 	out := make([]byte, len(postfixed_key)-len(byteEncodedPropertyId))
