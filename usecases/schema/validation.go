@@ -26,22 +26,22 @@ func (m *Manager) validateClassNameUniqueness(name string) error {
 	pred := func(c *models.Class) bool {
 		return strings.EqualFold(name, c.Class)
 	}
-	exitingName := ""
+	existingName := ""
 	m.schemaCache.RLockGuard(func() error {
 		if cls := m.schemaCache.unsafeFindClassIf(pred); cls != nil {
-			exitingName = cls.Class
+			existingName = cls.Class
 		}
 		return nil
 	})
 
-	if exitingName == "" {
+	if existingName == "" {
 		return nil
 	}
-	if name != exitingName {
+	if name != existingName {
 		// It's a permutation
 		return fmt.Errorf(
 			"class name %q already exists as a permutation of: %q. class names must be unique when lowercased",
-			name, exitingName)
+			name, existingName)
 	}
 	return fmt.Errorf("class name %q already exists", name)
 }

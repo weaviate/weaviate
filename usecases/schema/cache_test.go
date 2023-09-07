@@ -37,7 +37,7 @@ func TestShardReplicas(t *testing.T) {
 	_, err = cache.ShardReplicas("C", "S")
 	assert.ErrorContains(t, err, "shard not found")
 
-	// node with an empty name
+	// two replicas found
 	nodes := []string{"A", "B"}
 	ss.Physical["S"] = sharding.Physical{BelongsToNodes: nodes}
 	res, err := cache.ShardReplicas("C", "S")
