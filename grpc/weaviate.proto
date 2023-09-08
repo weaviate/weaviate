@@ -264,7 +264,7 @@ message ResultAdditionalProps {
   bool score_present = 12;
   string explain_score = 13;
   bool explain_score_present = 14;
-  bool is_consistent = 15;
+  optional bool is_consistent = 15;
   string generative = 16;
   bool generative_present = 17;
 }
