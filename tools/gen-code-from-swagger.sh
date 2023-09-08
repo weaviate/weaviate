@@ -40,6 +40,4 @@ echo Now add the header to the generated code too.
 
 (cd "$DIR"/..; goimports -w . )
 
-(patch -i patches/grpc_shared_port.patch adapters/handlers/rest/server.go)
-
 echo Success

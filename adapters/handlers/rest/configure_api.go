@@ -82,6 +82,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema/migrate"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/traverser"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -105,18 +107,18 @@ type vectorRepo interface {
 }
 
 func makeSharedPortHandlerFunc(grpcServer *grpc.GRPCServer, otherHandler http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.ProtoMajor == 2 && strings.Contains(r.Header.Get("Content-Type"), "application/grpc") {
-			fmt.Printf("Running grpc handler\n")
+	h2s := &http2.Server{}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 && r.Header.Get("Content-Type") == "application/grpc" {
 			grpcServer.ServeHTTP(w, r)
 		} else {
-			fmt.Printf("Running http handler\n")
 			otherHandler.ServeHTTP(w, r)
 		}
 	})
+	return h2c.NewHandler(handler, h2s)
 }
 
-func configureAPI(api *operations.WeaviateAPI) (http.Handler, *grpc.GRPCServer, *state.State) {
+func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
@@ -375,9 +377,6 @@ func configureAPI(api *operations.WeaviateAPI) (http.Handler, *grpc.GRPCServer, 
 		// stop reindexing on server shutdown
 		reindexCtxCancel()
 
-		// gracefully stop gRPC server
-		grpcServer.GracefulStop()
-
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
@@ -423,10 +422,7 @@ func configureAPI(api *operations.WeaviateAPI) (http.Handler, *grpc.GRPCServer, 
 		migrator.RecountProperties(ctx)
 	}
 
-	// Start it later in server.go
-	// startGrpcServer(grpcServer, appState)
-
-	return setupGlobalMiddleware(api.Serve(setupMiddlewares)), grpcServer, appState
+	return makeSharedPortHandlerFunc(grpcServer, setupGlobalMiddleware(api.Serve(setupMiddlewares)))
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState
