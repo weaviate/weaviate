@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/grpc"
+	addModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -88,10 +89,11 @@ func TestGRPCReply(t *testing.T) {
 	}
 
 	tests := []struct {
-		name         string
-		res          []any
-		searchParams dto.GetParams // only a few things are needed to control what is returned
-		out          []*grpc.SearchResult
+		name          string
+		res           []any
+		searchParams  dto.GetParams // only a few things are needed to control what is returned
+		out           []*grpc.SearchResult
+		outGenerative string
 	}{
 		{
 			name: "vector only",
@@ -324,6 +326,81 @@ func TestGRPCReply(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "generative single only",
+			res: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{
+						"id":       UUID1,                                               // different place for generative
+						"generate": &addModels.GenerateResult{SingleResult: &refClass1}, // just use some string
+					},
+				},
+				map[string]interface{}{
+					"_additional": map[string]interface{}{
+						"id":       UUID2,
+						"generate": &addModels.GenerateResult{SingleResult: &refClass2},
+					},
+				},
+			},
+			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{
+				ID:           true,
+				ModuleParams: map[string]interface{}{"generate": "must be present for extraction"},
+			}},
+			out: []*grpc.SearchResult{
+				{
+					AdditionalProperties: &grpc.ResultAdditionalProps{
+						Id:                string(UUID1),
+						Generative:        refClass1,
+						GenerativePresent: true,
+					},
+					Properties: &grpc.ResultProperties{},
+				},
+				{
+					AdditionalProperties: &grpc.ResultAdditionalProps{
+						Id:                string(UUID2),
+						Generative:        refClass2,
+						GenerativePresent: true,
+					},
+					Properties: &grpc.ResultProperties{},
+				},
+			},
+		},
+		{
+			name: "generative group only",
+			res: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{
+						"id":       UUID1,                                                // different place for generative
+						"generate": &addModels.GenerateResult{GroupedResult: &refClass1}, // just use some string
+					},
+				},
+				map[string]interface{}{
+					"_additional": map[string]interface{}{
+						"id":       UUID2,
+						"generate": &addModels.GenerateResult{},
+					},
+				},
+			},
+			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{
+				ID:           true,
+				ModuleParams: map[string]interface{}{"generate": "must be present for extraction"},
+			}},
+			out: []*grpc.SearchResult{
+				{
+					AdditionalProperties: &grpc.ResultAdditionalProps{
+						Id: string(UUID1),
+					},
+					Properties: &grpc.ResultProperties{},
+				},
+				{
+					AdditionalProperties: &grpc.ResultAdditionalProps{
+						Id: string(UUID2),
+					},
+					Properties: &grpc.ResultProperties{},
+				},
+			},
+			outGenerative: refClass1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -334,6 +411,7 @@ func TestGRPCReply(t *testing.T) {
 				require.Equal(t, tt.out[i].Properties.String(), out.Results[i].Properties.String())
 				require.Equal(t, tt.out[i].AdditionalProperties.String(), out.Results[i].AdditionalProperties.String())
 			}
+			require.Equal(t, out.GenerativeGroupedResult, tt.outGenerative)
 		})
 	}
 }
