@@ -217,10 +217,10 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	}
 
 	if req.Generative != nil {
-		if out.ModuleParams == nil {
-			out.ModuleParams = make(map[string]interface{})
+		if out.AdditionalProperties.ModuleParams == nil {
+			out.AdditionalProperties.ModuleParams = make(map[string]interface{})
 		}
-		out.ModuleParams["generative"] = extractGenerative(req.Generative)
+		out.AdditionalProperties.ModuleParams["generate"] = extractGenerative(req)
 	}
 
 	if len(req.After) > 0 {
@@ -242,16 +242,16 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	return out, nil
 }
 
-func extractGenerative(generativeRequest *pb.GenerativeSearch) *generate.Params {
+func extractGenerative(req *pb.SearchRequest) *generate.Params {
 	generative := generate.Params{}
-	if generativeRequest.SingleResponsePrompt != "" {
-		generative.Prompt = &generativeRequest.SingleResponsePrompt
+	if req.Generative.SingleResponsePrompt != "" {
+		generative.Prompt = &req.Generative.SingleResponsePrompt
 	}
-	if generativeRequest.GroupedResponseTask != "" {
-		generative.Task = &generativeRequest.GroupedResponseTask
+	if req.Generative.GroupedResponseTask != "" {
+		generative.Task = &req.Generative.GroupedResponseTask
 	}
-	if generativeRequest.GroupedProperties != nil && len(generativeRequest.GroupedProperties) > 0 {
-		generative.Properties = generativeRequest.GroupedProperties
+	if req.Generative.GroupedProperties != nil && len(req.Generative.GroupedProperties) > 0 {
+		generative.Properties = req.Generative.GroupedProperties
 	}
 	return &generative
 }
