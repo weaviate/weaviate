@@ -132,6 +132,9 @@ func (b *classBuilder) classObject(class *models.Class) *graphql.Object {
 				if propertyType.IsPrimitive() {
 					classProperties[property.Name] = b.primitiveField(propertyType, property,
 						class.Class)
+				} else if propertyType.IsNested() {
+					classProperties[property.Name] = b.nestedField(propertyType, property,
+						class.Class)
 				} else {
 					classProperties[property.Name] = b.referenceField(propertyType, property,
 						class.Class)
