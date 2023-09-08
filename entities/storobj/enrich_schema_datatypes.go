@@ -96,7 +96,9 @@ func parseMapProp(input map[string]interface{}) (interface{}, error) {
 		return parsePhoneNumber(input)
 	}
 
-	return nil, fmt.Errorf("unknown map prop which is not a geo prop or phone: %v", input)
+	// this is an object
+	return input, nil
+	// return nil, fmt.Errorf("unknown map prop which is not a geo prop or phone: %v", input)
 }
 
 func parseGeoProp(lat interface{}, lon interface{}) (*models.GeoCoordinates, error) {

@@ -223,6 +223,16 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 		if err != nil {
 			return nil, fmt.Errorf("invalid uuid array property '%s' on class '%s': %s", propertyName, className, err)
 		}
+	case schema.DataTypeObject:
+		data, err = objectVal(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid object property '%s' on class '%s': %s", propertyName, className, err)
+		}
+	case schema.DataTypeObjectArray:
+		data, err = objectArrayVal(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid object property '%s' on class '%s': %s", propertyName, className, err)
+		}
 	// deprecated string
 	case schema.DataTypeString:
 		data, err = stringVal(pv)
@@ -639,4 +649,32 @@ func ParseUUIDArray(in any) ([]uuid.UUID, error) {
 	}
 
 	return d, nil
+}
+
+func objectVal(val interface{}) (map[string]interface{}, error) {
+	typed, ok := val.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("object must be a map, but got: %T", val)
+	}
+
+	return typed, nil
+}
+
+func objectArrayVal(val interface{}) ([]interface{}, error) {
+	typed, ok := val.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("object must be an array, but got: %T", val)
+	}
+
+	if len(typed) == 0 {
+		return nil, fmt.Errorf("object array cannot be empty")
+	}
+
+	for i := range typed {
+		if _, err := objectVal(typed[i]); err != nil {
+			return nil, fmt.Errorf("invalid object array value: %v", typed[i])
+		}
+	}
+
+	return typed, nil
 }

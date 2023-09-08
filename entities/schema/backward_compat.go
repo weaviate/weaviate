@@ -113,7 +113,9 @@ func IsValidValueDataType(dt string) bool {
 		string(DataTypeIntArray),
 		string(DataTypeNumberArray),
 		string(DataTypeBooleanArray),
-		string(DataTypeDateArray):
+		string(DataTypeDateArray),
+		string(DataTypeObject),
+		string(DataTypeObjectArray):
 		return true
 	}
 	return false

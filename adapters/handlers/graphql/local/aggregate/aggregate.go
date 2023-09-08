@@ -240,6 +240,9 @@ func classPropertyField(dataType schema.DataType, class *models.Class, property 
 	case schema.DataTypeUUID, schema.DataTypeUUIDArray:
 		// not aggregatable
 		return nil, nil
+	case schema.DataTypeObject, schema.DataTypeObjectArray:
+		// TODO: check if it's aggregable, skip for now
+		return nil, nil
 	default:
 		return nil, fmt.Errorf(schema.ErrorNoSuchDatatype+": %s", dataType)
 	}
