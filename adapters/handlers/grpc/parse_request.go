@@ -250,7 +250,7 @@ func extractGenerative(req *pb.SearchRequest) *generate.Params {
 	if req.Generative.GroupedResponseTask != "" {
 		generative.Task = &req.Generative.GroupedResponseTask
 	}
-	if req.Generative.GroupedProperties != nil && len(req.Generative.GroupedProperties) > 0 {
+	if len(req.Generative.GroupedProperties) > 0 {
 		generative.Properties = req.Generative.GroupedProperties
 	}
 	return &generative
