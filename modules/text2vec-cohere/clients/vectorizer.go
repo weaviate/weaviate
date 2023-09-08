@@ -19,6 +19,8 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/text2vec-cohere/ent"
@@ -131,7 +133,13 @@ func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
 	if len(v.apiKey) > 0 {
 		return v.apiKey, nil
 	}
-	apiKey := ctx.Value("X-Cohere-Api-Key")
+	key := "X-Cohere-Api-Key"
+
+	apiKey := ctx.Value(key)
+	// try getting header from GRPC if not successful
+	if apiKey == nil {
+		apiKey = modulecomponents.GetApiKeyFromGRPC(ctx, key)
+	}
 	if apiKeyHeader, ok := apiKey.([]string); ok &&
 		len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
 		return apiKeyHeader[0], nil

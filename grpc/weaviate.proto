@@ -86,6 +86,7 @@ message SearchRequest {
   optional NearVideoSearchParams near_video = 17;
   optional ConsistencyLevel consistency_level = 18;
   optional GenerativeSearch generative = 19;
+  optional google.protobuf.Struct additional_context = 20;
 }
 
 message GenerativeSearch {
