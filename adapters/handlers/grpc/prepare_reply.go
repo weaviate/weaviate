@@ -111,6 +111,10 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 			if !ok {
 				return nil, "", errors.Wrap(err, "cast generative result")
 			}
+			if generateFmt.Error != nil {
+				return nil, "", generateFmt.Error
+			}
+
 			if generateFmt.SingleResult != nil && *generateFmt.SingleResult != "" {
 				additionalProps.Generative = *generateFmt.SingleResult
 				additionalProps.GenerativePresent = true
