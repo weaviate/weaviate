@@ -569,8 +569,13 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
-				ModuleParams:         map[string]interface{}{"generative": &generate.Params{Prompt: &someString1, Task: &someString2, Properties: []string{"one", "two"}}},
+				AdditionalProperties: additional.Properties{
+					Vector:  true,
+					NoProps: true,
+					ModuleParams: map[string]interface{}{
+						"generate": &generate.Params{Prompt: &someString1, Task: &someString2, Properties: []string{"one", "two"}},
+					},
+				},
 			},
 			error: false,
 		},
