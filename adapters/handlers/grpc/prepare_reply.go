@@ -211,7 +211,7 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 		if ok {
 			isConsistentfmt, ok2 := isConsistent.(bool)
 			if ok2 {
-				additionalProps.IsConsistent = isConsistentfmt
+				additionalProps.IsConsistent = &isConsistentfmt
 			}
 		}
 	}
