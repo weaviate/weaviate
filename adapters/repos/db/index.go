@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"runtime"
 	"runtime/debug"
 	golangSort "sort"
@@ -157,6 +158,10 @@ func (i *Index) ID() string {
 	return indexID(i.Config.ClassName)
 }
 
+func (i *Index) path() string {
+	return path.Join(i.Config.RootPath, i.ID())
+}
+
 type nodeResolver interface {
 	NodeHostname(nodeName string) (string, bool)
 }
@@ -203,6 +208,10 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 
 	if err := index.checkSingleShardMigration(shardState); err != nil {
 		return nil, errors.Wrap(err, "migrating sharding state from previous version")
+	}
+
+	if err := os.Mkdir(index.path(), os.ModePerm); err != nil {
+		return nil, fmt.Errorf("init index %q: %w", index.ID(), err)
 	}
 
 	for _, shardName := range shardState.AllPhysicalShards() {
