@@ -4305,6 +4305,13 @@ func init() {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
         },
+        "properties": {
+          "description": "The properties of the nested object(s). Applies to object and object[] data types.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Property"
+          }
+        },
         "tokenization": {
           "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default; splits on any non-alphanumerical, lowercases), ` + "`" + `lowercase` + "`" + ` (splits on white spaces, lowercases), ` + "`" + `whitespace` + "`" + ` (splits on white spaces), ` + "`" + `field` + "`" + ` (trims). Not supported for remaining data types",
           "type": "string",
@@ -9406,6 +9413,13 @@ func init() {
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
+        },
+        "properties": {
+          "description": "The properties of the nested object(s). Applies to object and object[] data types.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Property"
+          }
         },
         "tokenization": {
           "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default; splits on any non-alphanumerical, lowercases), ` + "`" + `lowercase` + "`" + ` (splits on white spaces, lowercases), ` + "`" + `whitespace` + "`" + ` (splits on white spaces), ` + "`" + `field` + "`" + ` (trims). Not supported for remaining data types",
