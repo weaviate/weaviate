@@ -76,12 +76,12 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 	if additionalPropsParams.ID && !generativeSearchEnabled {
 		idRaw, ok := asMap["id"]
 		if !ok {
-			return nil, "", err
+			return nil, "", errors.Wrap(err, "get id")
 		}
 
 		idStrfmt, ok := idRaw.(strfmt.UUID)
 		if !ok {
-			return nil, "", err
+			return nil, "", errors.Wrap(err, "format id")
 		}
 		additionalProps.Id = idStrfmt.String()
 	}
@@ -96,12 +96,12 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 	if generativeSearchEnabled {
 		idRaw, ok := additionalPropertiesMap["id"]
 		if !ok {
-			return nil, generativeGroupResults, err
+			return nil, generativeGroupResults, errors.Wrap(err, "get id generative")
 		}
 
 		idStrfmt, ok := idRaw.(strfmt.UUID)
 		if !ok {
-			return nil, generativeGroupResults, err
+			return nil, generativeGroupResults, errors.Wrap(err, "format id generative")
 		}
 		additionalProps.Id = idStrfmt.String()
 
@@ -109,7 +109,7 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 		if ok { // does not always have content, for example with grouped results only the first object has an entry
 			generateFmt, ok := generate.(*models.GenerateResult)
 			if !ok {
-				return nil, generativeGroupResults, err
+				return nil, generativeGroupResults, errors.Wrap(err, "cast generative result")
 			}
 			if generateFmt.SingleResult != nil && *generateFmt.SingleResult != "" {
 				additionalProps.Generative = *generateFmt.SingleResult
