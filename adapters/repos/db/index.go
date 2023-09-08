@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"runtime"
 	"runtime/debug"
 	golangSort "sort"
@@ -195,6 +196,10 @@ func (i *Index) ID() string {
 	return indexID(i.Config.ClassName)
 }
 
+func (i *Index) path() string {
+	return path.Join(i.Config.RootPath, i.ID())
+}
+
 type nodeResolver interface {
 	NodeHostname(nodeName string) (string, bool)
 }
@@ -247,7 +252,16 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 
 	eg := errgroup.Group{}
 	eg.SetLimit(_NUMCPU)
-	for _, shardName := range shardState.AllLocalPhysicalShards() {
+
+	if err := os.Mkdir(index.path(), os.ModePerm); err != nil {
+		return nil, fmt.Errorf("init index %q: %w", index.ID(), err)
+	}
+
+	for _, shardName := range shardState.AllPhysicalShards() {
+		if !shardState.IsLocalShard(shardName) {
+			// do not create non-local shards
+			continue
+		}
 		physical := shardState.Physical[shardName]
 		if physical.ActivityStatus() != models.TenantActivityStatusHOT {
 			// do not instantiate inactive shard
