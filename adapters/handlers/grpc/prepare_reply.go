@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+
 	"github.com/weaviate/weaviate/entities/schema"
 
 	"github.com/go-openapi/strfmt"
@@ -34,6 +36,8 @@ func searchResultsToProto(res []any, start time.Time, searchParams dto.GetParams
 	}
 
 	for i, raw := range res {
+
+		firstObject := i == 0
 		asMap, ok := raw.(map[string]any)
 		if !ok {
 			continue
@@ -44,9 +48,13 @@ func searchResultsToProto(res []any, start time.Time, searchParams dto.GetParams
 			return nil, err
 		}
 
-		additionalProps, err := extractAdditionalProps(asMap, searchParams.AdditionalProperties)
+		additionalProps, generativeGroupResults, err := extractAdditionalProps(asMap, searchParams.AdditionalProperties, firstObject)
 		if err != nil {
 			return nil, err
+		}
+
+		if firstObject {
+			out.GenerativeGroupedResult = generativeGroupResults
 		}
 
 		result := &pb.SearchResult{
@@ -60,27 +68,64 @@ func searchResultsToProto(res []any, start time.Time, searchParams dto.GetParams
 	return out, nil
 }
 
-func extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties) (*pb.ResultAdditionalProps, error) {
+func extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, firstObject bool) (*pb.ResultAdditionalProps, string, error) {
 	err := errors.New("could not extract additional prop")
+	_, generativeSearchEnabled := additionalPropsParams.ModuleParams["generate"]
+
 	additionalProps := &pb.ResultAdditionalProps{}
-	if additionalPropsParams.ID {
+	if additionalPropsParams.ID && !generativeSearchEnabled {
 		idRaw, ok := asMap["id"]
 		if !ok {
-			return nil, err
+			return nil, "", errors.Wrap(err, "get id")
 		}
 
 		idStrfmt, ok := idRaw.(strfmt.UUID)
 		if !ok {
-			return nil, err
+			return nil, "", errors.Wrap(err, "format id")
 		}
 		additionalProps.Id = idStrfmt.String()
 	}
 	_, ok := asMap["_additional"]
 	if !ok {
-		return additionalProps, nil
+		return additionalProps, "", nil
 	}
 
 	additionalPropertiesMap := asMap["_additional"].(map[string]interface{})
+	generativeGroupResults := ""
+	// id is part of the _additional map in case of generative search - don't aks me why
+	if generativeSearchEnabled {
+		idRaw, ok := additionalPropertiesMap["id"]
+		if !ok {
+			return nil, "", errors.Wrap(err, "get id generative")
+		}
+
+		idStrfmt, ok := idRaw.(strfmt.UUID)
+		if !ok {
+			return nil, "", errors.Wrap(err, "format id generative")
+		}
+		additionalProps.Id = idStrfmt.String()
+
+		generate, ok := additionalPropertiesMap["generate"]
+		if ok { // does not always have content, for example with grouped results only the first object has an entry
+			generateFmt, ok := generate.(*models.GenerateResult)
+			if !ok {
+				return nil, "", errors.Wrap(err, "cast generative result")
+			}
+			if generateFmt.Error != nil {
+				return nil, "", generateFmt.Error
+			}
+
+			if generateFmt.SingleResult != nil && *generateFmt.SingleResult != "" {
+				additionalProps.Generative = *generateFmt.SingleResult
+				additionalProps.GenerativePresent = true
+			}
+
+			// grouped results are only added to the first object for GQL reasons
+			if firstObject && generateFmt.GroupedResult != nil && *generateFmt.GroupedResult != "" {
+				generativeGroupResults = *generateFmt.GroupedResult
+			}
+		}
+	}
 
 	// additional properties are only present for certain searches/configs => don't return an error if not available
 	if additionalPropsParams.Vector {
@@ -175,7 +220,7 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 		}
 	}
 
-	return additionalProps, nil
+	return additionalProps, generativeGroupResults, nil
 }
 
 func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.ResultProperties, error) {
@@ -205,7 +250,7 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 			if err != nil {
 				continue
 			}
-			additionalProps, err := extractAdditionalProps(refLocal.Fields, prop.Refs[0].AdditionalProperties)
+			additionalProps, _, err := extractAdditionalProps(refLocal.Fields, prop.Refs[0].AdditionalProperties, false)
 			if err != nil {
 				return nil, err
 			}
@@ -270,7 +315,7 @@ func extractArrayTypes(scheme schema.Schema, className string, props *pb.ResultP
 			}
 			props.NumberArrayProperties = append(props.NumberArrayProperties, &pb.NumberArrayProperties{PropName: propName, Values: propIntAsFloat})
 			delete(nonRefProps, propName)
-		case schema.DataTypeStringArray, schema.DataTypeTextArray, schema.DataTypeDateArray:
+		case schema.DataTypeStringArray, schema.DataTypeTextArray, schema.DataTypeDateArray, schema.DataTypeUUIDArray:
 			propString, ok := prop.([]string)
 			if !ok {
 				return fmt.Errorf("property %v with datatype %v needs to be []string, got %T", propName, dataType, prop)
@@ -289,16 +334,6 @@ func extractArrayTypes(scheme schema.Schema, className string, props *pb.ResultP
 				props.BooleanArrayProperties = make([]*pb.BooleanArrayProperties, 0)
 			}
 			props.BooleanArrayProperties = append(props.BooleanArrayProperties, &pb.BooleanArrayProperties{PropName: propName, Values: propBool})
-			delete(nonRefProps, propName)
-		case schema.DataTypeUUIDArray:
-			propString, ok := prop.([]string)
-			if !ok {
-				return fmt.Errorf("property %v with datatype %v needs to be []string, got %T", propName, dataType, prop)
-			}
-			if props.UuidArrayProperties == nil {
-				props.UuidArrayProperties = make([]*pb.UuidArrayProperties, 0)
-			}
-			props.UuidArrayProperties = append(props.UuidArrayProperties, &pb.UuidArrayProperties{PropName: propName, Values: propString})
 			delete(nonRefProps, propName)
 		default:
 			_, isArray := schema.IsArrayType(*dataType)

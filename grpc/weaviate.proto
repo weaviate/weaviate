@@ -3,8 +3,10 @@ syntax = "proto3";
 package weaviategrpc;
 
 import "google/protobuf/struct.proto";
-import "google/protobuf/timestamp.proto";
 option go_package = "github.com/weaviate/weaviate/grpc";
+
+option java_package = "io.weaviate.client.grpc.protocol";
+option java_outer_classname = "WeaviateProto";
 
 
 service Weaviate {
@@ -86,6 +88,13 @@ message SearchRequest {
   optional NearAudioSearchParams near_audio = 16;
   optional NearVideoSearchParams near_video = 17;
   optional ConsistencyLevel consistency_level = 18;
+  optional GenerativeSearch generative = 19;
+}
+
+message GenerativeSearch {
+  string single_response_prompt = 1;
+  string grouped_response_task = 2;
+  repeated string grouped_properties = 3;
 }
 
 message TextArray {
@@ -99,9 +108,6 @@ message NumberArray {
 }
 message BooleanArray {
   repeated bool values = 1;
-}
-message DateArray {
-  repeated google.protobuf.Timestamp values = 1;
 }
 
 message Filters {
@@ -132,12 +138,10 @@ message Filters {
     int64 value_int = 5;
     bool value_boolean = 6;
     float value_number = 7;
-    google.protobuf.Timestamp value_date = 8;
     TextArray value_text_array = 9;
     IntArray value_int_array = 10;
     BooleanArray value_boolean_array = 11;
     NumberArray value_number_array = 12;
-    DateArray value_date_array = 13;
   };
 }
 
@@ -239,6 +243,7 @@ message NearObjectParams {
 message SearchReply {
   repeated SearchResult results = 1;
   float took = 2;
+  string generative_grouped_result = 3;
 }
 
 message SearchResult {
@@ -263,6 +268,8 @@ message ResultAdditionalProps {
   string explain_score = 13;
   bool explain_score_present = 14;
   optional bool is_consistent = 15;
+  string generative = 16;
+  bool generative_present = 17;
 }
 
 message NumberArrayProperties {
@@ -285,16 +292,6 @@ message BooleanArrayProperties {
   string prop_name = 2;
 }
 
-message DateArrayProperties {
-  repeated google.protobuf.Timestamp values = 1;
-  string prop_name = 2;
-}
-
-message UuidArrayProperties {
-  repeated string values = 1;
-  string prop_name = 2;
-}
-
 message ResultProperties {
   google.protobuf.Struct non_ref_properties = 1;
   repeated ReturnRefProperties ref_props = 2;
@@ -304,7 +301,6 @@ message ResultProperties {
   repeated IntArrayProperties int_array_properties = 6;
   repeated TextArrayProperties text_array_properties = 7;
   repeated BooleanArrayProperties boolean_array_properties = 8;
-  repeated UuidArrayProperties uuid_array_properties = 9;
 }
 
 message ReturnRefProperties {

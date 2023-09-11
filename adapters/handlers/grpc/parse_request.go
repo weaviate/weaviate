@@ -13,7 +13,8 @@ package grpc
 
 import (
 	"fmt"
-	"time"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
 
@@ -93,11 +94,11 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		if hs.FusionType == pb.HybridSearchParams_FUSION_TYPE_RELATIVE_SCORE {
 			fusionType = common_filters.HybridRelativeScoreFusion
 		}
-		out.HybridSearch = &searchparams.HybridSearch{Query: hs.Query, Properties: hs.Properties, Vector: hs.Vector, Alpha: float64(hs.Alpha), FusionAlgorithm: fusionType}
+		out.HybridSearch = &searchparams.HybridSearch{Query: hs.Query, Properties: schema.LowercaseFirstLetterOfStrings(hs.Properties), Vector: hs.Vector, Alpha: float64(hs.Alpha), FusionAlgorithm: fusionType}
 	}
 
 	if bm25 := req.Bm25Search; bm25 != nil {
-		out.KeywordRanking = &searchparams.KeywordRanking{Query: bm25.Query, Properties: bm25.Properties, Type: "bm25", AdditionalExplanations: out.AdditionalProperties.ExplainScore}
+		out.KeywordRanking = &searchparams.KeywordRanking{Query: bm25.Query, Properties: schema.LowercaseFirstLetterOfStrings(bm25.Properties), Type: "bm25", AdditionalExplanations: out.AdditionalProperties.ExplainScore}
 	}
 
 	if nv := req.NearVector; nv != nil {
@@ -187,7 +188,6 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	}
 
 	if req.NearText != nil {
-
 		moveAwayOut, err := extractNearTextMove(req.ClassName, req.NearText.MoveAway)
 		if err != nil {
 			return dto.GetParams{}, err
@@ -216,6 +216,13 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.ModuleParams["nearText"] = nearText
 	}
 
+	if req.Generative != nil {
+		if out.AdditionalProperties.ModuleParams == nil {
+			out.AdditionalProperties.ModuleParams = make(map[string]interface{})
+		}
+		out.AdditionalProperties.ModuleParams["generate"] = extractGenerative(req)
+	}
+
 	if len(req.After) > 0 {
 		out.Cursor = &filters.Cursor{After: req.After, Limit: out.Pagination.Limit}
 	}
@@ -233,6 +240,20 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	}
 
 	return out, nil
+}
+
+func extractGenerative(req *pb.SearchRequest) *generate.Params {
+	generative := generate.Params{}
+	if req.Generative.SingleResponsePrompt != "" {
+		generative.Prompt = &req.Generative.SingleResponsePrompt
+	}
+	if req.Generative.GroupedResponseTask != "" {
+		generative.Task = &req.Generative.GroupedResponseTask
+	}
+	if len(req.Generative.GroupedProperties) > 0 {
+		generative.Properties = req.Generative.GroupedProperties
+	}
+	return &generative
 }
 
 func extractNearTextMove(classname string, Move *pb.NearTextSearchParams_Move) (nearText2.ExploreMove, error) {
@@ -324,6 +345,11 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			return filters.Clause{}, err
 		}
 
+		// datatype UUID is just a string
+		if dataType == schema.DataTypeUUID {
+			dataType = schema.DataTypeText
+		}
+
 		var val interface{}
 		switch filterIn.TestValue.(type) {
 		case *pb.Filters_ValueText:
@@ -334,8 +360,6 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			val = filterIn.GetValueBoolean()
 		case *pb.Filters_ValueNumber:
 			val = filterIn.GetValueNumber()
-		case *pb.Filters_ValueDate:
-			val = filterIn.GetValueDate().AsTime()
 		case *pb.Filters_ValueIntArray:
 			// convert from int32 GRPC to go int
 			valInt32 := filterIn.GetValueIntArray().Values
@@ -350,14 +374,7 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			val = filterIn.GetValueNumberArray().Values
 		case *pb.Filters_ValueBooleanArray:
 			val = filterIn.GetValueBooleanArray().Values
-		case *pb.Filters_ValueDateArray:
-			// convert from GRPC timestamp to go time
-			valTimestamps := filterIn.GetValueDateArray().Values
-			valTime := make([]time.Time, len(valTimestamps))
-			for i := 0; i < len(valTime); i++ {
-				valTime[i] = valTimestamps[i].AsTime()
-			}
-			val = valTime
+
 		default:
 			return filters.Clause{}, fmt.Errorf("unknown value type %v", filterIn.TestValue)
 		}
@@ -447,7 +464,7 @@ func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, cla
 	if reqProps.NonRefProperties != nil && len(reqProps.NonRefProperties) > 0 {
 		for _, prop := range reqProps.NonRefProperties {
 			props = append(props, search.SelectProperty{
-				Name:        prop,
+				Name:        schema.LowercaseFirstLetter(prop),
 				IsPrimitive: true,
 			})
 		}
@@ -456,7 +473,8 @@ func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, cla
 	if reqProps.RefProperties != nil && len(reqProps.RefProperties) > 0 {
 		class := scheme.GetClass(schema.ClassName(className))
 		for _, prop := range reqProps.RefProperties {
-			schemaProp, err := schema.GetPropertyByName(class, prop.ReferenceProperty)
+			normalizedRefPropName := schema.LowercaseFirstLetter(prop.ReferenceProperty)
+			schemaProp, err := schema.GetPropertyByName(class, normalizedRefPropName)
 			if err != nil {
 				return nil, err
 			}
@@ -479,7 +497,7 @@ func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, cla
 				return nil, err
 			}
 			props = append(props, search.SelectProperty{
-				Name:        prop.ReferenceProperty,
+				Name:        normalizedRefPropName,
 				IsPrimitive: false,
 				Refs: []search.SelectClass{{
 					ClassName:            linkedClass,

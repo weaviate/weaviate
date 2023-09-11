@@ -109,9 +109,7 @@ func (db *DB) ShardsBackup(
 	}
 
 	// prevent writing into the index during collection of metadata
-	if err := idx.backupMutex.LockWithContext(ctx); err != nil {
-		return cd, err
-	}
+	idx.backupMutex.Lock()
 	defer idx.backupMutex.Unlock()
 	for shardName, shard := range sm {
 		if err := shard.beginBackup(ctx); err != nil {
@@ -203,9 +201,7 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	}()
 
 	// prevent writing into the index during collection of metadata
-	if err := i.backupMutex.LockWithContext(ctx); err != nil {
-		return err
-	}
+	i.backupMutex.Lock()
 	defer i.backupMutex.Unlock()
 
 	if err = i.ForEachShard(func(name string, s *Shard) error {
@@ -338,4 +334,10 @@ func (m *backupMutex) lock(ctx context.Context, tryLock func() bool) error {
 			}
 		}
 	}
+}
+
+func (s *backupMutex) RLockGuard(reader func() error) error {
+	s.RLock()
+	defer s.RUnlock()
+	return reader()
 }
