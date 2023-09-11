@@ -15,6 +15,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/weaviate/weaviate/modules/text2vec-palm/config"
 
@@ -73,7 +74,7 @@ func (m *PalmModule) Init(ctx context.Context,
 ) error {
 	m.logger = params.GetLogger()
 
-	if err := m.initVectorizer(ctx, m.logger); err != nil {
+	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout, m.logger); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
 
@@ -102,11 +103,11 @@ func (m *PalmModule) InitExtension(modules []modulecapabilities.Module) error {
 	return nil
 }
 
-func (m *PalmModule) initVectorizer(ctx context.Context,
+func (m *PalmModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
 	apiKey := os.Getenv("PALM_APIKEY")
-	client := clients.New(apiKey, logger)
+	client := clients.New(apiKey, timeout, logger)
 
 	m.vectorizer = vectorizer.New(client)
 	m.metaProvider = client

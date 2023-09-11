@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -57,10 +58,12 @@ type vectorizer struct {
 	logger                logrus.FieldLogger
 }
 
-func New(apiKey string, logger logrus.FieldLogger) *vectorizer {
+func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
-		apiKey:                apiKey,
-		httpClient:            &http.Client{},
+		apiKey: apiKey,
+		httpClient: &http.Client{
+			Timeout: timeout,
+		},
 		bertEmbeddingsDecoder: newBertEmbeddingsDecoder(),
 		logger:                logger,
 	}

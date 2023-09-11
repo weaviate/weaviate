@@ -43,11 +43,11 @@ type palm struct {
 	logger     logrus.FieldLogger
 }
 
-func New(apiKey string, logger logrus.FieldLogger) *palm {
+func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *palm {
 	return &palm{
 		apiKey: apiKey,
 		httpClient: &http.Client{
-			Timeout: 60 * time.Second,
+			Timeout: timeout,
 		},
 		buildUrlFn: buildURL,
 		logger:     logger,

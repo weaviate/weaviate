@@ -59,7 +59,7 @@ func (m *SpellCheckModule) Init(ctx context.Context,
 		return errors.Errorf("required variable SPELLCHECK_INFERENCE_API is not set")
 	}
 
-	client := clients.New(uri, params.GetLogger())
+	client := clients.New(uri, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger())
 
 	if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
 		return errors.Wrap(err, "init remote spell check module")
