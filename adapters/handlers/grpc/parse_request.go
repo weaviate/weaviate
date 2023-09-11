@@ -96,7 +96,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		}
 
 		if vectorIndex.Distance != hnsw.DistanceDot {
-			out.AdditionalProperties.Certainty = req.AdditionalProperties.Certainty
+			out.AdditionalProperties.Certainty = true
 		}
 
 		out.Properties = returnProps

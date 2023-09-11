@@ -56,6 +56,7 @@ func TestGRPCRequest(t *testing.T) {
 						{Name: "ref", DataType: []string{refClass1}},
 						{Name: "multiRef", DataType: []string{refClass1, refClass2}},
 					},
+					VectorIndexConfig: hnsw.UserConfig{Distance: hnsw.DefaultDistanceMetric},
 				},
 				{
 					Class: refClass1,
