@@ -80,7 +80,7 @@ func (i *Index) SwitchCommitLogs(context.Context) error {
 	return nil
 }
 
-func (i *Index) ListFiles(context.Context) ([]string, error) {
+func (i *Index) ListFiles(context.Context, string) ([]string, error) {
 	return nil, nil
 }
 
