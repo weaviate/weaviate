@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 
@@ -43,7 +44,7 @@ import (
 
 func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.GetParams, error) {
 	out := dto.GetParams{}
-	_, err := schema.GetClassByName(scheme.Objects, req.ClassName)
+	class, err := schema.GetClassByName(scheme.Objects, req.ClassName)
 	if err != nil {
 		return dto.GetParams{}, err
 	}
@@ -60,7 +61,6 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.AdditionalProperties.LastUpdateTimeUnix = req.AdditionalProperties.LastUpdateTimeUnix
 		out.AdditionalProperties.CreationTimeUnix = req.AdditionalProperties.CreationTimeUnix
 		out.AdditionalProperties.Score = req.AdditionalProperties.Score
-		out.AdditionalProperties.Certainty = req.AdditionalProperties.Certainty
 		out.AdditionalProperties.ExplainScore = req.AdditionalProperties.ExplainScore
 		out.AdditionalProperties.IsConsistent = req.AdditionalProperties.IsConsistent
 	}
@@ -76,18 +76,29 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	} else if len(out.Properties) == 0 && req.AdditionalProperties == nil {
 		// no return values selected, return all properties and metadata. Ignore blobs and refs to not overload the
 		// response
+		returnProps, err := getAllNonRefNonBlobProperties(scheme, req.ClassName)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
+
 		out.AdditionalProperties.ID = true
 		out.AdditionalProperties.Vector = true
 		out.AdditionalProperties.Distance = true
 		out.AdditionalProperties.LastUpdateTimeUnix = true
 		out.AdditionalProperties.CreationTimeUnix = true
 		out.AdditionalProperties.Score = true
-		out.AdditionalProperties.Certainty = true
 		out.AdditionalProperties.ExplainScore = true
-		returnProps, err := getAllNonRefNonBlobProperties(scheme, req.ClassName)
+
+		// certainty is not compatible with dot distance
+		vectorIndex, err := hnsw.TypeAssertVectorIndex(class)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
+
+		if vectorIndex.Distance != hnsw.DistanceDot {
+			out.AdditionalProperties.Certainty = req.AdditionalProperties.Certainty
+		}
+
 		out.Properties = returnProps
 	}
 

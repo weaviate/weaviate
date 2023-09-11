@@ -14,6 +14,8 @@ package grpc
 import (
 	"testing"
 
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearAudio"
@@ -40,6 +42,7 @@ func TestGRPCRequest(t *testing.T) {
 	classname := "TestClass"
 	refClass1 := "OtherClass"
 	refClass2 := "AnotherClass"
+	dotClass := "DotClass"
 	scheme := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
@@ -67,6 +70,13 @@ func TestGRPCRequest(t *testing.T) {
 						{Name: "else", DataType: schema.DataTypeText.PropString()},
 						{Name: "ref3", DataType: []string{refClass2}},
 					},
+				},
+				{
+					Class: dotClass,
+					Properties: []*models.Property{
+						{Name: "something", DataType: schema.DataTypeText.PropString()},
+					},
+					VectorIndexConfig: hnsw.UserConfig{Distance: hnsw.DistanceDot},
 				},
 			},
 		},
@@ -96,6 +106,25 @@ func TestGRPCRequest(t *testing.T) {
 				AdditionalProperties: additional.Properties{
 					Vector:             true,
 					Certainty:          true,
+					ID:                 true,
+					CreationTimeUnix:   true,
+					LastUpdateTimeUnix: true,
+					Distance:           true,
+					Score:              true,
+					ExplainScore:       true,
+					IsConsistent:       false,
+				},
+			},
+			error: false,
+		},
+		{
+			name: "No return values given for dot distance",
+			req:  &grpc.SearchRequest{ClassName: dotClass},
+			out: dto.GetParams{
+				ClassName: dotClass, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "something", IsPrimitive: true}},
+				AdditionalProperties: additional.Properties{
+					Vector:             true,
+					Certainty:          false, // not compatible
 					ID:                 true,
 					CreationTimeUnix:   true,
 					LastUpdateTimeUnix: true,
