@@ -106,6 +106,12 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 		additionalProps.Id = idStrfmt.String()
 
 		generate, ok := additionalPropertiesMap["generate"]
+		if !ok && firstObject {
+			return nil, "", errors.Wrap(err,
+				"No results for generative search despite a search request. Is a the generative module enabled?",
+			)
+		}
+
 		if ok { // does not always have content, for example with grouped results only the first object has an entry
 			generateFmt, ok := generate.(*models.GenerateResult)
 			if !ok {
