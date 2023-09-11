@@ -239,7 +239,23 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.Filters = filter
 	}
 
+	if len(req.Sorting) > 0 {
+		out.Sort = extractSorting(req.Sorting)
+	}
+
 	return out, nil
+}
+
+func extractSorting(sortIn []*pb.Sorting) []filters.Sort {
+	sortOut := make([]filters.Sort, len(sortIn))
+	for i := range sortIn {
+		order := "asc"
+		if !sortIn[i].Ascending {
+			order = "desc"
+		}
+		sortOut[i] = filters.Sort{Order: order, Path: sortIn[i].Path}
+	}
+	return sortOut
 }
 
 func extractGenerative(req *pb.SearchRequest) *generate.Params {
