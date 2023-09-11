@@ -56,6 +56,9 @@ const (
 	// DataTypeUUIDArray is the array version of DataTypeUUID
 	DataTypeUUIDArray DataType = "uuid[]"
 
+	DataTypeObject      DataType = "object"
+	DataTypeObjectArray DataType = "object[]"
+
 	// deprecated as of v1.19, replaced by DataTypeText + relevant tokenization setting
 	// DataTypeString The data type is a value of type string
 	DataTypeString DataType = "string"
@@ -79,6 +82,10 @@ var PrimitiveDataTypes []DataType = []DataType{
 	DataTypeUUID, DataTypeUUIDArray,
 }
 
+var NestedDataTypes []DataType = []DataType{
+	DataTypeObject, DataTypeObjectArray,
+}
+
 var DeprecatedPrimitiveDataTypes []DataType = []DataType{
 	// deprecated as of v1.19
 	DataTypeString, DataTypeStringArray,
@@ -89,6 +96,7 @@ type PropertyKind int
 const (
 	PropertyKindPrimitive PropertyKind = 1
 	PropertyKindRef       PropertyKind = 2
+	PropertyKindNested    PropertyKind = 3
 )
 
 type PropertyDataType interface {
@@ -98,12 +106,15 @@ type PropertyDataType interface {
 	IsReference() bool
 	Classes() []ClassName
 	ContainsClass(name ClassName) bool
+	IsNested() bool
+	AsNested() DataType
 }
 
 type propertyDataType struct {
 	kind          PropertyKind
 	primitiveType DataType
 	classes       []ClassName
+	nestedType    DataType
 }
 
 // IsPropertyLength returns if a string is a filters for property length. They have the form len(*PROPNAME*)
@@ -147,7 +158,7 @@ func (p *propertyDataType) IsPrimitive() bool {
 }
 
 func (p *propertyDataType) AsPrimitive() DataType {
-	if p.kind != PropertyKindPrimitive {
+	if !p.IsPrimitive() {
 		panic("not primitive type")
 	}
 
@@ -159,7 +170,7 @@ func (p *propertyDataType) IsReference() bool {
 }
 
 func (p *propertyDataType) Classes() []ClassName {
-	if p.kind != PropertyKindRef {
+	if !p.IsReference() {
 		panic("not MultipleRef type")
 	}
 
@@ -167,7 +178,7 @@ func (p *propertyDataType) Classes() []ClassName {
 }
 
 func (p *propertyDataType) ContainsClass(needle ClassName) bool {
-	if p.kind != PropertyKindRef {
+	if !p.IsReference() {
 		panic("not MultipleRef type")
 	}
 
@@ -178,6 +189,17 @@ func (p *propertyDataType) ContainsClass(needle ClassName) bool {
 	}
 
 	return false
+}
+
+func (p *propertyDataType) IsNested() bool {
+	return p.kind == PropertyKindNested
+}
+
+func (p *propertyDataType) AsNested() DataType {
+	if !p.IsNested() {
+		panic("not nested type")
+	}
+	return p.nestedType
 }
 
 // Based on the schema, return a valid description of the defined datatype
@@ -209,6 +231,14 @@ func (s *Schema) FindPropertyDataTypeWithRefs(
 				return &propertyDataType{
 					kind:          PropertyKindPrimitive,
 					primitiveType: dt,
+				}, nil
+			}
+		}
+		for _, dt := range NestedDataTypes {
+			if dataType[0] == dt.String() {
+				return &propertyDataType{
+					kind:       PropertyKindNested,
+					nestedType: dt,
 				}, nil
 			}
 		}

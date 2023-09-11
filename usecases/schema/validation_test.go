@@ -334,7 +334,7 @@ func Test_Validation_PropertyTokenization(t *testing.T) {
 			for _, tokenization := range helpers.Tokenizations {
 				testCases = append(testCases, testCase{
 					name:             fmt.Sprintf("%s + '%s'", dataType, tokenization),
-					propertyDataType: newFakePropertyDataType(dataType),
+					propertyDataType: newFakePrimitivePDT(dataType),
 					tokenization:     tokenization,
 					expectedErrMsg:   "",
 				})
@@ -343,7 +343,7 @@ func Test_Validation_PropertyTokenization(t *testing.T) {
 			for _, tokenization := range []string{"non_existing", ""} {
 				testCases = append(testCases, testCase{
 					name:             fmt.Sprintf("%s + '%s'", dataType, tokenization),
-					propertyDataType: newFakePropertyDataType(dataType),
+					propertyDataType: newFakePrimitivePDT(dataType),
 					tokenization:     tokenization,
 					expectedErrMsg:   fmt.Sprintf("Tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
 				})
@@ -362,7 +362,7 @@ func Test_Validation_PropertyTokenization(t *testing.T) {
 			default:
 				testCases = append(testCases, testCase{
 					name:             fmt.Sprintf("%s + ''", dataType),
-					propertyDataType: newFakePropertyDataType(dataType),
+					propertyDataType: newFakePrimitivePDT(dataType),
 					tokenization:     "",
 					expectedErrMsg:   "",
 				})
@@ -370,7 +370,7 @@ func Test_Validation_PropertyTokenization(t *testing.T) {
 				for _, tokenization := range append(helpers.Tokenizations, "non_existing") {
 					testCases = append(testCases, testCase{
 						name:             fmt.Sprintf("%s + '%s'", dataType, tokenization),
-						propertyDataType: newFakePropertyDataType(dataType),
+						propertyDataType: newFakePrimitivePDT(dataType),
 						tokenization:     tokenization,
 						expectedErrMsg:   fmt.Sprintf("Tokenization is not allowed for data type '%s'", dataType),
 					})
@@ -386,7 +386,7 @@ func Test_Validation_PropertyTokenization(t *testing.T) {
 
 		testCases = append(testCases, testCase{
 			name:             "ref + ''",
-			propertyDataType: newFakePropertyDataType(""),
+			propertyDataType: newFakePrimitivePDT(""),
 			tokenization:     "",
 			expectedErrMsg:   "",
 		})
@@ -394,7 +394,7 @@ func Test_Validation_PropertyTokenization(t *testing.T) {
 		for _, tokenization := range append(helpers.Tokenizations, "non_existing") {
 			testCases = append(testCases, testCase{
 				name:             fmt.Sprintf("ref + '%s'", tokenization),
-				propertyDataType: newFakePropertyDataType(""),
+				propertyDataType: newFakePrimitivePDT(""),
 				tokenization:     tokenization,
 				expectedErrMsg:   "Tokenization is not allowed for reference data type",
 			})
@@ -413,14 +413,14 @@ func Test_Validation_PropertyTokenization(t *testing.T) {
 				case models.PropertyTokenizationWord, models.PropertyTokenizationField:
 					testCases = append(testCases, testCase{
 						name:             fmt.Sprintf("%s + %s", dataType, tokenization),
-						propertyDataType: newFakePropertyDataType(dataType),
+						propertyDataType: newFakePrimitivePDT(dataType),
 						tokenization:     tokenization,
 						expectedErrMsg:   "",
 					})
 				default:
 					testCases = append(testCases, testCase{
 						name:             fmt.Sprintf("%s + %s", dataType, tokenization),
-						propertyDataType: newFakePropertyDataType(dataType),
+						propertyDataType: newFakePrimitivePDT(dataType),
 						tokenization:     tokenization,
 						expectedErrMsg:   fmt.Sprintf("Tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
 					})
@@ -531,10 +531,15 @@ func Test_Validation_PropertyIndexing(t *testing.T) {
 
 type fakePropertyDataType struct {
 	primitiveDataType schema.DataType
+	nestedDataType    schema.DataType
 }
 
-func newFakePropertyDataType(primitiveDataType schema.DataType) schema.PropertyDataType {
-	return &fakePropertyDataType{primitiveDataType}
+func newFakePrimitivePDT(primitiveDataType schema.DataType) schema.PropertyDataType {
+	return &fakePropertyDataType{primitiveDataType: primitiveDataType}
+}
+
+func newFakeNestedPDT(nestedDataType schema.DataType) schema.PropertyDataType {
+	return &fakePropertyDataType{nestedDataType: nestedDataType}
 }
 
 func (pdt *fakePropertyDataType) Kind() schema.PropertyKind {
@@ -553,11 +558,11 @@ func (pdt *fakePropertyDataType) AsPrimitive() schema.DataType {
 }
 
 func (pdt *fakePropertyDataType) IsReference() bool {
-	return !pdt.IsPrimitive()
+	return !(pdt.IsPrimitive() || pdt.IsNested())
 }
 
 func (pdt *fakePropertyDataType) Classes() []schema.ClassName {
-	if pdt.IsPrimitive() {
+	if pdt.IsPrimitive() || pdt.IsNested() {
 		return nil
 	}
 	return []schema.ClassName{}
@@ -565,4 +570,12 @@ func (pdt *fakePropertyDataType) Classes() []schema.ClassName {
 
 func (pdt *fakePropertyDataType) ContainsClass(name schema.ClassName) bool {
 	return false
+}
+
+func (pdt *fakePropertyDataType) IsNested() bool {
+	return pdt.nestedDataType != ""
+}
+
+func (pdt *fakePropertyDataType) AsNested() schema.DataType {
+	return pdt.nestedDataType
 }
