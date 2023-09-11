@@ -20,7 +20,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -311,17 +310,6 @@ func New(cfg Config, uc ent.UserConfig,
 
 	for i := uint64(0); i < NodeLockStripe; i++ {
 		index.shardedNodeLocks[i] = sync.RWMutex{}
-	}
-
-	for i := 0; i < TempWorkers; i++ {
-		index.tempChannel[i] = make(chan int)
-		go func(channelId int) {
-			for {
-				ind := <-index.tempChannel[channelId]
-				index.AddBatch(index.tempIds[ind], index.tempVectors[ind])
-				fmt.Println("-------------------------------", time.Now())
-			}
-		}(i)
 	}
 
 	return index, nil
