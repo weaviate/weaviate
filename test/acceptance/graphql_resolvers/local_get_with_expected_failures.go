@@ -62,7 +62,7 @@ func getsWithExpectedFailures(t *testing.T) {
 			assert.Len(t, result, 1)
 
 			errMsg := result[0].Message
-			assert.Equal(t, "can't use certainty when vector index is configured with l2-squared distance", errMsg)
+			assert.Equal(t, "can't compute and return certainty when vector index is configured with l2-squared distance", errMsg)
 		})
 	})
 
@@ -105,7 +105,7 @@ func getsWithExpectedFailures(t *testing.T) {
 			assert.Len(t, result, 1)
 
 			errMsg := result[0].Message
-			assert.Equal(t, "can't use certainty when vector index is configured with dot distance", errMsg)
+			assert.Equal(t, "can't compute and return certainty when vector index is configured with dot distance", errMsg)
 		})
 	})
 }
