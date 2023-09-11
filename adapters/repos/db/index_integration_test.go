@@ -17,6 +17,7 @@ package db
 import (
 	"context"
 	"os"
+	"path"
 	"strings"
 	"testing"
 
@@ -349,16 +350,22 @@ func invertedConfig() *models.InvertedIndexConfig {
 	}
 }
 
-func getIndexFilenames(dirName string, className string) ([]string, error) {
-	filenames := []string{}
-	infos, err := os.ReadDir(dirName)
+func getIndexFilenames(rootDir, indexName string) ([]string, error) {
+	var filenames []string
+	indexRoot, err := os.ReadDir(path.Join(rootDir, indexName))
+	if err != nil {
+		if strings.Contains(err.Error(), "no such file or directory") {
+			// index was dropped, or never existed
+			return filenames, nil
+		}
+		return nil, err
+	}
+	shardFiles, err := os.ReadDir(path.Join(rootDir, indexName, indexRoot[0].Name()))
 	if err != nil {
 		return filenames, err
 	}
-	for _, i := range infos {
-		if strings.Contains(i.Name(), className) {
-			filenames = append(filenames, i.Name())
-		}
+	for _, f := range shardFiles {
+		filenames = append(filenames, f.Name())
 	}
 	return filenames, nil
 }

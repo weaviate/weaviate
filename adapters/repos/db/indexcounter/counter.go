@@ -26,7 +26,7 @@ type Counter struct {
 	f *os.File
 }
 
-func New(shardID string, shardPath string) (*Counter, error) {
+func New(shardPath string) (*Counter, error) {
 	fileName := fmt.Sprintf("%s/indexcount", shardPath)
 	f, err := os.OpenFile(fileName, os.O_RDWR|os.O_CREATE, 0o666)
 	if err != nil {

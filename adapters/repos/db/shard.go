@@ -145,7 +145,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	defer s.metrics.ShardStartup(before)
 
-	if err := os.Mkdir(s.path(), os.ModePerm); err != nil {
+	if err := os.MkdirAll(s.path(), os.ModePerm); err != nil {
 		return nil, err
 	}
 
@@ -248,7 +248,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return errors.Wrapf(err, "init shard %q: shard db", s.ID())
 	}
 
-	counter, err := indexcounter.New(s.ID(), s.path())
+	counter, err := indexcounter.New(s.path())
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: index counter", s.ID())
 	}

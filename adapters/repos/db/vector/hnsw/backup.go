@@ -37,7 +37,7 @@ func (h *hnsw) SwitchCommitLogs(ctx context.Context) error {
 // latest (writeable) log file is typically empty.
 // ListFiles errors if maintenance is not paused, as a stable state
 // cannot be guaranteed with maintenance going on in the background.
-func (h *hnsw) ListFiles(ctx context.Context) ([]string, error) {
+func (h *hnsw) ListFiles(ctx context.Context, basePath string) ([]string, error) {
 	var (
 		logRoot = filepath.Join(h.commitLog.RootPath(), fmt.Sprintf("%s.hnsw.commitlog.d", h.commitLog.ID()))
 		found   = make(map[string]struct{})
@@ -56,7 +56,7 @@ func (h *hnsw) ListFiles(ctx context.Context) ([]string, error) {
 
 		// only list non-empty files
 		if st.Size() > 0 {
-			rel, relErr := filepath.Rel(h.commitLog.RootPath(), pth)
+			rel, relErr := filepath.Rel(basePath, pth)
 			if relErr != nil {
 				return relErr
 			}
@@ -76,7 +76,7 @@ func (h *hnsw) ListFiles(ctx context.Context) ([]string, error) {
 
 	// remove active log from list, as
 	// it is not part of the backup
-	path, err := filepath.Rel(h.commitLog.RootPath(), filepath.Join(logRoot, curr))
+	path, err := filepath.Rel(basePath, filepath.Join(logRoot, curr))
 	if err != nil {
 		return nil, errors.Wrap(err, "delete active log")
 	}

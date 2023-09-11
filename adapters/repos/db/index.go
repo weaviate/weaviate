@@ -253,7 +253,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	eg := errgroup.Group{}
 	eg.SetLimit(_NUMCPU)
 
-	if err := os.Mkdir(index.path(), os.ModePerm); err != nil {
+	if err := os.MkdirAll(index.path(), os.ModePerm); err != nil {
 		return nil, fmt.Errorf("init index %q: %w", index.ID(), err)
 	}
 
@@ -1578,7 +1578,12 @@ func (i *Index) drop() error {
 	defer i.backupMutex.RUnlock()
 
 	i.shards.Range(dropShard)
-	return eg.Wait()
+
+	if err := eg.Wait(); err != nil {
+		return err
+	}
+
+	return os.RemoveAll(i.path())
 }
 
 // dropShards deletes shards in a transactional manner.
