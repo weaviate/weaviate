@@ -89,6 +89,12 @@ message SearchRequest {
   optional NearVideoSearchParams near_video = 17;
   optional ConsistencyLevel consistency_level = 18;
   optional GenerativeSearch generative = 19;
+  repeated Sorting sorting = 20;
+}
+
+message Sorting {
+  bool ascending = 1;
+  repeated string path = 2;
 }
 
 message GenerativeSearch {
