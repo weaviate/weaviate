@@ -712,10 +712,50 @@
             "field"
           ]
         },
-        "properties": {
+        "nestedProperties": {
             "description": "The properties of the nested object(s). Applies to object and object[] data types.",
             "items": {
-              "$ref": "#/definitions/Property"
+              "$ref": "#/definitions/NestedProperty"
+            },
+            "type": "array"
+          }
+      },
+      "type": "object"
+    },
+    "NestedProperty": {
+      "properties": {
+        "dataType": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "description": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "indexFilterable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexSearchable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "tokenization": {
+          "type": "string",
+          "enum": [
+            "word",
+            "lowercase",
+            "whitespace",
+            "field"
+          ]
+        },
+        "nestedProperties": {
+            "items": {
+              "$ref": "#/definitions/NestedProperty"
             },
             "type": "array"
           }

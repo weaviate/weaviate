@@ -3918,6 +3918,46 @@ func init() {
         "$ref": "#/definitions/SingleRef"
       }
     },
+    "NestedProperty": {
+      "type": "object",
+      "properties": {
+        "dataType": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": "string"
+        },
+        "indexFilterable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexSearchable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "name": {
+          "type": "string"
+        },
+        "nestedProperties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NestedProperty"
+          }
+        },
+        "tokenization": {
+          "type": "string",
+          "enum": [
+            "word",
+            "lowercase",
+            "whitespace",
+            "field"
+          ]
+        }
+      }
+    },
     "NodeShardStatus": {
       "description": "The definition of a node shard status response body",
       "properties": {
@@ -4305,11 +4345,11 @@ func init() {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
         },
-        "properties": {
+        "nestedProperties": {
           "description": "The properties of the nested object(s). Applies to object and object[] data types.",
           "type": "array",
           "items": {
-            "$ref": "#/definitions/Property"
+            "$ref": "#/definitions/NestedProperty"
           }
         },
         "tokenization": {
@@ -9009,6 +9049,46 @@ func init() {
         "$ref": "#/definitions/SingleRef"
       }
     },
+    "NestedProperty": {
+      "type": "object",
+      "properties": {
+        "dataType": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": "string"
+        },
+        "indexFilterable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexSearchable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "name": {
+          "type": "string"
+        },
+        "nestedProperties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NestedProperty"
+          }
+        },
+        "tokenization": {
+          "type": "string",
+          "enum": [
+            "word",
+            "lowercase",
+            "whitespace",
+            "field"
+          ]
+        }
+      }
+    },
     "NodeShardStatus": {
       "description": "The definition of a node shard status response body",
       "properties": {
@@ -9414,11 +9494,11 @@ func init() {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
         },
-        "properties": {
+        "nestedProperties": {
           "description": "The properties of the nested object(s). Applies to object and object[] data types.",
           "type": "array",
           "items": {
-            "$ref": "#/definitions/Property"
+            "$ref": "#/definitions/NestedProperty"
           }
         },
         "tokenization": {

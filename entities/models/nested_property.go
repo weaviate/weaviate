@@ -27,42 +27,36 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// Property property
+// NestedProperty nested property
 //
-// swagger:model Property
-type Property struct {
+// swagger:model NestedProperty
+type NestedProperty struct {
 
-	// Can be a reference to another type when it starts with a capital (for example Person), otherwise "string" or "int".
+	// data type
 	DataType []string `json:"dataType"`
 
-	// Description of the property.
+	// description
 	Description string `json:"description,omitempty"`
 
-	// Optional. Should this property be indexed in the inverted index. Defaults to true. If you choose false, you will not be able to use this property in where filters. This property has no affect on vectorization decisions done by modules
+	// index filterable
 	IndexFilterable *bool `json:"indexFilterable,omitempty"`
 
-	// Optional. Should this property be indexed in the inverted index. Defaults to true. If you choose false, you will not be able to use this property in where filters, bm25 or hybrid search. This property has no affect on vectorization decisions done by modules (deprecated as of v1.19; use indexFilterable or/and indexSearchable instead)
-	IndexInverted *bool `json:"indexInverted,omitempty"`
-
-	// Optional. Should this property be indexed in the inverted index. Defaults to true. Applicable only to properties of data type text and text[]. If you choose false, you will not be able to use this property in bm25 or hybrid search. This property has no affect on vectorization decisions done by modules
+	// index searchable
 	IndexSearchable *bool `json:"indexSearchable,omitempty"`
 
-	// Configuration specific to modules this Weaviate instance has installed
-	ModuleConfig interface{} `json:"moduleConfig,omitempty"`
-
-	// Name of the property as URI relative to the schema URL.
+	// name
 	Name string `json:"name,omitempty"`
 
-	// The properties of the nested object(s). Applies to object and object[] data types.
+	// nested properties
 	NestedProperties []*NestedProperty `json:"nestedProperties"`
 
-	// Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are `word` (default; splits on any non-alphanumerical, lowercases), `lowercase` (splits on white spaces, lowercases), `whitespace` (splits on white spaces), `field` (trims). Not supported for remaining data types
+	// tokenization
 	// Enum: [word lowercase whitespace field]
 	Tokenization string `json:"tokenization,omitempty"`
 }
 
-// Validate validates this property
-func (m *Property) Validate(formats strfmt.Registry) error {
+// Validate validates this nested property
+func (m *NestedProperty) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateNestedProperties(formats); err != nil {
@@ -79,7 +73,7 @@ func (m *Property) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *Property) validateNestedProperties(formats strfmt.Registry) error {
+func (m *NestedProperty) validateNestedProperties(formats strfmt.Registry) error {
 	if swag.IsZero(m.NestedProperties) { // not required
 		return nil
 	}
@@ -105,7 +99,7 @@ func (m *Property) validateNestedProperties(formats strfmt.Registry) error {
 	return nil
 }
 
-var propertyTypeTokenizationPropEnum []interface{}
+var nestedPropertyTypeTokenizationPropEnum []interface{}
 
 func init() {
 	var res []string
@@ -113,34 +107,34 @@ func init() {
 		panic(err)
 	}
 	for _, v := range res {
-		propertyTypeTokenizationPropEnum = append(propertyTypeTokenizationPropEnum, v)
+		nestedPropertyTypeTokenizationPropEnum = append(nestedPropertyTypeTokenizationPropEnum, v)
 	}
 }
 
 const (
 
-	// PropertyTokenizationWord captures enum value "word"
-	PropertyTokenizationWord string = "word"
+	// NestedPropertyTokenizationWord captures enum value "word"
+	NestedPropertyTokenizationWord string = "word"
 
-	// PropertyTokenizationLowercase captures enum value "lowercase"
-	PropertyTokenizationLowercase string = "lowercase"
+	// NestedPropertyTokenizationLowercase captures enum value "lowercase"
+	NestedPropertyTokenizationLowercase string = "lowercase"
 
-	// PropertyTokenizationWhitespace captures enum value "whitespace"
-	PropertyTokenizationWhitespace string = "whitespace"
+	// NestedPropertyTokenizationWhitespace captures enum value "whitespace"
+	NestedPropertyTokenizationWhitespace string = "whitespace"
 
-	// PropertyTokenizationField captures enum value "field"
-	PropertyTokenizationField string = "field"
+	// NestedPropertyTokenizationField captures enum value "field"
+	NestedPropertyTokenizationField string = "field"
 )
 
 // prop value enum
-func (m *Property) validateTokenizationEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, propertyTypeTokenizationPropEnum, true); err != nil {
+func (m *NestedProperty) validateTokenizationEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, nestedPropertyTypeTokenizationPropEnum, true); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (m *Property) validateTokenization(formats strfmt.Registry) error {
+func (m *NestedProperty) validateTokenization(formats strfmt.Registry) error {
 	if swag.IsZero(m.Tokenization) { // not required
 		return nil
 	}
@@ -153,8 +147,8 @@ func (m *Property) validateTokenization(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validate this property based on the context it is used
-func (m *Property) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+// ContextValidate validate this nested property based on the context it is used
+func (m *NestedProperty) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.contextValidateNestedProperties(ctx, formats); err != nil {
@@ -167,7 +161,7 @@ func (m *Property) ContextValidate(ctx context.Context, formats strfmt.Registry)
 	return nil
 }
 
-func (m *Property) contextValidateNestedProperties(ctx context.Context, formats strfmt.Registry) error {
+func (m *NestedProperty) contextValidateNestedProperties(ctx context.Context, formats strfmt.Registry) error {
 
 	for i := 0; i < len(m.NestedProperties); i++ {
 
@@ -188,7 +182,7 @@ func (m *Property) contextValidateNestedProperties(ctx context.Context, formats 
 }
 
 // MarshalBinary interface implementation
-func (m *Property) MarshalBinary() ([]byte, error) {
+func (m *NestedProperty) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -196,8 +190,8 @@ func (m *Property) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *Property) UnmarshalBinary(b []byte) error {
-	var res Property
+func (m *NestedProperty) UnmarshalBinary(b []byte) error {
+	var res NestedProperty
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}
