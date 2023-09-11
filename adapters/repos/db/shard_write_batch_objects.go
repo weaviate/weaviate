@@ -264,6 +264,11 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 
 	ob.batchStartTime = time.Now()
 
+	var shouldGeoIndex bool
+	ob.shard.propertyIndicesLock.RLock()
+	shouldGeoIndex = len(ob.shard.propertyIndices) > 0
+	ob.shard.propertyIndicesLock.RUnlock()
+
 	vectors := make([]vectorDescriptor, 0, len(ob.objects))
 	for i := range ob.objects {
 		object := ob.objects[i]
@@ -275,13 +280,33 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 		}
 
 		status := ob.statuses[object.ID()]
-		vectors = append(vectors, vectorDescriptor{
+		desc := vectorDescriptor{
 			id:     status.docID,
 			vector: object.Vector,
-			object: object,
-			status: status,
-			shard:  ob.shard,
-		})
+		}
+		if shouldGeoIndex {
+			desc.afterIndex = func(ctx context.Context) {
+				for {
+					err := ob.shard.updatePropertySpecificIndices(object, status)
+					if err == nil {
+						return
+					}
+
+					t := time.NewTimer(1 * time.Second)
+					select {
+					case <-ctx.Done():
+						// drain the timer
+						if !t.Stop() {
+							<-t.C
+						}
+						return
+					case <-t.C:
+					}
+				}
+			}
+		}
+
+		vectors = append(vectors, desc)
 	}
 
 	err := ob.shard.queue.Push(ctx, vectors...)
