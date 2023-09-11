@@ -39,7 +39,7 @@ func TestGetAnswer(t *testing.T) {
 			},
 		})
 		defer server.Close()
-		c := New(server.URL, nullLogger())
+		c := New(server.URL, 0, nullLogger())
 		res, err := c.Answer(context.Background(), "My name is John",
 			"What is my name?")
 		assert.Nil(t, err)
@@ -72,7 +72,7 @@ func TestGetAnswer(t *testing.T) {
 			},
 		})
 		defer server.Close()
-		c := New(server.URL, nullLogger())
+		c := New(server.URL, 0, nullLogger())
 		res, err := c.Answer(context.Background(), "My name is John",
 			"What is my name?")
 
@@ -94,7 +94,7 @@ func TestGetAnswer(t *testing.T) {
 			},
 		})
 		defer server.Close()
-		c := New(server.URL, nullLogger())
+		c := New(server.URL, 0, nullLogger())
 		_, err := c.Answer(context.Background(), "My name is John",
 			"What is my name?")
 

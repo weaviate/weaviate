@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -31,10 +32,10 @@ type qna struct {
 	logger     logrus.FieldLogger
 }
 
-func New(origin string, logger logrus.FieldLogger) *qna {
+func New(origin string, timeout time.Duration, logger logrus.FieldLogger) *qna {
 	return &qna{
 		origin:     origin,
-		httpClient: &http.Client{},
+		httpClient: &http.Client{Timeout: timeout},
 		logger:     logger,
 	}
 }

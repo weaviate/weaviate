@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -42,10 +43,10 @@ type client struct {
 	logger       logrus.FieldLogger
 }
 
-func New(apiKey string, logger logrus.FieldLogger) *client {
+func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *client {
 	return &client{
 		apiKey:       apiKey,
-		httpClient:   &http.Client{},
+		httpClient:   &http.Client{Timeout: timeout},
 		host:         "https://api.cohere.ai",
 		path:         "/v1/rerank",
 		maxDocuments: 1000,
