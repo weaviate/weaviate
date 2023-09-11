@@ -583,7 +583,7 @@ func TestGRPCRequest(t *testing.T) {
 			name: "Sort",
 			req: &grpc.SearchRequest{
 				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
-				Sorting: []*grpc.Sorting{{Ascending: false, Path: []string{classname, "ref", "something"}}},
+				SortBy: []*grpc.SortBy{{Ascending: false, Path: []string{classname, "ref", "something"}}},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,

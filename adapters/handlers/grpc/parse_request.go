@@ -239,14 +239,14 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.Filters = filter
 	}
 
-	if len(req.Sorting) > 0 {
-		out.Sort = extractSorting(req.Sorting)
+	if len(req.SortBy) > 0 {
+		out.Sort = extractSorting(req.SortBy)
 	}
 
 	return out, nil
 }
 
-func extractSorting(sortIn []*pb.Sorting) []filters.Sort {
+func extractSorting(sortIn []*pb.SortBy) []filters.Sort {
 	sortOut := make([]filters.Sort, len(sortIn))
 	for i := range sortIn {
 		order := "asc"

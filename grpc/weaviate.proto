@@ -89,13 +89,16 @@ message SearchRequest {
   optional NearVideoSearchParams near_video = 17;
   optional ConsistencyLevel consistency_level = 18;
   optional GenerativeSearch generative = 19;
-  repeated Sorting sorting = 20;
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated SortBy sort_by = 20;
 }
 
-message Sorting {
+message SortBy {
   bool ascending = 1;
-  // currently only supports one entry (eg just properties, no refs). But the weaviate datastructure already has paths
-  // in it and this makes it easily extendable in the future
+  // currently only supports one entry (eg just properties, no refs). But the
+  // weaviate datastructure already has paths in it and this makes it easily
+  // extendable in the future
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated string path = 2;
 }
 
