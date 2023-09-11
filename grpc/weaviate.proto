@@ -94,6 +94,8 @@ message SearchRequest {
 
 message Sorting {
   bool ascending = 1;
+  // currently only supports one entry (eg just properties, no refs). But the weaviate datastructure already has paths
+  // in it and this makes it easily extendable in the future
   repeated string path = 2;
 }
 
