@@ -12,6 +12,7 @@
 package db
 
 import (
+	"container/list"
 	"context"
 	"runtime"
 	"sync"
@@ -32,8 +33,7 @@ type IndexQueue struct {
 
 	logger logrus.FieldLogger
 
-	maxQueueSize  int
-	maxStaleTime  time.Duration
+	indexInterval time.Duration
 	retryInterval time.Duration
 
 	// processCh is the channel used to send vectors to the indexing worker.
@@ -53,10 +53,9 @@ type IndexQueue struct {
 	// queue of not-yet-indexed vectors
 	queue *vectorQueue
 
-	// keeps track of the last time the queue was indexed
-	staleTm *time.Timer
-
 	pqMaxPool *pqMaxPool
+
+	bufPool sync.Pool
 }
 
 type vectorDescriptor struct {
@@ -66,19 +65,13 @@ type vectorDescriptor struct {
 }
 
 type IndexQueueOptions struct {
-	// MaxQueueSize is the maximum number of vectors to queue
-	// before sending them to the indexing worker.
-	// It must be a multiple of BatchSize.
-	MaxQueueSize int
-
 	// BatchSize is the number of vectors to batch together
 	// before sending them to the indexing worker.
 	BatchSize int
 
-	// MaxStaleTime is the maximum time to wait before sending
-	// the pending vectors to the indexing worker, regardless
-	// of the queue size.
-	MaxStaleTime time.Duration
+	// IndexInterval is the maximum time to wait before sending
+	// the pending vectors to the indexing worker.
+	IndexInterval time.Duration
 
 	// Logger is the logger used by the queue.
 	Logger logrus.FieldLogger
@@ -106,20 +99,12 @@ func NewIndexQueue(
 		opts.Logger = logrus.New()
 	}
 
-	if opts.MaxQueueSize == 0 {
-		opts.MaxQueueSize = 1_000_000
-	}
-
 	if opts.BatchSize == 0 {
 		opts.BatchSize = 1000
 	}
 
-	if opts.MaxStaleTime == 0 {
-		opts.MaxStaleTime = 1 * time.Second
-	}
-
-	if opts.MaxQueueSize%opts.BatchSize != 0 {
-		return nil, errors.New("maxQueueSize must be a multiple of batchSize")
+	if opts.IndexInterval == 0 {
+		opts.IndexInterval = 1 * time.Second
 	}
 
 	if opts.RetryInterval == 0 {
@@ -132,14 +117,18 @@ func NewIndexQueue(
 
 	q := IndexQueue{
 		Index:         index,
-		maxQueueSize:  opts.MaxQueueSize,
-		maxStaleTime:  opts.MaxStaleTime,
+		indexInterval: opts.IndexInterval,
 		retryInterval: opts.RetryInterval,
-		queue:         newVectorQueue(opts.MaxQueueSize, opts.BatchSize),
+		queue:         newVectorQueue(opts.BatchSize),
 		processCh:     make(chan []vectorDescriptor),
 		indexCh:       make(chan *chunk),
 		logger:        opts.Logger.WithField("component", "index_queue"),
 		pqMaxPool:     newPqMaxPool(0),
+		bufPool: sync.Pool{
+			New: func() any {
+				return make([]vectorDescriptor, 0, 10*opts.BatchSize)
+			},
+		},
 	}
 
 	q.ctx, q.cancelFn = context.WithCancel(context.Background())
@@ -147,9 +136,16 @@ func NewIndexQueue(
 	q.wg.Add(1)
 	go func() {
 		defer q.wg.Done()
+
+		q.enqueuer()
+	}()
+
+	q.wg.Add(1)
+	go func() {
+		defer q.wg.Done()
 		defer close(q.indexCh)
 
-		q.processor()
+		q.indexer()
 	}()
 
 	for i := 0; i < opts.IndexWorkerCount; i++ {
@@ -157,7 +153,7 @@ func NewIndexQueue(
 		go func() {
 			defer q.wg.Done()
 
-			q.indexer()
+			q.worker()
 		}()
 	}
 
@@ -203,157 +199,52 @@ func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) erro
 // While the queue is not full or stale, it persists the jobs on disk.
 // Once the queue is full or stale, it sends the jobs to the indexing worker.
 // It batches concurrent jobs to reduce the number of disk writes.
-func (q *IndexQueue) processor() {
-	q.staleTm = time.NewTimer(q.maxStaleTime)
+func (q *IndexQueue) enqueuer() {
+	for batch := range q.processCh {
+		q.queue.Add(batch)
+	}
+}
+
+func (q *IndexQueue) indexer() {
+	t := time.NewTicker(q.indexInterval)
 
 	for {
 		select {
-		case batch, ok := <-q.processCh:
-			if !ok {
-				// the channel is closed, abort.
-				// drain the timer
-				if !q.staleTm.Stop() {
-					<-q.staleTm.C
-				}
-				return
-			}
-
-			var n int
-			var err error
-
-			for {
-				n = q.queue.Add(batch...)
-				if n == len(batch) {
-					break
-				}
-
-				batch = batch[n:]
-
-				err = q.index(true)
-				if err != nil {
-					q.logger.WithError(err).Error("failed to index vectors")
-					return
-				}
-			}
-
-			// err = q.index(true)
-			// if err != nil {
-			// 	q.logger.WithError(err).Error("failed to index vectors")
-			// 	return
-			// }
-
-			// q.staleTm.Reset(q.maxStaleTime)
-		case <-q.staleTm.C:
-			err := q.index(false)
+		case <-t.C:
+			err := q.pushToWorkers()
 			if err != nil {
 				q.logger.WithError(err).Error("failed to index vectors")
 				return
 			}
-
-			// reset the timer
-			q.staleTm.Reset(q.maxStaleTime)
 		case <-q.ctx.Done():
-			// drain the timer
-			if !q.staleTm.Stop() {
-				<-q.staleTm.C
-			}
-			// if the queue is closed, do nothing.
+			// stop the ticker
+			t.Stop()
 			return
 		}
 	}
 }
 
-func (q *IndexQueue) index(fullOnly bool) error {
-	c := q.queue.BorrowNextChunk(fullOnly)
-	for c != nil {
+func (q *IndexQueue) pushToWorkers() error {
+	chunks := q.queue.borrowAllChunks()
+	for _, c := range chunks {
 		select {
 		case <-q.ctx.Done():
 			return errors.New("index queue closed")
 		case q.indexCh <- c:
-		default:
-			// if workers are busy, skip indexing for now
-			q.queue.UnborrowChunk(c)
-			return nil
 		}
-
-		c = q.queue.BorrowNextChunk(fullOnly)
 	}
 
 	return nil
 }
 
-// Search defer to the index and brute force the unindexed data
-func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	indexedResults, distances, err := q.Index.SearchByVector(vector, k, allowList)
-	if err != nil {
-		return nil, nil, err
-	}
-	results := q.pqMaxPool.GetMax(k)
-	defer q.pqMaxPool.Put(results)
-	for i := range indexedResults {
-		results.Insert(indexedResults[i], distances[i])
-	}
-
-	snapshot := q.queue.AppendSnapshot(nil)
-	ids := make([]uint64, len(snapshot))
-	vectors := make([][]float32, len(snapshot))
-	for i, v := range snapshot {
-		ids[i] = v.id
-		vectors[i] = v.vector
-	}
-
-	err = q.bruteForce(vector, k, ids, vectors, results, allowList)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if cap(ids) >= k {
-		ids = ids[:k]
-		distances = distances[:k]
-	} else {
-		ids = make([]uint64, k)
-		distances = make([]float32, k)
-	}
-
-	for i := k - 1; i >= 0; i-- {
-		element := results.Pop()
-		ids[i] = element.ID
-		distances[i] = element.Dist
-	}
-	return ids, distances, nil
-}
-
-func (q *IndexQueue) bruteForce(vector []float32, k int, ids []uint64, vectors [][]float32, results *priorityqueue.Queue, allowList helpers.AllowList) error {
-	// actual brute force. Consider moving to a separate
-	for i := range vectors {
-		// skip filtered data
-		if allowList != nil && allowList.Contains(ids[i]) {
-			continue
-		}
-
-		dist, _, err := q.Index.DistanceBetweenVectors(vector, vectors[i])
-		if err != nil {
-			return err
-		}
-
-		if results.Len() < k || dist < results.Top().Dist {
-			results.Insert(ids[i], dist)
-			for results.Len() > k {
-				results.Pop()
-			}
-		}
-	}
-	return nil
-}
-
-func (q *IndexQueue) indexer() {
+func (q *IndexQueue) worker() {
 	var ids []uint64
 	var vectors [][]float32
 
 	for b := range q.indexCh {
-		for i := range b.chunk[:b.cursor] {
-			ids = append(ids, b.chunk[i].id)
-			vectors = append(vectors, b.chunk[i].vector)
+		for i := range b.data[:b.cursor] {
+			ids = append(ids, b.data[i].id)
+			vectors = append(vectors, b.data[i].vector)
 		}
 
 		if err := q.indexVectors(ids, vectors); err != nil {
@@ -361,13 +252,13 @@ func (q *IndexQueue) indexer() {
 			return
 		}
 
-		for i := range b.chunk[:b.cursor] {
-			if b.chunk[i].afterIndex != nil {
-				b.chunk[i].afterIndex(q.ctx)
+		for i := range b.data[:b.cursor] {
+			if b.data[i].afterIndex != nil {
+				b.data[i].afterIndex(q.ctx)
 			}
 		}
 
-		q.queue.ReleaseChunk(b)
+		q.queue.releaseChunk(b)
 
 		ids = ids[:0]
 		vectors = vectors[:0]
@@ -394,6 +285,74 @@ func (q *IndexQueue) indexVectors(ids []uint64, vectors [][]float32) error {
 		case <-t.C:
 		}
 	}
+}
+
+// Search defer to the index and brute force the unindexed data
+func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	indexedResults, distances, err := q.Index.SearchByVector(vector, k, allowList)
+	if err != nil {
+		return nil, nil, err
+	}
+	results := q.pqMaxPool.GetMax(k)
+	defer q.pqMaxPool.Put(results)
+	for i := range indexedResults {
+		results.Insert(indexedResults[i], distances[i])
+	}
+
+	snapshot := q.bufPool.Get().([]vectorDescriptor)
+	snapshot = q.queue.AppendSnapshot(snapshot)
+	ids := make([]uint64, len(snapshot))
+	vectors := make([][]float32, len(snapshot))
+	for i, v := range snapshot {
+		ids[i] = v.id
+		vectors[i] = v.vector
+	}
+
+	err = q.bruteForce(vector, k, ids, vectors, results, allowList)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if cap(ids) >= k {
+		ids = ids[:k]
+		distances = distances[:k]
+	} else {
+		ids = make([]uint64, k)
+		distances = make([]float32, k)
+	}
+
+	for i := k - 1; i >= 0; i-- {
+		element := results.Pop()
+		ids[i] = element.ID
+		distances[i] = element.Dist
+	}
+
+	q.bufPool.Put(snapshot[:0])
+
+	return ids, distances, nil
+}
+
+func (q *IndexQueue) bruteForce(vector []float32, k int, ids []uint64, vectors [][]float32, results *priorityqueue.Queue, allowList helpers.AllowList) error {
+	// actual brute force. Consider moving to a separate
+	for i := range vectors {
+		// skip filtered data
+		if allowList != nil && allowList.Contains(ids[i]) {
+			continue
+		}
+
+		dist, _, err := q.Index.DistanceBetweenVectors(vector, vectors[i])
+		if err != nil {
+			return err
+		}
+
+		if results.Len() < k || dist < results.Top().Dist {
+			results.Insert(ids[i], dist)
+			for results.Len() > k {
+				results.Pop()
+			}
+		}
+	}
+	return nil
 }
 
 type pqMaxPool struct {
@@ -426,145 +385,141 @@ func (pqh *pqMaxPool) Put(pq *priorityqueue.Queue) {
 }
 
 type vectorQueue struct {
-	vectors   []vectorDescriptor
-	maxSize   int
+	sync.Mutex
 	batchSize int
+	pool      sync.Pool
+	curBatch  struct {
+		sync.Mutex
 
-	curBatch *chunk
-	chunks   []chunk
+		c *chunk
+	}
+	fullChunks struct {
+		sync.Mutex
+
+		list *list.List
+	}
 }
 
-func newVectorQueue(maxSize, batchSize int) *vectorQueue {
-	if maxSize%batchSize != 0 {
-		panic("maxSize must be a multiple of batchSize")
-	}
-
+func newVectorQueue(batchSize int) *vectorQueue {
 	q := vectorQueue{
-		maxSize:   maxSize,
 		batchSize: batchSize,
-		vectors:   make([]vectorDescriptor, maxSize),
-		chunks:    make([]chunk, maxSize/batchSize),
+		pool: sync.Pool{
+			New: func() any {
+				return &chunk{
+					data: make([]vectorDescriptor, batchSize),
+				}
+			},
+		},
 	}
 
-	for i := range q.chunks {
-		q.chunks[i].id = i
-		q.chunks[i].free = true
-		q.chunks[i].chunk = q.vectors[i*q.batchSize : (i+1)*q.batchSize]
-	}
-
-	q.curBatch = &q.chunks[0]
-	q.curBatch.free = false
+	q.fullChunks.list = list.New()
+	q.curBatch.c = q.getFreeChunk()
 
 	return &q
 }
 
-func (q *vectorQueue) Add(vectors ...vectorDescriptor) int {
-	if !q.ensureHasSpace() {
-		return 0
-	}
-
-	for i, v := range vectors {
-		q.curBatch.chunk[q.curBatch.cursor] = v
-		q.curBatch.cursor++
-
-		if !q.ensureHasSpace() {
-			return i + 1
-		}
-	}
-
-	return len(vectors)
+func (q *vectorQueue) getFreeChunk() *chunk {
+	return q.pool.Get().(*chunk)
 }
 
-func (q *vectorQueue) ensureHasSpace() bool {
-	if q.curBatch.cursor < q.batchSize {
-		return true
+func (q *vectorQueue) Add(vectors []vectorDescriptor) {
+	var full []*chunk
+
+	q.curBatch.Lock()
+	f := q.ensureHasSpace()
+	if f != nil {
+		full = append(full, f)
 	}
 
-	q.curBatch.full = true
+	for {
+		n := copy(q.curBatch.c.data[q.curBatch.c.cursor:], vectors)
+		q.curBatch.c.cursor += n
 
-	c := q.getAndLockFreeChunk()
-	if c == nil {
-		return false
+		vectors = vectors[n:]
+
+		if len(vectors) == 0 {
+			break
+		}
+
+		f := q.ensureHasSpace()
+		if f != nil {
+			full = append(full, f)
+		}
 	}
-
-	q.curBatch = c
-	q.curBatch.free = false
-	q.curBatch.cursor = 0
 	q.curBatch.Unlock()
 
-	return true
+	if len(full) > 0 {
+		q.fullChunks.Lock()
+		for _, f := range full {
+			f.elem = q.fullChunks.list.PushBack(f)
+		}
+		q.fullChunks.Unlock()
+	}
 }
 
-func (q *vectorQueue) getAndLockFreeChunk() *chunk {
-	for i := range q.chunks {
-		q.chunks[i].Lock()
-		if q.chunks[i].free {
-			// do not unlock the chunk here, it will be unlocked by the caller
-			return &q.chunks[i]
-		}
-		q.chunks[i].Unlock()
+func (q *vectorQueue) ensureHasSpace() *chunk {
+	if q.curBatch.c.cursor < q.batchSize {
+		return nil
 	}
 
-	return nil
+	c := q.curBatch.c
+	q.curBatch.c = q.getFreeChunk()
+	return c
 }
 
-func (q *vectorQueue) BorrowNextChunk(fullOnly bool) *chunk {
-	for i := range q.chunks {
-		q.chunks[i].Lock()
-		if !q.chunks[i].free && !q.chunks[i].borrowed {
-			if fullOnly && !q.chunks[i].full || q.chunks[i].cursor == 0 {
-				q.chunks[i].Unlock()
-				continue
-			}
+func (q *vectorQueue) borrowAllChunks() []*chunk {
+	q.fullChunks.Lock()
 
-			q.chunks[i].borrowed = true
-			q.chunks[i].Unlock()
-			return &q.chunks[i]
+	var chunks []*chunk
+	e := q.fullChunks.list.Front()
+	for e != nil {
+		c := e.Value.(*chunk)
+		if !c.borrowed {
+			c.borrowed = true
+			chunks = append(chunks, c)
 		}
-		q.chunks[i].Unlock()
+
+		e = e.Next()
 	}
 
-	return nil
+	q.fullChunks.Unlock()
+
+	return chunks
 }
 
-func (q *vectorQueue) UnborrowChunk(c *chunk) {
-	c.Lock()
-	defer c.Unlock()
+func (q *vectorQueue) releaseChunk(c *chunk) {
+	q.fullChunks.Lock()
+	q.fullChunks.list.Remove(c.elem)
+	q.fullChunks.Unlock()
 
-	c.borrowed = false
-}
-
-func (q *vectorQueue) ReleaseChunk(c *chunk) {
-	c.Lock()
-	defer c.Unlock()
-
-	c.full = false
-	c.free = true
 	c.borrowed = false
 	c.cursor = 0
+	c.elem = nil
+
+	q.pool.Put(c)
 }
 
 func (q *vectorQueue) AppendSnapshot(buf []vectorDescriptor) []vectorDescriptor {
-	for i := range q.chunks {
-		q.chunks[i].Lock()
-		if q.chunks[i].free {
-			q.chunks[i].Unlock()
-			continue
-		}
+	q.fullChunks.Lock()
+	e := q.fullChunks.list.Front()
+	for e != nil {
+		c := e.Value.(*chunk)
+		buf = append(buf, c.data[:c.cursor]...)
 
-		buf = append(buf, q.chunks[i].chunk[:q.chunks[i].cursor]...)
-		q.chunks[i].Unlock()
+		e = e.Next()
 	}
+	q.fullChunks.Unlock()
+
+	q.curBatch.Lock()
+	buf = append(buf, q.curBatch.c.data[:q.curBatch.c.cursor]...)
+	q.curBatch.Unlock()
 
 	return buf
 }
 
 type chunk struct {
-	sync.Mutex
-	id       int
-	free     bool
-	full     bool
 	cursor   int
 	borrowed bool
-	chunk    []vectorDescriptor
+	data     []vectorDescriptor
+	elem     *list.Element
 }

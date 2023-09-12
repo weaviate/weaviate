@@ -33,8 +33,7 @@ func TestIndexQueue(t *testing.T) {
 		}
 
 		q, err := NewIndexQueue(&idx, IndexQueueOptions{
-			MaxQueueSize: 4,
-			BatchSize:    2,
+			BatchSize: 2,
 		})
 		require.NoError(t, err)
 		defer q.Close()
@@ -73,9 +72,8 @@ func TestIndexQueue(t *testing.T) {
 		}
 
 		q, err := NewIndexQueue(&idx, IndexQueueOptions{
-			MaxQueueSize:  1,
 			BatchSize:     1,
-			MaxStaleTime:  10 * time.Hour,
+			IndexInterval: 10 * time.Hour,
 			RetryInterval: time.Millisecond,
 		})
 		require.NoError(t, err)
@@ -94,9 +92,8 @@ func TestIndexQueue(t *testing.T) {
 	t.Run("index if stale", func(t *testing.T) {
 		var idx mockBatchIndexer
 		q, err := NewIndexQueue(&idx, IndexQueueOptions{
-			MaxQueueSize: 100,
-			BatchSize:    10,
-			MaxStaleTime: 300 * time.Millisecond,
+			BatchSize:     10,
+			IndexInterval: 300 * time.Millisecond,
 		})
 		require.NoError(t, err)
 		defer q.Close()
@@ -121,8 +118,7 @@ func TestIndexQueue(t *testing.T) {
 		}
 
 		q, err := NewIndexQueue(&idx, IndexQueueOptions{
-			MaxQueueSize: 9,
-			BatchSize:    3,
+			BatchSize: 3,
 		})
 		require.NoError(t, err)
 		defer q.Close()
@@ -153,6 +149,32 @@ func TestIndexQueue(t *testing.T) {
 		require.NoError(t, err)
 		require.ElementsMatch(t, []uint64{1, 4}, ids)
 	})
+}
+
+func BenchmarkPush(b *testing.B) {
+	var idx mockBatchIndexer
+	q, err := NewIndexQueue(&idx, IndexQueueOptions{
+		BatchSize:     1000,
+		IndexInterval: 1 * time.Millisecond,
+	})
+	require.NoError(b, err)
+	defer q.Close()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		vecs := make([]vectorDescriptor, 100)
+		for j := range vecs {
+			vecs[j] = vectorDescriptor{
+				id:     uint64(i*100 + j),
+				vector: []float32{1, 2, 3},
+			}
+		}
+		b.StartTimer()
+
+		err = q.Push(context.Background(), vecs...)
+		require.NoError(b, err)
+	}
 }
 
 type mockBatchIndexer struct {
