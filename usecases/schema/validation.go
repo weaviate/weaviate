@@ -107,6 +107,14 @@ func (m *Manager) validatePropertyIndexing(prop *models.Property) error {
 		}
 	}
 
+	if prop.IndexFilterable != nil {
+		if _, isNested := schema.AsNested(prop.DataType); isNested {
+			if *prop.IndexFilterable {
+				return fmt.Errorf("`indexFilterable` is not allowed for object/object[] data types")
+			}
+		}
+	}
+
 	return nil
 }
 

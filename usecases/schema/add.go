@@ -253,6 +253,7 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 func setPropertyDefaults(prop *models.Property) {
 	setPropertyDefaultTokenization(prop)
 	setPropertyDefaultIndexing(prop)
+	setNestedPropertiesDefaults(prop.NestedProperties)
 }
 
 func setPropertyDefaultTokenization(prop *models.Property) {
@@ -282,8 +283,14 @@ func setPropertyDefaultIndexing(prop *models.Property) {
 	}
 
 	vTrue := true
+	vFalse := false
+
 	if prop.IndexFilterable == nil {
-		prop.IndexFilterable = &vTrue
+		if _, isNested := schema.AsNested(prop.DataType); isNested {
+			prop.IndexFilterable = &vFalse
+		} else {
+			prop.IndexFilterable = &vTrue
+		}
 	}
 	if prop.IndexSearchable == nil {
 		switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
@@ -294,9 +301,63 @@ func setPropertyDefaultIndexing(prop *models.Property) {
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			prop.IndexSearchable = &vTrue
 		default:
-			vFalse := false
 			prop.IndexSearchable = &vFalse
 		}
+	}
+}
+
+func setNestedPropertiesDefaults(properties []*models.NestedProperty) {
+	for _, property := range properties {
+		primitiveDataType, isPrimitive := schema.AsPrimitive(property.DataType)
+		nestedDataType, isNested := schema.AsNested(property.DataType)
+
+		setNestedPropertyDefaultTokenization(property, primitiveDataType, nestedDataType, isPrimitive, isNested)
+		setNestedPropertyDefaultIndexing(property, primitiveDataType, nestedDataType, isPrimitive, isNested)
+
+		if isNested {
+			setNestedPropertiesDefaults(property.NestedProperties)
+		}
+	}
+}
+
+func setNestedPropertyDefaultTokenization(property *models.NestedProperty,
+	primitiveDataType, nestedDataType schema.DataType,
+	isPrimitive, isNested bool,
+) {
+	if property.Tokenization == "" && isPrimitive {
+		switch primitiveDataType {
+		case schema.DataTypeText, schema.DataTypeTextArray:
+			property.Tokenization = models.NestedPropertyTokenizationWord
+		}
+	}
+}
+
+func setNestedPropertyDefaultIndexing(property *models.NestedProperty,
+	primitiveDataType, nestedDataType schema.DataType,
+	isPrimitive, isNested bool,
+) {
+	vTrue := true
+	vFalse := false
+
+	if property.IndexSearchable == nil {
+		if isPrimitive {
+			switch primitiveDataType {
+			case schema.DataTypeText, schema.DataTypeTextArray:
+				property.IndexSearchable = &vTrue
+			}
+		}
+	}
+	if property.IndexSearchable == nil {
+		property.IndexSearchable = &vFalse
+	}
+
+	if property.IndexFilterable == nil {
+		if isNested {
+			property.IndexFilterable = &vFalse
+		}
+	}
+	if property.IndexFilterable == nil {
+		property.IndexFilterable = &vTrue
 	}
 }
 

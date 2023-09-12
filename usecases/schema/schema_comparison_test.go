@@ -228,8 +228,8 @@ func Test_SchemaComparison_VariousMismatches(t *testing.T) {
 		"class Foo: property prop_2 exists in L, but not in R",
 		"class Foo: property prop_3 exists in R, but not in L",
 		"class Foo: property prop_4: mismatch: " +
-			"L has {\"dataType\":[\"text\"],\"name\":\"prop_4\",\"nestedProperties\":null,\"tokenization\":\"whitespace\"}, but " +
-			"R has {\"dataType\":[\"text\"],\"name\":\"prop_4\",\"nestedProperties\":null}",
+			"L has {\"dataType\":[\"text\"],\"name\":\"prop_4\",\"tokenization\":\"whitespace\"}, but " +
+			"R has {\"dataType\":[\"text\"],\"name\":\"prop_4\"}",
 		"class Foo: description mismatch: " +
 			"L has \"foo\", but R has \"\"",
 		"class Foo: inverted index config mismatch: " +
