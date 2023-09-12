@@ -3945,7 +3945,8 @@ func init() {
           "type": "array",
           "items": {
             "$ref": "#/definitions/NestedProperty"
-          }
+          },
+          "x-omitempty": true
         },
         "tokenization": {
           "type": "string",
@@ -4350,7 +4351,8 @@ func init() {
           "type": "array",
           "items": {
             "$ref": "#/definitions/NestedProperty"
-          }
+          },
+          "x-omitempty": true
         },
         "tokenization": {
           "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default; splits on any non-alphanumerical, lowercases), ` + "`" + `lowercase` + "`" + ` (splits on white spaces, lowercases), ` + "`" + `whitespace` + "`" + ` (splits on white spaces), ` + "`" + `field` + "`" + ` (trims). Not supported for remaining data types",
@@ -9076,7 +9078,8 @@ func init() {
           "type": "array",
           "items": {
             "$ref": "#/definitions/NestedProperty"
-          }
+          },
+          "x-omitempty": true
         },
         "tokenization": {
           "type": "string",
@@ -9499,7 +9502,8 @@ func init() {
           "type": "array",
           "items": {
             "$ref": "#/definitions/NestedProperty"
-          }
+          },
+          "x-omitempty": true
         },
         "tokenization": {
           "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default; splits on any non-alphanumerical, lowercases), ` + "`" + `lowercase` + "`" + ` (splits on white spaces, lowercases), ` + "`" + `whitespace` + "`" + ` (splits on white spaces), ` + "`" + `field` + "`" + ` (trims). Not supported for remaining data types",

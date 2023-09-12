@@ -48,7 +48,7 @@ type NestedProperty struct {
 	Name string `json:"name,omitempty"`
 
 	// nested properties
-	NestedProperties []*NestedProperty `json:"nestedProperties"`
+	NestedProperties []*NestedProperty `json:"nestedProperties,omitempty"`
 
 	// tokenization
 	// Enum: [word lowercase whitespace field]

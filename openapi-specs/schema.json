@@ -717,7 +717,8 @@
             "items": {
               "$ref": "#/definitions/NestedProperty"
             },
-            "type": "array"
+            "type": "array",
+            "x-omitempty": true
           }
       },
       "type": "object"
@@ -757,7 +758,8 @@
             "items": {
               "$ref": "#/definitions/NestedProperty"
             },
-            "type": "array"
+            "type": "array",
+            "x-omitempty": true
           }
       },
       "type": "object"
