@@ -558,11 +558,11 @@ func (pdt *fakePropertyDataType) AsPrimitive() schema.DataType {
 }
 
 func (pdt *fakePropertyDataType) IsReference() bool {
-	return !(pdt.IsPrimitive() || pdt.IsNested())
+	return !pdt.IsPrimitive() && !pdt.IsNested()
 }
 
 func (pdt *fakePropertyDataType) Classes() []schema.ClassName {
-	if pdt.IsPrimitive() || pdt.IsNested() {
+	if !pdt.IsReference() {
 		return nil
 	}
 	return []schema.ClassName{}
