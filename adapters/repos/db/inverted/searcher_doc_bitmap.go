@@ -27,7 +27,7 @@ func (s *Searcher) docBitmap(ctx context.Context, property []byte, b lsmkv.Bucke
 	// external index. So, instead of trying to serve this chunk of the filter
 	// request internally, we can pass it to an external geo index
 	if pv.operator == filters.OperatorWithinGeoRange {
-		return s.docBitmapInvertedSet(ctx, property, b, limit, pv)
+		return s.docBitmapGeo(ctx, pv)
 	}
 	// all other operators perform operations on the inverted index which we
 	// can serve directly
@@ -39,7 +39,7 @@ func (s *Searcher) docBitmap(ctx context.Context, property []byte, b lsmkv.Bucke
 		}
 
 		// bucket with strategy set serves docIds used to build bitmap
-		return s.docBitmapInvertedMap(ctx, property, b, limit, pv)
+		return s.docBitmapInvertedSet(ctx, property, b, limit, pv)
 	}
 
 	if pv.hasSearchableIndex {
