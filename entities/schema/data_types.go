@@ -275,7 +275,7 @@ func (s *Schema) FindPropertyDataTypeWithRefs(
 }
 
 func AsPrimitive(dataType []string) (DataType, bool) {
-	if (len(dataType)) == 1 {
+	if len(dataType) == 1 {
 		for _, dt := range append(PrimitiveDataTypes, DeprecatedPrimitiveDataTypes...) {
 			if dataType[0] == dt.String() {
 				return dt, true
@@ -286,6 +286,17 @@ func AsPrimitive(dataType []string) (DataType, bool) {
 		}
 
 		return "", unicode.IsLower(rune(dataType[0][0]))
+	}
+	return "", false
+}
+
+func AsNested(dataType []string) (DataType, bool) {
+	if len(dataType) == 1 {
+		for _, dt := range NestedDataTypes {
+			if dataType[0] == dt.String() {
+				return dt, true
+			}
+		}
 	}
 	return "", false
 }

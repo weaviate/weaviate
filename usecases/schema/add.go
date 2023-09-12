@@ -417,6 +417,12 @@ func (m *Manager) validateProperty(
 		return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
 	}
 
+	if propertyDataType.IsNested() {
+		if err := validateNestedProperties(property.NestedProperties, property.Name); err != nil {
+			return err
+		}
+	}
+
 	if err := m.validatePropertyTokenization(property.Tokenization, propertyDataType); err != nil {
 		return err
 	}
