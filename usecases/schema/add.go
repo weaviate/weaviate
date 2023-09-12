@@ -104,9 +104,6 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 		return err
 	}
 
-	semanticSchema := m.schemaCache.ObjectSchema
-	semanticSchema.Classes = append(semanticSchema.Classes, class)
-
 	shardingState.MigrateFromOldFormat()
 
 	payload, err := CreateClassPayload(class, &shardingState)
@@ -114,7 +111,7 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 		return err
 	}
 	shardingState.SetLocalName(m.clusterState.LocalName())
-	m.schemaCache.LockGuard(func() { m.schemaCache.ShardingState[class.Class] = &shardingState })
+	m.schemaCache.addClass(class, &shardingState)
 
 	// payload.Shards
 	if err := m.repo.NewClass(ctx, payload); err != nil {
@@ -222,10 +219,7 @@ func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
 		WithField("action", "schema_add_class").
 		Debugf("add class %q from schema", class.Class)
 
-	m.schemaCache.LockGuard(func() {
-		m.schemaCache.ObjectSchema.Classes = append(m.schemaCache.ObjectSchema.Classes, class)
-		m.schemaCache.ShardingState[class.Class] = shardingState
-	})
+	m.schemaCache.addClass(class, shardingState)
 
 	m.triggerSchemaUpdateCallbacks()
 	return nil

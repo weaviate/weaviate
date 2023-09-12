@@ -22,20 +22,28 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-func (m *Manager) validateClassNameUniqueness(className string) error {
-	for _, otherClass := range m.schemaCache.ObjectSchema.Classes {
-		if strings.EqualFold(className, otherClass.Class) {
-			if className != otherClass.Class {
-				// It's a permutation
-				return fmt.Errorf(
-					"class name %q already exists as a permutation of: %q. class names must be unique when lowercased",
-					className, otherClass.Class)
-			}
-			return fmt.Errorf("class name %q already exists", className)
-		}
+func (m *Manager) validateClassNameUniqueness(name string) error {
+	pred := func(c *models.Class) bool {
+		return strings.EqualFold(name, c.Class)
 	}
+	existingName := ""
+	m.schemaCache.RLockGuard(func() error {
+		if cls := m.schemaCache.unsafeFindClassIf(pred); cls != nil {
+			existingName = cls.Class
+		}
+		return nil
+	})
 
-	return nil
+	if existingName == "" {
+		return nil
+	}
+	if name != existingName {
+		// It's a permutation
+		return fmt.Errorf(
+			"class name %q already exists as a permutation of: %q. class names must be unique when lowercased",
+			name, existingName)
+	}
+	return fmt.Errorf("class name %q already exists", name)
 }
 
 // Check that the format of the name is correct
