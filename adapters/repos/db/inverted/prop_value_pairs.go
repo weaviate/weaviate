@@ -104,7 +104,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			return errors.Errorf("Property length must be indexed to be filterable! add `IndexPropertyLength: true` to the invertedIndexConfig. Geo-coordinates, phone numbers and data blobs are not supported by property length.")
 		}
 
-		if !pv.Class.InvertedIndexConfig.IndexPropertyLength &&
+		if pv.Class.InvertedIndexConfig.IndexPropertyLength &&
 			filters.OperatorWithinGeoRange == pv.operator {
 			return errors.Errorf("Geo-coordinates are not supported by property length.")
 		}

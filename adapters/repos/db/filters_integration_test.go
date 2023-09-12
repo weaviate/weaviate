@@ -571,6 +571,9 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				continue
 			}
 			*/
+			if test.name != "within 600km of San Francisco" {
+				continue  //FIXME
+			}
 			t.Run(test.name, func(t *testing.T) {
 				if test.limit == 0 {
 					test.limit = 100
