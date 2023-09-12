@@ -209,7 +209,6 @@ func (s *Searcher) buildPropValuePair(filter *filters.Clause, className schema.C
 
 	if s.onInternalProp(propName) {
 		return s.extractInternalProp(propName, filter.Value.Type, filter.Value.Value, filter.Operator, class)
-
 	}
 
 	if extractedPropName, ok := schema.IsPropertyLength(propName, 0); ok {

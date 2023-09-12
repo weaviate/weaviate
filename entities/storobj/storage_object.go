@@ -548,11 +548,11 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 // UnmarshalPropertiesFromObject only unmarshals and returns the properties part of the object
 //
 // Check MarshalBinary for the order of elements in the input array
-func UnmarshalPropertiesFromObject(data []byte, aggregationProperties []string, propStrings [][]string) (*map[string]interface{},error) {
+func UnmarshalPropertiesFromObject(data []byte, aggregationProperties []string, propStrings [][]string) (*map[string]interface{}, error) {
 	if data[0] != uint8(1) {
-		return nil,errors.Errorf("unsupported binary marshaller version %d", data[0])
-        }
-       properties := &map[string]interface{}{}
+		return nil, errors.Errorf("unsupported binary marshaller version %d", data[0])
+	}
+	properties := &map[string]interface{}{}
 
 	// clear out old values in case an object misses values. This should NOT shrink the capacity of the map, eg there
 	// are no allocations when adding the properties of the next object again

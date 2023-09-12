@@ -103,8 +103,7 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 }
 
 func (s *Shard) addToPropertyLengthIndex(propName string, docID uint64, length int) error {
-	bucketLength, err:=  s.wrapBucketWithProp( s.store.Bucket("filterable_properties"), helpers.PropertyLength(propName), s.propIds)
-
+	bucketLength, err := s.wrapBucketWithProp(s.store.Bucket("filterable_properties"), helpers.PropertyLength(propName), s.propIds)
 	if err != nil {
 		return errors.Errorf("no bucket for prop '%s' length found", propName)
 	}
@@ -120,8 +119,6 @@ func (s *Shard) addToPropertyLengthIndex(propName string, docID uint64, length i
 }
 
 func (s *Shard) addToPropertyNullIndex(propName string, docID uint64, isNull bool) error {
-
-
 	key, err := s.keyPropertyNull(isNull)
 	if err != nil {
 		return errors.Wrapf(err, "failed creating key for prop '%s' null", propName)

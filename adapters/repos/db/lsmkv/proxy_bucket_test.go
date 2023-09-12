@@ -248,7 +248,6 @@ func TestBucketProxyCount(t *testing.T) {
 	}
 }
 
-
 func TestMultiplePrefixes(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -309,5 +308,4 @@ func TestMultiplePrefixes(t *testing.T) {
 	if string(retrieved2) != string(value2) {
 		t.Fatalf("Retrieved value does not match put value: expected '%s', got '%s'", string(value), string(retrieved2))
 	}
-
 }

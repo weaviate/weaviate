@@ -253,7 +253,6 @@ func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard *
 }
 
 func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
-
 	return i.ForEachShard(func(key string, shard *Shard) error {
 		err := shard.createPropertyIndex(ctx, prop)
 		if err != nil {
@@ -261,8 +260,6 @@ func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
 		}
 		return nil
 	})
-
-	
 }
 
 func (i *Index) addUUIDProperty(ctx context.Context) error {
@@ -1083,7 +1080,6 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		shardResultLock.Unlock()
 
 	}
-	
 
 	if len(resultObjects) == len(resultScores) {
 
@@ -1377,7 +1373,7 @@ func (i *Index) localShard(name string) *Shard {
 	return i.shards.Load(name)
 }
 
-func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,replProps *additional.ReplicationProperties, tenant string) error {
+func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument, replProps *additional.ReplicationProperties, tenant string) error {
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return err
 	}

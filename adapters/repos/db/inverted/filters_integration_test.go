@@ -17,8 +17,8 @@ package inverted
 import (
 	"context"
 	"encoding/binary"
-	"testing"
 	"fmt"
+	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -314,7 +314,7 @@ func DumpBucketToString(bucket lsmkv.BucketInterface) string {
 
 	rr.Iterate(context.Background(), func(id []byte, values [][]byte) (bool, error) {
 		out += fmt.Sprintf("id: %v\n", id)
-		//Marshall values
+		// Marshall values
 		out += fmt.Sprintf("values: \n")
 		for _, v := range values {
 			out += fmt.Sprintf("  %v\n", v)
@@ -550,7 +550,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	bucketName := "searchable_properties"
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
 		bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
-	bWithFrequency, err :=  lsmkv.NewBucketProxy(store.Bucket(bucketName), propName, propIds)
+	bWithFrequency, err := lsmkv.NewBucketProxy(store.Bucket(bucketName), propName, propIds)
 	require.Nil(t, err)
 
 	defer store.Shutdown(context.Background())
@@ -571,7 +571,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	})
 
 	searcher := NewSearcher(logger, store, createSchema(),
-		nil, propIds,nil, nil, fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit)
+		nil, propIds, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit)
 
 	type test struct {
 		name                     string

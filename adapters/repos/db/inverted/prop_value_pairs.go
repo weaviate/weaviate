@@ -55,7 +55,7 @@ func (pv *propValuePair) SetValue(value []byte) {
 }
 
 func (pv *propValuePair) Value() []byte {
-	//copy pv.value so other code can't modify it
+	// copy pv.value so other code can't modify it
 	if pv._value == nil {
 		return nil
 	}
@@ -96,7 +96,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 		}
 
-		b := s.store.Bucket(bucketName) //We wrap this later
+		b := s.store.Bucket(bucketName) // We wrap this later
 
 		// TODO text_rbm_inverted_index find better way check whether prop len
 		if strings.HasSuffix(pv.prop, filters.InternalPropertyLength) &&
@@ -104,10 +104,8 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			return errors.Errorf("Property length must be indexed to be filterable! add `IndexPropertyLength: true` to the invertedIndexConfig. Geo-coordinates, phone numbers and data blobs are not supported by property length.")
 		}
 
-	
+		// TODO how to check if prop is phone number or data blob?
 
-		//TODO how to check if prop is phone number or data blob?
-		
 		if pv.operator == filters.OperatorIsNull {
 			if !pv.Class.InvertedIndexConfig.IndexNullState {
 				return errors.Errorf("Nullstate must be indexed to be filterable! add `indexNullState: true` to the invertedIndexConfig")

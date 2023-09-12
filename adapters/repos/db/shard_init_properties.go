@@ -34,15 +34,12 @@ func (s *Shard) initProperties(class *models.Class) error {
 	}
 
 	if s.index.invertedIndexConfig.IndexTimestamps {
-
 		if err := s.addTimestampProperties(context.TODO()); err != nil {
 			return errors.Wrap(err, "create timestamp properties indexes")
 		}
-
 	}
 
 	if s.index.Config.TrackVectorDimensions {
-
 		if err := s.addDimensionsProperty(context.TODO()); err != nil {
 			return errors.Wrap(err, "crreate dimensions property index")
 		}

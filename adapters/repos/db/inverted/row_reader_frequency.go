@@ -155,7 +155,6 @@ func (rr *RowReaderFrequency) lessThan(ctx context.Context, readFn ReadFnFrequen
 			continue
 		}
 		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
-		
 
 		if err := ctx.Err(); err != nil {
 			return err
@@ -189,9 +188,7 @@ func (rr *RowReaderFrequency) notEqual(ctx context.Context, readFn ReadFnFrequen
 			continue
 		}
 		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
-		
 
-		
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -230,7 +227,7 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFnFrequency) 
 	)
 
 	if like.optimizable {
-		initialK, initialV = c.Seek(like.min)  //FIXME may need to make key here?
+		initialK, initialV = c.Seek(like.min) // FIXME may need to make key here?
 	} else {
 		initialK, initialV = c.First()
 	}
@@ -240,8 +237,6 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFnFrequency) 
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-
-		
 
 		if like.optimizable {
 			// if the query is optimizable, i.e. it doesn't start with a wildcard, we

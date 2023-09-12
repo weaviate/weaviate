@@ -31,10 +31,10 @@ import (
 // additionally performs an aggregation for each group.
 type grouper struct {
 	*Aggregator
-	values    map[interface{}]map[uint64]struct{} // map[value][docID]struct, to keep docIds unique
-	topGroups []group
-	limit     int
-	propertyName string
+	values         map[interface{}]map[uint64]struct{} // map[value][docID]struct, to keep docIds unique
+	topGroups      []group
+	limit          int
+	propertyName   string
 	propertyPrefix []byte
 }
 
@@ -160,12 +160,10 @@ func (g *grouper) addElementById(propertySchemaP *models.PropertySchema, docID u
 		return nil
 	}
 
-	
-
-       key := g.params.GroupBy.Property.String()
-       S := *propertySchemaP
-       m:=S.(map[string]interface{})
-       item, ok := m[key]
+	key := g.params.GroupBy.Property.String()
+	S := *propertySchemaP
+	m := S.(map[string]interface{})
+	item, ok := m[key]
 
 	if !ok {
 		return nil

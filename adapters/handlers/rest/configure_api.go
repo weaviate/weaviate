@@ -311,12 +311,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			Fatal("migration failed")
 		os.Exit(1)
 	}
-	
 
 	grpcServer := createGrpcServer(appState)
 
 	api.ServerShutdown = func() {
-
 		// gracefully stop gRPC server
 		grpcServer.GracefulStop()
 

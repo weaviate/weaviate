@@ -466,7 +466,6 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 	return nil
 }
 
-
 func (m *Migrator) logInvertedReindex() *logrus.Entry {
 	return m.logger.WithField("action", "inverted_reindex")
 }

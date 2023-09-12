@@ -20,12 +20,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -33,7 +33,7 @@ import (
 )
 
 func Test_KeyHelpers(t *testing.T) {
-	prefix:= []byte("testprefix")
+	prefix := []byte("testprefix")
 	data := []byte("testdata")
 
 	composite_key := helpers.MakePropertyKey(prefix, data)
@@ -41,10 +41,7 @@ func Test_KeyHelpers(t *testing.T) {
 	recovered_key := helpers.UnMakePropertyKey(prefix, composite_key)
 
 	assert.Equal(t, data, recovered_key)
-
-
 }
-
 
 func Test_Aggregations(t *testing.T) {
 	dirName := t.TempDir()

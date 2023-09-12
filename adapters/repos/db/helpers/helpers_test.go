@@ -58,7 +58,7 @@ func TestMakePropertyKey(t *testing.T) {
 
 func TestMatchesPropertyKeyPrefix(t *testing.T) {
 	prefix := []byte{1, 2, 3}
-	key := []byte{4, 5, 6,1, 2, 3}
+	key := []byte{4, 5, 6, 1, 2, 3}
 
 	matches := MatchesPropertyKeyPostfix(prefix, key)
 	if !matches {

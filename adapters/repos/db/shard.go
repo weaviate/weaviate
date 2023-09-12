@@ -419,7 +419,6 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM(filters.InternalPropLastUpdateTimeUnix)),
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
-
 }
 
 func (s *Shard) memtableIdleConfig() lsmkv.BucketOption {
@@ -473,7 +472,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 	}
 
-	//Force creation of filterable properties database file, because later code assumes it already exists
+	// Force creation of filterable properties database file, because later code assumes it already exists
 	filterableOpts := append(bucketOpts, lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM("_id")))
 	if err := s.store.CreateOrLoadBucket(ctx,
 		"filterable_properties",
@@ -482,7 +481,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		return err
 	}
 
-	//Force creation of searchable properties database file, because later code assumes it already exists
+	// Force creation of searchable properties database file, because later code assumes it already exists
 	searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
 	if s.versioner.Version() < 2 {
 		searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
@@ -501,7 +500,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			return s.initGeoProp(prop)
 		}
 
-		//This creates a single database file for all meta_count properties.  The registered names will redirect to this file, so we don't have to update every callsite
+		// This creates a single database file for all meta_count properties.  The registered names will redirect to this file, so we don't have to update every callsite
 		if schema.IsRefDataType(prop.DataType) {
 			refOpts := append(bucketOpts, lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameMetaCountLSM(prop.Name)))
 			if err := s.store.CreateOrLoadBucket(ctx,

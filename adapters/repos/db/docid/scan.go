@@ -106,7 +106,7 @@ func (os *objectScannerLSM) scan() error {
 		}
 
 		if len(os.properties) > 0 {
-			typedProperties, err := storobj.UnmarshalPropertiesFromObject(res,  os.properties, propStrings)
+			typedProperties, err := storobj.UnmarshalPropertiesFromObject(res, os.properties, propStrings)
 			if err != nil {
 				return errors.Wrapf(err, "unmarshal data object")
 			}

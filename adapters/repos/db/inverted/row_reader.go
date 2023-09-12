@@ -56,7 +56,6 @@ func (rr *RowReader) Iterate(ctx context.Context, readFn ReadFn) error {
 		}
 
 		k = helpers.UnMakePropertyKey(rr.PropPrefix, k)
-	
 
 		if err := ctx.Err(); err != nil {
 			return err
@@ -181,7 +180,6 @@ func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 			continue
 		}
 		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
-	
 
 		if err := ctx.Err(); err != nil {
 			return err
@@ -215,7 +213,6 @@ func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
 			continue
 		}
 		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
-		
 
 		if err := ctx.Err(); err != nil {
 			return err

@@ -16,8 +16,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-
 	"strings"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )

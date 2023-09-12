@@ -33,12 +33,12 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 )
 
 type BM25Searcher struct {
@@ -338,7 +338,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	for _, propName := range propertyNames {
 
 		raw_bucket := b.store.Bucket("searchable_properties")
-		bucket,err := lsmkv.NewBucketProxy(raw_bucket, propName, b.propertyIds)
+		bucket, err := lsmkv.NewBucketProxy(raw_bucket, propName, b.propertyIds)
 		if err != nil {
 			return termResult, nil, fmt.Errorf("could not find bucket for property %v: %v", propName, err)
 		}

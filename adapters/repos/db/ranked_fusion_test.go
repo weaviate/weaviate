@@ -1049,7 +1049,6 @@ func TestHybridBug(t *testing.T) {
 	// Each document is a medical abstract
 
 	docs := []string{
-
 		"Exact Online HR | Overzicht van HR hulpdocumenten",
 		"Exact Online HR | Automatisch verjaardagsmails versturen",
 		"Exact Online HR | Werken met Wagenpark-auto's",
@@ -1076,5 +1075,4 @@ func TestHybridBug(t *testing.T) {
 	require.Equal(t, 3, len(res))
 
 	fmt.Printf("query for %s returned %d results\n", "Exact Online HR", len(res))
-
 }

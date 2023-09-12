@@ -212,7 +212,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 	objs, err := inverted.NewSearcher(s.index.logger, s.store,
 		s.index.getSchema.GetSchemaSkipAuth(),
-		s.propertyIndices, s.propIds,s.index.classSearcher, s.deletedDocIDs,
+		s.propertyIndices, s.propIds, s.index.classSearcher, s.deletedDocIDs,
 		s.index.stopwords, s.versioner.Version(), s.isFallbackToSearchable,
 		s.tenant(), s.index.Config.QueryNestedRefLimit).
 		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName)

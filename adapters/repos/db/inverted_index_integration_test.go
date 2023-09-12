@@ -883,37 +883,36 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			require.Nil(t, err)
 		}
 	})
-	
-       t.Run("by creation date 2", func(t *testing.T) {
-               res, err := repo.Search(context.Background(), dto.GetParams{
-                       ClassName:  "TestClass",
-                       Pagination: &filters.Pagination{Limit: 10},
-                       Filters:    &filters.LocalFilter{
-                               Root: &filters.Clause{
-                                       // since RFC3339 is limited to seconds,
-                                       // >= operator is used to match object with timestamp containing milliseconds
-                                       Operator: filters.OperatorGreaterThanEqual,
-                                       On: &filters.Path{
-                                               Class:    "TestClass",
-                                               Property: "_creationTimeUnix",
-                                       },
-                                       Value: &filters.Value{
-                                               Value: time2.Format(time.RFC3339),
-                                               Type:  schema.DataTypeDate,
-                                       },
-                               },
-                       },
-                })
-               require.Nil(t, err)
-               require.Len(t, res, 2)
 
-               ids := make([]strfmt.UUID, len(res))
-               for i := range res {
-                       ids[i] = res[i].ID
-               }
-               assert.ElementsMatch(t, ids, []strfmt.UUID{testID1, testID2})
-        })
+	t.Run("by creation date 2", func(t *testing.T) {
+		res, err := repo.Search(context.Background(), dto.GetParams{
+			ClassName:  "TestClass",
+			Pagination: &filters.Pagination{Limit: 10},
+			Filters: &filters.LocalFilter{
+				Root: &filters.Clause{
+					// since RFC3339 is limited to seconds,
+					// >= operator is used to match object with timestamp containing milliseconds
+					Operator: filters.OperatorGreaterThanEqual,
+					On: &filters.Path{
+						Class:    "TestClass",
+						Property: "_creationTimeUnix",
+					},
+					Value: &filters.Value{
+						Value: time2.Format(time.RFC3339),
+						Type:  schema.DataTypeDate,
+					},
+				},
+			},
+		})
+		require.Nil(t, err)
+		require.Len(t, res, 2)
 
+		ids := make([]strfmt.UUID, len(res))
+		for i := range res {
+			ids[i] = res[i].ID
+		}
+		assert.ElementsMatch(t, ids, []strfmt.UUID{testID1, testID2})
+	})
 
 	type testCase struct {
 		name        string
@@ -1088,40 +1087,39 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			})
 		}
 	})
-	       t.Run("get referencing object with timestamp filters - by creation date 2", func(t *testing.T) {
-		               res, err := repo.Search(context.Background(), dto.GetParams{
-		                       ClassName:  "RefClass",
-		                       Pagination: &filters.Pagination{Limit: 10},
-		                       Filters:     
-		                       &filters.LocalFilter{
-		                               Root: &filters.Clause{
-		                               // since RFC3339 is limited to seconds,
-		                               // >= operator is used to match object with timestamp containing milliseconds
-		                               Operator: filters.OperatorGreaterThanEqual,
-		                               On: &filters.Path{
-		                                       Class:    "RefClass",
-		                                       Property: "toTest",
-		                                       Child: &filters.Path{
-		                                               Class:    "TestClass",
-		                                               Property: "_creationTimeUnix",
-		                                       },
-		                               },
-		                               Value: &filters.Value{
-		                                       Value: time2.Format(time.RFC3339),
-		                                       Type:  schema.DataTypeDate,
-		                               },
-		                       },
-		               },
-		               })
-		               require.Nil(t, err)
-		               require.Len(t, res, 2)
-					   
-		               ids := make([]strfmt.UUID, len(res))
-		               for i := range res {
-		                       ids[i] = res[i].ID
-		               }
-		               assert.ElementsMatch(t, ids, []strfmt.UUID{refID1, refID2})
-				})
+	t.Run("get referencing object with timestamp filters - by creation date 2", func(t *testing.T) {
+		res, err := repo.Search(context.Background(), dto.GetParams{
+			ClassName:  "RefClass",
+			Pagination: &filters.Pagination{Limit: 10},
+			Filters: &filters.LocalFilter{
+				Root: &filters.Clause{
+					// since RFC3339 is limited to seconds,
+					// >= operator is used to match object with timestamp containing milliseconds
+					Operator: filters.OperatorGreaterThanEqual,
+					On: &filters.Path{
+						Class:    "RefClass",
+						Property: "toTest",
+						Child: &filters.Path{
+							Class:    "TestClass",
+							Property: "_creationTimeUnix",
+						},
+					},
+					Value: &filters.Value{
+						Value: time2.Format(time.RFC3339),
+						Type:  schema.DataTypeDate,
+					},
+				},
+			},
+		})
+		require.Nil(t, err)
+		require.Len(t, res, 2)
+
+		ids := make([]strfmt.UUID, len(res))
+		for i := range res {
+			ids[i] = res[i].ID
+		}
+		assert.ElementsMatch(t, ids, []strfmt.UUID{refID1, refID2})
+	})
 
 	t.Run("get referencing object with timestamp filters", func(t *testing.T) {
 		testCases := []testCase{

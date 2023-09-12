@@ -382,11 +382,10 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 		propStrings = append(propStrings, []string{key})
 	}
 
-
 	// test with reused property map
 	for i := 0; i < 2; i++ {
-		extractedProperties ,err:= UnmarshalPropertiesFromObject(byteObject , propertyNames, propStrings)
-		               require.Nil(t, err)
+		extractedProperties, err := UnmarshalPropertiesFromObject(byteObject, propertyNames, propStrings)
+		require.Nil(t, err)
 		for key := range expected {
 			require.Equal(t, expected[key], (*extractedProperties)[key])
 		}

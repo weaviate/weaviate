@@ -145,7 +145,7 @@ func (r *refFilterExtractor) resultsToPropValuePairs(ids []classUUIDPair,
 func (r *refFilterExtractor) emptyPropValuePair() *propValuePair {
 	return &propValuePair{
 		prop:               r.property.Name,
-		_value:              nil,
+		_value:             nil,
 		operator:           filters.OperatorEqual,
 		hasFilterableIndex: HasFilterableIndex(r.property),
 		hasSearchableIndex: HasSearchableIndex(r.property),
@@ -173,7 +173,7 @@ func (r *refFilterExtractor) idToPropValuePairWithValue(v []byte,
 ) (*propValuePair, error) {
 	return &propValuePair{
 		prop:               r.property.Name,
-		_value:              v,
+		_value:             v,
 		operator:           filters.OperatorEqual,
 		hasFilterableIndex: hasFilterableIndex,
 		hasSearchableIndex: hasSearchableIndex,
