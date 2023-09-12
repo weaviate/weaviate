@@ -31,11 +31,9 @@ import (
 // additionally performs an aggregation for each group.
 type grouper struct {
 	*Aggregator
-	values         map[interface{}]map[uint64]struct{} // map[value][docID]struct, to keep docIds unique
-	topGroups      []group
-	limit          int
-	propertyName   string
-	propertyPrefix []byte
+	values    map[interface{}]map[uint64]struct{} // map[value][docID]struct, to keep docIds unique
+	topGroups []group
+	limit     int
 }
 
 func newGrouper(a *Aggregator, limit int) *grouper {
