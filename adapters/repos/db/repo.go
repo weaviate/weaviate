@@ -158,12 +158,12 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 }
 
 // IndexExists returns if an index exists
-func (d *DB) IndexExists(className schema.ClassName) bool {
-	d.indexLock.RLock()
-	defer d.indexLock.RUnlock()
+func (db *DB) IndexExists(className schema.ClassName) bool {
+	db.indexLock.RLock()
+	defer db.indexLock.RUnlock()
 
 	id := indexID(className)
-	_, ok := d.indices[id]
+	_, ok := db.indices[id]
 	return ok
 }
 

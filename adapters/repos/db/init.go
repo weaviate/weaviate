@@ -24,12 +24,20 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-// On init we get the current schema and create one index object per class.
-// They will in turn create shards which will either read an existing db file
-// from disk or create a new one if none exists
+// init gets the current schema and creates one index object per class.
+// The indices will in turn create shards, which will either read an
+// existing db file from disk, or create a new one if none exists
 func (db *DB) init(ctx context.Context) error {
 	if err := os.MkdirAll(db.config.RootPath, 0o777); err != nil {
-		return errors.Wrapf(err, "create root path directory at %s", db.config.RootPath)
+		return fmt.Errorf("create root path directory at %s: %w", db.config.RootPath, err)
+	}
+
+	// As of v1.22, db files are stored in a hierarchical structure
+	// rather than a flat one. If weaviate is started with files
+	// that are still in the flat structure, we will migrate them
+	// over.
+	if err := db.migrateFileStructureIfNecessary(); err != nil {
+		return err
 	}
 
 	objects := db.schemaGetter.GetSchemaSkipAuth().Objects

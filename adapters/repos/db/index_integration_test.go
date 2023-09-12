@@ -18,7 +18,6 @@ import (
 	"context"
 	"os"
 	"path"
-	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -343,7 +342,7 @@ func getIndexFilenames(rootDir, indexName string) ([]string, error) {
 	var filenames []string
 	indexRoot, err := os.ReadDir(path.Join(rootDir, indexName))
 	if err != nil {
-		if strings.Contains(err.Error(), "no such file or directory") {
+		if os.IsNotExist(err) {
 			// index was dropped, or never existed
 			return filenames, nil
 		}

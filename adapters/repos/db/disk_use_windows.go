@@ -19,7 +19,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func (d *DB) getDiskUse(diskPath string) diskUse {
+func (db *DB) getDiskUse(diskPath string) diskUse {
 	var freeBytesAvailable, totalNumberOfBytes, totalNumberOfFreeBytes uint64
 
 	_, _ = syscall.UTF16PtrFromString(diskPath)
@@ -31,7 +31,7 @@ func (d *DB) getDiskUse(diskPath string) diskUse {
 		&totalNumberOfFreeBytes,
 	)
 	if err != nil {
-		d.logger.WithField("action", "read_disk_use").
+		db.logger.WithField("action", "read_disk_use").
 			WithField("path", diskPath).
 			Errorf("failed to read disk usage: %s", err)
 	}
