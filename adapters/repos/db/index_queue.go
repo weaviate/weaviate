@@ -193,6 +193,26 @@ func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) erro
 	}
 }
 
+// Size returns the number of vectors waiting to be indexed.
+func (q *IndexQueue) Size() int64 {
+	var count int64
+	q.queue.fullChunks.Lock()
+	e := q.queue.fullChunks.list.Front()
+	for e != nil {
+		c := e.Value.(*chunk)
+		count += int64(c.cursor)
+
+		e = e.Next()
+	}
+	q.queue.fullChunks.Unlock()
+
+	q.queue.curBatch.Lock()
+	count += int64(q.queue.curBatch.c.cursor)
+	q.queue.curBatch.Unlock()
+
+	return count
+}
+
 func (q *IndexQueue) enqueuer() {
 	for batch := range q.processCh {
 		q.queue.Add(batch)
@@ -381,7 +401,6 @@ func (pqh *pqMaxPool) Put(pq *priorityqueue.Queue) {
 }
 
 type vectorQueue struct {
-	sync.Mutex
 	batchSize int
 	pool      sync.Pool
 	curBatch  struct {

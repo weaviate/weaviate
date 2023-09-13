@@ -128,6 +128,34 @@ func TestIndexQueue(t *testing.T) {
 		require.NoError(t, err)
 		require.ElementsMatch(t, []uint64{1, 4}, ids)
 	})
+
+	t.Run("queue size", func(t *testing.T) {
+		var idx mockBatchIndexer
+		closeCh := make(chan struct{})
+		idx.fn = func(id []uint64, vector [][]float32) error {
+			<-closeCh
+			return nil
+		}
+
+		q, err := NewIndexQueue(&idx, IndexQueueOptions{
+			BatchSize: 5,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		for i := uint64(0); i < 101; i++ {
+			err = q.Push(ctx, vectorDescriptor{
+				id:     i + 1,
+				vector: []float32{1, 2, 3},
+			})
+			require.NoError(t, err)
+		}
+		require.NoError(t, err)
+
+		time.Sleep(10 * time.Millisecond)
+		require.EqualValues(t, 101, q.Size())
+		close(closeCh)
+	})
 }
 
 func BenchmarkPush(b *testing.B) {
