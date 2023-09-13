@@ -34,9 +34,10 @@ func (db *DB) init(ctx context.Context) error {
 		return fmt.Errorf("create root path directory at %s: %w", db.config.RootPath, err)
 	}
 
-	// DB files are now stored in a hierarchical structure rather
-	// than a flat one. If weaviate is started with files that are
-	// still in the flat structure, we will migrate them over.
+	// As of v1.22, db files are stored in a hierarchical structure
+	// rather than a flat one. If weaviate is started with files
+	// that are still in the flat structure, we will migrate them
+	// over.
 	if err := db.migrateFileStructureIfNecessary(); err != nil {
 		return err
 	}
