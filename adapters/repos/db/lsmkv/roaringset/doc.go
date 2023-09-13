@@ -71,7 +71,7 @@
 // deltas that were written in a specific time interval. When reading, all
 // layers must be combined into a single bitmap (see [BitmapLayers.Flatten]).
 //
-// Over time segments can be combined into fewer, larger segments uisng an LSM
+// Over time segments can be combined into fewer, larger segments using an LSM
 // Compaction process. The logic for that can be found in [BitmapLayers.Merge].
 //
 // To make sure access is efficient the entire RoaringSet strategy is built to

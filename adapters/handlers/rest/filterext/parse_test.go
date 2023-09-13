@@ -157,7 +157,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 				}},
 			},
 			{
-				name: "[deprected string] valid string filter",
+				name: "[deprecated string] valid string filter",
 				input: &models.WhereFilter{
 					Operator:    "Equal",
 					ValueString: ptString("foo bar"),

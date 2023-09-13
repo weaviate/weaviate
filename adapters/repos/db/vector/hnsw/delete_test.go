@@ -216,7 +216,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 		}
 	})
 
-	t.Run("runnign the cleanup", func(t *testing.T) {
+	t.Run("running the cleanup", func(t *testing.T) {
 		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
 		require.Nil(t, err)
 	})
@@ -631,7 +631,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 		}
 	})
 
-	t.Run("runnign the cleanup", func(t *testing.T) {
+	t.Run("running the cleanup", func(t *testing.T) {
 		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
 		require.Nil(t, err)
 	})
@@ -729,7 +729,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 		}
 	})
 
-	t.Run("runnign the cleanup", func(t *testing.T) {
+	t.Run("running the cleanup", func(t *testing.T) {
 		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
 		require.Nil(t, err)
 	})

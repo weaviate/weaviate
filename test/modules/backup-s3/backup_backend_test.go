@@ -47,7 +47,7 @@ func Test_S3Backend_Backup(t *testing.T) {
 	t.Run("copy files", moduleLevelCopyFiles)
 
 	if err := compose.Terminate(ctx); err != nil {
-		t.Fatal(errors.Wrapf(err, "failed to terminte test containers"))
+		t.Fatal(errors.Wrapf(err, "failed to terminate test containers"))
 	}
 }
 

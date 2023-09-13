@@ -91,7 +91,7 @@ func New(sg schemaUC.SchemaGetter, cr Repo, vr vectorRepo, authorizer authorizer
 }
 
 // Repo to manage classification state, should be consistent, not used to store
-// acutal data object vectors, see VectorRepo
+// actual data object vectors, see VectorRepo
 type Repo interface {
 	Put(ctx context.Context, classification models.Classification) error
 	Get(ctx context.Context, id strfmt.UUID) (*models.Classification, error)

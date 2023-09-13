@@ -522,7 +522,7 @@ func (d *dummyLock) LockSchema() (func() error, error) {
 	return func() error { return nil }, nil
 }
 
-// everything hard-coded right now, to be made dynmaic (from go plugins later)
+// everything hard-coded right now, to be made dynamic (from go plugins later)
 func registerModules(appState *state.State) error {
 	appState.Logger.
 		WithField("action", "startup").

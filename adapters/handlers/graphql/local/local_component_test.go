@@ -33,7 +33,7 @@ import (
 // properties, empty peer lists, peers with empty schemas, etc. However, we
 // don't get any guaruantuee of whether the individual queries resolve
 // correctly. For those cases we have unit tests in die individual subpackages
-// (i.e. get, getmeta, aggreagate, etc.).  Additionally we have (a few) e2e
+// (i.e. get, getmeta, aggregate, etc.).  Additionally we have (a few) e2e
 // tests.
 
 func TestBuild_GraphQLNetwork(t *testing.T) {

@@ -977,7 +977,7 @@ var cars = []models.Object{
 			"horsepower":             int64(100),
 			"weight":                 1200.0,
 			"contact":                "sandra@efficientcars.example.com",
-			"description":            "This small car has a small engine and unicode labels (ąę), but it's very light, so it feels fater than it is.",
+			"description":            "This small car has a small engine and unicode labels (ąę), but it's very light, so it feels faster than it is.",
 			"colorWhitespace":        "dark grey",
 			"colorField":             "dark grey",
 			"colorArrayWhitespace":   []interface{}{"dark", "grey"},

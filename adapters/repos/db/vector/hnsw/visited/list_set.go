@@ -12,11 +12,11 @@
 package visited
 
 // ListSet is a reusable list with very efficient resets. Inspired by the C++
-// implementation in hnswlib it can be reset with zero memrory writes in the
+// implementation in hnswlib it can be reset with zero memory writes in the
 // array by moving the match target instead of altering the list. Only after a
 // version overflow do we need to actually reset
 //
-// The new implemtation uses a slice where the first element is reserved for the marker.
+// The new implementation uses a slice where the first element is reserved for the marker.
 // This allow us to use ListSet as a value (i.e. no pointer is required)
 // The marker (i.e. set[0]) allows for reusing the same list without having to zero all elements on each list reset.
 // Resetting the list takes place once the marker (i.e. set[0]) overflows

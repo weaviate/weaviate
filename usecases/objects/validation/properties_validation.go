@@ -501,12 +501,12 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 }
 
 // vectorWeights are passed as a non-typed interface{}, this is due to a
-// limition in go-swagger which itself is coming from swagger 2.0 which does
+// limitation in go-swagger which itself is coming from swagger 2.0 which does
 // not have support for arbitrary key/value objects
 //
 // we must thus validate that it's a map and they keys are strings
 // NOTE: We are not validating the semantic correctness of the equations
-// themselves, as they are in the contextinoary's resopnsibility
+// themselves, as they are in the contextinoary's responsibility
 func (v *Validator) validateVectorWeights(in interface{}) (map[string]string, error) {
 	asMap, ok := in.(map[string]interface{})
 	if !ok {
