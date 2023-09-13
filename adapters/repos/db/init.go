@@ -41,6 +41,14 @@ func (db *DB) init(ctx context.Context) error {
 		return err
 	}
 
+	// As of v1.22, db files are stored in a hierarchical structure
+	// rather than a flat one. If weaviate is started with files
+	// that are still in the flat structure, we will migrate them
+	// over.
+	if err := db.migrateFileStructureIfNecessary(); err != nil {
+		return err
+	}
+
 	objects := db.schemaGetter.GetSchemaSkipAuth().Objects
 	if objects != nil {
 		for _, class := range objects.Classes {
