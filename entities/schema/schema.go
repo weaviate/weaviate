@@ -85,3 +85,15 @@ func LowercaseFirstLetter(name string) string {
 
 	return strings.ToLower(string(name[0])) + name[1:]
 }
+
+func LowercaseFirstLetterOfStrings(in []string) []string {
+	if len(in) < 1 {
+		return in
+	}
+	out := make([]string, len(in))
+	for i, str := range in {
+		out[i] = LowercaseFirstLetter(str)
+	}
+
+	return out
+}

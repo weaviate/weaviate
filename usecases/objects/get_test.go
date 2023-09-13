@@ -142,7 +142,7 @@ func Test_GetAction(t *testing.T) {
 			Vector:    []float32{1, 2, 3},
 			Dims:      3,
 		}
-		vectorRepo.On("Object", "ActionClass", id, mock.Anything, mock.Anything).
+		vectorRepo.On("Object", "ActionClass", id, mock.Anything, mock.Anything, "").
 			Return(result, nil).Once()
 
 		expected := &models.Object{
@@ -972,13 +972,13 @@ func Test_GetObject(t *testing.T) {
 
 	t.Run("without projection", func(t *testing.T) {
 		m := newFakeGetManager(schema)
-		m.repo.On("Object", className, id, mock.Anything, mock.Anything).Return((*search.Result)(nil), nil).Once()
+		m.repo.On("Object", className, id, mock.Anything, mock.Anything, "").Return((*search.Result)(nil), nil).Once()
 		_, err := m.GetObject(context.Background(), &principal, className, id, adds, nil, "")
 		if err == nil {
 			t.Errorf("GetObject() must return an error for non existing object")
 		}
 
-		m.repo.On("Object", className, id, mock.Anything, mock.Anything).Return(result, nil).Once()
+		m.repo.On("Object", className, id, mock.Anything, mock.Anything, "").Return(result, nil).Once()
 		expected := &models.Object{
 			ID:            id,
 			Class:         className,
@@ -1010,7 +1010,7 @@ func Test_GetObject(t *testing.T) {
 				},
 			},
 		}
-		m.repo.On("Object", className, id, mock.Anything, mock.Anything).Return(result, nil).Once()
+		m.repo.On("Object", className, id, mock.Anything, mock.Anything, "").Return(result, nil).Once()
 		_, err := m.GetObject(context.Background(), &principal, className, id,
 			additional.Properties{
 				ModuleParams: map[string]interface{}{
@@ -1021,7 +1021,7 @@ func Test_GetObject(t *testing.T) {
 			t.Errorf("GetObject() must return unknown feature projection error")
 		}
 
-		m.repo.On("Object", className, id, mock.Anything, mock.Anything).Return(result, nil).Once()
+		m.repo.On("Object", className, id, mock.Anything, mock.Anything, "").Return(result, nil).Once()
 		expected := &models.Object{
 			ID:            id,
 			Class:         className,

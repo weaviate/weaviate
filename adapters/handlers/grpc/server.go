@@ -17,6 +17,8 @@ import (
 	"net"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/additional"
+
 	"github.com/weaviate/weaviate/usecases/objects"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -90,8 +92,10 @@ func (s *Server) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) 
 		return nil, err
 	}
 
+	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
+
 	all := "ALL"
-	response, err := s.batchManager.AddObjects(ctx, principal, objs, []*string{&all}, nil)
+	response, err := s.batchManager.AddObjects(ctx, principal, objs, []*string{&all}, replicationProperties)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +163,7 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 			}
 		}
 
-		proto, err := searchResultsToProto(res, before, searchParams)
+		proto, err := searchResultsToProto(res, before, searchParams, scheme)
 		c <- reply{
 			Result: proto,
 			Error:  err,
@@ -184,4 +188,21 @@ func (s *Server) validateClassAndProperty(searchParams dto.GetParams) error {
 	}
 
 	return nil
+}
+
+func extractReplicationProperties(level *pb.ConsistencyLevel) *additional.ReplicationProperties {
+	if level == nil {
+		return nil
+	}
+
+	switch *level {
+	case pb.ConsistencyLevel_CONSISTENCY_LEVEL_ONE:
+		return &additional.ReplicationProperties{ConsistencyLevel: "ONE"}
+	case pb.ConsistencyLevel_CONSISTENCY_LEVEL_QUORUM:
+		return &additional.ReplicationProperties{ConsistencyLevel: "QUORUM"}
+	case pb.ConsistencyLevel_CONSISTENCY_LEVEL_ALL:
+		return &additional.ReplicationProperties{ConsistencyLevel: "ALL"}
+	default:
+		return nil
+	}
 }

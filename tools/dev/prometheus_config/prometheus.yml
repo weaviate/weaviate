@@ -4,3 +4,8 @@ scrape_configs:
   static_configs:
   - targets:
     - host.docker.internal:2112
+- job_name: node
+  scrape_interval: 5s
+  static_configs:
+  - targets:
+    - host.docker.internal:9100

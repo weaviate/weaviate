@@ -636,7 +636,7 @@ func (s *Searcher) extractContains(path *filters.Path, propType schema.DataType,
 	case schema.DataTypeNumber, schema.DataTypeNumberArray:
 		valueFloat64Array, ok := value.([]float64)
 		if !ok {
-			return nil, fmt.Errorf("value type should be []int64 but is %T", value)
+			return nil, fmt.Errorf("value type should be []float64 but is %T", value)
 		}
 		operands = getContainsOperands(propType, path, valueFloat64Array)
 	case schema.DataTypeBoolean, schema.DataTypeBooleanArray:

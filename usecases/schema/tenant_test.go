@@ -153,7 +153,7 @@ func TestAddTenants(t *testing.T) {
 		sm := newSchemaManager()
 		err := sm.AddClass(ctx, nil, test.initial)
 		if err == nil {
-			err = sm.AddTenants(ctx, nil, test.Class, test.tenants)
+			_, err = sm.AddTenants(ctx, nil, test.Class, test.tenants)
 		}
 		if len(test.errMsgs) == 0 {
 			assert.Nil(t, err)
@@ -321,7 +321,7 @@ func TestUpdateTenants(t *testing.T) {
 			t.Fatalf("%s: add class: %v", test.name, err)
 		}
 		if !test.skipAdd {
-			if err := sm.AddTenants(ctx, nil, cls, tenants); err != nil {
+			if _, err := sm.AddTenants(ctx, nil, cls, tenants); err != nil {
 				t.Fatalf("%s: add tenants: %v", test.name, err)
 			}
 		}
@@ -351,7 +351,6 @@ func TestUpdateTenants(t *testing.T) {
 func TestDeleteTenants(t *testing.T) {
 	var (
 		ctx     = context.Background()
-		mt      = &models.MultiTenancyConfig{Enabled: true}
 		tenants = []*models.Tenant{
 			{Name: "USER1"},
 			{Name: "USER2"},
@@ -382,7 +381,7 @@ func TestDeleteTenants(t *testing.T) {
 			Class:   "UnknownClass",
 			tenants: tenants,
 			initial: &models.Class{
-				Class: cls, MultiTenancyConfig: mt,
+				Class: cls, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 				Properties:        properties,
 				ReplicationConfig: repConfig,
 			},
@@ -422,7 +421,7 @@ func TestDeleteTenants(t *testing.T) {
 				Properties:         properties,
 				ReplicationConfig:  repConfig,
 			},
-			errMsg: "tenant",
+			errMsg: "empty tenant name at index 1",
 		},
 		{
 			name:    "Success",
@@ -446,7 +445,7 @@ func TestDeleteTenants(t *testing.T) {
 			t.Fatalf("%s: add class: %v", test.name, err)
 		}
 		if test.addTenants {
-			err = sm.AddTenants(ctx, nil, test.Class, tenants)
+			_, err = sm.AddTenants(ctx, nil, test.Class, tenants)
 			if err != nil {
 				t.Fatalf("%s: add tenants: %v", test.name, err)
 			}
