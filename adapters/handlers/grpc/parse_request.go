@@ -59,6 +59,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	if req.AdditionalProperties != nil {
 		out.AdditionalProperties.ID = req.AdditionalProperties.Uuid
 		out.AdditionalProperties.Vector = req.AdditionalProperties.Vector
+		out.AdditionalProperties.Certainty = req.AdditionalProperties.Certainty
 		out.AdditionalProperties.Distance = req.AdditionalProperties.Distance
 		out.AdditionalProperties.LastUpdateTimeUnix = req.AdditionalProperties.LastUpdateTimeUnix
 		out.AdditionalProperties.CreationTimeUnix = req.AdditionalProperties.CreationTimeUnix
