@@ -14,6 +14,8 @@ package neartext
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -46,7 +48,7 @@ func (s *Searcher) vectorForNearTextParam(ctx context.Context, params interface{
 	findVectorFn modulecapabilities.FindVectorFn, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	return s.vectorFromNearTextParam(ctx,
-		params.(*NearTextParams),
+		params.(*nearText.NearTextParams),
 		className,
 		findVectorFn,
 		cfg.Tenant(),
@@ -54,7 +56,7 @@ func (s *Searcher) vectorForNearTextParam(ctx context.Context, params interface{
 }
 
 func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
-	params *NearTextParams, className string, findVectorFn modulecapabilities.FindVectorFn, tenant string,
+	params *nearText.NearTextParams, className string, findVectorFn modulecapabilities.FindVectorFn, tenant string,
 ) ([]float32, error) {
 	vector, err := s.vectorizer.Corpi(ctx, params.Values)
 	if err != nil {
@@ -93,7 +95,7 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 }
 
 func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
-	values []string, objects []ObjectMove,
+	values []string, objects []nearText.ObjectMove,
 	className string, findVectorFn modulecapabilities.FindVectorFn, tenant string,
 ) ([]float32, error) {
 	var objectVectors [][]float32

@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
+	txstore "github.com/weaviate/weaviate/adapters/repos/transactions"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -148,7 +149,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
 	}
 
-	clusterHttpClient := reasonableHttpClient()
+	clusterHttpClient := reasonableHttpClient(appState.ServerConfig.Config.Cluster.AuthConfig)
 
 	var vectorRepo vectorRepo
 	var vectorMigrator migrate.Migrator
@@ -227,10 +228,22 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	// TODO: configure http transport for efficient intra-cluster comm
 	schemaTxClient := clients.NewClusterSchema(clusterHttpClient)
+	schemaTxPersistence := txstore.NewStore(
+		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
+	schemaTxPersistence.SetUmarshalFn(schemaUC.UnmarshalTransaction)
+	if err := schemaTxPersistence.Open(); err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("could not open tx repo")
+		os.Exit(1)
+
+	}
+
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
 		enthnsw.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
-		appState.Modules, appState.Cluster, schemaTxClient, scaler,
+		appState.Modules, appState.Cluster, schemaTxClient,
+		schemaTxPersistence, scaler,
 	)
 	if err != nil {
 		appState.Logger.
@@ -269,6 +282,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			WithField("action", "startup").
 			Fatal("db didn't start up")
 		os.Exit(1)
+	}
+
+	if err := schemaManager.StartServing(ctx); err != nil {
+		appState.Logger.
+			WithError(err).
+			WithField("action", "startup").
+			Fatal("schema manager: resume dangling txs")
+		os.Exit(1)
+
 	}
 
 	objectsManager := objects.NewManager(appState.Locks,
@@ -345,6 +367,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
+
+		if err := schemaManager.Shutdown(ctx); err != nil {
+			panic(err)
+		}
 
 		if err := repo.Shutdown(ctx); err != nil {
 			panic(err)
@@ -745,7 +771,17 @@ func initModules(ctx context.Context, appState *state.State) error {
 	return nil
 }
 
-func reasonableHttpClient() *http.Client {
+type clientWithAuth struct {
+	r         http.RoundTripper
+	basicAuth cluster.BasicAuth
+}
+
+func (c clientWithAuth) RoundTrip(r *http.Request) (*http.Response, error) {
+	r.SetBasicAuth(c.basicAuth.Username, c.basicAuth.Password)
+	return c.r.RoundTrip(r)
+}
+
+func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 	t := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
@@ -757,6 +793,9 @@ func reasonableHttpClient() *http.Client {
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+	}
+	if authConfig.BasicAuth.Enabled() {
+		return &http.Client{Transport: clientWithAuth{r: t, basicAuth: authConfig.BasicAuth}}
 	}
 	return &http.Client{Transport: t}
 }

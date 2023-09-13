@@ -37,7 +37,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
 			wantProjectID:   "projectId",
-			wantModelID:     "textembedding-gecko",
+			wantModelID:     "textembedding-gecko@001",
 			wantErr:         nil,
 		},
 		{
@@ -50,7 +50,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 			wantApiEndpoint: "google.com",
 			wantProjectID:   "projectId",
-			wantModelID:     "textembedding-gecko",
+			wantModelID:     "textembedding-gecko@001",
 			wantErr:         nil,
 		},
 		{
@@ -70,7 +70,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"modelId":   "wrong-model",
 				},
 			},
-			wantErr: errors.Errorf("wrong modelId available model names are: [textembedding-gecko]"),
+			wantErr: errors.Errorf("wrong modelId available model names are: [textembedding-gecko@001 textembedding-gecko@latest textembedding-gecko-multilingual@latest]"),
 		},
 		{
 			name: "all wrong",
@@ -81,7 +81,8 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantErr: errors.Errorf("projectId cannot be empty, " +
-				"wrong modelId available model names are: [textembedding-gecko]"),
+				"wrong modelId available model names are: " +
+				"[textembedding-gecko@001 textembedding-gecko@latest textembedding-gecko-multilingual@latest]"),
 		},
 	}
 	for _, tt := range tests {

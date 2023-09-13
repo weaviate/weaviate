@@ -15,6 +15,6 @@ type schema struct {
 	txHandler
 }
 
-func NewSchema(manager txManager) *schema {
-	return &schema{txHandler{manager: manager}}
+func NewSchema(manager txManager, auth auth) *schema {
+	return &schema{txHandler{manager: manager, auth: auth}}
 }

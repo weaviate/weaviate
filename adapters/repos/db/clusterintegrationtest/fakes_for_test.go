@@ -99,11 +99,11 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 
 	n.migrator = db.NewMigrator(n.repo, logger)
 
-	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo), n.repo)
+	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo), n.repo, clusterapi.NewNoopAuthHandler())
 	mux := http.NewServeMux()
 	mux.Handle("/indices/", indices.Indices())
 
-	backups := clusterapi.NewBackups(n.backupManager)
+	backups := clusterapi.NewBackups(n.backupManager, clusterapi.NewNoopAuthHandler())
 	mux.Handle("/backups/can-commit", backups.CanCommit())
 	mux.Handle("/backups/commit", backups.Commit())
 	mux.Handle("/backups/abort", backups.Abort())
@@ -153,6 +153,15 @@ func (f *fakeSchemaManager) ShardOwner(class, shard string) (string, error) {
 		return "", fmt.Errorf("owner node not found")
 	}
 	return ss.Physical[shard].BelongsToNodes[0], nil
+}
+
+func (f *fakeSchemaManager) ShardReplicas(class, shard string) ([]string, error) {
+	ss := f.shardState
+	x, ok := ss.Physical[shard]
+	if !ok {
+		return nil, fmt.Errorf("shard not found")
+	}
+	return x.BelongsToNodes, nil
 }
 
 func (f *fakeSchemaManager) TenantShard(class, tenant string) (string, string) {

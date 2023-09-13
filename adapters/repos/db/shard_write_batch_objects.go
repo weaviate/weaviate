@@ -13,7 +13,9 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -334,6 +336,15 @@ func (ob *objectsBatcher) shouldSkipInAdditionalStorage(i int) bool {
 func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Context,
 	object *storobj.Object, status objectInsertStatus, index int,
 ) {
+	defer func() {
+		err := recover()
+		if err != nil {
+			ob.setErrorAtIndex(fmt.Errorf("an unexpected error occurred: %s", err), index)
+			fmt.Fprintf(os.Stderr, "panic: %s\n", err)
+			debug.PrintStack()
+		}
+	}()
+
 	if err := ctx.Err(); err != nil {
 		ob.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
 		return

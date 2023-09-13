@@ -484,5 +484,15 @@ func parseClusterConfig() (cluster.Config, error) {
 	cfg.IgnoreStartupSchemaSync = enabled(
 		os.Getenv("CLUSTER_IGNORE_SCHEMA_SYNC"))
 
+	basicAuthUsername := os.Getenv("CLUSTER_BASIC_AUTH_USERNAME")
+	basicAuthPassword := os.Getenv("CLUSTER_BASIC_AUTH_PASSWORD")
+
+	cfg.AuthConfig = cluster.AuthConfig{
+		BasicAuth: cluster.BasicAuth{
+			Username: basicAuthUsername,
+			Password: basicAuthPassword,
+		},
+	}
+
 	return cfg, nil
 }

@@ -28,10 +28,11 @@ type nodesManager interface {
 
 type nodes struct {
 	nodesManager nodesManager
+	auth         auth
 }
 
-func NewNodes(manager nodesManager) *nodes {
-	return &nodes{nodesManager: manager}
+func NewNodes(manager nodesManager, auth auth) *nodes {
+	return &nodes{nodesManager: manager, auth: auth}
 }
 
 var (
@@ -40,7 +41,11 @@ var (
 )
 
 func (s *nodes) Nodes() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return s.auth.handleFunc(s.nodesHandler())
+}
+
+func (s *nodes) nodesHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		switch {
 		case regxNodes.MatchString(path) || regxNodesClass.MatchString(path):
@@ -56,7 +61,7 @@ func (s *nodes) Nodes() http.Handler {
 			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 			return
 		}
-	})
+	}
 }
 
 func (s *nodes) incomingNodeStatus() http.Handler {

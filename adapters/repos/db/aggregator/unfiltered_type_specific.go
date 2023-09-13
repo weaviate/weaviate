@@ -27,22 +27,6 @@ import (
 func (ua unfilteredAggregator) boolProperty(ctx context.Context,
 	prop aggregation.ParamProperty,
 ) (*aggregation.Property, error) {
-	return ua.parseBoolProp(ctx, prop, ua.parseAndAddBoolRowSet,
-		ua.parseAndAddBoolRowRoaringSet)
-}
-
-func (ua unfilteredAggregator) boolArrayProperty(ctx context.Context,
-	prop aggregation.ParamProperty,
-) (*aggregation.Property, error) {
-	return ua.parseBoolProp(ctx, prop, ua.parseAndAddBoolArrayRowSet,
-		ua.parseAndAddBoolArrayRowRoaringSet)
-}
-
-func (ua unfilteredAggregator) parseBoolProp(ctx context.Context,
-	prop aggregation.ParamProperty,
-	parseFnSet func(agg *boolAggregator, k []byte, v [][]byte) error,
-	parseFnRoaringSet func(agg *boolAggregator, k []byte, v *sroar.Bitmap) error,
-) (*aggregation.Property, error) {
 	out := aggregation.Property{
 		Type: aggregation.PropertyTypeBoolean,
 	}
@@ -60,7 +44,7 @@ func (ua unfilteredAggregator) parseBoolProp(ctx context.Context,
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			err := parseFnRoaringSet(agg, k, v)
+			err := ua.parseAndAddBoolRowRoaringSet(agg, k, v)
 			if err != nil {
 				return nil, err
 			}
@@ -70,10 +54,39 @@ func (ua unfilteredAggregator) parseBoolProp(ctx context.Context,
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			err := parseFnSet(agg, k, v)
+			err := ua.parseAndAddBoolRowSet(agg, k, v)
 			if err != nil {
 				return nil, err
 			}
+		}
+	}
+
+	out.BooleanAggregation = agg.Res()
+
+	return &out, nil
+}
+
+func (ua unfilteredAggregator) boolArrayProperty(ctx context.Context,
+	prop aggregation.ParamProperty,
+) (*aggregation.Property, error) {
+	out := aggregation.Property{
+		Type: aggregation.PropertyTypeBoolean,
+	}
+
+	b := ua.store.Bucket(helpers.ObjectsBucketLSM)
+	if b == nil {
+		return nil, errors.Errorf("could not find bucket for prop %s", prop.Name)
+	}
+
+	agg := newBoolAggregator()
+
+	c := b.Cursor()
+	defer c.Close()
+
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		err := ua.parseAndAddBoolArrayRow(agg, v, prop.Name)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -110,29 +123,20 @@ func (ua unfilteredAggregator) parseAndAddBoolRowRoaringSet(agg *boolAggregator,
 	return nil
 }
 
-func (ua unfilteredAggregator) parseAndAddBoolArrayRowSet(agg *boolAggregator, k []byte, v [][]byte) error {
-	values := make([][]byte, len(k))
-	for i := range k {
-		values[i] = []byte{k[i]}
+func (ua unfilteredAggregator) parseAndAddBoolArrayRow(agg *boolAggregator,
+	v []byte, propName schema.PropertyName,
+) error {
+	items, ok, err := storobj.ParseAndExtractBoolArrayProp(v, propName.String())
+	if err != nil {
+		return errors.Wrap(err, "parse and extract prop")
 	}
 
-	for i := range values {
-		if err := agg.AddBoolRow(values[i], 1); err != nil {
-			return err
-		}
+	if !ok {
+		return nil
 	}
 
-	return nil
-}
-
-func (ua unfilteredAggregator) parseAndAddBoolArrayRowRoaringSet(agg *boolAggregator, k []byte, v *sroar.Bitmap) error {
-	values := make([][]byte, len(k))
-	for i := range k {
-		values[i] = []byte{k[i]}
-	}
-
-	for i := range values {
-		if err := agg.AddBoolRow(values[i], 1); err != nil {
+	for i := range items {
+		if err := agg.AddBool(items[i]); err != nil {
 			return err
 		}
 	}
