@@ -95,7 +95,7 @@ func TestBackup_Integration(t *testing.T) {
 	})
 
 	t.Run("list files", func(t *testing.T) {
-		files, err := idx.ListFiles(ctx)
+		files, err := idx.ListFiles(ctx, dirName)
 		require.Nil(t, err)
 
 		// by this point there should be two files in the commitlog directory.
