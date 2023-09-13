@@ -154,7 +154,6 @@ func (s *shardedLockCache) prefetch(id uint64) {
 	prefetchFunc(uintptr(unsafe.Pointer(&s.cache[id])))
 }
 
-//nolint:unused
 func (s *shardedLockCache) preload(id uint64, vec []float32) {
 	s.shardedLocks[id%shardFactor].Lock()
 	defer s.shardedLocks[id%shardFactor].Unlock()
@@ -167,7 +166,6 @@ func (s *shardedLockCache) preload(id uint64, vec []float32) {
 	s.cache[id] = vec
 }
 
-//nolint:unused
 func (s *shardedLockCache) grow(node uint64) {
 	if node < uint64(len(s.cache)) {
 		return
@@ -190,18 +188,15 @@ func (s *shardedLockCache) len() int32 {
 	return int32(len(s.cache))
 }
 
-//nolint:unused
 func (s *shardedLockCache) countVectors() int64 {
 	return atomic.LoadInt64(&s.count)
 }
 
-//nolint:unused
 func (s *shardedLockCache) drop() {
 	s.deleteAllVectors()
 	s.cancel <- true
 }
 
-//nolint:unused
 func (s *shardedLockCache) deleteAllVectors() {
 	s.obtainAllLocks()
 	defer s.releaseAllLocks()
