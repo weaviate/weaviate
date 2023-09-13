@@ -24,7 +24,7 @@ import (
 )
 
 func TestGRPC(t *testing.T) {
-	conn, err := helper.CreateGrpcConnectionClient(":50051")
+	conn, err := helper.CreateGrpcConnectionClient(":8080")
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 	grpcClient := helper.CreateGrpcWeaviateClient(conn)

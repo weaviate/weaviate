@@ -12,7 +12,6 @@ services:
       - "6060:6060"
       - "2112:2112"
       - "7101:7101"
-      - "50051:50051"
     environment:
       LOG_LEVEL: "debug"
       CONTEXTIONARY_URL: contextionary:9999
