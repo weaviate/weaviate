@@ -3343,7 +3343,8 @@ func init() {
           "description": "How many objects are currently in the batch queue.",
           "type": "number",
           "format": "int",
-          "x-omitempty": false
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "ratePerSecond": {
           "description": "How many objects are approximately processed from the batch queue per second.",
@@ -8357,7 +8358,8 @@ func init() {
           "description": "How many objects are currently in the batch queue.",
           "type": "number",
           "format": "int",
-          "x-omitempty": false
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "ratePerSecond": {
           "description": "How many objects are approximately processed from the batch queue per second.",

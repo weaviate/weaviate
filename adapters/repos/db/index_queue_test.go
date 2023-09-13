@@ -153,6 +153,12 @@ func TestIndexQueue(t *testing.T) {
 
 func BenchmarkPush(b *testing.B) {
 	var idx mockBatchIndexer
+
+	idx.fn = func(id []uint64, vector [][]float32) error {
+		time.Sleep(1 * time.Second)
+		return nil
+	}
+
 	q, err := NewIndexQueue(&idx, IndexQueueOptions{
 		BatchSize:     1000,
 		IndexInterval: 1 * time.Millisecond,
@@ -160,20 +166,20 @@ func BenchmarkPush(b *testing.B) {
 	require.NoError(b, err)
 	defer q.Close()
 
+	vecs := make([]vectorDescriptor, 100)
+	for j := range vecs {
+		vecs[j] = vectorDescriptor{
+			id:     uint64(j),
+			vector: []float32{1, 2, 3},
+		}
+	}
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		b.StopTimer()
-		vecs := make([]vectorDescriptor, 100)
-		for j := range vecs {
-			vecs[j] = vectorDescriptor{
-				id:     uint64(i*100 + j),
-				vector: []float32{1, 2, 3},
-			}
+		for j := 0; j < 100; j++ {
+			err = q.Push(context.Background(), vecs...)
+			require.NoError(b, err)
 		}
-		b.StartTimer()
-
-		err = q.Push(context.Background(), vecs...)
-		require.NoError(b, err)
 	}
 }
 
