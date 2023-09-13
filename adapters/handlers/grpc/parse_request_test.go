@@ -583,7 +583,7 @@ func TestGRPCRequest(t *testing.T) {
 			name: "Sort",
 			req: &grpc.SearchRequest{
 				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
-				SortBy: []*grpc.SortBy{{Ascending: false, Path: []string{classname, "ref", "something"}}},
+				SortBy: []*grpc.SortBy{{Ascending: false, Path: []string{"name"}}},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
@@ -591,9 +591,19 @@ func TestGRPCRequest(t *testing.T) {
 					Vector:  true,
 					NoProps: true,
 				},
-				Sort: []filters.Sort{{Order: "desc", Path: []string{classname, "ref", "something"}}},
+				Sort: []filters.Sort{{Order: "desc", Path: []string{"name"}}},
 			},
 			error: false,
+		},
+		{
+			name: "Sort and vector search ",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				SortBy:     []*grpc.SortBy{{Ascending: false, Path: []string{"name"}}},
+				NearVector: &grpc.NearVectorParams{Vector: []float32{1, 2, 3}},
+			},
+			out:   dto.GetParams{},
+			error: true,
 		},
 	}
 

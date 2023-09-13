@@ -14,6 +14,8 @@ package grpc
 import (
 	"fmt"
 
+	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
@@ -240,6 +242,9 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	}
 
 	if len(req.SortBy) > 0 {
+		if req.NearText != nil || req.NearVideo != nil || req.NearAudio != nil || req.NearImage != nil || req.NearObject != nil || req.NearVector != nil || req.HybridSearch != nil || req.Bm25Search != nil || req.Generative != nil {
+			return dto.GetParams{}, errors.New("sorting cannot be combined with search")
+		}
 		out.Sort = extractSorting(req.SortBy)
 	}
 
