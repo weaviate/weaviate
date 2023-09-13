@@ -135,7 +135,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 			case models.BackupRestoreStatusResponseStatusSUCCESS:
 				return
 			case models.BackupRestoreStatusResponseStatusFAILED:
-				t.Errorf("failed to create backup, got response: %+v", meta)
+				t.Errorf("failed to restore backup, got response: %+v", meta)
 				return
 			default:
 				time.Sleep(1 * time.Second)

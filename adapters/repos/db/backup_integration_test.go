@@ -63,11 +63,11 @@ func TestBackup_DBLevel(t *testing.T) {
 			AllPhysicalShards()[0]
 		testShd := db.GetIndex(schema.ClassName(className)).
 			shards.Load(expectedShardName)
-		expectedCounterPath := path.Base(testShd.counter.FileName())
+		expectedCounterPath, _ := filepath.Rel(testShd.index.Config.RootPath, testShd.counter.FileName())
 		expectedCounter, err := os.ReadFile(testShd.counter.FileName())
 		require.Nil(t, err)
-		expectedPropLengthPath := path.Base(testShd.propLengths.FileName())
-		expectedShardVersionPath := path.Base(testShd.versioner.path)
+		expectedPropLengthPath, _ := filepath.Rel(testShd.index.Config.RootPath, testShd.propLengths.FileName())
+		expectedShardVersionPath, _ := filepath.Rel(testShd.index.Config.RootPath, testShd.versioner.path)
 		expectedShardVersion, err := os.ReadFile(testShd.versioner.path)
 		require.Nil(t, err)
 		expectedPropLength, err := os.ReadFile(testShd.propLengths.FileName())
@@ -206,7 +206,7 @@ func TestBackup_BucketLevel(t *testing.T) {
 		err = objBucket.FlushMemtable()
 		require.Nil(t, err)
 
-		files, err := objBucket.ListFiles(ctx)
+		files, err := objBucket.ListFiles(ctx, shard.index.Config.RootPath)
 		require.Nil(t, err)
 
 		t.Run("check ListFiles, results", func(t *testing.T) {
@@ -216,7 +216,7 @@ func TestBackup_BucketLevel(t *testing.T) {
 			// contents of the ListFiles result. the only thing we can't
 			// know for sure is the actual name of the segment group, hence
 			// the `.*`
-			re := path.Clean(fmt.Sprintf("^bucketlevelbackup_%s_lsm\\/objects\\/.*\\.(wal|db|bloom|cna)", shard.name))
+			re := path.Clean(fmt.Sprintf("%s\\/.*\\.(wal|db|bloom|cna)", shard.index.Config.RootPath))
 
 			// we expect to see only four files inside the bucket at this point:
 			//   1. a *.db file - the segment itself

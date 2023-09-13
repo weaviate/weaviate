@@ -17,12 +17,12 @@ import (
 	"syscall"
 )
 
-func (d *DB) getDiskUse(diskPath string) diskUse {
+func (db *DB) getDiskUse(diskPath string) diskUse {
 	fs := syscall.Statfs_t{}
 
 	err := syscall.Statfs(diskPath, &fs)
 	if err != nil {
-		d.logger.WithField("action", "read_disk_use").
+		db.logger.WithField("action", "read_disk_use").
 			WithField("path", diskPath).
 			Errorf("failed to read disk usage: %s", err)
 	}
