@@ -18,6 +18,7 @@ import (
 	"path"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -148,8 +149,10 @@ func assertShardRootContents(t *testing.T, flatFiles map[string]struct{}, root s
 }
 
 func testDB(root string) *DB {
+	logger, _ := test.NewNullLogger()
 	return &DB{
 		config: Config{RootPath: root},
+		logger: logger,
 	}
 }
 

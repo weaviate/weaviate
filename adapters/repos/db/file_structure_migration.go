@@ -17,6 +17,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"time"
 )
 
 const (
@@ -37,15 +38,18 @@ func (db *DB) migrateFileStructureIfNecessary() error {
 			if err = db.migrateToHierarchicalFS(); err != nil {
 				return fmt.Errorf("migrate to hierarchical fs: %w", err)
 			}
+			if _, err = os.Create(fsMigrationPath); err != nil {
+				return fmt.Errorf("create hierarchical fs indicator: %w", err)
+			}
 		}
-		if _, err := os.Create(fsMigrationPath); err != nil {
-			return fmt.Errorf("create hierarchical fs indicator: %w", err)
-		}
+		return err
 	}
 	return nil
 }
 
 func (db *DB) migrateToHierarchicalFS() error {
+	before := time.Now()
+
 	root, err := os.ReadDir(db.config.RootPath)
 	if err != nil {
 		return fmt.Errorf("read db root: %w", err)
@@ -64,6 +68,9 @@ func (db *DB) migrateToHierarchicalFS() error {
 			}
 		}
 	}
+
+	db.logger.WithField("action", "hierarchical_fs_migration").
+		Debugf("fs migration took %s\n", time.Since(before))
 
 	return nil
 }
