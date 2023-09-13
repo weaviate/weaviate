@@ -41,15 +41,6 @@ func (db *DB) init(ctx context.Context) error {
 		return err
 	}
 
-	if asyncEnabled() {
-		// init the index checkpoint file
-		var err error
-		db.indexCheckpoints, err = indexcheckpoint.New(db.config.RootPath, db.logger)
-		if err != nil {
-			return errors.Wrap(err, "init index checkpoint")
-		}
-	}
-
 	objects := db.schemaGetter.GetSchemaSkipAuth().Objects
 	if objects != nil {
 		for _, class := range objects.Classes {
