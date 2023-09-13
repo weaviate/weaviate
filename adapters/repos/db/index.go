@@ -252,7 +252,6 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 
 	eg := errgroup.Group{}
 	eg.SetLimit(_NUMCPU)
-
 	if err := os.MkdirAll(index.path(), os.ModePerm); err != nil {
 		return nil, fmt.Errorf("init index %q: %w", index.ID(), err)
 	}
