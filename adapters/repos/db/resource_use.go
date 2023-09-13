@@ -49,13 +49,13 @@ func (d *DB) scanResourceUsage() {
 		defer t.Stop()
 		for {
 			select {
-			case <-d.shutdown:
+			case <-db.shutdown:
 				return
 			case <-t.C:
-				if !d.resourceScanState.isReadOnly {
-					du := d.getDiskUse(d.config.RootPath)
-					d.resourceUseWarn(d.memMonitor, du)
-					d.resourceUseReadonly(d.memMonitor, du)
+				if !db.resourceScanState.isReadOnly {
+					du := db.getDiskUse(db.config.RootPath)
+					db.resourceUseWarn(db.memMonitor, du)
+					db.resourceUseReadonly(db.memMonitor, du)
 				}
 			}
 		}
