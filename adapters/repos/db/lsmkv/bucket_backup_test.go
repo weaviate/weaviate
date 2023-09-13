@@ -77,7 +77,7 @@ func bucketBackup_ListFiles(ctx context.Context, t *testing.T, opts []BucketOpti
 	})
 
 	t.Run("assert expected bucket contents", func(t *testing.T) {
-		files, err := b.ListFiles(ctx)
+		files, err := b.ListFiles(ctx, dirName)
 		assert.Nil(t, err)
 		assert.Len(t, files, 3)
 
