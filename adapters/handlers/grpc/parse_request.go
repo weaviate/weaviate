@@ -95,7 +95,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 			return dto.GetParams{}, err
 		}
 
-		if vectorIndex.Distance != hnsw.DistanceDot {
+		if vectorIndex.Distance == hnsw.DistanceCosine {
 			out.AdditionalProperties.Certainty = true
 		}
 
