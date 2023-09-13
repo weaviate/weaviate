@@ -32,9 +32,11 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-const NodeLockStripe = uint64(512)
-const TempSize = 1000
-const TempWorkers = 8
+const (
+	NodeLockStripe = uint64(512)
+	TempSize       = 1000
+	TempWorkers    = 8
+)
 
 type hnsw struct {
 	// global lock to prevent concurrent map read/write, etc.
