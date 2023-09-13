@@ -64,6 +64,7 @@ func TestGRPCRequest(t *testing.T) {
 						{Name: "something", DataType: schema.DataTypeText.PropString()},
 						{Name: "ref2", DataType: []string{refClass2}},
 					},
+					VectorIndexConfig: hnsw.UserConfig{Distance: hnsw.DefaultDistanceMetric},
 				},
 				{
 					Class: refClass2,
@@ -105,7 +106,7 @@ func TestGRPCRequest(t *testing.T) {
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}, {Name: "floats", IsPrimitive: true}, {Name: "uuid", IsPrimitive: true}},
 				AdditionalProperties: additional.Properties{
-					Vector:             true,
+					Vector:             false,
 					Certainty:          true,
 					ID:                 true,
 					CreationTimeUnix:   true,
@@ -124,7 +125,7 @@ func TestGRPCRequest(t *testing.T) {
 			out: dto.GetParams{
 				ClassName: dotClass, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "something", IsPrimitive: true}},
 				AdditionalProperties: additional.Properties{
-					Vector:             true,
+					Vector:             false,
 					Certainty:          false, // not compatible
 					ID:                 true,
 					CreationTimeUnix:   true,
@@ -177,6 +178,25 @@ func TestGRPCRequest(t *testing.T) {
 					ExplainScore:       false,
 					NoProps:            false,
 				},
+			},
+			error: false,
+		},
+		{
+			name: "ref returns no values given",
+			req:  &grpc.SearchRequest{ClassName: classname, Properties: &grpc.Properties{RefProperties: []*grpc.RefProperties{{ReferenceProperty: "ref", WhichCollection: refClass1}}}},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{{ClassName: refClass1, RefProperties: search.SelectProperties{{Name: "something", IsPrimitive: true}}, AdditionalProperties: additional.Properties{
+					Vector:             false,
+					Certainty:          true,
+					ID:                 true,
+					CreationTimeUnix:   true,
+					LastUpdateTimeUnix: true,
+					Distance:           true,
+					Score:              true,
+					ExplainScore:       true,
+					IsConsistent:       false,
+				}}}}},
+				AdditionalProperties: additional.Properties{},
 			},
 			error: false,
 		},
