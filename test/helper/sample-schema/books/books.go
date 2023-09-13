@@ -15,6 +15,8 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	pb "github.com/weaviate/weaviate/grpc"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 const defaultClassName = "Books"
@@ -110,6 +112,10 @@ func Objects() []*models.Object {
 	return objects(defaultClassName)
 }
 
+func BatchObjects() []*pb.BatchObject {
+	return batchObjects(defaultClassName)
+}
+
 func ObjectsWithName(className string) []*models.Object {
 	return objects(className)
 }
@@ -138,6 +144,47 @@ func objects(className string) []*models.Object {
 			Properties: map[string]interface{}{
 				"title":       "The Lord of the Ice Garden",
 				"description": "The Lord of the Ice Garden (Polish: Pan Lodowego Ogrodu) is a four-volume science fiction and fantasy novel by Polish writer Jaroslaw Grzedowicz.",
+			},
+		},
+	}
+}
+
+func batchObjects(className string) []*pb.BatchObject {
+	return []*pb.BatchObject{
+		{
+			ClassName: className,
+			Uuid:      Dune.String(),
+			Properties: &pb.BatchObject_Properties{
+				NonRefProperties: &structpb.Struct{
+					Fields: map[string]*structpb.Value{
+						"title":       structpb.NewStringValue("Dune"),
+						"description": structpb.NewStringValue("Dune is a 1965 epic science fiction novel by American author Frank Herbert."),
+					},
+				},
+			},
+		},
+		{
+			ClassName: className,
+			Uuid:      ProjectHailMary.String(),
+			Properties: &pb.BatchObject_Properties{
+				NonRefProperties: &structpb.Struct{
+					Fields: map[string]*structpb.Value{
+						"title":       structpb.NewStringValue("Project Hail Mary"),
+						"description": structpb.NewStringValue("Project Hail Mary is a 2021 science fiction novel by American novelist Andy Weir."),
+					},
+				},
+			},
+		},
+		{
+			ClassName: className,
+			Uuid:      TheLordOfTheIceGarden.String(),
+			Properties: &pb.BatchObject_Properties{
+				NonRefProperties: &structpb.Struct{
+					Fields: map[string]*structpb.Value{
+						"title":       structpb.NewStringValue("The Lord of the Ice Garden"),
+						"description": structpb.NewStringValue("The Lord of the Ice Garden (Polish: Pan Lodowego Ogrodu) is a four-volume science fiction and fantasy novel by Polish writer Jaroslaw Grzedowicz."),
+					},
+				},
 			},
 		},
 	}
