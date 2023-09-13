@@ -73,7 +73,6 @@ func TestIndexQueue(t *testing.T) {
 
 		q, err := NewIndexQueue(&idx, IndexQueueOptions{
 			BatchSize:     1,
-			IndexInterval: 10 * time.Hour,
 			RetryInterval: time.Millisecond,
 		})
 		require.NoError(t, err)
@@ -87,26 +86,6 @@ func TestIndexQueue(t *testing.T) {
 		<-called
 		require.Equal(t, 3, idx.called)
 		require.Equal(t, [][]uint64{{1}, {1}, {1}}, idx.ids)
-	})
-
-	t.Run("index if stale", func(t *testing.T) {
-		var idx mockBatchIndexer
-		q, err := NewIndexQueue(&idx, IndexQueueOptions{
-			BatchSize:     10,
-			IndexInterval: 300 * time.Millisecond,
-		})
-		require.NoError(t, err)
-		defer q.Close()
-
-		err = q.Push(ctx, vectorDescriptor{
-			id:     1,
-			vector: []float32{1, 2, 3},
-		})
-		require.NoError(t, err)
-		require.Equal(t, 0, idx.called)
-
-		time.Sleep(600 * time.Millisecond)
-		require.Equal(t, 1, idx.called)
 	})
 
 	t.Run("merges results from queries", func(t *testing.T) {
