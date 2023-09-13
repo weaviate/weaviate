@@ -14,6 +14,8 @@ package nearVideo
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -42,11 +44,11 @@ func (s *Searcher) vectorForNearVideoParam(ctx context.Context, params interface
 	findVectorFn modulecapabilities.FindVectorFn,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return s.vectorFromNearVideoParam(ctx, params.(*NearVideoParams), className, findVectorFn, cfg)
+	return s.vectorFromNearVideoParam(ctx, params.(*nearVideo.NearVideoParams), className, findVectorFn, cfg)
 }
 
 func (s *Searcher) vectorFromNearVideoParam(ctx context.Context,
-	params *NearVideoParams, className string, findVectorFn modulecapabilities.FindVectorFn,
+	params *nearVideo.NearVideoParams, className string, findVectorFn modulecapabilities.FindVectorFn,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	// find vector for given search query

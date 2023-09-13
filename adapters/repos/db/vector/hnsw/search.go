@@ -488,6 +488,11 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	if h.isEmpty() {
 		return nil, nil, nil
 	}
+
+	if k < 0 {
+		return nil, nil, fmt.Errorf("k must be greater than zero")
+	}
+
 	h.RLock()
 	entryPointID := h.entryPointID
 	maxLayer := h.currentMaximumLayer

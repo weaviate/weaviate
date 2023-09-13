@@ -14,6 +14,8 @@ package nearAudio
 import (
 	"reflect"
 	"testing"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearAudio"
 )
 
 func Test_extractNearAudioFn(t *testing.T) {
@@ -33,7 +35,7 @@ func Test_extractNearAudioFn(t *testing.T) {
 					"distance": float64(0.9),
 				},
 			},
-			want: &NearAudioParams{
+			want: &nearAudio.NearAudioParams{
 				Audio:        "base64;encoded",
 				Distance:     0.9,
 				WithDistance: true,
@@ -47,7 +49,7 @@ func Test_extractNearAudioFn(t *testing.T) {
 					"certainty": float64(0.9),
 				},
 			},
-			want: &NearAudioParams{
+			want: &nearAudio.NearAudioParams{
 				Audio:     "base64;encoded",
 				Certainty: 0.9,
 			},
@@ -59,7 +61,7 @@ func Test_extractNearAudioFn(t *testing.T) {
 					"audio": "base64;encoded",
 				},
 			},
-			want: &NearAudioParams{
+			want: &nearAudio.NearAudioParams{
 				Audio: "base64;encoded",
 			},
 		},

@@ -11,9 +11,11 @@
 
 package nearImage
 
+import "github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
+
 // extractNearImageFn arguments, such as "image" and "certainty"
 func extractNearImageFn(source map[string]interface{}) interface{} {
-	var args NearImageParams
+	var args nearImage.NearImageParams
 
 	image, ok := source["image"].(string)
 	if ok {

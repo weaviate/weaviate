@@ -24,9 +24,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 )
 
-// IndexQueue is a persistent queue of vectors to index.
-// It batches vectors together before sending them to the indexing worker.
-// It persists the vectors on disk to ensure they are not lost in case of a crash.
+// IndexQueue is an in-memory queue of vectors to index.
+// It batches vectors together before sending them to the indexing workers.
 // It is safe to use concurrently.
 type IndexQueue struct {
 	Index BatchIndexer
@@ -126,7 +125,8 @@ func NewIndexQueue(
 		pqMaxPool:     newPqMaxPool(0),
 		bufPool: sync.Pool{
 			New: func() any {
-				return make([]vectorDescriptor, 0, 10*opts.BatchSize)
+				buf := make([]vectorDescriptor, 0, 10*opts.BatchSize)
+				return &buf
 			},
 		},
 	}
@@ -160,7 +160,8 @@ func NewIndexQueue(
 	return &q, nil
 }
 
-// Close waits till the queue has ingested and persisted all pending vectors.
+// Close immediately closes the queue and waits for workers to finish their current tasks.
+// Any pending vectors are discarded.
 func (q *IndexQueue) Close() error {
 	// check if the queue is closed
 	select {
@@ -180,9 +181,7 @@ func (q *IndexQueue) Close() error {
 	return nil
 }
 
-// Push adds a vector to the persistent indexing queue.
-// It waits until the vector is successfully persisted to the
-// on-disk queue or sent to the indexing worker.
+// Push adds a list of vectors to the queue.
 func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) error {
 	select {
 	case <-ctx.Done():
@@ -194,11 +193,26 @@ func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) erro
 	}
 }
 
-// This is the processor worker. Its job is to batch jobs together before
-// sending them to the index.
-// While the queue is not full or stale, it persists the jobs on disk.
-// Once the queue is full or stale, it sends the jobs to the indexing worker.
-// It batches concurrent jobs to reduce the number of disk writes.
+// Size returns the number of vectors waiting to be indexed.
+func (q *IndexQueue) Size() int64 {
+	var count int64
+	q.queue.fullChunks.Lock()
+	e := q.queue.fullChunks.list.Front()
+	for e != nil {
+		c := e.Value.(*chunk)
+		count += int64(c.cursor)
+
+		e = e.Next()
+	}
+	q.queue.fullChunks.Unlock()
+
+	q.queue.curBatch.Lock()
+	count += int64(q.queue.curBatch.c.cursor)
+	q.queue.curBatch.Unlock()
+
+	return count
+}
+
 func (q *IndexQueue) enqueuer() {
 	for batch := range q.processCh {
 		q.queue.Add(batch)
@@ -287,7 +301,8 @@ func (q *IndexQueue) indexVectors(ids []uint64, vectors [][]float32) error {
 	}
 }
 
-// Search defer to the index and brute force the unindexed data
+// SearchByVector performs the search through the index first, then uses brute force to
+// query unindexed vectors.
 func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	indexedResults, distances, err := q.Index.SearchByVector(vector, k, allowList)
 	if err != nil {
@@ -299,8 +314,9 @@ func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.A
 		results.Insert(indexedResults[i], distances[i])
 	}
 
-	snapshot := q.bufPool.Get().([]vectorDescriptor)
-	snapshot = q.queue.AppendSnapshot(snapshot)
+	buf := q.bufPool.Get().(*[]vectorDescriptor)
+	snapshot := q.queue.AppendSnapshot((*buf)[:0])
+
 	ids := make([]uint64, len(snapshot))
 	vectors := make([][]float32, len(snapshot))
 	for i, v := range snapshot {
@@ -327,7 +343,7 @@ func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.A
 		distances[i] = element.Dist
 	}
 
-	q.bufPool.Put(snapshot[:0])
+	q.bufPool.Put(&snapshot)
 
 	return ids, distances, nil
 }
@@ -385,7 +401,6 @@ func (pqh *pqMaxPool) Put(pq *priorityqueue.Queue) {
 }
 
 type vectorQueue struct {
-	sync.Mutex
 	batchSize int
 	pool      sync.Pool
 	curBatch  struct {
@@ -431,15 +446,12 @@ func (q *vectorQueue) Add(vectors []vectorDescriptor) {
 		full = append(full, f)
 	}
 
-	for {
-		n := copy(q.curBatch.c.data[q.curBatch.c.cursor:], vectors)
-		q.curBatch.c.cursor += n
+	curBatch := q.curBatch.c
+	for len(vectors) != 0 {
+		n := copy(curBatch.data[curBatch.cursor:], vectors)
+		curBatch.cursor += n
 
 		vectors = vectors[n:]
-
-		if len(vectors) == 0 {
-			break
-		}
 
 		f := q.ensureHasSpace()
 		if f != nil {

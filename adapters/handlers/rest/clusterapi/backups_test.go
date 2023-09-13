@@ -62,7 +62,7 @@ func setupClusterAPI(t *testing.T, nodes []*backupNode) map[string]string {
 	hosts := make(map[string]string)
 
 	for _, node := range nodes {
-		backupsHandler := clusterapi.NewBackups(node.backupManager)
+		backupsHandler := clusterapi.NewBackups(node.backupManager, clusterapi.NewNoopAuthHandler())
 
 		mux := http.NewServeMux()
 		mux.Handle("/backups/can-commit", backupsHandler.CanCommit())
