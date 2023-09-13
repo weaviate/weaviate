@@ -160,7 +160,8 @@ func NewIndexQueue(
 	return &q, nil
 }
 
-// Close waits till the queue has ingested and persisted all pending vectors.
+// Close immediately closes the queue and waits for workers to finish their current tasks.
+// Any pending vectors are discarded.
 func (q *IndexQueue) Close() error {
 	// check if the queue is closed
 	select {
@@ -180,9 +181,7 @@ func (q *IndexQueue) Close() error {
 	return nil
 }
 
-// Push adds a vector to the persistent indexing queue.
-// It waits until the vector is successfully persisted to the
-// on-disk queue or sent to the indexing worker.
+// Push adds a list of vectors to the queue.
 func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) error {
 	select {
 	case <-ctx.Done():
@@ -194,11 +193,6 @@ func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) erro
 	}
 }
 
-// This is the processor worker. Its job is to batch jobs together before
-// sending them to the index.
-// While the queue is not full or stale, it persists the jobs on disk.
-// Once the queue is full or stale, it sends the jobs to the indexing worker.
-// It batches concurrent jobs to reduce the number of disk writes.
 func (q *IndexQueue) enqueuer() {
 	for batch := range q.processCh {
 		q.queue.Add(batch)
@@ -287,7 +281,8 @@ func (q *IndexQueue) indexVectors(ids []uint64, vectors [][]float32) error {
 	}
 }
 
-// Search defer to the index and brute force the unindexed data
+// SearchByVector performs the search through the index first, then uses brute force to
+// query unindexed vectors.
 func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	indexedResults, distances, err := q.Index.SearchByVector(vector, k, allowList)
 	if err != nil {
@@ -433,15 +428,11 @@ func (q *vectorQueue) Add(vectors []vectorDescriptor) {
 	}
 
 	curBatch := q.curBatch.c
-	for {
+	for len(vectors) != 0 {
 		n := copy(curBatch.data[curBatch.cursor:], vectors)
 		curBatch.cursor += n
 
 		vectors = vectors[n:]
-
-		if len(vectors) == 0 {
-			break
-		}
 
 		f := q.ensureHasSpace()
 		if f != nil {
