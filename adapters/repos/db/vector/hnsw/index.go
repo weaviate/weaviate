@@ -163,12 +163,6 @@ type hnsw struct {
 	shardName              string
 	VectorForIDThunk       VectorForID
 	shardedNodeLocks       []sync.RWMutex
-
-	tempIds      [][]uint64
-	tempVectors  [][][]float32
-	currInserted int
-	tempLock     *sync.RWMutex
-	tempChannel  []chan int
 }
 
 type CommitLogger interface {
@@ -275,7 +269,6 @@ func New(cfg Config, uc ent.UserConfig,
 
 		randFunc:             rand.Float64,
 		compressActionLock:   &sync.RWMutex{},
-		tempLock:             &sync.RWMutex{},
 		className:            cfg.ClassName,
 		VectorForIDThunk:     cfg.VectorForIDThunk,
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
@@ -284,13 +277,7 @@ func New(cfg Config, uc ent.UserConfig,
 
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
-
-		tempIds:     make([][]uint64, 1),
-		tempVectors: make([][][]float32, 1),
-		tempChannel: make([]chan int, TempWorkers),
 	}
-	index.tempIds[0] = make([]uint64, TempSize)
-	index.tempVectors[0] = make([][]float32, TempSize)
 
 	if uc.PQ.Enabled {
 		index.compressedVectorsCache = newCompressedShardedLockCache(index.getCompressedVectorForID, uc.VectorCacheMaxObjects, cfg.Logger)
@@ -695,4 +682,8 @@ func (h *hnsw) Entrypoint() uint64 {
 
 func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
 	return h.distancerProvider.SingleDist(x, y)
+}
+
+func (h *hnsw) ContainsNode(id uint64) bool {
+	return len(h.nodes) > int(id) && h.nodes[id] != nil
 }

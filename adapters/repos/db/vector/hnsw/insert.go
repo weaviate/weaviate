@@ -234,7 +234,7 @@ func (h *hnsw) AddBatch(ids []uint64, vectors [][]float32) error {
 }
 
 func (h *hnsw) Add(id uint64, vector []float32) error {
-	h.tempLock.Lock()
+	/*h.tempLock.Lock()
 	last := len(h.tempIds) - 1
 	inserted := h.currInserted
 	h.currInserted++
@@ -252,7 +252,7 @@ func (h *hnsw) Add(id uint64, vector []float32) error {
 	}
 	h.tempLock.Unlock()
 	h.tempIds[last][inserted] = id
-	h.tempVectors[last][inserted] = vector
+	h.tempVectors[last][inserted] = vector*/
 	return nil
 }
 
