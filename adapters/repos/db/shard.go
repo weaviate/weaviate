@@ -140,6 +140,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	defer s.metrics.ShardStartup(before)
 
+	if err := os.MkdirAll(s.path(), os.ModePerm); err != nil {
+		return nil, err
+	}
+
 	hnswUserConfig, ok := index.vectorIndexUserConfig.(hnswent.UserConfig)
 	if !ok {
 		return nil, errors.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
@@ -188,10 +192,17 @@ func (s *Shard) initVectorIndex(
 	s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 	s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
+	// a shard can actually have multiple vector indexes:
+	// - the main index, which is used for all normal object vectors
+	// - a geo property index for each geo prop in the schema
+	//
+	// here we label the main vector index as such.
+	vecIdxID := "main"
+
 	vi, err := hnsw.New(hnsw.Config{
 		Logger:               s.index.logger,
-		RootPath:             s.index.Config.RootPath,
-		ID:                   s.ID(),
+		RootPath:             s.path(),
+		ID:                   vecIdxID,
 		ShardName:            s.name,
 		ClassName:            s.index.Config.ClassName.String(),
 		PrometheusMetrics:    s.promMetrics,
@@ -199,7 +210,7 @@ func (s *Shard) initVectorIndex(
 		TempVectorForIDThunk: s.readVectorByIndexIDIntoSlice,
 		DistanceProvider:     distProv,
 		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(),
+			return hnsw.NewCommitLogger(s.path(), vecIdxID,
 				s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
 		},
 	}, hnswUserConfig,
@@ -218,21 +229,21 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return errors.Wrapf(err, "init shard %q: shard db", s.ID())
 	}
 
-	counter, err := indexcounter.New(s.ID(), s.index.Config.RootPath)
+	counter, err := indexcounter.New(s.path())
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: index counter", s.ID())
 	}
 	s.counter = counter
 
 	dataPresent := s.counter.PreviewNext() != 0
-	versionPath := path.Join(s.index.Config.RootPath, s.ID()+".version")
+	versionPath := path.Join(s.path(), "version")
 	versioner, err := newShardVersioner(versionPath, dataPresent)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: check versions", s.ID())
 	}
 	s.versioner = versioner
 
-	plPath := path.Join(s.index.Config.RootPath, s.ID()+".proplengths")
+	plPath := path.Join(s.path(), "proplengths")
 	propLengths, err := inverted.NewJsonPropertyLengthTracker(plPath, s.index.logger)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
@@ -252,8 +263,12 @@ func (s *Shard) ID() string {
 	return fmt.Sprintf("%s_%s", s.index.ID(), s.name)
 }
 
+func (s *Shard) path() string {
+	return path.Join(s.index.path(), s.name)
+}
+
 func (s *Shard) DBPathLSM() string {
-	return fmt.Sprintf("%s/%s_lsm", s.index.Config.RootPath, s.ID())
+	return path.Join(s.path(), "lsm")
 }
 
 func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
@@ -273,7 +288,7 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 		metrics = lsmkv.NewMetrics(s.promMetrics, string(s.index.Config.ClassName), s.name)
 	}
 
-	store, err := lsmkv.New(s.DBPathLSM(), s.index.Config.RootPath, annotatedLogger, metrics,
+	store, err := lsmkv.New(s.DBPathLSM(), s.path(), annotatedLogger, metrics,
 		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks)
 	if err != nil {
 		return errors.Wrapf(err, "init lsmkv store at %s", s.DBPathLSM())
