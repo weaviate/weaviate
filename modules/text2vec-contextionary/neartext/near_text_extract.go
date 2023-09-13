@@ -11,10 +11,12 @@
 
 package neartext
 
+import "github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
+
 // ExtractNearText arguments, such as "concepts", "moveTo", "moveAwayFrom",
 // "limit", etc.
 func (g *GraphQLArgumentsProvider) extractNearTextFn(source map[string]interface{}) interface{} {
-	var args NearTextParams
+	var args nearText.NearTextParams
 
 	// keywords is a required argument, so we don't need to check for its existing
 	keywords := source["concepts"].([]interface{})
@@ -77,12 +79,12 @@ func (g *GraphQLArgumentsProvider) extractNearTextFn(source map[string]interface
 	return &args
 }
 
-func (g *GraphQLArgumentsProvider) extractMovement(input interface{}) ExploreMove {
+func (g *GraphQLArgumentsProvider) extractMovement(input interface{}) nearText.ExploreMove {
 	// the type is fixed through gql config, no need to catch incorrect type
 	// assumption, all fields are required so we don't need to check for their
 	// presence
 	moveToMap := input.(map[string]interface{})
-	res := ExploreMove{}
+	res := nearText.ExploreMove{}
 	res.Force = float32(moveToMap["force"].(float64))
 
 	keywords, ok := moveToMap["concepts"].([]interface{})
@@ -95,7 +97,7 @@ func (g *GraphQLArgumentsProvider) extractMovement(input interface{}) ExploreMov
 
 	objects, ok := moveToMap["objects"].([]interface{})
 	if ok {
-		res.Objects = make([]ObjectMove, len(objects))
+		res.Objects = make([]nearText.ObjectMove, len(objects))
 		for i, value := range objects {
 			v, ok := value.(map[string]interface{})
 			if ok {

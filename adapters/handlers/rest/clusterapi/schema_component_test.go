@@ -118,7 +118,7 @@ func setupManagers(t *testing.T) (*schemauc.Manager, *schemauc.Manager) {
 	remoteManager := newSchemaManagerWithClusterStateAndClient(
 		&fakeClusterState{hosts: []string{"node1"}}, nil)
 
-	schemaHandlers := clusterapi.NewSchema(remoteManager.TxManager())
+	schemaHandlers := clusterapi.NewSchema(remoteManager.TxManager(), clusterapi.NewNoopAuthHandler())
 	mux := http.NewServeMux()
 	mux.Handle("/schema/transactions/", http.StripPrefix("/schema/transactions/",
 		schemaHandlers.Transactions()))
@@ -129,6 +129,10 @@ func setupManagers(t *testing.T) (*schemauc.Manager, *schemauc.Manager) {
 	require.Nil(t, err)
 	state := &fakeClusterState{hosts: []string{parsedURL.Host}}
 	localManager := newSchemaManagerWithClusterStateAndClient(state, client)
+
+	// this will also mark the tx managers as ready
+	localManager.StartServing(context.Background())
+	remoteManager.StartServing(context.Background())
 
 	return localManager, remoteManager
 }
@@ -165,7 +169,8 @@ func newSchemaManagerWithClusterStateAndClient(clusterState *fakeClusterState,
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
 		dummyParseVectorConfig, // only option for now
 		vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, clusterState, client, &fakeScaleOutManager{},
+		&fakeModuleConfig{}, clusterState, client, &fakeTxPersistence{},
+		&fakeScaleOutManager{},
 	)
 	if err != nil {
 		panic(err.Error())
@@ -183,4 +188,25 @@ func (f *fakeScaleOutManager) Scale(ctx context.Context,
 }
 
 func (f *fakeScaleOutManager) SetSchemaManager(sm scaler.SchemaManager) {
+}
+
+// does nothing as this component test does not involve crashes
+type fakeTxPersistence struct{}
+
+func (f *fakeTxPersistence) StoreTx(ctx context.Context,
+	tx *cluster.Transaction,
+) error {
+	return nil
+}
+
+func (f *fakeTxPersistence) DeleteTx(ctx context.Context,
+	txID string,
+) error {
+	return nil
+}
+
+func (f *fakeTxPersistence) IterateAll(ctx context.Context,
+	cb func(tx *cluster.Transaction),
+) error {
+	return nil
 }

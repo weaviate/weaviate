@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.21.1"
+    "version": "1.21.2"
   },
   "basePath": "/v1",
   "paths": {
@@ -3343,7 +3343,8 @@ func init() {
           "description": "How many objects are currently in the batch queue.",
           "type": "number",
           "format": "int",
-          "x-omitempty": false
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "ratePerSecond": {
           "description": "How many objects are approximately processed from the batch queue per second.",
@@ -4859,7 +4860,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.21.1"
+    "version": "1.21.2"
   },
   "basePath": "/v1",
   "paths": {
@@ -8357,7 +8358,8 @@ func init() {
           "description": "How many objects are currently in the batch queue.",
           "type": "number",
           "format": "int",
-          "x-omitempty": false
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "ratePerSecond": {
           "description": "How many objects are approximately processed from the batch queue per second.",

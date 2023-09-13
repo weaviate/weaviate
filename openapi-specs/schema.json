@@ -964,7 +964,8 @@
           "description": "How many objects are currently in the batch queue.",
           "format": "int",
           "type": "number",
-          "x-omitempty": false
+          "x-omitempty": true,
+          "x-nullable": true
         },
         "ratePerSecond": {
           "description": "How many objects are approximately processed from the batch queue per second.",
@@ -1798,7 +1799,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.21.1"
+    "version": "1.21.2"
   },
   "parameters": {
     "CommonAfterParameterQuery": {

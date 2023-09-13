@@ -80,7 +80,7 @@ func (v *Vectorizer) referenceVectorSearch(ctx context.Context,
 	// use the ids from parent's beacons to find the referenced objects
 	beacons := beaconsForVectorization(props, refProps)
 	for _, beacon := range beacons {
-		res, err := v.findReferenceObject(ctx, beacon)
+		res, err := v.findReferenceObject(ctx, beacon, obj.Tenant)
 		if err != nil {
 			return nil, err
 		}
@@ -96,14 +96,14 @@ func (v *Vectorizer) referenceVectorSearch(ctx context.Context,
 	return refVecs, nil
 }
 
-func (v *Vectorizer) findReferenceObject(ctx context.Context, beacon strfmt.URI) (res *search.Result, err error) {
+func (v *Vectorizer) findReferenceObject(ctx context.Context, beacon strfmt.URI, tenant string) (res *search.Result, err error) {
 	ref, err := crossref.Parse(beacon.String())
 	if err != nil {
 		return nil, fmt.Errorf("parse beacon %q: %w", beacon, err)
 	}
 
 	res, err = v.findObjectFn(ctx, ref.Class, ref.TargetID,
-		search.SelectProperties{}, additional.Properties{}, "")
+		search.SelectProperties{}, additional.Properties{}, tenant)
 	if err != nil || res == nil {
 		if err == nil {
 			err = fmt.Errorf("not found")

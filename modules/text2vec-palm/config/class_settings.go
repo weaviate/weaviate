@@ -35,10 +35,14 @@ const (
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
 	DefaultApiEndpoint           = "us-central1-aiplatform.googleapis.com"
-	DefaultModelID               = "textembedding-gecko"
+	DefaultModelID               = "textembedding-gecko@001"
 )
 
-var availablePalmModels = []string{DefaultModelID}
+var availablePalmModels = []string{
+	DefaultModelID,
+	"textembedding-gecko@latest",
+	"textembedding-gecko-multilingual@latest",
+}
 
 type classSettings struct {
 	cfg moduletools.ClassConfig

@@ -29,7 +29,7 @@ import (
 type BatchStats struct {
 
 	// How many objects are currently in the batch queue.
-	QueueLength int64 `json:"queueLength"`
+	QueueLength *int64 `json:"queueLength,omitempty"`
 
 	// How many objects are approximately processed from the batch queue per second.
 	RatePerSecond int64 `json:"ratePerSecond"`

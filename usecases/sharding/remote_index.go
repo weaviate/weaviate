@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math/rand"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -37,6 +38,7 @@ type RemoteIndex struct {
 type shardingStateGetter interface {
 	// ShardOwner returns id of owner node
 	ShardOwner(class, shard string) (string, error)
+	ShardReplicas(class, shard string) ([]string, error)
 }
 
 func NewRemoteIndex(className string,
@@ -236,44 +238,54 @@ func (ri *RemoteIndex) MultiGetObjects(ctx context.Context, shardName string,
 	return ri.client.MultiGetObjects(ctx, host, ri.class, shardName, ids)
 }
 
-func (ri *RemoteIndex) SearchShard(ctx context.Context, shardName string,
-	searchVector []float32, limit int, filters *filters.LocalFilter,
-	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
-	cursor *filters.Cursor, groupBy *searchparams.GroupBy,
-	additional additional.Properties, replEnabled bool,
+func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
+	queryVec []float32,
+	limit int,
+	filters *filters.LocalFilter,
+	keywordRanking *searchparams.KeywordRanking,
+	sort []filters.Sort,
+	cursor *filters.Cursor,
+	groupBy *searchparams.GroupBy,
+	adds additional.Properties,
+	replEnabled bool,
 ) ([]*storobj.Object, []float32, error) {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	type pair struct {
+		first  []*storobj.Object
+		second []float32
+	}
+	f := func(node, host string) (interface{}, error) {
+		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
+			queryVec, limit, filters, keywordRanking, sort, cursor, groupBy, adds)
+		if err != nil {
+			return nil, err
+		}
+		return pair{objs, scores}, err
+	}
+	rr, err := ri.queryReplicas(ctx, shard, f)
 	if err != nil {
-		return nil, nil, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
+		return nil, nil, err
 	}
-
-	host, ok := ri.nodeResolver.NodeHostname(owner)
-	if !ok {
-		return nil, nil, errors.Errorf("resolve node name %q to host", owner)
-	}
-
-	objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shardName, searchVector, limit,
-		filters, keywordRanking, sort, cursor, groupBy, additional)
-	if replEnabled {
-		storobj.AddOwnership(objs, owner, shardName)
-	}
-	return objs, scores, err
+	r := rr.(pair)
+	return r.first, r.second, err
 }
 
-func (ri *RemoteIndex) Aggregate(ctx context.Context, shardName string,
+func (ri *RemoteIndex) Aggregate(
+	ctx context.Context,
+	shard string,
 	params aggregation.Params,
 ) (*aggregation.Result, error) {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	f := func(_, host string) (interface{}, error) {
+		r, err := ri.client.Aggregate(ctx, host, ri.class, shard, params)
+		if err != nil {
+			return nil, err
+		}
+		return r, nil
+	}
+	rr, err := ri.queryReplicas(ctx, shard, f)
 	if err != nil {
-		return nil, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
+		return nil, err
 	}
-
-	host, ok := ri.nodeResolver.NodeHostname(owner)
-	if !ok {
-		return nil, errors.Errorf("resolve node name %q to host", owner)
-	}
-
-	return ri.client.Aggregate(ctx, host, ri.class, shardName, params)
+	return rr.(*aggregation.Result), err
 }
 
 func (ri *RemoteIndex) FindDocIDs(ctx context.Context, shardName string,
@@ -336,4 +348,40 @@ func (ri *RemoteIndex) UpdateShardStatus(ctx context.Context, shardName, targetS
 	}
 
 	return ri.client.UpdateShardStatus(ctx, host, ri.class, shardName, targetStatus)
+}
+
+func (ri *RemoteIndex) queryReplicas(
+	ctx context.Context,
+	shard string,
+	do func(nodeName, host string) (interface{}, error),
+) (resp interface{}, err error) {
+	nodes, err := ri.stateGetter.ShardReplicas(ri.class, shard)
+	if err != nil || len(nodes) == 0 {
+		return nil, fmt.Errorf("class %q has no physical shard %q: %w", ri.class, shard, err)
+	}
+
+	queryOne := func(node string) (interface{}, error) {
+		host, ok := ri.nodeResolver.NodeHostname(node)
+		if !ok || host == "" {
+			return nil, errors.Errorf("resolve node name %q to host", node)
+		}
+		return do(node, host)
+	}
+
+	queryUntil := func(replicas []string) (resp interface{}, err error) {
+		for _, shard := range replicas {
+			if errC := ctx.Err(); errC != nil {
+				return nil, errC
+			}
+			if resp, err = queryOne(shard); err == nil {
+				return resp, nil
+			}
+		}
+		return
+	}
+	first := rand.Intn(len(nodes))
+	if resp, err = queryUntil(nodes[first:]); err != nil && first != 0 {
+		return queryUntil(nodes[:first])
+	}
+	return
 }

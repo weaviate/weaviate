@@ -282,6 +282,8 @@ func (t HnswCommitType) String() string {
 	switch t {
 	case AddNode:
 		return "AddNode"
+	case AddNodes:
+		return "AddNodes"
 	case SetEntryPointMaxLevel:
 		return "SetEntryPointWithMaxLayer"
 	case AddLinkAtLevel:
