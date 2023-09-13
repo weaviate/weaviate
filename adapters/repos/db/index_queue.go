@@ -24,9 +24,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 )
 
-// IndexQueue is a persistent queue of vectors to index.
-// It batches vectors together before sending them to the indexing worker.
-// It persists the vectors on disk to ensure they are not lost in case of a crash.
+// IndexQueue is an in-memory queue of vectors to index.
+// It batches vectors together before sending them to the indexing workers.
 // It is safe to use concurrently.
 type IndexQueue struct {
 	Index BatchIndexer
@@ -126,7 +125,8 @@ func NewIndexQueue(
 		pqMaxPool:     newPqMaxPool(0),
 		bufPool: sync.Pool{
 			New: func() any {
-				return make([]vectorDescriptor, 0, 10*opts.BatchSize)
+				buf := make([]vectorDescriptor, 0, 10*opts.BatchSize)
+				return &buf
 			},
 		},
 	}
@@ -299,8 +299,9 @@ func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.A
 		results.Insert(indexedResults[i], distances[i])
 	}
 
-	snapshot := q.bufPool.Get().([]vectorDescriptor)
-	snapshot = q.queue.AppendSnapshot(snapshot)
+	buf := q.bufPool.Get().(*[]vectorDescriptor)
+	snapshot := q.queue.AppendSnapshot((*buf)[:0])
+
 	ids := make([]uint64, len(snapshot))
 	vectors := make([][]float32, len(snapshot))
 	for i, v := range snapshot {
@@ -327,7 +328,7 @@ func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.A
 		distances[i] = element.Dist
 	}
 
-	q.bufPool.Put(snapshot[:0])
+	q.bufPool.Put(&snapshot)
 
 	return ids, distances, nil
 }
@@ -431,9 +432,10 @@ func (q *vectorQueue) Add(vectors []vectorDescriptor) {
 		full = append(full, f)
 	}
 
+	curBatch := q.curBatch.c
 	for {
-		n := copy(q.curBatch.c.data[q.curBatch.c.cursor:], vectors)
-		q.curBatch.c.cursor += n
+		n := copy(curBatch.data[curBatch.cursor:], vectors)
+		curBatch.cursor += n
 
 		vectors = vectors[n:]
 

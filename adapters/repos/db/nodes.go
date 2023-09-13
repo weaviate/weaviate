@@ -89,7 +89,7 @@ func (db *DB) localNodeStatus(className string) *models.NodeStatus {
 	rate := db.ratePerSecond
 	db.batchMonitorLock.Unlock()
 
-	return &models.NodeStatus{
+	status := models.NodeStatus{
 		Name:    db.schemaGetter.NodeName(),
 		Version: db.config.ServerVersion,
 		GitHash: db.config.GitHash,
@@ -100,10 +100,15 @@ func (db *DB) localNodeStatus(className string) *models.NodeStatus {
 			ObjectCount: objectCount,
 		},
 		BatchStats: &models.BatchStats{
-			QueueLength:   int64(len(db.jobQueueCh)),
 			RatePerSecond: int64(rate),
 		},
 	}
+
+	if asyncEnabled() {
+		status.BatchStats.QueueLength = nil
+	}
+
+	return &status
 }
 
 func (db *DB) localNodeStatusAll(status *[]*models.NodeShardStatus) (totalCount int64) {
