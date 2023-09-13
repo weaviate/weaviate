@@ -14,6 +14,8 @@ package grpc
 import (
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
@@ -81,24 +83,11 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 			return dto.GetParams{}, err
 		}
 
-		out.AdditionalProperties.ID = true
-		out.AdditionalProperties.Vector = true
-		out.AdditionalProperties.Distance = true
-		out.AdditionalProperties.LastUpdateTimeUnix = true
-		out.AdditionalProperties.CreationTimeUnix = true
-		out.AdditionalProperties.Score = true
-		out.AdditionalProperties.ExplainScore = true
-
-		// certainty is not compatible with dot distance
-		vectorIndex, err := hnsw.TypeAssertVectorIndex(class)
+		addProps, err := setAllCheapAdditionalPropsToTrue(class)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
-
-		if vectorIndex.Distance == hnsw.DistanceCosine {
-			out.AdditionalProperties.Certainty = true
-		}
-
+		out.AdditionalProperties = addProps
 		out.Properties = returnProps
 	}
 
@@ -511,30 +500,51 @@ func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, cla
 				return nil, err
 			}
 
-			var linkedClass string
+			var linkedClassName string
 			if len(schemaProp.DataType) == 1 {
 				// use datatype of the reference property to get the name of the linked class
-				linkedClass = schemaProp.DataType[0]
+				linkedClassName = schemaProp.DataType[0]
 			} else {
-				linkedClass = prop.WhichCollection
-				if linkedClass == "" {
+				linkedClassName = prop.WhichCollection
+				if linkedClassName == "" {
 					return nil, fmt.Errorf(
 						"multi target references from collection %v and property %v with need an explicit"+
 							"linked collection. Available linked collections are %v",
 						className, prop.ReferenceProperty, schemaProp.DataType)
 				}
 			}
-			refProperties, err := extractPropertiesRequest(prop.LinkedProperties, scheme, linkedClass)
-			if err != nil {
-				return nil, err
+			var refProperties []search.SelectProperty
+			var metaData additional.Properties
+			if prop.LinkedProperties != nil {
+				refProperties, err = extractPropertiesRequest(prop.LinkedProperties, scheme, linkedClassName)
+				if err != nil {
+					return nil, err
+				}
 			}
+			if prop.Metadata != nil {
+				metaData = extractAdditionalPropsForRefs(prop.Metadata)
+			}
+
+			if prop.LinkedProperties == nil && prop.Metadata == nil {
+				refProperties, err = getAllNonRefNonBlobProperties(scheme, linkedClassName)
+				if err != nil {
+					return nil, err
+				}
+
+				linkedClass := scheme.GetClass(schema.ClassName(linkedClassName))
+				metaData, err = setAllCheapAdditionalPropsToTrue(linkedClass)
+				if err != nil {
+					return nil, err
+				}
+			}
+
 			props = append(props, search.SelectProperty{
 				Name:        normalizedRefPropName,
 				IsPrimitive: false,
 				Refs: []search.SelectClass{{
-					ClassName:            linkedClass,
+					ClassName:            linkedClassName,
 					RefProperties:        refProperties,
-					AdditionalProperties: extractAdditionalPropsForRefs(prop.Metadata),
+					AdditionalProperties: metaData,
 				}},
 			})
 		}
@@ -576,6 +586,30 @@ func getAllNonRefNonBlobProperties(scheme schema.Schema, className string) ([]se
 
 	}
 	return props, nil
+}
+
+func setAllCheapAdditionalPropsToTrue(class *models.Class) (additional.Properties, error) {
+	out := additional.Properties{
+		ID:                 true,
+		Distance:           true,
+		LastUpdateTimeUnix: true,
+		CreationTimeUnix:   true,
+		Score:              true,
+		ExplainScore:       true,
+		Vector:             false, // can be expensive
+	}
+
+	// certainty is not compatible with dot distance
+	vectorIndex, err := hnsw.TypeAssertVectorIndex(class)
+	if err != nil {
+		return out, err
+	}
+
+	if vectorIndex.Distance == hnsw.DistanceCosine {
+		out.Certainty = true
+	}
+
+	return out, nil
 }
 
 func parseNearImage(ni *pb.NearImageSearchParams) (*nearImage.NearImageParams, error) {
