@@ -79,7 +79,7 @@ func TestBackup_ListFiles(t *testing.T) {
 	idx.PostStartup()
 
 	t.Run("assert expected index contents", func(t *testing.T) {
-		files, err := idx.ListFiles(ctx)
+		files, err := idx.ListFiles(ctx, dirName)
 		assert.Nil(t, err)
 
 		// should return empty, because the only file which
