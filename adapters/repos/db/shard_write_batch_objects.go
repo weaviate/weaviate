@@ -221,7 +221,7 @@ func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 		return
 	}
 
-	if err := ob.shard.vectorIndex.Delete(docIDsToDelete...); err != nil {
+	if err := ob.shard.queue.Delete(docIDsToDelete...); err != nil {
 		for _, pos := range positions {
 			ob.setErrorAtIndex(err, pos)
 		}
