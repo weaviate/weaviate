@@ -41,32 +41,6 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 	return nil
 }
 
-/*
-func (h *hnsw) Add(id uint64, vector []float32) error {
-	before := time.Now()
-	if len(vector) == 0 {
-		return errors.Errorf("insert called with nil-vector")
-	}
-
-	h.metrics.InsertVector()
-	defer h.insertMetrics.total(before)
-
-	node := &vertex{
-		id: id,
-	}
-
-	if h.distancerProvider.Type() == "cosine-dot" {
-		// cosine-dot requires normalized vectors, as the dot product and cosine
-		// similarity are only identical if the vector is normalized
-		vector = distancer.Normalize(vector)
-	}
-
-	h.compressActionLock.RLock()
-	defer h.compressActionLock.RUnlock()
-	return h.insert(node, vector)
-}
-*/
-
 func (h *hnsw) AddBatch(ids []uint64, vectors [][]float32) error {
 	if len(ids) != len(vectors) {
 		return errors.Errorf("ids and vectors sizes does not match")
@@ -235,27 +209,6 @@ func (h *hnsw) AddBatch(ids []uint64, vectors [][]float32) error {
 
 func (h *hnsw) Add(id uint64, vector []float32) error {
 	return h.AddBatch([]uint64{id}, [][]float32{vector})
-
-	/*h.tempLock.Lock()
-	last := len(h.tempIds) - 1
-	inserted := h.currInserted
-	h.currInserted++
-	if h.currInserted >= TempSize {
-		h.tempIds[last][inserted] = id
-		h.tempVectors[last][inserted] = vector
-		h.currInserted = 0
-		h.tempIds = append(h.tempIds, make([]uint64, TempSize))
-		h.tempVectors = append(h.tempVectors, make([][]float32, TempSize))
-		h.tempLock.Unlock()
-		go func() {
-			h.tempChannel[last%TempWorkers] <- last
-		}()
-		return nil
-	}
-	h.tempLock.Unlock()
-	h.tempIds[last][inserted] = id
-	h.tempVectors[last][inserted] = vector*/
-	// return nil
 }
 
 func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {

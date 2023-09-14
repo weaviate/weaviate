@@ -135,6 +135,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
+	// load non-indexed vectors and add them to the queue
 	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 		obj, err := storobj.FromBinary(v)
