@@ -17,6 +17,7 @@ import (
 	"os"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -31,11 +32,9 @@ func TestIndexQueue(t *testing.T) {
 
 	t.Run("pushes to indexer if batch is full", func(t *testing.T) {
 		var idx mockBatchIndexer
-		called := make(chan struct{}, 1)
-		var ids [][]uint64
-		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
-			ids = append(ids, id)
-			called <- struct{}{}
+		idsCh := make(chan []uint64, 1)
+		idx.addBatchFn = func(ids []uint64, vector [][]float32) error {
+			idsCh <- ids
 			return nil
 		}
 
@@ -50,17 +49,20 @@ func TestIndexQueue(t *testing.T) {
 			vector: []float32{1, 2, 3},
 		})
 		require.NoError(t, err)
-		require.Equal(t, 0, idx.addBatchCalled)
+		select {
+		case <-idsCh:
+			t.Fatal("should not have been called")
+		case <-time.After(100 * time.Millisecond):
+		}
 
 		err = q.Push(ctx, vectorDescriptor{
 			id:     2,
 			vector: []float32{4, 5, 6},
 		})
 		require.NoError(t, err)
-		<-called
-		require.Equal(t, 1, idx.addBatchCalled)
+		ids := <-idsCh
 
-		require.Equal(t, [][]uint64{{1, 2}}, ids)
+		require.Equal(t, []uint64{1, 2}, ids)
 	})
 
 	t.Run("doesn't index if batch is not null", func(t *testing.T) {
@@ -82,7 +84,11 @@ func TestIndexQueue(t *testing.T) {
 			vector: []float32{1, 2, 3},
 		})
 		require.NoError(t, err)
-		require.Equal(t, 0, idx.addBatchCalled)
+		select {
+		case <-called:
+			t.Fatal("should not have been called")
+		case <-time.After(100 * time.Millisecond):
+		}
 
 		err = q.Push(ctx, vectorDescriptor{
 			id:     2,
@@ -90,28 +96,23 @@ func TestIndexQueue(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		time.Sleep(100 * time.Millisecond)
-
 		select {
 		case <-called:
 			t.Fatal("should not have been called")
-		default:
+		case <-time.After(100 * time.Millisecond):
 		}
 	})
 
 	t.Run("retry on indexing error", func(t *testing.T) {
 		var idx mockBatchIndexer
-		i := 0
-		var ids [][]uint64
-		called := make(chan struct{}, 1)
+		i := int32(0)
+		called := make(chan struct{})
 		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
-			ids = append(ids, id)
-			i++
-			if i < 3 {
+			if atomic.AddInt32(&i, 1) < 3 {
 				return fmt.Errorf("indexing error: %d", i)
 			}
 
-			called <- struct{}{}
+			close(called)
 
 			return nil
 		}
@@ -129,15 +130,13 @@ func TestIndexQueue(t *testing.T) {
 		})
 		require.NoError(t, err)
 		<-called
-		require.Equal(t, 3, idx.addBatchCalled)
-		require.Equal(t, [][]uint64{{1}, {1}, {1}}, ids)
 	})
 
 	t.Run("merges results from queries", func(t *testing.T) {
 		var idx mockBatchIndexer
-		called := make(chan struct{}, 1)
+		called := make(chan struct{})
 		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
-			called <- struct{}{}
+			close(called)
 			return nil
 		}
 
@@ -203,11 +202,10 @@ func TestIndexQueue(t *testing.T) {
 
 	t.Run("deletion", func(t *testing.T) {
 		var idx mockBatchIndexer
-		var count int
+		var count int32
 		indexingDone := make(chan struct{})
 		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
-			count++
-			if count == 5 {
+			if atomic.AddInt32(&count, 1) == 5 {
 				close(indexingDone)
 			}
 
@@ -235,40 +233,36 @@ func TestIndexQueue(t *testing.T) {
 		<-indexingDone
 
 		// check what has been indexed
-		var ids []int
-		for id := range idx.vectors {
-			ids = append(ids, int(id))
-		}
-		sort.Ints(ids)
-		require.Equal(t, []int{0, 1, 2, 3, 4, 6, 7, 8, 9, 11, 12, 13, 14, 16, 17, 18, 19}, ids)
+		require.Equal(t, []uint64{0, 1, 2, 3, 4, 6, 7, 8, 9, 11, 12, 13, 14, 16, 17, 18, 19}, idx.IDs())
 
 		// the "deleted" mask should be empty
+		q.queue.deleted.Lock()
 		require.Empty(t, q.queue.deleted.m)
+		q.queue.deleted.Unlock()
 
 		// now delete something that's already indexed
 		err = q.Delete(0, 4, 8)
 		require.NoError(t, err)
 
 		// the "deleted" mask should still be empty
+		q.queue.deleted.Lock()
 		require.Empty(t, q.queue.deleted.m)
+		q.queue.deleted.Unlock()
 
 		// check what's in the index
-		ids = ids[:0]
-		for id := range idx.vectors {
-			ids = append(ids, int(id))
-		}
-		sort.Ints(ids)
-		require.Equal(t, []int{1, 2, 3, 6, 7, 9, 11, 12, 13, 14, 16, 17, 18, 19}, ids)
+		require.Equal(t, []uint64{1, 2, 3, 6, 7, 9, 11, 12, 13, 14, 16, 17, 18, 19}, idx.IDs())
 
 		// delete something that's not indexed yet
 		err = q.Delete(20, 21, 22)
 		require.NoError(t, err)
 
 		// the "deleted" mask should contain the deleted ids
-		ids = ids[:0]
+		q.queue.deleted.Lock()
+		var ids []int
 		for id := range q.queue.deleted.m {
 			ids = append(ids, int(id))
 		}
+		q.queue.deleted.Unlock()
 		sort.Ints(ids)
 		require.Equal(t, []int{20, 21, 22}, ids)
 	})
@@ -347,7 +341,6 @@ func BenchmarkPush(b *testing.B) {
 type mockBatchIndexer struct {
 	sync.Mutex
 	addBatchFn     func(id []uint64, vector [][]float32) error
-	addBatchCalled int
 	vectors        map[uint64][]float32
 	containsNodeFn func(id uint64) bool
 	deleteFn       func(ids ...uint64) error
@@ -357,7 +350,6 @@ func (m *mockBatchIndexer) AddBatch(ids []uint64, vector [][]float32) (err error
 	m.Lock()
 	defer m.Unlock()
 
-	m.addBatchCalled++
 	if m.addBatchFn != nil {
 		err = m.addBatchFn(ids, vector)
 	}
@@ -444,4 +436,20 @@ func (m *mockBatchIndexer) Delete(ids ...uint64) error {
 	}
 
 	return nil
+}
+
+func (m *mockBatchIndexer) IDs() []uint64 {
+	m.Lock()
+	defer m.Unlock()
+
+	ids := make([]uint64, 0, len(m.vectors))
+	for id := range m.vectors {
+		ids = append(ids, id)
+	}
+
+	sort.Slice(ids, func(i, j int) bool {
+		return ids[i] < ids[j]
+	})
+
+	return ids
 }
