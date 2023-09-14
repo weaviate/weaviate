@@ -24,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-//nolint:all
 func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
