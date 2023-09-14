@@ -382,6 +382,9 @@ func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.A
 	}
 
 	for i := k - 1; i >= 0; i-- {
+		if results.Len() == 0 {
+			break
+		}
 		element := results.Pop()
 		ids[i] = element.ID
 		distances[i] = element.Dist
