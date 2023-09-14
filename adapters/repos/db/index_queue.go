@@ -215,15 +215,19 @@ func (q *IndexQueue) Size() int64 {
 	return count
 }
 
+// Delete marks the given vectors as deleted.
+// This method can be called even if the async indexing is disabled.
 func (q *IndexQueue) Delete(ids ...uint64) error {
+	if !asyncEnabled() {
+		return q.Index.Delete(ids...)
+	}
+
 	remaining := make([]uint64, 0, len(ids))
+	indexed := make([]uint64, 0, len(ids))
 
 	for _, id := range ids {
 		if q.Index.ContainsNode(id) {
-			err := q.Index.Delete(id)
-			if err != nil {
-				return errors.Wrap(err, "delete node from index")
-			}
+			indexed = append(indexed, id)
 
 			// is it already marked as deleted in the queue?
 			if q.queue.IsDeleted(id) {
@@ -234,6 +238,11 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 		}
 
 		remaining = append(remaining, id)
+	}
+
+	err := q.Index.Delete(indexed...)
+	if err != nil {
+		return errors.Wrap(err, "delete node from index")
 	}
 
 	q.queue.Delete(remaining)
