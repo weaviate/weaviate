@@ -58,9 +58,8 @@ type IndexQueue struct {
 }
 
 type vectorDescriptor struct {
-	id         uint64
-	vector     []float32
-	afterIndex func(context.Context)
+	id     uint64
+	vector []float32
 }
 
 type IndexQueueOptions struct {
@@ -306,12 +305,6 @@ func (q *IndexQueue) worker() {
 		if err := q.indexVectors(ids, vectors); err != nil {
 			q.logger.WithError(err).Error("failed to index vectors")
 			return
-		}
-
-		for i := range b.data[:b.cursor] {
-			if b.data[i].afterIndex != nil && !q.queue.IsDeleted(b.data[i].id) {
-				b.data[i].afterIndex(q.ctx)
-			}
 		}
 
 		q.queue.releaseChunk(b)
