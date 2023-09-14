@@ -88,6 +88,8 @@ type BatchIndexer interface {
 	AddBatch(id []uint64, vector [][]float32) error
 	SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
 	DistanceBetweenVectors(x, y []float32) (float32, bool, error)
+	ContainsNode(id uint64) bool
+	Delete(id ...uint64) error
 }
 
 func NewIndexQueue(
@@ -213,6 +215,32 @@ func (q *IndexQueue) Size() int64 {
 	return count
 }
 
+func (q *IndexQueue) Delete(ids ...uint64) error {
+	remaining := make([]uint64, 0, len(ids))
+
+	for _, id := range ids {
+		if q.Index.ContainsNode(id) {
+			err := q.Index.Delete(id)
+			if err != nil {
+				return errors.Wrap(err, "delete node from index")
+			}
+
+			// is it already marked as deleted in the queue?
+			if q.queue.IsDeleted(id) {
+				q.queue.ResetDeleted(id)
+			}
+
+			continue
+		}
+
+		remaining = append(remaining, id)
+	}
+
+	q.queue.Delete(remaining)
+
+	return nil
+}
+
 func (q *IndexQueue) enqueuer() {
 	for batch := range q.processCh {
 		q.queue.Add(batch)
@@ -254,11 +282,16 @@ func (q *IndexQueue) pushToWorkers() error {
 func (q *IndexQueue) worker() {
 	var ids []uint64
 	var vectors [][]float32
+	var deleted []uint64
 
 	for b := range q.indexCh {
 		for i := range b.data[:b.cursor] {
-			ids = append(ids, b.data[i].id)
-			vectors = append(vectors, b.data[i].vector)
+			if q.queue.IsDeleted(b.data[i].id) {
+				deleted = append(deleted, b.data[i].id)
+			} else {
+				ids = append(ids, b.data[i].id)
+				vectors = append(vectors, b.data[i].vector)
+			}
 		}
 
 		if err := q.indexVectors(ids, vectors); err != nil {
@@ -267,15 +300,20 @@ func (q *IndexQueue) worker() {
 		}
 
 		for i := range b.data[:b.cursor] {
-			if b.data[i].afterIndex != nil {
+			if b.data[i].afterIndex != nil && !q.queue.IsDeleted(b.data[i].id) {
 				b.data[i].afterIndex(q.ctx)
 			}
 		}
 
 		q.queue.releaseChunk(b)
 
+		if len(deleted) > 0 {
+			q.queue.ResetDeleted(deleted...)
+		}
+
 		ids = ids[:0]
 		vectors = vectors[:0]
+		deleted = deleted[:0]
 	}
 }
 
@@ -413,6 +451,11 @@ type vectorQueue struct {
 
 		list *list.List
 	}
+	deleted struct {
+		sync.RWMutex
+
+		m map[uint64]struct{}
+	}
 }
 
 func newVectorQueue(batchSize int) *vectorQueue {
@@ -429,6 +472,7 @@ func newVectorQueue(batchSize int) *vectorQueue {
 
 	q.fullChunks.list = list.New()
 	q.curBatch.c = q.getFreeChunk()
+	q.deleted.m = make(map[uint64]struct{})
 
 	return &q
 }
@@ -516,17 +560,48 @@ func (q *vectorQueue) AppendSnapshot(buf []vectorDescriptor) []vectorDescriptor 
 	e := q.fullChunks.list.Front()
 	for e != nil {
 		c := e.Value.(*chunk)
-		buf = append(buf, c.data[:c.cursor]...)
+		for i := 0; i < c.cursor; i++ {
+			if !q.IsDeleted(c.data[i].id) {
+				buf = append(buf, c.data[i])
+			}
+		}
 
 		e = e.Next()
 	}
 	q.fullChunks.Unlock()
 
 	q.curBatch.Lock()
-	buf = append(buf, q.curBatch.c.data[:q.curBatch.c.cursor]...)
+	for i := 0; i < q.curBatch.c.cursor; i++ {
+		if !q.IsDeleted(q.curBatch.c.data[i].id) {
+			buf = append(buf, q.curBatch.c.data[i])
+		}
+	}
 	q.curBatch.Unlock()
 
 	return buf
+}
+
+func (q *vectorQueue) Delete(ids []uint64) {
+	q.deleted.Lock()
+	for _, id := range ids {
+		q.deleted.m[id] = struct{}{}
+	}
+	q.deleted.Unlock()
+}
+
+func (q *vectorQueue) IsDeleted(id uint64) bool {
+	q.deleted.RLock()
+	_, ok := q.deleted.m[id]
+	q.deleted.RUnlock()
+	return ok
+}
+
+func (q *vectorQueue) ResetDeleted(id ...uint64) {
+	q.deleted.Lock()
+	for _, id := range id {
+		delete(q.deleted.m, id)
+	}
+	q.deleted.Unlock()
 }
 
 type chunk struct {
