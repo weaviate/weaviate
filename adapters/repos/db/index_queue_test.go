@@ -63,6 +63,42 @@ func TestIndexQueue(t *testing.T) {
 		require.Equal(t, [][]uint64{{1, 2}}, ids)
 	})
 
+	t.Run("doesn't index if batch is not null", func(t *testing.T) {
+		var idx mockBatchIndexer
+		called := make(chan struct{})
+		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
+			called <- struct{}{}
+			return nil
+		}
+		q, err := NewIndexQueue(&idx, IndexQueueOptions{
+			BatchSize:     100,
+			IndexInterval: time.Microsecond,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		err = q.Push(ctx, vectorDescriptor{
+			id:     1,
+			vector: []float32{1, 2, 3},
+		})
+		require.NoError(t, err)
+		require.Equal(t, 0, idx.addBatchCalled)
+
+		err = q.Push(ctx, vectorDescriptor{
+			id:     2,
+			vector: []float32{4, 5, 6},
+		})
+		require.NoError(t, err)
+
+		time.Sleep(100 * time.Millisecond)
+
+		select {
+		case <-called:
+			t.Fatal("should not have been called")
+		default:
+		}
+	})
+
 	t.Run("retry on indexing error", func(t *testing.T) {
 		var idx mockBatchIndexer
 		i := 0
@@ -236,6 +272,44 @@ func TestIndexQueue(t *testing.T) {
 		sort.Ints(ids)
 		require.Equal(t, []int{20, 21, 22}, ids)
 	})
+
+	t.Run("brute force upper limit", func(t *testing.T) {
+		var idx mockBatchIndexer
+
+		q, err := NewIndexQueue(&idx, IndexQueueOptions{
+			BatchSize:             1000,
+			BruteForceSearchLimit: 2,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		err = q.Push(ctx, vectorDescriptor{
+			id:     1,
+			vector: []float32{1, 2, 3},
+		})
+		require.NoError(t, err)
+		err = q.Push(ctx, vectorDescriptor{
+			id:     2,
+			vector: []float32{4, 5, 6},
+		})
+		require.NoError(t, err)
+		err = q.Push(ctx, vectorDescriptor{
+			id:     3,
+			vector: []float32{7, 8, 9},
+		})
+		require.NoError(t, err)
+		err = q.Push(ctx, vectorDescriptor{
+			id:     4,
+			vector: []float32{1, 2, 3},
+		})
+		require.NoError(t, err)
+
+		res, _, err := q.SearchByVector([]float32{7, 8, 9}, 2, nil)
+		require.NoError(t, err)
+		// despite having 4 vectors in the queue
+		// only the first two are used for brute force search
+		require.Equal(t, []uint64{2, 1}, res)
+	})
 }
 
 func BenchmarkPush(b *testing.B) {
@@ -274,26 +348,26 @@ type mockBatchIndexer struct {
 	sync.Mutex
 	addBatchFn     func(id []uint64, vector [][]float32) error
 	addBatchCalled int
-	vectors        map[uint64][][]float32
+	vectors        map[uint64][]float32
 	containsNodeFn func(id uint64) bool
 	deleteFn       func(ids ...uint64) error
 }
 
-func (m *mockBatchIndexer) AddBatch(id []uint64, vector [][]float32) (err error) {
+func (m *mockBatchIndexer) AddBatch(ids []uint64, vector [][]float32) (err error) {
 	m.Lock()
 	defer m.Unlock()
 
 	m.addBatchCalled++
 	if m.addBatchFn != nil {
-		err = m.addBatchFn(id, vector)
+		err = m.addBatchFn(ids, vector)
 	}
 
 	if m.vectors == nil {
-		m.vectors = make(map[uint64][][]float32)
+		m.vectors = make(map[uint64][]float32)
 	}
 
-	for i, id := range id {
-		m.vectors[id] = append(m.vectors[id], vector[i])
+	for i, id := range ids {
+		m.vectors[id] = vector[i]
 	}
 
 	return
@@ -302,34 +376,39 @@ func (m *mockBatchIndexer) AddBatch(id []uint64, vector [][]float32) (err error)
 func (m *mockBatchIndexer) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	m.Lock()
 	defer m.Unlock()
+
 	results := newPqMaxPool(k).GetMax(k)
-	for id, vectors := range m.vectors {
+
+	for id, v := range m.vectors {
 		// skip filtered data
 		if allowList != nil && allowList.Contains(id) {
 			continue
 		}
-		for _, v := range vectors {
-			dist, _, err := m.DistanceBetweenVectors(vector, v)
-			if err != nil {
-				return nil, nil, err
-			}
 
-			if results.Len() < k || dist < results.Top().Dist {
-				results.Insert(id, dist)
-				for results.Len() > k {
-					results.Pop()
-				}
+		dist, _, err := m.DistanceBetweenVectors(vector, v)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if results.Len() < k || dist < results.Top().Dist {
+			results.Insert(id, dist)
+			for results.Len() > k {
+				results.Pop()
 			}
 		}
 	}
-	ids := make([]uint64, k)
-	distances := make([]float32, k)
+	ids := make([]uint64, 0, k)
+	distances := make([]float32, 0, k)
 
 	for i := k - 1; i >= 0; i-- {
+		if results.Len() == 0 {
+			break
+		}
 		element := results.Pop()
-		ids[i] = element.ID
-		distances[i] = element.Dist
+		ids = append(ids, element.ID)
+		distances = append(distances, element.Dist)
 	}
+
 	return ids, distances, nil
 }
 
