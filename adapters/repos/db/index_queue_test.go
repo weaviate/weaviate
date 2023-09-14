@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"sync"
 	"testing"
@@ -25,6 +26,8 @@ import (
 
 func TestIndexQueue(t *testing.T) {
 	ctx := context.Background()
+	os.Setenv("WEAVIATE_ASYNC_INDEXING", "true")
+	defer os.Unsetenv("WEAVIATE_ASYNC_INDEXING")
 
 	t.Run("pushes to indexer if batch is full", func(t *testing.T) {
 		var idx mockBatchIndexer
