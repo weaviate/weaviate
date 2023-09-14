@@ -50,7 +50,7 @@ func Test_ReferencesAddDeprecated(t *testing.T) {
 		}, nil)
 		expectedRefProperty := "hasAnimals"
 		source := crossref.NewSource(schema.ClassName(cls), schema.PropertyName(expectedRefProperty), id)
-		target := crossref.New("localhost", "", "d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
+		target := crossref.New("localhost", "Animal", "d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
 		m.repo.On("AddReference", source, target).Return(nil)
 		m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 
@@ -142,23 +142,23 @@ func Test_ReferenceAdd(t *testing.T) {
 		},
 		{
 			Name: "get schema",
-			Req:  req, Stage: 2,
+			Req:  req, Stage: 1,
 			ErrSchema: anyErr,
 			WantCode:  StatusBadRequest,
 		},
 		{
 			Name: "empty data type",
-			Req:  AddReferenceInput{Class: cls, ID: id, Property: "emptyType", Ref: ref}, Stage: 2,
+			Req:  AddReferenceInput{Class: cls, ID: id, Property: "emptyType", Ref: ref}, Stage: 1,
 			WantCode: StatusBadRequest,
 		},
 		{
 			Name: "primitive data type",
-			Req:  AddReferenceInput{Class: cls, ID: id, Property: "name", Ref: ref}, Stage: 2,
+			Req:  AddReferenceInput{Class: cls, ID: id, Property: "name", Ref: ref}, Stage: 1,
 			WantCode: StatusBadRequest,
 		},
 		{
 			Name: "unknown property",
-			Req:  AddReferenceInput{Class: cls, ID: id, Property: "unknown", Ref: ref}, Stage: 2,
+			Req:  AddReferenceInput{Class: cls, ID: id, Property: "unknown", Ref: ref}, Stage: 1,
 			WantCode: StatusBadRequest,
 		},
 		{
@@ -303,23 +303,23 @@ func Test_ReferenceUpdate(t *testing.T) {
 		},
 		{
 			Name: "get schema",
-			Req:  req, Stage: 2,
+			Req:  req, Stage: 1,
 			ErrSchema: anyErr,
 			WantCode:  StatusBadRequest,
 		},
 		{
 			Name: "empty data type",
-			Req:  PutReferenceInput{Class: cls, ID: id, Property: "emptyType", Refs: refs}, Stage: 2,
+			Req:  PutReferenceInput{Class: cls, ID: id, Property: "emptyType", Refs: refs}, Stage: 1,
 			WantCode: StatusBadRequest,
 		},
 		{
 			Name: "primitive data type",
-			Req:  PutReferenceInput{Class: cls, ID: id, Property: "name", Refs: refs}, Stage: 2,
+			Req:  PutReferenceInput{Class: cls, ID: id, Property: "name", Refs: refs}, Stage: 1,
 			WantCode: StatusBadRequest,
 		},
 		{
 			Name: "unknown property",
-			Req:  PutReferenceInput{Class: cls, ID: id, Property: "unknown", Refs: refs}, Stage: 2,
+			Req:  PutReferenceInput{Class: cls, ID: id, Property: "unknown", Refs: refs}, Stage: 1,
 			WantCode: StatusBadRequest,
 		},
 		{
