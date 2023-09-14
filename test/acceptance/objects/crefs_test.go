@@ -42,6 +42,21 @@ func TestRefsWithoutToClass(t *testing.T) {
 	helper.AssertRequestOk(t, resp, err, nil)
 	refToClassName := "ReferenceTo"
 	refFromClassName := "ReferenceFrom"
+	otherClassMT := "Other"
+
+	// other class has multi-tenancy enabled to make sure that problems trigger an error
+	paramsMT := clschema.NewSchemaObjectsCreateParams().WithObjectClass(
+		&models.Class{Class: otherClassMT, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}},
+	)
+	respMT, err := helper.Client(t).Schema.SchemaObjectsCreate(paramsMT, nil)
+	helper.AssertRequestOk(t, respMT, err, nil)
+
+	tenant := "tenant"
+	tenants := make([]*models.Tenant, 1)
+	for i := range tenants {
+		tenants[i] = &models.Tenant{Name: tenant}
+	}
+	helper.CreateTenants(t, otherClassMT, tenants)
 
 	refFromClass := &models.Class{
 		Class: refFromClassName,
@@ -58,11 +73,13 @@ func TestRefsWithoutToClass(t *testing.T) {
 
 	defer deleteObjectClass(t, refToClassName)
 	defer deleteObjectClass(t, refFromClassName)
+	defer deleteObjectClass(t, otherClassMT)
 
 	refToId := assertCreateObject(t, refToClassName, map[string]interface{}{})
-	assertGetObjectEventually(t, refToId)
+	assertGetObjectWithClass(t, refToId, refToClassName)
+	assertCreateObjectWithID(t, otherClassMT, tenant, refToId, map[string]interface{}{})
 	refFromId := assertCreateObject(t, refFromClassName, map[string]interface{}{})
-	assertGetObjectEventually(t, refFromId)
+	assertGetObjectWithClass(t, refFromId, refFromClassName)
 
 	postRefParams := objects.NewObjectsClassReferencesCreateParams().
 		WithID(refFromId).
@@ -364,6 +381,21 @@ func TestBatchRefsWithoutFromAndToClass(t *testing.T) {
 func TestBatchRefsWithoutToClass(t *testing.T) {
 	refToClassName := "ReferenceTo"
 	refFromClassName := "ReferenceFrom"
+	otherClassMT := "Other"
+
+	// other class has multi-tenancy enabled to make sure that problems trigger an error
+	paramsMT := clschema.NewSchemaObjectsCreateParams().WithObjectClass(
+		&models.Class{Class: otherClassMT, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}},
+	)
+	respMT, err := helper.Client(t).Schema.SchemaObjectsCreate(paramsMT, nil)
+	helper.AssertRequestOk(t, respMT, err, nil)
+
+	tenant := "tenant"
+	tenants := make([]*models.Tenant, 1)
+	for i := range tenants {
+		tenants[i] = &models.Tenant{Name: tenant}
+	}
+	helper.CreateTenants(t, otherClassMT, tenants)
 
 	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{Class: refToClassName})
 	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
@@ -384,14 +416,19 @@ func TestBatchRefsWithoutToClass(t *testing.T) {
 
 	defer deleteObjectClass(t, refToClassName)
 	defer deleteObjectClass(t, refFromClassName)
+	defer deleteObjectClass(t, otherClassMT)
 
 	uuidsTo := make([]strfmt.UUID, 10)
 	uuidsFrom := make([]strfmt.UUID, 10)
 	for i := 0; i < 10; i++ {
 		uuidsTo[i] = assertCreateObject(t, refToClassName, map[string]interface{}{})
-		assertGetObjectEventually(t, uuidsTo[i])
+		assertGetObjectWithClass(t, uuidsTo[i], refToClassName)
+
+		// create object with same id in MT class
+		assertCreateObjectWithID(t, otherClassMT, tenant, uuidsTo[i], map[string]interface{}{})
+
 		uuidsFrom[i] = assertCreateObject(t, refFromClassName, map[string]interface{}{})
-		assertGetObjectEventually(t, uuidsFrom[i])
+		assertGetObjectWithClass(t, uuidsFrom[i], refFromClassName)
 	}
 
 	var batchRefs []*models.BatchReference
@@ -499,6 +536,21 @@ func TestObjectBatchToClassDetection(t *testing.T) {
 func TestObjectCrefWithoutToClass(t *testing.T) {
 	refToClassName := "ReferenceTo"
 	refFromClassName := "ReferenceFrom"
+	otherClassMT := "Other"
+
+	// other class has multi-tenancy enabled to make sure that problems trigger an error
+	paramsMT := clschema.NewSchemaObjectsCreateParams().WithObjectClass(
+		&models.Class{Class: otherClassMT, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}},
+	)
+	respMT, err := helper.Client(t).Schema.SchemaObjectsCreate(paramsMT, nil)
+	helper.AssertRequestOk(t, respMT, err, nil)
+
+	tenant := "tenant"
+	tenants := make([]*models.Tenant, 1)
+	for i := range tenants {
+		tenants[i] = &models.Tenant{Name: tenant}
+	}
+	helper.CreateTenants(t, otherClassMT, tenants)
 
 	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{Class: refToClassName})
 	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
@@ -519,12 +571,17 @@ func TestObjectCrefWithoutToClass(t *testing.T) {
 
 	defer deleteObjectClass(t, refToClassName)
 	defer deleteObjectClass(t, refFromClassName)
+	defer deleteObjectClass(t, otherClassMT)
 
 	refs := make([]interface{}, 10)
 	uuids := make([]strfmt.UUID, 10)
 	for i := 0; i < 10; i++ {
 		uuidTo := assertCreateObject(t, refToClassName, map[string]interface{}{})
-		assertGetObjectEventually(t, uuidTo)
+		assertGetObjectWithClass(t, uuidTo, refToClassName)
+
+		// create object with same id in MT class
+		assertCreateObjectWithID(t, otherClassMT, tenant, uuidTo, map[string]interface{}{})
+
 		refs[i] = map[string]interface{}{
 			"beacon": beaconStart + uuidTo,
 		}
@@ -532,7 +589,7 @@ func TestObjectCrefWithoutToClass(t *testing.T) {
 	}
 
 	uuidFrom := assertCreateObject(t, refFromClassName, map[string]interface{}{"ref": refs})
-	assertGetObjectEventually(t, uuidFrom)
+	assertGetObjectWithClass(t, uuidFrom, refFromClassName)
 
 	objWithRef := assertGetObjectWithClass(t, uuidFrom, refFromClassName)
 	assert.NotNil(t, objWithRef.Properties)
