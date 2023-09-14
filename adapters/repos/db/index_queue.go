@@ -30,10 +30,7 @@ import (
 type IndexQueue struct {
 	Index BatchIndexer
 
-	logger logrus.FieldLogger
-
-	indexInterval time.Duration
-	retryInterval time.Duration
+	IndexQueueOptions
 
 	// processCh is the channel used to send vectors to the indexing worker.
 	processCh chan []vectorDescriptor
@@ -81,6 +78,10 @@ type IndexQueueOptions struct {
 	// IndexWorkerCount is the number of workers used to index
 	// the vectors.
 	IndexWorkerCount int
+
+	// Maximum number of vectors to use for brute force search
+	// when vectors are not indexed.
+	BruteForceSearchLimit int
 }
 
 type BatchIndexer interface {
@@ -98,6 +99,7 @@ func NewIndexQueue(
 	if opts.Logger == nil {
 		opts.Logger = logrus.New()
 	}
+	opts.Logger = opts.Logger.WithField("component", "index_queue")
 
 	if opts.BatchSize == 0 {
 		opts.BatchSize = 1000
@@ -115,15 +117,17 @@ func NewIndexQueue(
 		opts.IndexWorkerCount = runtime.GOMAXPROCS(0) - 1
 	}
 
+	if opts.BruteForceSearchLimit == 0 {
+		opts.BruteForceSearchLimit = 100_000
+	}
+
 	q := IndexQueue{
-		Index:         index,
-		indexInterval: opts.IndexInterval,
-		retryInterval: opts.RetryInterval,
-		queue:         newVectorQueue(opts.BatchSize),
-		processCh:     make(chan []vectorDescriptor),
-		indexCh:       make(chan *chunk),
-		logger:        opts.Logger.WithField("component", "index_queue"),
-		pqMaxPool:     newPqMaxPool(0),
+		IndexQueueOptions: opts,
+		Index:             index,
+		queue:             newVectorQueue(opts.BatchSize),
+		processCh:         make(chan []vectorDescriptor),
+		indexCh:           make(chan *chunk),
+		pqMaxPool:         newPqMaxPool(0),
 		bufPool: sync.Pool{
 			New: func() any {
 				buf := make([]vectorDescriptor, 0, 10*opts.BatchSize)
@@ -256,14 +260,14 @@ func (q *IndexQueue) enqueuer() {
 }
 
 func (q *IndexQueue) indexer() {
-	t := time.NewTicker(q.indexInterval)
+	t := time.NewTicker(q.IndexInterval)
 
 	for {
 		select {
 		case <-t.C:
 			err := q.pushToWorkers()
 			if err != nil {
-				q.logger.WithError(err).Error("failed to index vectors")
+				q.Logger.WithError(err).Error("failed to index vectors")
 				return
 			}
 		case <-q.ctx.Done():
@@ -303,7 +307,7 @@ func (q *IndexQueue) worker() {
 		}
 
 		if err := q.indexVectors(ids, vectors); err != nil {
-			q.logger.WithError(err).Error("failed to index vectors")
+			q.Logger.WithError(err).Error("failed to index vectors")
 			return
 		}
 
@@ -326,9 +330,9 @@ func (q *IndexQueue) indexVectors(ids []uint64, vectors [][]float32) error {
 			return nil
 		}
 
-		q.logger.WithError(err).Infof("failed to index vectors, retrying in %s", q.retryInterval.String())
+		q.Logger.WithError(err).Infof("failed to index vectors, retrying in %s", q.RetryInterval.String())
 
-		t := time.NewTimer(q.retryInterval)
+		t := time.NewTimer(q.RetryInterval)
 		select {
 		case <-q.ctx.Done():
 			// drain the timer
@@ -355,7 +359,7 @@ func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.A
 	}
 
 	buf := q.bufPool.Get().(*[]vectorDescriptor)
-	snapshot := q.queue.AppendSnapshot((*buf)[:0])
+	snapshot := q.queue.AppendSnapshot((*buf)[:0], q.BruteForceSearchLimit)
 
 	ids := make([]uint64, len(snapshot))
 	vectors := make([][]float32, len(snapshot))
@@ -557,14 +561,16 @@ func (q *vectorQueue) releaseChunk(c *chunk) {
 	q.pool.Put(c)
 }
 
-func (q *vectorQueue) AppendSnapshot(buf []vectorDescriptor) []vectorDescriptor {
+func (q *vectorQueue) AppendSnapshot(buf []vectorDescriptor, limit int) []vectorDescriptor {
 	q.fullChunks.Lock()
 	e := q.fullChunks.list.Front()
-	for e != nil {
+	var count int
+	for e != nil && count < limit {
 		c := e.Value.(*chunk)
 		for i := 0; i < c.cursor; i++ {
 			if !q.IsDeleted(c.data[i].id) {
 				buf = append(buf, c.data[i])
+				count++
 			}
 		}
 
@@ -572,10 +578,15 @@ func (q *vectorQueue) AppendSnapshot(buf []vectorDescriptor) []vectorDescriptor 
 	}
 	q.fullChunks.Unlock()
 
+	if count >= limit {
+		return buf
+	}
+
 	q.curBatch.Lock()
-	for i := 0; i < q.curBatch.c.cursor; i++ {
+	for i := 0; i < q.curBatch.c.cursor && count < limit; i++ {
 		if !q.IsDeleted(q.curBatch.c.data[i].id) {
 			buf = append(buf, q.curBatch.c.data[i])
+			count++
 		}
 	}
 	q.curBatch.Unlock()
