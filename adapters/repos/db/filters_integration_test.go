@@ -200,7 +200,7 @@ func testPrimitivePropsWithNoLengthIndex(repo *DB) func(t *testing.T) {
 					for pos, concept := range res {
 						ids[pos] = concept.ID
 					}
-					assert.ElementsMatch(t, ids, test.expectedIDs, "ids dont match")
+					assert.ElementsMatch(t, ids, test.expectedIDs, "ids don't match")
 
 				}
 			})
@@ -522,7 +522,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			},
 			{
 				name:        "Filter unicode texts",
-				filter:      buildFilter("len(description)", 109, eq, dtInt),
+				filter:      buildFilter("len(description)", 110, eq, dtInt),
 				expectedIDs: []strfmt.UUID{carPoloID},
 			},
 			{
@@ -584,7 +584,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 					for pos, concept := range res {
 						ids[pos] = concept.ID
 					}
-					assert.ElementsMatch(t, ids, test.expectedIDs, "ids dont match")
+					assert.ElementsMatch(t, ids, test.expectedIDs, "ids don't match")
 
 				}
 			})
@@ -1341,7 +1341,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 				for pos, obj := range res {
 					names[pos] = obj.Schema.(map[string]interface{})["name"].(string)
 				}
-				assert.ElementsMatch(t, names, test.expectedNames, "names dont match")
+				assert.ElementsMatch(t, names, test.expectedNames, "names don't match")
 			})
 		}
 	})
