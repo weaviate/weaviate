@@ -105,7 +105,7 @@ func testExplore(t *testing.T) {
 		`)
 
 		assert.Len(t, res, 1)
-		expectedErr := "can't use certainty when vector index is configured with l2-squared distance"
+		expectedErr := "can't compute and return certainty when vector index is configured with l2-squared distance"
 		errorMsg := res[0].Message
 		assert.Equal(t, expectedErr, errorMsg)
 	})
@@ -121,7 +121,7 @@ func testExplore(t *testing.T) {
 		`)
 
 		assert.Len(t, res, 1)
-		expectedErr := "can't use certainty when vector index is configured with l2-squared distance"
+		expectedErr := "can't compute and return certainty when vector index is configured with l2-squared distance"
 		errorMsg := res[0].Message
 		assert.Equal(t, expectedErr, errorMsg)
 	})
