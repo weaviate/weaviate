@@ -283,7 +283,7 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 		if shouldGeoIndex {
 			if err := ob.shard.updatePropertySpecificIndices(object, status); err != nil {
 				ob.setErrorAtIndex(errors.Wrap(err, "update prop-specific indices"), i)
-				return
+				continue
 			}
 		}
 
