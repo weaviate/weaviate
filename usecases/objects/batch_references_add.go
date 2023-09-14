@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/pkg/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -53,6 +55,12 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 	}
 
 	batchReferences := b.validateReferencesConcurrently(ctx, principal, refs)
+	for i := range batchReferences {
+		if batchReferences[i].Err != nil {
+			return nil, errors.Wrap(batchReferences[i].Err, "batch validation")
+		}
+	}
+
 	if err := b.autodetectToClass(ctx, principal, batchReferences); err != nil {
 		return nil, err
 	}
@@ -101,7 +109,7 @@ func (b *BatchManager) autodetectToClass(ctx context.Context,
 	}
 	for i, ref := range batchReferences {
 		// get to class from property datatype
-		if ref.To.Class != "" {
+		if ref.To.Class != "" || ref.From.Class == "" {
 			continue
 		}
 		className := string(ref.From.Class)

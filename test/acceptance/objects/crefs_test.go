@@ -314,6 +314,53 @@ func TestBatchRefsMultiTarget(t *testing.T) {
 	}
 }
 
+func TestBatchRefsWithoutFromAndToClass(t *testing.T) {
+	refToClassName := "ReferenceTo"
+	refFromClassName := "ReferenceFrom"
+
+	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{Class: refToClassName})
+	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+
+	refFromClass := &models.Class{
+		Class: refFromClassName,
+		Properties: []*models.Property{
+			{
+				DataType: []string{refToClassName},
+				Name:     "ref",
+			},
+		},
+	}
+	params2 := clschema.NewSchemaObjectsCreateParams().WithObjectClass(refFromClass)
+	resp2, err := helper.Client(t).Schema.SchemaObjectsCreate(params2, nil)
+	helper.AssertRequestOk(t, resp2, err, nil)
+
+	defer deleteObjectClass(t, refToClassName)
+	defer deleteObjectClass(t, refFromClassName)
+
+	uuidsTo := make([]strfmt.UUID, 10)
+	uuidsFrom := make([]strfmt.UUID, 10)
+	for i := 0; i < 10; i++ {
+		uuidsTo[i] = assertCreateObject(t, refToClassName, map[string]interface{}{})
+		assertGetObjectWithClass(t, uuidsTo[i], refToClassName)
+
+		uuidsFrom[i] = assertCreateObject(t, refFromClassName, map[string]interface{}{})
+		assertGetObjectWithClass(t, uuidsFrom[i], refFromClassName)
+	}
+
+	// cannot do from urls without class
+	var batchRefs []*models.BatchReference
+	for i := range uuidsFrom {
+		from := beaconStart + uuidsFrom[i] + "/ref"
+		to := beaconStart + uuidsTo[i]
+		batchRefs = append(batchRefs, &models.BatchReference{From: strfmt.URI(from), To: strfmt.URI(to)})
+	}
+
+	postRefParams := batch.NewBatchReferencesCreateParams().WithBody(batchRefs)
+	_, err = helper.Client(t).Batch.BatchReferencesCreate(postRefParams, nil)
+	require.NotNil(t, err) // error triggered
+}
+
 func TestBatchRefsWithoutToClass(t *testing.T) {
 	refToClassName := "ReferenceTo"
 	refFromClassName := "ReferenceFrom"
