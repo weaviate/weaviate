@@ -153,7 +153,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			id:     id,
 			vector: obj.Vector,
 		}
-		// ToDo: fill the afterIndex field
 		s.queue.Push(context.Background(), desc)
 	}
 	cursor.Close()

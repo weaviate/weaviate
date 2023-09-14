@@ -277,35 +277,23 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 		if ob.shouldSkipInAdditionalStorage(i) {
 			continue
 		}
+
+		status := ob.statuses[object.ID()]
+
+		if shouldGeoIndex {
+			if err := ob.shard.updatePropertySpecificIndices(object, status); err != nil {
+				ob.setErrorAtIndex(errors.Wrap(err, "update prop-specific indices"), i)
+				return
+			}
+		}
+
 		if len(object.Vector) == 0 {
 			continue
 		}
 
-		status := ob.statuses[object.ID()]
 		desc := vectorDescriptor{
 			id:     status.docID,
 			vector: object.Vector,
-		}
-		if shouldGeoIndex {
-			desc.afterIndex = func(ctx context.Context) {
-				for {
-					err := ob.shard.updatePropertySpecificIndices(object, status)
-					if err == nil {
-						return
-					}
-
-					t := time.NewTimer(1 * time.Second)
-					select {
-					case <-ctx.Done():
-						// drain the timer
-						if !t.Stop() {
-							<-t.C
-						}
-						return
-					case <-t.C:
-					}
-				}
-			}
 		}
 
 		vectors = append(vectors, desc)
