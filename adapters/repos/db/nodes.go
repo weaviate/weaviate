@@ -104,8 +104,9 @@ func (db *DB) localNodeStatus(className string) *models.NodeStatus {
 		},
 	}
 
-	if asyncEnabled() {
-		status.BatchStats.QueueLength = nil
+	if !asyncEnabled() {
+		ql := int64(len(db.jobQueueCh))
+		status.BatchStats.QueueLength = &ql
 	}
 
 	return &status
