@@ -748,7 +748,7 @@ func (e *Explorer) checkCertaintyCompatibility(className string) error {
 	if class == nil {
 		return errors.Errorf("failed to get class: %s", className)
 	}
-	hnswConfig, err := typeAssertVectorIndex(class)
+	hnswConfig, err := hnsw.TypeAssertVectorIndex(class)
 	if err != nil {
 		return err
 	}
