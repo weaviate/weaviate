@@ -82,6 +82,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema/migrate"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/go-openapi/swag"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -104,9 +105,9 @@ type vectorRepo interface {
 	Shutdown(ctx context.Context) error
 }
 
-func makeAppState(ctx context.Context) *state.State {
+func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	
-	appState := startupRoutine(ctx)
+	appState := startupRoutine(ctx,options)
 	setupGoProfiling(appState.ServerConfig.Config)
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
@@ -367,7 +368,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	defer cancel()
 
 	config.ServerVersion = parseVersionFromSwaggerSpec()
-	appState := makeAppState(ctx)
+	appState := MakeAppState(ctx, connectorOptionGroup)
 
 	api.ServeError = openapierrors.ServeError
 
@@ -438,7 +439,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState
-func startupRoutine(ctx context.Context) *state.State {
+func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	appState := &state.State{}
 
 	logger := logger()
@@ -450,7 +451,7 @@ func startupRoutine(ctx context.Context) *state.State {
 	// Load the config using the flags
 	serverConfig := &config.WeaviateConfig{}
 	appState.ServerConfig = serverConfig
-	err := serverConfig.LoadConfig(connectorOptionGroup, logger)
+	err := serverConfig.LoadConfig(options, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).Error("could not load config")
 		logger.Exit(1)

@@ -153,6 +153,16 @@ type Index struct {
 	lastBackup  atomic.Pointer[BackupState]
 }
 
+func (i *Index) GetShards() []*Shard {
+	var out []*Shard
+	i.shards.Range(func(_ string, shard *Shard) error {
+		out = append(out, shard)
+		return nil
+	})
+
+	return out
+}
+
 func (i *Index) ID() string {
 	return indexID(i.Config.ClassName)
 }
