@@ -352,6 +352,11 @@ func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.A
 	if err != nil {
 		return nil, nil, err
 	}
+
+	if !asyncEnabled() {
+		return indexedResults, distances, nil
+	}
+
 	results := q.pqMaxPool.GetMax(k)
 	defer q.pqMaxPool.Put(results)
 	for i := range indexedResults {
