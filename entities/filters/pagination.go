@@ -14,7 +14,7 @@ package filters
 const (
 	// LimitFlagSearchByDist indicates that the
 	// vector search should be conducted by
-	// distance, witout limit
+	// distance, without limit
 	LimitFlagSearchByDist int = iota - 2
 
 	// LimitFlagNotSet indicates that no limit

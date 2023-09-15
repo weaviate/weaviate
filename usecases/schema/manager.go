@@ -233,7 +233,7 @@ func (m *Manager) saveSchema(ctx context.Context, st State) error {
 
 // RegisterSchemaUpdateCallback allows other usecases to register a primitive
 // type update callback. The callbacks will be called any time we persist a
-// schema upadate
+// schema update
 func (m *Manager) RegisterSchemaUpdateCallback(callback func(updatedSchema schema.Schema)) {
 	m.callbacks = append(m.callbacks, callback)
 }

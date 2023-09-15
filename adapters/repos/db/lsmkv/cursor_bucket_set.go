@@ -38,7 +38,7 @@ type cursorStateCollection struct {
 }
 
 // SetCursor holds a RLock for the flushing state. It needs to be closed using the
-// .Close() methods or otherwise the lock will never be relased
+// .Close() methods or otherwise the lock will never be released
 func (b *Bucket) SetCursor() *CursorSet {
 	b.flushLock.RLock()
 

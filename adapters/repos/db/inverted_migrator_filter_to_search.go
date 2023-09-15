@@ -50,7 +50,7 @@ func newFilterableToSearchableMigrator(migrator *Migrator) *filterableToSearchab
 
 func (m *filterableToSearchableMigrator) migrate(ctx context.Context) error {
 	// only properties with both Filterable and Searchable indexing enabled
-	// filterable bucket has map strategy (when it should have roaring set stategy)
+	// filterable bucket has map strategy (when it should have roaring set strategy)
 	// searchable bucket does not exist (in fact weaviate will create empty one with map strategy)
 
 	// if flag exists, no class/property needs fixing

@@ -907,8 +907,8 @@ func TestCRUD(t *testing.T) {
 							actionIds = append(actionIds, res[i].ID)
 						}
 					}
-					assert.EqualValues(t, thingIds, tt.expectedThingIDs, "thing ids dont match")
-					assert.EqualValues(t, actionIds, tt.expectedActionIDs, "action ids dont match")
+					assert.EqualValues(t, thingIds, tt.expectedThingIDs, "thing ids don't match")
+					assert.EqualValues(t, actionIds, tt.expectedActionIDs, "action ids don't match")
 				}
 			})
 		}

@@ -352,7 +352,7 @@ func TestCycleManager_cycleCallbackStoppedDueToFrequentStopChecks(t *testing.T) 
 	p := newProviderAbortable(cycleDuration, 1, 15)
 	cm := NewManager(NewFixedTicker(cycleInterval), p.cycleCallback)
 
-	t.Run("cycle funcion stopped before timeout reached", func(t *testing.T) {
+	t.Run("cycle function stopped before timeout reached", func(t *testing.T) {
 		timeoutCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
 		defer cancel()
 

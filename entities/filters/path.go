@@ -85,7 +85,7 @@ func ParsePath(pathElements []interface{}, rootClass string) (*Path, error) {
 	pathElements = append([]interface{}{rootClass}, pathElements...)
 
 	// The sentinel is used to bootstrap the inlined recursion.
-	// we return sentinal.Child at the end.
+	// we return sentinel.Child at the end.
 	var sentinel Path
 
 	// Keep track of where we are in the path (e.g. always points to latest Path segment)
