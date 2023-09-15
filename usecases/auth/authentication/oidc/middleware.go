@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// Client handles the OIDC setup at startup and provides a middleware to the
+// Client handles the OIDC setup at startup and provides a middleware to be
 // used with the goswagger API
 type Client struct {
 	config   config.OIDC
