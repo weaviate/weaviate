@@ -1051,13 +1051,14 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 ) ([]*storobj.Object, []float32, error) {
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
-	eg := errgroup.Group{}
-	eg.SetLimit(_NUMCPU * 2)
+
+
+	
 	shardResultLock := sync.Mutex{}
 	for _, shardName := range shards {
 		shardName := shardName
 
-		eg.Go(func() error {
+	
 			var objs []*storobj.Object
 			var scores []float32
 			var err error
@@ -1065,7 +1066,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			if shard := i.localShard(shardName); shard != nil {
 				objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
 				if err != nil {
-					return fmt.Errorf(
+					return nil,nil, fmt.Errorf(
 						"local shard object search %s: %w", shard.ID(), err)
 				}
 				if i.replicationEnabled() {
@@ -1076,7 +1077,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 					ctx, shardName, nil, limit, filters, keywordRanking,
 					sort, cursor, nil, addlProps, i.replicationEnabled())
 				if err != nil {
-					return fmt.Errorf(
+					return nil,nil,fmt.Errorf(
 						"remote shard object search %s: %w", shardName, err)
 				}
 			}
@@ -1086,12 +1087,9 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			resultScores = append(resultScores, scores...)
 			shardResultLock.Unlock()
 
-			return nil
-		})
+	
 	}
-	if err := eg.Wait(); err != nil {
-		return nil, nil, err
-	}
+
 
 	if len(resultObjects) == len(resultScores) {
 

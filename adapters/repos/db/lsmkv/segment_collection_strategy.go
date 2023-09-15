@@ -26,9 +26,11 @@ func (s *segment) getCollection(key []byte) ([]value, error) {
 			StrategySetCollection, StrategyMapCollection)
 	}
 
+	/*
 	if !s.bloomFilter.Test(key) {
 		return nil, lsmkv.NotFound
 	}
+	*/
 
 	node, err := s.index.Get(key)
 	if err != nil {

@@ -12,6 +12,8 @@
 package state
 
 import (
+	"context"
+
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
@@ -32,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/traverser"
+	"net/http"
 )
 
 // State is the only source of application-wide state
@@ -60,6 +63,8 @@ type State struct {
 	BackupManager      *backup.Handler
 	DB                 *db.DB
 	BatchManager       *objects.BatchManager
+	ClusterHttpClient  *http.Client
+	ReindexCtxCancel   context.CancelFunc
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

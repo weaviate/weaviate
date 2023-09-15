@@ -12,19 +12,19 @@ import (
 )
 
 func dumpBucket(storeDir, propName string) {
-	store, err := lsmkv.New(storeDir, storeDir,  &logrus.Logger{},nil,cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	kvstore, err := lsmkv.New(storeDir, storeDir,  &logrus.Logger{},nil,cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		panic(err)
 	}
 	fmt.Printf("propName: %s\n", propName)
-	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+	bucketName := helpers.BucketFromPropNameLSM(propName)
 	fmt.Printf("bucketName: %s\n", bucketName)
-	err = store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+	err = kvstore.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
 	if err != nil {
 		panic(err)
 	}
 
-	bucket := store.Bucket(bucketName)
+	bucket := kvstore.Bucket(bucketName)
 	fmt.Printf("Dir: %v, bucket %v\n", storeDir, bucketName)
 	bucket.IterateMapObjects(context.Background(), func(k1,k2,v []byte, tombstone bool) error{
 		fmt.Printf("k1: %s\n", k1)
