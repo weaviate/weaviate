@@ -135,28 +135,31 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
-	// load non-indexed vectors and add them to the queue
-	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
-	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		obj, err := storobj.FromBinary(v)
-		if err != nil {
-			return nil, err
-		}
-		id := obj.DocID()
-		if s.vectorIndex.ContainsNode(id) {
-			continue
-		}
-		if len(obj.Vector) == 0 {
-			continue
-		}
+	if asyncEnabled() {
+		// load non-indexed vectors and add them to the queue
+		cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
 
-		desc := vectorDescriptor{
-			id:     id,
-			vector: obj.Vector,
+		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+			obj, err := storobj.FromBinary(v)
+			if err != nil {
+				return nil, err
+			}
+			id := obj.DocID()
+			if s.vectorIndex.ContainsNode(id) {
+				continue
+			}
+			if len(obj.Vector) == 0 {
+				continue
+			}
+
+			desc := vectorDescriptor{
+				id:     id,
+				vector: obj.Vector,
+			}
+			s.queue.Push(context.Background(), desc)
 		}
-		s.queue.Push(context.Background(), desc)
+		cursor.Close()
 	}
-	cursor.Close()
 
 	return s, nil
 }
