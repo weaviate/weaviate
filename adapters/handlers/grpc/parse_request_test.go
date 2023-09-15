@@ -596,10 +596,39 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
-			name: "Sort and vector search ",
+			name: "Sort and vector search",
 			req: &grpc.SearchRequest{
 				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
 				SortBy:     []*grpc.SortBy{{Ascending: false, Path: []string{"name"}}},
+				NearVector: &grpc.NearVectorParams{Vector: []float32{1, 2, 3}},
+			},
+			out:   dto.GetParams{},
+			error: true,
+		},
+		{
+			name: "group by",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				GroupBy:    &grpc.GroupBy{Path: []string{"name"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
+				NearVector: &grpc.NearVectorParams{Vector: []float32{1, 2, 3}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{
+					Vector:  true,
+					NoProps: true,
+					Group:   true,
+				},
+				NearVector: &searchparams.NearVector{Vector: []float32{1, 2, 3}},
+				GroupBy:    &searchparams.GroupBy{Groups: 2, ObjectsPerGroup: 3, Property: "name"},
+			},
+			error: false,
+		},
+		{
+			name: "group by with too long path",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				GroupBy:    &grpc.GroupBy{Path: []string{"ref", "Class"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
 				NearVector: &grpc.NearVectorParams{Vector: []float32{1, 2, 3}},
 			},
 			out:   dto.GetParams{},

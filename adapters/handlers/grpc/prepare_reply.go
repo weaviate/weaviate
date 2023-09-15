@@ -304,7 +304,7 @@ func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema) (*p
 		return nil, "", errors.Wrap(err, "extracting hits from group")
 	}
 
-	ret := &pb.GroupByResults{GroupName: group.GroupedBy.Value, MaxDistance: group.MaxDistance, MinDistance: group.MinDistance, NumberOfObjects: int64(group.Count), Objects: objects}
+	ret := &pb.GroupByResults{Name: group.GroupedBy.Value, MaxDistance: group.MaxDistance, MinDistance: group.MinDistance, NumberOfObjects: int64(group.Count), Objects: objects}
 
 	return ret, groupedGenerativeResults, nil
 }
