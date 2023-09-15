@@ -278,7 +278,6 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 	res.Nodes[int(source)].connections[int(level)] = make([]uint64, len(targets))
 	copy(res.Nodes[int(source)].connections[int(level)], targets)
 
-	if keepReplaceInfo {
 	return 12 + int(length)*8, nil
 }
 
