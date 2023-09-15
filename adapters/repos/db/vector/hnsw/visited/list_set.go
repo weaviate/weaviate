@@ -68,7 +68,7 @@ const threshold = 2048
 
 // growth calculates the amount a list should grow in a smooth way.
 //
-// Insipired by the go standard implementation
+// Inspired by the go standard implementation
 func growth(oldsize, size int) int {
 	doublesize := oldsize << 1
 	if size > doublesize {

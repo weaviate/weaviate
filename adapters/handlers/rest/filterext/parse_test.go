@@ -345,7 +345,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 		// all tests use int as the value type, value types are tested separately
 		tests := []test{
 			{
-				name: "chainied together using and",
+				name: "chained together using and",
 				input: &models.WhereFilter{
 					Operator: "And",
 					Operands: []*models.WhereFilter{
@@ -389,7 +389,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 				},
 			},
 			{
-				name: "chainied together using or",
+				name: "chained together using or",
 				input: &models.WhereFilter{
 					Operator: "Or",
 					Operands: []*models.WhereFilter{

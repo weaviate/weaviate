@@ -156,7 +156,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			return err
 		}
 	} else {
-		// we need to run the heurisitc
+		// we need to run the heuristic
 
 		dist, ok, err := n.graph.distBetweenNodes(n.node.id, neighborID)
 		if err != nil {

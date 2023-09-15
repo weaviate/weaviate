@@ -332,7 +332,7 @@ func intVal(val interface{}) (interface{}, error) {
 					return nil, fmt.Errorf(errInvalidInteger, val)
 				}
 			} else {
-				// If it is not a float, it is cerntainly not a integer, return the err
+				// If it is not a float, it is certainly not a integer, return the err
 				return nil, fmt.Errorf(errInvalidInteger, val)
 			}
 		}

@@ -83,7 +83,7 @@ func TestBackupStatus(t *testing.T) {
 		assert.NotNil(t, err)
 	})
 
-	t.Run("MetdataNotFound", func(t *testing.T) {
+	t.Run("MetadataNotFound", func(t *testing.T) {
 		backend := &fakeBackend{}
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, ErrAny)
 		backend.On("GetObject", ctx, id, BackupFile).Return(nil, ErrAny)
@@ -172,7 +172,7 @@ func TestBackupOnStatus(t *testing.T) {
 		assert.Equal(t, want, got)
 	})
 
-	t.Run("MetdataNotFound", func(t *testing.T) {
+	t.Run("MetadataNotFound", func(t *testing.T) {
 		want := &StatusResponse{
 			Method: OpCreate,
 			ID:     id,

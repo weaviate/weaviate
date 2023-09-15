@@ -96,7 +96,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		}
 	})
 
-	// This test "with an origin conifgured" is not repeated for every handler,
+	// This test "with an origin configured" is not repeated for every handler,
 	// as testing this feature once was deemed sufficient
 	t.Run("add object - with an origin configured", func(t *testing.T) {
 		type test struct {

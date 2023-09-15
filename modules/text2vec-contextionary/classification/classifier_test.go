@@ -122,7 +122,7 @@ func TestContextualClassifier_Classify(t *testing.T) {
 			id = class.ID
 		})
 
-		t.Run("retrieving the same classificiation by id", func(t *testing.T) {
+		t.Run("retrieving the same classification by id", func(t *testing.T) {
 			class, err := classifier.Get(context.Background(), nil, id)
 			require.Nil(t, err)
 			require.NotNil(t, class)

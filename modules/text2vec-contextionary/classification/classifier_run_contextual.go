@@ -212,7 +212,7 @@ func (c *contextualItemClassifier) buildBoostedCorpus(targetProp string) (string
 
 		tfscores := c.context.tfidf[c.params.BasedOnProperties[0]].GetAllTerms(c.itemIndex)
 		// dereferencing these optional parameters is safe, as defaults are
-		// explicility set in classifier.Schedule()
+		// explicitly set in classifier.Schedule()
 		if c.isInIgPercentile(int(*c.settings.InformationGainCutoffPercentile), word, targetProp) &&
 			c.isInTfPercentile(tfscores, int(*c.settings.TfidfCutoffPercentile), word) {
 			corpus = append(corpus, word)

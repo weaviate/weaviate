@@ -31,7 +31,7 @@ import (
 // graphql tree can be built under certain circumstances. This helps us to
 // catch errors on edge cases like empty schemas, classes with empty
 // properties, empty peer lists, peers with empty schemas, etc. However, we
-// don't get any guaruantuee of whether the individual queries resolve
+// don't get any guarantee of whether the individual queries resolve
 // correctly. For those cases we have unit tests in die individual subpackages
 // (i.e. get, getmeta, aggregate, etc.).  Additionally we have (a few) e2e
 // tests.
