@@ -248,7 +248,30 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.Sort = extractSorting(req.SortBy)
 	}
 
+	if req.GroupBy != nil {
+		groupBy, err := extractGroupBy(req.GroupBy)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
+		out.AdditionalProperties.Group = true
+
+		out.GroupBy = groupBy
+	}
+
 	return out, nil
+}
+
+func extractGroupBy(groupIn *pb.GroupBy) (*searchparams.GroupBy, error) {
+	if len(groupIn.Path) != 1 {
+		return nil, fmt.Errorf("groupby path can only have one entry, recieved %v", groupIn.Path)
+	}
+
+	groupOut := &searchparams.GroupBy{
+		Property:        groupIn.Path[0],
+		ObjectsPerGroup: int(groupIn.ObjectsPerGroup),
+		Groups:          int(groupIn.NumberOfGroups),
+	}
+	return groupOut, nil
 }
 
 func extractSorting(sortIn []*pb.SortBy) []filters.Sort {
