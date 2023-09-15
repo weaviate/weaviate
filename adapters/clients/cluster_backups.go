@@ -48,7 +48,7 @@ func (c *ClusterBackups) CanCommit(ctx context.Context,
 		return nil, fmt.Errorf("marshal can-commit request: %w", err)
 	}
 
-	httpReq, err := http.NewRequest(http.MethodPost, url.String(), bytes.NewReader(b))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url.String(), bytes.NewReader(b))
 	if err != nil {
 		return nil, fmt.Errorf("new can-commit request: %w", err)
 	}
@@ -82,7 +82,7 @@ func (c *ClusterBackups) Commit(ctx context.Context,
 		return fmt.Errorf("marshal commit request: %w", err)
 	}
 
-	httpReq, err := http.NewRequest(http.MethodPost, url.String(), bytes.NewReader(b))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url.String(), bytes.NewReader(b))
 	if err != nil {
 		return fmt.Errorf("new commit request: %w", err)
 	}
@@ -110,7 +110,7 @@ func (c *ClusterBackups) Status(ctx context.Context,
 		return nil, fmt.Errorf("marshal status request: %w", err)
 	}
 
-	httpReq, err := http.NewRequest(http.MethodPost, url.String(), bytes.NewReader(b))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url.String(), bytes.NewReader(b))
 	if err != nil {
 		return nil, fmt.Errorf("new status request: %w", err)
 	}
@@ -134,7 +134,7 @@ func (c *ClusterBackups) Status(ctx context.Context,
 	return &resp, nil
 }
 
-func (c *ClusterBackups) Abort(_ context.Context,
+func (c *ClusterBackups) Abort(ctx context.Context,
 	host string, req *backup.AbortRequest,
 ) error {
 	url := url.URL{Scheme: "http", Host: host, Path: pathAbort}
@@ -144,7 +144,7 @@ func (c *ClusterBackups) Abort(_ context.Context,
 		return fmt.Errorf("marshal abort request: %w", err)
 	}
 
-	httpReq, err := http.NewRequest(http.MethodPost, url.String(), bytes.NewReader(b))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url.String(), bytes.NewReader(b))
 	if err != nil {
 		return fmt.Errorf("new abort request: %w", err)
 	}
