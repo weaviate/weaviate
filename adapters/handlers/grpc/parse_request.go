@@ -263,7 +263,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 
 func extractGroupBy(groupIn *pb.GroupBy) (*searchparams.GroupBy, error) {
 	if len(groupIn.Path) != 1 {
-		return nil, fmt.Errorf("groupby path can only have one entry, recieved %v", groupIn.Path)
+		return nil, fmt.Errorf("groupby path can only have one entry, received %v", groupIn.Path)
 	}
 
 	groupOut := &searchparams.GroupBy{
