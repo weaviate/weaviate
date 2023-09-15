@@ -493,7 +493,7 @@ func TestStorageObjectMarshallingWithGroup(t *testing.T) {
 		require.NotNil(t, group.Hits[0]["_additional"])
 		groupHitAdditional, ok := group.Hits[0]["_additional"].(*additional.GroupHitAdditional)
 		require.True(t, ok)
-		assert.Equal(t, "2c76ca18-2073-4c48-aa52-7f444d2f5b80", groupHitAdditional.ID)
+		assert.Equal(t, strfmt.UUID("2c76ca18-2073-4c48-aa52-7f444d2f5b80"), groupHitAdditional.ID)
 		assert.Equal(t, float32(0.24), groupHitAdditional.Distance)
 		assert.Equal(t, "value1", group.Hits[0]["property1"])
 		require.Nil(t, group.Hits[1]["_additional"])
