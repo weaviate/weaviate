@@ -819,8 +819,8 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 		"name": "My City",
 		"hasPlaces": []interface{}{
 			map[string]interface{}{
-				"beacon": fmt.Sprintf("weaviate://localhost/%s", place1ID.String()),
-				"href":   fmt.Sprintf("/v1/objects/%s", place1ID.String()),
+				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", placeClass.Class, place1ID.String()),
+				"href":   fmt.Sprintf("/v1/objects/%s/%s", placeClass.Class, place1ID.String()),
 			},
 		},
 	}, actualThunk)
@@ -843,12 +843,12 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 
 	expectedRefs := []interface{}{
 		map[string]interface{}{
-			"beacon": fmt.Sprintf("weaviate://localhost/%s", place1ID.String()),
-			"href":   fmt.Sprintf("/v1/objects/%s", place1ID.String()),
+			"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", placeClass.Class, place1ID.String()),
+			"href":   fmt.Sprintf("/v1/objects/%s/%s", placeClass.Class, place1ID.String()),
 		},
 		map[string]interface{}{
-			"beacon": fmt.Sprintf("weaviate://localhost/%s", place2ID.String()),
-			"href":   fmt.Sprintf("/v1/objects/%s", place2ID.String()),
+			"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", placeClass.Class, place2ID.String()),
+			"href":   fmt.Sprintf("/v1/objects/%s/%s", placeClass.Class, place2ID.String()),
 		},
 	}
 
