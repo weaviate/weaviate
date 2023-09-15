@@ -431,16 +431,7 @@ func TestGRPCReply(t *testing.T) {
 									"_additional": &additional.GroupHitAdditional{Vector: []float32{3}, ID: UUID2},
 								},
 								{
-									"word": "other",
-									//"ref": []interface{}{
-									//	search.LocalRef{
-									//		Class: refClass1,
-									//		Fields: map[string]interface{}{
-									//			"something":   "thing",
-									//			"_additional": map[string]interface{}{"vector": []float32{4}, "id": UUID2},
-									//		},
-									//	},
-									//},
+									"word":        "other",
 									"_additional": &additional.GroupHitAdditional{Vector: []float32{4}, ID: UUID1},
 								},
 							},
