@@ -41,7 +41,7 @@ func Test_ReferencesAddDeprecated(t *testing.T) {
 			},
 		}
 		m := newFakeGetManager(zooAnimalSchemaForTest())
-		m.repo.On("Exists", "", mock.Anything).Return(true, nil)
+		m.repo.On("Exists", "Animal", mock.Anything).Return(true, nil)
 		m.repo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
 			ClassName: cls,
 			Schema: map[string]interface{}{
@@ -211,7 +211,7 @@ func Test_ReferenceAdd(t *testing.T) {
 			m.schemaManager.(*fakeSchemaManager).GetschemaErr = tc.ErrSchema
 			m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 			if tc.Stage >= 2 {
-				m.repo.On("Exists", "", refID).Return(true, tc.ErrTargetExists).Once()
+				m.repo.On("Exists", "Animal", refID).Return(true, tc.ErrTargetExists).Once()
 			}
 			if tc.Stage >= 3 {
 				m.repo.On("Exists", tc.Req.Class, tc.Req.ID).Return(!tc.SrcNotFound, tc.ErrSrcExists).Once()
