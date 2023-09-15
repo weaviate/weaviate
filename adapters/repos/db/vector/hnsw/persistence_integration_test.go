@@ -92,7 +92,7 @@ func TestHnswPersistence(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
-	t.Run("verify that the results match after rebuiling from disk",
+	t.Run("verify that the results match after rebuilding from disk",
 		func(t *testing.T) {
 			position := 3
 			res, _, err := secondIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
@@ -200,7 +200,7 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 	// the minor corruption (just one missing link) will most likely not render
 	// the index unusable, so we should still expect to retrieve results as
 	// normal
-	t.Run("verify that the results match after rebuiling from disk",
+	t.Run("verify that the results match after rebuilding from disk",
 		func(t *testing.T) {
 			position := 3
 			res, _, err := secondIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
@@ -279,7 +279,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	require.Nil(t, err)
 
 	dumpIndex(secondIndex, "without_cleanup_after_rebuild")
-	t.Run("verify that the results match after rebuiling from disk",
+	t.Run("verify that the results match after rebuilding from disk",
 		func(t *testing.T) {
 			position := 3
 			res, _, err := secondIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
@@ -365,7 +365,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	require.Nil(t, err)
 	dumpIndex(secondIndex, "with cleanup second index")
 
-	t.Run("verify that the results match after rebuiling from disk",
+	t.Run("verify that the results match after rebuilding from disk",
 		func(t *testing.T) {
 			position := 3
 			res, _, err := secondIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
@@ -411,7 +411,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 
 	dumpIndex(thirdIndex)
 
-	t.Run("verify that the results match after rebuiling from disk",
+	t.Run("verify that the results match after rebuilding from disk",
 		func(t *testing.T) {
 			position := 3
 			res, _, err := thirdIndex.knnSearchByVector(testVectors[position], 50, 36, nil)

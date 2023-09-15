@@ -48,7 +48,7 @@ func TestConfigValidator(t *testing.T) {
 				Properties: []*models.Property{
 					{
 						DataType: []string{"text"},
-						Name:     "decsription",
+						Name:     "description",
 					},
 					{
 						DataType:     schema.DataTypeText.PropString(),
