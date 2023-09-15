@@ -127,7 +127,7 @@ func (d *Deserializer) Do(fd *bufio.Reader,
 		case AddLinksAtLevel:
 			readThisRound, err = d.ReadAddLinks(fd, out)
 		case ReplaceLinksAtLevel:
-			readThisRound, err = d.ReadLinks(fd, out)
+			readThisRound, err = d.ReadLinks(fd, out, keepLinkReplaceInformation)
 		case AddTombstone:
 			err = d.ReadAddTombstone(fd, out.Tombstones)
 			readThisRound = 8
@@ -245,6 +245,7 @@ func (d *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 }
 
 func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
+	keepReplaceInfo bool,
 ) (int, error) {
 	d.resetResusableBuffer(12)
 	_, err := io.ReadFull(r, d.reusableBuffer)
@@ -278,6 +279,16 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 	res.Nodes[int(source)].connections[int(level)] = make([]uint64, len(targets))
 	copy(res.Nodes[int(source)].connections[int(level)], targets)
 
+	if keepReplaceInfo {
+		// mark the replace flag for this node and level, so that new commit logs
+		// generated on this result (condensing) do not lose information
+
+		if _, ok := res.LinksReplaced[source]; !ok {
+			res.LinksReplaced[source] = map[uint16]struct{}{}
+		}
+
+		res.LinksReplaced[source][level] = struct{}{}
+	}
 	return 12 + int(length)*8, nil
 }
 

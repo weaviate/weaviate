@@ -284,7 +284,7 @@ func TestDeserializerReadLinks(t *testing.T) {
 
 		reader := bufio.NewReader(data)
 
-		_, err := d.ReadLinks(reader, res)
+		_, err := d.ReadLinks(reader, res, true)
 		require.Nil(t, err)
 		require.NotNil(t, res.Nodes[id])
 		lastAddedConnection := res.Nodes[id].connections[level][len(res.Nodes[id].connections[level])-1]
