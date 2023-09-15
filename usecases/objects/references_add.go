@@ -75,6 +75,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		if replace {
 			input.Ref.Class = toClass
 			input.Ref.Beacon = toBeacon
+			targetRef.Class = string(toClass)
 		}
 	}
 

@@ -90,6 +90,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 			if replace {
 				input.Refs[i].Class = toClass
 				input.Refs[i].Beacon = toBeacon
+				parsedTargetRefs[i].Class = string(toClass)
 			}
 		}
 		if err := input.validateExistence(ctx, validator, tenant, parsedTargetRefs[i]); err != nil {

@@ -109,7 +109,7 @@ func (b *BatchManager) autodetectToClass(ctx context.Context,
 	}
 	for i, ref := range batchReferences {
 		// get to class from property datatype
-		if ref.To.Class != "" || ref.From.Class == "" {
+		if ref.To.Class != "" {
 			continue
 		}
 		className := string(ref.From.Class)
