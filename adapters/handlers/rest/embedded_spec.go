@@ -3937,6 +3937,12 @@ func init() {
           "type": "number",
           "format": "int64",
           "x-omitempty": false
+        },
+        "vectorQueueLength": {
+          "description": "The length of the vector queue.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
         }
       }
     },
@@ -9019,6 +9025,12 @@ func init() {
         },
         "objectCount": {
           "description": "The number of objects in shard.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "vectorQueueLength": {
+          "description": "The length of the vector queue.",
           "type": "number",
           "format": "int64",
           "x-omitempty": false

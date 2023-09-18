@@ -36,6 +36,9 @@ type NodeShardStatus struct {
 
 	// The number of objects in shard.
 	ObjectCount int64 `json:"objectCount"`
+
+	// The length of the vector queue.
+	VectorQueueLength int64 `json:"vectorQueueLength"`
 }
 
 // Validate validates this node shard status

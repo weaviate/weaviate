@@ -993,6 +993,12 @@
           "format": "int64",
           "type": "number",
           "x-omitempty": false
+        },
+        "vectorQueueLength": {
+          "description": "The length of the vector queue.",
+          "format": "int64",
+          "type": "number",
+          "x-omitempty": false
         }
       }
     },
