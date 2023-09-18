@@ -212,6 +212,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		}
 		if req.NearText.Distance != nil {
 			nearText.Distance = *req.NearText.Distance
+			nearText.WithDistance = true
 		}
 		if out.ModuleParams == nil {
 			out.ModuleParams = make(map[string]interface{})
