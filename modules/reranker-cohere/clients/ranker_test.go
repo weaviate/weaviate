@@ -48,7 +48,7 @@ func TestRank(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		c := New("apiKey", nullLogger())
+		c := New("apiKey", 0, nullLogger())
 		c.host = server.URL
 
 		expected := &ent.RankResult{
@@ -78,7 +78,7 @@ func TestRank(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		c := New("apiKey", nullLogger())
+		c := New("apiKey", 0, nullLogger())
 		c.host = server.URL
 
 		_, err := c.Rank(context.Background(), "I work at Apple", []string{"Where do I work?"}, nil)
@@ -132,7 +132,7 @@ func TestRank(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		c := New("apiKey", nullLogger())
+		c := New("apiKey", 0, nullLogger())
 		c.host = server.URL
 		// this will trigger 4 go routines
 		c.maxDocuments = 2

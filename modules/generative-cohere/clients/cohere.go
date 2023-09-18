@@ -42,11 +42,11 @@ type cohere struct {
 	logger     logrus.FieldLogger
 }
 
-func New(apiKey string, logger logrus.FieldLogger) *cohere {
+func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *cohere {
 	return &cohere{
 		apiKey: apiKey,
 		httpClient: &http.Client{
-			Timeout: 60 * time.Second,
+			Timeout: timeout,
 		},
 		host:   "https://api.cohere.ai",
 		path:   "/v1/generate",
