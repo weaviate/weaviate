@@ -15,8 +15,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/weaviate/weaviate/client/batch"
-
 	"github.com/google/uuid"
 
 	"github.com/go-openapi/strfmt"
@@ -238,13 +236,17 @@ func TestBatchAddTenantReferences(t *testing.T) {
 		}
 
 		resp, err := helper.AddReferences(t, refs)
-		require.NotNil(t, err)
-		require.Nil(t, resp)
-
-		errParsed := err.(*batch.BatchReferencesCreateInternalServerError)
-		expectedMsg := fmt.Sprintf(`batch validation: target: object %s/%s not found for tenant %q`,
-			className2, mtObject2DiffTenant.ID, tenantName1)
-		assert.Equal(t, expectedMsg, errParsed.Payload.Error[0].Message)
+		require.Nil(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp, 1)
+		require.Empty(t, resp[0].To)
+		require.Empty(t, resp[0].From)
+		require.NotNil(t, resp[0].Result)
+		require.NotNil(t, resp[0].Result.Errors)
+		require.Len(t, resp[0].Result.Errors.Error, 1)
+		require.NotNil(t, resp[0].Result.Errors.Error[0])
+		expectedMsg := fmt.Sprintf(`target: object %s/%s not found for tenant %q`, className2, mtObject2DiffTenant.ID, tenantName1)
+		assert.Equal(t, expectedMsg, resp[0].Result.Errors.Error[0].Message)
 	})
 
 	t.Run("add tenant reference - from MT class to single tenant class", func(t *testing.T) {
@@ -281,11 +283,17 @@ func TestBatchAddTenantReferences(t *testing.T) {
 		}
 
 		resp, err := helper.AddReferences(t, refs)
-		require.NotNil(t, err)
-		require.Nil(t, resp)
-		errParsed := err.(*batch.BatchReferencesCreateInternalServerError)
-		expectedMsg := "batch validation: invalid reference: cannot reference a multi-tenant enabled class from a non multi-tenant enabled class"
-		assert.Equal(t, expectedMsg, errParsed.Payload.Error[0].Message)
+		require.Nil(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp, 1)
+		require.Empty(t, resp[0].To)
+		require.Empty(t, resp[0].From)
+		require.NotNil(t, resp[0].Result)
+		require.NotNil(t, resp[0].Result.Errors)
+		require.Len(t, resp[0].Result.Errors.Error, 1)
+		require.NotNil(t, resp[0].Result.Errors.Error[0])
+		expectedMsg := "invalid reference: cannot reference a multi-tenant enabled class from a non multi-tenant enabled class"
+		assert.Equal(t, expectedMsg, resp[0].Result.Errors.Error[0].Message)
 	})
 }
 

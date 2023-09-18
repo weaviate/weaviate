@@ -374,8 +374,12 @@ func TestBatchRefsWithoutFromAndToClass(t *testing.T) {
 	}
 
 	postRefParams := batch.NewBatchReferencesCreateParams().WithBody(batchRefs)
-	_, err = helper.Client(t).Batch.BatchReferencesCreate(postRefParams, nil)
-	require.NotNil(t, err) // error triggered
+	resp3, err := helper.Client(t).Batch.BatchReferencesCreate(postRefParams, nil)
+	require.Nil(t, err)
+	require.NotNil(t, resp3)
+	for i := range resp3.Payload {
+		require.NotNil(t, resp3.Payload[i].Result.Errors)
+	}
 }
 
 func TestBatchRefsWithoutToClass(t *testing.T) {
