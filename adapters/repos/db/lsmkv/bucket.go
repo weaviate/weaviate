@@ -233,18 +233,15 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 }
 
 func (b *Bucket) IterateMapObjects(ctx context.Context, f func([]byte, []byte, []byte, bool) error) error {
-
 	cursor := b.MapCursor()
 	defer cursor.Close()
 
 	for kList, vList := cursor.First(); kList != nil; kList, vList = cursor.Next() {
-
 		for _, v := range vList {
 			if err := f(kList, v.Key, v.Value, v.Tombstone); err != nil {
 				return errors.Wrapf(err, "callback on object '%v' failed", v)
 			}
 		}
-
 	}
 
 	return nil

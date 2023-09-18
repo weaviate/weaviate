@@ -95,7 +95,6 @@ func (db *DB) GetIndices() []*Index {
 	}
 
 	return out
-
 }
 
 func (db *DB) GetRemoteIndex() sharding.RemoteIndexClient {

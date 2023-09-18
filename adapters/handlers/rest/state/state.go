@@ -13,7 +13,6 @@ package state
 
 import (
 	"context"
-
 	"net/http"
 
 	"github.com/sirupsen/logrus"

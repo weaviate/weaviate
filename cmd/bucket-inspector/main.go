@@ -48,7 +48,6 @@ func dumpBucket(storeDir, propName string) {
 		return nil
 	})
 	fmt.Printf("Dir: %v, bucket %v\n", storeDir, bucketName)
-
 }
 
 func main() {
@@ -61,5 +60,4 @@ func main() {
 	storeDir := os.Args[1]
 	propName := os.Args[2]
 	dumpBucket(storeDir, propName)
-
 }

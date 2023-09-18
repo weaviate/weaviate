@@ -105,7 +105,6 @@ type vectorRepo interface {
 }
 
 func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
-
 	appState := startupRoutine(ctx, options)
 	setupGoProfiling(appState.ServerConfig.Config)
 
@@ -313,7 +312,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 				Info("Reindexing inverted indexes")
 			reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNames...)
 		}()
-
 	}
 
 	configureServer = makeConfigureServer(appState)
@@ -349,7 +347,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	return appState
-
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
@@ -372,7 +369,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
 	}
 
-	classifier := classification.New(appState.SchemaManager, appState.ClassificationRepo, appState.DB, //the DB is the vectorrepo
+	classifier := classification.New(appState.SchemaManager, appState.ClassificationRepo, appState.DB, // the DB is the vectorrepo
 		appState.Authorizer,
 		appState.Logger, appState.Modules)
 
