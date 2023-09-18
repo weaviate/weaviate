@@ -111,15 +111,12 @@ func (s *Shard) GetPropertyLengths() *inverted.JsonPropertyLengthTracker {
 	return s.propLengths
 }
 
-
 func (s *Shard) GetStatus() storagestate.Status {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
-	
+
 	return s.status
 }
-
-
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,

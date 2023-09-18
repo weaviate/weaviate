@@ -1061,45 +1061,39 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 ) ([]*storobj.Object, []float32, error) {
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
-
-
-	
 	shardResultLock := sync.Mutex{}
 	for _, shardName := range shards {
 		shardName := shardName
 
-	
-			var objs []*storobj.Object
-			var scores []float32
-			var err error
+		var objs []*storobj.Object
+		var scores []float32
+		var err error
 
-			if shard := i.localShard(shardName); shard != nil {
-				objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
-				if err != nil {
-					return nil,nil, fmt.Errorf(
-						"local shard object search %s: %w", shard.ID(), err)
-				}
-				if i.replicationEnabled() {
-					storobj.AddOwnership(objs, i.getSchema.NodeName(), shardName)
-				}
-			} else {
-				objs, scores, err = i.remote.SearchShard(
-					ctx, shardName, nil, limit, filters, keywordRanking,
-					sort, cursor, nil, addlProps, i.replicationEnabled())
-				if err != nil {
-					return nil,nil,fmt.Errorf(
-						"remote shard object search %s: %w", shardName, err)
-				}
+		if shard := i.localShard(shardName); shard != nil {
+			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
+			if err != nil {
+				return nil, nil, fmt.Errorf(
+					"local shard object search %s: %w", shard.ID(), err)
 			}
+			if i.replicationEnabled() {
+				storobj.AddOwnership(objs, i.getSchema.NodeName(), shardName)
+			}
+		} else {
+			objs, scores, err = i.remote.SearchShard(
+				ctx, shardName, nil, limit, filters, keywordRanking,
+				sort, cursor, nil, addlProps, i.replicationEnabled())
+			if err != nil {
+				return nil, nil, fmt.Errorf(
+					"remote shard object search %s: %w", shardName, err)
+			}
+		}
 
-			shardResultLock.Lock()
-			resultObjects = append(resultObjects, objs...)
-			resultScores = append(resultScores, scores...)
-			shardResultLock.Unlock()
+		shardResultLock.Lock()
+		resultObjects = append(resultObjects, objs...)
+		resultScores = append(resultScores, scores...)
+		shardResultLock.Unlock()
 
-	
 	}
-
 
 	if len(resultObjects) == len(resultScores) {
 

@@ -14,6 +14,8 @@ package state
 import (
 	"context"
 
+	"net/http"
+
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
@@ -34,7 +36,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/traverser"
-	"net/http"
 )
 
 // State is the only source of application-wide state

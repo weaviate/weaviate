@@ -80,7 +80,7 @@ func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
 	return db.schemaGetter
 }
 
-func (db *DB) GetSchema() schema.Schema{
+func (db *DB) GetSchema() schema.Schema {
 	return db.schemaGetter.GetSchemaSkipAuth()
 }
 
@@ -101,7 +101,6 @@ func (db *DB) GetIndices() []*Index {
 func (db *DB) GetRemoteIndex() sharding.RemoteIndexClient {
 	return db.remoteIndex
 }
-
 
 func (db *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
 	db.schemaGetter = sg

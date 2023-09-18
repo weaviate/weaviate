@@ -21,7 +21,6 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
-	
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
@@ -194,20 +193,18 @@ func (b *BM25Searcher) wand(
 				j := i
 				k := i + offset
 
-			
-					termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerms[j], propNames,
-						propertyBoosts, duplicateBoosts[j], params.AdditionalExplanations)
-					if err != nil {
-						return nil,nil, err
-					}
-					results[k] = termResult
-					indices[k] = docIndices
-				
+				termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerms[j], propNames,
+					propertyBoosts, duplicateBoosts[j], params.AdditionalExplanations)
+				if err != nil {
+					return nil, nil, err
+				}
+				results[k] = termResult
+				indices[k] = docIndices
+
 			}
 			offset += len(queryTerms)
 		}
 	}
-
 
 	// all results. Sum up the length of the results from all terms to get an upper bound of how many results there are
 	if limit == 0 {

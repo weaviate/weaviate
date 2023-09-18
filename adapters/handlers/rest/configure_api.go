@@ -21,12 +21,12 @@ import (
 	goruntime "runtime"
 	"strings"
 	"time"
-	
 
 	_ "net/http/pprof"
 
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/swag"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
@@ -82,7 +82,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema/migrate"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/traverser"
-	"github.com/go-openapi/swag"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -106,8 +105,8 @@ type vectorRepo interface {
 }
 
 func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
-	
-	appState := startupRoutine(ctx,options)
+
+	appState := startupRoutine(ctx, options)
 	setupGoProfiling(appState.ServerConfig.Config)
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
@@ -133,7 +132,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			WithField("action", "startup").WithError(err).
 			Fatal("invalid config")
 	}
-
 
 	appState.ClusterHttpClient = reasonableHttpClient(appState.ServerConfig.Config.Cluster.AuthConfig)
 
@@ -244,8 +242,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo)
 
-
-
 	backupManager := backup.NewHandler(appState.Logger, appState.Authorizer,
 		schemaManager, repo, appState.Modules)
 	appState.BackupManager = backupManager
@@ -274,7 +270,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	}
 
-
 	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Metrics)
@@ -285,10 +280,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.ServerConfig.Config.MaximumConcurrentGetRequests)
 	appState.Traverser = objectsTraverser
 
-
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, objectsTraverser)
 	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
-
 
 	err = migrator.AdjustFilterablePropSettings(ctx)
 	if err != nil {
@@ -320,13 +313,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 				Info("Reindexing inverted indexes")
 			reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNames...)
 		}()
-	
-}
 
-
+	}
 
 	configureServer = makeConfigureServer(appState)
-
 
 	// while we accept an overall longer startup, e.g. due to a recovery, we
 	// still want to limit the module startup context, as that's mostly service
@@ -382,7 +372,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
 	}
 
-
 	classifier := classification.New(appState.SchemaManager, appState.ClassificationRepo, appState.DB, //the DB is the vectorrepo
 		appState.Authorizer,
 		appState.Logger, appState.Modules)
@@ -412,7 +401,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	grpcServer := createGrpcServer(appState)
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState)
-
 
 	api.ServerShutdown = func() {
 		// stop reindexing on server shutdown
