@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"golang.org/x/sync/errgroup"
 )
 
 type BM25Searcher struct {
