@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -50,10 +51,10 @@ type nerResponse struct {
 	Tokens []tokenResponse `json:"tokens"`
 }
 
-func New(origin string, logger logrus.FieldLogger) *ner {
+func New(origin string, timeout time.Duration, logger logrus.FieldLogger) *ner {
 	return &ner{
 		origin:     origin,
-		httpClient: &http.Client{},
+		httpClient: &http.Client{Timeout: timeout},
 		logger:     logger,
 	}
 }
