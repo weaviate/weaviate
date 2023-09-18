@@ -16,11 +16,11 @@ export ORIGIN=${ORIGIN:-"http://localhost:8080"}
 export QUERY_DEFAULTS_LIMIT=${QUERY_DEFAULTS_LIMIT:-"20"}
 export QUERY_MAXIMUM_RESULTS=${QUERY_MAXIMUM_RESULTS:-"10000"}
 export TRACK_VECTOR_DIMENSIONS=true
-export CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"weaviate-0"}
+export CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"node1"}
 
 function go_run() {
   GIT_HASH=$(git rev-parse --short HEAD)
-  go run -race -ldflags "-X github.com/weaviate/weaviate/usecases/config.GitHash=$GIT_HASH" "$@"
+  go run -ldflags "-X github.com/weaviate/weaviate/usecases/config.GitHash=$GIT_HASH" "$@"
 }
 
 case $CONFIG in
@@ -299,9 +299,7 @@ case $CONFIG in
   local-openai)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-openai \
-      BACKUP_FILESYSTEM_PATH="${PWD}/backups" \
-      CLUSTER_HOSTNAME="weaviate-0" \
-      ENABLE_MODULES="text2vec-openai,backup-filesystem" \
+      ENABLE_MODULES="text2vec-openai" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \

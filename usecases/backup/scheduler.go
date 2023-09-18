@@ -261,7 +261,7 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	if err != nil {
 		notFoundErr := backup.ErrNotFound{}
 		if errors.As(err, &notFoundErr) {
-			return nil, fmt.Errorf("validateRestoreRequest: %w: '%v' (%v)", errMetaNotFound, destPath, err)
+			return nil, fmt.Errorf("validateRestoreRequest: %w: '%v' (%w)", errMetaNotFound, destPath, err)
 		}
 		return nil, fmt.Errorf("find backup %s: %w", destPath, err)
 	}
