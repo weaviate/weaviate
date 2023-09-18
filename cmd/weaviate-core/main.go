@@ -72,7 +72,7 @@ func main() {
 							fmt.Printf("				k1: %s\n", k1)
 							_, err := bucket.MapList(k1)
 							if err != nil {
-								fmt.Printf("%v in lsm but not accessable!", k1)
+								fmt.Printf("%v in lsm but not accessible!", k1)
 							}
 							if count < *dumpLimit {
 								return nil
@@ -92,7 +92,7 @@ func main() {
 						bucket.IterateMapObjects(context.Background(), func(k1, k2, v []byte, tombstone bool) error {
 							mps, err := bucket.MapList(k1)
 							if err != nil {
-								fmt.Printf("%v in lsm but not accessable!\n", k1)
+								fmt.Printf("%v in lsm but not accessible!\n", k1)
 								fmt.Printf("Bucket is corrupted: %v\n", err)
 								os.Exit(1)
 							}
@@ -115,7 +115,7 @@ func main() {
 							for k, v := range properties {
 								_, err := bucket.Get([]byte(k))
 								if err != nil {
-									fmt.Printf("%v in lsm but not accessable!", k)
+									fmt.Printf("%v in lsm but not accessible!", k)
 								}
 								val := fmt.Sprintf("%v", v)
 								if len(val) > 100 {
