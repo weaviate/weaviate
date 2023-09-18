@@ -1086,7 +1086,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 					ctx, shardName, nil, limit, filters, keywordRanking,
 					sort, cursor, nil, addlProps, i.replicationEnabled())
 				if err != nil {
-					return  fmt.Errorf(
+					return fmt.Errorf(
 						"remote shard object search %s: %w", shardName, err)
 				}
 			}

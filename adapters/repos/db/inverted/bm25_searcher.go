@@ -197,7 +197,6 @@ func (b *BM25Searcher) wand(
 				k := i + offset
 
 				eg.Go(func() error {
-
 					termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerms[j], propNames,
 						propertyBoosts, duplicateBoosts[j], params.AdditionalExplanations)
 					if err != nil {
