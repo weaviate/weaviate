@@ -212,6 +212,10 @@ func (b *BM25Searcher) wand(
 		}
 	}
 
+	if err := eg.Wait(); err != nil {
+		return nil, nil, err
+	}
+
 	// all results. Sum up the length of the results from all terms to get an upper bound of how many results there are
 	if limit == 0 {
 		for _, ind := range indices {
