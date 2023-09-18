@@ -226,7 +226,7 @@ func FromEnv(config *Config) error {
 		}
 		config.ModuleHttpClientTimeout = timeout
 	} else {
-		config.ModuleHttpClientTimeout = 60 * time.Second
+		config.ModuleHttpClientTimeout = 50 * time.Second
 	}
 
 	if v := os.Getenv("DEFAULT_VECTOR_DISTANCE_METRIC"); v != "" {
