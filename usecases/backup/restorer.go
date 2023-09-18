@@ -191,7 +191,7 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 	if err != nil {
 		nerr := backup.ErrNotFound{}
 		if errors.As(err, &nerr) {
-			return nil, nil, fmt.Errorf("%w: %q", errMetaNotFound, destPath)
+			return nil, nil, fmt.Errorf("validate: %w: %q (%v)", errMetaNotFound, destPath, err)
 		}
 		return nil, nil, fmt.Errorf("find backup %s: %w", destPath, err)
 	}

@@ -237,7 +237,7 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	meta, err := store.Meta(ctx, filename)
 	if err != nil {
 		path := fmt.Sprintf("%s/%s", req.ID, filename)
-		return nil, fmt.Errorf("%w: %q: %v", errMetaNotFound, path, err)
+		return nil, fmt.Errorf("Coordinator OnStatus: %w: %q: %v", errMetaNotFound, path, err)
 	}
 
 	return &Status{
