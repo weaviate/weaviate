@@ -24,7 +24,6 @@ import (
 )
 
 func main() {
-
 	dataPath := flag.String("data-path", "./data", "path to the data directory")
 	origin := flag.String("origin", "http://localhost:8080", "listen address")
 	clusterHostname := flag.String("cluster-hostname", "node1", "cluster hostname")
@@ -49,8 +48,6 @@ func main() {
 	os.Setenv("CLUSTER_DATA_BIND_PORT", "7101")
 	os.Setenv("AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED", "true")
 	os.Setenv("DEFAULT_VECTORIZER_MODULE", *defaultVectoriser)
-
-
 
 	config := config.GetConfigOptionGroup()
 	appState := rest.MakeAppState(context.Background(), config)
@@ -134,7 +131,6 @@ func main() {
 							}
 						})
 					}
-
 				}
 			}
 
