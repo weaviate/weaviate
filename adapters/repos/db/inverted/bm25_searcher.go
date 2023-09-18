@@ -181,6 +181,8 @@ func (b *BM25Searcher) wand(
 	results := make(terms, lengthAllResults)
 	indices := make([]map[uint64]int, lengthAllResults)
 
+	var eg errgroup.Group
+	eg.SetLimit(_NUMCPU)
 	offset := 0
 
 	for _, tokenization := range tokenizationsOrdered {
@@ -193,13 +195,17 @@ func (b *BM25Searcher) wand(
 				j := i
 				k := i + offset
 
-				termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerms[j], propNames,
-					propertyBoosts, duplicateBoosts[j], params.AdditionalExplanations)
-				if err != nil {
-					return nil, nil, err
-				}
-				results[k] = termResult
-				indices[k] = docIndices
+				eg.Go(func() error {
+
+					termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerms[j], propNames,
+						propertyBoosts, duplicateBoosts[j], params.AdditionalExplanations)
+					if err != nil {
+						return err
+					}
+					results[k] = termResult
+					indices[k] = docIndices
+					return nil
+				})
 
 			}
 			offset += len(queryTerms)
