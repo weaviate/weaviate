@@ -101,7 +101,7 @@ func validateClass(class string) error {
 func (v *Validator) ValidateSingleRef(cref *models.SingleRef) (*crossref.Ref, error) {
 	ref, err := crossref.ParseSingleRef(cref)
 	if err != nil {
-		return nil, fmt.Errorf("invalid reference: %s", err)
+		return nil, fmt.Errorf("invalid reference: %w", err)
 	}
 
 	if !ref.Local {
