@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/searchparams"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 
@@ -92,8 +94,9 @@ func TestGRPCReply(t *testing.T) {
 		name          string
 		res           []any
 		searchParams  dto.GetParams // only a few things are needed to control what is returned
-		out           []*grpc.SearchResult
+		outSearch     []*grpc.SearchResult
 		outGenerative string
+		outGroup      []*grpc.GroupByResults
 	}{
 		{
 			name: "vector only",
@@ -106,7 +109,7 @@ func TestGRPCReply(t *testing.T) {
 				},
 			},
 			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{Vector: true}},
-			out: []*grpc.SearchResult{
+			outSearch: []*grpc.SearchResult{
 				{AdditionalProperties: &grpc.ResultAdditionalProps{Vector: []float32{1}}, Properties: &grpc.ResultProperties{}},
 				{AdditionalProperties: &grpc.ResultAdditionalProps{Vector: []float32{2}}, Properties: &grpc.ResultProperties{}},
 			},
@@ -142,7 +145,7 @@ func TestGRPCReply(t *testing.T) {
 				},
 			},
 			searchParams: allAdditional,
-			out: []*grpc.SearchResult{
+			outSearch: []*grpc.SearchResult{
 				{
 					AdditionalProperties: &grpc.ResultAdditionalProps{
 						Vector:                    []float32{1},
@@ -201,7 +204,7 @@ func TestGRPCReply(t *testing.T) {
 				ClassName:  className,
 				Properties: search.SelectProperties{{Name: "word", IsPrimitive: true}, {Name: "age", IsPrimitive: true}},
 			},
-			out: []*grpc.SearchResult{
+			outSearch: []*grpc.SearchResult{
 				{
 					AdditionalProperties: &grpc.ResultAdditionalProps{},
 					Properties: &grpc.ResultProperties{
@@ -233,7 +236,7 @@ func TestGRPCReply(t *testing.T) {
 				ClassName:  className,
 				Properties: search.SelectProperties{{Name: "nums", IsPrimitive: true}},
 			},
-			out: []*grpc.SearchResult{
+			outSearch: []*grpc.SearchResult{
 				{
 					AdditionalProperties: &grpc.ResultAdditionalProps{},
 					Properties: &grpc.ResultProperties{
@@ -285,7 +288,7 @@ func TestGRPCReply(t *testing.T) {
 					}},
 				},
 			},
-			out: []*grpc.SearchResult{
+			outSearch: []*grpc.SearchResult{
 				{
 					AdditionalProperties: &grpc.ResultAdditionalProps{},
 					Properties: &grpc.ResultProperties{
@@ -346,7 +349,7 @@ func TestGRPCReply(t *testing.T) {
 				ID:           true,
 				ModuleParams: map[string]interface{}{"generate": "must be present for extraction"},
 			}},
-			out: []*grpc.SearchResult{
+			outSearch: []*grpc.SearchResult{
 				{
 					AdditionalProperties: &grpc.ResultAdditionalProps{
 						Id:                string(UUID1),
@@ -385,7 +388,7 @@ func TestGRPCReply(t *testing.T) {
 				ID:           true,
 				ModuleParams: map[string]interface{}{"generate": "must be present for extraction"},
 			}},
-			out: []*grpc.SearchResult{
+			outSearch: []*grpc.SearchResult{
 				{
 					AdditionalProperties: &grpc.ResultAdditionalProps{
 						Id: string(UUID1),
@@ -401,15 +404,92 @@ func TestGRPCReply(t *testing.T) {
 			},
 			outGenerative: refClass1,
 		},
+		{
+			name: "group by",
+			res: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{
+						"id": UUID2,
+						"group": &additional.Group{
+							ID:          1,
+							MinDistance: 0.1,
+							MaxDistance: 0.2,
+							Count:       3,
+							GroupedBy:   &additional.GroupedBy{Value: "GroupByValue1", Path: []string{"some_prop"}},
+							Hits: []map[string]interface{}{
+								{
+									"word": "word",
+									"ref": []interface{}{
+										search.LocalRef{
+											Class: refClass1,
+											Fields: map[string]interface{}{
+												"something":   "other",
+												"_additional": map[string]interface{}{"vector": []float32{2}, "id": UUID1},
+											},
+										},
+									},
+									"_additional": &additional.GroupHitAdditional{Vector: []float32{3}, ID: UUID2},
+								},
+								{
+									"word":        "other",
+									"_additional": &additional.GroupHitAdditional{Vector: []float32{4}, ID: UUID1},
+								},
+							},
+						},
+					},
+				},
+			},
+			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{
+				ID:     true,
+				Vector: true,
+			}, GroupBy: &searchparams.GroupBy{Groups: 3, ObjectsPerGroup: 4, Property: "name"}},
+			outGroup: []*grpc.GroupByResults{{
+				Name:            "GroupByValue1",
+				MaxDistance:     0.2,
+				MinDistance:     0.1,
+				NumberOfObjects: 3,
+				Objects: []*grpc.SearchResult{
+					{
+						Properties: &grpc.ResultProperties{
+							NonRefProperties: newStruct(t, map[string]interface{}{"word": "word"}),
+							RefProps: []*grpc.ReturnRefProperties{
+								{
+									PropName: "other",
+									Properties: []*grpc.ResultProperties{
+										{
+											NonRefProperties: newStruct(t, map[string]interface{}{"something": "other"}),
+											Metadata:         &grpc.ResultAdditionalProps{Vector: []float32{2}, Id: UUID1.String()},
+										},
+									},
+								},
+							},
+						},
+						AdditionalProperties: &grpc.ResultAdditionalProps{
+							Id:     string(UUID2),
+							Vector: []float32{3},
+						},
+					},
+					{
+						Properties: &grpc.ResultProperties{
+							NonRefProperties: newStruct(t, map[string]interface{}{"word": "other"}),
+						},
+						AdditionalProperties: &grpc.ResultAdditionalProps{
+							Id:     string(UUID1),
+							Vector: []float32{4},
+						},
+					},
+				},
+			}},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := searchResultsToProto(tt.res, time.Now(), tt.searchParams, scheme)
 			require.Nil(t, err)
-			for i := range tt.out {
-				require.Equal(t, tt.out[i].Properties.String(), out.Results[i].Properties.String())
-				require.Equal(t, tt.out[i].AdditionalProperties.String(), out.Results[i].AdditionalProperties.String())
+			for i := range tt.outSearch {
+				require.Equal(t, tt.outSearch[i].Properties.String(), out.Results[i].Properties.String())
+				require.Equal(t, tt.outSearch[i].AdditionalProperties.String(), out.Results[i].AdditionalProperties.String())
 			}
 			require.Equal(t, out.GenerativeGroupedResult, tt.outGenerative)
 		})
