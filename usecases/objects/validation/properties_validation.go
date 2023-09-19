@@ -488,8 +488,12 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 		return nil, fmt.Errorf("invalid reference: %s", err)
 	}
 	errVal := fmt.Sprintf("'cref' %s:%s", className, propertyName)
-	err = v.ValidateSingleRef(ctx, ref.SingleRef(), errVal, "")
+	ref, err = v.ValidateSingleRef(ref.SingleRef())
 	if err != nil {
+		return nil, err
+	}
+
+	if err = v.ValidateExistence(ctx, ref, errVal, ""); err != nil {
 		return nil, err
 	}
 
