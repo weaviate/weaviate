@@ -17,7 +17,9 @@ import (
 	"strings"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	log "github.com/go-kit/kit/log/logrus"
 	errors "github.com/go-openapi/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -120,6 +122,11 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 
 	groups := c.extractGroups(claims)
 
+	logrusLogger := logrus.New()
+	logger := log.NewLogrusLogger(logrusLogger).(logrus.FieldLogger)
+	logger.WithField("action", "middleware.go").WithField("groups", groups).Info("**GROUPS**")
+	logger.WithField("action", "middleware.go").WithField("username", username).Info("**USERS**")
+	logger.WithField("action", "middleware.go").WithField("claims", claims).Info("**CLAIMS**")
 	return &models.Principal{
 		Username: username,
 		Groups:   groups,
@@ -153,6 +160,8 @@ func (c *Client) extractUsername(claims map[string]interface{}) (string, error) 
 // is returned. This is because groups are not a required standard in the OIDC
 // spec, so we can't error if an OIDC provider does not support them.
 func (c *Client) extractGroups(claims map[string]interface{}) []string {
+	logrusLogger := logrus.New()
+	logger := log.NewLogrusLogger(logrusLogger).(logrus.FieldLogger)
 	var groups []string
 
 	groupsUntyped, ok := claims[c.config.GroupsClaim]
@@ -169,6 +178,7 @@ func (c *Client) extractGroups(claims map[string]interface{}) []string {
 		if group, ok := untyped.(string); ok {
 			groups = append(groups, group)
 		}
+		logger.WithField("action", "middleware.go").WithField("groups", "groupsSlice").Infof("**GROUPS ADDED: %T", groupsSlice)
 	}
 
 	return groups
