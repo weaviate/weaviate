@@ -160,8 +160,6 @@ func (c *Client) extractUsername(claims map[string]interface{}) (string, error) 
 // is returned. This is because groups are not a required standard in the OIDC
 // spec, so we can't error if an OIDC provider does not support them.
 func (c *Client) extractGroups(claims map[string]interface{}) []string {
-	logrusLogger := logrus.New()
-	logger := log.NewLogrusLogger(logrusLogger).(logrus.FieldLogger)
 	var groups []string
 
 	groupsUntyped, ok := claims[c.config.GroupsClaim]
@@ -175,10 +173,9 @@ func (c *Client) extractGroups(claims map[string]interface{}) []string {
 	}
 
 	for _, untyped := range groupsSlice {
-		if group, ok := untyped.(string); ok {
-			groups = append(groups, group)
+		if group, ok := untyped.(map[string]interface{}); ok {
+			groups = append(groups, group["group"].(string))
 		}
-		logger.WithField("action", "middleware.go").WithField("groups", "groupsSlice").Infof("**GROUPS ADDED: %T", groupsSlice)
 	}
 
 	return groups
