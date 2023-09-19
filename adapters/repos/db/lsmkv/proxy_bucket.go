@@ -27,7 +27,7 @@ From now on, all property data MUST go through a proxy bucket. e.g.
 			t.Fatalf("Failed to create bucket: %v", err)
 		}
 
-		bp := NewBucketProxy(b, propName, propids)
+		bp := WrapBucketWithProp(b, propName, propids)
 
 In order to speed up access, the property name is not used as a prefix, instead each property is given a number and that is used as a prefix.  The property name is only used for debugging.
 
@@ -51,6 +51,32 @@ type BucketProxy struct {
 	propertyPrefix []byte          // the property id as a byte prefix, only keys with this prefix will be  accessed
 	PropertyName   string          // the property name, used mainly for debugging
 }
+
+var UseMergedBuckets = true // if true, use the merged buckets, if false, use the legacy buckets
+
+//Wraps a bucket with a property prefixer
+func WrapBucketWithProp(bucket *Bucket, propName string, propIds *tracker.JsonPropertyIdTracker) (BucketInterface, error) {
+	bucketValue, err := NewBucketProxy(bucket, propName, propIds)
+	if err != nil {
+		return nil, fmt.Errorf("cannot wrap raw bucket with property prefixer '%s': %v", propName, err)
+	}
+
+	return bucketValue, nil
+}
+
+//Returns either a real bucket or a proxy bucket, depending on whether the merged bucket feature is active or not
+func FetchMeABucket(store *Store, mergedName string, propName string, propids *tracker.JsonPropertyIdTracker) (BucketInterface, error) {
+	bucket := store.Bucket(mergedName)
+	if UseMergedBuckets {
+		return bucket, nil
+	}
+	proxyBucket, err := NewBucketProxy(bucket, propName, propids)
+	if err != nil {
+		return nil, fmt.Errorf("could not create proxy bucket for prop %s: %v", propName, err)
+	}
+	return proxyBucket, nil
+}
+
 
 func NewBucketProxy(realB BucketInterface, propName string, propids *tracker.JsonPropertyIdTracker) (*BucketProxy, error) {
 	if propids == nil {

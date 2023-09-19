@@ -38,7 +38,7 @@ func TestBucketProxyCreation(t *testing.T) {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
 
-	bp, err := NewBucketProxy(b, propName, propids)
+	bp, err := WrapBucketWithProp(b, propName, propids)
 	if err != nil {
 		t.Fatalf("Failed to create BucketProxy: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestBucketProxyGetAndPut(t *testing.T) {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
 
-	bp, err := NewBucketProxy(b, propName, propids)
+	bp, err := WrapBucketWithProp(b, propName, propids)
 	if err != nil {
 		t.Fatalf("Failed to create BucketProxy: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestBucketProxyGetNotFound(t *testing.T) {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
 
-	bp, err := NewBucketProxy(b, propName, propids)
+	bp, err := WrapBucketWithProp(b, propName, propids)
 	if err != nil {
 		t.Fatalf("Failed to create BucketProxy: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestBucketProxyDelete(t *testing.T) {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
 
-	bp, err := NewBucketProxy(b, propName, propids)
+	bp, err := WrapBucketWithProp(b, propName, propids)
 	if err != nil {
 		t.Fatalf("Failed to create BucketProxy: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestBucketProxyMapSetAndGet(t *testing.T) {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
 
-	bp, err := NewBucketProxy(b, propName, propids)
+	bp, err := WrapBucketWithProp(b, propName, propids)
 	if err != nil {
 		t.Fatalf("Failed to create BucketProxy: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestBucketProxyCount(t *testing.T) {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
 
-	bp, err := NewBucketProxy(b, propName, propids)
+	bp, err := WrapBucketWithProp(b, propName, propids)
 	if err != nil {
 		t.Fatalf("Failed to create BucketProxy: %v", err)
 	}
@@ -265,12 +265,12 @@ func TestMultiplePrefixes(t *testing.T) {
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
 
-	bucketProxy1, err := NewBucketProxy(b, propName1, propids)
+	bucketProxy1, err := WrapBucketWithProp(b, propName1, propids)
 	if err != nil {
 		t.Fatalf("Failed to create BucketProxy: %v", err)
 	}
 
-	bucketProxy2, err := NewBucketProxy(b, propName2, propids)
+	bucketProxy2, err := WrapBucketWithProp(b, propName2, propids)
 	if err != nil {
 		t.Fatalf("Failed to create BucketProxy: %v", err)
 	}

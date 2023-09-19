@@ -84,14 +84,7 @@ type Shard struct {
 	cycleCallbacks *shardCycleCallbacks
 }
 
-func (s *Shard) wrapBucketWithProp(bucket *lsmkv.Bucket, propName string, propIds *tracker.JsonPropertyIdTracker) (*lsmkv.BucketProxy, error) {
-	bucketValue, err := lsmkv.NewBucketProxy(bucket, propName, propIds)
-	if err != nil {
-		return nil, errors.Errorf("cannot wrap raw bucket with property prefixer '%s': %v", propName, err)
-	}
 
-	return bucketValue, nil
-}
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics, shardName string, index *Index, class *models.Class, jobQueueCh chan job) (*Shard, error) {
 	before := time.Now()

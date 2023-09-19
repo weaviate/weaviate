@@ -96,8 +96,6 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 		}
 
-		b := s.store.Bucket(bucketName) // We wrap this later
-
 		// TODO text_rbm_inverted_index find better way check whether prop len
 		if strings.HasSuffix(pv.prop, filters.InternalPropertyLength) &&
 			!pv.Class.InvertedIndexConfig.IndexPropertyLength {
@@ -118,7 +116,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			}
 		}
 
-		bproxy, err := lsmkv.NewBucketProxy(b, pv.prop, s.propIds)
+		bproxy, err := lsmkv.FetchMeABucket(s.store, bucketName, pv.prop, s.propIds)
 		if err != nil {
 			return err
 		}

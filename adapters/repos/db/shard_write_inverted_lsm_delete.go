@@ -25,7 +25,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 ) error {
 	for _, prop := range props {
 		if prop.HasFilterableIndex {
-			bucket, err := lsmkv.NewBucketProxy(s.store.Bucket("filterable_properties"), prop.Name, s.propIds)
+			bucket, err := lsmkv.FetchMeABucket(s.store,"filterable_properties", prop.Name, s.propIds)
 			if err != nil {
 				return fmt.Errorf("no bucket for prop '%s' found: %v", prop.Name, err)
 			}
@@ -39,7 +39,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 		}
 
 		if prop.HasSearchableIndex {
-			bucket, err := lsmkv.NewBucketProxy(s.store.Bucket("searchable_properties"), prop.Name, s.propIds)
+			bucket, err := lsmkv.FetchMeABucket(s.store,"searchable_properties", prop.Name, s.propIds)
 			if err != nil {
 				return fmt.Errorf("no bucket searchable for prop '%s: %v' found", prop.Name, err)
 			}
