@@ -40,7 +40,7 @@ func TestGetScore(t *testing.T) {
 			},
 		})
 		defer server.Close()
-		c := New(server.URL, nullLogger())
+		c := New(server.URL, 0, nullLogger())
 		res, err := c.Rank(context.Background(), "Where do I work?", []string{"I work at Apple"}, nil)
 
 		assert.Nil(t, err)
@@ -63,7 +63,7 @@ func TestGetScore(t *testing.T) {
 			},
 		})
 		defer server.Close()
-		c := New(server.URL, nullLogger())
+		c := New(server.URL, 0, nullLogger())
 		_, err := c.Rank(context.Background(), "prop",
 			[]string{"I work at Apple"}, nil)
 
@@ -124,7 +124,7 @@ func TestGetScore(t *testing.T) {
 		})
 		defer server.Close()
 
-		c := New(server.URL, nullLogger())
+		c := New(server.URL, 0, nullLogger())
 		c.maxDocuments = 2
 
 		query := "Where do I work?"

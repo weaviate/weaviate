@@ -15,6 +15,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -71,7 +72,7 @@ func (m *HuggingFaceModule) Init(ctx context.Context,
 ) error {
 	m.logger = params.GetLogger()
 
-	if err := m.initVectorizer(ctx, m.logger); err != nil {
+	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout, m.logger); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
 
@@ -100,11 +101,11 @@ func (m *HuggingFaceModule) InitExtension(modules []modulecapabilities.Module) e
 	return nil
 }
 
-func (m *HuggingFaceModule) initVectorizer(ctx context.Context,
+func (m *HuggingFaceModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
 	apiKey := os.Getenv("HUGGINGFACE_APIKEY")
-	client := clients.New(apiKey, logger)
+	client := clients.New(apiKey, timeout, logger)
 
 	m.vectorizer = vectorizer.New(client)
 	m.metaProvider = client

@@ -91,6 +91,16 @@ message SearchRequest {
   optional GenerativeSearch generative = 19;
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated SortBy sort_by = 20;
+  optional GroupBy group_by = 21;
+}
+
+message GroupBy {
+  // currently only supports one entry (eg just properties, no refs). But might
+  // be extended in the future.
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated string path = 1;
+  int32 number_of_groups = 2;
+  int32 objects_per_group = 3;
 }
 
 message SortBy {
@@ -255,6 +265,15 @@ message SearchReply {
   repeated SearchResult results = 1;
   float took = 2;
   string generative_grouped_result = 3;
+  repeated GroupByResults group_by_results = 4;
+}
+
+message GroupByResults {
+  string name = 1;
+  float min_distance = 2;
+  float max_distance = 3;
+  int64 number_of_objects = 4;
+  repeated SearchResult objects = 5;
 }
 
 message SearchResult {

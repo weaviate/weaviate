@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
@@ -72,14 +73,16 @@ type vectorizer struct {
 	logger             logrus.FieldLogger
 }
 
-func New(openAIApiKey, openAIOrganization, azureApiKey string, logger logrus.FieldLogger) *vectorizer {
+func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
 		openAIApiKey:       openAIApiKey,
 		openAIOrganization: openAIOrganization,
 		azureApiKey:        azureApiKey,
-		httpClient:         &http.Client{},
-		buildUrlFn:         buildUrl,
-		logger:             logger,
+		httpClient: &http.Client{
+			Timeout: timeout,
+		},
+		buildUrlFn: buildUrl,
+		logger:     logger,
 	}
 }
 

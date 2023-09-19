@@ -11,6 +11,8 @@
 
 package additional
 
+import "github.com/go-openapi/strfmt"
+
 type Group struct {
 	ID          int                      `json:"id"`
 	GroupedBy   *GroupedBy               `json:"groupedBy"`
@@ -26,7 +28,7 @@ type GroupedBy struct {
 }
 
 type GroupHitAdditional struct {
-	ID       string    `json:"id"`
-	Vector   []float32 `json:"vector"`
-	Distance float32   `json:"distance"`
+	ID       strfmt.UUID `json:"id"`
+	Vector   []float32   `json:"vector"`
+	Distance float32     `json:"distance"`
 }
