@@ -666,10 +666,11 @@ func TestGRPCRequest(t *testing.T) {
 				ClassName: classname, Pagination: defaultPagination,
 				AdditionalProperties: additional.Properties{
 					Vector:  true,
-					NoProps: true,
+					NoProps: false,
 					Group:   true,
 				},
 				NearVector: &searchparams.NearVector{Vector: []float32{1, 2, 3}},
+				Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}},
 				GroupBy:    &searchparams.GroupBy{Groups: 2, ObjectsPerGroup: 3, Property: "name"},
 			},
 			error: false,
