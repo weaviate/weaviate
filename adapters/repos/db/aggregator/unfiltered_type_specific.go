@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	
 )
 
