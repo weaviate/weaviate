@@ -382,6 +382,64 @@ func TestBatchRefsWithoutFromAndToClass(t *testing.T) {
 	}
 }
 
+func TestBatchRefWithErrors(t *testing.T) {
+	refToClassName := "ReferenceTo"
+	refFromClassName := "ReferenceFrom"
+
+	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{Class: refToClassName})
+	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+
+	refFromClass := &models.Class{
+		Class: refFromClassName,
+		Properties: []*models.Property{
+			{
+				DataType: []string{refToClassName},
+				Name:     "ref",
+			},
+		},
+	}
+	params2 := clschema.NewSchemaObjectsCreateParams().WithObjectClass(refFromClass)
+	resp2, err := helper.Client(t).Schema.SchemaObjectsCreate(params2, nil)
+	helper.AssertRequestOk(t, resp2, err, nil)
+
+	defer deleteObjectClass(t, refToClassName)
+	defer deleteObjectClass(t, refFromClassName)
+
+	uuidsTo := make([]strfmt.UUID, 2)
+	uuidsFrom := make([]strfmt.UUID, 2)
+	for i := 0; i < 2; i++ {
+		uuidsTo[i] = assertCreateObject(t, refToClassName, map[string]interface{}{})
+		assertGetObjectWithClass(t, uuidsTo[i], refToClassName)
+
+		uuidsFrom[i] = assertCreateObject(t, refFromClassName, map[string]interface{}{})
+		assertGetObjectWithClass(t, uuidsFrom[i], refFromClassName)
+	}
+
+	var batchRefs []*models.BatchReference
+	for i := range uuidsFrom {
+		from := beaconStart + "ReferenceFrom/" + uuidsFrom[i] + "/ref"
+		to := beaconStart + uuidsTo[i]
+		batchRefs = append(batchRefs, &models.BatchReference{From: strfmt.URI(from), To: strfmt.URI(to)})
+	}
+
+	// append one entry with a non-existent class
+	batchRefs = append(batchRefs, &models.BatchReference{From: strfmt.URI(beaconStart + "DoesNotExist/" + uuidsFrom[0] + "/ref"), To: strfmt.URI(beaconStart + uuidsTo[0])})
+
+	// append one entry with a non-existent property for existing class
+	batchRefs = append(batchRefs, &models.BatchReference{From: strfmt.URI(beaconStart + "ReferenceFrom/" + uuidsFrom[0] + "/doesNotExist"), To: strfmt.URI(beaconStart + uuidsTo[0])})
+
+	postRefParams := batch.NewBatchReferencesCreateParams().WithBody(batchRefs)
+	postRefResponse, err := helper.Client(t).Batch.BatchReferencesCreate(postRefParams, nil)
+	helper.AssertRequestOk(t, postRefResponse, err, nil)
+
+	require.NotNil(t, postRefResponse.Payload[2].Result.Errors)
+	require.Contains(t, postRefResponse.Payload[2].Result.Errors.Error[0].Message, "class DoesNotExist does not exist")
+
+	require.NotNil(t, postRefResponse.Payload[3].Result.Errors)
+	require.Contains(t, postRefResponse.Payload[3].Result.Errors.Error[0].Message, "property doesNotExist does not exist for class ReferenceFrom")
+}
+
 func TestBatchRefsWithoutToClass(t *testing.T) {
 	refToClassName := "ReferenceTo"
 	refFromClassName := "ReferenceFrom"
