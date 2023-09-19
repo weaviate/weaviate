@@ -94,14 +94,14 @@ func Test_RapidlyAddingReferences(t *testing.T) {
 
 	t.Run("adding all objects (without referencing)", func(t *testing.T) {
 		t.Run("source object", func(t *testing.T) {
-			assertCreateObjectWithID(t, sourceClass, sourceID, map[string]interface{}{
+			assertCreateObjectWithID(t, sourceClass, "", sourceID, map[string]interface{}{
 				"name": "Source Object",
 			})
 		})
 
 		t.Run("target objects", func(t *testing.T) {
 			for i, id := range targetIDs {
-				assertCreateObjectWithID(t, targetClass, id, map[string]interface{}{
+				assertCreateObjectWithID(t, targetClass, "", id, map[string]interface{}{
 					"name": fmt.Sprintf("target object %d", i),
 				})
 			}
