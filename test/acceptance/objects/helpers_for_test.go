@@ -40,12 +40,13 @@ func assertCreateObject(t *testing.T, className string, schema map[string]interf
 	return objectID
 }
 
-func assertCreateObjectWithID(t *testing.T, className string, id strfmt.UUID, schema map[string]interface{}) {
+func assertCreateObjectWithID(t *testing.T, className, tenant string, id strfmt.UUID, schema map[string]interface{}) {
 	params := objects.NewObjectsCreateParams().WithBody(
 		&models.Object{
 			ID:         id,
 			Class:      className,
 			Properties: schema,
+			Tenant:     tenant,
 		})
 
 	resp, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
