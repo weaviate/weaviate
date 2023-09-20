@@ -180,7 +180,7 @@ func (b *BucketProxy) Delete(key []byte, opts ...SecondaryKeyOption) error {
 }
 
 func (b *BucketProxy) Count() int {
-	//Count is only used on the object bucket, and BucketProxy is never used on the object bucket (only on the property buckets)
+	// Count is only used on the object bucket, and BucketProxy is never used on the object bucket (only on the property buckets)
 	return -1
 }
 
