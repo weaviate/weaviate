@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
@@ -37,7 +38,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"golang.org/x/sync/errgroup"
 )
 
 type BM25Searcher struct {
@@ -206,7 +206,6 @@ func (b *BM25Searcher) wand(
 					indices[k] = docIndices
 					return nil
 				})
-
 			}
 			offset += len(queryTerms)
 		}
@@ -215,7 +214,6 @@ func (b *BM25Searcher) wand(
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
 	}
-
 	// all results. Sum up the length of the results from all terms to get an upper bound of how many results there are
 	if limit == 0 {
 		for _, ind := range indices {
