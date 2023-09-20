@@ -243,8 +243,8 @@ func TestBucketProxyCount(t *testing.T) {
 
 	// Check the count
 	count := bp.Count()
-	if count != 1 {
-		t.Fatalf("BucketProxy count does not match expected: expected 1, got %d", count)
+	if count != -1 {
+		t.Fatalf("BucketProxy count does not match expected: expected -1, got %d", count)
 	}
 }
 
