@@ -35,7 +35,7 @@ func (b *classBuilder) parseNestedProperties(nestedProps []*models.NestedPropert
 		} else {
 			fields[prop.Name] = &graphql.Field{
 				Name: fmt.Sprintf("%sObject%s%sField", className, propName, prop.Name),
-				Type: b.determinNestedPropertyType(prop.DataType),
+				Type: b.determinNestedPropertyType(prop.DataType, prop.Name),
 			}
 		}
 	}
@@ -45,19 +45,13 @@ func (b *classBuilder) parseNestedProperties(nestedProps []*models.NestedPropert
 		Fields: fields,
 	})
 
-	// determine Object[] and Object types
 	if len(propDataType) == 1 && propDataType[0] == schema.DataTypeObjectArray.String() {
-		return &graphql.Field{
-			Type: graphql.NewList(fieldType),
-		}
+		return &graphql.Field{Type: graphql.NewList(fieldType)}
 	}
-
-	return &graphql.Field{
-		Type: fieldType,
-	}
+	return &graphql.Field{Type: fieldType}
 }
 
-func (b *classBuilder) determinNestedPropertyType(dataType []string) graphql.Output {
+func (b *classBuilder) determinNestedPropertyType(dataType []string, propName string) graphql.Output {
 	switch schema.DataType(dataType[0]) {
 	case schema.DataTypeText, schema.DataTypeString:
 		return graphql.String
@@ -67,11 +61,26 @@ func (b *classBuilder) determinNestedPropertyType(dataType []string) graphql.Out
 		return graphql.Float
 	case schema.DataTypeBoolean:
 		return graphql.Boolean
+	case schema.DataTypeDate:
+		return graphql.String
+	case schema.DataTypeBlob:
+		return graphql.String
+	case schema.DataTypeUUID:
+		return graphql.String
+	case schema.DataTypeTextArray, schema.DataTypeStringArray:
+		return graphql.NewList(graphql.String)
+	case schema.DataTypeIntArray:
+		return graphql.NewList(graphql.Int)
 	case schema.DataTypeNumberArray:
 		return graphql.NewList(graphql.Float)
-	// case schema.DataTypeObjectArray:
-	// 	return graphql.NewList(graphql.NewObject())
+	case schema.DataTypeBooleanArray:
+		return graphql.NewList(graphql.Boolean)
+	case schema.DataTypeDateArray:
+		return graphql.NewList(graphql.String)
+	case schema.DataTypeUUIDArray:
+		return graphql.NewList(graphql.String)
 	default:
-		return nil
+		panic(fmt.Sprintf("determinNestedPropertyType: unknown primitive type for property %s: %s",
+			propName, dataType[0]))
 	}
 }
