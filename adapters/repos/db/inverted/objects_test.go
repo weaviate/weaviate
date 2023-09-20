@@ -39,7 +39,7 @@ func TestAnalyzeObject(t *testing.T) {
 			"profession":  "Mechanical Engineer",
 			"id1":         id1,                 // correctly parsed
 			"id2":         id2.String(),        // untyped
-			"idArray1":    []uuid.UUID{id1},    // coorectly parsed
+			"idArray1":    []uuid.UUID{id1},    // correctly parsed
 			"idArray2":    []any{id2.String()}, // untyped
 		}
 

@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// DeleteObject Class Instance from the conncected DB
+// DeleteObject Class Instance from the connected DB
 //
 // if class == "" it will delete all object with same id regardless of the class name.
 // This is due to backward compatibility reasons and should be removed in the future

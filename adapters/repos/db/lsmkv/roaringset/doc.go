@@ -12,14 +12,14 @@
 // The "roaringset" package contains all the LSM business logic that is unique
 // to the "RoaringSet" strategy
 //
-// This package alone does not contain an entire LSM store. It's indended to be
+// This package alone does not contain an entire LSM store. It's intended to be
 // used as part of the [github.com/weaviate/weaviate/adapters/repos/db/lsmkv] package.
 //
 // # Motivation
 //
 // What makes the RoaringSet strategy unique is that it's essentially a fully
 // persistent Roaring Bitmap that can be built up and updated incrementally
-// (without write amplificiation) while being extremely fast to query.
+// (without write amplification) while being extremely fast to query.
 //
 // Without this specific strategy, it would not be efficient to use roaring
 // bitmaps in an LSM store. For example:
@@ -37,7 +37,7 @@
 //     retrieve and initialize a bitmap containing 90M objects in a few
 //     milliseconds. However, the cost to incrementally update this bitmap would
 //     be extreme. You would have to use a read-modify-write pattern which would
-//     lead to huge write-amplicifiaction on large setups. A 90M roaring bitmap
+//     lead to huge write-amplification on large setups. A 90M roaring bitmap
 //     is about 10.5MB, so to add a single entry (which would take up anywhere
 //     from 1 bit to 2 bytes), you would have to read 10.5MB and write 10.5MB
 //     again. That's not feasible except for bulk-loading. In Weaviate we cannot
@@ -71,7 +71,7 @@
 // deltas that were written in a specific time interval. When reading, all
 // layers must be combined into a single bitmap (see [BitmapLayers.Flatten]).
 //
-// Over time segments can be combined into fewer, larger segments uisng an LSM
+// Over time segments can be combined into fewer, larger segments using an LSM
 // Compaction process. The logic for that can be found in [BitmapLayers.Merge].
 //
 // To make sure access is efficient the entire RoaringSet strategy is built to

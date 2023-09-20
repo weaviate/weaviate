@@ -497,7 +497,7 @@ func (d *dummyLock) LockSchema() (func() error, error) {
 	return func() error { return nil }, nil
 }
 
-// everything hard-coded right now, to be made dynmaic (from go plugins later)
+// everything hard-coded right now, to be made dynamic (from go plugins later)
 func registerModules(appState *state.State) error {
 	appState.Logger.
 		WithField("action", "startup").
@@ -730,7 +730,7 @@ func initModules(ctx context.Context, appState *state.State) error {
 	// TODO: gh-1481 don't pass entire appState in, but only what's needed. Probably only
 	// config?
 	moduleParams := moduletools.NewInitParams(storageProvider, appState,
-		appState.Logger)
+		appState.ServerConfig.Config, appState.Logger)
 
 	appState.Logger.
 		WithField("action", "startup").

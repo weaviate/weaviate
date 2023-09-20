@@ -56,7 +56,7 @@ func Test_BackupJourney(t *testing.T) {
 		require.Nil(t, err)
 		defer func() {
 			if err := compose.Terminate(ctx); err != nil {
-				t.Fatalf("failed to terminte test containers: %s", err.Error())
+				t.Fatalf("failed to terminate test containers: %s", err.Error())
 			}
 		}()
 
@@ -86,7 +86,7 @@ func Test_BackupJourney(t *testing.T) {
 		require.Nil(t, err)
 		defer func() {
 			if err := compose.Terminate(ctx); err != nil {
-				t.Fatalf("failed to terminte test containers: %s", err.Error())
+				t.Fatalf("failed to terminate test containers: %s", err.Error())
 			}
 		}()
 

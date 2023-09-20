@@ -48,7 +48,7 @@ const (
 	StatusReadOnly
 )
 
-// Error reports error happing during replication
+// Error reports error happening during replication
 type Error struct {
 	Code StatusCode `json:"code"`
 	Msg  string     `json:"msg,omitempty"`

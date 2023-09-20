@@ -491,7 +491,7 @@ func (m *Migrator) logMissingFilterableShard(shard *Shard) *logrus.Entry {
 // As of v1.19 property's IndexInverted setting is replaced with IndexFilterable
 // and IndexSearchable
 // Filterable buckets use roaring set strategy and searchable ones use map strategy
-// (therefore are applicabe just for text/text[])
+// (therefore are applicable just for text/text[])
 // Since both type of buckets can coexist for text/text[] props they need to be
 // distinguished by their name: searchable bucket has "searchable" suffix.
 // Up until v1.19 default text/text[]/string/string[] (string/string[] deprecated since v1.19)
@@ -504,7 +504,7 @@ func (m *Migrator) logMissingFilterableShard(shard *Shard) *logrus.Entry {
 // Though IndexFilterable setting is enabled filterable index does not exists,
 // therefore shards are switched into fallback mode, to use searchable buckets instead of
 // filterable ones whenever filtered are expected.
-// Fallback mode efectivelly sets IndexFilterable to false, although it stays enabled according
+// Fallback mode effectively sets IndexFilterable to false, although it stays enabled according
 // to schema.
 //
 // If filterable indexes will be created (that is up to user to decide whether missing indexes

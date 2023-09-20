@@ -30,7 +30,7 @@ func TestWaitForStartup(t *testing.T) {
 	t.Run("when common server is immediately ready", func(t *testing.T) {
 		server := httptest.NewServer(&testReadyHandler{t: t})
 		defer server.Close()
-		v := New(server.URL, server.URL, nullLogger())
+		v := New(server.URL, server.URL, 0, nullLogger())
 		err := v.WaitForStartup(context.Background(), 150*time.Millisecond)
 
 		assert.Nil(t, err)
@@ -41,7 +41,7 @@ func TestWaitForStartup(t *testing.T) {
 		serverQuery := httptest.NewServer(&testReadyHandler{t: t})
 		defer serverPassage.Close()
 		defer serverQuery.Close()
-		v := New(serverPassage.URL, serverQuery.URL, nullLogger())
+		v := New(serverPassage.URL, serverQuery.URL, 0, nullLogger())
 		err := v.WaitForStartup(context.Background(), 150*time.Millisecond)
 
 		assert.Nil(t, err)
@@ -49,10 +49,10 @@ func TestWaitForStartup(t *testing.T) {
 
 	t.Run("when common server is down", func(t *testing.T) {
 		url := "http://nothing-running-at-this-url"
-		v := New(url, url, nullLogger())
+		v := New(url, url, 0, nullLogger())
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
-		err := v.WaitForStartup(ctx, 150*time.Millisecond)
+		err := v.WaitForStartup(ctx, 50*time.Millisecond)
 
 		require.NotNil(t, err, nullLogger())
 		assert.Contains(t, err.Error(), "init context expired before remote was ready: send check ready request")
@@ -64,7 +64,7 @@ func TestWaitForStartup(t *testing.T) {
 	t.Run("when passage and query servers are down", func(t *testing.T) {
 		urlPassage := "http://nothing-running-at-this-url"
 		urlQuery := "http://nothing-running-at-this-url-either"
-		v := New(urlPassage, urlQuery, nullLogger())
+		v := New(urlPassage, urlQuery, 0, nullLogger())
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
 		err := v.WaitForStartup(ctx, 50*time.Millisecond)
@@ -81,7 +81,7 @@ func TestWaitForStartup(t *testing.T) {
 			readyTime: time.Now().Add(time.Hour),
 		})
 		defer server.Close()
-		v := New(server.URL, server.URL, nullLogger())
+		v := New(server.URL, server.URL, 0, nullLogger())
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
 		err := v.WaitForStartup(ctx, 50*time.Millisecond)
@@ -105,7 +105,7 @@ func TestWaitForStartup(t *testing.T) {
 		})
 		defer serverPassage.Close()
 		defer serverQuery.Close()
-		v := New(serverPassage.URL, serverQuery.URL, nullLogger())
+		v := New(serverPassage.URL, serverQuery.URL, 0, nullLogger())
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
 		err := v.WaitForStartup(ctx, 50*time.Millisecond)
@@ -124,7 +124,7 @@ func TestWaitForStartup(t *testing.T) {
 		})
 		defer serverPassage.Close()
 		defer serverQuery.Close()
-		v := New(serverPassage.URL, serverQuery.URL, nullLogger())
+		v := New(serverPassage.URL, serverQuery.URL, 0, nullLogger())
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
 		err := v.WaitForStartup(ctx, 50*time.Millisecond)
@@ -140,7 +140,7 @@ func TestWaitForStartup(t *testing.T) {
 			t:         t,
 			readyTime: time.Now().Add(100 * time.Millisecond),
 		})
-		v := New(server.URL, server.URL, nullLogger())
+		v := New(server.URL, server.URL, 0, nullLogger())
 		defer server.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
@@ -160,7 +160,7 @@ func TestWaitForStartup(t *testing.T) {
 		})
 		defer serverPassage.Close()
 		defer serverQuery.Close()
-		v := New(serverPassage.URL, serverQuery.URL, nullLogger())
+		v := New(serverPassage.URL, serverQuery.URL, 0, nullLogger())
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
 		err := v.WaitForStartup(ctx, 50*time.Millisecond)

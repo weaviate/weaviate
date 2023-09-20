@@ -54,7 +54,7 @@ func (m *ImageModule) Type() modulecapabilities.ModuleType {
 func (m *ImageModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
-	if err := m.initVectorizer(ctx, params.GetLogger()); err != nil {
+	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
 
@@ -65,7 +65,7 @@ func (m *ImageModule) Init(ctx context.Context,
 	return nil
 }
 
-func (m *ImageModule) initVectorizer(ctx context.Context,
+func (m *ImageModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
 	// TODO: proper config management
@@ -74,7 +74,7 @@ func (m *ImageModule) initVectorizer(ctx context.Context,
 		return errors.Errorf("required variable IMAGE_INFERENCE_API is not set")
 	}
 
-	client := clients.New(uri, logger)
+	client := clients.New(uri, timeout, logger)
 	if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
 		return errors.Wrap(err, "init remote vectorizer")
 	}

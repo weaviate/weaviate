@@ -28,6 +28,7 @@ import (
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func Test_FilesystemBackend_Backup(t *testing.T) {
@@ -51,7 +52,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 	t.Run("store backup meta in fs", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		sp := fakeStorageProvider{dataDir}
-		params := moduletools.NewInitParams(sp, nil, logger)
+		params := moduletools.NewInitParams(sp, nil, config.Config{}, logger)
 
 		fs := modstgfs.New()
 		err := fs.Init(testCtx, params)
@@ -110,18 +111,18 @@ func moduleLevelCopyObjects(t *testing.T) {
 	t.Run("copy objects", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		sp := fakeStorageProvider{dataDir}
-		params := moduletools.NewInitParams(sp, nil, logger)
+		params := moduletools.NewInitParams(sp, nil, config.Config{}, logger)
 
 		fs := modstgfs.New()
 		err := fs.Init(testCtx, params)
 		require.Nil(t, err)
 
-		t.Run("put object to backet", func(t *testing.T) {
+		t.Run("put object to bucket", func(t *testing.T) {
 			err := fs.PutObject(testCtx, backupID, key, []byte("hello"))
 			assert.Nil(t, err)
 		})
 
-		t.Run("get object from backet", func(t *testing.T) {
+		t.Run("get object from bucket", func(t *testing.T) {
 			meta, err := fs.GetObject(testCtx, backupID, key)
 			assert.Nil(t, err)
 			assert.Equal(t, []byte("hello"), meta)
@@ -149,7 +150,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 
 		logger, _ := test.NewNullLogger()
 		sp := fakeStorageProvider{dataDir}
-		params := moduletools.NewInitParams(sp, nil, logger)
+		params := moduletools.NewInitParams(sp, nil, config.Config{}, logger)
 
 		fs := modstgfs.New()
 		err = fs.Init(testCtx, params)

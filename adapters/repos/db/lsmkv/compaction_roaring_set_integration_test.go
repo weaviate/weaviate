@@ -70,7 +70,7 @@ func compactionRoaringSet(ctx context.Context, t *testing.T, opts []BucketOption
 	}
 
 	// this is a sanity check to make sure the test setup actually does what we
-	// want. With the current setup, we expect on avarage to have ~100
+	// want. With the current setup, we expect on average to have ~100
 	// compactions. It would be extremely unexpected to have fewer than 25.
 	assert.Greater(t, compactions, 25)
 
