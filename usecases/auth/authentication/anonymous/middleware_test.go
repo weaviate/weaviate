@@ -22,7 +22,7 @@ import (
 
 func Test_AnonymousMiddleware_Enabled(t *testing.T) {
 	// when anonymous access is enabled, we don't need to do anything and can
-	// savely call the next next handler
+	// safely call the next next handler
 
 	r := httptest.NewRequest("GET", "/foo", nil)
 	w := httptest.NewRecorder()

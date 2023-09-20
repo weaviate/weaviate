@@ -140,6 +140,11 @@ func validateShardingConfig(current, update *models.Class, mtEnabled bool, cl cl
 func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 	updated *models.Class, updatedShardingState *sharding.State,
 ) error {
+	if updatedShardingState != nil {
+		// the sharding state caches the node name, we must therefore set this
+		// explicitly now.
+		updatedShardingState.SetLocalName(m.clusterState.LocalName())
+	}
 	if err := m.migrator.UpdateVectorIndexConfig(ctx,
 		className, updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
 		return errors.Wrap(err, "vector index config")
@@ -150,15 +155,9 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 		return errors.Wrap(err, "inverted index config")
 	}
 
-	m.schemaCache.RLock()
-	initial := m.getClassByName(className)
-	m.schemaCache.RUnlock()
-
-	if initial == nil {
+	if !m.schemaCache.classExist(className) {
 		return ErrNotFound
 	}
-
-	m.schemaCache.LockGuard(func() { *initial = *updated })
 
 	payload, err := CreateClassPayload(updated, updatedShardingState)
 	if err != nil {
@@ -167,18 +166,10 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 	payload.ReplaceShards = updatedShardingState != nil
 	// can be improved by updating the diff
 
-	if updatedShardingState != nil {
-		// do not override if transaction does not contain an updated state
-
-		// the sharding state caches the node name, we must therefore set this
-		// explicitly now.
-		updatedShardingState.SetLocalName(m.clusterState.LocalName())
-		m.schemaCache.LockGuard(func() { m.schemaCache.ShardingState[className] = updatedShardingState })
-	}
+	m.schemaCache.updateClass(updated, updatedShardingState)
 	m.logger.
 		WithField("action", "schema.update_class").
 		Debug("saving updated schema to configuration store")
-
 	// payload.Shards
 	if err := m.repo.UpdateClass(ctx, payload); err != nil {
 		return err

@@ -602,7 +602,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	// fmt.Printf("--map-list: get all disk segments took %s\n", time.Since(before))
 
 	// before = time.Now()
-	// fmt.Printf("--map-list: apend all disk segments took %s\n", time.Since(before))
+	// fmt.Printf("--map-list: append all disk segments took %s\n", time.Since(before))
 
 	if b.flushing != nil {
 		v, err := b.flushing.getMap(key)

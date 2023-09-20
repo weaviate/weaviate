@@ -19,7 +19,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
-// Grouper groups or merges search results by how releated they are
+// Grouper groups or merges search results by how related they are
 type Grouper struct {
 	logger logrus.FieldLogger
 }

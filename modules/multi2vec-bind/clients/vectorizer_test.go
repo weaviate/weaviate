@@ -37,7 +37,7 @@ func TestVectorize(t *testing.T) {
 			},
 		})
 		defer server.Close()
-		c := New(server.URL, nullLogger())
+		c := New(server.URL, 0, nullLogger())
 		res, err := c.Vectorize(context.Background(), []string{"hello"},
 			[]string{"image-encoding"}, nil, nil, nil, nil, nil)
 
@@ -68,7 +68,7 @@ func TestVectorize(t *testing.T) {
 			},
 		})
 		defer server.Close()
-		c := New(server.URL, nullLogger())
+		c := New(server.URL, 0, nullLogger())
 		_, err := c.Vectorize(context.Background(), []string{"hello"},
 			[]string{"image-encoding"}, []string{}, []string{}, []string{}, []string{}, []string{})
 

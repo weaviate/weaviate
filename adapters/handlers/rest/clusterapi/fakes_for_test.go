@@ -170,7 +170,7 @@ func (f *fakeClusterState) NodeCount() int {
 }
 
 func (f *fakeClusterState) ClusterHealthScore() int {
-	// 0 - healty, >0 - unhealthy
+	// 0 - healthy, >0 - unhealthy
 	return 0
 }
 

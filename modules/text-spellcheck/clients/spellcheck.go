@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -44,11 +45,13 @@ type spellCheck struct {
 	logger     logrus.FieldLogger
 }
 
-func New(origin string, logger logrus.FieldLogger) *spellCheck {
+func New(origin string, timeout time.Duration, logger logrus.FieldLogger) *spellCheck {
 	return &spellCheck{
-		origin:     origin,
-		httpClient: &http.Client{},
-		logger:     logger,
+		origin: origin,
+		httpClient: &http.Client{
+			Timeout: timeout,
+		},
+		logger: logger,
 	}
 }
 

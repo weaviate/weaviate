@@ -3,8 +3,10 @@ syntax = "proto3";
 package weaviategrpc;
 
 import "google/protobuf/struct.proto";
-import "google/protobuf/timestamp.proto";
 option go_package = "github.com/weaviate/weaviate/grpc";
+
+option java_package = "io.weaviate.client.grpc.protocol";
+option java_outer_classname = "WeaviateProto";
 
 
 service Weaviate {
@@ -12,8 +14,17 @@ service Weaviate {
   rpc BatchObjects(BatchObjectsRequest) returns (BatchObjectsReply) {};
 }
 
+enum ConsistencyLevel {
+  CONSISTENCY_LEVEL_UNSPECIFIED = 0;
+  CONSISTENCY_LEVEL_ONE = 1;
+  CONSISTENCY_LEVEL_QUORUM = 2;
+  CONSISTENCY_LEVEL_ALL = 3;
+}
+
+
 message BatchObjectsRequest {
   repeated BatchObject objects = 1;
+  optional ConsistencyLevel consistency_level = 2;
 }
 
 message BatchObject {
@@ -23,6 +34,10 @@ message BatchObject {
     repeated RefPropertiesSingleTarget ref_props_single = 2;
     // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
     repeated RefPropertiesMultiTarget ref_props_multi = 3;
+    repeated NumberArrayProperties number_array_properties = 4;
+    repeated IntArrayProperties int_array_properties = 5;
+    repeated TextArrayProperties text_array_properties = 6;
+    repeated BooleanArrayProperties boolean_array_properties = 7;
   }
 
   message RefPropertiesSingleTarget {
@@ -72,22 +87,48 @@ message SearchRequest {
   optional NearImageSearchParams near_image = 15;
   optional NearAudioSearchParams near_audio = 16;
   optional NearVideoSearchParams near_video = 17;
+  optional ConsistencyLevel consistency_level = 18;
+  optional GenerativeSearch generative = 19;
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated SortBy sort_by = 20;
+  optional GroupBy group_by = 21;
 }
 
-message TextArray{
-  repeated string vals = 1;
+message GroupBy {
+  // currently only supports one entry (eg just properties, no refs). But might
+  // be extended in the future.
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated string path = 1;
+  int32 number_of_groups = 2;
+  int32 objects_per_group = 3;
 }
-message IntArray{
-  repeated int32 vals = 1;
+
+message SortBy {
+  bool ascending = 1;
+  // currently only supports one entry (eg just properties, no refs). But the
+  // weaviate datastructure already has paths in it and this makes it easily
+  // extendable in the future
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated string path = 2;
 }
-message NumberArray{
-  repeated double vals = 1;
+
+message GenerativeSearch {
+  string single_response_prompt = 1;
+  string grouped_response_task = 2;
+  repeated string grouped_properties = 3;
 }
-message BooleanArray{
-  repeated bool vals = 1;
+
+message TextArray {
+  repeated string values = 1;
 }
-message DateArray{
-  repeated google.protobuf.Timestamp vals = 1;
+message IntArray {
+  repeated int64 values = 1;
+}
+message NumberArray {
+  repeated double values = 1;
+}
+message BooleanArray {
+  repeated bool values = 1;
 }
 
 message Filters {
@@ -118,12 +159,10 @@ message Filters {
     int64 value_int = 5;
     bool value_boolean = 6;
     float value_number = 7;
-    google.protobuf.Timestamp value_date = 8;
     TextArray value_text_array = 9;
     IntArray value_int_array = 10;
     BooleanArray value_boolean_array = 11;
     NumberArray value_number_array = 12;
-    DateArray value_date_array = 13;
   };
 }
 
@@ -140,6 +179,7 @@ message AdditionalProperties {
   bool score = 7;
   // protolint:disable:next FIELD_NAMES_LOWER_SNAKE_CASE
   bool explainScore = 8;
+  bool is_consistent = 9;
 }
 
 
@@ -162,7 +202,7 @@ message HybridSearchParams {
   FusionType fusion_type = 5;
 }
 
-message NearTextSearchParams{
+message NearTextSearchParams {
   message Move{
     float force = 1;
     repeated string concepts = 2;
@@ -177,19 +217,19 @@ message NearTextSearchParams{
   optional Move move_away = 5;
 };
 
-message NearImageSearchParams{
+message NearImageSearchParams {
   string image = 1;
   optional double certainty = 2;
   optional double distance = 3;
 };
 
-message NearAudioSearchParams{
+message NearAudioSearchParams {
   string audio = 1;
   optional double certainty = 2;
   optional double distance = 3;
 };
 
-message NearVideoSearchParams{
+message NearVideoSearchParams {
   string video = 1;
   optional double certainty = 2;
   optional double distance = 3;
@@ -224,6 +264,16 @@ message NearObjectParams {
 message SearchReply {
   repeated SearchResult results = 1;
   float took = 2;
+  string generative_grouped_result = 3;
+  repeated GroupByResults group_by_results = 4;
+}
+
+message GroupByResults {
+  string name = 1;
+  float min_distance = 2;
+  float max_distance = 3;
+  int64 number_of_objects = 4;
+  repeated SearchResult objects = 5;
 }
 
 message SearchResult {
@@ -247,36 +297,29 @@ message ResultAdditionalProps {
   bool score_present = 12;
   string explain_score = 13;
   bool explain_score_present = 14;
+  optional bool is_consistent = 15;
+  string generative = 16;
+  bool generative_present = 17;
 }
 
-message NumberArrayProperties{
-  string key =1;
-  repeated double vals = 2;
+message NumberArrayProperties {
+  repeated double values = 1;
+  string prop_name = 2;
 }
 
-message IntArrayProperties{
-  string key =1;
-  repeated int32 vals = 2;
+message IntArrayProperties {
+  repeated int64 values = 1;
+  string prop_name = 2;
 }
 
-message TextArrayProperties{
-  string key =1;
-  repeated string vals = 2;
+message TextArrayProperties {
+  repeated string values = 1;
+  string prop_name = 2;
 }
 
-message BooleanArrayProperties{
-  string key =1;
-  repeated bool vals = 2;
-}
-
-message DateArrayProperties{
-  string key =1;
-  repeated google.protobuf.Timestamp vals = 2;
-}
-
-message UuidArrayProperties{
-  string key =1;
-  repeated string vals = 2;
+message BooleanArrayProperties {
+  repeated bool values = 1;
+  string prop_name = 2;
 }
 
 message ResultProperties {
@@ -288,7 +331,6 @@ message ResultProperties {
   repeated IntArrayProperties int_array_properties = 6;
   repeated TextArrayProperties text_array_properties = 7;
   repeated BooleanArrayProperties boolean_array_properties = 8;
-  repeated UuidArrayProperties uuid_array_properties = 9;
 }
 
 message ReturnRefProperties {

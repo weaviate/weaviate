@@ -38,7 +38,7 @@ type cursorStateReplace struct {
 }
 
 // Cursor holds a RLock for the flushing state. It needs to be closed using the
-// .Close() methods or otherwise the lock will never be relased
+// .Close() methods or otherwise the lock will never be released
 func (b *Bucket) Cursor() *CursorReplace {
 	b.flushLock.RLock()
 

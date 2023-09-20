@@ -53,6 +53,7 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 	}
 
 	batchReferences := b.validateReferencesConcurrently(ctx, principal, refs)
+
 	if err := b.autodetectToClass(ctx, principal, batchReferences); err != nil {
 		return nil, err
 	}
@@ -101,7 +102,7 @@ func (b *BatchManager) autodetectToClass(ctx context.Context,
 	}
 	for i, ref := range batchReferences {
 		// get to class from property datatype
-		if ref.To.Class != "" {
+		if ref.To.Class != "" || ref.Err != nil {
 			continue
 		}
 		className := string(ref.From.Class)
@@ -111,12 +112,14 @@ func (b *BatchManager) autodetectToClass(ctx context.Context,
 		if !ok {
 			class := scheme.FindClassByName(ref.From.Class)
 			if class == nil {
-				return NewErrInvalidUserInput("class for ref does not exist: "+className+": %v", err)
+				batchReferences[i].Err = fmt.Errorf("class %s does not exist", className)
+				continue
 			}
 
 			prop, err := schema.GetPropertyByName(class, propName)
 			if err != nil {
-				return NewErrInvalidUserInput("get prop: %v", err)
+				batchReferences[i].Err = fmt.Errorf("property %s does not exist for class %s", propName, className)
+				continue
 			}
 			if len(prop.DataType) > 1 {
 				continue // can't auto-detect for multi-target

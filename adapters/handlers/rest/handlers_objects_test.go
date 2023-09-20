@@ -96,7 +96,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		}
 	})
 
-	// This test "with an origin conifgured" is not repeated for every handler,
+	// This test "with an origin configured" is not repeated for every handler,
 	// as testing this feature once was deemed sufficient
 	t.Run("add object - with an origin configured", func(t *testing.T) {
 		type test struct {
@@ -578,7 +578,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				}},
 			},
 			{
-				name: "forbbiden",
+				name: "forbidden",
 				err:  errors.NewForbidden(&models.Principal{}, "get", "Myclass/123"),
 			},
 			{
@@ -724,7 +724,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				}},
 			},
 			{
-				name: "error forbbiden",
+				name: "error forbidden",
 				err:  errors.NewForbidden(&models.Principal{}, "get", "Myclass/123"),
 			},
 			{
@@ -773,7 +773,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				name: "without props - noaction changes",
 			},
 			{
-				name: "error forbbiden",
+				name: "error forbidden",
 				err:  errors.NewForbidden(&models.Principal{}, "get", "Myclass/123"),
 			},
 			{

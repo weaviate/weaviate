@@ -58,30 +58,32 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		return &Error{"cannot lock", StatusInternalServerError, err}
 	}
 	defer unlock()
-
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
-	if err := input.validate(ctx, principal, validator, m.schemaManager, tenant); err != nil {
+	targetRef, err := input.validate(principal, validator, m.schemaManager)
+	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
 			return &Error{"validate inputs", StatusUnprocessableEntity, err}
 		}
 		return &Error{"validate inputs", StatusBadRequest, err}
 	}
 
-	if !deprecatedEndpoint {
-		beacon, err := crossref.Parse(input.Ref.Beacon.String())
+	if input.Class != "" && targetRef.Class == "" {
+		toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, targetRef)
 		if err != nil {
-			return &Error{"cannot parse beacon", StatusBadRequest, err}
+			return err
 		}
-		if input.Class != "" && beacon.Class == "" {
-			toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, beacon)
-			if err != nil {
-				return err
-			}
-			if replace {
-				input.Ref.Class = toClass
-				input.Ref.Beacon = toBeacon
-			}
+		if replace {
+			input.Ref.Class = toClass
+			input.Ref.Beacon = toBeacon
+			targetRef.Class = string(toClass)
 		}
+	}
+
+	if err := input.validateExistence(ctx, validator, tenant, targetRef); err != nil {
+		return &Error{"validate existence", StatusBadRequest, err}
+	}
+
+	if !deprecatedEndpoint {
 		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl, tenant)
 		if err != nil {
 			switch err.(type) {
@@ -140,21 +142,28 @@ type AddReferenceInput struct {
 }
 
 func (req *AddReferenceInput) validate(
-	ctx context.Context,
 	principal *models.Principal,
 	v *validation.Validator,
-	sm schemaManager, tenant string,
-) error {
+	sm schemaManager,
+) (*crossref.Ref, error) {
 	if err := validateReferenceName(req.Class, req.Property); err != nil {
-		return err
+		return nil, err
 	}
-	if err := v.ValidateSingleRef(ctx, &req.Ref, "validate reference", tenant); err != nil {
-		return err
+	ref, err := v.ValidateSingleRef(&req.Ref)
+	if err != nil {
+		return nil, err
 	}
 
 	schema, err := sm.GetSchema(principal)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return validateReferenceSchema(req.Class, req.Property, schema)
+	return ref, validateReferenceSchema(req.Class, req.Property, schema)
+}
+
+func (req *AddReferenceInput) validateExistence(
+	ctx context.Context,
+	v *validation.Validator, tenant string, ref *crossref.Ref,
+) error {
+	return v.ValidateExistence(ctx, ref, "validate reference", tenant)
 }

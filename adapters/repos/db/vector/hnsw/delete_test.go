@@ -216,7 +216,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 		}
 	})
 
-	t.Run("runnign the cleanup", func(t *testing.T) {
+	t.Run("running the cleanup", func(t *testing.T) {
 		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
 		require.Nil(t, err)
 	})
@@ -444,7 +444,7 @@ func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 	// controlRemainingResult contains all odd vectors (before cleanup was performed)
 	// controlRemainingResultAfterCleanup contains most of odd vectors (after cleanup was performed)
 	//
-	// this test verifies if partial cleanup will not change search output, therefore depedning on
+	// this test verifies if partial cleanup will not change search output, therefore depending on
 	// where cleanup method was stopped, subset of controlRemainingResult is expected, though all
 	// vectors from controlRemainingResultAfterCleanup should be returned
 	// TODO to be simplified after fixing WEAVIATE-179, all results should be the same
@@ -631,7 +631,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 		}
 	})
 
-	t.Run("runnign the cleanup", func(t *testing.T) {
+	t.Run("running the cleanup", func(t *testing.T) {
 		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
 		require.Nil(t, err)
 	})
@@ -729,7 +729,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 		}
 	})
 
-	t.Run("runnign the cleanup", func(t *testing.T) {
+	t.Run("running the cleanup", func(t *testing.T) {
 		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
 		require.Nil(t, err)
 	})
