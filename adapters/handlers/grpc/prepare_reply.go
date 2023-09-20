@@ -165,6 +165,16 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 		}
 	}
 
+	if additionalPropsParams.IsConsistent {
+		isConsistent, ok := additionalPropertiesMap["isConsistent"]
+		if ok {
+			isConsistentfmt, ok2 := isConsistent.(bool)
+			if ok2 {
+				additionalProps.IsConsistent = &isConsistentfmt
+			}
+		}
+	}
+
 	return additionalProps, nil
 }
 
@@ -241,14 +251,14 @@ func extractArrayTypes(scheme schema.Schema, className string, props *pb.ResultP
 			if !ok {
 				return fmt.Errorf("property %v with datatype %v needs to be []float64, got %T", propName, dataType, prop)
 			}
-			propInt := make([]int32, len(propIntAsFloat))
+			propInt := make([]int64, len(propIntAsFloat))
 			for i := range propIntAsFloat {
-				propInt[i] = int32(propIntAsFloat[i])
+				propInt[i] = int64(propIntAsFloat[i])
 			}
 			if props.IntArrayProperties == nil {
 				props.IntArrayProperties = make([]*pb.IntArrayProperties, 0)
 			}
-			props.IntArrayProperties = append(props.IntArrayProperties, &pb.IntArrayProperties{Key: propName, Vals: propInt})
+			props.IntArrayProperties = append(props.IntArrayProperties, &pb.IntArrayProperties{PropName: propName, Values: propInt})
 			delete(nonRefProps, propName)
 		case schema.DataTypeNumberArray:
 			propIntAsFloat, ok := prop.([]float64)
@@ -258,9 +268,9 @@ func extractArrayTypes(scheme schema.Schema, className string, props *pb.ResultP
 			if props.NumberArrayProperties == nil {
 				props.NumberArrayProperties = make([]*pb.NumberArrayProperties, 0)
 			}
-			props.NumberArrayProperties = append(props.NumberArrayProperties, &pb.NumberArrayProperties{Key: propName, Vals: propIntAsFloat})
+			props.NumberArrayProperties = append(props.NumberArrayProperties, &pb.NumberArrayProperties{PropName: propName, Values: propIntAsFloat})
 			delete(nonRefProps, propName)
-		case schema.DataTypeStringArray, schema.DataTypeTextArray, schema.DataTypeDateArray:
+		case schema.DataTypeStringArray, schema.DataTypeTextArray, schema.DataTypeDateArray, schema.DataTypeUUIDArray:
 			propString, ok := prop.([]string)
 			if !ok {
 				return fmt.Errorf("property %v with datatype %v needs to be []string, got %T", propName, dataType, prop)
@@ -268,7 +278,7 @@ func extractArrayTypes(scheme schema.Schema, className string, props *pb.ResultP
 			if props.TextArrayProperties == nil {
 				props.TextArrayProperties = make([]*pb.TextArrayProperties, 0)
 			}
-			props.TextArrayProperties = append(props.TextArrayProperties, &pb.TextArrayProperties{Key: propName, Vals: propString})
+			props.TextArrayProperties = append(props.TextArrayProperties, &pb.TextArrayProperties{PropName: propName, Values: propString})
 			delete(nonRefProps, propName)
 		case schema.DataTypeBooleanArray:
 			propBool, ok := prop.([]bool)
@@ -278,17 +288,7 @@ func extractArrayTypes(scheme schema.Schema, className string, props *pb.ResultP
 			if props.BooleanArrayProperties == nil {
 				props.BooleanArrayProperties = make([]*pb.BooleanArrayProperties, 0)
 			}
-			props.BooleanArrayProperties = append(props.BooleanArrayProperties, &pb.BooleanArrayProperties{Key: propName, Vals: propBool})
-			delete(nonRefProps, propName)
-		case schema.DataTypeUUIDArray:
-			propString, ok := prop.([]string)
-			if !ok {
-				return fmt.Errorf("property %v with datatype %v needs to be []string, got %T", propName, dataType, prop)
-			}
-			if props.UuidArrayProperties == nil {
-				props.UuidArrayProperties = make([]*pb.UuidArrayProperties, 0)
-			}
-			props.UuidArrayProperties = append(props.UuidArrayProperties, &pb.UuidArrayProperties{Key: propName, Vals: propString})
+			props.BooleanArrayProperties = append(props.BooleanArrayProperties, &pb.BooleanArrayProperties{PropName: propName, Values: propBool})
 			delete(nonRefProps, propName)
 		default:
 			_, isArray := schema.IsArrayType(*dataType)

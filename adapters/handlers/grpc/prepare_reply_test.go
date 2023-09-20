@@ -48,7 +48,10 @@ func TestGRPCReply(t *testing.T) {
 		LastUpdateTimeUnix: true,
 		ExplainScore:       true,
 		Score:              true,
+		IsConsistent:       true,
 	}}
+	truePointer := true
+
 	refClass1 := "RefClass1"
 	refClass2 := "RefClass2"
 	className := "className"
@@ -119,6 +122,7 @@ func TestGRPCReply(t *testing.T) {
 						"lastUpdateTimeUnix": int64(345),
 						"explainScore":       "other text",
 						"score":              float32(0.25),
+						"isConsistent":       true,
 					},
 				},
 				map[string]interface{}{
@@ -131,6 +135,7 @@ func TestGRPCReply(t *testing.T) {
 						"lastUpdateTimeUnix": int64(789),
 						"explainScore":       "some text",
 						"score":              float32(0.45),
+						"isConsistent":       true,
 					},
 				},
 			},
@@ -152,6 +157,7 @@ func TestGRPCReply(t *testing.T) {
 						ExplainScorePresent:       true,
 						Score:                     0.25,
 						ScorePresent:              true,
+						IsConsistent:              &truePointer,
 					},
 					Properties: &grpc.ResultProperties{},
 				},
@@ -171,6 +177,7 @@ func TestGRPCReply(t *testing.T) {
 						ExplainScorePresent:       true,
 						Score:                     0.45,
 						ScorePresent:              true,
+						IsConsistent:              &truePointer,
 					},
 					Properties: &grpc.ResultProperties{},
 				},
@@ -230,7 +237,7 @@ func TestGRPCReply(t *testing.T) {
 					Properties: &grpc.ResultProperties{
 						ClassName:          className,
 						NonRefProperties:   newStruct(t, map[string]interface{}{}),
-						IntArrayProperties: []*grpc.IntArrayProperties{{Key: "nums", Vals: []int32{1, 2, 3}}},
+						IntArrayProperties: []*grpc.IntArrayProperties{{PropName: "nums", Values: []int64{1, 2, 3}}},
 					},
 				},
 			},
