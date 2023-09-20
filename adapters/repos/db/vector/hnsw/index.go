@@ -34,8 +34,6 @@ import (
 
 const (
 	NodeLockStripe = uint64(512)
-	TempSize       = 1000
-	TempWorkers    = 8
 )
 
 type hnsw struct {
