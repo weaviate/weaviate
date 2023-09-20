@@ -181,7 +181,7 @@ func (ic *classSettings) getWeightsArray(weights []interface{}) ([]float32, erro
 }
 
 func (ic *classSettings) getFieldsWeights(name string) ([]float32, error) {
-	weights, ok := ic.getWeights("image")
+	weights, ok := ic.getWeights(name)
 	if ok {
 		return ic.getWeightsArray(weights)
 	}
