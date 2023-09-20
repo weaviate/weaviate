@@ -70,7 +70,7 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []n
 
 func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property) error {
 	if property.HasFilterableIndex {
-		bucketValue, err := lsmkv.FetchMeABucket(s.store,"filterable_properties", property.Name, s.propIds)
+		bucketValue, err := lsmkv.FetchMeABucket(s.store, "filterable_properties", property.Name, s.propIds)
 		if err != nil {
 			return errors.Wrapf(err, "no bucket filterable for prop '%s' found", property.Name)
 		}
@@ -84,7 +84,7 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 	}
 
 	if property.HasSearchableIndex {
-		bucketValue, err := lsmkv.FetchMeABucket(s.store,"searchable_properties", property.Name, s.propIds)
+		bucketValue, err := lsmkv.FetchMeABucket(s.store, "searchable_properties", property.Name, s.propIds)
 		if err != nil {
 			return errors.Wrapf(err, "no bucket searchable for prop '%s' found", property.Name)
 		}
@@ -103,7 +103,7 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 }
 
 func (s *Shard) addToPropertyLengthIndex(propName string, docID uint64, length int) error {
-	bucketLength, err := lsmkv.FetchMeABucket(s.store,"filterable_properties", helpers.PropertyLength(propName), s.propIds)
+	bucketLength, err := lsmkv.FetchMeABucket(s.store, "filterable_properties", helpers.PropertyLength(propName), s.propIds)
 	if err != nil {
 		return errors.Errorf("no bucket for prop '%s' length found", propName)
 	}

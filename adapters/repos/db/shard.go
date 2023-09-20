@@ -84,8 +84,6 @@ type Shard struct {
 	cycleCallbacks *shardCycleCallbacks
 }
 
-
-
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics, shardName string, index *Index, class *models.Class, jobQueueCh chan job) (*Shard, error) {
 	before := time.Now()
 

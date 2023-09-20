@@ -337,7 +337,6 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	allMsAndProps := make(AllMapPairsAndPropName, 0, len(propertyNames))
 	for _, propName := range propertyNames {
 
-		
 		bucket, err := lsmkv.FetchMeABucket(b.store, "searchable_properties", propName, b.propertyIds)
 		if err != nil {
 			return termResult, nil, fmt.Errorf("could not find bucket for property %v: %v", propName, err)

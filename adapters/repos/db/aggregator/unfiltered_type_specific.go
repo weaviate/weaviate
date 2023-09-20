@@ -22,9 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
-	
 )
-
 
 func (ua unfilteredAggregator) boolProperty(ctx context.Context,
 	prop aggregation.ParamProperty,
@@ -33,11 +31,10 @@ func (ua unfilteredAggregator) boolProperty(ctx context.Context,
 		Type: aggregation.PropertyTypeBoolean,
 	}
 
-	b ,err  := lsmkv.FetchMeABucket(ua.store, "filterable_properties", prop.Name.String(), ua.propertyIds)
+	b, err := lsmkv.FetchMeABucket(ua.store, "filterable_properties", prop.Name.String(), ua.propertyIds)
 	if err != nil {
 		return nil, errors.Errorf("could not create proxy bucket for prop %s: %v", prop.Name, err)
 	}
-	
 
 	agg := newBoolAggregator()
 
@@ -165,7 +162,7 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 		NumericalAggregations: map[string]interface{}{},
 	}
 
-	b, err := lsmkv.FetchMeABucket(ua.store,"filterable_properties", prop.Name.String(), ua.propertyIds)
+	b, err := lsmkv.FetchMeABucket(ua.store, "filterable_properties", prop.Name.String(), ua.propertyIds)
 	if err != nil {
 		return nil, errors.Errorf("could not create proxy bucket for prop %s: %v", prop.Name, err)
 	}
@@ -214,7 +211,7 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,
 		NumericalAggregations: map[string]interface{}{},
 	}
 
-	b, err := lsmkv.FetchMeABucket(ua.store,"filterable_properties", prop.Name.String(), ua.propertyIds)
+	b, err := lsmkv.FetchMeABucket(ua.store, "filterable_properties", prop.Name.String(), ua.propertyIds)
 	if err != nil {
 		return nil, errors.Errorf("could not create proxy bucket for prop %s: %v", prop.Name, err)
 	}
@@ -264,7 +261,7 @@ func (ua unfilteredAggregator) dateProperty(ctx context.Context,
 		DateAggregations: map[string]interface{}{},
 	}
 
-	b, err := lsmkv.FetchMeABucket(ua.store,"filterable_properties", prop.Name.String(), ua.propertyIds)
+	b, err := lsmkv.FetchMeABucket(ua.store, "filterable_properties", prop.Name.String(), ua.propertyIds)
 	if err != nil {
 		return nil, errors.Errorf("could not create proxy bucket for prop %s: %v", prop.Name, err)
 	}

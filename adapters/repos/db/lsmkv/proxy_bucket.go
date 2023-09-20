@@ -54,7 +54,7 @@ type BucketProxy struct {
 
 var UseMergedBuckets = false // if true, use the merged buckets, if false, use the legacy buckets
 
-//Wraps a bucket with a property prefixer
+// Wraps a bucket with a property prefixer
 func WrapBucketWithProp(bucket *Bucket, propName string, propIds *tracker.JsonPropertyIdTracker) (BucketInterface, error) {
 	bucketValue, err := NewBucketProxy(bucket, propName, propIds)
 	if err != nil {
@@ -64,7 +64,7 @@ func WrapBucketWithProp(bucket *Bucket, propName string, propIds *tracker.JsonPr
 	return bucketValue, nil
 }
 
-//Returns either a real bucket or a proxy bucket, depending on whether the merged bucket feature is active or not
+// Returns either a real bucket or a proxy bucket, depending on whether the merged bucket feature is active or not
 func FetchMeABucket(store *Store, mergedName string, propName string, propids *tracker.JsonPropertyIdTracker) (BucketInterface, error) {
 	bucket := store.Bucket(mergedName)
 	if UseMergedBuckets {
@@ -76,7 +76,6 @@ func FetchMeABucket(store *Store, mergedName string, propName string, propids *t
 	}
 	return proxyBucket, nil
 }
-
 
 func NewBucketProxy(realB BucketInterface, propName string, propids *tracker.JsonPropertyIdTracker) (*BucketProxy, error) {
 	if propids == nil {

@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package main
 
 import (
@@ -12,7 +23,7 @@ import (
 )
 
 func dumpBucket(storeDir, propName string) {
-	store, err := lsmkv.New(storeDir, storeDir,  &logrus.Logger{},nil,cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	store, err := lsmkv.New(storeDir, storeDir, &logrus.Logger{}, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		panic(err)
 	}
@@ -26,7 +37,7 @@ func dumpBucket(storeDir, propName string) {
 
 	bucket := store.Bucket(bucketName)
 	fmt.Printf("Dir: %v, bucket %v\n", storeDir, bucketName)
-	bucket.IterateMapObjects(context.Background(), func(k1,k2,v []byte, tombstone bool) error{
+	bucket.IterateMapObjects(context.Background(), func(k1, k2, v []byte, tombstone bool) error {
 		fmt.Printf("k1: %s\n", k1)
 		fmt.Printf("k2: %x\n", k2)
 		fmt.Printf("v: %x\n", v)
@@ -35,7 +46,6 @@ func dumpBucket(storeDir, propName string) {
 		return nil
 	})
 	fmt.Printf("Dir: %v, bucket %v\n", storeDir, bucketName)
-
 }
 
 func main() {
@@ -46,6 +56,4 @@ func main() {
 	storeDir := os.Args[1]
 	propName := os.Args[2]
 	dumpBucket(storeDir, propName)
-
 }
-

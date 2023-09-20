@@ -28,7 +28,6 @@ var (
 	DocIDBucket                = []byte("doc_ids")
 )
 
-
 func MakeByteEncodedPropertyPostfix(propertyName string, propertyIds *tracker.JsonPropertyIdTracker) []byte {
 	propertyid := propertyIds.GetIdForProperty(propertyName)
 	propertyid_bytes := make([]byte, 8)
@@ -40,7 +39,6 @@ func MakeByteEncodedPropertyPostfix(propertyName string, propertyIds *tracker.Js
 // for a particular prop in the inverted index
 func BucketFromPropName(propName string) []byte {
 	return []byte(fmt.Sprintf("property_%s", propName))
-
 }
 
 func MakePropertyKey(byteEncodedPropertyId []byte, key []byte) []byte {
