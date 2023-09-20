@@ -25,6 +25,7 @@ enum ConsistencyLevel {
 message BatchObjectsRequest {
   repeated BatchObject objects = 1;
   optional ConsistencyLevel consistency_level = 2;
+  int32 version = 3;
 }
 
 message BatchObject {
@@ -92,6 +93,7 @@ message SearchRequest {
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated SortBy sort_by = 20;
   optional GroupBy group_by = 21;
+  int32 version = 22;
 }
 
 message GroupBy {

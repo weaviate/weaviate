@@ -87,7 +87,7 @@ func (s *Server) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) 
 	}
 	scheme := s.schemaManager.GetSchemaSkipAuth()
 
-	objs, err := batchFromProto(req, scheme)
+	objs, err := batchFromProtoVersionCheck(req, scheme)
 	if err != nil {
 		return nil, err
 	}
@@ -140,12 +140,13 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 			}
 		}()
 
-		searchParams, err := searchParamsFromProto(req, scheme)
+		searchParams, err := searchParamsFromProtoVersionCheck(req, scheme)
 		if err != nil {
 			c <- reply{
 				Result: nil,
 				Error:  fmt.Errorf("extract params: %w", err),
 			}
+			return
 		}
 
 		if err := s.validateClassAndProperty(searchParams); err != nil {
@@ -153,6 +154,7 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 				Result: nil,
 				Error:  err,
 			}
+			return
 		}
 
 		res, err := s.traverser.GetClass(ctx, principal, searchParams)
@@ -161,6 +163,7 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 				Result: nil,
 				Error:  err,
 			}
+			return
 		}
 
 		proto, err := searchResultsToProto(res, before, searchParams, scheme)

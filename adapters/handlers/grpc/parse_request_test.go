@@ -38,7 +38,33 @@ import (
 	"github.com/weaviate/weaviate/grpc"
 )
 
-func TestGRPCRequest(t *testing.T) {
+func TestGRPCSearchRequestVersion(t *testing.T) {
+	scheme := schema.Schema{
+		Objects: &models.Schema{Classes: []*models.Class{{Class: "Name", VectorIndexConfig: hnsw.UserConfig{Distance: hnsw.DefaultDistanceMetric}}}},
+	}
+	tests := []struct {
+		name    string
+		version int32
+		error   bool
+	}{
+		{name: "correct version", version: 0, error: false},
+		{name: "correct version (implicit)", error: false},
+		{name: "wrong version", version: 1, error: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := searchParamsFromProtoVersionCheck(&grpc.SearchRequest{ClassName: "Name", Version: tt.version}, scheme)
+			if tt.error {
+				require.NotNil(t, err)
+			} else {
+				require.Nil(t, err)
+			}
+		})
+	}
+}
+
+func TestGRPCSearchRequest(t *testing.T) {
 	classname := "TestClass"
 	refClass1 := "OtherClass"
 	refClass2 := "AnotherClass"

@@ -30,6 +30,15 @@ func sliceToInterface[T any](values []T) []interface{} {
 	return tmpArray
 }
 
+func batchFromProtoVersionCheck(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*models.Object, error) {
+	version := req.Version
+	if version == 0 {
+		return batchFromProto(req, scheme)
+	} else {
+		return nil, fmt.Errorf("this server does not support the batch grpc protocol version %v, please update weaviate", version)
+	}
+}
+
 func batchFromProto(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*models.Object, error) {
 	objectsBatch := req.Objects
 	objs := make([]*models.Object, len(objectsBatch))

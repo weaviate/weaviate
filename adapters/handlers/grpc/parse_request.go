@@ -44,6 +44,15 @@ import (
 	pb "github.com/weaviate/weaviate/grpc"
 )
 
+func searchParamsFromProtoVersionCheck(req *pb.SearchRequest, scheme schema.Schema) (dto.GetParams, error) {
+	version := req.Version
+	if version == 0 {
+		return searchParamsFromProto(req, scheme)
+	} else {
+		return dto.GetParams{}, fmt.Errorf("this server does not support the search grpc protocol version %v, please update weaviate", version)
+	}
+}
+
 func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.GetParams, error) {
 	out := dto.GetParams{}
 	class, err := schema.GetClassByName(scheme.Objects, req.ClassName)

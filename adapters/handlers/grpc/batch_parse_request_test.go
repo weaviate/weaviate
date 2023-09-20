@@ -25,6 +25,32 @@ const (
 	UUID4 = "7e10ec81-a26d-4ac7-8264-3e3e05397ddc"
 )
 
+func TestGRPCBatchRequestVersion(t *testing.T) {
+	scheme := schema.Schema{
+		Objects: &models.Schema{Classes: []*models.Class{{Class: "Name"}}},
+	}
+	tests := []struct {
+		name    string
+		version int32
+		error   bool
+	}{
+		{name: "correct version", version: 0, error: false},
+		{name: "correct version (implicit)", error: false},
+		{name: "wrong version", version: 1, error: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := batchFromProtoVersionCheck(&grpc.BatchObjectsRequest{Objects: []*grpc.BatchObject{{ClassName: "name"}}, Version: tt.version}, scheme)
+			if tt.error {
+				require.NotNil(t, err)
+			} else {
+				require.Nil(t, err)
+			}
+		})
+	}
+}
+
 func TestGRPCBatchRequest(t *testing.T) {
 	classname := "TestClass"
 	refClass1 := "OtherClass"
@@ -61,16 +87,18 @@ func TestGRPCBatchRequest(t *testing.T) {
 
 	var nilMap map[string]interface{}
 	tests := []struct {
-		name  string
-		req   []*grpc.BatchObject
-		out   []*models.Object
-		error bool
+		name    string
+		req     []*grpc.BatchObject
+		out     []*models.Object
+		version int32
+		error   bool
 	}{
 		{
-			name:  "empty object",
-			req:   []*grpc.BatchObject{{ClassName: classname}},
-			out:   []*models.Object{{Class: classname, Properties: nilMap}},
-			error: false,
+			name:    "empty object",
+			req:     []*grpc.BatchObject{{ClassName: classname}},
+			version: 0,
+			out:     []*models.Object{{Class: classname, Properties: nilMap}},
+			error:   false,
 		},
 		{
 			name: "only normal props",
@@ -199,13 +227,12 @@ func TestGRPCBatchRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := batchFromProto(&grpc.BatchObjectsRequest{Objects: tt.req}, scheme)
+			out, err := batchFromProto(&grpc.BatchObjectsRequest{Objects: tt.req, Version: tt.version}, scheme)
 			if tt.error {
 				require.NotNil(t, err)
 			} else {
 				require.Nil(t, err)
 				require.Equal(t, tt.out, out)
-
 			}
 		})
 	}
