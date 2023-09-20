@@ -87,7 +87,7 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 		return errors.Errorf("config is not UserConfig, but %T", updated)
 	}
 
-	// Store atomatically as a lock here would be very expensive, this value is
+	// Store automatically as a lock here would be very expensive, this value is
 	// read on every single user-facing search, which can be highly concurrent
 	atomic.StoreInt64(&h.ef, int64(parsed.EF))
 	atomic.StoreInt64(&h.efMin, int64(parsed.DynamicEFMin))

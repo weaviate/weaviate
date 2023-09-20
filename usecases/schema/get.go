@@ -27,23 +27,17 @@ func (m *Manager) GetSchema(principal *models.Principal) (schema.Schema, error) 
 		return schema.Schema{}, err
 	}
 
-	return schema.Schema{
-		Objects: m.schemaCache.ObjectSchema,
-	}, nil
+	return m.getSchema(), nil
 }
 
 // GetSchemaSkipAuth can never be used as a response to a user request as it
 // could leak the schema to an unauthorized user, is intended to be used for
 // non-user triggered processes, such as regular updates / maintenance / etc
-func (m *Manager) GetSchemaSkipAuth() schema.Schema {
-	return schema.Schema{
-		Objects: m.schemaCache.ObjectSchema,
-	}
-}
+func (m *Manager) GetSchemaSkipAuth() schema.Schema { return m.getSchema() }
 
 func (m *Manager) getSchema() schema.Schema {
 	return schema.Schema{
-		Objects: m.schemaCache.ObjectSchema,
+		Objects: m.schemaCache.readOnlySchema(),
 	}
 }
 
@@ -70,11 +64,8 @@ func (m *Manager) GetClass(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Manager) getClassByName(name string) *models.Class {
-	s := schema.Schema{
-		Objects: m.schemaCache.ObjectSchema,
-	}
-
-	return s.FindClassByName(schema.ClassName(name))
+	c, _ := m.schemaCache.readOnlyClass(name)
+	return c
 }
 
 // ResolveParentNodes gets all replicas for a specific class shard and resolves their names

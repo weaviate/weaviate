@@ -34,9 +34,9 @@ var availableOpenAITypes = []string{"text", "code"}
 
 var availableOpenAIModels = []string{
 	"ada",     // supports 001 and 002
-	"babbage", // only suppports 001
-	"curie",   // only suppports 001
-	"davinci", // only suppports 001
+	"babbage", // only supports 001
+	"curie",   // only supports 001
+	"davinci", // only supports 001
 }
 
 type classSettings struct {

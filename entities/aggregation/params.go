@@ -50,7 +50,7 @@ func (a Aggregator) String() string {
 	return a.Type
 }
 
-// Aggreators used in every prop
+// Aggregators used in every prop
 var (
 	CountAggregator = Aggregator{Type: "count"}
 	TypeAggregator  = Aggregator{Type: "type"}

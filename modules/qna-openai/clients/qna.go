@@ -20,6 +20,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -49,12 +52,12 @@ type qna struct {
 	logger             logrus.FieldLogger
 }
 
-func New(openAIApiKey, openAIOrganization, azureApiKey string, logger logrus.FieldLogger) *qna {
+func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Duration, logger logrus.FieldLogger) *qna {
 	return &qna{
 		openAIApiKey:       openAIApiKey,
 		openAIOrganization: openAIOrganization,
 		azureApiKey:        azureApiKey,
-		httpClient:         &http.Client{},
+		httpClient:         &http.Client{Timeout: timeout},
 		buildUrlFn:         buildUrl,
 		logger:             logger,
 	}
@@ -193,6 +196,10 @@ func (v *qna) getValueFromContext(ctx context.Context, key string) string {
 		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
 			return keyHeader[0]
 		}
+	}
+	// try getting header from GRPC if not successful
+	if apiKey := modulecomponents.GetApiKeyFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
+		return apiKey[0]
 	}
 	return ""
 }

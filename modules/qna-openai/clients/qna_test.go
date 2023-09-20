@@ -58,7 +58,7 @@ func TestGetAnswer(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		c := New("openAIApiKey", "", "", nullLogger())
+		c := New("openAIApiKey", "", "", 0, nullLogger())
 		c.buildUrlFn = func(resourceName, deploymentID string) (string, error) {
 			return fakeBuildUrl(server.URL, resourceName, deploymentID)
 		}
@@ -86,7 +86,7 @@ func TestGetAnswer(t *testing.T) {
 		})
 		defer server.Close()
 
-		c := New("openAIApiKey", "", "", nullLogger())
+		c := New("openAIApiKey", "", "", 0, nullLogger())
 		c.buildUrlFn = func(resourceName, deploymentID string) (string, error) {
 			return fakeBuildUrl(server.URL, resourceName, deploymentID)
 		}

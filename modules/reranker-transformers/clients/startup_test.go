@@ -28,14 +28,14 @@ func TestWaitForStartup(t *testing.T) {
 	t.Run("when the server is immediately ready", func(t *testing.T) {
 		server := httptest.NewServer(&testReadyHandler{t: t})
 		defer server.Close()
-		c := New(server.URL, nullLogger())
+		c := New(server.URL, 0, nullLogger())
 		err := c.WaitForStartup(context.Background(), 50*time.Millisecond)
 
 		assert.Nil(t, err)
 	})
 
 	t.Run("when the server is down", func(t *testing.T) {
-		c := New("http://nothing-running-at-this-url", nullLogger())
+		c := New("http://nothing-running-at-this-url", 0, nullLogger())
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
 		err := c.WaitForStartup(ctx, 150*time.Millisecond)
@@ -49,7 +49,7 @@ func TestWaitForStartup(t *testing.T) {
 			t:         t,
 			readyTime: time.Now().Add(1 * time.Minute),
 		})
-		c := New(server.URL, nullLogger())
+		c := New(server.URL, 0, nullLogger())
 		defer server.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
@@ -65,7 +65,7 @@ func TestWaitForStartup(t *testing.T) {
 				t:         t,
 				readyTime: time.Now().Add(100 * time.Millisecond),
 			})
-			c := New(server.URL, nullLogger())
+			c := New(server.URL, 0, nullLogger())
 			defer server.Close()
 			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 			defer cancel()

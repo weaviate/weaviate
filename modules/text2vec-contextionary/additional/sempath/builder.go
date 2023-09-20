@@ -289,7 +289,7 @@ func (pb *PathBuilder) discardFurtherThan(candidates []*txt2vecmodels.NearestNei
 	return out[:i]
 }
 
-// craete an explicit deep copy that does not keep any references
+// create an explicit deep copy that does not keep any references
 func copyNeighbors(in []*txt2vecmodels.NearestNeighbor) []*txt2vecmodels.NearestNeighbor {
 	out := make([]*txt2vecmodels.NearestNeighbor, len(in))
 	for i, n := range in {

@@ -128,7 +128,7 @@ func Test_Compactor(t *testing.T) {
 			},
 		},
 
-		// the key loop is essentiall a state machine. The next tests try to cover
+		// the key loop is essentially a state machine. The next tests try to cover
 		// all possible states:
 		//
 		// 1. only the left key is set -> take left key

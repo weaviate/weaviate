@@ -43,7 +43,7 @@ func TestGetAnswer(t *testing.T) {
 			},
 		})
 		defer server.Close()
-		c := New(server.URL, nullLogger())
+		c := New(server.URL, 0, nullLogger())
 		res, err := c.GetTokens(context.Background(), "prop",
 			"I work at Apple")
 
@@ -79,7 +79,7 @@ func TestGetAnswer(t *testing.T) {
 			},
 		})
 		defer server.Close()
-		c := New(server.URL, nullLogger())
+		c := New(server.URL, 0, nullLogger())
 		res, err := c.GetTokens(context.Background(), "prop",
 			"I work at Apple")
 
@@ -104,7 +104,7 @@ func TestGetAnswer(t *testing.T) {
 			},
 		})
 		defer server.Close()
-		c := New(server.URL, nullLogger())
+		c := New(server.URL, 0, nullLogger())
 		_, err := c.GetTokens(context.Background(), "prop",
 			"I work at Apple")
 

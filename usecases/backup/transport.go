@@ -45,7 +45,7 @@ type Request struct {
 
 	// ChunkSize represents the desired size for chunks
 	// However, during compression, the chunk size might
-	// slightly deviate from this value, being either slightly below or above the specified siz
+	// slightly deviate from this value, being either slightly below or above the specified size
 	ChunkSize int
 
 	CPUPercentage int

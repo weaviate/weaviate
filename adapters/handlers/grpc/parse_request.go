@@ -13,7 +13,13 @@ package grpc
 
 import (
 	"fmt"
-	"time"
+
+	"github.com/weaviate/weaviate/entities/models"
+
+	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
 
@@ -40,24 +46,26 @@ import (
 
 func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.GetParams, error) {
 	out := dto.GetParams{}
-	_, err := schema.GetClassByName(scheme.Objects, req.ClassName)
+	class, err := schema.GetClassByName(scheme.Objects, req.ClassName)
 	if err != nil {
 		return dto.GetParams{}, err
 	}
 
 	out.ClassName = req.ClassName
+	out.ReplicationProperties = extractReplicationProperties(req.ConsistencyLevel)
 
 	out.Tenant = req.Tenant
 
 	if req.AdditionalProperties != nil {
 		out.AdditionalProperties.ID = req.AdditionalProperties.Uuid
 		out.AdditionalProperties.Vector = req.AdditionalProperties.Vector
+		out.AdditionalProperties.Certainty = req.AdditionalProperties.Certainty
 		out.AdditionalProperties.Distance = req.AdditionalProperties.Distance
 		out.AdditionalProperties.LastUpdateTimeUnix = req.AdditionalProperties.LastUpdateTimeUnix
 		out.AdditionalProperties.CreationTimeUnix = req.AdditionalProperties.CreationTimeUnix
 		out.AdditionalProperties.Score = req.AdditionalProperties.Score
-		out.AdditionalProperties.Certainty = req.AdditionalProperties.Certainty
 		out.AdditionalProperties.ExplainScore = req.AdditionalProperties.ExplainScore
+		out.AdditionalProperties.IsConsistent = req.AdditionalProperties.IsConsistent
 	}
 
 	out.Properties, err = extractPropertiesRequest(req.Properties, scheme, req.ClassName)
@@ -71,18 +79,16 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	} else if len(out.Properties) == 0 && req.AdditionalProperties == nil {
 		// no return values selected, return all properties and metadata. Ignore blobs and refs to not overload the
 		// response
-		out.AdditionalProperties.ID = true
-		out.AdditionalProperties.Vector = true
-		out.AdditionalProperties.Distance = true
-		out.AdditionalProperties.LastUpdateTimeUnix = true
-		out.AdditionalProperties.CreationTimeUnix = true
-		out.AdditionalProperties.Score = true
-		out.AdditionalProperties.Certainty = true
-		out.AdditionalProperties.ExplainScore = true
 		returnProps, err := getAllNonRefNonBlobProperties(scheme, req.ClassName)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
+
+		addProps, err := setAllCheapAdditionalPropsToTrue(class)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
+		out.AdditionalProperties = addProps
 		out.Properties = returnProps
 	}
 
@@ -91,11 +97,11 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		if hs.FusionType == pb.HybridSearchParams_FUSION_TYPE_RELATIVE_SCORE {
 			fusionType = common_filters.HybridRelativeScoreFusion
 		}
-		out.HybridSearch = &searchparams.HybridSearch{Query: hs.Query, Properties: hs.Properties, Vector: hs.Vector, Alpha: float64(hs.Alpha), FusionAlgorithm: fusionType}
+		out.HybridSearch = &searchparams.HybridSearch{Query: hs.Query, Properties: schema.LowercaseFirstLetterOfStrings(hs.Properties), Vector: hs.Vector, Alpha: float64(hs.Alpha), FusionAlgorithm: fusionType}
 	}
 
 	if bm25 := req.Bm25Search; bm25 != nil {
-		out.KeywordRanking = &searchparams.KeywordRanking{Query: bm25.Query, Properties: bm25.Properties, Type: "bm25", AdditionalExplanations: out.AdditionalProperties.ExplainScore}
+		out.KeywordRanking = &searchparams.KeywordRanking{Query: bm25.Query, Properties: schema.LowercaseFirstLetterOfStrings(bm25.Properties), Type: "bm25", AdditionalExplanations: out.AdditionalProperties.ExplainScore}
 	}
 
 	if nv := req.NearVector; nv != nil {
@@ -185,7 +191,6 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	}
 
 	if req.NearText != nil {
-
 		moveAwayOut, err := extractNearTextMove(req.ClassName, req.NearText.MoveAway)
 		if err != nil {
 			return dto.GetParams{}, err
@@ -207,11 +212,19 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		}
 		if req.NearText.Distance != nil {
 			nearText.Distance = *req.NearText.Distance
+			nearText.WithDistance = true
 		}
 		if out.ModuleParams == nil {
 			out.ModuleParams = make(map[string]interface{})
 		}
 		out.ModuleParams["nearText"] = nearText
+	}
+
+	if req.Generative != nil {
+		if out.AdditionalProperties.ModuleParams == nil {
+			out.AdditionalProperties.ModuleParams = make(map[string]interface{})
+		}
+		out.AdditionalProperties.ModuleParams["generate"] = extractGenerative(req)
 	}
 
 	if len(req.After) > 0 {
@@ -230,7 +243,63 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.Filters = filter
 	}
 
+	if len(req.SortBy) > 0 {
+		if req.NearText != nil || req.NearVideo != nil || req.NearAudio != nil || req.NearImage != nil || req.NearObject != nil || req.NearVector != nil || req.HybridSearch != nil || req.Bm25Search != nil || req.Generative != nil {
+			return dto.GetParams{}, errors.New("sorting cannot be combined with search")
+		}
+		out.Sort = extractSorting(req.SortBy)
+	}
+
+	if req.GroupBy != nil {
+		groupBy, err := extractGroupBy(req.GroupBy)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
+		out.AdditionalProperties.Group = true
+
+		out.GroupBy = groupBy
+	}
+
 	return out, nil
+}
+
+func extractGroupBy(groupIn *pb.GroupBy) (*searchparams.GroupBy, error) {
+	if len(groupIn.Path) != 1 {
+		return nil, fmt.Errorf("groupby path can only have one entry, received %v", groupIn.Path)
+	}
+
+	groupOut := &searchparams.GroupBy{
+		Property:        groupIn.Path[0],
+		ObjectsPerGroup: int(groupIn.ObjectsPerGroup),
+		Groups:          int(groupIn.NumberOfGroups),
+	}
+	return groupOut, nil
+}
+
+func extractSorting(sortIn []*pb.SortBy) []filters.Sort {
+	sortOut := make([]filters.Sort, len(sortIn))
+	for i := range sortIn {
+		order := "asc"
+		if !sortIn[i].Ascending {
+			order = "desc"
+		}
+		sortOut[i] = filters.Sort{Order: order, Path: sortIn[i].Path}
+	}
+	return sortOut
+}
+
+func extractGenerative(req *pb.SearchRequest) *generate.Params {
+	generative := generate.Params{}
+	if req.Generative.SingleResponsePrompt != "" {
+		generative.Prompt = &req.Generative.SingleResponsePrompt
+	}
+	if req.Generative.GroupedResponseTask != "" {
+		generative.Task = &req.Generative.GroupedResponseTask
+	}
+	if len(req.Generative.GroupedProperties) > 0 {
+		generative.Properties = req.Generative.GroupedProperties
+	}
+	return &generative
 }
 
 func extractNearTextMove(classname string, Move *pb.NearTextSearchParams_Move) (nearText2.ExploreMove, error) {
@@ -322,6 +391,11 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			return filters.Clause{}, err
 		}
 
+		// datatype UUID is just a string
+		if dataType == schema.DataTypeUUID {
+			dataType = schema.DataTypeText
+		}
+
 		var val interface{}
 		switch filterIn.TestValue.(type) {
 		case *pb.Filters_ValueText:
@@ -332,30 +406,21 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			val = filterIn.GetValueBoolean()
 		case *pb.Filters_ValueNumber:
 			val = filterIn.GetValueNumber()
-		case *pb.Filters_ValueDate:
-			val = filterIn.GetValueDate().AsTime()
 		case *pb.Filters_ValueIntArray:
 			// convert from int32 GRPC to go int
-			valInt32 := filterIn.GetValueIntArray().Vals
+			valInt32 := filterIn.GetValueIntArray().Values
 			valInt := make([]int, len(valInt32))
 			for i := 0; i < len(valInt32); i++ {
 				valInt[i] = int(valInt32[i])
 			}
 			val = valInt
 		case *pb.Filters_ValueTextArray:
-			val = filterIn.GetValueTextArray().Vals
+			val = filterIn.GetValueTextArray().Values
 		case *pb.Filters_ValueNumberArray:
-			val = filterIn.GetValueNumberArray().Vals
+			val = filterIn.GetValueNumberArray().Values
 		case *pb.Filters_ValueBooleanArray:
-			val = filterIn.GetValueBooleanArray().Vals
-		case *pb.Filters_ValueDateArray:
-			// convert from GRPC timestamp to go time
-			valTimestamps := filterIn.GetValueDateArray().Vals
-			valTime := make([]time.Time, len(valTimestamps))
-			for i := 0; i < len(valTime); i++ {
-				valTime[i] = valTimestamps[i].AsTime()
-			}
-			val = valTime
+			val = filterIn.GetValueBooleanArray().Values
+
 		default:
 			return filters.Clause{}, fmt.Errorf("unknown value type %v", filterIn.TestValue)
 		}
@@ -445,7 +510,7 @@ func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, cla
 	if reqProps.NonRefProperties != nil && len(reqProps.NonRefProperties) > 0 {
 		for _, prop := range reqProps.NonRefProperties {
 			props = append(props, search.SelectProperty{
-				Name:        prop,
+				Name:        schema.LowercaseFirstLetter(prop),
 				IsPrimitive: true,
 			})
 		}
@@ -454,35 +519,57 @@ func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, cla
 	if reqProps.RefProperties != nil && len(reqProps.RefProperties) > 0 {
 		class := scheme.GetClass(schema.ClassName(className))
 		for _, prop := range reqProps.RefProperties {
-			schemaProp, err := schema.GetPropertyByName(class, prop.ReferenceProperty)
+			normalizedRefPropName := schema.LowercaseFirstLetter(prop.ReferenceProperty)
+			schemaProp, err := schema.GetPropertyByName(class, normalizedRefPropName)
 			if err != nil {
 				return nil, err
 			}
 
-			var linkedClass string
+			var linkedClassName string
 			if len(schemaProp.DataType) == 1 {
 				// use datatype of the reference property to get the name of the linked class
-				linkedClass = schemaProp.DataType[0]
+				linkedClassName = schemaProp.DataType[0]
 			} else {
-				linkedClass = prop.WhichCollection
-				if linkedClass == "" {
+				linkedClassName = prop.WhichCollection
+				if linkedClassName == "" {
 					return nil, fmt.Errorf(
 						"multi target references from collection %v and property %v with need an explicit"+
 							"linked collection. Available linked collections are %v",
 						className, prop.ReferenceProperty, schemaProp.DataType)
 				}
 			}
-			refProperties, err := extractPropertiesRequest(prop.LinkedProperties, scheme, linkedClass)
-			if err != nil {
-				return nil, err
+			var refProperties []search.SelectProperty
+			var metaData additional.Properties
+			if prop.LinkedProperties != nil {
+				refProperties, err = extractPropertiesRequest(prop.LinkedProperties, scheme, linkedClassName)
+				if err != nil {
+					return nil, err
+				}
 			}
+			if prop.Metadata != nil {
+				metaData = extractAdditionalPropsForRefs(prop.Metadata)
+			}
+
+			if prop.LinkedProperties == nil && prop.Metadata == nil {
+				refProperties, err = getAllNonRefNonBlobProperties(scheme, linkedClassName)
+				if err != nil {
+					return nil, err
+				}
+
+				linkedClass := scheme.GetClass(schema.ClassName(linkedClassName))
+				metaData, err = setAllCheapAdditionalPropsToTrue(linkedClass)
+				if err != nil {
+					return nil, err
+				}
+			}
+
 			props = append(props, search.SelectProperty{
-				Name:        prop.ReferenceProperty,
+				Name:        normalizedRefPropName,
 				IsPrimitive: false,
 				Refs: []search.SelectClass{{
-					ClassName:            linkedClass,
+					ClassName:            linkedClassName,
 					RefProperties:        refProperties,
-					AdditionalProperties: extractAdditionalPropsForRefs(prop.Metadata),
+					AdditionalProperties: metaData,
 				}},
 			})
 		}
@@ -524,6 +611,30 @@ func getAllNonRefNonBlobProperties(scheme schema.Schema, className string) ([]se
 
 	}
 	return props, nil
+}
+
+func setAllCheapAdditionalPropsToTrue(class *models.Class) (additional.Properties, error) {
+	out := additional.Properties{
+		ID:                 true,
+		Distance:           true,
+		LastUpdateTimeUnix: true,
+		CreationTimeUnix:   true,
+		Score:              true,
+		ExplainScore:       true,
+		Vector:             false, // can be expensive
+	}
+
+	// certainty is not compatible with dot distance
+	vectorIndex, err := hnsw.TypeAssertVectorIndex(class)
+	if err != nil {
+		return out, err
+	}
+
+	if vectorIndex.Distance == hnsw.DistanceCosine {
+		out.Certainty = true
+	}
+
+	return out, nil
 }
 
 func parseNearImage(ni *pb.NearImageSearchParams) (*nearImage.NearImageParams, error) {

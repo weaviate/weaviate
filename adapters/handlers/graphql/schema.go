@@ -95,7 +95,7 @@ func buildGraphqlSchema(dbSchema *schema.Schema, logger logrus.FieldLogger,
 		Fields:      localSchema,
 	}
 
-	// Run grahpql.NewSchema in a sub-closure, so that we can recover from panics.
+	// Run graphql.NewSchema in a sub-closure, so that we can recover from panics.
 	// We need to use panics to return errors deep inside the dynamic generation of the GraphQL schema,
 	// inside the FieldThunks. There is _no_ way to bubble up an error besides panicking.
 	var result graphql.Schema
