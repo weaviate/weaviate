@@ -334,27 +334,27 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
-		// FIXME to avoid import cycles, tasks are passed as strings
-		reindexTaskNames := []string{}
-		reindexCtx, reindexCtxCancel := context.WithCancel(context.Background())
-		reindexFinished := make(chan error, 1)
-	
-		if appState.ServerConfig.Config.ReindexSetToRoaringsetAtStartup {
-			reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTaskSetToRoaringSet")
-		}
-		if appState.ServerConfig.Config.IndexMissingTextFilterableAtStartup {
-			reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTaskMissingTextFilterable")
-		}
-		if len(reindexTaskNames) > 0 {
-			// start reindexing inverted indexes (if requested by user) in the background
-			// allowing db to complete api configuration and start handling requests
-			go func() {
-				appState.Logger.
-					WithField("action", "startup").
-					Info("Reindexing inverted indexes")
-				reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNames...)
-			}()
-		}
+	// FIXME to avoid import cycles, tasks are passed as strings
+	reindexTaskNames := []string{}
+	reindexCtx, reindexCtxCancel := context.WithCancel(context.Background())
+	reindexFinished := make(chan error, 1)
+
+	if appState.ServerConfig.Config.ReindexSetToRoaringsetAtStartup {
+		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTaskSetToRoaringSet")
+	}
+	if appState.ServerConfig.Config.IndexMissingTextFilterableAtStartup {
+		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTaskMissingTextFilterable")
+	}
+	if len(reindexTaskNames) > 0 {
+		// start reindexing inverted indexes (if requested by user) in the background
+		// allowing db to complete api configuration and start handling requests
+		go func() {
+			appState.Logger.
+				WithField("action", "startup").
+				Info("Reindexing inverted indexes")
+			reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNames...)
+		}()
+	}
 
 	grpcServer := createGrpcServer(appState)
 
@@ -481,29 +481,6 @@ func startupRoutine(ctx context.Context) *state.State {
 	}
 
 	appState.Cluster = clusterState
-
-	// FIXME to avoid import cycles, tasks are passed as strings
-	reindexTaskNames := []string{}
-	reindexCtx, reindexCtxCancel := context.WithCancel(context.Background())
-	reindexFinished := make(chan error, 1)
-
-	if appState.ServerConfig.Config.ReindexSetToRoaringsetAtStartup {
-		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTaskSetToRoaringSet")
-	}
-	if appState.ServerConfig.Config.IndexMissingTextFilterableAtStartup {
-		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTaskMissingTextFilterable")
-	}
-	if len(reindexTaskNames) > 0 {
-		// start reindexing inverted indexes (if requested by user) in the background
-		// allowing db to complete api configuration and start handling requests
-		go func() {
-			appState.Logger.
-				WithField("action", "startup").
-				Info("Reindexing inverted indexes")
-			reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNames...)
-		}()
-	}
-
 
 	appState.Logger.
 		WithField("action", "startup").
