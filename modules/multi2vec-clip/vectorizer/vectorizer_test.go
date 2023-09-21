@@ -174,7 +174,7 @@ func TestVectorizerWithDiff(t *testing.T) {
 	}
 }
 
-func TestVectorizer_withWeights(t *testing.T) {
+func TestVectorizerWithWeights(t *testing.T) {
 	client := &fakeClient{}
 	vectorizer := &Vectorizer{client}
 	config := newConfigBuilder().
