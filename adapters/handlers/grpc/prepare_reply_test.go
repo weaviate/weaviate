@@ -25,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/grpc"
+	"github.com/weaviate/weaviate/grpc/generated/grpc"
 	addModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 	"google.golang.org/protobuf/types/known/structpb"
 )
