@@ -13,6 +13,7 @@ package vectorizer
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -164,12 +165,38 @@ func TestVectorizerWithDiff(t *testing.T) {
 
 			require.Nil(t, err)
 			if test.expectedVectorize {
+				fmt.Println(test.input.Vector)
 				assert.Equal(t, models.C11yVector{5.5, 11, 16.5, 22, 27.5}, test.input.Vector)
 			} else {
 				assert.Equal(t, models.C11yVector{0, 0, 0, 0, 0}, test.input.Vector)
 			}
 		})
 	}
+}
+
+func TestVectorizer_withWeights(t *testing.T) {
+	client := &fakeClient{}
+	vectorizer := &Vectorizer{client}
+	config := newConfigBuilder().
+		addSetting("imageFields", []interface{}{"image"}).
+		addSetting("textFields", []interface{}{"text"}).
+		addWeights([]interface{}{0.4}, []interface{}{0.6}).
+		build()
+	settings := NewClassSettings(config)
+
+	input := &models.Object{
+		ID: "some-uuid",
+		Properties: map[string]interface{}{
+			"image":       image,
+			"text":        "text",
+			"description": "non-vectorizable",
+		},
+	}
+
+	err := vectorizer.Object(context.Background(), input, nil, settings)
+
+	require.Nil(t, err)
+	assert.Equal(t, models.C11yVector{3.2, 6.4, 9.6, 12.8, 16}, input.Vector)
 }
 
 func TestVectorizer_normalizeWeights(t *testing.T) {
