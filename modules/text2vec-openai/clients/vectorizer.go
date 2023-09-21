@@ -53,15 +53,21 @@ type openAIApiError struct {
 }
 
 func buildUrl(config ent.VectorizationConfig) (string, error) {
+	defaultOpenAIHost := "https://api.openai.com"
+	
+	if customOpenAIHost := os.Getenv("OPENAI_HOST"); customOpenAIHost != "" {
+		defaultOpenAIHost = customOpenAIHost
+	}
+	
 	if config.IsAzure {
 		host := "https://" + config.ResourceName + ".openai.azure.com"
 		path := "openai/deployments/" + config.DeploymentID + "/embeddings"
 		queryParam := "api-version=2022-12-01"
 		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil
 	}
-	host := "https://api.openai.com"
+	
 	path := "/v1/embeddings"
-	return url.JoinPath(host, path)
+	return url.JoinPath(defaultOpenAIHost, path)
 }
 
 type vectorizer struct {
