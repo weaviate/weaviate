@@ -4,15 +4,13 @@ package weaviategrpc;
 
 import "grpc/batch.proto";
 import "grpc/search_get.proto";
-option go_package = "github.com/weaviate/weaviate/grpc/generated/grpc";
 
+option go_package = "github.com/weaviate/weaviate/grpc/generated/protocol;protocol";
 option java_package = "io.weaviate.client.grpc.protocol";
 option java_outer_classname = "WeaviateProto";
 
 
 service Weaviate {
   rpc Search(search_get.SearchRequest) returns (search_get.SearchReply) {};
-  rpc BatchObjects(batch.BatchObjectsRequest)
-      returns (batch.BatchObjectsReply) {};
+  rpc BatchObjects(batch.BatchObjectsRequest) returns (batch.BatchObjectsReply) {};
 }
-

@@ -9,15 +9,14 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package grpc
+package protocol
 
 import (
-	reflect "reflect"
-	sync "sync"
-
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"
+	reflect "reflect"
+	sync "sync"
 )
 
 const (
@@ -752,7 +751,6 @@ type Filters struct {
 	On      []string   `protobuf:"bytes,2,rep,name=on,proto3" json:"on,omitempty"`
 	Filters []*Filters `protobuf:"bytes,3,rep,name=filters,proto3" json:"filters,omitempty"`
 	// Types that are assignable to TestValue:
-	//
 	//	*Filters_ValueText
 	//	*Filters_ValueInt
 	//	*Filters_ValueBoolean
@@ -2740,10 +2738,11 @@ var file_grpc_search_get_proto_rawDesc = []byte{
 	0x74, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x52, 0x0a, 0x70, 0x72, 0x6f,
 	0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x12, 0x1b, 0x0a, 0x09, 0x70, 0x72, 0x6f, 0x70, 0x5f,
 	0x6e, 0x61, 0x6d, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x08, 0x70, 0x72, 0x6f, 0x70,
-	0x4e, 0x61, 0x6d, 0x65, 0x42, 0x32, 0x5a, 0x30, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63,
+	0x4e, 0x61, 0x6d, 0x65, 0x42, 0x36, 0x5a, 0x34, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63,
 	0x6f, 0x6d, 0x2f, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2f, 0x77, 0x65, 0x61, 0x76,
 	0x69, 0x61, 0x74, 0x65, 0x2f, 0x67, 0x72, 0x70, 0x63, 0x2f, 0x67, 0x65, 0x6e, 0x65, 0x72, 0x61,
-	0x74, 0x65, 0x64, 0x2f, 0x67, 0x72, 0x70, 0x63, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x74, 0x65, 0x64, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x62, 0x06, 0x70, 0x72,
+	0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -2758,48 +2757,45 @@ func file_grpc_search_get_proto_rawDescGZIP() []byte {
 	return file_grpc_search_get_proto_rawDescData
 }
 
-var (
-	file_grpc_search_get_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-	file_grpc_search_get_proto_msgTypes  = make([]protoimpl.MessageInfo, 27)
-	file_grpc_search_get_proto_goTypes   = []interface{}{
-		(Filters_Operator)(0),              // 0: search_get.Filters.Operator
-		(HybridSearchParams_FusionType)(0), // 1: search_get.HybridSearchParams.FusionType
-		(*SearchRequest)(nil),              // 2: search_get.SearchRequest
-		(*GroupBy)(nil),                    // 3: search_get.GroupBy
-		(*SortBy)(nil),                     // 4: search_get.SortBy
-		(*GenerativeSearch)(nil),           // 5: search_get.GenerativeSearch
-		(*TextArray)(nil),                  // 6: search_get.TextArray
-		(*IntArray)(nil),                   // 7: search_get.IntArray
-		(*NumberArray)(nil),                // 8: search_get.NumberArray
-		(*BooleanArray)(nil),               // 9: search_get.BooleanArray
-		(*Filters)(nil),                    // 10: search_get.Filters
-		(*AdditionalProperties)(nil),       // 11: search_get.AdditionalProperties
-		(*Properties)(nil),                 // 12: search_get.Properties
-		(*HybridSearchParams)(nil),         // 13: search_get.HybridSearchParams
-		(*NearTextSearchParams)(nil),       // 14: search_get.NearTextSearchParams
-		(*NearImageSearchParams)(nil),      // 15: search_get.NearImageSearchParams
-		(*NearAudioSearchParams)(nil),      // 16: search_get.NearAudioSearchParams
-		(*NearVideoSearchParams)(nil),      // 17: search_get.NearVideoSearchParams
-		(*BM25SearchParams)(nil),           // 18: search_get.BM25SearchParams
-		(*RefProperties)(nil),              // 19: search_get.RefProperties
-		(*NearVectorParams)(nil),           // 20: search_get.NearVectorParams
-		(*NearObjectParams)(nil),           // 21: search_get.NearObjectParams
-		(*SearchReply)(nil),                // 22: search_get.SearchReply
-		(*GroupByResults)(nil),             // 23: search_get.GroupByResults
-		(*SearchResult)(nil),               // 24: search_get.SearchResult
-		(*ResultAdditionalProps)(nil),      // 25: search_get.ResultAdditionalProps
-		(*ResultProperties)(nil),           // 26: search_get.ResultProperties
-		(*ReturnRefProperties)(nil),        // 27: search_get.ReturnRefProperties
-		(*NearTextSearchParams_Move)(nil),  // 28: search_get.NearTextSearchParams.Move
-		(ConsistencyLevel)(0),              // 29: base.ConsistencyLevel
-		(*structpb.Struct)(nil),            // 30: google.protobuf.Struct
-		(*NumberArrayProperties)(nil),      // 31: base.NumberArrayProperties
-		(*IntArrayProperties)(nil),         // 32: base.IntArrayProperties
-		(*TextArrayProperties)(nil),        // 33: base.TextArrayProperties
-		(*BooleanArrayProperties)(nil),     // 34: base.BooleanArrayProperties
-	}
-)
-
+var file_grpc_search_get_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_grpc_search_get_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_grpc_search_get_proto_goTypes = []interface{}{
+	(Filters_Operator)(0),              // 0: search_get.Filters.Operator
+	(HybridSearchParams_FusionType)(0), // 1: search_get.HybridSearchParams.FusionType
+	(*SearchRequest)(nil),              // 2: search_get.SearchRequest
+	(*GroupBy)(nil),                    // 3: search_get.GroupBy
+	(*SortBy)(nil),                     // 4: search_get.SortBy
+	(*GenerativeSearch)(nil),           // 5: search_get.GenerativeSearch
+	(*TextArray)(nil),                  // 6: search_get.TextArray
+	(*IntArray)(nil),                   // 7: search_get.IntArray
+	(*NumberArray)(nil),                // 8: search_get.NumberArray
+	(*BooleanArray)(nil),               // 9: search_get.BooleanArray
+	(*Filters)(nil),                    // 10: search_get.Filters
+	(*AdditionalProperties)(nil),       // 11: search_get.AdditionalProperties
+	(*Properties)(nil),                 // 12: search_get.Properties
+	(*HybridSearchParams)(nil),         // 13: search_get.HybridSearchParams
+	(*NearTextSearchParams)(nil),       // 14: search_get.NearTextSearchParams
+	(*NearImageSearchParams)(nil),      // 15: search_get.NearImageSearchParams
+	(*NearAudioSearchParams)(nil),      // 16: search_get.NearAudioSearchParams
+	(*NearVideoSearchParams)(nil),      // 17: search_get.NearVideoSearchParams
+	(*BM25SearchParams)(nil),           // 18: search_get.BM25SearchParams
+	(*RefProperties)(nil),              // 19: search_get.RefProperties
+	(*NearVectorParams)(nil),           // 20: search_get.NearVectorParams
+	(*NearObjectParams)(nil),           // 21: search_get.NearObjectParams
+	(*SearchReply)(nil),                // 22: search_get.SearchReply
+	(*GroupByResults)(nil),             // 23: search_get.GroupByResults
+	(*SearchResult)(nil),               // 24: search_get.SearchResult
+	(*ResultAdditionalProps)(nil),      // 25: search_get.ResultAdditionalProps
+	(*ResultProperties)(nil),           // 26: search_get.ResultProperties
+	(*ReturnRefProperties)(nil),        // 27: search_get.ReturnRefProperties
+	(*NearTextSearchParams_Move)(nil),  // 28: search_get.NearTextSearchParams.Move
+	(ConsistencyLevel)(0),              // 29: base.ConsistencyLevel
+	(*structpb.Struct)(nil),            // 30: google.protobuf.Struct
+	(*NumberArrayProperties)(nil),      // 31: base.NumberArrayProperties
+	(*IntArrayProperties)(nil),         // 32: base.IntArrayProperties
+	(*TextArrayProperties)(nil),        // 33: base.TextArrayProperties
+	(*BooleanArrayProperties)(nil),     // 34: base.BooleanArrayProperties
+}
 var file_grpc_search_get_proto_depIdxs = []int32{
 	11, // 0: search_get.SearchRequest.additional_properties:type_name -> search_get.AdditionalProperties
 	20, // 1: search_get.SearchRequest.near_vector:type_name -> search_get.NearVectorParams

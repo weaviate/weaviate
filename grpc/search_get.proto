@@ -4,8 +4,7 @@ package search_get;
 
 import "google/protobuf/struct.proto";
 import "grpc/base.proto";
-option go_package = "github.com/weaviate/weaviate/grpc/generated/grpc";
-
+option go_package = "github.com/weaviate/weaviate/grpc/generated/protocol";
 
 
 message SearchRequest {

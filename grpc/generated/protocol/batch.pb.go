@@ -9,15 +9,14 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package grpc
+package protocol
 
 import (
-	reflect "reflect"
-	sync "sync"
-
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"
+	reflect "reflect"
+	sync "sync"
 )
 
 const (
@@ -575,11 +574,11 @@ var file_grpc_batch_proto_rawDesc = []byte{
 	0x6f, 0x6b, 0x1a, 0x3a, 0x0a, 0x0c, 0x42, 0x61, 0x74, 0x63, 0x68, 0x52, 0x65, 0x73, 0x75, 0x6c,
 	0x74, 0x73, 0x12, 0x14, 0x0a, 0x05, 0x69, 0x6e, 0x64, 0x65, 0x78, 0x18, 0x01, 0x20, 0x01, 0x28,
 	0x05, 0x52, 0x05, 0x69, 0x6e, 0x64, 0x65, 0x78, 0x12, 0x14, 0x0a, 0x05, 0x65, 0x72, 0x72, 0x6f,
-	0x72, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x65, 0x72, 0x72, 0x6f, 0x72, 0x42, 0x32,
-	0x5a, 0x30, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x77, 0x65, 0x61,
+	0x72, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x65, 0x72, 0x72, 0x6f, 0x72, 0x42, 0x36,
+	0x5a, 0x34, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x77, 0x65, 0x61,
 	0x76, 0x69, 0x61, 0x74, 0x65, 0x2f, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2f, 0x67,
-	0x72, 0x70, 0x63, 0x2f, 0x67, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x65, 0x64, 0x2f, 0x67, 0x72,
-	0x70, 0x63, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x72, 0x70, 0x63, 0x2f, 0x67, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x65, 0x64, 0x2f, 0x70, 0x72,
+	0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -594,25 +593,22 @@ func file_grpc_batch_proto_rawDescGZIP() []byte {
 	return file_grpc_batch_proto_rawDescData
 }
 
-var (
-	file_grpc_batch_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
-	file_grpc_batch_proto_goTypes  = []interface{}{
-		(*BatchObjectsRequest)(nil),                   // 0: batch.BatchObjectsRequest
-		(*BatchObject)(nil),                           // 1: batch.BatchObject
-		(*BatchObjectsReply)(nil),                     // 2: batch.BatchObjectsReply
-		(*BatchObject_Properties)(nil),                // 3: batch.BatchObject.Properties
-		(*BatchObject_RefPropertiesSingleTarget)(nil), // 4: batch.BatchObject.RefPropertiesSingleTarget
-		(*BatchObject_RefPropertiesMultiTarget)(nil),  // 5: batch.BatchObject.RefPropertiesMultiTarget
-		(*BatchObjectsReply_BatchResults)(nil),        // 6: batch.BatchObjectsReply.BatchResults
-		(ConsistencyLevel)(0),                         // 7: base.ConsistencyLevel
-		(*structpb.Struct)(nil),                       // 8: google.protobuf.Struct
-		(*NumberArrayProperties)(nil),                 // 9: base.NumberArrayProperties
-		(*IntArrayProperties)(nil),                    // 10: base.IntArrayProperties
-		(*TextArrayProperties)(nil),                   // 11: base.TextArrayProperties
-		(*BooleanArrayProperties)(nil),                // 12: base.BooleanArrayProperties
-	}
-)
-
+var file_grpc_batch_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_grpc_batch_proto_goTypes = []interface{}{
+	(*BatchObjectsRequest)(nil),                   // 0: batch.BatchObjectsRequest
+	(*BatchObject)(nil),                           // 1: batch.BatchObject
+	(*BatchObjectsReply)(nil),                     // 2: batch.BatchObjectsReply
+	(*BatchObject_Properties)(nil),                // 3: batch.BatchObject.Properties
+	(*BatchObject_RefPropertiesSingleTarget)(nil), // 4: batch.BatchObject.RefPropertiesSingleTarget
+	(*BatchObject_RefPropertiesMultiTarget)(nil),  // 5: batch.BatchObject.RefPropertiesMultiTarget
+	(*BatchObjectsReply_BatchResults)(nil),        // 6: batch.BatchObjectsReply.BatchResults
+	(ConsistencyLevel)(0),                         // 7: base.ConsistencyLevel
+	(*structpb.Struct)(nil),                       // 8: google.protobuf.Struct
+	(*NumberArrayProperties)(nil),                 // 9: base.NumberArrayProperties
+	(*IntArrayProperties)(nil),                    // 10: base.IntArrayProperties
+	(*TextArrayProperties)(nil),                   // 11: base.TextArrayProperties
+	(*BooleanArrayProperties)(nil),                // 12: base.BooleanArrayProperties
+}
 var file_grpc_batch_proto_depIdxs = []int32{
 	1,  // 0: batch.BatchObjectsRequest.objects:type_name -> batch.BatchObject
 	7,  // 1: batch.BatchObjectsRequest.consistency_level:type_name -> base.ConsistencyLevel

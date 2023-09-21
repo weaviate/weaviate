@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/grpc/generated/grpc"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol"
 )
 
 const (
@@ -62,19 +62,19 @@ func TestGRPCBatchRequest(t *testing.T) {
 	var nilMap map[string]interface{}
 	tests := []struct {
 		name  string
-		req   []*grpc.BatchObject
+		req   []*pb.BatchObject
 		out   []*models.Object
 		error bool
 	}{
 		{
 			name:  "empty object",
-			req:   []*grpc.BatchObject{{ClassName: classname}},
+			req:   []*pb.BatchObject{{ClassName: classname}},
 			out:   []*models.Object{{Class: classname, Properties: nilMap}},
 			error: false,
 		},
 		{
 			name: "only normal props",
-			req: []*grpc.BatchObject{{ClassName: classname, Properties: &grpc.BatchObject_Properties{
+			req: []*pb.BatchObject{{ClassName: classname, Properties: &pb.BatchObject_Properties{
 				NonRefProperties: newStruct(t, map[string]interface{}{
 					"name": "something",
 					"age":  45,
@@ -88,8 +88,8 @@ func TestGRPCBatchRequest(t *testing.T) {
 		},
 		{
 			name: "only single refs",
-			req: []*grpc.BatchObject{{ClassName: classname, Properties: &grpc.BatchObject_Properties{
-				RefPropsSingle: []*grpc.BatchObject_RefPropertiesSingleTarget{
+			req: []*pb.BatchObject{{ClassName: classname, Properties: &pb.BatchObject_Properties{
+				RefPropsSingle: []*pb.BatchObject_RefPropertiesSingleTarget{
 					{PropName: "ref", Uuids: []string{UUID3, UUID4}},
 				},
 			}}},
@@ -103,8 +103,8 @@ func TestGRPCBatchRequest(t *testing.T) {
 		},
 		{
 			name: "only mult ref",
-			req: []*grpc.BatchObject{{ClassName: classname, Properties: &grpc.BatchObject_Properties{
-				RefPropsMulti: []*grpc.BatchObject_RefPropertiesMultiTarget{
+			req: []*pb.BatchObject{{ClassName: classname, Properties: &pb.BatchObject_Properties{
+				RefPropsMulti: []*pb.BatchObject_RefPropertiesMultiTarget{
 					{PropName: "multiRef", Uuids: []string{UUID3, UUID4}, TargetCollection: refClass2},
 				},
 			}}},
@@ -118,11 +118,11 @@ func TestGRPCBatchRequest(t *testing.T) {
 		},
 		{
 			name: "all property types",
-			req: []*grpc.BatchObject{{ClassName: classname, Properties: &grpc.BatchObject_Properties{
-				RefPropsMulti: []*grpc.BatchObject_RefPropertiesMultiTarget{
+			req: []*pb.BatchObject{{ClassName: classname, Properties: &pb.BatchObject_Properties{
+				RefPropsMulti: []*pb.BatchObject_RefPropertiesMultiTarget{
 					{PropName: "multiRef", Uuids: []string{UUID4, UUID3}, TargetCollection: refClass2},
 				},
-				RefPropsSingle: []*grpc.BatchObject_RefPropertiesSingleTarget{
+				RefPropsSingle: []*pb.BatchObject_RefPropertiesSingleTarget{
 					{PropName: "ref", Uuids: []string{UUID4, UUID3}},
 				},
 				NonRefProperties: newStruct(t, map[string]interface{}{
@@ -146,8 +146,8 @@ func TestGRPCBatchRequest(t *testing.T) {
 		},
 		{
 			name: "mult ref to single target",
-			req: []*grpc.BatchObject{{ClassName: classname, Properties: &grpc.BatchObject_Properties{
-				RefPropsMulti: []*grpc.BatchObject_RefPropertiesMultiTarget{
+			req: []*pb.BatchObject{{ClassName: classname, Properties: &pb.BatchObject_Properties{
+				RefPropsMulti: []*pb.BatchObject_RefPropertiesMultiTarget{
 					{PropName: "ref", Uuids: []string{UUID3, UUID4}, TargetCollection: refClass2},
 				},
 			}}},
@@ -156,8 +156,8 @@ func TestGRPCBatchRequest(t *testing.T) {
 		},
 		{
 			name: "single ref to multi target",
-			req: []*grpc.BatchObject{{ClassName: classname, Properties: &grpc.BatchObject_Properties{
-				RefPropsSingle: []*grpc.BatchObject_RefPropertiesSingleTarget{
+			req: []*pb.BatchObject{{ClassName: classname, Properties: &pb.BatchObject_Properties{
+				RefPropsSingle: []*pb.BatchObject_RefPropertiesSingleTarget{
 					{PropName: "multiRef", Uuids: []string{UUID3, UUID4}},
 				},
 			}}},
@@ -166,19 +166,19 @@ func TestGRPCBatchRequest(t *testing.T) {
 		},
 		{
 			name: "slice props",
-			req: []*grpc.BatchObject{{ClassName: classname, Properties: &grpc.BatchObject_Properties{
+			req: []*pb.BatchObject{{ClassName: classname, Properties: &pb.BatchObject_Properties{
 				NonRefProperties: newStruct(t, map[string]interface{}{"name": "something"}),
-				BooleanArrayProperties: []*grpc.BooleanArrayProperties{
+				BooleanArrayProperties: []*pb.BooleanArrayProperties{
 					{PropName: "boolArray1", Values: []bool{true, true}},
 					{PropName: "boolArray2", Values: []bool{false, true}},
 				},
-				IntArrayProperties: []*grpc.IntArrayProperties{
+				IntArrayProperties: []*pb.IntArrayProperties{
 					{PropName: "int1", Values: []int64{2, 3, 4}}, {PropName: "int2", Values: []int64{7, 8}},
 				},
-				NumberArrayProperties: []*grpc.NumberArrayProperties{
+				NumberArrayProperties: []*pb.NumberArrayProperties{
 					{PropName: "float1", Values: []float64{1, 2, 3}}, {PropName: "float2", Values: []float64{4, 5}},
 				},
-				TextArrayProperties: []*grpc.TextArrayProperties{
+				TextArrayProperties: []*pb.TextArrayProperties{
 					{PropName: "text1", Values: []string{"first", "second"}}, {PropName: "text2", Values: []string{"third"}},
 				},
 			}}},
@@ -199,7 +199,7 @@ func TestGRPCBatchRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := batchFromProto(&grpc.BatchObjectsRequest{Objects: tt.req}, scheme)
+			out, err := batchFromProto(&pb.BatchObjectsRequest{Objects: tt.req}, scheme)
 			if tt.error {
 				require.NotNil(t, err)
 			} else {
