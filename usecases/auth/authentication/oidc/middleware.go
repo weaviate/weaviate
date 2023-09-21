@@ -17,9 +17,7 @@ import (
 	"strings"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-	log "github.com/go-kit/kit/log/logrus"
 	errors "github.com/go-openapi/errors"
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -122,11 +120,6 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 
 	groups := c.extractGroups(claims)
 
-	logrusLogger := logrus.New()
-	logger := log.NewLogrusLogger(logrusLogger).(logrus.FieldLogger)
-	logger.WithField("action", "middleware.go").WithField("groups", groups).Info("**GROUPS**")
-	logger.WithField("action", "middleware.go").WithField("username", username).Info("**USERS**")
-	logger.WithField("action", "middleware.go").WithField("claims", claims).Info("**CLAIMS**")
 	return &models.Principal{
 		Username: username,
 		Groups:   groups,
