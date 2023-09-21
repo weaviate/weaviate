@@ -13,7 +13,6 @@ package vectorizer
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -165,7 +164,6 @@ func TestVectorizerWithDiff(t *testing.T) {
 
 			require.Nil(t, err)
 			if test.expectedVectorize {
-				fmt.Println(test.input.Vector)
 				assert.Equal(t, models.C11yVector{5.5, 11, 16.5, 22, 27.5}, test.input.Vector)
 			} else {
 				assert.Equal(t, models.C11yVector{0, 0, 0, 0, 0}, test.input.Vector)
