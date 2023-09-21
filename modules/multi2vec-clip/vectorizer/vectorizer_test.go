@@ -166,7 +166,7 @@ func TestVectorizerWithDiff(t *testing.T) {
 			if test.expectedVectorize {
 				assert.Equal(t, models.C11yVector{5.5, 11, 16.5, 22, 27.5}, test.input.Vector)
 				// vectors are defined in Vectorize within fakes_for_test.go
-				// result calulated without weights as (textVectors[0][i]+imageVectors[0][i]) / 2
+				// result calculated without weights as (textVectors[0][i]+imageVectors[0][i]) / 2
 			} else {
 				assert.Equal(t, models.C11yVector{0, 0, 0, 0, 0}, test.input.Vector)
 			}
@@ -198,7 +198,7 @@ func TestVectorizerWithWeights(t *testing.T) {
 	require.Nil(t, err)
 	assert.Equal(t, models.C11yVector{3.2, 6.4, 9.6, 12.8, 16}, input.Vector)
 	// vectors are defined in Vectorize within fakes_for_test.go
-	// result calulated with above weights as (textVectors[0][i]*0.4+imageVectors[0][i]*0.6) / 2
+	// result calculated with above weights as (textVectors[0][i]*0.4+imageVectors[0][i]*0.6) / 2
 }
 
 func TestVectorizer_normalizeWeights(t *testing.T) {
