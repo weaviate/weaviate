@@ -18,6 +18,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -57,10 +60,12 @@ type vectorizer struct {
 	logger                logrus.FieldLogger
 }
 
-func New(apiKey string, logger logrus.FieldLogger) *vectorizer {
+func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
-		apiKey:                apiKey,
-		httpClient:            &http.Client{},
+		apiKey: apiKey,
+		httpClient: &http.Client{
+			Timeout: timeout,
+		},
 		bertEmbeddingsDecoder: newBertEmbeddingsDecoder(),
 		logger:                logger,
 	}
@@ -180,7 +185,13 @@ func (v *vectorizer) getApiKey(ctx context.Context) string {
 	if len(v.apiKey) > 0 {
 		return v.apiKey
 	}
-	apiKey := ctx.Value("X-Huggingface-Api-Key")
+	key := "X-Huggingface-Api-Key"
+	apiKey := ctx.Value(key)
+	// try getting header from GRPC if not successful
+	if apiKey == nil {
+		apiKey = modulecomponents.GetApiKeyFromGRPC(ctx, key)
+	}
+
 	if apiKeyHeader, ok := apiKey.([]string); ok &&
 		len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
 		return apiKeyHeader[0]

@@ -19,6 +19,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -70,14 +73,16 @@ type vectorizer struct {
 	logger             logrus.FieldLogger
 }
 
-func New(openAIApiKey, openAIOrganization, azureApiKey string, logger logrus.FieldLogger) *vectorizer {
+func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
 		openAIApiKey:       openAIApiKey,
 		openAIOrganization: openAIOrganization,
 		azureApiKey:        azureApiKey,
-		httpClient:         &http.Client{},
-		buildUrlFn:         buildUrl,
-		logger:             logger,
+		httpClient: &http.Client{
+			Timeout: timeout,
+		},
+		buildUrlFn: buildUrl,
+		logger:     logger,
 	}
 }
 
@@ -218,6 +223,11 @@ func (v *vectorizer) getValueFromContext(ctx context.Context, key string) string
 			return keyHeader[0]
 		}
 	}
+	// try getting header from GRPC if not successful
+	if apiKey := modulecomponents.GetApiKeyFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
+		return apiKey[0]
+	}
+
 	return ""
 }
 

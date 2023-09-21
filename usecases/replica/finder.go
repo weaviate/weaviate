@@ -198,7 +198,7 @@ func (f *Finder) NodeObject(ctx context.Context,
 }
 
 // checkShardConsistency checks consistency for a set of objects belonging to a shard
-// It returns the most recent objects or and erro
+// It returns the most recent objects or and error
 func (f *Finder) checkShardConsistency(ctx context.Context,
 	l ConsistencyLevel,
 	batch shardPart,

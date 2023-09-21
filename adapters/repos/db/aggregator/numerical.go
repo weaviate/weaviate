@@ -41,7 +41,7 @@ func addNumericalAggregations(prop *aggregation.Property,
 	}
 
 	// when combining the results from different shards, we need the raw numbers to recompute the mode, mean and median.
-	// Therefor we add a reference later which needs to be cleared out before returning the results to a user
+	// Therefore we add a reference later which needs to be cleared out before returning the results to a user
 loop:
 	for _, aProp := range aggs {
 		switch aProp {

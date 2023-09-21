@@ -481,7 +481,7 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 		}
 	}
 
-	// we made it thorugh the entire graph and didn't find a new entrypoint all
+	// we made it through the entire graph and didn't find a new entrypoint all
 	// the way down to level 0. This can only mean the graph is empty, which is
 	// unexpected. This situation should have been prevented by the deleteLock.
 	panic(fmt.Sprintf(

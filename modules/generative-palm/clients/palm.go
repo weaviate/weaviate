@@ -22,6 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -43,11 +45,11 @@ type palm struct {
 	logger     logrus.FieldLogger
 }
 
-func New(apiKey string, logger logrus.FieldLogger) *palm {
+func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *palm {
 	return &palm{
 		apiKey: apiKey,
 		httpClient: &http.Client{
-			Timeout: 60 * time.Second,
+			Timeout: timeout,
 		},
 		buildUrlFn: buildURL,
 		logger:     logger,
@@ -182,7 +184,12 @@ func (v *palm) getApiKey(ctx context.Context) (string, error) {
 	if len(v.apiKey) > 0 {
 		return v.apiKey, nil
 	}
-	apiKey := ctx.Value("X-Palm-Api-Key")
+	key := "X-Palm-Api-Key"
+	apiKey := ctx.Value(key)
+	// try getting header from GRPC if not successful
+	if apiKey == nil {
+		apiKey = modulecomponents.GetApiKeyFromGRPC(ctx, key)
+	}
 	if apiKeyHeader, ok := apiKey.([]string); ok &&
 		len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
 		return apiKeyHeader[0], nil

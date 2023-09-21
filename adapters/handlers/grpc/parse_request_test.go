@@ -14,6 +14,10 @@ package grpc
 import (
 	"testing"
 
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
+
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearAudio"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
@@ -38,6 +42,7 @@ func TestGRPCRequest(t *testing.T) {
 	classname := "TestClass"
 	refClass1 := "OtherClass"
 	refClass2 := "AnotherClass"
+	dotClass := "DotClass"
 	scheme := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
@@ -51,6 +56,7 @@ func TestGRPCRequest(t *testing.T) {
 						{Name: "ref", DataType: []string{refClass1}},
 						{Name: "multiRef", DataType: []string{refClass1, refClass2}},
 					},
+					VectorIndexConfig: hnsw.UserConfig{Distance: hnsw.DefaultDistanceMetric},
 				},
 				{
 					Class: refClass1,
@@ -58,6 +64,7 @@ func TestGRPCRequest(t *testing.T) {
 						{Name: "something", DataType: schema.DataTypeText.PropString()},
 						{Name: "ref2", DataType: []string{refClass2}},
 					},
+					VectorIndexConfig: hnsw.UserConfig{Distance: hnsw.DefaultDistanceMetric},
 				},
 				{
 					Class: refClass2,
@@ -66,11 +73,20 @@ func TestGRPCRequest(t *testing.T) {
 						{Name: "ref3", DataType: []string{refClass2}},
 					},
 				},
+				{
+					Class: dotClass,
+					Properties: []*models.Property{
+						{Name: "something", DataType: schema.DataTypeText.PropString()},
+					},
+					VectorIndexConfig: hnsw.UserConfig{Distance: hnsw.DistanceDot},
+				},
 			},
 		},
 	}
 	defaultPagination := &filters.Pagination{Limit: 10}
 	quorum := grpc.ConsistencyLevel_CONSISTENCY_LEVEL_QUORUM
+	someString1 := "a word"
+	someString2 := "other"
 
 	tests := []struct {
 		name  string
@@ -90,8 +106,27 @@ func TestGRPCRequest(t *testing.T) {
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}, {Name: "floats", IsPrimitive: true}, {Name: "uuid", IsPrimitive: true}},
 				AdditionalProperties: additional.Properties{
-					Vector:             true,
+					Vector:             false,
 					Certainty:          true,
+					ID:                 true,
+					CreationTimeUnix:   true,
+					LastUpdateTimeUnix: true,
+					Distance:           true,
+					Score:              true,
+					ExplainScore:       true,
+					IsConsistent:       false,
+				},
+			},
+			error: false,
+		},
+		{
+			name: "No return values given for dot distance",
+			req:  &grpc.SearchRequest{ClassName: dotClass},
+			out: dto.GetParams{
+				ClassName: dotClass, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "something", IsPrimitive: true}},
+				AdditionalProperties: additional.Properties{
+					Vector:             false,
+					Certainty:          false, // not compatible
 					ID:                 true,
 					CreationTimeUnix:   true,
 					LastUpdateTimeUnix: true,
@@ -143,6 +178,25 @@ func TestGRPCRequest(t *testing.T) {
 					ExplainScore:       false,
 					NoProps:            false,
 				},
+			},
+			error: false,
+		},
+		{
+			name: "ref returns no values given",
+			req:  &grpc.SearchRequest{ClassName: classname, Properties: &grpc.Properties{RefProperties: []*grpc.RefProperties{{ReferenceProperty: "ref", WhichCollection: refClass1}}}},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{{ClassName: refClass1, RefProperties: search.SelectProperties{{Name: "something", IsPrimitive: true}}, AdditionalProperties: additional.Properties{
+					Vector:             false,
+					Certainty:          true,
+					ID:                 true,
+					CreationTimeUnix:   true,
+					LastUpdateTimeUnix: true,
+					Distance:           true,
+					Score:              true,
+					ExplainScore:       true,
+					IsConsistent:       false,
+				}}}}},
+				AdditionalProperties: additional.Properties{},
 			},
 			error: false,
 		},
@@ -556,6 +610,79 @@ func TestGRPCRequest(t *testing.T) {
 				ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: "QUORUM"},
 			},
 			error: false,
+		},
+		{
+			name: "Generative",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				Generative: &grpc.GenerativeSearch{SingleResponsePrompt: someString1, GroupedResponseTask: someString2, GroupedProperties: []string{"one", "two"}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{
+					Vector:  true,
+					NoProps: true,
+					ModuleParams: map[string]interface{}{
+						"generate": &generate.Params{Prompt: &someString1, Task: &someString2, Properties: []string{"one", "two"}},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Sort",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				SortBy: []*grpc.SortBy{{Ascending: false, Path: []string{"name"}}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{
+					Vector:  true,
+					NoProps: true,
+				},
+				Sort: []filters.Sort{{Order: "desc", Path: []string{"name"}}},
+			},
+			error: false,
+		},
+		{
+			name: "Sort and vector search",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				SortBy:     []*grpc.SortBy{{Ascending: false, Path: []string{"name"}}},
+				NearVector: &grpc.NearVectorParams{Vector: []float32{1, 2, 3}},
+			},
+			out:   dto.GetParams{},
+			error: true,
+		},
+		{
+			name: "group by",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				GroupBy:    &grpc.GroupBy{Path: []string{"name"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
+				NearVector: &grpc.NearVectorParams{Vector: []float32{1, 2, 3}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{
+					Vector:  true,
+					NoProps: true,
+					Group:   true,
+				},
+				NearVector: &searchparams.NearVector{Vector: []float32{1, 2, 3}},
+				GroupBy:    &searchparams.GroupBy{Groups: 2, ObjectsPerGroup: 3, Property: "name"},
+			},
+			error: false,
+		},
+		{
+			name: "group by with too long path",
+			req: &grpc.SearchRequest{
+				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
+				GroupBy:    &grpc.GroupBy{Path: []string{"ref", "Class"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
+				NearVector: &grpc.NearVectorParams{Vector: []float32{1, 2, 3}},
+			},
+			out:   dto.GetParams{},
+			error: true,
 		},
 	}
 

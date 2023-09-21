@@ -107,7 +107,7 @@ func newFakeVectorRepoKNN(unclassified, classified search.Results) *fakeVectorRe
 	}
 }
 
-// read requests are specified throuh unclassified and classified,
+// read requests are specified through unclassified and classified,
 // write requests (Put[Kind]) are stored in the db map
 type fakeVectorRepoKNN struct {
 	sync.Mutex
@@ -230,7 +230,7 @@ func newFakeVectorRepoContextual(unclassified, targets search.Results) *fakeVect
 	}
 }
 
-// read requests are specified throuh unclassified and classified,
+// read requests are specified through unclassified and classified,
 // write requests (Put[Kind]) are stored in the db map
 type fakeVectorRepoContextual struct {
 	sync.Mutex

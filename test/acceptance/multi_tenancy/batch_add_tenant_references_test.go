@@ -245,8 +245,7 @@ func TestBatchAddTenantReferences(t *testing.T) {
 		require.NotNil(t, resp[0].Result.Errors)
 		require.Len(t, resp[0].Result.Errors.Error, 1)
 		require.NotNil(t, resp[0].Result.Errors.Error[0])
-		expectedMsg := fmt.Sprintf(`target: object %s/%s not found for tenant %q`,
-			className2, mtObject2DiffTenant.ID, tenantName1)
+		expectedMsg := fmt.Sprintf(`target: object %s/%s not found for tenant %q`, className2, mtObject2DiffTenant.ID, tenantName1)
 		assert.Equal(t, expectedMsg, resp[0].Result.Errors.Error[0].Message)
 	})
 

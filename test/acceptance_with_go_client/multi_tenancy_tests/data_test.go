@@ -1049,7 +1049,7 @@ func TestData_MultiTenancy(t *testing.T) {
 			WithID(fixtures.SOUP_CHICKENSOUP_ID).
 			WithProperties(map[string]interface{}{
 				"name":        "ChickenSoup",
-				"description": "updated ChickenSoup descriptio",
+				"description": "updated ChickenSoup description",
 				"price":       float32(2.1),
 			}).
 			WithTenant("nonExistentTenant").

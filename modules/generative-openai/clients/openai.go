@@ -23,6 +23,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -56,13 +58,13 @@ type openai struct {
 	logger             logrus.FieldLogger
 }
 
-func New(openAIApiKey, openAIOrganization, azureApiKey string, logger logrus.FieldLogger) *openai {
+func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Duration, logger logrus.FieldLogger) *openai {
 	return &openai{
 		openAIApiKey:       openAIApiKey,
 		openAIOrganization: openAIOrganization,
 		azureApiKey:        azureApiKey,
 		httpClient: &http.Client{
-			Timeout: 60 * time.Second,
+			Timeout: timeout,
 		},
 		buildUrl: buildUrlFn,
 		logger:   logger,
@@ -285,6 +287,11 @@ func (v *openai) getValueFromContext(ctx context.Context, key string) string {
 			return keyHeader[0]
 		}
 	}
+	// try getting header from GRPC if not successful
+	if apiKey := modulecomponents.GetApiKeyFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
+		return apiKey[0]
+	}
+
 	return ""
 }
 

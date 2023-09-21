@@ -5,6 +5,9 @@ package weaviategrpc;
 import "google/protobuf/struct.proto";
 option go_package = "github.com/weaviate/weaviate/grpc";
 
+option java_package = "io.weaviate.client.grpc.protocol";
+option java_outer_classname = "WeaviateProto";
+
 
 service Weaviate {
   rpc Search(SearchRequest) returns (SearchReply) {};
@@ -85,6 +88,34 @@ message SearchRequest {
   optional NearAudioSearchParams near_audio = 16;
   optional NearVideoSearchParams near_video = 17;
   optional ConsistencyLevel consistency_level = 18;
+  optional GenerativeSearch generative = 19;
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated SortBy sort_by = 20;
+  optional GroupBy group_by = 21;
+}
+
+message GroupBy {
+  // currently only supports one entry (eg just properties, no refs). But might
+  // be extended in the future.
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated string path = 1;
+  int32 number_of_groups = 2;
+  int32 objects_per_group = 3;
+}
+
+message SortBy {
+  bool ascending = 1;
+  // currently only supports one entry (eg just properties, no refs). But the
+  // weaviate datastructure already has paths in it and this makes it easily
+  // extendable in the future
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated string path = 2;
+}
+
+message GenerativeSearch {
+  string single_response_prompt = 1;
+  string grouped_response_task = 2;
+  repeated string grouped_properties = 3;
 }
 
 message TextArray {
@@ -233,6 +264,16 @@ message NearObjectParams {
 message SearchReply {
   repeated SearchResult results = 1;
   float took = 2;
+  string generative_grouped_result = 3;
+  repeated GroupByResults group_by_results = 4;
+}
+
+message GroupByResults {
+  string name = 1;
+  float min_distance = 2;
+  float max_distance = 3;
+  int64 number_of_objects = 4;
+  repeated SearchResult objects = 5;
 }
 
 message SearchResult {
@@ -257,6 +298,8 @@ message ResultAdditionalProps {
   string explain_score = 13;
   bool explain_score_present = 14;
   optional bool is_consistent = 15;
+  string generative = 16;
+  bool generative_present = 17;
 }
 
 message NumberArrayProperties {

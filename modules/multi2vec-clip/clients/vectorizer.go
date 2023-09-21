@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -30,11 +31,13 @@ type vectorizer struct {
 	logger     logrus.FieldLogger
 }
 
-func New(origin string, logger logrus.FieldLogger) *vectorizer {
+func New(origin string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
-		origin:     origin,
-		httpClient: &http.Client{},
-		logger:     logger,
+		origin: origin,
+		httpClient: &http.Client{
+			Timeout: timeout,
+		},
+		logger: logger,
 	}
 }
 
