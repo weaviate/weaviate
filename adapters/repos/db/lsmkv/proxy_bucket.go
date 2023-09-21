@@ -52,7 +52,7 @@ type BucketProxy struct {
 	PropertyName   string          // the property name, used mainly for debugging
 }
 
-var UseMergedBuckets = false // if true, use the merged buckets, if false, use the legacy buckets
+var FeatureUseMergedBuckets = true // if true, use the merged buckets, if false, use the legacy buckets
 
 // Wraps a bucket with a property prefixer
 func WrapBucketWithProp(bucket *Bucket, propName string, propIds *tracker.JsonPropertyIdTracker) (BucketInterface, error) {
@@ -67,7 +67,7 @@ func WrapBucketWithProp(bucket *Bucket, propName string, propIds *tracker.JsonPr
 // Returns either a real bucket or a proxy bucket, depending on whether the merged bucket feature is active or not
 func FetchMeABucket(store *Store, mergedName string, propName string, propids *tracker.JsonPropertyIdTracker) (BucketInterface, error) {
 	bucket := store.Bucket(mergedName)
-	if UseMergedBuckets {
+	if !FeatureUseMergedBuckets {
 		return bucket, nil
 	}
 	proxyBucket, err := NewBucketProxy(bucket, propName, propids)
@@ -205,6 +205,7 @@ func (b *BucketProxy) Delete(key []byte, opts ...SecondaryKeyOption) error {
 }
 
 func (b *BucketProxy) Count() int {
+	panic("Not allowed for BucketProx")
 	return b.realBucket.Count()
 }
 
