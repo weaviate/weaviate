@@ -1,10 +1,10 @@
 syntax = "proto3";
 
-package batch;
-
 import "google/protobuf/struct.proto";
 import "grpc/base.proto";
-option go_package = "github.com/weaviate/weaviate/grpc/generated/grpc";
+option go_package = "github.com/weaviate/weaviate/grpc/generated/protocol";
+
+package batch;
 
 message BatchObjectsRequest {
   repeated BatchObject objects = 1;

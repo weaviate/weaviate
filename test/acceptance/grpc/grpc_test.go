@@ -17,7 +17,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	pb "github.com/weaviate/weaviate/grpc/generated/grpc"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 )
