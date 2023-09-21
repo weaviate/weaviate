@@ -32,7 +32,7 @@ const (
 	DataTypeBoolean DataType = "boolean"
 	// DataTypeDate The data type is a value of type date
 	DataTypeDate DataType = "date"
-	// DataTypeGeoCoordinates is used to represent geo coordintaes, i.e. latitude
+	// DataTypeGeoCoordinates is used to represent geo coordinates, i.e. latitude
 	// and longitude pairs of locations on earth
 	DataTypeGeoCoordinates DataType = "geoCoordinates"
 	// DataTypePhoneNumber represents a parsed/to-be-parsed phone number

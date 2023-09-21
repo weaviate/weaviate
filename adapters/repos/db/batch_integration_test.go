@@ -547,7 +547,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 
 			t.Run("can import", func(t *testing.T) {
 				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
-				require.Nil(t, err, "there shouldn't be an overall error, only inividual ones")
+				require.Nil(t, err, "there shouldn't be an overall error, only individual ones")
 
 				t.Run("element errors are marked correctly", func(t *testing.T) {
 					require.Len(t, batchRes, 3)
@@ -699,7 +699,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 
 			t.Run("can import", func(t *testing.T) {
 				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
-				require.Nil(t, err, "there shouldn't be an overall error, only inividual ones")
+				require.Nil(t, err, "there shouldn't be an overall error, only individual ones")
 
 				t.Run("element errors are marked correctly", func(t *testing.T) {
 					require.Len(t, batchRes, 53)
@@ -756,7 +756,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				defer cancel()
 
 				batchRes, err := repo.BatchPutObjects(ctx, batch, nil)
-				require.Nil(t, err, "there shouldn't be an overall error, only inividual ones")
+				require.Nil(t, err, "there shouldn't be an overall error, only individual ones")
 
 				t.Run("some elements have error'd due to context", func(t *testing.T) {
 					require.Len(t, batchRes, 50)

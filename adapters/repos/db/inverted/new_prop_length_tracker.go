@@ -226,7 +226,7 @@ func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) int {
 
 // Returns the value that the given bucket represents
 //
-//nolint:all
+//nolint:unused
 func (t *JsonPropertyLengthTracker) valueFromBucket(bucket int) float32 {
 	if t.UnlimitedBuckets {
 		return float32(bucket)

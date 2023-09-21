@@ -332,7 +332,7 @@ func intVal(val interface{}) (interface{}, error) {
 					return nil, fmt.Errorf(errInvalidInteger, val)
 				}
 			} else {
-				// If it is not a float, it is cerntainly not a integer, return the err
+				// If it is not a float, it is certainly not a integer, return the err
 				return nil, fmt.Errorf(errInvalidInteger, val)
 			}
 		}
@@ -491,8 +491,12 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 		return nil, fmt.Errorf("invalid reference: %s", err)
 	}
 	errVal := fmt.Sprintf("'cref' %s:%s", className, propertyName)
-	err = v.ValidateSingleRef(ctx, ref.SingleRef(), errVal, "")
+	ref, err = v.ValidateSingleRef(ref.SingleRef())
 	if err != nil {
+		return nil, err
+	}
+
+	if err = v.ValidateExistence(ctx, ref, errVal, ""); err != nil {
 		return nil, err
 	}
 
@@ -501,12 +505,12 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 }
 
 // vectorWeights are passed as a non-typed interface{}, this is due to a
-// limition in go-swagger which itself is coming from swagger 2.0 which does
+// limitation in go-swagger which itself is coming from swagger 2.0 which does
 // not have support for arbitrary key/value objects
 //
 // we must thus validate that it's a map and they keys are strings
 // NOTE: We are not validating the semantic correctness of the equations
-// themselves, as they are in the contextinoary's resopnsibility
+// themselves, as they are in the contextinoary's responsibility
 func (v *Validator) validateVectorWeights(in interface{}) (map[string]string, error) {
 	asMap, ok := in.(map[string]interface{})
 	if !ok {

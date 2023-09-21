@@ -98,7 +98,7 @@ func TestGraphIntegrity(t *testing.T) {
 		conlen := len(node.connections[0])
 
 		// it is debatable how much value this test still adds. It used to check
-		// that a lot of connections are present before we had the heurisitic. But
+		// that a lot of connections are present before we had the heuristic. But
 		// with the heuristic it's not uncommon that a node's connections get
 		// reduced to a slow amount of key connections. We have thus set this value
 		// to 1 to make sure that no nodes are entirely unconnected, but it's

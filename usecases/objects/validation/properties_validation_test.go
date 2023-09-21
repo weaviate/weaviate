@@ -85,7 +85,7 @@ func TestValidator_extractAndValidateProperty(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:   "Validate blob - valid base64 encoded string but with type definittion before image string",
+			name:   "Validate blob - valid base64 encoded string but with type definition before image string",
 			fields: validatorFields,
 			args: args{
 				ctx:          context.Background(),

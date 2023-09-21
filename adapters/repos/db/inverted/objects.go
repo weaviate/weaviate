@@ -598,7 +598,7 @@ func HasInvertedIndex(prop *models.Property) bool {
 }
 
 const (
-	// allways
+	// always
 	HasFilterableIndexIdProp = true
 	HasSearchableIndexIdProp = false
 

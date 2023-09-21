@@ -14,7 +14,7 @@ package asm
 // Experiment with inlining and flattening the L2Squared distancer.
 // Theoretically, this should be faster than the loop version for small vectors
 // - it avoids the loop overhead
-// - it elimitates the bounds check by reversing the iteration
+// - it eliminates the bounds check by reversing the iteration
 // - it allows l22 and l24 to be inlined (the other ones are too large)
 // See go tool compile -d=ssa/check_bce/debug=1 -m l2_inline.go
 

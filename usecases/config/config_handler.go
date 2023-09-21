@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"time"
 
 	"github.com/go-openapi/swag"
 	"github.com/pkg/errors"
@@ -83,6 +84,7 @@ type Config struct {
 	DefaultVectorDistanceMetric         string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
 	EnableModules                       string                   `json:"enable_modules" yaml:"enable_modules"`
 	ModulesPath                         string                   `json:"modules_path" yaml:"modules_path"`
+	ModuleHttpClientTimeout             time.Duration            `json:"modules_client_timeout" yaml:"modules_client_timeout"`
 	AutoSchema                          AutoSchema               `json:"auto_schema" yaml:"auto_schema"`
 	Cluster                             cluster.Config           `json:"cluster" yaml:"cluster"`
 	Replication                         replication.GlobalConfig `json:"replication" yaml:"replication"`

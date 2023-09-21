@@ -541,7 +541,7 @@ func (l *hnswCommitLogger) condenseOldLogs() (bool, error) {
 }
 
 func (l *hnswCommitLogger) combineLogs() (bool, error) {
-	// maxSize is the desired final size, since we assume a lot of redunancy we
+	// maxSize is the desired final size, since we assume a lot of redundancy we
 	// can set the combining threshold higher than the final threshold under the
 	// assumption that the combined file will be considerably smaller than the
 	// sum of both input files
