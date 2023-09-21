@@ -41,7 +41,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
-	pb "github.com/weaviate/weaviate/grpc"
+	pb "github.com/weaviate/weaviate/grpc/generated/grpc"
 )
 
 func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.GetParams, error) {

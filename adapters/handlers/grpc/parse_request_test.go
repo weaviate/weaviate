@@ -35,7 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/grpc"
+	"github.com/weaviate/weaviate/grpc/generated/grpc"
 )
 
 func TestGRPCRequest(t *testing.T) {
