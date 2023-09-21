@@ -173,8 +173,8 @@ func (c *Client) extractGroups(claims map[string]interface{}) []string {
 	}
 
 	for _, untyped := range groupsSlice {
-		if group, ok := untyped.(map[string]interface{}); ok {
-			groups = append(groups, group["group"].(string))
+		if group, ok := untyped.(string); ok {
+			groups = append(groups, group)
 		}
 	}
 
