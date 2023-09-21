@@ -12,10 +12,11 @@
 package protocol
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -348,15 +349,17 @@ func file_grpc_base_proto_rawDescGZIP() []byte {
 	return file_grpc_base_proto_rawDescData
 }
 
-var file_grpc_base_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_grpc_base_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
-var file_grpc_base_proto_goTypes = []interface{}{
-	(ConsistencyLevel)(0),          // 0: base.ConsistencyLevel
-	(*NumberArrayProperties)(nil),  // 1: base.NumberArrayProperties
-	(*IntArrayProperties)(nil),     // 2: base.IntArrayProperties
-	(*TextArrayProperties)(nil),    // 3: base.TextArrayProperties
-	(*BooleanArrayProperties)(nil), // 4: base.BooleanArrayProperties
-}
+var (
+	file_grpc_base_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+	file_grpc_base_proto_msgTypes  = make([]protoimpl.MessageInfo, 4)
+	file_grpc_base_proto_goTypes   = []interface{}{
+		(ConsistencyLevel)(0),          // 0: base.ConsistencyLevel
+		(*NumberArrayProperties)(nil),  // 1: base.NumberArrayProperties
+		(*IntArrayProperties)(nil),     // 2: base.IntArrayProperties
+		(*TextArrayProperties)(nil),    // 3: base.TextArrayProperties
+		(*BooleanArrayProperties)(nil), // 4: base.BooleanArrayProperties
+	}
+)
 var file_grpc_base_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
 	0, // [0:0] is the sub-list for method input_type

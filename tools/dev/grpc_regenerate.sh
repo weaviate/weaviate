@@ -11,8 +11,8 @@ rm -fr $OUT_DIR && mkdir -p $OUT_DIR && protoc \
     --go-grpc_opt=module=github.com/weaviate/weaviate/grpc/generated/protocol \
     ./grpc/*.proto
 
-gofumpt -w .
-
 go run ./tools/license_headers/main.go
+
+cd $OUT_DIR && gofumpt -w . && goimports -w .
 
 echo "Success"
