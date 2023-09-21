@@ -12,9 +12,10 @@
 package protocol
 
 import (
+	reflect "reflect"
+
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	reflect "reflect"
 )
 
 const (
@@ -57,6 +58,7 @@ var file_grpc_weaviate_proto_goTypes = []interface{}{
 	(*SearchReply)(nil),         // 2: search_get.SearchReply
 	(*BatchObjectsReply)(nil),   // 3: batch.BatchObjectsReply
 }
+
 var file_grpc_weaviate_proto_depIdxs = []int32{
 	0, // 0: weaviategrpc.Weaviate.Search:input_type -> search_get.SearchRequest
 	1, // 1: weaviategrpc.Weaviate.BatchObjects:input_type -> batch.BatchObjectsRequest

@@ -12,11 +12,12 @@
 package protocol
 
 import (
+	reflect "reflect"
+	sync "sync"
+
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"
-	reflect "reflect"
-	sync "sync"
 )
 
 const (
@@ -593,22 +594,24 @@ func file_grpc_batch_proto_rawDescGZIP() []byte {
 	return file_grpc_batch_proto_rawDescData
 }
 
-var file_grpc_batch_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
-var file_grpc_batch_proto_goTypes = []interface{}{
-	(*BatchObjectsRequest)(nil),                   // 0: batch.BatchObjectsRequest
-	(*BatchObject)(nil),                           // 1: batch.BatchObject
-	(*BatchObjectsReply)(nil),                     // 2: batch.BatchObjectsReply
-	(*BatchObject_Properties)(nil),                // 3: batch.BatchObject.Properties
-	(*BatchObject_RefPropertiesSingleTarget)(nil), // 4: batch.BatchObject.RefPropertiesSingleTarget
-	(*BatchObject_RefPropertiesMultiTarget)(nil),  // 5: batch.BatchObject.RefPropertiesMultiTarget
-	(*BatchObjectsReply_BatchResults)(nil),        // 6: batch.BatchObjectsReply.BatchResults
-	(ConsistencyLevel)(0),                         // 7: base.ConsistencyLevel
-	(*structpb.Struct)(nil),                       // 8: google.protobuf.Struct
-	(*NumberArrayProperties)(nil),                 // 9: base.NumberArrayProperties
-	(*IntArrayProperties)(nil),                    // 10: base.IntArrayProperties
-	(*TextArrayProperties)(nil),                   // 11: base.TextArrayProperties
-	(*BooleanArrayProperties)(nil),                // 12: base.BooleanArrayProperties
-}
+var (
+	file_grpc_batch_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+	file_grpc_batch_proto_goTypes  = []interface{}{
+		(*BatchObjectsRequest)(nil),                   // 0: batch.BatchObjectsRequest
+		(*BatchObject)(nil),                           // 1: batch.BatchObject
+		(*BatchObjectsReply)(nil),                     // 2: batch.BatchObjectsReply
+		(*BatchObject_Properties)(nil),                // 3: batch.BatchObject.Properties
+		(*BatchObject_RefPropertiesSingleTarget)(nil), // 4: batch.BatchObject.RefPropertiesSingleTarget
+		(*BatchObject_RefPropertiesMultiTarget)(nil),  // 5: batch.BatchObject.RefPropertiesMultiTarget
+		(*BatchObjectsReply_BatchResults)(nil),        // 6: batch.BatchObjectsReply.BatchResults
+		(ConsistencyLevel)(0),                         // 7: base.ConsistencyLevel
+		(*structpb.Struct)(nil),                       // 8: google.protobuf.Struct
+		(*NumberArrayProperties)(nil),                 // 9: base.NumberArrayProperties
+		(*IntArrayProperties)(nil),                    // 10: base.IntArrayProperties
+		(*TextArrayProperties)(nil),                   // 11: base.TextArrayProperties
+		(*BooleanArrayProperties)(nil),                // 12: base.BooleanArrayProperties
+	}
+)
 var file_grpc_batch_proto_depIdxs = []int32{
 	1,  // 0: batch.BatchObjectsRequest.objects:type_name -> batch.BatchObject
 	7,  // 1: batch.BatchObjectsRequest.consistency_level:type_name -> base.ConsistencyLevel
