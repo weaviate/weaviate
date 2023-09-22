@@ -41,7 +41,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
-	pb "github.com/weaviate/weaviate/grpc"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol"
 )
 
 func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.GetParams, error) {
@@ -251,7 +251,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	}
 
 	if req.GroupBy != nil {
-		groupBy, err := extractGroupBy(req.GroupBy)
+		groupBy, err := extractGroupBy(req.GroupBy, &out)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -263,7 +263,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	return out, nil
 }
 
-func extractGroupBy(groupIn *pb.GroupBy) (*searchparams.GroupBy, error) {
+func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams) (*searchparams.GroupBy, error) {
 	if len(groupIn.Path) != 1 {
 		return nil, fmt.Errorf("groupby path can only have one entry, received %v", groupIn.Path)
 	}
@@ -273,6 +273,13 @@ func extractGroupBy(groupIn *pb.GroupBy) (*searchparams.GroupBy, error) {
 		ObjectsPerGroup: int(groupIn.ObjectsPerGroup),
 		Groups:          int(groupIn.NumberOfGroups),
 	}
+
+	// add the property in case it was not requested as return prop - otherwise it is not resolved
+	if out.Properties.FindProperty(groupOut.Property) == nil {
+		out.Properties = append(out.Properties, search.SelectProperty{Name: groupOut.Property, IsPrimitive: true})
+	}
+	out.AdditionalProperties.NoProps = false
+
 	return groupOut, nil
 }
 

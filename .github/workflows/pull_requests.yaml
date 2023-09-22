@@ -115,7 +115,7 @@ jobs:
       - name: Codecov
         uses: codecov/codecov-action@v3
         with:
-          fail_ci_if_error: true
+          fail_ci_if_error: false
           files: ./coverage-integration.txt, ./coverage-unit.txt
           verbose: true
   Compile-and-upload-binaries:
