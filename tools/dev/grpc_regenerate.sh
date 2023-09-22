@@ -15,6 +15,8 @@ go run ./tools/license_headers/main.go
 
 goimports -w $OUT_DIR
 
+# running gofumpt twice is on purpose
+# it doesn't work for the first time only after second run the formatting is proper
 gofumpt -w $OUT_DIR
 gofumpt -w $OUT_DIR
 
