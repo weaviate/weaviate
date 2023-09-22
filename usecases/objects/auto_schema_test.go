@@ -144,8 +144,8 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			},
 			args: args{
 				value: map[string]interface{}{
-					"input":                  "020 1234567",
-					"internationalFormatted": "+31 20 1234567",
+					"input": "020 1234567",
+					// "internationalFormatted": "+31 20 1234567",
 				},
 			},
 			want: []schema.DataType{schema.DataTypePhoneNumber},
