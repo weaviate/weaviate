@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package weaviate;
+package weaviategrpc;
 
 import "batch.proto";
 import "search_get.proto";
