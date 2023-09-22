@@ -415,7 +415,6 @@ func (q *IndexQueue) worker() {
 			} else {
 				safeID = 0
 			}
-			fmt.Printf("minID: %d, delta: %d. safe id: %d\n", minID, delta, safeID)
 
 			q.lastIndexedCursor.Update(safeID)
 		}
