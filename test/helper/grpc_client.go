@@ -14,7 +14,7 @@ package helper
 import (
 	"fmt"
 
-	pb "github.com/weaviate/weaviate/grpc"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
