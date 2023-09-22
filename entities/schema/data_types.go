@@ -300,3 +300,12 @@ func AsNested(dataType []string) (DataType, bool) {
 	}
 	return "", false
 }
+
+func IsNested(dataType DataType) bool {
+	for _, dt := range NestedDataTypes {
+		if dt == dataType {
+			return true
+		}
+	}
+	return false
+}
