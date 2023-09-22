@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package weaviate;
+package weaviategrpc;
 
 option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
 option java_package = "io.weaviate.grpc.protocol";
