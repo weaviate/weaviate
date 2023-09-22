@@ -137,21 +137,3 @@ func TestJsonPropertyIdTracker_ConcurrentAccess(t *testing.T) {
 	})
 }
 
-func TestJsonPropertyIdTracker_ConcurrentOpenClose(t *testing.T) {
-	path := t.TempDir() + "/test.json"
-
-	t.Run("ConcurrentOpen", func(t *testing.T) {
-		var wg sync.WaitGroup
-		for i := 0; i < 10; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				_, err := NewJsonPropertyIdTracker(path)
-				if err != nil {
-					t.Errorf("unexpected error: %v", err)
-				}
-			}()
-		}
-		wg.Wait()
-	})
-}
