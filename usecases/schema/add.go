@@ -286,22 +286,24 @@ func setPropertyDefaultIndexing(prop *models.Property) {
 	vFalse := false
 
 	if prop.IndexFilterable == nil {
+		prop.IndexFilterable = &vTrue
+
 		if _, isNested := schema.AsNested(prop.DataType); isNested {
 			prop.IndexFilterable = &vFalse
-		} else {
-			prop.IndexFilterable = &vTrue
 		}
 	}
 	if prop.IndexSearchable == nil {
-		switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
-		case schema.DataTypeString, schema.DataTypeStringArray:
-			// string/string[] are migrated to text/text[] later,
-			// at this point they are still valid data types, therefore should be handled here
-			prop.IndexSearchable = &vTrue
-		case schema.DataTypeText, schema.DataTypeTextArray:
-			prop.IndexSearchable = &vTrue
-		default:
-			prop.IndexSearchable = &vFalse
+		prop.IndexSearchable = &vFalse
+
+		if dataType, isPrimitive := schema.AsPrimitive(prop.DataType); isPrimitive {
+			switch dataType {
+			case schema.DataTypeString, schema.DataTypeStringArray:
+				// string/string[] are migrated to text/text[] later,
+				// at this point they are still valid data types, therefore should be handled here
+				prop.IndexSearchable = &vTrue
+			case schema.DataTypeText, schema.DataTypeTextArray:
+				prop.IndexSearchable = &vTrue
+			}
 		}
 	}
 }
@@ -340,6 +342,8 @@ func setNestedPropertyDefaultIndexing(property *models.NestedProperty,
 	vFalse := false
 
 	if property.IndexSearchable == nil {
+		property.IndexSearchable = &vFalse
+
 		if isPrimitive {
 			switch primitiveDataType {
 			case schema.DataTypeText, schema.DataTypeTextArray:
@@ -347,17 +351,14 @@ func setNestedPropertyDefaultIndexing(property *models.NestedProperty,
 			}
 		}
 	}
-	if property.IndexSearchable == nil {
-		property.IndexSearchable = &vFalse
-	}
 
 	if property.IndexFilterable == nil {
-		if isNested {
+		property.IndexFilterable = &vTrue
+
+		if (isPrimitive && primitiveDataType == schema.DataTypeBlob) ||
+			isNested {
 			property.IndexFilterable = &vFalse
 		}
-	}
-	if property.IndexFilterable == nil {
-		property.IndexFilterable = &vTrue
 	}
 }
 
