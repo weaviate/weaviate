@@ -14,7 +14,11 @@ package db
 import (
 	"container/list"
 	"context"
+	"encoding/binary"
+	"fmt"
+	"os"
 	"runtime"
+	"slices"
 	"sync"
 	"time"
 
@@ -22,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 // IndexQueue is an in-memory queue of vectors to index.
@@ -52,6 +57,8 @@ type IndexQueue struct {
 	pqMaxPool *pqMaxPool
 
 	bufPool sync.Pool
+
+	lastIndexedCursor *minIndexedCursor
 }
 
 type vectorDescriptor struct {
@@ -93,6 +100,8 @@ type BatchIndexer interface {
 }
 
 func NewIndexQueue(
+	shardID string,
+	rootPath string,
 	index BatchIndexer,
 	opts IndexQueueOptions,
 ) (*IndexQueue, error) {
@@ -134,6 +143,13 @@ func NewIndexQueue(
 				return &buf
 			},
 		},
+	}
+
+	var err error
+
+	q.lastIndexedCursor, err = newMinIndexedCursor(shardID, rootPath)
+	if err != nil {
+		return nil, errors.Wrap(err, "initialize min indexed cursor")
 	}
 
 	q.ctx, q.cancelFn = context.WithCancel(context.Background())
@@ -183,7 +199,7 @@ func (q *IndexQueue) Close() error {
 
 	q.wg.Wait()
 
-	return nil
+	return q.lastIndexedCursor.Close()
 }
 
 // Push adds a list of vectors to the queue.
@@ -253,6 +269,68 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 	return nil
 }
 
+// Push adds a list of vectors to the queue.
+func (q *IndexQueue) PreloadShard(ctx context.Context, shard *Shard) error {
+	if !asyncEnabled() {
+		return nil
+	}
+
+	// load non-indexed vectors and add them to the queue
+	lastID := q.lastIndexedCursor.Get()
+	if lastID == 0 {
+		return nil
+	}
+
+	start := time.Now()
+
+	maxDocID := shard.counter.Get()
+
+	var counter int
+
+	buf := make([]byte, 8)
+	for i := lastID; i < maxDocID; i++ {
+		binary.LittleEndian.PutUint64(buf, i)
+
+		v, err := shard.store.Bucket(helpers.ObjectsBucketLSM).GetBySecondary(0, buf)
+		if err != nil {
+			return errors.Wrap(err, "get last indexed object")
+		}
+		if v == nil {
+			continue
+		}
+		obj, err := storobj.FromBinary(v)
+		if err != nil {
+			return errors.Wrap(err, "unmarshal last indexed object")
+		}
+		id := obj.DocID()
+		if shard.vectorIndex.ContainsNode(id) {
+			continue
+		}
+		if len(obj.Vector) == 0 {
+			continue
+		}
+		counter++
+
+		desc := vectorDescriptor{
+			id:     id,
+			vector: obj.Vector,
+		}
+		err = q.Push(ctx, desc)
+		if err != nil {
+			return err
+		}
+	}
+
+	q.Logger.
+		WithField("id", lastID).
+		WithField("maxDocID", maxDocID).
+		WithField("count", counter).
+		WithField("took", time.Since(start)).
+		Debug("enqueued vectors from last indexed cursor")
+
+	return nil
+}
+
 func (q *IndexQueue) enqueuer() {
 	for batch := range q.processCh {
 		q.queue.Add(batch)
@@ -311,8 +389,36 @@ func (q *IndexQueue) worker() {
 			return
 		}
 
+		// update the on-disk cursor that tracks the minimum indexed id
+		// with a value that is guaranteed to be lower than the last lowest indexed id.
+		q.queue.fullChunks.Lock()
+		cl := q.queue.fullChunks.list.Len()
+		q.queue.fullChunks.Unlock()
+		// Determine a safe value to use as the new cursor.
+		// The value doesn't have to be accurate but it must guarantee
+		// that it is lower than the last indexed id.
+		if len(ids) > 0 {
+			minID := slices.Min(ids)
+			delta := uint64(cl * q.BatchSize)
+			// cap the delta to 10k vectors
+			if delta > 10_000 {
+				delta = 10_000
+			}
+			var safeID uint64
+			if minID > delta {
+				safeID = minID - delta
+			} else {
+				safeID = 0
+			}
+			fmt.Printf("minID: %d, delta: %d. safe id: %d\n", minID, delta, safeID)
+
+			q.lastIndexedCursor.Update(safeID)
+		}
+
+		// put the chunk back in the pool
 		q.queue.releaseChunk(b)
 
+		// remove the deleted ids from the mask
 		if len(deleted) > 0 {
 			q.queue.ResetDeleted(deleted...)
 		}
@@ -504,8 +610,8 @@ func (q *vectorQueue) Add(vectors []vectorDescriptor) {
 		full = append(full, f)
 	}
 
-	curBatch := q.curBatch.c
 	for len(vectors) != 0 {
+		curBatch := q.curBatch.c
 		n := copy(curBatch.data[curBatch.cursor:], vectors)
 		curBatch.cursor += n
 
@@ -630,4 +736,89 @@ type chunk struct {
 	borrowed bool
 	data     []vectorDescriptor
 	elem     *list.Element
+}
+
+type minIndexedCursor struct {
+	sync.Mutex
+	id uint64
+	f  *os.File
+
+	flushCh chan struct{}
+}
+
+func newMinIndexedCursor(shardID string, rootPath string) (*minIndexedCursor, error) {
+	fileName := fmt.Sprintf("%s/%s.minindexed", rootPath, shardID)
+	f, err := os.OpenFile(fileName, os.O_RDWR|os.O_CREATE, 0o666)
+	if err != nil {
+		return nil, err
+	}
+
+	stat, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	c := minIndexedCursor{
+		f:       f,
+		flushCh: make(chan struct{}, 1),
+	}
+
+	if stat.Size() > 0 {
+		// the file has existed before, we need to initialize with its content
+		err = binary.Read(f, binary.LittleEndian, &c.id)
+		if err != nil {
+			return nil, errors.Wrap(err, "read initial count from file")
+		}
+	}
+
+	go func() {
+		for range c.flushCh {
+			err = c.Flush()
+			if err != nil {
+				logrus.WithError(err).Error("flush min indexed cursor")
+			}
+		}
+	}()
+
+	return &c, nil
+}
+
+func (c *minIndexedCursor) Close() error {
+	close(c.flushCh)
+
+	return c.f.Close()
+}
+
+func (c *minIndexedCursor) Get() uint64 {
+	c.Lock()
+	defer c.Unlock()
+	return c.id
+}
+
+func (c *minIndexedCursor) Update(id uint64) {
+	c.Lock()
+	defer c.Unlock()
+	if id <= c.id {
+		return
+	}
+	c.id = id
+
+	select {
+	case c.flushCh <- struct{}{}:
+	default:
+	}
+}
+
+func (c *minIndexedCursor) Flush() error {
+	c.Lock()
+	defer c.Unlock()
+
+	c.f.Seek(0, 0)
+	err := binary.Write(c.f, binary.LittleEndian, &c.id)
+	if err != nil {
+		return errors.Wrap(err, "increase cursor on disk")
+	}
+	c.f.Seek(0, 0)
+
+	return nil
 }

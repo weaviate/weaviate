@@ -30,6 +30,49 @@ func TestIndexQueue(t *testing.T) {
 	os.Setenv("WEAVIATE_ASYNC_INDEXING", "true")
 	defer os.Unsetenv("WEAVIATE_ASYNC_INDEXING")
 
+	writeIDs := func(q *IndexQueue, from, to uint64) {
+		vectors := make([]vectorDescriptor, 0, to-from)
+		for i := from; i < to; i++ {
+			vectors = append(vectors, vectorDescriptor{
+				id:     i,
+				vector: []float32{1, 2, 3},
+			})
+		}
+		err := q.Push(ctx, vectors...)
+		require.NoError(t, err)
+	}
+
+	getLastUpdate := func(q *IndexQueue) time.Time {
+		fi, err := os.Stat(q.lastIndexedCursor.f.Name())
+		require.NoError(t, err)
+		return fi.ModTime()
+	}
+
+	waitForUpdate := func(q *IndexQueue) func(timeout ...time.Duration) bool {
+		lastUpdate := getLastUpdate(q)
+
+		return func(timeout ...time.Duration) bool {
+			start := time.Now()
+
+			if len(timeout) == 0 {
+				timeout = []time.Duration{5 * time.Second}
+			}
+			for {
+				cur := getLastUpdate(q)
+				if cur.Equal(lastUpdate) {
+					if time.Since(start) > timeout[0] {
+						return false
+					}
+					time.Sleep(5 * time.Millisecond)
+					continue
+				}
+
+				lastUpdate = cur
+				return true
+			}
+		}
+	}
+
 	t.Run("pushes to indexer if batch is full", func(t *testing.T) {
 		var idx mockBatchIndexer
 		idsCh := make(chan []uint64, 1)
@@ -38,7 +81,7 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue(&idx, IndexQueueOptions{
+		q, err := NewIndexQueue("1", t.TempDir(), &idx, IndexQueueOptions{
 			BatchSize: 2,
 		})
 		require.NoError(t, err)
@@ -72,7 +115,7 @@ func TestIndexQueue(t *testing.T) {
 			called <- struct{}{}
 			return nil
 		}
-		q, err := NewIndexQueue(&idx, IndexQueueOptions{
+		q, err := NewIndexQueue("1", t.TempDir(), &idx, IndexQueueOptions{
 			BatchSize:     100,
 			IndexInterval: time.Microsecond,
 		})
@@ -117,7 +160,7 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue(&idx, IndexQueueOptions{
+		q, err := NewIndexQueue("1", t.TempDir(), &idx, IndexQueueOptions{
 			BatchSize:     1,
 			RetryInterval: time.Millisecond,
 		})
@@ -140,8 +183,10 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue(&idx, IndexQueueOptions{
-			BatchSize: 3,
+		q, err := NewIndexQueue("1", t.TempDir(), &idx, IndexQueueOptions{
+			BatchSize:        3,
+			IndexInterval:    100 * time.Millisecond,
+			IndexWorkerCount: 1,
 		})
 		require.NoError(t, err)
 		defer q.Close()
@@ -168,9 +213,11 @@ func TestIndexQueue(t *testing.T) {
 		require.NoError(t, err)
 
 		<-called
+
+		time.Sleep(500 * time.Millisecond)
 		res, _, err := q.SearchByVector([]float32{1, 2, 3}, 2, nil)
 		require.NoError(t, err)
-		require.ElementsMatch(t, []uint64{1, 4}, res)
+		require.Equal(t, []uint64{1, 4}, res)
 	})
 
 	t.Run("queue size", func(t *testing.T) {
@@ -181,21 +228,16 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue(&idx, IndexQueueOptions{
-			BatchSize: 5,
+		q, err := NewIndexQueue("1", t.TempDir(), &idx, IndexQueueOptions{
+			BatchSize:        5,
+			IndexWorkerCount: 1,
 		})
 		require.NoError(t, err)
 		defer q.Close()
 
-		for i := uint64(0); i < 101; i++ {
-			err = q.Push(ctx, vectorDescriptor{
-				id:     i + 1,
-				vector: []float32{1, 2, 3},
-			})
-			require.NoError(t, err)
-		}
+		writeIDs(q, 0, 101)
 
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 		require.EqualValues(t, 101, q.Size())
 		close(closeCh)
 	})
@@ -212,25 +254,24 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue(&idx, IndexQueueOptions{
-			BatchSize:     4,
-			IndexInterval: 100 * time.Millisecond,
+		q, err := NewIndexQueue("1", t.TempDir(), &idx, IndexQueueOptions{
+			BatchSize:        4,
+			IndexWorkerCount: 1,
+			IndexInterval:    100 * time.Millisecond,
 		})
 		require.NoError(t, err)
 		defer q.Close()
 
-		for i := uint64(0); i < 20; i++ {
-			err = q.Push(ctx, vectorDescriptor{
-				id:     i,
-				vector: []float32{1, 2, 3},
-			})
-			require.NoError(t, err)
-		}
+		writeIDs(q, 0, 20)
 
 		err = q.Delete(5, 10, 15)
 		require.NoError(t, err)
 
+		wait := waitForUpdate(q)
 		<-indexingDone
+
+		// wait for the cursor file to be written to disk
+		wait()
 
 		// check what has been indexed
 		require.Equal(t, []uint64{0, 1, 2, 3, 4, 6, 7, 8, 9, 11, 12, 13, 14, 16, 17, 18, 19}, idx.IDs())
@@ -270,7 +311,7 @@ func TestIndexQueue(t *testing.T) {
 	t.Run("brute force upper limit", func(t *testing.T) {
 		var idx mockBatchIndexer
 
-		q, err := NewIndexQueue(&idx, IndexQueueOptions{
+		q, err := NewIndexQueue("1", t.TempDir(), &idx, IndexQueueOptions{
 			BatchSize:             1000,
 			BruteForceSearchLimit: 2,
 		})
@@ -304,6 +345,71 @@ func TestIndexQueue(t *testing.T) {
 		// only the first two are used for brute force search
 		require.Equal(t, []uint64{2, 1}, res)
 	})
+
+	t.Run("stores a safe min indexed id", func(t *testing.T) {
+		var idx mockBatchIndexer
+
+		q, err := NewIndexQueue("1", t.TempDir(), &idx, IndexQueueOptions{
+			BatchSize:        5,
+			IndexInterval:    time.Hour,
+			IndexWorkerCount: 1,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		wait := waitForUpdate(q)
+		writeIDs(q, 5, 7)  // [5, 6]
+		writeIDs(q, 9, 13) // [5, 6, 9, 10, 11], [12]
+		writeIDs(q, 0, 5)  // [5, 6, 9, 10, 11], [12, 0, 1, 2, 3], [4]
+		time.Sleep(100 * time.Millisecond)
+		q.pushToWorkers()
+		// the safe id should be: 0, then 0
+		// the cursor should not be updated
+		require.False(t, wait(100*time.Millisecond))
+
+		writeIDs(q, 15, 25) // [4, 15, 16, 17, 18], [19, 20, 21, 22, 23], [24]
+		writeIDs(q, 30, 40) // [4, 15, 16, 17, 18], [19, 20, 21, 22, 23], [24, 30, 31, 32, 33], [34, 35, 36, 37, 38], [39]
+		time.Sleep(100 * time.Millisecond)
+		// the safe id should be: 0, then 4, then 14, then 29
+		q.pushToWorkers()
+		require.True(t, wait())
+		require.Equal(t, 29, int(q.lastIndexedCursor.Get()))
+	})
+
+	t.Run("ensure the last id is loaded", func(t *testing.T) {
+		var idx mockBatchIndexer
+
+		dir := t.TempDir()
+		q, err := NewIndexQueue("1", dir, &idx, IndexQueueOptions{
+			BatchSize:        5,
+			IndexInterval:    time.Hour,
+			IndexWorkerCount: 1,
+		})
+		require.NoError(t, err)
+
+		wait := waitForUpdate(q)
+		writeIDs(q, 0, 100)
+		time.Sleep(100 * time.Millisecond)
+		q.pushToWorkers()
+		// the safe id should be: 0, then 0
+		// the cursor should not be updated
+		require.True(t, wait())
+
+		err = q.Close()
+		require.NoError(t, err)
+
+		require.Equal(t, 90, int(q.lastIndexedCursor.Get()))
+
+		q, err = NewIndexQueue("1", dir, &idx, IndexQueueOptions{
+			BatchSize:        5,
+			IndexInterval:    time.Hour,
+			IndexWorkerCount: 1,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		require.Equal(t, 90, int(q.lastIndexedCursor.Get()))
+	})
 }
 
 func BenchmarkPush(b *testing.B) {
@@ -314,7 +420,7 @@ func BenchmarkPush(b *testing.B) {
 		return nil
 	}
 
-	q, err := NewIndexQueue(&idx, IndexQueueOptions{
+	q, err := NewIndexQueue("1", b.TempDir(), &idx, IndexQueueOptions{
 		BatchSize:     1000,
 		IndexInterval: 1 * time.Millisecond,
 	})

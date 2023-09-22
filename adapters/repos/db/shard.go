@@ -35,7 +35,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
-	"github.com/weaviate/weaviate/entities/storobj"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"golang.org/x/sync/errgroup"
@@ -128,37 +127,16 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	var err error
-	s.queue, err = NewIndexQueue(s.vectorIndex, IndexQueueOptions{
+	s.queue, err = NewIndexQueue(s.ID(), s.index.Config.RootPath, s.vectorIndex, IndexQueueOptions{
 		Logger: s.index.logger,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	if asyncEnabled() {
-		// load non-indexed vectors and add them to the queue
-		cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
-
-		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-			obj, err := storobj.FromBinary(v)
-			if err != nil {
-				return nil, err
-			}
-			id := obj.DocID()
-			if s.vectorIndex.ContainsNode(id) {
-				continue
-			}
-			if len(obj.Vector) == 0 {
-				continue
-			}
-
-			desc := vectorDescriptor{
-				id:     id,
-				vector: obj.Vector,
-			}
-			s.queue.Push(context.Background(), desc)
-		}
-		cursor.Close()
+	err = s.queue.PreloadShard(ctx, s)
+	if err != nil {
+		return nil, err
 	}
 
 	return s, nil
