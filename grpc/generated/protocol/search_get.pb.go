@@ -2799,6 +2799,7 @@ var (
 		(*BooleanArrayProperties)(nil),     // 34: base.BooleanArrayProperties
 	}
 )
+
 var file_grpc_search_get_proto_depIdxs = []int32{
 	11, // 0: search_get.SearchRequest.additional_properties:type_name -> search_get.AdditionalProperties
 	20, // 1: search_get.SearchRequest.near_vector:type_name -> search_get.NearVectorParams

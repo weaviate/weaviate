@@ -612,6 +612,7 @@ var (
 		(*BooleanArrayProperties)(nil),                // 12: base.BooleanArrayProperties
 	}
 )
+
 var file_grpc_batch_proto_depIdxs = []int32{
 	1,  // 0: batch.BatchObjectsRequest.objects:type_name -> batch.BatchObject
 	7,  // 1: batch.BatchObjectsRequest.consistency_level:type_name -> base.ConsistencyLevel
