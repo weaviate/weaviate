@@ -334,6 +334,12 @@ func (s *Shard) drop() error {
 		return errors.Wrapf(err, "remove prop length tracker at %s", s.DBPathLSM())
 	}
 
+	// delete queue cursor
+	err = s.queue.Drop()
+	if err != nil {
+		return errors.Wrapf(err, "remove minindexed at %s", s.DBPathLSM())
+	}
+
 	// TODO: can we remove this?
 	s.deletedDocIDs.BulkRemove(s.deletedDocIDs.GetAll())
 	s.propertyIndicesLock.Lock()

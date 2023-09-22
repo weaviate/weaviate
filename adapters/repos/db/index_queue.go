@@ -330,6 +330,16 @@ func (q *IndexQueue) PreloadShard(ctx context.Context, shard *Shard) error {
 	return nil
 }
 
+// Drop removes all persisted data related to the queue.
+// It closes the queue if not already.
+// It does not remove the index.
+// It should be called only when the index is dropped.
+func (q *IndexQueue) Drop() error {
+	_ = q.Close()
+
+	return q.lastIndexedCursor.Drop()
+}
+
 func (q *IndexQueue) enqueuer() {
 	for batch := range q.processCh {
 		q.queue.Add(batch)
@@ -788,9 +798,21 @@ func newMinIndexedCursor(shardID string, rootPath string) (*minIndexedCursor, er
 }
 
 func (c *minIndexedCursor) Close() error {
+	c.Lock()
+	defer c.Unlock()
+
 	close(c.flushCh)
 
 	return c.f.Close()
+}
+
+func (c *minIndexedCursor) Drop() error {
+	c.Lock()
+	defer c.Unlock()
+
+	_ = c.f.Close()
+
+	return os.Remove(c.f.Name())
 }
 
 func (c *minIndexedCursor) Get() uint64 {
