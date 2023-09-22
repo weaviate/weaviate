@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package weaviategrpc;
+
+import "base.proto";
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
+option java_package = "io.weaviate.grpc.protocol";
+option java_outer_classname = "WeaviateProtoBatch";
+
+message BatchObjectsRequest {
+  repeated BatchObject objects = 1;
+  optional ConsistencyLevel consistency_level = 2;
+}
+
+
+message BatchObject {
+  message Properties {
+    google.protobuf.Struct non_ref_properties = 1;
+    // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+    repeated RefPropertiesSingleTarget ref_props_single = 2;
+    // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+    repeated RefPropertiesMultiTarget ref_props_multi = 3;
+    repeated NumberArrayProperties number_array_properties = 4;
+    repeated IntArrayProperties int_array_properties = 5;
+    repeated TextArrayProperties text_array_properties = 6;
+    repeated BooleanArrayProperties boolean_array_properties = 7;
+  }
+
+  message RefPropertiesSingleTarget {
+    repeated string uuids = 1;
+    string prop_name = 2;
+  }
+
+  message RefPropertiesMultiTarget {
+    repeated string uuids = 1;
+    string prop_name = 2;
+    string target_collection = 3;
+  }
+
+  string uuid = 1;
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated float vector = 2;
+  Properties properties = 3;
+  string class_name = 4;
+  string tenant=5;
+}
+
+message BatchObjectsReply {
+  message BatchResults {
+    int32 index = 1;
+    string error = 2;
+  }
+
+  repeated BatchResults results = 1;
+  float took = 2;
+}
