@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 
-OUT_DIR=./grpc/generated/protocol
+GEN_DIR=./grpc/generated
+OUT_DIR="$GEN_DIR/protocol"
 
 echo "Generating Go protocol stubs..."
 
-rm -fr $OUT_DIR && mkdir -p $OUT_DIR && protoc \
-    --go_out=./grpc/generated/protocol \
-    --go_opt=module=github.com/weaviate/weaviate/grpc/generated/protocol \
-    --go-grpc_out=./grpc/generated/protocol \
-    --go-grpc_opt=module=github.com/weaviate/weaviate/grpc/generated/protocol \
-    ./grpc/*.proto
+rm -fr $OUT_DIR && mkdir -p $OUT_DIR && cd $GEN_DIR && protoc \
+    --proto_path=../proto \
+    --go_out=paths=source_relative:protocol \
+    --go-grpc_out=paths=source_relative:protocol \
+    ../proto/*.proto
 
-go run ./tools/license_headers/main.go
+cd - && go run ./tools/license_headers/main.go
 
 goimports -w $OUT_DIR
 

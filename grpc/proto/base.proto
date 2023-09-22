@@ -1,7 +1,10 @@
 syntax = "proto3";
 
-package base;
-option go_package = "github.com/weaviate/weaviate/grpc/generated/protocol";
+package weaviate;
+
+option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
+option java_package = "io.weaviate.grpc.protocol";
+option java_outer_classname = "WeaviateProtoBase";
 
 enum ConsistencyLevel {
   CONSISTENCY_LEVEL_UNSPECIFIED = 0;
