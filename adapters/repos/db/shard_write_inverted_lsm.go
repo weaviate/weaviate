@@ -84,7 +84,7 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 	}
 
 	if property.HasSearchableIndex {
-		bucketValue, err := lsmkv.FetchMeABucket(s.store, "searchable_properties", helpers.BucketFromPropertyNameLSM(property.Name), s.propIds)
+		bucketValue, err := lsmkv.FetchMeABucket(s.store, "searchable_properties", helpers.BucketSearchableFromPropertyNameLSM(property.Name), s.propIds)
 		if err != nil {
 			return errors.Wrapf(err, "no bucket searchable for prop '%s' found", property.Name)
 		}
