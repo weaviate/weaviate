@@ -1,15 +1,17 @@
 syntax = "proto3";
 
-package batch;
+package weaviate;
 
+import "base.proto";
 import "google/protobuf/struct.proto";
-import "grpc/base.proto";
-option go_package = "github.com/weaviate/weaviate/grpc/generated/protocol";
 
+option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
+option java_package = "io.weaviate.grpc.protocol";
+option java_outer_classname = "WeaviateProtoBatch";
 
 message BatchObjectsRequest {
   repeated BatchObject objects = 1;
-  optional base.ConsistencyLevel consistency_level = 2;
+  optional ConsistencyLevel consistency_level = 2;
 }
 
 
@@ -20,10 +22,10 @@ message BatchObject {
     repeated RefPropertiesSingleTarget ref_props_single = 2;
     // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
     repeated RefPropertiesMultiTarget ref_props_multi = 3;
-    repeated base.NumberArrayProperties number_array_properties = 4;
-    repeated base.IntArrayProperties int_array_properties = 5;
-    repeated base.TextArrayProperties text_array_properties = 6;
-    repeated base.BooleanArrayProperties boolean_array_properties = 7;
+    repeated NumberArrayProperties number_array_properties = 4;
+    repeated IntArrayProperties int_array_properties = 5;
+    repeated TextArrayProperties text_array_properties = 6;
+    repeated BooleanArrayProperties boolean_array_properties = 7;
   }
 
   message RefPropertiesSingleTarget {
