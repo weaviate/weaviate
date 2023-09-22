@@ -21,6 +21,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"golang.org/x/sync/errgroup"
 )
 
 type propValuePair struct {
@@ -68,7 +70,83 @@ func (pv *propValuePair) DocIds() []uint64 {
 	return pv.docIDs.IDs()
 }
 
+
+func (pv *propValuePair) fetchDocIDs_old(s *Searcher, limit int) error {
+	if pv.operator.OnValue() {
+		var bucketName string
+		if pv.hasFilterableIndex {
+			bucketName = helpers.BucketFromPropertyNameLSM(pv.prop)
+		} else if pv.hasSearchableIndex {
+			bucketName = helpers.BucketSearchableFromPropertyNameLSM(pv.prop)
+		} else {
+			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
+		}
+
+		b := s.store.Bucket(bucketName)
+
+		// TODO text_rbm_inverted_index find better way check whether prop len
+		if b == nil && strings.HasSuffix(bucketName, filters.InternalPropertyLength) {
+			return errors.Errorf("Property length must be indexed to be filterable! " +
+				"add `IndexPropertyLength: true` to the invertedIndexConfig." +
+				"Geo-coordinates, phone numbers and data blobs are not supported by property length.")
+		}
+
+		if b == nil && pv.operator == filters.OperatorIsNull {
+			return errors.Errorf("Nullstate must be indexed to be filterable! " +
+				"add `indexNullState: true` to the invertedIndexConfig")
+		}
+
+		if b == nil && (pv.prop == filters.InternalPropCreationTimeUnix ||
+			pv.prop == filters.InternalPropLastUpdateTimeUnix) {
+			return errors.Errorf("timestamps must be indexed to be filterable! " +
+				"add `indexTimestamps: true` to the invertedIndexConfig")
+		}
+
+		if b == nil && pv.operator != filters.OperatorWithinGeoRange {
+			// a nil bucket is ok for a WithinGeoRange filter, as this query is not
+			// served by the inverted index, but propagated to a secondary index in
+			// .docPointers()
+			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
+		}
+
+		ctx := context.TODO() // TODO: pass through instead of spawning new
+		dbm, err := s.docBitmap(ctx, []byte{}, b, limit, pv)
+		if err != nil {
+			return err
+		}
+		pv.docIDs = dbm
+	} else {
+		eg := errgroup.Group{}
+		// prevent unbounded concurrency, see
+		// https://github.com/weaviate/weaviate/issues/3179 for details
+		eg.SetLimit(2 * _NUMCPU)
+		for i, child := range pv.children {
+			i, child := i, child
+			eg.Go(func() error {
+				// Explicitly set the limit to 0 (=unlimited) as this is a nested filter,
+				// otherwise we run into situations where each subfilter on their own
+				// runs into the limit, possibly yielding in "less than limit" results
+				// after merging.
+				err := child.fetchDocIDs(s, 0)
+				if err != nil {
+					return errors.Wrapf(err, "nested child %d", i)
+				}
+
+				return nil
+			})
+		}
+		if err := eg.Wait(); err != nil {
+			return fmt.Errorf("nested query: %w", err)
+		}
+	}
+
+	return nil
+}
+
 func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		return pv.fetchDocIDs_old(s, limit)
+	}
 	if pv.operator.OnValue() {
 
 		// TODO text_rbm_inverted_index find better way check whether prop len

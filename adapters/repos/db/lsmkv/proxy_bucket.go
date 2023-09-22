@@ -52,7 +52,7 @@ type BucketProxy struct {
 	PropertyName   string          // the property name, used mainly for debugging
 }
 
-var FeatureUseMergedBuckets = true // if true, use the merged buckets, if false, use the legacy buckets
+var FeatureUseMergedBuckets = false // if true, use the merged buckets, if false, use the legacy buckets
 
 // Wraps a bucket with a property prefixer
 func WrapBucketWithProp(bucket *Bucket, propName string, propIds *tracker.JsonPropertyIdTracker) (BucketInterface, error) {

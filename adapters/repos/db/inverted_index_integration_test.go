@@ -923,6 +923,25 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 	t.Run("get object with timestamp filters", func(t *testing.T) {
 		testCases := []testCase{
 			{
+				name: "by creation date 1",
+				filter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						// since RFC3339 is limited to seconds,
+						// >= operator is used to match object with timestamp containing milliseconds
+						Operator: filters.OperatorGreaterThanEqual,
+						On: &filters.Path{
+							Class:    "TestClass",
+							Property: "_creationTimeUnix",
+						},
+						Value: &filters.Value{
+							Value: time1.Format(time.RFC3339),
+							Type:  schema.DataTypeDate,
+						},
+					},
+				},
+				expectedIds: []strfmt.UUID{testID1},
+			},
+			{
 				name: "by creation timestamp 1",
 				filter: &filters.LocalFilter{
 					Root: &filters.Clause{
@@ -956,25 +975,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 				},
 				expectedIds: []strfmt.UUID{testID2},
 			},
-			{
-				name: "by creation date 1",
-				filter: &filters.LocalFilter{
-					Root: &filters.Clause{
-						// since RFC3339 is limited to seconds,
-						// >= operator is used to match object with timestamp containing milliseconds
-						Operator: filters.OperatorGreaterThanEqual,
-						On: &filters.Path{
-							Class:    "TestClass",
-							Property: "_creationTimeUnix",
-						},
-						Value: &filters.Value{
-							Value: time1.Format(time.RFC3339),
-							Type:  schema.DataTypeDate,
-						},
-					},
-				},
-				expectedIds: []strfmt.UUID{testID1},
-			},
+			
 			{
 				name: "by creation date 2",
 				filter: &filters.LocalFilter{

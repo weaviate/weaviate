@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"golang.org/x/sync/errgroup"
 )
 
 const IdLockPoolSize = 128
@@ -85,6 +86,9 @@ type Shard struct {
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics, shardName string, index *Index, class *models.Class, jobQueueCh chan job) (*Shard, error) {
+	if !lsmkv.FeatureUseMergedBuckets {
+		return NewShard_old(ctx, promMetrics, shardName, index, class, jobQueueCh)
+	}
 	before := time.Now()
 
 	s := &Shard{
@@ -120,10 +124,16 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics, sh
 		defer s.vectorIndex.PostStartup()
 	}
 
-	if err := s.initNonVector(ctx, class); err != nil {
-		return nil, errors.Wrapf(err, "init shard %q", s.ID())
-	}
+	if !lsmkv.FeatureUseMergedBuckets {
+		if err := s.initNonVector(ctx, class); err != nil {
+			return nil, errors.Wrapf(err, "init shard %q", s.ID())
+		}
+	} else {
 
+		if err := s.initNonVector(ctx, class); err != nil {
+			return nil, errors.Wrapf(err, "init shard %q", s.ID())
+		}
+	}
 	return s, nil
 }
 
@@ -453,6 +463,9 @@ func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property) 
 }
 
 func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		return s.createPropertyValueIndex(ctx, prop)
+	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
