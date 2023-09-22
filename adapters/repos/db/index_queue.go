@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"os"
 	"runtime"
-	"slices"
 	"sync"
 	"time"
 
@@ -398,7 +397,13 @@ func (q *IndexQueue) worker() {
 		// The value doesn't have to be accurate but it must guarantee
 		// that it is lower than the last indexed id.
 		if len(ids) > 0 {
-			minID := slices.Min(ids)
+			var minID uint64
+			for _, id := range ids {
+				if minID == 0 || id < minID {
+					minID = id
+				}
+			}
+
 			delta := uint64(cl * q.BatchSize)
 			// cap the delta to 10k vectors
 			if delta > 10_000 {
