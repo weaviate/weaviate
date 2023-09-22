@@ -65,6 +65,7 @@ type BucketInterface interface {
 	RoaringSetAddList(key []byte, values []uint64) error
 
 	CursorRoaringSetKeyOnly() CursorRoaringSet
+	GetRegisteredName() string 
 }
 
 type Bucket struct {
@@ -115,6 +116,10 @@ type Bucket struct {
 
 	RegisteredName  string
 	PropertyTracker map[string]uint32
+}
+
+func (b *Bucket) GetRegisteredName() string {
+	return b.RegisteredName
 }
 
 // NewBucket initializes a new bucket. It either loads the state from disk if

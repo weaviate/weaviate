@@ -70,7 +70,7 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []n
 
 func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property) error {
 	if property.HasFilterableIndex {
-		bucketValue, err := lsmkv.FetchMeABucket(s.store, "filterable_properties", property.Name, s.propIds)
+		bucketValue, err := lsmkv.FetchMeABucket(s.store, "filterable_properties", helpers.BucketFromPropertyNameLSM(property.Name), s.propIds)
 		if err != nil {
 			return errors.Wrapf(err, "no bucket filterable for prop '%s' found", property.Name)
 		}
@@ -84,7 +84,7 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 	}
 
 	if property.HasSearchableIndex {
-		bucketValue, err := lsmkv.FetchMeABucket(s.store, "searchable_properties", property.Name, s.propIds)
+		bucketValue, err := lsmkv.FetchMeABucket(s.store, "searchable_properties", helpers.BucketFromPropertyNameLSM(property.Name), s.propIds)
 		if err != nil {
 			return errors.Wrapf(err, "no bucket searchable for prop '%s' found", property.Name)
 		}
@@ -167,13 +167,13 @@ func (s *Shard) keyPropertyNull(isNull bool) ([]byte, error) {
 }
 
 func (s *Shard) addToPropertyMapBucket(bucket lsmkv.BucketInterface, pair lsmkv.MapPair, key []byte) error {
-	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
+	lsmkv.CheckExpectedStrategy(bucket.GetRegisteredName(), bucket.Strategy(), lsmkv.StrategyMapCollection)
 
 	return bucket.MapSet(key, pair)
 }
 
 func (s *Shard) addToPropertySetBucket(bucket lsmkv.BucketInterface, docID uint64, key []byte) error {
-	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
+	lsmkv.CheckExpectedStrategy(bucket.GetRegisteredName(),bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
 
 	if bucket.Strategy() == lsmkv.StrategySetCollection {
 		docIDBytes := make([]byte, 8)
