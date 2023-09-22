@@ -38,7 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"golang.org/x/sync/errgroup"
+	
 )
 
 const IdLockPoolSize = 128

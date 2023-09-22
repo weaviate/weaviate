@@ -66,10 +66,12 @@ func WrapBucketWithProp(bucket *Bucket, propName string, propIds *tracker.JsonPr
 
 // Returns either a real bucket or a proxy bucket, depending on whether the merged bucket feature is active or not
 func FetchMeABucket(store *Store, mergedName string, propName string, propids *tracker.JsonPropertyIdTracker) (BucketInterface, error) {
-	bucket := store.Bucket(mergedName)
+	
 	if !FeatureUseMergedBuckets {
+		bucket := store.Bucket(propName)
 		return bucket, nil
 	}
+	bucket := store.Bucket(mergedName)
 	proxyBucket, err := NewBucketProxy(bucket, propName, propids)
 	if err != nil {
 		return nil, fmt.Errorf("could not create proxy bucket for prop %s: %v", propName, err)
