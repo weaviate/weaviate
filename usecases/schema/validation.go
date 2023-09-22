@@ -89,6 +89,9 @@ func (m *Manager) validatePropertyIndexing(prop *models.Property) error {
 		if prop.IndexFilterable != nil || prop.IndexSearchable != nil {
 			return fmt.Errorf("`indexInverted` is deprecated and can not be set together with `indexFilterable` or `indexSearchable`.")
 		}
+		if _, isNested := schema.AsNested(prop.DataType); isNested {
+			return fmt.Errorf("`indexInverted` is not allowed for object/object[] data types")
+		}
 	}
 
 	if prop.IndexSearchable != nil {
