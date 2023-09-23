@@ -81,7 +81,7 @@ func TestGetAnswer(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		c := New("", "openAIApiKey", "", "", 0, nullLogger())
+		c := New("openAIApiKey", "", "", 0, nullLogger())
 		c.buildUrl = func(isLegacy bool, resourceName, deploymentID, baseURL string) (string, error) {
 			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID, baseURL)
 		}
@@ -107,7 +107,7 @@ func TestGetAnswer(t *testing.T) {
 		})
 		defer server.Close()
 
-		c := New("", "openAIApiKey", "", "", 0, nullLogger())
+		c := New("openAIApiKey", "", "", 0, nullLogger())
 		c.buildUrl = func(isLegacy bool, resourceName, deploymentID, baseURL string) (string, error) {
 			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID, baseURL)
 		}
