@@ -31,14 +31,6 @@ func nullLogger() logrus.FieldLogger {
 	return l
 }
 
-// func fakeBuildUrl(serverURL, resourceName, deploymentID string) (string, error) {
-// 	endpoint, err := buildUrl(serverURL, resourceName, deploymentID)
-// 	if err != nil {
-// 		return "", err
-// 	}
-// 	return endpoint, nil
-// }
-
 func TestGetAnswer(t *testing.T) {
 	t.Run("when the server has a successful answer ", func(t *testing.T) {
 		handler := &testAnswerHandler{

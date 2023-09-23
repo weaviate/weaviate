@@ -68,9 +68,8 @@ func (m *GenerativeOpenAIModule) initAdditional(ctx context.Context, timeout tim
 	openAIApiKey := os.Getenv("OPENAI_APIKEY")
 	openAIOrganization := os.Getenv("OPENAI_ORGANIZATION")
 	azureApiKey := os.Getenv("AZURE_APIKEY")
-	openAIBaseUrl := os.Getenv("OPENAI_BASE_URL")
 
-	client := clients.New(openAIBaseUrl, openAIApiKey, openAIOrganization, azureApiKey, timeout, logger)
+	client := clients.New(openAIApiKey, openAIOrganization, azureApiKey, timeout, logger)
 
 	m.generative = client
 

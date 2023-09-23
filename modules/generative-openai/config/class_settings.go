@@ -27,6 +27,7 @@ const (
 	frequencyPenaltyProperty = "frequencyPenalty"
 	presencePenaltyProperty  = "presencePenalty"
 	topPProperty             = "topP"
+	baseURLProperty          = "baseURL"
 )
 
 var availableOpenAILegacyModels = []string{
@@ -200,7 +201,7 @@ func (ic *classSettings) MaxTokens() float64 {
 }
 
 func (ic *classSettings) BaseURL() string {
-	return *ic.getStringProperty("baseURL", DefaultOpenAIBaseURL)
+	return *ic.getStringProperty(baseURLProperty, DefaultOpenAIBaseURL)
 }
 
 func (ic *classSettings) Temperature() float64 {

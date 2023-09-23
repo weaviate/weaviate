@@ -52,16 +52,16 @@ type openai struct {
 	openAIApiKey       string
 	openAIOrganization string
 	azureApiKey        string
-	openAIBaseUrl      string
 	buildUrl           func(isLegacy bool, resourceName, deploymentID, baseURL string) (string, error)
 	httpClient         *http.Client
 	logger             logrus.FieldLogger
 }
 
-func New(openAIBaseUrl, openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Duration, logger logrus.FieldLogger) *openai {
+func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Duration, logger logrus.FieldLogger) *openai {
 	return &openai{
-		openAIApiKey: openAIApiKey,
-		azureApiKey:  azureApiKey,
+		openAIApiKey:       openAIApiKey,
+		openAIOrganization: openAIOrganization,
+		azureApiKey:        azureApiKey,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
