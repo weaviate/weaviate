@@ -221,7 +221,6 @@ func (b *BucketProxy) Delete(key []byte, opts ...SecondaryKeyOption) error {
 
 func (b *BucketProxy) Count() int {
 	panic("Not allowed for BucketProx")
-	return b.realBucket.Count()
 }
 
 func (b *BucketProxy) Shutdown(ctx context.Context) error {

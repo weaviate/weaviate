@@ -285,9 +285,6 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 }
 
 func (s *Shard) drop() error {
-	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Invalid bucket mode")
-	}
 	s.replicationMap.clear()
 
 	if s.index.Config.TrackVectorDimensions {

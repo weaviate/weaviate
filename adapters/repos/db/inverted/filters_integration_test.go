@@ -315,7 +315,7 @@ func DumpBucketToString(bucket lsmkv.BucketInterface) string {
 	rr.Iterate(context.Background(), func(id []byte, values [][]byte) (bool, error) {
 		out += fmt.Sprintf("id: %v\n", id)
 		// Marshall values
-		out += fmt.Sprintf("values: \n")
+		out += "values: \n"
 		for _, v := range values {
 			out += fmt.Sprintf("  %v\n", v)
 		}

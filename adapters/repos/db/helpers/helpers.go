@@ -53,7 +53,7 @@ func MakePropertyKey(byteEncodedPropertyId []byte, key []byte) []byte {
 
 func MatchesPropertyKeyPostfix(byteEncodedPropertyId []byte, prefixed_key []byte) bool {
 	// Allows accessing every key
-	if byteEncodedPropertyId == nil || len(byteEncodedPropertyId) == 0 {
+	if len(byteEncodedPropertyId) == 0 {
 		return true
 	}
 

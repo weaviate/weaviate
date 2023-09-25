@@ -95,7 +95,7 @@ func (ua unfilteredAggregator) boolArrayProperty(ctx context.Context,
 		if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
 			continue
 		}
-		k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
+
 		err := ua.parseAndAddBoolArrayRow(agg, v, prop.Name)
 		if err != nil {
 			return nil, err
@@ -354,7 +354,6 @@ func (ua unfilteredAggregator) dateArrayProperty(ctx context.Context,
 		if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
 			continue
 		}
-		k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
 		if err := ua.parseAndAddDateArrayRow(agg, v, prop.Name); err != nil {
 			return nil, err
 		}
@@ -498,7 +497,7 @@ func (ua unfilteredAggregator) textProperty(ctx context.Context,
 		if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
 			continue
 		}
-		k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
+
 		if err := ua.parseAndAddTextRow(agg, v, prop.Name); err != nil {
 			return nil, err
 		}
@@ -531,7 +530,7 @@ func (ua unfilteredAggregator) numberArrayProperty(ctx context.Context,
 		if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
 			continue
 		}
-		k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
+
 		if err := ua.parseAndAddNumberArrayRow(agg, v, prop.Name); err != nil {
 			return nil, err
 		}
