@@ -17,6 +17,8 @@ import (
 	"net"
 	"time"
 
+	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/entities/additional"
 
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -115,6 +117,12 @@ func (s *Server) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) 
 }
 
 func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
+	return nil, errors.New(
+		"Search endpoint not supported anymore. Please update your client to use the new SearchV1 endpoint.",
+	)
+}
+
+func (s *Server) Search1(ctx context.Context, req *pb.SearchRequestV1) (*pb.SearchReplyV1, error) {
 	before := time.Now()
 
 	principal, err := s.principalFromContext(ctx)
@@ -125,7 +133,7 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 	scheme := s.schemaManager.GetSchemaSkipAuth()
 
 	type reply struct {
-		Result *pb.SearchReply
+		Result *pb.SearchReplyV1
 		Error  error
 	}
 

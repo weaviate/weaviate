@@ -152,8 +152,8 @@ func objects(className string) []*models.Object {
 func batchObjects(className string) []*pb.BatchObject {
 	return []*pb.BatchObject{
 		{
-			ClassName: className,
-			Uuid:      Dune.String(),
+			Collection: className,
+			Uuid:       Dune.String(),
 			Properties: &pb.BatchObject_Properties{
 				NonRefProperties: &structpb.Struct{
 					Fields: map[string]*structpb.Value{
@@ -164,8 +164,8 @@ func batchObjects(className string) []*pb.BatchObject {
 			},
 		},
 		{
-			ClassName: className,
-			Uuid:      ProjectHailMary.String(),
+			Collection: className,
+			Uuid:       ProjectHailMary.String(),
 			Properties: &pb.BatchObject_Properties{
 				NonRefProperties: &structpb.Struct{
 					Fields: map[string]*structpb.Value{
@@ -176,8 +176,8 @@ func batchObjects(className string) []*pb.BatchObject {
 			},
 		},
 		{
-			ClassName: className,
-			Uuid:      TheLordOfTheIceGarden.String(),
+			Collection: className,
+			Uuid:       TheLordOfTheIceGarden.String(),
 			Properties: &pb.BatchObject_Properties{
 				NonRefProperties: &structpb.Struct{
 					Fields: map[string]*structpb.Value{
