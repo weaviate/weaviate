@@ -491,7 +491,7 @@ func TestGRPCReply(t *testing.T) {
 				require.Equal(t, tt.outSearch[i].Properties.String(), out.Results[i].Properties.String())
 				require.Equal(t, tt.outSearch[i].Metadata.String(), out.Results[i].Metadata.String())
 			}
-			require.Equal(t, out.GenerativeGroupedResult, tt.outGenerative)
+			require.Equal(t, *out.GenerativeGroupedResult, tt.outGenerative)
 		})
 	}
 }

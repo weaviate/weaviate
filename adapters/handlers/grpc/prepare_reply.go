@@ -41,7 +41,7 @@ func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.G
 			if err != nil {
 				return nil, err
 			}
-			out.GenerativeGroupedResult = generativeGroupResponse
+			out.GenerativeGroupedResult = &generativeGroupResponse
 			out.GroupByResults[i] = group
 		}
 	} else {
@@ -49,7 +49,7 @@ func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.G
 		if err != nil {
 			return nil, err
 		}
-		out.GenerativeGroupedResult = generativeGroupResponse
+		out.GenerativeGroupedResult = &generativeGroupResponse
 		out.Results = objects
 	}
 	return out, nil
