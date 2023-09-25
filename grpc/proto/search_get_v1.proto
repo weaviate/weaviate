@@ -150,7 +150,7 @@ message Hybrid {
 }
 
 message NearTextSearch {
-  message Move{
+  message Move {
     float force = 1;
     repeated string concepts = 2;
     repeated string uuids = 3;
@@ -211,7 +211,7 @@ message NearObject {
 message SearchReplyV1 {
   float took = 1;
   repeated SearchResult results = 2;
-  string generative_grouped_result = 3;
+  optional string generative_grouped_result = 3;
   repeated GroupByResult group_by_results = 4;
 }
 
