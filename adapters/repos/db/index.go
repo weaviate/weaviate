@@ -269,7 +269,6 @@ func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
 		}
 		return nil
 	} else {
-
 		return i.ForEachShard(func(key string, shard *Shard) error {
 			err := shard.createPropertyIndex(ctx, prop)
 			if err != nil {

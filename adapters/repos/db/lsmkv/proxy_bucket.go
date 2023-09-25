@@ -70,11 +70,10 @@ func (b *BucketProxy) GetRegisteredName() string {
 
 // Returns either a real bucket or a proxy bucket, depending on whether the merged bucket feature is active or not
 func FetchMeABucket(store *Store, mergedName string, bucketFileName string, propName string, propids *tracker.JsonPropertyIdTracker) (BucketInterface, error) {
-	
 	if !FeatureUseMergedBuckets {
 		bucket := store.Bucket(bucketFileName)
 		if bucket == nil {
-			return nil, fmt.Errorf("could not find separate bucket for property %s (for property %v)",  bucketFileName, propName)
+			return nil, fmt.Errorf("could not find separate bucket for property %s (for property %v)", bucketFileName, propName)
 		}
 		return bucket, nil
 	}
@@ -102,8 +101,8 @@ func NewBucketProxy(realB BucketInterface, propName string, propids *tracker.Jso
 	}, nil
 }
 
-func (b *BucketProxy) CheckBucket()  {
-	 b.realBucket.CheckBucket()
+func (b *BucketProxy) CheckBucket() {
+	b.realBucket.CheckBucket()
 }
 
 func (b *BucketProxy) PropertyPrefix() []byte {

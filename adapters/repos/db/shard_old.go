@@ -161,7 +161,6 @@ func (s *Shard) initNonVector_old(ctx context.Context, class *models.Class) erro
 	}
 	s.propLengths = propLengths
 
-
 	piPath := path.Join(s.index.Config.RootPath, s.ID()+".propids")
 	propIds, err := tracker.NewJsonPropertyIdTracker(piPath)
 	if err != nil {

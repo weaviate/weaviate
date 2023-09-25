@@ -38,7 +38,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	
 )
 
 const IdLockPoolSize = 128
@@ -129,7 +128,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics, sh
 			return nil, errors.Wrapf(err, "init shard %q", s.ID())
 		}
 	} else {
-
 		if err := s.initNonVector(ctx, class); err != nil {
 			return nil, errors.Wrapf(err, "init shard %q", s.ID())
 		}
@@ -218,7 +216,6 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
 	}
 	s.propLengths = propLengths
-
 
 	piPath := path.Join(s.index.Config.RootPath, s.ID()+".propids")
 	propIds, err := tracker.NewJsonPropertyIdTracker(piPath)
@@ -390,7 +387,6 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 	if !lsmkv.FeatureUseMergedBuckets {
 		return s.addDimensionsProperty_old(ctx)
-		
 	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly

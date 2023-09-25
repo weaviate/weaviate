@@ -118,7 +118,7 @@ func (s *Store) bucketDir(bucketName string) string {
 //	// you can now access the bucket using store.Bucket()
 //	b := store.Bucket("my_bucket_name")
 func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string, opts ...BucketOption) error {
-	if !FeatureUseMergedBuckets{
+	if !FeatureUseMergedBuckets {
 		return s.CreateOrLoadBucket_old(ctx, bucketFile, opts...)
 	}
 	//fmt.Println("Existing buckets:")

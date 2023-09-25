@@ -53,8 +53,6 @@ func (s *Shard) initProperties(class *models.Class) error {
 	return nil
 }
 
-
-
 func (s *Shard) initProperties_old(class *models.Class) error {
 	s.propertyIndices = propertyspecific.Indices{}
 	if class == nil {

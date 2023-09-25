@@ -17,11 +17,11 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -69,7 +69,6 @@ func (pv *propValuePair) Value() []byte {
 func (pv *propValuePair) DocIds() []uint64 {
 	return pv.docIDs.IDs()
 }
-
 
 func (pv *propValuePair) fetchDocIDs_old(s *Searcher, limit int) error {
 	if pv.operator.OnValue() {

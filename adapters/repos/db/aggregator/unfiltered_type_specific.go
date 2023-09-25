@@ -162,7 +162,7 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 		NumericalAggregations: map[string]interface{}{},
 	}
 
-	b, err := lsmkv.FetchMeABucket(ua.store, "filterable_properties",helpers.BucketFromPropertyNameLSM( prop.Name.String()),prop.Name.String(), ua.propertyIds)
+	b, err := lsmkv.FetchMeABucket(ua.store, "filterable_properties", helpers.BucketFromPropertyNameLSM(prop.Name.String()), prop.Name.String(), ua.propertyIds)
 	if err != nil {
 		return nil, errors.Errorf("could not create proxy bucket for prop %s: %v", prop.Name, err)
 	}
@@ -211,7 +211,7 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,
 		NumericalAggregations: map[string]interface{}{},
 	}
 
-	b, err := lsmkv.FetchMeABucket(ua.store, "filterable_properties", helpers.BucketFromPropertyNameLSM(prop.Name.String()),prop.Name.String(), ua.propertyIds)
+	b, err := lsmkv.FetchMeABucket(ua.store, "filterable_properties", helpers.BucketFromPropertyNameLSM(prop.Name.String()), prop.Name.String(), ua.propertyIds)
 	if err != nil {
 		return nil, errors.Errorf("could not create proxy bucket for prop %s: %v", prop.Name, err)
 	}

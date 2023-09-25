@@ -27,7 +27,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 ) error {
 	for _, prop := range props {
 		if prop.HasFilterableIndex {
-			bucket, err := lsmkv.FetchMeABucket(s.store, "filterable_properties",helpers.BucketFromPropertyNameLSM( prop.Name),prop.Name, s.propIds)
+			bucket, err := lsmkv.FetchMeABucket(s.store, "filterable_properties", helpers.BucketFromPropertyNameLSM(prop.Name), prop.Name, s.propIds)
 			if err != nil {
 				return fmt.Errorf("no bucket for prop '%s' found: %v", prop.Name, err)
 			}
@@ -41,7 +41,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 		}
 
 		if prop.HasSearchableIndex {
-			bucket, err := lsmkv.FetchMeABucket(s.store, "searchable_properties", helpers.BucketSearchableFromPropertyNameLSM( prop.Name), prop.Name, s.propIds)
+			bucket, err := lsmkv.FetchMeABucket(s.store, "searchable_properties", helpers.BucketSearchableFromPropertyNameLSM(prop.Name), prop.Name, s.propIds)
 			if err != nil {
 				return fmt.Errorf("no bucket searchable for prop '%s: %v' found", prop.Name, err)
 			}
@@ -62,7 +62,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket lsmkv.BucketInterface,
 	item inverted.Countable, docID uint64,
 ) error {
-	lsmkv.CheckExpectedStrategy(bucket.GetRegisteredName(),bucket.Strategy(), lsmkv.StrategyMapCollection)
+	lsmkv.CheckExpectedStrategy(bucket.GetRegisteredName(), bucket.Strategy(), lsmkv.StrategyMapCollection)
 
 	docIDBytes := make([]byte, 8)
 	// Shard Index version 2 requires BigEndian for sorting, if the shard was
@@ -79,7 +79,7 @@ func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket lsmkv.BucketInter
 func (s *Shard) deleteInvertedIndexItemLSM(bucket lsmkv.BucketInterface,
 	item inverted.Countable, docID uint64,
 ) error {
-	lsmkv.CheckExpectedStrategy(bucket.GetRegisteredName(),bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
+	lsmkv.CheckExpectedStrategy(bucket.GetRegisteredName(), bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
 
 	if bucket.Strategy() == lsmkv.StrategyRoaringSet {
 		return bucket.RoaringSetRemoveOne(item.Data, docID)

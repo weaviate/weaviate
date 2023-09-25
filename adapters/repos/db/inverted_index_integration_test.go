@@ -975,7 +975,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 				},
 				expectedIds: []strfmt.UUID{testID2},
 			},
-			
+
 			{
 				name: "by creation date 2",
 				filter: &filters.LocalFilter{

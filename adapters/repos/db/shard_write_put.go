@@ -124,7 +124,7 @@ func (s *Shard) updateVectorIndex(vector []float32,
 func (s *Shard) putObjectLSM(object *storobj.Object, idBytes []byte,
 ) (objectInsertStatus, error) {
 	before := time.Now()
-	defer s.metrics.PutObject(before)  //Corruption here?
+	defer s.metrics.PutObject(before) // Corruption here?
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	bucket.CheckBucket()

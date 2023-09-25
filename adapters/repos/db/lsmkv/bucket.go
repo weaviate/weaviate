@@ -65,7 +65,7 @@ type BucketInterface interface {
 	RoaringSetAddList(key []byte, values []uint64) error
 
 	CursorRoaringSetKeyOnly() CursorRoaringSet
-	GetRegisteredName() string 
+	GetRegisteredName() string
 	CheckBucket()
 }
 
@@ -127,22 +127,22 @@ func (b *Bucket) CheckBucket() {
 	if b == nil {
 		panic("Bucket is nil")
 	}
-	if len(b.dir) >4096 {
+	if len(b.dir) > 4096 {
 		panic("Bucket name is too long")
 	}
-	if len(b.rootDir) >4096 {
+	if len(b.rootDir) > 4096 {
 		panic("Bucket root name is too long")
 	}
-	if len(b.RegisteredName) >4096 {
+	if len(b.RegisteredName) > 4096 {
 		panic("Bucket registered name is too long")
 	}
 	if b.logger == nil {
 		panic("Bucket logger is nil")
 	}
 	/*
-	if b.metrics == nil {
-		panic("Bucket metrics is nil")
-	}*/
+		if b.metrics == nil {
+			panic("Bucket metrics is nil")
+		}*/
 	if b.strategy == "" {
 		panic("Bucket strategy is empty")
 	}
@@ -168,7 +168,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		return nil, err
 	}
 
-	logger.Errorf ("creating bucket in directory", dir)
+	logger.Errorf("creating bucket in directory", dir)
 
 	b := &Bucket{
 		dir:               dir,

@@ -175,7 +175,7 @@ func (s *Shard) addToPropertyMapBucket(bucket lsmkv.BucketInterface, pair lsmkv.
 
 func (s *Shard) addToPropertySetBucket(bucket lsmkv.BucketInterface, docID uint64, key []byte) error {
 	bucket.CheckBucket()
-	lsmkv.CheckExpectedStrategy(bucket.GetRegisteredName(),bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
+	lsmkv.CheckExpectedStrategy(bucket.GetRegisteredName(), bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
 
 	if bucket.Strategy() == lsmkv.StrategySetCollection {
 		docIDBytes := make([]byte, 8)

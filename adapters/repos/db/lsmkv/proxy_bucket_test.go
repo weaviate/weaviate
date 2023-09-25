@@ -211,6 +211,7 @@ func TestBucketProxyMapSetAndGet(t *testing.T) {
 			string(value.Key), string(value.Value), string(retrieved[0].Key), string(retrieved[0].Value))
 	}
 }
+
 /*
 func TestBucketProxyCount(t *testing.T) {
 	tmpDir := t.TempDir()
