@@ -141,7 +141,7 @@ func (s *Shard) initVectorIndex(
 	ctx context.Context, hnswUserConfig hnswent.UserConfig,
 ) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Inconsistant")
+		panic("Invalid bucket mode")
 	}
 	var distProv distancer.Provider
 
@@ -191,7 +191,7 @@ func (s *Shard) initVectorIndex(
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Inconsistant")
+		panic("Invalid bucket mode")
 	}
 	err := s.initLSMStore(ctx)
 	if err != nil {
@@ -252,7 +252,7 @@ func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
 
 func (s *Shard) initLSMStore(ctx context.Context) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Inconsistant")
+		panic("Invalid bucket mode")
 	}
 	annotatedLogger := s.index.logger.WithFields(logrus.Fields{
 		"shard": s.name,
@@ -289,7 +289,7 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 
 func (s *Shard) drop() error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Inconsistant")
+		panic("Invalid bucket mode")
 	}
 	s.replicationMap.clear()
 
@@ -389,7 +389,8 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 
 func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Inconsistant")
+		return s.addDimensionsProperty_old(ctx)
+		
 	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
@@ -410,7 +411,7 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 
 func (s *Shard) addTimestampProperties(ctx context.Context) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Inconsistant")
+		panic("Invalid bucket mode")
 	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
@@ -428,7 +429,7 @@ func (s *Shard) addTimestampProperties(ctx context.Context) error {
 
 func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Inconsistant")
+		panic("Invalid bucket mode")
 	}
 	return s.store.CreateOrLoadBucket(ctx,
 		"filterable_properties",
@@ -440,7 +441,7 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 
 func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Inconsistant")
+		panic("Invalid bucket mode")
 	}
 	return s.store.CreateOrLoadBucket(ctx,
 		"filterable_properties",
@@ -452,7 +453,7 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 
 func (s *Shard) memtableIdleConfig() lsmkv.BucketOption {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Inconsistant")
+		panic("Invalid bucket mode")
 	}
 	return lsmkv.WithIdleThreshold(
 		time.Duration(s.index.Config.MemtablesFlushIdleAfter) * time.Second)
@@ -460,7 +461,7 @@ func (s *Shard) memtableIdleConfig() lsmkv.BucketOption {
 
 func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Inconsistant")
+		panic("Invalid bucket mode")
 	}
 	return lsmkv.WithDynamicMemtableSizing(
 		s.index.Config.MemtablesInitialSizeMB,
@@ -472,7 +473,7 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 
 func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Inconsistant")
+		panic("Invalid bucket mode")
 	}
 	if !inverted.HasInvertedIndex(prop) {
 		return nil // FIXME nil or err?  Previous code didn't return anything
@@ -501,7 +502,7 @@ func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property) 
 
 func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Inconsistant")
+		panic("Invalid bucket mode")
 	}
 	if !lsmkv.FeatureUseMergedBuckets {
 		return s.createPropertyValueIndex(ctx, prop)
@@ -585,7 +586,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 
 func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Inconsistant")
+		panic("Invalid bucket mode")
 	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
@@ -608,7 +609,7 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 
 func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Inconsistant")
+		panic("Invalid bucket mode")
 	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
@@ -626,7 +627,7 @@ func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 	updated schema.VectorIndexConfig,
 ) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Inconsistant")
+		panic("Invalid bucket mode")
 	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
