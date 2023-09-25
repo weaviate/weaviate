@@ -45,11 +45,11 @@ message BatchObject {
 }
 
 message BatchObjectsReply {
-  message BatchResults {
+  message BatchError {
     int32 index = 1;
     string error = 2;
   }
 
   float took = 1;
-  repeated BatchResults results = 2;
+  repeated BatchError errors = 2;
 }

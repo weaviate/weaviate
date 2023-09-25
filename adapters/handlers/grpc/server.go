@@ -101,17 +101,17 @@ func (s *Server) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) 
 	if err != nil {
 		return nil, err
 	}
-	var objErrors []*pb.BatchObjectsReply_BatchResults
+	var objErrors []*pb.BatchObjectsReply_BatchError
 
 	for i, obj := range response {
 		if obj.Err != nil {
-			objErrors = append(objErrors, &pb.BatchObjectsReply_BatchResults{Index: int32(i), Error: obj.Err.Error()})
+			objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(i), Error: obj.Err.Error()})
 		}
 	}
 
 	result := &pb.BatchObjectsReply{
-		Took:    float32(time.Since(before).Seconds()),
-		Results: objErrors,
+		Took:   float32(time.Since(before).Seconds()),
+		Errors: objErrors,
 	}
 	return result, nil
 }
