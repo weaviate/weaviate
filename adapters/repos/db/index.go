@@ -255,7 +255,7 @@ func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard *
 
 // Problem: this function should be in shard.go, it circumvents the shard abstraction
 func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
-	if lsmkv.FeatureUseMergedBuckets {
+	if !lsmkv.FeatureUseMergedBuckets {
 		eg := &errgroup.Group{}
 		eg.SetLimit(_NUMCPU)
 
