@@ -53,9 +53,16 @@ func Test_Filters_String(t *testing.T) {
 	propName := "inverted-with-frequency"
 
 	bucketName := "searchable_properties"
-	require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection), lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM(propName))))
-	bWithFrequency, err := lsmkv.FetchMeABucket(store, bucketName, helpers.BucketSearchableFromPropertyNameLSM(propName), propName, propIds)
-	require.Nil(t, err)
+	var bWithFrequency lsmkv.BucketInterface
+	if lsmkv.FeatureUseMergedBuckets {
+		require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection), lsmkv.WithRegisteredName(helpers.BucketSearchableFromPropertyNameLSM(propName))))
+		bWithFrequency, err = lsmkv.FetchMeABucket(store, bucketName, helpers.BucketSearchableFromPropertyNameLSM(propName), propName, propIds)
+		require.Nil(t, err)
+	} else {
+		require.Nil(t, store.CreateOrLoadBucket(context.Background(), helpers.BucketSearchableFromPropertyNameLSM(propName), lsmkv.WithStrategy(lsmkv.StrategyMapCollection), lsmkv.WithRegisteredName(helpers.BucketSearchableFromPropertyNameLSM(propName))))
+		bWithFrequency, err = lsmkv.FetchMeABucket(store, bucketName, helpers.BucketSearchableFromPropertyNameLSM(propName), propName, propIds)
+		require.Nil(t, err)
+	}
 
 	defer store.Shutdown(context.Background())
 

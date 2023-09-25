@@ -168,7 +168,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		return nil, err
 	}
 
-	logger.Errorf("creating bucket in directory", dir)
+	logger.Errorf("creating bucket in directory: %v", dir)
 
 	b := &Bucket{
 		dir:               dir,
