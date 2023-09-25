@@ -125,7 +125,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics, sh
 	}
 
 	if !lsmkv.FeatureUseMergedBuckets {
-		if err := s.initNonVector(ctx, class); err != nil {
+		if err := s.initNonVector_old(ctx, class); err != nil {
 			return nil, errors.Wrapf(err, "init shard %q", s.ID())
 		}
 	} else {
@@ -140,6 +140,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics, sh
 func (s *Shard) initVectorIndex(
 	ctx context.Context, hnswUserConfig hnswent.UserConfig,
 ) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		panic("Inconsistant")
+	}
 	var distProv distancer.Provider
 
 	switch hnswUserConfig.Distance {
@@ -187,6 +190,9 @@ func (s *Shard) initVectorIndex(
 }
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		panic("Inconsistant")
+	}
 	err := s.initLSMStore(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: shard db", s.ID())
@@ -244,6 +250,9 @@ func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
 }
 
 func (s *Shard) initLSMStore(ctx context.Context) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		panic("Inconsistant")
+	}
 	annotatedLogger := s.index.logger.WithFields(logrus.Fields{
 		"shard": s.name,
 		"index": s.index.ID(),
@@ -278,6 +287,9 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 }
 
 func (s *Shard) drop() error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		panic("Inconsistant")
+	}
 	s.replicationMap.clear()
 
 	if s.index.Config.TrackVectorDimensions {
@@ -354,6 +366,9 @@ func (s *Shard) drop() error {
 }
 
 func (s *Shard) addIDProperty(ctx context.Context) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		return s.addIDProperty_old(ctx)
+	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -372,6 +387,9 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 }
 
 func (s *Shard) addDimensionsProperty(ctx context.Context) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		panic("Inconsistant")
+	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -390,6 +408,9 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 }
 
 func (s *Shard) addTimestampProperties(ctx context.Context) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		panic("Inconsistant")
+	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -405,6 +426,9 @@ func (s *Shard) addTimestampProperties(ctx context.Context) error {
 }
 
 func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		panic("Inconsistant")
+	}
 	return s.store.CreateOrLoadBucket(ctx,
 		"filterable_properties",
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
@@ -414,6 +438,9 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 }
 
 func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		panic("Inconsistant")
+	}
 	return s.store.CreateOrLoadBucket(ctx,
 		"filterable_properties",
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
@@ -423,11 +450,17 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 }
 
 func (s *Shard) memtableIdleConfig() lsmkv.BucketOption {
+	if !lsmkv.FeatureUseMergedBuckets {
+		panic("Inconsistant")
+	}
 	return lsmkv.WithIdleThreshold(
 		time.Duration(s.index.Config.MemtablesFlushIdleAfter) * time.Second)
 }
 
 func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
+	if !lsmkv.FeatureUseMergedBuckets {
+		panic("Inconsistant")
+	}
 	return lsmkv.WithDynamicMemtableSizing(
 		s.index.Config.MemtablesInitialSizeMB,
 		s.index.Config.MemtablesMaxSizeMB,
@@ -437,6 +470,9 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 }
 
 func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		panic("Inconsistant")
+	}
 	if !inverted.HasInvertedIndex(prop) {
 		return nil // FIXME nil or err?  Previous code didn't return anything
 	}
@@ -463,6 +499,9 @@ func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property) 
 }
 
 func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		panic("Inconsistant")
+	}
 	if !lsmkv.FeatureUseMergedBuckets {
 		return s.createPropertyValueIndex(ctx, prop)
 	}
@@ -544,6 +583,9 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 }
 
 func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		panic("Inconsistant")
+	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -564,6 +606,9 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 }
 
 func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		panic("Inconsistant")
+	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -579,6 +624,9 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 	updated schema.VectorIndexConfig,
 ) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		panic("Inconsistant")
+	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -593,6 +641,9 @@ func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 }
 
 func (s *Shard) shutdown(ctx context.Context) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		panic("Inconsistant")
+	}
 	if s.index.Config.TrackVectorDimensions {
 		// tracking vector dimensions goroutine only works when tracking is enabled
 		// that's why we are trying to stop it only in this case

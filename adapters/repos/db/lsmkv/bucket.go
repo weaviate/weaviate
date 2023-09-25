@@ -66,6 +66,7 @@ type BucketInterface interface {
 
 	CursorRoaringSetKeyOnly() CursorRoaringSet
 	GetRegisteredName() string 
+	CheckBucket()
 }
 
 type Bucket struct {
@@ -122,6 +123,31 @@ func (b *Bucket) GetRegisteredName() string {
 	return b.RegisteredName
 }
 
+func (b *Bucket) CheckBucket() {
+	if b == nil {
+		panic("Bucket is nil")
+	}
+	if len(b.dir) >4096 {
+		panic("Bucket name is too long")
+	}
+	if len(b.rootDir) >4096 {
+		panic("Bucket root name is too long")
+	}
+	if len(b.RegisteredName) >4096 {
+		panic("Bucket registered name is too long")
+	}
+	if b.logger == nil {
+		panic("Bucket logger is nil")
+	}
+	/*
+	if b.metrics == nil {
+		panic("Bucket metrics is nil")
+	}*/
+	if b.strategy == "" {
+		panic("Bucket strategy is empty")
+	}
+}
+
 // NewBucket initializes a new bucket. It either loads the state from disk if
 // it exists, or initializes new state.
 //
@@ -141,6 +167,8 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
+
+	logger.Errorf ("creating bucket in directory", dir)
 
 	b := &Bucket{
 		dir:               dir,

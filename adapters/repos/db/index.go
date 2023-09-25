@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -252,14 +253,31 @@ func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard *
 	})
 }
 
+// Problem: this function should be in shard.go, it circumvents the shard abstraction
 func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
-	return i.ForEachShard(func(key string, shard *Shard) error {
-		err := shard.createPropertyIndex(ctx, prop)
-		if err != nil {
+	if lsmkv.FeatureUseMergedBuckets {
+		eg := &errgroup.Group{}
+		eg.SetLimit(_NUMCPU)
+
+		i.ForEachShard(func(key string, shard *Shard) error {
+			shard.createPropertyIndex_old(ctx, prop, eg)
+			return nil
+		})
+
+		if err := eg.Wait(); err != nil {
 			return errors.Wrapf(err, "extend idx '%s' with property '%s", i.ID(), prop.Name)
 		}
 		return nil
-	})
+	} else {
+
+		return i.ForEachShard(func(key string, shard *Shard) error {
+			err := shard.createPropertyIndex(ctx, prop)
+			if err != nil {
+				return errors.Wrapf(err, "extend idx '%s' with property '%s", i.ID(), prop.Name)
+			}
+			return nil
+		})
+	}
 }
 
 func (i *Index) addUUIDProperty(ctx context.Context) error {

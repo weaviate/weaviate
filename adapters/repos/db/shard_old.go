@@ -69,7 +69,7 @@ func NewShard_old(ctx context.Context, promMetrics *monitoring.PrometheusMetrics
 	if hnswUserConfig.Skip {
 		s.vectorIndex = noop.NewIndex()
 	} else {
-		if err := s.initVectorIndex(ctx, hnswUserConfig); err != nil {
+		if err := s.initVectorIndex_old(ctx, hnswUserConfig); err != nil {
 			return nil, fmt.Errorf("init vector index: %w", err)
 		}
 
@@ -133,7 +133,7 @@ func (s *Shard) initVectorIndex_old(
 }
 
 func (s *Shard) initNonVector_old(ctx context.Context, class *models.Class) error {
-	err := s.initLSMStore(ctx)
+	err := s.initLSMStore_old(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: shard db", s.ID())
 	}
@@ -203,8 +203,8 @@ func (s *Shard) initLSMStore_old(ctx context.Context) error {
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
 		lsmkv.WithSecondaryIndices(1),
 		lsmkv.WithMonitorCount(),
-		s.dynamicMemtableSizing(),
-		s.memtableIdleConfig(),
+		s.dynamicMemtableSizing_old(),
+		s.memtableIdleConfig_old(),
 	)
 	if err != nil {
 		return errors.Wrap(err, "create objects bucket")
@@ -392,8 +392,8 @@ func (s *Shard) createPropertyValueIndex_old(ctx context.Context, prop *models.P
 	}
 
 	bucketOpts := []lsmkv.BucketOption{
-		s.memtableIdleConfig(),
-		s.dynamicMemtableSizing(),
+		s.memtableIdleConfig_old(),
+		s.dynamicMemtableSizing_old(),
 	}
 
 	if inverted.HasFilterableIndex(prop) {
