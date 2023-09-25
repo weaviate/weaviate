@@ -26,14 +26,14 @@ const (
 )
 
 func TestGRPCBatchRequest(t *testing.T) {
-	classname := "TestClass"
+	Collection := "TestClass"
 	refClass1 := "OtherClass"
 	refClass2 := "AnotherClass"
 	scheme := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
-					Class: classname,
+					Class: Collection,
 					Properties: []*models.Property{
 						{Name: "name", DataType: schema.DataTypeText.PropString()},
 						{Name: "number", DataType: []string{"int"}},
@@ -68,19 +68,19 @@ func TestGRPCBatchRequest(t *testing.T) {
 	}{
 		{
 			name:  "empty object",
-			req:   []*pb.BatchObject{{ClassName: classname}},
-			out:   []*models.Object{{Class: classname, Properties: nilMap}},
+			req:   []*pb.BatchObject{{Collection: Collection}},
+			out:   []*models.Object{{Class: Collection, Properties: nilMap}},
 			error: false,
 		},
 		{
 			name: "only normal props",
-			req: []*pb.BatchObject{{ClassName: classname, Properties: &pb.BatchObject_Properties{
+			req: []*pb.BatchObject{{Collection: Collection, Properties: &pb.BatchObject_Properties{
 				NonRefProperties: newStruct(t, map[string]interface{}{
 					"name": "something",
 					"age":  45,
 				}),
 			}}},
-			out: []*models.Object{{Class: classname, Properties: map[string]interface{}{
+			out: []*models.Object{{Class: Collection, Properties: map[string]interface{}{
 				"name": "something",
 				"age":  float64(45),
 			}}},
@@ -88,12 +88,12 @@ func TestGRPCBatchRequest(t *testing.T) {
 		},
 		{
 			name: "only single refs",
-			req: []*pb.BatchObject{{ClassName: classname, Properties: &pb.BatchObject_Properties{
-				RefPropsSingle: []*pb.BatchObject_RefPropertiesSingleTarget{
+			req: []*pb.BatchObject{{Collection: Collection, Properties: &pb.BatchObject_Properties{
+				SingleTargetRefProps: []*pb.BatchObject_SingleTargetRefProps{
 					{PropName: "ref", Uuids: []string{UUID3, UUID4}},
 				},
 			}}},
-			out: []*models.Object{{Class: classname, Properties: map[string]interface{}{
+			out: []*models.Object{{Class: Collection, Properties: map[string]interface{}{
 				"ref": []interface{}{
 					map[string]interface{}{"beacon": BEACON_START + refClass1 + "/" + UUID3},
 					map[string]interface{}{"beacon": BEACON_START + refClass1 + "/" + UUID4},
@@ -103,12 +103,12 @@ func TestGRPCBatchRequest(t *testing.T) {
 		},
 		{
 			name: "only mult ref",
-			req: []*pb.BatchObject{{ClassName: classname, Properties: &pb.BatchObject_Properties{
-				RefPropsMulti: []*pb.BatchObject_RefPropertiesMultiTarget{
+			req: []*pb.BatchObject{{Collection: Collection, Properties: &pb.BatchObject_Properties{
+				MultiTargetRefProps: []*pb.BatchObject_MultiTargetRefProps{
 					{PropName: "multiRef", Uuids: []string{UUID3, UUID4}, TargetCollection: refClass2},
 				},
 			}}},
-			out: []*models.Object{{Class: classname, Properties: map[string]interface{}{
+			out: []*models.Object{{Class: Collection, Properties: map[string]interface{}{
 				"multiRef": []interface{}{
 					map[string]interface{}{"beacon": BEACON_START + refClass2 + "/" + UUID3},
 					map[string]interface{}{"beacon": BEACON_START + refClass2 + "/" + UUID4},
@@ -118,11 +118,11 @@ func TestGRPCBatchRequest(t *testing.T) {
 		},
 		{
 			name: "all property types",
-			req: []*pb.BatchObject{{ClassName: classname, Properties: &pb.BatchObject_Properties{
-				RefPropsMulti: []*pb.BatchObject_RefPropertiesMultiTarget{
+			req: []*pb.BatchObject{{Collection: Collection, Properties: &pb.BatchObject_Properties{
+				MultiTargetRefProps: []*pb.BatchObject_MultiTargetRefProps{
 					{PropName: "multiRef", Uuids: []string{UUID4, UUID3}, TargetCollection: refClass2},
 				},
-				RefPropsSingle: []*pb.BatchObject_RefPropertiesSingleTarget{
+				SingleTargetRefProps: []*pb.BatchObject_SingleTargetRefProps{
 					{PropName: "ref", Uuids: []string{UUID4, UUID3}},
 				},
 				NonRefProperties: newStruct(t, map[string]interface{}{
@@ -130,7 +130,7 @@ func TestGRPCBatchRequest(t *testing.T) {
 					"age":  46,
 				}),
 			}}},
-			out: []*models.Object{{Class: classname, Properties: map[string]interface{}{
+			out: []*models.Object{{Class: Collection, Properties: map[string]interface{}{
 				"multiRef": []interface{}{
 					map[string]interface{}{"beacon": BEACON_START + refClass2 + "/" + UUID4},
 					map[string]interface{}{"beacon": BEACON_START + refClass2 + "/" + UUID3},
@@ -146,8 +146,8 @@ func TestGRPCBatchRequest(t *testing.T) {
 		},
 		{
 			name: "mult ref to single target",
-			req: []*pb.BatchObject{{ClassName: classname, Properties: &pb.BatchObject_Properties{
-				RefPropsMulti: []*pb.BatchObject_RefPropertiesMultiTarget{
+			req: []*pb.BatchObject{{Collection: Collection, Properties: &pb.BatchObject_Properties{
+				MultiTargetRefProps: []*pb.BatchObject_MultiTargetRefProps{
 					{PropName: "ref", Uuids: []string{UUID3, UUID4}, TargetCollection: refClass2},
 				},
 			}}},
@@ -156,8 +156,8 @@ func TestGRPCBatchRequest(t *testing.T) {
 		},
 		{
 			name: "single ref to multi target",
-			req: []*pb.BatchObject{{ClassName: classname, Properties: &pb.BatchObject_Properties{
-				RefPropsSingle: []*pb.BatchObject_RefPropertiesSingleTarget{
+			req: []*pb.BatchObject{{Collection: Collection, Properties: &pb.BatchObject_Properties{
+				SingleTargetRefProps: []*pb.BatchObject_SingleTargetRefProps{
 					{PropName: "multiRef", Uuids: []string{UUID3, UUID4}},
 				},
 			}}},
@@ -166,7 +166,7 @@ func TestGRPCBatchRequest(t *testing.T) {
 		},
 		{
 			name: "slice props",
-			req: []*pb.BatchObject{{ClassName: classname, Properties: &pb.BatchObject_Properties{
+			req: []*pb.BatchObject{{Collection: Collection, Properties: &pb.BatchObject_Properties{
 				NonRefProperties: newStruct(t, map[string]interface{}{"name": "something"}),
 				BooleanArrayProperties: []*pb.BooleanArrayProperties{
 					{PropName: "boolArray1", Values: []bool{true, true}},
@@ -182,7 +182,7 @@ func TestGRPCBatchRequest(t *testing.T) {
 					{PropName: "text1", Values: []string{"first", "second"}}, {PropName: "text2", Values: []string{"third"}},
 				},
 			}}},
-			out: []*models.Object{{Class: classname, Properties: map[string]interface{}{
+			out: []*models.Object{{Class: Collection, Properties: map[string]interface{}{
 				"name":       "something",
 				"boolArray1": []interface{}{true, true},
 				"boolArray2": []interface{}{false, true},

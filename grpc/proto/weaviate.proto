@@ -1,9 +1,10 @@
 syntax = "proto3";
 
-package weaviategrpc;
+package weaviate;
 
 import "batch.proto";
 import "search_get.proto";
+import "search_get_v1.proto";
 
 option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
 option java_package = "io.weaviate.grpc.protocol";
@@ -12,5 +13,6 @@ option java_outer_classname = "WeaviateProto";
 
 service Weaviate {
   rpc Search(SearchRequest) returns (SearchReply) {};
+  rpc Search1(SearchRequestV1) returns (SearchReplyV1) {};
   rpc BatchObjects(BatchObjectsRequest) returns (BatchObjectsReply) {};
 }

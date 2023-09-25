@@ -42,12 +42,12 @@ func TestGRPC(t *testing.T) {
 	})
 
 	t.Run("gRPC Search", func(t *testing.T) {
-		resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
-			ClassName: booksClass.Class,
-			Properties: &pb.Properties{
+		resp, err := grpcClient.Search1(context.TODO(), &pb.SearchRequestV1{
+			Collection: booksClass.Class,
+			Properties: &pb.PropertiesRequest{
 				NonRefProperties: []string{"title"},
 			},
-			AdditionalProperties: &pb.AdditionalProperties{
+			Metadata: &pb.MetadataRequest{
 				Uuid: true,
 			},
 		})
@@ -57,7 +57,7 @@ func TestGRPC(t *testing.T) {
 		assert.Equal(t, len(books.BatchObjects()), len(resp.Results))
 		for i := range resp.Results {
 			res := resp.Results[i]
-			id := res.AdditionalProperties.Id
+			id := res.Metadata.Id
 			assert.True(t, id == books.Dune.String() || id == books.ProjectHailMary.String() || id == books.TheLordOfTheIceGarden.String())
 			title, ok := res.Properties.NonRefProperties.AsMap()["title"]
 			require.True(t, ok)
@@ -73,5 +73,10 @@ func TestGRPC(t *testing.T) {
 			}
 			assert.Equal(t, expectedTitle, title)
 		}
+	})
+
+	t.Run("gRPC Search removed", func(t *testing.T) {
+		_, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{})
+		require.NotNil(t, err)
 	})
 }
