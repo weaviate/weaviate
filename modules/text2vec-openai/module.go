@@ -15,6 +15,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -72,7 +73,7 @@ func (m *OpenAIModule) Init(ctx context.Context,
 ) error {
 	m.logger = params.GetLogger()
 
-	if err := m.initVectorizer(ctx, m.logger); err != nil {
+	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout, m.logger); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
 
@@ -101,14 +102,14 @@ func (m *OpenAIModule) InitExtension(modules []modulecapabilities.Module) error 
 	return nil
 }
 
-func (m *OpenAIModule) initVectorizer(ctx context.Context,
+func (m *OpenAIModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
 	openAIApiKey := os.Getenv("OPENAI_APIKEY")
 	openAIOrganization := os.Getenv("OPENAI_ORGANIZATION")
 	azureApiKey := os.Getenv("AZURE_APIKEY")
 
-	client := clients.New(openAIApiKey, openAIOrganization, azureApiKey, logger)
+	client := clients.New(openAIApiKey, openAIOrganization, azureApiKey, timeout, logger)
 
 	m.vectorizer = vectorizer.New(client)
 	m.metaProvider = client

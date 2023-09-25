@@ -146,7 +146,7 @@ DOCS_LOOP:
 				props[k] = v
 			}
 			props["_additional"] = &additional.GroupHitAdditional{
-				ID:       docIDObject[docID].ID().String(),
+				ID:       docIDObject[docID].ID(),
 				Distance: docIDDistance[docID],
 				Vector:   docIDObject[docID].Vector,
 			}

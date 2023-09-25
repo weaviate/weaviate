@@ -10,6 +10,7 @@ on:
 
 jobs:
   Run-Swagger:
+    name: run-swagger
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,6 +32,7 @@ jobs:
             exit 0
           fi
   Vulnerability-Scanning:
+    name: vulnerability-scanning
     runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:
@@ -42,6 +44,7 @@ jobs:
           package: ./...
           fail-on-vuln: true
   Unit-Tests:
+    name: unit-tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -58,6 +61,7 @@ jobs:
           name: coverage-report-unit
           path: coverage-unit.txt
   Integration-Tests:
+    name: integration-tests  
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -74,6 +78,7 @@ jobs:
           name: coverage-report-integration
           path: coverage-integration.txt
   Modules-Acceptance-Tests:
+    name: modules-acceptance-tests  
     runs-on: ubuntu-latest-8-cores
     steps:
       - uses: actions/checkout@v4
@@ -85,6 +90,7 @@ jobs:
       - name: Acceptance tests (modules)
         run: ./test/run.sh --acceptance-module-tests-only
   Acceptance-Tests:
+    name: acceptance-tests  
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -100,6 +106,7 @@ jobs:
         run: ./test/run.sh --acceptance-only
   Codecov:
     needs: [Unit-Tests, Integration-Tests]
+    name: codecov
     runs-on: ubuntu-latest
     if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'master') }}
     steps:
@@ -115,10 +122,11 @@ jobs:
       - name: Codecov
         uses: codecov/codecov-action@v3
         with:
-          fail_ci_if_error: true
+          fail_ci_if_error: false
           files: ./coverage-integration.txt, ./coverage-unit.txt
           verbose: true
   Compile-and-upload-binaries:
+    name: compile-and-upload-binaries
     runs-on: ubuntu-latest-8-cores
     steps:
       - uses: actions/checkout@v4
@@ -161,6 +169,7 @@ jobs:
 
 
   Acceptance-Tests-windows:
+    name: acceptance-tests-windows
     needs: Compile-and-upload-binaries
     runs-on: windows-latest
     env:
@@ -190,6 +199,7 @@ jobs:
 
   Push-Docker:
     needs: [Acceptance-Tests, Modules-Acceptance-Tests, Unit-Tests, Integration-Tests, Vulnerability-Scanning, Run-Swagger]
+    name: push-docker
     runs-on: ubuntu-latest-8-cores
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:

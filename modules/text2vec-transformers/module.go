@@ -71,7 +71,7 @@ func (m *TransformersModule) Init(ctx context.Context,
 ) error {
 	m.logger = params.GetLogger()
 
-	if err := m.initVectorizer(ctx, m.logger); err != nil {
+	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout, m.logger); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
 
@@ -100,7 +100,7 @@ func (m *TransformersModule) InitExtension(modules []modulecapabilities.Module) 
 	return nil
 }
 
-func (m *TransformersModule) initVectorizer(ctx context.Context,
+func (m *TransformersModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
 	// TODO: gh-1486 proper config management
@@ -126,7 +126,7 @@ func (m *TransformersModule) initVectorizer(ctx context.Context,
 		uriQuery = uriCommon
 	}
 
-	client := clients.New(uriPassage, uriQuery, logger)
+	client := clients.New(uriPassage, uriQuery, timeout, logger)
 	if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
 		return errors.Wrap(err, "init remote vectorizer")
 	}
