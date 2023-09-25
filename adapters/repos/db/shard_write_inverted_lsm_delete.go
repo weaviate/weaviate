@@ -18,6 +18,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
 
 func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,

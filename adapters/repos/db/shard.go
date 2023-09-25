@@ -219,6 +219,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	}
 	s.propLengths = propLengths
 
+
 	piPath := path.Join(s.index.Config.RootPath, s.ID()+".propids")
 	propIds, err := tracker.NewJsonPropertyIdTracker(piPath)
 	if err != nil {
@@ -641,9 +642,6 @@ func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 }
 
 func (s *Shard) shutdown(ctx context.Context) error {
-	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Inconsistant")
-	}
 	if s.index.Config.TrackVectorDimensions {
 		// tracking vector dimensions goroutine only works when tracking is enabled
 		// that's why we are trying to stop it only in this case

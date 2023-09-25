@@ -35,6 +35,8 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -158,6 +160,14 @@ func (s *Shard) initNonVector_old(ctx context.Context, class *models.Class) erro
 		return errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
 	}
 	s.propLengths = propLengths
+
+
+	piPath := path.Join(s.index.Config.RootPath, s.ID()+".propids")
+	propIds, err := tracker.NewJsonPropertyIdTracker(piPath)
+	if err != nil {
+		return errors.Wrapf(err, "init shard %q: prop id tracker", s.ID())
+	}
+	s.propIds = propIds
 
 	if err := s.initProperties_old(class); err != nil {
 		return errors.Wrapf(err, "init shard %q: init per property indices", s.ID())

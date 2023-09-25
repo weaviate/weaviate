@@ -194,7 +194,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			}
 		}
 
-		bproxy, err := lsmkv.FetchMeABucket(s.store, bucketName, pv.prop, s.propIds)
+		bproxy, err := lsmkv.FetchMeABucket(s.store, bucketName, "", pv.prop, s.propIds) // "" - old file is handled in _old
 		if err != nil {
 			return err
 		}
