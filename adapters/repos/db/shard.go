@@ -404,7 +404,7 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 
 func (s *Shard) addTimestampProperties(ctx context.Context) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Invalid bucket mode")
+		return s.addTimestampProperties_old(ctx)
 	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
