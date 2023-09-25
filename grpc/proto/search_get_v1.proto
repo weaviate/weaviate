@@ -189,10 +189,10 @@ message BM25 {
 
 
 message RefPropertiesRequest {
-  string reference_property = 2;
-  PropertiesRequest properties = 3;
-  MetadataRequest metadata = 4;
-  string target_collection = 5;
+  string reference_property = 1;
+  PropertiesRequest properties = 2;
+  MetadataRequest metadata = 3;
+  string target_collection = 4;
 }
 
 message NearVector {
