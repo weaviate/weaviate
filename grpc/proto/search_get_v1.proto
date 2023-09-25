@@ -7,7 +7,7 @@ import "google/protobuf/struct.proto";
 
 option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
 option java_package = "io.weaviate.grpc.protocol";
-option java_outer_classname = "WeaviateProtoSearchGet";
+option java_outer_classname = "WeaviateProtoSearchGetV1";
 
 message SearchRequestV1 {
   //required
@@ -71,12 +71,15 @@ message GenerativeSearch {
 message TextArray {
   repeated string values = 1;
 }
+
 message IntArray {
   repeated int64 values = 1;
 }
+
 message NumberArray {
   repeated double values = 1;
 }
+
 message BooleanArray {
   repeated bool values = 1;
 }
@@ -98,7 +101,6 @@ message Filters {
     OPERATOR_CONTAINS_ANY = 12;
     OPERATOR_CONTAINS_ALL = 13;
   }
-
 
   Operator operator = 1;
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
@@ -128,7 +130,6 @@ message MetadataRequest {
   bool explain_score = 8;
   bool is_consistent = 9;
 }
-
 
 message PropertiesRequest {
   repeated string non_ref_properties = 1;
@@ -186,7 +187,6 @@ message BM25 {
   string query = 1;
   repeated string properties = 2;
 }
-
 
 message RefPropertiesRequest {
   string reference_property = 1;

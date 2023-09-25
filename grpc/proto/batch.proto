@@ -14,7 +14,6 @@ message BatchObjectsRequest {
   optional ConsistencyLevel consistency_level = 2;
 }
 
-
 message BatchObject {
   message Properties {
     google.protobuf.Struct non_ref_properties = 1;
