@@ -26,6 +26,7 @@ func (m *OpenAIModule) ClassConfigDefaults() map[string]interface{} {
 		"vectorizeClassName": vectorizer.DefaultVectorizeClassName,
 		"type":               vectorizer.DefaultOpenAIDocumentType,
 		"model":              vectorizer.DefaultOpenAIModel,
+		"baseURL":            vectorizer.DefaultBaseURL,
 		"modelVersion": vectorizer.PickDefaultModelVersion(vectorizer.DefaultOpenAIModel,
 			vectorizer.DefaultOpenAIDocumentType),
 	}
