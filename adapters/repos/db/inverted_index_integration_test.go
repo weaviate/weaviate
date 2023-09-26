@@ -23,12 +23,15 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
 
 func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
@@ -110,6 +113,38 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		IndexFilterable: &vFalse,
 		IndexSearchable: &vFalse,
 	}))
+
+	if !lsmkv.FeatureUseMergedBuckets {
+		t.Run("check for additional buckets", func(t *testing.T) {
+			for _, idx := range migrator.db.indices {
+				idx.ForEachShard(func(_ string, shd *Shard) error {
+					createBucket := shd.store.Bucket("property__creationTimeUnix")
+					assert.NotNil(t, createBucket)
+
+					updateBucket := shd.store.Bucket("property__lastUpdateTimeUnix")
+					assert.NotNil(t, updateBucket)
+
+					cases := []struct {
+						prop        string
+						compareFunc func(t assert.TestingT, object interface{}, msgAndArgs ...interface{}) bool
+					}{
+						{prop: "initialWithIINil", compareFunc: assert.NotNil},
+						{prop: "initialWithIITrue", compareFunc: assert.NotNil},
+						{prop: "initialWithoutII", compareFunc: assert.Nil},
+						{prop: "updateWithIINil", compareFunc: assert.NotNil},
+						{prop: "updateWithIITrue", compareFunc: assert.NotNil},
+						{prop: "updateWithoutII", compareFunc: assert.Nil},
+					}
+					for _, tt := range cases {
+						tt.compareFunc(t, shd.store.Bucket("property_"+tt.prop+filters.InternalNullIndex))
+						tt.compareFunc(t, shd.store.Bucket("property_"+tt.prop+filters.InternalNullIndex))
+						tt.compareFunc(t, shd.store.Bucket("property_"+tt.prop+filters.InternalPropertyLength))
+					}
+					return nil
+				})
+			}
+		})
+	}
 
 	t.Run("Add Objects", func(t *testing.T) {
 		testID1 := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
@@ -274,18 +309,6 @@ func TestIndexNullState_GetClass(t *testing.T) {
 			err := repo.PutObject(context.Background(), obj, vec, nil)
 			require.Nil(t, err)
 		}
-	})
-
-	t.Run("check buckets exist", func(t *testing.T) {
-		index := repo.indices["testclass"]
-		n := 0
-		index.ForEachShard(func(_ string, shard *Shard) error {
-			bucketNull := shard.store.Bucket("filterable_properties")
-			require.NotNil(t, bucketNull)
-			n++
-			return nil
-		})
-		require.Equal(t, 1, n)
 	})
 
 	type testCase struct {
@@ -496,6 +519,37 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 		require.Nil(t, err)
 		schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class, refClass)
 	})
+
+
+	if lsmkv.FeatureUseMergedBuckets {
+		t.Run("check buckets exist", func(t *testing.T) {
+			index := repo.indices["testclass"]
+			n := 0
+			index.ForEachShard(func(_ string, shard *Shard) error {
+				bucketNull := shard.store.Bucket("filterable_properties")
+				require.NotNil(t, bucketNull)
+				n++
+				return nil
+			})
+			require.Equal(t, 1, n)
+		})
+	} else {
+		t.Run("check buckets exist", func(t *testing.T) {
+			index := repo.indices["testclass"]
+			n := 0
+			index.ForEachShard(func(_ string, shard *Shard) error {
+				bucketPropLengthName := shard.store.Bucket(helpers.BucketFromPropertyNameLengthLSM("name"))
+				require.NotNil(t, bucketPropLengthName)
+				bucketPropLengthIntArray := shard.store.Bucket(helpers.BucketFromPropertyNameLengthLSM("int_array"))
+				require.NotNil(t, bucketPropLengthIntArray)
+				n++
+				return nil
+			})
+			require.Equal(t, 1, n)
+		})
+
+	}
+
 
 	t.Run("insert test objects", func(t *testing.T) {
 		vec := []float32{1, 2, 3}

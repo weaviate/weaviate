@@ -351,11 +351,21 @@ func Test_Filters_Int(t *testing.T) {
 	if err != nil {
 		t.Fail()
 	}
-
 	bucketName := "filterable_properties"
-	require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
+	var bucket lsmkv.BucketInterface
+	if lsmkv.FeatureUseMergedBuckets {
+		
+		require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
+	} else {
+		bucketName := helpers.BucketFromPropertyNameLSM(propName)
+		require.Nil(t, store.CreateOrLoadBucket(context.Background(),
+			bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
+	
+	}
 
-	bucket, err := lsmkv.FetchMeABucket(store, bucketName, helpers.BucketFromPropertyNameLSM(propName), propName, propIds)
+	bucket, err = lsmkv.FetchMeABucket(store, bucketName, helpers.BucketFromPropertyNameLSM(propName), propName, propIds)
+
+	
 	if err != nil {
 		t.Fail()
 	}
