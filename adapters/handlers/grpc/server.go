@@ -31,6 +31,7 @@ import (
 	schemaManager "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
 const maxMsgSize = 104858000 // 10mb, needs to be synchronized with clients
@@ -40,7 +41,7 @@ func CreateGRPCServer(state *state.State) *GRPCServer {
 		grpc.MaxRecvMsgSize(maxMsgSize),
 		grpc.MaxSendMsgSize(maxMsgSize),
 	)
-	pb.RegisterWeaviateServer(s, &Server{
+	weaviateServer := &Server{
 		traverser: state.Traverser,
 		authComposer: composer.New(
 			state.ServerConfig.Config.Authentication,
@@ -48,7 +49,9 @@ func CreateGRPCServer(state *state.State) *GRPCServer {
 		allowAnonymousAccess: state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
 		schemaManager:        state.SchemaManager,
 		batchManager:         state.BatchManager,
-	})
+	}
+	pb.RegisterWeaviateServer(s, weaviateServer)
+	grpc_health_v1.RegisterHealthServer(s, weaviateServer)
 
 	return &GRPCServer{s}
 }
