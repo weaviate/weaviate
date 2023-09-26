@@ -473,7 +473,7 @@ func Test_Validation_PropertyIndexing(t *testing.T) {
 									indexInverted:   inverted,
 									indexFilterable: filterable,
 									indexSearchable: searchable,
-									expectedErrMsg:  "`indexInverted` is deprecated and can not be set together with `indexFilterable` or `indexSearchable`.",
+									expectedErrMsg:  "`indexInverted` is deprecated and can not be set together with `indexFilterable` or `indexSearchable`",
 								})
 								continue
 							}
@@ -487,8 +487,7 @@ func Test_Validation_PropertyIndexing(t *testing.T) {
 									indexInverted:   inverted,
 									indexFilterable: filterable,
 									indexSearchable: searchable,
-									expectedErrMsg: "`indexSearchable` is allowed only for text/text[] data types. " +
-										"For other data types set false or leave empty",
+									expectedErrMsg:  "`indexSearchable` is not allowed only for other than text/text[] data types",
 								})
 								continue
 							}
@@ -538,9 +537,9 @@ func newFakePrimitivePDT(primitiveDataType schema.DataType) schema.PropertyDataT
 	return &fakePropertyDataType{primitiveDataType: primitiveDataType}
 }
 
-func newFakeNestedPDT(nestedDataType schema.DataType) schema.PropertyDataType {
-	return &fakePropertyDataType{nestedDataType: nestedDataType}
-}
+// func newFakeNestedPDT(nestedDataType schema.DataType) schema.PropertyDataType {
+// 	return &fakePropertyDataType{nestedDataType: nestedDataType}
+// }
 
 func (pdt *fakePropertyDataType) Kind() schema.PropertyKind {
 	if pdt.IsPrimitive() {
