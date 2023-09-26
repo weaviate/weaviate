@@ -124,11 +124,11 @@ func (m *autoSchemaManager) updateClass(ctx context.Context, principal *models.P
 		if !exists {
 			propertiesToAdd = append(propertiesToAdd, prop)
 		} else if _, isNested := schema.AsNested(existingProperties[index].DataType); isNested {
-			mergedNestedProperties, merged := m.mergeNestedProperties(existingProperties[index].NestedProperties,
+			mergedNestedProperties, merged := MergeRecursivelyNestedProperties(existingProperties[index].NestedProperties,
 				prop.NestedProperties)
 			if merged {
-				existingProperties[index].NestedProperties = mergedNestedProperties
-				propertiesToUpdate = append(propertiesToUpdate, existingProperties[index])
+				prop.NestedProperties = mergedNestedProperties
+				propertiesToUpdate = append(propertiesToUpdate, prop)
 			}
 		}
 	}
@@ -141,13 +141,14 @@ func (m *autoSchemaManager) updateClass(ctx context.Context, principal *models.P
 			return err
 		}
 	}
-	for _, updProp := range propertiesToUpdate {
+	for _, updatedProp := range propertiesToUpdate {
 		m.logger.
 			WithField("auto_schema", "updateClass").
-			Debugf("update class %s updated property %s", className, updProp.Name)
-		// TODO nested
-		// - implement propety update
-		// - make sure to set defaults for indexable/tokenization
+			Debugf("update class %s merge object property %s", className, updatedProp.Name)
+		err := m.schemaManager.MergeClassObjectProperty(ctx, principal, className, updatedProp)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -352,9 +353,10 @@ func (m *autoSchemaManager) determineNestedPropertiesOfArray(valArray []interfac
 				nestedPropertiesIndexMap[name] = len(nestedProperties)
 				nestedProperties = append(nestedProperties, m.determineNestedProperty(name, value, now))
 			} else if _, isNested := schema.AsNested(nestedProperties[index].DataType); isNested {
-				mergedNestedProperties, merged := m.mergeNestedProperties(nestedProperties[index].NestedProperties,
-					m.determineNestedProperty(name, value, now).NestedProperties)
-				if merged {
+				if mergedNestedProperties, merged := MergeRecursivelyNestedProperties(
+					nestedProperties[index].NestedProperties,
+					m.determineNestedProperty(name, value, now).NestedProperties,
+				); merged {
 					nestedProperties[index].NestedProperties = mergedNestedProperties
 				}
 			}
@@ -364,28 +366,36 @@ func (m *autoSchemaManager) determineNestedPropertiesOfArray(valArray []interfac
 	return nestedProperties
 }
 
-func (m *autoSchemaManager) mergeNestedProperties(nestedProperties1, nestedProperties2 []*models.NestedProperty,
+// merges nPropsExt with nPropsBase
+// returns new slice without changing input ones
+func MergeRecursivelyNestedProperties(nPropsBase, nPropsExt []*models.NestedProperty,
 ) ([]*models.NestedProperty, bool) {
 	merged := false
-	nestedPropertiesIndexMap := map[string]int{}
-	for index := range nestedProperties1 {
-		nestedPropertiesIndexMap[nestedProperties1[index].Name] = index
+	nProps := make([]*models.NestedProperty, len(nPropsBase), len(nPropsBase)+len(nPropsExt))
+	copy(nProps, nPropsBase)
+
+	existingIndexMap := map[string]int{}
+	for index := range nProps {
+		existingIndexMap[nProps[index].Name] = index
 	}
 
-	for _, np2 := range nestedProperties2 {
-		index, exists := nestedPropertiesIndexMap[np2.Name]
+	for _, nProp := range nPropsExt {
+		index, exists := existingIndexMap[nProp.Name]
 		if !exists {
-			nestedPropertiesIndexMap[np2.Name] = len(nestedProperties1)
-			nestedProperties1 = append(nestedProperties1, np2)
+			existingIndexMap[nProp.Name] = len(nProps)
+			nProps = append(nProps, nProp)
 			merged = true
-		} else if _, isNested := schema.AsNested(nestedProperties1[index].DataType); isNested {
-			mergedNestedProperties, merged := m.mergeNestedProperties(nestedProperties1[index].NestedProperties,
-				np2.NestedProperties)
-			if merged {
-				nestedProperties1[index].NestedProperties = mergedNestedProperties
+		} else if _, isNested := schema.AsNested(nProps[index].DataType); isNested {
+			if mergedProps, mergedNested := MergeRecursivelyNestedProperties(nProps[index].NestedProperties,
+				nProp.NestedProperties,
+			); mergedNested {
+				nPropCopy := *nProps[index]
+				nProps[index] = &nPropCopy
+				nProps[index].NestedProperties = mergedProps
+				merged = true
 			}
 		}
 	}
 
-	return nestedProperties1, merged
+	return nProps, merged
 }

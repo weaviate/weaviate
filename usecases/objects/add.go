@@ -33,6 +33,8 @@ type schemaManager interface {
 	) (*models.Class, error)
 	AddClassProperty(ctx context.Context, principal *models.Principal,
 		class string, property *models.Property) error
+	MergeClassObjectProperty(ctx context.Context, principal *models.Principal,
+		class string, property *models.Property) error
 }
 
 // AddObject Class Instance to the connected DB.
