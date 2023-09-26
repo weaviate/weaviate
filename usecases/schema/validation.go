@@ -87,34 +87,36 @@ func (m *Manager) validatePropertyTokenization(tokenization string, propertyData
 func (m *Manager) validatePropertyIndexing(prop *models.Property) error {
 	if prop.IndexInverted != nil {
 		if prop.IndexFilterable != nil || prop.IndexSearchable != nil {
-			return fmt.Errorf("`indexInverted` is deprecated and can not be set together with `indexFilterable` or `indexSearchable`.")
+			return fmt.Errorf("`indexInverted` is deprecated and can not be set together with `indexFilterable` or `indexSearchable`")
 		}
-		if _, isNested := schema.AsNested(prop.DataType); isNested {
-			return fmt.Errorf("`indexInverted` is not allowed for object/object[] data types")
-		}
+	}
+
+	primitiveDataType, isPrimitive := schema.AsPrimitive(prop.DataType)
+
+	if prop.IndexFilterable != nil {
+		// TODO should not be allowed for blobs (verify backward compat)
+		// if isPrimitive && primitiveDataType == schema.DataTypeBlob {
+		// 	return fmt.Errorf("`indexFilterable` is not allowed for blob data type")
+		// }
 	}
 
 	if prop.IndexSearchable != nil {
-		switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
-		case schema.DataTypeString, schema.DataTypeStringArray:
-			// string/string[] are migrated to text/text[] later,
-			// at this point they are still valid data types, therefore should be handled here
-			// true or false allowed
-		case schema.DataTypeText, schema.DataTypeTextArray:
-			// true or false allowed
-		default:
-			if *prop.IndexSearchable {
-				return fmt.Errorf("`indexSearchable` is allowed only for text/text[] data types. " +
-					"For other data types set false or leave empty")
+		validateSet := true
+		if isPrimitive {
+			switch primitiveDataType {
+			case schema.DataTypeString, schema.DataTypeStringArray:
+				// string/string[] are migrated to text/text[] later,
+				// at this point they are still valid data types, therefore should be handled here
+				// true or false allowed
+				validateSet = false
+			case schema.DataTypeText, schema.DataTypeTextArray:
+				// true or false allowed
+				validateSet = false
 			}
 		}
-	}
 
-	if prop.IndexFilterable != nil {
-		if _, isNested := schema.AsNested(prop.DataType); isNested {
-			if *prop.IndexFilterable {
-				return fmt.Errorf("`indexFilterable` is not allowed for object/object[] data types")
-			}
+		if validateSet && *prop.IndexSearchable {
+			return fmt.Errorf("`indexSearchable` is not allowed only for other than text/text[] data types")
 		}
 	}
 
@@ -128,8 +130,8 @@ type validatorNestedProperty func(property *models.NestedProperty,
 var validatorsNestedProperty = []validatorNestedProperty{
 	validateNestedPropertyDataType,
 	validateNestedPropertyTokenization,
-	validateNestedPropertyIndexSearchable,
 	validateNestedPropertyIndexFilterable,
+	validateNestedPropertyIndexSearchable,
 }
 
 func validateNestedProperties(properties []*models.NestedProperty, propNamePrefix string) error {
@@ -234,9 +236,9 @@ func validateNestedPropertyIndexFilterable(property *models.NestedProperty,
 	isPrimitive, isNested bool, propNamePrefix string,
 ) error {
 	if property.IndexFilterable != nil {
-		if isNested {
+		if isPrimitive && primitiveDataType == schema.DataTypeBlob {
 			if *property.IndexFilterable {
-				return fmt.Errorf("Property: '%s': indexFilterable is not allowed for object/object[] data types",
+				return fmt.Errorf("Property: '%s': indexFilterable is not allowed for blob data type",
 					propNamePrefix+property.Name)
 			}
 		}

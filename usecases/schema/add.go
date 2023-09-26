@@ -288,10 +288,12 @@ func setPropertyDefaultIndexing(prop *models.Property) {
 	if prop.IndexFilterable == nil {
 		prop.IndexFilterable = &vTrue
 
-		if _, isNested := schema.AsNested(prop.DataType); isNested {
+		primitiveDataType, isPrimitive := schema.AsPrimitive(prop.DataType)
+		if isPrimitive && primitiveDataType == schema.DataTypeBlob {
 			prop.IndexFilterable = &vFalse
 		}
 	}
+
 	if prop.IndexSearchable == nil {
 		prop.IndexSearchable = &vFalse
 
@@ -341,6 +343,14 @@ func setNestedPropertyDefaultIndexing(property *models.NestedProperty,
 	vTrue := true
 	vFalse := false
 
+	if property.IndexFilterable == nil {
+		property.IndexFilterable = &vTrue
+
+		if isPrimitive && primitiveDataType == schema.DataTypeBlob {
+			property.IndexFilterable = &vFalse
+		}
+	}
+
 	if property.IndexSearchable == nil {
 		property.IndexSearchable = &vFalse
 
@@ -349,15 +359,6 @@ func setNestedPropertyDefaultIndexing(property *models.NestedProperty,
 			case schema.DataTypeText, schema.DataTypeTextArray:
 				property.IndexSearchable = &vTrue
 			}
-		}
-	}
-
-	if property.IndexFilterable == nil {
-		property.IndexFilterable = &vTrue
-
-		if (isPrimitive && primitiveDataType == schema.DataTypeBlob) ||
-			isNested {
-			property.IndexFilterable = &vFalse
 		}
 	}
 }
