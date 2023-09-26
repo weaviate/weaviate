@@ -563,10 +563,18 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	require.Nil(t, err)
 
 	propName := "inverted-with-frequency"
-	require.Nil(t, err)
-	bucketName := "searchable_properties"
+	
+	var bucketName string
+	if lsmkv.FeatureUseMergedBuckets {
+	bucketName = "searchable_properties"
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
 		bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
+	} else {
+		bucketName := helpers.BucketSearchableFromPropertyNameLSM(propName)
+		require.Nil(t, store.CreateOrLoadBucket(context.Background(),
+			bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
+	}
+
 	bWithFrequency, err := lsmkv.FetchMeABucket(store, bucketName, helpers.BucketSearchableFromPropertyNameLSM(propName), propName, propIds)
 	require.Nil(t, err)
 
