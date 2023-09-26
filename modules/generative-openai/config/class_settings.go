@@ -27,6 +27,7 @@ const (
 	frequencyPenaltyProperty = "frequencyPenalty"
 	presencePenaltyProperty  = "presencePenalty"
 	topPProperty             = "topP"
+	baseURLProperty          = "baseURL"
 )
 
 var availableOpenAILegacyModels = []string{
@@ -48,6 +49,7 @@ var (
 	DefaultOpenAIFrequencyPenalty = 0.0
 	DefaultOpenAIPresencePenalty  = 0.0
 	DefaultOpenAITopP             = 1.0
+	DefaultOpenAIBaseURL          = "https://api.openai.com"
 )
 
 // todo Need to parse the tokenLimits in a smarter way, as the prompt defines the max length
@@ -73,6 +75,7 @@ type ClassSettings interface {
 	IsAzure() bool
 	GetMaxTokensForModel(model string) float64
 	Validate(class *models.Class) error
+	BaseURL() string
 }
 
 type classSettings struct {
@@ -195,6 +198,10 @@ func (ic *classSettings) Model() string {
 
 func (ic *classSettings) MaxTokens() float64 {
 	return *ic.getFloatProperty(maxTokensProperty, &DefaultOpenAIMaxTokens)
+}
+
+func (ic *classSettings) BaseURL() string {
+	return *ic.getStringProperty(baseURLProperty, DefaultOpenAIBaseURL)
 }
 
 func (ic *classSettings) Temperature() float64 {
