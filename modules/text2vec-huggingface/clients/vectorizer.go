@@ -47,6 +47,10 @@ type embedding [][]float32
 
 type embeddingBert [][][][]float32
 
+type embeddingObject struct {
+	Embeddings embedding `json:"embeddings"`
+}
+
 type huggingFaceApiError struct {
 	Error         string   `json:"error"`
 	EstimatedTime *float32 `json:"estimated_time,omitempty"`
@@ -162,13 +166,21 @@ func checkResponse(res *http.Response, bodyBytes []byte) error {
 func (v *vectorizer) decodeVector(bodyBytes []byte) ([]float32, error) {
 	var emb embedding
 	if err := json.Unmarshal(bodyBytes, &emb); err != nil {
-		var embBert embeddingBert
-		if err := json.Unmarshal(bodyBytes, &embBert); err != nil {
-			return nil, errors.Wrap(err, "unmarshal response body")
-		}
+		var embObject embeddingObject
+		if err := json.Unmarshal(bodyBytes, &embObject); err != nil {
+			var embBert embeddingBert
+			if err := json.Unmarshal(bodyBytes, &embBert); err != nil {
+				return nil, errors.Wrap(err, "unmarshal response body")
+			}
 
-		if len(embBert) == 1 && len(embBert[0]) == 1 {
-			return v.bertEmbeddingsDecoder.calculateVector(embBert[0][0])
+			if len(embBert) == 1 && len(embBert[0]) == 1 {
+				return v.bertEmbeddingsDecoder.calculateVector(embBert[0][0])
+			}
+
+			return nil, errors.New("unprocessable response body")
+		}
+		if len(embObject.Embeddings) == 1 {
+			return embObject.Embeddings[0], nil
 		}
 
 		return nil, errors.New("unprocessable response body")
