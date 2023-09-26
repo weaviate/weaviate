@@ -114,6 +114,26 @@ func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *mod
 				props = []*models.Property{property}
 			}
 			c.Properties = props
+			break
+		}
+	}
+	return nil
+}
+
+func (f *fakeSchemaManager) MergeClassObjectProperty(ctx context.Context, principal *models.Principal,
+	class string, property *models.Property,
+) error {
+	classes := f.GetSchemaResponse.Objects.Classes
+	for _, c := range classes {
+		if c.Class == class {
+			props := c.Properties
+			for i, prop := range props {
+				if prop.Name == property.Name {
+					props[i] = property
+					break
+				}
+			}
+			break
 		}
 	}
 	return nil
