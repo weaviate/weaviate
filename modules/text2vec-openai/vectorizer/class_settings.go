@@ -28,6 +28,7 @@ const (
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
+	DefaultBaseURL               = "https://api.openai.com"
 )
 
 var availableOpenAITypes = []string{"text", "code"}
@@ -99,6 +100,10 @@ func (cs *classSettings) ModelVersion() string {
 
 func (cs *classSettings) ResourceName() string {
 	return cs.getProperty("resourceName", "")
+}
+
+func (cs *classSettings) BaseURL() string {
+	return cs.getProperty("baseURL", DefaultBaseURL)
 }
 
 func (cs *classSettings) DeploymentID() string {
