@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
 GEN_DIR=./grpc/generated
 OUT_DIR="$GEN_DIR/protocol"
