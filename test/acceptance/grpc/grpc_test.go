@@ -20,12 +20,14 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
+	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
 func TestGRPC(t *testing.T) {
-	grpcHost := "localhost:50051"
-	grpcClient, err := helper.CreateGrpcClient(grpcHost)
+	conn, err := helper.CreateGrpcConnectionClient(":50051")
 	require.NoError(t, err)
+	require.NotNil(t, conn)
+	grpcClient := helper.CreateGrpcWeaviateClient(conn)
 	require.NotNil(t, grpcClient)
 
 	// create Books class
@@ -33,7 +35,15 @@ func TestGRPC(t *testing.T) {
 	helper.CreateClass(t, booksClass)
 	defer helper.DeleteClass(t, booksClass.Class)
 
-	t.Run("gRPC Batch import", func(t *testing.T) {
+	t.Run("Health Check", func(t *testing.T) {
+		client := grpc_health_v1.NewHealthClient(conn)
+		check, err := client.Check(context.TODO(), &grpc_health_v1.HealthCheckRequest{})
+		require.NoError(t, err)
+		require.NotNil(t, check)
+		assert.Equal(t, grpc_health_v1.HealthCheckResponse_SERVING.Enum().Number(), check.Status.Number())
+	})
+
+	t.Run("Batch import", func(t *testing.T) {
 		resp, err := grpcClient.BatchObjects(context.TODO(), &pb.BatchObjectsRequest{
 			Objects: books.BatchObjects(),
 		})
@@ -41,7 +51,7 @@ func TestGRPC(t *testing.T) {
 		require.NotNil(t, resp)
 	})
 
-	t.Run("gRPC Search", func(t *testing.T) {
+	t.Run("Search", func(t *testing.T) {
 		resp, err := grpcClient.SearchV1(context.TODO(), &pb.SearchRequestV1{
 			Collection: booksClass.Class,
 			Properties: &pb.PropertiesRequest{
