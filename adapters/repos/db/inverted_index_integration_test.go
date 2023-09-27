@@ -312,32 +312,32 @@ func TestIndexNullState_GetClass(t *testing.T) {
 	})
 
 	if !lsmkv.FeatureUseMergedBuckets {
-		       t.Run("check buckets exist", func(t *testing.T) {
-			               index := repo.indices["testclass"]
-			               n := 0
-			               index.ForEachShard(func(_ string, shard *Shard) error {
-			                       bucketNull := shard.store.Bucket(helpers.BucketFromPropertyNameNullLSM("name"))
-			                       require.NotNil(t, bucketNull)
-			                       n++
-			                       return nil
-							})
-			               require.Equal(t, 1, n)
-			       })
-						} else {
 		t.Run("check buckets exist", func(t *testing.T) {
-				index := repo.indices["testclass"]
-				n := 0
-				index.ForEachShard(func(_ string, shard *Shard) error {
-					bucketProps := shard.store.Bucket("filterable_properties")
-					require.NotNil(t, bucketProps)
-					bucketNull := shard.store.Bucket(helpers.BucketFromPropertyNameNullLSM("name"))
-			                       require.NotNil(t, bucketNull)
-					n++
-					return nil
-				})
-				require.Equal(t, 1, n)
+			index := repo.indices["testclass"]
+			n := 0
+			index.ForEachShard(func(_ string, shard *Shard) error {
+				bucketNull := shard.store.Bucket(helpers.BucketFromPropertyNameNullLSM("name"))
+				require.NotNil(t, bucketNull)
+				n++
+				return nil
 			})
-		}
+			require.Equal(t, 1, n)
+		})
+	} else {
+		t.Run("check buckets exist", func(t *testing.T) {
+			index := repo.indices["testclass"]
+			n := 0
+			index.ForEachShard(func(_ string, shard *Shard) error {
+				bucketProps := shard.store.Bucket("filterable_properties")
+				require.NotNil(t, bucketProps)
+				bucketNull := shard.store.Bucket(helpers.BucketFromPropertyNameNullLSM("name"))
+				require.NotNil(t, bucketNull)
+				n++
+				return nil
+			})
+			require.Equal(t, 1, n)
+		})
+	}
 
 	type testCase struct {
 		name        string
@@ -548,7 +548,6 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 		schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class, refClass)
 	})
 
-
 	if lsmkv.FeatureUseMergedBuckets {
 		t.Run("check buckets exist", func(t *testing.T) {
 			index := repo.indices["testclass"]
@@ -575,9 +574,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 			})
 			require.Equal(t, 1, n)
 		})
-
 	}
-
 
 	t.Run("insert test objects", func(t *testing.T) {
 		vec := []float32{1, 2, 3}

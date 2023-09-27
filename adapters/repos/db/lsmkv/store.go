@@ -140,8 +140,8 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string, opts 
 			opt(fb)
 		}
 		registeredName := fb.RegisteredName
-		if b.RegisteredName == "property__id"{
-			//panic("property__id")
+		if b.RegisteredName == "property__id" {
+			// panic("property__id")
 			fmt.Printf("Registered bucket %v as '%v'\n", bucketFile, registeredName)
 		}
 		if registeredName != "" {
@@ -158,8 +158,8 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string, opts 
 
 	s.SetBucket(bucketFile, b)
 
-	if b.RegisteredName == "property__id"{
-		//panic("property__id")
+	if b.RegisteredName == "property__id" {
+		// panic("property__id")
 		fmt.Printf("Created bucket %v as '%v'\n", bucketFile, b.RegisteredName)
 	}
 	if b.RegisteredName != "" {

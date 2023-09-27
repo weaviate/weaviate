@@ -161,7 +161,6 @@ func testPrimitivePropsWithNoLengthIndex(repo *DB) func(t *testing.T) {
 		var tests []test
 		if !lsmkv.FeatureUseMergedBuckets {
 			tests = []test{
-
 				{
 					name:        "Filter by unsupported geo-coordinates",
 					filter:      buildFilter("len(parkedAt)", 0, eq, dtInt),
