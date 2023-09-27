@@ -49,7 +49,6 @@ func MakePropertyKey(byteEncodedPropertyId []byte, key []byte) []byte {
 	copy(k, key)
 
 	jointKey := append(k, b...)
-	fmt.Printf("jointKey: %v\n\n", string(jointKey))
 	return jointKey
 }
 
