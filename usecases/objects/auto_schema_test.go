@@ -483,3 +483,260 @@ func getProperty(properties []*models.Property, name string) *models.Property {
 	}
 	return nil
 }
+
+func Test_MergeNestedProperties(t *testing.T) {
+	vFalse := false
+	vTrue := true
+
+	emptyProps := []*models.NestedProperty{}
+	nestedProps1 := []*models.NestedProperty{
+		{
+			Name:            "nested_int",
+			DataType:        schema.DataTypeInt.PropString(),
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vFalse,
+			Tokenization:    "",
+		},
+		{
+			Name:            "nested_text",
+			DataType:        schema.DataTypeText.PropString(),
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vTrue,
+			Tokenization:    models.PropertyTokenizationWord,
+		},
+		{
+			Name:            "nested_objects",
+			DataType:        schema.DataTypeObjectArray.PropString(),
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vFalse,
+			Tokenization:    "",
+			NestedProperties: []*models.NestedProperty{
+				{
+					Name:            "nested_bool_lvl2",
+					DataType:        schema.DataTypeBoolean.PropString(),
+					IndexFilterable: &vTrue,
+					IndexSearchable: &vFalse,
+					Tokenization:    "",
+				},
+				{
+					Name:            "nested_numbers_lvl2",
+					DataType:        schema.DataTypeNumberArray.PropString(),
+					IndexFilterable: &vTrue,
+					IndexSearchable: &vFalse,
+					Tokenization:    "",
+				},
+			},
+		},
+	}
+	nestedProps2 := []*models.NestedProperty{
+		{
+			Name:            "nested_number",
+			DataType:        schema.DataTypeNumber.PropString(),
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vFalse,
+			Tokenization:    "",
+		},
+		{
+			Name:            "nested_text",
+			DataType:        schema.DataTypeText.PropString(),
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vTrue,
+			Tokenization:    models.PropertyTokenizationField, // different setting than (1)
+		},
+		{
+			Name:            "nested_objects",
+			DataType:        schema.DataTypeObjectArray.PropString(),
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vFalse,
+			Tokenization:    "",
+			NestedProperties: []*models.NestedProperty{
+				{
+					Name:            "nested_date_lvl2",
+					DataType:        schema.DataTypeDate.PropString(),
+					IndexFilterable: &vTrue,
+					IndexSearchable: &vFalse,
+					Tokenization:    "",
+				},
+				{
+					Name:            "nested_numbers_lvl2",
+					DataType:        schema.DataTypeNumberArray.PropString(),
+					IndexFilterable: &vFalse, // different setting than (1)
+					IndexSearchable: &vFalse,
+					Tokenization:    "",
+				},
+			},
+		},
+	}
+
+	mergedProps_1_2 := []*models.NestedProperty{
+		{
+			Name:            "nested_int",
+			DataType:        schema.DataTypeInt.PropString(),
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vFalse,
+			Tokenization:    "",
+		},
+		{
+			Name:            "nested_number",
+			DataType:        schema.DataTypeNumber.PropString(),
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vFalse,
+			Tokenization:    "",
+		},
+		{
+			Name:            "nested_text",
+			DataType:        schema.DataTypeText.PropString(),
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vTrue,
+			Tokenization:    models.PropertyTokenizationWord, // from (1)
+		},
+		{
+			Name:            "nested_objects",
+			DataType:        schema.DataTypeObjectArray.PropString(),
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vFalse,
+			Tokenization:    "",
+			NestedProperties: []*models.NestedProperty{
+				{
+					Name:            "nested_bool_lvl2",
+					DataType:        schema.DataTypeBoolean.PropString(),
+					IndexFilterable: &vTrue,
+					IndexSearchable: &vFalse,
+					Tokenization:    "",
+				},
+				{
+					Name:            "nested_date_lvl2",
+					DataType:        schema.DataTypeDate.PropString(),
+					IndexFilterable: &vTrue,
+					IndexSearchable: &vFalse,
+					Tokenization:    "",
+				},
+				{
+					Name:            "nested_numbers_lvl2",
+					DataType:        schema.DataTypeNumberArray.PropString(),
+					IndexFilterable: &vTrue, // from (1)
+					IndexSearchable: &vFalse,
+					Tokenization:    "",
+				},
+			},
+		},
+	}
+
+	mergedProps_2_1 := []*models.NestedProperty{
+		{
+			Name:            "nested_int",
+			DataType:        schema.DataTypeInt.PropString(),
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vFalse,
+			Tokenization:    "",
+		},
+		{
+			Name:            "nested_number",
+			DataType:        schema.DataTypeNumber.PropString(),
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vFalse,
+			Tokenization:    "",
+		},
+		{
+			Name:            "nested_text",
+			DataType:        schema.DataTypeText.PropString(),
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vTrue,
+			Tokenization:    models.PropertyTokenizationField, // from (2)
+		},
+		{
+			Name:            "nested_objects",
+			DataType:        schema.DataTypeObjectArray.PropString(),
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vFalse,
+			Tokenization:    "",
+			NestedProperties: []*models.NestedProperty{
+				{
+					Name:            "nested_bool_lvl2",
+					DataType:        schema.DataTypeBoolean.PropString(),
+					IndexFilterable: &vTrue,
+					IndexSearchable: &vFalse,
+					Tokenization:    "",
+				},
+				{
+					Name:            "nested_date_lvl2",
+					DataType:        schema.DataTypeDate.PropString(),
+					IndexFilterable: &vTrue,
+					IndexSearchable: &vFalse,
+					Tokenization:    "",
+				},
+				{
+					Name:            "nested_numbers_lvl2",
+					DataType:        schema.DataTypeNumberArray.PropString(),
+					IndexFilterable: &vFalse, // from (2)
+					IndexSearchable: &vFalse,
+					Tokenization:    "",
+				},
+			},
+		},
+	}
+
+	var assertNestedPropsMatch func(t *testing.T, nestedPropsA, nestedPropsB []*models.NestedProperty)
+	assertNestedPropsMatch = func(t *testing.T, nestedPropsA, nestedPropsB []*models.NestedProperty) {
+		require.Len(t, nestedPropsB, len(nestedPropsA), "nestedProps: different length")
+
+		npMap := map[string]int{}
+		for index, np := range nestedPropsA {
+			npMap[np.Name] = index
+		}
+
+		for _, npB := range nestedPropsB {
+			require.Contains(t, npMap, npB.Name)
+			npA := nestedPropsA[npMap[npB.Name]]
+
+			if _, isNested := schema.AsNested(npA.DataType); isNested {
+				assert.Equal(t, npA.DataType, npB.DataType)
+				assert.Equal(t, npA.IndexFilterable, npB.IndexFilterable)
+				assert.Equal(t, npA.IndexSearchable, npB.IndexSearchable)
+				assert.Equal(t, npA.Tokenization, npB.Tokenization)
+				assertNestedPropsMatch(t, npA.NestedProperties, npB.NestedProperties)
+			} else {
+				assert.Equal(t, npA, npB)
+			}
+		}
+	}
+
+	t.Run("empty + nested", func(t *testing.T) {
+		nestedProps, merged := MergeRecursivelyNestedProperties(emptyProps, nestedProps1)
+
+		assert.True(t, merged)
+		assert.Equal(t, nestedProps1, nestedProps)
+	})
+
+	t.Run("nested + empty", func(t *testing.T) {
+		nestedProps, merged := MergeRecursivelyNestedProperties(nestedProps1, emptyProps)
+
+		assert.False(t, merged)
+		assert.Equal(t, nestedProps1, nestedProps)
+	})
+
+	t.Run("2 x nested", func(t *testing.T) {
+		nestedProps, merged := MergeRecursivelyNestedProperties(nestedProps1, nestedProps1)
+
+		assert.False(t, merged)
+		assert.Equal(t, nestedProps1, nestedProps)
+	})
+
+	t.Run("nested1 + nested2", func(t *testing.T) {
+		nestedProps, merged := MergeRecursivelyNestedProperties(nestedProps1, nestedProps2)
+
+		assert.True(t, merged)
+		assert.NotEqual(t, nestedProps1, nestedProps)
+		assert.NotEqual(t, nestedProps2, nestedProps)
+		assertNestedPropsMatch(t, mergedProps_1_2, nestedProps)
+	})
+
+	t.Run("nested2 + nested1", func(t *testing.T) {
+		nestedProps, merged := MergeRecursivelyNestedProperties(nestedProps2, nestedProps1)
+
+		assert.True(t, merged)
+		assert.NotEqual(t, nestedProps1, nestedProps)
+		assert.NotEqual(t, nestedProps2, nestedProps)
+		assertNestedPropsMatch(t, mergedProps_2_1, nestedProps)
+	})
+}
