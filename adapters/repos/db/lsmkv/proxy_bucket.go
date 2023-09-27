@@ -52,9 +52,9 @@ type BucketProxy struct {
 	PropertyName   string          // the property name, used mainly for debugging
 }
 
-var FeatureUseMergedBuckets = false // if true, use the merged buckets, if false, use the legacy buckets
+var FeatureUseMergedBuckets = true // if true, use the merged buckets, if false, use the legacy buckets
 
-// Wraps a bucket with a property prefixer
+// Wraps a bucket with a property prefixer.  Only used for tests
 func WrapBucketWithProp(bucket *Bucket, propName string, propIds *tracker.JsonPropertyIdTracker) (BucketInterface, error) {
 	bucketValue, err := NewBucketProxy(bucket, propName, propIds)
 	if err != nil {
@@ -70,6 +70,9 @@ func (b *BucketProxy) GetRegisteredName() string {
 
 // Returns either a real bucket or a proxy bucket, depending on whether the merged bucket feature is active or not
 func FetchMeABucket(store *Store, mergedName string, bucketFileName string, propName string, propids *tracker.JsonPropertyIdTracker) (BucketInterface, error) {
+	if propName == "" {
+		panic("propName is empty")
+	}
 	if !FeatureUseMergedBuckets {
 		bucket := store.Bucket(bucketFileName)
 		if bucket == nil {
@@ -81,10 +84,11 @@ func FetchMeABucket(store *Store, mergedName string, bucketFileName string, prop
 	if bucket == nil {
 		return nil, fmt.Errorf("could not find merged bucket %s (for property %v)", mergedName, propName)
 	}
-	proxyBucket, err := NewBucketProxy(bucket, propName, propids)
+	proxyBucket, err := NewBucketProxy(bucket, bucketFileName, propids)
 	if err != nil {
 		return nil, fmt.Errorf("could not create proxy bucket for prop %s: %v", propName, err)
 	}
+	fmt.Printf("Fetched bucket %s for bucketFile, %s, property %s\n", mergedName, bucketFileName, propName)
 	return proxyBucket, nil
 }
 

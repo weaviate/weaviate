@@ -164,14 +164,24 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			return errors.Errorf("Timestamps must be indexed to be filterable! Add `IndexTimestamps: true` to the InvertedIndexConfig in %v", pv.Class.Class)
 		}
 
-		var bucketName string
+		var mergedName string
 		if pv.hasFilterableIndex {
-			bucketName = "filterable_properties"
+			mergedName = "filterable_properties"
 		} else if pv.hasSearchableIndex {
-			bucketName = "searchable_properties"
+			mergedName = "searchable_properties"
 		} else {
 			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 		}
+
+		var bucketName string
+		if pv.hasFilterableIndex {
+			bucketName = helpers.BucketFromPropertyNameLSM(pv.prop)
+		} else if pv.hasSearchableIndex {
+			bucketName = helpers.BucketSearchableFromPropertyNameLSM(pv.prop)
+		} else {
+			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
+		}
+
 
 		// TODO text_rbm_inverted_index find better way check whether prop len
 		if strings.HasSuffix(pv.prop, filters.InternalPropertyLength) &&
@@ -193,7 +203,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			}
 		}
 
-		bproxy, err := lsmkv.FetchMeABucket(s.store, bucketName, "", pv.prop, s.propIds) // "" - old file is handled in _old
+		bproxy, err := lsmkv.FetchMeABucket(s.store, mergedName, bucketName, pv.prop, s.propIds) // "" - old file is handled in _old
 		if err != nil {
 			return err
 		}

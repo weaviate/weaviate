@@ -69,6 +69,10 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		return errors.Wrap(err, "flush prop length tracker to disk")
 	}
 
+	if err := s.propIds.Flush(false); err != nil {
+		return errors.Wrap(err, "flush prop id tracker to disk")
+	}
+
 	if err := s.vectorIndex.Flush(); err != nil {
 		return errors.Wrap(err, "flush all vector index buffered WALs")
 	}

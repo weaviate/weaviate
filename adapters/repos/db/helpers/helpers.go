@@ -48,7 +48,9 @@ func MakePropertyKey(byteEncodedPropertyId []byte, key []byte) []byte {
 	k := make([]byte, len(key))
 	copy(k, key)
 
-	return append(k, b...)
+	jointKey := append(k, b...)
+	fmt.Printf("jointKey: %v\n\n", string(jointKey))
+	return jointKey
 }
 
 func MatchesPropertyKeyPostfix(byteEncodedPropertyId []byte, prefixed_key []byte) bool {
