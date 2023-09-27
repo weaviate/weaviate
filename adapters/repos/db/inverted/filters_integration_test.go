@@ -59,7 +59,8 @@ func Test_Filters_String(t *testing.T) {
 		bWithFrequency, err = lsmkv.FetchMeABucket(store, bucketName, helpers.BucketSearchableFromPropertyNameLSM(propName), propName, propIds)
 		require.Nil(t, err)
 	} else {
-		require.Nil(t, store.CreateOrLoadBucket(context.Background(), helpers.BucketSearchableFromPropertyNameLSM(propName), lsmkv.WithStrategy(lsmkv.StrategyMapCollection), lsmkv.WithRegisteredName(helpers.BucketSearchableFromPropertyNameLSM(propName))))
+		bucketName = helpers.BucketSearchableFromPropertyNameLSM(propName)
+		require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection), lsmkv.WithRegisteredName(helpers.BucketSearchableFromPropertyNameLSM(propName))))
 		bWithFrequency, err = lsmkv.FetchMeABucket(store, bucketName, helpers.BucketSearchableFromPropertyNameLSM(propName), propName, propIds)
 		require.Nil(t, err)
 	}
@@ -357,7 +358,7 @@ func Test_Filters_Int(t *testing.T) {
 		
 		require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
 	} else {
-		bucketName := helpers.BucketFromPropertyNameLSM(propName)
+		bucketName = helpers.BucketFromPropertyNameLSM(propName)
 		require.Nil(t, store.CreateOrLoadBucket(context.Background(),
 			bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
 	
@@ -570,7 +571,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
 		bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
 	} else {
-		bucketName := helpers.BucketSearchableFromPropertyNameLSM(propName)
+		bucketName = helpers.BucketSearchableFromPropertyNameLSM(propName)
 		require.Nil(t, store.CreateOrLoadBucket(context.Background(),
 			bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
 	}

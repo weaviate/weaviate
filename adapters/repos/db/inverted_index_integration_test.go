@@ -311,6 +311,20 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		}
 	})
 
+	if !lsmkv.FeatureUseMergedBuckets {
+		t.Run("check buckets exist", func(t *testing.T) {
+				index := repo.indices["testclass"]
+				n := 0
+				index.ForEachShard(func(_ string, shard *Shard) error {
+					bucketNull := shard.store.Bucket("filterable_properties")
+					require.NotNil(t, bucketNull)
+					n++
+					return nil
+				})
+				require.Equal(t, 1, n)
+			})
+		}
+
 	type testCase struct {
 		name        string
 		filter      *filters.LocalFilter

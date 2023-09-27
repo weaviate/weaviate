@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -157,27 +158,29 @@ func testPrimitivePropsWithNoLengthIndex(repo *DB) func(t *testing.T) {
 			ErrMsg      string
 		}
 
-		tests := []test{
-			/*   FIXME  all filters are always active, so check for toggle in schema?
-			{
-				name:        "Filter by unsupported geo-coordinates",
-				filter:      buildFilter("len(parkedAt)", 0, eq, dtInt),
-				expectedIDs: []strfmt.UUID{},
-				ErrMsg:      "Property length must be indexed to be filterable! add `IndexPropertyLength: true` to the invertedIndexConfig in",
-			},
-			{
-				name:        "Filter by unsupported number",
-				filter:      buildFilter("len(horsepower)", 1, eq, dtInt),
-				expectedIDs: []strfmt.UUID{},
-				ErrMsg:      "Property length must be indexed to be filterable",
-			},
-			{
-				name:        "Filter by unsupported date",
-				filter:      buildFilter("len(released)", 1, eq, dtInt),
-				expectedIDs: []strfmt.UUID{},
-				ErrMsg:      "Property length must be indexed to be filterable! add `IndexPropertyLength: true` to the invertedIndexConfig in",
-			},
-			*/
+		var tests []test
+		if !lsmkv.FeatureUseMergedBuckets {
+			tests = []test{
+
+				{
+					name:        "Filter by unsupported geo-coordinates",
+					filter:      buildFilter("len(parkedAt)", 0, eq, dtInt),
+					expectedIDs: []strfmt.UUID{},
+					ErrMsg:      "Property length must be indexed to be filterable! add `IndexPropertyLength: true` to the invertedIndexConfig in",
+				},
+				{
+					name:        "Filter by unsupported number",
+					filter:      buildFilter("len(horsepower)", 1, eq, dtInt),
+					expectedIDs: []strfmt.UUID{},
+					ErrMsg:      "Property length must be indexed to be filterable",
+				},
+				{
+					name:        "Filter by unsupported date",
+					filter:      buildFilter("len(released)", 1, eq, dtInt),
+					expectedIDs: []strfmt.UUID{},
+					ErrMsg:      "Property length must be indexed to be filterable! add `IndexPropertyLength: true` to the invertedIndexConfig in",
+				},
+			}
 		}
 
 		for _, test := range tests {
