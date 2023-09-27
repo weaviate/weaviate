@@ -273,11 +273,11 @@ func (ua unfilteredAggregator) dateProperty(ctx context.Context,
 		c := b.CursorRoaringSet()
 		defer c.Close()
 
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
+		for key, v := c.First(); key != nil; key, v = c.Next() {
+			if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), key) {
 				continue
 			}
-			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
+			k := helpers.UnMakePropertyKey(b.PropertyPrefix(), key)
 			if err := ua.parseAndAddDateRowRoaringSet(agg, k, v); err != nil {
 				return nil, err
 			}
@@ -322,7 +322,7 @@ func (ua unfilteredAggregator) parseAndAddDateRowRoaringSet(agg *dateAggregator,
 ) error {
 	if len(k) != 8 {
 		// dates are stored as epoch nanoseconds, we expect to see an int64
-		return fmt.Errorf("parseAndAddDateRowRoaringSet: unexpected key length on inverted index, expected 8: got %d", len(k))
+		return fmt.Errorf("parseAndAddDateRowRoaringSet: unexpected key length on inverted index, expected 8: got %d (%v,%v)", len(k), k, string(k))
 	}
 
 	if err := agg.AddTimestampRow(k, uint64(v.GetCardinality())); err != nil {
