@@ -305,6 +305,8 @@ func setPropertyDefaultIndexing(prop *models.Property) {
 				prop.IndexSearchable = &vTrue
 			case schema.DataTypeText, schema.DataTypeTextArray:
 				prop.IndexSearchable = &vTrue
+			default:
+				// do nothing
 			}
 		}
 	}
@@ -332,6 +334,8 @@ func setNestedPropertyDefaultTokenization(property *models.NestedProperty,
 		switch primitiveDataType {
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			property.Tokenization = models.NestedPropertyTokenizationWord
+		default:
+			// do nothing
 		}
 	}
 }
@@ -358,6 +362,8 @@ func setNestedPropertyDefaultIndexing(property *models.NestedProperty,
 			switch primitiveDataType {
 			case schema.DataTypeText, schema.DataTypeTextArray:
 				property.IndexSearchable = &vTrue
+			default:
+				// do nothing
 			}
 		}
 	}

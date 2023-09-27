@@ -93,12 +93,12 @@ func (m *Manager) validatePropertyIndexing(prop *models.Property) error {
 
 	primitiveDataType, isPrimitive := schema.AsPrimitive(prop.DataType)
 
-	if prop.IndexFilterable != nil {
-		// TODO should not be allowed for blobs (verify backward compat)
-		// if isPrimitive && primitiveDataType == schema.DataTypeBlob {
-		// 	return fmt.Errorf("`indexFilterable` is not allowed for blob data type")
-		// }
-	}
+	// TODO nested - should not be allowed for blobs (verify backward compat)
+	// if prop.IndexFilterable != nil {
+	// 	if isPrimitive && primitiveDataType == schema.DataTypeBlob {
+	// 		return fmt.Errorf("`indexFilterable` is not allowed for blob data type")
+	// 	}
+	// }
 
 	if prop.IndexSearchable != nil {
 		validateSet := true
@@ -112,6 +112,8 @@ func (m *Manager) validatePropertyIndexing(prop *models.Property) error {
 			case schema.DataTypeText, schema.DataTypeTextArray:
 				// true or false allowed
 				validateSet = false
+			default:
+				// do nothing
 			}
 		}
 
@@ -169,6 +171,8 @@ func validateNestedPropertyDataType(property *models.NestedProperty,
 		switch primitiveDataType {
 		case schema.DataTypeString, schema.DataTypeStringArray:
 			return fmt.Errorf("Property '%s': data type '%s' not allowed", propNamePrefix+property.Name, primitiveDataType)
+		default:
+			// do nothing
 		}
 		return nil
 	}
@@ -220,6 +224,8 @@ func validateNestedPropertyIndexSearchable(property *models.NestedProperty,
 			switch primitiveDataType {
 			case schema.DataTypeText, schema.DataTypeTextArray:
 				return nil
+			default:
+				// do nothing
 			}
 		}
 		if *property.IndexSearchable {

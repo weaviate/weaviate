@@ -537,9 +537,9 @@ func newFakePrimitivePDT(primitiveDataType schema.DataType) schema.PropertyDataT
 	return &fakePropertyDataType{primitiveDataType: primitiveDataType}
 }
 
-func newFakeNestedPDT(nestedDataType schema.DataType) schema.PropertyDataType {
-	return &fakePropertyDataType{nestedDataType: nestedDataType}
-}
+// func newFakeNestedPDT(nestedDataType schema.DataType) schema.PropertyDataType {
+// 	return &fakePropertyDataType{nestedDataType: nestedDataType}
+// }
 
 func (pdt *fakePropertyDataType) Kind() schema.PropertyKind {
 	if pdt.IsPrimitive() {

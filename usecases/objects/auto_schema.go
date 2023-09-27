@@ -169,6 +169,8 @@ func (m *autoSchemaManager) getProperties(object *models.Object) []*models.Prope
 					nestedProperties = m.determineNestedProperties(value.(map[string]interface{}), now)
 				case schema.DataTypeObjectArray:
 					nestedProperties = m.determineNestedPropertiesOfArray(value.([]interface{}), now)
+				default:
+					// do nothing
 				}
 			}
 
@@ -320,6 +322,8 @@ func (m *autoSchemaManager) determineNestedProperty(name string, value interface
 			np = m.determineNestedProperties(value.(map[string]interface{}), now)
 		case schema.DataTypeObjectArray:
 			np = m.determineNestedPropertiesOfArray(value.([]interface{}), now)
+		default:
+			// do nothing
 		}
 	}
 
