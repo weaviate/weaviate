@@ -14,6 +14,7 @@ package schema
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -50,6 +51,10 @@ type comparisonUnit struct {
 }
 
 func (m *Manager) repairSchema(ctx context.Context, remote *State) error {
+	m.logger.WithField("action", "repair_schema").
+		Debug("Attempting to repair schema")
+	before := time.Now()
+
 	local := &m.schemaCache.State
 	if local.ObjectSchema == nil || remote.ObjectSchema == nil {
 		return fmt.Errorf("nil schema found, local: %v, remote: %v",
@@ -103,6 +108,8 @@ func (m *Manager) repairSchema(ctx context.Context, remote *State) error {
 		}
 	})
 
+	m.logger.WithField("action", "repair_schema").
+		Debugf("Schema repair complete, took %s", time.Since(before))
 	return nil
 }
 
