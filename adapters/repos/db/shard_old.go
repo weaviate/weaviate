@@ -43,6 +43,9 @@ import (
 func NewShard_old(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 ) (*Shard, error) {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	before := time.Now()
 
 	s := &Shard{
@@ -88,6 +91,9 @@ func NewShard_old(ctx context.Context, promMetrics *monitoring.PrometheusMetrics
 func (s *Shard) initVectorIndex_old(
 	ctx context.Context, hnswUserConfig hnswent.UserConfig,
 ) error {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	var distProv distancer.Provider
 
 	switch hnswUserConfig.Distance {
@@ -135,6 +141,9 @@ func (s *Shard) initVectorIndex_old(
 }
 
 func (s *Shard) initNonVector_old(ctx context.Context, class *models.Class) error {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	err := s.initLSMStore_old(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: shard db", s.ID())
@@ -178,20 +187,32 @@ func (s *Shard) initNonVector_old(ctx context.Context, class *models.Class) erro
 }
 
 func (s *Shard) ID_old() string {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	return fmt.Sprintf("%s_%s", s.index.ID(), s.name)
 }
 
 func (s *Shard) DBPathLSM_old() string {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	return fmt.Sprintf("%s/%s_lsm", s.index.Config.RootPath, s.ID())
 }
 
 func (s *Shard) uuidToIdLockPoolId_old(idBytes []byte) uint8 {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	// use the last byte of the uuid to determine which locking-pool a given object should use. The last byte is used
 	// as uuids probably often have some kind of order and the last byte will in general be the one that changes the most
 	return idBytes[15] % IdLockPoolSize
 }
 
 func (s *Shard) initLSMStore_old(ctx context.Context) error {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	annotatedLogger := s.index.logger.WithFields(logrus.Fields{
 		"shard": s.name,
 		"index": s.index.ID(),
@@ -225,6 +246,9 @@ func (s *Shard) initLSMStore_old(ctx context.Context) error {
 }
 
 func (s *Shard) drop_old() error {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	s.replicationMap.clear()
 
 	if s.index.Config.TrackVectorDimensions {
@@ -293,6 +317,9 @@ func (s *Shard) drop_old() error {
 }
 
 func (s *Shard) addIDProperty_old(ctx context.Context) error {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -304,6 +331,9 @@ func (s *Shard) addIDProperty_old(ctx context.Context) error {
 }
 
 func (s *Shard) addDimensionsProperty_old(ctx context.Context) error {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -321,6 +351,9 @@ func (s *Shard) addDimensionsProperty_old(ctx context.Context) error {
 }
 
 func (s *Shard) addTimestampProperties_old(ctx context.Context) error {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -336,6 +369,9 @@ func (s *Shard) addTimestampProperties_old(ctx context.Context) error {
 }
 
 func (s *Shard) addCreationTimeUnixProperty_old(ctx context.Context) error {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	return s.store.CreateOrLoadBucket_old(ctx,
 		helpers.BucketFromPropertyNameLSM(filters.InternalPropCreationTimeUnix),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
@@ -343,18 +379,27 @@ func (s *Shard) addCreationTimeUnixProperty_old(ctx context.Context) error {
 }
 
 func (s *Shard) addLastUpdateTimeUnixProperty_old(ctx context.Context) error {
-	return s.store.CreateOrLoadBucket(ctx,
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
+	return s.store.CreateOrLoadBucket_old(ctx,
 		helpers.BucketFromPropertyNameLSM(filters.InternalPropLastUpdateTimeUnix),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 }
 
 func (s *Shard) memtableIdleConfig_old() lsmkv.BucketOption {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	return lsmkv.WithIdleThreshold(
 		time.Duration(s.index.Config.MemtablesFlushIdleAfter) * time.Second)
 }
 
 func (s *Shard) dynamicMemtableSizing_old() lsmkv.BucketOption {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	return lsmkv.WithDynamicMemtableSizing(
 		s.index.Config.MemtablesInitialSizeMB,
 		s.index.Config.MemtablesMaxSizeMB,
@@ -364,6 +409,9 @@ func (s *Shard) dynamicMemtableSizing_old() lsmkv.BucketOption {
 }
 
 func (s *Shard) createPropertyIndex_old(ctx context.Context, prop *models.Property, eg *errgroup.Group) {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	if !inverted.HasInvertedIndex(prop) {
 		return
 	}
@@ -396,6 +444,9 @@ func (s *Shard) createPropertyIndex_old(ctx context.Context, prop *models.Proper
 }
 
 func (s *Shard) createPropertyValueIndex_old(ctx context.Context, prop *models.Property) error {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -445,6 +496,9 @@ func (s *Shard) createPropertyValueIndex_old(ctx context.Context, prop *models.P
 }
 
 func (s *Shard) createPropertyLengthIndex_old(ctx context.Context, prop *models.Property) error {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -463,6 +517,9 @@ func (s *Shard) createPropertyLengthIndex_old(ctx context.Context, prop *models.
 }
 
 func (s *Shard) createPropertyNullIndex_old(ctx context.Context, prop *models.Property) error {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -475,6 +532,9 @@ func (s *Shard) createPropertyNullIndex_old(ctx context.Context, prop *models.Pr
 func (s *Shard) updateVectorIndexConfig_old(ctx context.Context,
 	updated schema.VectorIndexConfig,
 ) error {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -489,6 +549,9 @@ func (s *Shard) updateVectorIndexConfig_old(ctx context.Context,
 }
 
 func (s *Shard) shutdown_old(ctx context.Context) error {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	if s.index.Config.TrackVectorDimensions {
 		// tracking vector dimensions goroutine only works when tracking is enabled
 		// that's why we are trying to stop it only in this case
@@ -533,6 +596,9 @@ func (s *Shard) shutdown_old(ctx context.Context) error {
 }
 
 func (s *Shard) notifyReady_old() {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	s.initStatus()
 	s.index.logger.
 		WithField("action", "startup").
@@ -540,6 +606,9 @@ func (s *Shard) notifyReady_old() {
 }
 
 func (s *Shard) objectCount_old() int {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	b := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
 		return 0
@@ -549,10 +618,16 @@ func (s *Shard) objectCount_old() int {
 }
 
 func (s *Shard) isFallbackToSearchable_old() bool {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	return s.fallbackToSearchable
 }
 
 func (s *Shard) tenant_old() string {
+	if lsmkv.FeatureUseMergedBuckets {
+		panic("merged buckets are not supported in this configuration")
+	}
 	// TODO provide better impl
 	if s.index.partitioningEnabled {
 		return s.name

@@ -123,15 +123,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics, sh
 		defer s.vectorIndex.PostStartup()
 	}
 
-	if !lsmkv.FeatureUseMergedBuckets {
-		if err := s.initNonVector_old(ctx, class); err != nil {
-			return nil, errors.Wrapf(err, "init shard %q", s.ID())
-		}
-	} else {
-		if err := s.initNonVector(ctx, class); err != nil {
-			return nil, errors.Wrapf(err, "init shard %q", s.ID())
-		}
+	if err := s.initNonVector(ctx, class); err != nil {
+		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
+
 	return s, nil
 }
 
@@ -497,9 +492,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	if !lsmkv.FeatureUseMergedBuckets {
 		panic("Invalid bucket mode")
 	}
-	if !lsmkv.FeatureUseMergedBuckets {
-		return s.createPropertyValueIndex(ctx, prop)
-	}
+
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -511,7 +504,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	}
 
 	// Force creation of filterable properties database file, because later code assumes it already exists
-	filterableOpts := append(bucketOpts, lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM("_id")))
+	filterableOpts := append(bucketOpts, lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM(filters.InternalPropID)))
 	if err := s.store.CreateOrLoadBucket(ctx,
 		"filterable_properties",
 		append(filterableOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,

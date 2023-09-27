@@ -166,7 +166,7 @@ func testPrimitivePropsWithNoLengthIndex(repo *DB) func(t *testing.T) {
 					name:        "Filter by unsupported geo-coordinates",
 					filter:      buildFilter("len(parkedAt)", 0, eq, dtInt),
 					expectedIDs: []strfmt.UUID{},
-					ErrMsg:      "Property length must be indexed to be filterable! add `IndexPropertyLength: true` to the invertedIndexConfig in",
+					ErrMsg:      "Property length must be indexed to be filterable",
 				},
 				{
 					name:        "Filter by unsupported number",
@@ -178,7 +178,7 @@ func testPrimitivePropsWithNoLengthIndex(repo *DB) func(t *testing.T) {
 					name:        "Filter by unsupported date",
 					filter:      buildFilter("len(released)", 1, eq, dtInt),
 					expectedIDs: []strfmt.UUID{},
-					ErrMsg:      "Property length must be indexed to be filterable! add `IndexPropertyLength: true` to the invertedIndexConfig in",
+					ErrMsg:      "Property length must be indexed to be filterable",
 				},
 			}
 		}

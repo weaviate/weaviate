@@ -154,6 +154,9 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string, opts 
 
 	s.SetBucket(bucketFile, b)
 
+	//if b.RegisteredName == "property__id"{
+//		panic("property__id")
+//	}
 	if b.RegisteredName != "" {
 		s.SetBucket(b.RegisteredName, b)
 
