@@ -184,7 +184,9 @@ func (m *Manager) validateSchemaCorruption(ctx context.Context) error {
 
 	// this tx is read-only, so we don't have to worry about aborting it, the
 	// close should be the same on both happy and unhappy path
-	defer m.cluster.CloseReadTransaction(ctx, tx)
+	if err = m.cluster.CloseReadTransaction(ctx, tx); err != nil {
+		return err
+	}
 
 	pl, ok := tx.Payload.(ReadSchemaPayload)
 	if !ok {

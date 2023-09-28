@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -38,7 +39,8 @@ func TestSchemaRepair(t *testing.T) {
 	var (
 		ctx              = context.Background()
 		logger, _        = testlog.NewNullLogger()
-		cluster          = &fakeClusterState{hosts: []string{"some.host"}}
+		clusterState     = &fakeClusterState{hosts: []string{"some.host"}}
+		txManager        = cluster.NewTxManager(&fakeBroadcaster{}, &fakeTxPersistence{}, logger)
 		newShardingState = func(id string, tenants ...string) *sharding.State {
 			ss := &sharding.State{
 				IndexID: id,
@@ -47,7 +49,7 @@ func TestSchemaRepair(t *testing.T) {
 					for _, tenant := range tenants {
 						m[tenant] = sharding.Physical{
 							Name:           tenant,
-							BelongsToNodes: []string{cluster.LocalName()},
+							BelongsToNodes: []string{clusterState.LocalName()},
 						}
 					}
 					return m
@@ -55,7 +57,7 @@ func TestSchemaRepair(t *testing.T) {
 				Virtual:             make([]sharding.Virtual, 0),
 				PartitioningEnabled: false,
 			}
-			ss.SetLocalName(cluster.LocalName())
+			ss.SetLocalName(clusterState.LocalName())
 			return ss
 		}
 		newClass = func(name string, props properties, mtEnabled bool) *models.Class {
@@ -143,7 +145,8 @@ func TestSchemaRepair(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			m := &Manager{
 				logger:       logger,
-				clusterState: cluster,
+				clusterState: clusterState,
+				cluster:      txManager,
 				repo:         &fakeRepo{schema: test.originalLocal},
 				schemaCache:  schemaCache{State: test.originalLocal},
 			}

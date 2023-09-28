@@ -22,20 +22,22 @@ import (
 
 func (m *Manager) handleCommit(ctx context.Context, tx *cluster.Transaction) error {
 	switch tx.Type {
-	case AddClass:
+	case AddClass, RepairClass:
 		return m.handleAddClassCommit(ctx, tx)
-	case AddProperty:
+	case AddProperty, RepairProperty:
 		return m.handleAddPropertyCommit(ctx, tx)
 	case DeleteClass:
 		return m.handleDeleteClassCommit(ctx, tx)
 	case UpdateClass:
 		return m.handleUpdateClassCommit(ctx, tx)
-	case addTenants:
+	case addTenants, RepairTenant:
 		return m.handleAddTenantsCommit(ctx, tx)
 	case updateTenants:
 		return m.handleUpdateTenantsCommit(ctx, tx)
 	case deleteTenants:
 		return m.handleDeleteTenantsCommit(ctx, tx)
+	case ReadSchema:
+		return nil
 	default:
 		return errors.Errorf("unrecognized commit type %q", tx.Type)
 	}
