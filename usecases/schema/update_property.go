@@ -58,7 +58,7 @@ func (m *Manager) mergeClassObjectProperty(ctx context.Context,
 	// migrate only after validation in completed
 	migratePropertySettings(prop)
 
-	tx, err := m.cluster.BeginTransaction(ctx, MergeObjectProperty,
+	tx, err := m.cluster.BeginTransaction(ctx, mergeObjectProperty,
 		MergeObjectPropertyPayload{className, prop}, DefaultTxTTL)
 	if err != nil {
 		// possible causes for errors could be nodes down (we expect every node to
