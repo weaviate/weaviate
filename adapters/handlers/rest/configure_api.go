@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	txstore "github.com/weaviate/weaviate/adapters/repos/transactions"
@@ -110,8 +111,19 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	config.ServerVersion = parseVersionFromSwaggerSpec()
 
+	if os.Getenv("ENABLE_MERGED_PROPERTY_BUCKETS") != "" && strings.ToLower(os.Getenv("ENABLE_MERGED_PROPERTY_BUCKETS")) != "false" {
+		lsmkv.FeatureUseMergedBuckets = true
+
+	} else {
+		lsmkv.FeatureUseMergedBuckets = false
+	}
+
 	appState := startupRoutine(ctx)
 	setupGoProfiling(appState.ServerConfig.Config)
+
+	if lsmkv.FeatureUseMergedBuckets {
+		appState.Logger.WithField("action", "startup").Warnf("Merged property buckets are enabled. This is an experimental feature and may be removed in the future. Please report any issues you encounter.")
+	}
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		// only monitoring tool supported at the moment is prometheus
