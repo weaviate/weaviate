@@ -26,7 +26,7 @@ func (m *Manager) handleCommit(ctx context.Context, tx *cluster.Transaction) err
 		return m.handleAddClassCommit(ctx, tx)
 	case AddProperty:
 		return m.handleAddPropertyCommit(ctx, tx)
-	case MergeObjectProperty:
+	case mergeObjectProperty:
 		return m.handleMergeObjectPropertyCommit(ctx, tx)
 	case DeleteClass:
 		return m.handleDeleteClassCommit(ctx, tx)

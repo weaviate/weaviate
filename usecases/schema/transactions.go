@@ -25,7 +25,7 @@ const (
 	// write-only
 	AddClass            cluster.TransactionType = "add_class"
 	AddProperty         cluster.TransactionType = "add_property"
-	MergeObjectProperty cluster.TransactionType = "merge_object_property"
+	mergeObjectProperty cluster.TransactionType = "merge_object_property"
 
 	// tenant types
 	addTenants    cluster.TransactionType = "add_tenants"
@@ -123,7 +123,7 @@ func UnmarshalTransaction(txType cluster.TransactionType,
 		return unmarshalRawJson[AddClassPayload](payload)
 	case AddProperty:
 		return unmarshalRawJson[AddPropertyPayload](payload)
-	case MergeObjectProperty:
+	case mergeObjectProperty:
 		return unmarshalRawJson[MergeObjectPropertyPayload](payload)
 	case DeleteClass:
 		return unmarshalRawJson[DeleteClassPayload](payload)
