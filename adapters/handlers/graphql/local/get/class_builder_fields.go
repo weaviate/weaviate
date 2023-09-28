@@ -686,7 +686,7 @@ func extractProperties(className string, selections *ast.SelectionSet,
 						}
 					} else {
 						// It's an object property!
-						// TODO: Take care of _additonal properties name edge cases
+						// TODO: Take care of _additional properties name edge cases
 						continue
 					}
 
