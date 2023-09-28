@@ -110,7 +110,7 @@ func New(logger logrus.FieldLogger, config Config,
 		replicaClient:           replicaClient,
 		promMetrics:             promMetrics,
 		shutdown:                make(chan struct{}),
-		asyncIndexRetryInterval: 1 * time.Second,
+		asyncIndexRetryInterval: 5 * time.Second,
 		maxNumberGoroutines:     int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 		resourceScanState:       newResourceScanState(),
 	}
