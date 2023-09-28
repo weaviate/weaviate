@@ -206,7 +206,9 @@ func TestShard_uuidToIdLockPoolId_old(t *testing.T) {
 	res := shd.uuidToIdLockPoolId_old([]byte("testtesttesttesttest"))
 	require.Equal(t, uint8(0x74), res)
 
-	err := shd.updateVectorIndexConfig_old(context.TODO(), fakeVectorConfig{})
+	fakeVectorConfig := fakeVectorConfig{}
+	fakeVectorConfig.raw = "db.fakeVectorConfig"
+	err := shd.updateVectorIndexConfig_old(context.TODO())
 	require.EqualError(t, err, "unrecognized vector index config: db.fakeVectorConfig")
 
 	shd.notifyReady_old()
@@ -216,6 +218,9 @@ func TestShard_uuidToIdLockPoolId_old(t *testing.T) {
 
 	res3 := shd.isFallbackToSearchable_old()
 	require.Equal(t, false, res3)
+
+	res5 := shd.tenant_old()
+	require.Equal(t, "", res5)
 
 	res4 := shd.drop_old()
 	require.Nil(t, res4)
