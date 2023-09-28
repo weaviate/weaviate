@@ -14,7 +14,6 @@ package db
 import (
 	"container/list"
 	"context"
-	"runtime"
 	"sync"
 	"time"
 
@@ -32,11 +31,8 @@ type IndexQueue struct {
 
 	IndexQueueOptions
 
-	// processCh is the channel used to send vectors to the indexing worker.
-	processCh chan []vectorDescriptor
-
-	// indexCh is the channel used to send vectors to the indexing worker.
-	indexCh chan *chunk
+	// indexCh is the channel used to send vectors to the shared indexing workers.
+	indexCh chan job
 
 	// context used to close pending tasks
 	// if canceled, prevents new vectors from being added to the queue.
@@ -71,14 +67,6 @@ type IndexQueueOptions struct {
 	// Logger is the logger used by the queue.
 	Logger logrus.FieldLogger
 
-	// RetryInterval is the interval between retries when
-	// indexing fails.
-	RetryInterval time.Duration
-
-	// IndexWorkerCount is the number of workers used to index
-	// the vectors.
-	IndexWorkerCount int
-
 	// Maximum number of vectors to use for brute force search
 	// when vectors are not indexed.
 	BruteForceSearchLimit int
@@ -94,6 +82,7 @@ type BatchIndexer interface {
 
 func NewIndexQueue(
 	index BatchIndexer,
+	centralJobQueue chan job,
 	opts IndexQueueOptions,
 ) (*IndexQueue, error) {
 	if opts.Logger == nil {
@@ -109,14 +98,6 @@ func NewIndexQueue(
 		opts.IndexInterval = 1 * time.Second
 	}
 
-	if opts.RetryInterval == 0 {
-		opts.RetryInterval = 1 * time.Second
-	}
-
-	if opts.IndexWorkerCount == 0 {
-		opts.IndexWorkerCount = runtime.GOMAXPROCS(0) - 1
-	}
-
 	if opts.BruteForceSearchLimit == 0 {
 		opts.BruteForceSearchLimit = 100_000
 	}
@@ -125,8 +106,7 @@ func NewIndexQueue(
 		IndexQueueOptions: opts,
 		Index:             index,
 		queue:             newVectorQueue(opts.BatchSize),
-		processCh:         make(chan []vectorDescriptor),
-		indexCh:           make(chan *chunk),
+		indexCh:           centralJobQueue,
 		pqMaxPool:         newPqMaxPool(0),
 		bufPool: sync.Pool{
 			New: func() any {
@@ -138,29 +118,16 @@ func NewIndexQueue(
 
 	q.ctx, q.cancelFn = context.WithCancel(context.Background())
 
-	q.wg.Add(1)
-	go func() {
-		defer q.wg.Done()
-
-		q.enqueuer()
-	}()
+	if !asyncEnabled() {
+		return &q, nil
+	}
 
 	q.wg.Add(1)
 	go func() {
 		defer q.wg.Done()
-		defer close(q.indexCh)
 
 		q.indexer()
 	}()
-
-	for i := 0; i < opts.IndexWorkerCount; i++ {
-		q.wg.Add(1)
-		go func() {
-			defer q.wg.Done()
-
-			q.worker()
-		}()
-	}
 
 	return &q, nil
 }
@@ -178,9 +145,6 @@ func (q *IndexQueue) Close() error {
 	// prevent new jobs from being added
 	q.cancelFn()
 
-	// close the workers in cascade
-	close(q.processCh)
-
 	q.wg.Wait()
 
 	return nil
@@ -188,14 +152,15 @@ func (q *IndexQueue) Close() error {
 
 // Push adds a list of vectors to the queue.
 func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) error {
-	select {
-	case <-ctx.Done():
+	if ctx.Err() != nil {
 		return ctx.Err()
-	case <-q.ctx.Done():
-		return errors.New("index queue closed")
-	case q.processCh <- vectors:
-		return nil
 	}
+	if q.ctx.Err() != nil {
+		return errors.New("index queue closed")
+	}
+
+	q.queue.Add(vectors)
+	return nil
 }
 
 // Size returns the number of vectors waiting to be indexed.
@@ -253,12 +218,6 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 	return nil
 }
 
-func (q *IndexQueue) enqueuer() {
-	for batch := range q.processCh {
-		q.queue.Add(batch)
-	}
-}
-
 func (q *IndexQueue) indexer() {
 	t := time.NewTicker(q.IndexInterval)
 
@@ -284,65 +243,16 @@ func (q *IndexQueue) pushToWorkers() error {
 		select {
 		case <-q.ctx.Done():
 			return errors.New("index queue closed")
-		case q.indexCh <- c:
+		case q.indexCh <- job{
+			chunk:   c,
+			indexer: q.Index,
+			queue:   q.queue,
+			ctx:     q.ctx,
+		}:
 		}
 	}
 
 	return nil
-}
-
-func (q *IndexQueue) worker() {
-	var ids []uint64
-	var vectors [][]float32
-	var deleted []uint64
-
-	for b := range q.indexCh {
-		for i := range b.data[:b.cursor] {
-			if q.queue.IsDeleted(b.data[i].id) {
-				deleted = append(deleted, b.data[i].id)
-			} else {
-				ids = append(ids, b.data[i].id)
-				vectors = append(vectors, b.data[i].vector)
-			}
-		}
-
-		if err := q.indexVectors(ids, vectors); err != nil {
-			q.Logger.WithError(err).Error("failed to index vectors")
-			return
-		}
-
-		q.queue.releaseChunk(b)
-
-		if len(deleted) > 0 {
-			q.queue.ResetDeleted(deleted...)
-		}
-
-		ids = ids[:0]
-		vectors = vectors[:0]
-		deleted = deleted[:0]
-	}
-}
-
-func (q *IndexQueue) indexVectors(ids []uint64, vectors [][]float32) error {
-	for {
-		err := q.Index.AddBatch(ids, vectors)
-		if err == nil {
-			return nil
-		}
-
-		q.Logger.WithError(err).Infof("failed to index vectors, retrying in %s", q.RetryInterval.String())
-
-		t := time.NewTimer(q.RetryInterval)
-		select {
-		case <-q.ctx.Done():
-			// drain the timer
-			if !t.Stop() {
-				<-t.C
-			}
-			return errors.New("index queue closed")
-		case <-t.C:
-		}
-	}
 }
 
 // SearchByVector performs the search through the index first, then uses brute force to
