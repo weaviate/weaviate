@@ -411,7 +411,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			config:        tt.fields.config,
 		}
 		t.Run(tt.name, func(t *testing.T) {
-			if got := m.determineType(tt.args.value); !reflect.DeepEqual(got, tt.want) {
+			if got := m.determineType(tt.args.value, false); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("autoSchemaManager.determineType() = %v, want %v", got, tt.want)
 			}
 		})
@@ -581,12 +581,14 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 
 func Test_autoSchemaManager_getProperties(t *testing.T) {
 	type testCase struct {
+		name               string
 		valProperties      map[string]interface{}
 		expectedProperties []*models.Property
 	}
 
 	testCases := []testCase{
 		{
+			name: "mixed 1",
 			valProperties: map[string]interface{}{
 				"name": "someName",
 				"objectProperty": map[string]interface{}{
@@ -638,6 +640,7 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 			},
 		},
 		{
+			name: "mixed 2",
 			valProperties: map[string]interface{}{
 				"name": "someName",
 				"objectProperty": map[string]interface{}{
@@ -689,6 +692,76 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 			},
 		},
 		{
+			name: "ref",
+			valProperties: map[string]interface{}{
+				"name": "someName",
+				"objectProperty": map[string]interface{}{
+					"nested_ref_wannabe": []interface{}{
+						map[string]interface{}{
+							"beacon": "weaviate://localhost/Soup/8c156d37-81aa-4ce9-a811-621e2702b825",
+						},
+					},
+					"nested_objects": []interface{}{
+						map[string]interface{}{
+							"nested_ref_wannabe_lvl2": []interface{}{
+								map[string]interface{}{
+									"beacon": "weaviate://localhost/Soup/8c156d37-81aa-4ce9-a811-621e2702b825",
+								},
+							},
+						},
+					},
+				},
+				"ref": []interface{}{
+					map[string]interface{}{
+						"beacon": "weaviate://localhost/Soup/8c156d37-81aa-4ce9-a811-621e2702b825",
+					},
+				},
+			},
+			expectedProperties: []*models.Property{
+				{
+					Name:     "name",
+					DataType: schema.DataTypeText.PropString(),
+				},
+				{
+					Name:     "objectProperty",
+					DataType: schema.DataTypeObject.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{
+							Name:     "nested_ref_wannabe",
+							DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{
+									Name:     "beacon",
+									DataType: schema.DataTypeText.PropString(),
+								},
+							},
+						},
+						{
+							Name:     "nested_objects",
+							DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{
+									Name:     "nested_ref_wannabe_lvl2",
+									DataType: schema.DataTypeObjectArray.PropString(),
+									NestedProperties: []*models.NestedProperty{
+										{
+											Name:     "beacon",
+											DataType: schema.DataTypeText.PropString(),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				{
+					Name:     "ref",
+					DataType: []string{"Soup"},
+				},
+			},
+		},
+		{
+			name: "phone",
 			valProperties: map[string]interface{}{
 				"name": "someName",
 				"objectProperty": map[string]interface{}{
@@ -696,20 +769,10 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 						"input":          "020 1234567",
 						"defaultCountry": "nl",
 					},
-					"nested_geo": map[string]interface{}{
-						"latitude":  json.Number("1.1"),
-						"longitude": json.Number("2.2"),
-					},
 					"nested_phone_wannabes": []interface{}{
 						map[string]interface{}{
 							"input":          "020 1234567",
 							"defaultCountry": "nl",
-						},
-					},
-					"nested_geo_wannabes": []interface{}{
-						map[string]interface{}{
-							"latitude":  json.Number("1.1"),
-							"longitude": json.Number("2.2"),
 						},
 					},
 					"nested_objects": []interface{}{
@@ -718,20 +781,10 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 								"input":          "020 1234567",
 								"defaultCountry": "nl",
 							},
-							"nested_geo_lvl2": map[string]interface{}{
-								"latitude":  json.Number("1.1"),
-								"longitude": json.Number("2.2"),
-							},
 							"nested_phone_wannabes_lvl2": []interface{}{
 								map[string]interface{}{
 									"input":          "020 1234567",
 									"defaultCountry": "nl",
-								},
-							},
-							"nested_geo_wannabes_lvl2": []interface{}{
-								map[string]interface{}{
-									"latitude":  json.Number("1.1"),
-									"longitude": json.Number("2.2"),
 								},
 							},
 						},
@@ -745,6 +798,110 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 					map[string]interface{}{
 						"input":          "020 1234567",
 						"defaultCountry": "nl",
+					},
+				},
+			},
+			expectedProperties: []*models.Property{
+				{
+					Name:     "name",
+					DataType: schema.DataTypeText.PropString(),
+				},
+				{
+					Name:     "objectProperty",
+					DataType: schema.DataTypeObject.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{
+							Name:     "nested_phone",
+							DataType: schema.DataTypePhoneNumber.PropString(),
+						},
+						{
+							Name:     "nested_phone_wannabes",
+							DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{
+									Name:     "input",
+									DataType: schema.DataTypeText.PropString(),
+								},
+								{
+									Name:     "defaultCountry",
+									DataType: schema.DataTypeText.PropString(),
+								},
+							},
+						},
+						{
+							Name:     "nested_objects",
+							DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{
+									Name:     "nested_phone_lvl2",
+									DataType: schema.DataTypePhoneNumber.PropString(),
+								},
+								{
+									Name:     "nested_phone_wannabes_lvl2",
+									DataType: schema.DataTypeObjectArray.PropString(),
+									NestedProperties: []*models.NestedProperty{
+										{
+											Name:     "input",
+											DataType: schema.DataTypeText.PropString(),
+										},
+										{
+											Name:     "defaultCountry",
+											DataType: schema.DataTypeText.PropString(),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				{
+					Name:     "phone",
+					DataType: schema.DataTypePhoneNumber.PropString(),
+				},
+				{
+					Name:     "phone_wannabes",
+					DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{
+							Name:     "input",
+							DataType: schema.DataTypeText.PropString(),
+						},
+						{
+							Name:     "defaultCountry",
+							DataType: schema.DataTypeText.PropString(),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "geo",
+			valProperties: map[string]interface{}{
+				"name": "someName",
+				"objectProperty": map[string]interface{}{
+					"nested_geo": map[string]interface{}{
+						"latitude":  json.Number("1.1"),
+						"longitude": json.Number("2.2"),
+					},
+					"nested_geo_wannabes": []interface{}{
+						map[string]interface{}{
+							"latitude":  json.Number("1.1"),
+							"longitude": json.Number("2.2"),
+						},
+					},
+					"nested_objects": []interface{}{
+						map[string]interface{}{
+							"nested_geo_lvl2": map[string]interface{}{
+								"latitude":  json.Number("1.1"),
+								"longitude": json.Number("2.2"),
+							},
+							"nested_geo_wannabes_lvl2": []interface{}{
+								map[string]interface{}{
+									"latitude":  json.Number("1.1"),
+									"longitude": json.Number("2.2"),
+								},
+							},
+						},
 					},
 				},
 				"geo": map[string]interface{}{
@@ -768,26 +925,8 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 					DataType: schema.DataTypeObject.PropString(),
 					NestedProperties: []*models.NestedProperty{
 						{
-							Name:     "nested_phone",
-							DataType: schema.DataTypePhoneNumber.PropString(),
-						},
-						{
 							Name:     "nested_geo",
 							DataType: schema.DataTypeGeoCoordinates.PropString(),
-						},
-						{
-							Name:     "nested_phone_wannabes",
-							DataType: schema.DataTypeObjectArray.PropString(),
-							NestedProperties: []*models.NestedProperty{
-								{
-									Name:     "input",
-									DataType: schema.DataTypeText.PropString(),
-								},
-								{
-									Name:     "defaultCountry",
-									DataType: schema.DataTypeText.PropString(),
-								},
-							},
 						},
 						{
 							Name:     "nested_geo_wannabes",
@@ -808,26 +947,8 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 							DataType: schema.DataTypeObjectArray.PropString(),
 							NestedProperties: []*models.NestedProperty{
 								{
-									Name:     "nested_phone_lvl2",
-									DataType: schema.DataTypePhoneNumber.PropString(),
-								},
-								{
 									Name:     "nested_geo_lvl2",
 									DataType: schema.DataTypeGeoCoordinates.PropString(),
-								},
-								{
-									Name:     "nested_phone_wannabes_lvl2",
-									DataType: schema.DataTypeObjectArray.PropString(),
-									NestedProperties: []*models.NestedProperty{
-										{
-											Name:     "input",
-											DataType: schema.DataTypeText.PropString(),
-										},
-										{
-											Name:     "defaultCountry",
-											DataType: schema.DataTypeText.PropString(),
-										},
-									},
 								},
 								{
 									Name:     "nested_geo_wannabes_lvl2",
@@ -844,24 +965,6 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 									},
 								},
 							},
-						},
-					},
-				},
-				{
-					Name:     "phone",
-					DataType: schema.DataTypePhoneNumber.PropString(),
-				},
-				{
-					Name:     "phone_wannabes",
-					DataType: schema.DataTypeObjectArray.PropString(),
-					NestedProperties: []*models.NestedProperty{
-						{
-							Name:     "input",
-							DataType: schema.DataTypeText.PropString(),
-						},
-						{
-							Name:     "defaultCountry",
-							DataType: schema.DataTypeText.PropString(),
 						},
 					},
 				},

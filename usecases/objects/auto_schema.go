@@ -158,7 +158,7 @@ func (m *autoSchemaManager) getProperties(object *models.Object) []*models.Prope
 	if props, ok := object.Properties.(map[string]interface{}); ok {
 		for name, value := range props {
 			now := time.Now()
-			dt := m.determineType(value)
+			dt := m.determineType(value, false)
 
 			var nestedProperties []*models.NestedProperty
 			if len(dt) == 1 {
@@ -192,7 +192,7 @@ func (m *autoSchemaManager) getDataTypes(dataTypes []schema.DataType) []string {
 	return dtypes
 }
 
-func (m *autoSchemaManager) determineType(value interface{}) []schema.DataType {
+func (m *autoSchemaManager) determineType(value interface{}, ofNestedProp bool) []schema.DataType {
 	fallbackDataType := []schema.DataType{schema.DataTypeText}
 
 	switch v := value.(type) {
@@ -223,6 +223,9 @@ func (m *autoSchemaManager) determineType(value interface{}) []schema.DataType {
 			for i := range v {
 				switch arrayVal := v[i].(type) {
 				case map[string]interface{}:
+					if ofNestedProp {
+						return []schema.DataType{schema.DataTypeObjectArray}
+					}
 					if dt, ok := m.asRef(arrayVal); ok {
 						dataType = append(dataType, dt)
 					} else {
@@ -311,7 +314,7 @@ func (m *autoSchemaManager) determineNestedProperties(values map[string]interfac
 }
 
 func (m *autoSchemaManager) determineNestedProperty(name string, value interface{}, now time.Time) *models.NestedProperty {
-	dt := m.determineType(value)
+	dt := m.determineType(value, true)
 
 	var np []*models.NestedProperty
 	if len(dt) == 1 {
