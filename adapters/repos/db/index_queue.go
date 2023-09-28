@@ -485,7 +485,7 @@ func (q *vectorQueue) borrowAllChunks() []*chunk {
 	q.fullChunks.Unlock()
 
 	q.curBatch.Lock()
-	if q.curBatch.c != nil && time.Since(*q.curBatch.c.createdAt) > q.staleTimeout {
+	if q.curBatch.c != nil && time.Since(*q.curBatch.c.createdAt) > q.staleTimeout && q.curBatch.c.cursor > 0 {
 		q.curBatch.c.borrowed = true
 		chunks = append(chunks, q.curBatch.c)
 		q.curBatch.c = nil
