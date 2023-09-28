@@ -17,7 +17,7 @@ import (
 	"sync"
 
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -252,7 +252,7 @@ func (s *schemaCache) mergeObjectProperty(class string, p *models.Property) (mod
 		return models.Class{}, errPropertyNotFound
 	}
 
-	prop.NestedProperties, _ = objects.MergeRecursivelyNestedProperties(prop.NestedProperties, p.NestedProperties)
+	prop.NestedProperties, _ = schema.MergeRecursivelyNestedProperties(prop.NestedProperties, p.NestedProperties)
 	return *c, nil
 }
 
