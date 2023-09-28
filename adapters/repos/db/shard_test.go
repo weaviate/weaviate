@@ -208,7 +208,7 @@ func TestShard_uuidToIdLockPoolId_old(t *testing.T) {
 
 	fakeVectorConfig := fakeVectorConfig{}
 	fakeVectorConfig.raw = "db.fakeVectorConfig"
-	err := shd.updateVectorIndexConfig_old(context.TODO())
+	err := shd.updateVectorIndexConfig_old(context.TODO(), fakeVectorConfig)
 	require.EqualError(t, err, "unrecognized vector index config: db.fakeVectorConfig")
 
 	shd.notifyReady_old()
