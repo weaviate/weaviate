@@ -16,7 +16,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/test_utils"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -93,4 +96,183 @@ func TestUpdateClass(t *testing.T) {
 	if n := len(x.Properties); n != 2 {
 		t.Fatalf("number of properties want: %v got: 2", n)
 	}
+}
+
+func TestCache_MergeObjectProperty(t *testing.T) {
+	vFalse := false
+	vTrue := true
+
+	className := "objectClass"
+	propertyName := "objectProperty"
+
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				Name:            propertyName,
+				DataType:        schema.DataTypeObject.PropString(),
+				IndexFilterable: &vTrue,
+				IndexSearchable: &vFalse,
+				Tokenization:    "",
+				NestedProperties: []*models.NestedProperty{
+					{
+						Name:            "nested_int",
+						DataType:        schema.DataTypeInt.PropString(),
+						IndexFilterable: &vTrue,
+						IndexSearchable: &vFalse,
+						Tokenization:    "",
+					},
+					{
+						Name:            "nested_text",
+						DataType:        schema.DataTypeText.PropString(),
+						IndexFilterable: &vTrue,
+						IndexSearchable: &vTrue,
+						Tokenization:    models.PropertyTokenizationWord,
+					},
+					{
+						Name:            "nested_objects",
+						DataType:        schema.DataTypeObjectArray.PropString(),
+						IndexFilterable: &vTrue,
+						IndexSearchable: &vFalse,
+						Tokenization:    "",
+						NestedProperties: []*models.NestedProperty{
+							{
+								Name:            "nested_bool_lvl2",
+								DataType:        schema.DataTypeBoolean.PropString(),
+								IndexFilterable: &vTrue,
+								IndexSearchable: &vFalse,
+								Tokenization:    "",
+							},
+							{
+								Name:            "nested_numbers_lvl2",
+								DataType:        schema.DataTypeNumberArray.PropString(),
+								IndexFilterable: &vTrue,
+								IndexSearchable: &vFalse,
+								Tokenization:    "",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	updatedObjectProperty := &models.Property{
+		Name:            propertyName,
+		DataType:        schema.DataTypeObject.PropString(),
+		IndexFilterable: &vTrue,
+		IndexSearchable: &vFalse,
+		Tokenization:    "",
+		NestedProperties: []*models.NestedProperty{
+			{
+				Name:            "nested_number",
+				DataType:        schema.DataTypeNumber.PropString(),
+				IndexFilterable: &vTrue,
+				IndexSearchable: &vFalse,
+				Tokenization:    "",
+			},
+			{
+				Name:            "nested_text",
+				DataType:        schema.DataTypeText.PropString(),
+				IndexFilterable: &vTrue,
+				IndexSearchable: &vTrue,
+				Tokenization:    models.PropertyTokenizationField, // different setting than (1)
+			},
+			{
+				Name:            "nested_objects",
+				DataType:        schema.DataTypeObjectArray.PropString(),
+				IndexFilterable: &vTrue,
+				IndexSearchable: &vFalse,
+				Tokenization:    "",
+				NestedProperties: []*models.NestedProperty{
+					{
+						Name:            "nested_date_lvl2",
+						DataType:        schema.DataTypeDate.PropString(),
+						IndexFilterable: &vTrue,
+						IndexSearchable: &vFalse,
+						Tokenization:    "",
+					},
+					{
+						Name:            "nested_numbers_lvl2",
+						DataType:        schema.DataTypeNumberArray.PropString(),
+						IndexFilterable: &vFalse, // different setting than (1)
+						IndexSearchable: &vFalse,
+						Tokenization:    "",
+					},
+				},
+			},
+		},
+	}
+	expectedNestedProperties := []*models.NestedProperty{
+		{
+			Name:            "nested_int",
+			DataType:        schema.DataTypeInt.PropString(),
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vFalse,
+			Tokenization:    "",
+		},
+		{
+			Name:            "nested_number",
+			DataType:        schema.DataTypeNumber.PropString(),
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vFalse,
+			Tokenization:    "",
+		},
+		{
+			Name:            "nested_text",
+			DataType:        schema.DataTypeText.PropString(),
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vTrue,
+			Tokenization:    models.PropertyTokenizationWord, // from existing class/prop
+		},
+		{
+			Name:            "nested_objects",
+			DataType:        schema.DataTypeObjectArray.PropString(),
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vFalse,
+			Tokenization:    "",
+			NestedProperties: []*models.NestedProperty{
+				{
+					Name:            "nested_bool_lvl2",
+					DataType:        schema.DataTypeBoolean.PropString(),
+					IndexFilterable: &vTrue,
+					IndexSearchable: &vFalse,
+					Tokenization:    "",
+				},
+				{
+					Name:            "nested_date_lvl2",
+					DataType:        schema.DataTypeDate.PropString(),
+					IndexFilterable: &vTrue,
+					IndexSearchable: &vFalse,
+					Tokenization:    "",
+				},
+				{
+					Name:            "nested_numbers_lvl2",
+					DataType:        schema.DataTypeNumberArray.PropString(),
+					IndexFilterable: &vTrue, // from existing class/prop
+					IndexSearchable: &vFalse,
+					Tokenization:    "",
+				},
+			},
+		},
+	}
+
+	cache := schemaCache{
+		State: State{
+			ShardingState: map[string]*sharding.State{},
+			ObjectSchema: &models.Schema{
+				Classes: []*models.Class{class},
+			},
+		},
+	}
+
+	updatedClass, err := cache.mergeObjectProperty(className, updatedObjectProperty)
+	require.NoError(t, err)
+	require.NotNil(t, updatedClass)
+	require.Len(t, updatedClass.Properties, 1)
+
+	prop := updatedClass.Properties[0]
+	require.NotNil(t, prop)
+	require.NotEmpty(t, prop.NestedProperties)
+
+	test_utils.AssertNestedPropsMatch(t, expectedNestedProperties, prop.NestedProperties)
 }
