@@ -126,10 +126,10 @@ func (f *fakeSchemaManager) MergeClassObjectProperty(ctx context.Context, princi
 	classes := f.GetSchemaResponse.Objects.Classes
 	for _, c := range classes {
 		if c.Class == class {
-			props := c.Properties
-			for i, prop := range props {
+			for i, prop := range c.Properties {
 				if prop.Name == property.Name {
-					props[i] = property
+					c.Properties[i].NestedProperties, _ = schema.MergeRecursivelyNestedProperties(
+						c.Properties[i].NestedProperties, property.NestedProperties)
 					break
 				}
 			}

@@ -160,8 +160,6 @@ func (m *autoSchemaManager) getProperties(object *models.Object) []*models.Prope
 			now := time.Now()
 			dt := m.determineType(value)
 
-			// TODO nested
-			// - solve non-matching types between different object/properties
 			var nestedProperties []*models.NestedProperty
 			if len(dt) == 1 {
 				switch dt[0] {
