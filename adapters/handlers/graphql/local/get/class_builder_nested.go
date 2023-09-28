@@ -22,26 +22,27 @@ import (
 func (b *classBuilder) nestedField(propertyType schema.PropertyDataType,
 	property *models.Property, className string,
 ) *graphql.Field {
-	return b.parseNestedProperties(property.NestedProperties, className, "", nil)
+	return b.parseNestedProperties(property.NestedProperties, className, property.Name, property.DataType)
 }
 
 func (b *classBuilder) parseNestedProperties(nestedProps []*models.NestedProperty,
-	className, propName string, propDataType []string,
+	className, prefix string, propDataType []string,
 ) *graphql.Field {
 	fields := graphql.Fields{}
 	for _, prop := range nestedProps {
 		if prop.NestedProperties != nil {
-			fields[prop.Name] = b.parseNestedProperties(prop.NestedProperties, className, prop.Name, prop.DataType)
+			fields[prop.Name] = b.parseNestedProperties(prop.NestedProperties,
+				className, fmt.Sprintf("%s_%s", prefix, prop.Name), prop.DataType)
 		} else {
 			fields[prop.Name] = &graphql.Field{
-				Name: fmt.Sprintf("%sObject%s%sField", className, propName, prop.Name),
+				Name: fmt.Sprintf("%s_%s_%s_field", className, prefix, prop.Name),
 				Type: b.determinNestedPropertyType(prop.DataType, prop.Name),
 			}
 		}
 	}
 
 	fieldType := graphql.NewObject(graphql.ObjectConfig{
-		Name:   fmt.Sprintf("%sObject%sField", className, propName),
+		Name:   fmt.Sprintf("%s_%s_object", className, prefix),
 		Fields: fields,
 	})
 
