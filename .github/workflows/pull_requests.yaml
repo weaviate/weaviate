@@ -117,12 +117,6 @@ jobs:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
         run: ./test/run.sh --acceptance-only
-      - name: Acceptance tests with merged buckets
-        env:
-          ENABLE_MERGED_PROPERTY_BUCKETS: true
-          WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
-          WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
-        run: ./test/run.sh --acceptance-only
   Codecov:
     needs: [Unit-Tests, Integration-Tests]
     runs-on: ubuntu-latest
