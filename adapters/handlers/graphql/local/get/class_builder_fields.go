@@ -596,6 +596,8 @@ func fieldNameIsOfObjectButNonReferenceType(field string) bool {
 		"valid", "countryCode", "defaultCountry":
 		// must be a phone number
 		return true
+	// case "_additional":
+	// 	return false
 	default:
 		return false
 	}
@@ -683,7 +685,9 @@ func extractProperties(className string, selections *ast.SelectionSet,
 							}
 						}
 					} else {
-						return nil, additionalProps, fmt.Errorf("Expected an InlineFragment, not a '%s' field ", s.Name.Value)
+						// It's an object property!
+						// TODO: Take care of _additonal properties name edge cases
+						continue
 					}
 
 				case *ast.FragmentSpread:
