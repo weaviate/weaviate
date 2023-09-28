@@ -193,8 +193,6 @@ func TestShard_ParallelBatches(t *testing.T) {
 }
 
 func TestShard_uuidToIdLockPoolId_old(t *testing.T) {
-
-
 	lsmkv.FeatureUseMergedBuckets = false
 	shd, _ := testShard(t, context.Background(), "TestClass")
 
@@ -211,7 +209,7 @@ func TestShard_uuidToIdLockPoolId_old(t *testing.T) {
 	err := shd.updateVectorIndexConfig_old(context.TODO(), fakeVectorConfig{})
 	require.EqualError(t, err, "unrecognized vector index config: db.fakeVectorConfig")
 
-	 shd.notifyReady_old()
+	shd.notifyReady_old()
 
 	res2 := shd.objectCount_old()
 	require.Equal(t, 0, res2)
@@ -225,8 +223,6 @@ func TestShard_uuidToIdLockPoolId_old(t *testing.T) {
 	err = shd.shutdown_old(context.TODO())
 	require.Nil(t, err)
 }
-
-
 
 type fakeVectorConfig struct {
 	raw interface{}

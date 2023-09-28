@@ -113,7 +113,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	if os.Getenv("ENABLE_MERGED_PROPERTY_BUCKETS") != "" && strings.ToLower(os.Getenv("ENABLE_MERGED_PROPERTY_BUCKETS")) != "false" {
 		lsmkv.FeatureUseMergedBuckets = true
-
 	} else {
 		lsmkv.FeatureUseMergedBuckets = false
 	}
