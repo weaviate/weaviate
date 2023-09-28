@@ -191,17 +191,6 @@ func TestShard_ParallelBatches(t *testing.T) {
 	require.Equal(t, totalObjects, int(shd.counter.Get()))
 	require.Nil(t, idx.drop())
 }
-/*
- Error: func `(*Shard).uuidToIdLockPoolId_old` is unused (unused)
-  Error: func `(*Shard).drop_old` is unused (unused)
-  Error: func `(*Shard).updateVectorIndexConfig_old` is unused (unused)
-  Error: func `(*Shard).shutdown_old` is unused (unused)
-  Error: func `(*Shard).notifyReady_old` is unused (unused)
-  Error: func `(*Shard).objectCount_old` is unused (unused)
-  Error: func `(*Shard).isFallbackToSearchable_old` is unused (unused)
-  Error: func `(*Shard).tenant_old` is unused (unused)
-  */
-
 
 func TestShard_uuidToIdLockPoolId_old(t *testing.T) {
 
@@ -215,6 +204,34 @@ func TestShard_uuidToIdLockPoolId_old(t *testing.T) {
 			fmt.Println(err)
 		}
 	}(shd.index.Config.RootPath)
+
 	res := shd.uuidToIdLockPoolId_old([]byte("testtesttesttesttest"))
 	require.Equal(t, uint8(0x74), res)
+
+	err := shd.updateVectorIndexConfig_old(context.TODO(), fakeVectorConfig{})
+	require.EqualError(t, err, "unrecognized vector index config: db.fakeVectorConfig")
+
+	 shd.notifyReady_old()
+
+	res2 := shd.objectCount_old()
+	require.Equal(t, 0, res2)
+
+	res3 := shd.isFallbackToSearchable_old()
+	require.Equal(t, false, res3)
+
+	res4 := shd.drop_old()
+	require.Nil(t, res4)
+
+	err = shd.shutdown_old(context.TODO())
+	require.Nil(t, err)
+}
+
+
+
+type fakeVectorConfig struct {
+	raw interface{}
+}
+
+func (f fakeVectorConfig) IndexType() string {
+	return "fake"
 }
