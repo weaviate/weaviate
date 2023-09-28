@@ -490,6 +490,11 @@ func (m *Manager) validateProperty(
 		if err := validateNestedProperties(property.NestedProperties, property.Name); err != nil {
 			return err
 		}
+	} else {
+		if len(property.NestedProperties) > 0 {
+			return fmt.Errorf("property '%s': nestedProperties not allowed for data types other than object/object[]",
+				property.Name)
+		}
 	}
 
 	if err := m.validatePropertyTokenization(property.Tokenization, propertyDataType); err != nil {
