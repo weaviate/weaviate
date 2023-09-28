@@ -52,6 +52,8 @@ jobs:
           cache: true
       - name: Unit test
         run: ./test/run.sh --unit-only
+      - name: Unit test merged buckets
+        run: ENABLE_MERGED_PROPERTY_BUCKETS=true ./test/run.sh --unit-only
       - name: Archive code coverage results
         uses: actions/upload-artifact@v3
         with:
@@ -66,6 +68,8 @@ jobs:
         with:
           go-version: '1.20'
           cache: true
+      - name: Integration test merged buckets
+        run: ENABLE_MERGED_PROPERTY_BUCKETS=true ./test/run.sh --integration-only
       - name: Integration test
         run: ./test/run.sh --integration-only
       - name: Archive code coverage results
@@ -95,6 +99,12 @@ jobs:
           cache: true
       - name: Acceptance tests
         env:
+          WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
+          WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
+        run: ./test/run.sh --acceptance-only
+      - name: Acceptance tests with merged buckets
+        env:
+          ENABLE_MERGED_PROPERTY_BUCKETS: true
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
         run: ./test/run.sh --acceptance-only
