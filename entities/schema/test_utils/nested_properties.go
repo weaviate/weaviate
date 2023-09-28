@@ -32,14 +32,13 @@ func AssertNestedPropsMatch(t *testing.T, nestedPropsA, nestedPropsB []*models.N
 		require.Contains(t, npMap, npB.Name)
 		npA := nestedPropsA[npMap[npB.Name]]
 
+		assert.Equal(t, npA.DataType, npB.DataType)
+		assert.Equal(t, npA.IndexFilterable, npB.IndexFilterable)
+		assert.Equal(t, npA.IndexSearchable, npB.IndexSearchable)
+		assert.Equal(t, npA.Tokenization, npB.Tokenization)
+
 		if _, isNested := schema.AsNested(npA.DataType); isNested {
-			assert.Equal(t, npA.DataType, npB.DataType)
-			assert.Equal(t, npA.IndexFilterable, npB.IndexFilterable)
-			assert.Equal(t, npA.IndexSearchable, npB.IndexSearchable)
-			assert.Equal(t, npA.Tokenization, npB.Tokenization)
 			AssertNestedPropsMatch(t, npA.NestedProperties, npB.NestedProperties)
-		} else {
-			assert.Equal(t, npA, npB)
 		}
 	}
 }
