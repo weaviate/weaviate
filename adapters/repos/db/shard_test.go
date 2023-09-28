@@ -191,3 +191,30 @@ func TestShard_ParallelBatches(t *testing.T) {
 	require.Equal(t, totalObjects, int(shd.counter.Get()))
 	require.Nil(t, idx.drop())
 }
+/*
+ Error: func `(*Shard).uuidToIdLockPoolId_old` is unused (unused)
+  Error: func `(*Shard).drop_old` is unused (unused)
+  Error: func `(*Shard).updateVectorIndexConfig_old` is unused (unused)
+  Error: func `(*Shard).shutdown_old` is unused (unused)
+  Error: func `(*Shard).notifyReady_old` is unused (unused)
+  Error: func `(*Shard).objectCount_old` is unused (unused)
+  Error: func `(*Shard).isFallbackToSearchable_old` is unused (unused)
+  Error: func `(*Shard).tenant_old` is unused (unused)
+  */
+
+
+func TestShard_uuidToIdLockPoolId_old(t *testing.T) {
+
+
+	lsmkv.FeatureUseMergedBuckets = false
+	shd, _ := testShard(t, context.Background(), "TestClass")
+
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(shd.index.Config.RootPath)
+	res := shd.uuidToIdLockPoolId_old([]byte("testtesttesttesttest"))
+	require.Equal(t, uint8(0x74), res)
+}
