@@ -134,7 +134,7 @@ func (s *Shard) initVectorIndex(
 	ctx context.Context, hnswUserConfig hnswent.UserConfig,
 ) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Invalid bucket mode")
+		return s.initVectorIndex_old(ctx, hnswUserConfig)
 	}
 	var distProv distancer.Provider
 
@@ -184,7 +184,7 @@ func (s *Shard) initVectorIndex(
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Invalid bucket mode")
+		return s.initNonVector_old(ctx, class)
 	}
 	err := s.initLSMStore(ctx)
 	if err != nil {

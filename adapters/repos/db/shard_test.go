@@ -51,7 +51,7 @@ func TestShard_UpdateStatus(t *testing.T) {
 		for i := 0; i < amount; i++ {
 			obj := testObject(className)
 
-			err := shd.putObject(ctx, obj)
+			err := shd.PutObject(ctx, obj)
 			require.Nil(t, err)
 		}
 
@@ -64,7 +64,7 @@ func TestShard_UpdateStatus(t *testing.T) {
 		err := shd.updateStatus(storagestate.StatusReadOnly.String())
 		require.Nil(t, err)
 
-		err = shd.putObject(ctx, testObject(className))
+		err = shd.PutObject(ctx, testObject(className))
 		require.EqualError(t, err, storagestate.ErrStatusReadOnly.Error())
 	})
 
@@ -72,7 +72,7 @@ func TestShard_UpdateStatus(t *testing.T) {
 		err := shd.updateStatus(storagestate.StatusReady.String())
 		require.Nil(t, err)
 
-		err = shd.putObject(ctx, testObject(className))
+		err = shd.PutObject(ctx, testObject(className))
 		require.Nil(t, err)
 	})
 

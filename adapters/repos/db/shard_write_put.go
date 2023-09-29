@@ -28,7 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
+func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -79,6 +79,8 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 
 	return nil
 }
+
+
 
 // as the name implies this method only performs the insertions, but completely
 // ignores any deletes. It thus assumes that the caller has already taken care

@@ -428,7 +428,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	defer i.backupMutex.RUnlock()
 	err = errShardNotFound
 	if shard := i.localShard(shardName); shard != nil { // does shard still exist
-		err = shard.putObject(ctx, object)
+		err = shard.PutObject(ctx, object)
 	}
 	if err != nil {
 		return fmt.Errorf("put local object: shard=%q: %w", shardName, err)
@@ -458,7 +458,7 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 		return err
 	}
 
-	if err := localShard.putObject(ctx, object); err != nil {
+	if err := localShard.PutObject(ctx, object); err != nil {
 		return err
 	}
 

@@ -422,6 +422,11 @@ func eventualReplicaCRUD(t *testing.T) {
 			})
 		})
 	})
+
+	for {
+		time.Sleep(1 * time.Second)
+		fmt.Printf("Looping...\n")
+	}
 }
 
 func restartNode1(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
