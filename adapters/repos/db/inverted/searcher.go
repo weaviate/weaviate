@@ -276,7 +276,7 @@ func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className sc
 
 			child, err := s.buildPropValuePair(&clause, className)
 			if err != nil {
-				return []*propValuePair{}, errors.Wrapf(err, "nested clause at pos %d", i)
+				return  errors.Wrapf(err, "nested clause at pos %d", i)
 			}
 			children[i] = child
 			return nil
