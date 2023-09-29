@@ -478,7 +478,7 @@ github.com/tidwall/pretty v1.0.0/go.mod h1:XNkn88O1ChpSDQmQeStsy+sBenx6DDtFZJxhV
 github.com/urfave/cli v1.22.1/go.mod h1:Gos4lmkARVdJ6EkW0WaNv/tZAAMe9V7XWyB60NtXRu0=
 github.com/vishvananda/netlink v1.1.0/go.mod h1:cTgwzPIzzgDAYoQrMm0EdrjRUBkTqKYppBueQtXaqoE=
 github.com/vishvananda/netns v0.0.0-20191106174202-0a2b9b5464df/go.mod h1:JP3t17pCcGlemwknint6hfoeCVQrEMVwxRLRjXpq+BU=
-github.com/weaviate/weaviate v1.21.0 h1:hP0g74nr9OQEMfuvS5niA+0OEBLiQ/faGuqkMweIuDo=
+github.com/weaviate/weaviate v1.21.0 h1:ULv1RjMzWGgKOQctm148phR1iZpdLKn5D6nEvBUNsgw=
 github.com/weaviate/weaviate v1.21.0/go.mod h1:SlIZ2aw5wiDAPe4iRLkSFTTBFbrCd33DfyvicBpOfYk=
 github.com/weaviate/weaviate-go-client/v4 v4.10.0 h1:Kpd3w6P9jc4Z5ejFgcillrwRNC0hUudnIZa48P6p/XA=
 github.com/weaviate/weaviate-go-client/v4 v4.10.0/go.mod h1:1wUSKRvtHFDq5s1u7tyr7cYSwPODDt3zVbNpS8VhJ0s=
