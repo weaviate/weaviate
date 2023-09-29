@@ -14,6 +14,7 @@ package schema
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"unicode"
 )
 
@@ -73,6 +74,10 @@ func (dt DataType) String() string {
 
 func (dt DataType) PropString() []string {
 	return []string{dt.String()}
+}
+
+func (dt DataType) AsName() string {
+	return strings.ReplaceAll(dt.String(), "[]", "Array")
 }
 
 var PrimitiveDataTypes []DataType = []DataType{
