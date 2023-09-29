@@ -613,7 +613,7 @@ func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 	updated schema.VectorIndexConfig,
 ) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Invalid bucket mode")
+		return s.updateVectorIndexConfig_old(ctx, updated)
 	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
