@@ -114,27 +114,6 @@ jobs:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
         run: ./test/run.sh --acceptance-only
-  Codecov:
-    needs: [Unit-Tests, Integration-Tests]
-    name: codecov
-    runs-on: ubuntu-latest
-    if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'master') }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Download coverage artifacts integration
-        uses: actions/download-artifact@v3
-        with:
-          name: coverage-report-unit
-      - name: Download coverage unit
-        uses: actions/download-artifact@v3
-        with:
-          name: coverage-report-integration
-      - name: Codecov
-        uses: codecov/codecov-action@v3
-        with:
-          fail_ci_if_error: false
-          files: ./coverage-integration.txt, ./coverage-unit.txt
-          verbose: true
   Compile-and-upload-binaries:
     name: compile-and-upload-binaries
     runs-on: ubuntu-latest-8-cores
