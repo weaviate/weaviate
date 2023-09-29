@@ -210,11 +210,14 @@ func (m *autoSchemaManager) determineType(value interface{}, ofNestedProp bool) 
 	case bool:
 		return []schema.DataType{schema.DataTypeBoolean}
 	case map[string]interface{}:
-		if dt, ok := m.asGeoCoordinatesType(v); ok {
-			return dt
-		}
-		if dt, ok := m.asPhoneNumber(v); ok {
-			return dt
+		// nested properties does not support phone and geo data types
+		if !ofNestedProp {
+			if dt, ok := m.asGeoCoordinatesType(v); ok {
+				return dt
+			}
+			if dt, ok := m.asPhoneNumber(v); ok {
+				return dt
+			}
 		}
 		return []schema.DataType{schema.DataTypeObject}
 	case []interface{}:

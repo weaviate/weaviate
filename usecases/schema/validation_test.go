@@ -610,23 +610,26 @@ func Test_Validation_NestedProperties(t *testing.T) {
 	})
 
 	t.Run("validates primitive data types", func(t *testing.T) {
-		nestedProperties := make([]*models.NestedProperty, len(schema.PrimitiveDataTypes))
-		for i, pdt := range schema.PrimitiveDataTypes {
+		nestedProperties := []*models.NestedProperty{}
+		for _, pdt := range schema.PrimitiveDataTypes {
 			tokenization := ""
 			switch pdt {
+			case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber:
+				// skip - not supported as nested
+				continue
 			case schema.DataTypeText, schema.DataTypeTextArray:
 				tokenization = models.PropertyTokenizationWord
 			default:
 				// do nothing
 			}
 
-			nestedProperties[i] = &models.NestedProperty{
+			nestedProperties = append(nestedProperties, &models.NestedProperty{
 				Name:            "nested_" + pdt.AsName(),
 				DataType:        pdt.PropString(),
 				IndexFilterable: &vFalse,
 				IndexSearchable: &vFalse,
 				Tokenization:    tokenization,
-			}
+			})
 		}
 
 		for _, ndt := range schema.NestedDataTypes {
@@ -712,7 +715,61 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							t.Run(prop.Name, func(t *testing.T) {
 								err := validateNestedProperties(prop.NestedProperties, prop.Name)
 								assert.ErrorContains(t, err, prop.Name)
-								assert.ErrorContains(t, err, fmt.Sprintf("data type '%s' not allowed", pdt.String()))
+								assert.ErrorContains(t, err, fmt.Sprintf("data type '%s' is deprecated and not allowed as nested property", pdt.String()))
+							})
+						}
+					})
+				}
+			})
+		}
+	})
+
+	t.Run("does not validate unsupported primitive types", func(t *testing.T) {
+		for _, pdt := range []schema.DataType{schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber} {
+			t.Run(pdt.String(), func(t *testing.T) {
+				nestedProperties := []*models.NestedProperty{
+					{
+						Name:            "nested_" + pdt.AsName(),
+						DataType:        pdt.PropString(),
+						IndexFilterable: &vFalse,
+						IndexSearchable: &vFalse,
+						Tokenization:    "",
+					},
+				}
+
+				for _, ndt := range schema.NestedDataTypes {
+					t.Run(ndt.String(), func(t *testing.T) {
+						propPrimitives := &models.Property{
+							Name:             "objectProp",
+							DataType:         ndt.PropString(),
+							IndexFilterable:  &vFalse,
+							IndexSearchable:  &vFalse,
+							Tokenization:     "",
+							NestedProperties: nestedProperties,
+						}
+						propLvl2Primitives := &models.Property{
+							Name:            "objectPropLvl2",
+							DataType:        ndt.PropString(),
+							IndexFilterable: &vFalse,
+							IndexSearchable: &vFalse,
+							Tokenization:    "",
+							NestedProperties: []*models.NestedProperty{
+								{
+									Name:             "nested_object",
+									DataType:         ndt.PropString(),
+									IndexFilterable:  &vFalse,
+									IndexSearchable:  &vFalse,
+									Tokenization:     "",
+									NestedProperties: nestedProperties,
+								},
+							},
+						}
+
+						for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
+							t.Run(prop.Name, func(t *testing.T) {
+								err := validateNestedProperties(prop.NestedProperties, prop.Name)
+								assert.ErrorContains(t, err, prop.Name)
+								assert.ErrorContains(t, err, fmt.Sprintf("data type '%s' not allowed as nested property", pdt.String()))
 							})
 						}
 					})
@@ -813,6 +870,9 @@ func Test_Validation_NestedProperties(t *testing.T) {
 		for _, pdt := range schema.PrimitiveDataTypes {
 			switch pdt {
 			case schema.DataTypeText, schema.DataTypeTextArray:
+				continue
+			case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber:
+				// skip - not supported as nested
 				continue
 			default:
 				// do nothing
@@ -918,6 +978,10 @@ func Test_Validation_NestedProperties(t *testing.T) {
 			tokenization := ""
 			switch pdt {
 			case schema.DataTypeBlob:
+				// skip - not indexable
+				continue
+			case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber:
+				// skip - not supported as nested
 				continue
 			case schema.DataTypeText, schema.DataTypeTextArray:
 				tokenization = models.PropertyTokenizationWord
@@ -1118,6 +1182,9 @@ func Test_Validation_NestedProperties(t *testing.T) {
 		for _, pdt := range schema.PrimitiveDataTypes {
 			switch pdt {
 			case schema.DataTypeText, schema.DataTypeTextArray:
+				continue
+			case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber:
+				// skip - not supported as nested
 				continue
 			default:
 				// do nothing
