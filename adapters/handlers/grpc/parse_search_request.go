@@ -41,45 +41,45 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
-	pb "github.com/weaviate/weaviate/grpc"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol"
 )
 
-func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.GetParams, error) {
+func searchParamsFromProto(req *pb.SearchRequestV1, scheme schema.Schema) (dto.GetParams, error) {
 	out := dto.GetParams{}
-	class, err := schema.GetClassByName(scheme.Objects, req.ClassName)
+	class, err := schema.GetClassByName(scheme.Objects, req.Collection)
 	if err != nil {
 		return dto.GetParams{}, err
 	}
 
-	out.ClassName = req.ClassName
+	out.ClassName = req.Collection
 	out.ReplicationProperties = extractReplicationProperties(req.ConsistencyLevel)
 
 	out.Tenant = req.Tenant
 
-	if req.AdditionalProperties != nil {
-		out.AdditionalProperties.ID = req.AdditionalProperties.Uuid
-		out.AdditionalProperties.Vector = req.AdditionalProperties.Vector
-		out.AdditionalProperties.Certainty = req.AdditionalProperties.Certainty
-		out.AdditionalProperties.Distance = req.AdditionalProperties.Distance
-		out.AdditionalProperties.LastUpdateTimeUnix = req.AdditionalProperties.LastUpdateTimeUnix
-		out.AdditionalProperties.CreationTimeUnix = req.AdditionalProperties.CreationTimeUnix
-		out.AdditionalProperties.Score = req.AdditionalProperties.Score
-		out.AdditionalProperties.ExplainScore = req.AdditionalProperties.ExplainScore
-		out.AdditionalProperties.IsConsistent = req.AdditionalProperties.IsConsistent
+	if req.Metadata != nil {
+		out.AdditionalProperties.ID = req.Metadata.Uuid
+		out.AdditionalProperties.Vector = req.Metadata.Vector
+		out.AdditionalProperties.Certainty = req.Metadata.Certainty
+		out.AdditionalProperties.Distance = req.Metadata.Distance
+		out.AdditionalProperties.LastUpdateTimeUnix = req.Metadata.LastUpdateTimeUnix
+		out.AdditionalProperties.CreationTimeUnix = req.Metadata.CreationTimeUnix
+		out.AdditionalProperties.Score = req.Metadata.Score
+		out.AdditionalProperties.ExplainScore = req.Metadata.ExplainScore
+		out.AdditionalProperties.IsConsistent = req.Metadata.IsConsistent
 	}
 
-	out.Properties, err = extractPropertiesRequest(req.Properties, scheme, req.ClassName)
+	out.Properties, err = extractPropertiesRequest(req.Properties, scheme, req.Collection)
 	if err != nil {
 		return dto.GetParams{}, err
 	}
-	if len(out.Properties) == 0 && req.AdditionalProperties != nil {
+	if len(out.Properties) == 0 && req.Metadata != nil {
 		// This is a pure-ID query without any props. Indicate this to the DB, so
 		// it can optimize accordingly
 		out.AdditionalProperties.NoProps = true
-	} else if len(out.Properties) == 0 && req.AdditionalProperties == nil {
+	} else if len(out.Properties) == 0 && req.Metadata == nil {
 		// no return values selected, return all properties and metadata. Ignore blobs and refs to not overload the
 		// response
-		returnProps, err := getAllNonRefNonBlobProperties(scheme, req.ClassName)
+		returnProps, err := getAllNonRefNonBlobProperties(scheme, req.Collection)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -94,7 +94,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 
 	if hs := req.HybridSearch; hs != nil {
 		fusionType := common_filters.HybridRankedFusion // default value
-		if hs.FusionType == pb.HybridSearchParams_FUSION_TYPE_RELATIVE_SCORE {
+		if hs.FusionType == pb.Hybrid_FUSION_TYPE_RELATIVE_SCORE {
 			fusionType = common_filters.HybridRelativeScoreFusion
 		}
 		out.HybridSearch = &searchparams.HybridSearch{Query: hs.Query, Properties: schema.LowercaseFirstLetterOfStrings(hs.Properties), Vector: hs.Vector, Alpha: float64(hs.Alpha), FusionAlgorithm: fusionType}
@@ -191,11 +191,11 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	}
 
 	if req.NearText != nil {
-		moveAwayOut, err := extractNearTextMove(req.ClassName, req.NearText.MoveAway)
+		moveAwayOut, err := extractNearTextMove(req.Collection, req.NearText.MoveAway)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
-		moveToOut, err := extractNearTextMove(req.ClassName, req.NearText.MoveTo)
+		moveToOut, err := extractNearTextMove(req.Collection, req.NearText.MoveTo)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -232,7 +232,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	}
 
 	if req.Filters != nil {
-		clause, err := extractFilters(req.Filters, scheme, req.ClassName)
+		clause, err := extractFilters(req.Filters, scheme, req.Collection)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -251,7 +251,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	}
 
 	if req.GroupBy != nil {
-		groupBy, err := extractGroupBy(req.GroupBy)
+		groupBy, err := extractGroupBy(req.GroupBy, &out)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -263,7 +263,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	return out, nil
 }
 
-func extractGroupBy(groupIn *pb.GroupBy) (*searchparams.GroupBy, error) {
+func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams) (*searchparams.GroupBy, error) {
 	if len(groupIn.Path) != 1 {
 		return nil, fmt.Errorf("groupby path can only have one entry, received %v", groupIn.Path)
 	}
@@ -273,6 +273,13 @@ func extractGroupBy(groupIn *pb.GroupBy) (*searchparams.GroupBy, error) {
 		ObjectsPerGroup: int(groupIn.ObjectsPerGroup),
 		Groups:          int(groupIn.NumberOfGroups),
 	}
+
+	// add the property in case it was not requested as return prop - otherwise it is not resolved
+	if out.Properties.FindProperty(groupOut.Property) == nil {
+		out.Properties = append(out.Properties, search.SelectProperty{Name: groupOut.Property, IsPrimitive: true})
+	}
+	out.AdditionalProperties.NoProps = false
+
 	return groupOut, nil
 }
 
@@ -288,7 +295,7 @@ func extractSorting(sortIn []*pb.SortBy) []filters.Sort {
 	return sortOut
 }
 
-func extractGenerative(req *pb.SearchRequest) *generate.Params {
+func extractGenerative(req *pb.SearchRequestV1) *generate.Params {
 	generative := generate.Params{}
 	if req.Generative.SingleResponsePrompt != "" {
 		generative.Prompt = &req.Generative.SingleResponsePrompt
@@ -302,7 +309,7 @@ func extractGenerative(req *pb.SearchRequest) *generate.Params {
 	return &generative
 }
 
-func extractNearTextMove(classname string, Move *pb.NearTextSearchParams_Move) (nearText2.ExploreMove, error) {
+func extractNearTextMove(classname string, Move *pb.NearTextSearch_Move) (nearText2.ExploreMove, error) {
 	var moveAwayOut nearText2.ExploreMove
 
 	if moveAwayReq := Move; moveAwayReq != nil {
@@ -502,7 +509,7 @@ func extractPath(scheme schema.Schema, className string, on []string) (*filters.
 	return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(on[0]), Child: child}, nil
 }
 
-func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, className string) ([]search.SelectProperty, error) {
+func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Schema, className string) ([]search.SelectProperty, error) {
 	var props []search.SelectProperty
 	if reqProps == nil {
 		return props, nil
@@ -530,7 +537,7 @@ func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, cla
 				// use datatype of the reference property to get the name of the linked class
 				linkedClassName = schemaProp.DataType[0]
 			} else {
-				linkedClassName = prop.WhichCollection
+				linkedClassName = prop.TargetCollection
 				if linkedClassName == "" {
 					return nil, fmt.Errorf(
 						"multi target references from collection %v and property %v with need an explicit"+
@@ -540,8 +547,8 @@ func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, cla
 			}
 			var refProperties []search.SelectProperty
 			var metaData additional.Properties
-			if prop.LinkedProperties != nil {
-				refProperties, err = extractPropertiesRequest(prop.LinkedProperties, scheme, linkedClassName)
+			if prop.Properties != nil {
+				refProperties, err = extractPropertiesRequest(prop.Properties, scheme, linkedClassName)
 				if err != nil {
 					return nil, err
 				}
@@ -550,7 +557,7 @@ func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, cla
 				metaData = extractAdditionalPropsForRefs(prop.Metadata)
 			}
 
-			if prop.LinkedProperties == nil && prop.Metadata == nil {
+			if prop.Properties == nil && prop.Metadata == nil {
 				refProperties, err = getAllNonRefNonBlobProperties(scheme, linkedClassName)
 				if err != nil {
 					return nil, err
@@ -578,7 +585,7 @@ func extractPropertiesRequest(reqProps *pb.Properties, scheme schema.Schema, cla
 	return props, nil
 }
 
-func extractAdditionalPropsForRefs(prop *pb.AdditionalProperties) additional.Properties {
+func extractAdditionalPropsForRefs(prop *pb.MetadataRequest) additional.Properties {
 	return additional.Properties{
 		Vector:             prop.Vector,
 		Certainty:          prop.Certainty,
@@ -637,7 +644,7 @@ func setAllCheapAdditionalPropsToTrue(class *models.Class) (additional.Propertie
 	return out, nil
 }
 
-func parseNearImage(ni *pb.NearImageSearchParams) (*nearImage.NearImageParams, error) {
+func parseNearImage(ni *pb.NearImageSearch) (*nearImage.NearImageParams, error) {
 	nearImageOut := &nearImage.NearImageParams{
 		Image: ni.Image,
 	}
@@ -661,7 +668,7 @@ func parseNearImage(ni *pb.NearImageSearchParams) (*nearImage.NearImageParams, e
 	return nearImageOut, nil
 }
 
-func parseNearAudio(na *pb.NearAudioSearchParams) (*nearAudio.NearAudioParams, error) {
+func parseNearAudio(na *pb.NearAudioSearch) (*nearAudio.NearAudioParams, error) {
 	nearAudioOut := &nearAudio.NearAudioParams{
 		Audio: na.Audio,
 	}
@@ -685,7 +692,7 @@ func parseNearAudio(na *pb.NearAudioSearchParams) (*nearAudio.NearAudioParams, e
 	return nearAudioOut, nil
 }
 
-func parseNearVideo(nv *pb.NearVideoSearchParams) (*nearVideo.NearVideoParams, error) {
+func parseNearVideo(nv *pb.NearVideoSearch) (*nearVideo.NearVideoParams, error) {
 	nearVideoOut := &nearVideo.NearVideoParams{
 		Video: nv.Video,
 	}
