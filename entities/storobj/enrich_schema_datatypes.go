@@ -19,7 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-func (ko *Object) enrichSchemaTypes(schema map[string]interface{}) error {
+func enrichSchemaTypes(schema map[string]interface{}, isNested bool) error {
 	if schema == nil {
 		return nil
 	}
@@ -59,12 +59,22 @@ func (ko *Object) enrichSchemaTypes(schema map[string]interface{}) error {
 				// this situation
 				schema[propName] = typed
 			} else {
-				parsed, err := parseCrossRef(typed)
-				if err != nil {
-					return errors.Wrapf(err, "property %q of type cross-ref", propName)
+				if !isNested {
+					parsed, err := parseCrossRef(typed)
+					if err == nil {
+						schema[propName] = parsed
+						continue
+					}
 				}
-
-				schema[propName] = parsed
+				// apperently object[]
+				for i := range typed {
+					t2, ok := typed[i].(map[string]interface{})
+					if !ok {
+						return fmt.Errorf("expected element [%d] of '%s' to be map, %T found", i, propName, typed[i])
+					}
+					enrichSchemaTypes(t2, true)
+				}
+				schema[propName] = typed
 			}
 		case map[string]interface{}:
 			parsed, err := parseMapProp(typed)
@@ -82,34 +92,67 @@ func (ko *Object) enrichSchemaTypes(schema map[string]interface{}) error {
 }
 
 func parseMapProp(input map[string]interface{}) (interface{}, error) {
-	lat, latOK := input["latitude"]
-	lon, lonOK := input["longitude"]
-	_, phoneInputOK := input["input"]
-
-	if latOK && lonOK {
-		// this is a geoCoordinates prop
-		return parseGeoProp(lat, lon)
+	if isGeoProp(input) {
+		return parseGeoProp(input)
 	}
-
-	if phoneInputOK {
-		// this is a phone number
+	if isPhoneProp(input) {
 		return parsePhoneNumber(input)
 	}
-
-	// this is an object
-	return input, nil
-	// return nil, fmt.Errorf("unknown map prop which is not a geo prop or phone: %v", input)
+	// apparently object
+	err := enrichSchemaTypes(input, true)
+	return input, err
 }
 
-func parseGeoProp(lat interface{}, lon interface{}) (*models.GeoCoordinates, error) {
-	latFloat, ok := lat.(float64)
-	if !ok {
-		return nil, fmt.Errorf("explected lat to be float64, but is %T", lat)
+func isGeoProp(input map[string]interface{}) bool {
+	expectedProps := []string{"latitude", "longitude"}
+
+	if len(input) != len(expectedProps) {
+		return false
+	}
+	for _, prop := range expectedProps {
+		if _, ok := input[prop]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func isPhoneProp(input map[string]interface{}) bool {
+	validExpectedProps := [][]string{
+		{"input", "internationalFormatted", "nationalFormatted", "national", "countryCode", "valid"},
+		{"input", "internationalFormatted", "nationalFormatted", "national", "countryCode", "valid", "defaultCountry"},
+		{"input", "internationalFormatted", "nationalFormatted", "national", "countryCode"},
+		{"input", "internationalFormatted", "nationalFormatted", "national", "countryCode", "defaultCountry"},
 	}
 
-	lonFloat, ok := lon.(float64)
+	for _, expectedProps := range validExpectedProps {
+		match := true
+		if len(expectedProps) != len(input) {
+			match = false
+		} else {
+			for _, prop := range expectedProps {
+				if _, ok := input[prop]; !ok {
+					match = false
+					break
+				}
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
+func parseGeoProp(input map[string]interface{}) (*models.GeoCoordinates, error) {
+	latFloat, ok := input["latitude"].(float64)
 	if !ok {
-		return nil, fmt.Errorf("explected lon to be float64, but is %T", lon)
+		return nil, fmt.Errorf("explected lat to be float64, but is %T", input["latitude"])
+	}
+
+	lonFloat, ok := input["longitude"].(float64)
+	if !ok {
+		return nil, fmt.Errorf("explected lon to be float64, but is %T", input["longitude"])
 	}
 
 	return &models.GeoCoordinates{
