@@ -555,6 +555,60 @@ func Test_Validation_NestedProperties(t *testing.T) {
 	vFalse := false
 	vTrue := true
 
+	t.Run("does not validate wrong names", func(t *testing.T) {
+		for _, name := range []string{"prop@1", "prop-2", "prop$3", "4prop"} {
+			t.Run(name, func(t *testing.T) {
+				nestedProperties := []*models.NestedProperty{
+					{
+						Name:            name,
+						DataType:        schema.DataTypeInt.PropString(),
+						IndexFilterable: &vFalse,
+						IndexSearchable: &vFalse,
+						Tokenization:    "",
+					},
+				}
+
+				for _, ndt := range schema.NestedDataTypes {
+					t.Run(ndt.String(), func(t *testing.T) {
+						propPrimitives := &models.Property{
+							Name:             "objectProp",
+							DataType:         ndt.PropString(),
+							IndexFilterable:  &vFalse,
+							IndexSearchable:  &vFalse,
+							Tokenization:     "",
+							NestedProperties: nestedProperties,
+						}
+						propLvl2Primitives := &models.Property{
+							Name:            "objectPropLvl2",
+							DataType:        ndt.PropString(),
+							IndexFilterable: &vFalse,
+							IndexSearchable: &vFalse,
+							Tokenization:    "",
+							NestedProperties: []*models.NestedProperty{
+								{
+									Name:             "nested_object",
+									DataType:         ndt.PropString(),
+									IndexFilterable:  &vFalse,
+									IndexSearchable:  &vFalse,
+									Tokenization:     "",
+									NestedProperties: nestedProperties,
+								},
+							},
+						}
+
+						for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
+							t.Run(prop.Name, func(t *testing.T) {
+								err := validateNestedProperties(prop.NestedProperties, prop.Name)
+								assert.ErrorContains(t, err, prop.Name)
+								assert.ErrorContains(t, err, "is not a valid nested property name")
+							})
+						}
+					})
+				}
+			})
+		}
+	})
+
 	t.Run("validates primitive data types", func(t *testing.T) {
 		nestedProperties := make([]*models.NestedProperty, len(schema.PrimitiveDataTypes))
 		for i, pdt := range schema.PrimitiveDataTypes {
@@ -567,7 +621,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 			}
 
 			nestedProperties[i] = &models.NestedProperty{
-				Name:            "nested_" + pdt.String(),
+				Name:            "nested_" + pdt.AsName(),
 				DataType:        pdt.PropString(),
 				IndexFilterable: &vFalse,
 				IndexSearchable: &vFalse,
@@ -618,7 +672,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 			t.Run(pdt.String(), func(t *testing.T) {
 				nestedProperties := []*models.NestedProperty{
 					{
-						Name:            "nested_" + pdt.String(),
+						Name:            "nested_" + pdt.AsName(),
 						DataType:        pdt.PropString(),
 						IndexFilterable: &vFalse,
 						IndexSearchable: &vFalse,
@@ -767,7 +821,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 			t.Run(pdt.String(), func(t *testing.T) {
 				nestedProperties := []*models.NestedProperty{
 					{
-						Name:            "nested_" + pdt.String(),
+						Name:            "nested_" + pdt.AsName(),
 						DataType:        pdt.PropString(),
 						IndexFilterable: &vFalse,
 						IndexSearchable: &vFalse,
@@ -872,7 +926,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 			}
 
 			nestedProperties = append(nestedProperties, &models.NestedProperty{
-				Name:            "nested_" + pdt.String(),
+				Name:            "nested_" + pdt.AsName(),
 				DataType:        pdt.PropString(),
 				IndexFilterable: &vTrue,
 				IndexSearchable: &vFalse,
@@ -1013,7 +1067,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 		nestedProperties := []*models.NestedProperty{}
 		for _, pdt := range []schema.DataType{schema.DataTypeText, schema.DataTypeTextArray} {
 			nestedProperties = append(nestedProperties, &models.NestedProperty{
-				Name:            "nested_" + pdt.String(),
+				Name:            "nested_" + pdt.AsName(),
 				DataType:        pdt.PropString(),
 				IndexFilterable: &vFalse,
 				IndexSearchable: &vTrue,
@@ -1071,7 +1125,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 
 			t.Run(pdt.String(), func(t *testing.T) {
 				nestedProperties = append(nestedProperties, &models.NestedProperty{
-					Name:            "nested_" + pdt.String(),
+					Name:            "nested_" + pdt.AsName(),
 					DataType:        pdt.PropString(),
 					IndexFilterable: &vFalse,
 					IndexSearchable: &vTrue,
