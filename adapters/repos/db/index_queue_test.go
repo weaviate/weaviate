@@ -21,12 +21,36 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
 
+func startWorker(t testing.TB, retryInterval ...time.Duration) chan job {
+	t.Helper()
+	ch := make(chan job)
+	t.Cleanup(func() {
+		close(ch)
+	})
+
+	itv := time.Millisecond
+	if len(retryInterval) > 0 {
+		itv = retryInterval[0]
+	}
+
+	go func() {
+		logger := logrus.New()
+		logger.Level = logrus.ErrorLevel
+		asyncWorker(ch, logger, itv)
+	}()
+
+	return ch
+}
+
 func TestIndexQueue(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
 	os.Setenv("WEAVIATE_ASYNC_INDEXING", "true")
 	defer os.Unsetenv("WEAVIATE_ASYNC_INDEXING")
 
@@ -38,7 +62,7 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue(&idx, IndexQueueOptions{
+		q, err := NewIndexQueue(&idx, startWorker(t), IndexQueueOptions{
 			BatchSize: 2,
 		})
 		require.NoError(t, err)
@@ -72,7 +96,7 @@ func TestIndexQueue(t *testing.T) {
 			called <- struct{}{}
 			return nil
 		}
-		q, err := NewIndexQueue(&idx, IndexQueueOptions{
+		q, err := NewIndexQueue(&idx, startWorker(t), IndexQueueOptions{
 			BatchSize:     100,
 			IndexInterval: time.Microsecond,
 		})
@@ -117,9 +141,8 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue(&idx, IndexQueueOptions{
-			BatchSize:     1,
-			RetryInterval: time.Millisecond,
+		q, err := NewIndexQueue(&idx, startWorker(t, time.Millisecond), IndexQueueOptions{
+			BatchSize: 1,
 		})
 		require.NoError(t, err)
 		defer q.Close()
@@ -140,7 +163,7 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue(&idx, IndexQueueOptions{
+		q, err := NewIndexQueue(&idx, startWorker(t), IndexQueueOptions{
 			BatchSize: 3,
 		})
 		require.NoError(t, err)
@@ -181,7 +204,7 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue(&idx, IndexQueueOptions{
+		q, err := NewIndexQueue(&idx, startWorker(t), IndexQueueOptions{
 			BatchSize: 5,
 		})
 		require.NoError(t, err)
@@ -212,7 +235,7 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue(&idx, IndexQueueOptions{
+		q, err := NewIndexQueue(&idx, startWorker(t), IndexQueueOptions{
 			BatchSize:     4,
 			IndexInterval: 100 * time.Millisecond,
 		})
@@ -270,7 +293,7 @@ func TestIndexQueue(t *testing.T) {
 	t.Run("brute force upper limit", func(t *testing.T) {
 		var idx mockBatchIndexer
 
-		q, err := NewIndexQueue(&idx, IndexQueueOptions{
+		q, err := NewIndexQueue(&idx, startWorker(t), IndexQueueOptions{
 			BatchSize:             1000,
 			BruteForceSearchLimit: 2,
 		})
@@ -314,7 +337,7 @@ func BenchmarkPush(b *testing.B) {
 		return nil
 	}
 
-	q, err := NewIndexQueue(&idx, IndexQueueOptions{
+	q, err := NewIndexQueue(&idx, startWorker(b), IndexQueueOptions{
 		BatchSize:     1000,
 		IndexInterval: 1 * time.Millisecond,
 	})
