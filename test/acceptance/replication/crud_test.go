@@ -422,7 +422,6 @@ func eventualReplicaCRUD(t *testing.T) {
 			})
 		})
 	})
-
 }
 
 func restartNode1(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {

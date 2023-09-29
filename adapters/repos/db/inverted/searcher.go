@@ -274,10 +274,9 @@ func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className sc
 	for i, clause := range operands {
 		i, clause := i, clause
 		eg.Go(func() error {
-
 			child, err := s.buildPropValuePair(&clause, className)
 			if err != nil {
-				return  errors.Wrapf(err, "nested clause at pos %d", i)
+				return errors.Wrapf(err, "nested clause at pos %d", i)
 			}
 			children[i] = child
 			return nil

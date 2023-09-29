@@ -80,8 +80,6 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 	return nil
 }
 
-
-
 // as the name implies this method only performs the insertions, but completely
 // ignores any deletes. It thus assumes that the caller has already taken care
 // of all the deletes in another way
