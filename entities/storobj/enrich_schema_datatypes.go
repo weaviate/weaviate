@@ -19,7 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-func enrichSchemaTypes(schema map[string]interface{}, isNested bool) error {
+func enrichSchemaTypes(schema map[string]interface{}, ofNestedProp bool) error {
 	if schema == nil {
 		return nil
 	}
@@ -59,7 +59,8 @@ func enrichSchemaTypes(schema map[string]interface{}, isNested bool) error {
 				// this situation
 				schema[propName] = typed
 			} else {
-				if !isNested {
+				// nested properties does not support refs
+				if !ofNestedProp {
 					parsed, err := parseCrossRef(typed)
 					if err == nil {
 						schema[propName] = parsed
@@ -77,7 +78,7 @@ func enrichSchemaTypes(schema map[string]interface{}, isNested bool) error {
 				schema[propName] = typed
 			}
 		case map[string]interface{}:
-			parsed, err := parseMapProp(typed)
+			parsed, err := parseMapProp(typed, ofNestedProp)
 			if err != nil {
 				return errors.Wrapf(err, "property %q of type map", propName)
 			}
@@ -91,11 +92,12 @@ func enrichSchemaTypes(schema map[string]interface{}, isNested bool) error {
 	return nil
 }
 
-func parseMapProp(input map[string]interface{}) (interface{}, error) {
-	if isGeoProp(input) {
+// nested properties does not support phone or geo data types
+func parseMapProp(input map[string]interface{}, ofNestedProp bool) (interface{}, error) {
+	if !ofNestedProp && isGeoProp(input) {
 		return parseGeoProp(input)
 	}
-	if isPhoneProp(input) {
+	if !ofNestedProp && isPhoneProp(input) {
 		return parsePhoneNumber(input)
 	}
 	// apparently object

@@ -182,7 +182,9 @@ func validateNestedPropertyDataType(property *models.NestedProperty,
 		// DataTypeString and DataTypeStringArray as deprecated since 1.19 are not allowed
 		switch primitiveDataType {
 		case schema.DataTypeString, schema.DataTypeStringArray:
-			return fmt.Errorf("Property '%s': data type '%s' not allowed", propName, primitiveDataType)
+			return fmt.Errorf("Property '%s': data type '%s' is deprecated and not allowed as nested property", propName, primitiveDataType)
+		case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber:
+			return fmt.Errorf("Property '%s': data type '%s' not allowed as nested property", propName, primitiveDataType)
 		default:
 			// do nothing
 		}
