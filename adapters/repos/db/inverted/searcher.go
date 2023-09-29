@@ -266,16 +266,25 @@ func (s *Searcher) buildPropValuePair(filter *filters.Clause, className schema.C
 
 func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className schema.ClassName) ([]*propValuePair, error) {
 	children := make([]*propValuePair, len(operands))
-
+	eg := errgroup.Group{}
+	// prevent unbounded concurrency, see
+	// https://github.com/weaviate/weaviate/issues/3179 for details
+	eg.SetLimit(2 * _NUMCPU)
 	for i, clause := range operands {
 		i, clause := i, clause
+		eg.Go(func() error {
 
-		child, err := s.buildPropValuePair(&clause, className)
-		if err != nil {
-			return []*propValuePair{}, errors.Wrapf(err, "nested clause at pos %d", i)
-		}
-		children[i] = child
+			child, err := s.buildPropValuePair(&clause, className)
+			if err != nil {
+				return []*propValuePair{}, errors.Wrapf(err, "nested clause at pos %d", i)
+			}
+			children[i] = child
+			return nil
+		})
 
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, fmt.Errorf("nested query: %w", err)
 	}
 
 	return children, nil
