@@ -70,12 +70,12 @@ func (m *Manager) repairLocalProperties(properties map[string][]*models.Property
 	return nil
 }
 
-func (m *Manager) repairLocalTenants(tenants map[string][]sharding.Physical) {
+func (m *Manager) repairLocalTenants(tenantsByClass map[string][]sharding.Physical) {
 	m.schemaCache.LockGuard(func() {
-		for class, tenants := range tenants {
+		for class, tenants := range tenantsByClass {
 			ss := m.schemaCache.State.ShardingState[class]
 			if ss.Physical == nil {
-				ss.Physical = make(map[string]sharding.Physical)
+				ss.Physical = make(map[string]sharding.Physical, len(tenants))
 			}
 			for _, tenant := range tenants {
 				ss.Physical[tenant.Name] = tenant
@@ -268,7 +268,7 @@ func determineRepairsNeeded(states comparisonUnit) repairSet {
 }
 
 func classSliceToMap(cs []*models.Class) map[string]*models.Class {
-	m := make(map[string]*models.Class)
+	m := make(map[string]*models.Class, len(cs))
 	for _, c := range cs {
 		m[c.Class] = c
 	}
