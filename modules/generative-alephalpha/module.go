@@ -28,9 +28,8 @@ import (
 
 const Name = "generative-alephalpha"
 
-
 type GenerativeAlephAlphaModule struct {
-	generative                     generativeClient
+	generative                   generativeClient
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
 }
 
