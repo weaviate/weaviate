@@ -566,12 +566,10 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	var bucketName string
 	if lsmkv.FeatureUseMergedBuckets {
 		bucketName = "searchable_properties"
-		require.Nil(t, store.CreateOrLoadBucket(context.Background(),
-			bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
+		require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
 	} else {
 		bucketName = helpers.BucketSearchableFromPropertyNameLSM(propName)
-		require.Nil(t, store.CreateOrLoadBucket(context.Background(),
-			bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
+		require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
 	}
 
 	bWithFrequency, err := lsmkv.FetchMeABucket(store, bucketName, helpers.BucketSearchableFromPropertyNameLSM(propName), propName, propIds)

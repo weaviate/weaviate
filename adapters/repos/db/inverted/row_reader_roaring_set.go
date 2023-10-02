@@ -101,7 +101,7 @@ func (rr *RowReaderRoaringSet) equal(ctx context.Context,
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	v, err := rr.getter(rr.value) // this needs to be value without prop prefix/postfix (FIXME check)
+	v, err := rr.getter(rr.value)
 	if err != nil {
 		return err
 	}

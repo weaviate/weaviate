@@ -464,7 +464,7 @@ func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property) 
 		panic("Invalid bucket mode")
 	}
 	if !inverted.HasInvertedIndex(prop) {
-		return nil // FIXME nil or err?  Previous code didn't return anything
+		return nil
 	}
 
 	s.propIds.CreateProperty(prop.Name)

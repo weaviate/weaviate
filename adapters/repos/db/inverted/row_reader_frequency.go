@@ -227,7 +227,7 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFnFrequency) 
 	)
 
 	if like.optimizable {
-		initialK, initialV = c.Seek(like.min) // FIXME may need to make key here?
+		initialK, initialV = c.Seek(like.min)
 	} else {
 		initialK, initialV = c.First()
 	}

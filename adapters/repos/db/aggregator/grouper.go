@@ -73,7 +73,6 @@ func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
 		return nil, err
 	}
 
-	// values are empty
 	if err := docid.ScanObjectsLSM(g.store, ids,
 		func(prop *models.PropertySchema, docID uint64) (bool, error) {
 			return true, g.addElementById(prop, docID)
