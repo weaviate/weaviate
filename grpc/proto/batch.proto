@@ -23,6 +23,8 @@ message BatchObject {
     repeated IntArrayProperties int_array_properties = 5;
     repeated TextArrayProperties text_array_properties = 6;
     repeated BooleanArrayProperties boolean_array_properties = 7;
+    repeated Properties object_properties = 8;
+    repeated ArrayProperties object_array_properties = 9;
   }
 
   message SingleTargetRefProps {
@@ -34,6 +36,11 @@ message BatchObject {
     repeated string uuids = 1;
     string prop_name = 2;
     string target_collection = 3;
+  }
+
+  message ArrayProperties {
+    repeated Properties values = 1;
+    string prop_name = 2;
   }
 
   string uuid = 1;
