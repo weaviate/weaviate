@@ -1,0 +1,119 @@
+{
+  "objects": [
+    {
+      "class": "ObjectPropertyClass",
+      "creationTimeUnix": 1696234486729,
+      "id": "00000000-0000-0000-0000-000000000001",
+      "lastUpdateTimeUnix": 1696234486729,
+      "properties": {
+        "bool": true,
+        "bools": [
+          true,
+          false
+        ],
+        "date": "2009-11-01T23:00:00Z",
+        "dates": [
+          "2009-11-01T23:00:00Z"
+        ],
+        "int": 1,
+        "ints": [
+          1,
+          2
+        ],
+        "nested_array_objects": [
+          {
+            "nested_bool_lvl2": true,
+            "nested_numbers_lvl2": [
+              111.1,
+              222.1
+            ]
+          },
+          {
+            "nested_bool_lvl2": false,
+            "nested_numbers_lvl2": [
+              112.1,
+              222.1
+            ]
+          }
+        ],
+        "nested_int": 11,
+        "nested_number": 11.11,
+        "nested_objects": {
+          "nested_bool_lvl2": true,
+          "nested_numbers_lvl2": [
+            11.1,
+            22.1
+          ]
+        },
+        "nested_text": "nested text",
+        "number": 1.1,
+        "numbers": [
+          1.1,
+          2.2
+        ],
+        "text": "red",
+        "texts": [
+          "red",
+          "blue"
+        ],
+        "uuid": "00000000-0000-0000-0000-000000000001",
+        "uuids": [
+          "00000000-0000-0000-0000-000000000001"
+        ]
+      },
+      "vectorWeights": 5000
+    },
+    {
+      "class": "NestedObject",
+      "creationTimeUnix": 1696234486752,
+      "id": "00000000-0000-0000-0000-000000000001",
+      "lastUpdateTimeUnix": 1696234486752,
+      "properties": {
+        "nestedProp": {
+          "a": 1,
+          "nested": {
+            "b": 2,
+            "nested": {
+              "c": 3,
+              "nested": {
+                "d": 4,
+                "nested": {
+                  "e": 5,
+                  "nested": {
+                    "f": 6,
+                    "nested": {
+                      "g": 7,
+                      "nested": {
+                        "h": 7,
+                        "nested": {
+                          "i": 7,
+                          "nested": {
+                            "j": 8,
+                            "nested": {
+                              "k": 9,
+                              "nested": {
+                                "l": 10,
+                                "nested": {
+                                  "m": 10,
+                                  "nested": {
+                                    "n": 11
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "vectorWeights": 4000
+    }
+  ],
+  "totalResults": 2
+}

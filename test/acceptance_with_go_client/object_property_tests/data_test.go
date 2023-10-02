@@ -13,6 +13,9 @@ package object_property_tests
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func TestData_ObjectProperty(t *testing.T) {
+func TestObjectProperty_Data(t *testing.T) {
 	ctx := context.Background()
 	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: "localhost:8080"})
 	require.Nil(t, err)
@@ -276,5 +279,46 @@ func TestData_ObjectProperty(t *testing.T) {
 		res, err := client.Data().ObjectsGetter().WithID(id1).Do(ctx)
 		require.Nil(t, err)
 		require.Len(t, res, 1)
+	})
+
+	t.Run("load complicated json using auto schema", func(t *testing.T) {
+		jsonFile, err := os.Open("./example.json")
+		require.NoError(t, err)
+		require.NotNil(t, jsonFile)
+		byteValue, err := io.ReadAll(jsonFile)
+		require.NoError(t, err)
+		require.NotNil(t, byteValue)
+		var result map[string]interface{}
+		json.Unmarshal([]byte(byteValue), &result)
+		_, err = client.Data().Creator().
+			WithClassName("ComplicatedJson").
+			WithID(id1).
+			WithProperties(map[string]interface{}{
+				"complicated": result,
+			}).
+			Do(context.TODO())
+		require.Nil(t, err)
+		res, err := client.Data().ObjectsGetter().WithClassName("ComplicatedJson").WithID(id1).Do(ctx)
+		require.Nil(t, err)
+		require.Len(t, res, 1)
+		props, ok := res[0].Properties.(map[string]interface{})
+		require.True(t, ok)
+		assert.NotNil(t, props)
+		assert.Equal(t, 1, len(props))
+		complicated, ok := props["complicated"].(map[string]interface{})
+		require.True(t, ok)
+		assert.NotNil(t, complicated)
+		assert.Equal(t, 2, len(complicated))
+		objects, ok := complicated["objects"].([]interface{})
+		require.True(t, ok)
+		assert.NotNil(t, objects)
+		assert.Equal(t, 2, len(objects))
+		data, ok := objects[0].(map[string]interface{})
+		require.True(t, ok)
+		assert.NotNil(t, data)
+		assert.Equal(t, 6, len(data))
+		properties, ok := data["properties"].(map[string]interface{})
+		require.True(t, ok)
+		assert.NotNil(t, properties)
 	})
 }

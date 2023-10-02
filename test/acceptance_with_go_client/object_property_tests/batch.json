@@ -1,0 +1,152 @@
+[
+  {
+    "firstName": "John",
+    "lastName": "Smith",
+    "profession": "Software Engineer",
+    "description": "Experienced software engineer with a passion for coding and problem-solving.",
+    "phone": {
+      "input": "020 1234567",
+      "defaultCountry": "us"
+    },
+    "location": {
+      "latitude": 52.366667,
+      "longitude": 4.9
+    },
+    "city": "New York"
+  },
+  {
+    "firstName": "Alice",
+    "lastName": "Johnson",
+    "profession": "Graphic Designer",
+    "description": "Creative graphic designer with a strong sense of visual aesthetics.",
+    "phone": {
+      "input": "020 1234599",
+      "defaultCountry": "us"
+    },
+    "location": {
+      "latitude": 52.366667,
+      "longitude": 4.19
+    },
+    "city": "Los Angeles"
+  },
+  {
+    "firstName": "David",
+    "lastName": "Williams",
+    "profession": "Accountant",
+    "description": "Detail-oriented accountant with a knack for numbers and financial analysis.",
+    "phone": {
+      "input": "020 1234588",
+      "defaultCountry": "us"
+    },
+    "location": {
+      "latitude": 52.366667,
+      "longitude": 4.29
+    },
+    "city": "Chicago"
+  },
+  {
+    "firstName": "Emily",
+    "lastName": "Davis",
+    "profession": "Marketing Manager",
+    "description": "Seasoned marketing manager specializing in digital marketing strategies.",
+    "phone": {
+      "input": "020 1234511",
+      "defaultCountry": "us"
+    },
+    "location": {
+      "latitude": 52.366667,
+      "longitude": 4.39
+    },
+    "city": "Houston"
+  },
+  {
+    "firstName": "Michael",
+    "lastName": "Brown",
+    "profession": "Doctor",
+    "description": "Dedicated medical doctor committed to providing top-quality healthcare.",
+    "phone": {
+      "input": "020 1234111",
+      "defaultCountry": "us"
+    },
+    "location": {
+      "latitude": 52.366667,
+      "longitude": 4.49
+    },
+    "city": "San Francisco"
+  },
+  {
+    "firstName": "Olivia",
+    "lastName": "Miller",
+    "profession": "Teacher",
+    "description": "Passionate teacher with a love for educating and nurturing young minds.",
+    "phone": {
+      "input": "020 1234589",
+      "defaultCountry": "us"
+    },
+    "location": {
+      "latitude": 52.366667,
+      "longitude": 4.339
+    },
+    "city": "Miami"
+  },
+  {
+    "firstName": "William",
+    "lastName": "Jones",
+    "profession": "Architect",
+    "description": "Innovative architect known for creating breathtaking and sustainable designs.",
+    "phone": {
+      "input": "020 1234567",
+      "defaultCountry": "us"
+    },
+    "location": {
+      "latitude": 52.366667,
+      "longitude": 5.9
+    },
+    "city": "Seattle"
+  },
+  {
+    "firstName": "Sophia",
+    "lastName": "Wilson",
+    "profession": "Chef",
+    "description": "Talented chef renowned for crafting exquisite culinary delights.",
+    "phone": {
+      "input": "020 200300300",
+      "defaultCountry": "us"
+    },
+    "location": {
+      "latitude": 52.366667,
+      "longitude": 4.9009
+    },
+    "city": "Boston"
+  },
+  {
+    "firstName": "Liam",
+    "lastName": "Anderson",
+    "profession": "Financial Analyst",
+    "description": "Analytical financial analyst with expertise in investment strategies.",
+    "phone": {
+      "input": "020 1234444",
+      "defaultCountry": "us"
+    },
+    "location": {
+      "latitude": 52.366667,
+      "longitude": 6.9
+    },
+    "city": "Dallas"
+  },
+  {
+    "firstName": "Ava",
+    "lastName": "Martin",
+    "profession": "Journalist",
+    "description": "Dedicated journalist with a passion for reporting the truth.",
+    "phone": {
+      "input": "020 1234909",
+      "defaultCountry": "us"
+    },
+    "location": {
+      "latitude": 52.366667,
+      "longitude": 44.9
+    },
+    "city": "Phoenix"
+  }
+]
