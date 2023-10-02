@@ -14,16 +14,16 @@ package modgenerativealephalpha
 import (
 	"context"
 	"net/http"
-	// "os"
+
+	"os"
 
 	// "github.com/pkg/errors"
 	// "github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	// "github.com/weaviate/weaviate/modules/generative-alephalpha/clients"
-	// additionalprovider "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
+	"github.com/weaviate/weaviate/modules/generative-alephalpha/clients"
+	additionalprovider "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
-	
 )
 
 const Name = "generative-alephalpha"
@@ -54,11 +54,14 @@ func (m *GenerativeAlephAlphaModule) Type() modulecapabilities.ModuleType {
 }
 
 func (m *GenerativeAlephAlphaModule) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
+	logger := params.GetLogger()
+	m.generative = clients.New(os.Getenv("ALEPHALPHA_API_KEY"), logger)
+	m.additionalPropertiesProvider = additionalprovider.NewGenerativeProvider(m.generative)
 	return nil
 }
 
 func (m *GenerativeAlephAlphaModule) MetaInfo() (map[string]interface{}, error) {
-	return nil, nil
+	return m.generative.MetaInfo()
 }
 
 func (m *GenerativeAlephAlphaModule) RootHandler() http.Handler {
