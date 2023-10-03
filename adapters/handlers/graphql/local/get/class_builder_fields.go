@@ -598,8 +598,6 @@ func fieldNameIsOfObjectButNonReferenceType(field string) bool {
 		"valid", "countryCode", "defaultCountry":
 		// must be a phone number
 		return true
-	// case "_additional":
-	// 	return false
 	default:
 		return false
 	}
