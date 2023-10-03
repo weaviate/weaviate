@@ -64,6 +64,9 @@ type IndexQueueOptions struct {
 	// the pending vectors to the indexing worker.
 	IndexInterval time.Duration
 
+	// Max time a vector can stay in the queue before being indexed.
+	StaleTimeout time.Duration
+
 	// Logger is the logger used by the queue.
 	Logger logrus.FieldLogger
 
@@ -102,10 +105,14 @@ func NewIndexQueue(
 		opts.BruteForceSearchLimit = 100_000
 	}
 
+	if opts.StaleTimeout == 0 {
+		opts.StaleTimeout = 10 * time.Minute
+	}
+
 	q := IndexQueue{
 		IndexQueueOptions: opts,
 		Index:             index,
-		queue:             newVectorQueue(opts.BatchSize),
+		queue:             newVectorQueue(opts.BatchSize, opts.StaleTimeout),
 		indexCh:           centralJobQueue,
 		pqMaxPool:         newPqMaxPool(0),
 		bufPool: sync.Pool{
@@ -177,7 +184,9 @@ func (q *IndexQueue) Size() int64 {
 	q.queue.fullChunks.Unlock()
 
 	q.queue.curBatch.Lock()
-	count += int64(q.queue.curBatch.c.cursor)
+	if q.queue.curBatch.c != nil {
+		count += int64(q.queue.curBatch.c.cursor)
+	}
 	q.queue.curBatch.Unlock()
 
 	return count
@@ -363,9 +372,10 @@ func (pqh *pqMaxPool) Put(pq *priorityqueue.Queue) {
 }
 
 type vectorQueue struct {
-	batchSize int
-	pool      sync.Pool
-	curBatch  struct {
+	batchSize    int
+	staleTimeout time.Duration
+	pool         sync.Pool
+	curBatch     struct {
 		sync.Mutex
 
 		c *chunk
@@ -382,9 +392,10 @@ type vectorQueue struct {
 	}
 }
 
-func newVectorQueue(batchSize int) *vectorQueue {
+func newVectorQueue(batchSize int, staleTimeout time.Duration) *vectorQueue {
 	q := vectorQueue{
-		batchSize: batchSize,
+		batchSize:    batchSize,
+		staleTimeout: staleTimeout,
 		pool: sync.Pool{
 			New: func() any {
 				return &chunk{
@@ -395,7 +406,6 @@ func newVectorQueue(batchSize int) *vectorQueue {
 	}
 
 	q.fullChunks.list = list.New()
-	q.curBatch.c = q.getFreeChunk()
 	q.deleted.m = make(map[uint64]struct{})
 
 	return &q
@@ -438,12 +448,23 @@ func (q *vectorQueue) Add(vectors []vectorDescriptor) {
 }
 
 func (q *vectorQueue) ensureHasSpace() *chunk {
+	if q.curBatch.c == nil {
+		q.curBatch.c = q.getFreeChunk()
+	}
+
+	if q.curBatch.c.cursor == 0 {
+		now := time.Now()
+		q.curBatch.c.createdAt = &now
+	}
+
 	if q.curBatch.c.cursor < q.batchSize {
 		return nil
 	}
 
 	c := q.curBatch.c
 	q.curBatch.c = q.getFreeChunk()
+	now := time.Now()
+	q.curBatch.c.createdAt = &now
 	return c
 }
 
@@ -461,20 +482,30 @@ func (q *vectorQueue) borrowAllChunks() []*chunk {
 
 		e = e.Next()
 	}
-
 	q.fullChunks.Unlock()
+
+	q.curBatch.Lock()
+	if q.curBatch.c != nil && time.Since(*q.curBatch.c.createdAt) > q.staleTimeout && q.curBatch.c.cursor > 0 {
+		q.curBatch.c.borrowed = true
+		chunks = append(chunks, q.curBatch.c)
+		q.curBatch.c = nil
+	}
+	q.curBatch.Unlock()
 
 	return chunks
 }
 
 func (q *vectorQueue) releaseChunk(c *chunk) {
-	q.fullChunks.Lock()
-	q.fullChunks.list.Remove(c.elem)
-	q.fullChunks.Unlock()
+	if c.elem != nil {
+		q.fullChunks.Lock()
+		q.fullChunks.list.Remove(c.elem)
+		q.fullChunks.Unlock()
+	}
 
 	c.borrowed = false
 	c.cursor = 0
 	c.elem = nil
+	c.createdAt = nil
 
 	q.pool.Put(c)
 }
@@ -536,8 +567,9 @@ func (q *vectorQueue) ResetDeleted(id ...uint64) {
 }
 
 type chunk struct {
-	cursor   int
-	borrowed bool
-	data     []vectorDescriptor
-	elem     *list.Element
+	cursor    int
+	borrowed  bool
+	data      []vectorDescriptor
+	elem      *list.Element
+	createdAt *time.Time
 }
