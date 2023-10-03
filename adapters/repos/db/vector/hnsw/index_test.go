@@ -130,7 +130,7 @@ func TestHnswIndexGrow(t *testing.T) {
 	})
 }
 
-func createEmptyHnswIndexForTests(t *testing.T, vecForIDFn VectorForID) *hnsw {
+func createEmptyHnswIndexForTests(t testing.TB, vecForIDFn VectorForID) *hnsw {
 	// mock out commit logger before adding data so we don't leave a disk
 	// footprint. Commit logging and deserializing from a (condensed) commit log
 	// is tested in a separate integration test that takes care of providing and

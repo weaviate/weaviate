@@ -28,6 +28,7 @@ func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 		ResourceName: settings.ResourceName(),
 		DeploymentID: settings.DeploymentID(),
 		IsAzure:      settings.IsAzure(),
+		BaseURL:      settings.BaseURL(),
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "remote client vectorize")

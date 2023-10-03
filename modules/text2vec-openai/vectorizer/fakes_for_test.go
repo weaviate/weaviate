@@ -55,6 +55,7 @@ type fakeSettings struct {
 	openAIModelVersion string
 	resourceName       string
 	deploymentID       string
+	baseURL            string
 	isAzure            bool
 }
 
@@ -92,4 +93,28 @@ func (f *fakeSettings) DeploymentID() string {
 
 func (f *fakeSettings) IsAzure() bool {
 	return f.isAzure
+}
+
+func (f *fakeSettings) BaseURL() string {
+	return f.baseURL
+}
+
+type fakeClassConfig struct {
+	classConfig map[string]interface{}
+}
+
+func (f fakeClassConfig) Class() map[string]interface{} {
+	return f.classConfig
+}
+
+func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+	return f.classConfig
+}
+
+func (f fakeClassConfig) Property(propName string) map[string]interface{} {
+	return nil
+}
+
+func (f fakeClassConfig) Tenant() string {
+	return ""
 }

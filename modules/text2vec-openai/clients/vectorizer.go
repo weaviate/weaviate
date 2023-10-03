@@ -59,7 +59,8 @@ func buildUrl(config ent.VectorizationConfig) (string, error) {
 		queryParam := "api-version=2022-12-01"
 		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil
 	}
-	host := "https://api.openai.com"
+
+	host := config.BaseURL
 	path := "/v1/embeddings"
 	return url.JoinPath(host, path)
 }
