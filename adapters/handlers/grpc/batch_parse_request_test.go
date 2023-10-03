@@ -212,7 +212,8 @@ func TestGRPCBatchRequest(t *testing.T) {
 									NonRefProperties: newStruct(t, map[string]interface{}{"name": "something"}),
 								},
 							}},
-						}},
+						},
+					},
 				},
 			}}},
 			out: []*models.Object{{Class: collection, ID: UUID4, Properties: map[string]interface{}{
@@ -252,7 +253,8 @@ func TestGRPCBatchRequest(t *testing.T) {
 									},
 								}},
 							},
-						}},
+						},
+					},
 				},
 			}}},
 			out: []*models.Object{{Class: collection, ID: UUID4, Properties: map[string]interface{}{
