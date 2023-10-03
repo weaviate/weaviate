@@ -327,6 +327,39 @@ func TestIndexQueue(t *testing.T) {
 		// only the first two are used for brute force search
 		require.Equal(t, []uint64{2, 1}, res)
 	})
+
+	t.Run("stale vectors", func(t *testing.T) {
+		var idx mockBatchIndexer
+		closeCh := make(chan struct{})
+		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
+			close(closeCh)
+			return nil
+		}
+
+		q, err := NewIndexQueue(&idx, startWorker(t), IndexQueueOptions{
+			BatchSize:     5,
+			StaleTimeout:  100 * time.Millisecond,
+			IndexInterval: 10 * time.Millisecond,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		for i := uint64(0); i < 3; i++ {
+			err = q.Push(ctx, vectorDescriptor{
+				id:     i + 1,
+				vector: []float32{1, 2, 3},
+			})
+			require.NoError(t, err)
+		}
+
+		select {
+		case <-closeCh:
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("should have been indexed after 100ms")
+		}
+
+		require.EqualValues(t, []uint64{1, 2, 3}, idx.IDs())
+	})
 }
 
 func BenchmarkPush(b *testing.B) {
