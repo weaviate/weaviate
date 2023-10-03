@@ -24,24 +24,24 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/search"
-	pb "github.com/weaviate/weaviate/grpc"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.GetParams, scheme schema.Schema) (*pb.SearchReply, error) {
+func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.GetParams, scheme schema.Schema) (*pb.SearchReplyV1, error) {
 	tookSeconds := float64(time.Since(start)) / float64(time.Second)
-	out := &pb.SearchReply{
+	out := &pb.SearchReplyV1{
 		Took: float32(tookSeconds),
 	}
 
 	if searchParams.GroupBy != nil {
-		out.GroupByResults = make([]*pb.GroupByResults, len(res))
+		out.GroupByResults = make([]*pb.GroupByResult, len(res))
 		for i, raw := range res {
 			group, generativeGroupResponse, err := extractGroup(raw, searchParams, scheme)
 			if err != nil {
 				return nil, err
 			}
-			out.GenerativeGroupedResult = generativeGroupResponse
+			out.GenerativeGroupedResult = &generativeGroupResponse
 			out.GroupByResults[i] = group
 		}
 	} else {
@@ -49,7 +49,7 @@ func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.G
 		if err != nil {
 			return nil, err
 		}
-		out.GenerativeGroupedResult = generativeGroupResponse
+		out.GenerativeGroupedResult = &generativeGroupResponse
 		out.Results = objects
 	}
 	return out, nil
@@ -80,8 +80,8 @@ func extractObjectsToResults(res []interface{}, searchParams dto.GetParams, sche
 		}
 
 		result := &pb.SearchResult{
-			Properties:           props,
-			AdditionalProperties: additionalProps,
+			Properties: props,
+			Metadata:   additionalProps,
 		}
 
 		results[i] = result
@@ -89,11 +89,11 @@ func extractObjectsToResults(res []interface{}, searchParams dto.GetParams, sche
 	return results, generativeGroupResultsReturn, nil
 }
 
-func extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, firstObject, fromGroup bool) (*pb.ResultAdditionalProps, string, error) {
+func extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, firstObject, fromGroup bool) (*pb.MetadataResult, string, error) {
 	err := errors.New("could not extract additional prop")
 	_, generativeSearchEnabled := additionalPropsParams.ModuleParams["generate"]
 
-	additionalProps := &pb.ResultAdditionalProps{}
+	additionalProps := &pb.MetadataResult{}
 	if additionalPropsParams.ID && !generativeSearchEnabled && !fromGroup {
 		idRaw, ok := asMap["id"]
 		if !ok {
@@ -261,7 +261,7 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 	return additionalProps, generativeGroupResults, nil
 }
 
-func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema) (*pb.GroupByResults, string, error) {
+func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema) (*pb.GroupByResult, string, error) {
 	asMap, ok := raw.(map[string]interface{})
 	if !ok {
 		return nil, "", fmt.Errorf("cannot parse result %v", raw)
@@ -304,15 +304,15 @@ func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema) (*p
 		return nil, "", errors.Wrap(err, "extracting hits from group")
 	}
 
-	ret := &pb.GroupByResults{Name: group.GroupedBy.Value, MaxDistance: group.MaxDistance, MinDistance: group.MinDistance, NumberOfObjects: int64(group.Count), Objects: objects}
+	ret := &pb.GroupByResult{Name: group.GroupedBy.Value, MaxDistance: group.MaxDistance, MinDistance: group.MinDistance, NumberOfObjects: int64(group.Count), Objects: objects}
 
 	return ret, groupedGenerativeResults, nil
 }
 
-func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.ResultProperties, error) {
-	props := pb.ResultProperties{}
+func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
+	props := pb.PropertiesResult{}
 	nonRefProps := make(map[string]interface{}, 0)
-	refProps := make([]*pb.ReturnRefProperties, 0)
+	refProps := make([]*pb.RefPropertiesResult, 0)
 	for _, prop := range properties {
 		propRaw, ok := results[prop.Name]
 		if !ok {
@@ -326,7 +326,7 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 		if !ok {
 			continue
 		}
-		extractedRefProps := make([]*pb.ResultProperties, 0, len(refs))
+		extractedRefProps := make([]*pb.PropertiesResult, 0, len(refs))
 		for _, ref := range refs {
 			refLocal, ok := ref.(search.LocalRef)
 			if !ok {
@@ -344,7 +344,7 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 			extractedRefProps = append(extractedRefProps, extractedRefProp)
 		}
 
-		refProp := pb.ReturnRefProperties{PropName: prop.Name, Properties: extractedRefProps}
+		refProp := pb.RefPropertiesResult{PropName: prop.Name, Properties: extractedRefProps}
 		refProps = append(refProps, &refProp)
 	}
 
@@ -362,13 +362,13 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 		props.RefProps = refProps
 	}
 
-	props.ClassName = className
+	props.TargetCollection = className
 
 	return &props, nil
 }
 
 // slices cannot be part of a grpc struct, so we need to handle each of them separately
-func extractArrayTypes(scheme schema.Schema, className string, props *pb.ResultProperties, nonRefProps map[string]interface{}) error {
+func extractArrayTypes(scheme schema.Schema, className string, props *pb.PropertiesResult, nonRefProps map[string]interface{}) error {
 	class := scheme.GetClass(schema.ClassName(className))
 	for propName, prop := range nonRefProps {
 		dataType, err := schema.GetPropertyDataType(class, propName)

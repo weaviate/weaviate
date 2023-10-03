@@ -2,7 +2,6 @@
 # Read docs/development.md for more information
 # vi: ft=dockerfile
 
-
 ###############################################################################
 # Base build image
 FROM golang:1.20-alpine AS build_base
@@ -32,9 +31,18 @@ COPY . .
 ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 
 ###############################################################################
+# This image gets grpc health check probe
+FROM build_base AS grpc_health_probe_builder
+ARG TARGETARCH
+RUN GRPC_HEALTH_PROBE_VERSION=v0.4.19 && \
+      wget -qO/bin/grpc_health_probe https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${GRPC_HEALTH_PROBE_VERSION}/grpc_health_probe-linux-${TARGETARCH} && \
+      chmod +x /bin/grpc_health_probe
+
+###############################################################################
 # Weaviate (no differentiation between dev/test/prod - 12 factor!)
 FROM alpine AS weaviate
 ENTRYPOINT ["/bin/weaviate"]
+COPY --from=grpc_health_probe_builder /bin/grpc_health_probe /bin/
 COPY --from=server_builder /weaviate-server /bin/weaviate
 RUN apk add --no-cache --upgrade ca-certificates openssl
 RUN mkdir ./modules

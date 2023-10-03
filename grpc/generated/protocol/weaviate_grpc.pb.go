@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package grpc
+package protocol
 
 import (
 	context "context"
@@ -29,6 +29,7 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type WeaviateClient interface {
 	Search(ctx context.Context, in *SearchRequest, opts ...grpc.CallOption) (*SearchReply, error)
+	SearchV1(ctx context.Context, in *SearchRequestV1, opts ...grpc.CallOption) (*SearchReplyV1, error)
 	BatchObjects(ctx context.Context, in *BatchObjectsRequest, opts ...grpc.CallOption) (*BatchObjectsReply, error)
 }
 
@@ -49,6 +50,15 @@ func (c *weaviateClient) Search(ctx context.Context, in *SearchRequest, opts ...
 	return out, nil
 }
 
+func (c *weaviateClient) SearchV1(ctx context.Context, in *SearchRequestV1, opts ...grpc.CallOption) (*SearchReplyV1, error) {
+	out := new(SearchReplyV1)
+	err := c.cc.Invoke(ctx, "/weaviategrpc.Weaviate/SearchV1", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *weaviateClient) BatchObjects(ctx context.Context, in *BatchObjectsRequest, opts ...grpc.CallOption) (*BatchObjectsReply, error) {
 	out := new(BatchObjectsReply)
 	err := c.cc.Invoke(ctx, "/weaviategrpc.Weaviate/BatchObjects", in, out, opts...)
@@ -63,6 +73,7 @@ func (c *weaviateClient) BatchObjects(ctx context.Context, in *BatchObjectsReque
 // for forward compatibility
 type WeaviateServer interface {
 	Search(context.Context, *SearchRequest) (*SearchReply, error)
+	SearchV1(context.Context, *SearchRequestV1) (*SearchReplyV1, error)
 	BatchObjects(context.Context, *BatchObjectsRequest) (*BatchObjectsReply, error)
 	mustEmbedUnimplementedWeaviateServer()
 }
@@ -72,6 +83,10 @@ type UnimplementedWeaviateServer struct{}
 
 func (UnimplementedWeaviateServer) Search(context.Context, *SearchRequest) (*SearchReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Search not implemented")
+}
+
+func (UnimplementedWeaviateServer) SearchV1(context.Context, *SearchRequestV1) (*SearchReplyV1, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SearchV1 not implemented")
 }
 
 func (UnimplementedWeaviateServer) BatchObjects(context.Context, *BatchObjectsRequest) (*BatchObjectsReply, error) {
@@ -108,6 +123,24 @@ func _Weaviate_Search_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Weaviate_SearchV1_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SearchRequestV1)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeaviateServer).SearchV1(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/weaviategrpc.Weaviate/SearchV1",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeaviateServer).SearchV1(ctx, req.(*SearchRequestV1))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Weaviate_BatchObjects_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(BatchObjectsRequest)
 	if err := dec(in); err != nil {
@@ -136,6 +169,10 @@ var Weaviate_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Search",
 			Handler:    _Weaviate_Search_Handler,
+		},
+		{
+			MethodName: "SearchV1",
+			Handler:    _Weaviate_SearchV1_Handler,
 		},
 		{
 			MethodName: "BatchObjects",
