@@ -43,37 +43,7 @@ func batchFromProto(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*model
 		class := scheme.GetClass(schema.ClassName(obj.Collection))
 		var props map[string]interface{}
 		if obj.Properties != nil {
-			if obj.Properties.NonRefProperties != nil {
-				props = obj.Properties.NonRefProperties.AsMap()
-			} else {
-				props = make(map[string]interface{})
-			}
-
-			// arrays cannot be part of a GRPC map, so we need to handle each type separately
-			if obj.Properties.BooleanArrayProperties != nil {
-				for j := range obj.Properties.BooleanArrayProperties {
-					props[obj.Properties.BooleanArrayProperties[j].PropName] = sliceToInterface(obj.Properties.BooleanArrayProperties[j].Values)
-				}
-			}
-
-			if obj.Properties.NumberArrayProperties != nil {
-				for j := range obj.Properties.NumberArrayProperties {
-					props[obj.Properties.NumberArrayProperties[j].PropName] = sliceToInterface(obj.Properties.NumberArrayProperties[j].Values)
-				}
-			}
-
-			if obj.Properties.TextArrayProperties != nil {
-				for j := range obj.Properties.TextArrayProperties {
-					props[obj.Properties.TextArrayProperties[j].PropName] = sliceToInterface(obj.Properties.TextArrayProperties[j].Values)
-				}
-			}
-
-			if obj.Properties.IntArrayProperties != nil {
-				for j := range obj.Properties.IntArrayProperties {
-					props[obj.Properties.IntArrayProperties[j].PropName] = sliceToInterface(obj.Properties.IntArrayProperties[j].Values)
-				}
-			}
-
+			props = extractPrimitiveProperties(obj.Properties)
 			if err := extractSingleRefTarget(class, obj, props); err != nil {
 				objectErrors[i] = err
 				continue
@@ -139,4 +109,56 @@ func extractMultiRefTarget(class *models.Class, obj *pb.BatchObject, props map[s
 		props[propName] = beacons
 	}
 	return nil
+}
+
+func extractPrimitiveProperties(properties *pb.BatchObject_Properties) map[string]interface{} {
+	var props map[string]interface{}
+	if properties.NonRefProperties != nil {
+		props = properties.NonRefProperties.AsMap()
+	} else {
+		props = make(map[string]interface{})
+	}
+
+	// arrays cannot be part of a GRPC map, so we need to handle each type separately
+	if properties.BooleanArrayProperties != nil {
+		for j := range properties.BooleanArrayProperties {
+			props[properties.BooleanArrayProperties[j].PropName] = sliceToInterface(properties.BooleanArrayProperties[j].Values)
+		}
+	}
+
+	if properties.NumberArrayProperties != nil {
+		for j := range properties.NumberArrayProperties {
+			props[properties.NumberArrayProperties[j].PropName] = sliceToInterface(properties.NumberArrayProperties[j].Values)
+		}
+	}
+
+	if properties.TextArrayProperties != nil {
+		for j := range properties.TextArrayProperties {
+			props[properties.TextArrayProperties[j].PropName] = sliceToInterface(properties.TextArrayProperties[j].Values)
+		}
+	}
+
+	if properties.IntArrayProperties != nil {
+		for j := range properties.IntArrayProperties {
+			props[properties.IntArrayProperties[j].PropName] = sliceToInterface(properties.IntArrayProperties[j].Values)
+		}
+	}
+
+	if properties.ObjectProperties != nil {
+		for j := range properties.ObjectProperties {
+			props[properties.ObjectProperties[j].PropName] = extractPrimitiveProperties(properties.ObjectProperties[j].Value)
+		}
+	}
+
+	if properties.ObjectArrayProperties != nil {
+		for j := range properties.ObjectArrayProperties {
+			nested := make([]interface{}, len(properties.ObjectArrayProperties[j].Values))
+			for k := range properties.ObjectArrayProperties[j].Values {
+				nested[k] = extractPrimitiveProperties(properties.ObjectArrayProperties[j].Values[k])
+			}
+			props[properties.ObjectArrayProperties[j].PropName] = nested
+		}
+	}
+
+	return props
 }

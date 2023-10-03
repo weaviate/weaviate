@@ -197,6 +197,73 @@ func TestGRPCBatchRequest(t *testing.T) {
 			}}},
 		},
 		{
+			name: "object props",
+			req: []*pb.BatchObject{{Collection: collection, Uuid: UUID4, Properties: &pb.BatchObject_Properties{
+				ObjectProperties: []*pb.BatchObject_ObjectProperties{
+					{
+						PropName: "simpleObj", Value: &pb.BatchObject_Properties{
+							NonRefProperties: newStruct(t, map[string]interface{}{"name": "something"}),
+						},
+					},
+					{
+						PropName: "nestedObj", Value: &pb.BatchObject_Properties{
+							ObjectProperties: []*pb.BatchObject_ObjectProperties{{
+								PropName: "obj", Value: &pb.BatchObject_Properties{
+									NonRefProperties: newStruct(t, map[string]interface{}{"name": "something"}),
+								},
+							}},
+						}},
+				},
+			}}},
+			out: []*models.Object{{Class: collection, ID: UUID4, Properties: map[string]interface{}{
+				"simpleObj": map[string]interface{}{"name": "something"},
+				"nestedObj": map[string]interface{}{
+					"obj": map[string]interface{}{"name": "something"},
+				},
+			}}},
+		},
+		{
+			name: "object array props",
+			req: []*pb.BatchObject{{Collection: collection, Uuid: UUID4, Properties: &pb.BatchObject_Properties{
+				ObjectArrayProperties: []*pb.BatchObject_ObjectArrayProperties{
+					{
+						PropName: "simpleObjs", Values: []*pb.BatchObject_Properties{
+							{
+								NonRefProperties: newStruct(t, map[string]interface{}{"name": "something"}),
+							},
+							{
+								NonRefProperties: newStruct(t, map[string]interface{}{"name": "something else"}),
+							},
+						},
+					},
+					{
+						PropName: "nestedObjs", Values: []*pb.BatchObject_Properties{
+							{
+								ObjectProperties: []*pb.BatchObject_ObjectProperties{{
+									PropName: "obj", Value: &pb.BatchObject_Properties{
+										NonRefProperties: newStruct(t, map[string]interface{}{"name": "something"}),
+									},
+								}},
+							},
+							{
+								ObjectProperties: []*pb.BatchObject_ObjectProperties{{
+									PropName: "obj", Value: &pb.BatchObject_Properties{
+										NonRefProperties: newStruct(t, map[string]interface{}{"name": "something else"}),
+									},
+								}},
+							},
+						}},
+				},
+			}}},
+			out: []*models.Object{{Class: collection, ID: UUID4, Properties: map[string]interface{}{
+				"simpleObjs": []interface{}{map[string]interface{}{"name": "something"}, map[string]interface{}{"name": "something else"}},
+				"nestedObjs": []interface{}{
+					map[string]interface{}{"obj": map[string]interface{}{"name": "something"}},
+					map[string]interface{}{"obj": map[string]interface{}{"name": "something else"}},
+				},
+			}}},
+		},
+		{
 			name:      "mix of errors and no errors",
 			req:       []*pb.BatchObject{{Collection: collection, Uuid: UUID4}, {Collection: collection}, {Collection: collection}, {Collection: collection, Uuid: UUID3}},
 			out:       []*models.Object{{Class: collection, Properties: nilMap, ID: UUID4}, {Class: collection, Properties: nilMap, ID: UUID3}},
