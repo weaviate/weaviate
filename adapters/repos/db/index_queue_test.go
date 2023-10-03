@@ -47,6 +47,14 @@ func startWorker(t testing.TB, retryInterval ...time.Duration) chan job {
 	return ch
 }
 
+func pushVector(t testing.TB, ctx context.Context, q *IndexQueue, id uint64, vector ...float32) {
+	err := q.Push(ctx, vectorDescriptor{
+		id:     id,
+		vector: vector,
+	})
+	require.NoError(t, err)
+}
+
 func TestIndexQueue(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -68,22 +76,14 @@ func TestIndexQueue(t *testing.T) {
 		require.NoError(t, err)
 		defer q.Close()
 
-		err = q.Push(ctx, vectorDescriptor{
-			id:     1,
-			vector: []float32{1, 2, 3},
-		})
-		require.NoError(t, err)
+		pushVector(t, ctx, q, 1, 1, 2, 3)
 		select {
 		case <-idsCh:
 			t.Fatal("should not have been called")
 		case <-time.After(100 * time.Millisecond):
 		}
 
-		err = q.Push(ctx, vectorDescriptor{
-			id:     2,
-			vector: []float32{4, 5, 6},
-		})
-		require.NoError(t, err)
+		pushVector(t, ctx, q, 2, 4, 5, 6)
 		ids := <-idsCh
 
 		require.Equal(t, []uint64{1, 2}, ids)
@@ -103,22 +103,14 @@ func TestIndexQueue(t *testing.T) {
 		require.NoError(t, err)
 		defer q.Close()
 
-		err = q.Push(ctx, vectorDescriptor{
-			id:     1,
-			vector: []float32{1, 2, 3},
-		})
-		require.NoError(t, err)
+		pushVector(t, ctx, q, 1, 1, 2, 3)
 		select {
 		case <-called:
 			t.Fatal("should not have been called")
 		case <-time.After(100 * time.Millisecond):
 		}
 
-		err = q.Push(ctx, vectorDescriptor{
-			id:     2,
-			vector: []float32{4, 5, 6},
-		})
-		require.NoError(t, err)
+		pushVector(t, ctx, q, 2, 4, 5, 6)
 
 		select {
 		case <-called:
@@ -147,11 +139,7 @@ func TestIndexQueue(t *testing.T) {
 		require.NoError(t, err)
 		defer q.Close()
 
-		err = q.Push(ctx, vectorDescriptor{
-			id:     1,
-			vector: []float32{1, 2, 3},
-		})
-		require.NoError(t, err)
+		pushVector(t, ctx, q, 1, 1, 2, 3)
 		<-called
 	})
 
@@ -169,26 +157,10 @@ func TestIndexQueue(t *testing.T) {
 		require.NoError(t, err)
 		defer q.Close()
 
-		err = q.Push(ctx, vectorDescriptor{
-			id:     1,
-			vector: []float32{1, 2, 3},
-		})
-		require.NoError(t, err)
-		err = q.Push(ctx, vectorDescriptor{
-			id:     2,
-			vector: []float32{4, 5, 6},
-		})
-		require.NoError(t, err)
-		err = q.Push(ctx, vectorDescriptor{
-			id:     3,
-			vector: []float32{7, 8, 9},
-		})
-		require.NoError(t, err)
-		err = q.Push(ctx, vectorDescriptor{
-			id:     4,
-			vector: []float32{1, 2, 3},
-		})
-		require.NoError(t, err)
+		pushVector(t, ctx, q, 1, 1, 2, 3)
+		pushVector(t, ctx, q, 2, 4, 5, 6)
+		pushVector(t, ctx, q, 3, 7, 8, 9)
+		pushVector(t, ctx, q, 4, 1, 2, 3)
 
 		<-called
 		res, _, err := q.SearchByVector([]float32{1, 2, 3}, 2, nil)
@@ -211,11 +183,7 @@ func TestIndexQueue(t *testing.T) {
 		defer q.Close()
 
 		for i := uint64(0); i < 101; i++ {
-			err = q.Push(ctx, vectorDescriptor{
-				id:     i + 1,
-				vector: []float32{1, 2, 3},
-			})
-			require.NoError(t, err)
+			pushVector(t, ctx, q, i+1, 1, 2, 3)
 		}
 
 		time.Sleep(10 * time.Millisecond)
@@ -243,11 +211,7 @@ func TestIndexQueue(t *testing.T) {
 		defer q.Close()
 
 		for i := uint64(0); i < 20; i++ {
-			err = q.Push(ctx, vectorDescriptor{
-				id:     i,
-				vector: []float32{1, 2, 3},
-			})
-			require.NoError(t, err)
+			pushVector(t, ctx, q, i, 1, 2, 3)
 		}
 
 		err = q.Delete(5, 10, 15)
@@ -300,26 +264,10 @@ func TestIndexQueue(t *testing.T) {
 		require.NoError(t, err)
 		defer q.Close()
 
-		err = q.Push(ctx, vectorDescriptor{
-			id:     1,
-			vector: []float32{1, 2, 3},
-		})
-		require.NoError(t, err)
-		err = q.Push(ctx, vectorDescriptor{
-			id:     2,
-			vector: []float32{4, 5, 6},
-		})
-		require.NoError(t, err)
-		err = q.Push(ctx, vectorDescriptor{
-			id:     3,
-			vector: []float32{7, 8, 9},
-		})
-		require.NoError(t, err)
-		err = q.Push(ctx, vectorDescriptor{
-			id:     4,
-			vector: []float32{1, 2, 3},
-		})
-		require.NoError(t, err)
+		pushVector(t, ctx, q, 1, 1, 2, 3)
+		pushVector(t, ctx, q, 2, 4, 5, 6)
+		pushVector(t, ctx, q, 3, 7, 8, 9)
+		pushVector(t, ctx, q, 4, 1, 2, 3)
 
 		res, _, err := q.SearchByVector([]float32{7, 8, 9}, 2, nil)
 		require.NoError(t, err)
@@ -345,11 +293,7 @@ func TestIndexQueue(t *testing.T) {
 		defer q.Close()
 
 		for i := uint64(0); i < 3; i++ {
-			err = q.Push(ctx, vectorDescriptor{
-				id:     i + 1,
-				vector: []float32{1, 2, 3},
-			})
-			require.NoError(t, err)
+			pushVector(t, ctx, q, i+1, 1, 2, 3)
 		}
 
 		select {
