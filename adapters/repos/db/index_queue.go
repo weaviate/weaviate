@@ -21,13 +21,15 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 // IndexQueue is an in-memory queue of vectors to index.
 // It batches vectors together before sending them to the indexing workers.
 // It is safe to use concurrently.
 type IndexQueue struct {
-	Index BatchIndexer
+	Shard shardStatusUpdater
+	Index batchIndexer
 
 	IndexQueueOptions
 
@@ -75,16 +77,20 @@ type IndexQueueOptions struct {
 	BruteForceSearchLimit int
 }
 
-type BatchIndexer interface {
+type batchIndexer interface {
 	AddBatch(id []uint64, vector [][]float32) error
 	SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
 	DistanceBetweenVectors(x, y []float32) (float32, bool, error)
 	ContainsNode(id uint64) bool
 	Delete(id ...uint64) error
 }
+type shardStatusUpdater interface {
+	compareAndSwapStatus(old, new string) (storagestate.Status, error)
+}
 
 func NewIndexQueue(
-	index BatchIndexer,
+	shard shardStatusUpdater,
+	index batchIndexer,
 	centralJobQueue chan job,
 	opts IndexQueueOptions,
 ) (*IndexQueue, error) {
@@ -106,11 +112,12 @@ func NewIndexQueue(
 	}
 
 	if opts.StaleTimeout == 0 {
-		opts.StaleTimeout = 10 * time.Minute
+		opts.StaleTimeout = 1 * time.Minute
 	}
 
 	q := IndexQueue{
 		IndexQueueOptions: opts,
+		Shard:             shard,
 		Index:             index,
 		queue:             newVectorQueue(opts.BatchSize, opts.StaleTimeout),
 		indexCh:           centralJobQueue,
@@ -231,7 +238,16 @@ func (q *IndexQueue) indexer() {
 	for {
 		select {
 		case <-t.C:
-			err := q.pushToWorkers()
+			if q.Size() == 0 {
+				_, _ = q.Shard.compareAndSwapStatus(storagestate.StatusIndexing.String(), storagestate.StatusReady.String())
+				continue
+			}
+			status, err := q.Shard.compareAndSwapStatus(storagestate.StatusReady.String(), storagestate.StatusIndexing.String())
+			if status != storagestate.StatusIndexing || err != nil {
+				q.Logger.WithField("status", status).WithError(err).Error("failed to set shard status to indexing")
+				continue
+			}
+			err = q.pushToWorkers()
 			if err != nil {
 				q.Logger.WithError(err).Error("failed to index vectors")
 				return
@@ -422,8 +438,8 @@ func (q *vectorQueue) Add(vectors []vectorDescriptor) {
 		full = append(full, f)
 	}
 
-	curBatch := q.curBatch.c
 	for len(vectors) != 0 {
+		curBatch := q.curBatch.c
 		n := copy(curBatch.data[curBatch.cursor:], vectors)
 		curBatch.cursor += n
 

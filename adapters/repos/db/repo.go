@@ -279,7 +279,7 @@ type job struct {
 
 	// async only
 	chunk   *chunk
-	indexer BatchIndexer
+	indexer batchIndexer
 	queue   *vectorQueue
 }
 
