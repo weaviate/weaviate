@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/searchparams"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -25,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/grpc"
 	addModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -94,9 +94,9 @@ func TestGRPCReply(t *testing.T) {
 		name          string
 		res           []any
 		searchParams  dto.GetParams // only a few things are needed to control what is returned
-		outSearch     []*grpc.SearchResult
+		outSearch     []*pb.SearchResult
 		outGenerative string
-		outGroup      []*grpc.GroupByResults
+		outGroup      []*pb.GroupByResult
 	}{
 		{
 			name: "vector only",
@@ -109,9 +109,9 @@ func TestGRPCReply(t *testing.T) {
 				},
 			},
 			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{Vector: true}},
-			outSearch: []*grpc.SearchResult{
-				{AdditionalProperties: &grpc.ResultAdditionalProps{Vector: []float32{1}}, Properties: &grpc.ResultProperties{}},
-				{AdditionalProperties: &grpc.ResultAdditionalProps{Vector: []float32{2}}, Properties: &grpc.ResultProperties{}},
+			outSearch: []*pb.SearchResult{
+				{Metadata: &pb.MetadataResult{Vector: []float32{1}}, Properties: &pb.PropertiesResult{}},
+				{Metadata: &pb.MetadataResult{Vector: []float32{2}}, Properties: &pb.PropertiesResult{}},
 			},
 		},
 		{
@@ -145,9 +145,9 @@ func TestGRPCReply(t *testing.T) {
 				},
 			},
 			searchParams: allAdditional,
-			outSearch: []*grpc.SearchResult{
+			outSearch: []*pb.SearchResult{
 				{
-					AdditionalProperties: &grpc.ResultAdditionalProps{
+					Metadata: &pb.MetadataResult{
 						Vector:                    []float32{1},
 						Id:                        string(UUID1),
 						Certainty:                 0.4,
@@ -164,10 +164,10 @@ func TestGRPCReply(t *testing.T) {
 						ScorePresent:              true,
 						IsConsistent:              &truePointer,
 					},
-					Properties: &grpc.ResultProperties{},
+					Properties: &pb.PropertiesResult{},
 				},
 				{
-					AdditionalProperties: &grpc.ResultAdditionalProps{
+					Metadata: &pb.MetadataResult{
 						Vector:                    []float32{2},
 						Id:                        string(UUID2),
 						Certainty:                 0.5,
@@ -184,7 +184,7 @@ func TestGRPCReply(t *testing.T) {
 						ScorePresent:              true,
 						IsConsistent:              &truePointer,
 					},
-					Properties: &grpc.ResultProperties{},
+					Properties: &pb.PropertiesResult{},
 				},
 			},
 		},
@@ -204,11 +204,11 @@ func TestGRPCReply(t *testing.T) {
 				ClassName:  className,
 				Properties: search.SelectProperties{{Name: "word", IsPrimitive: true}, {Name: "age", IsPrimitive: true}},
 			},
-			outSearch: []*grpc.SearchResult{
+			outSearch: []*pb.SearchResult{
 				{
-					AdditionalProperties: &grpc.ResultAdditionalProps{},
-					Properties: &grpc.ResultProperties{
-						ClassName: className,
+					Metadata: &pb.MetadataResult{},
+					Properties: &pb.PropertiesResult{
+						TargetCollection: className,
 						NonRefProperties: newStruct(t, map[string]interface{}{
 							"word": "word",
 							"age":  21,
@@ -216,9 +216,9 @@ func TestGRPCReply(t *testing.T) {
 					},
 				},
 				{
-					AdditionalProperties: &grpc.ResultAdditionalProps{},
-					Properties: &grpc.ResultProperties{
-						ClassName: className,
+					Metadata: &pb.MetadataResult{},
+					Properties: &pb.PropertiesResult{
+						TargetCollection: className,
 						NonRefProperties: newStruct(t, map[string]interface{}{
 							"word": "other",
 							"age":  26,
@@ -236,13 +236,13 @@ func TestGRPCReply(t *testing.T) {
 				ClassName:  className,
 				Properties: search.SelectProperties{{Name: "nums", IsPrimitive: true}},
 			},
-			outSearch: []*grpc.SearchResult{
+			outSearch: []*pb.SearchResult{
 				{
-					AdditionalProperties: &grpc.ResultAdditionalProps{},
-					Properties: &grpc.ResultProperties{
-						ClassName:          className,
+					Metadata: &pb.MetadataResult{},
+					Properties: &pb.PropertiesResult{
+						TargetCollection:   className,
 						NonRefProperties:   newStruct(t, map[string]interface{}{}),
-						IntArrayProperties: []*grpc.IntArrayProperties{{PropName: "nums", Values: []int64{1, 2, 3}}},
+						IntArrayProperties: []*pb.IntArrayProperties{{PropName: "nums", Values: []int64{1, 2, 3}}},
 					},
 				},
 			},
@@ -288,20 +288,20 @@ func TestGRPCReply(t *testing.T) {
 					}},
 				},
 			},
-			outSearch: []*grpc.SearchResult{
+			outSearch: []*pb.SearchResult{
 				{
-					AdditionalProperties: &grpc.ResultAdditionalProps{},
-					Properties: &grpc.ResultProperties{
-						ClassName: className,
+					Metadata: &pb.MetadataResult{},
+					Properties: &pb.PropertiesResult{
+						TargetCollection: className,
 						NonRefProperties: newStruct(t, map[string]interface{}{
 							"word": "word",
 						}),
-						RefProps: []*grpc.ReturnRefProperties{{
+						RefProps: []*pb.RefPropertiesResult{{
 							PropName: "ref",
-							Properties: []*grpc.ResultProperties{
+							Properties: []*pb.PropertiesResult{
 								{
-									ClassName:        refClass1,
-									Metadata:         &grpc.ResultAdditionalProps{Vector: []float32{3}},
+									TargetCollection: refClass1,
+									Metadata:         &pb.MetadataResult{Vector: []float32{3}},
 									NonRefProperties: newStruct(t, map[string]interface{}{"something": "other"}),
 								},
 							},
@@ -309,18 +309,18 @@ func TestGRPCReply(t *testing.T) {
 					},
 				},
 				{
-					AdditionalProperties: &grpc.ResultAdditionalProps{},
-					Properties: &grpc.ResultProperties{
-						ClassName: className,
+					Metadata: &pb.MetadataResult{},
+					Properties: &pb.PropertiesResult{
+						TargetCollection: className,
 						NonRefProperties: newStruct(t, map[string]interface{}{
 							"word": "other",
 						}),
-						RefProps: []*grpc.ReturnRefProperties{{
+						RefProps: []*pb.RefPropertiesResult{{
 							PropName: "ref",
-							Properties: []*grpc.ResultProperties{
+							Properties: []*pb.PropertiesResult{
 								{
-									ClassName:        refClass1,
-									Metadata:         &grpc.ResultAdditionalProps{Vector: []float32{4}},
+									TargetCollection: refClass1,
+									Metadata:         &pb.MetadataResult{Vector: []float32{4}},
 									NonRefProperties: newStruct(t, map[string]interface{}{"something": "thing"}),
 								},
 							},
@@ -349,22 +349,22 @@ func TestGRPCReply(t *testing.T) {
 				ID:           true,
 				ModuleParams: map[string]interface{}{"generate": "must be present for extraction"},
 			}},
-			outSearch: []*grpc.SearchResult{
+			outSearch: []*pb.SearchResult{
 				{
-					AdditionalProperties: &grpc.ResultAdditionalProps{
+					Metadata: &pb.MetadataResult{
 						Id:                string(UUID1),
 						Generative:        refClass1,
 						GenerativePresent: true,
 					},
-					Properties: &grpc.ResultProperties{},
+					Properties: &pb.PropertiesResult{},
 				},
 				{
-					AdditionalProperties: &grpc.ResultAdditionalProps{
+					Metadata: &pb.MetadataResult{
 						Id:                string(UUID2),
 						Generative:        refClass2,
 						GenerativePresent: true,
 					},
-					Properties: &grpc.ResultProperties{},
+					Properties: &pb.PropertiesResult{},
 				},
 			},
 		},
@@ -388,18 +388,18 @@ func TestGRPCReply(t *testing.T) {
 				ID:           true,
 				ModuleParams: map[string]interface{}{"generate": "must be present for extraction"},
 			}},
-			outSearch: []*grpc.SearchResult{
+			outSearch: []*pb.SearchResult{
 				{
-					AdditionalProperties: &grpc.ResultAdditionalProps{
+					Metadata: &pb.MetadataResult{
 						Id: string(UUID1),
 					},
-					Properties: &grpc.ResultProperties{},
+					Properties: &pb.PropertiesResult{},
 				},
 				{
-					AdditionalProperties: &grpc.ResultAdditionalProps{
+					Metadata: &pb.MetadataResult{
 						Id: string(UUID2),
 					},
-					Properties: &grpc.ResultProperties{},
+					Properties: &pb.PropertiesResult{},
 				},
 			},
 			outGenerative: refClass1,
@@ -443,37 +443,37 @@ func TestGRPCReply(t *testing.T) {
 				ID:     true,
 				Vector: true,
 			}, GroupBy: &searchparams.GroupBy{Groups: 3, ObjectsPerGroup: 4, Property: "name"}},
-			outGroup: []*grpc.GroupByResults{{
+			outGroup: []*pb.GroupByResult{{
 				Name:            "GroupByValue1",
 				MaxDistance:     0.2,
 				MinDistance:     0.1,
 				NumberOfObjects: 3,
-				Objects: []*grpc.SearchResult{
+				Objects: []*pb.SearchResult{
 					{
-						Properties: &grpc.ResultProperties{
+						Properties: &pb.PropertiesResult{
 							NonRefProperties: newStruct(t, map[string]interface{}{"word": "word"}),
-							RefProps: []*grpc.ReturnRefProperties{
+							RefProps: []*pb.RefPropertiesResult{
 								{
 									PropName: "other",
-									Properties: []*grpc.ResultProperties{
+									Properties: []*pb.PropertiesResult{
 										{
 											NonRefProperties: newStruct(t, map[string]interface{}{"something": "other"}),
-											Metadata:         &grpc.ResultAdditionalProps{Vector: []float32{2}, Id: UUID1.String()},
+											Metadata:         &pb.MetadataResult{Vector: []float32{2}, Id: UUID1.String()},
 										},
 									},
 								},
 							},
 						},
-						AdditionalProperties: &grpc.ResultAdditionalProps{
+						Metadata: &pb.MetadataResult{
 							Id:     string(UUID2),
 							Vector: []float32{3},
 						},
 					},
 					{
-						Properties: &grpc.ResultProperties{
+						Properties: &pb.PropertiesResult{
 							NonRefProperties: newStruct(t, map[string]interface{}{"word": "other"}),
 						},
-						AdditionalProperties: &grpc.ResultAdditionalProps{
+						Metadata: &pb.MetadataResult{
 							Id:     string(UUID1),
 							Vector: []float32{4},
 						},
@@ -489,9 +489,9 @@ func TestGRPCReply(t *testing.T) {
 			require.Nil(t, err)
 			for i := range tt.outSearch {
 				require.Equal(t, tt.outSearch[i].Properties.String(), out.Results[i].Properties.String())
-				require.Equal(t, tt.outSearch[i].AdditionalProperties.String(), out.Results[i].AdditionalProperties.String())
+				require.Equal(t, tt.outSearch[i].Metadata.String(), out.Results[i].Metadata.String())
 			}
-			require.Equal(t, out.GenerativeGroupedResult, tt.outGenerative)
+			require.Equal(t, *out.GenerativeGroupedResult, tt.outGenerative)
 		})
 	}
 }
