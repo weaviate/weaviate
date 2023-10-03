@@ -24,6 +24,7 @@ func TestStatusValidation(t *testing.T) {
 			"read only",
 			"ok",
 			"WRITEONLY",
+			"INDESKING",
 			"",
 		}
 
@@ -40,6 +41,7 @@ func TestStatusValidation(t *testing.T) {
 		}{
 			{"READONLY", StatusReadOnly},
 			{"READY", StatusReady},
+			{"INDEXING", StatusIndexing},
 		}
 
 		for _, test := range tests {
