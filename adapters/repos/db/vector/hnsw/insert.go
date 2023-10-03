@@ -95,6 +95,8 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 		h.compressedVectorsCache.preload(node.id, compressed)
 	} else {
 		h.cache.preload(node.id, nodeVec)
+		atomic.StoreInt32(&h.dims, int32(len(nodeVec)))
+		h.metrics.VectorInfo(int(h.dims), 0, h.distancerProvider.Type(), false)
 	}
 
 	// go h.insertHook(node.id, 0, node.connections)

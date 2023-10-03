@@ -93,6 +93,7 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 
 	h.compressed.Store(true)
 	h.cache.drop()
+	h.metrics.VectorInfo(int(h.dims), int(h.pq.ExposeFields().M), h.distancerProvider.Type(), true)
 	return nil
 }
 

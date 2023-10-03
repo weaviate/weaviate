@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -20,6 +21,7 @@ import (
 
 type Metrics struct {
 	enabled          bool
+	className        string
 	tombstones       prometheus.Gauge
 	threads          prometheus.Gauge
 	insert           prometheus.Gauge
@@ -32,6 +34,7 @@ type Metrics struct {
 	startupProgress  prometheus.Gauge
 	startupDurations prometheus.ObserverVec
 	startupDiskIO    prometheus.ObserverVec
+	info             prometheus.GaugeVec
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics,
@@ -40,6 +43,9 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 	if prom == nil {
 		return &Metrics{enabled: false}
 	}
+
+	// VectorInfo must have class granularity
+	info := prom.VectorInfo
 
 	if prom.Group {
 		className = "n/a"
@@ -114,6 +120,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 
 	return &Metrics{
 		enabled:          true,
+		className:        className,
 		tombstones:       tombstones,
 		threads:          threads,
 		cleaned:          cleaned,
@@ -126,6 +133,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		startupProgress:  startupProgress,
 		startupDurations: startupDurations,
 		startupDiskIO:    startupDiskIO,
+		info:             *info,
 	}
 }
 
@@ -191,6 +199,21 @@ func (m *Metrics) SetSize(size int) {
 	}
 
 	m.size.Set(float64(size))
+}
+
+func (m *Metrics) VectorInfo(dimensions int, segments int, metric string, pq bool) {
+	if !m.enabled {
+		return
+	}
+
+	m.info.DeletePartialMatch(prometheus.Labels{"class_name": m.className})
+	m.info.With(prometheus.Labels{
+		"class_name": m.className,
+		"dimensions": strconv.Itoa(dimensions),
+		"segments":   strconv.Itoa(segments),
+		"metric":     metric,
+		"pq":         strconv.FormatBool(pq),
+	}).Set(1)
 }
 
 func (m *Metrics) GrowDuration(start time.Time) {
@@ -264,4 +287,12 @@ func (m *Metrics) TrackStartupReadCommitlogDiskIO(read int64, nanoseconds int64)
 	seconds := float64(nanoseconds) / float64(time.Second)
 	throughput := float64(read) / float64(seconds)
 	m.startupDiskIO.With(prometheus.Labels{"operation": "hnsw_read_commitlog"}).Observe(throughput)
+}
+
+func (m *Metrics) Drop() {
+	if !m.enabled {
+		return
+	}
+
+	m.info.DeletePartialMatch(prometheus.Labels{"class_name": m.className})
 }

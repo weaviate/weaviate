@@ -634,6 +634,7 @@ func (h *hnsw) Drop(ctx context.Context) error {
 		h.cache.drop()
 	}
 
+	h.metrics.Drop()
 	// cancel commit logger last, as the tombstone cleanup cycle might still
 	// write while it's still running
 	err := h.commitLog.Drop(ctx)

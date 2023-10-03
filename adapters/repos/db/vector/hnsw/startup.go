@@ -17,6 +17,7 @@ import (
 	"encoding/binary"
 	"io"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -177,6 +178,7 @@ func (h *hnsw) tombstoneCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bo
 // getVectorForID.
 func (h *hnsw) PostStartup() {
 	h.prefillCache()
+	h.populateVectorInfo()
 }
 
 func (h *hnsw) prefillCache() {
@@ -217,4 +219,30 @@ func (h *hnsw) prefillCache() {
 			h.logger.WithError(err).Error("prefill vector cache")
 		}
 	}()
+}
+
+func (h *hnsw) populateVectorInfo() {
+	if h.isEmpty() {
+		return
+	}
+
+	segments := 0
+	compressed := h.compressed.Load()
+	dimensions := 0
+
+	if compressed {
+		segments = int(h.pq.ExposeFields().M)
+		dimensions = int(h.pq.ExposeFields().Dimensions)
+	} else {
+		vec, err := h.vectorForID(context.Background(), h.getEntrypoint())
+		if err != nil {
+			h.logger.Errorf("Failure retrieving entrypoint for metrics: %v", err)
+			return
+		}
+
+		dimensions = len(vec)
+	}
+
+	atomic.StoreInt32(&h.dims, int32(dimensions))
+	h.metrics.VectorInfo(dimensions, segments, h.distancerProvider.Type(), compressed)
 }

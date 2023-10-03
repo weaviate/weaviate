@@ -38,6 +38,7 @@ type PrometheusMetrics struct {
 	VectorIndexDurations               *prometheus.SummaryVec
 	VectorIndexSize                    *prometheus.GaugeVec
 	VectorIndexMaintenanceDurations    *prometheus.SummaryVec
+	VectorInfo                         *prometheus.GaugeVec
 	ObjectCount                        *prometheus.GaugeVec
 	QueriesCount                       *prometheus.GaugeVec
 	RequestsTotal                      *prometheus.GaugeVec
@@ -193,6 +194,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "vector_dimensions_sum",
 			Help: "Total dimensions in a shard",
 		}, []string{"class_name", "shard_name"}),
+		VectorInfo: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "vector_info",
+			Help: "An info metric with dimensions and segments of a vector index",
+		}, []string{"class_name", "dimensions", "segments", "metric", "pq"}),
 
 		StartupProgress: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "startup_progress",
