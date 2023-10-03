@@ -50,6 +50,7 @@ type ClassSettings interface {
 	ModelVersion() string
 	ResourceName() string
 	DeploymentID() string
+	BaseURL() string
 	IsAzure() bool
 }
 
@@ -142,6 +143,7 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 		ModelVersion: icheck.ModelVersion(),
 		ResourceName: icheck.ResourceName(),
 		DeploymentID: icheck.DeploymentID(),
+		BaseURL:      icheck.BaseURL(),
 		IsAzure:      icheck.IsAzure(),
 	})
 	if err != nil {

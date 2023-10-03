@@ -33,6 +33,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantDeploymentID     string
 		wantIsAzure          bool
 		wantErr              error
+		wantBaseURL          string
 	}{
 		{
 			name: "Happy flow",
@@ -46,6 +47,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantFrequencyPenalty: 0.0,
 			wantPresencePenalty:  0.0,
 			wantErr:              nil,
+			wantBaseURL:          "https://api.openai.com",
 		},
 		{
 			name: "Everything non default configured",
@@ -57,6 +59,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"topP":             3,
 					"frequencyPenalty": 0.1,
 					"presencePenalty":  0.9,
+					"baseURL":          "https://openai.proxy.dev",
 				},
 			},
 			wantModel:            "text-babbage-001",
@@ -65,6 +68,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantTopP:             3,
 			wantFrequencyPenalty: 0.1,
 			wantPresencePenalty:  0.9,
+			wantBaseURL:          "https://openai.proxy.dev",
 			wantErr:              nil,
 		},
 		{
@@ -85,6 +89,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantFrequencyPenalty: 0.0,
 			wantPresencePenalty:  0.0,
 			wantErr:              nil,
+			wantBaseURL:          "https://api.openai.com",
 		},
 		{
 			name: "Wrong model data type configured",
@@ -183,6 +188,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantResourceName, ic.ResourceName())
 				assert.Equal(t, tt.wantDeploymentID, ic.DeploymentID())
 				assert.Equal(t, tt.wantIsAzure, ic.IsAzure())
+				assert.Equal(t, tt.wantBaseURL, ic.BaseURL())
 			}
 		})
 	}
