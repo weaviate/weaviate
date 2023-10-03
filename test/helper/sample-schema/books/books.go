@@ -161,6 +161,16 @@ func batchObjects(className string) []*pb.BatchObject {
 						"description": structpb.NewStringValue("Dune is a 1965 epic science fiction novel by American author Frank Herbert."),
 					},
 				},
+				ObjectProperties: []*pb.BatchObject_ObjectProperties{{
+					PropName: "meta",
+					Value: &pb.BatchObject_Properties{
+						NonRefProperties: &structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"isbn": structpb.NewStringValue("9780593099322"),
+							},
+						},
+					},
+				}},
 			},
 		},
 		{
