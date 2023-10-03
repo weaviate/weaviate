@@ -117,7 +117,7 @@ func NewIndexQueue(
 		pqMaxPool:         newPqMaxPool(0),
 		bufPool: sync.Pool{
 			New: func() any {
-				buf := make([]vectorDescriptor, 0, 10*opts.BatchSize)
+				buf := make([]vectorDescriptor, 0, opts.BatchSize)
 				return &buf
 			},
 		},
@@ -143,10 +143,8 @@ func NewIndexQueue(
 // Any pending vectors are discarded.
 func (q *IndexQueue) Close() error {
 	// check if the queue is closed
-	select {
-	case <-q.ctx.Done():
-		return errors.New("index queue closed")
-	default:
+	if q.ctx.Err() != nil {
+		return nil
 	}
 
 	// prevent new jobs from being added
