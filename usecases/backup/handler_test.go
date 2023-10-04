@@ -102,7 +102,7 @@ type fakeSchemaManger struct {
 	nodeName        string
 }
 
-func (f *fakeSchemaManger) RestoreClass(context.Context, *backup.ClassDescriptor,
+func (f *fakeSchemaManger) RestoreClass(context.Context, *backup.ClassDescriptor, map[string]string,
 ) error {
 	return f.errRestoreClass
 }
