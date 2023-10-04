@@ -149,6 +149,10 @@ func (f *fakeClusterState) SchemaSyncIgnored() bool {
 	return false
 }
 
+func (f *fakeClusterState) SkipSchemaRepair() bool {
+	return false
+}
+
 func (f *fakeClusterState) Hostnames() []string {
 	return f.hosts
 }
