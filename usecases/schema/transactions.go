@@ -23,8 +23,9 @@ import (
 
 const (
 	// write-only
-	AddClass    cluster.TransactionType = "add_class"
-	AddProperty cluster.TransactionType = "add_property"
+	AddClass            cluster.TransactionType = "add_class"
+	AddProperty         cluster.TransactionType = "add_property"
+	mergeObjectProperty cluster.TransactionType = "merge_object_property"
 
 	// tenant types
 	addTenants    cluster.TransactionType = "add_tenants"
@@ -66,6 +67,11 @@ type AddClassPayload struct {
 }
 
 type AddPropertyPayload struct {
+	ClassName string           `json:"className"`
+	Property  *models.Property `json:"property"`
+}
+
+type MergeObjectPropertyPayload struct {
 	ClassName string           `json:"className"`
 	Property  *models.Property `json:"property"`
 }
@@ -125,6 +131,8 @@ func UnmarshalTransaction(txType cluster.TransactionType,
 		return unmarshalRawJson[AddClassPayload](payload)
 	case AddProperty, RepairProperty:
 		return unmarshalRawJson[AddPropertyPayload](payload)
+	case mergeObjectProperty:
+		return unmarshalRawJson[MergeObjectPropertyPayload](payload)
 	case DeleteClass:
 		return unmarshalRawJson[DeleteClassPayload](payload)
 	case UpdateClass:

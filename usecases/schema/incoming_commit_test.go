@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/test_utils"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -31,6 +32,162 @@ func TestIncommingTxCommit(t *testing.T) {
 		tx                  *cluster.Transaction
 		assertSchema        func(t *testing.T, sm *Manager)
 		expectedErrContains string
+	}
+
+	vFalse := false
+	vTrue := true
+	propertyName := "object_prop"
+	objectProperty := &models.Property{
+		Name:            propertyName,
+		DataType:        schema.DataTypeObject.PropString(),
+		IndexFilterable: &vTrue,
+		IndexSearchable: &vFalse,
+		Tokenization:    "",
+		NestedProperties: []*models.NestedProperty{
+			{
+				Name:            "nested_int",
+				DataType:        schema.DataTypeInt.PropString(),
+				IndexFilterable: &vTrue,
+				IndexSearchable: &vFalse,
+				Tokenization:    "",
+			},
+			{
+				Name:            "nested_text",
+				DataType:        schema.DataTypeText.PropString(),
+				IndexFilterable: &vTrue,
+				IndexSearchable: &vTrue,
+				Tokenization:    models.PropertyTokenizationWord,
+			},
+			{
+				Name:            "nested_objects",
+				DataType:        schema.DataTypeObjectArray.PropString(),
+				IndexFilterable: &vTrue,
+				IndexSearchable: &vFalse,
+				Tokenization:    "",
+				NestedProperties: []*models.NestedProperty{
+					{
+						Name:            "nested_bool_lvl2",
+						DataType:        schema.DataTypeBoolean.PropString(),
+						IndexFilterable: &vTrue,
+						IndexSearchable: &vFalse,
+						Tokenization:    "",
+					},
+					{
+						Name:            "nested_numbers_lvl2",
+						DataType:        schema.DataTypeNumberArray.PropString(),
+						IndexFilterable: &vTrue,
+						IndexSearchable: &vFalse,
+						Tokenization:    "",
+					},
+				},
+			},
+		},
+	}
+	updatedObjectProperty := &models.Property{
+		Name:            propertyName,
+		DataType:        schema.DataTypeObject.PropString(),
+		IndexFilterable: &vFalse, // different setting than existing class/prop
+		IndexSearchable: &vFalse,
+		Tokenization:    "",
+		NestedProperties: []*models.NestedProperty{
+			{
+				Name:            "nested_number",
+				DataType:        schema.DataTypeNumber.PropString(),
+				IndexFilterable: &vTrue,
+				IndexSearchable: &vFalse,
+				Tokenization:    "",
+			},
+			{
+				Name:            "nested_text",
+				DataType:        schema.DataTypeText.PropString(),
+				IndexFilterable: &vTrue,
+				IndexSearchable: &vTrue,
+				Tokenization:    models.PropertyTokenizationField, // different setting than existing class/prop
+			},
+			{
+				Name:            "nested_objects",
+				DataType:        schema.DataTypeObjectArray.PropString(),
+				IndexFilterable: &vTrue,
+				IndexSearchable: &vFalse,
+				Tokenization:    "",
+				NestedProperties: []*models.NestedProperty{
+					{
+						Name:            "nested_date_lvl2",
+						DataType:        schema.DataTypeDate.PropString(),
+						IndexFilterable: &vTrue,
+						IndexSearchable: &vFalse,
+						Tokenization:    "",
+					},
+					{
+						Name:            "nested_numbers_lvl2",
+						DataType:        schema.DataTypeNumberArray.PropString(),
+						IndexFilterable: &vFalse, // different setting than existing class/prop
+						IndexSearchable: &vFalse,
+						Tokenization:    "",
+					},
+				},
+			},
+		},
+	}
+	expectedObjectProperty := &models.Property{
+		Name:            propertyName,
+		DataType:        schema.DataTypeObject.PropString(),
+		IndexFilterable: &vTrue,
+		IndexSearchable: &vFalse,
+		Tokenization:    "",
+		NestedProperties: []*models.NestedProperty{
+			{
+				Name:            "nested_int",
+				DataType:        schema.DataTypeInt.PropString(),
+				IndexFilterable: &vTrue,
+				IndexSearchable: &vFalse,
+				Tokenization:    "",
+			},
+			{
+				Name:            "nested_number",
+				DataType:        schema.DataTypeNumber.PropString(),
+				IndexFilterable: &vTrue,
+				IndexSearchable: &vFalse,
+				Tokenization:    "",
+			},
+			{
+				Name:            "nested_text",
+				DataType:        schema.DataTypeText.PropString(),
+				IndexFilterable: &vTrue,
+				IndexSearchable: &vTrue,
+				Tokenization:    models.PropertyTokenizationWord, // from existing class/prop
+			},
+			{
+				Name:            "nested_objects",
+				DataType:        schema.DataTypeObjectArray.PropString(),
+				IndexFilterable: &vTrue,
+				IndexSearchable: &vFalse,
+				Tokenization:    "",
+				NestedProperties: []*models.NestedProperty{
+					{
+						Name:            "nested_bool_lvl2",
+						DataType:        schema.DataTypeBoolean.PropString(),
+						IndexFilterable: &vTrue,
+						IndexSearchable: &vFalse,
+						Tokenization:    "",
+					},
+					{
+						Name:            "nested_date_lvl2",
+						DataType:        schema.DataTypeDate.PropString(),
+						IndexFilterable: &vTrue,
+						IndexSearchable: &vFalse,
+						Tokenization:    "",
+					},
+					{
+						Name:            "nested_numbers_lvl2",
+						DataType:        schema.DataTypeNumberArray.PropString(),
+						IndexFilterable: &vTrue, // from existing class/prop
+						IndexSearchable: &vFalse,
+						Tokenization:    "",
+					},
+				},
+			},
+		},
 	}
 
 	tests := []test{
@@ -299,6 +456,75 @@ func TestIncommingTxCommit(t *testing.T) {
 			tx: &cluster.Transaction{
 				Type:    updateTenants,
 				Payload: AddPropertyPayload{},
+			},
+			expectedErrContains: "expected commit payload to be",
+		},
+
+		{
+			name: "merge object property of unknown class",
+			tx: &cluster.Transaction{
+				Type: mergeObjectProperty,
+				Payload: MergeObjectPropertyPayload{
+					ClassName: "UnknownClass",
+					Property:  updatedObjectProperty,
+				},
+			},
+			expectedErrContains: "class not found",
+		},
+		{
+			name: "merge object property of unknown property",
+			tx: &cluster.Transaction{
+				Type: mergeObjectProperty,
+				Payload: MergeObjectPropertyPayload{
+					ClassName: "FirstClass",
+					Property:  updatedObjectProperty,
+				},
+			},
+			expectedErrContains: "property not found",
+		},
+		{
+			name: "merge object property",
+			before: func(t *testing.T, sm *Manager) {
+				err := sm.handleCommit(context.Background(), &cluster.Transaction{
+					Type: AddProperty,
+					Payload: AddPropertyPayload{
+						ClassName: "FirstClass",
+						Property:  objectProperty,
+					},
+				})
+				require.Nil(t, err)
+			},
+			tx: &cluster.Transaction{
+				Type: mergeObjectProperty,
+				Payload: MergeObjectPropertyPayload{
+					ClassName: "FirstClass",
+					Property:  updatedObjectProperty,
+				},
+			},
+			assertSchema: func(t *testing.T, sm *Manager) {
+				updatedClass := sm.getClassByName("FirstClass")
+
+				require.NotNil(t, updatedClass)
+				require.Len(t, updatedClass.Properties, 1)
+
+				mergedProperty := updatedClass.Properties[0]
+				require.NotNil(t, mergedProperty)
+				assert.Equal(t, expectedObjectProperty.DataType, mergedProperty.DataType)
+				assert.Equal(t, expectedObjectProperty.IndexFilterable, mergedProperty.IndexFilterable)
+				assert.Equal(t, expectedObjectProperty.IndexSearchable, mergedProperty.IndexSearchable)
+				assert.Equal(t, expectedObjectProperty.Tokenization, mergedProperty.Tokenization)
+
+				test_utils.AssertNestedPropsMatch(t, expectedObjectProperty.NestedProperties, mergedProperty.NestedProperties)
+			},
+		},
+		{
+			name: "merge object property with invalid payload",
+			tx: &cluster.Transaction{
+				Type: mergeObjectProperty,
+				Payload: AddPropertyPayload{
+					ClassName: "FirstClass",
+					Property:  updatedObjectProperty,
+				},
 			},
 			expectedErrContains: "expected commit payload to be",
 		},
