@@ -9,8 +9,8 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.8.4
-	github.com/weaviate/weaviate v1.21.0
-	github.com/weaviate/weaviate-go-client/v4 v4.10.0
+	github.com/weaviate/weaviate v1.21.5-0.20230928125248-5870ac955396
+	github.com/weaviate/weaviate-go-client/v4 v4.10.1-0.20230928141813-32e58b808a0a
 )
 
 require (
