@@ -15,12 +15,45 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/entities/models"
 	"golang.org/x/sync/errgroup"
 )
 
 func (s *Shard) initProperties(class *models.Class) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		return s.initProperties_old(class)
+	}
+	s.propertyIndices = propertyspecific.Indices{}
+	if class == nil {
+		return nil
+	}
+
+	for _, prop := range class.Properties {
+		s.createPropertyIndex(context.TODO(), prop)
+	}
+
+	if err := s.addIDProperty(context.TODO()); err != nil {
+		return errors.Wrap(err, "create id property index")
+	}
+
+	if s.index.invertedIndexConfig.IndexTimestamps {
+		if err := s.addTimestampProperties(context.TODO()); err != nil {
+			return errors.Wrap(err, "create timestamp properties indexes")
+		}
+	}
+
+	if s.index.Config.TrackVectorDimensions {
+		if err := s.addDimensionsProperty(context.TODO()); err != nil {
+			return errors.Wrap(err, "crreate dimensions property index")
+		}
+	}
+
+	return nil
+}
+
+func (s *Shard) initProperties_old(class *models.Class) error {
 	s.propertyIndices = propertyspecific.Indices{}
 	if class == nil {
 		return nil
@@ -28,11 +61,11 @@ func (s *Shard) initProperties(class *models.Class) error {
 
 	eg := &errgroup.Group{}
 	for _, prop := range class.Properties {
-		s.createPropertyIndex(context.TODO(), prop, eg)
+		s.createPropertyIndex_old(context.TODO(), prop, eg)
 	}
 
 	eg.Go(func() error {
-		if err := s.addIDProperty(context.TODO()); err != nil {
+		if err := s.addIDProperty_old(context.TODO()); err != nil {
 			return errors.Wrap(err, "create id property index")
 		}
 		return nil
@@ -40,7 +73,7 @@ func (s *Shard) initProperties(class *models.Class) error {
 
 	if s.index.invertedIndexConfig.IndexTimestamps {
 		eg.Go(func() error {
-			if err := s.addTimestampProperties(context.TODO()); err != nil {
+			if err := s.addTimestampProperties_old(context.TODO()); err != nil {
 				return errors.Wrap(err, "create timestamp properties indexes")
 			}
 			return nil
@@ -49,7 +82,7 @@ func (s *Shard) initProperties(class *models.Class) error {
 
 	if s.index.Config.TrackVectorDimensions {
 		eg.Go(func() error {
-			if err := s.addDimensionsProperty(context.TODO()); err != nil {
+			if err := s.addDimensionsProperty_old(context.TODO()); err != nil {
 				return errors.Wrap(err, "crreate dimensions property index")
 			}
 			return nil

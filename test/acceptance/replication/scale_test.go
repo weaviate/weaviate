@@ -103,7 +103,7 @@ func multiShardScaleOut(t *testing.T) {
 		for _, node := range n.Nodes {
 			for _, shard := range node.Shards {
 				if shard.Class == paragraphClass.Class {
-					assert.EqualValues(t, 10, shard.ObjectCount)
+					assert.EqualValues(t, uint64(10), shard.ObjectCount)
 					shardsFound++
 				}
 			}

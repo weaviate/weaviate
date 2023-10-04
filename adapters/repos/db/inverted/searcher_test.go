@@ -30,7 +30,7 @@ func TestDocBitmap(t *testing.T) {
 		ids := []uint64{1, 2, 3, 4, 5}
 
 		dbm := newDocBitmap()
-		dbm.docIDs.SetMany(ids)
+		dbm.DocIDs.SetMany(ids)
 
 		assert.Equal(t, 5, dbm.count())
 		assert.ElementsMatch(t, ids, dbm.IDs())
@@ -75,10 +75,10 @@ func TestDocBitmap_IDsWithLimit(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			dbm := docBitmap{
-				docIDs: sroar.NewBitmap(),
+				DocIDs: sroar.NewBitmap(),
 			}
 
-			dbm.docIDs.SetMany(test.input)
+			dbm.DocIDs.SetMany(test.input)
 
 			res := dbm.IDsWithLimit(test.limit)
 			assert.Equal(t, test.expectedOutput, res)

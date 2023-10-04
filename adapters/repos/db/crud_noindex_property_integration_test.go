@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -148,7 +149,13 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 		})
 
 		require.NotNil(t, err)
-		assert.Contains(t, err.Error(),
-			"Timestamps must be indexed to be filterable! Add `IndexTimestamps: true` to the InvertedIndexConfig in")
+		if lsmkv.FeatureUseMergedBuckets {
+			assert.Contains(t, err.Error(),
+				"Timestamps must be indexed to be filterable! Add `IndexTimestamps: true` to the InvertedIndexConfig in")
+		} else {
+			assert.Contains(t, err.Error(),
+				"timestamps must be indexed to be filterable! "+
+					"add `indexTimestamps: true` to the invertedIndexConfig")
+		}
 	})
 }
