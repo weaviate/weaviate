@@ -37,6 +37,11 @@ const (
 	// read-only
 	ReadSchema cluster.TransactionType = "read_schema"
 
+	// repairs
+	RepairClass    cluster.TransactionType = "repair_class"
+	RepairProperty cluster.TransactionType = "repair_property"
+	RepairTenant   cluster.TransactionType = "repair_tenant"
+
 	DefaultTxTTL = 60 * time.Second
 )
 
@@ -50,6 +55,9 @@ var resumableTxs = []cluster.TransactionType{
 // execute even if the DB is unready.
 var allowUnreadyTxs = []cluster.TransactionType{
 	ReadSchema, // required at startup, does not write
+	RepairClass,
+	RepairProperty,
+	RepairTenant,
 }
 
 type AddClassPayload struct {
@@ -113,9 +121,9 @@ func UnmarshalTransaction(txType cluster.TransactionType,
 	payload json.RawMessage,
 ) (interface{}, error) {
 	switch txType {
-	case AddClass:
+	case AddClass, RepairClass:
 		return unmarshalRawJson[AddClassPayload](payload)
-	case AddProperty:
+	case AddProperty, RepairProperty:
 		return unmarshalRawJson[AddPropertyPayload](payload)
 	case DeleteClass:
 		return unmarshalRawJson[DeleteClassPayload](payload)
@@ -123,7 +131,7 @@ func UnmarshalTransaction(txType cluster.TransactionType,
 		return unmarshalRawJson[UpdateClassPayload](payload)
 	case ReadSchema:
 		return unmarshalRawJson[ReadSchemaPayload](payload)
-	case addTenants:
+	case addTenants, RepairTenant:
 		return unmarshalRawJson[AddTenantsPayload](payload)
 	case updateTenants:
 		return unmarshalRawJson[UpdateTenantsPayload](payload)

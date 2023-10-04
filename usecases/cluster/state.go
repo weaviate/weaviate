@@ -33,6 +33,7 @@ type Config struct {
 	DataBindPort            int        `json:"dataBindPort" yaml:"dataBindPort"`
 	Join                    string     `json:"join" yaml:"join"`
 	IgnoreStartupSchemaSync bool       `json:"ignoreStartupSchemaSync" yaml:"ignoreStartupSchemaSync"`
+	SkipSchemaSyncRepair    bool       `json:"skipSchemaSyncRepair" yaml:"skipSchemaSyncRepair"`
 	AuthConfig              AuthConfig `json:"auth" yaml:"auth"`
 }
 
@@ -188,6 +189,10 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 
 func (s *State) SchemaSyncIgnored() bool {
 	return s.config.IgnoreStartupSchemaSync
+}
+
+func (s *State) SkipSchemaRepair() bool {
+	return s.config.SkipSchemaSyncRepair
 }
 
 func (s *State) NodeInfo(node string) (NodeInfo, bool) {
