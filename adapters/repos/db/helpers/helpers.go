@@ -62,7 +62,7 @@ func MatchesPropertyKeyPostfix(byteEncodedPropertyId []byte, prefixed_key []byte
 }
 
 func UnMakePropertyKey(byteEncodedPropertyId []byte, postfixed_key []byte) []byte {
-	//For postfix propid
+	// For postfix propid
 	out := make([]byte, len(postfixed_key)-len(byteEncodedPropertyId))
 	copy(out, postfixed_key[:len(postfixed_key)-len(byteEncodedPropertyId)])
 
