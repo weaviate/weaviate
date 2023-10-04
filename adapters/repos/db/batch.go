@@ -33,6 +33,10 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	objectByClass := make(map[string]batchQueue)
 	indexByClass := make(map[string]*Index)
 
+	if err := db.memMonitor.CheckAlloc(estimateBatchMemory(objs)); err != nil {
+		return nil, fmt.Errorf("cannot process batch: %w", err)
+	}
+
 	for _, item := range objs {
 		if item.Err != nil {
 			// item has a validation error or another reason to ignore
@@ -196,4 +200,22 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 		Objects: deletedObjects,
 	}
 	return result, nil
+}
+
+func estimateBatchMemory(objs objects.BatchObjects) int64 {
+	var sum int64
+	for _, item := range objs {
+		// Note: This is very much oversimplified. It assumes that we always need
+		// the footprint of the full vector and it assumes a fixed overhead of 30B
+		// per vector. In reality this depends on the HNSW settings - and possibly
+		// in the future we might have completely different index types.
+		//
+		// However, in the meantime this should be a fairly reasonable estimate, as
+		// it's not meant to fail exactly on the last available byte, but rather
+		// prevent OOM crashes. Given the fuzziness and async style of the
+		// memtrackinga somewhat decent estimate should be go good enough.
+		sum += int64(len(item.Vector)*4 + 30)
+	}
+
+	return sum
 }
