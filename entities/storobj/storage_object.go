@@ -738,7 +738,7 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		return err
 	}
 
-	if err := ko.enrichSchemaTypes(schema); err != nil {
+	if err := enrichSchemaTypes(schema, false); err != nil {
 		return errors.Wrap(err, "enrich schema datatypes")
 	}
 

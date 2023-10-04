@@ -871,3 +871,94 @@ func TestAddClass_DefaultsAndMigration(t *testing.T) {
 		})
 	})
 }
+
+func Test_Defaults_NestedProperties(t *testing.T) {
+	for _, pdt := range schema.PrimitiveDataTypes {
+		t.Run(pdt.String(), func(t *testing.T) {
+			nestedProperties := []*models.NestedProperty{
+				{
+					Name:     "nested_" + pdt.String(),
+					DataType: pdt.PropString(),
+				},
+			}
+
+			for _, ndt := range schema.NestedDataTypes {
+				t.Run(ndt.String(), func(t *testing.T) {
+					propPrimitives := &models.Property{
+						Name:             "objectProp",
+						DataType:         ndt.PropString(),
+						NestedProperties: nestedProperties,
+					}
+					propLvl2Primitives := &models.Property{
+						Name:     "objectPropLvl2",
+						DataType: ndt.PropString(),
+						NestedProperties: []*models.NestedProperty{
+							{
+								Name:             "nested_object",
+								DataType:         ndt.PropString(),
+								NestedProperties: nestedProperties,
+							},
+						},
+					}
+
+					setPropertyDefaults(propPrimitives)
+					setPropertyDefaults(propLvl2Primitives)
+
+					t.Run("primitive data types", func(t *testing.T) {
+						for _, np := range []*models.NestedProperty{
+							propPrimitives.NestedProperties[0],
+							propLvl2Primitives.NestedProperties[0].NestedProperties[0],
+						} {
+							switch pdt {
+							case schema.DataTypeText, schema.DataTypeTextArray:
+								require.NotNil(t, np.IndexFilterable)
+								assert.True(t, *np.IndexFilterable)
+								require.NotNil(t, np.IndexSearchable)
+								assert.True(t, *np.IndexSearchable)
+								assert.Equal(t, models.PropertyTokenizationWord, np.Tokenization)
+							case schema.DataTypeBlob:
+								require.NotNil(t, np.IndexFilterable)
+								assert.False(t, *np.IndexFilterable)
+								require.NotNil(t, np.IndexSearchable)
+								assert.False(t, *np.IndexSearchable)
+								assert.Equal(t, "", np.Tokenization)
+							default:
+								require.NotNil(t, np.IndexFilterable)
+								assert.True(t, *np.IndexFilterable)
+								require.NotNil(t, np.IndexSearchable)
+								assert.False(t, *np.IndexSearchable)
+								assert.Equal(t, "", np.Tokenization)
+							}
+						}
+					})
+
+					t.Run("nested data types", func(t *testing.T) {
+						for _, indexFilterable := range []*bool{
+							propPrimitives.IndexFilterable,
+							propLvl2Primitives.IndexFilterable,
+							propLvl2Primitives.NestedProperties[0].IndexFilterable,
+						} {
+							require.NotNil(t, indexFilterable)
+							assert.True(t, *indexFilterable)
+						}
+						for _, indexSearchable := range []*bool{
+							propPrimitives.IndexSearchable,
+							propLvl2Primitives.IndexSearchable,
+							propLvl2Primitives.NestedProperties[0].IndexSearchable,
+						} {
+							require.NotNil(t, indexSearchable)
+							assert.False(t, *indexSearchable)
+						}
+						for _, tokenization := range []string{
+							propPrimitives.Tokenization,
+							propLvl2Primitives.Tokenization,
+							propLvl2Primitives.NestedProperties[0].Tokenization,
+						} {
+							assert.Equal(t, "", tokenization)
+						}
+					})
+				})
+			}
+		})
+	}
+}

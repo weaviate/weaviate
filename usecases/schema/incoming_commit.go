@@ -26,6 +26,8 @@ func (m *Manager) handleCommit(ctx context.Context, tx *cluster.Transaction) err
 		return m.handleAddClassCommit(ctx, tx)
 	case AddProperty, RepairProperty:
 		return m.handleAddPropertyCommit(ctx, tx)
+	case mergeObjectProperty:
+		return m.handleMergeObjectPropertyCommit(ctx, tx)
 	case DeleteClass:
 		return m.handleDeleteClassCommit(ctx, tx)
 	case UpdateClass:
@@ -121,6 +123,25 @@ func (m *Manager) handleAddPropertyCommit(ctx context.Context,
 	}
 
 	return m.addClassPropertyApplyChanges(ctx, pl.ClassName, pl.Property)
+}
+
+func (m *Manager) handleMergeObjectPropertyCommit(ctx context.Context,
+	tx *cluster.Transaction,
+) error {
+	m.Lock()
+	defer m.Unlock()
+
+	pl, ok := tx.Payload.(MergeObjectPropertyPayload)
+	if !ok {
+		return errors.Errorf("expected commit payload to be MergeObjectPropertyPayload, but got %T",
+			tx.Payload)
+	}
+
+	if pl.Property == nil {
+		return fmt.Errorf("invalid tx: property is nil")
+	}
+
+	return m.mergeClassObjectPropertyApplyChanges(ctx, pl.ClassName, pl.Property)
 }
 
 func (m *Manager) handleDeleteClassCommit(ctx context.Context,

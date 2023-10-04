@@ -560,16 +560,18 @@ type additionalCheck struct {
 	modulesProvider ModulesProvider
 }
 
-func (ac *additionalCheck) isAdditional(name string) bool {
-	if name == "classification" || name == "certainty" ||
-		name == "distance" || name == "id" || name == "vector" ||
-		name == "creationTimeUnix" || name == "lastUpdateTimeUnix" ||
-		name == "score" || name == "explainScore" || name == "isConsistent" ||
-		name == "group" {
-		return true
-	}
-	if ac.isModuleAdditional(name) {
-		return true
+func (ac *additionalCheck) isAdditional(parentName, name string) bool {
+	if parentName == "_additional" {
+		if name == "classification" || name == "certainty" ||
+			name == "distance" || name == "id" || name == "vector" ||
+			name == "creationTimeUnix" || name == "lastUpdateTimeUnix" ||
+			name == "score" || name == "explainScore" || name == "isConsistent" ||
+			name == "group" {
+			return true
+		}
+		if ac.isModuleAdditional(name) {
+			return true
+		}
 	}
 	return false
 }
@@ -624,7 +626,7 @@ func extractProperties(className string, selections *ast.SelectionSet,
 					if s.Name.Value == "__typename" {
 						property.IncludeTypeName = true
 						continue
-					} else if additionalCheck.isAdditional(s.Name.Value) {
+					} else if additionalCheck.isAdditional(name, s.Name.Value) {
 						additionalProperty := s.Name.Value
 						if additionalProperty == "classification" {
 							additionalProps.Classification = true
@@ -683,7 +685,8 @@ func extractProperties(className string, selections *ast.SelectionSet,
 							}
 						}
 					} else {
-						return nil, additionalProps, fmt.Errorf("Expected an InlineFragment, not a '%s' field ", s.Name.Value)
+						// It's an object / object array property
+						continue
 					}
 
 				case *ast.FragmentSpread:
