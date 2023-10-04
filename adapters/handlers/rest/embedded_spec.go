@@ -3091,6 +3091,13 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "node_mapping": {
+          "description": "Allows overriding the node names stored in the backup with different ones. Useful when restoring backups to a different environment.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
         }
       }
     },
@@ -8063,6 +8070,13 @@ func init() {
           "description": "List of classes to include in the backup restoration process",
           "type": "array",
           "items": {
+            "type": "string"
+          }
+        },
+        "node_mapping": {
+          "description": "Allows overriding the node names stored in the backup with different ones. Useful when restoring backups to a different environment.",
+          "type": "object",
+          "additionalProperties": {
             "type": "string"
           }
         }
