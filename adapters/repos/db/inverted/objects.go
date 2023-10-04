@@ -511,7 +511,7 @@ func (a *Analyzer) analyzeRefPropCount(prop *models.Property,
 	}
 
 	return &Property{
-		Name:               helpers.MetaCountProp(prop.Name),
+		Name:               helpers.MetaCountProperty(prop.Name),
 		Items:              items,
 		Length:             len(value),
 		HasFilterableIndex: HasFilterableIndex(prop),

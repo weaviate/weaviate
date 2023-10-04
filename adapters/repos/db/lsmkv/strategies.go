@@ -53,8 +53,8 @@ func IsExpectedStrategy(strategy string, expectedStrategies ...string) bool {
 	return false
 }
 
-func CheckExpectedStrategy(strategy string, expectedStrategies ...string) {
+func CheckExpectedStrategy(name, strategy string, expectedStrategies ...string) {
 	if !IsExpectedStrategy(strategy, expectedStrategies...) {
-		panic(fmt.Sprintf("one of strategies %v expected, strategy '%s' found", expectedStrategies, strategy))
+		panic(fmt.Sprintf("Error accessing %v one of strategies %v expected, strategy '%s' found", name, expectedStrategies, strategy))
 	}
 }

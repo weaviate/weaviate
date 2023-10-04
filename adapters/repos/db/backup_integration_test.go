@@ -181,7 +181,7 @@ func TestBackup_BucketLevel(t *testing.T) {
 	shard, _ := testShard(t, ctx, className)
 
 	t.Run("insert data", func(t *testing.T) {
-		err := shard.putObject(ctx, &storobj.Object{
+		err := shard.PutObject(ctx, &storobj.Object{
 			MarshallerVersion: 1,
 			Object: models.Object{
 				ID:    "8c29da7a-600a-43dc-85fb-83ab2b08c294",

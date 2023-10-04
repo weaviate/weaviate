@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
 )
@@ -24,21 +25,21 @@ import (
 // RowReaderFrequency reads one or many row(s) depending on the specified operator
 type RowReaderFrequency struct {
 	value        []byte
-	bucket       *lsmkv.Bucket
+	bucket       lsmkv.BucketInterface
 	operator     filters.Operator
 	keyOnly      bool
 	shardVersion uint16
+	PropPrefix   []byte
 }
 
-func NewRowReaderFrequency(bucket *lsmkv.Bucket, value []byte,
-	operator filters.Operator, keyOnly bool, shardVersion uint16,
-) *RowReaderFrequency {
+func NewRowReaderFrequency(bucket lsmkv.BucketInterface, value []byte, operator filters.Operator, keyOnly bool, shardVersion uint16) *RowReaderFrequency {
 	return &RowReaderFrequency{
 		bucket:       bucket,
 		value:        value,
 		operator:     operator,
 		keyOnly:      keyOnly,
 		shardVersion: shardVersion,
+		PropPrefix:   bucket.PropertyPrefix(),
 	}
 }
 
@@ -89,8 +90,7 @@ func (rr *RowReaderFrequency) equal(ctx context.Context, readFn ReadFnFrequency)
 	var v []lsmkv.MapPair
 	var err error
 	if rr.shardVersion < 2 {
-		v, err = rr.bucket.MapList(rr.value, lsmkv.MapListAcceptDuplicates(),
-			lsmkv.MapListLegacySortingRequired())
+		v, err = rr.bucket.MapList(rr.value, lsmkv.MapListAcceptDuplicates(), lsmkv.MapListLegacySortingRequired())
 		if err != nil {
 			return err
 		}
@@ -115,7 +115,11 @@ func (rr *RowReaderFrequency) greaterThan(ctx context.Context, readFn ReadFnFreq
 	c := rr.newCursor()
 	defer c.Close()
 
-	for k, v := c.Seek(rr.value); k != nil; k, v = c.Next() {
+	for compositeKey, v := c.Seek(rr.value); compositeKey != nil; compositeKey, v = c.Next() {
+		if !helpers.MatchesPropertyKeyPostfix(rr.PropPrefix, compositeKey) {
+			continue
+		}
+		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -146,7 +150,12 @@ func (rr *RowReaderFrequency) lessThan(ctx context.Context, readFn ReadFnFrequen
 	c := rr.newCursor()
 	defer c.Close()
 
-	for k, v := c.First(); k != nil && bytes.Compare(k, rr.value) != 1; k, v = c.Next() {
+	for compositeKey, v := c.First(); compositeKey != nil && bytes.Compare(compositeKey, rr.value) != 1; compositeKey, v = c.Next() {
+		if !helpers.MatchesPropertyKeyPostfix(rr.PropPrefix, compositeKey) {
+			continue
+		}
+		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
+
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -174,7 +183,12 @@ func (rr *RowReaderFrequency) notEqual(ctx context.Context, readFn ReadFnFrequen
 	c := rr.newCursor()
 	defer c.Close()
 
-	for k, v := c.First(); k != nil; k, v = c.Next() {
+	for compositeKey, v := c.First(); compositeKey != nil; compositeKey, v = c.Next() {
+		if !helpers.MatchesPropertyKeyPostfix(rr.PropPrefix, compositeKey) {
+			continue
+		}
+		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
+
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -218,7 +232,8 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFnFrequency) 
 		initialK, initialV = c.First()
 	}
 
-	for k, v := initialK, initialV; k != nil; k, v = c.Next() {
+	for compositeKey, v := initialK, initialV; compositeKey != nil; compositeKey, v = c.Next() {
+		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
 		if err := ctx.Err(); err != nil {
 			return err
 		}

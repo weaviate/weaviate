@@ -152,12 +152,16 @@ func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList) ([]ui
 	return ids, nil
 }
 
-func (g *grouper) addElementById(s *models.PropertySchema, docID uint64) error {
-	if s == nil {
+func (g *grouper) addElementById(propertySchemaP *models.PropertySchema, docID uint64) error {
+	if propertySchemaP == nil {
 		return nil
 	}
 
-	item, ok := (*s).(map[string]interface{})[g.params.GroupBy.Property.String()]
+	key := g.params.GroupBy.Property.String()
+	S := *propertySchemaP
+	m := S.(map[string]interface{})
+	item, ok := m[key]
+
 	if !ok {
 		return nil
 	}
