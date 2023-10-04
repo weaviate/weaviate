@@ -13,8 +13,6 @@ package db
 
 import (
 	"fmt"
-	"runtime"
-	"runtime/debug"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -43,11 +41,8 @@ func (d diskUse) String() string {
 }
 
 func (d *DB) scanResourceUsage() {
-	memMonitor := memwatch.NewMonitor(
-		runtime.MemProfile, debug.SetMemoryLimit, runtime.MemProfileRate)
-
 	go func() {
-		t := time.NewTicker(time.Second * 30)
+		t := time.NewTicker(time.Millisecond * 500)
 		defer t.Stop()
 		for {
 			select {
@@ -56,8 +51,8 @@ func (d *DB) scanResourceUsage() {
 			case <-t.C:
 				if !d.resourceScanState.isReadOnly {
 					du := d.getDiskUse(d.config.RootPath)
-					d.resourceUseWarn(memMonitor, du)
-					d.resourceUseReadonly(memMonitor, du)
+					d.resourceUseWarn(d.memMonitor, du)
+					d.resourceUseReadonly(d.memMonitor, du)
 				}
 			}
 		}
@@ -110,6 +105,7 @@ func newResourceScanState() *resourceScanState {
 
 // logs a warning if user-set threshold is surpassed
 func (d *DB) resourceUseWarn(mon *memwatch.Monitor, du diskUse) {
+	mon.Refresh()
 	d.diskUseWarn(du)
 	d.memUseWarn(mon)
 }
