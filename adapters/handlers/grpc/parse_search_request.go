@@ -44,7 +44,7 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol"
 )
 
-func searchParamsFromProto(req *pb.SearchRequestV1, scheme schema.Schema) (dto.GetParams, error) {
+func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.GetParams, error) {
 	out := dto.GetParams{}
 	class, err := schema.GetClassByName(scheme.Objects, req.Collection)
 	if err != nil {
@@ -295,7 +295,7 @@ func extractSorting(sortIn []*pb.SortBy) []filters.Sort {
 	return sortOut
 }
 
-func extractGenerative(req *pb.SearchRequestV1) *generate.Params {
+func extractGenerative(req *pb.SearchRequest) *generate.Params {
 	generative := generate.Params{}
 	if req.Generative.SingleResponsePrompt != "" {
 		generative.Prompt = &req.Generative.SingleResponsePrompt

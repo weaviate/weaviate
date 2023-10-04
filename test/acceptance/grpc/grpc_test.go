@@ -52,7 +52,7 @@ func TestGRPC(t *testing.T) {
 	})
 
 	t.Run("Search", func(t *testing.T) {
-		resp, err := grpcClient.SearchV1(context.TODO(), &pb.SearchRequestV1{
+		resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
 			Collection: booksClass.Class,
 			Properties: &pb.PropertiesRequest{
 				NonRefProperties: []string{"title"},
