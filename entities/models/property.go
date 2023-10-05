@@ -61,6 +61,14 @@ type Property struct {
 	Tokenization string `json:"tokenization,omitempty"`
 }
 
+func (m *Property) GetNestedProperties() []*NestedProperty {
+	return m.NestedProperties
+}
+
+func (m *Property) GetName() string {
+	return m.Name
+}
+
 // Validate validates this property
 func (m *Property) Validate(formats strfmt.Registry) error {
 	var res []error

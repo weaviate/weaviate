@@ -199,16 +199,16 @@ func TestGRPCBatchRequest(t *testing.T) {
 		{
 			name: "object props",
 			req: []*pb.BatchObject{{Collection: collection, Uuid: UUID4, Properties: &pb.BatchObject_Properties{
-				ObjectProperties: []*pb.BatchObject_ObjectProperties{
+				ObjectProperties: []*pb.ObjectProperties{
 					{
-						PropName: "simpleObj", Value: &pb.BatchObject_Properties{
+						PropName: "simpleObj", Value: &pb.ObjectPropertiesValue{
 							NonRefProperties: newStruct(t, map[string]interface{}{"name": "something"}),
 						},
 					},
 					{
-						PropName: "nestedObj", Value: &pb.BatchObject_Properties{
-							ObjectProperties: []*pb.BatchObject_ObjectProperties{{
-								PropName: "obj", Value: &pb.BatchObject_Properties{
+						PropName: "nestedObj", Value: &pb.ObjectPropertiesValue{
+							ObjectProperties: []*pb.ObjectProperties{{
+								PropName: "obj", Value: &pb.ObjectPropertiesValue{
 									NonRefProperties: newStruct(t, map[string]interface{}{"name": "something"}),
 								},
 							}},
@@ -226,9 +226,9 @@ func TestGRPCBatchRequest(t *testing.T) {
 		{
 			name: "object array props",
 			req: []*pb.BatchObject{{Collection: collection, Uuid: UUID4, Properties: &pb.BatchObject_Properties{
-				ObjectArrayProperties: []*pb.BatchObject_ObjectArrayProperties{
+				ObjectArrayProperties: []*pb.ObjectArrayProperties{
 					{
-						PropName: "simpleObjs", Values: []*pb.BatchObject_Properties{
+						PropName: "simpleObjs", Values: []*pb.ObjectPropertiesValue{
 							{
 								NonRefProperties: newStruct(t, map[string]interface{}{"name": "something"}),
 							},
@@ -238,17 +238,17 @@ func TestGRPCBatchRequest(t *testing.T) {
 						},
 					},
 					{
-						PropName: "nestedObjs", Values: []*pb.BatchObject_Properties{
+						PropName: "nestedObjs", Values: []*pb.ObjectPropertiesValue{
 							{
-								ObjectProperties: []*pb.BatchObject_ObjectProperties{{
-									PropName: "obj", Value: &pb.BatchObject_Properties{
+								ObjectProperties: []*pb.ObjectProperties{{
+									PropName: "obj", Value: &pb.ObjectPropertiesValue{
 										NonRefProperties: newStruct(t, map[string]interface{}{"name": "something"}),
 									},
 								}},
 							},
 							{
-								ObjectProperties: []*pb.BatchObject_ObjectProperties{{
-									PropName: "obj", Value: &pb.BatchObject_Properties{
+								ObjectProperties: []*pb.ObjectProperties{{
+									PropName: "obj", Value: &pb.ObjectPropertiesValue{
 										NonRefProperties: newStruct(t, map[string]interface{}{"name": "something else"}),
 									},
 								}},

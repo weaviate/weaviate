@@ -38,16 +38,6 @@ message BatchObject {
     string target_collection = 3;
   }
 
-  message ObjectArrayProperties {
-    repeated Properties values = 1;
-    string prop_name = 2;
-  }
-
-  message ObjectProperties {
-    Properties value = 1;
-    string prop_name = 2;
-  }
-
   string uuid = 1;
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated float vector = 2;

@@ -104,6 +104,16 @@ func class(className, vectorizer string, additionalModules ...string) *models.Cl
 					},
 				},
 			},
+			{
+				Name:     "meta",
+				DataType: schema.DataTypeObject.PropString(),
+				NestedProperties: []*models.NestedProperty{
+					{
+						Name:     "isbn",
+						DataType: schema.DataTypeText.PropString(),
+					},
+				},
+			},
 		},
 	}
 }
@@ -161,12 +171,12 @@ func batchObjects(className string) []*pb.BatchObject {
 						"description": structpb.NewStringValue("Dune is a 1965 epic science fiction novel by American author Frank Herbert."),
 					},
 				},
-				ObjectProperties: []*pb.BatchObject_ObjectProperties{{
+				ObjectProperties: []*pb.ObjectProperties{{
 					PropName: "meta",
-					Value: &pb.BatchObject_Properties{
+					Value: &pb.ObjectPropertiesValue{
 						NonRefProperties: &structpb.Struct{
 							Fields: map[string]*structpb.Value{
-								"isbn": structpb.NewStringValue("9780593099322"),
+								"isbn": structpb.NewStringValue("978-0593099322"),
 							},
 						},
 					},
@@ -183,6 +193,16 @@ func batchObjects(className string) []*pb.BatchObject {
 						"description": structpb.NewStringValue("Project Hail Mary is a 2021 science fiction novel by American novelist Andy Weir."),
 					},
 				},
+				ObjectProperties: []*pb.ObjectProperties{{
+					PropName: "meta",
+					Value: &pb.ObjectPropertiesValue{
+						NonRefProperties: &structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"isbn": structpb.NewStringValue("978-0593135204"),
+							},
+						},
+					},
+				}},
 			},
 		},
 		{
@@ -195,6 +215,16 @@ func batchObjects(className string) []*pb.BatchObject {
 						"description": structpb.NewStringValue("The Lord of the Ice Garden (Polish: Pan Lodowego Ogrodu) is a four-volume science fiction and fantasy novel by Polish writer Jaroslaw Grzedowicz."),
 					},
 				},
+				ObjectProperties: []*pb.ObjectProperties{{
+					PropName: "meta",
+					Value: &pb.ObjectPropertiesValue{
+						NonRefProperties: &structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"isbn": structpb.NewStringValue("978-8374812962"),
+							},
+						},
+					},
+				}},
 			},
 		},
 	}

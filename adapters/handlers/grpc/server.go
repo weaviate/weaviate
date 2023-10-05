@@ -52,7 +52,6 @@ func CreateGRPCServer(state *state.State) *GRPCServer {
 	}
 	pb.RegisterWeaviateServer(s, weaviateServer)
 	grpc_health_v1.RegisterHealthServer(s, weaviateServer)
-
 	return &GRPCServer{s}
 }
 

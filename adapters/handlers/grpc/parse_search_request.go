@@ -519,6 +519,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Sche
 			props = append(props, search.SelectProperty{
 				Name:        schema.LowercaseFirstLetter(prop),
 				IsPrimitive: true,
+				IsObject:    false,
 			})
 		}
 	}
@@ -573,6 +574,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Sche
 			props = append(props, search.SelectProperty{
 				Name:        normalizedRefPropName,
 				IsPrimitive: false,
+				IsObject:    false,
 				Refs: []search.SelectClass{{
 					ClassName:            linkedClassName,
 					RefProperties:        refProperties,
@@ -582,7 +584,37 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Sche
 		}
 	}
 
+	if reqProps.ObjectProperties != nil && len(reqProps.ObjectProperties) > 0 {
+		props = append(props, extractNestedProperties(reqProps.ObjectProperties)...)
+	}
+
 	return props, nil
+}
+
+func extractNestedProperties(props []*pb.ObjectPropertiesRequest) []search.SelectProperty {
+	selectProps := make([]search.SelectProperty, 0)
+	for _, prop := range props {
+		nestedProps := make([]search.SelectProperty, 0)
+		if prop.PrimitiveProperties != nil && len(prop.PrimitiveProperties) > 0 {
+			for _, primitive := range prop.PrimitiveProperties {
+				nestedProps = append(nestedProps, search.SelectProperty{
+					Name:        schema.LowercaseFirstLetter(primitive),
+					IsPrimitive: true,
+					IsObject:    false,
+				})
+			}
+		}
+		if prop.ObjectProperties != nil && len(prop.ObjectProperties) > 0 {
+			nestedProps = append(nestedProps, extractNestedProperties(props)...)
+		}
+		selectProps = append(selectProps, search.SelectProperty{
+			Name:        schema.LowercaseFirstLetter(prop.PropName),
+			IsPrimitive: false,
+			IsObject:    true,
+			Props:       nestedProps,
+		})
+	}
+	return selectProps
 }
 
 func extractAdditionalPropsForRefs(prop *pb.MetadataRequest) additional.Properties {

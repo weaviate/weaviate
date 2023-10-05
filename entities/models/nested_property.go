@@ -55,6 +55,14 @@ type NestedProperty struct {
 	Tokenization string `json:"tokenization,omitempty"`
 }
 
+func (m *NestedProperty) GetNestedProperties() []*NestedProperty {
+	return m.NestedProperties
+}
+
+func (m *NestedProperty) GetName() string {
+	return m.Name
+}
+
 // Validate validates this nested property
 func (m *NestedProperty) Validate(formats strfmt.Registry) error {
 	var res []error

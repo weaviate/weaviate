@@ -43,12 +43,20 @@ func batchFromProto(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*model
 		class := scheme.GetClass(schema.ClassName(obj.Collection))
 		var props map[string]interface{}
 		if obj.Properties != nil {
-			props = extractPrimitiveProperties(obj.Properties)
-			if err := extractSingleRefTarget(class, obj, props); err != nil {
+			props = extractPrimitiveProperties(&pb.ObjectPropertiesValue{
+				NonRefProperties:       obj.Properties.NonRefProperties,
+				BooleanArrayProperties: obj.Properties.BooleanArrayProperties,
+				NumberArrayProperties:  obj.Properties.NumberArrayProperties,
+				TextArrayProperties:    obj.Properties.TextArrayProperties,
+				IntArrayProperties:     obj.Properties.IntArrayProperties,
+				ObjectProperties:       obj.Properties.ObjectProperties,
+				ObjectArrayProperties:  obj.Properties.ObjectArrayProperties,
+			})
+			if err := extractSingleRefTarget(class, obj.Properties.SingleTargetRefProps, props); err != nil {
 				objectErrors[i] = err
 				continue
 			}
-			if err := extractMultiRefTarget(class, obj, props); err != nil {
+			if err := extractMultiRefTarget(class, obj.Properties.MultiTargetRefProps, props); err != nil {
 				objectErrors[i] = err
 				continue
 			}
@@ -72,8 +80,8 @@ func batchFromProto(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*model
 	return objs[:insertCounter], objOriginalIndex, objectErrors
 }
 
-func extractSingleRefTarget(class *models.Class, obj *pb.BatchObject, props map[string]interface{}) error {
-	for _, refSingle := range obj.Properties.SingleTargetRefProps {
+func extractSingleRefTarget(class *models.Class, properties []*pb.BatchObject_SingleTargetRefProps, props map[string]interface{}) error {
+	for _, refSingle := range properties {
 		propName := refSingle.GetPropName()
 		prop, err := schema.GetPropertyByName(class, propName)
 		if err != nil {
@@ -92,8 +100,8 @@ func extractSingleRefTarget(class *models.Class, obj *pb.BatchObject, props map[
 	return nil
 }
 
-func extractMultiRefTarget(class *models.Class, obj *pb.BatchObject, props map[string]interface{}) error {
-	for _, refMulti := range obj.Properties.MultiTargetRefProps {
+func extractMultiRefTarget(class *models.Class, properties []*pb.BatchObject_MultiTargetRefProps, props map[string]interface{}) error {
+	for _, refMulti := range properties {
 		propName := refMulti.GetPropName()
 		prop, err := schema.GetPropertyByName(class, propName)
 		if err != nil {
@@ -111,7 +119,7 @@ func extractMultiRefTarget(class *models.Class, obj *pb.BatchObject, props map[s
 	return nil
 }
 
-func extractPrimitiveProperties(properties *pb.BatchObject_Properties) map[string]interface{} {
+func extractPrimitiveProperties(properties *pb.ObjectPropertiesValue) map[string]interface{} {
 	var props map[string]interface{}
 	if properties.NonRefProperties != nil {
 		props = properties.NonRefProperties.AsMap()
