@@ -79,6 +79,8 @@ func (i *typeInspector) extendResWithType(res *aggregation.Result, propName stri
 
 		if propType.IsPrimitive() {
 			prop.SchemaType = string(propType.AsPrimitive())
+		} else if propType.IsNested() { // TODO nested -> check if sufficient just schematype
+			prop.SchemaType = string(propType.AsNested())
 		} else {
 			prop.Type = aggregation.PropertyTypeReference
 			prop.SchemaType = string(schema.DataTypeCRef)

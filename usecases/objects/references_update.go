@@ -169,8 +169,8 @@ func validateReferenceSchema(class, property string, sch schema.Schema) error {
 		return err
 	}
 
-	if dt.IsPrimitive() {
-		return fmt.Errorf("property '%s' is a primitive datatype, not a reference-type", property)
+	if !dt.IsReference() {
+		return fmt.Errorf("property '%s' is not a reference-type", property)
 	}
 
 	return nil

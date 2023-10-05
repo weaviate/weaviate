@@ -48,7 +48,7 @@ func printRelaeseNotes(languages []language, version string) {
 	fmt.Printf("See also: example docker-compose files in %s. ", makeLinks(languages, version))
 	fmt.Printf("If you need to configure additional settings, you can also generate " +
 		"a custom `docker-compose.yml` file [using the documentation]" +
-		"(https://www.semi.technology/documentation/weaviate/current/getting-started/installation.html#docker-compose).")
+		"(https://weaviate.io/developers/weaviate/installation/docker-compose).")
 	fmt.Printf("\n## Breaking Changes\n*none*\n")
 	fmt.Printf("\n## New Features\n*none*\n")
 	fmt.Printf("\n## Fixes\n*none*\n")

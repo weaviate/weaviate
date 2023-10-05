@@ -15,6 +15,7 @@ import (
 	"context"
 	"math"
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -44,6 +46,7 @@ type DB struct {
 	shutdown          chan struct{}
 	startupComplete   atomic.Bool
 	resourceScanState *resourceScanState
+	memMonitor        *memwatch.Monitor
 
 	// indexLock is an RWMutex which allows concurrent access to various indexes,
 	// but only one modification at a time. R/W can be a bit confusing here,
@@ -113,7 +116,13 @@ func New(logger logrus.FieldLogger, config Config,
 		asyncIndexRetryInterval: 5 * time.Second,
 		maxNumberGoroutines:     int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 		resourceScanState:       newResourceScanState(),
+		memMonitor: memwatch.NewMonitor(runtime.MemProfile,
+			debug.SetMemoryLimit, runtime.MemProfileRate, 0.97),
 	}
+
+	// make sure memMonitor has an initial state
+	db.memMonitor.Refresh()
+
 	if db.maxNumberGoroutines == 0 {
 		return db, errors.New("no workers to add batch-jobs configured.")
 	}
