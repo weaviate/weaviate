@@ -90,7 +90,9 @@ func (sp SelectProperties) HasRefs() bool {
 
 func (sp SelectProperties) HasProps() bool {
 	for _, p := range sp {
-		return len(p.Props) > 0
+		if len(p.Props) > 0 {
+			return true
+		}
 	}
 	return false
 }
