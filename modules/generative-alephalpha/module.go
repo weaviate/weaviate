@@ -54,7 +54,7 @@ func (m *GenerativeAlephAlphaModule) Type() modulecapabilities.ModuleType {
 
 func (m *GenerativeAlephAlphaModule) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
 	logger := params.GetLogger()
-	m.generative = clients.New(os.Getenv("ALEPHALPHA_API_KEY"), logger)
+	m.generative = clients.New(os.Getenv("ALEPHALPHA_APIKEY"), logger)
 	m.additionalPropertiesProvider = additionalprovider.NewGenerativeProvider(m.generative)
 	return nil
 }
