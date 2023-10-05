@@ -17,10 +17,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/schema"
-
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // AddClassProperty to an existing Class
@@ -30,6 +28,13 @@ func (m *Manager) AddClassProperty(ctx context.Context, principal *models.Princi
 	err := m.Authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
+	}
+
+	if property.Name == "" {
+		return fmt.Errorf("property must contain name")
+	}
+	if property.DataType == nil {
+		return fmt.Errorf("property must contain dataType")
 	}
 
 	return m.addClassProperty(ctx, class, property)
@@ -67,10 +72,10 @@ func (m *Manager) addClassProperty(ctx context.Context,
 		// possible causes for errors could be nodes down (we expect every node to
 		// the up for a schema transaction) or concurrent transactions from other
 		// nodes
-		return errors.Wrap(err, "open cluster-wide transaction")
+		return fmt.Errorf("open cluster-wide transaction: %w", err)
 	}
 
-	if err := m.cluster.CommitWriteTransaction(ctx, tx); err != nil {
+	if err = m.cluster.CommitWriteTransaction(ctx, tx); err != nil {
 		// Only log the commit error, but do not abort the changes locally. Once
 		// we've told others to commit, we also need to commit ourselves!
 		//
