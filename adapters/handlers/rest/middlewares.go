@@ -145,12 +145,10 @@ func makeAddMonitoring(metrics *monitoring.PrometheusMetrics) func(http.Handler)
 
 func addPreflight(next http.Handler, cfg config.CORS) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "OPTIONS" {
-			w.Header().Set("Access-Control-Allow-Origin", cfg.AllowOrigin)
-			w.Header().Set("Access-Control-Allow-Methods", cfg.AllowMethods)
-			w.Header().Set("Access-Control-Allow-Headers", cfg.AllowHeaders)
-			return
-		}
+		w.Header().Set("Access-Control-Allow-Origin", cfg.AllowOrigin)
+		w.Header().Set("Access-Control-Allow-Methods", cfg.AllowMethods)
+		w.Header().Set("Access-Control-Allow-Headers", cfg.AllowHeaders)
+		return
 
 		next.ServeHTTP(w, r)
 	})
