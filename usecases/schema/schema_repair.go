@@ -24,7 +24,7 @@ import (
 
 func (m *Manager) repairSchema(ctx context.Context, remote *State) error {
 	m.logger.WithField("action", "repair_schema").
-		Debug("Attempting to repair schema")
+		Info("Attempting to repair schema")
 	before := time.Now()
 
 	local := &m.schemaCache.State
@@ -38,7 +38,7 @@ func (m *Manager) repairSchema(ctx context.Context, remote *State) error {
 	}
 
 	m.logger.WithField("action", "repair_schema").
-		Debugf("Schema repair complete, took %s", time.Since(before))
+		Infof("Schema repair complete, took %s", time.Since(before))
 	return nil
 }
 
