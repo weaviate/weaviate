@@ -148,7 +148,10 @@ func addPreflight(next http.Handler, cfg config.CORS) http.Handler {
 		w.Header().Set("Access-Control-Allow-Origin", cfg.AllowOrigin)
 		w.Header().Set("Access-Control-Allow-Methods", cfg.AllowMethods)
 		w.Header().Set("Access-Control-Allow-Headers", cfg.AllowHeaders)
-		return
+
+		if r.Method == "OPTIONS" {
+			return
+		}
 
 		next.ServeHTTP(w, r)
 	})
