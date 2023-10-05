@@ -15,14 +15,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// AddClassProperty to an existing Class
-func (m *Manager) AddClassProperty(ctx context.Context, principal *models.Principal,
+// MergeClassObjectProperty of an existing Class
+// Merges NestedProperties of incoming object/object[] property into existing one
+func (m *Manager) MergeClassObjectProperty(ctx context.Context, principal *models.Principal,
 	class string, property *models.Property,
 ) error {
 	err := m.Authorizer.Authorize(principal, "update", "schema/objects")
@@ -30,17 +31,10 @@ func (m *Manager) AddClassProperty(ctx context.Context, principal *models.Princi
 		return err
 	}
 
-	if property.Name == "" {
-		return fmt.Errorf("property must contain name")
-	}
-	if property.DataType == nil {
-		return fmt.Errorf("property must contain dataType")
-	}
-
-	return m.addClassProperty(ctx, class, property)
+	return m.mergeClassObjectProperty(ctx, class, property)
 }
 
-func (m *Manager) addClassProperty(ctx context.Context,
+func (m *Manager) mergeClassObjectProperty(ctx context.Context,
 	className string, prop *models.Property,
 ) error {
 	m.Lock()
@@ -52,30 +46,28 @@ func (m *Manager) addClassProperty(ctx context.Context,
 	}
 	prop.Name = schema.LowercaseFirstLetter(prop.Name)
 
-	existingPropertyNames := map[string]bool{}
-	for _, existingProperty := range class.Properties {
-		existingPropertyNames[strings.ToLower(existingProperty.Name)] = true
-	}
-
+	// reuse setDefaults/validation/migrate methods coming from add property
+	// (empty existing names map, to validate existing updated property)
+	// TODO nested - refactor / cleanup setDefaults/validation/migrate methods
 	if err := m.setNewPropDefaults(class, prop); err != nil {
 		return err
 	}
-	if err := m.validateProperty(prop, className, existingPropertyNames, false); err != nil {
+	if err := m.validateProperty(prop, className, map[string]bool{}, false); err != nil {
 		return err
 	}
 	// migrate only after validation in completed
 	migratePropertySettings(prop)
 
-	tx, err := m.cluster.BeginTransaction(ctx, AddProperty,
-		AddPropertyPayload{className, prop}, DefaultTxTTL)
+	tx, err := m.cluster.BeginTransaction(ctx, mergeObjectProperty,
+		MergeObjectPropertyPayload{className, prop}, DefaultTxTTL)
 	if err != nil {
 		// possible causes for errors could be nodes down (we expect every node to
 		// the up for a schema transaction) or concurrent transactions from other
 		// nodes
-		return fmt.Errorf("open cluster-wide transaction: %w", err)
+		return errors.Wrap(err, "open cluster-wide transaction")
 	}
 
-	if err = m.cluster.CommitWriteTransaction(ctx, tx); err != nil {
+	if err := m.cluster.CommitWriteTransaction(ctx, tx); err != nil {
 		// Only log the commit error, but do not abort the changes locally. Once
 		// we've told others to commit, we also need to commit ourselves!
 		//
@@ -92,42 +84,13 @@ func (m *Manager) addClassProperty(ctx context.Context,
 		m.logger.WithError(err).Errorf("not every node was able to commit")
 	}
 
-	return m.addClassPropertyApplyChanges(ctx, className, prop)
+	return m.mergeClassObjectPropertyApplyChanges(ctx, className, prop)
 }
 
-func (m *Manager) setNewPropDefaults(class *models.Class, prop *models.Property) error {
-	setPropertyDefaults(prop)
-	if err := validateUserProp(class, prop); err != nil {
-		return err
-	}
-	m.moduleConfig.SetSinglePropertyDefaults(class, prop)
-	return nil
-}
-
-func validateUserProp(class *models.Class, prop *models.Property) error {
-	if prop.ModuleConfig == nil {
-		return nil
-	} else {
-		modconfig, ok := prop.ModuleConfig.(map[string]interface{})
-		if !ok {
-			return fmt.Errorf("%v property config invalid", prop.Name)
-		}
-		vectorizerConfig, ok := modconfig[class.Vectorizer]
-		if !ok {
-			return fmt.Errorf("%v vectorizer module not part of the property", class.Vectorizer)
-		}
-		_, ok = vectorizerConfig.(map[string]interface{})
-		if !ok {
-			return fmt.Errorf("vectorizer config for vectorizer %v, not of type map[string]interface{}", class.Vectorizer)
-		}
-	}
-	return nil
-}
-
-func (m *Manager) addClassPropertyApplyChanges(ctx context.Context,
+func (m *Manager) mergeClassObjectPropertyApplyChanges(ctx context.Context,
 	className string, prop *models.Property,
 ) error {
-	class, err := m.schemaCache.addProperty(className, prop)
+	class, err := m.schemaCache.mergeObjectProperty(className, prop)
 	if err != nil {
 		return err
 	}
@@ -136,7 +99,7 @@ func (m *Manager) addClassPropertyApplyChanges(ctx context.Context,
 		return fmt.Errorf("marshal class %s: %w", className, err)
 	}
 	m.logger.
-		WithField("action", "schema.add_property").
+		WithField("action", "schema.update_object_property").
 		Debug("saving updated schema to configuration store")
 	err = m.repo.UpdateClass(ctx, ClassPayload{Name: className, Metadata: metadata})
 	if err != nil {
@@ -144,6 +107,8 @@ func (m *Manager) addClassPropertyApplyChanges(ctx context.Context,
 	}
 	m.triggerSchemaUpdateCallbacks()
 
+	// TODO nested - implement MergeObjectProperty (needed for indexing/filtering)
 	// will result in a mismatch between schema and index if function below fails
-	return m.migrator.AddProperty(ctx, className, prop)
+	// return m.migrator.MergeObjectProperty(ctx, className, prop)
+	return nil
 }
