@@ -46,6 +46,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 
 	// VectorInfo must have class granularity
 	info := prom.VectorInfo
+	originalClassName := className
 
 	if prom.Group {
 		className = "n/a"
@@ -120,7 +121,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 
 	return &Metrics{
 		enabled:          true,
-		className:        className,
+		className:        originalClassName,
 		tombstones:       tombstones,
 		threads:          threads,
 		cleaned:          cleaned,

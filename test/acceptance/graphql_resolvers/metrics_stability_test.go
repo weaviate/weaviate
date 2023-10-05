@@ -18,6 +18,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -147,6 +148,16 @@ func importMetricsClass(t *testing.T, classIndex int) {
 	}
 }
 
+func validateVectorInfo(t *testing.T, metric string) {
+	if strings.Contains(metric, metricClassPrefix) {
+		pattern := fmt.Sprintf(
+			`^vector_info{class_name="%s_([0-9]+)",dimensions="4",metric="cosine-dot",pq="false",segments="0"} 1$`,
+			metricClassPrefix)
+		re := regexp.MustCompile(pattern)
+		require.True(t, re.MatchString(metric), "metric %s does not match pattern %s", metric, pattern)
+	}
+}
+
 func cleanupMetricsClasses(t *testing.T, start, end int) {
 	for i := start; i < end; i++ {
 		deleteObjectClass(t, metricsClassName(i))
@@ -179,6 +190,10 @@ func countMetricsLines(t *testing.T) int {
 	scanner := bufio.NewScanner(res.Body)
 	lineCount := 0
 	for scanner.Scan() {
+		if strings.HasPrefix(scanner.Text(), "vector_info") {
+			validateVectorInfo(t, scanner.Text())
+			continue
+		}
 		require.NotContains(
 			t,
 			strings.ToLower(scanner.Text()),
