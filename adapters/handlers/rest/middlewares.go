@@ -20,10 +20,10 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/cors"
-	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/swagger_middleware"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
