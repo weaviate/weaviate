@@ -81,7 +81,9 @@ type SelectProperties []SelectProperty
 
 func (sp SelectProperties) HasRefs() bool {
 	for _, p := range sp {
-		return len(p.Refs) > 0
+		if len(p.Refs) > 0 {
+			return true
+		}
 	}
 	return false
 }
