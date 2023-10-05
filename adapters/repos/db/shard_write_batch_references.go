@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -213,8 +214,8 @@ func (b *referencesBatcher) writeInvertedDeletions(
 		// are guaranteed to be not have a frequency, meaning they will use the
 		// "Set" strategy in the lsmkv store
 		if prop.HasFilterableIndex {
-			bucket := b.shard.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
-			if bucket == nil {
+			bucket, err := lsmkv.FetchMeABucket(b.shard.store, "filterable_properties", helpers.BucketFromPropertyNameLSM(prop.Name), prop.Name, b.shard.propIds)
+			if err != nil {
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}
 
@@ -242,8 +243,8 @@ func (b *referencesBatcher) writeInvertedAdditions(
 		// are guaranteed to be not have a frequency, meaning they will use the
 		// "Set" strategy in the lsmkv store
 		if prop.HasFilterableIndex {
-			bucket := b.shard.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
-			if bucket == nil {
+			bucket, err := lsmkv.FetchMeABucket(b.shard.store, "filterable_properties", helpers.BucketFromPropertyNameLSM(prop.Name), prop.Name, b.shard.propIds)
+			if err != nil {
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}
 
@@ -302,7 +303,7 @@ func (b *referencesBatcher) analyzeRef(obj *storobj.Object,
 	}
 
 	return []inverted.Property{{
-		Name:               helpers.MetaCountProp(ref.From.Property.String()),
+		Name:               helpers.MetaCountProperty(ref.From.Property.String()),
 		Items:              countItems,
 		HasFilterableIndex: inverted.HasFilterableIndexMetaCount && inverted.HasInvertedIndex(prop),
 		HasSearchableIndex: inverted.HasSearchableIndexMetaCount && inverted.HasInvertedIndex(prop),

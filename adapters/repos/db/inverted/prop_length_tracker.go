@@ -243,8 +243,7 @@ func (t *PropertyLengthTracker) addProperty(propName string) (uint16, uint16, er
 			page++
 			// overflow of uint16 variable that tracks the size of the tracker
 			if page > 15 {
-				return 0, 0, fmt.Errorf("could not add property %v, to PropertyLengthTracker, because the total"+
-					"length of all properties is too long", propName)
+				return 0, 0, fmt.Errorf("could not add property %v, to PropertyLengthTracker, because the total length of all properties is too long", propName)
 			}
 			continue
 		}

@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -252,18 +253,30 @@ func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard *
 	})
 }
 
+// Problem: this function should be in shard.go, it circumvents the shard abstraction
 func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
-	eg := &errgroup.Group{}
-	eg.SetLimit(_NUMCPU)
+	if !lsmkv.FeatureUseMergedBuckets {
+		eg := &errgroup.Group{}
+		eg.SetLimit(_NUMCPU)
 
-	i.ForEachShard(func(key string, shard *Shard) error {
-		shard.createPropertyIndex(ctx, prop, eg)
+		i.ForEachShard(func(key string, shard *Shard) error {
+			shard.createPropertyIndex_old(ctx, prop, eg)
+			return nil
+		})
+
+		if err := eg.Wait(); err != nil {
+			return errors.Wrapf(err, "extend idx '%s' with property '%s", i.ID(), prop.Name)
+		}
 		return nil
-	})
-	if err := eg.Wait(); err != nil {
-		return errors.Wrapf(err, "extend idx '%s' with property '%s", i.ID(), prop.Name)
+	} else {
+		return i.ForEachShard(func(key string, shard *Shard) error {
+			err := shard.createPropertyIndex(ctx, prop)
+			if err != nil {
+				return errors.Wrapf(err, "extend idx '%s' with property '%s", i.ID(), prop.Name)
+			}
+			return nil
+		})
 	}
-	return nil
 }
 
 func (i *Index) addUUIDProperty(ctx context.Context) error {
@@ -415,7 +428,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	defer i.backupMutex.RUnlock()
 	err = errShardNotFound
 	if shard := i.localShard(shardName); shard != nil { // does shard still exist
-		err = shard.putObject(ctx, object)
+		err = shard.PutObject(ctx, object)
 	}
 	if err != nil {
 		return fmt.Errorf("put local object: shard=%q: %w", shardName, err)
@@ -445,7 +458,7 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 		return err
 	}
 
-	if err := localShard.putObject(ctx, object); err != nil {
+	if err := localShard.PutObject(ctx, object); err != nil {
 		return err
 	}
 
@@ -1065,8 +1078,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			if shard := i.localShard(shardName); shard != nil {
 				objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
 				if err != nil {
-					return fmt.Errorf(
-						"local shard object search %s: %w", shard.ID(), err)
+					return fmt.Errorf("local shard object search %s: %w", shard.ID(), err)
 				}
 				if i.replicationEnabled() {
 					storobj.AddOwnership(objs, i.getSchema.NodeName(), shardName)
@@ -1076,8 +1088,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 					ctx, shardName, nil, limit, filters, keywordRanking,
 					sort, cursor, nil, addlProps, i.replicationEnabled())
 				if err != nil {
-					return fmt.Errorf(
-						"remote shard object search %s: %w", shardName, err)
+					return fmt.Errorf("remote shard object search %s: %w", shardName, err)
 				}
 			}
 
@@ -1085,7 +1096,6 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			resultObjects = append(resultObjects, objs...)
 			resultScores = append(resultScores, scores...)
 			shardResultLock.Unlock()
-
 			return nil
 		})
 	}
@@ -1385,9 +1395,7 @@ func (i *Index) localShard(name string) *Shard {
 	return i.shards.Load(name)
 }
 
-func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
-	replProps *additional.ReplicationProperties, tenant string,
-) error {
+func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument, replProps *additional.ReplicationProperties, tenant string) error {
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return err
 	}

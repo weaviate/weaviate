@@ -19,6 +19,13 @@ import (
 
 type BucketOption func(b *Bucket) error
 
+func WithRegisteredName(name string) BucketOption {
+	return func(b *Bucket) error {
+		b.RegisteredName = name
+		return nil
+	}
+}
+
 func WithStrategy(strategy string) BucketOption {
 	return func(b *Bucket) error {
 		switch strategy {

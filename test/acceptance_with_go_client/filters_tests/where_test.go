@@ -12,11 +12,12 @@
 package filters_tests
 
 import (
-	acceptance_with_go_client "acceptance_tests_with_client"
 	"context"
 	"fmt"
 	"testing"
 	"time"
+
+	acceptance_with_go_client "acceptance_tests_with_client"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"

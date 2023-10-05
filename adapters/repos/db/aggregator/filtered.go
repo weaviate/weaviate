@@ -121,7 +121,7 @@ func (fa *filteredAggregator) bm25Objects(ctx context.Context, kw *searchparams.
 	)
 	objs, dists, err := inverted.NewBM25Searcher(cfg.BM25, fa.store, s,
 		propertyspecific.Indices{}, fa.classSearcher,
-		nil, fa.propLengths, fa.logger, fa.shardVersion,
+		nil, fa.propLengths, fa.logger, fa.shardVersion, fa.propertyIds,
 	).BM25F(ctx, nil, fa.params.ClassName, *fa.params.ObjectLimit, *kw)
 	if err != nil {
 		return nil, nil, fmt.Errorf("bm25 objects: %w", err)

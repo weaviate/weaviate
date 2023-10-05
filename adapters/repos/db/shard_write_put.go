@@ -28,7 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
+func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -67,6 +67,10 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 
 	if err := s.propLengths.Flush(false); err != nil {
 		return errors.Wrap(err, "flush prop length tracker to disk")
+	}
+
+	if err := s.propIds.Flush(false); err != nil {
+		return errors.Wrap(err, "flush prop id tracker to disk")
 	}
 
 	if err := s.vectorIndex.Flush(); err != nil {
@@ -127,6 +131,7 @@ func (s *Shard) putObjectLSM(object *storobj.Object, idBytes []byte,
 	defer s.metrics.PutObject(before)
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket.CheckBucket()
 
 	// First the object bucket is checked if already an object with the same uuid is present, to determine if it is new
 	// or an update. Afterwards the bucket is updates. To avoid races, only one goroutine can do this at once.

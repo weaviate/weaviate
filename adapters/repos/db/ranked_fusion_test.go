@@ -962,6 +962,117 @@ func TestHybridOverSearch(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, 1, len(hybridResults))
 		require.Equal(t, strfmt.UUID("9889a225-3b28-477d-b8fc-5f6071bb4731"), hybridResults[0].ID)
-		// require.Equal(t, "79a636c2-3314-442e-a4d1-e94d7c0afc3a", hybridResults[1].ID)
+		// require.Equal(t,"79a636c2-3314-442e-a4d1-e94d7c0afc3a", hybridResults[1].ID)
 	})
+}
+
+func TestHybridBug(t *testing.T) {
+	dirName := t.TempDir()
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo, err := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
+	defer repo.Shutdown(context.Background())
+
+	classText := `{"class":"Test_keyword_bug",
+	"invertedIndexConfig": {"bm25": {"b": 0.75,"k1": 1.2},
+	"cleanupIntervalSeconds": 60,
+	"stopwords": {"preset":"en"}},
+	"moduleConfig": {"text2vec-openai": {"deploymentId":"AdaEmbedding",
+	"model":"ada",
+	"modelVersion":"002",
+	"resourceName":"<redacted>",
+	"type":"text",
+	"vectorizeClassName": true}},
+	"multiTenancyConfig": {"enabled": false},
+	"properties": [{"dataType": ["text"],
+	"indexFilterable": true,
+	"indexSearchable": true,
+	"moduleConfig": {"text2vec-openai": {"skip": false,
+		"vectorizePropertyName": false}},
+	"name":"title",
+	"tokenization":"word"}],
+	"replicationConfig": {"factor": 1},
+	"shardingConfig": {"virtualPerPhysical": 128,
+	"desiredCount": 1,
+	"actualCount": 1,
+	"desiredVirtualCount": 128,
+	"actualVirtualCount": 128,
+	"key":"_id",
+	"strategy":"hash",
+	"function":"murmur3"},
+	"vectorIndexConfig": {"skip": false,
+	"cleanupIntervalSeconds": 300,
+	"maxConnections": 64,
+	"efConstruction": 128,
+	"ef": -1,
+	"dynamicEfMin": 100,
+	"dynamicEfMax": 500,
+	"dynamicEfFactor": 8,
+	"vectorCacheMaxObjects": 1000000000000,
+	"flatSearchCutoff": 40000,
+	"distance":"cosine",
+	"pq": {"enabled": false,
+	"bitCompression": false,
+	"segments": 0,
+	"centroids": 256,
+	"trainingLimit": 100000,
+	"encoder": {"type":"kmeans","distribution":"log-normal"}}},
+	"vectorIndexType":"hnsw",
+	"vectorizer":"text2vec-openai"}`
+
+	class := &models.Class{}
+	err = json.Unmarshal([]byte(classText), class)
+	require.Nil(t, err)
+
+	class.VectorIndexConfig = enthnsw.NewDefaultUserConfig()
+
+	schema := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
+
+	schemaGetter.schema = schema
+
+	migrator := NewMigrator(repo, logger)
+	migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+
+	// Load text from file standard_test_data.json
+	// This is a list of 1000 documents from the MEDLINE database
+	// Each document is a medical abstract
+
+	docs := []string{
+		"Exact Online HR | Overzicht van HR hulpdocumenten",
+		"Exact Online HR | Automatisch verjaardagsmails versturen",
+		"Exact Online HR | Werken met Wagenpark-auto's",
+	}
+
+	for i := range docs {
+		id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+		props := map[string]interface{}{}
+		props["title"] = docs[i]
+		obj := &models.Object{Class: "Test_keyword_bug", Properties: props, ID: id}
+		err := repo.PutObject(context.Background(), obj, nil, nil)
+		require.Nil(t, err)
+	}
+
+	// Do the actual tests
+
+	idx := repo.GetIndex("Test_keyword_bug")
+	require.NotNil(t, idx)
+
+	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "Exact Online HR"}
+	addit := additional.Properties{}
+	res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
+	require.Nil(t, err)
+	require.Equal(t, 3, len(res))
+
+	fmt.Printf("query for %s returned %d results\n", "Exact Online HR", len(res))
 }

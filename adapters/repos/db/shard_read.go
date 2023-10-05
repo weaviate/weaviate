@@ -183,7 +183,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		if filters != nil {
 			objs, err = inverted.NewSearcher(s.index.logger, s.store,
 				s.index.getSchema.GetSchemaSkipAuth(),
-				s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
+				s.propertyIndices, s.propIds, s.index.classSearcher, s.deletedDocIDs,
 				s.index.stopwords, s.versioner.Version(), s.isFallbackToSearchable,
 				s.tenant(), s.index.Config.QueryNestedRefLimit).
 				DocIDs(ctx, filters, additional, s.index.Config.ClassName)
@@ -196,7 +196,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 		className := s.index.Config.ClassName
 		bm25Config := s.index.getInvertedIndexConfig().BM25
-		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store, s.index.getSchema.GetSchemaSkipAuth(), s.propertyIndices, s.index.classSearcher, s.deletedDocIDs, s.propLengths, s.index.logger, s.versioner.Version())
+		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store, s.index.getSchema.GetSchemaSkipAuth(), s.propertyIndices, s.index.classSearcher, s.deletedDocIDs, s.propLengths, s.index.logger, s.versioner.Version(), s.propIds)
 		bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, *keywordRanking)
 		if err != nil {
 			return nil, nil, err
@@ -212,7 +212,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 	objs, err := inverted.NewSearcher(s.index.logger, s.store,
 		s.index.getSchema.GetSchemaSkipAuth(),
-		s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
+		s.propertyIndices, s.propIds, s.index.classSearcher, s.deletedDocIDs,
 		s.index.stopwords, s.versioner.Version(), s.isFallbackToSearchable,
 		s.tenant(), s.index.Config.QueryNestedRefLimit).
 		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName)
@@ -382,7 +382,7 @@ func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter
 ) (helpers.AllowList, error) {
 	list, err := inverted.NewSearcher(s.index.logger, s.store,
 		s.index.getSchema.GetSchemaSkipAuth(),
-		s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
+		s.propertyIndices, s.propIds, s.index.classSearcher, s.deletedDocIDs,
 		s.index.stopwords, s.versioner.Version(), s.isFallbackToSearchable,
 		s.tenant(), s.index.Config.QueryNestedRefLimit).
 		DocIDs(ctx, filters, addl, s.index.Config.ClassName)

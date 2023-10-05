@@ -16,9 +16,10 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
 
 func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
@@ -26,14 +27,13 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 ) error {
 	for _, prop := range props {
 		if prop.HasFilterableIndex {
-			bucket := s.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
-			if bucket == nil {
-				return fmt.Errorf("no bucket for prop '%s' found", prop.Name)
+			bucket, err := lsmkv.FetchMeABucket(s.store, "filterable_properties", helpers.BucketFromPropertyNameLSM(prop.Name), prop.Name, s.propIds)
+			if err != nil {
+				return fmt.Errorf("no bucket for prop '%s' found: %v", prop.Name, err)
 			}
 
 			for _, item := range prop.Items {
-				if err := s.deleteInvertedIndexItemLSM(bucket, item,
-					docID); err != nil {
+				if err := s.deleteInvertedIndexItemLSM(bucket, item, docID); err != nil {
 					return errors.Wrapf(err, "delete item '%s' from index",
 						string(item.Data))
 				}
@@ -41,9 +41,9 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 		}
 
 		if prop.HasSearchableIndex {
-			bucket := s.store.Bucket(helpers.BucketSearchableFromPropNameLSM(prop.Name))
-			if bucket == nil {
-				return fmt.Errorf("no bucket searchable for prop '%s' found", prop.Name)
+			bucket, err := lsmkv.FetchMeABucket(s.store, "searchable_properties", helpers.BucketSearchableFromPropertyNameLSM(prop.Name), prop.Name, s.propIds)
+			if err != nil {
+				return fmt.Errorf("no bucket searchable for prop '%s: %v' found", prop.Name, err)
 			}
 
 			for _, item := range prop.Items {
@@ -59,10 +59,10 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 	return nil
 }
 
-func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket *lsmkv.Bucket,
+func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket lsmkv.BucketInterface,
 	item inverted.Countable, docID uint64,
 ) error {
-	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
+	lsmkv.CheckExpectedStrategy(bucket.GetRegisteredName(), bucket.Strategy(), lsmkv.StrategyMapCollection)
 
 	docIDBytes := make([]byte, 8)
 	// Shard Index version 2 requires BigEndian for sorting, if the shard was
@@ -76,10 +76,10 @@ func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket *lsmkv.Bucket,
 	return bucket.MapDeleteKey(item.Data, docIDBytes)
 }
 
-func (s *Shard) deleteInvertedIndexItemLSM(bucket *lsmkv.Bucket,
+func (s *Shard) deleteInvertedIndexItemLSM(bucket lsmkv.BucketInterface,
 	item inverted.Countable, docID uint64,
 ) error {
-	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
+	lsmkv.CheckExpectedStrategy(bucket.GetRegisteredName(), bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
 
 	if bucket.Strategy() == lsmkv.StrategyRoaringSet {
 		return bucket.RoaringSetRemoveOne(item.Data, docID)

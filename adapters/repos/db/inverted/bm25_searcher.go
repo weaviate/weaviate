@@ -33,6 +33,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -50,6 +51,7 @@ type BM25Searcher struct {
 	propLengths   propLengthRetriever
 	logger        logrus.FieldLogger
 	shardVersion  uint16
+	propertyIds   *tracker.JsonPropertyIdTracker
 }
 
 type propLengthRetriever interface {
@@ -60,7 +62,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	schema schema.Schema, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker,
 	propLengths propLengthRetriever, logger logrus.FieldLogger,
-	shardVersion uint16,
+	shardVersion uint16, propertyIds *tracker.JsonPropertyIdTracker,
 ) *BM25Searcher {
 	return &BM25Searcher{
 		config:        config,
@@ -72,6 +74,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 		propLengths:   propLengths,
 		logger:        logger.WithField("action", "bm25_search"),
 		shardVersion:  shardVersion,
+		propertyIds:   propertyIds,
 	}
 }
 
@@ -334,9 +337,9 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	allMsAndProps := make(AllMapPairsAndPropName, 0, len(propertyNames))
 	for _, propName := range propertyNames {
 
-		bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
-		if bucket == nil {
-			return termResult, nil, fmt.Errorf("could not find bucket for property %v", propName)
+		bucket, err := lsmkv.FetchMeABucket(b.store, "searchable_properties", helpers.BucketSearchableFromPropertyNameLSM(propName), propName, b.propertyIds)
+		if err != nil {
+			return termResult, nil, fmt.Errorf("could not find bucket for property %v: %v", propName, err)
 		}
 		preM, err := bucket.MapList([]byte(query))
 		if err != nil {

@@ -68,8 +68,8 @@ func (t *shardInvertedReindexTaskMissingTextFilterable) GetPropertiesToReindex(c
 	}
 
 	for propName := range props {
-		bucketNameSearchable := helpers.BucketSearchableFromPropNameLSM(propName)
-		bucketNameFilterable := helpers.BucketFromPropNameLSM(propName)
+		bucketNameSearchable := helpers.BucketSearchableFromPropertyNameLSM(propName)
+		bucketNameFilterable := helpers.BucketFromPropertyNameLSM(propName)
 
 		bucketSearchable := shard.store.Bucket(bucketNameSearchable)
 		bucketFilterable := shard.store.Bucket(bucketNameFilterable)

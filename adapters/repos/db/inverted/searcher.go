@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
@@ -47,6 +48,7 @@ type Searcher struct {
 	shardVersion           uint16
 	isFallbackToSearchable IsFallbackToSearchable
 	tenant                 string
+	propIds                *tracker.JsonPropertyIdTracker
 	// nestedCrossRefLimit limits the number of nested cross refs returned for a query
 	nestedCrossRefLimit int64
 }
@@ -55,18 +57,13 @@ type DeletedDocIDChecker interface {
 	Contains(id uint64) bool
 }
 
-func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
-	schema schema.Schema,
-	propIndices propertyspecific.Indices, classSearcher ClassSearcher,
-	deletedDocIDs DeletedDocIDChecker, stopwords stopwords.StopwordDetector,
-	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
-	tenant string, nestedCrossRefLimit int64,
-) *Searcher {
+func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store, schema schema.Schema, propIndices propertyspecific.Indices, propIds *tracker.JsonPropertyIdTracker, classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker, stopwords stopwords.StopwordDetector, shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable, tenant string, nestedCrossRefLimit int64) *Searcher {
 	return &Searcher{
 		logger:                 logger,
 		store:                  store,
 		schema:                 schema,
 		propIndices:            propIndices,
+		propIds:                propIds,
 		classSearcher:          classSearcher,
 		deletedDocIDs:          deletedDocIDs,
 		stopwords:              stopwords,
@@ -101,9 +98,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	return s.objectsByDocID(it, additional)
 }
 
-func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs helpers.AllowList,
-	additional additional.Properties, className schema.ClassName,
-) ([]uint64, error) {
+func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs helpers.AllowList, additional additional.Properties, className schema.ClassName) ([]uint64, error) {
 	lsmSorter, err := sorter.NewLSMSorter(s.store, s.schema, className)
 	if err != nil {
 		return nil, err
@@ -111,9 +106,7 @@ func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, doc
 	return lsmSorter.SortDocIDs(ctx, limit, sort, docIDs)
 }
 
-func (s *Searcher) objectsByDocID(it docIDsIterator,
-	additional additional.Properties,
-) ([]*storobj.Object, error) {
+func (s *Searcher) objectsByDocID(it docIDsIterator, additional additional.Properties) ([]*storobj.Object, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
 		return nil, errors.Errorf("objects bucket not found")
@@ -161,17 +154,12 @@ func (s *Searcher) objectsByDocID(it docIDsIterator,
 // If we already limited the allowList to 1, the vector search would be
 // pointless, as only the first element would be allowed, regardless of which
 // had the shortest distance
-func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
-	additional additional.Properties, className schema.ClassName,
-) (helpers.AllowList, error) {
+func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter, additional additional.Properties, className schema.ClassName) (helpers.AllowList, error) {
 	return s.docIDs(ctx, filter, additional, className, 0)
 }
 
-func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
-	additional additional.Properties, className schema.ClassName,
-	limit int,
-) (helpers.AllowList, error) {
-	pv, err := s.extractPropValuePair(filter.Root, className)
+func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter, additional additional.Properties, className schema.ClassName, limit int) (helpers.AllowList, error) {
+	pv, err := s.buildPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err
 	}
@@ -185,12 +173,10 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
 
-	return helpers.NewAllowListFromBitmap(dbm.docIDs), nil
+	return helpers.NewAllowListFromBitmap(dbm.DocIDs), nil
 }
 
-func (s *Searcher) extractPropValuePair(filter *filters.Clause,
-	className schema.ClassName,
-) (*propValuePair, error) {
+func (s *Searcher) buildPropValuePair(filter *filters.Clause, className schema.ClassName) (*propValuePair, error) {
 	class := s.schema.FindClassByName(schema.ClassName(className))
 	if class == nil {
 		return nil, fmt.Errorf("class %q not found", className)
@@ -201,11 +187,15 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 	if filter.Operands != nil {
 		// nested filter
-		children, err := s.extractPropValuePairs(filter.Operands, className)
-		if err != nil {
-			return nil, err
+		out.children = make([]*propValuePair, len(filter.Operands))
+
+		for i, clause := range filter.Operands {
+			child, err := s.buildPropValuePair(&clause, className)
+			if err != nil {
+				return nil, errors.Wrapf(err, "nested clause at pos %d", i)
+			}
+			out.children[i] = child
 		}
-		out.children = children
 		out.operator = filter.Operator
 		return out, nil
 	}
@@ -223,11 +213,18 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 
 	if extractedPropName, ok := schema.IsPropertyLength(propName, 0); ok {
+		sch := s.schema.FindClassByName(schema.ClassName(className))
+		lengthIsIndexed := sch.InvertedIndexConfig.IndexPropertyLength
+		if !lengthIsIndexed {
+			return nil, errors.Errorf("Property length must be indexed to be filterable")
+		}
 		property, err := s.schema.GetProperty(className, schema.PropertyName(extractedPropName))
 		if err != nil {
 			return nil, err
 		}
+
 		return s.extractPropertyLength(property, filter.Value.Type, filter.Value.Value, filter.Operator, class)
+
 	}
 
 	property, err := s.schema.GetProperty(className, schema.PropertyName(propName))
@@ -246,7 +243,11 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 
 	if filter.Operator == filters.OperatorIsNull {
-		return s.extractPropertyNull(property, filter.Value.Type, filter.Value.Value, filter.Operator, class)
+		if class.InvertedIndexConfig.IndexNullState {
+			return s.extractPropertyNull(property, filter.Value.Type, filter.Value.Value, filter.Operator, class)
+		} else {
+			return nil, errors.Errorf("property %s does not support null state", property.Name)
+		}
 	}
 
 	if s.onGeoProp(property) {
@@ -270,22 +271,22 @@ func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className sc
 	// prevent unbounded concurrency, see
 	// https://github.com/weaviate/weaviate/issues/3179 for details
 	eg.SetLimit(2 * _NUMCPU)
-
 	for i, clause := range operands {
 		i, clause := i, clause
 		eg.Go(func() error {
-			child, err := s.extractPropValuePair(&clause, className)
+			child, err := s.buildPropValuePair(&clause, className)
 			if err != nil {
 				return errors.Wrapf(err, "nested clause at pos %d", i)
 			}
 			children[i] = child
-
 			return nil
 		})
+
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, fmt.Errorf("nested query: %w", err)
 	}
+
 	return children, nil
 }
 
@@ -329,7 +330,7 @@ func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.D
 	}
 
 	return &propValuePair{
-		value:              byteValue,
+		_value:             byteValue,
 		prop:               prop.Name,
 		operator:           operator,
 		hasFilterableIndex: hasFilterableIndex,
@@ -354,8 +355,8 @@ func (s *Searcher) extractReferenceCount(prop *models.Property, value interface{
 	}
 
 	return &propValuePair{
-		value:              byteValue,
-		prop:               helpers.MetaCountProp(prop.Name),
+		_value:             byteValue,
+		prop:               helpers.MetaCountProperty(prop.Name),
 		operator:           operator,
 		hasFilterableIndex: hasFilterableIndex,
 		hasSearchableIndex: hasSearchableIndex,
@@ -374,7 +375,7 @@ func (s *Searcher) extractGeoFilter(prop *models.Property, value interface{},
 	parsed := value.(filters.GeoRange)
 
 	return &propValuePair{
-		value:              nil, // not going to be served by an inverted index
+		_value:             nil, // not going to be served by an inverted index
 		valueGeoRange:      &parsed,
 		prop:               prop.Name,
 		operator:           operator,
@@ -413,7 +414,7 @@ func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
 	}
 
 	return &propValuePair{
-		value:              byteValue,
+		_value:             byteValue,
 		prop:               prop.Name,
 		operator:           operator,
 		hasFilterableIndex: hasFilterableIndex,
@@ -436,9 +437,7 @@ func (s *Searcher) extractInternalProp(propName string, propType schema.DataType
 	}
 }
 
-func (s *Searcher) extractIDProp(propName string, propType schema.DataType,
-	value interface{}, operator filters.Operator, class *models.Class,
-) (*propValuePair, error) {
+func (s *Searcher) extractIDProp(propName string, propType schema.DataType, value interface{}, operator filters.Operator, class *models.Class) (*propValuePair, error) {
 	var byteValue []byte
 
 	switch propType {
@@ -454,7 +453,7 @@ func (s *Searcher) extractIDProp(propName string, propType schema.DataType,
 	}
 
 	return &propValuePair{
-		value:              byteValue,
+		_value:             byteValue,
 		prop:               filters.InternalPropID,
 		operator:           operator,
 		hasFilterableIndex: HasFilterableIndexIdProp,
@@ -463,9 +462,7 @@ func (s *Searcher) extractIDProp(propName string, propType schema.DataType,
 	}, nil
 }
 
-func (s *Searcher) extractTimestampProp(propName string, propType schema.DataType, value interface{},
-	operator filters.Operator, class *models.Class,
-) (*propValuePair, error) {
+func (s *Searcher) extractTimestampProp(propName string, propType schema.DataType, value interface{}, operator filters.Operator, class *models.Class) (*propValuePair, error) {
 	var byteValue []byte
 
 	switch propType {
@@ -499,7 +496,7 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 	}
 
 	return &propValuePair{
-		value:              byteValue,
+		_value:             byteValue,
 		prop:               propName,
 		operator:           operator,
 		hasFilterableIndex: HasFilterableIndexTimestampProp, // TODO text_rbm_inverted_index & with settings
@@ -508,9 +505,7 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 	}, nil
 }
 
-func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema.DataType,
-	value interface{}, operator filters.Operator, class *models.Class,
-) (*propValuePair, error) {
+func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema.DataType, value interface{}, operator filters.Operator, class *models.Class) (*propValuePair, error) {
 	var terms []string
 
 	valueString, ok := value.(string)
@@ -544,7 +539,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 			continue
 		}
 		propValuePairs = append(propValuePairs, &propValuePair{
-			value:              []byte(term),
+			_value:             []byte(term),
 			prop:               prop.Name,
 			operator:           operator,
 			hasFilterableIndex: hasFilterableIndex,
@@ -562,9 +557,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 	return nil, errors.Errorf("invalid search term, only stopwords provided. Stopwords can be configured in class.invertedIndexConfig.stopwords")
 }
 
-func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.DataType,
-	value interface{}, operator filters.Operator, class *models.Class,
-) (*propValuePair, error) {
+func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.DataType, value interface{}, operator filters.Operator, class *models.Class) (*propValuePair, error) {
 	var byteValue []byte
 
 	switch propType {
@@ -580,8 +573,8 @@ func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.
 	}
 
 	return &propValuePair{
-		value:              byteValue,
-		prop:               helpers.PropLength(prop.Name),
+		_value:             byteValue,
+		prop:               helpers.PropertyLength(prop.Name),
 		operator:           operator,
 		hasFilterableIndex: HasFilterableIndexPropLength, // TODO text_rbm_inverted_index & with settings
 		hasSearchableIndex: HasSearchableIndexPropLength, // TODO text_rbm_inverted_index & with settings
@@ -589,9 +582,7 @@ func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.
 	}, nil
 }
 
-func (s *Searcher) extractPropertyNull(prop *models.Property, propType schema.DataType,
-	value interface{}, operator filters.Operator, class *models.Class,
-) (*propValuePair, error) {
+func (s *Searcher) extractPropertyNull(prop *models.Property, propType schema.DataType, value interface{}, operator filters.Operator, class *models.Class) (*propValuePair, error) {
 	var valResult []byte
 
 	switch propType {
@@ -607,8 +598,8 @@ func (s *Searcher) extractPropertyNull(prop *models.Property, propType schema.Da
 	}
 
 	return &propValuePair{
-		value:              valResult,
-		prop:               helpers.PropNull(prop.Name),
+		_value:             valResult,
+		prop:               helpers.PropertyNull(prop.Name),
 		operator:           operator,
 		hasFilterableIndex: HasFilterableIndexPropNull, // TODO text_rbm_inverted_index & with settings
 		hasSearchableIndex: HasSearchableIndexPropNull, // TODO text_rbm_inverted_index & with settings
@@ -762,35 +753,35 @@ func (it *sliceDocIDsIterator) Len() int {
 }
 
 type docBitmap struct {
-	docIDs *sroar.Bitmap
+	DocIDs *sroar.Bitmap
 }
 
 // newUninitializedDocBitmap can be used whenever we can be sure that the first
 // user of the docBitmap will set or replace the bitmap, such as a row reader
 func newUninitializedDocBitmap() docBitmap {
-	return docBitmap{docIDs: nil}
+	return docBitmap{DocIDs: nil}
 }
 
 func newDocBitmap() docBitmap {
-	return docBitmap{docIDs: sroar.NewBitmap()}
+	return docBitmap{DocIDs: sroar.NewBitmap()}
 }
 
 func (dbm *docBitmap) count() int {
-	if dbm.docIDs == nil {
+	if dbm.DocIDs == nil {
 		return 0
 	}
-	return dbm.docIDs.GetCardinality()
+	return dbm.DocIDs.GetCardinality()
 }
 
 func (dbm *docBitmap) IDs() []uint64 {
-	if dbm.docIDs == nil {
+	if dbm.DocIDs == nil {
 		return []uint64{}
 	}
-	return dbm.docIDs.ToArray()
+	return dbm.DocIDs.ToArray()
 }
 
 func (dbm *docBitmap) IDsWithLimit(limit int) []uint64 {
-	card := dbm.docIDs.GetCardinality()
+	card := dbm.DocIDs.GetCardinality()
 	if limit >= card {
 		return dbm.IDs()
 	}
@@ -799,7 +790,7 @@ func (dbm *docBitmap) IDsWithLimit(limit int) []uint64 {
 	for i := range out {
 		// safe to ignore error, it can only error if the index is >= cardinality
 		// which we have already ruled out
-		out[i], _ = dbm.docIDs.Select(uint64(i))
+		out[i], _ = dbm.DocIDs.Select(uint64(i))
 	}
 
 	return out

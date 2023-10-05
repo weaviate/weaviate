@@ -51,7 +51,7 @@ func TestShard_UpdateStatus(t *testing.T) {
 		for i := 0; i < amount; i++ {
 			obj := testObject(className)
 
-			err := shd.putObject(ctx, obj)
+			err := shd.PutObject(ctx, obj)
 			require.Nil(t, err)
 		}
 
@@ -64,7 +64,7 @@ func TestShard_UpdateStatus(t *testing.T) {
 		err := shd.updateStatus(storagestate.StatusReadOnly.String())
 		require.Nil(t, err)
 
-		err = shd.putObject(ctx, testObject(className))
+		err = shd.PutObject(ctx, testObject(className))
 		require.EqualError(t, err, storagestate.ErrStatusReadOnly.Error())
 	})
 
@@ -72,7 +72,7 @@ func TestShard_UpdateStatus(t *testing.T) {
 		err := shd.updateStatus(storagestate.StatusReady.String())
 		require.Nil(t, err)
 
-		err = shd.putObject(ctx, testObject(className))
+		err = shd.PutObject(ctx, testObject(className))
 		require.Nil(t, err)
 	})
 
@@ -190,4 +190,49 @@ func TestShard_ParallelBatches(t *testing.T) {
 
 	require.Equal(t, totalObjects, int(shd.counter.Get()))
 	require.Nil(t, idx.drop())
+}
+
+func TestShard_uuidToIdLockPoolId_old(t *testing.T) {
+	lsmkv.FeatureUseMergedBuckets = false
+	shd, _ := testShard(t, context.Background(), "TestClass")
+
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(shd.index.Config.RootPath)
+
+	res := shd.uuidToIdLockPoolId_old([]byte("testtesttesttesttest"))
+	require.Equal(t, uint8(0x74), res)
+
+	fakeVectorConfig := fakeVectorConfig{}
+	fakeVectorConfig.raw = "db.fakeVectorConfig"
+	err := shd.updateVectorIndexConfig_old(context.TODO(), fakeVectorConfig)
+	require.EqualError(t, err, "unrecognized vector index config: db.fakeVectorConfig")
+
+	shd.notifyReady_old()
+
+	res2 := shd.objectCount_old()
+	require.Equal(t, 0, res2)
+
+	res3 := shd.isFallbackToSearchable_old()
+	require.Equal(t, false, res3)
+
+	res5 := shd.tenant_old()
+	require.Equal(t, "", res5)
+
+	res4 := shd.drop_old()
+	require.Nil(t, res4)
+
+	err = shd.shutdown_old(context.TODO())
+	require.Nil(t, err)
+}
+
+type fakeVectorConfig struct {
+	raw interface{}
+}
+
+func (f fakeVectorConfig) IndexType() string {
+	return "fake"
 }
