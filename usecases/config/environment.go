@@ -156,6 +156,10 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if err := config.parseCORSConfig(); err != nil {
+		return err
+	}
+
 	if v := os.Getenv("ORIGIN"); v != "" {
 		config.Origin = v
 	}
@@ -305,6 +309,28 @@ func FromEnv(config *Config) error {
 	); err != nil {
 		return err
 	}
+	return nil
+}
+
+func (c *Config) parseCORSConfig() error {
+	if v := os.Getenv("CORS_ALLOW_ORIGIN"); v != "" {
+		c.CORS.AllowOrigin = v
+	} else {
+		c.CORS.AllowOrigin = DefaultCORSAllowOrigin
+	}
+
+	if v := os.Getenv("CORS_ALLOW_METHODS"); v != "" {
+		c.CORS.AllowMethods = v
+	} else {
+		c.CORS.AllowMethods = DefaultCORSAllowMethods
+	}
+
+	if v := os.Getenv("CORS_ALLOW_HEADERS"); v != "" {
+		c.CORS.AllowHeaders = v
+	} else {
+		c.CORS.AllowHeaders = DefaultCORSAllowHeaders
+	}
+
 	return nil
 }
 
