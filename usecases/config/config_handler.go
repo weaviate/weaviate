@@ -101,6 +101,7 @@ type Config struct {
 	IndexMissingTextFilterableAtStartup bool                     `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
 	DisableGraphQL                      bool                     `json:"disable_graphql" yaml:"disable_graphql"`
 	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
+	CORS                                CORS                     `json:"cors" yaml:"cors"`
 }
 
 type moduleProvider interface {
@@ -241,6 +242,18 @@ type ResourceUsage struct {
 	DiskUse DiskUse
 	MemUse  MemUse
 }
+
+type CORS struct {
+	AllowOrigin  string `json:"allow_origin" yaml:"allow_origin"`
+	AllowMethods string `json:"allow_methods" yaml:"allow_methods"`
+	AllowHeaders string `json:"allow_headers" yaml:"allow_headers"`
+}
+
+const (
+	DefaultCORSAllowOrigin  = "*"
+	DefaultCORSAllowMethods = "*"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Cohere-Api-Key, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Palm-Api-Key"
+)
 
 func (r ResourceUsage) Validate() error {
 	if err := r.DiskUse.Validate(); err != nil {

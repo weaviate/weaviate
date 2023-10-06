@@ -345,6 +345,34 @@ func TestEnvironmentMaxConcurrentGetRequests(t *testing.T) {
 	}
 }
 
+func TestEnvironmentCORS_Origin(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    string
+		expectedErr bool
+	}{
+		{"Valid", []string{"http://foo.com"}, "http://foo.com", false},
+		{"not given", []string{}, DefaultCORSAllowOrigin, false},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			if len(tt.value) == 1 {
+				os.Setenv("CORS_ALLOW_ORIGIN", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.CORS.AllowOrigin)
+			}
+		})
+	}
+}
+
 func TestEnvironmentGRPCPort(t *testing.T) {
 	factors := []struct {
 		name        string
@@ -370,6 +398,34 @@ func TestEnvironmentGRPCPort(t *testing.T) {
 				require.NotNil(t, err)
 			} else {
 				require.Equal(t, tt.expected, conf.GRPC.Port)
+			}
+		})
+	}
+}
+
+func TestEnvironmentCORS_Methods(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    string
+		expectedErr bool
+	}{
+		{"Valid", []string{"POST"}, "POST", false},
+		{"not given", []string{}, DefaultCORSAllowMethods, false},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			if len(tt.value) == 1 {
+				os.Setenv("CORS_ALLOW_METHODS", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.CORS.AllowMethods)
 			}
 		})
 	}
@@ -402,6 +458,34 @@ func TestEnvironmentDisableGraphQL(t *testing.T) {
 				require.NotNil(t, err)
 			} else {
 				require.Equal(t, tt.expected, conf.DisableGraphQL)
+			}
+		})
+	}
+}
+
+func TestEnvironmentCORS_Headers(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    string
+		expectedErr bool
+	}{
+		{"Valid", []string{"Authorization"}, "Authorization", false},
+		{"not given", []string{}, DefaultCORSAllowHeaders, false},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			if len(tt.value) == 1 {
+				os.Setenv("CORS_ALLOW_HEADERS", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.CORS.AllowHeaders)
 			}
 		})
 	}
