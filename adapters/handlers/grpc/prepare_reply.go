@@ -329,7 +329,7 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 			}
 			singleObj, ok := propRaw.(map[string]interface{})
 			if ok {
-				extractedNestedProp, err := extractPropertiesNested(scheme, singleObj, prop, className, nested)
+				extractedNestedProp, err := extractPropertiesNested(scheme, singleObj, prop, className, &GrpcProperty{Property: nested})
 				if err != nil {
 					return nil, errors.Wrap(err, fmt.Sprintf("extracting nested properties from %v", nested))
 				}
@@ -347,7 +347,7 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 					if !ok {
 						continue
 					}
-					extractedNestedProp, err := extractPropertiesNested(scheme, singleObj, prop, className, nested)
+					extractedNestedProp, err := extractPropertiesNested(scheme, singleObj, prop, className, &GrpcProperty{Property: nested})
 					if err != nil {
 						return nil, err
 					}
@@ -440,7 +440,7 @@ func extractPropertiesNested[P schema.PropertyInterface](scheme schema.Schema, r
 				if err != nil {
 					return nil, errors.Wrap(err, "getting property")
 				}
-				extractedNestedProp, err := extractPropertiesNested(scheme, singleObj, prop, className, nested)
+				extractedNestedProp, err := extractPropertiesNested(scheme, singleObj, prop, className, &GrpcNestedProperty{NestedProperty: nested})
 				if err != nil {
 					return nil, errors.Wrap(err, fmt.Sprintf("extracting nested properties from %v", nested))
 				}
@@ -458,7 +458,7 @@ func extractPropertiesNested[P schema.PropertyInterface](scheme schema.Schema, r
 					if err != nil {
 						return nil, errors.Wrap(err, "getting property")
 					}
-					extractedNestedProp, err := extractPropertiesNested(scheme, obj, prop, className, nested)
+					extractedNestedProp, err := extractPropertiesNested(scheme, obj, prop, className, &GrpcNestedProperty{NestedProperty: nested})
 					if err != nil {
 						return nil, errors.Wrap(err, "extracting nested properties")
 					}
