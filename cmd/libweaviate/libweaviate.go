@@ -92,8 +92,8 @@ func appClasses() *C.cchar_t {
 	}
 	scheme := schemaManager.GetSchemaSkipAuth()
 	classes := scheme.Objects.Classes
-	fmt.Printf("%+v\n", classes)
-	out := "Classes:"
+	
+	out := ""
 	for _, class := range classes {
 		out = out + fmt.Sprintf("%v\n", class.Class)
 		/*if err != nil {
@@ -102,6 +102,35 @@ func appClasses() *C.cchar_t {
 			return cstr
 		}
 		*/
+	}
+
+	cstr := C.CString(string(out))
+	return cstr
+}
+
+//export classProperties
+func classProperties(className_c *C.cchar_t) *C.cchar_t {
+	if !started {
+		fmt.Println("Weaviate must be started before calling functions.")
+		os.Exit(1)
+	}
+	className := wstr2go(className_c)
+	schemaManager := appState.SchemaManager
+	if schemaManager == nil {
+		msg := fmt.Sprintf("Error: schemaManager is nil")
+		cstr := C.CString(msg)
+		return cstr
+	}
+	scheme := schemaManager.GetSchemaSkipAuth()
+	classes := scheme.Objects.Classes
+	
+	out := ""
+	for _, class := range classes {
+		if class.Class == className {
+			for _, prop := range class.Properties {
+				out = out + fmt.Sprintf("%v\n", prop.Name)
+			}
+		}
 	}
 
 	cstr := C.CString(string(out))
