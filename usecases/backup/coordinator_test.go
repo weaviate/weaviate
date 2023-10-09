@@ -410,6 +410,78 @@ func TestCoordinatedRestore(t *testing.T) {
 	})
 }
 
+func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
+	t.Parallel()
+	var (
+		now         = time.Now().UTC()
+		backendName = "s3"
+		any         = mock.Anything
+		backupID    = "1"
+		ctx         = context.Background()
+		nodes       = []string{"Old-N1", "Old-N2"}
+		newNodes    = []string{"New-N1", "New-N2"}
+		classes     = []string{"Dedicated-Class-A", "Dedicated-Class-B"}
+		nodeMapping = map[string]string{nodes[0]: newNodes[0], nodes[1]: newNodes[1]}
+		genReq      = func() *backup.DistributedBackupDescriptor {
+			return &backup.DistributedBackupDescriptor{
+				StartedAt:     now,
+				CompletedAt:   now.Add(time.Second).UTC(),
+				ID:            backupID,
+				Status:        backup.Success,
+				Version:       Version,
+				ServerVersion: config.ServerVersion,
+				Nodes: map[string]*backup.NodeDescriptor{
+					nodes[0]: {
+						Classes: classes,
+						Status:  backup.Success,
+					},
+					nodes[1]: {
+						Classes: classes,
+						Status:  backup.Success,
+					},
+				},
+				NodeMapping: nodeMapping,
+			}
+		}
+		creq = &Request{
+			Method:      OpRestore,
+			ID:          backupID,
+			Backend:     backendName,
+			Classes:     classes,
+			NodeMapping: nodeMapping,
+			Duration:    _BookingPeriod,
+		}
+		cresp = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
+		sReq  = &StatusRequest{OpRestore, backupID, backendName}
+		sresp = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
+	)
+
+	t.Run("Success", func(t *testing.T) {
+		t.Parallel()
+
+		nodeResolverWithNodeMapping := newFakeNodeResolver(append(nodes, newNodes...))
+		fc := newFakeCoordinator(nodeResolverWithNodeMapping)
+		fc.selector.On("Shards", ctx, classes[0]).Return(nodes)
+		fc.selector.On("Shards", ctx, classes[1]).Return(nodes)
+
+		fc.client.On("CanCommit", any, newNodes[0], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", any, newNodes[1], creq).Return(cresp, nil)
+
+		fc.client.On("Commit", any, newNodes[0], sReq).Return(nil)
+		fc.client.On("Commit", any, newNodes[1], sReq).Return(nil)
+		fc.client.On("Status", any, newNodes[0], sReq).Return(sresp, nil)
+		fc.client.On("Status", any, newNodes[1], sReq).Return(sresp, nil)
+		fc.backend.On("HomeDir", backupID).Return("bucket/" + backupID)
+		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Twice()
+
+		coordinator := *fc.coordinator()
+		req := genReq()
+		store := coordStore{objStore{fc.backend, req.ID}}
+		err := coordinator.Restore(ctx, store, backendName, req)
+		assert.Nil(t, err)
+	})
+}
+
 type fakeSelector struct {
 	mock.Mock
 }
