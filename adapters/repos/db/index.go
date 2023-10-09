@@ -154,7 +154,7 @@ type Index struct {
 }
 
 func (i *Index) GetShards() []*Shard {
-	var out []*Shard
+	out := make(shard, 0, len(shards))
 	i.shards.Range(func(_ string, shard *Shard) error {
 		out = append(out, shard)
 		return nil
