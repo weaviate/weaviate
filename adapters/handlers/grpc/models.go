@@ -13,26 +13,26 @@ package grpc
 
 import "github.com/weaviate/weaviate/entities/models"
 
-type GrpcProperty struct {
+type Property struct {
 	*models.Property
 }
 
-type GrpcNestedProperty struct {
+type NestedProperty struct {
 	*models.NestedProperty
 }
 
-func (p *GrpcProperty) GetName() string {
+func (p *Property) GetName() string {
 	return p.Property.Name
 }
 
-func (p *GrpcProperty) GetNestedProperties() []*models.NestedProperty {
+func (p *Property) GetNestedProperties() []*models.NestedProperty {
 	return p.Property.NestedProperties
 }
 
-func (p *GrpcNestedProperty) GetName() string {
+func (p *NestedProperty) GetName() string {
 	return p.NestedProperty.Name
 }
 
-func (p *GrpcNestedProperty) GetNestedProperties() []*models.NestedProperty {
+func (p *NestedProperty) GetNestedProperties() []*models.NestedProperty {
 	return p.NestedProperty.NestedProperties
 }
