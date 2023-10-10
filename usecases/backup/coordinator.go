@@ -61,7 +61,7 @@ type participantStatus struct {
 // selector is used to select participant nodes
 type selector interface {
 	// Shards gets all nodes on which this class is sharded
-	Shards(ctx context.Context, class string) []string
+	Shards(ctx context.Context, class string) ([]string, error)
 	// ListClasses returns a list of all existing classes
 	// This will be needed if user doesn't include any classes
 	ListClasses(ctx context.Context) []string
@@ -468,8 +468,8 @@ func (c *coordinator) abortAll(ctx context.Context, req *AbortRequest, nodes map
 func (c *coordinator) groupByShard(ctx context.Context, classes []string) (nodeMap, error) {
 	m := make(nodeMap, 32)
 	for _, cls := range classes {
-		nodes := c.selector.Shards(ctx, cls)
-		if len(nodes) == 0 {
+		nodes, err := c.selector.Shards(ctx, cls)
+		if err != nil {
 			return nil, fmt.Errorf("class %q: %w", cls, errNoShardFound)
 		}
 		for _, node := range nodes {
