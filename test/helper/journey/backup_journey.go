@@ -32,13 +32,20 @@ const (
 	clusterJourney
 )
 
+type dataIntegrityCheck int
+
+const (
+	checkClassPresenceOnly = iota
+	checkClassAndDataPresence
+)
+
 const (
 	singleTenant = ""
 	multiTenant  = true
 )
 
 func backupJourney(t *testing.T, className, backend, backupID string,
-	journeyType journeyType, tenantNames []string,
+	journeyType journeyType, dataIntegrityCheck dataIntegrityCheck, tenantNames []string,
 ) {
 	if journeyType == clusterJourney && backend == "filesystem" {
 		t.Run("should fail backup/restore with local filesystem backend", func(t *testing.T) {
@@ -128,12 +135,18 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 	// assert class exists again it its entirety
 	if tenantNames != nil {
 		for _, name := range tenantNames {
-			count := moduleshelper.GetClassCount(t, className, name)
-			assert.Equal(t, int64(500/len(tenantNames)), count)
+			moduleshelper.EnsureClassExists(t, className, name)
+			if dataIntegrityCheck == checkClassAndDataPresence {
+				count := moduleshelper.GetClassCount(t, className, name)
+				assert.Equal(t, int64(500/len(tenantNames)), count)
+			}
 		}
 	} else {
-		count := moduleshelper.GetClassCount(t, className, singleTenant)
-		assert.Equal(t, int64(500), count)
+		moduleshelper.EnsureClassExists(t, className, singleTenant)
+		if dataIntegrityCheck == checkClassAndDataPresence {
+			count := moduleshelper.GetClassCount(t, className, singleTenant)
+			assert.Equal(t, int64(500), count)
+		}
 	}
 }
 
