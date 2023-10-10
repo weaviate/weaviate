@@ -28,6 +28,8 @@ import (
 // It batches vectors together before sending them to the indexing workers.
 // It is safe to use concurrently.
 type IndexQueue struct {
+	sync.RWMutex
+
 	Shard shardStatusUpdater
 	Index batchIndexer
 
@@ -158,6 +160,11 @@ func (q *IndexQueue) Close() error {
 	q.cancelFn()
 
 	q.wg.Wait()
+
+	// loop over the chunks of the queue
+	// wait for the done chan to be closed
+	// then return
+	q.queue.wait()
 
 	return nil
 }
@@ -429,6 +436,18 @@ func (q *vectorQueue) getFreeChunk() *chunk {
 	return q.pool.Get().(*chunk)
 }
 
+func (q *vectorQueue) wait() {
+	q.fullChunks.Lock()
+	e := q.fullChunks.list.Front()
+	for e != nil {
+		c := e.Value.(*chunk)
+		<-c.done
+
+		e = e.Next()
+	}
+	q.fullChunks.Unlock()
+}
+
 func (q *vectorQueue) Add(vectors []vectorDescriptor) {
 	var full []*chunk
 
@@ -510,6 +529,8 @@ func (q *vectorQueue) borrowAllChunks() []*chunk {
 }
 
 func (q *vectorQueue) releaseChunk(c *chunk) {
+	close(c.done)
+
 	if c.elem != nil {
 		q.fullChunks.Lock()
 		q.fullChunks.list.Remove(c.elem)
@@ -586,4 +607,5 @@ type chunk struct {
 	data      []vectorDescriptor
 	elem      *list.Element
 	createdAt *time.Time
+	done      chan struct{}
 }
