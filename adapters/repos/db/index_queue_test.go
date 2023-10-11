@@ -354,6 +354,31 @@ func TestIndexQueue(t *testing.T) {
 			t.Fatal("shard state should have been updated after 10ms")
 		}
 	})
+
+	t.Run("close waits for indexing to be done", func(t *testing.T) {
+		var idx mockBatchIndexer
+		var count int
+		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
+			<-time.After(10 * time.Millisecond)
+			count++
+			return nil
+		}
+
+		q, err := NewIndexQueue(new(mockShard), &idx, startWorker(t), IndexQueueOptions{
+			BatchSize: 5,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		for i := uint64(0); i < 100; i++ {
+			pushVector(t, ctx, q, i+1, 1, 2, 3)
+		}
+
+		q.pushToWorkers()
+		q.Close()
+
+		require.EqualValues(t, 20, count)
+	})
 }
 
 func BenchmarkPush(b *testing.B) {
