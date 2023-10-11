@@ -155,7 +155,7 @@ func (v *Validator) classifyProperty(class *models.Class, propName string) {
 		return
 	}
 
-	if dt.IsPrimitive() {
+	if !dt.IsReference() {
 		v.errors.Addf("classifyProperties: property '%s' must be of reference type (cref)", propName)
 		return
 	}

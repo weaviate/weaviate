@@ -127,7 +127,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	var err error
-	s.queue, err = NewIndexQueue(s.ID(), s.index.Config.RootPath, s.vectorIndex, IndexQueueOptions{
+	s.queue, err = NewIndexQueue(s.ID(), s.index.Config.RootPath, s, s.vectorIndex, s.centralJobQueue, IndexQueueOptions{
 		Logger: s.index.logger,
 	})
 	if err != nil {
@@ -565,6 +565,10 @@ func (s *Shard) shutdown(ctx context.Context) error {
 
 	if err := s.propLengths.Close(); err != nil {
 		return errors.Wrap(err, "close prop length tracker")
+	}
+
+	if err := s.queue.Close(); err != nil {
+		return errors.Wrap(err, "shut down vector index queue")
 	}
 
 	// to ensure that all commitlog entries are written to disk.

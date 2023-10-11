@@ -23,8 +23,9 @@ import (
 
 const (
 	// write-only
-	AddClass    cluster.TransactionType = "add_class"
-	AddProperty cluster.TransactionType = "add_property"
+	AddClass            cluster.TransactionType = "add_class"
+	AddProperty         cluster.TransactionType = "add_property"
+	mergeObjectProperty cluster.TransactionType = "merge_object_property"
 
 	// tenant types
 	addTenants    cluster.TransactionType = "add_tenants"
@@ -36,6 +37,11 @@ const (
 
 	// read-only
 	ReadSchema cluster.TransactionType = "read_schema"
+
+	// repairs
+	RepairClass    cluster.TransactionType = "repair_class"
+	RepairProperty cluster.TransactionType = "repair_property"
+	RepairTenant   cluster.TransactionType = "repair_tenant"
 
 	DefaultTxTTL = 60 * time.Second
 )
@@ -50,6 +56,9 @@ var resumableTxs = []cluster.TransactionType{
 // execute even if the DB is unready.
 var allowUnreadyTxs = []cluster.TransactionType{
 	ReadSchema, // required at startup, does not write
+	RepairClass,
+	RepairProperty,
+	RepairTenant,
 }
 
 type AddClassPayload struct {
@@ -58,6 +67,11 @@ type AddClassPayload struct {
 }
 
 type AddPropertyPayload struct {
+	ClassName string           `json:"className"`
+	Property  *models.Property `json:"property"`
+}
+
+type MergeObjectPropertyPayload struct {
 	ClassName string           `json:"className"`
 	Property  *models.Property `json:"property"`
 }
@@ -113,17 +127,19 @@ func UnmarshalTransaction(txType cluster.TransactionType,
 	payload json.RawMessage,
 ) (interface{}, error) {
 	switch txType {
-	case AddClass:
+	case AddClass, RepairClass:
 		return unmarshalRawJson[AddClassPayload](payload)
-	case AddProperty:
+	case AddProperty, RepairProperty:
 		return unmarshalRawJson[AddPropertyPayload](payload)
+	case mergeObjectProperty:
+		return unmarshalRawJson[MergeObjectPropertyPayload](payload)
 	case DeleteClass:
 		return unmarshalRawJson[DeleteClassPayload](payload)
 	case UpdateClass:
 		return unmarshalRawJson[UpdateClassPayload](payload)
 	case ReadSchema:
 		return unmarshalRawJson[ReadSchemaPayload](payload)
-	case addTenants:
+	case addTenants, RepairTenant:
 		return unmarshalRawJson[AddTenantsPayload](payload)
 	case updateTenants:
 		return unmarshalRawJson[UpdateTenantsPayload](payload)

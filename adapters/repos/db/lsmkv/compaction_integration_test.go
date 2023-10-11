@@ -349,6 +349,16 @@ func compactionReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketO
 		assert.Equal(t, expected, retrieved)
 	})
 
+	t.Run("verify control using individual get operations",
+		func(t *testing.T) {
+			for _, pair := range expected {
+				retrieved, err := bucket.Get(pair.key)
+				require.NoError(t, err)
+
+				assert.Equal(t, pair.value, retrieved)
+			}
+		})
+
 	t.Run("verify count after compaction", func(*testing.T) {
 		assert.Equal(t, len(expected), bucket.Count())
 	})
@@ -1492,7 +1502,7 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 		}
 	})
 
-	t.Run("verify control after compaction", func(t *testing.T) {
+	t.Run("verify control after compaction using a cursor", func(t *testing.T) {
 		var retrieved []kv
 
 		c := bucket.MapCursor()
@@ -1507,6 +1517,21 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 
 		assert.Equal(t, expected, retrieved)
 	})
+
+	t.Run("verify control using individual get (MapList) operations",
+		func(t *testing.T) {
+			// Previously the only verification was done using the cursor. That
+			// guaranteed that all pairs are present in the payload, but it did not
+			// guarantee the integrity of the index (DiskTree) which is used to access
+			// _individual_ keys. Corrupting this index is exactly what happened in
+			// https://github.com/weaviate/weaviate/issues/3517
+			for _, pair := range expected {
+				retrieved, err := bucket.MapList(pair.key)
+				require.NoError(t, err)
+
+				assert.Equal(t, pair.values, retrieved)
+			}
+		})
 }
 
 func compactionMapStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, opts []BucketOption) {
@@ -1628,6 +1653,21 @@ func compactionMapStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, 
 
 		assert.Equal(t, expected, retrieved)
 	})
+
+	t.Run("verify control using individual get (MapList) operations",
+		func(t *testing.T) {
+			// Previously the only verification was done using the cursor. That
+			// guaranteed that all pairs are present in the payload, but it did not
+			// guarantee the integrity of the index (DiskTree) which is used to access
+			// _individual_ keys. Corrupting this index is exactly what happened in
+			// https://github.com/weaviate/weaviate/issues/3517
+			for _, pair := range expected {
+				retrieved, err := bucket.MapList(pair.key)
+				require.NoError(t, err)
+
+				assert.Equal(t, pair.values, retrieved)
+			}
+		})
 }
 
 func compactionReplaceStrategy_FrequentPutDeleteOperations(ctx context.Context, t *testing.T, opts []BucketOption) {

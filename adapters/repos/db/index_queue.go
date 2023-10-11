@@ -17,7 +17,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
-	"runtime"
 	"sync"
 	"time"
 
@@ -25,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -32,15 +32,13 @@ import (
 // It batches vectors together before sending them to the indexing workers.
 // It is safe to use concurrently.
 type IndexQueue struct {
-	Index BatchIndexer
+	Shard shardStatusUpdater
+	Index batchIndexer
 
 	IndexQueueOptions
 
-	// processCh is the channel used to send vectors to the indexing worker.
-	processCh chan []vectorDescriptor
-
-	// indexCh is the channel used to send vectors to the indexing worker.
-	indexCh chan *chunk
+	// indexCh is the channel used to send vectors to the shared indexing workers.
+	indexCh chan job
 
 	// context used to close pending tasks
 	// if canceled, prevents new vectors from being added to the queue.
@@ -74,34 +72,34 @@ type IndexQueueOptions struct {
 	// the pending vectors to the indexing worker.
 	IndexInterval time.Duration
 
+	// Max time a vector can stay in the queue before being indexed.
+	StaleTimeout time.Duration
+
 	// Logger is the logger used by the queue.
 	Logger logrus.FieldLogger
-
-	// RetryInterval is the interval between retries when
-	// indexing fails.
-	RetryInterval time.Duration
-
-	// IndexWorkerCount is the number of workers used to index
-	// the vectors.
-	IndexWorkerCount int
 
 	// Maximum number of vectors to use for brute force search
 	// when vectors are not indexed.
 	BruteForceSearchLimit int
 }
 
-type BatchIndexer interface {
+type batchIndexer interface {
 	AddBatch(id []uint64, vector [][]float32) error
 	SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
 	DistanceBetweenVectors(x, y []float32) (float32, bool, error)
 	ContainsNode(id uint64) bool
 	Delete(id ...uint64) error
 }
+type shardStatusUpdater interface {
+	compareAndSwapStatus(old, new string) (storagestate.Status, error)
+}
 
 func NewIndexQueue(
 	shardID string,
 	rootPath string,
-	index BatchIndexer,
+	shard shardStatusUpdater,
+	index batchIndexer,
+	centralJobQueue chan job,
 	opts IndexQueueOptions,
 ) (*IndexQueue, error) {
 	if opts.Logger == nil {
@@ -117,28 +115,23 @@ func NewIndexQueue(
 		opts.IndexInterval = 1 * time.Second
 	}
 
-	if opts.RetryInterval == 0 {
-		opts.RetryInterval = 1 * time.Second
-	}
-
-	if opts.IndexWorkerCount == 0 {
-		opts.IndexWorkerCount = runtime.GOMAXPROCS(0) - 1
-	}
-
 	if opts.BruteForceSearchLimit == 0 {
 		opts.BruteForceSearchLimit = 100_000
 	}
 
+	if opts.StaleTimeout == 0 {
+		opts.StaleTimeout = 1 * time.Minute
+	}
+
 	q := IndexQueue{
 		IndexQueueOptions: opts,
+		Shard:             shard,
 		Index:             index,
-		queue:             newVectorQueue(opts.BatchSize),
-		processCh:         make(chan []vectorDescriptor),
-		indexCh:           make(chan *chunk),
+		indexCh:           centralJobQueue,
 		pqMaxPool:         newPqMaxPool(0),
 		bufPool: sync.Pool{
 			New: func() any {
-				buf := make([]vectorDescriptor, 0, 10*opts.BatchSize)
+				buf := make([]vectorDescriptor, 0, opts.BatchSize)
 				return &buf
 			},
 		},
@@ -151,31 +144,20 @@ func NewIndexQueue(
 		return nil, errors.Wrap(err, "initialize min indexed cursor")
 	}
 
+	q.queue = newVectorQueue(opts.BatchSize, q.lastIndexedCursor, opts.StaleTimeout)
+
 	q.ctx, q.cancelFn = context.WithCancel(context.Background())
 
-	q.wg.Add(1)
-	go func() {
-		defer q.wg.Done()
-
-		q.enqueuer()
-	}()
+	if !asyncEnabled() {
+		return &q, nil
+	}
 
 	q.wg.Add(1)
 	go func() {
 		defer q.wg.Done()
-		defer close(q.indexCh)
 
 		q.indexer()
 	}()
-
-	for i := 0; i < opts.IndexWorkerCount; i++ {
-		q.wg.Add(1)
-		go func() {
-			defer q.wg.Done()
-
-			q.worker()
-		}()
-	}
 
 	return &q, nil
 }
@@ -184,17 +166,12 @@ func NewIndexQueue(
 // Any pending vectors are discarded.
 func (q *IndexQueue) Close() error {
 	// check if the queue is closed
-	select {
-	case <-q.ctx.Done():
-		return errors.New("index queue closed")
-	default:
+	if q.ctx.Err() != nil {
+		return nil
 	}
 
 	// prevent new jobs from being added
 	q.cancelFn()
-
-	// close the workers in cascade
-	close(q.processCh)
 
 	q.wg.Wait()
 
@@ -203,14 +180,15 @@ func (q *IndexQueue) Close() error {
 
 // Push adds a list of vectors to the queue.
 func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) error {
-	select {
-	case <-ctx.Done():
+	if ctx.Err() != nil {
 		return ctx.Err()
-	case <-q.ctx.Done():
-		return errors.New("index queue closed")
-	case q.processCh <- vectors:
-		return nil
 	}
+	if q.ctx.Err() != nil {
+		return errors.New("index queue closed")
+	}
+
+	q.queue.Add(vectors)
+	return nil
 }
 
 // Size returns the number of vectors waiting to be indexed.
@@ -227,7 +205,9 @@ func (q *IndexQueue) Size() int64 {
 	q.queue.fullChunks.Unlock()
 
 	q.queue.curBatch.Lock()
-	count += int64(q.queue.curBatch.c.cursor)
+	if q.queue.curBatch.c != nil {
+		count += int64(q.queue.curBatch.c.cursor)
+	}
 	q.queue.curBatch.Unlock()
 
 	return count
@@ -340,19 +320,22 @@ func (q *IndexQueue) Drop() error {
 	return q.lastIndexedCursor.Drop()
 }
 
-func (q *IndexQueue) enqueuer() {
-	for batch := range q.processCh {
-		q.queue.Add(batch)
-	}
-}
-
 func (q *IndexQueue) indexer() {
 	t := time.NewTicker(q.IndexInterval)
 
 	for {
 		select {
 		case <-t.C:
-			err := q.pushToWorkers()
+			if q.Size() == 0 {
+				_, _ = q.Shard.compareAndSwapStatus(storagestate.StatusIndexing.String(), storagestate.StatusReady.String())
+				continue
+			}
+			status, err := q.Shard.compareAndSwapStatus(storagestate.StatusReady.String(), storagestate.StatusIndexing.String())
+			if status != storagestate.StatusIndexing || err != nil {
+				q.Logger.WithField("status", status).WithError(err).Error("failed to set shard status to indexing")
+				continue
+			}
+			err = q.pushToWorkers()
 			if err != nil {
 				q.Logger.WithError(err).Error("failed to index vectors")
 				return
@@ -371,98 +354,16 @@ func (q *IndexQueue) pushToWorkers() error {
 		select {
 		case <-q.ctx.Done():
 			return errors.New("index queue closed")
-		case q.indexCh <- c:
+		case q.indexCh <- job{
+			chunk:   c,
+			indexer: q.Index,
+			queue:   q.queue,
+			ctx:     q.ctx,
+		}:
 		}
 	}
 
 	return nil
-}
-
-func (q *IndexQueue) worker() {
-	var ids []uint64
-	var vectors [][]float32
-	var deleted []uint64
-
-	for b := range q.indexCh {
-		for i := range b.data[:b.cursor] {
-			if q.queue.IsDeleted(b.data[i].id) {
-				deleted = append(deleted, b.data[i].id)
-			} else {
-				ids = append(ids, b.data[i].id)
-				vectors = append(vectors, b.data[i].vector)
-			}
-		}
-
-		if err := q.indexVectors(ids, vectors); err != nil {
-			q.Logger.WithError(err).Error("failed to index vectors")
-			return
-		}
-
-		// update the on-disk cursor that tracks the minimum indexed id
-		// with a value that is guaranteed to be lower than the last lowest indexed id.
-		q.queue.fullChunks.Lock()
-		cl := q.queue.fullChunks.list.Len()
-		q.queue.fullChunks.Unlock()
-		// Determine a safe value to use as the new cursor.
-		// The value doesn't have to be accurate but it must guarantee
-		// that it is lower than the last indexed id.
-		if len(ids) > 0 {
-			var minID uint64
-			for _, id := range ids {
-				if minID == 0 || id < minID {
-					minID = id
-				}
-			}
-
-			delta := uint64(cl * q.BatchSize)
-			// cap the delta to 10k vectors
-			if delta > 10_000 {
-				delta = 10_000
-			}
-			var safeID uint64
-			if minID > delta {
-				safeID = minID - delta
-			} else {
-				safeID = 0
-			}
-
-			q.lastIndexedCursor.Update(safeID)
-		}
-
-		// put the chunk back in the pool
-		q.queue.releaseChunk(b)
-
-		// remove the deleted ids from the mask
-		if len(deleted) > 0 {
-			q.queue.ResetDeleted(deleted...)
-		}
-
-		ids = ids[:0]
-		vectors = vectors[:0]
-		deleted = deleted[:0]
-	}
-}
-
-func (q *IndexQueue) indexVectors(ids []uint64, vectors [][]float32) error {
-	for {
-		err := q.Index.AddBatch(ids, vectors)
-		if err == nil {
-			return nil
-		}
-
-		q.Logger.WithError(err).Infof("failed to index vectors, retrying in %s", q.RetryInterval.String())
-
-		t := time.NewTimer(q.RetryInterval)
-		select {
-		case <-q.ctx.Done():
-			// drain the timer
-			if !t.Stop() {
-				<-t.C
-			}
-			return errors.New("index queue closed")
-		case <-t.C:
-		}
-	}
 }
 
 // SearchByVector performs the search through the index first, then uses brute force to
@@ -573,9 +474,11 @@ func (pqh *pqMaxPool) Put(pq *priorityqueue.Queue) {
 }
 
 type vectorQueue struct {
-	batchSize int
-	pool      sync.Pool
-	curBatch  struct {
+	batchSize         int
+	staleTimeout      time.Duration
+	pool              sync.Pool
+	lastIndexedCursor *minIndexedCursor
+	curBatch          struct {
 		sync.Mutex
 
 		c *chunk
@@ -592,9 +495,11 @@ type vectorQueue struct {
 	}
 }
 
-func newVectorQueue(batchSize int) *vectorQueue {
+func newVectorQueue(batchSize int, lastIndexedCursor *minIndexedCursor, staleTimeout time.Duration) *vectorQueue {
 	q := vectorQueue{
-		batchSize: batchSize,
+		batchSize:         batchSize,
+		lastIndexedCursor: lastIndexedCursor,
+		staleTimeout:      staleTimeout,
 		pool: sync.Pool{
 			New: func() any {
 				return &chunk{
@@ -605,7 +510,6 @@ func newVectorQueue(batchSize int) *vectorQueue {
 	}
 
 	q.fullChunks.list = list.New()
-	q.curBatch.c = q.getFreeChunk()
 	q.deleted.m = make(map[uint64]struct{})
 
 	return &q
@@ -648,12 +552,23 @@ func (q *vectorQueue) Add(vectors []vectorDescriptor) {
 }
 
 func (q *vectorQueue) ensureHasSpace() *chunk {
+	if q.curBatch.c == nil {
+		q.curBatch.c = q.getFreeChunk()
+	}
+
+	if q.curBatch.c.cursor == 0 {
+		now := time.Now()
+		q.curBatch.c.createdAt = &now
+	}
+
 	if q.curBatch.c.cursor < q.batchSize {
 		return nil
 	}
 
 	c := q.curBatch.c
 	q.curBatch.c = q.getFreeChunk()
+	now := time.Now()
+	q.curBatch.c.createdAt = &now
 	return c
 }
 
@@ -671,22 +586,67 @@ func (q *vectorQueue) borrowAllChunks() []*chunk {
 
 		e = e.Next()
 	}
-
 	q.fullChunks.Unlock()
+
+	q.curBatch.Lock()
+	if q.curBatch.c != nil && time.Since(*q.curBatch.c.createdAt) > q.staleTimeout && q.curBatch.c.cursor > 0 {
+		q.curBatch.c.borrowed = true
+		chunks = append(chunks, q.curBatch.c)
+		q.curBatch.c = nil
+	}
+	q.curBatch.Unlock()
 
 	return chunks
 }
 
 func (q *vectorQueue) releaseChunk(c *chunk) {
-	q.fullChunks.Lock()
-	q.fullChunks.list.Remove(c.elem)
-	q.fullChunks.Unlock()
+	if c.elem != nil {
+		q.fullChunks.Lock()
+		q.fullChunks.list.Remove(c.elem)
+		q.fullChunks.Unlock()
+	}
 
 	c.borrowed = false
 	c.cursor = 0
 	c.elem = nil
+	c.createdAt = nil
 
 	q.pool.Put(c)
+}
+
+func (q *vectorQueue) persistCheckpoint(ids []uint64) {
+	if len(ids) == 0 {
+		return
+	}
+
+	// update the on-disk cursor that tracks the minimum indexed id
+	// with a value that is guaranteed to be lower than the last lowest indexed id.
+	q.fullChunks.Lock()
+	cl := q.fullChunks.list.Len()
+	q.fullChunks.Unlock()
+	// Determine a safe value to use as the new cursor.
+	// The value doesn't have to be accurate but it must guarantee
+	// that it is lower than the last indexed id.
+	var minID uint64
+	for _, id := range ids {
+		if minID == 0 || id < minID {
+			minID = id
+		}
+	}
+
+	delta := uint64(cl * q.batchSize)
+	// cap the delta to 10k vectors
+	if delta > 10_000 {
+		delta = 10_000
+	}
+	var safeID uint64
+	if minID > delta {
+		safeID = minID - delta
+	} else {
+		safeID = 0
+	}
+
+	q.lastIndexedCursor.Update(safeID)
 }
 
 func (q *vectorQueue) AppendSnapshot(buf []vectorDescriptor, limit int) []vectorDescriptor {
@@ -746,10 +706,11 @@ func (q *vectorQueue) ResetDeleted(id ...uint64) {
 }
 
 type chunk struct {
-	cursor   int
-	borrowed bool
-	data     []vectorDescriptor
-	elem     *list.Element
+	cursor    int
+	borrowed  bool
+	data      []vectorDescriptor
+	elem      *list.Element
+	createdAt *time.Time
 }
 
 type minIndexedCursor struct {

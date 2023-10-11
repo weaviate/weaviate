@@ -17,19 +17,23 @@ import (
 )
 
 var (
-	validateClassNameRegex    *regexp.Regexp
-	validatePropertyNameRegex *regexp.Regexp
-	reservedPropertyNames     []string
+	validateClassNameRegex          *regexp.Regexp
+	validatePropertyNameRegex       *regexp.Regexp
+	validateNestedPropertyNameRegex *regexp.Regexp
+	reservedPropertyNames           []string
 )
 
 const (
-	ClassNameRegexCore = `[A-Z][_0-9A-Za-z]*`
-	ShardNameRegexCore = `[A-Za-z0-9\-\_]{1,64}`
+	ClassNameRegexCore      = `[A-Z][_0-9A-Za-z]*`
+	ShardNameRegexCore      = `[A-Za-z0-9\-\_]{1,64}`
+	PropertyNameRegex       = `[_A-Za-z][_0-9A-Za-z]*`
+	NestedPropertyNameRegex = `[_A-Za-z][_0-9A-Za-z]*`
 )
 
 func init() {
 	validateClassNameRegex = regexp.MustCompile(`^` + ClassNameRegexCore + `$`)
-	validatePropertyNameRegex = regexp.MustCompile(`^[_A-Za-z][_0-9A-Za-z]*$`)
+	validatePropertyNameRegex = regexp.MustCompile(`^` + PropertyNameRegex + `$`)
+	validateNestedPropertyNameRegex = regexp.MustCompile(`^` + NestedPropertyNameRegex + `$`)
 	reservedPropertyNames = []string{"_additional", "_id", "id"}
 }
 
@@ -43,12 +47,22 @@ func ValidateClassName(name string) (ClassName, error) {
 
 // ValidatePropertyName validates that this string is a valid property name
 func ValidatePropertyName(name string) (PropertyName, error) {
-	if validatePropertyNameRegex.MatchString(name) {
-		return PropertyName(name), nil
+	if !validatePropertyNameRegex.MatchString(name) {
+		return "", fmt.Errorf("'%s' is not a valid property name. "+
+			"Property names in Weaviate are restricted to valid GraphQL names, "+
+			"which must be “/%s/”.", name, PropertyNameRegex)
 	}
-	return "", fmt.Errorf("'%s' is not a valid property name. "+
-		"Property names in Weaviate are restricted to valid GraphQL names, "+
-		"which must be “/[_A-Za-z][_0-9A-Za-z]*/”.", name)
+	return PropertyName(name), nil
+}
+
+// ValidateNestedPropertyName validates that this string is a valid nested property name
+func ValidateNestedPropertyName(name, prefix string) error {
+	if !validateNestedPropertyNameRegex.MatchString(name) {
+		return fmt.Errorf("'%s' is not a valid nested property name of '%s'. "+
+			"NestedProperty names in Weaviate are restricted to valid GraphQL names, "+
+			"which must be “/%s/”.", name, prefix, NestedPropertyNameRegex)
+	}
+	return nil
 }
 
 // ValidateReservedPropertyName validates that a string is not a reserved property name

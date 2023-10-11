@@ -20,17 +20,13 @@ import (
 	"math"
 	"math/rand"
 	"os"
-	"sort"
-	"strconv"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"golang.org/x/sync/errgroup"
-	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -68,9 +64,15 @@ func int32FromBytes(bytes []byte) int {
 }
 
 func TestHnswStress(t *testing.T) {
-	siftFile := "datasets/siftsmall/siftsmall_base.fvecs"
+	siftFile := "datasets/ann-benchmarks/siftsmall/siftsmall_base.fvecs"
 	if _, err := os.Stat(siftFile); err != nil {
-		t.Skip("Sift data needs to be present")
+		if !*download {
+			t.Skip(`Sift data needs to be present.
+Run test with -download to automatically download the dataset.
+Ex: go test -v -run TestHnswStress . -download
+`)
+		}
+		downloadDatasetFile(t, siftFile)
 	}
 	vectors := readSiftFloat(siftFile, parallelGoroutines*vectorsPerGoroutine)
 
@@ -353,223 +355,6 @@ func readSiftFloat(file string, maxObjects int) [][]float32 {
 	}
 	if len(vectors) < maxObjects {
 		panic("Could not load all elements.")
-	}
-
-	return vectors
-}
-
-func TestHnswStressNeurips23(t *testing.T) {
-	datasets := map[string]string{
-		"random-xs":              "datasets/neurips23/data/random10000/data_10000_20",
-		"random-xs-clustered":    "datasets/neurips23/data/random-clustered10000/clu-random.fbin.crop_nb_10000",
-		"msturing-1M":            "datasets/neurips23/data/MSTuringANNS/base1b.fbin",
-		"msturing-10M":           "datasets/neurips23/data/MSTuringANNS/base1b.fbin",
-		"msspacev-1M":            "datasets/neurips23/data/MSSPACEV1B/spacev1b_base.i8bin",
-		"msspacev-10M":           "datasets/neurips23/data/MSSPACEV1B/spacev1b_base.i8bin",
-		"msturing-10M-clustered": "datasets/neurips23/data/MSTuring-10M-clustered/msturing-10M-clustered.fbin",
-	}
-
-	queries := map[string]string{
-		"random-xs":              "datasets/neurips23/data/random10000/queries_1000_20",
-		"random-xs-clustered":    "datasets/neurips23/data/random-clustered10000/queries_1000_20.fbin",
-		"msturing-1M":            "datasets/neurips23/data/MSTuringANNS/query100K.fbin",
-		"msturing-10M":           "datasets/neurips23/data/MSTuringANNS/query100K.fbin",
-		"msspacev-1M":            "datasets/neurips23/data/MSSPACEV1B/query.i8bin",
-		"msspacev-10M":           "datasets/neurips23/data/MSSPACEV1B/query.i8bin",
-		"msturing-10M-clustered": "datasets/neurips23/data/MSTuring-10M-clustered/testQuery10K.fbin",
-	}
-
-	runbooks := []string{
-		"datasets/neurips23/simple_runbook.yaml",
-		"datasets/neurips23/clustered_runbook.yaml",
-	}
-
-	for _, runbookFile := range runbooks {
-		t.Run(runbookFile, func(t *testing.T) {
-			runbook := readRunbook(t, runbookFile)
-
-			for _, step := range runbook.Steps {
-				t.Run(step.Dataset, func(t *testing.T) {
-					file, ok := datasets[step.Dataset]
-					if !ok {
-						t.Skipf("Neurips23 dataset %s not found", step.Dataset)
-					}
-
-					if _, err := os.Stat(file); err != nil {
-						t.Skipf("Neurips23 dataset %s not found", step.Dataset)
-					}
-
-					vectors := readBigAnnDataset(t, file, step.MaxPts)
-
-					index := createEmptyHnswIndexForTests(t, idVectorSize(len(vectors[0])))
-
-					var queryVectors [][]float32
-
-					for _, op := range step.Operations {
-						switch op.Operation {
-						case "insert":
-							ssdhelpers.Concurrently(uint64(op.End-op.Start), func(i uint64) {
-								err := index.Add(uint64(op.Start+int(i)), vectors[op.Start+int(i)])
-								require.NoError(t, err)
-							})
-						case "delete":
-							ssdhelpers.Concurrently(uint64(op.End-op.Start), func(i uint64) {
-								err := index.Delete(uint64(op.Start + int(i)))
-								require.NoError(t, err)
-							})
-						case "search":
-							if len(queryVectors) == 0 {
-								file, ok := queries[step.Dataset]
-								if !ok {
-									t.Errorf("query file: not found for %s dataset", step.Dataset)
-								}
-
-								queryVectors = readBigAnnDataset(t, file, 0)
-							}
-
-							ssdhelpers.Concurrently(uint64(len(queryVectors)), func(i uint64) {
-								_, _, err := index.SearchByVector(queryVectors[i], 0, nil)
-								require.NoError(t, err)
-							})
-						default:
-							t.Errorf("Unknown operation %s", op.Operation)
-						}
-					}
-				})
-			}
-		})
-	}
-}
-
-type runbook struct {
-	Steps []runbookStep
-}
-type runbookStep struct {
-	Dataset    string
-	MaxPts     int
-	Operations []runbookOperation
-}
-
-type runbookOperation struct {
-	Operation string
-	Start     int
-	End       int
-}
-
-func readRunbook(t testing.TB, file string) *runbook {
-	f, err := os.Open(file)
-	require.NoError(t, err, "Could not open runbook file")
-	defer f.Close()
-
-	d := yaml.NewDecoder(f)
-
-	var runbook runbook
-
-	var m map[string]map[string]any
-	err = d.Decode(&m)
-	require.NoError(t, err)
-
-	var datasets []string
-	for datasetName := range m {
-		datasets = append(datasets, datasetName)
-	}
-
-	sort.Strings(datasets)
-
-	for _, datasetName := range datasets {
-		stepInfo := m[datasetName]
-		var step runbookStep
-
-		step.Dataset = datasetName
-		step.MaxPts = stepInfo["max_pts"].(int)
-		i := 1
-		for {
-			s := strconv.Itoa(i)
-			if _, ok := stepInfo[s]; !ok {
-				break
-			}
-
-			opInfo := stepInfo[s].(map[string]any)
-
-			var op runbookOperation
-			op.Operation = opInfo["operation"].(string)
-			if op.Operation == "insert" || op.Operation == "delete" {
-				op.Start = opInfo["start"].(int)
-				op.End = opInfo["end"].(int)
-			}
-
-			step.Operations = append(step.Operations, op)
-
-			i++
-		}
-
-		runbook.Steps = append(runbook.Steps, step)
-	}
-
-	return &runbook
-}
-
-func readBigAnnDataset(t testing.TB, file string, maxObjects int) [][]float32 {
-	var vectors [][]float32
-
-	f, err := os.Open(file)
-	if err != nil {
-		panic(errors.Wrap(err, "Could not open SIFT file"))
-	}
-	defer f.Close()
-
-	fi, err := f.Stat()
-	if err != nil {
-		panic(errors.Wrap(err, "Could not get SIFT file properties"))
-	}
-	fileSize := fi.Size()
-
-	b := make([]byte, 4)
-
-	// The data is a binary file containing floating point vectors
-	// It starts with 8 bytes of header data
-	// The first 4 bytes are the number of vectors in the file
-	// The second 4 bytes are the dimensionality of the vectors in the file
-	// The vector data needs to be converted from bytes to float
-	// Note that the vector entries are of type float but are integer numbers eg 2.0
-
-	// The first 4 bytes are the number of vectors in the file
-	_, err = f.Read(b)
-	require.NoError(t, err)
-	n := int32FromBytes(b)
-
-	// The second 4 bytes are the dimensionality of the vectors in the file
-	_, err = f.Read(b)
-	require.NoError(t, err)
-	d := int32FromBytes(b)
-
-	bytesPerF := 4
-
-	require.Equal(t, 8+n*d*bytesPerF, int(fileSize))
-
-	vectorBytes := make([]byte, d*bytesPerF)
-	for i := 0; i >= 0; i++ {
-		_, err = f.Read(vectorBytes)
-		if err == io.EOF {
-			break
-		}
-		require.NoError(t, err)
-
-		vectorFloat := make([]float32, 0, d)
-		for j := 0; j < d; j++ {
-			start := j * bytesPerF
-			vectorFloat = append(vectorFloat, float32FromBytes(vectorBytes[start:start+bytesPerF]))
-		}
-
-		vectors = append(vectors, vectorFloat)
-
-		if maxObjects > 0 && i >= maxObjects {
-			break
-		}
-	}
-
-	if maxObjects > 0 {
-		require.Equal(t, maxObjects, len(vectors))
 	}
 
 	return vectors

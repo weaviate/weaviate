@@ -147,6 +147,7 @@ type clusterState interface {
 	ClusterHealthScore() int
 
 	SchemaSyncIgnored() bool
+	SkipSchemaRepair() bool
 }
 
 type scaleOut interface {

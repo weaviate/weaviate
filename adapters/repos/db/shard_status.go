@@ -36,10 +36,27 @@ func (s *Shard) isReadOnly() bool {
 	return s.getStatus() == storagestate.StatusReadOnly
 }
 
+func (s *Shard) compareAndSwapStatus(old, new string) (storagestate.Status, error) {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
+	if s.status.String() != old {
+		return s.status, nil
+	}
+
+	return s.status, s.updateStatusUnlocked(new)
+}
+
 func (s *Shard) updateStatus(in string) error {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
+	return s.updateStatusUnlocked(in)
+}
+
+// updateStatusUnlocked updates the status without locking the statusLock.
+// Warning: Use updateStatus instead.
+func (s *Shard) updateStatusUnlocked(in string) error {
 	targetStatus, err := storagestate.ValidateStatus(strings.ToUpper(in))
 	if err != nil {
 		return errors.Wrap(err, in)

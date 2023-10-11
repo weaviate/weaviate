@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.21.3"
+    "version": "1.21.5"
   },
   "basePath": "/v1",
   "paths": {
@@ -3919,6 +3919,47 @@ func init() {
         "$ref": "#/definitions/SingleRef"
       }
     },
+    "NestedProperty": {
+      "type": "object",
+      "properties": {
+        "dataType": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": "string"
+        },
+        "indexFilterable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexSearchable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "name": {
+          "type": "string"
+        },
+        "nestedProperties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NestedProperty"
+          },
+          "x-omitempty": true
+        },
+        "tokenization": {
+          "type": "string",
+          "enum": [
+            "word",
+            "lowercase",
+            "whitespace",
+            "field"
+          ]
+        }
+      }
+    },
     "NodeShardStatus": {
       "description": "The definition of a node shard status response body",
       "properties": {
@@ -4311,6 +4352,14 @@ func init() {
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
+        },
+        "nestedProperties": {
+          "description": "The properties of the nested object(s). Applies to object and object[] data types.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NestedProperty"
+          },
+          "x-omitempty": true
         },
         "tokenization": {
           "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default; splits on any non-alphanumerical, lowercases), ` + "`" + `lowercase` + "`" + ` (splits on white spaces, lowercases), ` + "`" + `whitespace` + "`" + ` (splits on white spaces), ` + "`" + `field` + "`" + ` (trims). Not supported for remaining data types",
@@ -4866,7 +4915,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.21.3"
+    "version": "1.21.5"
   },
   "basePath": "/v1",
   "paths": {
@@ -9010,6 +9059,47 @@ func init() {
         "$ref": "#/definitions/SingleRef"
       }
     },
+    "NestedProperty": {
+      "type": "object",
+      "properties": {
+        "dataType": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": "string"
+        },
+        "indexFilterable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexSearchable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "name": {
+          "type": "string"
+        },
+        "nestedProperties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NestedProperty"
+          },
+          "x-omitempty": true
+        },
+        "tokenization": {
+          "type": "string",
+          "enum": [
+            "word",
+            "lowercase",
+            "whitespace",
+            "field"
+          ]
+        }
+      }
+    },
     "NodeShardStatus": {
       "description": "The definition of a node shard status response body",
       "properties": {
@@ -9420,6 +9510,14 @@ func init() {
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
+        },
+        "nestedProperties": {
+          "description": "The properties of the nested object(s). Applies to object and object[] data types.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NestedProperty"
+          },
+          "x-omitempty": true
         },
         "tokenization": {
           "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default; splits on any non-alphanumerical, lowercases), ` + "`" + `lowercase` + "`" + ` (splits on white spaces, lowercases), ` + "`" + `whitespace` + "`" + ` (splits on white spaces), ` + "`" + `field` + "`" + ` (trims). Not supported for remaining data types",

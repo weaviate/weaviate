@@ -28,6 +28,52 @@ import (
 	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
 )
 
+func TestBuildUrlFn(t *testing.T) {
+	t.Run("buildUrlFn returns default OpenAI Client", func(t *testing.T) {
+		config := ent.VectorizationConfig{
+			Type:         "",
+			Model:        "",
+			ModelVersion: "",
+			ResourceName: "",
+			DeploymentID: "",
+			BaseURL:      "https://api.openai.com",
+			IsAzure:      false,
+		}
+		url, err := buildUrl(config)
+		assert.Nil(t, err)
+		assert.Equal(t, "https://api.openai.com/v1/embeddings", url)
+	})
+	t.Run("buildUrlFn returns Azure Client", func(t *testing.T) {
+		config := ent.VectorizationConfig{
+			Type:         "",
+			Model:        "",
+			ModelVersion: "",
+			ResourceName: "resourceID",
+			DeploymentID: "deploymentID",
+			BaseURL:      "",
+			IsAzure:      true,
+		}
+		url, err := buildUrl(config)
+		assert.Nil(t, err)
+		assert.Equal(t, "https://resourceID.openai.azure.com/openai/deployments/deploymentID/embeddings?api-version=2022-12-01", url)
+	})
+
+	t.Run("buildUrlFn loads from BaseURL", func(t *testing.T) {
+		config := ent.VectorizationConfig{
+			Type:         "",
+			Model:        "",
+			ModelVersion: "",
+			ResourceName: "resourceID",
+			DeploymentID: "deploymentID",
+			BaseURL:      "https://foobar.some.proxy",
+			IsAzure:      false,
+		}
+		url, err := buildUrl(config)
+		assert.Nil(t, err)
+		assert.Equal(t, "https://foobar.some.proxy/v1/embeddings", url)
+	})
+}
+
 func TestClient(t *testing.T) {
 	t.Run("when all is fine", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
