@@ -299,12 +299,12 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 	var neighborVec []float32
 	if h.compressed.Load() {
 		var vec []byte
-		vec, err = h.compressedVectorsCache.get(context.Background(), neighbor)
+		vec, err = h.compressedVectorsCache.Get(context.Background(), neighbor)
 		if err == nil {
 			neighborVec = h.pq.Decode(vec)
 		}
 	} else {
-		neighborVec, err = h.cache.get(context.Background(), neighbor)
+		neighborVec, err = h.cache.Get(context.Background(), neighbor)
 	}
 
 	if err != nil {
@@ -593,9 +593,9 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 			h.nodes[id] = nil
 			h.shardedNodeLocks[id%NodeLockStripe].Unlock()
 			if h.compressed.Load() {
-				h.compressedVectorsCache.delete(context.TODO(), id)
+				h.compressedVectorsCache.Delete(context.TODO(), id)
 			} else {
-				h.cache.delete(context.TODO(), id)
+				h.cache.Delete(context.TODO(), id)
 			}
 			if err := h.commitLog.DeleteNode(id); err != nil {
 				h.resetLock.Unlock()

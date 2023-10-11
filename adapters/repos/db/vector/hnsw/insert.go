@@ -28,7 +28,7 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 		return nil
 	}
 	// check if vector length is the same as existing nodes
-	existingNodeVector, err := h.cache.get(context.Background(), h.entryPointID)
+	existingNodeVector, err := h.cache.Get(context.Background(), h.entryPointID)
 	if err != nil {
 		return err
 	}
@@ -167,9 +167,9 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 	if h.compressed.Load() {
 		compressed := h.pq.Encode(vector)
 		h.storeCompressedVector(node.id, compressed)
-		h.compressedVectorsCache.preload(node.id, compressed)
+		h.compressedVectorsCache.Preload(node.id, compressed)
 	} else {
-		h.cache.preload(node.id, vector)
+		h.cache.Preload(node.id, vector)
 	}
 
 	h.insertMetrics.prepareAndInsertNode(before)
@@ -249,9 +249,9 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	if h.compressed.Load() {
 		compressed := h.pq.Encode(nodeVec)
 		h.storeCompressedVector(node.id, compressed)
-		h.compressedVectorsCache.preload(node.id, compressed)
+		h.compressedVectorsCache.Preload(node.id, compressed)
 	} else {
-		h.cache.preload(node.id, nodeVec)
+		h.cache.Preload(node.id, nodeVec)
 	}
 
 	// go h.insertHook(node.id, 0, node.connections)

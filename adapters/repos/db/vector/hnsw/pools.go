@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 )
 
@@ -50,19 +51,12 @@ type tempVectorsPool struct {
 	pool *sync.Pool
 }
 
-type VectorSlice struct {
-	Slice []float32
-	mem   []float32
-	Buff8 []byte
-	Buff  []byte
-}
-
 func newTempVectorsPool() *tempVectorsPool {
 	return &tempVectorsPool{
 		pool: &sync.Pool{
 			New: func() interface{} {
-				return &VectorSlice{
-					mem:   nil,
+				return &common.VectorSlice{
+					Mem:   nil,
 					Buff8: make([]byte, 8),
 					Buff:  nil,
 					Slice: nil,
@@ -72,18 +66,18 @@ func newTempVectorsPool() *tempVectorsPool {
 	}
 }
 
-func (pool *tempVectorsPool) Get(capacity int) *VectorSlice {
-	container := pool.pool.Get().(*VectorSlice)
+func (pool *tempVectorsPool) Get(capacity int) *common.VectorSlice {
+	container := pool.pool.Get().(*common.VectorSlice)
 	if len(container.Slice) >= capacity {
-		container.Slice = container.mem[:capacity]
+		container.Slice = container.Mem[:capacity]
 	} else {
-		container.mem = make([]float32, capacity)
-		container.Slice = container.mem[:capacity]
+		container.Mem = make([]float32, capacity)
+		container.Slice = container.Mem[:capacity]
 	}
 	return container
 }
 
-func (pool *tempVectorsPool) Put(container *VectorSlice) {
+func (pool *tempVectorsPool) Put(container *common.VectorSlice) {
 	pool.pool.Put(container)
 }
 

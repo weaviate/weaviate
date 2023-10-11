@@ -44,7 +44,7 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 	if h.compressed.Load() {
 		vecs := make([][]byte, 0, len(ids))
 		for _, id := range ids {
-			v, err := h.compressedVectorsCache.get(context.Background(), id)
+			v, err := h.compressedVectorsCache.Get(context.Background(), id)
 			if err != nil {
 				return err
 			}
