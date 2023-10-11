@@ -111,6 +111,7 @@ func file_v0_batch_proto_rawDescGZIP() []byte {
 	return file_v0_batch_proto_rawDescData
 }
 
+<<<<<<< HEAD
 var (
 	file_v0_batch_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 	file_v0_batch_proto_goTypes  = []any{
@@ -119,6 +120,13 @@ var (
 	}
 )
 
+=======
+var file_v0_batch_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_v0_batch_proto_goTypes = []any{
+	(*BatchObjectsRequest)(nil), // 0: weaviategrpc.BatchObjectsRequest
+	(*BatchObjectsReply)(nil),   // 1: weaviategrpc.BatchObjectsReply
+}
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 var file_v0_batch_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
 	0, // [0:0] is the sub-list for method input_type
@@ -132,6 +140,35 @@ func file_v0_batch_proto_init() {
 	if File_v0_batch_proto != nil {
 		return
 	}
+<<<<<<< HEAD
+=======
+	if !protoimpl.UnsafeEnabled {
+		file_v0_batch_proto_msgTypes[0].Exporter = func(v any, i int) any {
+			switch v := v.(*BatchObjectsRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v0_batch_proto_msgTypes[1].Exporter = func(v any, i int) any {
+			switch v := v.(*BatchObjectsReply); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+	}
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

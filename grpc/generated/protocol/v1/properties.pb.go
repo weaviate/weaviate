@@ -64,8 +64,16 @@ func (x *Properties) GetFields() map[string]*Value {
 }
 
 type Value struct {
+<<<<<<< HEAD
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Kind:
+=======
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// Types that are assignable to Kind:
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	//
 	//	*Value_NumberValue
 	//	*Value_StringValue
@@ -324,10 +332,20 @@ func (*Value_NullValue) isValue_Kind() {}
 func (*Value_TextValue) isValue_Kind() {}
 
 type ListValue struct {
+<<<<<<< HEAD
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Deprecated: Marked as deprecated in v1/properties.proto.
 	Values []*Value `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
 	// Types that are valid to be assigned to Kind:
+=======
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// Deprecated: Marked as deprecated in v1/properties.proto.
+	Values []*Value `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
+	// Types that are assignable to Kind:
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	//
 	//	*ListValue_NumberValues
 	//	*ListValue_BoolValues
@@ -496,7 +514,14 @@ func (*ListValue_IntValues) isListValue_Kind() {}
 func (*ListValue_TextValues) isListValue_Kind() {}
 
 type NumberValues struct {
+<<<<<<< HEAD
 	state protoimpl.MessageState `protogen:"open.v1"`
+=======
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	// *
 	// The values are stored as a byte array, where each 8 bytes represent a single float64 value.
 	// The byte array is stored in little-endian order using uint64 encoding.
@@ -763,7 +788,14 @@ func (x *UuidValues) GetValues() []string {
 }
 
 type IntValues struct {
+<<<<<<< HEAD
 	state protoimpl.MessageState `protogen:"open.v1"`
+=======
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	// *
 	// The values are stored as a byte array, where each 8 bytes represent a single int64 value.
 	// The byte array is stored in little-endian order using uint64 encoding.
@@ -1046,6 +1078,7 @@ func file_v1_properties_proto_rawDescGZIP() []byte {
 	return file_v1_properties_proto_rawDescData
 }
 
+<<<<<<< HEAD
 var (
 	file_v1_properties_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 	file_v1_properties_proto_goTypes  = []any{
@@ -1066,6 +1099,25 @@ var (
 	}
 )
 
+=======
+var file_v1_properties_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_v1_properties_proto_goTypes = []any{
+	(*Properties)(nil),      // 0: weaviate.v1.Properties
+	(*Value)(nil),           // 1: weaviate.v1.Value
+	(*ListValue)(nil),       // 2: weaviate.v1.ListValue
+	(*NumberValues)(nil),    // 3: weaviate.v1.NumberValues
+	(*TextValues)(nil),      // 4: weaviate.v1.TextValues
+	(*BoolValues)(nil),      // 5: weaviate.v1.BoolValues
+	(*ObjectValues)(nil),    // 6: weaviate.v1.ObjectValues
+	(*DateValues)(nil),      // 7: weaviate.v1.DateValues
+	(*UuidValues)(nil),      // 8: weaviate.v1.UuidValues
+	(*IntValues)(nil),       // 9: weaviate.v1.IntValues
+	(*GeoCoordinate)(nil),   // 10: weaviate.v1.GeoCoordinate
+	(*PhoneNumber)(nil),     // 11: weaviate.v1.PhoneNumber
+	nil,                     // 12: weaviate.v1.Properties.FieldsEntry
+	(structpb.NullValue)(0), // 13: google.protobuf.NullValue
+}
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 var file_v1_properties_proto_depIdxs = []int32{
 	12, // 0: weaviate.v1.Properties.fields:type_name -> weaviate.v1.Properties.FieldsEntry
 	0,  // 1: weaviate.v1.Value.object_value:type_name -> weaviate.v1.Properties
@@ -1095,6 +1147,155 @@ func file_v1_properties_proto_init() {
 	if File_v1_properties_proto != nil {
 		return
 	}
+<<<<<<< HEAD
+=======
+	if !protoimpl.UnsafeEnabled {
+		file_v1_properties_proto_msgTypes[0].Exporter = func(v any, i int) any {
+			switch v := v.(*Properties); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_properties_proto_msgTypes[1].Exporter = func(v any, i int) any {
+			switch v := v.(*Value); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_properties_proto_msgTypes[2].Exporter = func(v any, i int) any {
+			switch v := v.(*ListValue); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_properties_proto_msgTypes[3].Exporter = func(v any, i int) any {
+			switch v := v.(*NumberValues); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_properties_proto_msgTypes[4].Exporter = func(v any, i int) any {
+			switch v := v.(*TextValues); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_properties_proto_msgTypes[5].Exporter = func(v any, i int) any {
+			switch v := v.(*BoolValues); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_properties_proto_msgTypes[6].Exporter = func(v any, i int) any {
+			switch v := v.(*ObjectValues); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_properties_proto_msgTypes[7].Exporter = func(v any, i int) any {
+			switch v := v.(*DateValues); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_properties_proto_msgTypes[8].Exporter = func(v any, i int) any {
+			switch v := v.(*UuidValues); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_properties_proto_msgTypes[9].Exporter = func(v any, i int) any {
+			switch v := v.(*IntValues); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_properties_proto_msgTypes[10].Exporter = func(v any, i int) any {
+			switch v := v.(*GeoCoordinate); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_properties_proto_msgTypes[11].Exporter = func(v any, i int) any {
+			switch v := v.(*PhoneNumber); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+	}
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	file_v1_properties_proto_msgTypes[1].OneofWrappers = []any{
 		(*Value_NumberValue)(nil),
 		(*Value_StringValue)(nil),

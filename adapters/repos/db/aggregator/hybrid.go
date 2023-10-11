@@ -29,6 +29,7 @@ func (a *Aggregator) buildHybridKeywordRanking() (*searchparams.KeywordRanking, 
 		Query:                a.params.Hybrid.Query,
 		MinimumOrTokensMatch: a.params.Hybrid.MinimumOrTokensMatch,
 		SearchOperator:       a.params.Hybrid.SearchOperator,
+		// Tokens: a.params.Hybrid.Tokens, //TODO handle tokens in simple hybrid not just bm25
 	}
 
 	cl := a.getSchema.ReadOnlyClass(a.params.ClassName.String())

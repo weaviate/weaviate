@@ -68,18 +68,41 @@ type Analyzer struct {
 
 // Text tokenizes given input according to selected tokenization,
 // then aggregates duplicates
-func (a *Analyzer) Text(tokenization, in string) []Countable {
-	return a.TextArray(tokenization, []string{in})
+func (a *Analyzer) Text(tokenization, in string, userTokens []string) []Countable {
+	return a.TextArray(tokenization, []string{in}, userTokens)
 }
 
 // TextArray tokenizes given input according to selected tokenization,
 // then aggregates duplicates
-func (a *Analyzer) TextArray(tokenization string, inArr []string) []Countable {
+func (a *Analyzer) TextArray(tokenization string, inArr []string, userTokens []string) []Countable {
 	var terms []string
-	for _, in := range inArr {
-		terms = append(terms, helpers.Tokenize(tokenization, in)...)
+	if len(userTokens) > 0 {
+		terms = userTokens
+	} else {
+		for _, in := range inArr {
+			terms = append(terms, helpers.Tokenize(tokenization, in)...)
+		}
 	}
 
+	counts := map[string]uint64{}
+	for _, term := range terms {
+		counts[term]++
+	}
+
+	countable := make([]Countable, len(counts))
+	i := 0
+	for term, count := range counts {
+		countable[i] = Countable{
+			Data:          []byte(term),
+			TermFrequency: float32(count),
+		}
+		i++
+	}
+	return countable
+}
+
+// PreTokenised takes an array of tokens and aggregates them
+func (a *Analyzer) PreTokenised(tokenization string, terms []string) []Countable {
 	counts := map[string]uint64{}
 	for _, term := range terms {
 		counts[term]++

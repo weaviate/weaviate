@@ -83,6 +83,10 @@ type ObjectsListParams struct {
 	  In: query
 	*/
 	Tenant *string
+	/*The tokens to be used for the query
+	  In: body
+	*/
+	Tokens []string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -134,6 +138,17 @@ func (o *ObjectsListParams) BindRequest(r *http.Request, route *middleware.Match
 	qTenant, qhkTenant, _ := qs.GetOK("tenant")
 	if err := o.bindTenant(qTenant, qhkTenant, route.Formats); err != nil {
 		res = append(res, err)
+	}
+
+	if runtime.HasBody(r) {
+		defer r.Body.Close()
+		var body []string
+		if err := route.Consumer.Consume(r.Body, &body); err != nil {
+			res = append(res, errors.NewParseError("tokens", "body", "", err))
+		} else {
+			// no validation required on inline body
+			o.Tokens = body
+		}
 	}
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)

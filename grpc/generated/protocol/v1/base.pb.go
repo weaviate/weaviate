@@ -209,7 +209,15 @@ type NumberArrayProperties struct {
 	PropName      string    `protobuf:"bytes,2,opt,name=prop_name,json=propName,proto3" json:"prop_name,omitempty"`
 	ValuesBytes   []byte    `protobuf:"bytes,3,opt,name=values_bytes,json=valuesBytes,proto3" json:"values_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
+<<<<<<< HEAD
 	sizeCache     protoimpl.SizeCache
+=======
+
+	// Deprecated: Marked as deprecated in v1/base.proto.
+	Values      []float64 `protobuf:"fixed64,1,rep,packed,name=values,proto3" json:"values,omitempty"` // will be removed in the future, use vector_bytes
+	PropName    string    `protobuf:"bytes,2,opt,name=prop_name,json=propName,proto3" json:"prop_name,omitempty"`
+	ValuesBytes []byte    `protobuf:"bytes,3,opt,name=values_bytes,json=valuesBytes,proto3" json:"values_bytes,omitempty"`
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 }
 
 func (x *NumberArrayProperties) Reset() {
@@ -808,7 +816,11 @@ type Filters struct {
 	// Deprecated: Marked as deprecated in v1/base.proto.
 	On      []string   `protobuf:"bytes,2,rep,name=on,proto3" json:"on,omitempty"` // will be removed in the future, use path
 	Filters []*Filters `protobuf:"bytes,3,rep,name=filters,proto3" json:"filters,omitempty"`
+<<<<<<< HEAD
 	// Types that are valid to be assigned to TestValue:
+=======
+	// Types that are assignable to TestValue:
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	//
 	//	*Filters_ValueText
 	//	*Filters_ValueInt
@@ -1187,8 +1199,16 @@ func (x *FilterReferenceCount) GetOn() string {
 }
 
 type FilterTarget struct {
+<<<<<<< HEAD
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Target:
+=======
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// Types that are assignable to Target:
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	//
 	//	*FilterTarget_Property
 	//	*FilterTarget_SingleTarget
@@ -1368,7 +1388,16 @@ type Vectors struct {
 	VectorBytes   []byte             `protobuf:"bytes,3,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"`
 	Type          Vectors_VectorType `protobuf:"varint,4,opt,name=type,proto3,enum=weaviate.v1.Vectors_VectorType" json:"type,omitempty"`
 	unknownFields protoimpl.UnknownFields
+<<<<<<< HEAD
 	sizeCache     protoimpl.SizeCache
+=======
+
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Deprecated: Marked as deprecated in v1/base.proto.
+	Index       uint64             `protobuf:"varint,2,opt,name=index,proto3" json:"index,omitempty"` // for multi-vec
+	VectorBytes []byte             `protobuf:"bytes,3,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"`
+	Type        Vectors_VectorType `protobuf:"varint,4,opt,name=type,proto3,enum=weaviate.v1.Vectors_VectorType" json:"type,omitempty"`
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 }
 
 func (x *Vectors) Reset() {
@@ -1554,6 +1583,7 @@ func file_v1_base_proto_rawDescGZIP() []byte {
 	return file_v1_base_proto_rawDescData
 }
 
+<<<<<<< HEAD
 var (
 	file_v1_base_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
 	file_v1_base_proto_msgTypes  = make([]protoimpl.MessageInfo, 18)
@@ -1583,6 +1613,34 @@ var (
 	}
 )
 
+=======
+var file_v1_base_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_v1_base_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_v1_base_proto_goTypes = []any{
+	(ConsistencyLevel)(0),               // 0: weaviate.v1.ConsistencyLevel
+	(Filters_Operator)(0),               // 1: weaviate.v1.Filters.Operator
+	(Vectors_VectorType)(0),             // 2: weaviate.v1.Vectors.VectorType
+	(*NumberArrayProperties)(nil),       // 3: weaviate.v1.NumberArrayProperties
+	(*IntArrayProperties)(nil),          // 4: weaviate.v1.IntArrayProperties
+	(*TextArrayProperties)(nil),         // 5: weaviate.v1.TextArrayProperties
+	(*BooleanArrayProperties)(nil),      // 6: weaviate.v1.BooleanArrayProperties
+	(*ObjectPropertiesValue)(nil),       // 7: weaviate.v1.ObjectPropertiesValue
+	(*ObjectArrayProperties)(nil),       // 8: weaviate.v1.ObjectArrayProperties
+	(*ObjectProperties)(nil),            // 9: weaviate.v1.ObjectProperties
+	(*TextArray)(nil),                   // 10: weaviate.v1.TextArray
+	(*IntArray)(nil),                    // 11: weaviate.v1.IntArray
+	(*NumberArray)(nil),                 // 12: weaviate.v1.NumberArray
+	(*BooleanArray)(nil),                // 13: weaviate.v1.BooleanArray
+	(*Filters)(nil),                     // 14: weaviate.v1.Filters
+	(*FilterReferenceSingleTarget)(nil), // 15: weaviate.v1.FilterReferenceSingleTarget
+	(*FilterReferenceMultiTarget)(nil),  // 16: weaviate.v1.FilterReferenceMultiTarget
+	(*FilterReferenceCount)(nil),        // 17: weaviate.v1.FilterReferenceCount
+	(*FilterTarget)(nil),                // 18: weaviate.v1.FilterTarget
+	(*GeoCoordinatesFilter)(nil),        // 19: weaviate.v1.GeoCoordinatesFilter
+	(*Vectors)(nil),                     // 20: weaviate.v1.Vectors
+	(*structpb.Struct)(nil),             // 21: google.protobuf.Struct
+}
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 var file_v1_base_proto_depIdxs = []int32{
 	21, // 0: weaviate.v1.ObjectPropertiesValue.non_ref_properties:type_name -> google.protobuf.Struct
 	3,  // 1: weaviate.v1.ObjectPropertiesValue.number_array_properties:type_name -> weaviate.v1.NumberArrayProperties
@@ -1619,6 +1677,227 @@ func file_v1_base_proto_init() {
 	if File_v1_base_proto != nil {
 		return
 	}
+<<<<<<< HEAD
+=======
+	if !protoimpl.UnsafeEnabled {
+		file_v1_base_proto_msgTypes[0].Exporter = func(v any, i int) any {
+			switch v := v.(*NumberArrayProperties); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_base_proto_msgTypes[1].Exporter = func(v any, i int) any {
+			switch v := v.(*IntArrayProperties); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_base_proto_msgTypes[2].Exporter = func(v any, i int) any {
+			switch v := v.(*TextArrayProperties); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_base_proto_msgTypes[3].Exporter = func(v any, i int) any {
+			switch v := v.(*BooleanArrayProperties); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_base_proto_msgTypes[4].Exporter = func(v any, i int) any {
+			switch v := v.(*ObjectPropertiesValue); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_base_proto_msgTypes[5].Exporter = func(v any, i int) any {
+			switch v := v.(*ObjectArrayProperties); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_base_proto_msgTypes[6].Exporter = func(v any, i int) any {
+			switch v := v.(*ObjectProperties); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_base_proto_msgTypes[7].Exporter = func(v any, i int) any {
+			switch v := v.(*TextArray); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_base_proto_msgTypes[8].Exporter = func(v any, i int) any {
+			switch v := v.(*IntArray); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_base_proto_msgTypes[9].Exporter = func(v any, i int) any {
+			switch v := v.(*NumberArray); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_base_proto_msgTypes[10].Exporter = func(v any, i int) any {
+			switch v := v.(*BooleanArray); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_base_proto_msgTypes[11].Exporter = func(v any, i int) any {
+			switch v := v.(*Filters); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_base_proto_msgTypes[12].Exporter = func(v any, i int) any {
+			switch v := v.(*FilterReferenceSingleTarget); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_base_proto_msgTypes[13].Exporter = func(v any, i int) any {
+			switch v := v.(*FilterReferenceMultiTarget); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_base_proto_msgTypes[14].Exporter = func(v any, i int) any {
+			switch v := v.(*FilterReferenceCount); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_base_proto_msgTypes[15].Exporter = func(v any, i int) any {
+			switch v := v.(*FilterTarget); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_base_proto_msgTypes[16].Exporter = func(v any, i int) any {
+			switch v := v.(*GeoCoordinatesFilter); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_base_proto_msgTypes[17].Exporter = func(v any, i int) any {
+			switch v := v.(*Vectors); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+	}
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	file_v1_base_proto_msgTypes[11].OneofWrappers = []any{
 		(*Filters_ValueText)(nil),
 		(*Filters_ValueInt)(nil),

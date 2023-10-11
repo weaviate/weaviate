@@ -57,6 +57,7 @@ var Tokenizations []string = []string{
 	models.PropertyTokenizationWhitespace,
 	models.PropertyTokenizationField,
 	models.PropertyTokenizationTrigram,
+	models.PropertyTokenizationUser,
 }
 
 func init() {
@@ -145,6 +146,8 @@ func Tokenize(tokenization string, in string) []string {
 		ApacTokenizerThrottle <- struct{}{}
 		defer func() { <-ApacTokenizerThrottle }()
 		return tokenizeKagomeJa(in)
+	case models.PropertyTokenizationUser:
+		return nil
 	default:
 		return []string{}
 	}

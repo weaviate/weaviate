@@ -52,6 +52,9 @@ type Object struct {
 	// Name of the Objects tenant.
 	Tenant string `json:"tenant,omitempty"`
 
+	// Tokens extracted from the text properties of the object.
+	Tokens []string `json:"tokens"`
+
 	// This field returns vectors associated with the Object. C11yVector, Vector or Vectors values are possible.
 	Vector C11yVector `json:"vector,omitempty"`
 

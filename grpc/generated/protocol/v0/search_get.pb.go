@@ -111,6 +111,7 @@ func file_v0_search_get_proto_rawDescGZIP() []byte {
 	return file_v0_search_get_proto_rawDescData
 }
 
+<<<<<<< HEAD
 var (
 	file_v0_search_get_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 	file_v0_search_get_proto_goTypes  = []any{
@@ -119,6 +120,13 @@ var (
 	}
 )
 
+=======
+var file_v0_search_get_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_v0_search_get_proto_goTypes = []any{
+	(*SearchRequest)(nil), // 0: weaviategrpc.SearchRequest
+	(*SearchReply)(nil),   // 1: weaviategrpc.SearchReply
+}
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 var file_v0_search_get_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
 	0, // [0:0] is the sub-list for method input_type
@@ -132,6 +140,35 @@ func file_v0_search_get_proto_init() {
 	if File_v0_search_get_proto != nil {
 		return
 	}
+<<<<<<< HEAD
+=======
+	if !protoimpl.UnsafeEnabled {
+		file_v0_search_get_proto_msgTypes[0].Exporter = func(v any, i int) any {
+			switch v := v.(*SearchRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v0_search_get_proto_msgTypes[1].Exporter = func(v any, i int) any {
+			switch v := v.(*SearchReply); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+	}
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

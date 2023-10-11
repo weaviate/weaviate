@@ -106,7 +106,7 @@ func TestDeleteJourney(t *testing.T) {
 						Value: value,
 					},
 				},
-			}, nil, additional.Properties{}, "")
+			}, nil, additional.Properties{}, "", emptyUserTokens)
 		require.Nil(t, err)
 		return extractPropValues(res, "name")
 	}

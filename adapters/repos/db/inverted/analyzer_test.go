@@ -118,7 +118,7 @@ func TestAnalyzer(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				countable := a.Text(tc.tokenization, tc.input)
+				countable := a.Text(tc.tokenization, tc.input, emptyUserTokens)
 				assert.ElementsMatch(t, tc.expectedCountable, countable)
 			})
 		}
@@ -206,7 +206,7 @@ func TestAnalyzer(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				countable := a.TextArray(tc.tokenization, tc.input)
+				countable := a.TextArray(tc.tokenization, tc.input, emptyUserTokens)
 				assert.ElementsMatch(t, tc.expectedCountable, countable)
 			})
 		}
@@ -465,7 +465,7 @@ func TestAnalyzer_DefaultEngPreset(t *testing.T) {
 		}
 
 		for _, tc := range testCases {
-			countable := a.Text(tc.tokenization, tc.input)
+			countable := a.Text(tc.tokenization, tc.input, emptyUserTokens)
 			assert.ElementsMatch(t, tc.expectedCountable, countable)
 		}
 	})
@@ -524,7 +524,7 @@ func TestAnalyzer_DefaultEngPreset(t *testing.T) {
 		}
 
 		for _, tc := range testCases {
-			countable := a.TextArray(tc.tokenization, tc.input)
+			countable := a.TextArray(tc.tokenization, tc.input, emptyUserTokens)
 			assert.ElementsMatch(t, tc.expectedCountable, countable)
 		}
 	})

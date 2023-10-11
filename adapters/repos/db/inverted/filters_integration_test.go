@@ -267,7 +267,7 @@ func Test_Filters_String(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Run("before update", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, className)
+					additional.Properties{}, className, nil)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
 				res.Close()
@@ -290,7 +290,7 @@ func Test_Filters_String(t *testing.T) {
 
 			t.Run("after update", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, className)
+					additional.Properties{}, className, nil)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListAfterUpdate.Slice(), res.Slice())
 				res.Close()
@@ -553,7 +553,7 @@ func Test_Filters_Int(t *testing.T) {
 			t.Run(test.name, func(t *testing.T) {
 				t.Run("before update", func(t *testing.T) {
 					res, err := searcher.DocIDs(context.Background(), test.filter,
-						additional.Properties{}, className)
+						additional.Properties{}, className, nil)
 					assert.NoError(t, err)
 					assert.Equal(t, test.expectedListBeforeUpdate, res.Slice())
 					res.Close()
@@ -567,7 +567,7 @@ func Test_Filters_Int(t *testing.T) {
 
 				t.Run("after update", func(t *testing.T) {
 					res, err := searcher.DocIDs(context.Background(), test.filter,
-						additional.Properties{}, className)
+						additional.Properties{}, className, nil)
 					assert.NoError(t, err)
 					assert.Equal(t, test.expectedListAfterUpdate, res.Slice())
 					res.Close()
@@ -779,7 +779,7 @@ func Test_Filters_Int(t *testing.T) {
 			t.Run(test.name, func(t *testing.T) {
 				t.Run("before update", func(t *testing.T) {
 					res, err := searcher.DocIDs(context.Background(), test.filter,
-						additional.Properties{}, className)
+						additional.Properties{}, className, nil)
 					assert.NoError(t, err)
 					assert.Equal(t, test.expectedListBeforeUpdate, res.Slice())
 					res.Close()
@@ -792,7 +792,7 @@ func Test_Filters_Int(t *testing.T) {
 
 				t.Run("after update", func(t *testing.T) {
 					res, err := searcher.DocIDs(context.Background(), test.filter,
-						additional.Properties{}, className)
+						additional.Properties{}, className, nil)
 					assert.NoError(t, err)
 					assert.Equal(t, test.expectedListAfterUpdate, res.Slice())
 					res.Close()
@@ -999,7 +999,7 @@ func Test_Filters_Int(t *testing.T) {
 				t.Run(test.name, func(t *testing.T) {
 					t.Run("before update", func(t *testing.T) {
 						res, err := searcher.DocIDs(context.Background(), test.filter,
-							additional.Properties{}, className)
+							additional.Properties{}, className, nil) // TODO: remove nil
 						assert.NoError(t, err)
 						assert.Equal(t, test.expectedListBeforeUpdate, res.Slice())
 						res.Close()
@@ -1012,7 +1012,7 @@ func Test_Filters_Int(t *testing.T) {
 
 					t.Run("after update", func(t *testing.T) {
 						res, err := searcher.DocIDs(context.Background(), test.filter,
-							additional.Properties{}, className)
+							additional.Properties{}, className, nil) // TODO: remove nil
 						assert.NoError(t, err)
 						assert.Equal(t, test.expectedListAfterUpdate, res.Slice())
 						res.Close()
@@ -1140,7 +1140,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Run("before update", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, className)
+					additional.Properties{}, className, nil)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
 				res.Close()
@@ -1162,7 +1162,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 
 			t.Run("after update", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, className)
+					additional.Properties{}, className, nil)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListAfterUpdate.Slice(), res.Slice())
 				res.Close()

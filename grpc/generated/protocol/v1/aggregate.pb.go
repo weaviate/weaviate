@@ -33,7 +33,11 @@ type AggregateRequest struct {
 	Limit       *uint32                   `protobuf:"varint,32,opt,name=limit,proto3,oneof" json:"limit,omitempty"`
 	// matches/searches for objects
 	Filters *Filters `protobuf:"bytes,40,opt,name=filters,proto3,oneof" json:"filters,omitempty"`
+<<<<<<< HEAD
 	// Types that are valid to be assigned to Search:
+=======
+	// Types that are assignable to Search:
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	//
 	//	*AggregateRequest_Hybrid
 	//	*AggregateRequest_NearVector
@@ -298,9 +302,18 @@ func (*AggregateRequest_NearThermal) isAggregateRequest_Search() {}
 func (*AggregateRequest_NearImu) isAggregateRequest_Search() {}
 
 type AggregateReply struct {
+<<<<<<< HEAD
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Took  float32                `protobuf:"fixed32,1,opt,name=took,proto3" json:"took,omitempty"`
 	// Types that are valid to be assigned to Result:
+=======
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Took float32 `protobuf:"fixed32,1,opt,name=took,proto3" json:"took,omitempty"`
+	// Types that are assignable to Result:
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	//
 	//	*AggregateReply_SingleResult
 	//	*AggregateReply_GroupedResults
@@ -388,9 +401,18 @@ func (*AggregateReply_SingleResult) isAggregateReply_Result() {}
 func (*AggregateReply_GroupedResults) isAggregateReply_Result() {}
 
 type AggregateRequest_Aggregation struct {
+<<<<<<< HEAD
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Property string                 `protobuf:"bytes,1,opt,name=property,proto3" json:"property,omitempty"`
 	// Types that are valid to be assigned to Aggregation:
+=======
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Property string `protobuf:"bytes,1,opt,name=property,proto3" json:"property,omitempty"`
+	// Types that are assignable to Aggregation:
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	//
 	//	*AggregateRequest_Aggregation_Int
 	//	*AggregateRequest_Aggregation_Number_
@@ -1282,9 +1304,18 @@ func (x *AggregateReply_Grouped) GetGroups() []*AggregateReply_Group {
 }
 
 type AggregateReply_Aggregations_Aggregation struct {
+<<<<<<< HEAD
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Property string                 `protobuf:"bytes,1,opt,name=property,proto3" json:"property,omitempty"`
 	// Types that are valid to be assigned to Aggregation:
+=======
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Property string `protobuf:"bytes,1,opt,name=property,proto3" json:"property,omitempty"`
+	// Types that are assignable to Aggregation:
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	//
 	//	*AggregateReply_Aggregations_Aggregation_Int
 	//	*AggregateReply_Aggregations_Aggregation_Number_
@@ -2022,7 +2053,11 @@ type AggregateReply_Group_GroupedBy struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	Path []string `protobuf:"bytes,1,rep,name=path,proto3" json:"path,omitempty"`
+<<<<<<< HEAD
 	// Types that are valid to be assigned to Value:
+=======
+	// Types that are assignable to Value:
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	//
 	//	*AggregateReply_Group_GroupedBy_Text
 	//	*AggregateReply_Group_GroupedBy_Int
@@ -2461,6 +2496,7 @@ func file_v1_aggregate_proto_rawDescGZIP() []byte {
 	return file_v1_aggregate_proto_rawDescData
 }
 
+<<<<<<< HEAD
 var (
 	file_v1_aggregate_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 	file_v1_aggregate_proto_goTypes  = []any{
@@ -2507,6 +2543,51 @@ var (
 	}
 )
 
+=======
+var file_v1_aggregate_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_v1_aggregate_proto_goTypes = []any{
+	(*AggregateRequest)(nil),                                                          // 0: weaviate.v1.AggregateRequest
+	(*AggregateReply)(nil),                                                            // 1: weaviate.v1.AggregateReply
+	(*AggregateRequest_Aggregation)(nil),                                              // 2: weaviate.v1.AggregateRequest.Aggregation
+	(*AggregateRequest_GroupBy)(nil),                                                  // 3: weaviate.v1.AggregateRequest.GroupBy
+	(*AggregateRequest_Aggregation_Integer)(nil),                                      // 4: weaviate.v1.AggregateRequest.Aggregation.Integer
+	(*AggregateRequest_Aggregation_Number)(nil),                                       // 5: weaviate.v1.AggregateRequest.Aggregation.Number
+	(*AggregateRequest_Aggregation_Text)(nil),                                         // 6: weaviate.v1.AggregateRequest.Aggregation.Text
+	(*AggregateRequest_Aggregation_Boolean)(nil),                                      // 7: weaviate.v1.AggregateRequest.Aggregation.Boolean
+	(*AggregateRequest_Aggregation_Date)(nil),                                         // 8: weaviate.v1.AggregateRequest.Aggregation.Date
+	(*AggregateRequest_Aggregation_Reference)(nil),                                    // 9: weaviate.v1.AggregateRequest.Aggregation.Reference
+	(*AggregateReply_Aggregations)(nil),                                               // 10: weaviate.v1.AggregateReply.Aggregations
+	(*AggregateReply_Single)(nil),                                                     // 11: weaviate.v1.AggregateReply.Single
+	(*AggregateReply_Group)(nil),                                                      // 12: weaviate.v1.AggregateReply.Group
+	(*AggregateReply_Grouped)(nil),                                                    // 13: weaviate.v1.AggregateReply.Grouped
+	(*AggregateReply_Aggregations_Aggregation)(nil),                                   // 14: weaviate.v1.AggregateReply.Aggregations.Aggregation
+	(*AggregateReply_Aggregations_Aggregation_Integer)(nil),                           // 15: weaviate.v1.AggregateReply.Aggregations.Aggregation.Integer
+	(*AggregateReply_Aggregations_Aggregation_Number)(nil),                            // 16: weaviate.v1.AggregateReply.Aggregations.Aggregation.Number
+	(*AggregateReply_Aggregations_Aggregation_Text)(nil),                              // 17: weaviate.v1.AggregateReply.Aggregations.Aggregation.Text
+	(*AggregateReply_Aggregations_Aggregation_Boolean)(nil),                           // 18: weaviate.v1.AggregateReply.Aggregations.Aggregation.Boolean
+	(*AggregateReply_Aggregations_Aggregation_Date)(nil),                              // 19: weaviate.v1.AggregateReply.Aggregations.Aggregation.Date
+	(*AggregateReply_Aggregations_Aggregation_Reference)(nil),                         // 20: weaviate.v1.AggregateReply.Aggregations.Aggregation.Reference
+	(*AggregateReply_Aggregations_Aggregation_Text_TopOccurrences)(nil),               // 21: weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.TopOccurrences
+	(*AggregateReply_Aggregations_Aggregation_Text_TopOccurrences_TopOccurrence)(nil), // 22: weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.TopOccurrences.TopOccurrence
+	(*AggregateReply_Group_GroupedBy)(nil),                                            // 23: weaviate.v1.AggregateReply.Group.GroupedBy
+	(*Filters)(nil),                                                                   // 24: weaviate.v1.Filters
+	(*Hybrid)(nil),                                                                    // 25: weaviate.v1.Hybrid
+	(*NearVector)(nil),                                                                // 26: weaviate.v1.NearVector
+	(*NearObject)(nil),                                                                // 27: weaviate.v1.NearObject
+	(*NearTextSearch)(nil),                                                            // 28: weaviate.v1.NearTextSearch
+	(*NearImageSearch)(nil),                                                           // 29: weaviate.v1.NearImageSearch
+	(*NearAudioSearch)(nil),                                                           // 30: weaviate.v1.NearAudioSearch
+	(*NearVideoSearch)(nil),                                                           // 31: weaviate.v1.NearVideoSearch
+	(*NearDepthSearch)(nil),                                                           // 32: weaviate.v1.NearDepthSearch
+	(*NearThermalSearch)(nil),                                                         // 33: weaviate.v1.NearThermalSearch
+	(*NearIMUSearch)(nil),                                                             // 34: weaviate.v1.NearIMUSearch
+	(*TextArray)(nil),                                                                 // 35: weaviate.v1.TextArray
+	(*IntArray)(nil),                                                                  // 36: weaviate.v1.IntArray
+	(*BooleanArray)(nil),                                                              // 37: weaviate.v1.BooleanArray
+	(*NumberArray)(nil),                                                               // 38: weaviate.v1.NumberArray
+	(*GeoCoordinatesFilter)(nil),                                                      // 39: weaviate.v1.GeoCoordinatesFilter
+}
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 var file_v1_aggregate_proto_depIdxs = []int32{
 	2,  // 0: weaviate.v1.AggregateRequest.aggregations:type_name -> weaviate.v1.AggregateRequest.Aggregation
 	3,  // 1: weaviate.v1.AggregateRequest.group_by:type_name -> weaviate.v1.AggregateRequest.GroupBy
@@ -2561,6 +2642,299 @@ func file_v1_aggregate_proto_init() {
 	}
 	file_v1_base_proto_init()
 	file_v1_base_search_proto_init()
+<<<<<<< HEAD
+=======
+	if !protoimpl.UnsafeEnabled {
+		file_v1_aggregate_proto_msgTypes[0].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[1].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateReply); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[2].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateRequest_Aggregation); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[3].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateRequest_GroupBy); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[4].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateRequest_Aggregation_Integer); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[5].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateRequest_Aggregation_Number); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[6].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateRequest_Aggregation_Text); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[7].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateRequest_Aggregation_Boolean); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[8].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateRequest_Aggregation_Date); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[9].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateRequest_Aggregation_Reference); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[10].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateReply_Aggregations); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[11].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateReply_Single); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[12].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateReply_Group); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[13].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateReply_Grouped); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[14].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateReply_Aggregations_Aggregation); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[15].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateReply_Aggregations_Aggregation_Integer); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[16].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateReply_Aggregations_Aggregation_Number); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[17].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateReply_Aggregations_Aggregation_Text); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[18].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateReply_Aggregations_Aggregation_Boolean); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[19].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateReply_Aggregations_Aggregation_Date); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[20].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateReply_Aggregations_Aggregation_Reference); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[21].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateReply_Aggregations_Aggregation_Text_TopOccurrences); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[22].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateReply_Aggregations_Aggregation_Text_TopOccurrences_TopOccurrence); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_aggregate_proto_msgTypes[23].Exporter = func(v any, i int) any {
+			switch v := v.(*AggregateReply_Group_GroupedBy); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+	}
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	file_v1_aggregate_proto_msgTypes[0].OneofWrappers = []any{
 		(*AggregateRequest_Hybrid)(nil),
 		(*AggregateRequest_NearVector)(nil),

@@ -97,7 +97,11 @@ type TenantsGetRequest struct {
 	Collection string                 `protobuf:"bytes,1,opt,name=collection,proto3" json:"collection,omitempty"`
 	// we might need to add a tenant-cursor api at some point, make this easily extendable
 	//
+<<<<<<< HEAD
 	// Types that are valid to be assigned to Params:
+=======
+	// Types that are assignable to Params:
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	//
 	//	*TenantsGetRequest_Names
 	Params        isTenantsGetRequest_Params `protobuf_oneof:"params"`
@@ -362,6 +366,7 @@ func file_v1_tenants_proto_rawDescGZIP() []byte {
 	return file_v1_tenants_proto_rawDescData
 }
 
+<<<<<<< HEAD
 var (
 	file_v1_tenants_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 	file_v1_tenants_proto_msgTypes  = make([]protoimpl.MessageInfo, 4)
@@ -374,6 +379,17 @@ var (
 	}
 )
 
+=======
+var file_v1_tenants_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_v1_tenants_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_v1_tenants_proto_goTypes = []any{
+	(TenantActivityStatus)(0), // 0: weaviate.v1.TenantActivityStatus
+	(*TenantsGetRequest)(nil), // 1: weaviate.v1.TenantsGetRequest
+	(*TenantNames)(nil),       // 2: weaviate.v1.TenantNames
+	(*TenantsGetReply)(nil),   // 3: weaviate.v1.TenantsGetReply
+	(*Tenant)(nil),            // 4: weaviate.v1.Tenant
+}
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 var file_v1_tenants_proto_depIdxs = []int32{
 	2, // 0: weaviate.v1.TenantsGetRequest.names:type_name -> weaviate.v1.TenantNames
 	4, // 1: weaviate.v1.TenantsGetReply.tenants:type_name -> weaviate.v1.Tenant
@@ -390,6 +406,59 @@ func file_v1_tenants_proto_init() {
 	if File_v1_tenants_proto != nil {
 		return
 	}
+<<<<<<< HEAD
+=======
+	if !protoimpl.UnsafeEnabled {
+		file_v1_tenants_proto_msgTypes[0].Exporter = func(v any, i int) any {
+			switch v := v.(*TenantsGetRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_tenants_proto_msgTypes[1].Exporter = func(v any, i int) any {
+			switch v := v.(*TenantNames); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_tenants_proto_msgTypes[2].Exporter = func(v any, i int) any {
+			switch v := v.(*TenantsGetReply); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_tenants_proto_msgTypes[3].Exporter = func(v any, i int) any {
+			switch v := v.(*Tenant); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+	}
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	file_v1_tenants_proto_msgTypes[0].OneofWrappers = []any{
 		(*TenantsGetRequest_Names)(nil),
 	}

@@ -20,7 +20,14 @@ const (
 )
 
 type SearchRequest struct {
+<<<<<<< HEAD
 	state protoimpl.MessageState `protogen:"open.v1"`
+=======
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	// required
 	Collection string `protobuf:"bytes,1,opt,name=collection,proto3" json:"collection,omitempty"`
 	// parameters
@@ -55,10 +62,15 @@ type SearchRequest struct {
 	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	Uses_123Api bool `protobuf:"varint,100,opt,name=uses_123_api,json=uses123Api,proto3" json:"uses_123_api,omitempty"`
 	// Deprecated: Marked as deprecated in v1/search_get.proto.
+<<<<<<< HEAD
 	Uses_125Api   bool `protobuf:"varint,101,opt,name=uses_125_api,json=uses125Api,proto3" json:"uses_125_api,omitempty"`
 	Uses_127Api   bool `protobuf:"varint,102,opt,name=uses_127_api,json=uses127Api,proto3" json:"uses_127_api,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
+=======
+	Uses_125Api bool `protobuf:"varint,101,opt,name=uses_125_api,json=uses125Api,proto3" json:"uses_125_api,omitempty"`
+	Uses_127Api bool `protobuf:"varint,102,opt,name=uses_127_api,json=uses127Api,proto3" json:"uses_127_api,omitempty"`
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 }
 
 func (x *SearchRequest) Reset() {
@@ -773,9 +785,18 @@ func (x *Rerank) GetQuery() string {
 }
 
 type SearchReply struct {
+<<<<<<< HEAD
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Took    float32                `protobuf:"fixed32,1,opt,name=took,proto3" json:"took,omitempty"`
 	Results []*SearchResult        `protobuf:"bytes,2,rep,name=results,proto3" json:"results,omitempty"`
+=======
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Took    float32         `protobuf:"fixed32,1,opt,name=took,proto3" json:"took,omitempty"`
+	Results []*SearchResult `protobuf:"bytes,2,rep,name=results,proto3" json:"results,omitempty"`
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	GenerativeGroupedResult  *string           `protobuf:"bytes,3,opt,name=generative_grouped_result,json=generativeGroupedResult,proto3,oneof" json:"generative_grouped_result,omitempty"`
 	GroupByResults           []*GroupByResult  `protobuf:"bytes,4,rep,name=group_by_results,json=groupByResults,proto3" json:"group_by_results,omitempty"`
@@ -895,6 +916,7 @@ func (x *RerankReply) GetScore() float64 {
 }
 
 type GroupByResult struct {
+<<<<<<< HEAD
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Name            string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	MinDistance     float32                `protobuf:"fixed32,2,opt,name=min_distance,json=minDistance,proto3" json:"min_distance,omitempty"`
@@ -902,6 +924,18 @@ type GroupByResult struct {
 	NumberOfObjects int64                  `protobuf:"varint,4,opt,name=number_of_objects,json=numberOfObjects,proto3" json:"number_of_objects,omitempty"`
 	Objects         []*SearchResult        `protobuf:"bytes,5,rep,name=objects,proto3" json:"objects,omitempty"`
 	Rerank          *RerankReply           `protobuf:"bytes,6,opt,name=rerank,proto3,oneof" json:"rerank,omitempty"`
+=======
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Name            string          `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	MinDistance     float32         `protobuf:"fixed32,2,opt,name=min_distance,json=minDistance,proto3" json:"min_distance,omitempty"`
+	MaxDistance     float32         `protobuf:"fixed32,3,opt,name=max_distance,json=maxDistance,proto3" json:"max_distance,omitempty"`
+	NumberOfObjects int64           `protobuf:"varint,4,opt,name=number_of_objects,json=numberOfObjects,proto3" json:"number_of_objects,omitempty"`
+	Objects         []*SearchResult `protobuf:"bytes,5,rep,name=objects,proto3" json:"objects,omitempty"`
+	Rerank          *RerankReply    `protobuf:"bytes,6,opt,name=rerank,proto3,oneof" json:"rerank,omitempty"`
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	Generative       *GenerativeReply  `protobuf:"bytes,7,opt,name=generative,proto3,oneof" json:"generative,omitempty"`
 	GenerativeResult *GenerativeResult `protobuf:"bytes,8,opt,name=generative_result,json=generativeResult,proto3,oneof" json:"generative_result,omitempty"`
@@ -1285,7 +1319,14 @@ func (x *MetadataResult) GetVectors() []*Vectors {
 }
 
 type PropertiesResult struct {
+<<<<<<< HEAD
 	state protoimpl.MessageState `protogen:"open.v1"`
+=======
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	NonRefProperties *structpb.Struct       `protobuf:"bytes,1,opt,name=non_ref_properties,json=nonRefProperties,proto3" json:"non_ref_properties,omitempty"`
 	RefProps         []*RefPropertiesResult `protobuf:"bytes,2,rep,name=ref_props,json=refProps,proto3" json:"ref_props,omitempty"`
@@ -1687,6 +1728,7 @@ func file_v1_search_get_proto_rawDescGZIP() []byte {
 	return file_v1_search_get_proto_rawDescData
 }
 
+<<<<<<< HEAD
 var (
 	file_v1_search_get_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 	file_v1_search_get_proto_goTypes  = []any{
@@ -1733,6 +1775,51 @@ var (
 	}
 )
 
+=======
+var file_v1_search_get_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_v1_search_get_proto_goTypes = []any{
+	(*SearchRequest)(nil),           // 0: weaviate.v1.SearchRequest
+	(*GroupBy)(nil),                 // 1: weaviate.v1.GroupBy
+	(*SortBy)(nil),                  // 2: weaviate.v1.SortBy
+	(*MetadataRequest)(nil),         // 3: weaviate.v1.MetadataRequest
+	(*PropertiesRequest)(nil),       // 4: weaviate.v1.PropertiesRequest
+	(*ObjectPropertiesRequest)(nil), // 5: weaviate.v1.ObjectPropertiesRequest
+	(*RefPropertiesRequest)(nil),    // 6: weaviate.v1.RefPropertiesRequest
+	(*Rerank)(nil),                  // 7: weaviate.v1.Rerank
+	(*SearchReply)(nil),             // 8: weaviate.v1.SearchReply
+	(*RerankReply)(nil),             // 9: weaviate.v1.RerankReply
+	(*GroupByResult)(nil),           // 10: weaviate.v1.GroupByResult
+	(*SearchResult)(nil),            // 11: weaviate.v1.SearchResult
+	(*MetadataResult)(nil),          // 12: weaviate.v1.MetadataResult
+	(*PropertiesResult)(nil),        // 13: weaviate.v1.PropertiesResult
+	(*RefPropertiesResult)(nil),     // 14: weaviate.v1.RefPropertiesResult
+	(ConsistencyLevel)(0),           // 15: weaviate.v1.ConsistencyLevel
+	(*Filters)(nil),                 // 16: weaviate.v1.Filters
+	(*Hybrid)(nil),                  // 17: weaviate.v1.Hybrid
+	(*BM25)(nil),                    // 18: weaviate.v1.BM25
+	(*NearVector)(nil),              // 19: weaviate.v1.NearVector
+	(*NearObject)(nil),              // 20: weaviate.v1.NearObject
+	(*NearTextSearch)(nil),          // 21: weaviate.v1.NearTextSearch
+	(*NearImageSearch)(nil),         // 22: weaviate.v1.NearImageSearch
+	(*NearAudioSearch)(nil),         // 23: weaviate.v1.NearAudioSearch
+	(*NearVideoSearch)(nil),         // 24: weaviate.v1.NearVideoSearch
+	(*NearDepthSearch)(nil),         // 25: weaviate.v1.NearDepthSearch
+	(*NearThermalSearch)(nil),       // 26: weaviate.v1.NearThermalSearch
+	(*NearIMUSearch)(nil),           // 27: weaviate.v1.NearIMUSearch
+	(*GenerativeSearch)(nil),        // 28: weaviate.v1.GenerativeSearch
+	(*GenerativeResult)(nil),        // 29: weaviate.v1.GenerativeResult
+	(*GenerativeReply)(nil),         // 30: weaviate.v1.GenerativeReply
+	(*Vectors)(nil),                 // 31: weaviate.v1.Vectors
+	(*structpb.Struct)(nil),         // 32: google.protobuf.Struct
+	(*NumberArrayProperties)(nil),   // 33: weaviate.v1.NumberArrayProperties
+	(*IntArrayProperties)(nil),      // 34: weaviate.v1.IntArrayProperties
+	(*TextArrayProperties)(nil),     // 35: weaviate.v1.TextArrayProperties
+	(*BooleanArrayProperties)(nil),  // 36: weaviate.v1.BooleanArrayProperties
+	(*ObjectProperties)(nil),        // 37: weaviate.v1.ObjectProperties
+	(*ObjectArrayProperties)(nil),   // 38: weaviate.v1.ObjectArrayProperties
+	(*Properties)(nil),              // 39: weaviate.v1.Properties
+}
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 var file_v1_search_get_proto_depIdxs = []int32{
 	15, // 0: weaviate.v1.SearchRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
 	4,  // 1: weaviate.v1.SearchRequest.properties:type_name -> weaviate.v1.PropertiesRequest
@@ -1796,6 +1883,191 @@ func file_v1_search_get_proto_init() {
 	file_v1_base_search_proto_init()
 	file_v1_generative_proto_init()
 	file_v1_properties_proto_init()
+<<<<<<< HEAD
+=======
+	if !protoimpl.UnsafeEnabled {
+		file_v1_search_get_proto_msgTypes[0].Exporter = func(v any, i int) any {
+			switch v := v.(*SearchRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_search_get_proto_msgTypes[1].Exporter = func(v any, i int) any {
+			switch v := v.(*GroupBy); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_search_get_proto_msgTypes[2].Exporter = func(v any, i int) any {
+			switch v := v.(*SortBy); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_search_get_proto_msgTypes[3].Exporter = func(v any, i int) any {
+			switch v := v.(*MetadataRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_search_get_proto_msgTypes[4].Exporter = func(v any, i int) any {
+			switch v := v.(*PropertiesRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_search_get_proto_msgTypes[5].Exporter = func(v any, i int) any {
+			switch v := v.(*ObjectPropertiesRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_search_get_proto_msgTypes[6].Exporter = func(v any, i int) any {
+			switch v := v.(*RefPropertiesRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_search_get_proto_msgTypes[7].Exporter = func(v any, i int) any {
+			switch v := v.(*Rerank); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_search_get_proto_msgTypes[8].Exporter = func(v any, i int) any {
+			switch v := v.(*SearchReply); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_search_get_proto_msgTypes[9].Exporter = func(v any, i int) any {
+			switch v := v.(*RerankReply); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_search_get_proto_msgTypes[10].Exporter = func(v any, i int) any {
+			switch v := v.(*GroupByResult); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_search_get_proto_msgTypes[11].Exporter = func(v any, i int) any {
+			switch v := v.(*SearchResult); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_search_get_proto_msgTypes[12].Exporter = func(v any, i int) any {
+			switch v := v.(*MetadataResult); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_search_get_proto_msgTypes[13].Exporter = func(v any, i int) any {
+			switch v := v.(*PropertiesResult); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_search_get_proto_msgTypes[14].Exporter = func(v any, i int) any {
+			switch v := v.(*RefPropertiesResult); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+	}
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	file_v1_search_get_proto_msgTypes[0].OneofWrappers = []any{}
 	file_v1_search_get_proto_msgTypes[7].OneofWrappers = []any{}
 	file_v1_search_get_proto_msgTypes[8].OneofWrappers = []any{}

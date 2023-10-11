@@ -81,7 +81,7 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 
 	res, scores, err := idx.objectSearch(ctx, totalLimit,
 		params.Filters, params.KeywordRanking, params.Sort, params.Cursor,
-		params.AdditionalProperties, params.ReplicationProperties, tenant, params.Pagination.Autocut, params.Properties.GetPropertyNames())
+		params.AdditionalProperties, params.ReplicationProperties, tenant, params.Pagination.Autocut, params.Properties.GetPropertyNames(), params.Tokens)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "object search at index %s", idx.ID())
 	}
@@ -126,7 +126,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 	targetDist := extractDistanceFromParams(params)
 	res, dists, err := idx.objectVectorSearch(ctx, searchVectors, targetVectors,
 		targetDist, totalLimit, params.Filters, params.Sort, params.GroupBy,
-		params.AdditionalProperties, params.ReplicationProperties, params.Tenant, params.TargetVectorCombination, params.Properties.GetPropertyNames())
+		params.AdditionalProperties, params.ReplicationProperties, params.Tenant, params.TargetVectorCombination, params.Properties.GetPropertyNames(), nil)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
 	}
@@ -177,7 +177,7 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, 
 
 			objs, dist, err := index.objectVectorSearch(ctx, []models.Vector{vector}, []string{targetVector},
 				0, totalLimit, filters, nil, nil,
-				additional.Properties{}, nil, "", nil, nil)
+				additional.Properties{}, nil, "", nil, nil, nil)
 			if err != nil {
 				mutex.Lock()
 				searchErrors = append(searchErrors, errors.Wrapf(err, "search index %s", index.ID()))
@@ -236,7 +236,7 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 		}
 	}
 	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters,
-		nil, q.Sort, q.Cursor, q.Additional, nil, q.Tenant, 0, nil)
+		nil, q.Sort, q.Cursor, q.Additional, nil, q.Tenant, 0, nil, q.Tokens)
 	if err != nil {
 		switch {
 		case errors.As(err, &objects.ErrMultiTenancy{}):
@@ -252,14 +252,14 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 // Deprecated by Query which searches a specific index
 func (db *DB) ObjectSearch(ctx context.Context, offset, limit int,
 	filters *filters.LocalFilter, sort []filters.Sort,
-	additional additional.Properties, tenant string,
+	additional additional.Properties, tenant string, userTokens []string,
 ) (search.Results, error) {
-	return db.objectSearch(ctx, offset, limit, filters, sort, additional, tenant)
+	return db.objectSearch(ctx, offset, limit, filters, sort, additional, tenant, userTokens)
 }
 
 func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 	filters *filters.LocalFilter, sort []filters.Sort,
-	additional additional.Properties, tenant string,
+	additional additional.Properties, tenant string, userTokens []string,
 ) (search.Results, error) {
 	var found []*storobj.Object
 
@@ -285,7 +285,7 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 			}
 
 			res, _, err := index.objectSearch(ctx, totalLimit,
-				filters, nil, sort, nil, additional, nil, tenant, 0, propsNames)
+				filters, nil, sort, nil, additional, nil, tenant, 0, propsNames, userTokens)
 			if err != nil {
 				// Multi tenancy specific errors
 				if errors.As(err, &objects.ErrMultiTenancy{}) {

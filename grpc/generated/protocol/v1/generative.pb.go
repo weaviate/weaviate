@@ -19,7 +19,14 @@ const (
 )
 
 type GenerativeSearch struct {
+<<<<<<< HEAD
 	state protoimpl.MessageState `protogen:"open.v1"`
+=======
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	// Deprecated: Marked as deprecated in v1/generative.proto.
 	SingleResponsePrompt string `protobuf:"bytes,1,opt,name=single_response_prompt,json=singleResponsePrompt,proto3" json:"single_response_prompt,omitempty"`
 	// Deprecated: Marked as deprecated in v1/generative.proto.
@@ -101,9 +108,18 @@ func (x *GenerativeSearch) GetGrouped() *GenerativeSearch_Grouped {
 }
 
 type GenerativeProvider struct {
+<<<<<<< HEAD
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	ReturnMetadata bool                   `protobuf:"varint,1,opt,name=return_metadata,json=returnMetadata,proto3" json:"return_metadata,omitempty"`
 	// Types that are valid to be assigned to Kind:
+=======
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	ReturnMetadata bool `protobuf:"varint,1,opt,name=return_metadata,json=returnMetadata,proto3" json:"return_metadata,omitempty"`
+	// Types that are assignable to Kind:
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	//
 	//	*GenerativeProvider_Anthropic
 	//	*GenerativeProvider_Anyscale
@@ -2153,6 +2169,7 @@ type GenerativeXAIMetadata struct {
 	sizeCache     protoimpl.SizeCache
 }
 
+<<<<<<< HEAD
 func (x *GenerativeXAIMetadata) Reset() {
 	*x = GenerativeXAIMetadata{}
 	mi := &file_v1_generative_proto_msgTypes[27]
@@ -2193,6 +2210,9 @@ func (x *GenerativeXAIMetadata) GetUsage() *GenerativeXAIMetadata_Usage {
 type GenerativeMetadata struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Kind:
+=======
+	// Types that are assignable to Kind:
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	//
 	//	*GenerativeMetadata_Anthropic
 	//	*GenerativeMetadata_Anyscale
@@ -3965,6 +3985,7 @@ func file_v1_generative_proto_rawDescGZIP() []byte {
 	return file_v1_generative_proto_rawDescData
 }
 
+<<<<<<< HEAD
 var (
 	file_v1_generative_proto_msgTypes = make([]protoimpl.MessageInfo, 48)
 	file_v1_generative_proto_goTypes  = []any{
@@ -4020,6 +4041,57 @@ var (
 	}
 )
 
+=======
+var file_v1_generative_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
+var file_v1_generative_proto_goTypes = []any{
+	(*GenerativeSearch)(nil),                       // 0: weaviate.v1.GenerativeSearch
+	(*GenerativeProvider)(nil),                     // 1: weaviate.v1.GenerativeProvider
+	(*GenerativeAnthropic)(nil),                    // 2: weaviate.v1.GenerativeAnthropic
+	(*GenerativeAnyscale)(nil),                     // 3: weaviate.v1.GenerativeAnyscale
+	(*GenerativeAWS)(nil),                          // 4: weaviate.v1.GenerativeAWS
+	(*GenerativeCohere)(nil),                       // 5: weaviate.v1.GenerativeCohere
+	(*GenerativeDummy)(nil),                        // 6: weaviate.v1.GenerativeDummy
+	(*GenerativeMistral)(nil),                      // 7: weaviate.v1.GenerativeMistral
+	(*GenerativeOllama)(nil),                       // 8: weaviate.v1.GenerativeOllama
+	(*GenerativeOpenAI)(nil),                       // 9: weaviate.v1.GenerativeOpenAI
+	(*GenerativeGoogle)(nil),                       // 10: weaviate.v1.GenerativeGoogle
+	(*GenerativeDatabricks)(nil),                   // 11: weaviate.v1.GenerativeDatabricks
+	(*GenerativeFriendliAI)(nil),                   // 12: weaviate.v1.GenerativeFriendliAI
+	(*GenerativeNvidia)(nil),                       // 13: weaviate.v1.GenerativeNvidia
+	(*GenerativeAnthropicMetadata)(nil),            // 14: weaviate.v1.GenerativeAnthropicMetadata
+	(*GenerativeAnyscaleMetadata)(nil),             // 15: weaviate.v1.GenerativeAnyscaleMetadata
+	(*GenerativeAWSMetadata)(nil),                  // 16: weaviate.v1.GenerativeAWSMetadata
+	(*GenerativeCohereMetadata)(nil),               // 17: weaviate.v1.GenerativeCohereMetadata
+	(*GenerativeDummyMetadata)(nil),                // 18: weaviate.v1.GenerativeDummyMetadata
+	(*GenerativeMistralMetadata)(nil),              // 19: weaviate.v1.GenerativeMistralMetadata
+	(*GenerativeOllamaMetadata)(nil),               // 20: weaviate.v1.GenerativeOllamaMetadata
+	(*GenerativeOpenAIMetadata)(nil),               // 21: weaviate.v1.GenerativeOpenAIMetadata
+	(*GenerativeGoogleMetadata)(nil),               // 22: weaviate.v1.GenerativeGoogleMetadata
+	(*GenerativeDatabricksMetadata)(nil),           // 23: weaviate.v1.GenerativeDatabricksMetadata
+	(*GenerativeFriendliAIMetadata)(nil),           // 24: weaviate.v1.GenerativeFriendliAIMetadata
+	(*GenerativeNvidiaMetadata)(nil),               // 25: weaviate.v1.GenerativeNvidiaMetadata
+	(*GenerativeMetadata)(nil),                     // 26: weaviate.v1.GenerativeMetadata
+	(*GenerativeReply)(nil),                        // 27: weaviate.v1.GenerativeReply
+	(*GenerativeResult)(nil),                       // 28: weaviate.v1.GenerativeResult
+	(*GenerativeDebug)(nil),                        // 29: weaviate.v1.GenerativeDebug
+	(*GenerativeSearch_Single)(nil),                // 30: weaviate.v1.GenerativeSearch.Single
+	(*GenerativeSearch_Grouped)(nil),               // 31: weaviate.v1.GenerativeSearch.Grouped
+	(*GenerativeAnthropicMetadata_Usage)(nil),      // 32: weaviate.v1.GenerativeAnthropicMetadata.Usage
+	(*GenerativeCohereMetadata_ApiVersion)(nil),    // 33: weaviate.v1.GenerativeCohereMetadata.ApiVersion
+	(*GenerativeCohereMetadata_BilledUnits)(nil),   // 34: weaviate.v1.GenerativeCohereMetadata.BilledUnits
+	(*GenerativeCohereMetadata_Tokens)(nil),        // 35: weaviate.v1.GenerativeCohereMetadata.Tokens
+	(*GenerativeMistralMetadata_Usage)(nil),        // 36: weaviate.v1.GenerativeMistralMetadata.Usage
+	(*GenerativeOpenAIMetadata_Usage)(nil),         // 37: weaviate.v1.GenerativeOpenAIMetadata.Usage
+	(*GenerativeGoogleMetadata_TokenCount)(nil),    // 38: weaviate.v1.GenerativeGoogleMetadata.TokenCount
+	(*GenerativeGoogleMetadata_TokenMetadata)(nil), // 39: weaviate.v1.GenerativeGoogleMetadata.TokenMetadata
+	(*GenerativeGoogleMetadata_Metadata)(nil),      // 40: weaviate.v1.GenerativeGoogleMetadata.Metadata
+	(*GenerativeGoogleMetadata_UsageMetadata)(nil), // 41: weaviate.v1.GenerativeGoogleMetadata.UsageMetadata
+	(*GenerativeDatabricksMetadata_Usage)(nil),     // 42: weaviate.v1.GenerativeDatabricksMetadata.Usage
+	(*GenerativeFriendliAIMetadata_Usage)(nil),     // 43: weaviate.v1.GenerativeFriendliAIMetadata.Usage
+	(*GenerativeNvidiaMetadata_Usage)(nil),         // 44: weaviate.v1.GenerativeNvidiaMetadata.Usage
+	(*TextArray)(nil),                              // 45: weaviate.v1.TextArray
+}
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 var file_v1_generative_proto_depIdxs = []int32{
 	32, // 0: weaviate.v1.GenerativeSearch.single:type_name -> weaviate.v1.GenerativeSearch.Single
 	33, // 1: weaviate.v1.GenerativeSearch.grouped:type_name -> weaviate.v1.GenerativeSearch.Grouped
@@ -4101,6 +4173,551 @@ func file_v1_generative_proto_init() {
 		return
 	}
 	file_v1_base_proto_init()
+<<<<<<< HEAD
+=======
+	if !protoimpl.UnsafeEnabled {
+		file_v1_generative_proto_msgTypes[0].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeSearch); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[1].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeProvider); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[2].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeAnthropic); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[3].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeAnyscale); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[4].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeAWS); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[5].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeCohere); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[6].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeDummy); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[7].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeMistral); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[8].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeOllama); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[9].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeOpenAI); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[10].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeGoogle); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[11].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeDatabricks); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[12].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeFriendliAI); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[13].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeNvidia); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[14].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeAnthropicMetadata); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[15].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeAnyscaleMetadata); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[16].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeAWSMetadata); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[17].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeCohereMetadata); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[18].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeDummyMetadata); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[19].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeMistralMetadata); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[20].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeOllamaMetadata); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[21].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeOpenAIMetadata); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[22].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeGoogleMetadata); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[23].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeDatabricksMetadata); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[24].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeFriendliAIMetadata); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[25].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeNvidiaMetadata); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[26].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeMetadata); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[27].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeReply); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[28].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeResult); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[29].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeDebug); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[30].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeSearch_Single); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[31].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeSearch_Grouped); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[32].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeAnthropicMetadata_Usage); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[33].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeCohereMetadata_ApiVersion); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[34].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeCohereMetadata_BilledUnits); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[35].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeCohereMetadata_Tokens); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[36].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeMistralMetadata_Usage); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[37].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeOpenAIMetadata_Usage); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[38].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeGoogleMetadata_TokenCount); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[39].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeGoogleMetadata_TokenMetadata); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[40].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeGoogleMetadata_Metadata); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[41].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeGoogleMetadata_UsageMetadata); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[42].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeDatabricksMetadata_Usage); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[43].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeFriendliAIMetadata_Usage); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_generative_proto_msgTypes[44].Exporter = func(v any, i int) any {
+			switch v := v.(*GenerativeNvidiaMetadata_Usage); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+	}
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	file_v1_generative_proto_msgTypes[1].OneofWrappers = []any{
 		(*GenerativeProvider_Anthropic)(nil),
 		(*GenerativeProvider_Anyscale)(nil),
@@ -4127,16 +4744,26 @@ func file_v1_generative_proto_init() {
 	file_v1_generative_proto_msgTypes[11].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[12].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[13].OneofWrappers = []any{}
+<<<<<<< HEAD
 	file_v1_generative_proto_msgTypes[14].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[18].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[20].OneofWrappers = []any{}
+=======
+	file_v1_generative_proto_msgTypes[17].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[19].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[21].OneofWrappers = []any{}
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	file_v1_generative_proto_msgTypes[22].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[23].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[24].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[25].OneofWrappers = []any{}
+<<<<<<< HEAD
 	file_v1_generative_proto_msgTypes[26].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[27].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[28].OneofWrappers = []any{
+=======
+	file_v1_generative_proto_msgTypes[26].OneofWrappers = []any{
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 		(*GenerativeMetadata_Anthropic)(nil),
 		(*GenerativeMetadata_Anyscale)(nil),
 		(*GenerativeMetadata_Aws)(nil),
@@ -4151,9 +4778,17 @@ func file_v1_generative_proto_init() {
 		(*GenerativeMetadata_Nvidia)(nil),
 		(*GenerativeMetadata_Xai)(nil),
 	}
+<<<<<<< HEAD
 	file_v1_generative_proto_msgTypes[29].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[31].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[33].OneofWrappers = []any{}
+=======
+	file_v1_generative_proto_msgTypes[27].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[29].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[31].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[33].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[34].OneofWrappers = []any{}
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	file_v1_generative_proto_msgTypes[35].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[36].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[37].OneofWrappers = []any{}
@@ -4164,9 +4799,12 @@ func file_v1_generative_proto_init() {
 	file_v1_generative_proto_msgTypes[42].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[43].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[44].OneofWrappers = []any{}
+<<<<<<< HEAD
 	file_v1_generative_proto_msgTypes[45].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[46].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[47].OneofWrappers = []any{}
+=======
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

@@ -79,10 +79,10 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 func (s *Searcher) Objects(ctx context.Context, limit int,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName, properties []string,
-	disableInvertedSorter *runtime.DynamicValue[bool],
+	disableInvertedSorter *runtime.DynamicValue[bool], userTokens []string,
 ) ([]*storobj.Object, error) {
 	beforeFilters := time.Now()
-	allowList, err := s.docIDs(ctx, filter, additional, className, limit)
+	allowList, err := s.docIDs(ctx, filter, additional, className, limit, userTokens)
 	if err != nil {
 		return nil, err
 	}
@@ -200,16 +200,16 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 // pointless, as only the first element would be allowed, regardless of which
 // had the shortest distance
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
-	additional additional.Properties, className schema.ClassName,
+	additional additional.Properties, className schema.ClassName, userTokens []string,
 ) (helpers.AllowList, error) {
-	return s.docIDs(ctx, filter, additional, className, 0)
+	return s.docIDs(ctx, filter, additional, className, 0, userTokens)
 }
 
 func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
-	limit int,
+	limit int, userTokens []string,
 ) (helpers.AllowList, error) {
-	pv, err := s.extractPropValuePair(filter.Root, className)
+	pv, err := s.extractPropValuePair(filter.Root, className, userTokens)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +230,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 }
 
 func (s *Searcher) extractPropValuePair(filter *filters.Clause,
-	className schema.ClassName,
+	className schema.ClassName, userTokens []string,
 ) (*propValuePair, error) {
 	class := s.getClass(className.String())
 	if class == nil {
@@ -242,7 +242,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 	if filter.Operands != nil {
 		// nested filter
-		children, err := s.extractPropValuePairs(filter.Operands, className)
+		children, err := s.extractPropValuePairs(filter.Operands, className, userTokens)
 		if err != nil {
 			return nil, err
 		}
@@ -252,7 +252,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 
 	if filter.Operator == filters.ContainsAny || filter.Operator == filters.ContainsAll {
-		return s.extractContains(filter.On, filter.Value.Type, filter.Value.Value, filter.Operator, class)
+		return s.extractContains(filter.On, filter.Value.Type, filter.Value.Value, filter.Operator, class, userTokens)
 	}
 
 	// on value or non-nested filter
@@ -304,13 +304,19 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 
 	if s.onTokenizableProp(property) {
-		return s.extractTokenizableProp(property, filter.Value.Type, filter.Value.Value, filter.Operator, class)
+		var terms []string
+		switch filter.Value.Value.(type) {
+		case []string:
+			terms = filter.Value.Value.([]string)
+		default:
+		}
+		return s.extractTokenizableProp(property, filter.Value.Type, filter.Value.Value, terms, filter.Operator, class, userTokens)
 	}
 
 	return s.extractPrimitiveProp(property, filter.Value.Type, filter.Value.Value, filter.Operator, class)
 }
 
-func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className schema.ClassName) ([]*propValuePair, error) {
+func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className schema.ClassName, userTokens []string) ([]*propValuePair, error) {
 	children := make([]*propValuePair, len(operands))
 	eg := enterrors.NewErrorGroupWrapper(s.logger)
 	// prevent unbounded concurrency, see
@@ -320,7 +326,7 @@ func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className sc
 	for i, clause := range operands {
 		i, clause := i, clause
 		eg.Go(func() error {
-			child, err := s.extractPropValuePair(&clause, className)
+			child, err := s.extractPropValuePair(&clause, className, userTokens)
 			if err != nil {
 				return fmt.Errorf("nested clause at pos %d: %w", i, err)
 			}
@@ -561,27 +567,27 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 	}, nil
 }
 
-func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema.DataType,
-	value interface{}, operator filters.Operator, class *models.Class,
-) (*propValuePair, error) {
-	var terms []string
-
-	valueString, ok := value.(string)
-	if !ok {
-		return nil, fmt.Errorf("expected value to be string, got '%T'", value)
-	}
-
-	switch propType {
-	case schema.DataTypeText:
-		// if the operator is like, we cannot apply the regular text-splitting
-		// logic as it would remove all wildcard symbols
-		if operator == filters.OperatorLike {
-			terms = helpers.TokenizeWithWildcards(prop.Tokenization, valueString)
-		} else {
-			terms = helpers.Tokenize(prop.Tokenization, valueString)
+func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema.DataType, value interface{}, terms []string, operator filters.Operator, class *models.Class, userTokens []string) (*propValuePair, error) {
+	if len(terms) == 0 {
+		valueString, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("expected value to be string, got '%T'", value)
 		}
-	default:
-		return nil, fmt.Errorf("expected value type to be text, got %v", propType)
+
+		switch propType {
+		case schema.DataTypeText:
+			// if the operator is like, we cannot apply the regular text-splitting
+			// logic as it would remove all wildcard symbols
+			if operator == filters.OperatorLike {
+				terms = helpers.TokenizeWithWildcards(prop.Tokenization, valueString)
+			} else if len(userTokens) > 0 {
+				terms = userTokens
+			} else {
+				terms = helpers.Tokenize(prop.Tokenization, valueString)
+			}
+		default:
+			return nil, fmt.Errorf("expected value type to be text, got %v", propType)
+		}
 	}
 
 	hasFilterableIndex := HasFilterableIndex(prop) && !s.isFallbackToSearchable()
@@ -673,7 +679,7 @@ func (s *Searcher) extractPropertyNull(prop *models.Property, propType schema.Da
 }
 
 func (s *Searcher) extractContains(path *filters.Path, propType schema.DataType, value interface{},
-	operator filters.Operator, class *models.Class,
+	operator filters.Operator, class *models.Class, userTokens []string,
 ) (*propValuePair, error) {
 	var operands []filters.Clause
 	switch propType {
@@ -711,7 +717,7 @@ func (s *Searcher) extractContains(path *filters.Path, propType schema.DataType,
 		return nil, fmt.Errorf("unsupported type '%T' for '%v' operator", propType, operator)
 	}
 
-	children, err := s.extractPropValuePairs(operands, schema.ClassName(class.Class))
+	children, err := s.extractPropValuePairs(operands, schema.ClassName(class.Class), userTokens)
 	if err != nil {
 		return nil, err
 	}

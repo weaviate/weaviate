@@ -283,6 +283,7 @@ func file_v1_batch_delete_proto_rawDescGZIP() []byte {
 	return file_v1_batch_delete_proto_rawDescData
 }
 
+<<<<<<< HEAD
 var (
 	file_v1_batch_delete_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 	file_v1_batch_delete_proto_goTypes  = []any{
@@ -294,6 +295,16 @@ var (
 	}
 )
 
+=======
+var file_v1_batch_delete_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_v1_batch_delete_proto_goTypes = []any{
+	(*BatchDeleteRequest)(nil), // 0: weaviate.v1.BatchDeleteRequest
+	(*BatchDeleteReply)(nil),   // 1: weaviate.v1.BatchDeleteReply
+	(*BatchDeleteObject)(nil),  // 2: weaviate.v1.BatchDeleteObject
+	(*Filters)(nil),            // 3: weaviate.v1.Filters
+	(ConsistencyLevel)(0),      // 4: weaviate.v1.ConsistencyLevel
+}
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 var file_v1_batch_delete_proto_depIdxs = []int32{
 	3, // 0: weaviate.v1.BatchDeleteRequest.filters:type_name -> weaviate.v1.Filters
 	4, // 1: weaviate.v1.BatchDeleteRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
@@ -311,6 +322,47 @@ func file_v1_batch_delete_proto_init() {
 		return
 	}
 	file_v1_base_proto_init()
+<<<<<<< HEAD
+=======
+	if !protoimpl.UnsafeEnabled {
+		file_v1_batch_delete_proto_msgTypes[0].Exporter = func(v any, i int) any {
+			switch v := v.(*BatchDeleteRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_batch_delete_proto_msgTypes[1].Exporter = func(v any, i int) any {
+			switch v := v.(*BatchDeleteReply); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_batch_delete_proto_msgTypes[2].Exporter = func(v any, i int) any {
+			switch v := v.(*BatchDeleteObject); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+	}
+>>>>>>> 7f50bdc773 (Regenerate reformat)
 	file_v1_batch_delete_proto_msgTypes[0].OneofWrappers = []any{}
 	file_v1_batch_delete_proto_msgTypes[2].OneofWrappers = []any{}
 	type x struct{}

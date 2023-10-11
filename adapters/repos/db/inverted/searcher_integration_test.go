@@ -120,7 +120,7 @@ func TestObjects(t *testing.T) {
 					},
 				}}
 				objs, err := searcher.Objects(context.Background(), numObjects,
-					filter, nil, additional.Properties{}, className, []string{propName}, nil)
+					filter, nil, additional.Properties{}, className, []string{propName}, emptyUserTokens)
 				assert.Nil(t, err)
 				assert.Len(t, objs, numObjects-multiplier)
 			}
@@ -140,7 +140,7 @@ func TestObjects(t *testing.T) {
 					},
 				}}
 				objs, err := searcher.Objects(context.Background(), numObjects,
-					filter, nil, additional.Properties{}, className, []string{propName}, nil)
+					filter, nil, additional.Properties{}, className, []string{propName}, emptyUserTokens)
 				assert.Nil(t, err)
 				assert.Len(t, objs, multiplier)
 			}
@@ -243,7 +243,7 @@ func TestDocIDs(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		allow, err := searcher.DocIDs(context.Background(), &tc.filter, additional.Properties{}, className)
+		allow, err := searcher.DocIDs(context.Background(), &tc.filter, additional.Properties{}, className, emptyUserTokens)
 		require.Nil(t, err)
 		assert.Equal(t, tc.expectedMatches, allow.Len())
 		allow.Close()

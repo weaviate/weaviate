@@ -297,7 +297,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 	search := func(t *testing.T, shard ShardLike, filter *filters.LocalFilter) []*storobj.Object {
 		searchLimit := 10
 		found, _, err := shard.ObjectSearch(ctx, searchLimit, filter,
-			nil, nil, nil, additional.Properties{}, props)
+			nil, nil, nil, additional.Properties{}, props, nil)
 		require.NoError(t, err)
 		return found
 	}
@@ -515,7 +515,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			t.Run("to be found", func(t *testing.T) {
 				require.EventuallyWithT(t, func(collect *assert.CollectT) {
 					found, _, err := shard.ObjectVectorSearch(ctx, []models.Vector{vectorToBeFound}, []string{targetVector},
-						vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{}, nil, nil)
+						vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{}, nil, nil, nil)
 					if !assert.NoError(collect, err) {
 						return
 					}
@@ -528,7 +528,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 			t.Run("not to be found", func(t *testing.T) {
 				found, _, err := shard.ObjectVectorSearch(ctx, []models.Vector{vectorNotToBeFound}, []string{targetVector},
-					vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{}, nil, nil)
+					vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{}, nil, nil, nil)
 				require.NoError(t, err)
 				require.Len(t, found, 0)
 			})

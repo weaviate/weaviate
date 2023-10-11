@@ -87,6 +87,10 @@ type WhereFilter struct {
 	// Example: ["my search term"]
 	ValueStringArray []string `json:"valueStringArray,omitempty"`
 
+	// tokens as text list
+	// Example: ["my","search","term"]
+	ValueTerms []string `json:"valueTerms,omitempty"`
+
 	// value as text
 	// Example: my search term
 	ValueText *string `json:"valueText,omitempty"`

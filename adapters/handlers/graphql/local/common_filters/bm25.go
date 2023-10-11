@@ -75,6 +75,11 @@ func ExtractBM25(source map[string]interface{}, explainScore bool) searchparams.
 		args.Query = query.(string)
 	}
 
+	tokens, ok := source["tokens"]
+	if ok {
+		args.Tokens = tokens.([]string)
+	}
+
 	args.AdditionalExplanations = explainScore
 	args.Type = "bm25"
 
