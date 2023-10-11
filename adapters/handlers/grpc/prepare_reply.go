@@ -331,7 +331,7 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 			if ok {
 				extractedNestedProp, err := extractPropertiesNested(scheme, singleObj, prop, className, &Property{Property: nested})
 				if err != nil {
-					return nil, errors.Wrap(err, fmt.Sprintf("extracting nested properties from %v", nested))
+					return nil, errors.Wrap(err, "extracting nested properties")
 				}
 				objProps = append(objProps, &pb.ObjectProperties{
 					PropName: prop.Name,
@@ -395,7 +395,7 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 		}
 		newStruct, err := structpb.NewStruct(nonRefProps)
 		if err != nil {
-			return nil, errors.Wrap(err, "creating ref-prop struct")
+			return nil, errors.Wrap(err, "creating non-ref-prop struct")
 		}
 		props.NonRefProperties = newStruct
 		props.IntArrayProperties = outProps.IntArrayProperties
@@ -481,7 +481,7 @@ func extractPropertiesNested[P schema.PropertyInterface](scheme schema.Schema, r
 		}
 		newStruct, err := structpb.NewStruct(primitiveProps)
 		if err != nil {
-			return nil, errors.Wrap(err, "creating ref-prop struct")
+			return nil, errors.Wrap(err, "creating non-ref-prop struct")
 		}
 		props.NonRefProperties = newStruct
 	}
