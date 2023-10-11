@@ -256,6 +256,10 @@ func batchObjects(className string) []*pb.BatchObject {
 						"title":       structpb.NewStringValue("Dune"),
 						"description": structpb.NewStringValue("Dune is a 1965 epic science fiction novel by American author Frank Herbert."),
 					},
+					Terms: map[string]*structpb.Value{
+						"title":       structpb.NewStringValue("dune"),
+						"description": structpb.NewStringValue("dune", "is", "a", "1965", "epic", "science", "fiction", "novel", "by", "american", "author", "frank", "herbert"),
+					},
 				},
 				ObjectProperties: []*pb.ObjectProperties{{
 					PropName: "meta",

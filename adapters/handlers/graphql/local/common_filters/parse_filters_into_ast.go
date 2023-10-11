@@ -134,6 +134,9 @@ func (c *converter) do(in *WhereFilter) (*models.WhereFilter, error) {
 	if in.ValueGeoRange != nil {
 		whereFilter.ValueGeoRange = in.ValueGeoRange
 	}
+	if in.ValueTerms != nil {
+		whereFilter.ValueTerms = in.ValueTerms
+	}
 
 	// recursively build operands
 	for i, op := range in.Operands {
@@ -173,4 +176,5 @@ type WhereFilter struct {
 	ValueString   interface{}                 `json:"valueString,omitempty"`
 	ValueText     interface{}                 `json:"valueText,omitempty"`
 	ValueGeoRange *models.WhereFilterGeoRange `json:"valueGeoRange,omitempty"`
+	ValueTerms    *models.WhereFilterTerms    `json:"valueTerms,omitempty"`
 }

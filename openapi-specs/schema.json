@@ -966,7 +966,8 @@
             "trigram",
             "gse",
             "kagome_kr",
-            "kagome_ja"
+            "kagome_ja",
+            "user"
           ]
         },
         "nestedProperties": {

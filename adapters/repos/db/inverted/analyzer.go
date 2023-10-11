@@ -96,6 +96,25 @@ func (a *Analyzer) TextArray(tokenization string, inArr []string) []Countable {
 	return countable
 }
 
+// PreTokenised takes an array of tokens and aggregates them
+func (a *Analyzer) PreTokenised(tokenization string, terms []string) []Countable {
+	counts := map[string]uint64{}
+	for _, term := range terms {
+		counts[term]++
+	}
+
+	countable := make([]Countable, len(counts))
+	i := 0
+	for term, count := range counts {
+		countable[i] = Countable{
+			Data:          []byte(term),
+			TermFrequency: float32(count),
+		}
+		i++
+	}
+	return countable
+}
+
 // Int requires no analysis, so it's actually just a simple conversion to a
 // string-formatted byte slice of the int
 func (a *Analyzer) Int(in int64) ([]Countable, error) {

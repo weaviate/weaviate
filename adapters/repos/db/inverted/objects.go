@@ -353,13 +353,17 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 
 	switch dt := schema.DataType(prop.DataType[0]); dt {
 	case schema.DataTypeText:
-		hasFilterableIndex = hasFilterableIndex && !a.isFallbackToSearchable()
-		asString, ok := value.(string)
-		if !ok {
-			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
+		if prop.Tokenization == models.PropertyTokenizationUser {
+			items = a.PreTokenised(prop.Tokenization, value.([]string))
+		} else {
+			hasFilterableIndex = hasFilterableIndex && !a.isFallbackToSearchable()
+			asString, ok := value.(string)
+			if !ok {
+				return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
+			}
+			items = a.Text(prop.Tokenization, asString)
+			propertyLength = utf8.RuneCountInString(asString)
 		}
-		items = a.Text(prop.Tokenization, asString)
-		propertyLength = utf8.RuneCountInString(asString)
 	case schema.DataTypeInt:
 		if asFloat, ok := value.(float64); ok {
 			// unmarshaling from json into a dynamic schema will assume every number

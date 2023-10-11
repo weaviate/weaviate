@@ -292,7 +292,13 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 
 	if s.onTokenizableProp(property) {
-		return s.extractTokenizableProp(property, filter.Value.Type, filter.Value.Value, filter.Operator, class)
+		var terms []string
+		switch filter.Value.Value.(type) {
+		case []string:
+			terms = filter.Value.Value.([]string)
+		default:
+		}
+		return s.extractTokenizableProp(property, filter.Value.Type, filter.Value.Value, terms, filter.Operator, class)
 	}
 
 	return s.extractPrimitiveProp(property, filter.Value.Type, filter.Value.Value, filter.Operator, class)
@@ -549,27 +555,25 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 	}, nil
 }
 
-func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema.DataType,
-	value interface{}, operator filters.Operator, class *models.Class,
-) (*propValuePair, error) {
-	var terms []string
-
-	valueString, ok := value.(string)
-	if !ok {
-		return nil, fmt.Errorf("expected value to be string, got '%T'", value)
-	}
-
-	switch propType {
-	case schema.DataTypeText:
-		// if the operator is like, we cannot apply the regular text-splitting
-		// logic as it would remove all wildcard symbols
-		if operator == filters.OperatorLike {
-			terms = helpers.TokenizeWithWildcards(prop.Tokenization, valueString)
-		} else {
-			terms = helpers.Tokenize(prop.Tokenization, valueString)
+func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema.DataType, value interface{}, terms []string, operator filters.Operator, class *models.Class) (*propValuePair, error) {
+	if len(terms) == 0 {
+		valueString, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("expected value to be string, got '%T'", value)
 		}
-	default:
-		return nil, fmt.Errorf("expected value type to be text, got %v", propType)
+
+		switch propType {
+		case schema.DataTypeText:
+			// if the operator is like, we cannot apply the regular text-splitting
+			// logic as it would remove all wildcard symbols
+			if operator == filters.OperatorLike {
+				terms = helpers.TokenizeWithWildcards(prop.Tokenization, valueString)
+			} else {
+				terms = helpers.Tokenize(prop.Tokenization, valueString)
+			}
+		default:
+			return nil, fmt.Errorf("expected value type to be text, got %v", propType)
+		}
 	}
 
 	hasFilterableIndex := HasFilterableIndex(prop) && !s.isFallbackToSearchable()

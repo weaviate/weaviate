@@ -5855,7 +5855,8 @@ func init() {
             "trigram",
             "gse",
             "kagome_kr",
-            "kagome_ja"
+            "kagome_ja",
+            "user"
           ]
         }
       }
@@ -12908,10 +12909,14 @@ func init() {
             "lowercase",
             "whitespace",
             "field",
+<<<<<<< HEAD
             "trigram",
             "gse",
             "kagome_kr",
             "kagome_ja"
+=======
+            "user"
+>>>>>>> ae752bc112 (Regenerate reformat)
           ]
         }
       }
