@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -106,7 +107,7 @@ type JSONDumpNodeMap struct {
 	Connections map[int][]uint64 `json:"connections"`
 }
 
-func NewFromJSONDump(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
+func NewFromJSONDump(dumpBytes []byte, vecForID common.VectorForID[float32]) (*hnsw, error) {
 	var dump JSONDump
 	err := json.Unmarshal(dumpBytes, &dump)
 	if err != nil {
@@ -143,7 +144,7 @@ func NewFromJSONDump(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
 	return index, nil
 }
 
-func NewFromJSONDumpMap(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
+func NewFromJSONDumpMap(dumpBytes []byte, vecForID common.VectorForID[float32]) (*hnsw, error) {
 	var dump JSONDumpMap
 	err := json.Unmarshal(dumpBytes, &dump)
 	if err != nil {

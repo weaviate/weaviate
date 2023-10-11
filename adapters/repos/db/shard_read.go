@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -145,10 +145,10 @@ func (s *Shard) objectByIndexID(ctx context.Context,
 
 func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32, error) {
 	keyBuf := make([]byte, 8)
-	return s.readVectorByIndexIDIntoSlice(ctx, indexID, &hnsw.VectorSlice{Buff8: keyBuf})
+	return s.readVectorByIndexIDIntoSlice(ctx, indexID, &common.VectorSlice{Buff8: keyBuf})
 }
 
-func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, container *hnsw.VectorSlice) ([]float32, error) {
+func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, container *common.VectorSlice) ([]float32, error) {
 	binary.LittleEndian.PutUint64(container.Buff8, indexID)
 
 	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
