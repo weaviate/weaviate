@@ -6504,6 +6504,20 @@ func init() {
             "my search term"
           ]
         },
+        "valueTerms": {
+          "description": "tokens as text list",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": [
+            "my",
+            "search",
+            "term"
+          ]
+        },
         "valueText": {
           "description": "value as text",
           "type": "string",
@@ -13544,6 +13558,20 @@ func init() {
           "x-omitempty": true,
           "example": [
             "my search term"
+          ]
+        },
+        "valueTerms": {
+          "description": "tokens as text list",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": [
+            "my",
+            "search",
+            "term"
           ]
         },
         "valueText": {

@@ -2368,6 +2368,18 @@
           "x-nullable": true,
           "x-omitempty": true
         },
+        "valueTerms": {
+          "description": "tokens as text list",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": [
+            "my", "search", "term"
+          ],
+          "x-nullable": true,
+          "x-omitempty": true
+        },
         "valueGeoRange": {
           "description": "value as geo coordinates and distance",
           "type": "object",
