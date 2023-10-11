@@ -316,7 +316,11 @@ func (q *IndexQueue) PreloadShard(ctx context.Context, shard *Shard) error {
 func (q *IndexQueue) Drop() error {
 	_ = q.Close()
 
-	return q.checkpoints.Delete(q.shardID)
+	if q.checkpoints != nil {
+		return q.checkpoints.Delete(q.shardID)
+	}
+
+	return nil
 }
 
 func (q *IndexQueue) indexer() {
