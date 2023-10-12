@@ -153,6 +153,16 @@ type Index struct {
 	lastBackup  atomic.Pointer[BackupState]
 }
 
+func (i *Index) GetShards() []*Shard {
+	var out []*Shard
+	i.shards.Range(func(_ string, shard *Shard) error {
+		out = append(out, shard)
+		return nil
+	})
+
+	return out
+}
+
 func (i *Index) ID() string {
 	return indexID(i.Config.ClassName)
 }
@@ -1092,7 +1102,6 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
 	}
-
 	if len(resultObjects) == len(resultScores) {
 
 		// Force a stable sort order by UUID
