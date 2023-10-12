@@ -1,0 +1,12 @@
+USE: alien.c-types
+USE: alien.syntax
+USE: alien.libraries
+USE: alien
+USE: kernel
+USE: prettyprint
+USE: threads
+"libweaviate" "/Users/jeremyprice/git/weaviate/cmd/libweaviate/libweaviate.dylib" cdecl add-library
+LIBRARY: weaviate
+FUNCTION: void startWeaviate ( c-string datapath, c-string origin, c-string clusterHostname, c-string defaultVectoriser )
+FUNCTION: void dumpBucket ( c-string datapath, c-string bucket-name )
+"data/classa_vwAWcbt8fAfh_lsm" "title" dumpBucket
