@@ -103,6 +103,16 @@ func TestGRPCRequest(t *testing.T) {
 										},
 									},
 								},
+								{
+									Name:     "elses",
+									DataType: schema.DataTypeObjectArray.PropString(),
+									NestedProperties: []*models.NestedProperty{
+										{
+											Name:     "name",
+											DataType: schema.DataTypeText.PropString(),
+										},
+									},
+								},
 							},
 						},
 					},
@@ -760,6 +770,12 @@ func TestGRPCRequest(t *testing.T) {
 							{Name: "name", IsPrimitive: true},
 							{
 								Name: "else", IsPrimitive: false, IsObject: true,
+								Props: search.SelectProperties{{
+									Name: "name", IsPrimitive: true,
+								}},
+							},
+							{
+								Name: "elses", IsPrimitive: false, IsObject: true,
 								Props: search.SelectProperties{{
 									Name: "name", IsPrimitive: true,
 								}},

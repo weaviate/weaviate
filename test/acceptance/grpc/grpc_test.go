@@ -51,7 +51,7 @@ func TestGRPC(t *testing.T) {
 		require.NotNil(t, resp)
 	})
 
-	t.Run("Search", func(t *testing.T) {
+	t.Run("Search with props", func(t *testing.T) {
 		resp, err := grpcClient.SearchV1(context.TODO(), &pb.SearchRequestV1{
 			Collection: booksClass.Class,
 			Properties: &pb.PropertiesRequest{
@@ -64,6 +64,47 @@ func TestGRPC(t *testing.T) {
 			Metadata: &pb.MetadataRequest{
 				Uuid: true,
 			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.NotNil(t, resp.Results)
+		assert.Equal(t, len(books.BatchObjects()), len(resp.Results))
+		for i := range resp.Results {
+			res := resp.Results[i]
+			id := res.Metadata.Id
+
+			assert.True(t, id == books.Dune.String() || id == books.ProjectHailMary.String() || id == books.TheLordOfTheIceGarden.String())
+			title, ok := res.Properties.NonRefProperties.AsMap()["title"]
+			require.True(t, ok)
+
+			objProps := res.Properties.ObjectProperties
+			require.Len(t, objProps, 1)
+
+			isbn, ok := objProps[0].Value.NonRefProperties.AsMap()["isbn"]
+			require.True(t, ok)
+
+			expectedTitle := ""
+			expectedIsbn := ""
+			if id == books.Dune.String() {
+				expectedTitle = "Dune"
+				expectedIsbn = "978-0593099322"
+			}
+			if id == books.ProjectHailMary.String() {
+				expectedTitle = "Project Hail Mary"
+				expectedIsbn = "978-0593135204"
+			}
+			if id == books.TheLordOfTheIceGarden.String() {
+				expectedTitle = "The Lord of the Ice Garden"
+				expectedIsbn = "978-8374812962"
+			}
+			assert.Equal(t, expectedTitle, title)
+			assert.Equal(t, expectedIsbn, isbn)
+		}
+	})
+
+	t.Run("Search without props", func(t *testing.T) {
+		resp, err := grpcClient.SearchV1(context.TODO(), &pb.SearchRequestV1{
+			Collection: booksClass.Class,
 		})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
