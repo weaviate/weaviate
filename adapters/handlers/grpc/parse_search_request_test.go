@@ -27,6 +27,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex/common"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -57,7 +58,7 @@ func TestGRPCRequest(t *testing.T) {
 						{Name: "ref", DataType: []string{refClass1}},
 						{Name: "multiRef", DataType: []string{refClass1, refClass2}},
 					},
-					VectorIndexConfig: hnsw.UserConfig{Distance: hnsw.DefaultDistanceMetric},
+					VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DefaultDistanceMetric},
 				},
 				{
 					Class: refClass1,
@@ -65,7 +66,7 @@ func TestGRPCRequest(t *testing.T) {
 						{Name: "something", DataType: schema.DataTypeText.PropString()},
 						{Name: "ref2", DataType: []string{refClass2}},
 					},
-					VectorIndexConfig: hnsw.UserConfig{Distance: hnsw.DefaultDistanceMetric},
+					VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DefaultDistanceMetric},
 				},
 				{
 					Class: refClass2,
@@ -79,7 +80,7 @@ func TestGRPCRequest(t *testing.T) {
 					Properties: []*models.Property{
 						{Name: "something", DataType: schema.DataTypeText.PropString()},
 					},
-					VectorIndexConfig: hnsw.UserConfig{Distance: hnsw.DistanceDot},
+					VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DistanceDot},
 				},
 			},
 		},

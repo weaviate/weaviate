@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 )
 
 func Test_UserConfig(t *testing.T) {
@@ -37,14 +38,14 @@ func Test_UserConfig(t *testing.T) {
 				CleanupIntervalSeconds: DefaultCleanupIntervalSeconds,
 				MaxConnections:         DefaultMaxConnections,
 				EFConstruction:         DefaultEFConstruction,
-				VectorCacheMaxObjects:  DefaultVectorCacheMaxObjects,
+				VectorCacheMaxObjects:  common.DefaultVectorCacheMaxObjects,
 				EF:                     DefaultEF,
 				Skip:                   DefaultSkip,
 				FlatSearchCutoff:       DefaultFlatSearchCutoff,
 				DynamicEFMin:           DefaultDynamicEFMin,
 				DynamicEFMax:           DefaultDynamicEFMax,
 				DynamicEFFactor:        DefaultDynamicEFFactor,
-				Distance:               DefaultDistanceMetric,
+				Distance:               common.DefaultDistanceMetric,
 				PQ: PQConfig{
 					Enabled:        DefaultPQEnabled,
 					BitCompression: DefaultPQBitCompression,
@@ -68,13 +69,13 @@ func Test_UserConfig(t *testing.T) {
 				CleanupIntervalSeconds: DefaultCleanupIntervalSeconds,
 				MaxConnections:         100,
 				EFConstruction:         DefaultEFConstruction,
-				VectorCacheMaxObjects:  DefaultVectorCacheMaxObjects,
+				VectorCacheMaxObjects:  common.DefaultVectorCacheMaxObjects,
 				EF:                     DefaultEF,
 				FlatSearchCutoff:       DefaultFlatSearchCutoff,
 				DynamicEFMin:           DefaultDynamicEFMin,
 				DynamicEFMax:           DefaultDynamicEFMax,
 				DynamicEFFactor:        DefaultDynamicEFFactor,
-				Distance:               DefaultDistanceMetric,
+				Distance:               common.DefaultDistanceMetric,
 				PQ: PQConfig{
 					Enabled:        DefaultPQEnabled,
 					BitCompression: DefaultPQBitCompression,
@@ -236,7 +237,7 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMin:           17,
 				DynamicEFMax:           18,
 				DynamicEFFactor:        19,
-				Distance:               DefaultDistanceMetric,
+				Distance:               common.DefaultDistanceMetric,
 				PQ: PQConfig{
 					Enabled:        DefaultPQEnabled,
 					BitCompression: DefaultPQBitCompression,
@@ -285,7 +286,7 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMin:           17,
 				DynamicEFMax:           18,
 				DynamicEFFactor:        19,
-				Distance:               DefaultDistanceMetric,
+				Distance:               common.DefaultDistanceMetric,
 				PQ: PQConfig{
 					Enabled:       true,
 					Segments:      64,
@@ -332,7 +333,7 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMin:           17,
 				DynamicEFMax:           18,
 				DynamicEFFactor:        19,
-				Distance:               DefaultDistanceMetric,
+				Distance:               common.DefaultDistanceMetric,
 				PQ: PQConfig{
 					Enabled:       true,
 					Segments:      64,
@@ -398,7 +399,7 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMin:           17,
 				DynamicEFMax:           18,
 				DynamicEFFactor:        19,
-				Distance:               DefaultDistanceMetric,
+				Distance:               common.DefaultDistanceMetric,
 				PQ: PQConfig{
 					Enabled:        DefaultPQEnabled,
 					BitCompression: DefaultPQBitCompression,

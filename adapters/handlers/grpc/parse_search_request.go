@@ -17,6 +17,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
@@ -637,7 +638,7 @@ func setAllCheapAdditionalPropsToTrue(class *models.Class) (additional.Propertie
 		return out, err
 	}
 
-	if vectorIndex.Distance == hnsw.DistanceCosine {
+	if vectorIndex.Distance == common.DistanceCosine {
 		out.Certainty = true
 	}
 

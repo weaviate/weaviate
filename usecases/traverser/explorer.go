@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/autocut"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -752,7 +753,7 @@ func (e *Explorer) checkCertaintyCompatibility(className string) error {
 	if err != nil {
 		return err
 	}
-	if hnswConfig.Distance != hnsw.DistanceCosine {
+	if hnswConfig.Distance != common.DistanceCosine {
 		return certaintyUnsupportedError(hnswConfig.Distance)
 	}
 
