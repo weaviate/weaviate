@@ -56,10 +56,16 @@ func TestGRPC(t *testing.T) {
 			Collection: booksClass.Class,
 			Properties: &pb.PropertiesRequest{
 				NonRefProperties: []string{"title"},
-				ObjectProperties: []*pb.ObjectPropertiesRequest{{
-					PropName:            "meta",
-					PrimitiveProperties: []string{"isbn"},
-				}},
+				ObjectProperties: []*pb.ObjectPropertiesRequest{
+					{
+						PropName:            "meta",
+						PrimitiveProperties: []string{"isbn"},
+					},
+					{
+						PropName:            "reviews",
+						PrimitiveProperties: []string{"content"},
+					},
+				},
 			},
 			Metadata: &pb.MetadataRequest{
 				Uuid: true,
@@ -80,25 +86,36 @@ func TestGRPC(t *testing.T) {
 			objProps := res.Properties.ObjectProperties
 			require.Len(t, objProps, 1)
 
+			objArrayProps := res.Properties.ObjectArrayProperties
+			require.Len(t, objArrayProps, 1)
+
 			isbn, ok := objProps[0].Value.NonRefProperties.AsMap()["isbn"]
+			require.True(t, ok)
+
+			reviewContent, ok := objArrayProps[0].Values[0].NonRefProperties.AsMap()["content"]
 			require.True(t, ok)
 
 			expectedTitle := ""
 			expectedIsbn := ""
+			expectedReviewContent := ""
 			if id == books.Dune.String() {
 				expectedTitle = "Dune"
 				expectedIsbn = "978-0593099322"
+				expectedReviewContent = "This is a great book!"
 			}
 			if id == books.ProjectHailMary.String() {
 				expectedTitle = "Project Hail Mary"
 				expectedIsbn = "978-0593135204"
+				expectedReviewContent = "Totes amazeballs!"
 			}
 			if id == books.TheLordOfTheIceGarden.String() {
 				expectedTitle = "The Lord of the Ice Garden"
 				expectedIsbn = "978-8374812962"
+				expectedReviewContent = "suboptimal"
 			}
 			assert.Equal(t, expectedTitle, title)
 			assert.Equal(t, expectedIsbn, isbn)
+			assert.Equal(t, expectedReviewContent, reviewContent)
 		}
 	})
 

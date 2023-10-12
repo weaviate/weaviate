@@ -114,6 +114,16 @@ func class(className, vectorizer string, additionalModules ...string) *models.Cl
 					},
 				},
 			},
+			{
+				Name:     "reviews",
+				DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: []*models.NestedProperty{
+					{
+						Name:     "content",
+						DataType: schema.DataTypeText.PropString(),
+					},
+				},
+			},
 		},
 	}
 }
@@ -181,6 +191,16 @@ func batchObjects(className string) []*pb.BatchObject {
 						},
 					},
 				}},
+				ObjectArrayProperties: []*pb.ObjectArrayProperties{{
+					PropName: "reviews",
+					Values: []*pb.ObjectPropertiesValue{{
+						NonRefProperties: &structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"content": structpb.NewStringValue("This is a great book!"),
+							},
+						},
+					}},
+				}},
 			},
 		},
 		{
@@ -203,6 +223,16 @@ func batchObjects(className string) []*pb.BatchObject {
 						},
 					},
 				}},
+				ObjectArrayProperties: []*pb.ObjectArrayProperties{{
+					PropName: "reviews",
+					Values: []*pb.ObjectPropertiesValue{{
+						NonRefProperties: &structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"content": structpb.NewStringValue("Totes amazeballs!"),
+							},
+						},
+					}},
+				}},
 			},
 		},
 		{
@@ -224,6 +254,16 @@ func batchObjects(className string) []*pb.BatchObject {
 							},
 						},
 					},
+				}},
+				ObjectArrayProperties: []*pb.ObjectArrayProperties{{
+					PropName: "reviews",
+					Values: []*pb.ObjectPropertiesValue{{
+						NonRefProperties: &structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"content": structpb.NewStringValue("suboptimal"),
+							},
+						},
+					}},
 				}},
 			},
 		},
