@@ -137,6 +137,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	if asyncEnabled() {
 		// load non-indexed vectors and add them to the queue
+		start := time.Now()
+		total := 0
+		nonIndexed := 0
+
 		cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
 
 		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
@@ -144,6 +148,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			if err != nil {
 				return nil, err
 			}
+			total++
 			id := obj.DocID()
 			if s.vectorIndex.ContainsNode(id) {
 				continue
@@ -152,6 +157,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 				continue
 			}
 
+			nonIndexed++
 			desc := vectorDescriptor{
 				id:     id,
 				vector: obj.Vector,
@@ -159,6 +165,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			s.queue.Push(context.Background(), desc)
 		}
 		cursor.Close()
+		s.index.logger.WithField("non-indexed", nonIndexed).WithField("total", total).Debugf("loaded non-indexed vectors in %s", time.Since(start))
 	}
 
 	return s, nil

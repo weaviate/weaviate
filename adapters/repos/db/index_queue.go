@@ -159,6 +159,11 @@ func (q *IndexQueue) Close() error {
 
 	q.wg.Wait()
 
+	// loop over the chunks of the queue
+	// wait for the done chan to be closed
+	// then return
+	q.queue.wait()
+
 	return nil
 }
 
@@ -262,9 +267,14 @@ func (q *IndexQueue) indexer() {
 
 func (q *IndexQueue) pushToWorkers() error {
 	chunks := q.queue.borrowAllChunks()
-	for _, c := range chunks {
+	for i, c := range chunks {
 		select {
 		case <-q.ctx.Done():
+			// release unsent borrowed chunks
+			for _, c := range chunks[i:] {
+				q.queue.releaseChunk(c)
+			}
+
 			return errors.New("index queue closed")
 		case q.indexCh <- job{
 			chunk:   c,
@@ -426,7 +436,48 @@ func newVectorQueue(batchSize int, staleTimeout time.Duration) *vectorQueue {
 }
 
 func (q *vectorQueue) getFreeChunk() *chunk {
-	return q.pool.Get().(*chunk)
+	c := q.pool.Get().(*chunk)
+	c.indexed = make(chan struct{})
+	return c
+}
+
+func (q *vectorQueue) wait() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	for {
+		// get first non-closed channel
+		var ch chan struct{}
+
+		q.fullChunks.Lock()
+		e := q.fullChunks.list.Front()
+	LOOP:
+		for e != nil {
+			c := e.Value.(*chunk)
+			if c.borrowed {
+				select {
+				case <-c.indexed:
+				default:
+					ch = c.indexed
+					break LOOP
+				}
+			}
+
+			e = e.Next()
+		}
+		q.fullChunks.Unlock()
+
+		if ch == nil {
+			return
+		}
+
+		select {
+		case <-ch:
+		case <-time.After(5 * time.Second):
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 func (q *vectorQueue) Add(vectors []vectorDescriptor) {
@@ -510,6 +561,8 @@ func (q *vectorQueue) borrowAllChunks() []*chunk {
 }
 
 func (q *vectorQueue) releaseChunk(c *chunk) {
+	close(c.indexed)
+
 	if c.elem != nil {
 		q.fullChunks.Lock()
 		q.fullChunks.list.Remove(c.elem)
@@ -520,6 +573,7 @@ func (q *vectorQueue) releaseChunk(c *chunk) {
 	c.cursor = 0
 	c.elem = nil
 	c.createdAt = nil
+	c.indexed = nil
 
 	q.pool.Put(c)
 }
@@ -586,4 +640,5 @@ type chunk struct {
 	data      []vectorDescriptor
 	elem      *list.Element
 	createdAt *time.Time
+	indexed   chan struct{}
 }
