@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
@@ -36,6 +37,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"golang.org/x/sync/errgroup"
@@ -145,20 +148,91 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	defer s.metrics.ShardStartup(before)
 
-	hnswUserConfig, ok := index.vectorIndexUserConfig.(hnswent.UserConfig)
-	if !ok {
-		return nil, errors.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
-			index.vectorIndexUserConfig)
+	var distProv distancer.Provider
+
+	switch index.vectorIndexUserConfig.DistanceName() {
+	case "", common.DistanceCosine:
+		distProv = distancer.NewCosineDistanceProvider()
+	case common.DistanceDot:
+		distProv = distancer.NewDotProductProvider()
+	case common.DistanceL2Squared:
+		distProv = distancer.NewL2SquaredProvider()
+	case common.DistanceManhattan:
+		distProv = distancer.NewManhattanProvider()
+	case common.DistanceHamming:
+		distProv = distancer.NewHammingProvider()
+	default:
+		return nil, fmt.Errorf("init vector index: %w",
+			errors.Errorf("unrecognized distance metric %q,"+
+				"choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", index.vectorIndexUserConfig.DistanceName()))
 	}
 
-	if hnswUserConfig.Skip {
-		s.vectorIndex = noop.NewIndex()
-	} else {
-		if err := s.initVectorIndex(ctx, hnswUserConfig); err != nil {
-			return nil, fmt.Errorf("init vector index: %w", err)
+	switch index.vectorIndexUserConfig.IndexType() {
+	case "hnsw":
+		hnswUserConfig, ok := index.vectorIndexUserConfig.(hnswent.UserConfig)
+		if !ok {
+			return nil, errors.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
+				index.vectorIndexUserConfig)
 		}
 
-		defer s.vectorIndex.PostStartup()
+		if hnswUserConfig.Skip {
+			s.vectorIndex = noop.NewIndex()
+		} else {
+			// starts vector cycles if vector is configured
+			s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+			s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
+
+			vi, err := hnsw.New(hnsw.Config{
+				Logger:               s.index.logger,
+				RootPath:             s.index.Config.RootPath,
+				ID:                   s.ID(),
+				ShardName:            s.name,
+				ClassName:            s.index.Config.ClassName.String(),
+				PrometheusMetrics:    s.promMetrics,
+				VectorForIDThunk:     s.vectorByIndexID,
+				TempVectorForIDThunk: s.readVectorByIndexIDIntoSlice,
+				DistanceProvider:     distProv,
+				MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+					return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(),
+						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
+				},
+			}, hnswUserConfig,
+				s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks)
+
+			if err != nil {
+				return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
+			}
+			s.vectorIndex = vi
+
+			defer s.vectorIndex.PostStartup()
+		}
+	case "flat":
+		flatUserConfig, ok := index.vectorIndexUserConfig.(flatent.UserConfig)
+		if !ok {
+			return nil, errors.Errorf("flat vector index: config is not flat.UserConfig: %T",
+				index.vectorIndexUserConfig)
+		}
+		vi, err := flat.New(hnsw.Config{
+			Logger:               s.index.logger,
+			RootPath:             s.index.Config.RootPath,
+			ID:                   s.ID(),
+			ShardName:            s.name,
+			ClassName:            s.index.Config.ClassName.String(),
+			PrometheusMetrics:    s.promMetrics,
+			VectorForIDThunk:     s.vectorByIndexID,
+			TempVectorForIDThunk: s.readVectorByIndexIDIntoSlice,
+			DistanceProvider:     distProv,
+			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+				return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(),
+					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
+			},
+		}, flatUserConfig)
+		if err != nil {
+			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
+		}
+		s.vectorIndex = vi
+	default:
+		return nil, fmt.Errorf("Unknown vector index type: %q. Choose one from [\"hnsw\", \"flat\"]", index.vectorIndexUserConfig.IndexType())
 	}
 
 	if err := s.initNonVector(ctx, class); err != nil {
@@ -180,55 +254,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	s.notifyReady()
 
 	return s, nil
-}
-
-func (s *Shard) initVectorIndex(
-	ctx context.Context, hnswUserConfig hnswent.UserConfig,
-) error {
-	var distProv distancer.Provider
-
-	switch hnswUserConfig.Distance {
-	case "", hnswent.DistanceCosine:
-		distProv = distancer.NewCosineDistanceProvider()
-	case hnswent.DistanceDot:
-		distProv = distancer.NewDotProductProvider()
-	case hnswent.DistanceL2Squared:
-		distProv = distancer.NewL2SquaredProvider()
-	case hnswent.DistanceManhattan:
-		distProv = distancer.NewManhattanProvider()
-	case hnswent.DistanceHamming:
-		distProv = distancer.NewHammingProvider()
-	default:
-		return errors.Errorf("unrecognized distance metric %q,"+
-			"choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", hnswUserConfig.Distance)
-	}
-
-	// starts vector cycles if vector is configured
-	s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
-	s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
-
-	vi, err := hnsw.New(hnsw.Config{
-		Logger:               s.index.logger,
-		RootPath:             s.index.Config.RootPath,
-		ID:                   s.ID(),
-		ShardName:            s.name,
-		ClassName:            s.index.Config.ClassName.String(),
-		PrometheusMetrics:    s.promMetrics,
-		VectorForIDThunk:     s.vectorByIndexID,
-		TempVectorForIDThunk: s.readVectorByIndexIDIntoSlice,
-		DistanceProvider:     distProv,
-		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(),
-				s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
-		},
-	}, hnswUserConfig,
-		s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks)
-	if err != nil {
-		return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
-	}
-	s.vectorIndex = vi
-
-	return nil
 }
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {

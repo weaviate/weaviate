@@ -25,10 +25,10 @@ type pools struct {
 
 	pqItemSlice  *sync.Pool
 	pqHeuristic  *pqMinWithIndexPool
-	pqResults    *pqMaxPool
+	pqResults    *common.PqMaxPool
 	pqCandidates *pqMinPool
 
-	tempVectors *tempVectorsPool
+	tempVectors *common.TempVectorsPool
 }
 
 func newPools(maxConnectionsLayerZero int) *pools {
@@ -41,44 +41,10 @@ func newPools(maxConnectionsLayerZero int) *pools {
 			},
 		},
 		pqHeuristic:  newPqMinWithIndexPool(maxConnectionsLayerZero),
-		pqResults:    newPqMaxPool(maxConnectionsLayerZero),
+		pqResults:    common.NewPqMaxPool(maxConnectionsLayerZero),
 		pqCandidates: newPqMinPool(maxConnectionsLayerZero),
-		tempVectors:  newTempVectorsPool(),
+		tempVectors:  common.NewTempVectorsPool(),
 	}
-}
-
-type tempVectorsPool struct {
-	pool *sync.Pool
-}
-
-func newTempVectorsPool() *tempVectorsPool {
-	return &tempVectorsPool{
-		pool: &sync.Pool{
-			New: func() interface{} {
-				return &common.VectorSlice{
-					Mem:   nil,
-					Buff8: make([]byte, 8),
-					Buff:  nil,
-					Slice: nil,
-				}
-			},
-		},
-	}
-}
-
-func (pool *tempVectorsPool) Get(capacity int) *common.VectorSlice {
-	container := pool.pool.Get().(*common.VectorSlice)
-	if len(container.Slice) >= capacity {
-		container.Slice = container.Mem[:capacity]
-	} else {
-		container.Mem = make([]float32, capacity)
-		container.Slice = container.Mem[:capacity]
-	}
-	return container
-}
-
-func (pool *tempVectorsPool) Put(container *common.VectorSlice) {
-	pool.pool.Put(container)
 }
 
 type pqMinPool struct {
@@ -136,34 +102,5 @@ func (pqh *pqMinWithIndexPool) GetMin(capacity int) *priorityqueue.QueueWithInde
 }
 
 func (pqh *pqMinWithIndexPool) Put(pq *priorityqueue.QueueWithIndex) {
-	pqh.pool.Put(pq)
-}
-
-type pqMaxPool struct {
-	pool *sync.Pool
-}
-
-func newPqMaxPool(defaultCap int) *pqMaxPool {
-	return &pqMaxPool{
-		pool: &sync.Pool{
-			New: func() interface{} {
-				return priorityqueue.NewMax(defaultCap)
-			},
-		},
-	}
-}
-
-func (pqh *pqMaxPool) GetMax(capacity int) *priorityqueue.Queue {
-	pq := pqh.pool.Get().(*priorityqueue.Queue)
-	if pq.Cap() < capacity {
-		pq.ResetCap(capacity)
-	} else {
-		pq.Reset()
-	}
-
-	return pq
-}
-
-func (pqh *pqMaxPool) Put(pq *priorityqueue.Queue) {
 	pqh.pool.Put(pq)
 }

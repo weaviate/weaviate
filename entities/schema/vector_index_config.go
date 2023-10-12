@@ -13,4 +13,5 @@ package schema
 
 type VectorIndexConfig interface {
 	IndexType() string
+	DistanceName() string
 }

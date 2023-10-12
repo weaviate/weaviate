@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
-type shardedLockCache[T float32 | byte] struct {
+type shardedLockCache[T float32 | byte | uint64] struct {
 	shardedLocks        []sync.RWMutex
 	cache               [][]T
 	vectorForID         common.VectorForID[T]
@@ -32,7 +32,6 @@ type shardedLockCache[T float32 | byte] struct {
 	count               int64
 	cancel              chan bool
 	logger              logrus.FieldLogger
-	dims                int32
 	trackDimensionsOnce sync.Once
 	deletionInterval    time.Duration
 
@@ -104,6 +103,29 @@ func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int,
 	return vc
 }
 
+func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
+	logger logrus.FieldLogger, deletionInterval time.Duration,
+) Cache[uint64] {
+	vc := &shardedLockCache[uint64]{
+		vectorForID:      vecForID,
+		cache:            make([][]uint64, initialSize),
+		normalizeOnRead:  false,
+		count:            0,
+		maxSize:          int64(maxSize),
+		cancel:           make(chan bool),
+		logger:           logger,
+		shardedLocks:     make([]sync.RWMutex, shardFactor),
+		maintenanceLock:  sync.Mutex{},
+		deletionInterval: deletionInterval,
+	}
+
+	for i := uint64(0); i < shardFactor; i++ {
+		vc.shardedLocks[i] = sync.RWMutex{}
+	}
+	vc.watchForDeletion()
+	return vc
+}
+
 //nolint:unused
 func (s *shardedLockCache[T]) All() [][]T {
 	return s.cache
@@ -139,10 +161,6 @@ func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([
 	if err != nil {
 		return nil, err
 	}
-
-	s.trackDimensionsOnce.Do(func() {
-		atomic.StoreInt32(&s.dims, int32(len(vec)))
-	})
 
 	atomic.AddInt64(&s.count, 1)
 	s.shardedLocks[id%shardFactor].Lock()
@@ -192,9 +210,6 @@ func (s *shardedLockCache[T]) Preload(id uint64, vec []T) {
 	defer s.shardedLocks[id%shardFactor].Unlock()
 
 	atomic.AddInt64(&s.count, 1)
-	s.trackDimensionsOnce.Do(func() {
-		atomic.StoreInt32(&s.dims, int32(len(vec)))
-	})
 
 	s.cache[id] = vec
 }
