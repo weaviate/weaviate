@@ -212,6 +212,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			return nil, errors.Errorf("flat vector index: config is not flat.UserConfig: %T",
 				index.vectorIndexUserConfig)
 		}
+		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 		vi, err := flat.New(hnsw.Config{
 			Logger:               s.index.logger,
 			RootPath:             s.index.Config.RootPath,
@@ -226,7 +227,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 				return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(),
 					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
 			},
-		}, flatUserConfig)
+		}, flatUserConfig, s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
 		}
@@ -618,6 +619,7 @@ func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 	if err != nil {
 		return fmt.Errorf("attempt to mark read-only: %w", err)
 	}
+
 	return s.vectorIndex.UpdateUserConfig(updated, func() {
 		s.updateStatus(storagestate.StatusReady.String())
 	})

@@ -19,11 +19,15 @@ import (
 	vectorindexcommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 )
 
-const DefaultEF = -1 // indicates "let Weaviate pick"
+const (
+	DefaultEF          = -1 // indicates "let Weaviate pick"
+	DefaultFullyOnDisk = false
+)
 
 type UserConfig struct {
-	EF       int    `json:"ef"`
-	Distance string `json:"distance"`
+	EF          int    `json:"ef"`
+	Distance    string `json:"distance"`
+	FullyOnDisk bool   `json:"fullyOnDisk"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -39,6 +43,7 @@ func (u UserConfig) DistanceName() string {
 // SetDefaults in the user-specifyable part of the config
 func (u *UserConfig) SetDefaults() {
 	u.EF = DefaultEF
+	u.FullyOnDisk = DefaultFullyOnDisk
 	u.Distance = vectorindexcommon.DefaultDistanceMetric
 }
 
@@ -65,6 +70,12 @@ func ParseAndValidateConfig(input interface{}) (schema.VectorIndexConfig, error)
 
 	if err := vectorindexcommon.OptionalStringFromMap(asMap, "distance", func(v string) {
 		uc.Distance = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := vectorindexcommon.OptionalBoolFromMap(asMap, "fullyOnDisk", func(v bool) {
+		uc.FullyOnDisk = v
 	}); err != nil {
 		return uc, err
 	}
