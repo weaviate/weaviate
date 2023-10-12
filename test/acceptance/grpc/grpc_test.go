@@ -58,14 +58,8 @@ func TestGRPC(t *testing.T) {
 			Properties: &pb.PropertiesRequest{
 				NonRefProperties: []string{"title"},
 				ObjectProperties: []*pb.ObjectPropertiesRequest{
-					{
-						PropName:            "meta",
-						PrimitiveProperties: []string{"isbn"},
-					},
-					{
-						PropName:            "reviews",
-						PrimitiveProperties: []string{"tags"},
-					},
+					{PropName: "meta", PrimitiveProperties: []string{"isbn"}},
+					{PropName: "reviews", PrimitiveProperties: []string{"tags"}},
 				},
 			},
 			Metadata: &pb.MetadataRequest{
