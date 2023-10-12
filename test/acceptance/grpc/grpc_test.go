@@ -62,7 +62,14 @@ func TestGRPC(t *testing.T) {
 				Properties: &pb.PropertiesRequest{
 					NonRefProperties: []string{"title"},
 					ObjectProperties: []*pb.ObjectPropertiesRequest{
-						{PropName: "meta", PrimitiveProperties: []string{"isbn"}},
+						{
+							PropName:            "meta",
+							PrimitiveProperties: []string{"isbn"},
+							ObjectProperties: []*pb.ObjectPropertiesRequest{{
+								PropName:            "some",
+								PrimitiveProperties: []string{"text"},
+							}},
+						},
 						{PropName: "reviews", PrimitiveProperties: []string{"tags"}},
 					},
 				},
@@ -96,13 +103,15 @@ func TestGRPC(t *testing.T) {
 
 				objProps := res.Properties.ObjectProperties
 				require.Len(t, objProps, 1)
-
-				objArrayProps := res.Properties.ObjectArrayProperties
-				require.Len(t, objArrayProps, 1)
-
 				isbn, ok := objProps[0].Value.NonRefProperties.AsMap()["isbn"]
 				require.True(t, ok)
 
+				nestedObjProps := objProps[0].Value.ObjectProperties
+				require.Len(t, nestedObjProps, 1)
+				nested := nestedObjProps[0].Value.NonRefProperties.AsMap()
+
+				objArrayProps := res.Properties.ObjectArrayProperties
+				require.Len(t, objArrayProps, 1)
 				tags := objArrayProps[0].Values[0].TextArrayProperties[0].Values
 				require.True(t, ok)
 
@@ -127,6 +136,7 @@ func TestGRPC(t *testing.T) {
 				assert.Equal(t, expectedTitle, title)
 				assert.Equal(t, expectedIsbn, isbn)
 				assert.Equal(t, expectedTags, tags)
+				assert.Equal(t, nested, map[string]interface{}{"text": "some text"})
 			}
 		})
 	}
