@@ -170,6 +170,7 @@ func objects(className string) []*models.Object {
 }
 
 func batchObjects(className string) []*pb.BatchObject {
+	scifi := "sci-fi"
 	return []*pb.BatchObject{
 		{
 			Collection: className,
@@ -196,7 +197,7 @@ func batchObjects(className string) []*pb.BatchObject {
 					Values: []*pb.ObjectPropertiesValue{{
 						TextArrayProperties: []*pb.TextArrayProperties{{
 							PropName: "tags",
-							Values:   []string{"sci-fi", "epic"},
+							Values:   []string{scifi, "epic"},
 						}},
 					}},
 				}},
@@ -227,7 +228,7 @@ func batchObjects(className string) []*pb.BatchObject {
 					Values: []*pb.ObjectPropertiesValue{{
 						TextArrayProperties: []*pb.TextArrayProperties{{
 							PropName: "tags",
-							Values:   []string{"sci-fi"},
+							Values:   []string{scifi},
 						}},
 					}},
 				}},
@@ -258,7 +259,7 @@ func batchObjects(className string) []*pb.BatchObject {
 					Values: []*pb.ObjectPropertiesValue{{
 						TextArrayProperties: []*pb.TextArrayProperties{{
 							PropName: "tags",
-							Values:   []string{"sci-fi", "fantasy"},
+							Values:   []string{scifi, "fantasy"},
 						}},
 					}},
 				}},

@@ -52,6 +52,7 @@ func TestGRPC(t *testing.T) {
 	})
 
 	t.Run("Search with props", func(t *testing.T) {
+		scifi := "sci-fi"
 		resp, err := grpcClient.SearchV1(context.TODO(), &pb.SearchRequestV1{
 			Collection: booksClass.Class,
 			Properties: &pb.PropertiesRequest{
@@ -101,17 +102,17 @@ func TestGRPC(t *testing.T) {
 			if id == books.Dune.String() {
 				expectedTitle = "Dune"
 				expectedIsbn = "978-0593099322"
-				expectedTags = []string{"sci-fi", "epic"}
+				expectedTags = []string{scifi, "epic"}
 			}
 			if id == books.ProjectHailMary.String() {
 				expectedTitle = "Project Hail Mary"
 				expectedIsbn = "978-0593135204"
-				expectedTags = []string{"sci-fi"}
+				expectedTags = []string{scifi}
 			}
 			if id == books.TheLordOfTheIceGarden.String() {
 				expectedTitle = "The Lord of the Ice Garden"
 				expectedIsbn = "978-8374812962"
-				expectedTags = []string{"sci-fi", "fantasy"}
+				expectedTags = []string{scifi, "fantasy"}
 			}
 			assert.Equal(t, expectedTitle, title)
 			assert.Equal(t, expectedIsbn, isbn)
