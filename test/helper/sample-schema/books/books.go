@@ -88,41 +88,21 @@ func class(className, vectorizer string, additionalModules ...string) *models.Cl
 				Name:         "title",
 				DataType:     schema.DataTypeText.PropString(),
 				Tokenization: models.PropertyTokenizationWhitespace,
-				ModuleConfig: map[string]interface{}{
-					vectorizer: map[string]interface{}{
-						"skip": false,
-					},
-				},
+				ModuleConfig: map[string]interface{}{vectorizer: map[string]interface{}{"skip": false}},
 			},
 			{
 				Name:         "description",
 				DataType:     schema.DataTypeText.PropString(),
 				Tokenization: models.PropertyTokenizationWhitespace,
-				ModuleConfig: map[string]interface{}{
-					vectorizer: map[string]interface{}{
-						"skip": false,
-					},
-				},
+				ModuleConfig: map[string]interface{}{vectorizer: map[string]interface{}{"skip": false}},
 			},
 			{
-				Name:     "meta",
-				DataType: schema.DataTypeObject.PropString(),
-				NestedProperties: []*models.NestedProperty{
-					{
-						Name:     "isbn",
-						DataType: schema.DataTypeText.PropString(),
-					},
-				},
+				Name: "meta", DataType: schema.DataTypeObject.PropString(),
+				NestedProperties: []*models.NestedProperty{{Name: "isbn", DataType: schema.DataTypeText.PropString()}},
 			},
 			{
-				Name:     "reviews",
-				DataType: schema.DataTypeObjectArray.PropString(),
-				NestedProperties: []*models.NestedProperty{
-					{
-						Name:     "tags",
-						DataType: schema.DataTypeTextArray.PropString(),
-					},
-				},
+				Name: "reviews", DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: []*models.NestedProperty{{Name: "tags", DataType: schema.DataTypeTextArray.PropString()}},
 			},
 		},
 	}
@@ -184,22 +164,11 @@ func batchObjects(className string) []*pb.BatchObject {
 				},
 				ObjectProperties: []*pb.ObjectProperties{{
 					PropName: "meta",
-					Value: &pb.ObjectPropertiesValue{
-						NonRefProperties: &structpb.Struct{
-							Fields: map[string]*structpb.Value{
-								"isbn": structpb.NewStringValue("978-0593099322"),
-							},
-						},
-					},
+					Value:    &pb.ObjectPropertiesValue{NonRefProperties: &structpb.Struct{Fields: map[string]*structpb.Value{"isbn": structpb.NewStringValue("978-0593099322")}}},
 				}},
 				ObjectArrayProperties: []*pb.ObjectArrayProperties{{
 					PropName: "reviews",
-					Values: []*pb.ObjectPropertiesValue{{
-						TextArrayProperties: []*pb.TextArrayProperties{{
-							PropName: "tags",
-							Values:   []string{scifi, "epic"},
-						}},
-					}},
+					Values:   []*pb.ObjectPropertiesValue{{TextArrayProperties: []*pb.TextArrayProperties{{PropName: "tags", Values: []string{scifi, "epic"}}}}},
 				}},
 			},
 		},
@@ -215,23 +184,11 @@ func batchObjects(className string) []*pb.BatchObject {
 				},
 				ObjectProperties: []*pb.ObjectProperties{{
 					PropName: "meta",
-					Value: &pb.ObjectPropertiesValue{
-						NonRefProperties: &structpb.Struct{
-							Fields: map[string]*structpb.Value{
-								"isbn": structpb.NewStringValue("978-0593135204"),
-							},
-						},
-					},
+					Value:    &pb.ObjectPropertiesValue{NonRefProperties: &structpb.Struct{Fields: map[string]*structpb.Value{"isbn": structpb.NewStringValue("978-0593135204")}}},
 				}},
 				ObjectArrayProperties: []*pb.ObjectArrayProperties{{
 					PropName: "reviews",
-					Values: []*pb.ObjectPropertiesValue{{
-						TextArrayProperties: []*pb.TextArrayProperties{{
-							PropName: "tags",
-							Values:   []string{scifi},
-						}},
-					}},
-				}},
+					Values:   []*pb.ObjectPropertiesValue{{TextArrayProperties: []*pb.TextArrayProperties{{PropName: "tags", Values: []string{scifi}}}}}}},
 			},
 		},
 		{
@@ -246,23 +203,11 @@ func batchObjects(className string) []*pb.BatchObject {
 				},
 				ObjectProperties: []*pb.ObjectProperties{{
 					PropName: "meta",
-					Value: &pb.ObjectPropertiesValue{
-						NonRefProperties: &structpb.Struct{
-							Fields: map[string]*structpb.Value{
-								"isbn": structpb.NewStringValue("978-8374812962"),
-							},
-						},
-					},
+					Value:    &pb.ObjectPropertiesValue{NonRefProperties: &structpb.Struct{Fields: map[string]*structpb.Value{"isbn": structpb.NewStringValue("978-8374812962")}}},
 				}},
 				ObjectArrayProperties: []*pb.ObjectArrayProperties{{
 					PropName: "reviews",
-					Values: []*pb.ObjectPropertiesValue{{
-						TextArrayProperties: []*pb.TextArrayProperties{{
-							PropName: "tags",
-							Values:   []string{scifi, "fantasy"},
-						}},
-					}},
-				}},
+					Values:   []*pb.ObjectPropertiesValue{{TextArrayProperties: []*pb.TextArrayProperties{{PropName: "tags", Values: []string{scifi, "fantasy"}}}}}}},
 			},
 		},
 	}
