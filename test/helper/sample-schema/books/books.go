@@ -188,7 +188,8 @@ func batchObjects(className string) []*pb.BatchObject {
 				}},
 				ObjectArrayProperties: []*pb.ObjectArrayProperties{{
 					PropName: "reviews",
-					Values:   []*pb.ObjectPropertiesValue{{TextArrayProperties: []*pb.TextArrayProperties{{PropName: "tags", Values: []string{scifi}}}}}}},
+					Values:   []*pb.ObjectPropertiesValue{{TextArrayProperties: []*pb.TextArrayProperties{{PropName: "tags", Values: []string{scifi}}}}},
+				}},
 			},
 		},
 		{
@@ -207,7 +208,8 @@ func batchObjects(className string) []*pb.BatchObject {
 				}},
 				ObjectArrayProperties: []*pb.ObjectArrayProperties{{
 					PropName: "reviews",
-					Values:   []*pb.ObjectPropertiesValue{{TextArrayProperties: []*pb.TextArrayProperties{{PropName: "tags", Values: []string{scifi, "fantasy"}}}}}}},
+					Values:   []*pb.ObjectPropertiesValue{{TextArrayProperties: []*pb.TextArrayProperties{{PropName: "tags", Values: []string{scifi, "fantasy"}}}}},
+				}},
 			},
 		},
 	}
