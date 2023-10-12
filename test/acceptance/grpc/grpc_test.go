@@ -63,7 +63,7 @@ func TestGRPC(t *testing.T) {
 					},
 					{
 						PropName:            "reviews",
-						PrimitiveProperties: []string{"content"},
+						PrimitiveProperties: []string{"tags"},
 					},
 				},
 			},
@@ -92,30 +92,30 @@ func TestGRPC(t *testing.T) {
 			isbn, ok := objProps[0].Value.NonRefProperties.AsMap()["isbn"]
 			require.True(t, ok)
 
-			reviewContent, ok := objArrayProps[0].Values[0].NonRefProperties.AsMap()["content"]
+			tags := objArrayProps[0].Values[0].TextArrayProperties[0].Values
 			require.True(t, ok)
 
 			expectedTitle := ""
 			expectedIsbn := ""
-			expectedReviewContent := ""
+			expectedTags := []string{}
 			if id == books.Dune.String() {
 				expectedTitle = "Dune"
 				expectedIsbn = "978-0593099322"
-				expectedReviewContent = "This is a great book!"
+				expectedTags = []string{"sci-fi", "epic"}
 			}
 			if id == books.ProjectHailMary.String() {
 				expectedTitle = "Project Hail Mary"
 				expectedIsbn = "978-0593135204"
-				expectedReviewContent = "Totes amazeballs!"
+				expectedTags = []string{"sci-fi"}
 			}
 			if id == books.TheLordOfTheIceGarden.String() {
 				expectedTitle = "The Lord of the Ice Garden"
 				expectedIsbn = "978-8374812962"
-				expectedReviewContent = "suboptimal"
+				expectedTags = []string{"sci-fi", "fantasy"}
 			}
 			assert.Equal(t, expectedTitle, title)
 			assert.Equal(t, expectedIsbn, isbn)
-			assert.Equal(t, expectedReviewContent, reviewContent)
+			assert.Equal(t, expectedTags, tags)
 		}
 	})
 
@@ -138,25 +138,36 @@ func TestGRPC(t *testing.T) {
 			objProps := res.Properties.ObjectProperties
 			require.Len(t, objProps, 1)
 
+			objArrayProps := res.Properties.ObjectArrayProperties
+			require.Len(t, objArrayProps, 1)
+
 			isbn, ok := objProps[0].Value.NonRefProperties.AsMap()["isbn"]
+			require.True(t, ok)
+
+			tags := objArrayProps[0].Values[0].TextArrayProperties[0].Values
 			require.True(t, ok)
 
 			expectedTitle := ""
 			expectedIsbn := ""
+			expectedTags := []string{}
 			if id == books.Dune.String() {
 				expectedTitle = "Dune"
 				expectedIsbn = "978-0593099322"
+				expectedTags = []string{"sci-fi", "epic"}
 			}
 			if id == books.ProjectHailMary.String() {
 				expectedTitle = "Project Hail Mary"
 				expectedIsbn = "978-0593135204"
+				expectedTags = []string{"sci-fi"}
 			}
 			if id == books.TheLordOfTheIceGarden.String() {
 				expectedTitle = "The Lord of the Ice Garden"
 				expectedIsbn = "978-8374812962"
+				expectedTags = []string{"sci-fi", "fantasy"}
 			}
 			assert.Equal(t, expectedTitle, title)
 			assert.Equal(t, expectedIsbn, isbn)
+			assert.Equal(t, expectedTags, tags)
 		}
 	})
 
