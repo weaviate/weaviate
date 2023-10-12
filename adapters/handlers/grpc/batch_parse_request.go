@@ -159,14 +159,18 @@ func extractPrimitiveProperties(properties *pb.ObjectPropertiesValue) map[string
 	}
 
 	if properties.ObjectArrayProperties != nil {
-		for j := range properties.ObjectArrayProperties {
-			nested := make([]interface{}, len(properties.ObjectArrayProperties[j].Values))
-			for k := range properties.ObjectArrayProperties[j].Values {
-				nested[k] = extractPrimitiveProperties(properties.ObjectArrayProperties[j].Values[k])
-			}
-			props[properties.ObjectArrayProperties[j].PropName] = nested
-		}
+		extractObjectArray(properties.ObjectArrayProperties, props)
 	}
 
 	return props
+}
+
+func extractObjectArray(propsArr []*pb.ObjectArrayProperties, props map[string]interface{}) {
+	for _, prop := range propsArr {
+		nested := make([]interface{}, len(prop.Values))
+		for k := range prop.Values {
+			nested[k] = extractPrimitiveProperties(prop.Values[k])
+		}
+		props[prop.PropName] = nested
+	}
 }
