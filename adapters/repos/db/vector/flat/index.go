@@ -13,6 +13,7 @@ package flat
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"strings"
@@ -22,15 +23,16 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema"
 	vectorindexcommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
-	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
@@ -39,6 +41,7 @@ type flat struct {
 	id                  string
 	dims                int32
 	compressedCache     cache.Cache[uint64]
+	store               *lsmkv.Store
 	logger              logrus.FieldLogger
 	distancerProvider   distancer.Provider
 	shardName           string
@@ -53,9 +56,16 @@ type flat struct {
 
 	tempVectors *common.TempVectorsPool
 	pqResults   *common.PqMaxPool
+	fullyOnDisk bool
+
+	shardCompactionCallbacks cyclemanager.CycleCallbackGroup
+	shardFlushCallbacks      cyclemanager.CycleCallbackGroup
 }
 
-func New(cfg hnsw.Config, uc flatent.UserConfig) (*flat, error) {
+func New(
+	cfg hnsw.Config, uc flatent.UserConfig,
+	shardCompactionCallbacks, shardFlushCallbacks cyclemanager.CycleCallbackGroup,
+) (*flat, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
 	}
@@ -67,20 +77,47 @@ func New(cfg hnsw.Config, uc flatent.UserConfig) (*flat, error) {
 	}
 
 	index := &flat{
-		nodes:                make(map[uint64]interface{}),
-		id:                   cfg.ID,
-		logger:               cfg.Logger,
-		distancerProvider:    cfg.DistanceProvider,
-		ef:                   int64(uc.EF),
-		shardName:            cfg.ShardName,
-		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
-		vectorForID:          cfg.VectorForIDThunk,
-		tempVectors:          common.NewTempVectorsPool(),
-		pqResults:            common.NewPqMaxPool(100),
+		nodes:                    make(map[uint64]interface{}),
+		id:                       cfg.ID,
+		logger:                   cfg.Logger,
+		distancerProvider:        cfg.DistanceProvider,
+		ef:                       int64(uc.EF),
+		shardName:                cfg.ShardName,
+		TempVectorForIDThunk:     cfg.TempVectorForIDThunk,
+		vectorForID:              cfg.VectorForIDThunk,
+		tempVectors:              common.NewTempVectorsPool(),
+		pqResults:                common.NewPqMaxPool(100),
+		fullyOnDisk:              uc.FullyOnDisk,
+		shardCompactionCallbacks: shardCompactionCallbacks,
+		shardFlushCallbacks:      shardFlushCallbacks,
 	}
 	index.compressedCache = cache.NewShardedUInt64LockCache(index.getCompressedVectorForID, vectorindexcommon.DefaultVectorCacheMaxObjects, cfg.Logger, 0)
+	index.initStore(cfg.RootPath, cfg.ClassName)
 
 	return index, nil
+}
+
+func (h *flat) storeCompressedVector(index uint64, vector []byte) {
+	Id := make([]byte, 8)
+	binary.LittleEndian.PutUint64(Id, index)
+	h.store.Bucket(helpers.CompressedObjectsBucketLSM).Put(Id, vector)
+}
+
+func (index *flat) initStore(rootPath, className string) error {
+	if !index.fullyOnDisk {
+		return nil
+	}
+	store, err := lsmkv.New(fmt.Sprintf("%s/%s/%s", rootPath, className, index.shardName), "", index.logger, nil,
+		index.shardCompactionCallbacks, index.shardFlushCallbacks)
+	if err != nil {
+		return errors.Wrap(err, "Init lsmkv (compressed vectors store)")
+	}
+	err = store.CreateOrLoadBucket(context.Background(), helpers.CompressedObjectsBucketLSM)
+	if err != nil {
+		return errors.Wrapf(err, "Create or load bucket (compressed vectors store)")
+	}
+	index.store = store
+	return nil
 }
 
 func (index *flat) AddBatch(ids []uint64, vectors [][]float32) error {
@@ -104,6 +141,23 @@ func (index *flat) AddBatch(ids []uint64, vectors [][]float32) error {
 	return nil
 }
 
+func byteSliceFromUint64Slice(x []uint64) []byte {
+	y := make([]byte, len(x)*8)
+	for i := range x {
+		binary.LittleEndian.PutUint64(y[i*8:], x[i])
+	}
+	return y
+}
+
+func uint64SliceFromByteSlice(x []byte) []uint64 {
+	len := len(x) / 8
+	y := make([]uint64, len)
+	for i := 0; i < len; i++ {
+		y[i] = binary.LittleEndian.Uint64(x[i*8:])
+	}
+	return y
+}
+
 func (index *flat) Add(id uint64, vector []float32) error {
 	index.trackDimensionsOnce.Do(func() {
 		atomic.StoreInt32(&index.dims, int32(len(vector)))
@@ -122,6 +176,11 @@ func (index *flat) Add(id uint64, vector []float32) error {
 	if err != nil {
 		return err
 	}
+	if index.fullyOnDisk {
+		index.storeCompressedVector(id, byteSliceFromUint64Slice(vec))
+		return nil
+	}
+
 	if index.compressedCache == nil {
 		return errors.New("No cache...")
 	}
@@ -172,25 +231,49 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 		return nil, nil, err
 	}
 	ef := index.searchTimeEF(k)
-	//mempool
 	heap := index.pqResults.GetMax(ef)
 	defer index.pqResults.Put(heap)
 	index.RLock()
-	maxId := index.maxId
-	index.RUnlock()
-	for j := uint64(0); j < maxId; j++ {
-		candidate, err := index.compressedCache.Get(context.Background(), j)
-		if err != nil {
-			continue
-		}
-		d, _ := index.bq.DistanceBetweenCompressedVectors(candidate, query)
-		if heap.Len() < ef || heap.Top().Dist > d {
-			if heap.Len() == ef {
-				heap.Pop()
+
+	if index.fullyOnDisk {
+		cursor := index.store.Bucket(helpers.CompressedObjectsBucketLSM).Cursor()
+		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+			id := binary.LittleEndian.Uint64(k)
+			// Make sure to copy the vector. The cursor only guarantees that
+			// the underlying memory won't change until we hit .Next(). Since
+			// we want to keep this around in the cache "forever", we need to
+			// alloc some new memory and copy the vector.
+			//
+			// https://github.com/weaviate/weaviate/issues/3049
+			candidate := uint64SliceFromByteSlice(v)
+			d, _ := index.bq.DistanceBetweenCompressedVectors(candidate, query)
+			if heap.Len() < ef || heap.Top().Dist > d {
+				if heap.Len() == ef {
+					heap.Pop()
+				}
+				heap.Insert(id, d)
 			}
-			heap.Insert(uint64(j), d)
+
+		}
+		cursor.Close()
+	} else {
+		maxId := index.maxId
+		index.RUnlock()
+		for j := uint64(0); j < maxId; j++ {
+			candidate, err := index.compressedCache.Get(context.Background(), j)
+			if err != nil {
+				continue
+			}
+			d, _ := index.bq.DistanceBetweenCompressedVectors(candidate, query)
+			if heap.Len() < ef || heap.Top().Dist > d {
+				if heap.Len() == ef {
+					heap.Pop()
+				}
+				heap.Insert(uint64(j), d)
+			}
 		}
 	}
+
 	ids := make([]uint64, ef)
 	for j := range ids {
 		ids[j] = heap.Pop().ID
@@ -293,7 +376,7 @@ func (index *flat) SearchByVectorDistance(vector []float32, targetDistance float
 }
 
 func (index *flat) UpdateUserConfig(updated schema.VectorIndexConfig, callback func()) error {
-	parsed, ok := updated.(hnswent.UserConfig)
+	parsed, ok := updated.(flatent.UserConfig)
 	if !ok {
 		callback()
 		return errors.Errorf("config is not UserConfig, but %T", updated)
@@ -317,6 +400,11 @@ func (index *flat) Flush() error {
 }
 
 func (index *flat) Shutdown(ctx context.Context) error {
+	if index.fullyOnDisk {
+		if err := index.store.Shutdown(ctx); err != nil {
+			return errors.Wrap(err, "flat shutdown")
+		}
+	}
 	return index.Drop(ctx)
 }
 
@@ -395,3 +483,51 @@ func newSearchByDistParams(maxLimit int64) *common.SearchByDistParams {
 
 	return common.NewSearchByDistParams(initialOffset, initialLimit, initialOffset+initialLimit, maxLimit)
 }
+
+func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
+	/*
+		initialParsed, ok := initial.(flatent.UserConfig)
+		if !ok {
+			return errors.Errorf("initial is not UserConfig, but %T", initial)
+		}
+
+		updatedParsed, ok := updated.(flatent.UserConfig)
+		if !ok {
+			return errors.Errorf("updated is not UserConfig, but %T", updated)
+		}
+
+		immutableFields := []immutableParameter{
+			{
+				name:     "distance",
+				accessor: func(c flatent.UserConfig) interface{} { return c.Distance },
+			},
+		}
+
+		for _, u := range immutableFields {
+			if err := validateImmutableField(u, initialParsed, updatedParsed); err != nil {
+				return err
+			}
+		}
+	*/
+	return nil
+}
+
+/*
+type immutableParameter struct {
+	accessor func(c flatent.UserConfig) interface{}
+	name     string
+}
+
+func validateImmutableField(u immutableParameter,
+	previous, next flatent.UserConfig,
+) error {
+	oldField := u.accessor(previous)
+	newField := u.accessor(next)
+	if oldField != newField {
+		return errors.Errorf("%s is immutable: attempted change from \"%v\" to \"%v\"",
+			u.name, oldField, newField)
+	}
+
+	return nil
+}
+*/
