@@ -359,6 +359,7 @@ func (s *Shard) reinit(ctx context.Context) error {
 			return errors.Errorf("flat vector index: config is not flat.UserConfig: %T",
 				index.vectorIndexUserConfig)
 		}
+		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 		vi, err := flat.New(hnsw.Config{
 			Logger:               s.index.logger,
 			RootPath:             s.index.Config.RootPath,
@@ -373,7 +374,7 @@ func (s *Shard) reinit(ctx context.Context) error {
 				return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(),
 					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
 			},
-		}, flatUserConfig)
+		}, flatUserConfig, s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks)
 		if err != nil {
 			return errors.Wrapf(err, "init shard %q: flat index", s.ID())
 		}
