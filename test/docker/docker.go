@@ -87,6 +87,10 @@ func (d *DockerCompose) GetWeaviate() *DockerContainer {
 	return d.getContainerByName(Weaviate)
 }
 
+func (d *DockerCompose) GetSecondWeaviate() *DockerContainer {
+	return d.getContainerByName(SecondWeaviate)
+}
+
 func (d *DockerCompose) GetWeaviateNode2() *DockerContainer {
 	return d.getContainerByName(WeaviateNode2)
 }

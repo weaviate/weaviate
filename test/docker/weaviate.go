@@ -25,6 +25,8 @@ import (
 const (
 	Weaviate      = "weaviate"
 	WeaviateNode2 = "weaviate2"
+
+	SecondWeaviate = "second-weaviate"
 )
 
 func startWeaviate(ctx context.Context,
