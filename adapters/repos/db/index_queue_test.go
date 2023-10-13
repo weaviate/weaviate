@@ -633,7 +633,7 @@ func (m *mockBatchIndexer) SearchByVector(vector []float32, k int, allowList hel
 			continue
 		}
 
-		if m.distancerProvider.Type() == "cosine-dot" {
+		if m.DistancerProvider().Type() == "cosine-dot" {
 			v = distancer.Normalize(v)
 		}
 
