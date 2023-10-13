@@ -86,6 +86,41 @@ type Shard struct {
 	cycleCallbacks *shardCycleCallbacks
 }
 
+func (s *Shard) GetIndex() *Index {
+	return s.index
+}
+
+func (s *Shard) GetName() string {
+	return s.name
+}
+
+func (s *Shard) GetStore() *lsmkv.Store {
+	return s.store
+}
+
+func (s *Shard) GetCounter() *indexcounter.Counter {
+	return s.counter
+}
+
+func (s *Shard) GetVectorIndex() VectorIndex {
+	return s.vectorIndex
+}
+
+func (s *Shard) GetPropertyIndices() propertyspecific.Indices {
+	return s.propertyIndices
+}
+
+func (s *Shard) GetPropertyLengths() *inverted.JsonPropertyLengthTracker {
+	return s.propLengths
+}
+
+func (s *Shard) GetStatus() storagestate.Status {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
+	return s.status
+}
+
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
