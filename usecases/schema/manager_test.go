@@ -678,3 +678,29 @@ func (f *fakeTxPersistence) IterateAll(ctx context.Context,
 ) error {
 	return nil
 }
+
+type fakeBroadcaster struct {
+	openErr       error
+	commitErr     error
+	abortErr      error
+	abortCalledId string
+}
+
+func (f *fakeBroadcaster) BroadcastTransaction(ctx context.Context,
+	tx *cluster.Transaction,
+) error {
+	return f.openErr
+}
+
+func (f *fakeBroadcaster) BroadcastAbortTransaction(ctx context.Context,
+	tx *cluster.Transaction,
+) error {
+	f.abortCalledId = tx.ID
+	return f.abortErr
+}
+
+func (f *fakeBroadcaster) BroadcastCommitTransaction(ctx context.Context,
+	tx *cluster.Transaction,
+) error {
+	return f.commitErr
+}

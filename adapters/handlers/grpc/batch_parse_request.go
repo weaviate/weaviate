@@ -15,6 +15,8 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol"
@@ -30,11 +32,15 @@ func sliceToInterface[T any](values []T) []interface{} {
 	return tmpArray
 }
 
-func batchFromProto(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*models.Object, error) {
+func batchFromProto(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*models.Object, map[int]int, map[int]error) {
 	objectsBatch := req.Objects
-	objs := make([]*models.Object, len(objectsBatch))
+	objs := make([]*models.Object, 0, len(objectsBatch))
+	objOriginalIndex := make(map[int]int)
+	objectErrors := make(map[int]error, len(objectsBatch))
+
+	insertCounter := 0
 	for i, obj := range objectsBatch {
-		class := scheme.GetClass(schema.ClassName(obj.ClassName))
+		class := scheme.GetClass(schema.ClassName(obj.Collection))
 		var props map[string]interface{}
 		if obj.Properties != nil {
 			if obj.Properties.NonRefProperties != nil {
@@ -69,26 +75,35 @@ func batchFromProto(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*model
 			}
 
 			if err := extractSingleRefTarget(class, obj, props); err != nil {
-				return nil, err
+				objectErrors[i] = err
+				continue
 			}
 			if err := extractMultiRefTarget(class, obj, props); err != nil {
-				return nil, err
+				objectErrors[i] = err
+				continue
 			}
 		}
 
-		objs[i] = &models.Object{
-			Class:      obj.ClassName,
+		_, err := uuid.Parse(obj.Uuid)
+		if err != nil {
+			objectErrors[i] = err
+			continue
+		}
+		objOriginalIndex[insertCounter] = i
+		objs = append(objs, &models.Object{
+			Class:      obj.Collection,
 			Tenant:     obj.Tenant,
 			Vector:     obj.Vector,
 			Properties: props,
 			ID:         strfmt.UUID(obj.Uuid),
-		}
+		})
+		insertCounter += 1
 	}
-	return objs, nil
+	return objs[:insertCounter], objOriginalIndex, objectErrors
 }
 
 func extractSingleRefTarget(class *models.Class, obj *pb.BatchObject, props map[string]interface{}) error {
-	for _, refSingle := range obj.Properties.RefPropsSingle {
+	for _, refSingle := range obj.Properties.SingleTargetRefProps {
 		propName := refSingle.GetPropName()
 		prop, err := schema.GetPropertyByName(class, propName)
 		if err != nil {
@@ -108,7 +123,7 @@ func extractSingleRefTarget(class *models.Class, obj *pb.BatchObject, props map[
 }
 
 func extractMultiRefTarget(class *models.Class, obj *pb.BatchObject, props map[string]interface{}) error {
-	for _, refMulti := range obj.Properties.RefPropsMulti {
+	for _, refMulti := range obj.Properties.MultiTargetRefProps {
 		propName := refMulti.GetPropName()
 		prop, err := schema.GetPropertyByName(class, propName)
 		if err != nil {

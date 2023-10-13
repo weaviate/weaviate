@@ -19,7 +19,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
@@ -72,7 +71,7 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("PROMETHEUS_MONITORING_PORT"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
-			return errors.Wrapf(err, "parse PROMETHEUS_MONITORING_PORT as int")
+			return fmt.Errorf("parse PROMETHEUS_MONITORING_PORT as int: %w", err)
 		}
 
 		config.Monitoring.Port = asInt
@@ -166,6 +165,10 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if err := config.parseCORSConfig(); err != nil {
+		return err
+	}
+
 	if v := os.Getenv("ORIGIN"); v != "" {
 		config.Origin = v
 	}
@@ -177,7 +180,7 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("QUERY_DEFAULTS_LIMIT"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
-			return errors.Wrapf(err, "parse QUERY_DEFAULTS_LIMIT as int")
+			return fmt.Errorf("parse QUERY_DEFAULTS_LIMIT as int: %w", err)
 		}
 
 		config.QueryDefaults.Limit = int64(asInt)
@@ -186,7 +189,7 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("QUERY_MAXIMUM_RESULTS"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
-			return errors.Wrapf(err, "parse QUERY_MAXIMUM_RESULTS as int")
+			return fmt.Errorf("parse QUERY_MAXIMUM_RESULTS as int: %w", err)
 		}
 
 		config.QueryMaximumResults = int64(asInt)
@@ -197,7 +200,7 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("QUERY_NESTED_CROSS_REFERENCE_LIMIT"); v != "" {
 		limit, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
-			return errors.Wrapf(err, "parse QUERY_NESTED_CROSS_REFERENCE_LIMIT as int")
+			return fmt.Errorf("parse QUERY_NESTED_CROSS_REFERENCE_LIMIT as int: %w", err)
 		} else if limit <= 0 {
 			limit = math.MaxInt
 		}
@@ -209,9 +212,9 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("MAX_IMPORT_GOROUTINES_FACTOR"); v != "" {
 		asFloat, err := strconv.ParseFloat(v, 64)
 		if err != nil {
-			return errors.Wrapf(err, "parse MAX_IMPORT_GOROUTINES_FACTOR as float")
+			return fmt.Errorf("parse MAX_IMPORT_GOROUTINES_FACTOR as float: %w", err)
 		} else if asFloat <= 0 {
-			return errors.New("negative MAX_IMPORT_GOROUTINES_FACTOR factor")
+			return fmt.Errorf("negative MAX_IMPORT_GOROUTINES_FACTOR factor")
 		}
 
 		config.MaxImportGoroutinesFactor = asFloat
@@ -232,7 +235,7 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("MODULES_CLIENT_TIMEOUT"); v != "" {
 		timeout, err := time.ParseDuration(v)
 		if err != nil {
-			return errors.Wrapf(err, "parse MODULES_CLIENT_TIMEOUT as time.Duration")
+			return fmt.Errorf("parse MODULES_CLIENT_TIMEOUT as time.Duration: %w", err)
 		}
 		config.ModuleHttpClientTimeout = timeout
 	} else {
@@ -273,7 +276,7 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("GO_BLOCK_PROFILE_RATE"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
-			return errors.Wrapf(err, "parse GO_BLOCK_PROFILE_RATE as int")
+			return fmt.Errorf("parse GO_BLOCK_PROFILE_RATE as int: %w", err)
 		}
 
 		config.Profiling.BlockProfileRate = asInt
@@ -282,7 +285,7 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("GO_MUTEX_PROFILE_FRACTION"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
-			return errors.Wrapf(err, "parse GO_MUTEX_PROFILE_FRACTION as int")
+			return fmt.Errorf("parse GO_MUTEX_PROFILE_FRACTION as int: %w", err)
 		}
 
 		config.Profiling.MutexProfileFraction = asInt
@@ -291,7 +294,7 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("MAXIMUM_CONCURRENT_GET_REQUESTS"); v != "" {
 		asInt, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
-			return errors.Wrapf(err, "parse MAXIMUM_CONCURRENT_GET_REQUESTS as int")
+			return fmt.Errorf("parse MAXIMUM_CONCURRENT_GET_REQUESTS as int: %w", err)
 		}
 		config.MaximumConcurrentGetRequests = int(asInt)
 	} else {
@@ -315,6 +318,28 @@ func FromEnv(config *Config) error {
 	); err != nil {
 		return err
 	}
+	return nil
+}
+
+func (c *Config) parseCORSConfig() error {
+	if v := os.Getenv("CORS_ALLOW_ORIGIN"); v != "" {
+		c.CORS.AllowOrigin = v
+	} else {
+		c.CORS.AllowOrigin = DefaultCORSAllowOrigin
+	}
+
+	if v := os.Getenv("CORS_ALLOW_METHODS"); v != "" {
+		c.CORS.AllowMethods = v
+	} else {
+		c.CORS.AllowMethods = DefaultCORSAllowMethods
+	}
+
+	if v := os.Getenv("CORS_ALLOW_HEADERS"); v != "" {
+		c.CORS.AllowHeaders = v
+	} else {
+		c.CORS.AllowHeaders = DefaultCORSAllowHeaders
+	}
+
 	return nil
 }
 
@@ -426,7 +451,7 @@ func parseResourceUsageEnvVars() (ResourceUsage, error) {
 	if v := os.Getenv("DISK_USE_WARNING_PERCENTAGE"); v != "" {
 		asUint, err := strconv.ParseUint(v, 10, 64)
 		if err != nil {
-			return ru, errors.Wrapf(err, "parse DISK_USE_WARNING_PERCENTAGE as uint")
+			return ru, fmt.Errorf("parse DISK_USE_WARNING_PERCENTAGE as uint: %w", err)
 		}
 		ru.DiskUse.WarningPercentage = asUint
 	} else {
@@ -436,7 +461,7 @@ func parseResourceUsageEnvVars() (ResourceUsage, error) {
 	if v := os.Getenv("DISK_USE_READONLY_PERCENTAGE"); v != "" {
 		asUint, err := strconv.ParseUint(v, 10, 64)
 		if err != nil {
-			return ru, errors.Wrapf(err, "parse DISK_USE_READONLY_PERCENTAGE as uint")
+			return ru, fmt.Errorf("parse DISK_USE_READONLY_PERCENTAGE as uint: %w", err)
 		}
 		ru.DiskUse.ReadOnlyPercentage = asUint
 	} else {
@@ -446,7 +471,7 @@ func parseResourceUsageEnvVars() (ResourceUsage, error) {
 	if v := os.Getenv("MEMORY_WARNING_PERCENTAGE"); v != "" {
 		asUint, err := strconv.ParseUint(v, 10, 64)
 		if err != nil {
-			return ru, errors.Wrapf(err, "parse MEMORY_WARNING_PERCENTAGE as uint")
+			return ru, fmt.Errorf("parse MEMORY_WARNING_PERCENTAGE as uint: %w", err)
 		}
 		ru.MemUse.WarningPercentage = asUint
 	} else {
@@ -456,7 +481,7 @@ func parseResourceUsageEnvVars() (ResourceUsage, error) {
 	if v := os.Getenv("MEMORY_READONLY_PERCENTAGE"); v != "" {
 		asUint, err := strconv.ParseUint(v, 10, 64)
 		if err != nil {
-			return ru, errors.Wrapf(err, "parse MEMORY_READONLY_PERCENTAGE as uint")
+			return ru, fmt.Errorf("parse MEMORY_READONLY_PERCENTAGE as uint: %w", err)
 		}
 		ru.MemUse.ReadOnlyPercentage = asUint
 	} else {
@@ -504,6 +529,8 @@ func parseClusterConfig() (cluster.Config, error) {
 
 	cfg.IgnoreStartupSchemaSync = enabled(
 		os.Getenv("CLUSTER_IGNORE_SCHEMA_SYNC"))
+	cfg.SkipSchemaSyncRepair = enabled(
+		os.Getenv("CLUSTER_SKIP_SCHEMA_REPAIR"))
 
 	basicAuthUsername := os.Getenv("CLUSTER_BASIC_AUTH_USERNAME")
 	basicAuthPassword := os.Getenv("CLUSTER_BASIC_AUTH_PASSWORD")

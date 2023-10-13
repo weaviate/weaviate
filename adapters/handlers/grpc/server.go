@@ -17,6 +17,8 @@ import (
 	"net"
 	"time"
 
+	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/entities/additional"
 
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -29,6 +31,7 @@ import (
 	schemaManager "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
 const maxMsgSize = 104858000 // 10mb, needs to be synchronized with clients
@@ -38,7 +41,7 @@ func CreateGRPCServer(state *state.State) *GRPCServer {
 		grpc.MaxRecvMsgSize(maxMsgSize),
 		grpc.MaxSendMsgSize(maxMsgSize),
 	)
-	pb.RegisterWeaviateServer(s, &Server{
+	weaviateServer := &Server{
 		traverser: state.Traverser,
 		authComposer: composer.New(
 			state.ServerConfig.Config.Authentication,
@@ -46,7 +49,9 @@ func CreateGRPCServer(state *state.State) *GRPCServer {
 		allowAnonymousAccess: state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
 		schemaManager:        state.SchemaManager,
 		batchManager:         state.BatchManager,
-	})
+	}
+	pb.RegisterWeaviateServer(s, weaviateServer)
+	grpc_health_v1.RegisterHealthServer(s, weaviateServer)
 
 	return &GRPCServer{s}
 }
@@ -87,10 +92,7 @@ func (s *Server) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) 
 	}
 	scheme := s.schemaManager.GetSchemaSkipAuth()
 
-	objs, err := batchFromProto(req, scheme)
-	if err != nil {
-		return nil, err
-	}
+	objs, objOriginalIndex, objectParsingErrors := batchFromProto(req, scheme)
 
 	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
 
@@ -99,22 +101,32 @@ func (s *Server) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) 
 	if err != nil {
 		return nil, err
 	}
-	var objErrors []*pb.BatchObjectsReply_BatchResults
+	var objErrors []*pb.BatchObjectsReply_BatchError
 
 	for i, obj := range response {
 		if obj.Err != nil {
-			objErrors = append(objErrors, &pb.BatchObjectsReply_BatchResults{Index: int32(i), Error: obj.Err.Error()})
+			objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(objOriginalIndex[i]), Error: obj.Err.Error()})
 		}
 	}
 
+	for i, err := range objectParsingErrors {
+		objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(i), Error: err.Error()})
+	}
+
 	result := &pb.BatchObjectsReply{
-		Took:    float32(time.Since(before).Seconds()),
-		Results: objErrors,
+		Took:   float32(time.Since(before).Seconds()),
+		Errors: objErrors,
 	}
 	return result, nil
 }
 
 func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
+	return nil, errors.New(
+		"search endpoint not supported anymore. Please update your client to use the new SearchV1 endpoint",
+	)
+}
+
+func (s *Server) SearchV1(ctx context.Context, req *pb.SearchRequestV1) (*pb.SearchReplyV1, error) {
 	before := time.Now()
 
 	principal, err := s.principalFromContext(ctx)
@@ -125,7 +137,7 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 	scheme := s.schemaManager.GetSchemaSkipAuth()
 
 	type reply struct {
-		Result *pb.SearchReply
+		Result *pb.SearchReplyV1
 		Error  error
 	}
 

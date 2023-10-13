@@ -12,11 +12,12 @@
 package filters_tests
 
 import (
-	acceptance_with_go_client "acceptance_tests_with_client"
 	"context"
 	"fmt"
 	"testing"
 	"time"
+
+	acceptance_with_go_client "acceptance_tests_with_client"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -190,6 +191,7 @@ func TestWhereFilter(t *testing.T) {
 			name        string
 			where       *filters.WhereBuilder
 			property    string
+			nearText    *graphql.NearTextArgumentBuilder
 			expectedIds []string
 		}{
 			// Contains operator with array types
@@ -432,6 +434,17 @@ func TestWhereFilter(t *testing.T) {
 				property:    "date",
 				expectedIds: []string{id1, id2, id3},
 			},
+			{
+				name: "contains all authors with string array and nearText",
+				where: filters.Where().
+					WithPath([]string{"authors"}).
+					WithOperator(filters.ContainsAll).
+					WithValueString("John", "Jenny", "Joseph"),
+				property: "authors",
+				nearText: client.GraphQL().NearTextArgBuilder().
+					WithConcepts([]string{"John"}),
+				expectedIds: []string{id1},
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
@@ -443,6 +456,7 @@ func TestWhereFilter(t *testing.T) {
 					WithClassName(className).
 					WithWhere(tt.where).
 					WithFields(fields...).
+					WithNearText(tt.nearText).
 					Do(context.TODO())
 				require.Nil(t, err)
 				resultIds := acceptance_with_go_client.GetIds(t, resp, className)
