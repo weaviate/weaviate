@@ -57,6 +57,7 @@ type flat struct {
 	tempVectors *common.TempVectorsPool
 	pqResults   *common.PqMaxPool
 	fullyOnDisk bool
+	pool        *pools
 
 	shardCompactionCallbacks cyclemanager.CycleCallbackGroup
 	shardFlushCallbacks      cyclemanager.CycleCallbackGroup
@@ -141,21 +142,21 @@ func (index *flat) AddBatch(ids []uint64, vectors [][]float32) error {
 	return nil
 }
 
-func byteSliceFromUint64Slice(x []uint64) []byte {
-	y := make([]byte, len(x)*8)
+func byteSliceFromUint64Slice(x []uint64, slice []byte) []byte {
+	slice = make([]byte, len(x)*8)
 	for i := range x {
-		binary.LittleEndian.PutUint64(y[i*8:], x[i])
+		binary.LittleEndian.PutUint64(slice[i*8:], x[i])
 	}
-	return y
+	return slice
 }
 
-func uint64SliceFromByteSlice(x []byte) []uint64 {
+func uint64SliceFromByteSlice(x []byte, slice []uint64) []uint64 {
 	len := len(x) / 8
-	y := make([]uint64, len)
+	slice = make([]uint64, len)
 	for i := 0; i < len; i++ {
-		y[i] = binary.LittleEndian.Uint64(x[i*8:])
+		slice[i] = binary.LittleEndian.Uint64(x[i*8:])
 	}
-	return y
+	return slice
 }
 
 func (index *flat) Add(id uint64, vector []float32) error {
@@ -163,6 +164,7 @@ func (index *flat) Add(id uint64, vector []float32) error {
 		atomic.StoreInt32(&index.dims, int32(len(vector)))
 		fmt.Println("dimensions: " + string(index.dims))
 		index.bq = *ssdhelpers.NewBinaryQuantizer()
+		index.pool = newPools()
 	})
 	if len(vector) != int(index.dims) {
 		return errors.Errorf("insert called with a vector of the wrong size")
@@ -177,7 +179,9 @@ func (index *flat) Add(id uint64, vector []float32) error {
 		return err
 	}
 	if index.fullyOnDisk {
-		index.storeCompressedVector(id, byteSliceFromUint64Slice(vec))
+		slice := index.pool.byteSlicePool.Get(len(vec) * 8)
+		defer index.pool.byteSlicePool.Put(slice)
+		index.storeCompressedVector(id, byteSliceFromUint64Slice(vec, *slice))
 		return nil
 	}
 
@@ -245,8 +249,11 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 			// alloc some new memory and copy the vector.
 			//
 			// https://github.com/weaviate/weaviate/issues/3049
-			candidate := uint64SliceFromByteSlice(v)
+			slice := index.pool.uint64SlicePool.Get(len(v) / 8)
+			candidate := uint64SliceFromByteSlice(v, *slice)
 			d, _ := index.bq.DistanceBetweenCompressedVectors(candidate, query)
+			candidate = nil
+			index.pool.uint64SlicePool.Put(slice)
 			if heap.Len() < ef || heap.Top().Dist > d {
 				if heap.Len() == ef {
 					heap.Pop()
