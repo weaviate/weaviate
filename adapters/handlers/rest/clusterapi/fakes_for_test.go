@@ -9,6 +9,10 @@
 //  CONTACT: hello@weaviate.io
 //
 
+// TODO-RAFT START
+// Get rid of TxManager
+// TODO-RAFT END
+
 package clusterapi_test
 
 import (
@@ -18,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	schemaent "github.com/weaviate/weaviate/entities/schema"
 	ucs "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/schema/migrate"
+
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -222,11 +226,11 @@ func (n *NilMigrator) AddProperty(ctx context.Context, className string, prop *m
 	return nil
 }
 
-func (n *NilMigrator) NewTenants(ctx context.Context, class *models.Class, creates []*migrate.CreateTenantPayload) (commit func(success bool), err error) {
+func (n *NilMigrator) NewTenants(ctx context.Context, class *models.Class, creates []*ucs.CreateTenantPayload) (commit func(success bool), err error) {
 	return nil, nil
 }
 
-func (n *NilMigrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*migrate.UpdateTenantPayload) (commit func(success bool), err error) {
+func (n *NilMigrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*ucs.UpdateTenantPayload) (commit func(success bool), err error) {
 	return nil, nil
 }
 
