@@ -122,7 +122,8 @@ func TestBackup_DBLevel(t *testing.T) {
 		})
 
 		t.Run("node names from shards", func(t *testing.T) {
-			res := db.Shards(ctx, className)
+			res, err := db.Shards(ctx, className)
+			assert.NoError(t, err)
 			assert.Len(t, res, 1)
 			assert.Equal(t, "node1", res[0])
 		})
