@@ -17,15 +17,16 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // AddClassProperty to an existing Class
-func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Principal,
+func (m *Handler) AddClassProperty(ctx context.Context, principal *models.Principal,
 	class string, prop *models.Property,
 ) error {
-	err := h.Authorizer.Authorize(principal, "update", "schema/objects")
+	err := m.Authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
 	}
@@ -38,7 +39,7 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 		return fmt.Errorf("property must contain dataType")
 	}
 
-	cls := h.metaReader.ReadOnlyClass(class)
+	cls := m.metaReader.ReadOnlyClass(class)
 	if cls == nil {
 		return fmt.Errorf("class %q: %w", class, ErrNotFound)
 	}
@@ -54,14 +55,14 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	}
 	// migrate only after validation in completed
 	migratePropertySettings(prop)
-	return h.metaWriter.AddProperty(class, prop)
+	return m.metaWriter.AddProperty(class, prop)
 }
 
 // DeleteClassProperty from existing Schema
-func (h *Handler) DeleteClassProperty(ctx context.Context, principal *models.Principal,
+func (m *Manager) DeleteClassProperty(ctx context.Context, principal *models.Principal,
 	class string, property string,
 ) error {
-	err := h.Authorizer.Authorize(principal, "update", "schema/objects")
+	err := m.Authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
 	}
@@ -72,7 +73,7 @@ func (h *Handler) DeleteClassProperty(ctx context.Context, principal *models.Pri
 
 	return fmt.Errorf("deleting a property is currently not supported, see " +
 		"https://github.com/weaviate/weaviate/issues/973 for details.")
-	// return h.deleteClassProperty(ctx, class, property, kind.Action)
+	// return m.deleteClassProperty(ctx, class, property, kind.Action)
 }
 
 func (m *Handler) setNewPropDefaults(class *models.Class, prop *models.Property) {
@@ -138,27 +139,27 @@ func (m *Handler) validatePropModuleConfig(class *models.Class, prop *models.Pro
 
 // MergeClassObjectProperty of an existing Class
 // Merges NestedProperties of incoming object/object[] property into existing one
-func (h *Handler) MergeClassObjectProperty(ctx context.Context, principal *models.Principal,
+func (m *Handler) MergeClassObjectProperty(ctx context.Context, principal *models.Principal,
 	class string, property *models.Property,
 ) error {
 	// TODO-RAFT
 	return nil
-	// 	err := h.Authorizer.Authorize(principal, "update", "schema/objects")
+	// 	err := m.Authorizer.Authorize(principal, "update", "schema/objects")
 	// 	if err != nil {
 	// 		return err
 	// 	}
 
-	//return h.mergeClassObjectProperty(ctx, class, property)
+	// return m.mergeClassObjectProperty(ctx, class, property)
 }
 
-func (h *Handler) mergeClassObjectProperty(ctx context.Context,
+func (m *Handler) mergeClassObjectProperty(ctx context.Context,
 	className string, prop *models.Property,
 ) error {
 	return nil
-	// h.Lock()
-	// defer h.Unlock()
+	// m.Lock()
+	// defer m.Unlock()
 
-	// class, err := h.schemaCache.readOnlyClass(className)
+	// class, err := m.schemaCache.readOnlyClass(className)
 	// if err != nil {
 	// 	return err
 	// }
@@ -203,7 +204,7 @@ func (h *Handler) mergeClassObjectProperty(ctx context.Context,
 	// return m.mergeClassObjectPropertyApplyChanges(ctx, className, prop)
 }
 
-func (h *Handler) mergeClassObjectPropertyApplyChanges(ctx context.Context,
+func (m *Manager) mergeClassObjectPropertyApplyChanges(ctx context.Context,
 	className string, prop *models.Property,
 ) error {
 	// class, err := m.schemaCache.mergeObjectProperty(className, prop)
@@ -214,14 +215,14 @@ func (h *Handler) mergeClassObjectPropertyApplyChanges(ctx context.Context,
 	// if err != nil {
 	// 	return fmt.Errorf("marshal class %s: %w", className, err)
 	// }
-	// h.logger.
+	// m.logger.
 	// 	WithField("action", "schema.update_object_property").
 	// 	Debug("saving updated schema to configuration store")
-	// err = h.repo.UpdateClass(ctx, ClassPayload{Name: className, Metadata: metadata})
+	// err = m.repo.UpdateClass(ctx, ClassPayload{Name: className, Metadata: metadata})
 	// if err != nil {
 	// 	return err
 	// }
-	// h.triggerSchemaUpdateCallbacks()
+	// m.triggerSchemaUpdateCallbacks()
 
 	// // TODO nested - implement MergeObjectProperty (needed for indexing/filtering)
 	// // will result in a mismatch between schema and index if function below fails
@@ -229,7 +230,7 @@ func (h *Handler) mergeClassObjectPropertyApplyChanges(ctx context.Context,
 	return nil
 }
 
-func (h *Handler) deduplicateProps(props []*models.Property,
+func (m *Manager) deduplicateProps(props []*models.Property,
 	className string,
 ) []*models.Property {
 	seen := map[string]struct{}{}
@@ -237,7 +238,7 @@ func (h *Handler) deduplicateProps(props []*models.Property,
 	for j, prop := range props {
 		name := strings.ToLower(prop.Name)
 		if _, ok := seen[name]; ok {
-			h.logger.WithFields(logrus.Fields{
+			m.logger.WithFields(logrus.Fields{
 				"action": "startup_repair_schema",
 				"prop":   prop.Name,
 				"class":  className,
