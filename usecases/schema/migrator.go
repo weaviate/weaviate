@@ -12,7 +12,7 @@
 // Package migrate provides a simple composer tool, which implements the
 // Migrator interface and can take in any number of migrators which themselves
 // have to implement the interface
-package migrate
+package schema
 
 import (
 	"context"
@@ -38,9 +38,6 @@ type Migrator interface {
 	DropClass(ctx context.Context, className string) error
 	UpdateClass(ctx context.Context, className string,
 		newClassName *string) error
-	GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error)
-	GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error)
-	UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error
 	AddProperty(ctx context.Context, className string,
 		prop *models.Property) error
 	UpdateProperty(ctx context.Context, className string,
@@ -48,7 +45,10 @@ type Migrator interface {
 
 	NewTenants(ctx context.Context, class *models.Class, creates []*CreateTenantPayload) (commit func(success bool), err error)
 	UpdateTenants(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload) (commit func(success bool), err error)
-	DeleteTenants(ctx context.Context, class *models.Class, tenants []string) (commit func(success bool), err error)
+	DeleteTenants(ctx context.Context, class string, tenants []string) (commit func(success bool), err error)
+
+	GetShardsStatus(ctx context.Context, className string) (map[string]string, error)
+	UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error
 
 	ValidateVectorIndexConfigUpdate(ctx context.Context,
 		old, updated schema.VectorIndexConfig) error
@@ -58,8 +58,4 @@ type Migrator interface {
 		old, updated *models.InvertedIndexConfig) error
 	UpdateInvertedIndexConfig(ctx context.Context, className string,
 		updated *models.InvertedIndexConfig) error
-	RecalculateVectorDimensions(ctx context.Context) error
-	RecountProperties(ctx context.Context) error
-	InvertedReindex(ctx context.Context, taskNames ...string) error
-	AdjustFilterablePropSettings(ctx context.Context) error
 }
