@@ -473,7 +473,7 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue(new(mockShard), &idx, startWorker(t), IndexQueueOptions{
+		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize: 5,
 		})
 		require.NoError(t, err)
