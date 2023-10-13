@@ -120,16 +120,6 @@ func singleNodeNodeMappingBackupJourney_Restore(t *testing.T,
 		helper.SetupClient(weaviateEndpoint)
 	}
 
-	/*
-		t.Run("add test data schema", func(t *testing.T) {
-			if len(tenantNames) > 0 {
-				addTestClass(t, className, multiTenant)
-			} else {
-				addTestClass(t, className, !multiTenant)
-			}
-		})
-	*/
-
 	t.Run("single node restore", func(t *testing.T) {
 		nodeMappingBackupJourney_Restore(t, className, backend, backupID, tenantNames, nodeMapping)
 	})
