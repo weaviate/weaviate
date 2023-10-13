@@ -72,6 +72,10 @@ type PrometheusMetrics struct {
 // In addition, there are some metrics that we explicitly keep, such
 // as vector_dimensions_sum as they can be used in billing decisions.
 func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
+	if pm == nil {
+		return nil
+	}
+
 	labels := prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,
@@ -106,6 +110,10 @@ func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
 // not have a shard-specific label. See [DeleteShard] for more
 // information.
 func (pm *PrometheusMetrics) DeleteClass(className string) error {
+	if pm == nil {
+		return nil
+	}
+
 	labels := prometheus.Labels{
 		"class_name": className,
 	}
