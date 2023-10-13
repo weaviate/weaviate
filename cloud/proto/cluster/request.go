@@ -33,7 +33,3 @@ type AddPropertyRequest struct {
 type DeleteClassRequest struct {
 	Name string
 }
-
-type UpdateShardStatusRequest struct {
-	Class, Shard, Status string
-}

@@ -32,8 +32,6 @@ type DB interface {
 	AddTenants(class string, req *command.AddTenantsRequest) error
 	UpdateTenants(class string, req *command.UpdateTenantsRequest) error
 	DeleteTenants(class string, req *command.DeleteTenantsRequest) error
-	UpdateShardStatus(req *command.UpdateShardStatusRequest) error
-	GetShardsStatus(class string) (models.ShardStatusList, error)
 }
 
 type Parser interface {
@@ -44,7 +42,7 @@ type Config struct {
 	WorkDir  string // raft working directory
 	NodeID   string
 	Host     string
-	RaftPort int
+	RaftPort string
 	DB       DB
 	Parser   Parser
 }
@@ -55,7 +53,7 @@ type Store struct {
 	raftDir      string
 	nodeID       string
 	host         string
-	raftPort     int
+	raftPort     string
 	schema       *schema
 	db           DB
 	parser       Parser
@@ -68,7 +66,7 @@ func New(cfg Config) Store {
 		nodeID:       cfg.NodeID,
 		host:         cfg.Host,
 		raftPort:     cfg.RaftPort,
-		schema:       NewSchema(cfg.NodeID, cfg.DB),
+		schema:       NewSchema(cfg.NodeID),
 		db:           cfg.DB,
 		parser:       cfg.Parser,
 	}
@@ -89,7 +87,19 @@ func (f *Store) AddClass(cls *models.Class, ss *sharding.State) error {
 		Class:      cls.Class,
 		SubCommand: subCommand,
 	}
-	return f.executeCommand(cmd)
+	cmdBytes, err := proto.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("marshal command: %w", err)
+	}
+
+	fut := f.raft.Apply(cmdBytes, f.applyTimeout)
+	if err := fut.Error(); err != nil {
+		if errors.Is(err, raft.ErrNotLeader) {
+			return ErrNotLeader
+		}
+		return err
+	}
+	return nil
 }
 
 func (f *Store) UpdateClass(cls *models.Class, ss *sharding.State) error {
@@ -103,7 +113,19 @@ func (f *Store) UpdateClass(cls *models.Class, ss *sharding.State) error {
 		Class:      cls.Class,
 		SubCommand: subCommand,
 	}
-	return f.executeCommand(cmd)
+	cmdBytes, err := proto.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("marshal command: %w", err)
+	}
+
+	fut := f.raft.Apply(cmdBytes, f.applyTimeout)
+	if err := fut.Error(); err != nil {
+		if errors.Is(err, raft.ErrNotLeader) {
+			return ErrNotLeader
+		}
+		return err
+	}
+	return nil
 }
 
 func (f *Store) DeleteClass(name string) error {
@@ -111,21 +133,19 @@ func (f *Store) DeleteClass(name string) error {
 		Type:  command.Command_TYPE_DELETE_CLASS,
 		Class: name,
 	}
-	return f.executeCommand(cmd)
-}
-
-func (f *Store) RestoreClass(cls *models.Class, ss *sharding.State) error {
-	req := command.AddClassRequest{Class: cls, State: ss}
-	subCommand, err := json.Marshal(&req)
+	cmdBytes, err := proto.Marshal(cmd)
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return fmt.Errorf("marshal command: %w", err)
 	}
-	cmd := &command.Command{
-		Type:       command.Command_TYPE_RESTORE_CLASS,
-		Class:      cls.Class,
-		SubCommand: subCommand,
+
+	fut := f.raft.Apply(cmdBytes, f.applyTimeout)
+	if err := fut.Error(); err != nil {
+		if errors.Is(err, raft.ErrNotLeader) {
+			return ErrNotLeader
+		}
+		return err
 	}
-	return f.executeCommand(cmd)
+	return nil
 }
 
 func (f *Store) AddProperty(class string, p *models.Property) error {
@@ -139,21 +159,7 @@ func (f *Store) AddProperty(class string, p *models.Property) error {
 		Class:      class,
 		SubCommand: subCommand,
 	}
-	return f.executeCommand(cmd)
-}
-
-func (f *Store) UpdateShardStatus(class, shard, status string) error {
-	req := command.UpdateShardStatusRequest{class, shard, status}
-	subCommand, err := json.Marshal(&req)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-	cmd := command.Command{
-		Type:       command.Command_TYPE_UPDATE_SHARD_STATUS,
-		Class:      req.Class,
-		SubCommand: subCommand,
-	}
-	cmdBytes, err := proto.Marshal(&cmd)
+	cmdBytes, err := proto.Marshal(cmd)
 	if err != nil {
 		return fmt.Errorf("marshal command: %w", err)
 	}
@@ -163,8 +169,8 @@ func (f *Store) UpdateShardStatus(class, shard, status string) error {
 		if errors.Is(err, raft.ErrNotLeader) {
 			return ErrNotLeader
 		}
+		return err
 	}
-
 	return nil
 }
 
@@ -178,7 +184,19 @@ func (f *Store) AddTenants(class string, req *command.AddTenantsRequest) error {
 		Class:      class,
 		SubCommand: subCommand,
 	}
-	return f.executeCommand(cmd)
+	cmdBytes, err := proto.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("marshal command: %w", err)
+	}
+
+	fut := f.raft.Apply(cmdBytes, f.applyTimeout)
+	if err := fut.Error(); err != nil {
+		if errors.Is(err, raft.ErrNotLeader) {
+			return ErrNotLeader
+		}
+		return err
+	}
+	return nil
 }
 
 func (f *Store) UpdateTenants(class string, req *command.UpdateTenantsRequest) error {
@@ -191,7 +209,19 @@ func (f *Store) UpdateTenants(class string, req *command.UpdateTenantsRequest) e
 		Class:      class,
 		SubCommand: subCommand,
 	}
-	return f.executeCommand(cmd)
+	cmdBytes, err := proto.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("marshal command: %w", err)
+	}
+
+	fut := f.raft.Apply(cmdBytes, f.applyTimeout)
+	if err := fut.Error(); err != nil {
+		if errors.Is(err, raft.ErrNotLeader) {
+			return ErrNotLeader
+		}
+		return err
+	}
+	return nil
 }
 
 func (f *Store) DeleteTenants(class string, req *command.DeleteTenantsRequest) error {
@@ -204,10 +234,6 @@ func (f *Store) DeleteTenants(class string, req *command.DeleteTenantsRequest) e
 		Class:      class,
 		SubCommand: subCommand,
 	}
-	return f.executeCommand(cmd)
-}
-
-func (f *Store) executeCommand(cmd *command.Command) error {
 	cmdBytes, err := proto.Marshal(cmd)
 	if err != nil {
 		return fmt.Errorf("marshal command: %w", err)
