@@ -70,3 +70,53 @@ func BackupJourneyTests_Cluster(t *testing.T, backend, className, backupID strin
 		})
 	}
 }
+
+func NodeMappingBackupJourneyTests_SingleNode_Backup(t *testing.T, weaviateEndpoint, backend, className, backupID string, tenantNames []string) {
+	if len(tenantNames) > 0 {
+		t.Run("multi-tenant single node backup", func(t *testing.T) {
+			singleNodeNodeMappingBackupJourney_Backup(t, weaviateEndpoint, backend, className, backupID, tenantNames)
+		})
+	} else {
+		t.Run("single-tenant single node backup", func(t *testing.T) {
+			singleNodeNodeMappingBackupJourney_Backup(t, weaviateEndpoint, backend, className, backupID, nil)
+		})
+	}
+}
+
+func NodeMappingBackupJourneyTests_SingleNode_Restore(t *testing.T, weaviateEndpoint, backend, className, backupID string, tenantNames []string, nodeMapping map[string]string) {
+	if len(tenantNames) > 0 {
+		t.Run("multi-tenant single node restore", func(t *testing.T) {
+			singleNodeNodeMappingBackupJourney_Restore(t, weaviateEndpoint, backend, className, backupID, tenantNames, nodeMapping)
+		})
+	} else {
+		t.Run("single-tenant single node restore", func(t *testing.T) {
+			singleNodeNodeMappingBackupJourney_Restore(t, weaviateEndpoint, backend, className, backupID, nil, nodeMapping)
+		})
+	}
+}
+
+/*
+func NodeMappingBackupJourneyTests_SingleNode_Restore(t *testing.T, backend, className, backupID string,
+	tenantNames []string, weaviateEndpoints ...string,
+) {
+	if len(tenantNames) > 0 {
+		t.Run("multi-tenant cluster backup", func(t *testing.T) {
+			if len(weaviateEndpoints) <= 1 {
+				t.Fatal("must provide more than one node for cluster backup test")
+			}
+
+			coordinator := weaviateEndpoints[0]
+			clusterBackupJourneyTest(t, backend, className, backupID, coordinator, tenantNames, weaviateEndpoints[1:]...)
+		})
+	} else {
+		t.Run("single-tenant cluster backup", func(t *testing.T) {
+			if len(weaviateEndpoints) <= 1 {
+				t.Fatal("must provide more than one node for cluster backup test")
+			}
+
+			coordinator := weaviateEndpoints[0]
+			clusterBackupJourneyTest(t, backend, className, backupID, coordinator, nil, weaviateEndpoints[1:]...)
+		})
+	}
+}
+*/

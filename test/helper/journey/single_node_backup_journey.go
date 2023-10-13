@@ -81,3 +81,56 @@ func singleNodeBackupEmptyClassJourneyTest(t *testing.T,
 		helper.DeleteClass(t, className)
 	})
 }
+
+func singleNodeNodeMappingBackupJourney_Backup(t *testing.T,
+	weaviateEndpoint, backend, className, backupID string,
+	tenantNames []string,
+) {
+	if weaviateEndpoint != "" {
+		helper.SetupClient(weaviateEndpoint)
+	}
+
+	if len(tenantNames) > 0 {
+		t.Run("add test data", func(t *testing.T) {
+			addTestClass(t, className, multiTenant)
+			tenants := make([]*models.Tenant, len(tenantNames))
+			for i := range tenantNames {
+				tenants[i] = &models.Tenant{Name: tenantNames[i]}
+			}
+			helper.CreateTenants(t, className, tenants)
+			addTestObjects(t, className, tenantNames)
+		})
+	} else {
+		t.Run("add test data", func(t *testing.T) {
+			addTestClass(t, className, !multiTenant)
+			addTestObjects(t, className, nil)
+		})
+	}
+
+	t.Run("single node backup", func(t *testing.T) {
+		nodeMappingBackupJourney_Backup(t, className, backend, backupID, tenantNames)
+	})
+}
+
+func singleNodeNodeMappingBackupJourney_Restore(t *testing.T,
+	weaviateEndpoint, backend, className, backupID string,
+	tenantNames []string, nodeMapping map[string]string,
+) {
+	if weaviateEndpoint != "" {
+		helper.SetupClient(weaviateEndpoint)
+	}
+
+	/*
+		t.Run("add test data schema", func(t *testing.T) {
+			if len(tenantNames) > 0 {
+				addTestClass(t, className, multiTenant)
+			} else {
+				addTestClass(t, className, !multiTenant)
+			}
+		})
+	*/
+
+	t.Run("single node restore", func(t *testing.T) {
+		nodeMappingBackupJourney_Restore(t, className, backend, backupID, tenantNames, nodeMapping)
+	})
+}
