@@ -20,6 +20,14 @@ function main() {
           --integration-only) run_all_tests=false; run_integration_tests=true;;
           --benchmark-only) run_all_tests=false; run_benchmark=true;;
           --acceptance-module-tests-only) run_all_tests=false; run_module_tests=true; echo $run_module_tests ;;
+          --help|-h) printf '%s\n' \
+              "Options:"\
+              "--acceptance-only"\
+              "--unit-and-integration-only"\
+              "--unit-only-integration-only" \
+              "--benchmark-only" \
+              "--acceptance-module-tests-only"\
+              "--help|-h"; exit 1;;
           *) echo "Unknown parameter passed: $1"; exit 1 ;;
       esac
       shift
