@@ -12,13 +12,10 @@
 package schema
 
 import (
-	"context"
-	"fmt"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	command "github.com/weaviate/weaviate/cloud/proto/cluster"
-	"github.com/weaviate/weaviate/cloud/store"
+	store "github.com/weaviate/weaviate/cloud/store"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -29,19 +26,19 @@ var ErrNotFound = errors.New("not found")
 
 type metaWriter interface {
 	AddClass(cls *models.Class, ss *sharding.State) error
-	RestoreClass(cls *models.Class, ss *sharding.State) error
+	// RestoreClass(cls *models.Class, ss *sharding.State) error
 	UpdateClass(cls *models.Class, ss *sharding.State) error
 	DeleteClass(name string) error
+
 	AddProperty(class string, p *models.Property) error
-	UpdateShardStatus(class, shard, status string) error
 	AddTenants(class string, req *command.AddTenantsRequest) error
 	UpdateTenants(class string, req *command.UpdateTenantsRequest) error
 	DeleteTenants(class string, req *command.DeleteTenantsRequest) error
 }
 
 type metaReader interface {
-	ClassEqual(name string) string
 	// MultiTenancy checks for multi-tenancy support
+	ClassEqual(name string) string
 	MultiTenancy(class string) bool
 	ClassInfo(class string) (ci store.ClassInfo)
 	ReadOnlyClass(class string) *models.Class
@@ -52,14 +49,6 @@ type metaReader interface {
 	ShardOwner(class, shard string) (string, error)
 	TenantShard(class, tenant string) (string, string)
 	Read(class string, reader func(*models.Class, *sharding.State) error) error
-	GetShardsStatus(class string) (models.ShardStatusList, error)
-}
-
-type validator interface {
-	ValidateVectorIndexConfigUpdate(ctx context.Context,
-		old, updated schema.VectorIndexConfig) error
-	ValidateInvertedIndexConfigUpdate(ctx context.Context,
-		old, updated *models.InvertedIndexConfig) error
 }
 
 // The handler manages API requests for manipulating class schemas.
@@ -71,7 +60,7 @@ type validator interface {
 type Handler struct {
 	metaWriter metaWriter
 	metaReader metaReader
-	validator  validator
+	migrator   Migrator
 
 	logger                  logrus.FieldLogger
 	Authorizer              authorizer
@@ -85,23 +74,24 @@ type Handler struct {
 	parser                  Parser
 }
 
-// NewHandler creates a new handler
+// NewHandler creates a new manager
 func NewHandler(
 	store metaWriter,
 	metaReader metaReader,
-	validator validator,
+	migrator Migrator,
 	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
 	hnswConfigParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	scaleoutManager scaleOut,
 ) (Handler, error) {
-	handler := Handler{
-		config:                  config,
-		metaWriter:              store,
-		metaReader:              metaReader,
-		parser:                  Parser{clusterState: clusterState, hnswConfigParser: hnswConfigParser},
-		validator:               validator,
+	m := Handler{
+		config:     config,
+		metaWriter: store,
+		metaReader: metaReader,
+		parser:     Parser{clusterState: clusterState, hnswConfigParser: hnswConfigParser},
+
+		migrator:                migrator,
 		logger:                  logger,
 		Authorizer:              authorizer,
 		hnswConfigParser:        hnswConfigParser,
@@ -112,60 +102,38 @@ func NewHandler(
 		scaleOut:                scaleoutManager,
 	}
 
-	handler.scaleOut.SetSchemaManager(metaReader)
+	// TODO-RAFT
+	// m.scaleOut.SetSchemaManager(m)
 
-	return handler, nil
+	return m, nil
 }
 
 // GetSchema retrieves a locally cached copy of the schema
-func (h *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) {
-	err := h.Authorizer.Authorize(principal, "list", "schema/*")
+func (m *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) {
+	err := m.Authorizer.Authorize(principal, "list", "schema/*")
 	if err != nil {
 		return schema.Schema{}, err
 	}
 
-	return h.getSchema(), nil
+	return m.getSchema(), nil
 }
 
 // GetSchemaSkipAuth can never be used as a response to a user request as it
 // could leak the schema to an unauthorized user, is intended to be used for
 // non-user triggered processes, such as regular updates / maintenance / etc
-func (h *Handler) GetSchemaSkipAuth() schema.Schema { return h.getSchema() }
+func (m *Handler) GetSchemaSkipAuth() schema.Schema { return m.getSchema() }
 
-func (h *Handler) getSchema() schema.Schema {
-	s := h.metaReader.ReadOnlySchema()
+func (m *Handler) getSchema() schema.Schema {
+	s := m.metaReader.ReadOnlySchema()
 	return schema.Schema{
 		Objects: &s,
 	}
 }
 
-func (h *Handler) Nodes() []string {
-	return h.clusterState.AllNames()
+func (m *Handler) Nodes() []string {
+	return m.clusterState.AllNames()
 }
 
-func (h *Handler) NodeName() string {
-	return h.clusterState.LocalName()
-}
-
-func (h *Handler) UpdateShardStatus(ctx context.Context,
-	principal *models.Principal, class, shard, status string,
-) error {
-	err := h.Authorizer.Authorize(principal, "update",
-		fmt.Sprintf("schema/%s/shards/%s", class, shard))
-	if err != nil {
-		return err
-	}
-
-	return h.metaWriter.UpdateShardStatus(class, shard, status)
-}
-
-func (h *Handler) ShardsStatus(ctx context.Context,
-	principal *models.Principal, class string,
-) (models.ShardStatusList, error) {
-	err := h.Authorizer.Authorize(principal, "list", fmt.Sprintf("schema/%s/shards", class))
-	if err != nil {
-		return nil, err
-	}
-
-	return h.metaReader.GetShardsStatus(class)
+func (m *Handler) NodeName() string {
+	return m.clusterState.LocalName()
 }
