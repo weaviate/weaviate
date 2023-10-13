@@ -23,8 +23,9 @@ import (
 
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
-	command "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"golang.org/x/exp/slices"
+
+	command "github.com/weaviate/weaviate/cloud/proto/cluster"
 	gproto "google.golang.org/protobuf/proto"
 )
 
@@ -71,7 +72,7 @@ func (f *Store) Open(isLeader bool, joiners []Candidate) (*raft.Raft, error) {
 	}
 
 	// tcp transport
-	address := fmt.Sprintf("%s:%d", f.host, f.raftPort)
+	address := fmt.Sprintf("%s:%s", f.host, f.raftPort)
 	tcpAddr, err := net.ResolveTCPAddr("tcp", address)
 	if err != nil {
 		return nil, fmt.Errorf("net.ResolveTCPAddr address=%v error=%w", address, err)
@@ -92,17 +93,19 @@ func (f *Store) Open(isLeader bool, joiners []Candidate) (*raft.Raft, error) {
 		return nil, fmt.Errorf("raft.NewRaft %v %w", address, err)
 	}
 
-	// Construct clusterConfig based on the expected initial joiners
-	clusterConfig := raft.Configuration{Servers: []raft.Server{}}
+	// cluster
+	clusterConfig := raft.Configuration{
+		Servers: []raft.Server{
+			// {
+			// 	ID:      raft.ServerID(f.nodeID),
+			// 	Address: transport.LocalAddr(),
+			// },
+		},
+	}
 	for _, j := range joiners {
-		voter := raft.Nonvoter
-		if !j.NonVoter {
-			voter = raft.Voter
-		}
 		clusterConfig.Servers = append(clusterConfig.Servers, raft.Server{
-			ID:       raft.ServerID(j.ID),
-			Address:  raft.ServerAddress(j.Address),
-			Suffrage: voter,
+			ID:      raft.ServerID(j.ID),
+			Address: raft.ServerAddress(j.Address),
 		})
 	}
 
@@ -187,6 +190,7 @@ func (f *Store) Apply(l *raft.Log) interface{} {
 		if ret.Error = f.schema.addClass(req.Class, req.State); ret.Error == nil {
 			f.db.AddClass(req)
 		}
+
 	case command.Command_TYPE_UPDATE_CLASS:
 		req := command.UpdateClassRequest{}
 		if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
@@ -204,6 +208,7 @@ func (f *Store) Apply(l *raft.Log) interface{} {
 	case command.Command_TYPE_DELETE_CLASS:
 		f.schema.deleteClass(cmd.Class)
 		f.db.DeleteClass(cmd.Class)
+
 	case command.Command_TYPE_ADD_PROPERTY:
 		req := command.AddPropertyRequest{}
 		if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
@@ -216,13 +221,6 @@ func (f *Store) Apply(l *raft.Log) interface{} {
 			f.db.AddProperty(cmd.Class, req)
 		}
 
-	case command.Command_TYPE_UPDATE_SHARD_STATUS:
-		req := command.UpdateShardStatusRequest{}
-		if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
-			return Response{Error: err}
-		}
-		ret.Error = f.db.UpdateShardStatus(&req)
-
 	case command.Command_TYPE_ADD_TENANT:
 		req := &command.AddTenantsRequest{}
 		if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
@@ -231,6 +229,7 @@ func (f *Store) Apply(l *raft.Log) interface{} {
 		if ret.Error = f.schema.addTenants(cmd.Class, req); ret.Error == nil {
 			f.db.AddTenants(cmd.Class, req)
 		}
+
 	case command.Command_TYPE_UPDATE_TENANT:
 		req := &command.UpdateTenantsRequest{}
 		if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
@@ -240,6 +239,7 @@ func (f *Store) Apply(l *raft.Log) interface{} {
 		if ret.Error == nil {
 			f.db.UpdateTenants(cmd.Class, req)
 		}
+
 	case command.Command_TYPE_DELETE_TENANT:
 		req := &command.DeleteTenantsRequest{}
 		if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
