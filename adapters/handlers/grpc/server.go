@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/schema"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	schemaManager "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -126,7 +126,7 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 	)
 }
 
-func (s *Server) SearchV1(ctx context.Context, req *pb.SearchRequestV1) (*pb.SearchReplyV1, error) {
+func (s *Server) SearchV1(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
 	before := time.Now()
 
 	principal, err := s.principalFromContext(ctx)
@@ -137,7 +137,7 @@ func (s *Server) SearchV1(ctx context.Context, req *pb.SearchRequestV1) (*pb.Sea
 	scheme := s.schemaManager.GetSchemaSkipAuth()
 
 	type reply struct {
-		Result *pb.SearchReplyV1
+		Result *pb.SearchReply
 		Error  error
 	}
 

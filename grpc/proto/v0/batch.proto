@@ -1,13 +1,9 @@
 syntax = "proto3";
 
-package weaviategrpc;
+package weaviate.v0;
 
-import "base.proto";
+import "v0/base.proto";
 import "google/protobuf/struct.proto";
-
-option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
-option java_package = "io.weaviate.grpc.protocol";
-option java_outer_classname = "WeaviateProtoBatch";
 
 message BatchObjectsRequest {
   repeated BatchObject objects = 1;

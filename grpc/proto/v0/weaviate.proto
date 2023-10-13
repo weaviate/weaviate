@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package weaviate.v0;
+
+import "v0/batch.proto";
+import "v0/search_get.proto";
+
+service Weaviate {
+  rpc Search(SearchRequest) returns (SearchReply) {};
+  rpc BatchObjects(BatchObjectsRequest) returns (BatchObjectsReply) {};
+}

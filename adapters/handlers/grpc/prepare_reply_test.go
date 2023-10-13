@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/searchparams"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
