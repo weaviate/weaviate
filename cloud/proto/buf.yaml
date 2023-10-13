@@ -1,0 +1,19 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: BUSL-1.1
+
+version: v1
+
+lint:
+  use:
+    - DEFAULT
+  allow_comment_ignores: true
+  except:
+    - PACKAGE_DIRECTORY_MATCH
+
+    - PACKAGE_VERSION_SUFFIX
+
+  service_suffix: ""
+  rpc_allow_google_protobuf_empty_responses: true
+breaking:
+  use:
+    - FILE
