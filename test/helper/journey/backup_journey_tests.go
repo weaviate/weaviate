@@ -94,29 +94,3 @@ func NodeMappingBackupJourneyTests_SingleNode_Restore(t *testing.T, weaviateEndp
 		})
 	}
 }
-
-/*
-func NodeMappingBackupJourneyTests_SingleNode_Restore(t *testing.T, backend, className, backupID string,
-	tenantNames []string, weaviateEndpoints ...string,
-) {
-	if len(tenantNames) > 0 {
-		t.Run("multi-tenant cluster backup", func(t *testing.T) {
-			if len(weaviateEndpoints) <= 1 {
-				t.Fatal("must provide more than one node for cluster backup test")
-			}
-
-			coordinator := weaviateEndpoints[0]
-			clusterBackupJourneyTest(t, backend, className, backupID, coordinator, tenantNames, weaviateEndpoints[1:]...)
-		})
-	} else {
-		t.Run("single-tenant cluster backup", func(t *testing.T) {
-			if len(weaviateEndpoints) <= 1 {
-				t.Fatal("must provide more than one node for cluster backup test")
-			}
-
-			coordinator := weaviateEndpoints[0]
-			clusterBackupJourneyTest(t, backend, className, backupID, coordinator, nil, weaviateEndpoints[1:]...)
-		})
-	}
-}
-*/

@@ -135,12 +135,18 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 	// assert class exists again it its entirety
 	if tenantNames != nil {
 		for _, name := range tenantNames {
-			count := moduleshelper.GetClassCount(t, className, name)
-			assert.Equal(t, int64(500/len(tenantNames)), count)
+			moduleshelper.EnsureClassExists(t, className, name)
+			if dataIntegrityCheck == checkClassAndDataPresence {
+				count := moduleshelper.GetClassCount(t, className, name)
+				assert.Equal(t, int64(500/len(tenantNames)), count)
+			}
 		}
 	} else {
-		count := moduleshelper.GetClassCount(t, className, singleTenant)
-		assert.Equal(t, int64(500), count)
+		moduleshelper.EnsureClassExists(t, className, singleTenant)
+		if dataIntegrityCheck == checkClassAndDataPresence {
+			count := moduleshelper.GetClassCount(t, className, singleTenant)
+			assert.Equal(t, int64(500), count)
+		}
 	}
 }
 
@@ -219,18 +225,12 @@ func nodeMappingBackupJourney_Restore(t *testing.T, className, backend, backupID
 	// assert class exists again it its entirety
 	if tenantNames != nil {
 		for _, name := range tenantNames {
-			moduleshelper.EnsureClassExists(t, className, name)
-			if dataIntegrityCheck == checkClassAndDataPresence {
-				count := moduleshelper.GetClassCount(t, className, name)
-				assert.Equal(t, int64(500/len(tenantNames)), count)
-			}
+			count := moduleshelper.GetClassCount(t, className, name)
+			assert.Equal(t, int64(500/len(tenantNames)), count)
 		}
 	} else {
-		moduleshelper.EnsureClassExists(t, className, singleTenant)
-		if dataIntegrityCheck == checkClassAndDataPresence {
-			count := moduleshelper.GetClassCount(t, className, singleTenant)
-			assert.Equal(t, int64(500), count)
-		}
+		count := moduleshelper.GetClassCount(t, className, singleTenant)
+		assert.Equal(t, int64(500), count)
 	}
 }
 
