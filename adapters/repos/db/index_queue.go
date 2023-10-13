@@ -343,11 +343,7 @@ func (q *IndexQueue) indexer() {
 				q.Logger.WithField("status", status).WithError(err).Error("failed to set shard status to indexing")
 				continue
 			}
-			err = q.pushToWorkers()
-			if err != nil {
-				q.Logger.WithError(err).Error("failed to index vectors")
-				return
-			}
+			q.pushToWorkers()
 		case <-q.ctx.Done():
 			// stop the ticker
 			t.Stop()
@@ -356,7 +352,7 @@ func (q *IndexQueue) indexer() {
 	}
 }
 
-func (q *IndexQueue) pushToWorkers() error {
+func (q *IndexQueue) pushToWorkers() {
 	chunks := q.queue.borrowAllChunks()
 	for i, c := range chunks {
 		select {
@@ -366,7 +362,7 @@ func (q *IndexQueue) pushToWorkers() error {
 				q.queue.releaseChunk(c)
 			}
 
-			return errors.New("index queue closed")
+			return
 		case q.indexCh <- job{
 			chunk:   c,
 			indexer: q.Index,
@@ -375,8 +371,6 @@ func (q *IndexQueue) pushToWorkers() error {
 		}:
 		}
 	}
-
-	return nil
 }
 
 // SearchByVector performs the search through the index first, then uses brute force to
