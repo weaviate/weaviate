@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/docid"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -35,7 +36,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
-	"github.com/weaviate/weaviate/entities/storobj"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"golang.org/x/sync/errgroup"
@@ -47,18 +47,19 @@ const IdLockPoolSize = 128
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
-	index           *Index // a reference to the underlying index, which in turn contains schema information
-	queue           *IndexQueue
-	name            string
-	store           *lsmkv.Store
-	counter         *indexcounter.Counter
-	vectorIndex     VectorIndex
-	metrics         *Metrics
-	promMetrics     *monitoring.PrometheusMetrics
-	propertyIndices propertyspecific.Indices
-	deletedDocIDs   *docid.InMemDeletedTracker
-	propLengths     *inverted.JsonPropertyLengthTracker
-	versioner       *shardVersioner
+	index            *Index // a reference to the underlying index, which in turn contains schema information
+	queue            *IndexQueue
+	name             string
+	store            *lsmkv.Store
+	counter          *indexcounter.Counter
+	indexCheckpoints *indexcheckpoint.Checkpoints
+	vectorIndex      VectorIndex
+	metrics          *Metrics
+	promMetrics      *monitoring.PrometheusMetrics
+	propertyIndices  propertyspecific.Indices
+	deletedDocIDs    *docid.InMemDeletedTracker
+	propLengths      *inverted.JsonPropertyLengthTracker
+	versioner        *shardVersioner
 
 	status              storagestate.Status
 	statusLock          sync.Mutex
@@ -87,6 +88,7 @@ type Shard struct {
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
+	indexCheckpoints *indexcheckpoint.Checkpoints,
 ) (*Shard, error) {
 	before := time.Now()
 
@@ -96,10 +98,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		promMetrics: promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
-		deletedDocIDs:   docid.NewInMemDeletedTracker(),
-		stopMetrics:     make(chan struct{}),
-		replicationMap:  pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
-		centralJobQueue: jobQueueCh,
+		deletedDocIDs:    docid.NewInMemDeletedTracker(),
+		stopMetrics:      make(chan struct{}),
+		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue:  jobQueueCh,
+		indexCheckpoints: indexCheckpoints,
 	}
 	s.initCycleCallbacks()
 
@@ -128,44 +131,16 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	var err error
-	s.queue, err = NewIndexQueue(s, s.vectorIndex, s.centralJobQueue, IndexQueueOptions{
+	s.queue, err = NewIndexQueue(s.ID(), s, s.vectorIndex, s.centralJobQueue, s.indexCheckpoints, IndexQueueOptions{
 		Logger: s.index.logger,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	if asyncEnabled() {
-		// load non-indexed vectors and add them to the queue
-		start := time.Now()
-		total := 0
-		nonIndexed := 0
-
-		cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
-
-		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-			obj, err := storobj.FromBinary(v)
-			if err != nil {
-				return nil, err
-			}
-			total++
-			id := obj.DocID()
-			if s.vectorIndex.ContainsNode(id) {
-				continue
-			}
-			if len(obj.Vector) == 0 {
-				continue
-			}
-
-			nonIndexed++
-			desc := vectorDescriptor{
-				id:     id,
-				vector: obj.Vector,
-			}
-			s.queue.Push(context.Background(), desc)
-		}
-		cursor.Close()
-		s.index.logger.WithField("non-indexed", nonIndexed).WithField("total", total).Debugf("loaded non-indexed vectors in %s", time.Since(start))
+	err = s.queue.PreloadShard(ctx, s)
+	if err != nil {
+		return nil, err
 	}
 
 	return s, nil
@@ -361,6 +336,12 @@ func (s *Shard) drop() error {
 	err = s.propLengths.Drop()
 	if err != nil {
 		return errors.Wrapf(err, "remove prop length tracker at %s", s.DBPathLSM())
+	}
+
+	// delete queue cursor
+	err = s.queue.Drop()
+	if err != nil {
+		return errors.Wrapf(err, "remove minindexed at %s", s.DBPathLSM())
 	}
 
 	// TODO: can we remove this?

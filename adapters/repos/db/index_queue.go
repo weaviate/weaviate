@@ -14,22 +14,26 @@ package db
 import (
 	"container/list"
 	"context"
+	"encoding/binary"
 	"sync"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 // IndexQueue is an in-memory queue of vectors to index.
 // It batches vectors together before sending them to the indexing workers.
 // It is safe to use concurrently.
 type IndexQueue struct {
-	Shard shardStatusUpdater
-	Index batchIndexer
+	Shard   shardStatusUpdater
+	Index   batchIndexer
+	shardID string
 
 	IndexQueueOptions
 
@@ -50,6 +54,8 @@ type IndexQueue struct {
 	pqMaxPool *pqMaxPool
 
 	bufPool sync.Pool
+
+	checkpoints *indexcheckpoint.Checkpoints
 }
 
 type vectorDescriptor struct {
@@ -89,9 +95,11 @@ type shardStatusUpdater interface {
 }
 
 func NewIndexQueue(
+	shardID string,
 	shard shardStatusUpdater,
 	index batchIndexer,
 	centralJobQueue chan job,
+	checkpoints *indexcheckpoint.Checkpoints,
 	opts IndexQueueOptions,
 ) (*IndexQueue, error) {
 	if opts.Logger == nil {
@@ -116,12 +124,13 @@ func NewIndexQueue(
 	}
 
 	q := IndexQueue{
+		shardID:           shardID,
 		IndexQueueOptions: opts,
 		Shard:             shard,
 		Index:             index,
-		queue:             newVectorQueue(opts.BatchSize, opts.StaleTimeout),
 		indexCh:           centralJobQueue,
 		pqMaxPool:         newPqMaxPool(0),
+		checkpoints:       checkpoints,
 		bufPool: sync.Pool{
 			New: func() any {
 				buf := make([]vectorDescriptor, 0, opts.BatchSize)
@@ -129,6 +138,8 @@ func NewIndexQueue(
 			},
 		},
 	}
+
+	q.queue = newVectorQueue(&q)
 
 	q.ctx, q.cancelFn = context.WithCancel(context.Background())
 
@@ -233,6 +244,86 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 	}
 
 	q.queue.Delete(remaining)
+
+	return nil
+}
+
+// Push adds a list of vectors to the queue.
+func (q *IndexQueue) PreloadShard(ctx context.Context, shard *Shard) error {
+	if !asyncEnabled() {
+		return nil
+	}
+
+	// load non-indexed vectors and add them to the queue
+	checkpoint, err := q.checkpoints.Get(q.shardID)
+	if err != nil {
+		return errors.Wrap(err, "get last indexed id")
+	}
+	if checkpoint == 0 {
+		return nil
+	}
+
+	start := time.Now()
+
+	maxDocID := shard.counter.Get()
+
+	var counter int
+
+	buf := make([]byte, 8)
+	for i := checkpoint; i < maxDocID; i++ {
+		binary.LittleEndian.PutUint64(buf, i)
+
+		v, err := shard.store.Bucket(helpers.ObjectsBucketLSM).GetBySecondary(0, buf)
+		if err != nil {
+			return errors.Wrap(err, "get last indexed object")
+		}
+		if v == nil {
+			continue
+		}
+		obj, err := storobj.FromBinary(v)
+		if err != nil {
+			return errors.Wrap(err, "unmarshal last indexed object")
+		}
+		id := obj.DocID()
+		if shard.vectorIndex.ContainsNode(id) {
+			continue
+		}
+		if len(obj.Vector) == 0 {
+			continue
+		}
+		counter++
+
+		desc := vectorDescriptor{
+			id:     id,
+			vector: obj.Vector,
+		}
+		err = q.Push(ctx, desc)
+		if err != nil {
+			return err
+		}
+	}
+
+	q.Logger.
+		WithField("checkpoint", checkpoint).
+		WithField("last_stored_id", maxDocID).
+		WithField("count", counter).
+		WithField("took", time.Since(start)).
+		WithField("shard_id", q.shardID).
+		Debug("enqueued vectors from last indexed checkpoint")
+
+	return nil
+}
+
+// Drop removes all persisted data related to the queue.
+// It closes the queue if not already.
+// It does not remove the index.
+// It should be called only when the index is dropped.
+func (q *IndexQueue) Drop() error {
+	_ = q.Close()
+
+	if q.checkpoints != nil {
+		return q.checkpoints.Delete(q.shardID)
+	}
 
 	return nil
 }
@@ -396,10 +487,9 @@ func (pqh *pqMaxPool) Put(pq *priorityqueue.Queue) {
 }
 
 type vectorQueue struct {
-	batchSize    int
-	staleTimeout time.Duration
-	pool         sync.Pool
-	curBatch     struct {
+	IndexQueue *IndexQueue
+	pool       sync.Pool
+	curBatch   struct {
 		sync.Mutex
 
 		c *chunk
@@ -416,14 +506,13 @@ type vectorQueue struct {
 	}
 }
 
-func newVectorQueue(batchSize int, staleTimeout time.Duration) *vectorQueue {
+func newVectorQueue(iq *IndexQueue) *vectorQueue {
 	q := vectorQueue{
-		batchSize:    batchSize,
-		staleTimeout: staleTimeout,
+		IndexQueue: iq,
 		pool: sync.Pool{
 			New: func() any {
 				return &chunk{
-					data: make([]vectorDescriptor, batchSize),
+					data: make([]vectorDescriptor, iq.BatchSize),
 				}
 			},
 		},
@@ -522,7 +611,7 @@ func (q *vectorQueue) ensureHasSpace() *chunk {
 		q.curBatch.c.createdAt = &now
 	}
 
-	if q.curBatch.c.cursor < q.batchSize {
+	if q.curBatch.c.cursor < q.IndexQueue.BatchSize {
 		return nil
 	}
 
@@ -550,7 +639,7 @@ func (q *vectorQueue) borrowAllChunks() []*chunk {
 	q.fullChunks.Unlock()
 
 	q.curBatch.Lock()
-	if q.curBatch.c != nil && time.Since(*q.curBatch.c.createdAt) > q.staleTimeout && q.curBatch.c.cursor > 0 {
+	if q.curBatch.c != nil && time.Since(*q.curBatch.c.createdAt) > q.IndexQueue.StaleTimeout && q.curBatch.c.cursor > 0 {
 		q.curBatch.c.borrowed = true
 		chunks = append(chunks, q.curBatch.c)
 		q.curBatch.c = nil
@@ -576,6 +665,44 @@ func (q *vectorQueue) releaseChunk(c *chunk) {
 	c.indexed = nil
 
 	q.pool.Put(c)
+}
+
+func (q *vectorQueue) persistCheckpoint(ids []uint64) {
+	if len(ids) == 0 {
+		return
+	}
+
+	// update the on-disk checkpoint that tracks the minimum indexed id
+	// with a value that is guaranteed to be lower than the last lowest indexed id.
+	q.fullChunks.Lock()
+	cl := q.fullChunks.list.Len()
+	q.fullChunks.Unlock()
+	// Determine a safe value to use as the new checkpoint.
+	// The value doesn't have to be accurate but it must guarantee
+	// that it is lower than the last indexed id.
+	var minID uint64
+	for _, id := range ids {
+		if minID == 0 || id < minID {
+			minID = id
+		}
+	}
+
+	delta := uint64(cl * q.IndexQueue.BatchSize)
+	// cap the delta to 10k vectors
+	if delta > 10_000 {
+		delta = 10_000
+	}
+	var checkpoint uint64
+	if minID > delta {
+		checkpoint = minID - delta
+	} else {
+		checkpoint = 0
+	}
+
+	err := q.IndexQueue.checkpoints.Update(q.IndexQueue.shardID, checkpoint)
+	if err != nil {
+		q.IndexQueue.Logger.WithError(err).Error("update checkpoint")
+	}
 }
 
 func (q *vectorQueue) AppendSnapshot(buf []vectorDescriptor, limit int) []vectorDescriptor {
