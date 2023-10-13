@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package weaviate.v0;
+
+message SearchRequest {
+}
+
+message SearchReply {
+}
+
