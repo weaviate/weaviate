@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	goruntime "runtime"
 	"runtime/debug"
 	"strings"
@@ -43,6 +44,8 @@ import (
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	txstore "github.com/weaviate/weaviate/adapters/repos/transactions"
+	schemav2 "github.com/weaviate/weaviate/cloud/store"
+
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
@@ -84,8 +87,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/scaler"
+	"github.com/weaviate/weaviate/usecases/schema"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/schema/migrate"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
@@ -153,8 +156,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	appState.ClusterHttpClient = reasonableHttpClient(appState.ServerConfig.Config.Cluster.AuthConfig)
 
 	var vectorRepo vectorRepo
-	var vectorMigrator migrate.Migrator
-	var migrator migrate.Migrator
+	// var vectorMigrator schema.Migrator
+	// var migrator schema.Migrator
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		promMetrics := monitoring.GetMetrics()
@@ -197,9 +200,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.DB = repo
-	vectorMigrator = db.NewMigrator(repo, appState.Logger)
+	migrator := db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
-	migrator = vectorMigrator
+	// migrator = vectorMigrator
 	explorer := traverser.NewExplorer(repo, appState.Logger, appState.Modules, traverser.NewMetrics(appState.Metrics), appState.ServerConfig.Config)
 	schemaRepo := schemarepo.NewStore(appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err = schemaRepo.Open(); err != nil {
@@ -232,16 +235,42 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	schemaTxClient := clients.NewClusterSchema(appState.ClusterHttpClient)
 	schemaTxPersistence := txstore.NewStore(
 		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
-	schemaTxPersistence.SetUmarshalFn(schemaUC.UnmarshalTransaction)
-	if err := schemaTxPersistence.Open(); err != nil {
-		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("could not open tx repo")
-		os.Exit(1)
+	// schemaTxPersistence.SetUmarshalFn(schemaUC.UnmarshalTransaction)
+	// if err := schemaTxPersistence.Open(); err != nil {
+	// 	appState.Logger.
+	// 		WithField("action", "startup").WithError(err).
+	// 		Fatal("could not open tx repo")
+	// 	os.Exit(1)
 
+	// }
+
+	// TODO-RAFT START
+	nodeName := appState.Cluster.LocalName()
+	nodeAddr, _ := appState.Cluster.NodeHostname(nodeName)
+	addrs := strings.Split(nodeAddr, ":")
+
+	rConfig := schemav2.Config{
+		WorkDir:  filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, "raft"),
+		NodeID:   nodeName,
+		Host:     addrs[0],
+		RaftPort: "1" + addrs[1],
+		DB:       nil,
+		Parser:   schema.NewParser(appState.Cluster, enthnsw.ParseAndValidateConfig),
 	}
 
-	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
+	fsm := schemav2.New(rConfig)
+	appState.MetaStore = &fsm
+	schemaReader := fsm.SchemaReader()
+	executor, err := schema.NewExecutor(migrator, schemaReader, appState.Logger)
+	if err != nil {
+		appState.Logger.Errorf("could not init executor %v:", err)
+		os.Exit(1)
+	}
+	fsm.SetDB(executor)
+	schemaManager, err := schemaUC.NewManager(migrator,
+		appState.MetaStore,
+		schemaReader,
+		schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
 		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
 		appState.Modules, appState.Cluster, schemaTxClient,
@@ -253,6 +282,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			Fatal("could not initialize schema manager")
 		os.Exit(1)
 	}
+
+	// TODO-RAFT ENDappState.MetaHandler = handler
 
 	appState.SchemaManager = schemaManager
 
@@ -299,7 +330,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	appState.Traverser = objectsTraverser
 
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, objectsTraverser)
-	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
+	executor.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
 	err = migrator.AdjustFilterablePropSettings(ctx)
 	if err != nil {
@@ -364,6 +395,39 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	if appState.ServerConfig.Config.RecountPropertiesAtStartup {
 		migrator.RecountProperties(ctx)
 	}
+
+	// TODO_RAFT START
+	appState.MetaStore = &fsm
+
+	boostrapper := addrs[1] == "7101"
+	candidateList := []schemav2.Candidate{
+		{ID: "node1", Address: addrs[0] + ":17101", NonVoter: false},
+		{ID: "node3", Address: addrs[0] + ":17105", NonVoter: false},
+		{ID: "node4", Address: addrs[0] + ":17107", NonVoter: false},
+	}
+	raftNode, err := fsm.Open(boostrapper, candidateList)
+	if err != nil {
+		fmt.Printf("fsm.open %v", err.Error())
+		os.Exit(1)
+	}
+	cAddr := addrs[0] + ":2" + addrs[1]
+	cluster := schemav2.NewCluster(raftNode, cAddr)
+	if err := cluster.Open(); err != nil {
+		fmt.Printf("cluster.open %v", err.Error())
+		os.Exit(1)
+	}
+	//if !boostrapper {
+	//serverAddress := addrs[0] + ":2" + "7101"
+	//raftAddress := addrs[0] + ":1" + addrs[1]
+	//cl := schemav2.NewClient(cluster)
+	//joinReq := proto.JoinPeerRequest{Id: nodeName, Address: raftAddress, Voter: true}
+	//err := cl.Join(serverAddress, &joinReq)
+	//if err != nil {
+	//	fmt.Printf("cluster.join %v", err.Error())
+	// os.Exit(1)
+	//}
+	//}
+	// TODO-RAFT END
 
 	return appState
 }
@@ -506,9 +570,50 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 			Error("could not init cluster state")
 		logger.Exit(1)
 	}
+	//
 
 	appState.Cluster = clusterState
+	//----  TODO-RAFT REMOVE
+	// fmt.Println(schemaUC2.Handler{})
+	// nodeName := clusterState.LocalName()
+	// nodeAddr, _ := clusterState.NodeHostname(nodeName)
+	// addrs := strings.Split(nodeAddr, ":")
 
+	// rconfig := schemav2.Config{
+	// 	WorkDir:  filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, "raft"),
+	// 	NodeID:   clusterState.LocalName(),
+	// 	Host:     addrs[0],
+	// 	RaftPort: "1" + addrs[1],
+	// }
+	// fsm := schemav2.New(rconfig)
+	// boostrapper := addrs[1] == "7101"
+	// candidateList := []schemav2.Candidate{
+	// 	{ID: "node3", Address: addrs[0] + ":17105", NonVoter: false},
+	// 	{ID: "node4", Address: addrs[0] + ":17107", NonVoter: false},
+	// }
+	// raftNode, err := fsm.Open(boostrapper, candidateList)
+	// if err != nil {
+	// 	fmt.Printf("fsm.open %v", err.Error())
+	// 	os.Exit(1)
+	// }
+	// cAddr := addrs[0] + ":2" + addrs[1]
+	// cluster := schemav2.NewCluster(raftNode, cAddr)
+	// if err := cluster.Open(); err != nil {
+	// 	fmt.Printf("cluster.open %v", err.Error())
+	// 	os.Exit(1)
+	// }
+	// if !boostrapper {
+	// 	serverAddress := addrs[0] + ":2" + "7101"
+	// 	raftAddress := addrs[0] + ":1" + addrs[1]
+	// 	cl := schemav2.NewClient(cluster)
+	// 	joinReq := proto.JoinPeerRequest{Id: nodeName, Address: raftAddress, Voter: true}
+	// 	err := cl.Join(serverAddress, &joinReq)
+	// 	if err != nil {
+	// 		fmt.Printf("cluster.join %v", err.Error())
+	// 		os.Exit(1)
+	// 	}
+	// }
+	//-------
 	appState.Logger.
 		WithField("action", "startup").
 		Debug("startup routine complete")
