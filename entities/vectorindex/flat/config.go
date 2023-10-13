@@ -20,14 +20,24 @@ import (
 )
 
 const (
-	DefaultEF          = -1 // indicates "let Weaviate pick"
-	DefaultFullyOnDisk = false
+	DefaultEF              = -1 // indicates "let Weaviate pick"
+	DefaultFullyOnDisk     = false
+	DefaultPartiallyOnDisk = false
+	DefaultCompression     = CompressionBQ
+	DefaultUseIvf          = false
+
+	CompressionNone = "none"
+	CompressionBQ   = "binary"
+	CompressionPQ   = "product-quantisation"
 )
 
 type UserConfig struct {
-	EF          int    `json:"ef"`
-	Distance    string `json:"distance"`
-	FullyOnDisk bool   `json:"fullyOnDisk"`
+	EF              int    `json:"ef"`
+	Distance        string `json:"distance"`
+	FullyOnDisk     bool   `json:"fullyOnDisk"`
+	PartiallyOnDisk bool   `json:"partiallyOnDisk"`
+	Compression     string `json:"compression"`
+	UseIvf          bool   `json:"useIvf"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -43,6 +53,9 @@ func (u UserConfig) DistanceName() string {
 // SetDefaults in the user-specifyable part of the config
 func (u *UserConfig) SetDefaults() {
 	u.EF = DefaultEF
+	u.FullyOnDisk = DefaultFullyOnDisk
+	u.PartiallyOnDisk = DefaultPartiallyOnDisk
+	u.Compression = DefaultCompression
 	u.FullyOnDisk = DefaultFullyOnDisk
 	u.Distance = vectorindexcommon.DefaultDistanceMetric
 }
@@ -76,6 +89,24 @@ func ParseAndValidateConfig(input interface{}) (schema.VectorIndexConfig, error)
 
 	if err := vectorindexcommon.OptionalBoolFromMap(asMap, "fullyOnDisk", func(v bool) {
 		uc.FullyOnDisk = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := vectorindexcommon.OptionalBoolFromMap(asMap, "partiallyOnDisk", func(v bool) {
+		uc.PartiallyOnDisk = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := vectorindexcommon.OptionalBoolFromMap(asMap, "useIvf", func(v bool) {
+		uc.UseIvf = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := vectorindexcommon.OptionalStringFromMap(asMap, "compression", func(v string) {
+		uc.Compression = v
 	}); err != nil {
 		return uc, err
 	}
