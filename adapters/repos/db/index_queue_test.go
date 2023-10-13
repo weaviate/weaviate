@@ -231,6 +231,24 @@ func TestIndexQueue(t *testing.T) {
 		require.Equal(t, []uint64{1, 4}, res)
 	})
 
+	t.Run("search with empty index", func(t *testing.T) {
+		var idx mockBatchIndexer
+
+		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+			BatchSize: 6,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		for i := 0; i < 10; i++ {
+			pushVector(t, ctx, q, uint64(i+1), float32(i)+1, float32(i)+2, float32(i)+3)
+		}
+
+		res, _, err := q.SearchByVector([]float32{1, 2, 3}, 2, nil)
+		require.NoError(t, err)
+		require.Equal(t, []uint64{1, 2}, res)
+	})
+
 	t.Run("queue size", func(t *testing.T) {
 		var idx mockBatchIndexer
 		closeCh := make(chan struct{})
@@ -585,8 +603,8 @@ func (m *mockBatchIndexer) SearchByVector(vector []float32, k int, allowList hel
 			}
 		}
 	}
-	ids := make([]uint64, 0, k)
-	distances := make([]float32, 0, k)
+	var ids []uint64
+	var distances []float32
 
 	for i := k - 1; i >= 0; i-- {
 		if results.Len() == 0 {

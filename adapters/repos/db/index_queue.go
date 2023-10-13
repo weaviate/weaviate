@@ -412,11 +412,15 @@ func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.A
 		return nil, nil, err
 	}
 
-	if cap(ids) >= k {
+	if len(ids) >= k {
 		ids = ids[:k]
-		distances = distances[:k]
 	} else {
 		ids = make([]uint64, k)
+	}
+
+	if len(distances) >= k {
+		distances = distances[:k]
+	} else {
 		distances = make([]float32, k)
 	}
 
