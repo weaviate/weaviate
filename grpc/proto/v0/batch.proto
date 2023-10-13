@@ -2,8 +2,8 @@ syntax = "proto3";
 
 package weaviate.v0;
 
-import "v0/base.proto";
 import "google/protobuf/struct.proto";
+import "v0/base.proto";
 
 message BatchObjectsRequest {
   repeated BatchObject objects = 1;
