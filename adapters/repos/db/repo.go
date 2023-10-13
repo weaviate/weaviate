@@ -22,6 +22,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -43,6 +44,7 @@ type DB struct {
 	nodeResolver      nodeResolver
 	remoteNode        *sharding.RemoteNode
 	promMetrics       *monitoring.PrometheusMetrics
+	indexCheckpoints  *indexcheckpoint.Checkpoints
 	shutdown          chan struct{}
 	startupComplete   atomic.Bool
 	resourceScanState *resourceScanState
@@ -254,6 +256,10 @@ func (db *DB) Shutdown(ctx context.Context) error {
 
 	db.shutDownWg.Wait() // wait until job queue shutdown is completed
 
+	if asyncEnabled() {
+		db.indexCheckpoints.Close()
+	}
+
 	return nil
 }
 
@@ -328,6 +334,7 @@ func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Dura
 			}
 		}
 
+		job.queue.persistCheckpoint(ids)
 		job.queue.releaseChunk(c)
 
 		if len(deleted) > 0 {

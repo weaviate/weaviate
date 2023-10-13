@@ -29,6 +29,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
@@ -142,8 +143,9 @@ type Index struct {
 	// RUnlock all picked indices
 	dropIndex sync.RWMutex
 
-	metrics         *Metrics
-	centralJobQueue chan job
+	metrics          *Metrics
+	centralJobQueue  chan job
+	indexCheckpoints *indexcheckpoint.Checkpoints
 
 	partitioningEnabled bool
 
@@ -170,6 +172,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, class *models.Class, jobQueueCh chan job,
+	indexCheckpoints *indexcheckpoint.Checkpoints,
 ) (*Index, error) {
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
 	if err != nil {
@@ -198,6 +201,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		centralJobQueue:     jobQueueCh,
 		partitioningEnabled: shardState.PartitioningEnabled,
 		backupMutex:         backupMutex{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
+		indexCheckpoints:    indexCheckpoints,
 	}
 	index.initCycleCallbacks()
 
@@ -216,7 +220,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 			continue
 		}
 
-		shard, err := NewShard(ctx, promMetrics, shardName, index, class, jobQueueCh)
+		shard, err := NewShard(ctx, promMetrics, shardName, index, class, jobQueueCh, indexCheckpoints)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %s of index %s", shardName, index.ID())
 		}
@@ -1799,7 +1803,7 @@ func (i *Index) addNewShard(ctx context.Context,
 	}
 
 	// TODO: metrics
-	s, err := NewShard(ctx, nil, shardName, i, class, i.centralJobQueue)
+	s, err := NewShard(ctx, nil, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
 	if err != nil {
 		return err
 	}
