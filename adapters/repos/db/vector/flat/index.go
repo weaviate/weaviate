@@ -56,11 +56,15 @@ type flat struct {
 
 	tempVectors *common.TempVectorsPool
 	pqResults   *common.PqMaxPool
-	fullyOnDisk bool
 	pool        *pools
 
 	shardCompactionCallbacks cyclemanager.CycleCallbackGroup
 	shardFlushCallbacks      cyclemanager.CycleCallbackGroup
+
+	fullyOnDisk     bool
+	partiallyOnDisk bool
+	compression     string
+	useIvf          bool
 }
 
 func New(
@@ -89,6 +93,9 @@ func New(
 		tempVectors:              common.NewTempVectorsPool(),
 		pqResults:                common.NewPqMaxPool(100),
 		fullyOnDisk:              uc.FullyOnDisk,
+		partiallyOnDisk:          uc.PartiallyOnDisk,
+		compression:              uc.Compression,
+		useIvf:                   uc.UseIvf,
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
 	}
@@ -143,7 +150,6 @@ func (index *flat) AddBatch(ids []uint64, vectors [][]float32) error {
 }
 
 func byteSliceFromUint64Slice(x []uint64, slice []byte) []byte {
-	slice = make([]byte, len(x)*8)
 	for i := range x {
 		binary.LittleEndian.PutUint64(slice[i*8:], x[i])
 	}
@@ -152,7 +158,6 @@ func byteSliceFromUint64Slice(x []uint64, slice []byte) []byte {
 
 func uint64SliceFromByteSlice(x []byte, slice []uint64) []uint64 {
 	len := len(x) / 8
-	slice = make([]uint64, len)
 	for i := 0; i < len; i++ {
 		slice[i] = binary.LittleEndian.Uint64(x[i*8:])
 	}
@@ -179,9 +184,8 @@ func (index *flat) Add(id uint64, vector []float32) error {
 		return err
 	}
 	if index.fullyOnDisk {
-		slice := index.pool.byteSlicePool.Get(len(vec) * 8)
-		defer index.pool.byteSlicePool.Put(slice)
-		index.storeCompressedVector(id, byteSliceFromUint64Slice(vec, *slice))
+		slice := make([]byte, len(vec)*8)
+		index.storeCompressedVector(id, byteSliceFromUint64Slice(vec, slice))
 		return nil
 	}
 
@@ -249,11 +253,11 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 			// alloc some new memory and copy the vector.
 			//
 			// https://github.com/weaviate/weaviate/issues/3049
-			slice := index.pool.uint64SlicePool.Get(len(v) / 8)
-			candidate := uint64SliceFromByteSlice(v, *slice)
+			t := index.pool.uint64SlicePool.Get(len(v) / 8)
+			candidate := uint64SliceFromByteSlice(v, t.slice)
 			d, _ := index.bq.DistanceBetweenCompressedVectors(candidate, query)
-			candidate = nil
-			index.pool.uint64SlicePool.Put(slice)
+
+			index.pool.uint64SlicePool.Put(t)
 			if heap.Len() < ef || heap.Top().Dist > d {
 				if heap.Len() == ef {
 					heap.Pop()

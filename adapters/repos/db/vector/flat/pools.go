@@ -15,70 +15,49 @@ import (
 	"sync"
 )
 
+const defaultSize = 200
+
 type pools struct {
-	byteSlicePool   *byteSlicePool
-	uint64SlicePool *uint64SlicePool
+	byteSlicePool   *slicePool[byte]
+	uint64SlicePool *slicePool[uint64]
 }
 
 func newPools() *pools {
 	return &pools{
-		byteSlicePool:   newByteSlicePool(),
-		uint64SlicePool: newUint64licePool(),
+		byteSlicePool:   newSlicePool[byte](),
+		uint64SlicePool: newSlicePool[uint64](),
 	}
 }
 
-type byteSlicePool struct {
+type slicePool[T any] struct {
 	pool *sync.Pool
 }
 
-func newByteSlicePool() *byteSlicePool {
-	return &byteSlicePool{
+type SliceStruct[T any] struct {
+	slice []T
+}
+
+func newSlicePool[T any]() *slicePool[T] {
+	return &slicePool[T]{
 		pool: &sync.Pool{
 			New: func() interface{} {
-				newSlice := make([]byte, 0)
-				return &newSlice
+				return &SliceStruct[T]{
+					slice: make([]T, defaultSize),
+				}
 			},
 		},
 	}
 }
 
-func (p *byteSlicePool) Get(capacity int) *[]byte {
-	slice := p.pool.Get().(*[]byte)
-	if len(*slice) != capacity {
-		newSlice := make([]byte, capacity)
-		slice = &newSlice
+func (p *slicePool[T]) Get(capacity int) *SliceStruct[T] {
+	t := p.pool.Get().(*SliceStruct[T])
+	if cap(t.slice) < capacity {
+		t.slice = make([]T, capacity)
 	}
-	return slice
+	t.slice = t.slice[:capacity]
+	return t
 }
 
-func (p *byteSlicePool) Put(slice *[]byte) {
-	p.pool.Put(slice)
-}
-
-type uint64SlicePool struct {
-	pool *sync.Pool
-}
-
-func newUint64licePool() *uint64SlicePool {
-	return &uint64SlicePool{
-		pool: &sync.Pool{
-			New: func() interface{} {
-				newSlice := make([]uint64, 0)
-				return &newSlice
-			},
-		},
-	}
-}
-
-func (p *uint64SlicePool) Get(capacity int) *[]uint64 {
-	slice := p.pool.Get().(*[]uint64)
-	if len(*slice) != capacity {
-		newSlice := make([]uint64, capacity)
-		slice = &newSlice
-	}
-	return slice
-}
-
-func (p *uint64SlicePool) Put(slice *[]uint64) {
-	p.pool.Put(slice)
+func (p *slicePool[T]) Put(t *SliceStruct[T]) {
+	p.pool.Put(t)
 }
