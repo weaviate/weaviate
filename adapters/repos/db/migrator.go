@@ -26,7 +26,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/replica"
-	"github.com/weaviate/weaviate/usecases/schema/migrate"
+
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"golang.org/x/sync/errgroup"
 )
@@ -160,7 +161,7 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 
 // NewTenants creates new partitions and returns a commit func
 // that can be used to either commit or rollback the partitions
-func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates []*migrate.CreateTenantPayload) (commit func(success bool), err error) {
+func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates []*schemaUC.CreateTenantPayload) (commit func(success bool), err error) {
 	idx := m.db.GetIndex(schema.ClassName(class.Class))
 	if idx == nil {
 		return nil, fmt.Errorf("cannot find index for %q", class.Class)
@@ -211,7 +212,7 @@ func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates 
 
 // UpdateTenans activates or deactivates tenant partitions and returns a commit func
 // that can be used to either commit or rollback the changes
-func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*migrate.UpdateTenantPayload) (commit func(success bool), err error) {
+func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*schemaUC.UpdateTenantPayload) (commit func(success bool), err error) {
 	idx := m.db.GetIndex(schema.ClassName(class.Class))
 	if idx == nil {
 		return nil, fmt.Errorf("cannot find index for %q", class.Class)
@@ -340,8 +341,8 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 
 // DeleteTenants deletes tenants and returns a commit func
 // that can be used to either commit or rollback deletion
-func (m *Migrator) DeleteTenants(ctx context.Context, class *models.Class, tenants []string) (commit func(success bool), err error) {
-	idx := m.db.GetIndex(schema.ClassName(class.Class))
+func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []string) (commit func(success bool), err error) {
+	idx := m.db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return func(bool) {}, nil
 	}
