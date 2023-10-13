@@ -687,3 +687,7 @@ func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
 func (h *hnsw) ContainsNode(id uint64) bool {
 	return len(h.nodes) > int(id) && h.nodes[id] != nil
 }
+
+func (h *hnsw) DistancerProvider() distancer.Provider {
+	return h.distancerProvider
+}

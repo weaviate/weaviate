@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -89,7 +90,9 @@ type batchIndexer interface {
 	DistanceBetweenVectors(x, y []float32) (float32, bool, error)
 	ContainsNode(id uint64) bool
 	Delete(id ...uint64) error
+	DistancerProvider() distancer.Provider
 }
+
 type shardStatusUpdater interface {
 	compareAndSwapStatus(old, new string) (storagestate.Status, error)
 }
@@ -385,6 +388,12 @@ func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.A
 		return indexedResults, distances, nil
 	}
 
+	if q.Index.DistancerProvider().Type() == "cosine-dot" {
+		// cosine-dot requires normalized vectors, as the dot product and cosine
+		// similarity are only identical if the vector is normalized
+		vector = distancer.Normalize(vector)
+	}
+
 	results := q.pqMaxPool.GetMax(k)
 	defer q.pqMaxPool.Put(results)
 	for i := range indexedResults {
@@ -440,7 +449,14 @@ func (q *IndexQueue) bruteForce(vector []float32, k int, ids []uint64, vectors [
 			continue
 		}
 
-		dist, _, err := q.Index.DistanceBetweenVectors(vector, vectors[i])
+		v := vectors[i]
+		if q.Index.DistancerProvider().Type() == "cosine-dot" {
+			// cosine-dot requires normalized vectors, as the dot product and cosine
+			// similarity are only identical if the vector is normalized
+			v = distancer.Normalize(v)
+		}
+
+		dist, _, err := q.Index.DistanceBetweenVectors(vector, v)
 		if err != nil {
 			return err
 		}
