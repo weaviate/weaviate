@@ -20,6 +20,11 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
+/// TODO-RAFT START
+/// Get rid of code related to the previous transaction implementation
+//  Refactor and clean up
+/// TODO-RAFT END
+
 // startupClusterSync tries to determine what - if any - schema migration is
 // required at startup. If a node is the first in a cluster the assumption is
 // that its state is the truth.
@@ -44,34 +49,34 @@ func (m *Manager) startupClusterSync(ctx context.Context) error {
 		return m.startupHandleSingleNode(ctx, nodes)
 	}
 
-	if m.schemaCache.isEmpty() {
-		return m.startupJoinCluster(ctx)
-	}
+	// if m.schemaCache.isEmpty() {
+	// 	return m.startupJoinCluster(ctx)
+	// }
 
-	err := m.validateSchemaCorruption(ctx)
-	if err == nil {
-		// schema is fine, we are done
-		return nil
-	}
+	// err := m.validateSchemaCorruption(ctx)
+	// if err == nil {
+	// 	// schema is fine, we are done
+	// 	return nil
+	// }
 
-	if m.clusterState.SchemaSyncIgnored() {
-		m.logger.WithError(err).WithFields(logrusStartupSyncFields()).
-			Warning("schema out of sync, but ignored because " +
-				"CLUSTER_IGNORE_SCHEMA_SYNC=true")
-		return nil
-	}
+	// if m.clusterState.SchemaSyncIgnored() {
+	// 	m.logger.WithError(err).WithFields(logrusStartupSyncFields()).
+	// 		Warning("schema out of sync, but ignored because " +
+	// 			"CLUSTER_IGNORE_SCHEMA_SYNC=true")
+	// 	return nil
+	// }
 
-	if m.cluster.HaveDanglingTxs(ctx, resumableTxs) {
-		m.logger.WithFields(logrusStartupSyncFields()).
-			Infof("schema out of sync, but there are dangling transactions, the check will be repeated after an attempt to resume those transactions")
+	// if m.cluster.HaveDanglingTxs(ctx, resumableTxs) {
+	// 	m.logger.WithFields(logrusStartupSyncFields()).
+	// 		Infof("schema out of sync, but there are dangling transactions, the check will be repeated after an attempt to resume those transactions")
 
-		m.LockGuard(func() {
-			m.shouldTryToResumeTx = true
-		})
-		return nil
-	}
+	// 	m.LockGuard(func() {
+	// 		m.shouldTryToResumeTx = true
+	// 	})
+	// 	return nil
+	// }
 
-	return err
+	return nil // err
 }
 
 // startupHandleSingleNode deals with the case where there is only a single
@@ -109,36 +114,36 @@ func (m *Manager) startupHandleSingleNode(ctx context.Context,
 // There is one edge case: The cluster could consist of multiple nodes which
 // are empty. In this case, no migration is required.
 func (m *Manager) startupJoinCluster(ctx context.Context) error {
-	tx, err := m.cluster.BeginTransaction(ctx, ReadSchema, nil, DefaultTxTTL)
-	if err != nil {
-		if m.clusterSyncImpossibleBecauseRemoteNodeTooOld(err) {
-			return nil
-		}
-		return fmt.Errorf("read schema: open transaction: %w", err)
-	}
+	// tx, err := m.cluster.BeginTransaction(ctx, ReadSchema, nil, DefaultTxTTL)
+	// if err != nil {
+	// 	if m.clusterSyncImpossibleBecauseRemoteNodeTooOld(err) {
+	// 		return nil
+	// 	}
+	// 	return fmt.Errorf("read schema: open transaction: %w", err)
+	// }
 
-	// this tx is read-only, so we don't have to worry about aborting it, the
-	// close should be the same on both happy and unhappy path
-	defer m.cluster.CloseReadTransaction(ctx, tx)
+	// // this tx is read-only, so we don't have to worry about aborting it, the
+	// // close should be the same on both happy and unhappy path
+	// defer m.cluster.CloseReadTransaction(ctx, tx)
 
-	pl, ok := tx.Payload.(ReadSchemaPayload)
-	if !ok {
-		return fmt.Errorf("unrecognized tx response payload: %T", tx.Payload)
-	}
+	// pl, ok := tx.Payload.(ReadSchemaPayload)
+	// if !ok {
+	// 	return fmt.Errorf("unrecognized tx response payload: %T", tx.Payload)
+	// }
 
-	// by the time we're here the consensus function has run, so we can be sure
-	// that all other nodes agree on this schema.
+	// // by the time we're here the consensus function has run, so we can be sure
+	// // that all other nodes agree on this schema.
 
-	if isEmpty(pl.Schema) {
-		// already in sync, nothing to do
-		return nil
-	}
+	// if isEmpty(pl.Schema) {
+	// 	// already in sync, nothing to do
+	// 	return nil
+	// }
 
-	if err := m.saveSchema(ctx, *pl.Schema); err != nil {
-		return fmt.Errorf("save schema: %w", err)
-	}
+	// if err := m.saveSchema(ctx, *pl.Schema); err != nil {
+	// 	return fmt.Errorf("save schema: %w", err)
+	// }
 
-	m.schemaCache.setState(*pl.Schema)
+	// m.schemaCache.setState(*pl.Schema)
 
 	return nil
 }
@@ -174,44 +179,44 @@ func (m *Manager) ClusterStatus(ctx context.Context) (*models.SchemaClusterStatu
 // cluster have a schema - they are in sync. If not the cluster is considered
 // broken and needs to be repaired manually
 func (m *Manager) validateSchemaCorruption(ctx context.Context) error {
-	tx, err := m.cluster.BeginTransaction(ctx, ReadSchema, nil, DefaultTxTTL)
-	if err != nil {
-		if m.clusterSyncImpossibleBecauseRemoteNodeTooOld(err) {
-			return nil
-		}
-		return fmt.Errorf("read schema: open transaction: %w", err)
-	}
+	// tx, err := m.cluster.BeginTransaction(ctx, ReadSchema, nil, DefaultTxTTL)
+	// if err != nil {
+	// 	if m.clusterSyncImpossibleBecauseRemoteNodeTooOld(err) {
+	// 		return nil
+	// 	}
+	// 	return fmt.Errorf("read schema: open transaction: %w", err)
+	// }
 
-	// this tx is read-only, so we don't have to worry about aborting it, the
-	// close should be the same on both happy and unhappy path
-	if err = m.cluster.CloseReadTransaction(ctx, tx); err != nil {
-		return err
-	}
+	// // this tx is read-only, so we don't have to worry about aborting it, the
+	// // close should be the same on both happy and unhappy path
+	// if err = m.cluster.CloseReadTransaction(ctx, tx); err != nil {
+	// 	return err
+	// }
 
-	pl, ok := tx.Payload.(ReadSchemaPayload)
-	if !ok {
-		return fmt.Errorf("unrecognized tx response payload: %T", tx.Payload)
-	}
-	var diff []string
-	cmp := func() error {
-		if err := Equal(&m.schemaCache.State, pl.Schema); err != nil {
-			diff = Diff("local", &m.schemaCache.State, "cluster", pl.Schema)
-			return err
-		}
-		return nil
-	}
-	if err := m.schemaCache.RLockGuard(cmp); err != nil {
-		m.logger.WithFields(logrusStartupSyncFields()).WithFields(logrus.Fields{
-			"diff": diff,
-		}).Warning("mismatch between local schema and remote (other nodes consensus) schema")
-		if m.clusterState.SkipSchemaRepair() {
-			return fmt.Errorf("corrupt cluster: other nodes have consensus on schema, "+
-				"but local node has a different (non-null) schema: %w", err)
-		}
-		if repairErr := m.repairSchema(ctx, pl.Schema); repairErr != nil {
-			return fmt.Errorf("attempted to repair and failed: %v, sync error: %w", repairErr, err)
-		}
-	}
+	// pl, ok := tx.Payload.(ReadSchemaPayload)
+	// if !ok {
+	// 	return fmt.Errorf("unrecognized tx response payload: %T", tx.Payload)
+	// }
+	// var diff []string
+	// cmp := func() error {
+	// 	if err := Equal(&m.schemaCache.State, pl.Schema); err != nil {
+	// 		diff = Diff("local", &m.schemaCache.State, "cluster", pl.Schema)
+	// 		return err
+	// 	}
+	// 	return nil
+	// }
+	// if err := m.schemaCache.RLockGuard(cmp); err != nil {
+	// 	m.logger.WithFields(logrusStartupSyncFields()).WithFields(logrus.Fields{
+	// 		"diff": diff,
+	// 	}).Warning("mismatch between local schema and remote (other nodes consensus) schema")
+	// 	if m.clusterState.SkipSchemaRepair() {
+	// 		return fmt.Errorf("corrupt cluster: other nodes have consensus on schema, "+
+	// 			"but local node has a different (non-null) schema: %w", err)
+	// 	}
+	// 	if repairErr := m.repairSchema(ctx, pl.Schema); repairErr != nil {
+	// 		return fmt.Errorf("attempted to repair and failed: %v, sync error: %w", repairErr, err)
+	// 	}
+	// }
 
 	return nil
 }
