@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package grpc
+package v1
 
 import (
 	"testing"

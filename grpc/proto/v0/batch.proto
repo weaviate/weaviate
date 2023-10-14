@@ -5,6 +5,10 @@ package weaviate.v0;
 import "google/protobuf/struct.proto";
 import "v0/base.proto";
 
+option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
+option java_package = "io.weaviate.grpc.protocol";
+option java_outer_classname = "WeaviateProtoBatch";
+
 message BatchObjectsRequest {
   repeated BatchObject objects = 1;
   optional ConsistencyLevel consistency_level = 2;

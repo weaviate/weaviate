@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package grpc
+package v0
 
 import (
 	"fmt"
@@ -19,7 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v0"
 )
 
 const BEACON_START = "weaviate://localhost/"
