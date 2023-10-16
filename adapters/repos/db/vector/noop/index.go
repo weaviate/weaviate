@@ -17,6 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -105,4 +106,8 @@ func (i *Index) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
 
 func (i *Index) ContainsNode(id uint64) bool {
 	return false
+}
+
+func (i *Index) DistancerProvider() distancer.Provider {
+	return nil
 }
