@@ -6,8 +6,5 @@ option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
 option java_package = "io.weaviate.grpc.protocol.v0";
 option java_outer_classname = "WeaviateProtoSearchGet";
 
-message SearchRequest {
-}
-
-message SearchReply {
-}
+message SearchRequest {}
+message SearchReply {}
