@@ -64,6 +64,11 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{"not found", StatusNotFound, err}
 	}
 
+	err = m.autoSchemaManager.autoSchema(ctx, principal, updates, false)
+	if err != nil {
+		return &Error{"bad request", StatusBadRequest, NewErrInvalidUserInput("invalid object: %v", err)}
+	}
+
 	var propertiesToDelete []string
 	if updates.Properties != nil {
 		for key, val := range updates.Properties.(map[string]interface{}) {

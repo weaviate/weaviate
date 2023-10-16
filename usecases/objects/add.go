@@ -101,7 +101,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	}
 	object.ID = id
 
-	err = m.autoSchemaManager.autoSchema(ctx, principal, object)
+	err = m.autoSchemaManager.autoSchema(ctx, principal, object, true)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}

@@ -50,16 +50,16 @@ func newAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
 }
 
 func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Principal,
-	object *models.Object,
+	object *models.Object, allowCreateClass bool,
 ) error {
 	if m.config.Enabled {
-		return m.performAutoSchema(ctx, principal, object)
+		return m.performAutoSchema(ctx, principal, object, allowCreateClass)
 	}
 	return nil
 }
 
 func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *models.Principal,
-	object *models.Object,
+	object *models.Object, allowCreateClass bool,
 ) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -77,6 +77,9 @@ func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *mo
 	schemaClass, err := m.getClass(principal, object)
 	if err != nil {
 		return err
+	}
+	if schemaClass == nil && !allowCreateClass {
+		return fmt.Errorf("given class does not exist")
 	}
 	properties, err := m.getProperties(object)
 	if err != nil {
