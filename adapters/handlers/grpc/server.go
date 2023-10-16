@@ -33,7 +33,8 @@ func CreateGRPCServer(state *state.State) *GRPCServer {
 		grpc.MaxRecvMsgSize(maxMsgSize),
 		grpc.MaxSendMsgSize(maxMsgSize),
 	)
-	weaviateServerV0 := v0.NewServer(
+	weaviateV0 := v0.NewService()
+	weaviateV1 := v1.NewService(
 		state.Traverser,
 		composer.New(
 			state.ServerConfig.Config.Authentication,
@@ -42,18 +43,9 @@ func CreateGRPCServer(state *state.State) *GRPCServer {
 		state.SchemaManager,
 		state.BatchManager,
 	)
-	weaviateServerV1 := v1.NewServer(
-		state.Traverser,
-		composer.New(
-			state.ServerConfig.Config.Authentication,
-			state.APIKey, state.OIDC),
-		state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
-		state.SchemaManager,
-		state.BatchManager,
-	)
-	pbv0.RegisterWeaviateServer(s, weaviateServerV0)
-	pbv1.RegisterWeaviateServer(s, weaviateServerV1)
-	grpc_health_v1.RegisterHealthServer(s, weaviateServerV1)
+	pbv0.RegisterWeaviateServer(s, weaviateV0)
+	pbv1.RegisterWeaviateServer(s, weaviateV1)
+	grpc_health_v1.RegisterHealthServer(s, weaviateV1)
 
 	return &GRPCServer{s}
 }

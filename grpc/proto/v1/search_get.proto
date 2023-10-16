@@ -6,7 +6,7 @@ import "google/protobuf/struct.proto";
 import "v1/base.proto";
 
 option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
-option java_package = "io.weaviate.grpc.protocol";
+option java_package = "io.weaviate.grpc.protocol.v1";
 option java_outer_classname = "WeaviateProtoSearchGet";
 
 message SearchRequest {
