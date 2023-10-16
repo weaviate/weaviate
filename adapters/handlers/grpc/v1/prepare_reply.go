@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package grpc
+package v1
 
 import (
 	"fmt"
@@ -23,13 +23,13 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/search"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.GetParams, scheme schema.Schema) (*pb.SearchReplyV1, error) {
+func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.GetParams, scheme schema.Schema) (*pb.SearchReply, error) {
 	tookSeconds := float64(time.Since(start)) / float64(time.Second)
-	out := &pb.SearchReplyV1{
+	out := &pb.SearchReply{
 		Took: float32(tookSeconds),
 	}
 

@@ -17,7 +17,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -53,11 +53,11 @@ func TestGRPC(t *testing.T) {
 
 	tests := []struct {
 		name string
-		req  *pb.SearchRequestV1
+		req  *pb.SearchRequest
 	}{
 		{
 			name: "Search with props",
-			req: &pb.SearchRequestV1{
+			req: &pb.SearchRequest{
 				Collection: booksClass.Class,
 				Properties: &pb.PropertiesRequest{
 					NonRefProperties: []string{"title"},
@@ -86,7 +86,7 @@ func TestGRPC(t *testing.T) {
 		},
 		{
 			name: "Search without props",
-			req: &pb.SearchRequestV1{
+			req: &pb.SearchRequest{
 				Collection: booksClass.Class,
 			},
 		},
@@ -94,7 +94,7 @@ func TestGRPC(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			scifi := "sci-fi"
-			resp, err := grpcClient.SearchV1(context.TODO(), tt.req)
+			resp, err := grpcClient.Search(context.TODO(), tt.req)
 			require.NoError(t, err)
 			require.NotNil(t, resp)
 			require.NotNil(t, resp.Results)

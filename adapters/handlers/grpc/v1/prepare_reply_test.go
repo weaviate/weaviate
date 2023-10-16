@@ -9,13 +9,13 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package grpc
+package v1
 
 import (
 	"testing"
 	"time"
 
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"

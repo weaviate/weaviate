@@ -1,15 +1,15 @@
 syntax = "proto3";
 
-package weaviategrpc;
+package weaviate.v1;
 
-import "base.proto";
+import "v1/base.proto";
 import "google/protobuf/struct.proto";
 
 option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
-option java_package = "io.weaviate.grpc.protocol";
-option java_outer_classname = "WeaviateProtoSearchGetV1";
+option java_package = "io.weaviate.grpc.protocol.v1";
+option java_outer_classname = "WeaviateProtoSearchGet";
 
-message SearchRequestV1 {
+message SearchRequest {
   //required
   string collection = 1;
 
@@ -215,7 +215,7 @@ message NearObject {
   optional double distance = 3;
 }
 
-message SearchReplyV1 {
+message SearchReply {
   float took = 1;
   repeated SearchResult results = 2;
   optional string generative_grouped_result = 3;
@@ -273,4 +273,3 @@ message RefPropertiesResult {
   repeated PropertiesResult properties = 1;
   string prop_name = 2;
 }
-

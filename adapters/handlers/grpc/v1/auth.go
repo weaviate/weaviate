@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package grpc
+package v1
 
 import (
 	"context"
@@ -24,7 +24,7 @@ import (
 // straight from the endpoint. But the moment we add a second endpoint, this
 // should be called from a central place. This way we can make sure it's
 // impossible to forget to add it to a new endpoint.
-func (s *Server) principalFromContext(ctx context.Context) (*models.Principal, error) {
+func (s *Service) principalFromContext(ctx context.Context) (*models.Principal, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return s.tryAnonymous()
@@ -49,7 +49,7 @@ func (s *Server) principalFromContext(ctx context.Context) (*models.Principal, e
 	return s.authComposer(token, nil)
 }
 
-func (s *Server) tryAnonymous() (*models.Principal, error) {
+func (s *Service) tryAnonymous() (*models.Principal, error) {
 	if s.allowAnonymousAccess {
 		return nil, nil
 	}
