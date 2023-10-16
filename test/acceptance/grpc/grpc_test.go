@@ -146,8 +146,8 @@ func TestGRPC(t *testing.T) {
 				assert.Equal(t, expectedTitle, title)
 				assert.Equal(t, expectedIsbn, isbn)
 				assert.Equal(t, expectedTags, tags)
-				assert.Equal(t, nestedObj, map[string]interface{}{"text": "some text"})
-				assert.Equal(t, nestedObjEntry, map[string]interface{}{"text": "some text"})
+				assert.Equal(t, map[string]interface{}{"text": "some text"}, nestedObj)
+				assert.Equal(t, map[string]interface{}{"text": "some text"}, nestedObjEntry)
 			}
 		})
 	}

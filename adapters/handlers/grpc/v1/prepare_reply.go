@@ -420,11 +420,11 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 	return &props, nil
 }
 
-func extractPropertiesNested[P schema.PropertyInterface](scheme schema.Schema, results map[string]interface{}, properties search.SelectProperty, className string, parent P) (*pb.ObjectPropertiesValue, error) {
+func extractPropertiesNested[P schema.PropertyInterface](scheme schema.Schema, results map[string]interface{}, property search.SelectProperty, className string, parent P) (*pb.ObjectPropertiesValue, error) {
 	primitiveProps := make(map[string]interface{}, 0)
 	objProps := make([]*pb.ObjectProperties, 0)
 	objArrayProps := make([]*pb.ObjectArrayProperties, 0)
-	for _, prop := range properties.Props {
+	for _, prop := range property.Props {
 		propRaw, ok := results[prop.Name]
 		if !ok {
 			continue
@@ -461,18 +461,18 @@ func extractPropertiesNested[P schema.PropertyInterface](scheme schema.Schema, r
 	return &props, nil
 }
 
-func extractObjectProperties[P schema.PropertyInterface](scheme schema.Schema, prop interface{}, property search.SelectProperty, className string, parent P, objProps []*pb.ObjectProperties, objArrayProps []*pb.ObjectArrayProperties) ([]*pb.ObjectProperties, []*pb.ObjectArrayProperties, error) {
-	propRaw, ok := prop.(map[string]interface{})
+func extractObjectProperties[P schema.PropertyInterface](scheme schema.Schema, propRaw interface{}, property search.SelectProperty, className string, parent P, objProps []*pb.ObjectProperties, objArrayProps []*pb.ObjectArrayProperties) ([]*pb.ObjectProperties, []*pb.ObjectArrayProperties, error) {
+	prop, ok := propRaw.(map[string]interface{})
 	if ok {
-		objProp, err := extractObjectSingleProperties(scheme, propRaw, property, className, parent)
+		objProp, err := extractObjectSingleProperties(scheme, prop, property, className, parent)
 		if err != nil {
 			return objProps, objArrayProps, err
 		}
 		objProps = append(objProps, objProp)
 	}
-	propRawArray, ok := prop.([]map[string]interface{})
+	propArray, ok := propRaw.([]interface{})
 	if ok {
-		objArrayProp, err := extractObjectArrayProperties(scheme, propRawArray, property, className, parent)
+		objArrayProp, err := extractObjectArrayProperties(scheme, propArray, property, className, parent)
 		if err != nil {
 			return objProps, objArrayProps, err
 		}
@@ -496,12 +496,16 @@ func extractObjectSingleProperties[P schema.PropertyInterface](scheme schema.Sch
 	}, nil
 }
 
-func extractObjectArrayProperties[P schema.PropertyInterface](scheme schema.Schema, prop []map[string]interface{}, property search.SelectProperty, className string, parent P) (*pb.ObjectArrayProperties, error) {
-	extractedNestedProps := make([]*pb.ObjectPropertiesValue, 0, len(prop))
-	for _, obj := range prop {
+func extractObjectArrayProperties[P schema.PropertyInterface](scheme schema.Schema, propObjs []interface{}, property search.SelectProperty, className string, parent P) (*pb.ObjectArrayProperties, error) {
+	extractedNestedProps := make([]*pb.ObjectPropertiesValue, 0, len(propObjs))
+	for _, objRaw := range propObjs {
 		nested, err := schema.GetNestedPropertyByName(parent, property.Name)
 		if err != nil {
 			return nil, errors.Wrap(err, "getting property")
+		}
+		obj, ok := objRaw.(map[string]interface{})
+		if !ok {
+			continue
 		}
 		extractedNestedProp, err := extractPropertiesNested(scheme, obj, property, className, &NestedProperty{NestedProperty: nested})
 		if err != nil {
