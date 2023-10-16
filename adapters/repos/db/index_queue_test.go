@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"sort"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
@@ -70,6 +72,15 @@ func pushVector(t testing.TB, ctx context.Context, q *IndexQueue, id uint64, vec
 		vector: vector,
 	})
 	require.NoError(t, err)
+}
+
+func randVector(dim int) []float32 {
+	vec := make([]float32, dim)
+	for i := range vec {
+		vec[i] = rand.Float32()
+	}
+
+	return vec
 }
 
 func TestIndexQueue(t *testing.T) {
@@ -506,6 +517,32 @@ func TestIndexQueue(t *testing.T) {
 
 		require.EqualValues(t, 20, count)
 	})
+
+	t.Run("cos: normalized the query vector", func(t *testing.T) {
+		var idx mockBatchIndexer
+		idx.distancerProvider = distancer.NewCosineDistanceProvider()
+
+		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+			BatchSize:     7, // 300 is not divisible by 7
+			IndexInterval: 100 * time.Second,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		for i := uint64(0); i < 300; i++ {
+			pushVector(t, ctx, q, i+1, randVector(1536)...)
+		}
+
+		q.pushToWorkers()
+
+		_, distances, err := q.SearchByVector(randVector(1536), 10, nil)
+		require.NoError(t, err)
+
+		// all distances should be between 0 and 1
+		for _, dist := range distances {
+			require.True(t, dist >= 0 && dist <= 1)
+		}
+	})
 }
 
 func BenchmarkPush(b *testing.B) {
@@ -554,10 +591,11 @@ func (m *mockShard) compareAndSwapStatus(old, new string) (storagestate.Status, 
 
 type mockBatchIndexer struct {
 	sync.Mutex
-	addBatchFn     func(id []uint64, vector [][]float32) error
-	vectors        map[uint64][]float32
-	containsNodeFn func(id uint64) bool
-	deleteFn       func(ids ...uint64) error
+	addBatchFn        func(id []uint64, vector [][]float32) error
+	vectors           map[uint64][]float32
+	containsNodeFn    func(id uint64) bool
+	deleteFn          func(ids ...uint64) error
+	distancerProvider distancer.Provider
 }
 
 func (m *mockBatchIndexer) AddBatch(ids []uint64, vector [][]float32) (err error) {
@@ -585,10 +623,18 @@ func (m *mockBatchIndexer) SearchByVector(vector []float32, k int, allowList hel
 
 	results := newPqMaxPool(k).GetMax(k)
 
+	if m.DistancerProvider().Type() == "cosine-dot" {
+		vector = distancer.Normalize(vector)
+	}
+
 	for id, v := range m.vectors {
 		// skip filtered data
 		if allowList != nil && allowList.Contains(id) {
 			continue
+		}
+
+		if m.DistancerProvider().Type() == "cosine-dot" {
+			v = distancer.Normalize(v)
 		}
 
 		dist, _, err := m.DistanceBetweenVectors(vector, v)
@@ -666,4 +712,12 @@ func (m *mockBatchIndexer) IDs() []uint64 {
 	})
 
 	return ids
+}
+
+func (m *mockBatchIndexer) DistancerProvider() distancer.Provider {
+	if m.distancerProvider == nil {
+		return distancer.NewL2SquaredProvider()
+	}
+
+	return m.distancerProvider
 }

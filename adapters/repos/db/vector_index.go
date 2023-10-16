@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -38,4 +39,5 @@ type VectorIndex interface {
 	ValidateBeforeInsert(vector []float32) error
 	DistanceBetweenVectors(x, y []float32) (float32, bool, error)
 	ContainsNode(id uint64) bool
+	DistancerProvider() distancer.Provider
 }
