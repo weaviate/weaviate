@@ -135,6 +135,16 @@ func FromEnv(config *Config) error {
 		if ok {
 			config.Authorization.AdminList.ReadOnlyUsers = strings.Split(roUsersString, ",")
 		}
+
+		groupsString, ok := os.LookupEnv("AUTHORIZATION_ADMINLIST_GROUPS")
+		if ok {
+			config.Authorization.AdminList.Groups = strings.Split(groupsString, ",")
+		}
+
+		roGroupsString, ok := os.LookupEnv("AUTHORIZATION_ADMINLIST_READONLY_GROUPS")
+		if ok {
+			config.Authorization.AdminList.ReadOnlyGroups = strings.Split(roGroupsString, ",")
+		}
 	}
 
 	if os.Getenv("PERSISTENCE_LSM_ACCESS_STRATEGY") == "pread" {
