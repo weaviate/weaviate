@@ -732,10 +732,16 @@ func TestGRPCRequest(t *testing.T) {
 						{
 							PropName:            "something",
 							PrimitiveProperties: []string{"name"},
-							ObjectProperties: []*pb.ObjectPropertiesRequest{{
-								PropName:            "else",
-								PrimitiveProperties: []string{"name"},
-							}},
+							ObjectProperties: []*pb.ObjectPropertiesRequest{
+								{
+									PropName:            "else",
+									PrimitiveProperties: []string{"name"},
+								},
+								{
+									PropName:            "elses",
+									PrimitiveProperties: []string{"name"},
+								},
+							},
 						},
 					},
 				},
@@ -749,6 +755,12 @@ func TestGRPCRequest(t *testing.T) {
 							{Name: "name", IsPrimitive: true},
 							{
 								Name: "else", IsPrimitive: false, IsObject: true,
+								Props: search.SelectProperties{{
+									Name: "name", IsPrimitive: true,
+								}},
+							},
+							{
+								Name: "elses", IsPrimitive: false, IsObject: true,
 								Props: search.SelectProperties{{
 									Name: "name", IsPrimitive: true,
 								}},
