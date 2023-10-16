@@ -559,7 +559,7 @@ func Test_autoSchemaManager_autoSchema_emptyRequest(t *testing.T) {
 
 	var obj *models.Object
 
-	err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, obj)
+	err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, obj, true)
 	assert.EqualError(t, fmt.Errorf(validation.ErrorMissingObject), err.Error())
 }
 
@@ -593,7 +593,7 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 	}
 	// when
 	schemaBefore := schemaManager.GetSchemaResponse
-	err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, obj)
+	err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, obj, true)
 	schemaAfter := schemaManager.GetSchemaResponse
 
 	// then
@@ -674,7 +674,7 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	assert.Equal(t, "age", (schemaBefore.Objects.Classes)[0].Properties[0].Name)
 	assert.Equal(t, "int", (schemaBefore.Objects.Classes)[0].Properties[0].DataType[0])
 
-	err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, obj)
+	err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, obj, true)
 	require.Nil(t, err)
 
 	schemaAfter := schemaManager.GetSchemaResponse
@@ -1523,7 +1523,7 @@ func Test_autoSchemaManager_perform_withNested(t *testing.T) {
 		logger: logger,
 	}
 
-	err := manager.autoSchema(context.Background(), &models.Principal{}, object)
+	err := manager.autoSchema(context.Background(), &models.Principal{}, object, true)
 	require.NoError(t, err)
 
 	schemaAfter := schemaManager.GetSchemaResponse
