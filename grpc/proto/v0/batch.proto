@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package weaviate.v0;
+package weaviategrpc;
 
 import "google/protobuf/struct.proto";
 import "v0/base.proto";
