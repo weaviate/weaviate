@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package v0
+package weaviategrpc
 
 import (
 	"context"
