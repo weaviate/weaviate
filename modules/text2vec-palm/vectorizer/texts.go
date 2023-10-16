@@ -30,5 +30,5 @@ func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 		return nil, errors.Wrap(err, "remote client vectorize")
 	}
 
-	return v.CombineVectors(res.Vector), nil
+	return v.CombineVectors(res.Vectors), nil
 }

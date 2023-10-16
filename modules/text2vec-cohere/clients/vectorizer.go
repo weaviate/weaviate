@@ -121,7 +121,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	return &ent.VectorizationResult{
 		Text:       input,
 		Dimensions: len(resBody.Embeddings[0]),
-		Vector:     resBody.Embeddings,
+		Vectors:    resBody.Embeddings,
 	}, nil
 }
 

@@ -122,9 +122,9 @@ func (v *palm) vectorize(ctx context.Context, input []string, config ent.Vectori
 	}
 
 	return &ent.VectorizationResult{
-		Text:       input,
+		Texts:      input,
 		Dimensions: len(resBody.Predictions[0].Embeddings.Values),
-		Vector:     vectors,
+		Vectors:    vectors,
 	}, nil
 }
 
