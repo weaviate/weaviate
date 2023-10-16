@@ -38,7 +38,8 @@ type Server struct {
 
 func NewServer(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	allowAnonymousAccess bool, schemaManager *schemaManager.Manager,
-	batchManager *objects.BatchManager) *Server {
+	batchManager *objects.BatchManager,
+) *Server {
 	return &Server{
 		traverser:            traverser,
 		authComposer:         authComposer,
