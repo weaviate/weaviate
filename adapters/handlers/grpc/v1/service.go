@@ -27,7 +27,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
-type Server struct {
+type Service struct {
 	pb.UnimplementedWeaviateServer
 	traverser            *traverser.Traverser
 	authComposer         composer.TokenFunc
@@ -36,11 +36,11 @@ type Server struct {
 	batchManager         *objects.BatchManager
 }
 
-func NewServer(traverser *traverser.Traverser, authComposer composer.TokenFunc,
+func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	allowAnonymousAccess bool, schemaManager *schemaManager.Manager,
 	batchManager *objects.BatchManager,
-) *Server {
-	return &Server{
+) *Service {
+	return &Service{
 		traverser:            traverser,
 		authComposer:         authComposer,
 		allowAnonymousAccess: allowAnonymousAccess,
@@ -49,7 +49,7 @@ func NewServer(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	}
 }
 
-func (s *Server) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
 	before := time.Now()
 	principal, err := s.principalFromContext(ctx)
 	if err != nil {
@@ -85,7 +85,7 @@ func (s *Server) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) 
 	return result, nil
 }
 
-func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
+func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
 	before := time.Now()
 
 	principal, err := s.principalFromContext(ctx)
@@ -144,7 +144,7 @@ func (s *Server) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchR
 	return res.Result, res.Error
 }
 
-func (s *Server) validateClassAndProperty(searchParams dto.GetParams) error {
+func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
 	scheme := s.schemaManager.GetSchemaSkipAuth()
 	class, err := schema.GetClassByName(scheme.Objects, searchParams.ClassName)
 	if err != nil {

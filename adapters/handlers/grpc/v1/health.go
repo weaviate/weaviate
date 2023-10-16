@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package v0
+package v1
 
 import (
 	"context"
@@ -17,14 +17,14 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
-func (s *Server) healthCheck() *grpc_health_v1.HealthCheckResponse {
+func (s *Service) healthCheck() *grpc_health_v1.HealthCheckResponse {
 	return &grpc_health_v1.HealthCheckResponse{Status: grpc_health_v1.HealthCheckResponse_SERVING}
 }
 
-func (s *Server) Check(ctx context.Context, request *grpc_health_v1.HealthCheckRequest) (*grpc_health_v1.HealthCheckResponse, error) {
+func (s *Service) Check(ctx context.Context, request *grpc_health_v1.HealthCheckRequest) (*grpc_health_v1.HealthCheckResponse, error) {
 	return s.healthCheck(), nil
 }
 
-func (s *Server) Watch(request *grpc_health_v1.HealthCheckRequest, server grpc_health_v1.Health_WatchServer) error {
+func (s *Service) Watch(request *grpc_health_v1.HealthCheckRequest, server grpc_health_v1.Health_WatchServer) error {
 	return server.Send(s.healthCheck())
 }
