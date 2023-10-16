@@ -300,9 +300,9 @@ func TestGRPCReply(t *testing.T) {
 							"name":  "Bill",
 							"names": []string{"Jo", "Jill"},
 						},
-						"objs": []map[string]interface{}{{
-							"name": "Bill",
-						}},
+						"objs": []interface{}{
+							map[string]interface{}{"name": "Bill"},
+						},
 					},
 				},
 			},
