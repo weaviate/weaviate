@@ -22,24 +22,55 @@ import (
 )
 
 const (
-	serviceProperty       = "service"
-	regionProperty        = "region"
-	modelProperty         = "model"
-	maxTokenCountProperty = "maxTokenCount"
-	stopSequencesProperty = "stopSequences"
-	temperatureProperty   = "temperature"
-	topPProperty          = "topP"
+	serviceProperty           = "service"
+	regionProperty            = "region"
+	modelProperty             = "model"
+	endpointProperty          = "endpoint"
+	targetModelProperty       = "targetModel"
+	targetVariantProperty     = "targetVariant"
+	maxTokenCountProperty     = "maxTokenCount"
+	maxTokensToSampleProperty = "maxTokensToSample"
+	stopSequencesProperty     = "stopSequences"
+	temperatureProperty       = "temperature"
+	topPProperty              = "topP"
+	topKProperty              = "topK"
 )
 
 var (
 	DefaultTitanMaxTokens     = 8192
 	DefaultTitanStopSequences = []string{}
 	DefaultTitanTemperature   = 0.0
-	DefaultTitanTopK          = 1
+	DefaultTitanTopP          = 1.0
 )
 
-var availableAWSModels = []string{
+var (
+	DefaultAnthropicMaxTokensToSample = 300
+	DefaultAnthropicStopSequences     = []string{"\\n\\nHuman:"}
+	DefaultAnthropicTemperature       = 1.0
+	DefaultAnthropicTopK              = 250
+	DefaultAnthropicTopP              = 0.999
+)
+
+var (
+	DefaultAI21MaxTokens = 300
+	//DefaultAnthropicStopSequences = []string{"\\n\\nHuman:"}
+	//DefaultAnthropicTemperature   = 1.0
+	//DefaultAnthropicTopK          = 250
+	//DefaultAnthropicTopP          = 0.999
+)
+
+var availableAWSServices = []string{
+	"bedrock",
+	"sagemaker",
+}
+
+var availableBedrockModels = []string{
 	"amazon.titan-tg1-large",
+	"anthropic.claude-instant-v1",
+	"anthropic.claude-v1",
+	"anthropic.claude-v2",
+	"ai21.j2-mid",
+	"ai21.j2-ultra",
 }
 
 type classSettings struct {
@@ -59,29 +90,48 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	var errorMessages []string
 
 	service := ic.Service()
-	if service == "" {
-		errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", serviceProperty))
+	if service == "" || !ic.validatAvailableAWSSetting(service, availableAWSServices) {
+		errorMessages = append(errorMessages, fmt.Sprintf("wrong %s, available services are: %v", serviceProperty, availableAWSServices))
 	}
 	region := ic.Region()
 	if region == "" {
 		errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", regionProperty))
 	}
-	model := ic.Model()
-	if model == "" && !ic.validateAWSSetting(model, availableAWSModels) {
-		errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available model names are: %v", modelProperty, availableAWSModels))
+
+	if isBedrock(service) {
+		model := ic.Model()
+		if model == "" && !ic.validateAWSSetting(model, availableBedrockModels) {
+			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s: %s, available model names are: %v", modelProperty, model, availableBedrockModels))
+		}
+
+		maxTokenCount := ic.MaxTokenCount()
+		if *maxTokenCount < 1 || *maxTokenCount > 8192 {
+			errorMessages = append(errorMessages, fmt.Sprintf("%s has to be an integer value between 1 and 8096", maxTokenCountProperty))
+		}
+		temperature := ic.Temperature()
+		if *temperature < 0 || *temperature > 1 {
+			errorMessages = append(errorMessages, fmt.Sprintf("%s has to be float value between 0 and 1", temperatureProperty))
+		}
+		topP := ic.TopP()
+		if *topP < 0 || *topP > 1 {
+			errorMessages = append(errorMessages, fmt.Sprintf("%s has to be an integer value between 0 and 1", topPProperty))
+		}
+
+		endpoint := ic.Endpoint()
+		if endpoint != "" {
+			errorMessages = append(errorMessages, fmt.Sprintf("wrong configuration: %s, not applicable to %s", endpoint, service))
+		}
 	}
 
-	maxTokenCount := ic.MaxTokenCount()
-	if maxTokenCount < 1 || maxTokenCount > 8192 {
-		errorMessages = append(errorMessages, fmt.Sprintf("%s has to be an integer value between 1 and 8096", maxTokenCountProperty))
-	}
-	temperature := ic.Temperature()
-	if temperature < 0 || temperature > 1 {
-		errorMessages = append(errorMessages, fmt.Sprintf("%s has to be float value between 0 and 1", temperatureProperty))
-	}
-	topP := ic.TopP()
-	if topP < 0 || topP > 1 {
-		errorMessages = append(errorMessages, fmt.Sprintf("%s has to be an integer value between 0 and 1", topPProperty))
+	if isSagemaker(service) {
+		endpoint := ic.Endpoint()
+		if endpoint == "" {
+			errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", endpointProperty))
+		}
+		model := ic.Model()
+		if model != "" {
+			errorMessages = append(errorMessages, fmt.Sprintf("wrong configuration: %s, not applicable to %s. did you mean %s", modelProperty, service, targetModelProperty))
+		}
 	}
 
 	if len(errorMessages) > 0 {
@@ -89,6 +139,15 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	}
 
 	return nil
+}
+
+func (ic *classSettings) validatAvailableAWSSetting(value string, availableValues []string) bool {
+	for i := range availableValues {
+		if value == availableValues[i] {
+			return true
+		}
+	}
+	return false
 }
 
 func (ic *classSettings) validateAWSSetting(value string, availableValues []string) bool {
@@ -116,7 +175,7 @@ func (ic *classSettings) getStringProperty(name, defaultValue string) string {
 	return defaultValue
 }
 
-func (ic *classSettings) getFloatProperty(name string, defaultValue float64) float64 {
+func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *float64 {
 	if ic.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return defaultValue
@@ -126,47 +185,54 @@ func (ic *classSettings) getFloatProperty(name string, defaultValue float64) flo
 	if ok {
 		asFloat, ok := val.(float64)
 		if ok {
-			return asFloat
+			return &asFloat
 		}
 		asNumber, ok := val.(json.Number)
 		if ok {
 			asFloat, _ := asNumber.Float64()
-			return asFloat
+			return &asFloat
 		}
 		asInt, ok := val.(int)
 		if ok {
 			asFloat := float64(asInt)
-			return asFloat
+			return &asFloat
 		}
 	}
 
 	return defaultValue
 }
 
-func (ic *classSettings) getIntProperty(name string, defaultValue int) int {
+func (ic *classSettings) getIntProperty(name string, defaultValue *int) *int {
 	if ic.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return defaultValue
 	}
 
-	val, ok := ic.cfg.ClassByModuleName("generative-aws")[name]
+	val, ok := ic.cfg.ClassByModuleName("generative-cohere")[name]
 	if ok {
+		asInt, ok := val.(int)
+		if ok {
+			return &asInt
+		}
 		asFloat, ok := val.(float64)
 		if ok {
-			return int(asFloat)
+			asInt := int(asFloat)
+			return &asInt
 		}
 		asNumber, ok := val.(json.Number)
 		if ok {
-			asInt64, _ := asNumber.Int64()
-			return int(asInt64)
+			asFloat, _ := asNumber.Float64()
+			asInt := int(asFloat)
+			return &asInt
 		}
-		asInt, ok := val.(int)
-		if ok {
-			return asInt
-		}
+		var wrongVal = -1
+		return &wrongVal
 	}
 
-	return defaultValue
+	if defaultValue != nil {
+		return defaultValue
+	}
+	return nil
 }
 
 func (ic *classSettings) getListOfStringsProperty(name string, defaultValue []string) *[]string {
@@ -200,18 +266,95 @@ func (ic *classSettings) Model() string {
 	return ic.getStringProperty(modelProperty, "")
 }
 
-func (ic *classSettings) MaxTokenCount() int {
-	return ic.getIntProperty(maxTokenCountProperty, DefaultTitanMaxTokens)
+func (ic *classSettings) MaxTokenCount() *int {
+	if isBedrock(ic.Service()) {
+		if isAmazonModel(ic.Model()) {
+			return ic.getIntProperty(maxTokenCountProperty, &DefaultTitanMaxTokens)
+		}
+		if isAnthropicModel(ic.Model()) {
+			return ic.getIntProperty(maxTokensToSampleProperty, &DefaultAnthropicMaxTokensToSample)
+		}
+		if isAI21Model(ic.Model()) {
+			return ic.getIntProperty(maxTokenCountProperty, &DefaultAI21MaxTokens)
+		}
+	}
+	return ic.getIntProperty(maxTokenCountProperty, nil)
 }
 
 func (ic *classSettings) StopSequences() []string {
-	return *ic.getListOfStringsProperty(stopSequencesProperty, DefaultTitanStopSequences)
+	if isBedrock(ic.Service()) {
+		if isAmazonModel(ic.Model()) {
+			return *ic.getListOfStringsProperty(stopSequencesProperty, DefaultTitanStopSequences)
+		}
+		if isAnthropicModel(ic.Model()) {
+			return *ic.getListOfStringsProperty(stopSequencesProperty, DefaultAnthropicStopSequences)
+		}
+	}
+	return *ic.getListOfStringsProperty(stopSequencesProperty, nil)
+
 }
 
-func (ic *classSettings) Temperature() float64 {
-	return ic.getFloatProperty(temperatureProperty, DefaultTitanTemperature)
+func (ic *classSettings) Temperature() *float64 {
+	if isBedrock(ic.Service()) {
+		if isAmazonModel(ic.Model()) {
+			return ic.getFloatProperty(temperatureProperty, &DefaultTitanTemperature)
+		}
+		if isAnthropicModel(ic.Model()) {
+			return ic.getFloatProperty(temperatureProperty, &DefaultAnthropicTemperature)
+		}
+	}
+	return ic.getFloatProperty(temperatureProperty, nil)
 }
 
-func (ic *classSettings) TopP() int {
-	return ic.getIntProperty(topPProperty, DefaultTitanTopK)
+func (ic *classSettings) TopP() *float64 {
+	if isBedrock(ic.Service()) {
+		if isAmazonModel(ic.Model()) {
+			return ic.getFloatProperty(topPProperty, &DefaultTitanTopP)
+		}
+		if isAnthropicModel(ic.Model()) {
+			return ic.getFloatProperty(topPProperty, &DefaultAnthropicTopP)
+		}
+	}
+	return ic.getFloatProperty(topPProperty, nil)
+}
+
+func (ic *classSettings) TopK() *int {
+	if isBedrock(ic.Service()) {
+		if isAnthropicModel(ic.Model()) {
+			return ic.getIntProperty(topKProperty, &DefaultAnthropicTopK)
+		}
+	}
+	return ic.getIntProperty(topKProperty, nil)
+}
+
+func (ic *classSettings) Endpoint() string {
+	return ic.getStringProperty(endpointProperty, "")
+}
+
+func (ic *classSettings) TargetModel() string {
+	return ic.getStringProperty(targetModelProperty, "")
+}
+
+func (ic *classSettings) TargetVariant() string {
+	return ic.getStringProperty(targetVariantProperty, "")
+}
+
+func isSagemaker(service string) bool {
+	return service == "sagemaker"
+}
+
+func isBedrock(service string) bool {
+	return service == "bedrock"
+}
+
+func isAmazonModel(model string) bool {
+	return strings.HasPrefix(model, "amazon")
+}
+
+func isAI21Model(model string) bool {
+	return strings.HasPrefix(model, "ai21")
+}
+
+func isAnthropicModel(model string) bool {
+	return strings.HasPrefix(model, "anthropic")
 }

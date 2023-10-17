@@ -26,14 +26,17 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantService       string
 		wantRegion        string
 		wantModel         string
+		wantEndpoint      string
+		wantTargetModel   string
+		wantTargetVariant string
 		wantMaxTokenCount int
 		wantStopSequences []string
-		wantTemperature   int
+		wantTemperature   float64
 		wantTopP          int
 		wantErr           error
 	}{
 		{
-			name: "happy flow",
+			name: "happy flow - Bedrock",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"service": "bedrock",
@@ -50,13 +53,30 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantTopP:          1,
 		},
 		{
-			name: "custom values",
+			name: "happy flow - Sagemaker",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"service":       "sagemaker",
+					"region":        "us-east-1",
+					"endpoint":      "my-endpoint-deployment",
+					"targetModel":   "model",
+					"targetVariant": "variant-1",
+				},
+			},
+			wantService:       "sagemaker",
+			wantRegion:        "us-east-1",
+			wantEndpoint:      "my-endpoint-deployment",
+			wantTargetModel:   "model",
+			wantTargetVariant: "variant-1",
+		},
+		{
+			name: "custom values - Bedrock",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"service":       "bedrock",
 					"region":        "us-east-1",
 					"model":         "amazon.titan-tg1-large",
-					"maxTokenCount": 4096,
+					"maxTokenCount": 1,
 					"stopSequences": []string{"test", "test2"},
 					"temperature":   0.2,
 					"topP":          0,
@@ -65,10 +85,27 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantService:       "bedrock",
 			wantRegion:        "us-east-1",
 			wantModel:         "amazon.titan-tg1-large",
-			wantMaxTokenCount: 4096,
+			wantMaxTokenCount: 1,
 			wantStopSequences: []string{"test", "test2"},
-			wantTemperature:   1,
+			wantTemperature:   0.2,
 			wantTopP:          0,
+		},
+		{
+			name: "custom values - Sagemaker",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"service":       "sagemaker",
+					"region":        "us-east-1",
+					"endpoint":      "this-is-my-endpoint",
+					"targetModel":   "my-target-model",
+					"targetVariant": "my-target¬variant",
+				},
+			},
+			wantService:       "sagemaker",
+			wantRegion:        "us-east-1",
+			wantEndpoint:      "this-is-my-endpoint",
+			wantTargetModel:   "my-target-model",
+			wantTargetVariant: "my-target¬variant",
 		},
 		{
 			name: "wrong temperature",
@@ -115,12 +152,9 @@ func Test_classSettings_Validate(t *testing.T) {
 					"topP":          3,
 				},
 			},
-			wantErr: errors.Errorf("service cannot be empty, " +
-				"region cannot be empty, " +
-				"wrong model available model names are: [amazon.titan-tg1-large], " +
-				"maxTokenCount has to be an integer value between 1 and 8096, " +
-				"temperature has to be float value between 0 and 1, " +
-				"topP has to be an integer value between 0 and 1",
+			wantErr: errors.Errorf("wrong service, " +
+				"available services are: [bedrock sagemaker], " +
+				"region cannot be empty",
 			),
 		},
 	}
@@ -133,6 +167,16 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantService, ic.Service())
 				assert.Equal(t, tt.wantRegion, ic.Region())
 				assert.Equal(t, tt.wantModel, ic.Model())
+				assert.Equal(t, tt.wantEndpoint, ic.Endpoint())
+				assert.Equal(t, tt.wantTargetModel, ic.TargetModel())
+				assert.Equal(t, tt.wantTargetVariant, ic.TargetVariant())
+				if ic.Temperature() != nil {
+					assert.Equal(t, tt.wantTemperature, *ic.Temperature())
+				}
+				assert.Equal(t, tt.wantStopSequences, ic.StopSequences())
+				if ic.TopP() != nil {
+					assert.Equal(t, tt.wantTopP, *ic.TopP())
+				}
 			}
 		})
 	}

@@ -25,9 +25,12 @@ import (
 )
 
 const (
-	serviceProperty = "service"
-	regionProperty  = "region"
-	modelProperty   = "model"
+	serviceProperty       = "service"
+	regionProperty        = "region"
+	modelProperty         = "model"
+	endpointProperty      = "endpoint"
+	targetModelProperty   = "targetModel"
+	targetVariantProperty = "targetVariant"
 )
 
 const (
@@ -36,8 +39,14 @@ const (
 	DefaultVectorizePropertyName = false
 )
 
-var availableAWSModels = []string{
+var availableAWSServices = []string{
+	"bedrock",
+	"sagemaker",
+}
+
+var availableAWSBedrockModels = []string{
 	"amazon.titan-e1t-medium",
+	"amazon.titan-embed-g1-text-02",
 }
 
 type classSettings struct {
@@ -113,16 +122,34 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	var errorMessages []string
 
 	service := ic.Service()
-	if service == "" {
-		errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", serviceProperty))
+	if service == "" || !ic.validatAvailableAWSSetting(service, availableAWSServices) {
+		errorMessages = append(errorMessages, fmt.Sprintf("wrong %s, available services are: %v", serviceProperty, availableAWSServices))
 	}
 	region := ic.Region()
 	if region == "" {
 		errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", regionProperty))
 	}
-	model := ic.Model()
-	if model == "" || !ic.validateAwsSetting(model, availableAWSModels) {
-		errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available model names are: %v", modelProperty, availableAWSModels))
+
+	if isBedrock(service) {
+		model := ic.Model()
+		if model == "" || !ic.validatAvailableAWSSetting(model, availableAWSBedrockModels) {
+			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s, available models are: %v", modelProperty, availableAWSBedrockModels))
+		}
+		endpoint := ic.Endpoint()
+		if endpoint != "" {
+			errorMessages = append(errorMessages, fmt.Sprintf("wrong configuration: %s, not applicable to %s", endpoint, service))
+		}
+	}
+
+	if isSagemaker(service) {
+		endpoint := ic.Endpoint()
+		if endpoint == "" {
+			errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", endpointProperty))
+		}
+		model := ic.Model()
+		if model != "" {
+			errorMessages = append(errorMessages, fmt.Sprintf("wrong configuration: %s, not applicable to %s. did you mean %s", modelProperty, service, targetModelProperty))
+		}
 	}
 
 	if len(errorMessages) > 0 {
@@ -137,7 +164,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	return nil
 }
 
-func (ic *classSettings) validateAwsSetting(value string, availableValues []string) bool {
+func (ic *classSettings) validatAvailableAWSSetting(value string, availableValues []string) bool {
 	for i := range availableValues {
 		if value == availableValues[i] {
 			return true
@@ -210,4 +237,24 @@ func (ic *classSettings) Region() string {
 
 func (ic *classSettings) Model() string {
 	return ic.getStringProperty(modelProperty, "")
+}
+
+func (ic *classSettings) Endpoint() string {
+	return ic.getStringProperty(endpointProperty, "")
+}
+
+func (ic *classSettings) TargetModel() string {
+	return ic.getStringProperty(targetModelProperty, "")
+}
+
+func (ic *classSettings) TargetVariant() string {
+	return ic.getStringProperty(targetVariantProperty, "")
+}
+
+func isSagemaker(service string) bool {
+	return service == "sagemaker"
+}
+
+func isBedrock(service string) bool {
+	return service == "bedrock"
 }

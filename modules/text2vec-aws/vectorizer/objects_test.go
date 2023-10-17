@@ -182,6 +182,9 @@ func TestVectorizingObjects(t *testing.T) {
 				service:            "",
 				region:             "",
 				model:              "",
+				endpoint:           "",
+				targetModel:        "",
+				targetVariant:      "",
 			}
 			err := v.Object(context.Background(), test.input, nil, ic)
 

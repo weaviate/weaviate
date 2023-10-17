@@ -27,24 +27,17 @@ const (
 	algorithm   = "AWS4-HMAC-SHA256"
 )
 
-func getAuthHeader(awsAccessKey string, awsSecretKey string, model string, region string, service string, host string, body []byte) (string, map[string]string, string) {
+func getAuthHeader(awsAccessKey string, awsSecretKey string, host string, service string, region string, path string, body []byte, headers map[string]string) (string, map[string]string, string) {
 	t := time.Now().UTC()
 	amzDate := t.Format("20060102T150405Z")
 	shortDate := t.Format("20060102")
 
-	headers := map[string]string{
-		"accept":       "*/*",
-		"content-type": contentType,
-		"host":         host,
-	}
-
 	hashedPayload := sha256Hash(body)
-
 	canonicalHeaders, signedHeaders := getCanonicalHeaders(headers)
 
 	canonicalRequest := strings.Join([]string{
 		http.MethodPost,
-		"/model/" + model + "/invoke",
+		path,
 		"",
 		canonicalHeaders,
 		signedHeaders,

@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -36,7 +37,10 @@ func TestClient(t *testing.T) {
 			logger:       nullLogger(),
 			awsAccessKey: "access_key",
 			awsSecret:    "secret",
-			buildUrlFn: func(service, region, model string) string {
+			buildBedrockUrlFn: func(service, region, model string) string {
+				return server.URL
+			},
+			buildSagemakerUrlFn: func(service, region, endpoint string) string {
 				return server.URL
 			},
 		}
@@ -47,9 +51,40 @@ func TestClient(t *testing.T) {
 		}
 		res, err := c.Vectorize(context.Background(), []string{"This is my text"},
 			ent.VectorizationConfig{
-				Service: "service",
+				Service: "bedrock",
 				Region:  "region",
 				Model:   "model",
+			})
+
+		assert.Nil(t, err)
+		assert.Equal(t, expected, res)
+	})
+
+	t.Run("when all is fine - Sagemaker", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t})
+		defer server.Close()
+		c := &aws{
+			httpClient:   &http.Client{},
+			logger:       nullLogger(),
+			awsAccessKey: "access_key",
+			awsSecret:    "secret",
+			buildBedrockUrlFn: func(service, region, model string) string {
+				return server.URL
+			},
+			buildSagemakerUrlFn: func(service, region, endpoint string) string {
+				return server.URL
+			},
+		}
+		expected := &ent.VectorizationResult{
+			Text:       "This is my text",
+			Vector:     []float32{0.1, 0.2, 0.3},
+			Dimensions: 3,
+		}
+		res, err := c.Vectorize(context.Background(), []string{"This is my text"},
+			ent.VectorizationConfig{
+				Service:  "sagemaker",
+				Region:   "region",
+				Endpoint: "endpoint",
 			})
 
 		assert.Nil(t, err)
@@ -67,18 +102,23 @@ func TestClient(t *testing.T) {
 			logger:       nullLogger(),
 			awsAccessKey: "access_key",
 			awsSecret:    "secret",
-			buildUrlFn: func(service, region, model string) string {
+			buildBedrockUrlFn: func(service, region, model string) string {
+				return server.URL
+			},
+			buildSagemakerUrlFn: func(service, region, endpoint string) string {
 				return server.URL
 			},
 		}
 		_, err := c.Vectorize(context.Background(), []string{"This is my text"},
-			ent.VectorizationConfig{})
+			ent.VectorizationConfig{
+				Service: "bedrock",
+			})
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "connection to AWS failed with status: 500 error: nope, not gonna happen")
 	})
 
-	t.Run("when Aws key is passed using X-Aws-Api-Key header", func(t *testing.T) {
+	t.Run("when AWS key is passed using X-Aws-Api-Key header", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := &aws{
@@ -86,7 +126,10 @@ func TestClient(t *testing.T) {
 			logger:       nullLogger(),
 			awsAccessKey: "access_key",
 			awsSecret:    "secret",
-			buildUrlFn: func(service, region, model string) string {
+			buildBedrockUrlFn: func(service, region, model string) string {
+				return server.URL
+			},
+			buildSagemakerUrlFn: func(service, region, endpoint string) string {
 				return server.URL
 			},
 		}
@@ -98,7 +141,9 @@ func TestClient(t *testing.T) {
 			Vector:     []float32{0.1, 0.2, 0.3},
 			Dimensions: 3,
 		}
-		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, ent.VectorizationConfig{})
+		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, ent.VectorizationConfig{
+			Service: "bedrock",
+		})
 
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -112,14 +157,19 @@ func TestClient(t *testing.T) {
 			logger:       nullLogger(),
 			awsAccessKey: "",
 			awsSecret:    "123",
-			buildUrlFn: func(service, region, model string) string {
+			buildBedrockUrlFn: func(service, region, model string) string {
+				return server.URL
+			},
+			buildSagemakerUrlFn: func(service, region, endpoint string) string {
 				return server.URL
 			},
 		}
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Aws-Api-Key", []string{""})
 
-		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, ent.VectorizationConfig{})
+		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, ent.VectorizationConfig{
+			Service: "bedrock",
+		})
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "AWS Access Key: no access key found neither in request header: "+
@@ -134,14 +184,19 @@ func TestClient(t *testing.T) {
 			logger:       nullLogger(),
 			awsAccessKey: "123",
 			awsSecret:    "",
-			buildUrlFn: func(service, region, model string) string {
+			buildBedrockUrlFn: func(service, region, model string) string {
+				return server.URL
+			},
+			buildSagemakerUrlFn: func(service, region, endpoint string) string {
 				return server.URL
 			},
 		}
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Aws-Api-Key", []string{""})
 
-		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, ent.VectorizationConfig{})
+		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, ent.VectorizationConfig{
+			Service: "bedrock",
+		})
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "AWS Secret Key: no secret found neither in request header: "+
@@ -157,12 +212,23 @@ type fakeHandler struct {
 func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
+	authHeader := r.Header["Authorization"][0]
 	if f.serverError != nil {
-		embeddingResponse := &embeddingsResponse{
-			Message: ptString(f.serverError.Error()),
+		var outBytes []byte
+		var err error
+
+		if strings.Contains(authHeader, "bedrock") {
+			embeddingResponse := &bedrockEmbeddingResponse{
+				Message: ptString(f.serverError.Error()),
+			}
+			outBytes, err = json.Marshal(embeddingResponse)
+		} else {
+			embeddingResponse := &sagemakerEmbeddingResponse{
+				Message: ptString(f.serverError.Error()),
+			}
+			outBytes, err = json.Marshal(embeddingResponse)
 		}
 
-		outBytes, err := json.Marshal(embeddingResponse)
 		require.Nil(f.t, err)
 
 		w.WriteHeader(http.StatusInternalServerError)
@@ -174,17 +240,29 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	require.Nil(f.t, err)
 	defer r.Body.Close()
 
-	var req embeddingsRequest
-	require.Nil(f.t, json.Unmarshal(bodyBytes, &req))
+	var outBytes []byte
+	if strings.Contains(authHeader, "bedrock") {
+		var req bedrockEmbeddingsRequest
+		require.Nil(f.t, json.Unmarshal(bodyBytes, &req))
 
-	textInput := req.InputText
-	assert.Greater(f.t, len(textInput), 0)
+		textInput := req.InputText
+		assert.Greater(f.t, len(textInput), 0)
+		embeddingResponse := &bedrockEmbeddingResponse{
+			Embedding: []float32{0.1, 0.2, 0.3},
+		}
+		outBytes, err = json.Marshal(embeddingResponse)
+	} else {
+		var req sagemakerEmbeddingsRequest
+		require.Nil(f.t, json.Unmarshal(bodyBytes, &req))
 
-	embeddingResponse := &embeddingsResponse{
-		Embedding: []float32{0.1, 0.2, 0.3},
+		textInputs := req.TextInputs
+		assert.Greater(f.t, len(textInputs), 0)
+		embeddingResponse := &sagemakerEmbeddingResponse{
+			Embedding: [][]float32{{0.1, 0.2, 0.3}},
+		}
+		outBytes, err = json.Marshal(embeddingResponse)
 	}
 
-	outBytes, err := json.Marshal(embeddingResponse)
 	require.Nil(f.t, err)
 
 	w.Write(outBytes)

@@ -48,6 +48,9 @@ type ClassSettings interface {
 	Service() string
 	Region() string
 	Model() string
+	Endpoint() string
+	TargetModel() string
+	TargetVariant() string
 }
 
 func sortStringKeys(schema_map map[string]interface{}) []string {
@@ -133,9 +136,12 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 
 	text := []string{strings.Join(corpi, " ")}
 	res, err := v.client.Vectorize(ctx, text, ent.VectorizationConfig{
-		Service: icheck.Service(),
-		Region:  icheck.Region(),
-		Model:   icheck.Model(),
+		Service:       icheck.Service(),
+		Region:        icheck.Region(),
+		Model:         icheck.Model(),
+		Endpoint:      icheck.Endpoint(),
+		TargetModel:   icheck.TargetModel(),
+		TargetVariant: icheck.TargetVariant(),
 	})
 	if err != nil {
 		return nil, err

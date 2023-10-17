@@ -12,7 +12,10 @@
 package ent
 
 type VectorizationConfig struct {
-	Service string
-	Region  string
-	Model   string
+	Service       string
+	Region        string
+	Model         string
+	Endpoint      string
+	TargetModel   string
+	TargetVariant string
 }

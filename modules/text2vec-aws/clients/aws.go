@@ -25,17 +25,23 @@ import (
 	"github.com/weaviate/weaviate/modules/text2vec-aws/ent"
 )
 
-func buildURL(service, region, model string) string {
+func buildBedrockUrl(service, region, model string) string {
 	urlTemplate := "https://%s.%s.amazonaws.com/model/%s/invoke"
 	return fmt.Sprintf(urlTemplate, service, region, model)
 }
 
+func buildSagemakerUrl(service, region, endpoint string) string {
+	urlTemplate := "https://runtime.%s.%s.amazonaws.com/endpoints/%s/invocations"
+	return fmt.Sprintf(urlTemplate, service, region, endpoint)
+}
+
 type aws struct {
-	awsAccessKey string
-	awsSecret    string
-	buildUrlFn   func(service, region, model string) string
-	httpClient   *http.Client
-	logger       logrus.FieldLogger
+	awsAccessKey        string
+	awsSecret           string
+	buildBedrockUrlFn   func(service, region, model string) string
+	buildSagemakerUrlFn func(service, region, endpoint string) string
+	httpClient          *http.Client
+	logger              logrus.FieldLogger
 }
 
 func New(awsAccessKey string, awsSecret string, logger logrus.FieldLogger) *aws {
@@ -45,8 +51,9 @@ func New(awsAccessKey string, awsSecret string, logger logrus.FieldLogger) *aws 
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
-		buildUrlFn: buildURL,
-		logger:     logger,
+		buildBedrockUrlFn:   buildBedrockUrl,
+		buildSagemakerUrlFn: buildSagemakerUrl,
+		logger:              logger,
 	}
 }
 
@@ -63,19 +70,53 @@ func (v *aws) VectorizeQuery(ctx context.Context, input []string,
 }
 
 func (v *aws) vectorize(ctx context.Context, input []string, config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
-	body, err := json.Marshal(embeddingsRequest{
-		InputText: input[0],
-	})
-	if err != nil {
-		return nil, errors.Wrapf(err, "marshal body")
-	}
-
 	service := v.getService(config)
 	region := v.getRegion(config)
 	model := v.getModel(config)
-	host := service + "." + region + ".amazonaws.com"
+	endpoint := v.getEndpoint(config)
+	targetModel := v.getTargetModel(config)
+	targetVariant := v.getTargetVariant(config)
 
-	endpoint := v.buildUrlFn(service, region, model)
+	var body []byte
+	var endpointUrl string
+	var host string
+	var path string
+	var err error
+
+	headers := map[string]string{
+		"accept":       "*/*",
+		"content-type": contentType,
+	}
+
+	if v.isBedrock(service) {
+		endpointUrl = v.buildBedrockUrlFn(service, region, model)
+		host = service + "." + region + ".amazonaws.com"
+		path = "/model/" + model + "/invoke"
+		body, err = json.Marshal(bedrockEmbeddingsRequest{
+			InputText: input[0],
+		})
+		if err != nil {
+			return nil, errors.Wrapf(err, "marshal body")
+		}
+	} else if v.isSagemaker(service) {
+		endpointUrl = v.buildSagemakerUrlFn(service, region, endpoint)
+		host = "runtime." + service + "." + region + ".amazonaws.com"
+		path = "/endpoints/" + endpoint + "/invocations"
+		if targetModel != "" {
+			headers["x-amzn-sagemaker-target-model"] = targetModel
+		}
+		if targetVariant != "" {
+			headers["x-amzn-sagemaker-target-variant"] = targetVariant
+		}
+		body, err = json.Marshal(sagemakerEmbeddingsRequest{
+			TextInputs: input,
+		})
+		if err != nil {
+			return nil, errors.Wrapf(err, "marshal body")
+		}
+	} else {
+		return nil, errors.Wrapf(err, "service error")
+	}
 
 	accessKey, err := v.getAwsAccessKey(ctx)
 	if err != nil {
@@ -86,12 +127,12 @@ func (v *aws) vectorize(ctx context.Context, input []string, config ent.Vectoriz
 		return nil, errors.Wrapf(err, "AWS Secret Key")
 	}
 
-	amzDate, headers, authorizationHeader := getAuthHeader(accessKey, secretKey, model, region, service, host, body)
-
+	headers["host"] = host
+	amzDate, headers, authorizationHeader := getAuthHeader(accessKey, secretKey, host, service, region, path, body, headers)
 	headers["Authorization"] = authorizationHeader
 	headers["x-amz-date"] = amzDate
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointUrl, bytes.NewReader(body))
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
 	}
@@ -110,8 +151,15 @@ func (v *aws) vectorize(ctx context.Context, input []string, config ent.Vectoriz
 	if err != nil {
 		return nil, errors.Wrap(err, "read response body")
 	}
+	if v.isBedrock(service) {
+		return v.parseBedrockResponse(bodyBytes, res, input)
+	} else {
+		return v.parseSagemakerResponse(bodyBytes, res, input)
+	}
+}
 
-	var resBody embeddingsResponse
+func (v *aws) parseBedrockResponse(bodyBytes []byte, res *http.Response, input []string) (*ent.VectorizationResult, error) {
+	var resBody bedrockEmbeddingResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
@@ -133,6 +181,38 @@ func (v *aws) vectorize(ctx context.Context, input []string, config ent.Vectoriz
 		Dimensions: len(resBody.Embedding),
 		Vector:     resBody.Embedding,
 	}, nil
+}
+func (v *aws) parseSagemakerResponse(bodyBytes []byte, res *http.Response, input []string) (*ent.VectorizationResult, error) {
+	var resBody sagemakerEmbeddingResponse
+	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
+		return nil, errors.Wrap(err, "unmarshal response body")
+	}
+
+	if res.StatusCode != 200 || resBody.Message != nil {
+		if resBody.Message != nil {
+			return nil, fmt.Errorf("connection to AWS failed with status: %v error: %s",
+				res.StatusCode, *resBody.Message)
+		}
+		return nil, fmt.Errorf("connection to AWS failed with status: %d", res.StatusCode)
+	}
+
+	if len(resBody.Embedding) == 0 {
+		return nil, errors.Errorf("empty embeddings response")
+	}
+
+	return &ent.VectorizationResult{
+		Text:       input[0],
+		Dimensions: len(resBody.Embedding[0]),
+		Vector:     resBody.Embedding[0],
+	}, nil
+}
+
+func (v *aws) isSagemaker(service string) bool {
+	return service == "sagemaker"
+}
+
+func (v *aws) isBedrock(service string) bool {
+	return service == "bedrock"
 }
 
 func (v *aws) getAwsAccessKey(ctx context.Context) (string, error) {
@@ -175,18 +255,35 @@ func (v *aws) getService(config ent.VectorizationConfig) string {
 	return config.Service
 }
 
-type embeddingsRequest struct {
+func (v *aws) getEndpoint(config ent.VectorizationConfig) string {
+	return config.Endpoint
+}
+
+func (v *aws) getTargetModel(config ent.VectorizationConfig) string {
+	return config.TargetModel
+}
+func (v *aws) getTargetVariant(config ent.VectorizationConfig) string {
+	return config.TargetVariant
+}
+
+type bedrockEmbeddingsRequest struct {
 	InputText string `json:"inputText,omitempty"`
 }
 
-type embeddingsResponse struct {
+type sagemakerEmbeddingsRequest struct {
+	TextInputs []string `json:"text_inputs,omitempty"`
+}
+
+type bedrockEmbeddingResponse struct {
 	InputTextTokenCount int       `json:"InputTextTokenCount,omitempty"`
 	Embedding           []float32 `json:"embedding,omitempty"`
 	Message             *string   `json:"message,omitempty"`
 }
-
-type Result struct {
-	TokenCount       int    `json:"tokenCount,omitempty"`
-	OutputText       string `json:"outputText,omitempty"`
-	CompletionReason string `json:"completionReason,omitempty"`
+type sagemakerEmbeddingResponse struct {
+	Embedding          [][]float32 `json:"embedding,omitempty"`
+	ErrorCode          *string     `json:"ErrorCode,omitempty"`
+	LogStreamArn       *string     `json:"LogStreamArn,omitempty"`
+	OriginalMessage    *string     `json:"OriginalMessage,omitempty"`
+	Message            *string     `json:"Message,omitempty"`
+	OriginalStatusCode *int        `json:"OriginalStatusCode,omitempty"`
 }

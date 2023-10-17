@@ -21,15 +21,18 @@ import (
 
 func Test_classSettings_Validate(t *testing.T) {
 	tests := []struct {
-		name        string
-		cfg         moduletools.ClassConfig
-		wantService string
-		wantRegion  string
-		wantModel   string
-		wantErr     error
+		name              string
+		cfg               moduletools.ClassConfig
+		wantService       string
+		wantRegion        string
+		wantModel         string
+		wantEndpoint      string
+		wantTargetModel   string
+		wantTargetVariant string
+		wantErr           error
 	}{
 		{
-			name: "happy flow",
+			name: "happy flow - Bedrock",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"service": "bedrock",
@@ -43,18 +46,22 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr:     nil,
 		},
 		{
-			name: "custom values",
+			name: "happy flow - Sagemaker",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"service": "bedrock",
-					"region":  "us-west-1",
-					"model":   "amazon.titan-e1t-medium",
+					"service":       "bedrock",
+					"region":        "us-east-1",
+					"endpoint":      "some-endpoint-with-model",
+					"targetModel":   "targetModel",
+					"targetVariant": "targetVariant",
 				},
 			},
-			wantService: "bedrock",
-			wantRegion:  "us-west-1",
-			wantModel:   "amazon.titan-e1t-medium",
-			wantErr:     nil,
+			wantService:       "bedrock",
+			wantRegion:        "us-east-1",
+			wantEndpoint:      "some-endpoint-with-model",
+			wantTargetModel:   "targetModel",
+			wantTargetVariant: "targetVariant",
+			wantErr:           nil,
 		},
 		{
 			name: "empty service",
@@ -64,14 +71,24 @@ func Test_classSettings_Validate(t *testing.T) {
 					"model":  "amazon.titan-e1t-medium",
 				},
 			},
-			wantErr: errors.Errorf("service cannot be empty"),
+			wantErr: errors.Errorf("wrong service, available services are: [bedrock sagemaker]"),
 		},
 		{
-			name: "empty region",
+			name: "empty region - Bedrock",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"service": "bedrock",
 					"model":   "amazon.titan-e1t-medium",
+				},
+			},
+			wantErr: errors.Errorf("region cannot be empty"),
+		},
+		{
+			name: "empty region - Sagemaker",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"service":  "sagemaker",
+					"endpoint": "some-endpoint-with-model",
 				},
 			},
 			wantErr: errors.Errorf("region cannot be empty"),
@@ -85,7 +102,18 @@ func Test_classSettings_Validate(t *testing.T) {
 					"model":   "wrong-model",
 				},
 			},
-			wantErr: errors.Errorf("wrong model available model names are: [amazon.titan-e1t-medium]"),
+			wantErr: errors.Errorf("wrong model, available models are: [amazon.titan-e1t-medium]"),
+		},
+		{
+			name: "wrong endpoint",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"service": "sagemaker",
+					"region":  "us-west-1",
+					"model":   "",
+				},
+			},
+			wantErr: errors.Errorf("endpoint cannot be empty"),
 		},
 		{
 			name: "all wrong",
@@ -96,8 +124,8 @@ func Test_classSettings_Validate(t *testing.T) {
 					"model":   "",
 				},
 			},
-			wantErr: errors.Errorf("service cannot be empty, region cannot be empty, " +
-				"wrong model available model names are: [amazon.titan-e1t-medium]"),
+			wantErr: errors.Errorf("wrong service, available services are: [bedrock sagemaker], " +
+				"region cannot be empty"),
 		},
 	}
 	for _, tt := range tests {
@@ -109,6 +137,9 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantService, ic.Service())
 				assert.Equal(t, tt.wantRegion, ic.Region())
 				assert.Equal(t, tt.wantModel, ic.Model())
+				assert.Equal(t, tt.wantEndpoint, ic.Endpoint())
+				assert.Equal(t, tt.wantTargetModel, ic.TargetModel())
+				assert.Equal(t, tt.wantTargetVariant, ic.TargetVariant())
 			}
 		})
 	}

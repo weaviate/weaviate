@@ -53,6 +53,9 @@ type fakeSettings struct {
 	service            string
 	region             string
 	model              string
+	endpoint           string
+	targetModel        string
+	targetVariant      string
 }
 
 func (f *fakeSettings) PropertyIndexed(propName string) bool {
@@ -77,4 +80,16 @@ func (f *fakeSettings) Region() string {
 
 func (f *fakeSettings) Model() string {
 	return f.model
+}
+
+func (f *fakeSettings) Endpoint() string {
+	return f.endpoint
+}
+
+func (f *fakeSettings) TargetModel() string {
+	return f.targetModel
+}
+
+func (f *fakeSettings) TargetVariant() string {
+	return f.targetVariant
 }

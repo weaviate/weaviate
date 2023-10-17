@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -35,17 +36,6 @@ func TestGetAnswer(t *testing.T) {
 	t.Run("when the server has a successful answer ", func(t *testing.T) {
 		handler := &testAnswerHandler{
 			t: t,
-			answer: generateResponse{
-				InputTextTokenCount: 0,
-				Results: []Result{
-					{
-						TokenCount:       1,
-						OutputText:       "John",
-						CompletionReason: "FINISHED",
-					},
-				},
-				Message: nil,
-			},
 		}
 		server := httptest.NewServer(handler)
 		defer server.Close()
@@ -55,7 +45,10 @@ func TestGetAnswer(t *testing.T) {
 			logger:       nullLogger(),
 			awsAccessKey: "123",
 			awsSecretKey: "123",
-			buildUrlFn: func(service, region, model string) string {
+			buildBedrockUrlFn: func(service, region, model string) string {
+				return server.URL
+			},
+			buildSagemakerUrlFn: func(service, region, endpoint string) string {
 				return server.URL
 			},
 		}
@@ -68,15 +61,12 @@ func TestGetAnswer(t *testing.T) {
 		res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil)
 
 		assert.Nil(t, err)
-		assert.Equal(t, expected, *res)
+		assert.Equal(t, expected, res)
 	})
 
 	t.Run("when the server has a an error", func(t *testing.T) {
 		server := httptest.NewServer(&testAnswerHandler{
 			t: t,
-			answer: generateResponse{
-				Message: ptString("some error from the server"),
-			},
 		})
 		defer server.Close()
 
@@ -85,7 +75,10 @@ func TestGetAnswer(t *testing.T) {
 			logger:       nullLogger(),
 			awsAccessKey: "123",
 			awsSecretKey: "123",
-			buildUrlFn: func(service, region, model string) string {
+			buildBedrockUrlFn: func(service, region, model string) string {
+				return server.URL
+			},
+			buildSagemakerUrlFn: func(service, region, endpoint string) string {
 				return server.URL
 			},
 		}
@@ -101,8 +94,6 @@ func TestGetAnswer(t *testing.T) {
 
 type testAnswerHandler struct {
 	t *testing.T
-	// the test handler will report as not ready before the time has passed
-	answer generateResponse
 }
 
 func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -112,11 +103,17 @@ func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	require.Nil(f.t, err)
 	defer r.Body.Close()
 
-	var b generateInput
-	require.Nil(f.t, json.Unmarshal(bodyBytes, &b))
+	var outBytes []byte
+	authHeader := r.Header["Authorization"][0]
+	if strings.Contains(authHeader, "bedrock") {
+		var request bedrockAmazonGenerateRequest
+		require.Nil(f.t, json.Unmarshal(bodyBytes, &request))
 
-	outBytes, err := json.Marshal(f.answer)
-	require.Nil(f.t, err)
+		outBytes, err = json.Marshal(request)
+		require.Nil(f.t, err)
+	} else {
+
+	}
 
 	w.Write(outBytes)
 }
