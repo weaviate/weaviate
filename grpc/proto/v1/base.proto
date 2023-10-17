@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 package weaviate.v1;
+import "google/protobuf/struct.proto";
 
 option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
 option java_package = "io.weaviate.grpc.protocol.v1";
@@ -30,5 +31,25 @@ message TextArrayProperties {
 
 message BooleanArrayProperties {
   repeated bool values = 1;
+  string prop_name = 2;
+}
+
+message ObjectPropertiesValue {
+  google.protobuf.Struct non_ref_properties = 1;
+  repeated NumberArrayProperties number_array_properties = 2;
+  repeated IntArrayProperties int_array_properties = 3;
+  repeated TextArrayProperties text_array_properties = 4;
+  repeated BooleanArrayProperties boolean_array_properties = 5;
+  repeated ObjectProperties object_properties = 6;
+  repeated ObjectArrayProperties object_array_properties = 7;
+}
+
+message ObjectArrayProperties {
+  repeated ObjectPropertiesValue values = 1;
+  string prop_name = 2;
+}
+
+message ObjectProperties {
+  ObjectPropertiesValue value = 1;
   string prop_name = 2;
 }

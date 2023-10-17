@@ -8,6 +8,5 @@ option java_outer_classname = "WeaviateProtoSearchGet";
 
 message SearchRequest {
 }
-
 message SearchReply {
 }

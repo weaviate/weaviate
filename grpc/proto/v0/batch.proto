@@ -8,6 +8,5 @@ option java_outer_classname = "WeaviateProtoBatch";
 
 message BatchObjectsRequest {
 }
-
 message BatchObjectsReply {
 }

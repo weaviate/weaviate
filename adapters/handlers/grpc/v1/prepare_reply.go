@@ -15,9 +15,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
-
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -310,9 +309,10 @@ func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema) (*p
 }
 
 func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
-	props := pb.PropertiesResult{}
 	nonRefProps := make(map[string]interface{}, 0)
 	refProps := make([]*pb.RefPropertiesResult, 0)
+	objProps := make([]*pb.ObjectProperties, 0)
+	objArrayProps := make([]*pb.ObjectArrayProperties, 0)
 	for _, prop := range properties {
 		propRaw, ok := results[prop.Name]
 		if !ok {
@@ -321,6 +321,46 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 		if prop.IsPrimitive {
 			nonRefProps[prop.Name] = propRaw
 			continue
+		}
+		if prop.IsObject {
+			nested, err := scheme.GetProperty(schema.ClassName(className), schema.PropertyName(prop.Name))
+			if err != nil {
+				return nil, errors.Wrap(err, "getting property")
+			}
+			singleObj, ok := propRaw.(map[string]interface{})
+			if ok {
+				extractedNestedProp, err := extractPropertiesNested(scheme, singleObj, prop, className, &Property{Property: nested})
+				if err != nil {
+					return nil, errors.Wrap(err, "extracting nested properties")
+				}
+				objProps = append(objProps, &pb.ObjectProperties{
+					PropName: prop.Name,
+					Value:    extractedNestedProp,
+				})
+				continue
+			}
+			arrayObjs, ok := propRaw.([]interface{})
+			if ok {
+				extractedNestedProps := make([]*pb.ObjectPropertiesValue, 0, len(arrayObjs))
+				for _, obj := range arrayObjs {
+					singleObj, ok := obj.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					extractedNestedProp, err := extractPropertiesNested(scheme, singleObj, prop, className, &Property{Property: nested})
+					if err != nil {
+						return nil, err
+					}
+					extractedNestedProps = append(extractedNestedProps, extractedNestedProp)
+				}
+				objArrayProps = append(objArrayProps,
+					&pb.ObjectArrayProperties{
+						PropName: prop.Name,
+						Values:   extractedNestedProps,
+					},
+				)
+				continue
+			}
 		}
 		refs, ok := propRaw.([]interface{})
 		if !ok {
@@ -347,19 +387,32 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 		refProp := pb.RefPropertiesResult{PropName: prop.Name, Properties: extractedRefProps}
 		refProps = append(refProps, &refProp)
 	}
-
+	props := pb.PropertiesResult{}
 	if len(nonRefProps) > 0 {
-		if err := extractArrayTypes(scheme, className, &props, nonRefProps); err != nil {
-			return nil, err
+		outProps := pb.ObjectPropertiesValue{}
+		if err := extractArrayTypesRoot(scheme, className, nonRefProps, &outProps); err != nil {
+			return nil, errors.Wrap(err, "extracting non-primitive types")
 		}
 		newStruct, err := structpb.NewStruct(nonRefProps)
 		if err != nil {
-			return nil, errors.Wrap(err, "creating ref-prop struct")
+			return nil, errors.Wrap(err, "creating non-ref-prop struct")
 		}
 		props.NonRefProperties = newStruct
+		props.IntArrayProperties = outProps.IntArrayProperties
+		props.NumberArrayProperties = outProps.NumberArrayProperties
+		props.TextArrayProperties = outProps.TextArrayProperties
+		props.BooleanArrayProperties = outProps.BooleanArrayProperties
+		props.ObjectProperties = outProps.ObjectProperties
+		props.ObjectArrayProperties = outProps.ObjectArrayProperties
 	}
 	if len(refProps) > 0 {
 		props.RefProps = refProps
+	}
+	if len(objProps) > 0 {
+		props.ObjectProperties = objProps
+	}
+	if len(objArrayProps) > 0 {
+		props.ObjectArrayProperties = objArrayProps
 	}
 
 	props.TargetCollection = className
@@ -367,15 +420,133 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 	return &props, nil
 }
 
-// slices cannot be part of a grpc struct, so we need to handle each of them separately
-func extractArrayTypes(scheme schema.Schema, className string, props *pb.PropertiesResult, nonRefProps map[string]interface{}) error {
-	class := scheme.GetClass(schema.ClassName(className))
-	for propName, prop := range nonRefProps {
-		dataType, err := schema.GetPropertyDataType(class, propName)
+func extractPropertiesNested[P schema.PropertyInterface](scheme schema.Schema, results map[string]interface{}, property search.SelectProperty, className string, parent P) (*pb.ObjectPropertiesValue, error) {
+	primitiveProps := make(map[string]interface{}, 0)
+	objProps := make([]*pb.ObjectProperties, 0)
+	objArrayProps := make([]*pb.ObjectArrayProperties, 0)
+	for _, prop := range property.Props {
+		propRaw, ok := results[prop.Name]
+		if !ok {
+			continue
+		}
+		if prop.IsPrimitive {
+			primitiveProps[prop.Name] = propRaw
+			continue
+		}
+		if prop.IsObject {
+			var err error
+			objProps, objArrayProps, err = extractObjectProperties(scheme, propRaw, prop, className, parent, objProps, objArrayProps)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	props := pb.ObjectPropertiesValue{}
+	if len(primitiveProps) > 0 {
+		if err := extractArrayTypesNested(scheme, className, primitiveProps, &props, parent); err != nil {
+			return nil, errors.Wrap(err, "extracting non-primitive types")
+		}
+		newStruct, err := structpb.NewStruct(primitiveProps)
+		if err != nil {
+			return nil, errors.Wrap(err, "creating non-ref-prop struct")
+		}
+		props.NonRefProperties = newStruct
+	}
+	if len(objProps) > 0 {
+		props.ObjectProperties = objProps
+	}
+	if len(objArrayProps) > 0 {
+		props.ObjectArrayProperties = objArrayProps
+	}
+	return &props, nil
+}
+
+func extractObjectProperties[P schema.PropertyInterface](scheme schema.Schema, propRaw interface{}, property search.SelectProperty, className string, parent P, objProps []*pb.ObjectProperties, objArrayProps []*pb.ObjectArrayProperties) ([]*pb.ObjectProperties, []*pb.ObjectArrayProperties, error) {
+	prop, ok := propRaw.(map[string]interface{})
+	if ok {
+		objProp, err := extractObjectSingleProperties(scheme, prop, property, className, parent)
+		if err != nil {
+			return objProps, objArrayProps, err
+		}
+		objProps = append(objProps, objProp)
+	}
+	propArray, ok := propRaw.([]interface{})
+	if ok {
+		objArrayProp, err := extractObjectArrayProperties(scheme, propArray, property, className, parent)
+		if err != nil {
+			return objProps, objArrayProps, err
+		}
+		objArrayProps = append(objArrayProps, objArrayProp)
+	}
+	return objProps, objArrayProps, nil
+}
+
+func extractObjectSingleProperties[P schema.PropertyInterface](scheme schema.Schema, prop map[string]interface{}, property search.SelectProperty, className string, parent P) (*pb.ObjectProperties, error) {
+	nested, err := schema.GetNestedPropertyByName(parent, property.Name)
+	if err != nil {
+		return nil, errors.Wrap(err, "getting property")
+	}
+	extractedNestedProp, err := extractPropertiesNested(scheme, prop, property, className, &NestedProperty{NestedProperty: nested})
+	if err != nil {
+		return nil, errors.Wrap(err, fmt.Sprintf("extracting nested properties from %v", nested))
+	}
+	return &pb.ObjectProperties{
+		PropName: property.Name,
+		Value:    extractedNestedProp,
+	}, nil
+}
+
+func extractObjectArrayProperties[P schema.PropertyInterface](scheme schema.Schema, propObjs []interface{}, property search.SelectProperty, className string, parent P) (*pb.ObjectArrayProperties, error) {
+	extractedNestedProps := make([]*pb.ObjectPropertiesValue, 0, len(propObjs))
+	for _, objRaw := range propObjs {
+		nested, err := schema.GetNestedPropertyByName(parent, property.Name)
+		if err != nil {
+			return nil, errors.Wrap(err, "getting property")
+		}
+		obj, ok := objRaw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		extractedNestedProp, err := extractPropertiesNested(scheme, obj, property, className, &NestedProperty{NestedProperty: nested})
+		if err != nil {
+			return nil, errors.Wrap(err, "extracting nested properties")
+		}
+		extractedNestedProps = append(extractedNestedProps, extractedNestedProp)
+	}
+	return &pb.ObjectArrayProperties{
+		PropName: property.Name,
+		Values:   extractedNestedProps,
+	}, nil
+}
+
+func extractArrayTypesRoot(scheme schema.Schema, className string, rawProps map[string]interface{}, props *pb.ObjectPropertiesValue) error {
+	dataTypes := make(map[string]*schema.DataType, 0)
+	for propName := range rawProps {
+		dataType, err := schema.GetPropertyDataType(scheme.GetClass(schema.ClassName(className)), propName)
 		if err != nil {
 			return err
 		}
+		dataTypes[propName] = dataType
+	}
+	return extractArrayTypes(scheme, rawProps, props, dataTypes)
+}
 
+func extractArrayTypesNested[P schema.PropertyInterface](scheme schema.Schema, className string, rawProps map[string]interface{}, props *pb.ObjectPropertiesValue, parent P) error {
+	dataTypes := make(map[string]*schema.DataType, 0)
+	for propName := range rawProps {
+		dataType, err := schema.GetNestedPropertyDataType(parent, propName)
+		if err != nil {
+			return err
+		}
+		dataTypes[propName] = dataType
+	}
+	return extractArrayTypes(scheme, rawProps, props, dataTypes)
+}
+
+// slices cannot be part of a grpc struct, so we need to handle each of them separately
+func extractArrayTypes(scheme schema.Schema, rawProps map[string]interface{}, props *pb.ObjectPropertiesValue, dataTypes map[string]*schema.DataType) error {
+	for propName, prop := range rawProps {
+		dataType := dataTypes[propName]
 		switch *dataType {
 		case schema.DataTypeIntArray:
 			propIntAsFloat, ok := prop.([]float64)
@@ -390,7 +561,7 @@ func extractArrayTypes(scheme schema.Schema, className string, props *pb.Propert
 				props.IntArrayProperties = make([]*pb.IntArrayProperties, 0)
 			}
 			props.IntArrayProperties = append(props.IntArrayProperties, &pb.IntArrayProperties{PropName: propName, Values: propInt})
-			delete(nonRefProps, propName)
+			delete(rawProps, propName)
 		case schema.DataTypeNumberArray:
 			propIntAsFloat, ok := prop.([]float64)
 			if !ok {
@@ -400,7 +571,7 @@ func extractArrayTypes(scheme schema.Schema, className string, props *pb.Propert
 				props.NumberArrayProperties = make([]*pb.NumberArrayProperties, 0)
 			}
 			props.NumberArrayProperties = append(props.NumberArrayProperties, &pb.NumberArrayProperties{PropName: propName, Values: propIntAsFloat})
-			delete(nonRefProps, propName)
+			delete(rawProps, propName)
 		case schema.DataTypeStringArray, schema.DataTypeTextArray, schema.DataTypeDateArray, schema.DataTypeUUIDArray:
 			propString, ok := prop.([]string)
 			if !ok {
@@ -410,7 +581,7 @@ func extractArrayTypes(scheme schema.Schema, className string, props *pb.Propert
 				props.TextArrayProperties = make([]*pb.TextArrayProperties, 0)
 			}
 			props.TextArrayProperties = append(props.TextArrayProperties, &pb.TextArrayProperties{PropName: propName, Values: propString})
-			delete(nonRefProps, propName)
+			delete(rawProps, propName)
 		case schema.DataTypeBooleanArray:
 			propBool, ok := prop.([]bool)
 			if !ok {
@@ -420,7 +591,7 @@ func extractArrayTypes(scheme schema.Schema, className string, props *pb.Propert
 				props.BooleanArrayProperties = make([]*pb.BooleanArrayProperties, 0)
 			}
 			props.BooleanArrayProperties = append(props.BooleanArrayProperties, &pb.BooleanArrayProperties{PropName: propName, Values: propBool})
-			delete(nonRefProps, propName)
+			delete(rawProps, propName)
 		default:
 			_, isArray := schema.IsArrayType(*dataType)
 			if isArray {
@@ -428,7 +599,6 @@ func extractArrayTypes(scheme schema.Schema, className string, props *pb.Propert
 			}
 			continue
 		}
-
 	}
 	return nil
 }

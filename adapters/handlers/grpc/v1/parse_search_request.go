@@ -70,7 +70,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 
 	out.Properties, err = extractPropertiesRequest(req.Properties, scheme, req.Collection)
 	if err != nil {
-		return dto.GetParams{}, err
+		return dto.GetParams{}, errors.Wrap(err, "extract properties request")
 	}
 	if len(out.Properties) == 0 && req.Metadata != nil {
 		// This is a pure-ID query without any props. Indicate this to the DB, so
@@ -519,6 +519,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Sche
 			props = append(props, search.SelectProperty{
 				Name:        schema.LowercaseFirstLetter(prop),
 				IsPrimitive: true,
+				IsObject:    false,
 			})
 		}
 	}
@@ -550,7 +551,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Sche
 			if prop.Properties != nil {
 				refProperties, err = extractPropertiesRequest(prop.Properties, scheme, linkedClassName)
 				if err != nil {
-					return nil, err
+					return nil, errors.Wrap(err, "extract properties request")
 				}
 			}
 			if prop.Metadata != nil {
@@ -560,19 +561,20 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Sche
 			if prop.Properties == nil && prop.Metadata == nil {
 				refProperties, err = getAllNonRefNonBlobProperties(scheme, linkedClassName)
 				if err != nil {
-					return nil, err
+					return nil, errors.Wrap(err, "get all non ref non blob properties")
 				}
 
 				linkedClass := scheme.GetClass(schema.ClassName(linkedClassName))
 				metaData, err = setAllCheapAdditionalPropsToTrue(linkedClass)
 				if err != nil {
-					return nil, err
+					return nil, errors.Wrap(err, "set all cheap additional props to true")
 				}
 			}
 
 			props = append(props, search.SelectProperty{
 				Name:        normalizedRefPropName,
 				IsPrimitive: false,
+				IsObject:    false,
 				Refs: []search.SelectClass{{
 					ClassName:            linkedClassName,
 					RefProperties:        refProperties,
@@ -582,7 +584,37 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Sche
 		}
 	}
 
+	if reqProps.ObjectProperties != nil && len(reqProps.ObjectProperties) > 0 {
+		props = append(props, extractNestedProperties(reqProps.ObjectProperties)...)
+	}
+
 	return props, nil
+}
+
+func extractNestedProperties(props []*pb.ObjectPropertiesRequest) []search.SelectProperty {
+	selectProps := make([]search.SelectProperty, 0)
+	for _, prop := range props {
+		nestedProps := make([]search.SelectProperty, 0)
+		if prop.PrimitiveProperties != nil && len(prop.PrimitiveProperties) > 0 {
+			for _, primitive := range prop.PrimitiveProperties {
+				nestedProps = append(nestedProps, search.SelectProperty{
+					Name:        schema.LowercaseFirstLetter(primitive),
+					IsPrimitive: true,
+					IsObject:    false,
+				})
+			}
+		}
+		if prop.ObjectProperties != nil && len(prop.ObjectProperties) > 0 {
+			nestedProps = append(nestedProps, extractNestedProperties(prop.ObjectProperties)...)
+		}
+		selectProps = append(selectProps, search.SelectProperty{
+			Name:        schema.LowercaseFirstLetter(prop.PropName),
+			IsPrimitive: false,
+			IsObject:    true,
+			Props:       nestedProps,
+		})
+	}
+	return selectProps
 }
 
 func extractAdditionalPropsForRefs(prop *pb.MetadataRequest) additional.Properties {
@@ -605,17 +637,67 @@ func getAllNonRefNonBlobProperties(scheme schema.Schema, className string) ([]se
 	for _, prop := range class.Properties {
 		dt, err := schema.GetPropertyDataType(class, prop.Name)
 		if err != nil {
-			return []search.SelectProperty{}, err
+			return []search.SelectProperty{}, errors.Wrap(err, "get property data type")
 		}
 		if *dt == schema.DataTypeCRef || *dt == schema.DataTypeBlob {
 			continue
 		}
+		if *dt == schema.DataTypeObject || *dt == schema.DataTypeObjectArray {
+			nested, err := schema.GetPropertyByName(class, prop.Name)
+			if err != nil {
+				return []search.SelectProperty{}, errors.Wrap(err, "get nested property by name")
+			}
+			nestedProps, err := getAllNonRefNonBlobNestedProperties(&Property{Property: nested})
+			if err != nil {
+				return []search.SelectProperty{}, errors.Wrap(err, "get all non ref non blob nested properties")
+			}
+			props = append(props, search.SelectProperty{
+				Name:        prop.Name,
+				IsPrimitive: false,
+				IsObject:    true,
+				Props:       nestedProps,
+			})
+		} else {
+			props = append(props, search.SelectProperty{
+				Name:        prop.Name,
+				IsPrimitive: true,
+			})
+		}
+	}
+	return props, nil
+}
 
-		props = append(props, search.SelectProperty{
-			Name:        prop.Name,
-			IsPrimitive: true,
-		})
-
+func getAllNonRefNonBlobNestedProperties[P schema.PropertyInterface](property P) ([]search.SelectProperty, error) {
+	var props []search.SelectProperty
+	for _, prop := range property.GetNestedProperties() {
+		dt, err := schema.GetNestedPropertyDataType(property, prop.Name)
+		if err != nil {
+			return []search.SelectProperty{}, errors.Wrap(err, "get nested property data type")
+		}
+		if *dt == schema.DataTypeCRef || *dt == schema.DataTypeBlob {
+			continue
+		}
+		if *dt == schema.DataTypeObject || *dt == schema.DataTypeObjectArray {
+			nested, err := schema.GetNestedPropertyByName(property, prop.Name)
+			if err != nil {
+				return []search.SelectProperty{}, errors.Wrap(err, "get nested property by name")
+			}
+			nestedProps, err := getAllNonRefNonBlobNestedProperties(&NestedProperty{NestedProperty: nested})
+			if err != nil {
+				return []search.SelectProperty{}, errors.Wrap(err, "get all non ref non blob nested properties")
+			}
+			props = append(props, search.SelectProperty{
+				Name:        prop.Name,
+				IsPrimitive: false,
+				IsObject:    true,
+				Props:       nestedProps,
+			})
+		} else {
+			props = append(props, search.SelectProperty{
+				Name:        prop.Name,
+				IsPrimitive: true,
+			})
+		}
 	}
 	return props, nil
 }
