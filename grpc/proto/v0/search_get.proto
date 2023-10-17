@@ -11,4 +11,3 @@ message SearchRequest {
 
 message SearchReply {
 }
-
