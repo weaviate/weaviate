@@ -390,7 +390,7 @@ func TestIndexQueue(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 		before, err := q.checkpoints.Get("1")
 		require.NoError(t, err)
-		q.pushToWorkers(-1)
+		q.pushToWorkers(-1, false)
 		// the checkpoint should be: 0, then 0
 		// the cursor should not be updated
 		wait(100 * time.Millisecond)
@@ -402,7 +402,7 @@ func TestIndexQueue(t *testing.T) {
 		writeIDs(q, 30, 40) // [4, 15, 16, 17, 18], [19, 20, 21, 22, 23], [24, 30, 31, 32, 33], [34, 35, 36, 37, 38], [39]
 		time.Sleep(100 * time.Millisecond)
 		// the checkpoint should be: 0, then 4, then 14, then 29
-		q.pushToWorkers(-1)
+		q.pushToWorkers(-1, false)
 		// 0
 		wait()
 		// 4
@@ -512,7 +512,7 @@ func TestIndexQueue(t *testing.T) {
 			pushVector(t, ctx, q, i+1, 1, 2, 3)
 		}
 
-		q.pushToWorkers(-1)
+		q.pushToWorkers(-1, false)
 		q.Close()
 
 		require.EqualValues(t, 20, count)
@@ -533,7 +533,7 @@ func TestIndexQueue(t *testing.T) {
 			pushVector(t, ctx, q, i+1, randVector(1536)...)
 		}
 
-		q.pushToWorkers(-1)
+		q.pushToWorkers(-1, false)
 
 		_, distances, err := q.SearchByVector(randVector(1536), 10, nil)
 		require.NoError(t, err)
