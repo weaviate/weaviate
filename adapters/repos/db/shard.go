@@ -297,6 +297,7 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 }
 
 func (s *Shard) drop() error {
+	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
 	s.replicationMap.clear()
 
 	if s.index.Config.TrackVectorDimensions {
