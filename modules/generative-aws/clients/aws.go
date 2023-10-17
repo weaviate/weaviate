@@ -139,6 +139,11 @@ func (v *aws) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt 
 				//PresencePenalty:  settings.PresencePenaltyScale(),
 				//FrequencyPenalty: settings.FrequencyPenaltyScale(),
 			})
+		} else if v.isCohereModel(model) {
+			var builder strings.Builder
+			body, err = json.Marshal(bedrockCohereRequest{
+				Prompt: builder.String(),
+			})
 		}
 
 		headers["x-amzn-bedrock-save"] = "false"
@@ -341,6 +346,10 @@ func (v *aws) isAnthropicModel(model string) bool {
 	return strings.Contains(model, "anthropic")
 }
 
+func (v *aws) isCohereModel(model string) bool {
+	return strings.Contains(model, "cohere")
+}
+
 type bedrockAmazonGenerateRequest struct {
 	InputText            string                `json:"inputText,omitempty"`
 	TextGenerationConfig *textGenerationConfig `json:"textGenerationConfig,omitempty"`
@@ -365,6 +374,11 @@ type bedrockAI21GenerateRequest struct {
 	CountPenalty     penalty  `json:"countPenalty,omitempty"`
 	PresencePenalty  penalty  `json:"presencePenalty,omitempty"`
 	FrequencyPenalty penalty  `json:"frequencyPenalty,omitempty"`
+}
+type bedrockCohereRequest struct {
+	Prompt      string  `json:"prompt,omitempty"`
+	MaxTokens   int     `json:"max_tokens,omitempty"`
+	Temperature float64 `json:"temperature,omitempty"`
 }
 
 type penalty struct {

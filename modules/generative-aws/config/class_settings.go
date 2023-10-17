@@ -59,6 +59,12 @@ var (
 	//DefaultAnthropicTopP          = 0.999
 )
 
+var (
+	DefaultCohereMaxTokens   = 100
+	DefaultCohereTemperature = 0.8
+	DefaultCohereTopP        = 1.0
+)
+
 var availableAWSServices = []string{
 	"bedrock",
 	"sagemaker",
@@ -71,6 +77,7 @@ var availableBedrockModels = []string{
 	"anthropic.claude-v2",
 	"ai21.j2-mid",
 	"ai21.j2-ultra",
+	"cohere.command-text-v14",
 }
 
 type classSettings struct {
@@ -277,6 +284,9 @@ func (ic *classSettings) MaxTokenCount() *int {
 		if isAI21Model(ic.Model()) {
 			return ic.getIntProperty(maxTokenCountProperty, &DefaultAI21MaxTokens)
 		}
+		if isCohereModel(ic.Model()) {
+			return ic.getIntProperty(maxTokenCountProperty, &DefaultCohereMaxTokens)
+		}
 	}
 	return ic.getIntProperty(maxTokenCountProperty, nil)
 }
@@ -302,6 +312,9 @@ func (ic *classSettings) Temperature() *float64 {
 		if isAnthropicModel(ic.Model()) {
 			return ic.getFloatProperty(temperatureProperty, &DefaultAnthropicTemperature)
 		}
+		if isCohereModel(ic.Model()) {
+			return ic.getFloatProperty(temperatureProperty, &DefaultCohereTemperature)
+		}
 	}
 	return ic.getFloatProperty(temperatureProperty, nil)
 }
@@ -313,6 +326,9 @@ func (ic *classSettings) TopP() *float64 {
 		}
 		if isAnthropicModel(ic.Model()) {
 			return ic.getFloatProperty(topPProperty, &DefaultAnthropicTopP)
+		}
+		if isCohereModel(ic.Model()) {
+			return ic.getFloatProperty(topPProperty, &DefaultCohereTopP)
 		}
 	}
 	return ic.getFloatProperty(topPProperty, nil)
@@ -357,4 +373,8 @@ func isAI21Model(model string) bool {
 
 func isAnthropicModel(model string) bool {
 	return strings.HasPrefix(model, "anthropic")
+}
+
+func isCohereModel(model string) bool {
+	return strings.HasPrefix(model, "cohere")
 }
