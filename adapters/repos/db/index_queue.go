@@ -15,7 +15,10 @@ import (
 	"container/list"
 	"context"
 	"encoding/binary"
+	"math"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -51,6 +54,9 @@ type IndexQueue struct {
 
 	// queue of not-yet-indexed vectors
 	queue *vectorQueue
+
+	// keeps track of the last call to Push()
+	lastPushed atomic.Pointer[time.Time]
 
 	pqMaxPool *pqMaxPool
 
@@ -189,6 +195,10 @@ func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) erro
 	if q.ctx.Err() != nil {
 		return errors.New("index queue closed")
 	}
+
+	// store the time of the last push
+	now := time.Now()
+	q.lastPushed.Store(&now)
 
 	q.queue.Add(vectors)
 	return nil
@@ -334,6 +344,8 @@ func (q *IndexQueue) Drop() error {
 func (q *IndexQueue) indexer() {
 	t := time.NewTicker(q.IndexInterval)
 
+	workerNb := runtime.GOMAXPROCS(0) - 1
+
 	for {
 		select {
 		case <-t.C:
@@ -343,10 +355,23 @@ func (q *IndexQueue) indexer() {
 			}
 			status, err := q.Shard.compareAndSwapStatus(storagestate.StatusReady.String(), storagestate.StatusIndexing.String())
 			if status != storagestate.StatusIndexing || err != nil {
-				q.Logger.WithField("status", status).WithError(err).Error("failed to set shard status to indexing")
+				q.Logger.WithField("status", status).WithError(err).Warn("failed to set shard status to 'indexing', trying again in " + q.IndexInterval.String())
 				continue
 			}
-			q.pushToWorkers()
+
+			lastPushed := q.lastPushed.Load()
+			if lastPushed == nil || time.Since(*lastPushed) > time.Second {
+				// send at most 2 times the number of workers in one go,
+				// then wait for the next tick in case more vectors
+				// are added to the queue
+				q.pushToWorkers(2 * workerNb)
+			} else {
+				// send only one batch per tick
+				// to avoid competing for resources with the Push() method.
+				// This ensures the resources are used for queueing vectors in priority,
+				// then for indexing them.
+				q.pushToWorkers(1)
+			}
 		case <-q.ctx.Done():
 			// stop the ticker
 			t.Stop()
@@ -355,8 +380,8 @@ func (q *IndexQueue) indexer() {
 	}
 }
 
-func (q *IndexQueue) pushToWorkers() {
-	chunks := q.queue.borrowAllChunks()
+func (q *IndexQueue) pushToWorkers(max int) {
+	chunks := q.queue.borrowChunks(max)
 	for i, c := range chunks {
 		select {
 		case <-q.ctx.Done():
@@ -636,14 +661,19 @@ func (q *vectorQueue) ensureHasSpace() *chunk {
 	return c
 }
 
-func (q *vectorQueue) borrowAllChunks() []*chunk {
-	q.fullChunks.Lock()
+func (q *vectorQueue) borrowChunks(max int) []*chunk {
+	if max <= 0 {
+		max = math.MaxInt64
+	}
 
+	q.fullChunks.Lock()
 	var chunks []*chunk
 	e := q.fullChunks.list.Front()
-	for e != nil {
+	count := 0
+	for e != nil && count < max {
 		c := e.Value.(*chunk)
 		if !c.borrowed {
+			count++
 			c.borrowed = true
 			chunks = append(chunks, c)
 		}
@@ -652,13 +682,15 @@ func (q *vectorQueue) borrowAllChunks() []*chunk {
 	}
 	q.fullChunks.Unlock()
 
-	q.curBatch.Lock()
-	if q.curBatch.c != nil && time.Since(*q.curBatch.c.createdAt) > q.IndexQueue.StaleTimeout && q.curBatch.c.cursor > 0 {
-		q.curBatch.c.borrowed = true
-		chunks = append(chunks, q.curBatch.c)
-		q.curBatch.c = nil
+	if count < max {
+		q.curBatch.Lock()
+		if q.curBatch.c != nil && time.Since(*q.curBatch.c.createdAt) > q.IndexQueue.StaleTimeout && q.curBatch.c.cursor > 0 {
+			q.curBatch.c.borrowed = true
+			chunks = append(chunks, q.curBatch.c)
+			q.curBatch.c = nil
+		}
+		q.curBatch.Unlock()
 	}
-	q.curBatch.Unlock()
 
 	return chunks
 }
