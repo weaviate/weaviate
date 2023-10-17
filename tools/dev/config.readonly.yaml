@@ -7,6 +7,9 @@ authorization:
     users: []
     read_only_users:
       - anonymous
+    groups: []
+    read_only_groups:
+      - generic
 vector_index:
   enabled: true
   url: http://localhost:9201

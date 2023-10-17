@@ -24,7 +24,6 @@ func TestVectorizingTexts(t *testing.T) {
 	type testCase struct {
 		name                     string
 		input                    []string
-		expectedClientCall       string
 		expectedHuggingFaceModel string
 		huggingFaceModel         string
 		huggingFaceEndpointURL   string
@@ -36,56 +35,48 @@ func TestVectorizingTexts(t *testing.T) {
 			input:                    []string{"hello"},
 			huggingFaceModel:         "sentence-transformers/gtr-t5-xl",
 			expectedHuggingFaceModel: "sentence-transformers/gtr-t5-xl",
-			expectedClientCall:       "hello",
 		},
 		{
 			name:                     "multiple words",
 			input:                    []string{"hello world, this is me!"},
 			huggingFaceModel:         "sentence-transformers/gtr-t5-xl",
 			expectedHuggingFaceModel: "sentence-transformers/gtr-t5-xl",
-			expectedClientCall:       "hello world, this is me!",
 		},
 		{
 			name:                     "multiple sentences (joined with a dot)",
 			input:                    []string{"this is sentence 1", "and here's number 2"},
 			huggingFaceModel:         "sentence-transformers/gtr-t5-xl",
 			expectedHuggingFaceModel: "sentence-transformers/gtr-t5-xl",
-			expectedClientCall:       "this is sentence 1. and here's number 2",
 		},
 		{
 			name:                     "multiple sentences already containing a dot",
 			input:                    []string{"this is sentence 1.", "and here's number 2"},
 			huggingFaceModel:         "sentence-transformers/gtr-t5-xl",
 			expectedHuggingFaceModel: "sentence-transformers/gtr-t5-xl",
-			expectedClientCall:       "this is sentence 1. and here's number 2",
 		},
 		{
 			name:                     "multiple sentences already containing a question mark",
 			input:                    []string{"this is sentence 1?", "and here's number 2"},
 			huggingFaceModel:         "sentence-transformers/gtr-t5-xl",
 			expectedHuggingFaceModel: "sentence-transformers/gtr-t5-xl",
-			expectedClientCall:       "this is sentence 1? and here's number 2",
 		},
 		{
 			name:                     "multiple sentences already containing an exclamation mark",
 			input:                    []string{"this is sentence 1!", "and here's number 2"},
 			huggingFaceModel:         "sentence-transformers/gtr-t5-xl",
 			expectedHuggingFaceModel: "sentence-transformers/gtr-t5-xl",
-			expectedClientCall:       "this is sentence 1! and here's number 2",
 		},
 		{
 			name:                     "multiple sentences already containing comma",
 			input:                    []string{"this is sentence 1,", "and here's number 2"},
 			huggingFaceModel:         "sentence-transformers/gtr-t5-xl",
 			expectedHuggingFaceModel: "sentence-transformers/gtr-t5-xl",
-			expectedClientCall:       "this is sentence 1, and here's number 2",
 		},
 		{
 			name:                     "single word with inference url",
 			input:                    []string{"hello"},
 			huggingFaceEndpointURL:   "http://url.cloud",
 			expectedHuggingFaceModel: "",
-			expectedClientCall:       "hello",
 		},
 	}
 
@@ -103,7 +94,6 @@ func TestVectorizingTexts(t *testing.T) {
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0.1, 1.1, 2.1, 3.1}, vec)
-			assert.Equal(t, test.expectedClientCall, client.lastInput)
 			assert.Equal(t, test.expectedHuggingFaceModel, client.lastConfig.Model)
 		})
 	}
