@@ -264,4 +264,3 @@ message RefPropertiesResult {
   repeated PropertiesResult properties = 1;
   string prop_name = 2;
 }
-
