@@ -407,3 +407,131 @@ func TestBackwardCompatibilityBefore1_17(t *testing.T) {
 	assert.Equal(t, []string{"the-best-node"},
 		newVersion.Physical["hello-replication"].BelongsToNodes)
 }
+
+func TestApplyNodeMapping(t *testing.T) {
+	type test struct {
+		name        string
+		state       State
+		control     State
+		nodeMapping map[string]string
+	}
+
+	tests := []test{
+		{
+			name: "no mapping",
+			state: State{
+				Physical: map[string]Physical{
+					"hello-node-mapping": {
+						Name:                                 "hello-node-mapping",
+						LegacyBelongsToNodeForBackwardCompat: "node1",
+						BelongsToNodes:                       []string{"node1"},
+					},
+				},
+			},
+			control: State{
+				Physical: map[string]Physical{
+					"hello-node-mapping": {
+						Name:                                 "hello-node-mapping",
+						LegacyBelongsToNodeForBackwardCompat: "node1",
+						BelongsToNodes:                       []string{"node1"},
+					},
+				},
+			},
+		},
+		{
+			name: "map one node",
+			state: State{
+				Physical: map[string]Physical{
+					"hello-node-mapping": {
+						Name:                                 "hello-node-mapping",
+						LegacyBelongsToNodeForBackwardCompat: "node1",
+						BelongsToNodes:                       []string{"node1"},
+					},
+				},
+			},
+			control: State{
+				Physical: map[string]Physical{
+					"hello-node-mapping": {
+						Name:                                 "hello-node-mapping",
+						LegacyBelongsToNodeForBackwardCompat: "new-node1",
+						BelongsToNodes:                       []string{"new-node1"},
+					},
+				},
+			},
+			nodeMapping: map[string]string{"node1": "new-node1"},
+		},
+		{
+			name: "map multiple nodes",
+			state: State{
+				Physical: map[string]Physical{
+					"hello-node-mapping": {
+						Name:                                 "hello-node-mapping",
+						LegacyBelongsToNodeForBackwardCompat: "node1",
+						BelongsToNodes:                       []string{"node1", "node2"},
+					},
+				},
+			},
+			control: State{
+				Physical: map[string]Physical{
+					"hello-node-mapping": {
+						Name:                                 "hello-node-mapping",
+						LegacyBelongsToNodeForBackwardCompat: "new-node1",
+						BelongsToNodes:                       []string{"new-node1", "new-node2"},
+					},
+				},
+			},
+			nodeMapping: map[string]string{"node1": "new-node1", "node2": "new-node2"},
+		},
+		{
+			name: "map multiple nodes with exceptions",
+			state: State{
+				Physical: map[string]Physical{
+					"hello-node-mapping": {
+						Name:                                 "hello-node-mapping",
+						LegacyBelongsToNodeForBackwardCompat: "node1",
+						BelongsToNodes:                       []string{"node1", "node2", "node3"},
+					},
+				},
+			},
+			control: State{
+				Physical: map[string]Physical{
+					"hello-node-mapping": {
+						Name:                                 "hello-node-mapping",
+						LegacyBelongsToNodeForBackwardCompat: "new-node1",
+						BelongsToNodes:                       []string{"new-node1", "new-node2", "node3"},
+					},
+				},
+			},
+			nodeMapping: map[string]string{"node1": "new-node1", "node2": "new-node2"},
+		},
+		{
+			name: "map multiple nodes with legacy exception",
+			state: State{
+				Physical: map[string]Physical{
+					"hello-node-mapping": {
+						Name:                                 "hello-node-mapping",
+						LegacyBelongsToNodeForBackwardCompat: "node3",
+						BelongsToNodes:                       []string{"node1", "node2", "node3"},
+					},
+				},
+			},
+			control: State{
+				Physical: map[string]Physical{
+					"hello-node-mapping": {
+						Name:                                 "hello-node-mapping",
+						LegacyBelongsToNodeForBackwardCompat: "node3",
+						BelongsToNodes:                       []string{"new-node1", "new-node2", "node3"},
+					},
+				},
+			},
+			nodeMapping: map[string]string{"node1": "new-node1", "node2": "new-node2"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.state.ApplyNodeMapping(tc.nodeMapping)
+			assert.Equal(t, tc.control, tc.state)
+		})
+	}
+}

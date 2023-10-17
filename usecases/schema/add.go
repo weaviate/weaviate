@@ -56,7 +56,7 @@ func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 	// TODO gh-846: Rollback state update if migration fails
 }
 
-func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) error {
+func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string) error {
 	// get schema and sharding state
 	class := &models.Class{}
 	if err := json.Unmarshal(d.Schema, &class); err != nil {
@@ -105,6 +105,7 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 	}
 
 	shardingState.MigrateFromOldFormat()
+	shardingState.ApplyNodeMapping(nodeMapping)
 
 	payload, err := CreateClassPayload(class, &shardingState)
 	if err != nil {
