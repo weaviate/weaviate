@@ -162,7 +162,7 @@ func New(logger logrus.FieldLogger, config Config,
 	} else {
 		w := runtime.GOMAXPROCS(0) - 1
 		db.shutDownWg.Add(w)
-		db.jobQueueCh = make(chan job)
+		db.jobQueueCh = make(chan job, w)
 		for i := 0; i < w; i++ {
 			go func() {
 				defer db.shutDownWg.Done()
