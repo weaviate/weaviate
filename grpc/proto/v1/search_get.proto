@@ -134,6 +134,13 @@ message MetadataRequest {
 message PropertiesRequest {
   repeated string non_ref_properties = 1;
   repeated RefPropertiesRequest ref_properties = 2;
+  repeated ObjectPropertiesRequest object_properties = 3;
+}
+
+message ObjectPropertiesRequest {
+  string prop_name = 1;
+  repeated string primitive_properties = 2; 
+  repeated ObjectPropertiesRequest object_properties = 3;
 }
 
 message Hybrid {
@@ -258,6 +265,8 @@ message PropertiesResult {
   repeated IntArrayProperties int_array_properties = 6;
   repeated TextArrayProperties text_array_properties = 7;
   repeated BooleanArrayProperties boolean_array_properties = 8;
+  repeated ObjectProperties object_properties = 9;
+  repeated ObjectArrayProperties object_array_properties = 10;
 }
 
 message RefPropertiesResult {

@@ -44,6 +44,7 @@ func TestGRPCRequest(t *testing.T) {
 	refClass1 := "OtherClass"
 	refClass2 := "AnotherClass"
 	dotClass := "DotClass"
+	objClass := "ObjClass"
 	scheme := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
@@ -80,6 +81,42 @@ func TestGRPCRequest(t *testing.T) {
 						{Name: "something", DataType: schema.DataTypeText.PropString()},
 					},
 					VectorIndexConfig: hnsw.UserConfig{Distance: hnsw.DistanceDot},
+				},
+				{
+					Class: objClass,
+					Properties: []*models.Property{
+						{
+							Name:     "something",
+							DataType: schema.DataTypeObject.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{
+									Name:     "name",
+									DataType: schema.DataTypeText.PropString(),
+								},
+								{
+									Name:     "else",
+									DataType: schema.DataTypeObject.PropString(),
+									NestedProperties: []*models.NestedProperty{
+										{
+											Name:     "name",
+											DataType: schema.DataTypeText.PropString(),
+										},
+									},
+								},
+								{
+									Name:     "elses",
+									DataType: schema.DataTypeObjectArray.PropString(),
+									NestedProperties: []*models.NestedProperty{
+										{
+											Name:     "name",
+											DataType: schema.DataTypeText.PropString(),
+										},
+									},
+								},
+							},
+						},
+					},
+					VectorIndexConfig: hnsw.UserConfig{Distance: hnsw.DefaultDistanceMetric},
 				},
 			},
 		},
@@ -685,6 +722,92 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out:   dto.GetParams{},
 			error: true,
+		},
+		{
+			name: "Object properties return",
+			req: &pb.SearchRequest{
+				Collection: objClass,
+				Properties: &pb.PropertiesRequest{
+					ObjectProperties: []*pb.ObjectPropertiesRequest{
+						{
+							PropName:            "something",
+							PrimitiveProperties: []string{"name"},
+							ObjectProperties: []*pb.ObjectPropertiesRequest{
+								{
+									PropName:            "else",
+									PrimitiveProperties: []string{"name"},
+								},
+								{
+									PropName:            "elses",
+									PrimitiveProperties: []string{"name"},
+								},
+							},
+						},
+					},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: objClass, Pagination: defaultPagination,
+				Properties: search.SelectProperties{
+					{
+						Name: "something", IsPrimitive: false, IsObject: true,
+						Props: search.SelectProperties{
+							{Name: "name", IsPrimitive: true},
+							{
+								Name: "else", IsPrimitive: false, IsObject: true,
+								Props: search.SelectProperties{{
+									Name: "name", IsPrimitive: true,
+								}},
+							},
+							{
+								Name: "elses", IsPrimitive: false, IsObject: true,
+								Props: search.SelectProperties{{
+									Name: "name", IsPrimitive: true,
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "No return values given nested",
+			req:  &pb.SearchRequest{Collection: objClass},
+			out: dto.GetParams{
+				ClassName: objClass, Pagination: defaultPagination,
+				Properties: search.SelectProperties{
+					{
+						Name: "something", IsPrimitive: false, IsObject: true,
+						Props: search.SelectProperties{
+							{Name: "name", IsPrimitive: true},
+							{
+								Name: "else", IsPrimitive: false, IsObject: true,
+								Props: search.SelectProperties{{
+									Name: "name", IsPrimitive: true,
+								}},
+							},
+							{
+								Name: "elses", IsPrimitive: false, IsObject: true,
+								Props: search.SelectProperties{{
+									Name: "name", IsPrimitive: true,
+								}},
+							},
+						},
+					},
+				},
+				AdditionalProperties: additional.Properties{
+					Vector:             false,
+					Certainty:          true,
+					ID:                 true,
+					CreationTimeUnix:   true,
+					LastUpdateTimeUnix: true,
+					Distance:           true,
+					Score:              true,
+					ExplainScore:       true,
+					IsConsistent:       false,
+				},
+			},
+			error: false,
 		},
 	}
 

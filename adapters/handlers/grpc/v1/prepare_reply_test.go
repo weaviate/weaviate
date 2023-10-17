@@ -15,15 +15,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/searchparams"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/searchparams"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/search"
 	addModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
@@ -58,6 +58,7 @@ func TestGRPCReply(t *testing.T) {
 	refClass1 := "RefClass1"
 	refClass2 := "RefClass2"
 	className := "className"
+	objClass := "objClass"
 	scheme := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
@@ -84,6 +85,47 @@ func TestGRPCReply(t *testing.T) {
 					Properties: []*models.Property{
 						{Name: "else", DataType: schema.DataTypeText.PropString()},
 						{Name: "ref3", DataType: []string{refClass2}},
+					},
+				},
+				{
+					Class: objClass,
+					Properties: []*models.Property{
+						{
+							Name:     "something",
+							DataType: schema.DataTypeObject.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{
+									Name:     "name",
+									DataType: schema.DataTypeText.PropString(),
+								},
+								{
+									Name:     "names",
+									DataType: schema.DataTypeTextArray.PropString(),
+								},
+								{
+									Name:     "else",
+									DataType: schema.DataTypeObject.PropString(),
+									NestedProperties: []*models.NestedProperty{
+										{
+											Name:     "name",
+											DataType: schema.DataTypeText.PropString(),
+										},
+										{
+											Name:     "names",
+											DataType: schema.DataTypeTextArray.PropString(),
+										},
+									},
+								},
+								{
+									Name:     "objs",
+									DataType: schema.DataTypeObjectArray.PropString(),
+									NestedProperties: []*models.NestedProperty{{
+										Name:     "name",
+										DataType: schema.DataTypeText.PropString(),
+									}},
+								},
+							},
+						},
 					},
 				},
 			},
@@ -243,6 +285,108 @@ func TestGRPCReply(t *testing.T) {
 						TargetCollection:   className,
 						NonRefProperties:   newStruct(t, map[string]interface{}{}),
 						IntArrayProperties: []*pb.IntArrayProperties{{PropName: "nums", Values: []int64{1, 2, 3}}},
+					},
+				},
+			},
+		},
+		{
+			name: "nested object properties",
+			res: []interface{}{
+				map[string]interface{}{
+					"something": map[string]interface{}{
+						"name":  "Bob",
+						"names": []string{"Jo", "Jill"},
+						"else": map[string]interface{}{
+							"name":  "Bill",
+							"names": []string{"Jo", "Jill"},
+						},
+						"objs": []interface{}{
+							map[string]interface{}{"name": "Bill"},
+						},
+					},
+				},
+			},
+			searchParams: dto.GetParams{
+				ClassName: objClass,
+				Properties: search.SelectProperties{{
+					Name:        "something",
+					IsPrimitive: false,
+					IsObject:    true,
+					Props: []search.SelectProperty{
+						{
+							Name:        "name",
+							IsPrimitive: true,
+						},
+						{
+							Name:        "names",
+							IsPrimitive: true,
+						},
+						{
+							Name:        "else",
+							IsPrimitive: false,
+							IsObject:    true,
+							Props: []search.SelectProperty{
+								{
+									Name:        "name",
+									IsPrimitive: true,
+								},
+								{
+									Name:        "names",
+									IsPrimitive: true,
+								},
+							},
+						},
+						{
+							Name:        "objs",
+							IsPrimitive: false,
+							IsObject:    true,
+							Props: []search.SelectProperty{{
+								Name:        "name",
+								IsPrimitive: true,
+							}},
+						},
+					},
+				}},
+			},
+			outSearch: []*pb.SearchResult{
+				{
+					Metadata: &pb.MetadataResult{},
+					Properties: &pb.PropertiesResult{
+						TargetCollection: objClass,
+						ObjectProperties: []*pb.ObjectProperties{
+							{
+								PropName: "something",
+								Value: &pb.ObjectPropertiesValue{
+									NonRefProperties: newStruct(t, map[string]interface{}{
+										"name": "Bob",
+									}),
+									TextArrayProperties: []*pb.TextArrayProperties{{
+										PropName: "names",
+										Values:   []string{"Jo", "Jill"},
+									}},
+									ObjectProperties: []*pb.ObjectProperties{{
+										PropName: "else",
+										Value: &pb.ObjectPropertiesValue{
+											NonRefProperties: newStruct(t, map[string]interface{}{
+												"name": "Bill",
+											}),
+											TextArrayProperties: []*pb.TextArrayProperties{{
+												PropName: "names",
+												Values:   []string{"Jo", "Jill"},
+											}},
+										},
+									}},
+									ObjectArrayProperties: []*pb.ObjectArrayProperties{{
+										PropName: "objs",
+										Values: []*pb.ObjectPropertiesValue{{
+											NonRefProperties: newStruct(t, map[string]interface{}{
+												"name": "Bill",
+											}),
+										}},
+									}},
+								},
+							},
+						},
 					},
 				},
 			},

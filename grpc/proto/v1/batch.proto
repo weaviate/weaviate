@@ -23,6 +23,8 @@ message BatchObject {
     repeated IntArrayProperties int_array_properties = 5;
     repeated TextArrayProperties text_array_properties = 6;
     repeated BooleanArrayProperties boolean_array_properties = 7;
+    repeated ObjectProperties object_properties = 8;
+    repeated ObjectArrayProperties object_array_properties = 9;
   }
 
   message SingleTargetRefProps {
