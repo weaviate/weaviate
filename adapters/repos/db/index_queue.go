@@ -182,7 +182,9 @@ func (q *IndexQueue) Close() error {
 	// loop over the chunks of the queue
 	// wait for the done chan to be closed
 	// then return
-	q.queue.wait()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	q.queue.wait(ctx)
 
 	return nil
 }
@@ -359,18 +361,20 @@ func (q *IndexQueue) indexer() {
 				continue
 			}
 
+			q.pushToWorkers(-1, false)
+
 			lastPushed := q.lastPushed.Load()
 			if lastPushed == nil || time.Since(*lastPushed) > time.Second {
 				// send at most 2 times the number of workers in one go,
 				// then wait for the next tick in case more vectors
 				// are added to the queue
-				q.pushToWorkers(2 * workerNb)
+				q.pushToWorkers(2*workerNb, false)
 			} else {
-				// send only one batch per tick
+				// send only one batch at a time and wait for it to be indexed
 				// to avoid competing for resources with the Push() method.
 				// This ensures the resources are used for queueing vectors in priority,
 				// then for indexing them.
-				q.pushToWorkers(1)
+				q.pushToWorkers(1, true)
 			}
 		case <-q.ctx.Done():
 			// stop the ticker
@@ -380,7 +384,7 @@ func (q *IndexQueue) indexer() {
 	}
 }
 
-func (q *IndexQueue) pushToWorkers(max int) {
+func (q *IndexQueue) pushToWorkers(max int, wait bool) {
 	chunks := q.queue.borrowChunks(max)
 	for i, c := range chunks {
 		select {
@@ -398,6 +402,10 @@ func (q *IndexQueue) pushToWorkers(max int) {
 			ctx:     q.ctx,
 		}:
 		}
+	}
+
+	if wait {
+		q.queue.wait(q.ctx)
 	}
 }
 
@@ -569,10 +577,7 @@ func (q *vectorQueue) getFreeChunk() *chunk {
 	return c
 }
 
-func (q *vectorQueue) wait() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
+func (q *vectorQueue) wait(ctx context.Context) {
 	for {
 		// get first non-closed channel
 		var ch chan struct{}
