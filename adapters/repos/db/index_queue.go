@@ -191,7 +191,6 @@ func (q *IndexQueue) Close() error {
 
 // Push adds a list of vectors to the queue.
 func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) error {
-	panic("PUSH CALLED! IT'S WORKING!")
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
