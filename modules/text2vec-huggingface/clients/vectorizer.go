@@ -18,6 +18,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -44,6 +47,10 @@ type embedding [][]float32
 
 type embeddingBert [][][][]float32
 
+type embeddingObject struct {
+	Embeddings embedding `json:"embeddings"`
+}
+
 type huggingFaceApiError struct {
 	Error         string   `json:"error"`
 	EstimatedTime *float32 `json:"estimated_time,omitempty"`
@@ -57,10 +64,12 @@ type vectorizer struct {
 	logger                logrus.FieldLogger
 }
 
-func New(apiKey string, logger logrus.FieldLogger) *vectorizer {
+func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
-		apiKey:                apiKey,
-		httpClient:            &http.Client{},
+		apiKey: apiKey,
+		httpClient: &http.Client{
+			Timeout: timeout,
+		},
 		bertEmbeddingsDecoder: newBertEmbeddingsDecoder(),
 		logger:                logger,
 	}
@@ -157,13 +166,21 @@ func checkResponse(res *http.Response, bodyBytes []byte) error {
 func (v *vectorizer) decodeVector(bodyBytes []byte) ([]float32, error) {
 	var emb embedding
 	if err := json.Unmarshal(bodyBytes, &emb); err != nil {
-		var embBert embeddingBert
-		if err := json.Unmarshal(bodyBytes, &embBert); err != nil {
-			return nil, errors.Wrap(err, "unmarshal response body")
-		}
+		var embObject embeddingObject
+		if err := json.Unmarshal(bodyBytes, &embObject); err != nil {
+			var embBert embeddingBert
+			if err := json.Unmarshal(bodyBytes, &embBert); err != nil {
+				return nil, errors.Wrap(err, "unmarshal response body")
+			}
 
-		if len(embBert) == 1 && len(embBert[0]) == 1 {
-			return v.bertEmbeddingsDecoder.calculateVector(embBert[0][0])
+			if len(embBert) == 1 && len(embBert[0]) == 1 {
+				return v.bertEmbeddingsDecoder.calculateVector(embBert[0][0])
+			}
+
+			return nil, errors.New("unprocessable response body")
+		}
+		if len(embObject.Embeddings) == 1 {
+			return embObject.Embeddings[0], nil
 		}
 
 		return nil, errors.New("unprocessable response body")
@@ -180,7 +197,13 @@ func (v *vectorizer) getApiKey(ctx context.Context) string {
 	if len(v.apiKey) > 0 {
 		return v.apiKey
 	}
-	apiKey := ctx.Value("X-Huggingface-Api-Key")
+	key := "X-Huggingface-Api-Key"
+	apiKey := ctx.Value(key)
+	// try getting header from GRPC if not successful
+	if apiKey == nil {
+		apiKey = modulecomponents.GetApiKeyFromGRPC(ctx, key)
+	}
+
 	if apiKeyHeader, ok := apiKey.([]string); ok &&
 		len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
 		return apiKeyHeader[0]

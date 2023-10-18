@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func Test_AzureBackend_Backup(t *testing.T) {
@@ -227,6 +228,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 type fakeModuleParams struct {
 	logger   logrus.FieldLogger
 	provider fakeStorageProvider
+	config   config.Config
 }
 
 func newFakeModuleParams(dataPath string) *fakeModuleParams {
@@ -247,6 +249,10 @@ func (f *fakeModuleParams) GetAppState() interface{} {
 
 func (f *fakeModuleParams) GetLogger() logrus.FieldLogger {
 	return f.logger
+}
+
+func (f *fakeModuleParams) GetConfig() config.Config {
+	return f.config
 }
 
 type fakeStorageProvider struct {

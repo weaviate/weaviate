@@ -197,9 +197,22 @@ func (c *compactorMap) writeKeys() ([]segmentindex.Key, error) {
 func (c *compactorMap) writeIndividualNode(offset int, key []byte,
 	values []value,
 ) (segmentindex.Key, error) {
+	// NOTE: There are no guarantees in the cursor logic that any memory is valid
+	// for more than a single iteration. Every time you call next() to advance
+	// the cursor, any memory might be reused.
+	//
+	// This includes the key buffer which was the cause of
+	// https://github.com/weaviate/weaviate/issues/3517
+	//
+	// A previous logic created a new assignment in each iteration, but thatwas
+	// not an explicit guarantee. A change in v1.21 (for pread/mmap) added a
+	// reusable buffer for the key which surfaced this bug.
+	keyCopy := make([]byte, len(key))
+	copy(keyCopy, key)
+
 	return segmentCollectionNode{
 		values:     values,
-		primaryKey: key,
+		primaryKey: keyCopy,
 		offset:     offset,
 	}.KeyIndexAndWriteTo(c.bufw)
 }

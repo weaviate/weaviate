@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -59,26 +58,32 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		return &Error{"cannot lock", StatusInternalServerError, err}
 	}
 	defer unlock()
-
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
-	if err := input.validate(ctx, principal, validator, m.schemaManager, tenant); err != nil {
+	targetRef, err := input.validate(principal, validator, m.schemaManager)
+	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
 			return &Error{"validate inputs", StatusUnprocessableEntity, err}
 		}
 		return &Error{"validate inputs", StatusBadRequest, err}
 	}
 
-	if !deprecatedEndpoint {
-		if input.Class != "" && strings.Count(string(input.Ref.Beacon), "/") == 3 {
-			toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, input.Ref.Beacon)
-			if err != nil {
-				return err
-			}
-			if replace {
-				input.Ref.Class = toClass
-				input.Ref.Beacon = toBeacon
-			}
+	if input.Class != "" && targetRef.Class == "" {
+		toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, input.Ref.Beacon)
+		if err != nil {
+			return err
 		}
+		if replace {
+			input.Ref.Class = toClass
+			input.Ref.Beacon = toBeacon
+			targetRef.Class = string(toClass)
+		}
+	}
+
+	if err := input.validateExistence(ctx, validator, tenant, targetRef); err != nil {
+		return &Error{"validate existence", StatusBadRequest, err}
+	}
+
+	if !deprecatedEndpoint {
 		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl, tenant)
 		if err != nil {
 			switch err.(type) {
@@ -113,7 +118,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		return &Error{"add reference to repo", StatusInternalServerError, err}
 	}
 
-	if err := m.updateRefVector(ctx, principal, input.Class, input.ID); err != nil {
+	if err := m.updateRefVector(ctx, principal, input.Class, input.ID, tenant); err != nil {
 		return &Error{"update ref vector", StatusInternalServerError, err}
 	}
 
@@ -137,21 +142,28 @@ type AddReferenceInput struct {
 }
 
 func (req *AddReferenceInput) validate(
-	ctx context.Context,
 	principal *models.Principal,
 	v *validation.Validator,
-	sm schemaManager, tenant string,
-) error {
+	sm schemaManager,
+) (*crossref.Ref, error) {
 	if err := validateReferenceName(req.Class, req.Property); err != nil {
-		return err
+		return nil, err
 	}
-	if err := v.ValidateSingleRef(ctx, &req.Ref, "validate reference", tenant); err != nil {
-		return err
+	ref, err := v.ValidateSingleRef(&req.Ref)
+	if err != nil {
+		return nil, err
 	}
 
 	schema, err := sm.GetSchema(principal)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return validateReferenceSchema(req.Class, req.Property, schema)
+	return ref, validateReferenceSchema(req.Class, req.Property, schema)
+}
+
+func (req *AddReferenceInput) validateExistence(
+	ctx context.Context,
+	v *validation.Validator, tenant string, ref *crossref.Ref,
+) error {
+	return v.ValidateExistence(ctx, ref, "validate reference", tenant)
 }

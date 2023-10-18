@@ -200,6 +200,8 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 		db.logger.WithField("action", "delete_index").WithField("class", className).Error(err)
 	}
 	delete(db.indices, id)
+
+	db.promMetrics.DeleteClass(className.String())
 	return nil
 }
 

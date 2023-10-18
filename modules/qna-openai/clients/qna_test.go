@@ -17,7 +17,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -30,15 +29,6 @@ import (
 func nullLogger() logrus.FieldLogger {
 	l, _ := test.NewNullLogger()
 	return l
-}
-
-func fakeBuildUrl(serverURL, resourceName, deploymentID string) (string, error) {
-	endpoint, err := buildUrl(resourceName, deploymentID)
-	if err != nil {
-		return "", err
-	}
-	endpoint = strings.Replace(endpoint, "https://api.openai.com", serverURL, 1)
-	return endpoint, nil
 }
 
 func TestGetAnswer(t *testing.T) {
@@ -58,9 +48,9 @@ func TestGetAnswer(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		c := New("openAIApiKey", "", "", nullLogger())
-		c.buildUrlFn = func(resourceName, deploymentID string) (string, error) {
-			return fakeBuildUrl(server.URL, resourceName, deploymentID)
+		c := New("openAIApiKey", "", "", 0, nullLogger())
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID string) (string, error) {
+			return buildUrl(server.URL, resourceName, deploymentID)
 		}
 
 		expected := ent.AnswerResult{
@@ -86,9 +76,9 @@ func TestGetAnswer(t *testing.T) {
 		})
 		defer server.Close()
 
-		c := New("openAIApiKey", "", "", nullLogger())
-		c.buildUrlFn = func(resourceName, deploymentID string) (string, error) {
-			return fakeBuildUrl(server.URL, resourceName, deploymentID)
+		c := New("openAIApiKey", "", "", 0, nullLogger())
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID string) (string, error) {
+			return buildUrl(server.URL, resourceName, deploymentID)
 		}
 
 		_, err := c.Answer(context.Background(), "My name is John", "What is my name?", nil)

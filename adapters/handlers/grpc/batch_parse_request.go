@@ -17,10 +17,18 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	pb "github.com/weaviate/weaviate/grpc"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol"
 )
 
 const BEACON_START = "weaviate://localhost/"
+
+func sliceToInterface[T any](values []T) []interface{} {
+	tmpArray := make([]interface{}, len(values))
+	for k := range values {
+		tmpArray[k] = values[k]
+	}
+	return tmpArray
+}
 
 func batchFromProto(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*models.Object, error) {
 	objectsBatch := req.Objects
@@ -33,6 +41,31 @@ func batchFromProto(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*model
 				props = obj.Properties.NonRefProperties.AsMap()
 			} else {
 				props = make(map[string]interface{})
+			}
+
+			// arrays cannot be part of a GRPC map, so we need to handle each type separately
+			if obj.Properties.BooleanArrayProperties != nil {
+				for j := range obj.Properties.BooleanArrayProperties {
+					props[obj.Properties.BooleanArrayProperties[j].PropName] = sliceToInterface(obj.Properties.BooleanArrayProperties[j].Values)
+				}
+			}
+
+			if obj.Properties.NumberArrayProperties != nil {
+				for j := range obj.Properties.NumberArrayProperties {
+					props[obj.Properties.NumberArrayProperties[j].PropName] = sliceToInterface(obj.Properties.NumberArrayProperties[j].Values)
+				}
+			}
+
+			if obj.Properties.TextArrayProperties != nil {
+				for j := range obj.Properties.TextArrayProperties {
+					props[obj.Properties.TextArrayProperties[j].PropName] = sliceToInterface(obj.Properties.TextArrayProperties[j].Values)
+				}
+			}
+
+			if obj.Properties.IntArrayProperties != nil {
+				for j := range obj.Properties.IntArrayProperties {
+					props[obj.Properties.IntArrayProperties[j].PropName] = sliceToInterface(obj.Properties.IntArrayProperties[j].Values)
+				}
 			}
 
 			if err := extractSingleRefTarget(class, obj, props); err != nil {

@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -91,11 +92,13 @@ func (db *DB) ShardsBackup(
 	if err := idx.initBackup(bakID); err != nil {
 		return cd, fmt.Errorf("init backup state for class %q: %w", class, err)
 	}
+
 	defer func() {
 		if err != nil {
 			go idx.ReleaseBackup(ctx, bakID)
 		}
 	}()
+
 	sm := make(map[string]*Shard, len(shards))
 	for _, shardName := range shards {
 		shard := idx.shards.Load(shardName)
@@ -104,6 +107,10 @@ func (db *DB) ShardsBackup(
 		}
 		sm[shardName] = shard
 	}
+
+	// prevent writing into the index during collection of metadata
+	idx.backupMutex.Lock()
+	defer idx.backupMutex.Unlock()
 	for shardName, shard := range sm {
 		if err := shard.beginBackup(ctx); err != nil {
 			return cd, fmt.Errorf("class %q: shard %q: begin backup: %w", class, shardName, err)
@@ -149,10 +156,17 @@ func (db *DB) ClassExists(name string) bool {
 	return db.IndexExists(schema.ClassName(name))
 }
 
-func (db *DB) Shards(ctx context.Context, class string) []string {
+// Returns the list of nodes where shards of class are contained.
+// If there are no shards for the class, returns an empty list
+// If there are shards for the class but no nodes are found, return an error
+func (db *DB) Shards(ctx context.Context, class string) ([]string, error) {
 	unique := make(map[string]struct{})
 
 	ss := db.schemaGetter.CopyShardingState(class)
+	if len(ss.Physical) == 0 {
+		return []string{}, nil
+	}
+
 	for _, shard := range ss.Physical {
 		unique[shard.BelongsToNode()] = struct{}{}
 	}
@@ -166,8 +180,11 @@ func (db *DB) Shards(ctx context.Context, class string) []string {
 		nodes[counter] = node
 		counter++
 	}
+	if len(nodes) == 0 {
+		return nil, fmt.Errorf("found %v shards, but has 0 nodes", len(ss.Physical))
+	}
 
-	return nodes
+	return nodes, nil
 }
 
 func (db *DB) ListClasses(ctx context.Context) []string {
@@ -186,11 +203,16 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	if err := i.initBackup(backupID); err != nil {
 		return err
 	}
+
 	defer func() {
 		if err != nil {
 			go i.ReleaseBackup(ctx, backupID)
 		}
 	}()
+
+	// prevent writing into the index during collection of metadata
+	i.backupMutex.Lock()
+	defer i.backupMutex.Unlock()
 
 	if err = i.ForEachShard(func(name string, s *Shard) error {
 		if err = s.beginBackup(ctx); err != nil {
@@ -228,28 +250,26 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 }
 
 func (i *Index) initBackup(id string) error {
-	i.backupStateLock.Lock()
-	defer i.backupStateLock.Unlock()
-
-	if i.backupState.InProgress {
+	new := &BackupState{
+		BackupID:   id,
+		InProgress: true,
+	}
+	if !i.lastBackup.CompareAndSwap(nil, new) {
+		bid := ""
+		if x := i.lastBackup.Load(); x != nil {
+			bid = x.BackupID
+		}
 		return errors.Errorf(
 			"cannot create new backup, backup ‘%s’ is not yet released, this "+
 				"means its contents have not yet been fully copied to its destination, "+
-				"try again later", i.backupState.BackupID)
-	}
-
-	i.backupState = BackupState{
-		BackupID:   id,
-		InProgress: true,
+				"try again later", bid)
 	}
 
 	return nil
 }
 
 func (i *Index) resetBackupState() {
-	i.backupStateLock.Lock()
-	defer i.backupStateLock.Unlock()
-	i.backupState = BackupState{InProgress: false}
+	i.lastBackup.Store(nil)
 }
 
 func (i *Index) resumeMaintenanceCycles(ctx context.Context) (lastErr error) {
@@ -282,4 +302,52 @@ func (i *Index) marshalSchema() ([]byte, error) {
 	}
 
 	return b, err
+}
+
+const (
+	mutexRetryDuration  = time.Millisecond * 500
+	mutexNotifyDuration = 20 * time.Second
+)
+
+// backupMutex is an adapter built around rwmutex that facilitates cooperative blocking between write and read locks
+type backupMutex struct {
+	sync.RWMutex
+	log            logrus.FieldLogger
+	retryDuration  time.Duration
+	notifyDuration time.Duration
+}
+
+// LockWithContext attempts to acquire a write lock while respecting the provided context.
+// It reports whether the lock acquisition was successful or if the context has been cancelled.
+func (m *backupMutex) LockWithContext(ctx context.Context) error {
+	return m.lock(ctx, m.TryLock)
+}
+
+func (m *backupMutex) lock(ctx context.Context, tryLock func() bool) error {
+	if tryLock() {
+		return nil
+	}
+	curTime := time.Now()
+	t := time.NewTicker(m.retryDuration)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t.C:
+			if tryLock() {
+				return nil
+			}
+			if time.Since(curTime) > m.notifyDuration {
+				curTime = time.Now()
+				m.log.Info("backup process waiting for ongoing writes to finish")
+			}
+		}
+	}
+}
+
+func (s *backupMutex) RLockGuard(reader func() error) error {
+	s.RLock()
+	defer s.RUnlock()
+	return reader()
 }

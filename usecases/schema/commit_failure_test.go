@@ -131,6 +131,8 @@ func TestFailedCommits(t *testing.T) {
 			sm, err := newManagerWithClusterAndTx(t, clusterState, txClient, initialSchema)
 			require.Nil(t, err)
 
+			sm.StartServing(context.Background())
+
 			if test.prepare != nil {
 				test.prepare(t, sm)
 			}

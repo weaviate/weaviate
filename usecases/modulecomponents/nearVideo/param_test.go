@@ -9,11 +9,11 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package nearImage
+package nearVideo
 
 import "testing"
 
-func Test_validateNearImageFn(t *testing.T) {
+func Test_validateNearVideoFn(t *testing.T) {
 	type args struct {
 		param interface{}
 	}
@@ -25,32 +25,32 @@ func Test_validateNearImageFn(t *testing.T) {
 		{
 			name: "should pass with proper values",
 			args: args{
-				param: &NearImageParams{
-					Image: "base64;enncoded",
+				param: &NearVideoParams{
+					Video: "base64;enncoded",
 				},
 			},
 		},
 		{
-			name: "should not pass with empty image",
+			name: "should not pass with empty video",
 			args: args{
-				param: &NearImageParams{
-					Image: "",
+				param: &NearVideoParams{
+					Video: "",
 				},
 			},
 			wantErr: true,
 		},
 		{
-			name: "should not pass with nil image",
+			name: "should not pass with nil video",
 			args: args{
-				param: &NearImageParams{},
+				param: &NearVideoParams{},
 			},
 			wantErr: true,
 		},
 		{
 			name: "should not pass with struct param, not a pointer to struct",
 			args: args{
-				param: NearImageParams{
-					Image: "image",
+				param: NearVideoParams{
+					Video: "video",
 				},
 			},
 			wantErr: true,
@@ -58,8 +58,8 @@ func Test_validateNearImageFn(t *testing.T) {
 		{
 			name: "should not pass with certainty and distance",
 			args: args{
-				param: NearImageParams{
-					Image:        "image",
+				param: NearVideoParams{
+					Video:        "video",
 					Distance:     0.9,
 					WithDistance: true,
 					Certainty:    0.1,
@@ -70,8 +70,8 @@ func Test_validateNearImageFn(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := validateNearImageFn(tt.args.param); (err != nil) != tt.wantErr {
-				t.Errorf("validateNearImageFn() error = %v, wantErr %v", err, tt.wantErr)
+			if err := ValidateNearVideoFn(tt.args.param); (err != nil) != tt.wantErr {
+				t.Errorf("ValidateNearVideoFn() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

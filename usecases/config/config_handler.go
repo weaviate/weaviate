@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"time"
 
 	"github.com/go-openapi/swag"
 	"github.com/pkg/errors"
@@ -83,6 +84,7 @@ type Config struct {
 	DefaultVectorDistanceMetric         string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
 	EnableModules                       string                   `json:"enable_modules" yaml:"enable_modules"`
 	ModulesPath                         string                   `json:"modules_path" yaml:"modules_path"`
+	ModuleHttpClientTimeout             time.Duration            `json:"modules_client_timeout" yaml:"modules_client_timeout"`
 	AutoSchema                          AutoSchema               `json:"auto_schema" yaml:"auto_schema"`
 	Cluster                             cluster.Config           `json:"cluster" yaml:"cluster"`
 	Replication                         replication.GlobalConfig `json:"replication" yaml:"replication"`
@@ -99,6 +101,7 @@ type Config struct {
 	IndexMissingTextFilterableAtStartup bool                     `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
 	DisableGraphQL                      bool                     `json:"disable_graphql" yaml:"disable_graphql"`
 	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
+	CORS                                CORS                     `json:"cors" yaml:"cors"`
 }
 
 type moduleProvider interface {
@@ -239,6 +242,18 @@ type ResourceUsage struct {
 	DiskUse DiskUse
 	MemUse  MemUse
 }
+
+type CORS struct {
+	AllowOrigin  string `json:"allow_origin" yaml:"allow_origin"`
+	AllowMethods string `json:"allow_methods" yaml:"allow_methods"`
+	AllowHeaders string `json:"allow_headers" yaml:"allow_headers"`
+}
+
+const (
+	DefaultCORSAllowOrigin  = "*"
+	DefaultCORSAllowMethods = "*"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Cohere-Api-Key, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Palm-Api-Key"
+)
 
 func (r ResourceUsage) Validate() error {
 	if err := r.DiskUse.Validate(); err != nil {

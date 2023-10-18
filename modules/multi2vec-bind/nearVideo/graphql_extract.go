@@ -11,9 +11,11 @@
 
 package nearVideo
 
+import "github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
+
 // extractNearVideoFn arguments, such as "video" and "certainty"
 func extractNearVideoFn(source map[string]interface{}) interface{} {
-	var args NearVideoParams
+	var args nearVideo.NearVideoParams
 
 	video, ok := source["video"].(string)
 	if ok {

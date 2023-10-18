@@ -14,6 +14,17 @@ package grpc
 import (
 	"testing"
 
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearAudio"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
+
+	"github.com/weaviate/weaviate/entities/schema/crossref"
+	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/searchparams"
 
@@ -24,13 +35,15 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/grpc"
+
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol"
 )
 
 func TestGRPCRequest(t *testing.T) {
 	classname := "TestClass"
 	refClass1 := "OtherClass"
 	refClass2 := "AnotherClass"
+	dotClass := "DotClass"
 	scheme := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
@@ -40,9 +53,11 @@ func TestGRPCRequest(t *testing.T) {
 						{Name: "name", DataType: schema.DataTypeText.PropString()},
 						{Name: "number", DataType: schema.DataTypeInt.PropString()},
 						{Name: "floats", DataType: schema.DataTypeNumberArray.PropString()},
+						{Name: "uuid", DataType: schema.DataTypeUUID.PropString()},
 						{Name: "ref", DataType: []string{refClass1}},
 						{Name: "multiRef", DataType: []string{refClass1, refClass2}},
 					},
+					VectorIndexConfig: hnsw.UserConfig{Distance: hnsw.DefaultDistanceMetric},
 				},
 				{
 					Class: refClass1,
@@ -50,6 +65,7 @@ func TestGRPCRequest(t *testing.T) {
 						{Name: "something", DataType: schema.DataTypeText.PropString()},
 						{Name: "ref2", DataType: []string{refClass2}},
 					},
+					VectorIndexConfig: hnsw.UserConfig{Distance: hnsw.DefaultDistanceMetric},
 				},
 				{
 					Class: refClass2,
@@ -58,30 +74,40 @@ func TestGRPCRequest(t *testing.T) {
 						{Name: "ref3", DataType: []string{refClass2}},
 					},
 				},
+				{
+					Class: dotClass,
+					Properties: []*models.Property{
+						{Name: "something", DataType: schema.DataTypeText.PropString()},
+					},
+					VectorIndexConfig: hnsw.UserConfig{Distance: hnsw.DistanceDot},
+				},
 			},
 		},
 	}
 	defaultPagination := &filters.Pagination{Limit: 10}
+	quorum := pb.ConsistencyLevel_CONSISTENCY_LEVEL_QUORUM
+	someString1 := "a word"
+	someString2 := "other"
 
 	tests := []struct {
 		name  string
-		req   *grpc.SearchRequest
+		req   *pb.SearchRequest
 		out   dto.GetParams
 		error bool
 	}{
 		{
 			name:  "No classname",
-			req:   &grpc.SearchRequest{},
+			req:   &pb.SearchRequest{},
 			out:   dto.GetParams{},
 			error: true,
 		},
 		{
 			name: "No return values given",
-			req:  &grpc.SearchRequest{ClassName: classname},
+			req:  &pb.SearchRequest{ClassName: classname},
 			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}, {Name: "floats", IsPrimitive: true}},
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}, {Name: "floats", IsPrimitive: true}, {Name: "uuid", IsPrimitive: true}},
 				AdditionalProperties: additional.Properties{
-					Vector:             true,
+					Vector:             false,
 					Certainty:          true,
 					ID:                 true,
 					CreationTimeUnix:   true,
@@ -89,25 +115,46 @@ func TestGRPCRequest(t *testing.T) {
 					Distance:           true,
 					Score:              true,
 					ExplainScore:       true,
+					IsConsistent:       false,
+				},
+			},
+			error: false,
+		},
+		{
+			name: "No return values given for dot distance",
+			req:  &pb.SearchRequest{ClassName: dotClass},
+			out: dto.GetParams{
+				ClassName: dotClass, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "something", IsPrimitive: true}},
+				AdditionalProperties: additional.Properties{
+					Vector:             false,
+					Certainty:          false, // not compatible
+					ID:                 true,
+					CreationTimeUnix:   true,
+					LastUpdateTimeUnix: true,
+					Distance:           true,
+					Score:              true,
+					ExplainScore:       true,
+					IsConsistent:       false,
 				},
 			},
 			error: false,
 		},
 		{
 			name: "Metadata return values",
-			req:  &grpc.SearchRequest{ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true, Certainty: false}},
+			req:  &pb.SearchRequest{ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true, Certainty: false, IsConsistent: true}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
 				AdditionalProperties: additional.Properties{
-					Vector:  true,
-					NoProps: true,
+					Vector:       true,
+					NoProps:      true,
+					IsConsistent: true,
 				},
 			},
 			error: false,
 		},
 		{
 			name: "Properties return values ref",
-			req:  &grpc.SearchRequest{ClassName: classname, Properties: &grpc.Properties{RefProperties: []*grpc.RefProperties{{ReferenceProperty: "ref", WhichCollection: refClass1, Metadata: &grpc.AdditionalProperties{Vector: true, Certainty: false}, LinkedProperties: &grpc.Properties{NonRefProperties: []string{"something"}}}}}},
+			req:  &pb.SearchRequest{ClassName: classname, Properties: &pb.Properties{RefProperties: []*pb.RefProperties{{ReferenceProperty: "ref", WhichCollection: refClass1, Metadata: &pb.AdditionalProperties{Vector: true, Certainty: false}, LinkedProperties: &pb.Properties{NonRefProperties: []string{"something"}}}}}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{{ClassName: refClass1, RefProperties: search.SelectProperties{{Name: "something", IsPrimitive: true}}, AdditionalProperties: additional.Properties{
 					Vector: true,
@@ -118,9 +165,9 @@ func TestGRPCRequest(t *testing.T) {
 		},
 		{
 			name: "Properties return values non-ref",
-			req:  &grpc.SearchRequest{ClassName: classname, Properties: &grpc.Properties{NonRefProperties: []string{"name"}}},
+			req:  &pb.SearchRequest{ClassName: classname, Properties: &pb.Properties{NonRefProperties: []string{"name", "CapitalizedName"}}},
 			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}},
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "capitalizedName", IsPrimitive: true}},
 				AdditionalProperties: additional.Properties{
 					Vector:             false,
 					Certainty:          false,
@@ -136,16 +183,35 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
+			name: "ref returns no values given",
+			req:  &pb.SearchRequest{ClassName: classname, Properties: &pb.Properties{RefProperties: []*pb.RefProperties{{ReferenceProperty: "ref", WhichCollection: refClass1}}}},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{{ClassName: refClass1, RefProperties: search.SelectProperties{{Name: "something", IsPrimitive: true}}, AdditionalProperties: additional.Properties{
+					Vector:             false,
+					Certainty:          true,
+					ID:                 true,
+					CreationTimeUnix:   true,
+					LastUpdateTimeUnix: true,
+					Distance:           true,
+					Score:              true,
+					ExplainScore:       true,
+					IsConsistent:       false,
+				}}}}},
+				AdditionalProperties: additional.Properties{},
+			},
+			error: false,
+		},
+		{
 			name:  "Properties return values multi-ref (no linked class with error)",
-			req:   &grpc.SearchRequest{ClassName: classname, Properties: &grpc.Properties{RefProperties: []*grpc.RefProperties{{ReferenceProperty: "multiRef", Metadata: &grpc.AdditionalProperties{Vector: true, Certainty: false}, LinkedProperties: &grpc.Properties{NonRefProperties: []string{"something"}}}}}},
+			req:   &pb.SearchRequest{ClassName: classname, Properties: &pb.Properties{RefProperties: []*pb.RefProperties{{ReferenceProperty: "multiRef", Metadata: &pb.AdditionalProperties{Vector: true, Certainty: false}, LinkedProperties: &pb.Properties{NonRefProperties: []string{"something"}}}}}},
 			out:   dto.GetParams{},
 			error: true,
 		},
 		{
 			name: "Properties return values multi-ref",
-			req: &grpc.SearchRequest{ClassName: classname, Properties: &grpc.Properties{RefProperties: []*grpc.RefProperties{
-				{ReferenceProperty: "multiRef", WhichCollection: refClass1, Metadata: &grpc.AdditionalProperties{Vector: true, Certainty: false}, LinkedProperties: &grpc.Properties{NonRefProperties: []string{"something"}}},
-				{ReferenceProperty: "multiRef", WhichCollection: refClass2, Metadata: &grpc.AdditionalProperties{Uuid: true}, LinkedProperties: &grpc.Properties{NonRefProperties: []string{"else"}}},
+			req: &pb.SearchRequest{ClassName: classname, Properties: &pb.Properties{RefProperties: []*pb.RefProperties{
+				{ReferenceProperty: "multiRef", WhichCollection: refClass1, Metadata: &pb.AdditionalProperties{Vector: true, Certainty: false}, LinkedProperties: &pb.Properties{NonRefProperties: []string{"something"}}},
+				{ReferenceProperty: "MultiRef", WhichCollection: refClass2, Metadata: &pb.AdditionalProperties{Uuid: true}, LinkedProperties: &pb.Properties{NonRefProperties: []string{"Else"}}},
 			}}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{
@@ -158,21 +224,21 @@ func TestGRPCRequest(t *testing.T) {
 		},
 		{
 			name: "hybrid ranked",
-			req: &grpc.SearchRequest{
-				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true, Certainty: false},
-				HybridSearch: &grpc.HybridSearchParams{Query: "query", FusionType: grpc.HybridSearchParams_RANKED, Alpha: 0.75, Properties: []string{"name"}},
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true, Certainty: false},
+				HybridSearch: &pb.HybridSearchParams{Query: "query", FusionType: pb.HybridSearchParams_FUSION_TYPE_RANKED, Alpha: 0.75, Properties: []string{"name", "CapitalizedName"}},
 			},
 			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion, Alpha: 0.75, Properties: []string{"name"}},
+				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion, Alpha: 0.75, Properties: []string{"name", "capitalizedName"}},
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
 			},
 			error: false,
 		},
 		{
 			name: "hybrid relative",
-			req: &grpc.SearchRequest{
-				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true, Certainty: false},
-				HybridSearch: &grpc.HybridSearchParams{Query: "query", FusionType: grpc.HybridSearchParams_RELATIVE_SCORE},
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true, Certainty: false},
+				HybridSearch: &pb.HybridSearchParams{Query: "query", FusionType: pb.HybridSearchParams_FUSION_TYPE_RELATIVE_SCORE},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRelativeScoreFusion},
@@ -182,9 +248,9 @@ func TestGRPCRequest(t *testing.T) {
 		},
 		{
 			name: "hybrid default",
-			req: &grpc.SearchRequest{
-				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true, Certainty: false},
-				HybridSearch: &grpc.HybridSearchParams{Query: "query"},
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true, Certainty: false},
+				HybridSearch: &pb.HybridSearchParams{Query: "query"},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion},
@@ -194,22 +260,22 @@ func TestGRPCRequest(t *testing.T) {
 		},
 		{
 			name: "bm25",
-			req: &grpc.SearchRequest{
-				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
-				Bm25Search: &grpc.BM25SearchParams{Query: "query", Properties: []string{"name"}},
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true},
+				Bm25Search: &pb.BM25SearchParams{Query: "query", Properties: []string{"name", "CapitalizedName"}},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				KeywordRanking:       &searchparams.KeywordRanking{Query: "query", Properties: []string{"name"}, Type: "bm25"},
+				KeywordRanking:       &searchparams.KeywordRanking{Query: "query", Properties: []string{"name", "capitalizedName"}, Type: "bm25"},
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
 			},
 			error: false,
 		},
 		{
 			name: "filter simple",
-			req: &grpc.SearchRequest{
-				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
-				Filters: &grpc.Filters{Operator: grpc.Filters_OperatorEqual, TestValue: &grpc.Filters_ValueStr{"test"}, On: []string{"name"}},
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true},
+				Filters: &pb.Filters{Operator: pb.Filters_OPERATOR_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: "test"}, On: []string{"name"}},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
@@ -225,12 +291,31 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
+			name: "filter uuid",
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true},
+				Filters: &pb.Filters{Operator: pb.Filters_OPERATOR_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: UUID3}, On: []string{"uuid"}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On:       &filters.Path{Class: schema.ClassName(classname), Property: "uuid"},
+						Operator: filters.OperatorEqual,
+						Value:    &filters.Value{Value: UUID3, Type: schema.DataTypeText},
+					},
+				},
+			},
+			error: false,
+		},
+		{
 			name: "filter or",
-			req: &grpc.SearchRequest{
-				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
-				Filters: &grpc.Filters{Operator: grpc.Filters_OperatorOr, Filters: []*grpc.Filters{
-					{Operator: grpc.Filters_OperatorEqual, TestValue: &grpc.Filters_ValueStr{"test"}, On: []string{"name"}},
-					{Operator: grpc.Filters_OperatorNotEqual, TestValue: &grpc.Filters_ValueStr{"other"}, On: []string{"name"}},
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true},
+				Filters: &pb.Filters{Operator: pb.Filters_OPERATOR_OR, Filters: []*pb.Filters{
+					{Operator: pb.Filters_OPERATOR_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: "test"}, On: []string{"name"}},
+					{Operator: pb.Filters_OPERATOR_NOT_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: "other"}, On: []string{"name"}},
 				}},
 			},
 			out: dto.GetParams{
@@ -258,9 +343,9 @@ func TestGRPCRequest(t *testing.T) {
 		},
 		{
 			name: "filter reference",
-			req: &grpc.SearchRequest{
-				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
-				Filters: &grpc.Filters{Operator: grpc.Filters_OperatorLessThan, TestValue: &grpc.Filters_ValueStr{"test"}, On: []string{"ref", refClass1, "something"}},
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true},
+				Filters: &pb.Filters{Operator: pb.Filters_OPERATOR_LESS_THAN, TestValue: &pb.Filters_ValueText{ValueText: "test"}, On: []string{"ref", refClass1, "something"}},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
@@ -281,9 +366,9 @@ func TestGRPCRequest(t *testing.T) {
 		},
 		{
 			name: "nested ref",
-			req: &grpc.SearchRequest{
-				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
-				Filters: &grpc.Filters{Operator: grpc.Filters_OperatorLessThan, TestValue: &grpc.Filters_ValueStr{"test"}, On: []string{"ref", refClass1, "ref2", refClass2, "ref3", refClass2, "else"}},
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true},
+				Filters: &pb.Filters{Operator: pb.Filters_OPERATOR_LESS_THAN, TestValue: &pb.Filters_ValueText{ValueText: "test"}, On: []string{"ref", refClass1, "ref2", refClass2, "ref3", refClass2, "else"}},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
@@ -315,11 +400,11 @@ func TestGRPCRequest(t *testing.T) {
 		},
 		{
 			name: "filter reference",
-			req: &grpc.SearchRequest{
+			req: &pb.SearchRequest{
 				ClassName: classname,
-				Filters: &grpc.Filters{
-					Operator:  grpc.Filters_OperatorLessThan,
-					TestValue: &grpc.Filters_ValueStr{"test"},
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_LESS_THAN,
+					TestValue: &pb.Filters_ValueText{ValueText: "test"},
 					On:        []string{"ref", refClass1}, // two values do not work, property is missing
 				},
 			},
@@ -328,11 +413,11 @@ func TestGRPCRequest(t *testing.T) {
 		},
 		{
 			name: "length filter ref",
-			req: &grpc.SearchRequest{
-				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
-				Filters: &grpc.Filters{
-					Operator:  grpc.Filters_OperatorLessThan,
-					TestValue: &grpc.Filters_ValueInt{3},
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true},
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_LESS_THAN,
+					TestValue: &pb.Filters_ValueInt{ValueInt: 3},
 					On:        []string{"ref", refClass1, "len(something)"},
 				},
 			},
@@ -358,11 +443,11 @@ func TestGRPCRequest(t *testing.T) {
 		},
 		{
 			name: "length filter",
-			req: &grpc.SearchRequest{
-				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
-				Filters: &grpc.Filters{
-					Operator:  grpc.Filters_OperatorLessThan,
-					TestValue: &grpc.Filters_ValueInt{3},
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true},
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_LESS_THAN,
+					TestValue: &pb.Filters_ValueInt{ValueInt: 3},
 					On:        []string{"len(name)"},
 				},
 			},
@@ -384,11 +469,11 @@ func TestGRPCRequest(t *testing.T) {
 		},
 		{
 			name: "contains filter with int value on float prop",
-			req: &grpc.SearchRequest{
-				ClassName: classname, AdditionalProperties: &grpc.AdditionalProperties{Vector: true},
-				Filters: &grpc.Filters{
-					Operator:  grpc.Filters_OperatorContainsAll,
-					TestValue: &grpc.Filters_ValueIntArray{&grpc.IntArray{Vals: []int32{3}}},
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true},
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_CONTAINS_ALL,
+					TestValue: &pb.Filters_ValueIntArray{ValueIntArray: &pb.IntArray{Values: []int64{3}}},
 					On:        []string{"floats"},
 				},
 			},
@@ -407,6 +492,199 @@ func TestGRPCRequest(t *testing.T) {
 				},
 			},
 			error: false,
+		},
+		{
+			name: "near text search",
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true},
+				NearText: &pb.NearTextSearchParams{
+					Query:    []string{"first and", "second", "query"},
+					MoveTo:   &pb.NearTextSearchParams_Move{Force: 0.5, Concepts: []string{"first", "and second"}, Uuids: []string{UUID3, UUID4}},
+					MoveAway: &pb.NearTextSearchParams_Move{Force: 0.3, Concepts: []string{"second to last", "really last"}, Uuids: []string{UUID4}},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				ModuleParams: map[string]interface{}{
+					"nearText": &nearText2.NearTextParams{
+						Values: []string{"first and", "second", "query"},
+						MoveTo: nearText2.ExploreMove{
+							Force:  0.5,
+							Values: []string{"first", "and second"},
+							Objects: []nearText2.ObjectMove{
+								{ID: UUID3, Beacon: crossref.NewLocalhost(classname, UUID3).String()},
+								{ID: UUID4, Beacon: crossref.NewLocalhost(classname, UUID4).String()},
+							},
+						},
+						MoveAwayFrom: nearText2.ExploreMove{
+							Force:  0.3,
+							Values: []string{"second to last", "really last"},
+							Objects: []nearText2.ObjectMove{
+								{ID: UUID4, Beacon: crossref.NewLocalhost(classname, UUID4).String()},
+							},
+						},
+						Limit: 10, // default
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "near text wrong uuid format",
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true},
+				NearText: &pb.NearTextSearchParams{
+					Query:  []string{"first"},
+					MoveTo: &pb.NearTextSearchParams_Move{Force: 0.5, Uuids: []string{"not a uuid"}},
+				},
+			},
+			out:   dto.GetParams{},
+			error: true,
+		},
+		{
+			name: "near audio search",
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true},
+				NearAudio: &pb.NearAudioSearchParams{
+					Audio: "audio file",
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				ModuleParams: map[string]interface{}{
+					"nearAudio": &nearAudio.NearAudioParams{
+						Audio: "audio file",
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "near video search",
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true},
+				NearVideo: &pb.NearVideoSearchParams{
+					Video: "video file",
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				ModuleParams: map[string]interface{}{
+					"nearVideo": &nearVideo.NearVideoParams{
+						Video: "video file",
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "near image search",
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true},
+				NearImage: &pb.NearImageSearchParams{
+					Image: "image file",
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				ModuleParams: map[string]interface{}{
+					"nearImage": &nearImage.NearImageParams{
+						Image: "image file",
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Consistency",
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true},
+				ConsistencyLevel: &quorum,
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties:  additional.Properties{Vector: true, NoProps: true},
+				ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: "QUORUM"},
+			},
+			error: false,
+		},
+		{
+			name: "Generative",
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true},
+				Generative: &pb.GenerativeSearch{SingleResponsePrompt: someString1, GroupedResponseTask: someString2, GroupedProperties: []string{"one", "two"}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{
+					Vector:  true,
+					NoProps: true,
+					ModuleParams: map[string]interface{}{
+						"generate": &generate.Params{Prompt: &someString1, Task: &someString2, Properties: []string{"one", "two"}},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Sort",
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true},
+				SortBy: []*pb.SortBy{{Ascending: false, Path: []string{"name"}}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{
+					Vector:  true,
+					NoProps: true,
+				},
+				Sort: []filters.Sort{{Order: "desc", Path: []string{"name"}}},
+			},
+			error: false,
+		},
+		{
+			name: "Sort and vector search",
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true},
+				SortBy:     []*pb.SortBy{{Ascending: false, Path: []string{"name"}}},
+				NearVector: &pb.NearVectorParams{Vector: []float32{1, 2, 3}},
+			},
+			out:   dto.GetParams{},
+			error: true,
+		},
+		{
+			name: "group by",
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true},
+				GroupBy:    &pb.GroupBy{Path: []string{"name"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
+				NearVector: &pb.NearVectorParams{Vector: []float32{1, 2, 3}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				AdditionalProperties: additional.Properties{
+					Vector:  true,
+					NoProps: false,
+					Group:   true,
+				},
+				NearVector: &searchparams.NearVector{Vector: []float32{1, 2, 3}},
+				Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}},
+				GroupBy:    &searchparams.GroupBy{Groups: 2, ObjectsPerGroup: 3, Property: "name"},
+			},
+			error: false,
+		},
+		{
+			name: "group by with too long path",
+			req: &pb.SearchRequest{
+				ClassName: classname, AdditionalProperties: &pb.AdditionalProperties{Vector: true},
+				GroupBy:    &pb.GroupBy{Path: []string{"ref", "Class"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
+				NearVector: &pb.NearVectorParams{Vector: []float32{1, 2, 3}},
+			},
+			out:   dto.GetParams{},
+			error: true,
 		},
 	}
 

@@ -351,7 +351,11 @@ func numberVal(val interface{}) (interface{}, error) {
 
 	if _, ok = val.(json.Number); !ok {
 		if data, ok = val.(float64); !ok {
-			return nil, fmt.Errorf(errInvalidFloat, val)
+			data64, ok := val.(int64)
+			if !ok {
+				return nil, fmt.Errorf(errInvalidFloat, val)
+			}
+			data = float64(data64)
 		}
 	} else if data, err = val.(json.Number).Float64(); err != nil {
 		return nil, fmt.Errorf(errInvalidFloatConvertion, val)
@@ -484,8 +488,12 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 		return nil, fmt.Errorf("invalid reference: %s", err)
 	}
 	errVal := fmt.Sprintf("'cref' %s:%s", className, propertyName)
-	err = v.ValidateSingleRef(ctx, ref.SingleRef(), errVal, "")
+	ref, err = v.ValidateSingleRef(ref.SingleRef())
 	if err != nil {
+		return nil, err
+	}
+
+	if err = v.ValidateExistence(ctx, ref, errVal, ""); err != nil {
 		return nil, err
 	}
 
@@ -556,9 +564,11 @@ func numberArrayVal(val interface{}) ([]interface{}, error) {
 	}
 
 	for i := range typed {
-		if _, err := numberVal(typed[i]); err != nil {
+		data, err := numberVal(typed[i])
+		if err != nil {
 			return nil, fmt.Errorf("invalid integer array value: %s", val)
 		}
+		typed[i] = data
 	}
 
 	return typed, nil

@@ -57,29 +57,32 @@ const (
 )
 
 type Compose struct {
-	enableModules             []string
-	defaultVectorizerModule   string
-	withMinIO                 bool
-	withGCS                   bool
-	withAzurite               bool
-	withBackendFilesystem     bool
-	withBackendS3             bool
-	withBackendS3Bucket       string
-	withBackendGCS            bool
-	withBackendGCSBucket      string
-	withBackendAzure          bool
-	withBackendAzureContainer string
-	withTransformers          bool
-	withContextionary         bool
-	withQnATransformers       bool
-	withWeaviate              bool
-	withWeaviateAuth          bool
-	withWeaviateCluster       bool
-	withSUMTransformers       bool
-	withCentroid              bool
-	withCLIP                  bool
-	withImg2Vec               bool
-	withRerankerTransformers  bool
+	enableModules                 []string
+	defaultVectorizerModule       string
+	withMinIO                     bool
+	withGCS                       bool
+	withAzurite                   bool
+	withBackendFilesystem         bool
+	withBackendS3                 bool
+	withBackendS3Bucket           string
+	withBackendGCS                bool
+	withBackendGCSBucket          string
+	withBackendAzure              bool
+	withBackendAzureContainer     string
+	withTransformers              bool
+	withContextionary             bool
+	withQnATransformers           bool
+	withWeaviate                  bool
+	withWeaviateAuth              bool
+	withWeaviateBasicAuth         bool
+	withWeaviateBasicAuthUsername string
+	withWeaviateBasicAuthPassword string
+	withWeaviateCluster           bool
+	withSUMTransformers           bool
+	withCentroid                  bool
+	withCLIP                      bool
+	withImg2Vec                   bool
+	withRerankerTransformers      bool
 }
 
 func New() *Compose {
@@ -240,6 +243,15 @@ func (d *Compose) WithWeaviateCluster() *Compose {
 	return d
 }
 
+func (d *Compose) WithWeaviateClusterWithBasicAuth(username, password string) *Compose {
+	d.withWeaviate = true
+	d.withWeaviateCluster = true
+	d.withWeaviateBasicAuth = true
+	d.withWeaviateBasicAuthUsername = username
+	d.withWeaviateBasicAuthPassword = password
+	return d
+}
+
 func (d *Compose) WithWeaviateAuth() *Compose {
 	d.withWeaviate = true
 	d.withWeaviateAuth = true
@@ -385,6 +397,10 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			envSettings["CLUSTER_HOSTNAME"] = "node1"
 			envSettings["CLUSTER_GOSSIP_BIND_PORT"] = "7100"
 			envSettings["CLUSTER_DATA_BIND_PORT"] = "7101"
+		}
+		if d.withWeaviateBasicAuth {
+			envSettings["CLUSTER_BASIC_AUTH_USERNAME"] = d.withWeaviateBasicAuthUsername
+			envSettings["CLUSTER_BASIC_AUTH_PASSWORD"] = d.withWeaviateBasicAuthPassword
 		}
 		if d.withWeaviateAuth {
 			envSettings["AUTHENTICATION_OIDC_ENABLED"] = "true"

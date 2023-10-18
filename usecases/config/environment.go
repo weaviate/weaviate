@@ -17,6 +17,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -155,6 +156,10 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if err := config.parseCORSConfig(); err != nil {
+		return err
+	}
+
 	if v := os.Getenv("ORIGIN"); v != "" {
 		config.Origin = v
 	}
@@ -216,6 +221,16 @@ func FromEnv(config *Config) error {
 		if config.DefaultVectorizerModule == "" {
 			config.DefaultVectorizerModule = VectorizerModuleNone
 		}
+	}
+
+	if v := os.Getenv("MODULES_CLIENT_TIMEOUT"); v != "" {
+		timeout, err := time.ParseDuration(v)
+		if err != nil {
+			return errors.Wrapf(err, "parse MODULES_CLIENT_TIMEOUT as time.Duration")
+		}
+		config.ModuleHttpClientTimeout = timeout
+	} else {
+		config.ModuleHttpClientTimeout = 50 * time.Second
 	}
 
 	if v := os.Getenv("DEFAULT_VECTOR_DISTANCE_METRIC"); v != "" {
@@ -294,6 +309,28 @@ func FromEnv(config *Config) error {
 	); err != nil {
 		return err
 	}
+	return nil
+}
+
+func (c *Config) parseCORSConfig() error {
+	if v := os.Getenv("CORS_ALLOW_ORIGIN"); v != "" {
+		c.CORS.AllowOrigin = v
+	} else {
+		c.CORS.AllowOrigin = DefaultCORSAllowOrigin
+	}
+
+	if v := os.Getenv("CORS_ALLOW_METHODS"); v != "" {
+		c.CORS.AllowMethods = v
+	} else {
+		c.CORS.AllowMethods = DefaultCORSAllowMethods
+	}
+
+	if v := os.Getenv("CORS_ALLOW_HEADERS"); v != "" {
+		c.CORS.AllowHeaders = v
+	} else {
+		c.CORS.AllowHeaders = DefaultCORSAllowHeaders
+	}
+
 	return nil
 }
 
@@ -483,6 +520,16 @@ func parseClusterConfig() (cluster.Config, error) {
 
 	cfg.IgnoreStartupSchemaSync = enabled(
 		os.Getenv("CLUSTER_IGNORE_SCHEMA_SYNC"))
+
+	basicAuthUsername := os.Getenv("CLUSTER_BASIC_AUTH_USERNAME")
+	basicAuthPassword := os.Getenv("CLUSTER_BASIC_AUTH_PASSWORD")
+
+	cfg.AuthConfig = cluster.AuthConfig{
+		BasicAuth: cluster.BasicAuth{
+			Username: basicAuthUsername,
+			Password: basicAuthPassword,
+		},
+	}
 
 	return cfg, nil
 }

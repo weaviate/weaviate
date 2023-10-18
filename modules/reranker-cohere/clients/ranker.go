@@ -21,6 +21,9 @@ import (
 	"net/url"
 	"runtime"
 	"sync"
+	"time"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -42,10 +45,10 @@ type client struct {
 	logger       logrus.FieldLogger
 }
 
-func New(apiKey string, logger logrus.FieldLogger) *client {
+func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *client {
 	return &client{
 		apiKey:       apiKey,
-		httpClient:   &http.Client{},
+		httpClient:   &http.Client{Timeout: timeout},
 		host:         "https://api.cohere.ai",
 		path:         "/v1/rerank",
 		maxDocuments: 1000,
@@ -191,7 +194,13 @@ func (c *client) getApiKey(ctx context.Context) (string, error) {
 	if len(c.apiKey) > 0 {
 		return c.apiKey, nil
 	}
-	apiKey := ctx.Value("X-Cohere-Api-Key")
+	key := "X-Cohere-Api-Key"
+
+	apiKey := ctx.Value(key)
+	// try getting header from GRPC if not successful
+	if apiKey == nil {
+		apiKey = modulecomponents.GetApiKeyFromGRPC(ctx, key)
+	}
 	if apiKeyHeader, ok := apiKey.([]string); ok &&
 		len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
 		return apiKeyHeader[0], nil

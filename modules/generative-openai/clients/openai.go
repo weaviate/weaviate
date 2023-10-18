@@ -23,6 +23,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -32,37 +34,36 @@ import (
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
-func buildUrlFn(isLegacy bool, resourceName, deploymentID string) (string, error) {
+func buildUrlFn(isLegacy bool, resourceName, deploymentID, baseURL string) (string, error) {
 	if resourceName != "" && deploymentID != "" {
 		host := "https://" + resourceName + ".openai.azure.com"
 		path := "openai/deployments/" + deploymentID + "/chat/completions"
 		queryParam := "api-version=2023-03-15-preview"
 		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil
 	}
-	host := "https://api.openai.com"
 	path := "/v1/chat/completions"
 	if isLegacy {
 		path = "/v1/completions"
 	}
-	return url.JoinPath(host, path)
+	return url.JoinPath(baseURL, path)
 }
 
 type openai struct {
 	openAIApiKey       string
 	openAIOrganization string
 	azureApiKey        string
-	buildUrl           func(isLegacy bool, resourceName, deploymentID string) (string, error)
+	buildUrl           func(isLegacy bool, resourceName, deploymentID, baseURL string) (string, error)
 	httpClient         *http.Client
 	logger             logrus.FieldLogger
 }
 
-func New(openAIApiKey, openAIOrganization, azureApiKey string, logger logrus.FieldLogger) *openai {
+func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Duration, logger logrus.FieldLogger) *openai {
 	return &openai{
 		openAIApiKey:       openAIApiKey,
 		openAIOrganization: openAIOrganization,
 		azureApiKey:        azureApiKey,
 		httpClient: &http.Client{
-			Timeout: 60 * time.Second,
+			Timeout: timeout,
 		},
 		buildUrl: buildUrlFn,
 		logger:   logger,
@@ -88,7 +89,7 @@ func (v *openai) GenerateAllResults(ctx context.Context, textProperties []map[st
 func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
 	settings := config.NewClassSettings(cfg)
 
-	oaiUrl, err := v.buildUrl(settings.IsLegacy(), settings.ResourceName(), settings.DeploymentID())
+	oaiUrl, err := v.buildUrl(settings.IsLegacy(), settings.ResourceName(), settings.DeploymentID(), settings.BaseURL())
 	if err != nil {
 		return nil, errors.Wrap(err, "url join path")
 	}
@@ -285,6 +286,11 @@ func (v *openai) getValueFromContext(ctx context.Context, key string) string {
 			return keyHeader[0]
 		}
 	}
+	// try getting header from GRPC if not successful
+	if apiKey := modulecomponents.GetApiKeyFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
+		return apiKey[0]
+	}
+
 	return ""
 }
 

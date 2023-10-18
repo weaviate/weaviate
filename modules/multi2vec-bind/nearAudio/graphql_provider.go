@@ -13,6 +13,7 @@ package nearAudio
 
 import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearAudio"
 )
 
 type GraphQLArgumentsProvider struct{}
@@ -33,6 +34,6 @@ func (g *GraphQLArgumentsProvider) getNearAudio() modulecapabilities.GraphQLArgu
 		AggregateArgumentsFunction: aggregateNearAudioArgumentFn,
 		ExploreArgumentsFunction:   exploreNearAudioArgumentFn,
 		ExtractFunction:            extractNearAudioFn,
-		ValidateFunction:           validateNearAudioFn,
+		ValidateFunction:           nearAudio.ValidateNearAudioFn,
 	}
 }

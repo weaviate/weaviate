@@ -20,6 +20,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -28,14 +31,15 @@ import (
 	"github.com/weaviate/weaviate/modules/qna-openai/ent"
 )
 
-func buildUrl(resourceName, deploymentID string) (string, error) {
+func buildUrl(baseURL, resourceName, deploymentID string) (string, error) {
+	///X update with base url
 	if resourceName != "" && deploymentID != "" {
 		host := "https://" + resourceName + ".openai.azure.com"
 		path := "openai/deployments/" + deploymentID + "/completions"
 		queryParam := "api-version=2022-12-01"
 		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil
 	}
-	host := "https://api.openai.com"
+	host := baseURL
 	path := "/v1/completions"
 	return url.JoinPath(host, path)
 }
@@ -44,17 +48,17 @@ type qna struct {
 	openAIApiKey       string
 	openAIOrganization string
 	azureApiKey        string
-	buildUrlFn         func(resourceName, deploymentID string) (string, error)
+	buildUrlFn         func(baseURL, resourceName, deploymentID string) (string, error)
 	httpClient         *http.Client
 	logger             logrus.FieldLogger
 }
 
-func New(openAIApiKey, openAIOrganization, azureApiKey string, logger logrus.FieldLogger) *qna {
+func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Duration, logger logrus.FieldLogger) *qna {
 	return &qna{
 		openAIApiKey:       openAIApiKey,
 		openAIOrganization: openAIOrganization,
 		azureApiKey:        azureApiKey,
-		httpClient:         &http.Client{},
+		httpClient:         &http.Client{Timeout: timeout},
 		buildUrlFn:         buildUrl,
 		logger:             logger,
 	}
@@ -79,11 +83,11 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 		return nil, errors.Wrapf(err, "marshal body")
 	}
 
-	oaiUrl, err := v.buildUrlFn(settings.ResourceName(), settings.DeploymentID())
+	oaiUrl, err := v.buildUrlFn(settings.BaseURL(), settings.ResourceName(), settings.DeploymentID())
 	if err != nil {
 		return nil, errors.Wrap(err, "join OpenAI API host and path")
 	}
-
+	fmt.Printf("using the OpenAI URL: %v\n", oaiUrl)
 	req, err := http.NewRequestWithContext(ctx, "POST", oaiUrl,
 		bytes.NewReader(body))
 	if err != nil {
@@ -193,6 +197,10 @@ func (v *qna) getValueFromContext(ctx context.Context, key string) string {
 		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
 			return keyHeader[0]
 		}
+	}
+	// try getting header from GRPC if not successful
+	if apiKey := modulecomponents.GetApiKeyFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
+		return apiKey[0]
 	}
 	return ""
 }
