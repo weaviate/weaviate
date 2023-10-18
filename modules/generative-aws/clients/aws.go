@@ -135,14 +135,14 @@ func (v *aws) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt 
 				Temperature:   *settings.Temperature(),
 				TopP:          *settings.TopP(),
 				StopSequences: settings.StopSequences(),
-				//CountPenalty:     settings.CountPenaltyScale(),
-				//PresencePenalty:  settings.PresencePenaltyScale(),
-				//FrequencyPenalty: settings.FrequencyPenaltyScale(),
 			})
 		} else if v.isCohereModel(model) {
 			var builder strings.Builder
 			body, err = json.Marshal(bedrockCohereRequest{
-				Prompt: builder.String(),
+				Prompt:           builder.String(),
+				Temperature:      *settings.Temperature(),
+				MaxTokens:        *settings.MaxTokenCount(),
+				ReturnLikeliHood: "GENERATION",
 			})
 		}
 
@@ -376,9 +376,10 @@ type bedrockAI21GenerateRequest struct {
 	FrequencyPenalty penalty  `json:"frequencyPenalty,omitempty"`
 }
 type bedrockCohereRequest struct {
-	Prompt      string  `json:"prompt,omitempty"`
-	MaxTokens   int     `json:"max_tokens,omitempty"`
-	Temperature float64 `json:"temperature,omitempty"`
+	Prompt           string  `json:"prompt,omitempty"`
+	MaxTokens        int     `json:"max_tokens,omitempty"`
+	Temperature      float64 `json:"temperature,omitempty"`
+	ReturnLikeliHood string  `json:"return_likelihood,omitempty"`
 }
 
 type penalty struct {
