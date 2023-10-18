@@ -1,4 +1,4 @@
-version: "3.4"
+version: '3.4'
 services:
   weaviate:
     image: weaviate/test-server
@@ -17,15 +17,15 @@ services:
       LOG_LEVEL: "debug"
       CONTEXTIONARY_URL: contextionary:9999
       QUERY_DEFAULTS_LIMIT: 20
-      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
       PERSISTENCE_DATA_PATH: "./data"
       DEFAULT_VECTORIZER_MODULE: text2vec-contextionary
       ENABLE_MODULES: text2vec-contextionary
-      PROMETHEUS_MONITORING_ENABLED: "true"
-      PROMETHEUS_MONITORING_GROUP_CLASSES: "true"
+      PROMETHEUS_MONITORING_ENABLED: 'true'
+      PROMETHEUS_MONITORING_GROUP_CLASSES: 'true'
       CLUSTER_GOSSIP_BIND_PORT: "7100"
       CLUSTER_DATA_BIND_PORT: "7101"
-      WEAVIATE_ASYNC_ENABLED: ${WEAVIATE_ASYNC_ENABLED:-false}
+      WEAVIATE_ASYNC_INDEXING: ${WEAVIATE_ASYNC_INDEXING:-false}
 
       # necessary for the metrics tests, some metrics only exist once segments
       # are flushed. If we wait to long the before run is completely in
