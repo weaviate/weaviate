@@ -778,10 +778,12 @@ func (q *vectorQueue) AppendSnapshot(buf []vectorDescriptor, limit int) []vector
 	}
 
 	q.curBatch.Lock()
-	for i := 0; i < q.curBatch.c.cursor && count < limit; i++ {
-		if !q.IsDeleted(q.curBatch.c.data[i].id) {
-			buf = append(buf, q.curBatch.c.data[i])
-			count++
+	if q.curBatch.c != nil {
+		for i := 0; i < q.curBatch.c.cursor && count < limit; i++ {
+			if !q.IsDeleted(q.curBatch.c.data[i].id) {
+				buf = append(buf, q.curBatch.c.data[i])
+				count++
+			}
 		}
 	}
 	q.curBatch.Unlock()
