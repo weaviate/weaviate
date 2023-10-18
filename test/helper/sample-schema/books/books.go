@@ -58,7 +58,7 @@ func ClassTransformersVectorizerWithQnATransformersWithName(className string) *m
 func ClassCLIPVectorizer() *models.Class {
 	c := class(defaultClassName, "multi2vec-clip")
 	c.ModuleConfig.(map[string]interface{})["multi2vec-clip"] = map[string]interface{}{
-		"textFields": []string{"title", "description"},
+		"textFields": []string{"title", "tags", "description"},
 	}
 	return c
 }
@@ -93,6 +93,12 @@ func class(className, vectorizer string, additionalModules ...string) *models.Cl
 						"skip": false,
 					},
 				},
+			},
+			{
+				Name:         "tags",
+				DataType:     schema.DataTypeTextArray.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+				ModuleConfig: map[string]interface{}{vectorizer: map[string]interface{}{"skip": false}},
 			},
 			{
 				Name:         "description",
@@ -143,6 +149,7 @@ func objects(className string) []*models.Object {
 			ID:    TheLordOfTheIceGarden,
 			Properties: map[string]interface{}{
 				"title":       "The Lord of the Ice Garden",
+				"tags":        []string{"three", "three", "three"},
 				"description": "The Lord of the Ice Garden (Polish: Pan Lodowego Ogrodu) is a four-volume science fiction and fantasy novel by Polish writer Jaroslaw Grzedowicz.",
 			},
 		},
