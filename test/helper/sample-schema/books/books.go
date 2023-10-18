@@ -25,6 +25,7 @@ const (
 	Dune                  strfmt.UUID = "67b79643-cf8b-4b22-b206-6e63dbb4e000"
 	ProjectHailMary       strfmt.UUID = "67b79643-cf8b-4b22-b206-6e63dbb4e001"
 	TheLordOfTheIceGarden strfmt.UUID = "67b79643-cf8b-4b22-b206-6e63dbb4e002"
+	OnlyTags              strfmt.UUID = "67b79643-cf8b-4b22-b206-6e63dbb4e003"
 )
 
 func ClassContextionaryVectorizer() *models.Class {
@@ -133,7 +134,7 @@ func objects(className string) []*models.Object {
 			ID:    Dune,
 			Properties: map[string]interface{}{
 				"title":       "Dune",
-				"tags":        []string{"favourite"},
+				"tags":        []string{"sci-fi", "epic"},
 				"description": "Dune is a 1965 epic science fiction novel by American author Frank Herbert.",
 			},
 		},
@@ -142,7 +143,7 @@ func objects(className string) []*models.Object {
 			ID:    ProjectHailMary,
 			Properties: map[string]interface{}{
 				"title":       "Project Hail Mary",
-				"tags":        []string{"decent"},
+				"tags":        []string{"sci-fi"},
 				"description": "Project Hail Mary is a 2021 science fiction novel by American novelist Andy Weir.",
 			},
 		},
@@ -151,8 +152,16 @@ func objects(className string) []*models.Object {
 			ID:    TheLordOfTheIceGarden,
 			Properties: map[string]interface{}{
 				"title":       "The Lord of the Ice Garden",
-				"tags":        []string{"unknown"},
+				"tags":        []string{"sci-fi", "fantasy"},
 				"description": "The Lord of the Ice Garden (Polish: Pan Lodowego Ogrodu) is a four-volume science fiction and fantasy novel by Polish writer Jaroslaw Grzedowicz.",
+			},
+		},
+		{
+			Class: className,
+			ID:    OnlyTags,
+			Properties: map[string]interface{}{
+				"title": "Only Tags",
+				"tags":  []string{"foo", "foo", "foo"},
 			},
 		},
 	}
