@@ -66,4 +66,35 @@ func Test_CLIP(t *testing.T) {
 		assert.Greater(t, dist, 0.0)
 		assert.LessOrEqual(t, dist, 0.03)
 	})
+
+	t.Run("query Books data with nearText on text[] field", func(t *testing.T) {
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
+			{
+				Get {
+					Books(
+						limit: 1
+						nearText: {
+							concepts: ["unknown"]
+							distance: 0.5
+						}
+					){
+						title
+						_additional {
+							distance
+						}
+					}
+				}
+			}
+		`)
+		books := result.Get("Get", "Books").AsSlice()
+		require.Len(t, books, 1)
+		title := books[0].(map[string]interface{})["title"]
+		assert.Equal(t, "The Lord of the Ice Garden", title)
+		distance := books[0].(map[string]interface{})["_additional"].(map[string]interface{})["distance"].(json.Number)
+		assert.NotNil(t, distance)
+		dist, err := distance.Float64()
+		require.Nil(t, err)
+		assert.Greater(t, dist, 0.0)
+		assert.LessOrEqual(t, dist, 0.03)
+	})
 }

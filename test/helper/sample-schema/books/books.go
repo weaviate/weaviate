@@ -95,6 +95,12 @@ func class(className, vectorizer string, additionalModules ...string) *models.Cl
 				},
 			},
 			{
+				Name:         "tags",
+				DataType:     schema.DataTypeTextArray.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+				ModuleConfig: map[string]interface{}{vectorizer: map[string]interface{}{"skip": false}},
+			},
+			{
 				Name:         "description",
 				DataType:     schema.DataTypeText.PropString(),
 				Tokenization: models.PropertyTokenizationWhitespace,
@@ -127,6 +133,7 @@ func objects(className string) []*models.Object {
 			ID:    Dune,
 			Properties: map[string]interface{}{
 				"title":       "Dune",
+				"tags":        []string{"favourite"},
 				"description": "Dune is a 1965 epic science fiction novel by American author Frank Herbert.",
 			},
 		},
@@ -135,6 +142,7 @@ func objects(className string) []*models.Object {
 			ID:    ProjectHailMary,
 			Properties: map[string]interface{}{
 				"title":       "Project Hail Mary",
+				"tags":        []string{"decent"},
 				"description": "Project Hail Mary is a 2021 science fiction novel by American novelist Andy Weir.",
 			},
 		},
@@ -143,6 +151,7 @@ func objects(className string) []*models.Object {
 			ID:    TheLordOfTheIceGarden,
 			Properties: map[string]interface{}{
 				"title":       "The Lord of the Ice Garden",
+				"tags":        []string{"unknown"},
 				"description": "The Lord of the Ice Garden (Polish: Pan Lodowego Ogrodu) is a four-volume science fiction and fantasy novel by Polish writer Jaroslaw Grzedowicz.",
 			},
 		},
