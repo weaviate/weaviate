@@ -140,8 +140,14 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 	if err != nil {
 		return nil, err
 	}
+	if len(res.Vectors) == 0 {
+		return nil, fmt.Errorf("no vectors generated")
+	}
 
-	return res.Vector, nil
+	if len(res.Vectors) > 1 {
+		return v.CombineVectors(res.Vectors), nil
+	}
+	return res.Vectors[0], nil
 }
 
 func camelCaseToLower(in string) string {

@@ -121,7 +121,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	ec := &errorcompounder.ErrorCompounder{}
 
 	// Auto Schema
-	err := b.autoSchemaManager.autoSchema(ctx, principal, concept)
+	err := b.autoSchemaManager.autoSchema(ctx, principal, concept, true)
 	ec.Add(err)
 
 	if concept.ID == "" {

@@ -580,7 +580,8 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 	t.Run("node names by shard", func(t *testing.T) {
 		for _, n := range nodes {
 			nodeSet := make(map[string]bool)
-			foundNodes := n.repo.Shards(context.Background(), distributedClass)
+			foundNodes, err := n.repo.Shards(context.Background(), distributedClass)
+			assert.NoError(t, err)
 			for _, found := range foundNodes {
 				nodeSet[found] = true
 			}

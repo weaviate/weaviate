@@ -67,7 +67,7 @@ func (s *schemaCache) ShardOwner(class, shard string) (string, error) {
 	return x.BelongsToNodes[0], nil
 }
 
-// ShardOwner returns the node owner of the specified shard
+// ShardReplicas returns the nodes owning shard in class
 func (s *schemaCache) ShardReplicas(class, shard string) ([]string, error) {
 	s.RLock()
 	defer s.RUnlock()
