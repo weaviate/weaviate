@@ -1,15 +1,15 @@
 syntax = "proto3";
 
-package weaviategrpc;
+package weaviate.v1;
 
-import "base.proto";
 import "google/protobuf/struct.proto";
+import "v1/base.proto";
 
 option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
-option java_package = "io.weaviate.grpc.protocol";
-option java_outer_classname = "WeaviateProtoSearchGetV1";
+option java_package = "io.weaviate.grpc.protocol.v1";
+option java_outer_classname = "WeaviateProtoSearchGet";
 
-message SearchRequestV1 {
+message SearchRequest {
   //required
   string collection = 1;
 
@@ -134,6 +134,13 @@ message MetadataRequest {
 message PropertiesRequest {
   repeated string non_ref_properties = 1;
   repeated RefPropertiesRequest ref_properties = 2;
+  repeated ObjectPropertiesRequest object_properties = 3;
+}
+
+message ObjectPropertiesRequest {
+  string prop_name = 1;
+  repeated string primitive_properties = 2; 
+  repeated ObjectPropertiesRequest object_properties = 3;
 }
 
 message Hybrid {
@@ -208,7 +215,7 @@ message NearObject {
   optional double distance = 3;
 }
 
-message SearchReplyV1 {
+message SearchReply {
   float took = 1;
   repeated SearchResult results = 2;
   optional string generative_grouped_result = 3;
@@ -258,10 +265,11 @@ message PropertiesResult {
   repeated IntArrayProperties int_array_properties = 6;
   repeated TextArrayProperties text_array_properties = 7;
   repeated BooleanArrayProperties boolean_array_properties = 8;
+  repeated ObjectProperties object_properties = 9;
+  repeated ObjectArrayProperties object_array_properties = 10;
 }
 
 message RefPropertiesResult {
   repeated PropertiesResult properties = 1;
   string prop_name = 2;
 }
-

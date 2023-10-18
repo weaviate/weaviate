@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.21.5"
+    "version": "1.21.7"
   },
   "basePath": "/v1",
   "paths": {
@@ -3091,6 +3091,13 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "node_mapping": {
+          "description": "Allows overriding the node names stored in the backup with different ones. Useful when restoring backups to a different environment.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
         }
       }
     },
@@ -4915,7 +4922,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.21.5"
+    "version": "1.21.7"
   },
   "basePath": "/v1",
   "paths": {
@@ -8070,6 +8077,13 @@ func init() {
           "description": "List of classes to include in the backup restoration process",
           "type": "array",
           "items": {
+            "type": "string"
+          }
+        },
+        "node_mapping": {
+          "description": "Allows overriding the node names stored in the backup with different ones. Useful when restoring backups to a different environment.",
+          "type": "object",
+          "additionalProperties": {
             "type": "string"
           }
         }
