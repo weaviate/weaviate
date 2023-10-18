@@ -5,7 +5,7 @@ on:
     branches:
       - master
     tags:
-      - '**'
+      - "**"
   pull_request:
 
 jobs:
@@ -17,7 +17,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.20'
+          go-version: "1.20"
           cache: true
       - name: Run Swagger
         run: ./tools/gen-code-from-swagger.sh
@@ -34,13 +34,13 @@ jobs:
   Vulnerability-Scanning:
     name: vulnerability-scanning
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    if: ${{ !github.event.pull_request.head.repo.fork }} # no PRs from fork
     steps:
       - uses: actions/checkout@v4
       - name: Scan for Vulnerabilities in Code
         uses: Templum/govulncheck-action@v1.0.0
         with:
-          go-version: '1.20'
+          go-version: "1.20"
           package: ./...
           fail-on-vuln: true
   Unit-Tests:
@@ -51,7 +51,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.20'
+          go-version: "1.20"
           cache: true
       - name: Unit test
         run: ./test/run.sh --unit-only
@@ -61,14 +61,14 @@ jobs:
           name: coverage-report-unit
           path: coverage-unit.txt
   Integration-Tests:
-    name: integration-tests  
+    name: integration-tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.20'
+          go-version: "1.20"
           cache: true
       - name: Integration test
         run: ./test/run.sh --integration-only
@@ -78,31 +78,47 @@ jobs:
           name: coverage-report-integration
           path: coverage-integration.txt
   Modules-Acceptance-Tests:
-    name: modules-acceptance-tests  
+    name: modules-acceptance-tests
     runs-on: ubuntu-latest-8-cores
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.20'
+          go-version: "1.20"
           cache: true
       - name: Acceptance tests (modules)
         run: ./test/run.sh --acceptance-module-tests-only
   Acceptance-Tests:
-    name: acceptance-tests  
+    name: acceptance-tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.20'
+          go-version: "1.20"
           cache: true
       - name: Acceptance tests
         env:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
+        run: ./test/run.sh --acceptance-only
+  Async-Acceptance-Tests:
+    name: async-acceptance-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.20"
+          cache: true
+      - name: Async Acceptance tests
+        env:
+          WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
+          WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
+          WEAVIATE_ASYNC_ENABLED: "true"
         run: ./test/run.sh --acceptance-only
   Codecov:
     needs: [Unit-Tests, Integration-Tests]
@@ -133,7 +149,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.20'
+          go-version: "1.20"
           cache: true
       - name: goreleaser
         run: |
@@ -167,7 +183,6 @@ jobs:
           name: binaries-linux-arm64
           path: dist/weaviate_linux_arm64
 
-
   Acceptance-Tests-windows:
     name: acceptance-tests-windows
     needs: Compile-and-upload-binaries
@@ -185,7 +200,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.20'
+          go-version: "1.20"
           cache: true
       - name: start weaviate
         shell: bash
@@ -195,13 +210,21 @@ jobs:
         run: ./weaviate.exe --scheme http --port 8080 &
       - name: run acceptance tests
         shell: bash
-        run: go test -count 1 -race test/acceptance/actions/*.go  # tests that don't need a Vectorizer
+        run: go test -count 1 -race test/acceptance/actions/*.go # tests that don't need a Vectorizer
 
   Push-Docker:
-    needs: [Acceptance-Tests, Modules-Acceptance-Tests, Unit-Tests, Integration-Tests, Vulnerability-Scanning, Run-Swagger]
+    needs:
+      [
+        Acceptance-Tests,
+        Modules-Acceptance-Tests,
+        Unit-Tests,
+        Integration-Tests,
+        Vulnerability-Scanning,
+        Run-Swagger,
+      ]
     name: push-docker
     runs-on: ubuntu-latest-8-cores
-    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    if: ${{ !github.event.pull_request.head.repo.fork }} # no PRs from fork
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub
