@@ -60,7 +60,8 @@ func Test_NodesAPI(t *testing.T) {
 		helper.CreateClass(t, booksClass)
 		defer helper.DeleteClass(t, booksClass.Class)
 
-		for _, book := range books.Objects() {
+		booksObjects := books.Objects()
+		for _, book := range booksObjects {
 			helper.CreateObject(t, book)
 			helper.AssertGetObjectEventually(t, book.Class, book.ID)
 		}
@@ -84,10 +85,10 @@ func Test_NodesAPI(t *testing.T) {
 		shard := nodeStatus.Shards[0]
 		assert.True(t, len(shard.Name) > 0)
 		assert.Equal(t, booksClass.Class, shard.Class)
-		assert.Equal(t, int64(3), shard.ObjectCount)
+		assert.Equal(t, int64(len(booksObjects)), shard.ObjectCount)
 
 		require.NotNil(t, nodeStatus.Stats)
-		assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)
+		assert.Equal(t, int64(len(booksObjects)), nodeStatus.Stats.ObjectCount)
 		assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
 	})
 
@@ -133,7 +134,8 @@ func Test_NodesAPI(t *testing.T) {
 		defer helper.DeleteClass(t, booksClass.Class)
 
 		t.Run("insert and check books", func(t *testing.T) {
-			for _, book := range books.Objects() {
+			booksObjects := books.Objects()
+			for _, book := range booksObjects {
 				helper.CreateObject(t, book)
 				helper.AssertGetObjectEventually(t, book.Class, book.ID)
 			}
@@ -151,7 +153,7 @@ func Test_NodesAPI(t *testing.T) {
 			nodeStatus := respNodes[0]
 
 			require.NotNil(t, nodeStatus.Stats)
-			assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)
+			assert.Equal(t, int64(len(booksObjects)), nodeStatus.Stats.ObjectCount)
 			assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
 		})
 
