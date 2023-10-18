@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package grpc
+package v1
 
 import (
 	"context"
@@ -103,7 +103,7 @@ func TestAuth(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			s := &Server{
+			s := &Service{
 				allowAnonymousAccess: test.allowAnon,
 				authComposer: func(token string, scopes []string) (*models.Principal, error) {
 					if token == "" {

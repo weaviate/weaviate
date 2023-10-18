@@ -290,6 +290,10 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	if meta.RemoveEmpty().Count() == 0 {
 		return nil, fmt.Errorf("nothing left to restore: please choose from : %v", cs)
 	}
+	if len(req.NodeMapping) > 0 {
+		meta.NodeMapping = req.NodeMapping
+		meta.ApplyNodeMapping()
+	}
 	return meta, nil
 }
 

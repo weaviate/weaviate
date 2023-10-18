@@ -18,6 +18,9 @@ authorization:
     users:
     read_only_users:
       - john@doe.com
+    groups:
+    read_only_groups:
+      generic
 configuration_storage:
   type: etcd
   url: http://localhost:2379

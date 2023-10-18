@@ -31,11 +31,13 @@ func TestMain(m *testing.M) {
 		WithText2VecOpenAI().
 		WithText2VecCohere().
 		WithText2VecPaLM().
+		WithText2VecHuggingFace().
 		WithGenerativeOpenAI().
 		WithGenerativeCohere().
 		WithGenerativePaLM().
 		WithSUMTransformers().
 		WithQnAOpenAI().
+		WithRerankerCohere().
 		Start(ctx)
 	if err != nil {
 		panic(errors.Wrapf(err, "cannot start"))
