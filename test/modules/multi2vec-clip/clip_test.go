@@ -38,19 +38,16 @@ func Test_CLIP(t *testing.T) {
 	})
 
 	tests := []struct {
-		concept          string
-		expectedTitle    string
-		expectedDistance float64
+		concept       string
+		expectedTitle string
 	}{
 		{
-			concept:          "Dune",
-			expectedTitle:    "Dune",
-			expectedDistance: 0.03,
+			concept:       "Dune",
+			expectedTitle: "Dune",
 		},
 		{
-			concept:          "foo",
-			expectedTitle:    "Only Tags",
-			expectedDistance: 0.1,
+			concept:       "three",
+			expectedTitle: "The Lord of the Ice Garden",
 		},
 	}
 	for _, tt := range tests {
@@ -82,7 +79,7 @@ func Test_CLIP(t *testing.T) {
 			dist, err := distance.Float64()
 			require.Nil(t, err)
 			assert.Greater(t, dist, 0.0)
-			assert.LessOrEqual(t, dist, tt.expectedDistance)
+			assert.LessOrEqual(t, dist, 0.03)
 		})
 	}
 }
