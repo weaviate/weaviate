@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package grpc
+package v1
 
 import (
 	"testing"
@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
 const (
@@ -194,6 +194,75 @@ func TestGRPCBatchRequest(t *testing.T) {
 				"float2":     []interface{}{4., 5.},
 				"text1":      []interface{}{"first", "second"},
 				"text2":      []interface{}{"third"},
+			}}},
+		},
+		{
+			name: "object props",
+			req: []*pb.BatchObject{{Collection: collection, Uuid: UUID4, Properties: &pb.BatchObject_Properties{
+				ObjectProperties: []*pb.ObjectProperties{
+					{
+						PropName: "simpleObj", Value: &pb.ObjectPropertiesValue{
+							NonRefProperties: newStruct(t, map[string]interface{}{"name": "something"}),
+						},
+					},
+					{
+						PropName: "nestedObj", Value: &pb.ObjectPropertiesValue{
+							ObjectProperties: []*pb.ObjectProperties{{
+								PropName: "obj", Value: &pb.ObjectPropertiesValue{
+									NonRefProperties: newStruct(t, map[string]interface{}{"name": "something"}),
+								},
+							}},
+						},
+					},
+				},
+			}}},
+			out: []*models.Object{{Class: collection, ID: UUID4, Properties: map[string]interface{}{
+				"simpleObj": map[string]interface{}{"name": "something"},
+				"nestedObj": map[string]interface{}{
+					"obj": map[string]interface{}{"name": "something"},
+				},
+			}}},
+		},
+		{
+			name: "object array props",
+			req: []*pb.BatchObject{{Collection: collection, Uuid: UUID4, Properties: &pb.BatchObject_Properties{
+				ObjectArrayProperties: []*pb.ObjectArrayProperties{
+					{
+						PropName: "simpleObjs", Values: []*pb.ObjectPropertiesValue{
+							{
+								NonRefProperties: newStruct(t, map[string]interface{}{"name": "something"}),
+							},
+							{
+								NonRefProperties: newStruct(t, map[string]interface{}{"name": "something else"}),
+							},
+						},
+					},
+					{
+						PropName: "nestedObjs", Values: []*pb.ObjectPropertiesValue{
+							{
+								ObjectProperties: []*pb.ObjectProperties{{
+									PropName: "obj", Value: &pb.ObjectPropertiesValue{
+										NonRefProperties: newStruct(t, map[string]interface{}{"name": "something"}),
+									},
+								}},
+							},
+							{
+								ObjectProperties: []*pb.ObjectProperties{{
+									PropName: "obj", Value: &pb.ObjectPropertiesValue{
+										NonRefProperties: newStruct(t, map[string]interface{}{"name": "something else"}),
+									},
+								}},
+							},
+						},
+					},
+				},
+			}}},
+			out: []*models.Object{{Class: collection, ID: UUID4, Properties: map[string]interface{}{
+				"simpleObjs": []interface{}{map[string]interface{}{"name": "something"}, map[string]interface{}{"name": "something else"}},
+				"nestedObjs": []interface{}{
+					map[string]interface{}{"obj": map[string]interface{}{"name": "something"}},
+					map[string]interface{}{"obj": map[string]interface{}{"name": "something else"}},
+				},
 			}}},
 		},
 		{

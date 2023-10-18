@@ -95,10 +95,11 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	req := ubak.BackupRequest{
-		ID:      params.ID,
-		Backend: params.Backend,
-		Include: params.Body.Include,
-		Exclude: params.Body.Exclude,
+		ID:          params.ID,
+		Backend:     params.Backend,
+		Include:     params.Body.Include,
+		Exclude:     params.Body.Exclude,
+		NodeMapping: params.Body.NodeMapping,
 	}
 	meta, err := s.manager.Restore(params.HTTPRequest.Context(), principal, &req)
 	if err != nil {

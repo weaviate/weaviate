@@ -946,6 +946,13 @@
           "items": {
             "type": "string"
           }
+        },
+        "node_mapping": {
+          "description": "Allows overriding the node names stored in the backup with different ones. Useful when restoring backups to a different environment.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
         }
       }
     },
@@ -1854,7 +1861,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.21.5"
+    "version": "1.21.7"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
