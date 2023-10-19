@@ -263,7 +263,8 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 	return nil
 }
 
-// Push adds a list of vectors to the queue.
+// PreloadShard goes through the LSM store from the last checkpoint
+// and enqueues any unindexed vector.
 func (q *IndexQueue) PreloadShard(ctx context.Context, shard *Shard) error {
 	if !asyncEnabled() {
 		return nil
@@ -361,8 +362,6 @@ func (q *IndexQueue) indexer() {
 				continue
 			}
 
-			q.pushToWorkers(-1, false)
-
 			lastPushed := q.lastPushed.Load()
 			if lastPushed == nil || time.Since(*lastPushed) > time.Second {
 				// send at most 2 times the number of workers in one go,
@@ -421,68 +420,65 @@ func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.A
 		return indexedResults, distances, nil
 	}
 
+	if k < 0 {
+		return nil, nil, errors.New("k must be greater than zero")
+	}
+
+	results := q.pqMaxPool.GetMax(k)
+	defer q.pqMaxPool.Put(results)
+	seen := make(map[uint64]struct{}, len(indexedResults))
+	for i := range indexedResults {
+		seen[indexedResults[i]] = struct{}{}
+		results.Insert(indexedResults[i], distances[i])
+	}
+
 	if q.Index.DistancerProvider().Type() == "cosine-dot" {
 		// cosine-dot requires normalized vectors, as the dot product and cosine
 		// similarity are only identical if the vector is normalized
 		vector = distancer.Normalize(vector)
 	}
 
-	results := q.pqMaxPool.GetMax(k)
-	defer q.pqMaxPool.Put(results)
-	for i := range indexedResults {
-		results.Insert(indexedResults[i], distances[i])
-	}
-
 	buf := q.bufPool.Get().(*[]vectorDescriptor)
 	snapshot := q.queue.AppendSnapshot((*buf)[:0], q.BruteForceSearchLimit)
 
-	ids := make([]uint64, len(snapshot))
-	vectors := make([][]float32, len(snapshot))
-	for i, v := range snapshot {
-		ids[i] = v.id
-		vectors[i] = v.vector
+	if len(snapshot) == 0 {
+		return indexedResults, distances, nil
 	}
 
-	err = q.bruteForce(vector, k, ids, vectors, results, allowList)
+	err = q.bruteForce(vector, snapshot, k, results, allowList, seen)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if len(ids) >= k {
-		ids = ids[:k]
-	} else {
-		ids = make([]uint64, k)
-	}
+	ids := make([]uint64, results.Len())
+	dists := make([]float32, results.Len())
 
-	if len(distances) >= k {
-		distances = distances[:k]
-	} else {
-		distances = make([]float32, k)
-	}
-
-	for i := k - 1; i >= 0; i-- {
-		if results.Len() == 0 {
-			break
-		}
+	i := results.Len() - 1
+	for results.Len() > 0 {
 		element := results.Pop()
 		ids[i] = element.ID
-		distances[i] = element.Dist
+		dists[i] = element.Dist
+		i--
 	}
 
 	q.bufPool.Put(&snapshot)
 
-	return ids, distances, nil
+	return ids, dists, nil
 }
 
-func (q *IndexQueue) bruteForce(vector []float32, k int, ids []uint64, vectors [][]float32, results *priorityqueue.Queue, allowList helpers.AllowList) error {
-	// actual brute force. Consider moving to a separate
-	for i := range vectors {
-		// skip filtered data
-		if allowList != nil && allowList.Contains(ids[i]) {
+func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k int, results *priorityqueue.Queue, allowList helpers.AllowList, seen map[uint64]struct{}) error {
+	for i := range snapshot {
+		// skip indexed data
+		if _, ok := seen[snapshot[i].id]; ok {
 			continue
 		}
 
-		v := vectors[i]
+		// skip filtered data
+		if allowList != nil && allowList.Contains(snapshot[i].id) {
+			continue
+		}
+
+		v := snapshot[i].vector
 		if q.Index.DistancerProvider().Type() == "cosine-dot" {
 			// cosine-dot requires normalized vectors, as the dot product and cosine
 			// similarity are only identical if the vector is normalized
@@ -495,7 +491,7 @@ func (q *IndexQueue) bruteForce(vector []float32, k int, ids []uint64, vectors [
 		}
 
 		if results.Len() < k || dist < results.Top().Dist {
-			results.Insert(ids[i], dist)
+			results.Insert(snapshot[i].id, dist)
 			for results.Len() > k {
 				results.Pop()
 			}
@@ -688,13 +684,22 @@ func (q *vectorQueue) borrowChunks(max int) []*chunk {
 	q.fullChunks.Unlock()
 
 	if count < max {
+		var incompleteChunk *chunk
 		q.curBatch.Lock()
 		if q.curBatch.c != nil && time.Since(*q.curBatch.c.createdAt) > q.IndexQueue.StaleTimeout && q.curBatch.c.cursor > 0 {
 			q.curBatch.c.borrowed = true
 			chunks = append(chunks, q.curBatch.c)
+			incompleteChunk = q.curBatch.c
 			q.curBatch.c = nil
 		}
 		q.curBatch.Unlock()
+
+		// add the incomplete chunk to the full chunks list
+		if incompleteChunk != nil {
+			q.fullChunks.Lock()
+			q.fullChunks.list.PushBack(incompleteChunk)
+			q.fullChunks.Unlock()
+		}
 	}
 
 	return chunks
@@ -779,9 +784,10 @@ func (q *vectorQueue) AppendSnapshot(buf []vectorDescriptor, limit int) []vector
 
 	q.curBatch.Lock()
 	if q.curBatch.c != nil {
-		for i := 0; i < q.curBatch.c.cursor && count < limit; i++ {
-			if !q.IsDeleted(q.curBatch.c.data[i].id) {
-				buf = append(buf, q.curBatch.c.data[i])
+		c := q.curBatch.c
+		for i := 0; i < c.cursor && count < limit; i++ {
+			if !q.IsDeleted(c.data[i].id) {
+				buf = append(buf, c.data[i])
 				count++
 			}
 		}
