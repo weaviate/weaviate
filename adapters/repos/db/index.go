@@ -55,8 +55,16 @@ import (
 var (
 	errTenantNotFound  = errors.New("tenant not found")
 	errTenantNotActive = errors.New("tenant not active")
-	_NUMCPU            = runtime.NumCPU()
-	errShardNotFound   = errors.New("shard not found")
+
+	// Use runtime.GOMAXPROCS instead of runtime.NumCPU because NumCPU returns
+	// the physical CPU cores. However, in a containerization context, that might
+	// not be what we want. The physical node could have 128 cores, but we could
+	// be cgroup-limited to 2 cores. In that case, we want 2 to be our limit, not
+	// 128. It isn't guaranteed that MAXPROCS reflects the cgroup limit, but at
+	// least there is a chance that it was set correctly. If not, it defaults to
+	// NumCPU anyway, so we're not any worse off.
+	_NUMCPU          = runtime.GOMAXPROCS(0)
+	errShardNotFound = errors.New("shard not found")
 )
 
 // shardMap is a syn.Map which specialized in storing shards
@@ -205,23 +213,29 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		return nil, errors.Wrap(err, "migrating sharding state from previous version")
 	}
 
-	for _, shardName := range shardState.AllPhysicalShards() {
-		if !shardState.IsLocalShard(shardName) {
-			// do not create non-local shards
-			continue
-		}
+	eg := errgroup.Group{}
+	eg.SetLimit(_NUMCPU)
+	for _, shardName := range shardState.AllLocalPhysicalShards() {
 		physical := shardState.Physical[shardName]
 		if physical.ActivityStatus() != models.TenantActivityStatusHOT {
 			// do not instantiate inactive shard
 			continue
 		}
 
-		shard, err := NewShard(ctx, promMetrics, shardName, index, class, jobQueueCh)
-		if err != nil {
-			return nil, errors.Wrapf(err, "init shard %s of index %s", shardName, index.ID())
-		}
+		shardName := shardName // prevent loop variable capture
+		eg.Go(func() error {
+			shard, err := NewShard(ctx, promMetrics, shardName, index, class, jobQueueCh)
+			if err != nil {
+				return fmt.Errorf("init shard %s of index %s: %w", shardName, index.ID(), err)
+			}
 
-		index.shards.Store(shardName, shard)
+			index.shards.Store(shardName, shard)
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, err
 	}
 
 	index.cycleCallbacks.compactionCycle.Start()
