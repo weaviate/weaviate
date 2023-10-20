@@ -131,6 +131,7 @@ func (sg *SegmentGroup) compactOnce() error {
 	secondaryIndices := sg.segmentAtPos(pair[0]).secondaryIndexCount
 
 	strategy := sg.segmentAtPos(pair[0]).strategy
+	isLeftRoot := pair[0] == 0
 
 	pathLabel := "n/a"
 	if sg.metrics != nil && !sg.metrics.groupClasses {
@@ -187,7 +188,7 @@ func (sg *SegmentGroup) compactOnce() error {
 		rightCursor := rightSegment.newRoaringSetCursor()
 
 		c := roaringset.NewCompactor(f, leftCursor, rightCursor,
-			level, scratchSpacePath)
+			level, scratchSpacePath, isLeftRoot)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(1)

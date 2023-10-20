@@ -24,10 +24,11 @@ import (
 
 func Test_Compactor(t *testing.T) {
 	type test struct {
-		name     string
-		left     []byte
-		right    []byte
-		expected []keyWithBML
+		name         string
+		left         []byte
+		right        []byte
+		expected     []keyWithBML
+		expectedRoot []keyWithBML
 	}
 
 	tests := []test{
@@ -79,6 +80,24 @@ func Test_Compactor(t *testing.T) {
 					deletions: []uint64{7},
 				},
 			},
+			expectedRoot: []keyWithBML{
+				{
+					key:       []byte("aaa"),
+					additions: []uint64{0},
+				},
+				{
+					key:       []byte("bbb"),
+					additions: []uint64{2},
+				},
+				{
+					key:       []byte("ccc"),
+					additions: []uint64{4},
+				},
+				{
+					key:       []byte("ddd"),
+					additions: []uint64{6},
+				},
+			},
 		},
 		{
 			name: "some segments overlap",
@@ -126,6 +145,90 @@ func Test_Compactor(t *testing.T) {
 					deletions: []uint64{7},
 				},
 			},
+			expectedRoot: []keyWithBML{
+				{
+					key:       []byte("aaa"),
+					additions: []uint64{0},
+				},
+				{
+					key:       []byte("overlap"),
+					additions: []uint64{3, 4, 6, 8},
+				},
+				{
+					key:       []byte("zzz"),
+					additions: []uint64{6},
+				},
+			},
+		},
+		{
+			name: "everything but one is deleted",
+			left: createSegmentsFromKeys(t, []keyWithBML{
+				{
+					key:       []byte("aaa"),
+					additions: []uint64{0},
+					deletions: []uint64{},
+				},
+				{
+					key:       []byte("bbb"),
+					additions: []uint64{4, 5, 6},
+					deletions: []uint64{},
+				},
+				{
+					key:       []byte("ddd"),
+					additions: []uint64{11, 12, 111},
+					deletions: []uint64{},
+				},
+			}),
+			right: createSegmentsFromKeys(t, []keyWithBML{
+				{
+					key:       []byte("aaa"),
+					additions: []uint64{},
+					deletions: []uint64{0},
+				},
+				{
+					key:       []byte("bbb"),
+					additions: []uint64{},
+					deletions: []uint64{4, 5, 6},
+				},
+				{
+					key:       []byte("ccc"),
+					additions: []uint64{},
+					deletions: []uint64{7, 8},
+				},
+				{
+					key:       []byte("ddd"),
+					additions: []uint64{222},
+					deletions: []uint64{11, 12, 13, 14},
+				},
+			}),
+			expected: []keyWithBML{
+				{
+					key:       []byte("aaa"),
+					additions: []uint64{},
+					deletions: []uint64{0},
+				},
+				{
+					key:       []byte("bbb"),
+					additions: []uint64{},
+					deletions: []uint64{4, 5, 6},
+				},
+				{
+					key:       []byte("ccc"),
+					additions: []uint64{},
+					deletions: []uint64{7, 8},
+				},
+				{
+					key:       []byte("ddd"),
+					additions: []uint64{111, 222},
+					deletions: []uint64{11, 12, 13, 14},
+				},
+			},
+			expectedRoot: []keyWithBML{
+				{
+					key:       []byte("ddd"),
+					additions: []uint64{111, 222},
+				},
+			},
 		},
 
 		// the key loop is essentially a state machine. The next tests try to cover
@@ -158,6 +261,12 @@ func Test_Compactor(t *testing.T) {
 					deletions: []uint64{1},
 				},
 			},
+			expectedRoot: []keyWithBML{
+				{
+					key:       []byte("aaa"),
+					additions: []uint64{0},
+				},
+			},
 		},
 		{
 			name: "state 2 - left+right, left is smaller",
@@ -187,6 +296,16 @@ func Test_Compactor(t *testing.T) {
 					deletions: []uint64{3},
 				},
 			},
+			expectedRoot: []keyWithBML{
+				{
+					key:       []byte("aaa"),
+					additions: []uint64{0},
+				},
+				{
+					key:       []byte("bbb"),
+					additions: []uint64{2},
+				},
+			},
 		},
 		{
 			name: "state 3 - only the right key is set",
@@ -203,6 +322,12 @@ func Test_Compactor(t *testing.T) {
 					key:       []byte("bbb"),
 					additions: []uint64{2},
 					deletions: []uint64{3},
+				},
+			},
+			expectedRoot: []keyWithBML{
+				{
+					key:       []byte("bbb"),
+					additions: []uint64{2},
 				},
 			},
 		},
@@ -234,6 +359,16 @@ func Test_Compactor(t *testing.T) {
 					deletions: []uint64{1},
 				},
 			},
+			expectedRoot: []keyWithBML{
+				{
+					key:       []byte("bbb"),
+					additions: []uint64{2},
+				},
+				{
+					key:       []byte("ccc"),
+					additions: []uint64{0},
+				},
+			},
 		},
 		{
 			name: "state 5 - left+right are identical",
@@ -258,6 +393,12 @@ func Test_Compactor(t *testing.T) {
 					deletions: []uint64{1, 3},
 				},
 			},
+			expectedRoot: []keyWithBML{
+				{
+					key:       []byte("aaa"),
+					additions: []uint64{0, 2},
+				},
+			},
 		},
 	}
 
@@ -270,7 +411,7 @@ func Test_Compactor(t *testing.T) {
 			f, err := os.Create(segmentFile)
 			require.Nil(t, err)
 
-			c := NewCompactor(f, leftCursor, rightCursor, 5, t.TempDir())
+			c := NewCompactor(f, leftCursor, rightCursor, 5, t.TempDir(), false)
 			require.Nil(t, c.Do())
 
 			require.Nil(t, f.Close())
@@ -297,6 +438,45 @@ func Test_Compactor(t *testing.T) {
 			}
 
 			assert.Equal(t, len(test.expected), i, "all expected keys must have been hit")
+		})
+	}
+
+	for _, test := range tests {
+		t.Run("[root segment] "+test.name, func(t *testing.T) {
+			leftCursor := NewSegmentCursor(test.left, nil)
+			rightCursor := NewSegmentCursor(test.right, nil)
+
+			segmentFile := filepath.Join(os.TempDir(), "result_root.db")
+			f, err := os.Create(segmentFile)
+			require.NoError(t, err)
+
+			c := NewCompactor(f, leftCursor, rightCursor, 5, t.TempDir()+"/root", true)
+			require.NoError(t, c.Do())
+
+			require.NoError(t, f.Close())
+
+			f, err = os.Open(segmentFile)
+			require.NoError(t, err)
+
+			header, err := segmentindex.ParseHeader(f)
+			require.NoError(t, err)
+
+			segmentBytes, err := io.ReadAll(f)
+			require.NoError(t, err)
+
+			require.NoError(t, f.Close())
+
+			cu := NewSegmentCursor(segmentBytes[:header.IndexStart-segmentindex.HeaderSize], nil)
+
+			i := 0
+			for k, v, _ := cu.First(); k != nil; k, v, _ = cu.Next() {
+				assert.Equal(t, test.expectedRoot[i].key, k)
+				assert.Equal(t, test.expectedRoot[i].additions, v.Additions.ToArray())
+				assert.Empty(t, v.Deletions.ToArray())
+				i++
+			}
+
+			assert.Equal(t, len(test.expectedRoot), i, "all expected keys must have been hit")
 		})
 	}
 }

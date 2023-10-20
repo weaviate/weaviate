@@ -144,8 +144,29 @@ func TestCompaction(t *testing.T) {
 			},
 		},
 		{
-			name: "compactionRoaringSet",
-			f:    compactionRoaringSet,
+			name: "compactionRoaringSetStrategy_Random",
+			f:    compactionRoaringSetStrategy_Random,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSet),
+			},
+		},
+		{
+			name: "compactionRoaringSetStrategy",
+			f:    compactionRoaringSetStrategy,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSet),
+			},
+		},
+		{
+			name: "compactionRoaringSetStrategy_RemoveUnnecessary",
+			f:    compactionRoaringSetStrategy_RemoveUnnecessary,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSet),
+			},
+		},
+		{
+			name: "compactionRoaringSetStrategy_FrequentPutDeleteOperations",
+			f:    compactionRoaringSetStrategy_FrequentPutDeleteOperations,
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSet),
 			},
