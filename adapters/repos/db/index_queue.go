@@ -439,7 +439,7 @@ func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.A
 	}
 
 	buf := q.bufPool.Get().(*[]vectorDescriptor)
-	snapshot := q.queue.AppendSnapshot((*buf)[:0], q.BruteForceSearchLimit)
+	snapshot := q.queue.AppendSnapshot((*buf)[:0], q.BruteForceSearchLimit, allowList)
 
 	if len(snapshot) == 0 {
 		return indexedResults, distances, nil
@@ -474,7 +474,7 @@ func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k
 		}
 
 		// skip filtered data
-		if allowList != nil && allowList.Contains(snapshot[i].id) {
+		if allowList != nil && !allowList.Contains(snapshot[i].id) {
 			continue
 		}
 
@@ -766,17 +766,23 @@ func (q *vectorQueue) persistCheckpoint(ids []uint64) {
 	}
 }
 
-func (q *vectorQueue) AppendSnapshot(buf []vectorDescriptor, limit int) []vectorDescriptor {
+func (q *vectorQueue) AppendSnapshot(buf []vectorDescriptor, limit int, allowList helpers.AllowList) []vectorDescriptor {
 	q.fullChunks.Lock()
 	e := q.fullChunks.list.Front()
 	var count int
 	for e != nil && count < limit {
 		c := e.Value.(*chunk)
 		for i := 0; i < c.cursor; i++ {
-			if !q.IsDeleted(c.data[i].id) {
-				buf = append(buf, c.data[i])
-				count++
+			if allowList != nil && !allowList.Contains(c.data[i].id) {
+				continue
 			}
+
+			if q.IsDeleted(c.data[i].id) {
+				continue
+			}
+
+			buf = append(buf, c.data[i])
+			count++
 		}
 
 		e = e.Next()
