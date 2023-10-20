@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 // Manager Manages schema changes at a use-case level, i.e. agnostic of
@@ -157,7 +158,7 @@ type clusterState interface {
 type scaleOut interface {
 	SetSchemaManager(sm scaler.SchemaManager)
 	Scale(ctx context.Context, className string,
-		updated sharding.Config, prevReplFactor, newReplFactor int64) (*sharding.State, error)
+		updated shardingConfig.Config, prevReplFactor, newReplFactor int64) (*sharding.State, error)
 }
 
 // NewManager creates a new manager
