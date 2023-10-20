@@ -723,19 +723,23 @@ func (q *vectorQueue) releaseChunk(c *chunk) {
 	q.pool.Put(c)
 }
 
+// persistCheckpoint update the on-disk checkpoint that tracks the last indexed id
+// optimistically. It is not guaranteed to be accurate but it is guaranteed to be lower
+// than any vector in the queue.
+// To calculate the checkpoint, we use the lowest id in the current batch
+// minus the number of vectors in the queue (delta), which is capped at 10k vectors.
+// The calculation looks like this:
+// checkpoint = min(ids) - max(queueSize, 10_000)
 func (q *vectorQueue) persistCheckpoint(ids []uint64) {
 	if len(ids) == 0 {
 		return
 	}
 
-	// update the on-disk checkpoint that tracks the minimum indexed id
-	// with a value that is guaranteed to be lower than the last lowest indexed id.
 	q.fullChunks.Lock()
 	cl := q.fullChunks.list.Len()
 	q.fullChunks.Unlock()
-	// Determine a safe value to use as the new checkpoint.
-	// The value doesn't have to be accurate but it must guarantee
-	// that it is lower than the last indexed id.
+
+	// get the lowest id in the current batch
 	var minID uint64
 	for _, id := range ids {
 		if minID == 0 || id < minID {
