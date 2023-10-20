@@ -708,10 +708,9 @@ func (q *vectorQueue) borrowChunks(max int) []*chunk {
 func (q *vectorQueue) releaseChunk(c *chunk) {
 	close(c.indexed)
 
+	q.fullChunks.Lock()
 	if c.elem != nil {
-		q.fullChunks.Lock()
 		q.fullChunks.list.Remove(c.elem)
-		q.fullChunks.Unlock()
 	}
 
 	c.borrowed = false
@@ -719,6 +718,8 @@ func (q *vectorQueue) releaseChunk(c *chunk) {
 	c.elem = nil
 	c.createdAt = nil
 	c.indexed = nil
+
+	q.fullChunks.Unlock()
 
 	q.pool.Put(c)
 }
