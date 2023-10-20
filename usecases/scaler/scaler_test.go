@@ -20,7 +20,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 func TestScalerScale(t *testing.T) {
@@ -29,20 +29,20 @@ func TestScalerScale(t *testing.T) {
 		f := newFakeFactory()
 		f.ShardingState.M = nil
 		scaler := f.Scaler("")
-		old := sharding.Config{}
+		old := config.Config{}
 		_, err := scaler.Scale(ctx, "C", old, 1, 2)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "no sharding state")
 	})
 	t.Run("SameReplicationFactor", func(t *testing.T) {
 		scaler := newFakeFactory().Scaler("")
-		old := sharding.Config{}
+		old := config.Config{}
 		_, err := scaler.Scale(ctx, "C", old, 2, 2)
 		assert.Nil(t, err)
 	})
 	t.Run("ScaleInNotSupported", func(t *testing.T) {
 		scaler := newFakeFactory().Scaler("")
-		old := sharding.Config{}
+		old := config.Config{}
 		_, err := scaler.Scale(ctx, "C", old, 2, 1)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "not supported")
@@ -54,7 +54,7 @@ func TestScalerScaleOut(t *testing.T) {
 		dataDir = t.TempDir()
 		ctx     = context.Background()
 		cls     = "C"
-		old     = sharding.Config{}
+		old     = config.Config{}
 		bak     = backup.ClassDescriptor{
 			Name: "C",
 			Shards: []*backup.ShardDescriptor{
