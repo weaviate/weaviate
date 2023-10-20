@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package sharding
+package config
 
 import (
 	"encoding/json"
@@ -67,6 +67,19 @@ func (c *Config) validate() error {
 	}
 
 	return nil
+}
+
+func (c Config) DeepCopy() Config {
+	return Config{
+		VirtualPerPhysical:  c.VirtualPerPhysical,
+		DesiredCount:        c.DesiredCount,
+		ActualCount:         c.ActualCount,
+		DesiredVirtualCount: c.DesiredVirtualCount,
+		ActualVirtualCount:  c.ActualVirtualCount,
+		Key:                 c.Key,
+		Strategy:            c.Strategy,
+		Function:            c.Function,
+	}
 }
 
 func ParseConfig(input interface{}, nodeCount int) (Config, error) {
