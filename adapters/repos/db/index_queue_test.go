@@ -87,8 +87,8 @@ func TestIndexQueue(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	os.Setenv("WEAVIATE_ASYNC_INDEXING", "true")
-	defer os.Unsetenv("WEAVIATE_ASYNC_INDEXING")
+	os.Setenv("ASYNC_INDEXING", "true")
+	defer os.Unsetenv("ASYNC_INDEXING")
 
 	writeIDs := func(q *IndexQueue, from, to uint64) {
 		vectors := make([]vectorDescriptor, 0, to-from)
