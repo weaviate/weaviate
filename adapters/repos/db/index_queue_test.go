@@ -66,7 +66,7 @@ func newCheckpointManagerWithDir(t testing.TB, dir string) *indexcheckpoint.Chec
 	return c
 }
 
-func pushVector(t testing.TB, ctx context.Context, q *IndexQueue, id uint64, vector ...float32) {
+func pushVector(t testing.TB, ctx context.Context, q *IndexQueue, id uint64, vector []float32) {
 	err := q.Push(ctx, vectorDescriptor{
 		id:     id,
 		vector: vector,
@@ -147,14 +147,14 @@ func TestIndexQueue(t *testing.T) {
 		require.NoError(t, err)
 		defer q.Close()
 
-		pushVector(t, ctx, q, 1, 1, 2, 3)
+		pushVector(t, ctx, q, 1, []float32{1, 2, 3})
 		select {
 		case <-idsCh:
 			t.Fatal("should not have been called")
 		case <-time.After(100 * time.Millisecond):
 		}
 
-		pushVector(t, ctx, q, 2, 4, 5, 6)
+		pushVector(t, ctx, q, 2, []float32{4, 5, 6})
 		ids := <-idsCh
 
 		require.Equal(t, []uint64{1, 2}, ids)
@@ -174,14 +174,14 @@ func TestIndexQueue(t *testing.T) {
 		require.NoError(t, err)
 		defer q.Close()
 
-		pushVector(t, ctx, q, 1, 1, 2, 3)
+		pushVector(t, ctx, q, 1, []float32{1, 2, 3})
 		select {
 		case <-called:
 			t.Fatal("should not have been called")
 		case <-time.After(100 * time.Millisecond):
 		}
 
-		pushVector(t, ctx, q, 2, 4, 5, 6)
+		pushVector(t, ctx, q, 2, []float32{4, 5, 6})
 
 		select {
 		case <-called:
@@ -210,7 +210,7 @@ func TestIndexQueue(t *testing.T) {
 		require.NoError(t, err)
 		defer q.Close()
 
-		pushVector(t, ctx, q, 1, 1, 2, 3)
+		pushVector(t, ctx, q, 1, []float32{1, 2, 3})
 		<-called
 	})
 
@@ -229,10 +229,10 @@ func TestIndexQueue(t *testing.T) {
 		require.NoError(t, err)
 		defer q.Close()
 
-		pushVector(t, ctx, q, 1, 1, 2, 3)
-		pushVector(t, ctx, q, 2, 4, 5, 6)
-		pushVector(t, ctx, q, 3, 7, 8, 9)
-		pushVector(t, ctx, q, 4, 1, 2, 3)
+		pushVector(t, ctx, q, 1, []float32{1, 2, 3})
+		pushVector(t, ctx, q, 2, []float32{4, 5, 6})
+		pushVector(t, ctx, q, 3, []float32{7, 8, 9})
+		pushVector(t, ctx, q, 4, []float32{1, 2, 3})
 
 		<-called
 
@@ -252,7 +252,7 @@ func TestIndexQueue(t *testing.T) {
 		defer q.Close()
 
 		for i := 0; i < 10; i++ {
-			pushVector(t, ctx, q, uint64(i+1), float32(i)+1, float32(i)+2, float32(i)+3)
+			pushVector(t, ctx, q, uint64(i+1), []float32{float32(i) + 1, float32(i) + 2, float32(i) + 3})
 		}
 
 		res, _, err := q.SearchByVector([]float32{1, 2, 3}, 2, nil)
@@ -275,7 +275,7 @@ func TestIndexQueue(t *testing.T) {
 		defer q.Close()
 
 		for i := uint64(0); i < 101; i++ {
-			pushVector(t, ctx, q, i+1, 1, 2, 3)
+			pushVector(t, ctx, q, i+1, []float32{1, 2, 3})
 		}
 
 		time.Sleep(100 * time.Millisecond)
@@ -303,7 +303,7 @@ func TestIndexQueue(t *testing.T) {
 		defer q.Close()
 
 		for i := uint64(0); i < 20; i++ {
-			pushVector(t, ctx, q, i, 1, 2, 3)
+			pushVector(t, ctx, q, i, []float32{1, 2, 3})
 		}
 
 		err = q.Delete(5, 10, 15)
@@ -360,10 +360,10 @@ func TestIndexQueue(t *testing.T) {
 		require.NoError(t, err)
 		defer q.Close()
 
-		pushVector(t, ctx, q, 1, 1, 2, 3)
-		pushVector(t, ctx, q, 2, 4, 5, 6)
-		pushVector(t, ctx, q, 3, 7, 8, 9)
-		pushVector(t, ctx, q, 4, 1, 2, 3)
+		pushVector(t, ctx, q, 1, []float32{1, 2, 3})
+		pushVector(t, ctx, q, 2, []float32{4, 5, 6})
+		pushVector(t, ctx, q, 3, []float32{7, 8, 9})
+		pushVector(t, ctx, q, 4, []float32{1, 2, 3})
 
 		res, _, err := q.SearchByVector([]float32{7, 8, 9}, 2, nil)
 		require.NoError(t, err)
@@ -433,7 +433,7 @@ func TestIndexQueue(t *testing.T) {
 		defer q.Close()
 
 		for i := uint64(0); i < 3; i++ {
-			pushVector(t, ctx, q, i+1, 1, 2, 3)
+			pushVector(t, ctx, q, i+1, []float32{1, 2, 3})
 		}
 
 		select {
@@ -469,7 +469,7 @@ func TestIndexQueue(t *testing.T) {
 		defer q.Close()
 
 		for i := uint64(0); i < 2; i++ {
-			pushVector(t, ctx, q, i+1, 1, 2, 3)
+			pushVector(t, ctx, q, i+1, []float32{1, 2, 3})
 		}
 
 		select {
@@ -509,7 +509,7 @@ func TestIndexQueue(t *testing.T) {
 		defer q.Close()
 
 		for i := uint64(0); i < 100; i++ {
-			pushVector(t, ctx, q, i+1, 1, 2, 3)
+			pushVector(t, ctx, q, i+1, []float32{1, 2, 3})
 		}
 
 		q.pushToWorkers(-1, false)
@@ -530,7 +530,7 @@ func TestIndexQueue(t *testing.T) {
 		defer q.Close()
 
 		for i := uint64(0); i < 300; i++ {
-			pushVector(t, ctx, q, i+1, randVector(1536)...)
+			pushVector(t, ctx, q, i+1, randVector(1536))
 		}
 
 		q.pushToWorkers(-1, false)
