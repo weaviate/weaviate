@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package sharding
+package config
 
 import (
 	"fmt"
