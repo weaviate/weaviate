@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/scaler"
 	schemauc "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 // This is a cross-package test that tests the schema manager in a distributed
@@ -181,7 +182,7 @@ func newSchemaManagerWithClusterStateAndClient(clusterState *fakeClusterState,
 type fakeScaleOutManager struct{}
 
 func (f *fakeScaleOutManager) Scale(ctx context.Context,
-	className string, updated sharding.Config, _, _ int64,
+	className string, updated shardingConfig.Config, _, _ int64,
 ) (*sharding.State, error) {
 	return nil, nil
 }
