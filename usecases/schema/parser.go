@@ -17,7 +17,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 type Parser struct {
@@ -67,9 +67,9 @@ func (m *Parser) parseVectorIndexConfig(class *models.Class,
 
 func (m *Parser) parseShardingConfig(class *models.Class) (err error) {
 	// multiTenancyConfig and shardingConfig are mutually exclusive
-	cfg := sharding.Config{} // cfg is empty in case of MT
+	cfg := shardingConfig.Config{} // cfg is empty in case of MT
 	if !schema.MultiTenancyEnabled(class) {
-		cfg, err = sharding.ParseConfig(class.ShardingConfig,
+		cfg, err = shardingConfig.ParseConfig(class.ShardingConfig,
 			m.clusterState.NodeCount())
 		if err != nil {
 			return fmt.Errorf("parse sharding config: %w", err)
