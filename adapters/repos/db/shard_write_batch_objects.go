@@ -39,9 +39,8 @@ func (s *Shard) putObjectBatch(ctx context.Context,
 
 // asyncEnabled is a quick and dirty way to create a feature flag for async
 // indexing.
-// TODO: replace this with a proper feature flag
 func asyncEnabled() bool {
-	return os.Getenv("WEAVIATE_ASYNC_INDEXING") == "true"
+	return os.Getenv("ASYNC_INDEXING") == "true"
 }
 
 // Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch
