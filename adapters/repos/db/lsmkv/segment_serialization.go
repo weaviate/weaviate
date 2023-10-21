@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 // a single node of strategy "replace"
@@ -163,7 +164,7 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 	return out, nil
 }
 
-func ParseReplaceNodeInto(r io.Reader, secondaryIndexCount uint16, out *segmentReplaceNode) error {
+func ParseReplaceNodeIntoOld(r io.Reader, secondaryIndexCount uint16, out *segmentReplaceNode) error {
 	out.offset = 0
 
 	if err := binary.Read(r, binary.LittleEndian, &out.tombstone); err != nil {
@@ -225,6 +226,37 @@ func ParseReplaceNodeInto(r io.Reader, secondaryIndexCount uint16, out *segmentR
 		}
 	}
 
+	return nil
+}
+
+func ParseReplaceNodeInto(r *byteops.ReadWriter, secondaryIndexCount uint16, out *segmentReplaceNode) error {
+	out.tombstone = r.ReadUint8() == 0x01
+	valueLength := r.ReadUint64()
+
+	if int(valueLength) > cap(out.value) {
+		out.value = make([]byte, valueLength)
+	} else {
+		out.value = out.value[:valueLength]
+	}
+
+	if _, err := r.CopyBytesFromBuffer(valueLength, out.value); err != nil {
+		return err
+	}
+
+	// TODO: previously this was a copy. Do we need a copy or is sharing fine?
+	out.primaryKey = r.ReadBytesFromBufferWithUint32LengthIndicator()
+
+	if secondaryIndexCount > 0 {
+		out.secondaryKeys = make([][]byte, secondaryIndexCount)
+	}
+
+	for j := 0; j < int(secondaryIndexCount); j++ {
+		// TODO: previously this was a copy. Do we need a copy or is sharing
+		// fine?
+		out.secondaryKeys[j] = r.ReadBytesFromBufferWithUint32LengthIndicator()
+	}
+
+	out.offset = int(r.Position)
 	return nil
 }
 
