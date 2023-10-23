@@ -22,10 +22,10 @@ type BinaryQuantizer struct {
 	means      []float32
 }
 
-func NewBinaryQuantizer() *BinaryQuantizer {
+func NewBinaryQuantizer(dims int) *BinaryQuantizer {
 	return &BinaryQuantizer{
-		dimensions: 1536,
-		means:      make([]float32, 1536),
+		dimensions: dims,
+		means:      make([]float32, dims),
 	}
 }
 

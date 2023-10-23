@@ -307,11 +307,11 @@ func (m *Manager) validateVectorizer(ctx context.Context, class *models.Class) e
 func (m *Manager) validateVectorIndex(ctx context.Context, class *models.Class) error {
 	switch class.VectorIndexType {
 	case "hnsw":
+		return nil
 	case "flat":
 		return nil
 	default:
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",
 			class.VectorIndexType)
 	}
-	return nil
 }
