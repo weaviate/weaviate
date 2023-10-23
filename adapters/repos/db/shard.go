@@ -362,6 +362,12 @@ func (s *Shard) drop() error {
 	if err != nil {
 		return errors.Wrapf(err, "remove indexcount at %s", s.DBPathLSM())
 	}
+
+	// delete queue cursor
+	err = s.queue.Drop()
+	if err != nil {
+		return errors.Wrapf(err, "remove minindexed at %s", s.DBPathLSM())
+	}
 	// remove vector index
 	err = s.vectorIndex.Drop(ctx)
 	if err != nil {
@@ -372,12 +378,6 @@ func (s *Shard) drop() error {
 	err = s.propLengths.Drop()
 	if err != nil {
 		return errors.Wrapf(err, "remove prop length tracker at %s", s.DBPathLSM())
-	}
-
-	// delete queue cursor
-	err = s.queue.Drop()
-	if err != nil {
-		return errors.Wrapf(err, "remove minindexed at %s", s.DBPathLSM())
 	}
 
 	// TODO: can we remove this?

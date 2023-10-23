@@ -664,6 +664,57 @@ func (m *mockBatchIndexer) SearchByVector(vector []float32, k int, allowList hel
 	return ids, distances, nil
 }
 
+func (m *mockBatchIndexer) SearchByVectorDistance(vector []float32, maxDistance float32, maxLimit int64, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	m.Lock()
+	defer m.Unlock()
+
+	results := newPqMaxPool(int(maxLimit)).GetMax(int(maxLimit))
+
+	if m.DistancerProvider().Type() == "cosine-dot" {
+		vector = distancer.Normalize(vector)
+	}
+
+	for id, v := range m.vectors {
+		// skip filtered data
+		if allowList != nil && allowList.Contains(id) {
+			continue
+		}
+
+		if m.DistancerProvider().Type() == "cosine-dot" {
+			v = distancer.Normalize(v)
+		}
+
+		dist, _, err := m.DistanceBetweenVectors(vector, v)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if dist > maxDistance {
+			continue
+		}
+
+		if results.Len() < int(maxLimit) || dist < results.Top().Dist {
+			results.Insert(id, dist)
+			for results.Len() > int(maxLimit) {
+				results.Pop()
+			}
+		}
+	}
+	var ids []uint64
+	var distances []float32
+
+	for i := maxLimit - 1; i >= 0; i-- {
+		if results.Len() == 0 {
+			break
+		}
+		element := results.Pop()
+		ids = append(ids, element.ID)
+		distances = append(distances, element.Dist)
+	}
+
+	return ids, distances, nil
+}
+
 func (m *mockBatchIndexer) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
 	res := float32(0)
 	for i := range x {
