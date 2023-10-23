@@ -29,7 +29,9 @@ type BM25Config struct {
 	B  float64
 }
 
-func (i *InvertedIndexConfig) FromModel(m *models.InvertedIndexConfig) {
+func InvertedIndexConfigFromModel(m models.InvertedIndexConfig) InvertedIndexConfig {
+	i := InvertedIndexConfig{}
+
 	if m.Bm25 != nil {
 		i.BM25.K1 = float64(m.Bm25.K1)
 		i.BM25.B = float64(m.Bm25.B)
@@ -41,21 +43,20 @@ func (i *InvertedIndexConfig) FromModel(m *models.InvertedIndexConfig) {
 	i.IndexTimestamps = m.IndexTimestamps
 	i.IndexNullState = m.IndexNullState
 	i.IndexPropertyLength = m.IndexPropertyLength
+
+	return i
 }
 
-func (i *InvertedIndexConfig) ToModel() *models.InvertedIndexConfig {
-	m := &models.InvertedIndexConfig{}
+func InvertedIndexConfigToModel(i InvertedIndexConfig) models.InvertedIndexConfig {
+	m := models.InvertedIndexConfig{}
 
-	if i.BM25.K1 != 0 || i.BM25.B != 0 {
-		m.Bm25 = &models.BM25Config{}
-		m.Bm25.K1 = float32(i.BM25.K1)
-		m.Bm25.B = float32(i.BM25.B)
-	}
-	if len(i.Stopwords.Additions) > 0 || len(i.Stopwords.Removals) > 0 || len(i.Stopwords.Preset) > 0 {
-		m.Stopwords = &models.StopwordConfig{}
-		// Force a copy to avoid references
-		*m.Stopwords = i.Stopwords
-	}
+	m.Bm25 = &models.BM25Config{}
+	m.Bm25.K1 = float32(i.BM25.K1)
+	m.Bm25.B = float32(i.BM25.B)
+
+	m.Stopwords = &models.StopwordConfig{}
+	// Force a copy to avoid references
+	*m.Stopwords = i.Stopwords
 
 	m.CleanupIntervalSeconds = int64(i.CleanupIntervalSeconds)
 	m.IndexTimestamps = i.IndexTimestamps

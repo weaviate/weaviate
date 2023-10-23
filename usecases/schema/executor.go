@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 )
 
 type executor struct {
