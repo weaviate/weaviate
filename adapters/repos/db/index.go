@@ -80,6 +80,23 @@ func (m *shardMap) Range(f func(name string, shard *Shard) error) (err error) {
 	return err
 }
 
+// RangeConcurrently calls f for each key and value present in the map with at
+// most _NUMCPU executors running in parallel. As opposed to [Range] it does
+// not guarantee an exit on the first error.
+func (m *shardMap) RangeConcurrently(f func(name string, shard *Shard) error) (err error) {
+	eg := errgroup.Group{}
+	eg.SetLimit(_NUMCPU)
+	(*sync.Map)(m).Range(func(key, value any) bool {
+		name, shard := key.(string), value.(*Shard)
+		eg.Go(func() error {
+			return f(name, shard)
+		})
+		return true
+	})
+
+	return eg.Wait()
+}
+
 // Load returns the shard or nil if no shard is present.
 func (m *shardMap) Load(name string) *Shard {
 	v, ok := (*sync.Map)(m).Load(name)
@@ -257,6 +274,10 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 
 func (i *Index) ForEachShard(f func(name string, shard *Shard) error) error {
 	return i.shards.Range(f)
+}
+
+func (i *Index) ForEachShardConcurrently(f func(name string, shard *Shard) error) error {
+	return i.shards.RangeConcurrently(f)
 }
 
 // Iterate over all objects in the shard, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
@@ -1581,9 +1602,8 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	i.backupMutex.RLock()
 	defer i.backupMutex.RUnlock()
 
-	// TODO run in parallel?
 	// TODO allow every resource cleanup to run, before returning early with error
-	if err := i.ForEachShard(func(name string, shard *Shard) error {
+	if err := i.ForEachShardConcurrently(func(name string, shard *Shard) error {
 		if err := shard.shutdown(ctx); err != nil {
 			return errors.Wrapf(err, "shutdown shard %q", name)
 		}
