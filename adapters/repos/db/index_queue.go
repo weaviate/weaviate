@@ -91,8 +91,8 @@ type IndexQueueOptions struct {
 type batchIndexer interface {
 	AddBatch(id []uint64, vector [][]float32) error
 	SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
-	// SearchByVectorDistance(vector []float32, dist float32,
-	// 	maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
+	SearchByVectorDistance(vector []float32, dist float32,
+		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
 	DistanceBetweenVectors(x, y []float32) (float32, bool, error)
 	ContainsNode(id uint64) bool
 	Delete(id ...uint64) error
@@ -405,17 +405,30 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) {
 // SearchByVector performs the search through the index first, then uses brute force to
 // query unindexed vectors.
 func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	indexedResults, distances, err := q.Index.SearchByVector(vector, k, allowList)
+	return q.search(vector, -1, k, allowList)
+}
+
+// SearchByVectorDistance performs the search through the index first, then uses brute force to
+// query unindexed vectors.
+func (q *IndexQueue) SearchByVectorDistance(vector []float32, dist float32, maxLimit int64, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	return q.search(vector, dist, int(maxLimit), allowList)
+}
+
+func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	var indexedResults []uint64
+	var distances []float32
+	var err error
+	if dist == -1 {
+		indexedResults, distances, err = q.Index.SearchByVector(vector, maxLimit, allowList)
+	} else {
+		indexedResults, distances, err = q.Index.SearchByVectorDistance(vector, dist, int64(maxLimit), allowList)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
 
 	if !asyncEnabled() {
 		return indexedResults, distances, nil
-	}
-
-	if k < 0 {
-		return nil, nil, errors.New("k must be greater than zero")
 	}
 
 	if q.Index.DistancerProvider().Type() == "cosine-dot" {
@@ -429,7 +442,7 @@ func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.A
 
 	err = q.queue.Iterate(allowList, func(objects []vectorDescriptor) error {
 		if results == nil {
-			results = q.pqMaxPool.GetMax(k)
+			results = q.pqMaxPool.GetMax(maxLimit)
 			seen = make(map[uint64]struct{}, len(indexedResults))
 			for i := range indexedResults {
 				seen[indexedResults[i]] = struct{}{}
@@ -437,7 +450,7 @@ func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.A
 			}
 		}
 
-		return q.bruteForce(vector, objects, k, results, allowList, seen)
+		return q.bruteForce(vector, objects, maxLimit, results, allowList, dist, seen)
 	})
 	if results != nil {
 		defer q.pqMaxPool.Put(results)
@@ -463,59 +476,7 @@ func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.A
 	return ids, dists, nil
 }
 
-// func (q *IndexQueue) SearchByVectorDistance(vector []float32, dist float32, maxLimit int64, allowList helpers.AllowList) ([]uint64, []float32, error) {
-// 	indexedResults, distances, err := q.Index.SearchByVectorDistance(vector, dist, maxLimit, allowList)
-// 	if err != nil {
-// 		return nil, nil, err
-// 	}
-
-// 	if !asyncEnabled() {
-// 		return indexedResults, distances, nil
-// 	}
-
-// 	results := q.pqMaxPool.GetMax(int(maxLimit))
-// 	defer q.pqMaxPool.Put(results)
-// 	seen := make(map[uint64]struct{}, len(indexedResults))
-// 	for i := range indexedResults {
-// 		seen[indexedResults[i]] = struct{}{}
-// 		results.Insert(indexedResults[i], distances[i])
-// 	}
-
-// 	if q.Index.DistancerProvider().Type() == "cosine-dot" {
-// 		// cosine-dot requires normalized vectors, as the dot product and cosine
-// 		// similarity are only identical if the vector is normalized
-// 		vector = distancer.Normalize(vector)
-// 	}
-
-// 	buf := q.bufPool.Get().(*[]vectorDescriptor)
-// 	snapshot := q.queue.AppendSnapshot((*buf)[:0], q.BruteForceSearchLimit, allowList)
-
-// 	if len(snapshot) == 0 {
-// 		return indexedResults, distances, nil
-// 	}
-
-// 	err = q.bruteForce(vector, snapshot, k, results, allowList, seen)
-// 	if err != nil {
-// 		return nil, nil, err
-// 	}
-
-// 	ids := make([]uint64, results.Len())
-// 	dists := make([]float32, results.Len())
-
-// 	i := results.Len() - 1
-// 	for results.Len() > 0 {
-// 		element := results.Pop()
-// 		ids[i] = element.ID
-// 		dists[i] = element.Dist
-// 		i--
-// 	}
-
-// 	q.bufPool.Put(&snapshot)
-
-// 	return ids, dists, nil
-// }
-
-func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k int, results *priorityqueue.Queue, allowList helpers.AllowList, seen map[uint64]struct{}) error {
+func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k int, results *priorityqueue.Queue, allowList helpers.AllowList, maxDistance float32, seen map[uint64]struct{}) error {
 	for i := range snapshot {
 		// skip indexed data
 		if _, ok := seen[snapshot[i].id]; ok {
@@ -539,10 +500,17 @@ func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k
 			return err
 		}
 
-		if results.Len() < k || dist < results.Top().Dist {
+		// skip vectors that are too far away
+		if maxDistance > 0 && dist > maxDistance {
+			continue
+		}
+
+		if k < 0 || results.Len() < k || dist < results.Top().Dist {
 			results.Insert(snapshot[i].id, dist)
-			for results.Len() > k {
-				results.Pop()
+			if k > 0 {
+				for results.Len() > k {
+					results.Pop()
+				}
 			}
 		}
 	}
