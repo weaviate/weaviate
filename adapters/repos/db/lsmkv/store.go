@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path"
 	"strings"
@@ -123,7 +124,7 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string, opts 
 	}
 
 	if b := s.Bucket(bucketFile); b != nil {
-		// If the merged bucket as bucketFile already exists, we don't need to create it, but we do need to register it to the "RegisteredName"
+		// If the bucketFile already exists in a merged bucket, we don't need to create it, but we do need to register it to the "RegisteredName"
 		// So first we create a fake bucket to get the registered name :O
 		fb := &Bucket{}
 		for _, opt := range opts {
@@ -132,10 +133,10 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string, opts 
 		registeredName := fb.RegisteredName
 		if b.RegisteredName == "property__id" {
 			// panic("property__id")
-			fmt.Printf("Registered bucket %v as '%v'\n", bucketFile, registeredName)
 		}
 		if registeredName != "" {
 			s.SetBucket(registeredName, b)
+			log.Printf("Registered existing bucket %v as '%v'\n", bucketFile, registeredName)
 		}
 		return nil
 	}
@@ -150,12 +151,11 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string, opts 
 
 	if b.RegisteredName == "property__id" {
 		// panic("property__id")
-		fmt.Printf("Created bucket %v as '%v'\n", bucketFile, b.RegisteredName)
 	}
 	if b.RegisteredName != "" {
 		s.SetBucket(b.RegisteredName, b)
 
-		fmt.Printf("Created bucket %v as '%v'\n", bucketFile, b.RegisteredName)
+		log.Printf("Created bucket %v and registered it as '%v'\n", bucketFile, b.RegisteredName)
 	}
 
 	return nil
