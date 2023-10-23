@@ -161,6 +161,9 @@ func uint64SliceFromByteSlice(x []byte, slice []uint64) []uint64 {
 
 func (index *flat) Add(id uint64, vector []float32) error {
 	index.trackDimensionsOnce.Do(func() {
+		atomic.StoreInt32(&index.dims, int32(len(vector)))
+		fmt.Println("dimensions: " + string(index.dims))
+		index.bq = *ssdhelpers.NewBinaryQuantizer(int(index.dims))
 		index.pool = newPools()
 		if index.compression == flatent.CompressionNone {
 			return

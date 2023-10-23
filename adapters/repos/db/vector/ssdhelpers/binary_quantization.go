@@ -21,9 +21,10 @@ type BinaryQuantizer struct {
 	dimensions int
 }
 
-func NewBinaryQuantizer() *BinaryQuantizer {
+func NewBinaryQuantizer(dims int) *BinaryQuantizer {
 	return &BinaryQuantizer{
-		dimensions: 200,
+		dimensions: dims,
+		means:      make([]float32, dims),
 	}
 }
 
