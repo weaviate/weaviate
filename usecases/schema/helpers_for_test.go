@@ -28,10 +28,11 @@ import (
 	command "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/cloud/store"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 func newTestHandler(t *testing.T, db store.DB) (*Handler, func() raft.Future) {
@@ -132,6 +133,7 @@ func (f *fakeDB) AddProperty(prop string, cmd command.AddPropertyRequest) error 
 func (f *fakeDB) AddTenants(class string, cmd *command.AddTenantsRequest) error {
 	return nil
 }
+
 func (f *fakeDB) UpdateTenants(class string, cmd *command.UpdateTenantsRequest) error {
 	return nil
 }
@@ -160,7 +162,7 @@ func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource s
 type fakeScaleOutManager struct{}
 
 func (f *fakeScaleOutManager) Scale(ctx context.Context,
-	className string, updated sharding.Config, _, _ int64,
+	className string, updated shardingConfig.Config, _, _ int64,
 ) (*sharding.State, error) {
 	return nil, nil
 }
@@ -180,7 +182,7 @@ func (f *fakeShardReader) GetShardsStatus(class string) (models.ShardStatusList,
 type fakeValidator struct{}
 
 func (f *fakeValidator) ValidateVectorIndexConfigUpdate(ctx context.Context,
-	old, updated schema.VectorIndexConfig,
+	old, updated schemaConfig.VectorIndexConfig,
 ) error {
 	return nil
 }
@@ -314,7 +316,7 @@ func (f fakeVectorConfig) IndexType() string {
 	return "fake"
 }
 
-func dummyParseVectorConfig(in interface{}) (schema.VectorIndexConfig, error) {
+func dummyParseVectorConfig(in interface{}) (schemaConfig.VectorIndexConfig, error) {
 	return fakeVectorConfig{raw: in}, nil
 }
 
@@ -368,11 +370,11 @@ func (f *fakeMigrator) UpdateShardStatus(ctx context.Context, className, shardNa
 	return nil
 }
 
-func (f *fakeMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context, old, updated schema.VectorIndexConfig) error {
+func (f *fakeMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context, old, updated schemaConfig.VectorIndexConfig) error {
 	return nil
 }
 
-func (f *fakeMigrator) UpdateVectorIndexConfig(ctx context.Context, className string, updated schema.VectorIndexConfig) error {
+func (f *fakeMigrator) UpdateVectorIndexConfig(ctx context.Context, className string, updated schemaConfig.VectorIndexConfig) error {
 	return nil
 }
 
@@ -387,20 +389,20 @@ func (f *fakeMigrator) UpdateInvertedIndexConfig(ctx context.Context, className 
 type configMigrator struct {
 	fakeMigrator
 	vectorConfigValidationError    error
-	vectorConfigValidateCalledWith schema.VectorIndexConfig
+	vectorConfigValidateCalledWith schemaConfig.VectorIndexConfig
 	vectorConfigUpdateCalled       bool
-	vectorConfigUpdateCalledWith   schema.VectorIndexConfig
+	vectorConfigUpdateCalledWith   schemaConfig.VectorIndexConfig
 }
 
 func (m *configMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
-	old, updated schema.VectorIndexConfig,
+	old, updated schemaConfig.VectorIndexConfig,
 ) error {
 	m.vectorConfigValidateCalledWith = updated
 	return m.vectorConfigValidationError
 }
 
 func (m *configMigrator) UpdateVectorIndexConfig(ctx context.Context,
-	className string, updated schema.VectorIndexConfig,
+	className string, updated schemaConfig.VectorIndexConfig,
 ) error {
 	m.vectorConfigUpdateCalledWith = updated
 	m.vectorConfigUpdateCalled = true

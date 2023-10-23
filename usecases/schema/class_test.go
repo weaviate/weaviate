@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 func Test_GetSchema(t *testing.T) {
@@ -1405,7 +1406,7 @@ func TestRestoreClass_WithCircularRefs(t *testing.T) {
 
 		// for this particular test the sharding state does not matter, so we can
 		// initiate any new sharding state
-		shardingConfig, err := sharding.ParseConfig(nil, 1)
+		shardingConfig, err := shardingConfig.ParseConfig(nil, 1)
 		require.Nil(t, err)
 
 		nodes := fakeNodes{[]string{"node1", "node2"}}
