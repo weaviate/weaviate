@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
@@ -631,7 +632,7 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 }
 
 func (s *Shard) updateVectorIndexConfig(ctx context.Context,
-	updated schema.VectorIndexConfig,
+	updated schemaConfig.VectorIndexConfig,
 ) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly

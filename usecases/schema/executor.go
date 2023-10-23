@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 )
 
 type executor struct {
@@ -56,7 +57,7 @@ func (e *executor) UpdateClass(req cluster.UpdateClassRequest) error {
 	className := req.Class.Class
 	ctx := context.Background()
 	if err := e.migrator.UpdateVectorIndexConfig(ctx,
-		className, req.Class.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
+		className, req.Class.VectorIndexConfig.(schemaConfig.VectorIndexConfig)); err != nil {
 		return errors.Wrap(err, "vector index config")
 	}
 
