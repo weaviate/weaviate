@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/cloud/store"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -57,7 +58,7 @@ type metaReader interface {
 
 type validator interface {
 	ValidateVectorIndexConfigUpdate(ctx context.Context,
-		old, updated schema.VectorIndexConfig) error
+		old, updated schemaConfig.VectorIndexConfig) error
 	ValidateInvertedIndexConfigUpdate(ctx context.Context,
 		old, updated *models.InvertedIndexConfig) error
 }

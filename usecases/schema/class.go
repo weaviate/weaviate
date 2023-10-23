@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -170,8 +171,8 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	}
 
 	if err := h.validator.ValidateVectorIndexConfigUpdate(ctx,
-		initial.VectorIndexConfig.(schema.VectorIndexConfig),
-		updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
+		initial.VectorIndexConfig.(schemaConfig.VectorIndexConfig),
+		updated.VectorIndexConfig.(schemaConfig.VectorIndexConfig)); err != nil {
 		return errors.Wrap(err, "vector index config")
 	}
 
