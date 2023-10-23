@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package schema
+package config
 
 import (
 	"fmt"
