@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 type fakeSchemaGetter struct {
@@ -94,7 +95,7 @@ func (f fakeSchemaGetter) ResolveParentNodes(_ string, shard string) (map[string
 }
 
 func singleShardState() *sharding.State {
-	config, err := sharding.ParseConfig(nil, 1)
+	config, err := shardingConfig.ParseConfig(nil, 1)
 	if err != nil {
 		panic(err)
 	}
@@ -108,7 +109,7 @@ func singleShardState() *sharding.State {
 }
 
 func multiShardState() *sharding.State {
-	config, err := sharding.ParseConfig(map[string]interface{}{
+	config, err := shardingConfig.ParseConfig(map[string]interface{}{
 		"desiredCount": json.Number("3"),
 	}, 1)
 	if err != nil {
