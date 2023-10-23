@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package schema
+package config
 
 type VectorIndexConfig interface {
 	IndexType() string
