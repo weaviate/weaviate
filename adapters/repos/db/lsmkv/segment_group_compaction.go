@@ -156,7 +156,7 @@ func (sg *SegmentGroup) compactOnce() error {
 	case segmentindex.StrategySetCollection:
 		c := newCompactorSetCollection(f, sg.segmentAtPos(pair[0]).newCollectionCursor(),
 			sg.segmentAtPos(pair[1]).newCollectionCursor(), level, secondaryIndices,
-			scratchSpacePath)
+			scratchSpacePath, isLeftRoot)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionSet.With(prometheus.Labels{"path": pathLabel}).Inc()

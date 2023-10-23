@@ -29,6 +29,7 @@ type compactorSet struct {
 	// the level matching those of the cursors
 	currentLevel        uint16
 	secondaryIndexCount uint16
+	isLeftRoot          bool
 
 	w    io.WriteSeeker
 	bufw *bufio.Writer
@@ -36,9 +37,13 @@ type compactorSet struct {
 	scratchSpacePath string
 }
 
+// isLeftRoot indicates if left segment is root segment (1st one)
+// (which implies output segment will be root as well)
+// root segment can have values with tombstone omitted, as there is no previous segment
+// containing keys and values that tombstones may refer to
 func newCompactorSetCollection(w io.WriteSeeker,
 	c1, c2 *segmentCursorCollection, level, secondaryIndexCount uint16,
-	scratchSpacePath string,
+	scratchSpacePath string, isLeftRoot bool,
 ) *compactorSet {
 	return &compactorSet{
 		c1:                  c1,
@@ -46,6 +51,7 @@ func newCompactorSetCollection(w io.WriteSeeker,
 		w:                   w,
 		bufw:                bufio.NewWriterSize(w, 256*1024),
 		currentLevel:        level,
+		isLeftRoot:          isLeftRoot,
 		secondaryIndexCount: secondaryIndexCount,
 		scratchSpacePath:    scratchSpacePath,
 	}
@@ -70,7 +76,10 @@ func (c *compactorSet) do() error {
 		return errors.Wrap(err, "flush buffered")
 	}
 
-	dataEnd := uint64(kis[len(kis)-1].ValueEnd)
+	var dataEnd uint64 = segmentindex.HeaderSize
+	if len(kis) > 0 {
+		dataEnd = uint64(kis[len(kis)-1].ValueEnd)
+	}
 
 	if err := c.writeHeader(c.currentLevel+1, 0, c.secondaryIndexCount,
 		dataEnd); err != nil {
@@ -108,15 +117,15 @@ func (c *compactorSet) writeKeys() ([]segmentindex.Key, error) {
 		if bytes.Equal(key1, key2) {
 			values := append(value1, value2...)
 			valuesMerged := newSetDecoder().DoPartial(values)
+			if values, skip := c.optimizeValues(valuesMerged); !skip {
+				ki, err := c.writeIndividualNode(offset, key2, values)
+				if err != nil {
+					return nil, errors.Wrap(err, "write individual node (equal keys)")
+				}
 
-			ki, err := c.writeIndividualNode(offset, key2, valuesMerged)
-			if err != nil {
-				return nil, errors.Wrap(err, "write individual node (equal keys)")
+				offset = ki.ValueEnd
+				kis = append(kis, ki)
 			}
-
-			offset = ki.ValueEnd
-			kis = append(kis, ki)
-
 			// advance both!
 			key1, value1, _ = c.c1.next()
 			key2, value2, _ = c.c2.next()
@@ -125,24 +134,27 @@ func (c *compactorSet) writeKeys() ([]segmentindex.Key, error) {
 
 		if (key1 != nil && bytes.Compare(key1, key2) == -1) || key2 == nil {
 			// key 1 is smaller
-			ki, err := c.writeIndividualNode(offset, key1, value1)
-			if err != nil {
-				return nil, errors.Wrap(err, "write individual node (key1 smaller)")
-			}
+			if values, skip := c.optimizeValues(value1); !skip {
+				ki, err := c.writeIndividualNode(offset, key1, values)
+				if err != nil {
+					return nil, errors.Wrap(err, "write individual node (key1 smaller)")
+				}
 
-			offset = ki.ValueEnd
-			kis = append(kis, ki)
+				offset = ki.ValueEnd
+				kis = append(kis, ki)
+			}
 			key1, value1, _ = c.c1.next()
 		} else {
 			// key 2 is smaller
-			ki, err := c.writeIndividualNode(offset, key2, value2)
-			if err != nil {
-				return nil, errors.Wrap(err, "write individual node (key2 smaller)")
+			if values, skip := c.optimizeValues(value2); !skip {
+				ki, err := c.writeIndividualNode(offset, key2, values)
+				if err != nil {
+					return nil, errors.Wrap(err, "write individual node (key2 smaller)")
+				}
+
+				offset = ki.ValueEnd
+				kis = append(kis, ki)
 			}
-
-			offset = ki.ValueEnd
-			kis = append(kis, ki)
-
 			key2, value2, _ = c.c2.next()
 		}
 	}
@@ -194,4 +206,28 @@ func (c *compactorSet) writeHeader(level, version, secondaryIndices uint16,
 	}
 
 	return nil
+}
+
+// if root segment, then values with tombstone can be omitted
+// if there is no values left, then entire key can be omitted
+// WARN: method reuses and alters input slice
+func (c *compactorSet) optimizeValues(values []value) (vals []value, skip bool) {
+	if !c.isLeftRoot {
+		return values, false
+	}
+
+	last := 0
+	for i := 0; i < len(values); i++ {
+		if !values[i].tombstone {
+			// swap instead overwritting, to prevent multiple (values[x].value)s
+			// pointing to the same slice
+			values[last], values[i] = values[i], values[last]
+			last++
+		}
+	}
+
+	if last == 0 {
+		return nil, true
+	}
+	return values[:last], false
 }

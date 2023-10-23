@@ -806,10 +806,10 @@ func compactionSetStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 		// 5.) present in an unrelated previous segment, deleted in the first
 		// 6.) present in an unrelated previous segment, deleted in the second
 		for i := 0; i < size; i++ {
-			key := []byte(fmt.Sprintf("key-%2d", i))
+			key := []byte(fmt.Sprintf("key-%02d", i))
 
-			value1 := []byte(fmt.Sprintf("value-%2d-01", i))
-			value2 := []byte(fmt.Sprintf("value-%2d-02", i))
+			value1 := []byte(fmt.Sprintf("value-%02d-01", i))
+			value2 := []byte(fmt.Sprintf("value-%02d-02", i))
 			values := [][]byte{value1, value2}
 
 			switch i % 7 {
@@ -825,6 +825,7 @@ func compactionSetStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 					key:    key,
 					values: values[:1],
 				})
+
 			case 1:
 				// add to segment 1
 				segment1 = append(segment1, kv{
@@ -842,6 +843,7 @@ func compactionSetStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 					key:    key,
 					values: values,
 				})
+
 			case 2:
 				// add both to segment 1, delete the first
 				segment1 = append(segment1, kv{
@@ -876,14 +878,14 @@ func compactionSetStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 					delete: true,
 				})
 
-				// only the 2nd element should be left in the expected
+				// only the 1st element should be left in the expected
 				expected = append(expected, kv{
 					key:    key,
 					values: values[:1],
 				})
 
 			case 4:
-				// do not add to segment 2
+				// do not add to segment 1
 
 				// only add to segment 2 (first entry)
 				segment2 = append(segment2, kv{
@@ -919,11 +921,7 @@ func compactionSetStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 					delete: true,
 				})
 
-				// should not have any values in expected at all
-				expected = append(expected, kv{
-					key:    key,
-					values: [][]byte{},
-				})
+				// should not have any values in expected at all, not even a key
 
 			case 6:
 				// only part of a previous segment, which is not part of the merge
@@ -948,11 +946,7 @@ func compactionSetStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 					delete: true,
 				})
 
-				// should not have any values in expected at all
-				expected = append(expected, kv{
-					key:    key,
-					values: [][]byte{},
-				})
+				// should not have any values in expected at all, not even a key
 			}
 		}
 	})

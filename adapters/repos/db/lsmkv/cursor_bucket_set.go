@@ -217,8 +217,14 @@ func (c *CursorSet) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, 
 		c.advanceInner(id)
 	}
 
+	values := newSetDecoder().Do(raw)
+	if len(values) == 0 {
+		// all values deleted, skip key
+		return c.Next()
+	}
+
+	// TODO remove keyOnly option, not used anyway
 	if !c.keyOnly {
-		values := newSetDecoder().Do(raw)
 		return key, values
 	} else {
 		return key, nil
