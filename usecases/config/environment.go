@@ -23,6 +23,36 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
+const (
+	DefaultQueryMaximumResults            = int64(10000)
+	DefaultQueryNestedCrossReferenceLimit = int64(100000)
+)
+
+const (
+	DefaultPersistenceFlushIdleMemtablesAfter = 60
+	DefaultPersistenceMemtablesMaxSize        = 200
+	DefaultPersistenceMemtablesMinDuration    = 15
+	DefaultPersistenceMemtablesMaxDuration    = 45
+	DefaultMaxConcurrentGetRequests           = 0
+	DefaultGRPCPort                           = 50051
+	DefaultMinimumReplicationFactor           = 1
+
+	DefaultRaftPort         = 3000
+	DefaultRaftInternalPort = 3001
+	DefaultRaftExpect       = 1
+)
+
+var DefaultRaftJoin = []string{"localhost:3000"}
+
+const VectorizerModuleNone = "none"
+
+// DefaultGossipBindPort uses the hashicorp/memberlist default
+// port value assigned with the use of DefaultLocalConfig
+const DefaultGossipBindPort = 7946
+
+// TODO: This should be retrieved dynamically from all installed modules
+const VectorizerModuleText2VecContextionary = "text2vec-contextionary"
+
 // FromEnv takes a *Config as it will respect initial config that has been
 // provided by other means (e.g. a config file) and will only extend those that
 // are set
@@ -321,6 +351,36 @@ func FromEnv(config *Config) error {
 		config.GRPC.KeyFile = v
 	}
 
+	if err := parsePositiveInt(
+		"RAFT_PORT",
+		func(val int) { config.Raft.Port = val },
+		DefaultRaftPort,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_INTERNAL_RPC_PORT",
+		func(val int) { config.Raft.InternalRPCPort = val },
+		DefaultRaftInternalPort,
+	); err != nil {
+		return err
+	}
+
+	parseStringList(
+		"RAFT_JOIN",
+		func(val []string) { config.Raft.Join = val },
+		DefaultRaftJoin,
+	)
+
+	if err := parsePositiveInt(
+		"RAFT_BOOTSTRAP_EXPECT",
+		func(val int) { config.Raft.BootstrapExcept = val },
+		DefaultRaftExpect,
+	); err != nil {
+		return err
+	}
+
 	config.DisableGraphQL = enabled(os.Getenv("DISABLE_GRAPHQL"))
 
 	if err := parsePositiveInt(
@@ -330,6 +390,7 @@ func FromEnv(config *Config) error {
 	); err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -418,29 +479,13 @@ func parsePositiveInt(varName string, cb func(val int), defaultValue int) error 
 	return nil
 }
 
-const (
-	DefaultQueryMaximumResults            = int64(10000)
-	DefaultQueryNestedCrossReferenceLimit = int64(100000)
-)
-
-const (
-	DefaultPersistenceFlushIdleMemtablesAfter = 60
-	DefaultPersistenceMemtablesMaxSize        = 200
-	DefaultPersistenceMemtablesMinDuration    = 15
-	DefaultPersistenceMemtablesMaxDuration    = 45
-	DefaultMaxConcurrentGetRequests           = 0
-	DefaultGRPCPort                           = 50051
-	DefaultMinimumReplicationFactor           = 1
-)
-
-const VectorizerModuleNone = "none"
-
-// DefaultGossipBindPort uses the hashicorp/memberlist default
-// port value assigned with the use of DefaultLocalConfig
-const DefaultGossipBindPort = 7946
-
-// TODO: This should be retrieved dynamically from all installed modules
-const VectorizerModuleText2VecContextionary = "text2vec-contextionary"
+func parseStringList(varName string, cb func(val []string), defaultValue []string) {
+	if v := os.Getenv(varName); v != "" {
+		cb(strings.Split(v, ","))
+	} else {
+		cb(defaultValue)
+	}
+}
 
 func enabled(value string) bool {
 	if value == "" {
