@@ -42,7 +42,7 @@ type Config struct {
 	WorkDir  string // raft working directory
 	NodeID   string
 	Host     string
-	RaftPort string
+	RaftPort int
 	DB       DB
 	Parser   Parser
 }
@@ -53,7 +53,7 @@ type Store struct {
 	raftDir      string
 	nodeID       string
 	host         string
-	raftPort     string
+	raftPort     int
 	schema       *schema
 	db           DB
 	parser       Parser
