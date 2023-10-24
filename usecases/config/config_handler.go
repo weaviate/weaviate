@@ -107,6 +107,7 @@ type Config struct {
 	IndexMissingTextFilterableAtStartup bool                     `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
 	DisableGraphQL                      bool                     `json:"disable_graphql" yaml:"disable_graphql"`
 	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
+	CORS                                CORS                     `json:"cors" yaml:"cors"`
 
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
