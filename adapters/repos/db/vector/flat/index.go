@@ -167,6 +167,7 @@ func (index *flat) Add(id uint64, vector []float32) error {
 		}
 		atomic.StoreInt32(&index.dims, int32(len(vector)))
 		index.bq = *ssdhelpers.NewBinaryQuantizer()
+		index.bq.Fit([][]float32{vector})
 	})
 	if index.compression == flatent.CompressionNone {
 		return nil
@@ -301,7 +302,6 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 		cursor.Close()
 	}
 
-	index.logger.Warn(k, heap.Len())
 	ids := make([]uint64, k)
 	dists := make([]float32, k)
 	for j := k - 1; j >= 0; j-- {
