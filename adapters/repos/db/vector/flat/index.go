@@ -24,14 +24,13 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema"
-	vectorindexcommon "github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/weaviate/weaviate/entities/storobj"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
@@ -40,7 +39,6 @@ type flat struct {
 	sync.RWMutex
 	id                  string
 	dims                int32
-	compressedCache     cache.Cache[uint64]
 	store               *lsmkv.Store
 	logger              logrus.FieldLogger
 	distancerProvider   distancer.Provider
@@ -61,15 +59,14 @@ type flat struct {
 	shardCompactionCallbacks cyclemanager.CycleCallbackGroup
 	shardFlushCallbacks      cyclemanager.CycleCallbackGroup
 
-	fullyOnDisk     bool
-	partiallyOnDisk bool
-	compression     string
-	useIvf          bool
+	compression string
+	flatStore   func() *lsmkv.CursorReplace
 }
 
 func New(
 	cfg hnsw.Config, uc flatent.UserConfig,
 	shardCompactionCallbacks, shardFlushCallbacks cyclemanager.CycleCallbackGroup,
+	flatStore func() *lsmkv.CursorReplace,
 ) (*flat, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
@@ -92,14 +89,11 @@ func New(
 		vectorForID:              cfg.VectorForIDThunk,
 		tempVectors:              common.NewTempVectorsPool(),
 		pqResults:                common.NewPqMaxPool(100),
-		fullyOnDisk:              uc.FullyOnDisk,
-		partiallyOnDisk:          uc.PartiallyOnDisk,
 		compression:              uc.Compression,
-		useIvf:                   uc.UseIvf,
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
+		flatStore:                flatStore,
 	}
-	index.compressedCache = cache.NewShardedUInt64LockCache(index.getCompressedVectorForID, vectorindexcommon.DefaultVectorCacheMaxObjects, cfg.Logger, 0)
 	index.initStore(cfg.RootPath, cfg.ClassName)
 
 	return index, nil
@@ -112,9 +106,10 @@ func (h *flat) storeCompressedVector(index uint64, vector []byte) {
 }
 
 func (index *flat) initStore(rootPath, className string) error {
-	if !index.fullyOnDisk {
+	if index.compression == flatent.CompressionNone {
 		return nil
 	}
+
 	store, err := lsmkv.New(fmt.Sprintf("%s/%s/%s", rootPath, className, index.shardName), "", index.logger, nil,
 		index.shardCompactionCallbacks, index.shardFlushCallbacks)
 	if err != nil {
@@ -166,11 +161,16 @@ func uint64SliceFromByteSlice(x []byte, slice []uint64) []uint64 {
 
 func (index *flat) Add(id uint64, vector []float32) error {
 	index.trackDimensionsOnce.Do(func() {
-		atomic.StoreInt32(&index.dims, int32(len(vector)))
-		fmt.Println("dimensions: " + string(index.dims))
-		index.bq = *ssdhelpers.NewBinaryQuantizer()
 		index.pool = newPools()
+		if index.compression == flatent.CompressionNone {
+			return
+		}
+		atomic.StoreInt32(&index.dims, int32(len(vector)))
+		index.bq = *ssdhelpers.NewBinaryQuantizer()
 	})
+	if index.compression == flatent.CompressionNone {
+		return nil
+	}
 	if len(vector) != int(index.dims) {
 		return errors.Errorf("insert called with a vector of the wrong size")
 	}
@@ -183,20 +183,11 @@ func (index *flat) Add(id uint64, vector []float32) error {
 	if err != nil {
 		return err
 	}
-	if index.fullyOnDisk {
-		slice := make([]byte, len(vec)*8)
-		index.storeCompressedVector(id, byteSliceFromUint64Slice(vec, slice))
-		return nil
-	}
+	slice := make([]byte, len(vec)*8)
+	index.storeCompressedVector(id, byteSliceFromUint64Slice(vec, slice))
 
-	if index.compressedCache == nil {
-		return errors.New("No cache...")
-	}
-	index.compressedCache.Grow(id)
-	index.compressedCache.Preload(id, vec)
 	index.Lock()
 	defer index.Unlock()
-	index.nodes[id] = struct{}{}
 	if index.maxId < id {
 		index.maxId = id
 	}
@@ -204,16 +195,13 @@ func (index *flat) Add(id uint64, vector []float32) error {
 }
 
 func (index *flat) Delete(ids ...uint64) error {
-	for _, id := range ids {
-		index.compressedCache.Delete(context.Background(), id)
-		index.Lock()
-		delete(index.nodes, id)
-		index.Unlock()
-	}
 	return nil
 }
 
 func (index *flat) searchTimeEF(k int) int {
+	if index.compression == flatent.CompressionNone {
+		return k
+	}
 	// load atomically, so we can get away with concurrent updates of the
 	// userconfig without having to set a lock each time we try to read - which
 	// can be so common that it would cause considerable overhead
@@ -225,25 +213,21 @@ func (index *flat) searchTimeEF(k int) int {
 }
 
 func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
-	/*if len(vector) != int(index.dims) {
-		return nil, nil, errors.Errorf("search called with a vector of the wrong size, %d, %d", len(vector), index.dims)
-	}
-	*/
 	if index.distancerProvider.Type() == "cosine-dot" {
 		// cosine-dot requires normalized vectors, as the dot product and cosine
 		// similarity are only identical if the vector is normalized
 		vector = distancer.Normalize(vector)
 	}
-	query, err := index.bq.Encode(vector)
-	if err != nil {
-		return nil, nil, err
-	}
+
 	ef := index.searchTimeEF(k)
 	heap := index.pqResults.GetMax(ef)
 	defer index.pqResults.Put(heap)
-	index.RLock()
 
-	if index.fullyOnDisk {
+	if index.compression != flatent.CompressionNone {
+		query, err := index.bq.Encode(vector)
+		if err != nil {
+			return nil, nil, err
+		}
 		cursor := index.store.Bucket(helpers.CompressedObjectsBucketLSM).Cursor()
 		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 			id := binary.LittleEndian.Uint64(k)
@@ -267,47 +251,58 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 
 		}
 		cursor.Close()
-	} else {
-		maxId := index.maxId
-		index.RUnlock()
-		for j := uint64(0); j < maxId; j++ {
-			candidate, err := index.compressedCache.Get(context.Background(), j)
+
+		ids := make([]uint64, ef)
+		for j := range ids {
+			ids[j] = heap.Pop().ID
+		}
+
+		for _, id := range ids {
+			candidate, err := index.vectorForID(context.Background(), id)
 			if err != nil {
-				continue
+				return nil, nil, err
 			}
-			d, _ := index.bq.DistanceBetweenCompressedVectors(candidate, query)
+			d, _, _ := index.distancerProvider.SingleDist(candidate, vector)
 			if heap.Len() < ef || heap.Top().Dist > d {
 				if heap.Len() == ef {
 					heap.Pop()
 				}
-				heap.Insert(uint64(j), d)
+				heap.Insert(uint64(id), d)
 			}
 		}
-	}
-
-	ids := make([]uint64, ef)
-	for j := range ids {
-		ids[j] = heap.Pop().ID
-	}
-
-	for _, id := range ids {
-		candidate, err := index.vectorForID(context.Background(), id)
-		if err != nil {
-			return nil, nil, err
+		for heap.Len() > k {
+			heap.Pop()
 		}
-		d, _, _ := index.distancerProvider.SingleDist(candidate, vector)
-		if heap.Len() < ef || heap.Top().Dist > d {
-			if heap.Len() == ef {
-				heap.Pop()
+	} else {
+		cursor := index.flatStore()
+		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+			obj, err := storobj.FromBinary(v)
+			id := obj.DocID()
+			if err != nil {
+				return nil, nil, errors.Wrapf(err, "unmarhsal item %d", id)
 			}
-			heap.Insert(uint64(id), d)
+			candidate := obj.Vector
+			if index.distancerProvider.Type() == "cosine-dot" {
+				// cosine-dot requires normalized vectors, as the dot product and cosine
+				// similarity are only identical if the vector is normalized
+				candidate = distancer.Normalize(candidate)
+			}
+
+			d, _, _ := index.distancerProvider.SingleDist(vector, candidate)
+
+			if heap.Len() < ef || heap.Top().Dist > d {
+				if heap.Len() == ef {
+					heap.Pop()
+				}
+				heap.Insert(id, d)
+			}
+
 		}
-	}
-	for heap.Len() > k {
-		heap.Pop()
+		cursor.Close()
 	}
 
-	ids = make([]uint64, k)
+	index.logger.Warn(k, heap.Len())
+	ids := make([]uint64, k)
 	dists := make([]float32, k)
 	for j := k - 1; j >= 0; j-- {
 		elem := heap.Pop()
@@ -402,7 +397,6 @@ func (index *flat) UpdateUserConfig(updated schema.VectorIndexConfig, callback f
 }
 
 func (index *flat) Drop(ctx context.Context) error {
-	index.compressedCache.Drop()
 	return nil
 }
 
@@ -411,10 +405,8 @@ func (index *flat) Flush() error {
 }
 
 func (index *flat) Shutdown(ctx context.Context) error {
-	if index.fullyOnDisk {
-		if err := index.store.Shutdown(ctx); err != nil {
-			return errors.Wrap(err, "flat shutdown")
-		}
+	if err := index.store.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "flat shutdown")
 	}
 	return index.Drop(ctx)
 }
@@ -468,8 +460,7 @@ func (index *flat) DistanceBetweenVectors(x, y []float32) (float32, bool, error)
 }
 
 func (index *flat) ContainsNode(id uint64) bool {
-	_, found := index.nodes[id]
-	return found
+	return true
 }
 
 func (index *flat) getCompressedVectorForID(ctx context.Context, id uint64) ([]uint64, error) {
@@ -522,23 +513,3 @@ func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
 	*/
 	return nil
 }
-
-/*
-type immutableParameter struct {
-	accessor func(c flatent.UserConfig) interface{}
-	name     string
-}
-
-func validateImmutableField(u immutableParameter,
-	previous, next flatent.UserConfig,
-) error {
-	oldField := u.accessor(previous)
-	newField := u.accessor(next)
-	if oldField != newField {
-		return errors.Errorf("%s is immutable: attempted change from \"%v\" to \"%v\"",
-			u.name, oldField, newField)
-	}
-
-	return nil
-}
-*/

@@ -19,25 +19,17 @@ import (
 
 type BinaryQuantizer struct {
 	dimensions int
-	means      []float32
 }
 
 func NewBinaryQuantizer() *BinaryQuantizer {
 	return &BinaryQuantizer{
-		dimensions: 1536,
-		means:      make([]float32, 1536),
+		dimensions: 200,
 	}
 }
 
 func (bq *BinaryQuantizer) Fit(data [][]float32) {
 	bq.dimensions = len(data[0])
-	bq.means = make([]float32, bq.dimensions)
-	norm := float32(len(data))
-	for i := range data {
-		for j := 0; j < bq.dimensions; j++ {
-			bq.means[j] += (data[i][j] / norm)
-		}
-	}
+
 }
 
 func (bq *BinaryQuantizer) Encode(vec []float32) ([]uint64, error) {
@@ -50,7 +42,7 @@ func (bq *BinaryQuantizer) Encode(vec []float32) ([]uint64, error) {
 	}
 	code := make([]uint64, total)
 	for j := 0; j < bq.dimensions; j++ {
-		if vec[j] < bq.means[j] {
+		if vec[j] < 0 {
 			segment := j / 64
 			code[segment] += uint64(math.Pow(2, float64(j%64)))
 		}
