@@ -170,7 +170,7 @@ func (sg *SegmentGroup) compactOnce() error {
 		c := newCompactorMapCollection(f,
 			sg.segmentAtPos(pair[0]).newCollectionCursorReusable(),
 			sg.segmentAtPos(pair[1]).newCollectionCursorReusable(),
-			level, secondaryIndices, scratchSpacePath, sg.mapRequiresSorting)
+			level, secondaryIndices, scratchSpacePath, sg.mapRequiresSorting, isLeftRoot)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()

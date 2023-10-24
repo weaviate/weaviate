@@ -1177,9 +1177,6 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 	var previous1 []kv
 	var previous2 []kv
 
-	// TODO
-	_, _ = previous1, previous2
-
 	var segment1 []kv
 	var segment2 []kv
 	var expected []kv
@@ -1200,15 +1197,15 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 		// 8.) present in an unrelated previous segment, deleted in the first
 		// 9.) present in an unrelated previous segment, deleted in the second
 		for i := 0; i < size; i++ {
-			rowKey := []byte(fmt.Sprintf("row-%3d", i))
+			rowKey := []byte(fmt.Sprintf("row-%03d", i))
 
 			pair1 := MapPair{
-				Key:   []byte(fmt.Sprintf("value-%3d-01", i)),
-				Value: []byte(fmt.Sprintf("value-%3d-01-original", i)),
+				Key:   []byte(fmt.Sprintf("value-%03d-01", i)),
+				Value: []byte(fmt.Sprintf("value-%03d-01-original", i)),
 			}
 			pair2 := MapPair{
-				Key:   []byte(fmt.Sprintf("value-%3d-02", i)),
-				Value: []byte(fmt.Sprintf("value-%3d-02-original", i)),
+				Key:   []byte(fmt.Sprintf("value-%03d-02", i)),
+				Value: []byte(fmt.Sprintf("value-%03d-02-original", i)),
 			}
 			pairs := []MapPair{pair1, pair2}
 
@@ -1371,11 +1368,7 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 					values: []MapPair{deleted2},
 				})
 
-				// should not have any values in expected at all
-				expected = append(expected, kv{
-					key:    rowKey,
-					values: []MapPair{},
-				})
+				// should not have any values in expected at all, not even a key
 
 			case 8:
 				// only part of a previous segment, which is not part of the merge
@@ -1406,12 +1399,7 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 					values: []MapPair{deleted2},
 				})
 
-				// should not have any values in expected at all
-				expected = append(expected, kv{
-					key:    rowKey,
-					values: []MapPair{},
-				})
-
+				// should not have any values in expected at all, not even a key
 			}
 		}
 	})
