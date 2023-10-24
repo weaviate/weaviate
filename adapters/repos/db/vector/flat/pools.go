@@ -18,14 +18,16 @@ import (
 const defaultSize = 200
 
 type pools struct {
-	byteSlicePool   *slicePool[byte]
-	uint64SlicePool *slicePool[uint64]
+	byteSlicePool    *slicePool[byte]
+	uint64SlicePool  *slicePool[uint64]
+	float32SlicePool *slicePool[float32]
 }
 
 func newPools() *pools {
 	return &pools{
-		byteSlicePool:   newSlicePool[byte](),
-		uint64SlicePool: newSlicePool[uint64](),
+		byteSlicePool:    newSlicePool[byte](),
+		uint64SlicePool:  newSlicePool[uint64](),
+		float32SlicePool: newSlicePool[float32](),
 	}
 }
 

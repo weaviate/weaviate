@@ -21,6 +21,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -374,7 +376,9 @@ func (s *Shard) reinit(ctx context.Context) error {
 				return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(),
 					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
 			},
-		}, flatUserConfig, s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks)
+		}, flatUserConfig, s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, func() *lsmkv.CursorReplace {
+			return s.store.Bucket(helpers.CompressedObjectsBucketLSM).Cursor()
+		})
 		if err != nil {
 			return errors.Wrapf(err, "init shard %q: flat index", s.ID())
 		}
