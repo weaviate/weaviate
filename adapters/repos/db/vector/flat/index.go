@@ -36,7 +36,6 @@ import (
 )
 
 type flat struct {
-	sync.RWMutex
 	id                  string
 	dims                int32
 	store               *lsmkv.Store
@@ -44,13 +43,11 @@ type flat struct {
 	distancerProvider   distancer.Provider
 	shardName           string
 	trackDimensionsOnce sync.Once
-	nodes               map[uint64]interface{}
 	ef                  int64
 
 	TempVectorForIDThunk common.TempVectorForID
 	vectorForID          common.VectorForID[float32]
 	bq                   ssdhelpers.BinaryQuantizer
-	maxId                uint64
 
 	tempVectors *common.TempVectorsPool
 	pqResults   *common.PqMaxPool
@@ -79,7 +76,6 @@ func New(
 	}
 
 	index := &flat{
-		nodes:                    make(map[uint64]interface{}),
 		id:                       cfg.ID,
 		logger:                   cfg.Logger,
 		distancerProvider:        cfg.DistanceProvider,
@@ -187,11 +183,6 @@ func (index *flat) Add(id uint64, vector []float32) error {
 	slice := make([]byte, len(vec)*8)
 	index.storeCompressedVector(id, byteSliceFromUint64Slice(vec, slice))
 
-	index.Lock()
-	defer index.Unlock()
-	if index.maxId < id {
-		index.maxId = id
-	}
 	return nil
 }
 
@@ -232,12 +223,9 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 		cursor := index.store.Bucket(helpers.CompressedObjectsBucketLSM).Cursor()
 		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 			id := binary.LittleEndian.Uint64(k)
-			// Make sure to copy the vector. The cursor only guarantees that
-			// the underlying memory won't change until we hit .Next(). Since
-			// we want to keep this around in the cache "forever", we need to
-			// alloc some new memory and copy the vector.
-			//
-			// https://github.com/weaviate/weaviate/issues/3049
+			if allow != nil && !allow.Contains(id) {
+				continue
+			}
 			t := index.pool.uint64SlicePool.Get(len(v) / 8)
 			candidate := uint64SliceFromByteSlice(v, t.slice)
 			d, _ := index.bq.DistanceBetweenCompressedVectors(candidate, query)
@@ -279,6 +267,9 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 			obj, err := storobj.FromBinary(v)
 			id := obj.DocID()
+			if allow != nil && !allow.Contains(id) {
+				continue
+			}
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "unmarhsal item %d", id)
 			}
@@ -302,6 +293,9 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 		cursor.Close()
 	}
 
+	if heap.Len() < k {
+		k = heap.Len()
+	}
 	ids := make([]uint64, k)
 	dists := make([]float32, k)
 	for j := k - 1; j >= 0; j-- {
@@ -451,7 +445,6 @@ func (index *flat) Dump(labels ...string) {
 	}
 	fmt.Printf("--------------------------------------------------\n")
 	fmt.Printf("ID: %s\n", index.id)
-	fmt.Printf("Vectors: %d\n", len(index.nodes))
 	fmt.Printf("--------------------------------------------------\n")
 }
 
