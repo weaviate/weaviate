@@ -28,8 +28,8 @@ type compactorReplace struct {
 	c2 *segmentCursorReplace
 
 	// the level matching those of the cursors
-	currentLevel uint16
-
+	currentLevel        uint16
+	cleanupTombstones   bool
 	secondaryIndexCount uint16
 
 	w                io.WriteSeeker
@@ -39,7 +39,7 @@ type compactorReplace struct {
 
 func newCompactorReplace(w io.WriteSeeker,
 	c1, c2 *segmentCursorReplace, level, secondaryIndexCount uint16,
-	scratchSpacePath string,
+	scratchSpacePath string, cleanupTombstones bool,
 ) *compactorReplace {
 	return &compactorReplace{
 		c1:                  c1,
@@ -47,6 +47,7 @@ func newCompactorReplace(w io.WriteSeeker,
 		w:                   w,
 		bufw:                bufio.NewWriterSize(w, 256*1024),
 		currentLevel:        level,
+		cleanupTombstones:   cleanupTombstones,
 		secondaryIndexCount: secondaryIndexCount,
 		scratchSpacePath:    scratchSpacePath,
 	}

@@ -87,6 +87,21 @@ func TestCompaction(t *testing.T) {
 			},
 		},
 		{
+			name: "compactionReplaceStrategy_FrequentPutDeleteOperations",
+			f:    compactionReplaceStrategy_FrequentPutDeleteOperations,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+			},
+		},
+		{
+			name: "compaction_FrequentPutDeleteOperations_WithSecondaryKeys",
+			f:    compaction_FrequentPutDeleteOperations_WithSecondaryKeys,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithSecondaryIndices(1),
+			},
+		},
+		{
 			name: "compactionSetStrategy",
 			f:    compactionSetStrategy,
 			opts: []BucketOption{
@@ -98,6 +113,37 @@ func TestCompaction(t *testing.T) {
 			f:    compactionSetStrategy_RemoveUnnecessary,
 			opts: []BucketOption{
 				WithStrategy(StrategySetCollection),
+			},
+		},
+		{
+			name: "compactionSetStrategy_FrequentPutDeleteOperations",
+			f:    compactionSetStrategy_FrequentPutDeleteOperations,
+			opts: []BucketOption{
+				WithStrategy(StrategySetCollection),
+			},
+		},
+		{
+			name: "compactionSetStrategy_KeepTombstones",
+			f:    compactionSetStrategy,
+			opts: []BucketOption{
+				WithStrategy(StrategySetCollection),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionSetStrategy_RemoveUnnecessary_KeepTombstones",
+			f:    compactionSetStrategy_RemoveUnnecessary,
+			opts: []BucketOption{
+				WithStrategy(StrategySetCollection),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionSetStrategy_FrequentPutDeleteOperations_KeepTombstones",
+			f:    compactionSetStrategy_FrequentPutDeleteOperations,
+			opts: []BucketOption{
+				WithStrategy(StrategySetCollection),
+				WithKeepTombstones(true),
 			},
 		},
 		{
@@ -115,32 +161,34 @@ func TestCompaction(t *testing.T) {
 			},
 		},
 		{
-			name: "compactionReplaceStrategy_FrequentPutDeleteOperations",
-			f:    compactionReplaceStrategy_FrequentPutDeleteOperations,
-			opts: []BucketOption{
-				WithStrategy(StrategyReplace),
-			},
-		},
-		{
-			name: "compaction_FrequentPutDeleteOperations_WithSecondaryKeys",
-			f:    compaction_FrequentPutDeleteOperations_WithSecondaryKeys,
-			opts: []BucketOption{
-				WithStrategy(StrategyReplace),
-				WithSecondaryIndices(1),
-			},
-		},
-		{
-			name: "compactionSetStrategy_FrequentPutDeleteOperations",
-			f:    compactionSetStrategy_FrequentPutDeleteOperations,
-			opts: []BucketOption{
-				WithStrategy(StrategySetCollection),
-			},
-		},
-		{
 			name: "compactionMapStrategy_FrequentPutDeleteOperations",
 			f:    compactionMapStrategy_FrequentPutDeleteOperations,
 			opts: []BucketOption{
 				WithStrategy(StrategyMapCollection),
+			},
+		},
+		{
+			name: "compactionMapStrategy_KeepTombstones",
+			f:    compactionMapStrategy,
+			opts: []BucketOption{
+				WithStrategy(StrategyMapCollection),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionMapStrategy_RemoveUnnecessary_KeepTombstones",
+			f:    compactionMapStrategy_RemoveUnnecessary,
+			opts: []BucketOption{
+				WithStrategy(StrategyMapCollection),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionMapStrategy_FrequentPutDeleteOperations_KeepTombstones",
+			f:    compactionMapStrategy_FrequentPutDeleteOperations,
+			opts: []BucketOption{
+				WithStrategy(StrategyMapCollection),
+				WithKeepTombstones(true),
 			},
 		},
 		{
@@ -169,6 +217,38 @@ func TestCompaction(t *testing.T) {
 			f:    compactionRoaringSetStrategy_FrequentPutDeleteOperations,
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSet),
+			},
+		},
+		{
+			name: "compactionRoaringSetStrategy_Random_KeepTombstones",
+			f:    compactionRoaringSetStrategy_Random,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSet),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionRoaringSetStrategy_KeepTombstones",
+			f:    compactionRoaringSetStrategy,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSet),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionRoaringSetStrategy_RemoveUnnecessary_KeepTombstones",
+			f:    compactionRoaringSetStrategy_RemoveUnnecessary,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSet),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionRoaringSetStrategy_FrequentPutDeleteOperations_KeepTombstones",
+			f:    compactionRoaringSetStrategy_FrequentPutDeleteOperations,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSet),
+				WithKeepTombstones(true),
 			},
 		},
 	}

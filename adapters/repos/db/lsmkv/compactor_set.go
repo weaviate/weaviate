@@ -29,7 +29,10 @@ type compactorSet struct {
 	// the level matching those of the cursors
 	currentLevel        uint16
 	secondaryIndexCount uint16
-	isLeftRoot          bool
+	// Tells if tombstones or keys without corresponding values
+	// can be removed from merged segment.
+	// (left segment is root (1st) one, keepTombstones is off for bucket)
+	cleanupTombstones bool
 
 	w    io.WriteSeeker
 	bufw *bufio.Writer
@@ -37,13 +40,9 @@ type compactorSet struct {
 	scratchSpacePath string
 }
 
-// isLeftRoot indicates if left segment is root segment (1st one)
-// (which implies output segment will be root as well)
-// root segment can have values with tombstone omitted, as there is no previous segment
-// containing keys and values that tombstones may refer to
 func newCompactorSetCollection(w io.WriteSeeker,
 	c1, c2 *segmentCursorCollection, level, secondaryIndexCount uint16,
-	scratchSpacePath string, isLeftRoot bool,
+	scratchSpacePath string, cleanupTombstones bool,
 ) *compactorSet {
 	return &compactorSet{
 		c1:                  c1,
@@ -51,7 +50,7 @@ func newCompactorSetCollection(w io.WriteSeeker,
 		w:                   w,
 		bufw:                bufio.NewWriterSize(w, 256*1024),
 		currentLevel:        level,
-		isLeftRoot:          isLeftRoot,
+		cleanupTombstones:   cleanupTombstones,
 		secondaryIndexCount: secondaryIndexCount,
 		scratchSpacePath:    scratchSpacePath,
 	}
@@ -117,7 +116,7 @@ func (c *compactorSet) writeKeys() ([]segmentindex.Key, error) {
 		if bytes.Equal(key1, key2) {
 			values := append(value1, value2...)
 			valuesMerged := newSetDecoder().DoPartial(values)
-			if values, skip := c.optimizeValues(valuesMerged); !skip {
+			if values, skip := c.cleanupValues(valuesMerged); !skip {
 				ki, err := c.writeIndividualNode(offset, key2, values)
 				if err != nil {
 					return nil, errors.Wrap(err, "write individual node (equal keys)")
@@ -134,7 +133,7 @@ func (c *compactorSet) writeKeys() ([]segmentindex.Key, error) {
 
 		if (key1 != nil && bytes.Compare(key1, key2) == -1) || key2 == nil {
 			// key 1 is smaller
-			if values, skip := c.optimizeValues(value1); !skip {
+			if values, skip := c.cleanupValues(value1); !skip {
 				ki, err := c.writeIndividualNode(offset, key1, values)
 				if err != nil {
 					return nil, errors.Wrap(err, "write individual node (key1 smaller)")
@@ -146,7 +145,7 @@ func (c *compactorSet) writeKeys() ([]segmentindex.Key, error) {
 			key1, value1, _ = c.c1.next()
 		} else {
 			// key 2 is smaller
-			if values, skip := c.optimizeValues(value2); !skip {
+			if values, skip := c.cleanupValues(value2); !skip {
 				ki, err := c.writeIndividualNode(offset, key2, values)
 				if err != nil {
 					return nil, errors.Wrap(err, "write individual node (key2 smaller)")
@@ -208,11 +207,9 @@ func (c *compactorSet) writeHeader(level, version, secondaryIndices uint16,
 	return nil
 }
 
-// if root segment, then values with tombstone can be omitted
-// if there is no values left, then entire key can be omitted
-// WARN: method reuses and alters input slice
-func (c *compactorSet) optimizeValues(values []value) (vals []value, skip bool) {
-	if !c.isLeftRoot {
+// WARN: method can alter input slice
+func (c *compactorSet) cleanupValues(values []value) (vals []value, skip bool) {
+	if !c.cleanupTombstones {
 		return values, false
 	}
 

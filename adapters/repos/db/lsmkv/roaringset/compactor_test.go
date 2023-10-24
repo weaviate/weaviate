@@ -403,29 +403,31 @@ func Test_Compactor(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
+		t.Run("[keep]"+test.name, func(t *testing.T) {
+			dir := t.TempDir()
+
 			leftCursor := NewSegmentCursor(test.left, nil)
 			rightCursor := NewSegmentCursor(test.right, nil)
 
-			segmentFile := filepath.Join(os.TempDir(), "result.db")
+			segmentFile := filepath.Join(dir, "result.db")
 			f, err := os.Create(segmentFile)
-			require.Nil(t, err)
+			require.NoError(t, err)
 
-			c := NewCompactor(f, leftCursor, rightCursor, 5, t.TempDir(), false)
-			require.Nil(t, c.Do())
+			c := NewCompactor(f, leftCursor, rightCursor, 5, dir+"/scratch", false)
+			require.NoError(t, c.Do())
 
-			require.Nil(t, f.Close())
+			require.NoError(t, f.Close())
 
 			f, err = os.Open(segmentFile)
-			require.Nil(t, err)
+			require.NoError(t, err)
 
 			header, err := segmentindex.ParseHeader(f)
-			require.Nil(t, err)
+			require.NoError(t, err)
 
 			segmentBytes, err := io.ReadAll(f)
-			require.Nil(t, err)
+			require.NoError(t, err)
 
-			require.Nil(t, f.Close())
+			require.NoError(t, f.Close())
 
 			cu := NewSegmentCursor(segmentBytes[:header.IndexStart-segmentindex.HeaderSize], nil)
 
@@ -442,15 +444,17 @@ func Test_Compactor(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		t.Run("[root segment] "+test.name, func(t *testing.T) {
+		t.Run("[cleanup] "+test.name, func(t *testing.T) {
+			dir := t.TempDir()
+
 			leftCursor := NewSegmentCursor(test.left, nil)
 			rightCursor := NewSegmentCursor(test.right, nil)
 
-			segmentFile := filepath.Join(os.TempDir(), "result_root.db")
+			segmentFile := filepath.Join(dir, "result.db")
 			f, err := os.Create(segmentFile)
 			require.NoError(t, err)
 
-			c := NewCompactor(f, leftCursor, rightCursor, 5, t.TempDir()+"/root", true)
+			c := NewCompactor(f, leftCursor, rightCursor, 5, dir+"/scratch", true)
 			require.NoError(t, c.Do())
 
 			require.NoError(t, f.Close())

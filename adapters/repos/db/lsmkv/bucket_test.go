@@ -47,8 +47,19 @@ func TestBucket(t *testing.T) {
 	ctx := context.Background()
 	tests := bucketTests{
 		{
-			name: "bucket_WasDeleted",
-			f:    bucket_WasDeleted,
+			name: "bucket_WasDeleted_KeepTombstones",
+			f:    bucket_WasDeleted_KeepTombstones,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "bucket_WasDeleted_CleanupTombstones",
+			f:    bucket_WasDeleted_CleanupTombstones,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+			},
 		},
 		{
 			name: "bucketReadsIntoMemory",
@@ -62,9 +73,10 @@ func TestBucket(t *testing.T) {
 	tests.run(ctx, t)
 }
 
-func bucket_WasDeleted(ctx context.Context, t *testing.T, opts []BucketOption) {
+func bucket_WasDeleted_KeepTombstones(ctx context.Context, t *testing.T, opts []BucketOption) {
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
+
 	b, err := NewBucket(ctx, tmpDir, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
@@ -106,9 +118,53 @@ func bucket_WasDeleted(ctx context.Context, t *testing.T, opts []BucketOption) {
 	})
 }
 
+func bucket_WasDeleted_CleanupTombstones(ctx context.Context, t *testing.T, opts []BucketOption) {
+	tmpDir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucket(ctx, tmpDir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, b.Shutdown(context.Background()))
+	})
+
+	var (
+		key = []byte("key")
+		val = []byte("value")
+	)
+
+	t.Run("insert object", func(t *testing.T) {
+		err = b.Put(key, val)
+		require.Nil(t, err)
+	})
+
+	t.Run("fails on WasDeleted without keepTombstones set (before delete)", func(t *testing.T) {
+		deleted, err := b.WasDeleted(key)
+		require.ErrorContains(t, err, "keepTombstones")
+		require.False(t, deleted)
+	})
+
+	t.Run("delete object", func(t *testing.T) {
+		err = b.Delete(key)
+		require.Nil(t, err)
+	})
+
+	t.Run("fails on WasDeleted without keepTombstones set (after delete)", func(t *testing.T) {
+		deleted, err := b.WasDeleted(key)
+		require.ErrorContains(t, err, "keepTombstones")
+		require.False(t, deleted)
+	})
+
+	t.Run("fails on WasDeleted without keepTombstones set (non-existent key)", func(t *testing.T) {
+		deleted, err := b.WasDeleted([]byte("DNE"))
+		require.ErrorContains(t, err, "keepTombstones")
+		require.False(t, deleted)
+	})
+}
+
 func bucketReadsIntoMemory(ctx context.Context, t *testing.T, opts []BucketOption) {
 	dirName := t.TempDir()
-
 	logger, _ := test.NewNullLogger()
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil,
