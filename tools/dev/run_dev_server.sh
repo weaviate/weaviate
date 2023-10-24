@@ -45,6 +45,10 @@ case $CONFIG in
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
+      RAFT_PORT="8300" \
+      RAFT_INTERNAL_RPC_PORT="8301" \
+      RAFT_BOOTSTRAP_EXPECT="3" \
+      RAFT_JOIN="127.0.0.1:8300,127.0.0.1:8302,127.0.0.1:8304" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -62,6 +66,10 @@ case $CONFIG in
       CLUSTER_GOSSIP_BIND_PORT="7102" \
       CLUSTER_DATA_BIND_PORT="7103" \
       CLUSTER_JOIN="localhost:7100" \
+      RAFT_PORT="8302" \
+      RAFT_INTERNAL_RPC_PORT="8303" \
+      RAFT_BOOTSTRAP_EXPECT="3" \
+      RAFT_JOIN="127.0.0.1:8300,127.0.0.1:8302,127.0.0.1:8304" \
       CONTEXTIONARY_URL=localhost:9999 \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
@@ -82,6 +90,10 @@ case $CONFIG in
         CLUSTER_GOSSIP_BIND_PORT="7104" \
         CLUSTER_DATA_BIND_PORT="7105" \
         CLUSTER_JOIN="localhost:7100" \
+        RAFT_PORT="8304" \
+        RAFT_INTERNAL_PORT="8305" \
+        RAFT_BOOTSTRAP_EXPECT="3" \
+        RAFT_JOIN="127.0.0.1:8300,127.0.0.1:8302,127.0.0.1:8304" \
         CONTEXTIONARY_URL=localhost:9999 \
         DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
         ENABLE_MODULES="text2vec-contextionary" \
