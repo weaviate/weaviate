@@ -66,6 +66,11 @@ const (
 // Flags are input options
 type Flags struct {
 	ConfigFile string `long:"config-file" description:"path to config file (default: ./weaviate.conf.json)"`
+
+	RaftPort            int      `long:"raft-port" description:"the port used by Raft for inter-node communication"`
+	RaftInternalRPCPort int      `long:"raft-internal-rpc-port" description:"the port used for internal RPCs within the cluster"`
+	RaftJoin            []string `long:"raft-join" description:"a comma-separated list of server addresses to join on startup"`
+	RaftBootstrapExcept int      `long:"raft-bootstrap-expect" description:"specifies the number of server nodes to wait for before bootstrapping the cluster"`
 }
 
 // Config outline of the config file
@@ -101,7 +106,10 @@ type Config struct {
 	IndexMissingTextFilterableAtStartup bool                     `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
 	DisableGraphQL                      bool                     `json:"disable_graphql" yaml:"disable_graphql"`
 	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
-	CORS                                CORS                     `json:"cors" yaml:"cors"`
+
+	// Raft Specific configuration
+	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
+	Raft Raft
 }
 
 type moduleProvider interface {
@@ -267,10 +275,30 @@ func (r ResourceUsage) Validate() error {
 	return nil
 }
 
+type Raft struct {
+	Port            int
+	InternalRPCPort int
+	Join            []string
+	BootstrapExcept int
+}
+
+func (r Raft) Validate() error {
+	if r.Port == 0 {
+		return fmt.Errorf("raft.port must be greater than 0")
+	}
+	if r.InternalRPCPort == 0 {
+		return fmt.Errorf("raft.intra_rpc_port must be greater than 0")
+	}
+	if r.BootstrapExcept == 0 {
+		return fmt.Errorf("raft.bootstrap_expect must be greater than 0")
+	}
+	return nil
+}
+
 // GetConfigOptionGroup creates an option group for swagger
 func GetConfigOptionGroup() *swag.CommandLineOptionsGroup {
 	commandLineOptionsGroup := swag.CommandLineOptionsGroup{
-		ShortDescription: "Connector config & MQTT config",
+		ShortDescription: "Connector, raft & MQTT config",
 		LongDescription:  "",
 		Options:          &Flags{},
 	}
@@ -290,7 +318,11 @@ func (f *WeaviateConfig) GetHostAddress() string {
 	return fmt.Sprintf("%s://%s", f.Scheme, f.Hostname)
 }
 
-// LoadConfig from config locations
+// LoadConfig from config locations. The load order for configuration values if the following
+// 1. Config file
+// 2. Environment variables
+// 3. Command line flags
+// If a config option is specified multiple times in different locations, the latest one will be used in this order.
 func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger logrus.FieldLogger) error {
 	// Get command line flags
 	configFileName := flags.Options.(*Flags).ConfigFile
@@ -304,6 +336,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	file, err := os.ReadFile(configFileName)
 	_ = err // explicitly ignore
 
+	// Load config from config file if present
 	if len(file) > 0 {
 		logger.WithField("action", "config_load").WithField("config_file_path", configFileName).
 			Info("Usage of the weaviate.conf.json file is deprecated and will be removed in the future. Please use environment variables.")
@@ -316,9 +349,13 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 		deprecations.Log(logger, "config-files")
 	}
 
+	// Load config from env
 	if err := FromEnv(&f.Config); err != nil {
 		return configErr(err)
 	}
+
+	// Load config from flags
+	f.fromFlags(flags.Options.(*Flags))
 
 	if err := f.Config.Authentication.Validate(); err != nil {
 		return configErr(err)
@@ -337,6 +374,10 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	}
 
 	if err := f.Config.ResourceUsage.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	if err := f.Config.Raft.Validate(); err != nil {
 		return configErr(err)
 	}
 
@@ -367,6 +408,22 @@ func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (Config, erro
 	}
 
 	return config, nil
+}
+
+// fromFlags parses values from flags given as parameter and overrides values in the config
+func (f *WeaviateConfig) fromFlags(flags *Flags) {
+	if flags.RaftPort > 0 {
+		f.Config.Raft.Port = flags.RaftPort
+	}
+	if flags.RaftInternalRPCPort > 0 {
+		f.Config.Raft.InternalRPCPort = flags.RaftInternalRPCPort
+	}
+	if flags.RaftJoin != nil {
+		f.Config.Raft.Join = flags.RaftJoin
+	}
+	if flags.RaftBootstrapExcept > 0 {
+		f.Config.Raft.BootstrapExcept = flags.RaftBootstrapExcept
+	}
 }
 
 func configErr(err error) error {
