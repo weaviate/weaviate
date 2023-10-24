@@ -237,7 +237,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		WorkDir:  filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, "raft"),
 		NodeID:   nodeName,
 		Host:     addrs[0],
-		RaftPort: "1" + addrs[1],
+		RaftPort: appState.ServerConfig.Config.Raft.Port,
 		DB:       nil,
 		Parser:   schema.NewParser(appState.Cluster, enthnsw.ParseAndValidateConfig),
 	}
@@ -383,18 +383,23 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	// TODO_RAFT START
 	appState.MetaStore = &fsm
 
-	boostrapper := addrs[1] == "7101"
-	candidateList := []schemav2.Candidate{
-		{ID: "node1", Address: addrs[0] + ":17101", NonVoter: false},
-		{ID: "node3", Address: addrs[0] + ":17105", NonVoter: false},
-		{ID: "node4", Address: addrs[0] + ":17107", NonVoter: false},
+	boostrapper := false
+
+	// Create candidate list from config join parameter
+	candidateList := make([]schemav2.Candidate, 0, len(appState.ServerConfig.Config.Raft.Join))
+	for i, addr := range appState.ServerConfig.Config.Raft.Join {
+		candidateList = append(candidateList, schemav2.Candidate{
+			ID: fmt.Sprintf("node%d", i+1), Address: addr, NonVoter: false,
+		})
 	}
+	// TODO-RAFT: Bootstrapper boolean is currently unused in fsm.Open and below. Should we keep it ?
+	// If yes then how do we determine who is bootstrapper/leader based on the flags ?
 	raftNode, err := fsm.Open(boostrapper, candidateList)
 	if err != nil {
 		fmt.Printf("fsm.open %v", err.Error())
 		os.Exit(1)
 	}
-	cAddr := addrs[0] + ":2" + addrs[1]
+	cAddr := addrs[0] + ":" + fmt.Sprintf("%d", appState.ServerConfig.Config.Raft.InternalRPCPort)
 	cluster := schemav2.NewCluster(raftNode, cAddr)
 	if err := cluster.Open(); err != nil {
 		fmt.Printf("cluster.open %v", err.Error())
