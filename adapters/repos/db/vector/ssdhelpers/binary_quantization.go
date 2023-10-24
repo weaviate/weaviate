@@ -23,7 +23,7 @@ type BinaryQuantizer struct {
 
 func NewBinaryQuantizer() *BinaryQuantizer {
 	return &BinaryQuantizer{
-		dimensions: 200,
+		dimensions: 256,
 	}
 }
 
