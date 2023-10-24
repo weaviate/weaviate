@@ -94,13 +94,64 @@ func TestCompaction(t *testing.T) {
 			},
 		},
 		{
-			name: "compaction_FrequentPutDeleteOperations_WithSecondaryKeys",
-			f:    compaction_FrequentPutDeleteOperations_WithSecondaryKeys,
+			name: "compactionReplaceStrategy_FrequentPutDeleteOperations_WithSecondaryKeys",
+			f:    compactionReplaceStrategy_FrequentPutDeleteOperations_WithSecondaryKeys,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
 				WithSecondaryIndices(1),
 			},
 		},
+		{
+			name: "compactionReplaceStrategy_KeepTombstones",
+			f:    compactionReplaceStrategy,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionReplaceStrategy_WithSecondaryKeys_KeepTombstones",
+			f:    compactionReplaceStrategy_WithSecondaryKeys,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithSecondaryIndices(1),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionReplaceStrategy_RemoveUnnecessaryDeletes_KeepTombstones",
+			f:    compactionReplaceStrategy_RemoveUnnecessaryDeletes,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionReplaceStrategy_RemoveUnnecessaryUpdates_KeepTombstones",
+			f:    compactionReplaceStrategy_RemoveUnnecessaryUpdates,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionReplaceStrategy_FrequentPutDeleteOperations_KeepTombstones",
+			f:    compactionReplaceStrategy_FrequentPutDeleteOperations,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionReplaceStrategy_FrequentPutDeleteOperations_WithSecondaryKeys_KeepTombstones",
+			f:    compactionReplaceStrategy_FrequentPutDeleteOperations_WithSecondaryKeys,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithSecondaryIndices(1),
+				WithKeepTombstones(true),
+			},
+		},
+
 		{
 			name: "compactionSetStrategy",
 			f:    compactionSetStrategy,
@@ -146,6 +197,7 @@ func TestCompaction(t *testing.T) {
 				WithKeepTombstones(true),
 			},
 		},
+
 		{
 			name: "compactionMapStrategy",
 			f:    compactionMapStrategy,
@@ -191,6 +243,7 @@ func TestCompaction(t *testing.T) {
 				WithKeepTombstones(true),
 			},
 		},
+
 		{
 			name: "compactionRoaringSetStrategy_Random",
 			f:    compactionRoaringSetStrategy_Random,
@@ -1815,7 +1868,7 @@ func compactionReplaceStrategy_FrequentPutDeleteOperations(ctx context.Context, 
 	})
 }
 
-func compaction_FrequentPutDeleteOperations_WithSecondaryKeys(ctx context.Context, t *testing.T, opts []BucketOption) {
+func compactionReplaceStrategy_FrequentPutDeleteOperations_WithSecondaryKeys(ctx context.Context, t *testing.T, opts []BucketOption) {
 	// In this test we are testing that the compaction doesn't make the object to disappear
 	// We are creating even number of segments in which first we create an object
 	// then we in the next segment with delete it and we do this operation in loop
