@@ -72,7 +72,7 @@ func (f *Store) Open(isLeader bool, joiners []Candidate) (*raft.Raft, error) {
 	}
 
 	// tcp transport
-	address := fmt.Sprintf("%s:%s", f.host, f.raftPort)
+	address := fmt.Sprintf("%s:%d", f.host, f.raftPort)
 	tcpAddr, err := net.ResolveTCPAddr("tcp", address)
 	if err != nil {
 		return nil, fmt.Errorf("net.ResolveTCPAddr address=%v error=%w", address, err)
@@ -93,19 +93,17 @@ func (f *Store) Open(isLeader bool, joiners []Candidate) (*raft.Raft, error) {
 		return nil, fmt.Errorf("raft.NewRaft %v %w", address, err)
 	}
 
-	// cluster
-	clusterConfig := raft.Configuration{
-		Servers: []raft.Server{
-			// {
-			// 	ID:      raft.ServerID(f.nodeID),
-			// 	Address: transport.LocalAddr(),
-			// },
-		},
-	}
+	// Construct clusterConfig based on the expected initial joiners
+	clusterConfig := raft.Configuration{Servers: []raft.Server{}}
 	for _, j := range joiners {
+		voter := raft.Nonvoter
+		if !j.NonVoter {
+			voter = raft.Voter
+		}
 		clusterConfig.Servers = append(clusterConfig.Servers, raft.Server{
-			ID:      raft.ServerID(j.ID),
-			Address: raft.ServerAddress(j.Address),
+			ID:       raft.ServerID(j.ID),
+			Address:  raft.ServerAddress(j.Address),
+			Suffrage: voter,
 		})
 	}
 
