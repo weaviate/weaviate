@@ -142,11 +142,11 @@ func (i *Index) getShardsNodeStatus(status *[]*models.NodeShardStatus) (totalCou
 	i.ForEachShard(func(name string, shard *Shard) error {
 		objectCount := int64(shard.objectCount())
 		shardStatus := &models.NodeShardStatus{
-			Name:              name,
-			Class:             shard.index.Config.ClassName.String(),
-			IndexingStatus:    shard.getStatus().String(),
-			ObjectCount:       objectCount,
-			VectorQueueLength: shard.queue.Size(),
+			Name:                 name,
+			Class:                shard.index.Config.ClassName.String(),
+			ObjectCount:          objectCount,
+			VectorIndexingStatus: shard.getStatus().String(),
+			VectorQueueLength:    shard.queue.Size(),
 		}
 		totalCount += objectCount
 		*status = append(*status, shardStatus)
