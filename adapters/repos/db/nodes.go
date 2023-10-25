@@ -144,8 +144,8 @@ func (i *Index) getShardsNodeStatus(status *[]*models.NodeShardStatus) (totalCou
 		shardStatus := &models.NodeShardStatus{
 			Name:              name,
 			Class:             shard.index.Config.ClassName.String(),
+			IndexingStatus:    shard.getStatus().String(),
 			ObjectCount:       objectCount,
-			Status:            shard.getStatus().String(),
 			VectorQueueLength: shard.queue.Size(),
 		}
 		totalCount += objectCount

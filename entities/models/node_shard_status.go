@@ -31,14 +31,15 @@ type NodeShardStatus struct {
 	// The name of shard's class.
 	Class string `json:"class"`
 
+
+	// The vector indexing status of the shard.
+	IndexingStatus string `json:"indexingStatus"`
+
 	// The name of the shard.
 	Name string `json:"name"`
 
 	// The number of objects in shard.
 	ObjectCount int64 `json:"objectCount"`
-
-	// The vector indexing status of the shard.
-	Status string `json:"status"`
 
 	// The length of the vector indexing queue.
 	VectorQueueLength int64 `json:"vectorQueueLength"`
