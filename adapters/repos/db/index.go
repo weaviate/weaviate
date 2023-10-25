@@ -55,8 +55,16 @@ import (
 var (
 	errTenantNotFound  = errors.New("tenant not found")
 	errTenantNotActive = errors.New("tenant not active")
-	_NUMCPU            = runtime.NumCPU()
-	errShardNotFound   = errors.New("shard not found")
+
+	// Use runtime.GOMAXPROCS instead of runtime.NumCPU because NumCPU returns
+	// the physical CPU cores. However, in a containerization context, that might
+	// not be what we want. The physical node could have 128 cores, but we could
+	// be cgroup-limited to 2 cores. In that case, we want 2 to be our limit, not
+	// 128. It isn't guaranteed that MAXPROCS reflects the cgroup limit, but at
+	// least there is a chance that it was set correctly. If not, it defaults to
+	// NumCPU anyway, so we're not any worse off.
+	_NUMCPU          = runtime.GOMAXPROCS(0)
+	errShardNotFound = errors.New("shard not found")
 )
 
 // shardMap is a syn.Map which specialized in storing shards
@@ -70,6 +78,23 @@ func (m *shardMap) Range(f func(name string, shard *Shard) error) (err error) {
 		return err == nil
 	})
 	return err
+}
+
+// RangeConcurrently calls f for each key and value present in the map with at
+// most _NUMCPU executors running in parallel. As opposed to [Range] it does
+// not guarantee an exit on the first error.
+func (m *shardMap) RangeConcurrently(f func(name string, shard *Shard) error) (err error) {
+	eg := errgroup.Group{}
+	eg.SetLimit(_NUMCPU)
+	(*sync.Map)(m).Range(func(key, value any) bool {
+		name, shard := key.(string), value.(*Shard)
+		eg.Go(func() error {
+			return f(name, shard)
+		})
+		return true
+	})
+
+	return eg.Wait()
 }
 
 // Load returns the shard or nil if no shard is present.
@@ -215,23 +240,29 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		return nil, errors.Wrap(err, "migrating sharding state from previous version")
 	}
 
-	for _, shardName := range shardState.AllPhysicalShards() {
-		if !shardState.IsLocalShard(shardName) {
-			// do not create non-local shards
-			continue
-		}
+	eg := errgroup.Group{}
+	eg.SetLimit(_NUMCPU)
+	for _, shardName := range shardState.AllLocalPhysicalShards() {
 		physical := shardState.Physical[shardName]
 		if physical.ActivityStatus() != models.TenantActivityStatusHOT {
 			// do not instantiate inactive shard
 			continue
 		}
 
-		shard, err := NewShard(ctx, promMetrics, shardName, index, class, jobQueueCh)
-		if err != nil {
-			return nil, errors.Wrapf(err, "init shard %s of index %s", shardName, index.ID())
-		}
+		shardName := shardName // prevent loop variable capture
+		eg.Go(func() error {
+			shard, err := NewShard(ctx, promMetrics, shardName, index, class, jobQueueCh)
+			if err != nil {
+				return fmt.Errorf("init shard %s of index %s: %w", shardName, index.ID(), err)
+			}
 
-		index.shards.Store(shardName, shard)
+			index.shards.Store(shardName, shard)
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, err
 	}
 
 	index.cycleCallbacks.compactionCycle.Start()
@@ -253,6 +284,10 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 
 func (i *Index) ForEachShard(f func(name string, shard *Shard) error) error {
 	return i.shards.Range(f)
+}
+
+func (i *Index) ForEachShardConcurrently(f func(name string, shard *Shard) error) error {
+	return i.shards.RangeConcurrently(f)
 }
 
 // Iterate over all objects in the shard, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
@@ -1576,9 +1611,8 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	i.backupMutex.RLock()
 	defer i.backupMutex.RUnlock()
 
-	// TODO run in parallel?
 	// TODO allow every resource cleanup to run, before returning early with error
-	if err := i.ForEachShard(func(name string, shard *Shard) error {
+	if err := i.ForEachShardConcurrently(func(name string, shard *Shard) error {
 		if err := shard.shutdown(ctx); err != nil {
 			return errors.Wrapf(err, "shutdown shard %q", name)
 		}
