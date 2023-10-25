@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"bytes"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
@@ -55,44 +56,81 @@ func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 
-	// first determine the lowest level with candidates
-	levels := map[uint16]int{}
-
-	for _, segment := range sg.segments {
-		levels[segment.level]++
-	}
-
-	currLowestLevel := uint16(math.MaxUint16)
-	found := false
-	for level, count := range levels {
-		if count < 2 {
-			continue
-		}
-
-		if level < currLowestLevel {
-			currLowestLevel = level
-			found = true
-		}
-	}
-
-	if !found {
+	//Nothing to compact
+	if len(sg.segments) < 2 {
 		return nil
 	}
 
-	// now pick any two segments which match the level
-	var res []int
+	// first determine the lowest level with candidates
+	levels := map[uint16]int{}
+	lowestPairLevel := uint16(math.MaxUint16)
+	lowestLevel := uint16(math.MaxUint16)
+	highestLevel := uint16(0)
+	pairExists := false
+	var highestSegment *segment
 
-	for i, segment := range sg.segments {
-		if len(res) >= 2 {
-			break
+	for _, seg := range sg.segments {
+		levels[seg.level]++
+		val := levels[seg.level]
+		if val > 1 {
+			if seg.level < lowestPairLevel {
+				lowestPairLevel = seg.level
+				pairExists = true
+			}
 		}
 
-		if segment.level == currLowestLevel {
-			res = append(res, i)
+		if seg.level < lowestLevel {
+			lowestLevel = seg.level
 		}
+
+		if seg.level > highestLevel {
+			highestLevel = seg.level
+			highestSegment = seg
+		}
+
 	}
 
-	return res
+	if pairExists {
+		// now pick any two segments which match the level
+		var res []int
+
+		for i, segment := range sg.segments {
+			if len(res) >= 2 {
+				break
+			}
+
+			if segment.level == lowestPairLevel {
+				res = append(res, i)
+			}
+		}
+
+		return res
+	} else {
+		//Some segments exist, but none are of the same level
+		//Lower the level of the highest segment
+
+		//If the highest level is 0 or 1, we can't lower it any further
+		if highestLevel < 2 {
+			return nil
+		}
+
+
+		//Lower the level of the highest segment
+		header, err := segmentindex.ParseHeader(bytes.NewReader(highestSegment.contents[:segmentindex.HeaderSize]))
+		if err != nil {
+			return nil
+		}
+
+		header.Level = header.Level - 1
+
+		segmentHandle, err := os.Open(highestSegment.path)
+		if err != nil {
+			return nil
+		}
+		header.WriteTo(segmentHandle)
+		segmentHandle.Close()
+		return nil
+	}
 }
 
 // segmentAtPos retrieves the segment for the given position using a read-lock
