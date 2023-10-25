@@ -34,7 +34,7 @@ func knnClassification(t *testing.T) {
 	t.Run("ensure class shard for classification is ready", func(t *testing.T) {
 		testhelper.AssertEventuallyEqualWithFrequencyAndTimeout(t, "READY",
 			func() interface{} {
-				shardStatus, err := helper.Client(t).Schema.SchemaObjectsShardsGet(schema.NewSchemaObjectsShardsGetParams().WithClassName("RecipeType"), nil)
+				shardStatus, err := helper.Client(t).Schema.SchemaObjectsShardsGet(schema.NewSchemaObjectsShardsGetParams().WithClassName("Recipe"), nil)
 				require.Nil(t, err)
 				require.GreaterOrEqual(t, len(shardStatus.Payload), 1)
 				return shardStatus.Payload[0].Status
