@@ -274,16 +274,12 @@ const (
 	ClearLinksAtLevel // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1701
 	AddLinksAtLevel   // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1705
 	AddPQ
-	AddNodes
-	ConnectTo
 )
 
 func (t HnswCommitType) String() string {
 	switch t {
 	case AddNode:
 		return "AddNode"
-	case AddNodes:
-		return "AddNodes"
 	case SetEntryPointMaxLevel:
 		return "SetEntryPointWithMaxLayer"
 	case AddLinkAtLevel:
@@ -306,8 +302,6 @@ func (t HnswCommitType) String() string {
 		return "ClearLinksAtLevel"
 	case AddPQ:
 		return "AddProductQuantizer"
-	case ConnectTo:
-		return "ConnectTo"
 	}
 	return "unknown commit type"
 }
@@ -331,14 +325,6 @@ func (l *hnswCommitLogger) AddNode(node *vertex) error {
 	return l.commitLogger.AddNode(node.id, node.level)
 }
 
-// AddNode adds an empty node
-func (l *hnswCommitLogger) AddNodes(ids []uint64, levels []int) error {
-	l.Lock()
-	defer l.Unlock()
-
-	return l.commitLogger.AddNodes(ids, levels)
-}
-
 func (l *hnswCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) error {
 	l.Lock()
 	defer l.Unlock()
@@ -351,13 +337,6 @@ func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets
 	defer l.Unlock()
 
 	return l.commitLogger.ReplaceLinksAtLevel(nodeid, level, targets)
-}
-
-func (l *hnswCommitLogger) ConnectToAtLevel(sources []uint64, level int, target uint64) error {
-	l.Lock()
-	defer l.Unlock()
-
-	return l.commitLogger.ConnectToAtLevel(sources, uint16(level), target)
 }
 
 func (l *hnswCommitLogger) AddLinkAtLevel(nodeid uint64, level int,
