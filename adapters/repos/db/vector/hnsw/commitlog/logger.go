@@ -41,8 +41,6 @@ const (
 	ClearLinksAtLevel // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1701
 	AddLinksAtLevel   // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1705
 	AddPQ
-	AddNodes
-	ConnectTo
 )
 
 func NewLogger(fileName string) *Logger {
@@ -63,18 +61,6 @@ func (l *Logger) SetEntryPointWithMaxLayer(id uint64, level int) error {
 	toWrite[0] = byte(SetEntryPointMaxLevel)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(level))
-	_, err := l.bufw.Write(toWrite)
-	return err
-}
-
-func (l *Logger) AddNodes(ids []uint64, levels []int) error {
-	toWrite := make([]byte, 5+10*len(ids))
-	toWrite[0] = byte(AddNodes)
-	binary.LittleEndian.PutUint32(toWrite[1:5], uint32(len(ids)))
-	for i := range ids {
-		binary.LittleEndian.PutUint64(toWrite[5+i*10:13+i*10], ids[i])
-		binary.LittleEndian.PutUint16(toWrite[13+i*10:15+i*10], uint16(levels[i]))
-	}
 	_, err := l.bufw.Write(toWrite)
 	return err
 }
@@ -179,19 +165,6 @@ func (l *Logger) ReplaceLinksAtLevel(id uint64, level int, targets []uint64) err
 	}
 
 	return nil
-}
-
-func (l *Logger) ConnectToAtLevel(sources []uint64, level uint16, target uint64) error {
-	toWrite := make([]byte, 13+len(sources)*8)
-	toWrite[0] = byte(ConnectTo)
-	binary.LittleEndian.PutUint64(toWrite[1:9], target)
-	binary.LittleEndian.PutUint16(toWrite[9:11], level)
-	binary.LittleEndian.PutUint16(toWrite[11:13], uint16(len(sources)))
-	for i, source := range sources {
-		binary.LittleEndian.PutUint64(toWrite[13+i*8:], source)
-	}
-	_, err := l.bufw.Write(toWrite)
-	return err
 }
 
 func (l *Logger) AddTombstone(id uint64) error {

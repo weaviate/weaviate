@@ -168,11 +168,9 @@ type hnsw struct {
 type CommitLogger interface {
 	ID() string
 	AddNode(node *vertex) error
-	AddNodes(ids []uint64, levels []int) error
 	SetEntryPointWithMaxLayer(id uint64, level int) error
 	AddLinkAtLevel(nodeid uint64, level int, target uint64) error
 	ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error
-	ConnectToAtLevel(sources []uint64, level int, target uint64) error
 	AddTombstone(nodeid uint64) error
 	RemoveTombstone(nodeid uint64) error
 	DeleteNode(nodeid uint64) error

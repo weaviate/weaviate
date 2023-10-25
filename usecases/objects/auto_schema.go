@@ -224,6 +224,10 @@ func (m *autoSchemaManager) determineType(value interface{}, ofNestedProp bool) 
 		return []schema.DataType{schema.DataTypeText}, nil
 	case json.Number:
 		return []schema.DataType{schema.DataType(m.config.DefaultNumber)}, nil
+	case float64:
+		return []schema.DataType{schema.DataTypeNumber}, nil
+	case int64:
+		return []schema.DataType{schema.DataTypeInt}, nil
 	case bool:
 		return []schema.DataType{schema.DataTypeBoolean}, nil
 	case map[string]interface{}:
@@ -322,6 +326,10 @@ func (m *autoSchemaManager) determineArrayType(value interface{}, ofNestedProp b
 			return schema.DataTypeIntArray, "", nil
 		}
 		return schema.DataTypeNumberArray, "", nil
+	case float64:
+		return schema.DataTypeNumberArray, "", nil
+	case int64:
+		return schema.DataTypeIntArray, "", nil
 	case bool:
 		return schema.DataTypeBooleanArray, "", nil
 	case map[string]interface{}:
