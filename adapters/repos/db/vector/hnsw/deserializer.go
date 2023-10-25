@@ -106,13 +106,6 @@ func (d *Deserializer) Do(fd *bufio.Reader,
 		case AddNode:
 			err = d.ReadNode(fd, out)
 			readThisRound = 10
-		case AddNodes:
-			var len uint32
-			len, err = d.readUint32(fd)
-			for i := uint32(0); err == nil && i < len; i++ {
-				err = d.ReadNode(fd, out)
-			}
-			readThisRound = 4 + 10*int(len)
 		case SetEntryPointMaxLevel:
 			var entrypoint uint64
 			var level uint16
@@ -150,8 +143,6 @@ func (d *Deserializer) Do(fd *bufio.Reader,
 		case AddPQ:
 			err = d.ReadPQ(fd, out)
 			readThisRound = 9
-		case ConnectTo:
-			err = d.ConnectTo(fd, out)
 		default:
 			err = errors.Errorf("unrecognized commit type %d", ct)
 		}
@@ -289,6 +280,7 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 
 		res.LinksReplaced[source][level] = struct{}{}
 	}
+
 	return 12 + int(length)*8, nil
 }
 
@@ -401,6 +393,17 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 		res.Nodes = newNodes
 	}
 
+	if keepReplaceInfo {
+		// mark the replace flag for this node and level, so that new commit logs
+		// generated on this result (condensing) do not lose information
+
+		if _, ok := res.LinksReplaced[id]; !ok {
+			res.LinksReplaced[id] = map[uint16]struct{}{}
+		}
+
+		res.LinksReplaced[id][level] = struct{}{}
+	}
+
 	if res.Nodes[id] == nil {
 		if !keepReplaceInfo {
 			// node has been deleted or never existed and we are not looking at a
@@ -435,42 +438,6 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 		res.LinksReplaced[id][level] = struct{}{}
 	}
 
-	return nil
-}
-
-func (d *Deserializer) ConnectTo(r io.Reader, res *DeserializationResult) error {
-	id, err := d.readUint64(r)
-	if err != nil {
-		return err
-	}
-	level, err := d.readUint16(r)
-	if err != nil {
-		return err
-	}
-	length, err := d.readUint16(r)
-	if err != nil {
-		return err
-	}
-	for i := 0; i < int(length); i++ {
-		source, err := d.readUint64(r)
-		if err != nil {
-			return err
-		}
-		newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, d.logger)
-		if err != nil {
-			return err
-		}
-
-		if changed {
-			res.Nodes = newNodes
-		}
-		if res.Nodes[int(source)] == nil {
-			res.Nodes[int(source)] = &vertex{id: source, connections: make([][]uint64, level+1)}
-		}
-
-		maybeGrowConnectionsForLevel(&res.Nodes[int(source)].connections, level)
-		res.Nodes[int(source)].connections[int(level)] = append(res.Nodes[int(source)].connections[int(level)], id)
-	}
 	return nil
 }
 
@@ -657,19 +624,6 @@ func (d *Deserializer) readUint16(r io.Reader) (uint16, error) {
 	}
 
 	value = binary.LittleEndian.Uint16(d.reusableBuffer)
-
-	return value, nil
-}
-
-func (d *Deserializer) readUint32(r io.Reader) (uint32, error) {
-	var value uint32
-	d.resetResusableBuffer(4)
-	_, err := io.ReadFull(r, d.reusableBuffer)
-	if err != nil {
-		return 0, errors.Wrap(err, "failed to read uint32")
-	}
-
-	value = binary.LittleEndian.Uint32(d.reusableBuffer)
 
 	return value, nil
 }
