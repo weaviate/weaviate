@@ -59,9 +59,6 @@ func (h *hnsw) AddBatch(ids []uint64, vectors [][]float32) error {
 		}
 		levels[i] = int(math.Floor(-math.Log(h.randFunc()) * h.levelNormalizer))
 	}
-	if err := h.commitLog.AddNodes(ids, levels); err != nil {
-		return err
-	}
 	h.RLock()
 	previousSize := uint64(len(h.nodes))
 	if maxId >= previousSize {
@@ -156,6 +153,10 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 		}
 
 		node.connections[i] = make([]uint64, 0, capacity)
+	}
+
+	if err := h.commitLog.AddNode(node); err != nil {
+		return err
 	}
 
 	nodeId := node.id
