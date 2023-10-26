@@ -32,6 +32,8 @@ type DB interface {
 	AddTenants(class string, req *command.AddTenantsRequest) error
 	UpdateTenants(class string, req *command.UpdateTenantsRequest) error
 	DeleteTenants(class string, req *command.DeleteTenantsRequest) error
+	UpdateShardStatus(req *command.UpdateShardStatusRequest) error
+	GetShardsStatus(class string) (models.ShardStatusList, error)
 }
 
 type Parser interface {
@@ -66,7 +68,7 @@ func New(cfg Config) Store {
 		nodeID:       cfg.NodeID,
 		host:         cfg.Host,
 		raftPort:     cfg.RaftPort,
-		schema:       NewSchema(cfg.NodeID),
+		schema:       NewSchema(cfg.NodeID, cfg.DB),
 		db:           cfg.DB,
 		parser:       cfg.Parser,
 	}
@@ -138,6 +140,32 @@ func (f *Store) AddProperty(class string, p *models.Property) error {
 		SubCommand: subCommand,
 	}
 	return f.executeCommand(cmd)
+}
+
+func (f *Store) UpdateShardStatus(class, shard, status string) error {
+	req := command.UpdateShardStatusRequest{class, shard, status}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	cmd := command.Command{
+		Type:       command.Command_TYPE_UPDATE_SHARD_STATUS,
+		Class:      req.Class,
+		SubCommand: subCommand,
+	}
+	cmdBytes, err := proto.Marshal(&cmd)
+	if err != nil {
+		return fmt.Errorf("marshal command: %w", err)
+	}
+
+	fut := f.raft.Apply(cmdBytes, f.applyTimeout)
+	if err := fut.Error(); err != nil {
+		if errors.Is(err, raft.ErrNotLeader) {
+			return ErrNotLeader
+		}
+	}
+
+	return nil
 }
 
 func (f *Store) AddTenants(class string, req *command.AddTenantsRequest) error {
