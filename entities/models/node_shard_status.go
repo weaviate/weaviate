@@ -37,7 +37,10 @@ type NodeShardStatus struct {
 	// The number of objects in shard.
 	ObjectCount int64 `json:"objectCount"`
 
-	// The length of the vector queue.
+	// The status of the vector indexing process.
+	VectorIndexingStatus string `json:"vectorIndexingStatus"`
+
+	// The length of the vector indexing queue.
 	VectorQueueLength int64 `json:"vectorQueueLength"`
 }
 

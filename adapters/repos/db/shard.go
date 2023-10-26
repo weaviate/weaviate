@@ -177,6 +177,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if err != nil {
 		return nil, err
 	}
+	s.notifyReady()
 
 	return s, nil
 }

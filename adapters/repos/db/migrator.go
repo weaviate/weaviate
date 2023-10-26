@@ -139,6 +139,18 @@ func (m *Migrator) GetShardsStatus(ctx context.Context, className string) (map[s
 	return idx.getShardsStatus(ctx)
 }
 
+func (m *Migrator) GetTenantShardStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return nil, errors.Errorf("cannot get tenant shard status for a non-existing index for %s", className)
+	}
+	if err := idx.validateMultiTenancy(tenant); err != nil {
+		return nil, errors.Wrap(err, "get tenant shard status: validate multi tenancy:")
+	}
+
+	return idx.getTenantShardStatus(ctx, tenant)
+}
+
 func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error {
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
