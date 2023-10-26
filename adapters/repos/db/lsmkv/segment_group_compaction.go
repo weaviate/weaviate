@@ -82,12 +82,13 @@ func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 	if secondLowestSegment != nil {
 		fmt.Printf("secondLowestSegment - contenfile: %v, path %v, level %d, countNetAdditions %d, strategy %v, size %d\n", secondLowestSegment.contentFile, secondLowestSegment.path, secondLowestSegment.level, secondLowestSegment.countNetAdditions, secondLowestSegment.strategy, secondLowestSegment.Size())
 	}
-
+*/
 	// Print all levels, in order
 	for i := uint16(0); i <= highestLevel; i++ {
 		fmt.Printf("%v ", levels[i])
 	}
-*/
+	fmt.Printf("\n")
+
 	if pairExists {
 		// now pick any two segments which match the level
 		var res []int
@@ -147,6 +148,10 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	// might have to choose this value more intelligently
 	level := sg.segmentAtPos(pair[0]).level
 	secondaryIndices := sg.segmentAtPos(pair[0]).secondaryIndexCount
+
+	if level == sg.segmentAtPos(pair[1]).level {
+		level = level + 1
+	}
 
 	strategy := sg.segmentAtPos(pair[0]).strategy
 

@@ -108,7 +108,7 @@ func (c *Compactor) Do() error {
 
 	dataEnd := uint64(kis[len(kis)-1].ValueEnd)
 
-	if err := c.writeHeader(c.currentLevel+1, 0, 0,
+	if err := c.writeHeader(c.currentLevel, 0, 0,
 		dataEnd); err != nil {
 		return fmt.Errorf("write header: %w", err)
 	}
