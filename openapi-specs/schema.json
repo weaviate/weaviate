@@ -4071,6 +4071,11 @@
             "in": "path",
             "required": true,
             "type": "string"
+          },
+          {
+            "name": "tenant",
+            "in": "query",
+            "type": "string"
           }
         ],
         "responses": {

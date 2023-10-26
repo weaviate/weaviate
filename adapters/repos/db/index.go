@@ -1641,6 +1641,34 @@ func (i *Index) getShardsStatus(ctx context.Context) (map[string]string, error) 
 	return shardsStatus, nil
 }
 
+func (i *Index) getTenantShardStatus(ctx context.Context, tenant string) (map[string]string, error) {
+	shardState := i.getSchema.CopyShardingState(i.Config.ClassName.String())
+	shardNames := shardState.AllPhysicalShards()
+
+	for _, shardName := range shardNames {
+		var err error
+		var status string
+		if shardName != tenant {
+			continue
+		}
+		if !shardState.IsLocalShard(shardName) {
+			status, err = i.remote.GetShardStatus(ctx, shardName)
+		} else {
+			shard := i.localShard(shardName)
+			if shard == nil {
+				err = errors.Errorf("shard %s does not exist", shardName)
+			} else {
+				status = shard.getStatus().String()
+			}
+		}
+		if err != nil {
+			return nil, errors.Wrapf(err, "shard %s", shardName)
+		}
+		return map[string]string{tenant: status}, nil
+	}
+	return nil, errors.Errorf("shard %s does not exist", tenant)
+}
+
 func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {
 	shard := i.localShard(shardName)
 	if shard == nil {
