@@ -168,7 +168,7 @@ func (s *schemaHandlers) getClusterStatus(params schema.SchemaClusterStatusParam
 func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	status, err := s.manager.GetShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName)
+	status, err := s.manager.ShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
