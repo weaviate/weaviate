@@ -17,16 +17,15 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/schema"
-
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // AddClassProperty to an existing Class
-func (m *Handler) AddClassProperty(ctx context.Context, principal *models.Principal,
+func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Principal,
 	class string, prop *models.Property,
 ) error {
-	err := m.Authorizer.Authorize(principal, "update", "schema/objects")
+	err := h.Authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
 	}
@@ -39,7 +38,7 @@ func (m *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 		return fmt.Errorf("property must contain dataType")
 	}
 
-	cls := m.metaReader.ReadOnlyClass(class)
+	cls := h.metaReader.ReadOnlyClass(class)
 	if cls == nil {
 		return fmt.Errorf("class %q: %w", class, ErrNotFound)
 	}
@@ -49,21 +48,21 @@ func (m *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 		existing[strings.ToLower(p.Name)] = true
 	}
 
-	if err := m.setNewPropDefaults(cls, prop); err != nil {
+	if err := h.setNewPropDefaults(cls, prop); err != nil {
 		return err
 	}
-	if err := m.validateProperty(prop, class, existing, false); err != nil {
+	if err := h.validateProperty(prop, class, existing, false); err != nil {
 		return err
 	}
 	migratePropertySettings(prop)
-	return m.metaWriter.AddProperty(class, prop)
+	return h.metaWriter.AddProperty(class, prop)
 }
 
 // DeleteClassProperty from existing Schema
-func (m *Manager) DeleteClassProperty(ctx context.Context, principal *models.Principal,
+func (h *Handler) DeleteClassProperty(ctx context.Context, principal *models.Principal,
 	class string, property string,
 ) error {
-	err := m.Authorizer.Authorize(principal, "update", "schema/objects")
+	err := h.Authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
 	}
@@ -74,15 +73,15 @@ func (m *Manager) DeleteClassProperty(ctx context.Context, principal *models.Pri
 
 	return fmt.Errorf("deleting a property is currently not supported, see " +
 		"https://github.com/weaviate/weaviate/issues/973 for details.")
-	// return m.deleteClassProperty(ctx, class, property, kind.Action)
+	// return h.deleteClassProperty(ctx, class, property, kind.Action)
 }
 
-func (m *Handler) setNewPropDefaults(class *models.Class, prop *models.Property) error {
+func (h *Handler) setNewPropDefaults(class *models.Class, prop *models.Property) error {
 	setPropertyDefaults(prop)
 	if err := validateUserProp(class, prop); err != nil {
 		return err
 	}
-	m.moduleConfig.SetSinglePropertyDefaults(class, prop)
+	h.moduleConfig.SetSinglePropertyDefaults(class, prop)
 	return nil
 }
 
@@ -108,27 +107,27 @@ func validateUserProp(class *models.Class, prop *models.Property) error {
 
 // MergeClassObjectProperty of an existing Class
 // Merges NestedProperties of incoming object/object[] property into existing one
-func (m *Handler) MergeClassObjectProperty(ctx context.Context, principal *models.Principal,
+func (h *Handler) MergeClassObjectProperty(ctx context.Context, principal *models.Principal,
 	class string, property *models.Property,
 ) error {
 	// TODO-RAFT
 	return nil
-	// 	err := m.Authorizer.Authorize(principal, "update", "schema/objects")
+	// 	err := h.Authorizer.Authorize(principal, "update", "schema/objects")
 	// 	if err != nil {
 	// 		return err
 	// 	}
 
-	// return m.mergeClassObjectProperty(ctx, class, property)
+	//return h.mergeClassObjectProperty(ctx, class, property)
 }
 
-func (m *Handler) mergeClassObjectProperty(ctx context.Context,
+func (h *Handler) mergeClassObjectProperty(ctx context.Context,
 	className string, prop *models.Property,
 ) error {
 	return nil
-	// m.Lock()
-	// defer m.Unlock()
+	// h.Lock()
+	// defer h.Unlock()
 
-	// class, err := m.schemaCache.readOnlyClass(className)
+	// class, err := h.schemaCache.readOnlyClass(className)
 	// if err != nil {
 	// 	return err
 	// }
@@ -137,23 +136,23 @@ func (m *Handler) mergeClassObjectProperty(ctx context.Context,
 	// // reuse setDefaults/validation/migrate methods coming from add property
 	// // (empty existing names map, to validate existing updated property)
 	// // TODO nested - refactor / cleanup setDefaults/validation/migrate methods
-	// if err := m.setNewPropDefaults(class, prop); err != nil {
+	// if err := h.setNewPropDefaults(class, prop); err != nil {
 	// 	return err
 	// }
-	// if err := m.validateProperty(prop, className, map[string]bool{}, false); err != nil {
+	// if err := h.validateProperty(prop, className, map[string]bool{}, false); err != nil {
 	// 	return err
 	// }
 	// // migrate only after validation in completed
 	// migratePropertySettings(prop)
 
-	// return m.mergeClassObjectPropertyApplyChanges(ctx, className, prop)
+	// return h.mergeClassObjectPropertyApplyChanges(ctx, className, prop)
 }
 
-func (m *Manager) mergeClassObjectPropertyApplyChanges(ctx context.Context,
+func (h *Handler) mergeClassObjectPropertyApplyChanges(ctx context.Context,
 	className string, prop *models.Property,
 ) error {
 	return nil
-	// class, err := m.schemaCache.mergeObjectProperty(className, prop)
+	// class, err := h.schemaCache.mergeObjectProperty(className, prop)
 	// if err != nil {
 	// 	return err
 	// }
@@ -161,22 +160,22 @@ func (m *Manager) mergeClassObjectPropertyApplyChanges(ctx context.Context,
 	// if err != nil {
 	// 	return fmt.Errorf("marshal class %s: %w", className, err)
 	// }
-	// m.logger.
+	// h.logger.
 	// 	WithField("action", "schema.update_object_property").
 	// 	Debug("saving updated schema to configuration store")
-	// err = m.repo.UpdateClass(ctx, ClassPayload{Name: className, Metadata: metadata})
+	// err = h.repo.UpdateClass(ctx, ClassPayload{Name: className, Metadata: metadata})
 	// if err != nil {
 	// 	return err
 	// }
-	// m.triggerSchemaUpdateCallbacks()
+	// h.triggerSchemaUpdateCallbacks()
 
 	// // TODO nested - implement MergeObjectProperty (needed for indexing/filtering)
 	// // will result in a mismatch between schema and index if function below fails
-	// // return m.migrator.MergeObjectProperty(ctx, className, prop)
+	// // return h.migrator.MergeObjectProperty(ctx, className, prop)
 	// return nil
 }
 
-func (m *Manager) deduplicateProps(props []*models.Property,
+func (h *Handler) deduplicateProps(props []*models.Property,
 	className string,
 ) []*models.Property {
 	seen := map[string]struct{}{}
@@ -184,7 +183,7 @@ func (m *Manager) deduplicateProps(props []*models.Property,
 	for j, prop := range props {
 		name := strings.ToLower(prop.Name)
 		if _, ok := seen[name]; ok {
-			m.logger.WithFields(logrus.Fields{
+			h.logger.WithFields(logrus.Fields{
 				"action": "startup_repair_schema",
 				"prop":   prop.Name,
 				"class":  className,
