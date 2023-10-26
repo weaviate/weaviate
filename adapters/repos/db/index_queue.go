@@ -583,9 +583,14 @@ func newVectorQueue(iq *IndexQueue) *vectorQueue {
 	return &q
 }
 
+func (q *vectorQueue) getBuffer() []vectorDescriptor {
+	buff := *(q.pool.Get().(*[]vectorDescriptor))
+	return buff[:q.IndexQueue.BatchSize]
+}
+
 func (q *vectorQueue) getFreeChunk() *chunk {
 	c := chunk{
-		data: *(q.pool.Get().(*[]vectorDescriptor)),
+		data: q.getBuffer(),
 	}
 	c.indexed = make(chan struct{})
 	return &c
@@ -792,7 +797,7 @@ func (q *vectorQueue) persistCheckpoint(ids []uint64) {
 // Deleted vectors are skipped, and if an allowlist is provided, only vectors
 // in the allowlist are returned.
 func (q *vectorQueue) Iterate(allowlist helpers.AllowList, fn func(objects []vectorDescriptor) error) error {
-	buf := *(q.pool.Get().(*[]vectorDescriptor))
+	buf := q.getBuffer()
 	defer q.pool.Put(&buf)
 
 	var count int
