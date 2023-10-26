@@ -2624,6 +2624,11 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "name": "tenant",
+            "in": "query"
           }
         ],
         "responses": {
@@ -3986,8 +3991,13 @@ func init() {
           "format": "int64",
           "x-omitempty": false
         },
+        "vectorIndexingStatus": {
+          "description": "The status of the vector indexing process.",
+          "format": "string",
+          "x-omitempty": false
+        },
         "vectorQueueLength": {
-          "description": "The length of the vector queue.",
+          "description": "The length of the vector indexing queue.",
           "type": "number",
           "format": "int64",
           "x-omitempty": false
@@ -7612,6 +7622,11 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "name": "tenant",
+            "in": "query"
           }
         ],
         "responses": {
@@ -9133,8 +9148,13 @@ func init() {
           "format": "int64",
           "x-omitempty": false
         },
+        "vectorIndexingStatus": {
+          "description": "The status of the vector indexing process.",
+          "format": "string",
+          "x-omitempty": false
+        },
         "vectorQueueLength": {
-          "description": "The length of the vector queue.",
+          "description": "The length of the vector indexing queue.",
           "type": "number",
           "format": "int64",
           "x-omitempty": false
