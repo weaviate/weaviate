@@ -37,12 +37,10 @@ type Manager struct {
 	clusterState clusterState
 
 	sync.RWMutex
-	/// TODO-RAFT START
-	/// In the new design, the handler is responsible for well-defined tasks and should be decoupled from the manager.
-	/// This enables API requests to be directed straight to the handler without the need to pass through the manager.
-	/// For more context, refer to the handler's definition.
+	// The handler is responsible for well-defined tasks and should be decoupled from the manager.
+	// This enables API requests to be directed straight to the handler without the need to pass through the manager.
+	// For more context, refer to the handler's definition.
 	Handler
-	// TODO-RAFT END
 
 	metaReader
 }
@@ -262,7 +260,7 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	// 	return fmt.Errorf("store to persistent storage: %v", err)
 	// }
 
-	return nil
+	//return nil
 }
 
 // StartServing indicates that the schema manager is ready to accept incoming
@@ -414,49 +412,4 @@ func (m *Manager) ResolveParentNodes(class, shardName string) (map[string]string
 		}
 	}
 	return name2Addr, nil
-}
-
-func (m *Manager) Nodes() []string {
-	return m.clusterState.AllNames()
-}
-
-func (m *Manager) NodeName() string {
-	return m.clusterState.LocalName()
-}
-
-func (m *Manager) GetShardsStatus(ctx context.Context, principal *models.Principal,
-	className string,
-) (models.ShardStatusList, error) {
-	err := m.Authorizer.Authorize(principal, "list", fmt.Sprintf("schema/%s/shards", className))
-	if err != nil {
-		return nil, err
-	}
-
-	shardsStatus, err := m.migrator.GetShardsStatus(ctx, className)
-	if err != nil {
-		return nil, err
-	}
-
-	resp := models.ShardStatusList{}
-
-	for name, status := range shardsStatus {
-		resp = append(resp, &models.ShardStatusGetResponse{
-			Name:   name,
-			Status: status,
-		})
-	}
-
-	return resp, nil
-}
-
-func (m *Manager) UpdateShardStatus(ctx context.Context, principal *models.Principal,
-	className, shardName, targetStatus string,
-) error {
-	err := m.Authorizer.Authorize(principal, "update",
-		fmt.Sprintf("schema/%s/shards/%s", className, shardName))
-	if err != nil {
-		return err
-	}
-
-	return m.migrator.UpdateShardStatus(ctx, className, shardName, targetStatus)
 }
