@@ -23,9 +23,8 @@ import (
 
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
-	"golang.org/x/exp/slices"
-
 	command "github.com/weaviate/weaviate/cloud/proto/cluster"
+	"golang.org/x/exp/slices"
 	gproto "google.golang.org/protobuf/proto"
 )
 
@@ -188,7 +187,6 @@ func (f *Store) Apply(l *raft.Log) interface{} {
 		if ret.Error = f.schema.addClass(req.Class, req.State); ret.Error == nil {
 			f.db.AddClass(req)
 		}
-
 	case command.Command_TYPE_UPDATE_CLASS:
 		req := command.UpdateClassRequest{}
 		if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
@@ -206,7 +204,6 @@ func (f *Store) Apply(l *raft.Log) interface{} {
 	case command.Command_TYPE_DELETE_CLASS:
 		f.schema.deleteClass(cmd.Class)
 		f.db.DeleteClass(cmd.Class)
-
 	case command.Command_TYPE_ADD_PROPERTY:
 		req := command.AddPropertyRequest{}
 		if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
@@ -219,6 +216,13 @@ func (f *Store) Apply(l *raft.Log) interface{} {
 			f.db.AddProperty(cmd.Class, req)
 		}
 
+	case command.Command_TYPE_UPDATE_SHARD_STATUS:
+		req := command.UpdateShardStatusRequest{}
+		if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
+			return Response{Error: err}
+		}
+		ret.Error = f.db.UpdateShardStatus(&req)
+
 	case command.Command_TYPE_ADD_TENANT:
 		req := &command.AddTenantsRequest{}
 		if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
@@ -227,7 +231,6 @@ func (f *Store) Apply(l *raft.Log) interface{} {
 		if ret.Error = f.schema.addTenants(cmd.Class, req); ret.Error == nil {
 			f.db.AddTenants(cmd.Class, req)
 		}
-
 	case command.Command_TYPE_UPDATE_TENANT:
 		req := &command.UpdateTenantsRequest{}
 		if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
@@ -237,7 +240,6 @@ func (f *Store) Apply(l *raft.Log) interface{} {
 		if ret.Error == nil {
 			f.db.UpdateTenants(cmd.Class, req)
 		}
-
 	case command.Command_TYPE_DELETE_TENANT:
 		req := &command.DeleteTenantsRequest{}
 		if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
