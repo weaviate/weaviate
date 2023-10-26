@@ -23,6 +23,8 @@ import (
 	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
 	"github.com/weaviate/weaviate-go-client/v4/weaviate/fault"
+	"github.com/weaviate/weaviate-go-client/v4/weaviate/filters"
+	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -101,6 +103,25 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 					assert.Len(t, objects[0].Properties.(map[string]interface{})["relatedToPizza"].([]interface{}),
 						len(pizzaIds))
 				}
+			}
+		})
+
+		t.Run("verify graphql search", func(t *testing.T) {
+			for _, tenant := range tenants {
+				resp, err := client.GraphQL().Get().
+					WithClassName("Soup").
+					WithTenant(tenant.Name).
+					WithFields(graphql.Field{
+						Name: "_additional", Fields: []graphql.Field{{Name: "id"}},
+					}).
+					WithWhere(filters.Where().
+						WithPath([]string{"relatedToPizza", "Pizza", "name"}).
+						WithOperator(filters.Equal).
+						WithValueString("Quattro Formaggi")).
+					Do(context.Background())
+
+				require.NoError(t, err)
+				assertGraphqlGetIds(t, resp, "Soup", soupIds)
 			}
 		})
 	})
@@ -1191,6 +1212,25 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 				}
 			}
 		})
+
+		t.Run("verify graphql search", func(t *testing.T) {
+			for _, tenant := range tenants {
+				resp, err := client.GraphQL().Get().
+					WithClassName("Soup").
+					WithTenant(tenant.Name).
+					WithFields(graphql.Field{
+						Name: "_additional", Fields: []graphql.Field{{Name: "id"}},
+					}).
+					WithWhere(filters.Where().
+						WithPath([]string{"relatedToPizza", "Pizza", "name"}).
+						WithOperator(filters.Equal).
+						WithValueString("Quattro Formaggi")).
+					Do(context.Background())
+
+				require.NoError(t, err)
+				assertGraphqlGetIds(t, resp, "Soup", []string{})
+			}
+		})
 	})
 
 	t.Run("fails replacing references between MT classes without tenant", func(t *testing.T) {
@@ -1972,6 +2012,23 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 					len(pizzaIds))
 			}
 		})
+
+		t.Run("verify graphql search", func(t *testing.T) {
+			resp, err := client.GraphQL().Get().
+				WithClassName("Soup").
+				WithTenant(tenantSoup.Name).
+				WithFields(graphql.Field{
+					Name: "_additional", Fields: []graphql.Field{{Name: "id"}},
+				}).
+				WithWhere(filters.Where().
+					WithPath([]string{"relatedToPizza", "Pizza", "name"}).
+					WithOperator(filters.Equal).
+					WithValueString("Quattro Formaggi")).
+				Do(context.Background())
+
+			require.NoError(t, err)
+			assertGraphqlGetIds(t, resp, "Soup", soupIds)
+		})
 	})
 
 	t.Run("fails creating references between MT and non-MT classes without tenant", func(t *testing.T) {
@@ -2688,6 +2745,23 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 					assert.True(t, found, fmt.Sprintf("ref to '%s' not found", pizzaId))
 				}
 			}
+		})
+
+		t.Run("verify graphql search", func(t *testing.T) {
+			resp, err := client.GraphQL().Get().
+				WithClassName("Soup").
+				WithTenant(tenantSoup.Name).
+				WithFields(graphql.Field{
+					Name: "_additional", Fields: []graphql.Field{{Name: "id"}},
+				}).
+				WithWhere(filters.Where().
+					WithPath([]string{"relatedToPizza", "Pizza", "name"}).
+					WithOperator(filters.Equal).
+					WithValueString("Quattro Formaggi")).
+				Do(context.Background())
+
+			require.NoError(t, err)
+			assertGraphqlGetIds(t, resp, "Soup", []string{})
 		})
 	})
 
@@ -3668,4 +3742,39 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 			}
 		})
 	})
+}
+
+func assertGraphqlGetIds(t *testing.T, resp *models.GraphQLResponse, className string,
+	expectedIds []string,
+) {
+	require.NotNil(t, resp)
+	require.Nil(t, resp.Errors)
+	require.NotNil(t, resp.Data)
+	require.Contains(t, resp.Data, "Get")
+
+	get := resp.Data["Get"]
+	require.NotNil(t, get)
+
+	classes, ok := get.(map[string]interface{})
+	require.True(t, ok)
+	require.Contains(t, classes, className)
+
+	objects, ok := classes[className].([]interface{})
+	require.True(t, ok)
+
+	ids := make([]string, len(objects))
+	for i := range objects {
+		props, ok := objects[i].(map[string]interface{})
+		require.True(t, ok)
+		require.Contains(t, props, "_additional")
+
+		add, ok := props["_additional"].(map[string]interface{})
+		require.True(t, ok)
+		require.Contains(t, add, "id")
+
+		id, ok := add["id"].(string)
+		require.True(t, ok)
+		ids[i] = id
+	}
+	require.ElementsMatch(t, expectedIds, ids)
 }
