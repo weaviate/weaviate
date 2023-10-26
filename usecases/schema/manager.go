@@ -37,12 +37,10 @@ type Manager struct {
 	clusterState clusterState
 
 	sync.RWMutex
-	/// TODO-RAFT START
-	/// In the new design, the handler is responsible for well-defined tasks and should be decoupled from the manager.
-	/// This enables API requests to be directed straight to the handler without the need to pass through the manager.
-	/// For more context, refer to the handler's definition.
+	// The handler is responsible for well-defined tasks and should be decoupled from the manager.
+	// This enables API requests to be directed straight to the handler without the need to pass through the manager.
+	// For more context, refer to the handler's definition.
 	Handler
-	// TODO-RAFT END
 
 	metaReader
 }
@@ -262,46 +260,6 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	// 	return fmt.Errorf("store to persistent storage: %v", err)
 	// }
 
-	return nil
-	// localSchema, err := m.repo.Load(ctx)
-	// if err != nil {
-	// 	return fmt.Errorf("could not load schema:  %v", err)
-	// }
-	// if err := m.parseConfigs(ctx, &localSchema); err != nil {
-	// 	return errors.Wrap(err, "load schema")
-	// }
-
-	// if err := m.migrateSchemaIfNecessary(ctx, &localSchema); err != nil {
-	// 	return fmt.Errorf("migrate schema: %w", err)
-	// }
-
-	// // There was a bug that allowed adding the same prop multiple times. This
-	// // leads to a race at startup. If an instance is already affected by this,
-	// // this step can remove the duplicate ones.
-	// //
-	// // See https://github.com/weaviate/weaviate/issues/2609
-	// for _, c := range localSchema.ObjectSchema.Classes {
-	// 	c.Properties = m.deduplicateProps(c.Properties, c.Class)
-	// }
-
-	// // set internal state since it is used by startupClusterSync
-	// m.schemaCache.setState(localSchema)
-
-	// // make sure that all migrations have completed before checking sync,
-	// // otherwise two identical schemas might fail the check based on form rather
-	// // than content
-
-	// if err := m.startupClusterSync(ctx); err != nil {
-	// 	return errors.Wrap(err, "sync schema with other nodes in the cluster")
-	// }
-
-	// // store in persistent storage
-	// // TODO: investigate if save() is redundant because it is called in startupClusterSync()
-	// err = m.RLockGuard(func() error { return m.repo.Save(ctx, m.schemaCache.State) })
-	// if err != nil {
-	// 	return fmt.Errorf("store to persistent storage: %v", err)
-	// }
-
 	//return nil
 }
 
@@ -454,49 +412,4 @@ func (m *Manager) ResolveParentNodes(class, shardName string) (map[string]string
 		}
 	}
 	return name2Addr, nil
-}
-
-func (m *Manager) Nodes() []string {
-	return m.clusterState.AllNames()
-}
-
-func (m *Manager) NodeName() string {
-	return m.clusterState.LocalName()
-}
-
-func (m *Manager) GetShardsStatus(ctx context.Context, principal *models.Principal,
-	className string,
-) (models.ShardStatusList, error) {
-	err := m.Authorizer.Authorize(principal, "list", fmt.Sprintf("schema/%s/shards", className))
-	if err != nil {
-		return nil, err
-	}
-
-	shardsStatus, err := m.migrator.GetShardsStatus(ctx, className)
-	if err != nil {
-		return nil, err
-	}
-
-	resp := models.ShardStatusList{}
-
-	for name, status := range shardsStatus {
-		resp = append(resp, &models.ShardStatusGetResponse{
-			Name:   name,
-			Status: status,
-		})
-	}
-
-	return resp, nil
-}
-
-func (m *Manager) UpdateShardStatus(ctx context.Context, principal *models.Principal,
-	className, shardName, targetStatus string,
-) error {
-	err := m.Authorizer.Authorize(principal, "update",
-		fmt.Sprintf("schema/%s/shards/%s", className, shardName))
-	if err != nil {
-		return err
-	}
-
-	return m.migrator.UpdateShardStatus(ctx, className, shardName, targetStatus)
 }
