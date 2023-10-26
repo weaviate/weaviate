@@ -2624,6 +2624,11 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "name": "tenant",
+            "in": "query"
           }
         ],
         "responses": {
@@ -7617,6 +7622,11 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "name": "tenant",
+            "in": "query"
           }
         ],
         "responses": {
