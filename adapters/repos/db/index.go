@@ -1656,7 +1656,7 @@ func (i *Index) getTenantShardStatus(ctx context.Context, tenant string) (map[st
 		} else {
 			shard := i.localShard(shardName)
 			if shard == nil {
-				err = errors.Errorf("shard %s does not exist", shardName)
+				err = errors.Errorf("tenant %s does not exist", shardName)
 			} else {
 				status = shard.getStatus().String()
 			}
@@ -1666,7 +1666,7 @@ func (i *Index) getTenantShardStatus(ctx context.Context, tenant string) (map[st
 		}
 		return map[string]string{tenant: status}, nil
 	}
-	return nil, errors.Errorf("shard %s does not exist", tenant)
+	return nil, errors.Errorf("tenant %s does not exist", tenant)
 }
 
 func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {

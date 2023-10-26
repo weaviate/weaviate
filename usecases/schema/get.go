@@ -104,7 +104,7 @@ func (m *Manager) ClusterHealthScore() int {
 }
 
 func (m *Manager) GetShardsStatus(ctx context.Context, principal *models.Principal,
-	className string, tenant *string,
+	className, tenant string,
 ) (models.ShardStatusList, error) {
 	err := m.Authorizer.Authorize(principal, "list", fmt.Sprintf("schema/%s/shards", className))
 	if err != nil {
@@ -112,8 +112,8 @@ func (m *Manager) GetShardsStatus(ctx context.Context, principal *models.Princip
 	}
 
 	var shardsStatus map[string]string
-	if tenant != nil {
-		shardsStatus, err = m.migrator.GetTenantShardStatus(ctx, className, *tenant)
+	if tenant != "" {
+		shardsStatus, err = m.migrator.GetTenantShardStatus(ctx, className, tenant)
 	} else {
 		shardsStatus, err = m.migrator.GetShardsStatus(ctx, className)
 	}
