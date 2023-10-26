@@ -206,6 +206,10 @@ func (n *NilMigrator) GetShardsStatus(ctx context.Context, className string) (ma
 	return nil, nil
 }
 
+func (n *NilMigrator) GetTenantShardStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
+	return nil, nil
+}
+
 func (n *NilMigrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error {
 	return nil
 }
