@@ -32,8 +32,14 @@ var (
 type schema struct {
 	nodeID string
 	sync.RWMutex
-	Classes snapshot `json:"classes"`
+	Classes     snapshot `json:"classes"`
+	shardReader shardReader
 }
+
+type shardReader interface {
+	GetShardsStatus(class string) (models.ShardStatusList, error)
+}
+
 type snapshot map[string]*metaClass
 
 type metaClass struct {
@@ -41,10 +47,11 @@ type metaClass struct {
 	Sharding sharding.State
 }
 
-func NewSchema(nodeID string) *schema {
+func NewSchema(nodeID string, shardReader shardReader) *schema {
 	return &schema{
-		nodeID:  nodeID,
-		Classes: make(snapshot, 128),
+		nodeID:      nodeID,
+		Classes:     make(snapshot, 128),
+		shardReader: shardReader,
 	}
 }
 
@@ -238,7 +245,7 @@ func (s *schema) ReadOnlyClass(class string) *models.Class {
 	return &cp
 }
 
-// readOnlySchema returns a read only schema
+// ReadOnlySchema returns a read only schema
 // Changing the schema outside this package might lead to undefined behavior.
 //
 // it creates a shallow copy of existing classes
@@ -349,4 +356,8 @@ func (s *schema) CopyShardingState(class string) *sharding.State {
 
 	st := i.Sharding.DeepCopy()
 	return &st
+}
+
+func (f *schema) GetShardsStatus(class string) (models.ShardStatusList, error) {
+	return f.shardReader.GetShardsStatus(class)
 }
