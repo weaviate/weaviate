@@ -236,12 +236,17 @@ func (c *CursorMap) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, 
 		}
 	}
 
-	if !c.keyOnly {
-		merged, err := newSortedMapMerger().do(perSegmentResults)
-		if err != nil {
-			panic(errors.Wrap(err, "unexpected error decoding map values"))
-		}
+	merged, err := newSortedMapMerger().do(perSegmentResults)
+	if err != nil {
+		panic(errors.Wrap(err, "unexpected error decoding map values"))
+	}
+	if len(merged) == 0 {
+		// all values deleted, skip key
+		return c.Next()
+	}
 
+	// TODO remove keyOnly option, not used anyway
+	if !c.keyOnly {
 		return key, merged
 	} else {
 		return key, nil

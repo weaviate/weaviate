@@ -284,6 +284,7 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 		lsmkv.WithSecondaryIndices(1),
 		lsmkv.WithMonitorCount(),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
+		lsmkv.WithKeepTombstones(true),
 		s.dynamicMemtableSizing(),
 		s.memtableIdleConfig(),
 	)
