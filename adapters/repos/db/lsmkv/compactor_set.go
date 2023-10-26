@@ -207,17 +207,27 @@ func (c *compactorSet) writeHeader(level, version, secondaryIndices uint16,
 	return nil
 }
 
-// WARN: method can alter input slice
+// Removes values with tombstone set from input slice. Output slice may be smaller than input one.
+// Returned skip of true means there are no values left (key can be omitted in segment)
+// WARN: method can alter input slice by swapping its elements and reducing length (not capacity)
 func (c *compactorSet) cleanupValues(values []value) (vals []value, skip bool) {
 	if !c.cleanupTombstones {
 		return values, false
 	}
 
+	// Reuse input slice not to allocate new memory
+	// Rearrange slice in a way that tombstoned values are moved to the end
+	// and reduce slice's length.
 	last := 0
 	for i := 0; i < len(values); i++ {
 		if !values[i].tombstone {
-			// swap instead overwritting, to prevent multiple (values[x].value)s
-			// pointing to the same slice
+			// Swap both elements instead overwritting `last` by `i`.
+			// Overwrite would result in `values[last].value` pointing to the same slice
+			// as `values[i].value`.
+			// If `values` slice is reused by multiple nodes (as it happens for map cursors
+			// `segmentCursorCollectionReusable` using `segmentCollectionNode` as buffer)
+			// populating values[i].value would overwrite values[last].value
+			// Swaps makes sure values[i].value and values[last].value point to different slices
 			values[last], values[i] = values[i], values[last]
 			last++
 		}
