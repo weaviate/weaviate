@@ -118,3 +118,10 @@ func WithMonitorCount() BucketOption {
 		return nil
 	}
 }
+
+func WithKeepTombstones(keepTombstones bool) BucketOption {
+	return func(b *Bucket) error {
+		b.keepTombstones = keepTombstones
+		return nil
+	}
+}
