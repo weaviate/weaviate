@@ -591,7 +591,7 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 	hostName, indexName, shardName string,
 ) (int64, error) {
-	path := fmt.Sprintf("/indices/%s/shards/%s/queue", indexName, shardName)
+	path := fmt.Sprintf("/indices/%s/shards/%s/queuesize", indexName, shardName)
 	method := http.MethodGet
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
