@@ -20,6 +20,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
+	"github.com/weaviate/weaviate-go-client/v4/weaviate/filters"
+	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -108,6 +110,25 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 					assert.Len(t, objects[0].Properties.(map[string]interface{})["relatedToPizza"].([]interface{}),
 						len(pizzaIds))
 				}
+			}
+		})
+
+		t.Run("verify graphql search", func(t *testing.T) {
+			for _, tenant := range tenants {
+				resp, err := client.GraphQL().Get().
+					WithClassName("Soup").
+					WithTenant(tenant.Name).
+					WithFields(graphql.Field{
+						Name: "_additional", Fields: []graphql.Field{{Name: "id"}},
+					}).
+					WithWhere(filters.Where().
+						WithPath([]string{"relatedToPizza", "Pizza", "name"}).
+						WithOperator(filters.Equal).
+						WithValueString("Quattro Formaggi")).
+					Do(context.Background())
+
+				require.NoError(t, err)
+				assertGraphqlGetIds(t, resp, "Soup", soupIds)
 			}
 		})
 	})
@@ -822,6 +843,23 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 				assert.Len(t, objects[0].Properties.(map[string]interface{})["relatedToPizza"].([]interface{}),
 					len(pizzaIds))
 			}
+		})
+
+		t.Run("verify graphql search", func(t *testing.T) {
+			resp, err := client.GraphQL().Get().
+				WithClassName("Soup").
+				WithTenant(tenantSoup.Name).
+				WithFields(graphql.Field{
+					Name: "_additional", Fields: []graphql.Field{{Name: "id"}},
+				}).
+				WithWhere(filters.Where().
+					WithPath([]string{"relatedToPizza", "Pizza", "name"}).
+					WithOperator(filters.Equal).
+					WithValueString("Quattro Formaggi")).
+				Do(context.Background())
+
+			require.NoError(t, err)
+			assertGraphqlGetIds(t, resp, "Soup", soupIds)
 		})
 	})
 
