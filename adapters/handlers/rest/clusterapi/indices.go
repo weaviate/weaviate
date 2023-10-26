@@ -243,7 +243,7 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 
 			i.postReferences().ServeHTTP(w, r)
 			return
-		case i.regexpShardsStatus.MatchString(path):
+		case i.regexpShardsQueueSize.MatchString(path):
 			if r.Method == http.MethodGet {
 				i.getGetShardQueueSize().ServeHTTP(w, r)
 				return
