@@ -4,7 +4,7 @@ package weaviate.v1;
 import "google/protobuf/struct.proto";
 
 option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
-option java_package = "io.weaviate.grpc.protocol.v1";
+option java_package = "io.weaviate.client.grpc.protocol.v1";
 option java_outer_classname = "WeaviateProtoBase";
 
 enum ConsistencyLevel {
