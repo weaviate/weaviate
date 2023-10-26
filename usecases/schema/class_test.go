@@ -30,7 +30,12 @@ import (
 /// TODO-RAFT END
 
 func TestHandler_GetSchema(t *testing.T) {
-	handler := newTestHandler(t, &fakeDB{})
+	handler, shutdown := newTestHandler(t, &fakeDB{})
+	defer func() {
+		fut := shutdown()
+		require.Nil(t, fut.Error())
+	}()
+
 	sch, err := handler.GetSchema(nil)
 	assert.Nil(t, err)
 	assert.NotNil(t, sch)
@@ -39,24 +44,57 @@ func TestHandler_GetSchema(t *testing.T) {
 func TestHandler_AddClass(t *testing.T) {
 	ctx := context.Background()
 
-	newClass := models.Class{
-		Class: "NewClass",
-		Properties: []*models.Property{
-			{DataType: []string{"text"}, Name: "textProp"},
-			{DataType: []string{"int"}, Name: "intProp"},
-		},
-		Vectorizer: "none",
-	}
+	t.Run("happy path", func(t *testing.T) {
+		handler, shutdown := newTestHandler(t, &fakeDB{})
+		defer func() {
+			fut := shutdown()
+			require.Nil(t, fut.Error())
+		}()
 
-	handler := newTestHandler(t, &fakeDB{})
-	err := handler.AddClass(ctx, nil, &newClass)
-	assert.Nil(t, err)
+		class := models.Class{
+			Class: "NewClass",
+			Properties: []*models.Property{
+				{DataType: []string{"text"}, Name: "textProp"},
+				{DataType: []string{"int"}, Name: "intProp"},
+			},
+			Vectorizer: "none",
+		}
+		err := handler.AddClass(ctx, nil, &class)
+		assert.Nil(t, err)
 
-	sch := handler.GetSchemaSkipAuth()
-	require.Nil(t, err)
-	require.NotNil(t, sch)
-	require.NotNil(t, sch.Objects)
-	require.Len(t, sch.Objects.Classes, 1)
-	assert.Equal(t, newClass.Class, sch.Objects.Classes[0].Class)
-	assert.Equal(t, newClass.Properties, sch.Objects.Classes[0].Properties)
+		sch := handler.GetSchemaSkipAuth()
+		require.Nil(t, err)
+		require.NotNil(t, sch)
+		require.NotNil(t, sch.Objects)
+		require.Len(t, sch.Objects.Classes, 1)
+		assert.Equal(t, class.Class, sch.Objects.Classes[0].Class)
+		assert.Equal(t, class.Properties, sch.Objects.Classes[0].Properties)
+	})
+
+	t.Run("with empty class name", func(t *testing.T) {
+		handler, shutdown := newTestHandler(t, &fakeDB{})
+		defer func() {
+			fut := shutdown()
+			require.Nil(t, fut.Error())
+		}()
+		class := models.Class{}
+		err := handler.AddClass(ctx, nil, &class)
+		assert.EqualError(t, err, "'' is not a valid class name")
+	})
+
+	t.Run("with permuted-casing class names", func(t *testing.T) {
+		handler, shutdown := newTestHandler(t, &fakeDB{})
+		defer func() {
+			fut := shutdown()
+			require.Nil(t, fut.Error())
+		}()
+		class1 := models.Class{Class: "NewClass", Vectorizer: "none"}
+		err := handler.AddClass(ctx, nil, &class1)
+		require.Nil(t, err)
+		class2 := models.Class{Class: "NewCLASS", Vectorizer: "none"}
+		err = handler.AddClass(ctx, nil, &class2)
+		assert.EqualError(t, err,
+			`class name "NewCLASS" already exists as a permutation of: "NewClass". `+
+				`class names must be unique when lowercased`)
+	})
 }

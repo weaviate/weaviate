@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package schema
 
 import (
@@ -10,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -22,27 +34,21 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-var handler *Handler
-
-func newTestHandler(t *testing.T, db store.DB) *Handler {
-	if handler != nil {
-		return handler
-	}
+func newTestHandler(t *testing.T, db store.DB) (*Handler, func() raft.Future) {
 	cfg := config.Config{}
-	writer, clusterstate := startRaftCluster(t)
+	cluster, writer, clusterstate := startRaftCluster(t)
 	writer.SetDB(db)
 	reader := writer.SchemaReader()
 	logger, _ := test.NewNullLogger()
-	h, err := NewHandler(
+	handler, err := NewHandler(
 		writer, reader, &fakeValidator{}, logger, &fakeAuthorizer{nil},
 		cfg, dummyParseVectorConfig, &fakeVectorizerValidator{}, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, clusterstate, &fakeScaleOutManager{})
 	require.Nil(t, err)
-	handler = &h
-	return handler
+	return &handler, cluster.Shutdown
 }
 
-func startRaftCluster(t *testing.T) (*store.Store, clusterState) {
+func startRaftCluster(t *testing.T) (*store.Cluster, *store.Store, clusterState) {
 	node := "node-1"
 	srv := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {}),
@@ -81,7 +87,7 @@ func startRaftCluster(t *testing.T) (*store.Store, clusterState) {
 	}
 	// Allow time to elect leader
 	time.Sleep(time.Second)
-	return &writer, clusterstate
+	return &cluster, &writer, clusterstate
 }
 
 type fakeDB struct {
