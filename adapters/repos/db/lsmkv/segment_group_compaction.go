@@ -17,7 +17,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"bytes"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
@@ -25,36 +24,10 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-func (sg *SegmentGroup) eligibleForCompaction() bool {
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
-
-	// if true, the parent shard has indicated that it has
-	// entered an immutable state. During this time, the
-	// SegmentGroup should refrain from flushing until its
-	// shard indicates otherwise
-	if sg.isReadyOnly() {
-		return false
-	}
-
-	// if there are at least two segments of the same level a regular compaction
-	// can be performed
-
-	levels := map[uint16]int{}
-
-	for _, segment := range sg.segments {
-		levels[segment.level]++
-		if levels[segment.level] > 1 {
-			return true
-		}
-	}
-
-	return false
-}
-
 func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
+
 
 	//Nothing to compact
 	if len(sg.segments) < 2 {
@@ -65,11 +38,15 @@ func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 	levels := map[uint16]int{}
 	lowestPairLevel := uint16(math.MaxUint16)
 	lowestLevel := uint16(math.MaxUint16)
+	lowestIndex := -1
+	//secondLowestLevel := uint16(math.MaxUint16)
+	secondLowestIndex := -1
 	highestLevel := uint16(0)
 	pairExists := false
-	var highestSegment *segment
+	//var lowestSegment *segment
+	//var secondLowestSegment *segment
 
-	for _, seg := range sg.segments {
+	for ind, seg := range sg.segments {
 		levels[seg.level]++
 		val := levels[seg.level]
 		if val > 1 {
@@ -80,16 +57,37 @@ func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 		}
 
 		if seg.level < lowestLevel {
+			//secondLowestLevel = lowestLevel
+			//secondLowestSegment = lowestSegment
+			secondLowestIndex = lowestIndex
 			lowestLevel = seg.level
+			//lowestSegment = seg
+			lowestIndex = ind
 		}
 
 		if seg.level > highestLevel {
 			highestLevel = seg.level
-			highestSegment = seg
 		}
-
+	}
+/*
+	fmt.Printf("lowestPairLevel: %d\n", lowestPairLevel)
+	fmt.Printf("lowestLevel: %d\n", lowestLevel)
+	fmt.Printf("secondLowestLevel: %d\n", secondLowestLevel)
+	fmt.Printf("highestLevel: %d\n", highestLevel)
+	fmt.Printf("pairExists: %t\n", pairExists)
+	if lowestSegment != nil {
+		fmt.Printf("lowestSegment - contenfile: %v, path %v, level %d, countNetAdditions %d, strategy %v, size %d\n", lowestSegment.contentFile, lowestSegment.path, lowestSegment.level, lowestSegment.countNetAdditions, lowestSegment.strategy, lowestSegment.Size())
 	}
 
+	if secondLowestSegment != nil {
+		fmt.Printf("secondLowestSegment - contenfile: %v, path %v, level %d, countNetAdditions %d, strategy %v, size %d\n", secondLowestSegment.contentFile, secondLowestSegment.path, secondLowestSegment.level, secondLowestSegment.countNetAdditions, secondLowestSegment.strategy, secondLowestSegment.Size())
+	}
+
+	// Print all levels, in order
+	for i := uint16(0); i <= highestLevel; i++ {
+		fmt.Printf("%v ", levels[i])
+	}
+*/
 	if pairExists {
 		// now pick any two segments which match the level
 		var res []int
@@ -109,27 +107,9 @@ func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 		//Some segments exist, but none are of the same level
 		//Lower the level of the highest segment
 
-		//If the highest level is 0 or 1, we can't lower it any further
-		if highestLevel < 2 {
-			return nil
-		}
+		return []int{ secondLowestIndex, lowestIndex}
 
-
-		//Lower the level of the highest segment
-		header, err := segmentindex.ParseHeader(bytes.NewReader(highestSegment.contents[:segmentindex.HeaderSize]))
-		if err != nil {
-			return nil
-		}
-
-		header.Level = header.Level - 1
-
-		segmentHandle, err := os.Open(highestSegment.path)
-		if err != nil {
-			return nil
-		}
-		header.WriteTo(segmentHandle)
-		segmentHandle.Close()
-		return nil
+		
 	}
 }
 
@@ -141,7 +121,7 @@ func (sg *SegmentGroup) segmentAtPos(pos int) *segment {
 	return sg.segments[pos]
 }
 
-func (sg *SegmentGroup) compactOnce() error {
+func (sg *SegmentGroup) compactOnce() (bool, error) {
 	// Is it safe to only occasionally lock instead of the entire duration? Yes,
 	// because other than compaction the only change to the segments array could
 	// be an append because of a new flush cycle, so we do not need to guarantee
@@ -151,13 +131,13 @@ func (sg *SegmentGroup) compactOnce() error {
 	pair := sg.bestCompactionCandidatePair()
 	if pair == nil {
 		// nothing to do
-		return nil
+		return false, nil
 	}
 
 	path := fmt.Sprintf("%s.tmp", sg.segmentAtPos(pair[1]).path)
 	f, err := os.Create(path)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	scratchSpacePath := sg.segmentAtPos(pair[1]).path + "compaction.scratch.d"
@@ -188,7 +168,7 @@ func (sg *SegmentGroup) compactOnce() error {
 		}
 
 		if err := c.do(); err != nil {
-			return err
+			return false, err
 		}
 	case segmentindex.StrategySetCollection:
 		c := newCompactorSetCollection(f, sg.segmentAtPos(pair[0]).newCollectionCursor(),
@@ -201,7 +181,7 @@ func (sg *SegmentGroup) compactOnce() error {
 		}
 
 		if err := c.do(); err != nil {
-			return err
+			return false, err
 		}
 	case segmentindex.StrategyMapCollection:
 		c := newCompactorMapCollection(f,
@@ -215,7 +195,7 @@ func (sg *SegmentGroup) compactOnce() error {
 		}
 
 		if err := c.do(); err != nil {
-			return err
+			return false, err
 		}
 	case segmentindex.StrategyRoaringSet:
 		leftSegment := sg.segmentAtPos(pair[0])
@@ -233,22 +213,22 @@ func (sg *SegmentGroup) compactOnce() error {
 		}
 
 		if err := c.Do(); err != nil {
-			return err
+			return false, err
 		}
 
 	default:
-		return errors.Errorf("unrecognized strategy %v", strategy)
+		return false, errors.Errorf("unrecognized strategy %v", strategy)
 	}
 
 	if err := f.Close(); err != nil {
-		return errors.Wrap(err, "close compacted segment file")
+		return false, errors.Wrap(err, "close compacted segment file")
 	}
 
 	if err := sg.replaceCompactedSegments(pair[0], pair[1], path); err != nil {
-		return errors.Wrap(err, "replace compacted segments")
+		return false, errors.Wrap(err, "replace compacted segments")
 	}
 
-	return nil
+	return true, nil
 }
 
 func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
@@ -332,20 +312,22 @@ func (sg *SegmentGroup) stripTmpExtension(oldPath string) (string, error) {
 func (sg *SegmentGroup) compactIfLevelsMatch(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	sg.monitorSegments()
 
-	if sg.eligibleForCompaction() {
-		if err := sg.compactOnce(); err != nil {
-			sg.logger.WithField("action", "lsm_compaction").
-				WithField("path", sg.dir).
-				WithError(err).
-				Errorf("compaction failed")
-		}
-		return true
+	compacted, err := sg.compactOnce()
+	if err != nil {
+		sg.logger.WithField("action", "lsm_compaction").
+			WithField("path", sg.dir).
+			WithError(err).
+			Errorf("compaction failed")
 	}
 
-	sg.logger.WithField("action", "lsm_compaction").
-		WithField("path", sg.dir).
-		Trace("no segment eligible for compaction")
-	return false
+	if compacted {
+		return true
+	} else {
+		sg.logger.WithField("action", "lsm_compaction").
+			WithField("path", sg.dir).
+			Trace("no segment eligible for compaction")
+		return false
+	}
 }
 
 func (sg *SegmentGroup) Len() int {

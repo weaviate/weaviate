@@ -61,8 +61,8 @@ func compactionRoaringSet(ctx context.Context, t *testing.T, opts []BucketOption
 		if r.Float64() < flushChance {
 			require.Nil(t, b.FlushAndSwitch())
 
-			for b.disk.eligibleForCompaction() {
-				require.Nil(t, b.disk.compactOnce())
+			for compacted, err := b.disk.compactOnce(); err == nil && compacted; compacted, err = b.disk.compactOnce() {
+				require.Nil(t, err)
 				compactions++
 			}
 		}
