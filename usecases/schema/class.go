@@ -30,21 +30,21 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-func (m *Handler) GetClass(ctx context.Context, principal *models.Principal,
+func (h *Handler) GetClass(ctx context.Context, principal *models.Principal,
 	name string,
 ) (*models.Class, error) {
-	err := m.Authorizer.Authorize(principal, "list", "schema/*")
+	err := h.Authorizer.Authorize(principal, "list", "schema/*")
 	if err != nil {
 		return nil, err
 	}
-	return m.metaReader.ReadOnlyClass(name), nil
+	return h.metaReader.ReadOnlyClass(name), nil
 }
 
 // AddClass to the schema
-func (m *Handler) AddClass(ctx context.Context, principal *models.Principal,
+func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	cls *models.Class,
 ) error {
-	err := m.Authorizer.Authorize(principal, "create", "schema/objects")
+	err := h.Authorizer.Authorize(principal, "create", "schema/objects")
 	if err != nil {
 		return err
 	}
@@ -59,34 +59,34 @@ func (m *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		cls.ShardingConfig = sharding.Config{DesiredCount: 0} // tenant shards will be created dynamically
 	}
 
-	m.setClassDefaults(cls)
+	h.setClassDefaults(cls)
 
-	if err := m.validateCanAddClass(ctx, cls, false); err != nil {
+	if err := h.validateCanAddClass(ctx, cls, false); err != nil {
 		return err
 	}
 	// migrate only after validation in completed
-	m.migrateClassSettings(cls)
-	if err := m.parser.ParseClass(cls); err != nil {
+	h.migrateClassSettings(cls)
+	if err := h.parser.ParseClass(cls); err != nil {
 		return err
 	}
 
-	err = m.invertedConfigValidator(cls.InvertedIndexConfig)
+	err = h.invertedConfigValidator(cls.InvertedIndexConfig)
 	if err != nil {
 		return err
 	}
 
 	shardState, err := sharding.InitState(cls.Class,
 		cls.ShardingConfig.(sharding.Config),
-		m.clusterState, cls.ReplicationConfig.Factor,
+		h.clusterState, cls.ReplicationConfig.Factor,
 		schema.MultiTenancyEnabled(cls))
 	if err != nil {
 		return fmt.Errorf("init sharding state: %w", err)
 	}
 
-	return m.metaWriter.AddClass(cls, shardState)
+	return h.metaWriter.AddClass(cls, shardState)
 }
 
-func (m *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) error {
+func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) error {
 	// get schema and sharding state
 	class := &models.Class{}
 	if err := json.Unmarshal(d.Schema, &class); err != nil {
@@ -109,46 +109,49 @@ func (m *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 	class.Class = schema.UppercaseClassName(class.Class)
 	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
 
-	m.setClassDefaults(class)
-	err = m.validateCanAddClass(ctx, class, true)
+	h.setClassDefaults(class)
+	err = h.validateCanAddClass(ctx, class, true)
 	if err != nil {
 		return err
 	}
 	// migrate only after validation in completed
-	m.migrateClassSettings(class)
+	h.migrateClassSettings(class)
 
-	if err := m.parser.ParseClass(class); err != nil {
+	if err := h.parser.ParseClass(class); err != nil {
 		return err
 	}
 
-	err = m.invertedConfigValidator(class.InvertedIndexConfig)
+	err = h.invertedConfigValidator(class.InvertedIndexConfig)
 	if err != nil {
 		return err
 	}
 
 	shardingState.MigrateFromOldFormat()
-	return m.metaWriter.RestoreClass(class, &shardingState)
+	/// TODO-RAFT START
+	/// Implement RAFT based restore
+	/// TODO-RAFT END
+	return nil // return h.metaWriter.RestoreClass(class, &shardingState)
 }
 
 // DeleteClass from the schema
-func (m *Handler) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
-	err := m.Authorizer.Authorize(principal, "delete", "schema/objects")
+func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
+	err := h.Authorizer.Authorize(principal, "delete", "schema/objects")
 	if err != nil {
 		return err
 	}
 
-	return m.metaWriter.DeleteClass(class)
+	return h.metaWriter.DeleteClass(class)
 }
 
-func (m *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
+func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) error {
-	err := m.Authorizer.Authorize(principal, "update", "schema/objects")
+	err := h.Authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
 	}
 
-	initial := m.metaReader.ReadOnlyClass(className)
+	initial := h.metaReader.ReadOnlyClass(className)
 	if initial == nil {
 		return ErrNotFound
 	}
@@ -159,9 +162,9 @@ func (m *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 
 	// make sure unset optionals on 'updated' don't lead to an error, as all
 	// optionals would have been set with defaults on the initial already
-	m.setClassDefaults(updated)
+	h.setClassDefaults(updated)
 
-	if err := m.validateImmutableFields(initial, updated); err != nil {
+	if err := h.validateImmutableFields(initial, updated); err != nil {
 		return err
 	}
 
@@ -198,15 +201,15 @@ func (m *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		return errors.Wrap(err, "vector index config")
 	}
 
-	if err := m.migrator.ValidateInvertedIndexConfigUpdate(ctx,
+	if err := h.validator.ValidateInvertedIndexConfigUpdate(ctx,
 		initial.InvertedIndexConfig, updated.InvertedIndexConfig); err != nil {
 		return errors.Wrap(err, "inverted index config")
 	}
-	if err := validateShardingConfig(initial, updated, mtEnabled, m.clusterState); err != nil {
+	if err := validateShardingConfig(initial, updated, mtEnabled, h.clusterState); err != nil {
 		return fmt.Errorf("validate sharding config: %w", err)
 	}
 
-	if err := replica.ValidateConfigUpdate(initial, updated, m.clusterState); err != nil {
+	if err := replica.ValidateConfigUpdate(initial, updated, h.clusterState); err != nil {
 		return fmt.Errorf("replication config: %w", err)
 	}
 
@@ -216,7 +219,7 @@ func (m *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	if initialRF != updatedRF {
 		return fmt.Errorf("scaling is not implemented")
 	}
-	return m.metaWriter.UpdateClass(updated, nil)
+	return h.metaWriter.UpdateClass(updated, nil)
 }
 
 func (m *Manager) setClassDefaults(class *models.Class) {
@@ -244,7 +247,7 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 		setPropertyDefaults(prop)
 	}
 
-	m.moduleConfig.SetClassDefaults(class)
+	h.moduleConfig.SetClassDefaults(class)
 }
 
 func setPropertyDefaults(prop *models.Property) {
@@ -297,7 +300,7 @@ func setPropertyDefaultIndexing(prop *models.Property) {
 	}
 }
 
-func (m *Handler) migrateClassSettings(class *models.Class) {
+func (h *Handler) migrateClassSettings(class *models.Class) {
 	for _, prop := range class.Properties {
 		migratePropertySettings(prop)
 	}
@@ -353,7 +356,7 @@ func migratePropertyIndexInverted(prop *models.Property) {
 	prop.IndexInverted = nil
 }
 
-func (m *Handler) validateProperty(
+func (h *Handler) validateProperty(
 	property *models.Property, className string,
 	existingPropertyNames map[string]bool, relaxCrossRefValidation bool,
 ) error {
@@ -370,7 +373,7 @@ func (m *Handler) validateProperty(
 	}
 
 	// Validate data type of property.
-	sch := m.getSchema()
+	sch := h.getSchema()
 
 	propertyDataType, err := (&sch).FindPropertyDataTypeWithRefs(property.DataType,
 		relaxCrossRefValidation, schema.ClassName(className))
@@ -378,11 +381,11 @@ func (m *Handler) validateProperty(
 		return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
 	}
 
-	if err := m.validatePropertyTokenization(property.Tokenization, propertyDataType); err != nil {
+	if err := h.validatePropertyTokenization(property.Tokenization, propertyDataType); err != nil {
 		return err
 	}
 
-	if err := m.validatePropertyIndexing(property); err != nil {
+	if err := h.validatePropertyIndexing(property); err != nil {
 		return err
 	}
 
@@ -413,31 +416,31 @@ func setInvertedConfigDefaults(class *models.Class) {
 	}
 }
 
-func (m *Handler) validateCanAddClass(
+func (h *Handler) validateCanAddClass(
 	ctx context.Context, class *models.Class,
 	relaxCrossRefValidation bool,
 ) error {
-	if err := m.validateClassName(class.Class); err != nil {
+	if err := h.validateClassName(class.Class); err != nil {
 		return err
 	}
 
 	existingPropertyNames := map[string]bool{}
 	for _, property := range class.Properties {
-		if err := m.validateProperty(property, class.Class, existingPropertyNames, relaxCrossRefValidation); err != nil {
+		if err := h.validateProperty(property, class.Class, existingPropertyNames, relaxCrossRefValidation); err != nil {
 			return err
 		}
 		existingPropertyNames[strings.ToLower(property.Name)] = true
 	}
 
-	if err := m.validateVectorSettings(ctx, class); err != nil {
+	if err := h.validateVectorSettings(ctx, class); err != nil {
 		return err
 	}
 
-	if err := m.moduleConfig.ValidateClass(ctx, class); err != nil {
+	if err := h.moduleConfig.ValidateClass(ctx, class); err != nil {
 		return err
 	}
 
-	if err := replica.ValidateConfig(class, m.config.Replication); err != nil {
+	if err := replica.ValidateConfig(class, h.config.Replication); err != nil {
 		return err
 	}
 
@@ -445,11 +448,11 @@ func (m *Handler) validateCanAddClass(
 	return nil
 }
 
-func (m *Handler) validateClassName(name string) error {
+func (h *Handler) validateClassName(name string) error {
 	if _, err := schema.ValidateClassName(name); err != nil {
 		return err
 	}
-	existingName := m.metaReader.ClassEqual(name)
+	existingName := h.metaReader.ClassEqual(name)
 	if existingName == "" {
 		return nil
 	}
@@ -461,7 +464,7 @@ func (m *Handler) validateClassName(name string) error {
 	return fmt.Errorf("class name %q already exists", name)
 }
 
-func (m *Handler) validatePropertyTokenization(tokenization string, propertyDataType schema.PropertyDataType) error {
+func (h *Handler) validatePropertyTokenization(tokenization string, propertyDataType schema.PropertyDataType) error {
 	if propertyDataType.IsPrimitive() {
 		primitiveDataType := propertyDataType.AsPrimitive()
 
@@ -493,7 +496,7 @@ func (m *Handler) validatePropertyTokenization(tokenization string, propertyData
 	return fmt.Errorf("Tokenization is not allowed for reference data type")
 }
 
-func (m *Handler) validatePropertyIndexing(prop *models.Property) error {
+func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 	if prop.IndexInverted != nil {
 		if prop.IndexFilterable != nil || prop.IndexSearchable != nil {
 			return fmt.Errorf("`indexInverted` is deprecated and can not be set together with `indexFilterable` or `indexSearchable`.")
@@ -533,19 +536,19 @@ func (m *Handler) validateVectorSettings(ctx context.Context, class *models.Clas
 	return nil
 }
 
-func (m *Handler) validateVectorizer(ctx context.Context, class *models.Class) error {
+func (h *Handler) validateVectorizer(ctx context.Context, class *models.Class) error {
 	if class.Vectorizer == config.VectorizerModuleNone {
 		return nil
 	}
 
-	if err := m.vectorizerValidator.ValidateVectorizer(class.Vectorizer); err != nil {
+	if err := h.vectorizerValidator.ValidateVectorizer(class.Vectorizer); err != nil {
 		return errors.Wrap(err, "vectorizer")
 	}
 
 	return nil
 }
 
-func (m *Handler) validateVectorIndex(ctx context.Context, class *models.Class) error {
+func (h *Handler) validateVectorIndex(ctx context.Context, class *models.Class) error {
 	switch class.VectorIndexType {
 	case "hnsw":
 		return nil
@@ -586,7 +589,7 @@ func validateShardingConfig(current, update *models.Class, mtEnabled bool, cl cl
 	return nil
 }
 
-func (m *Handler) validateImmutableFields(initial, updated *models.Class) error {
+func (h *Handler) validateImmutableFields(initial, updated *models.Class) error {
 	immutableFields := []immutableText{
 		{
 			name:     "class name",
