@@ -40,4 +40,10 @@ echo Now add the header to the generated code too.
 
 (cd "$DIR"/..; goimports -w . )
 
+CHANGED=$(git status -s | wc -l)
+if [ "$CHANGED" -gt 0 ]; then
+  echo "There are changes in the files that need to be committed:"
+  git status -s
+fi
+
 echo Success
