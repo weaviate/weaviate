@@ -38,8 +38,8 @@ type Migrator interface {
 	DropClass(ctx context.Context, className string) error
 	UpdateClass(ctx context.Context, className string,
 		newClassName *string) error
-	GetShardsStatus(ctx context.Context, className string) (map[string]string, error)
-	GetTenantShardStatus(ctx context.Context, className, tenant string) (map[string]string, error)
+	GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error)
+	GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error)
 	UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error
 	AddProperty(ctx context.Context, className string,
 		prop *models.Property) error

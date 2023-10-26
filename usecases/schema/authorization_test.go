@@ -49,7 +49,7 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResource: "schema/*",
 		},
 		{
-			methodName:       "GetShardsStatus",
+			methodName:       "GetShardsOverview",
 			additionalArgs:   []interface{}{"className", "tenant"},
 			expectedVerb:     "list",
 			expectedResource: "schema/className/shards",
