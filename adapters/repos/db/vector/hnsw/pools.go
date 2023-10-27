@@ -14,7 +14,7 @@ package hnsw
 import (
 	"sync"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 )
 

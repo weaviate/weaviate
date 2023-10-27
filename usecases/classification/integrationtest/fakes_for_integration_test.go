@@ -459,6 +459,12 @@ func (f *fakeRemoteClient) DeleteObjectBatch(ctx context.Context, hostName, inde
 	return nil
 }
 
+func (f *fakeRemoteClient) GetShardQueueSize(ctx context.Context,
+	hostName, indexName, shardName string,
+) (int64, error) {
+	return 0, nil
+}
+
 func (f *fakeRemoteClient) GetShardStatus(ctx context.Context,
 	hostName, indexName, shardName string,
 ) (string, error) {

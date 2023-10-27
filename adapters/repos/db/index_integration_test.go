@@ -108,7 +108,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, nil, class, nil)
+		}, nil, logger, nil, nil, nil, nil, class, nil, nil)
 	require.Nil(t, err)
 
 	productsIds := []strfmt.UUID{
@@ -169,7 +169,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{
 			schema:     fakeSchema,
 			shardState: shardState,
-		}, nil, logger, nil, nil, nil, nil, class, nil)
+		}, nil, logger, nil, nil, nil, nil, class, nil, nil)
 	require.Nil(t, err)
 
 	err = index.addUUIDProperty(context.TODO())
@@ -267,7 +267,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, nil, class, nil)
+		}, nil, logger, nil, nil, nil, nil, class, nil, nil)
 	require.Nil(t, err)
 
 	productsIds := []strfmt.UUID{
@@ -322,7 +322,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
 	}, shardState, inverted.ConfigFromModel(invertedConfig()),
 		hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{
 			shardState: shardState,
-		}, nil, logger, nil, nil, nil, nil, class, nil)
+		}, nil, logger, nil, nil, nil, nil, class, nil, nil)
 	require.Nil(t, err)
 	return idx
 }
