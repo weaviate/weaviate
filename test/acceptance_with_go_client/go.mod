@@ -1,6 +1,6 @@
 module acceptance_tests_with_client
 
-go 1.19
+go 1.21
 
 replace github.com/weaviate/weaviate v1.19.0 => ../..
 
