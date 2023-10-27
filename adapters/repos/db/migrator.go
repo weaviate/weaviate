@@ -130,25 +130,22 @@ func (m *Migrator) UpdateProperty(ctx context.Context, className string, propNam
 	return nil
 }
 
-func (m *Migrator) GetShardsStatus(ctx context.Context, className string) (map[string]string, error) {
+func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		return nil, errors.Errorf("cannot get shards status for a non-existing index for %s", className)
 	}
 
-	return idx.getShardsStatus(ctx)
+	return idx.getShardsQueueSize(ctx, tenant)
 }
 
-func (m *Migrator) GetTenantShardStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
+func (m *Migrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
-		return nil, errors.Errorf("cannot get tenant shard status for a non-existing index for %s", className)
-	}
-	if err := idx.validateMultiTenancy(tenant); err != nil {
-		return nil, errors.Wrap(err, "get tenant shard status: validate multi tenancy:")
+		return nil, errors.Errorf("cannot get shards status for a non-existing index for %s", className)
 	}
 
-	return idx.getTenantShardStatus(ctx, tenant)
+	return idx.getShardsStatus(ctx, tenant)
 }
 
 func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error {

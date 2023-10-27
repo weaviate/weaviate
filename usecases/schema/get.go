@@ -111,12 +111,11 @@ func (m *Manager) GetShardsStatus(ctx context.Context, principal *models.Princip
 		return nil, err
 	}
 
-	var shardsStatus map[string]string
-	if tenant != "" {
-		shardsStatus, err = m.migrator.GetTenantShardStatus(ctx, className, tenant)
-	} else {
-		shardsStatus, err = m.migrator.GetShardsStatus(ctx, className)
+	shardsStatus, err := m.migrator.GetShardsStatus(ctx, className, tenant)
+	if err != nil {
+		return nil, err
 	}
+	shardsQueueSize, err := m.migrator.GetShardsQueueSize(ctx, className, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -125,8 +124,9 @@ func (m *Manager) GetShardsStatus(ctx context.Context, principal *models.Princip
 
 	for name, status := range shardsStatus {
 		resp = append(resp, &models.ShardStatusGetResponse{
-			Name:   name,
-			Status: status,
+			Name:            name,
+			Status:          status,
+			VectorQueueSize: shardsQueueSize[name],
 		})
 	}
 

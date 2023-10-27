@@ -1646,13 +1646,56 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (i *Index) getShardsStatus(ctx context.Context) (map[string]string, error) {
+func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[string]int64, error) {
+	shardsQueueSize := make(map[string]int64)
+
+	shardState := i.getSchema.CopyShardingState(i.Config.ClassName.String())
+	shardNames := shardState.AllPhysicalShards()
+
+	for _, shardName := range shardNames {
+		if tenant != "" && shardName != tenant {
+			continue
+		}
+		var err error
+		var size int64
+		if !shardState.IsLocalShard(shardName) {
+			size, err = i.remote.GetShardQueueSize(ctx, shardName)
+		} else {
+			shard := i.localShard(shardName)
+			if shard == nil {
+				err = errors.Errorf("shard %s does not exist", shardName)
+			} else {
+				size = shard.queue.Size()
+			}
+		}
+		if err != nil {
+			return nil, errors.Wrapf(err, "shard %s", shardName)
+		}
+
+		shardsQueueSize[shardName] = size
+	}
+
+	return shardsQueueSize, nil
+}
+
+func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
+	shard := i.localShard(shardName)
+	if shard == nil {
+		return 0, errShardNotFound
+	}
+	return shard.queue.Size(), nil
+}
+
+func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]string, error) {
 	shardsStatus := make(map[string]string)
 
 	shardState := i.getSchema.CopyShardingState(i.Config.ClassName.String())
 	shardNames := shardState.AllPhysicalShards()
 
 	for _, shardName := range shardNames {
+		if tenant != "" && shardName != tenant {
+			continue
+		}
 		var err error
 		var status string
 		if !shardState.IsLocalShard(shardName) {
@@ -1673,34 +1716,6 @@ func (i *Index) getShardsStatus(ctx context.Context) (map[string]string, error) 
 	}
 
 	return shardsStatus, nil
-}
-
-func (i *Index) getTenantShardStatus(ctx context.Context, tenant string) (map[string]string, error) {
-	shardState := i.getSchema.CopyShardingState(i.Config.ClassName.String())
-	shardNames := shardState.AllPhysicalShards()
-
-	for _, shardName := range shardNames {
-		var err error
-		var status string
-		if shardName != tenant {
-			continue
-		}
-		if !shardState.IsLocalShard(shardName) {
-			status, err = i.remote.GetShardStatus(ctx, shardName)
-		} else {
-			shard := i.localShard(shardName)
-			if shard == nil {
-				err = errors.Errorf("tenant %s does not exist", shardName)
-			} else {
-				status = shard.getStatus().String()
-			}
-		}
-		if err != nil {
-			return nil, errors.Wrapf(err, "shard %s", shardName)
-		}
-		return map[string]string{tenant: status}, nil
-	}
-	return nil, errors.Errorf("tenant %s does not exist", tenant)
 }
 
 func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {
