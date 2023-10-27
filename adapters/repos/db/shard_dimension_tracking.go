@@ -37,7 +37,6 @@ func (s *Shard) Dimensions() int {
 }
 
 func (s *Shard) quantizedDimensions(segments int) int {
-
 	// Exit early if segments is 0 (unset), in this case PQ will use the same number of dimensions
 	// as the segment size
 	if segments <= 0 {
