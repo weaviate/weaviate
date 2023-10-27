@@ -27,6 +27,8 @@ import (
 type SchemaObjectsShardsGetURL struct {
 	ClassName string
 
+	Tenant *string
+
 	_basePath string
 	// avoid unkeyed usage
 	_ struct{}
@@ -65,6 +67,18 @@ func (o *SchemaObjectsShardsGetURL) Build() (*url.URL, error) {
 		_basePath = "/v1"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
+
+	qs := make(url.Values)
+
+	var tenantQ string
+	if o.Tenant != nil {
+		tenantQ = *o.Tenant
+	}
+	if tenantQ != "" {
+		qs.Set("tenant", tenantQ)
+	}
+
+	_result.RawQuery = qs.Encode()
 
 	return &_result, nil
 }

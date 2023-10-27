@@ -17,6 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -25,6 +26,11 @@ type Index struct{}
 
 func NewIndex() *Index {
 	return &Index{}
+}
+
+func (i *Index) AddBatch(id []uint64, vector [][]float32) error {
+	// silently ignore
+	return nil
 }
 
 func (i *Index) Add(id uint64, vector []float32) error {
@@ -92,4 +98,16 @@ func (i *Index) PostStartup() {
 }
 
 func (i *Index) Dump(labels ...string) {
+}
+
+func (i *Index) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
+	return 0, true, nil
+}
+
+func (i *Index) ContainsNode(id uint64) bool {
+	return false
+}
+
+func (i *Index) DistancerProvider() distancer.Provider {
+	return nil
 }

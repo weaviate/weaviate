@@ -244,7 +244,7 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 
 	shardName := shardState.AllPhysicalShards()[0]
 
-	shd, err := NewShard(ctx, nil, shardName, idx, &class, repo.jobQueueCh)
+	shd, err := NewShard(ctx, nil, shardName, idx, &class, repo.jobQueueCh, nil)
 	if err != nil {
 		panic(err)
 	}
