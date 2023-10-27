@@ -226,6 +226,7 @@ func (h *Handler) setClassDefaults(class *models.Class) {
 func setPropertyDefaults(prop *models.Property) {
 	setPropertyDefaultTokenization(prop)
 	setPropertyDefaultIndexing(prop)
+	setNestedPropertiesDefaults(prop.NestedProperties)
 }
 
 func setPropertyDefaultTokenization(prop *models.Property) {
@@ -269,6 +270,63 @@ func setPropertyDefaultIndexing(prop *models.Property) {
 		default:
 			vFalse := false
 			prop.IndexSearchable = &vFalse
+		}
+	}
+}
+
+func setNestedPropertiesDefaults(properties []*models.NestedProperty) {
+	for _, property := range properties {
+		primitiveDataType, isPrimitive := schema.AsPrimitive(property.DataType)
+		nestedDataType, isNested := schema.AsNested(property.DataType)
+
+		setNestedPropertyDefaultTokenization(property, primitiveDataType, nestedDataType, isPrimitive, isNested)
+		setNestedPropertyDefaultIndexing(property, primitiveDataType, nestedDataType, isPrimitive, isNested)
+
+		if isNested {
+			setNestedPropertiesDefaults(property.NestedProperties)
+		}
+	}
+}
+
+func setNestedPropertyDefaultTokenization(property *models.NestedProperty,
+	primitiveDataType, nestedDataType schema.DataType,
+	isPrimitive, isNested bool,
+) {
+	if property.Tokenization == "" && isPrimitive {
+		switch primitiveDataType {
+		case schema.DataTypeText, schema.DataTypeTextArray:
+			property.Tokenization = models.NestedPropertyTokenizationWord
+		default:
+			// do nothing
+		}
+	}
+}
+
+func setNestedPropertyDefaultIndexing(property *models.NestedProperty,
+	primitiveDataType, nestedDataType schema.DataType,
+	isPrimitive, isNested bool,
+) {
+	vTrue := true
+	vFalse := false
+
+	if property.IndexFilterable == nil {
+		property.IndexFilterable = &vTrue
+
+		if isPrimitive && primitiveDataType == schema.DataTypeBlob {
+			property.IndexFilterable = &vFalse
+		}
+	}
+
+	if property.IndexSearchable == nil {
+		property.IndexSearchable = &vFalse
+
+		if isPrimitive {
+			switch primitiveDataType {
+			case schema.DataTypeText, schema.DataTypeTextArray:
+				property.IndexSearchable = &vTrue
+			default:
+				// do nothing
+			}
 		}
 	}
 }

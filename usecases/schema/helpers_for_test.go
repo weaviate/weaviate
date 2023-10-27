@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -40,9 +40,14 @@ func newTestHandler(t *testing.T, db store.DB) (*Handler, func() raft.Future) {
 	writer.SetDB(db)
 	reader := writer.SchemaReader()
 	logger, _ := test.NewNullLogger()
+	vectorizerValidator := &fakeVectorizerValidator{
+		valid: []string{
+			"model1", "model2",
+		},
+	}
 	handler, err := NewHandler(
 		writer, reader, &fakeValidator{}, logger, &fakeAuthorizer{nil},
-		cfg, dummyParseVectorConfig, &fakeVectorizerValidator{}, dummyValidateInvertedConfig,
+		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, clusterstate, &fakeScaleOutManager{})
 	require.Nil(t, err)
 	return &handler, cluster.Shutdown
@@ -50,20 +55,14 @@ func newTestHandler(t *testing.T, db store.DB) (*Handler, func() raft.Future) {
 
 func startRaftCluster(t *testing.T) (*store.Cluster, *store.Store, clusterState) {
 	node := "node-1"
-	srv := httptest.NewServer(http.HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {}),
-	)
-	url := srv.URL
-	srv.Close()
+	url := newRandomHostURL(t)
 	candidates := []store.Candidate{
 		{
 			ID:       node,
-			Address:  url,
+			Address:  url.address,
 			NonVoter: false,
 		},
 	}
-	urlSplit := strings.Split(url, ":")
-	host := strings.TrimPrefix(urlSplit[1], "//")
 
 	root := t.TempDir()
 	clusterstate := newFakeClusterState()
@@ -71,8 +70,8 @@ func startRaftCluster(t *testing.T) (*store.Cluster, *store.Store, clusterState)
 	writer := store.New(store.Config{
 		WorkDir:              root,
 		NodeID:               node,
-		Host:                 host,
-		RaftPort:             config.DefaultRaftPort,
+		Host:                 url.host,
+		RaftPort:             newRandomHostURL(t).port,
 		RaftElectionTimeout:  500 * time.Millisecond,
 		RaftHeartbeatTimeout: 500 * time.Millisecond,
 		Parser:               NewParser(clusterstate, dummyParseVectorConfig),
@@ -80,14 +79,34 @@ func startRaftCluster(t *testing.T) (*store.Cluster, *store.Store, clusterState)
 
 	raftNode, err := writer.Open(false, candidates)
 	require.Nil(t, err)
-	cluster := store.NewCluster(raftNode, strings.TrimPrefix(url, "http://"))
-	if err = cluster.Open(); err != nil {
-		fmt.Printf("cluster.open %v", err.Error())
-		os.Exit(1)
-	}
+	cluster := store.NewCluster(raftNode, fmt.Sprintf("%s:%d", url.host, url.port))
+	err = cluster.Open()
+	require.Nil(t, err, "expected nil error, got: %v", err)
 	// Allow time to elect leader
-	time.Sleep(time.Second)
+	time.Sleep(2 * time.Second)
 	return &cluster, &writer, clusterstate
+}
+
+type randomHostURL struct {
+	address string
+	host    string
+	port    int
+}
+
+func newRandomHostURL(t *testing.T) randomHostURL {
+	srv := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {}),
+	)
+	defer srv.Close()
+	split := strings.Split(srv.URL, ":")
+	host := strings.TrimPrefix(split[1], "//")
+	port, err := strconv.Atoi(split[2])
+	require.Nil(t, err)
+	return randomHostURL{
+		address: srv.URL,
+		host:    host,
+		port:    port,
+	}
 }
 
 type fakeDB struct {
@@ -300,5 +319,153 @@ func dummyParseVectorConfig(in interface{}) (schema.VectorIndexConfig, error) {
 }
 
 func dummyValidateInvertedConfig(in *models.InvertedIndexConfig) error {
+	return nil
+}
+
+type fakeMigrator struct{}
+
+func (f *fakeMigrator) AddClass(ctx context.Context, class *models.Class, shardingState *sharding.State) error {
+	return nil
+}
+
+func (f *fakeMigrator) DropClass(ctx context.Context, className string) error {
+	return nil
+}
+
+func (f *fakeMigrator) UpdateClass(ctx context.Context, className string, newClassName *string) error {
+	return nil
+}
+
+func (f *fakeMigrator) AddProperty(ctx context.Context, className string, prop *models.Property) error {
+	return nil
+}
+
+func (f *fakeMigrator) UpdateProperty(ctx context.Context, className string, propName string, newName *string) error {
+	return nil
+}
+
+func (f *fakeMigrator) NewTenants(ctx context.Context, class *models.Class, creates []*CreateTenantPayload) (commit func(success bool), err error) {
+	return nil, nil
+}
+
+func (f *fakeMigrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload) (commit func(success bool), err error) {
+	return nil, nil
+}
+
+func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants []string) (commit func(success bool), err error) {
+	return nil, nil
+}
+
+func (f *fakeMigrator) GetShardsStatus(ctx context.Context, className string) (map[string]string, error) {
+	return nil, nil
+}
+
+func (f *fakeMigrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error {
+	return nil
+}
+
+func (f *fakeMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context, old, updated schema.VectorIndexConfig) error {
+	return nil
+}
+
+func (f *fakeMigrator) UpdateVectorIndexConfig(ctx context.Context, className string, updated schema.VectorIndexConfig) error {
+	return nil
+}
+
+func (f *fakeMigrator) ValidateInvertedIndexConfigUpdate(ctx context.Context, old, updated *models.InvertedIndexConfig) error {
+	return nil
+}
+
+func (f *fakeMigrator) UpdateInvertedIndexConfig(ctx context.Context, className string, updated *models.InvertedIndexConfig) error {
+	return nil
+}
+
+type configMigrator struct {
+	fakeMigrator
+	vectorConfigValidationError    error
+	vectorConfigValidateCalledWith schema.VectorIndexConfig
+	vectorConfigUpdateCalled       bool
+	vectorConfigUpdateCalledWith   schema.VectorIndexConfig
+}
+
+func (m *configMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
+	old, updated schema.VectorIndexConfig,
+) error {
+	m.vectorConfigValidateCalledWith = updated
+	return m.vectorConfigValidationError
+}
+
+func (m *configMigrator) UpdateVectorIndexConfig(ctx context.Context,
+	className string, updated schema.VectorIndexConfig,
+) error {
+	m.vectorConfigUpdateCalledWith = updated
+	m.vectorConfigUpdateCalled = true
+	return nil
+}
+
+func newSchemaManager() *Manager {
+	logger, _ := test.NewNullLogger()
+	vectorizerValidator := &fakeVectorizerValidator{
+		valid: []string{"text2vec-contextionary", "model1", "model2"},
+	}
+	dummyConfig := config.Config{
+		DefaultVectorizerModule:     config.VectorizerModuleNone,
+		DefaultVectorDistanceMetric: "cosine",
+	}
+	sm, err := NewManager(&fakeMigrator{}, nil, nil, newFakeRepo(), logger, &fakeAuthorizer{},
+		dummyConfig, dummyParseVectorConfig, // only option for now
+		vectorizerValidator, dummyValidateInvertedConfig,
+		&fakeModuleConfig{}, &fakeClusterState{hosts: []string{"node1"}},
+		nil, nil, &fakeScaleOutManager{},
+	)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	sm.StartServing(context.Background()) // will also mark tx manager as ready
+
+	return sm
+}
+
+type fakeRepo struct {
+	schema State
+}
+
+func newFakeRepo() *fakeRepo {
+	return &fakeRepo{
+		schema: NewState(1),
+	}
+}
+
+func (f *fakeRepo) Save(ctx context.Context, schema State) error {
+	f.schema = schema
+	return nil
+}
+
+func (f *fakeRepo) Load(context.Context) (State, error) {
+	return f.schema, nil
+}
+
+func (f *fakeRepo) NewClass(context.Context, ClassPayload) error {
+	return nil
+}
+
+func (f *fakeRepo) UpdateClass(context.Context, ClassPayload) error {
+	return nil
+}
+
+func (f *fakeRepo) DeleteClass(ctx context.Context, class string) error {
+	return nil
+}
+
+func (f *fakeRepo) NewShards(ctx context.Context, class string, shards []KeyValuePair) error {
+	return nil
+}
+
+func (f *fakeRepo) UpdateShards(ctx context.Context, class string, shards []KeyValuePair) error {
+	return nil
+}
+
+func (f *fakeRepo) DeleteShards(ctx context.Context, class string, shards []string) error {
 	return nil
 }
