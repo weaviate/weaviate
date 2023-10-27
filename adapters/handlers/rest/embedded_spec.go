@@ -4537,6 +4537,11 @@ func init() {
         "status": {
           "description": "Status of the shard",
           "type": "string"
+        },
+        "vectorQueueSize": {
+          "description": "Size of the vector queue of the shard",
+          "type": "integer",
+          "x-omitempty": false
         }
       }
     },
@@ -9712,6 +9717,11 @@ func init() {
         "status": {
           "description": "Status of the shard",
           "type": "string"
+        },
+        "vectorQueueSize": {
+          "description": "Size of the vector queue of the shard",
+          "type": "integer",
+          "x-omitempty": false
         }
       }
     },
