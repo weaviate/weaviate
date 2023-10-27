@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
-	localvectorizer "github.com/weaviate/weaviate/modules/text2vec-openai/vectorizer"
+	localvectorizer "github.com/weaviate/weaviate/modules/text2vec-jinaai/vectorizer"
 )
 
 type Searcher struct {

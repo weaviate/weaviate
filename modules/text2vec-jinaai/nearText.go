@@ -13,7 +13,7 @@ package modjinaai
 
 import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/modules/text2vec-openai/neartext"
+	"github.com/weaviate/weaviate/modules/text2vec-jinaai/neartext"
 )
 
 func (m *JinaAIModule) initNearText() error {

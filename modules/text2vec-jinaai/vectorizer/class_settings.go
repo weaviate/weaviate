@@ -31,12 +31,6 @@ const (
 	DefaultBaseURL               = "https://api.jina.ai"
 )
 
-var availableJinaAITypes = []string{"text"}
-
-var availableJinaAIModels = []string{
-	"jina-embedding-v2",
-}
-
 type classSettings struct {
 	cfg moduletools.ClassConfig
 }
@@ -83,16 +77,11 @@ func (cs *classSettings) VectorizePropertyName(propName string) bool {
 }
 
 func (cs *classSettings) Model() string {
-	return cs.getProperty("model", DefaultOpenAIModel)
+	return cs.getProperty("model", DefaultJinaAIModel)
 }
 
 func (cs *classSettings) Type() string {
-	return cs.getProperty("type", DefaultOpenAIDocumentType)
-}
-
-func (cs *classSettings) ModelVersion() string {
-	defaultVersion := PickDefaultModelVersion(cs.Model(), cs.Type())
-	return cs.getProperty("modelVersion", defaultVersion)
+	return cs.getProperty("type", DefaultJinaAIDocumentType)
 }
 
 func (cs *classSettings) ResourceName() string {
@@ -101,14 +90,6 @@ func (cs *classSettings) ResourceName() string {
 
 func (cs *classSettings) BaseURL() string {
 	return cs.getProperty("baseURL", DefaultBaseURL)
-}
-
-func (cs *classSettings) DeploymentID() string {
-	return cs.getProperty("deploymentId", "")
-}
-
-func (cs *classSettings) IsAzure() bool {
-	return cs.ResourceName() != "" && cs.DeploymentID() != ""
 }
 
 func (cs *classSettings) VectorizeClassName() bool {
@@ -137,70 +118,13 @@ func (cs *classSettings) Validate(class *models.Class) error {
 	}
 
 	docType := cs.Type()
-	if !cs.validateOpenAISetting(docType, availableOpenAITypes) {
-		return errors.Errorf("wrong OpenAI type name, available model names are: %v", availableOpenAITypes)
-	}
 
-	model := cs.Model()
-	if !cs.validateOpenAISetting(model, availableOpenAIModels) {
-		return errors.Errorf("wrong OpenAI model name, available model names are: %v", availableOpenAIModels)
-	}
-
-	version := cs.ModelVersion()
-	if err := cs.validateModelVersion(version, model, docType); err != nil {
-		return err
-	}
-
-	err := cs.validateAzureConfig(cs.ResourceName(), cs.DeploymentID())
-	if err != nil {
-		return err
-	}
-
-	err = cs.validateIndexState(class, cs)
+	err := cs.validateIndexState(class, cs)
 	if err != nil {
 		return err
 	}
 
 	return nil
-}
-
-func (cs *classSettings) validateModelVersion(version, model, docType string) error {
-	if version == "001" {
-		// no restrictions
-		return nil
-	}
-
-	if version == "002" {
-		// only ada/davinci 002
-		if model != "ada" && model != "davinci" {
-			return fmt.Errorf("unsupported version %s", version)
-		}
-	}
-
-	if version == "003" && model != "davinci" {
-		// only davinci 003
-		return fmt.Errorf("unsupported version %s", version)
-	}
-
-	if version != "002" && version != "003" {
-		// all other fallback
-		return fmt.Errorf("model %s is only available in version 001", model)
-	}
-
-	if docType != "text" {
-		return fmt.Errorf("ada-002 no longer distinguishes between text/code, use 'text' for all use cases")
-	}
-
-	return nil
-}
-
-func (cs *classSettings) validateOpenAISetting(value string, availableValues []string) bool {
-	for i := range availableValues {
-		if value == availableValues[i] {
-			return true
-		}
-	}
-	return false
 }
 
 func (cs *classSettings) getProperty(name, defaultValue string) string {
@@ -254,20 +178,4 @@ func (cs *classSettings) validateIndexState(class *models.Class, settings ClassS
 		"to true if the class name is contextionary-valid. Alternatively add at least " +
 		"contextionary-valid text/string property which is not excluded from " +
 		"indexing.")
-}
-
-func (cs *classSettings) validateAzureConfig(resourceName string, deploymentId string) error {
-	if (resourceName == "" && deploymentId != "") || (resourceName != "" && deploymentId == "") {
-		return fmt.Errorf("both resourceName and deploymentId must be provided")
-	}
-	return nil
-}
-
-func PickDefaultModelVersion(model, docType string) string {
-	if model == "ada" && docType == "text" {
-		return "002"
-	}
-
-	// for all other combinations stick with "001"
-	return "001"
 }

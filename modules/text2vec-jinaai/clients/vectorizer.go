@@ -25,7 +25,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-jinaai/ent"
 )
 
 type embeddingsRequest struct {
@@ -36,7 +36,7 @@ type embeddingsRequest struct {
 type embedding struct {
 	Object string          `json:"object"`
 	Data   []embeddingData `json:"data,omitempty"`
-	Error  *openAIApiError `json:"error,omitempty"`
+	Error  *jinaAIApiError `json:"error,omitempty"`
 }
 
 type embeddingData struct {
@@ -45,7 +45,7 @@ type embeddingData struct {
 	Embedding []float32 `json:"embedding"`
 }
 
-type openAIApiError struct {
+type jinaAIApiError struct {
 	Message string `json:"message"`
 	Type    string `json:"type"`
 	Param   string `json:"param"`
@@ -59,15 +59,15 @@ func buildUrl(config ent.VectorizationConfig) (string, error) {
 }
 
 type vectorizer struct {
-	jinaAIApiKey       string
-	httpClient         *http.Client
-	buildUrlFn         func(config ent.VectorizationConfig) (string, error)
-	logger             logrus.FieldLogger
+	jinaAIApiKey string
+	httpClient   *http.Client
+	buildUrlFn   func(config ent.VectorizationConfig) (string, error)
+	logger       logrus.FieldLogger
 }
 
 func New(jinaAIApiKey, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
-		jinaAIApiKey:       jinaAIApiKey,
+		jinaAIApiKey: jinaAIApiKey,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
@@ -79,13 +79,13 @@ func New(jinaAIApiKey, timeout time.Duration, logger logrus.FieldLogger) *vector
 func (v *vectorizer) Vectorize(ctx context.Context, input string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, []string{input}, v.getModelString(config.Type, config.Model, "document", config.ModelVersion), config)
+	return v.vectorize(ctx, []string{input}, config.Model, config)
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, v.getModelString(config.Type, config.Model, "query", config.ModelVersion), config)
+	return v.vectorize(ctx, input, config.Model, config)
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, input []string, model string, config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
@@ -96,7 +96,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string, model string
 
 	endpoint, err := v.buildUrlFn(config)
 	if err != nil {
-		return nil, errors.Wrap(err, "join OpenAI API host and path")
+		return nil, errors.Wrap(err, "join jinaAI API host and path")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", endpoint,
@@ -128,7 +128,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string, model string
 	}
 
 	if res.StatusCode != 200 || resBody.Error != nil {
-		return nil, v.getError(res.StatusCode, resBody.Error, config.IsAzure)
+		return nil, v.getError(res.StatusCode, resBody.Error)
 	}
 
 	texts := make([]string, len(resBody.Data))
@@ -153,17 +153,13 @@ func (v *vectorizer) getError(statusCode int, resBodyError *jinaAIApiError) erro
 	return fmt.Errorf("connection to: %s failed with status: %d", endpoint, statusCode)
 }
 
-func (v *vectorizer) getEmbeddingsRequest(input []string, model string, isAzure bool) embeddingsRequest {
-	if isAzure {
-		return embeddingsRequest{Input: input}
-	}
+func (v *vectorizer) getEmbeddingsRequest(input []string, model string) embeddingsRequest {
 	return embeddingsRequest{Input: input, Model: model}
 }
 
 func (v *vectorizer) getApiKeyHeaderAndValue(apiKey string) (string, string) {
 	return "Authorization", fmt.Sprintf("Bearer %s", apiKey)
 }
-
 
 func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
 	var apiKey, envVar string
@@ -196,33 +192,4 @@ func (v *vectorizer) getValueFromContext(ctx context.Context, key string) string
 	}
 
 	return ""
-}
-
-func (v *vectorizer) getModelString(docType, model, action, version string) string {
-	if version == "002" {
-		return v.getModel002String(model)
-	}
-
-	return v.getModel001String(docType, model, action)
-}
-
-func (v *vectorizer) getModel001String(docType, model, action string) string {
-	modelBaseString := "%s-search-%s-%s-001"
-	if action == "document" {
-		if docType == "code" {
-			return fmt.Sprintf(modelBaseString, docType, model, "code")
-		}
-		return fmt.Sprintf(modelBaseString, docType, model, "doc")
-
-	} else {
-		if docType == "code" {
-			return fmt.Sprintf(modelBaseString, docType, model, "text")
-		}
-		return fmt.Sprintf(modelBaseString, docType, model, "query")
-	}
-}
-
-func (v *vectorizer) getModel002String(model string) string {
-	modelBaseString := "text-embedding-%s-002"
-	return fmt.Sprintf(modelBaseString, model)
 }

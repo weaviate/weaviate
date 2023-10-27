@@ -27,8 +27,6 @@ func (m *JinaAIModule) ClassConfigDefaults() map[string]interface{} {
 		"type":               vectorizer.DefaultJinaAIDocumentType,
 		"model":              vectorizer.DefaultJinaAIModel,
 		"baseURL":            vectorizer.DefaultBaseURL,
-		"modelVersion": vectorizer.PickDefaultModelVersion(vectorizer.DefaultJinaAIModel,
-			vectorizer.DefaultJinaAIDocumentType),
 	}
 }
 
