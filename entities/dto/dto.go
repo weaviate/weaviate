@@ -41,4 +41,5 @@ type GetParams struct {
 	AdditionalProperties  additional.Properties
 	ReplicationProperties *additional.ReplicationProperties
 	Tenant                string
+	IsRefOrigin           bool // is created by ref filter
 }

@@ -24,15 +24,17 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-const NodeLockStripe = uint64(512)
+const (
+	NodeLockStripe = uint64(512)
+)
 
 type hnsw struct {
 	// global lock to prevent concurrent map read/write, etc.
@@ -674,4 +676,19 @@ func (h *hnsw) Entrypoint() uint64 {
 	defer h.RUnlock()
 
 	return h.entryPointID
+}
+
+func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
+	return h.distancerProvider.SingleDist(x, y)
+}
+
+func (h *hnsw) ContainsNode(id uint64) bool {
+	h.RLock()
+	ok := len(h.nodes) > int(id) && h.nodes[id] != nil
+	h.RUnlock()
+	return ok
+}
+
+func (h *hnsw) DistancerProvider() distancer.Provider {
+	return h.distancerProvider
 }

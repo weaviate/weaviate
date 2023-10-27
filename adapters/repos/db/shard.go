@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/docid"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -46,17 +47,19 @@ const IdLockPoolSize = 128
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
-	index           *Index // a reference to the underlying index, which in turn contains schema information
-	name            string
-	store           *lsmkv.Store
-	counter         *indexcounter.Counter
-	vectorIndex     VectorIndex
-	metrics         *Metrics
-	promMetrics     *monitoring.PrometheusMetrics
-	propertyIndices propertyspecific.Indices
-	deletedDocIDs   *docid.InMemDeletedTracker
-	propLengths     *inverted.JsonPropertyLengthTracker
-	versioner       *shardVersioner
+	index            *Index // a reference to the underlying index, which in turn contains schema information
+	queue            *IndexQueue
+	name             string
+	store            *lsmkv.Store
+	counter          *indexcounter.Counter
+	indexCheckpoints *indexcheckpoint.Checkpoints
+	vectorIndex      VectorIndex
+	metrics          *Metrics
+	promMetrics      *monitoring.PrometheusMetrics
+	propertyIndices  propertyspecific.Indices
+	deletedDocIDs    *docid.InMemDeletedTracker
+	propLengths      *inverted.JsonPropertyLengthTracker
+	versioner        *shardVersioner
 
 	status              storagestate.Status
 	statusLock          sync.Mutex
@@ -120,6 +123,7 @@ func (s *Shard) GetStatus() storagestate.Status {
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
+	indexCheckpoints *indexcheckpoint.Checkpoints,
 ) (*Shard, error) {
 	before := time.Now()
 
@@ -129,10 +133,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		promMetrics: promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
-		deletedDocIDs:   docid.NewInMemDeletedTracker(),
-		stopMetrics:     make(chan struct{}),
-		replicationMap:  pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
-		centralJobQueue: jobQueueCh,
+		deletedDocIDs:    docid.NewInMemDeletedTracker(),
+		stopMetrics:      make(chan struct{}),
+		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue:  jobQueueCh,
+		indexCheckpoints: indexCheckpoints,
 	}
 	s.initCycleCallbacks()
 
@@ -159,6 +164,20 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
+
+	var err error
+	s.queue, err = NewIndexQueue(s.ID(), s, s.vectorIndex, s.centralJobQueue, s.indexCheckpoints, IndexQueueOptions{
+		Logger: s.index.logger,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.queue.PreloadShard(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	s.notifyReady()
 
 	return s, nil
 }
@@ -344,6 +363,12 @@ func (s *Shard) drop() error {
 	err = s.versioner.Drop()
 	if err != nil {
 		return errors.Wrapf(err, "remove indexcount at %s", s.DBPathLSM())
+	}
+
+	// delete queue cursor
+	err = s.queue.Drop()
+	if err != nil {
+		return errors.Wrapf(err, "remove minindexed at %s", s.DBPathLSM())
 	}
 	// remove vector index
 	err = s.vectorIndex.Drop(ctx)
@@ -582,6 +607,10 @@ func (s *Shard) shutdown(ctx context.Context) error {
 
 	if err := s.propLengths.Close(); err != nil {
 		return errors.Wrap(err, "close prop length tracker")
+	}
+
+	if err := s.queue.Close(); err != nil {
+		return errors.Wrap(err, "shut down vector index queue")
 	}
 
 	// to ensure that all commitlog entries are written to disk.
