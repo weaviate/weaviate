@@ -215,14 +215,30 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 	heap := index.pqResults.GetMax(ef)
 	defer index.pqResults.Put(heap)
 
+	firstId := uint64(0)
+	alreadyFound := 0
+	if allow != nil {
+		firstId, _ = allow.Iterator().Next()
+	}
+
 	if index.compression != flatent.CompressionNone {
 		query, err := index.bq.Encode(vector)
 		if err != nil {
 			return nil, nil, err
 		}
 		cursor := index.store.Bucket(helpers.CompressedObjectsBucketLSM).Cursor()
-		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-			id := binary.LittleEndian.Uint64(k)
+		var key []byte
+		var v []byte
+		if allow != nil {
+			buff := make([]byte, 16)
+			binary.BigEndian.PutUint64(buff[8:], firstId)
+			key, v = cursor.Seek(buff)
+		} else {
+			key, v = cursor.First()
+		}
+		for key != nil && (allow == nil || alreadyFound < allow.Len()) {
+			alreadyFound++
+			id := binary.LittleEndian.Uint64(key)
 			if allow != nil && !allow.Contains(id) {
 				continue
 			}
@@ -237,7 +253,7 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 				}
 				heap.Insert(id, d)
 			}
-
+			key, v = cursor.Next()
 		}
 		cursor.Close()
 
@@ -264,7 +280,18 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 		}
 	} else {
 		cursor := index.flatStore()
-		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+		var key []byte
+		var v []byte
+		if allow != nil {
+			buff := make([]byte, 16)
+			binary.BigEndian.PutUint64(buff[8:], firstId)
+			key, v = cursor.Seek(buff)
+		} else {
+			key, v = cursor.First()
+		}
+
+		for key != nil && (allow == nil || alreadyFound < allow.Len()) {
+			alreadyFound++
 			obj, err := storobj.FromBinary(v)
 			id := obj.DocID()
 			if allow != nil && !allow.Contains(id) {
@@ -288,7 +315,7 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 				}
 				heap.Insert(id, d)
 			}
-
+			key, v = cursor.Next()
 		}
 		cursor.Close()
 	}
