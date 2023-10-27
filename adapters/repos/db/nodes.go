@@ -89,7 +89,7 @@ func (db *DB) localNodeStatus(className string) *models.NodeStatus {
 	rate := db.ratePerSecond
 	db.batchMonitorLock.Unlock()
 
-	return &models.NodeStatus{
+	status := models.NodeStatus{
 		Name:    db.schemaGetter.NodeName(),
 		Version: db.config.ServerVersion,
 		GitHash: db.config.GitHash,
@@ -100,10 +100,16 @@ func (db *DB) localNodeStatus(className string) *models.NodeStatus {
 			ObjectCount: objectCount,
 		},
 		BatchStats: &models.BatchStats{
-			QueueLength:   int64(len(db.jobQueueCh)),
 			RatePerSecond: int64(rate),
 		},
 	}
+
+	if !asyncEnabled() {
+		ql := int64(len(db.jobQueueCh))
+		status.BatchStats.QueueLength = &ql
+	}
+
+	return &status
 }
 
 func (db *DB) localNodeStatusAll(status *[]*models.NodeShardStatus) (totalCount int64) {
@@ -136,9 +142,11 @@ func (i *Index) getShardsNodeStatus(status *[]*models.NodeShardStatus) (totalCou
 	i.ForEachShard(func(name string, shard *Shard) error {
 		objectCount := int64(shard.objectCount())
 		shardStatus := &models.NodeShardStatus{
-			Name:        name,
-			Class:       shard.index.Config.ClassName.String(),
-			ObjectCount: objectCount,
+			Name:                 name,
+			Class:                shard.index.Config.ClassName.String(),
+			ObjectCount:          objectCount,
+			VectorIndexingStatus: shard.getStatus().String(),
+			VectorQueueLength:    shard.queue.Size(),
 		}
 		totalCount += objectCount
 		*status = append(*status, shardStatus)

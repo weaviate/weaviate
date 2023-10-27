@@ -13,7 +13,7 @@ package hnsw
 
 import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 )
 
 func (h *hnsw) flatSearch(queryVector []float32, limit int,

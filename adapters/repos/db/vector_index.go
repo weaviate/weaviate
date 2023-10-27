@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -23,6 +24,7 @@ import (
 type VectorIndex interface {
 	Dump(labels ...string)
 	Add(id uint64, vector []float32) error
+	AddBatch(id []uint64, vector [][]float32) error
 	Delete(id ...uint64) error
 	SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
 	SearchByVectorDistance(vector []float32, dist float32,
@@ -35,4 +37,7 @@ type VectorIndex interface {
 	ListFiles(ctx context.Context) ([]string, error)
 	PostStartup()
 	ValidateBeforeInsert(vector []float32) error
+	DistanceBetweenVectors(x, y []float32) (float32, bool, error)
+	ContainsNode(id uint64) bool
+	DistancerProvider() distancer.Provider
 }

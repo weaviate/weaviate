@@ -67,9 +67,16 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 		return nil, nil, errors.Wrapf(err, "invalid pagination params")
 	}
 
+	// if this is reference search and tenant is given (as origin class is MT)
+	// but searched class is non-MT, then skip tenant to pass validation
+	tenant := params.Tenant
+	if !idx.partitioningEnabled && params.IsRefOrigin {
+		tenant = ""
+	}
+
 	res, dist, err := idx.objectSearch(ctx, totalLimit,
 		params.Filters, params.KeywordRanking, params.Sort, params.Cursor,
-		params.AdditionalProperties, params.ReplicationProperties, params.Tenant, params.Pagination.Autocut)
+		params.AdditionalProperties, params.ReplicationProperties, tenant, params.Pagination.Autocut)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "object search at index %s", idx.ID())
 	}

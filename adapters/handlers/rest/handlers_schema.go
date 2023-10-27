@@ -168,7 +168,13 @@ func (s *schemaHandlers) getClusterStatus(params schema.SchemaClusterStatusParam
 func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	status, err := s.manager.GetShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName)
+	var tenant string
+	if params.Tenant == nil {
+		tenant = ""
+	} else {
+		tenant = *params.Tenant
+	}
+	status, err := s.manager.GetShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName, tenant)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
