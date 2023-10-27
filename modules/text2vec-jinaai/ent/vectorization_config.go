@@ -12,7 +12,6 @@
 package ent
 
 type VectorizationConfig struct {
-	Type, Model, ModelVersion, ResourceName string
-	BaseURL                                 string
-	DeploymentID                            string `json:"deploymentId"`
+	Type, Model, ResourceName string
+	BaseURL                   string
 }

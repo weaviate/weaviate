@@ -15,7 +15,7 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-jinaai/ent"
 )
 
 func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
@@ -24,10 +24,7 @@ func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 	res, err := v.client.VectorizeQuery(ctx, inputs, ent.VectorizationConfig{
 		Type:         settings.Type(),
 		Model:        settings.Model(),
-		ModelVersion: settings.ModelVersion(),
 		ResourceName: settings.ResourceName(),
-		DeploymentID: settings.DeploymentID(),
-		IsAzure:      settings.IsAzure(),
 		BaseURL:      settings.BaseURL(),
 	})
 	if err != nil {

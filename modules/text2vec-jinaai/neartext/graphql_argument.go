@@ -27,7 +27,7 @@ func (g *GraphQLArgumentsProvider) aggregateNearTextArgumentFn(classname string)
 }
 
 func (g *GraphQLArgumentsProvider) nearTextArgument(prefix, className string) *graphql.ArgumentConfig {
-	prefixName := fmt.Sprintf("Txt2VecOpenAI%s%s", prefix, className)
+	prefixName := fmt.Sprintf("Txt2VecJinaAI%s%s", prefix, className)
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{

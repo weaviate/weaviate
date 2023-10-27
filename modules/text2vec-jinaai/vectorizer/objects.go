@@ -20,7 +20,7 @@ import (
 	"github.com/fatih/camelcase"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-jinaai/ent"
 )
 
 type Vectorizer struct {
@@ -47,11 +47,8 @@ type ClassSettings interface {
 	VectorizeClassName() bool
 	Model() string
 	Type() string
-	ModelVersion() string
 	ResourceName() string
-	DeploymentID() string
 	BaseURL() string
-	IsAzure() bool
 }
 
 func sortStringKeys(schemaMap map[string]interface{}) []string {
@@ -140,11 +137,8 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 	res, err := v.client.Vectorize(ctx, text, ent.VectorizationConfig{
 		Type:         icheck.Type(),
 		Model:        icheck.Model(),
-		ModelVersion: icheck.ModelVersion(),
 		ResourceName: icheck.ResourceName(),
-		DeploymentID: icheck.DeploymentID(),
 		BaseURL:      icheck.BaseURL(),
-		IsAzure:      icheck.IsAzure(),
 	})
 	if err != nil {
 		return nil, err
