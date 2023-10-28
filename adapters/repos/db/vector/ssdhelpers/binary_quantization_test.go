@@ -34,7 +34,7 @@ func TestBinaryQuantizerRecall(t *testing.T) {
 	ssdhelpers.Concurrently(uint64(len(queryVecs)), func(i uint64) {
 		queryVecs[i] = distancer.Normalize(queryVecs[i])
 	})
-	bq := ssdhelpers.NewBinaryQuantizer(1536)
+	bq := ssdhelpers.NewBinaryQuantizer()
 	bq.Fit(vectors)
 
 	codes := make([][]uint64, len(vectors))
@@ -81,7 +81,7 @@ func TestBinaryQuantizerRecall(t *testing.T) {
 }
 
 func TestBinaryQuantizerChecksSize(t *testing.T) {
-	bq := ssdhelpers.NewBinaryQuantizer(1536)
+	bq := ssdhelpers.NewBinaryQuantizer()
 	_, err := bq.DistanceBetweenCompressedVectors(make([]uint64, 3), make([]uint64, 4))
 	assert.NotNil(t, err)
 }
