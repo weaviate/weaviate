@@ -35,7 +35,6 @@ func TestBinaryQuantizerRecall(t *testing.T) {
 		queryVecs[i] = distancer.Normalize(queryVecs[i])
 	})
 	bq := ssdhelpers.NewBinaryQuantizer()
-	bq.Fit(vectors)
 
 	codes := make([][]uint64, len(vectors))
 	ssdhelpers.Concurrently(uint64(len(vectors)), func(i uint64) {
