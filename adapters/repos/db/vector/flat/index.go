@@ -158,15 +158,13 @@ func uint64SliceFromByteSlice(x []byte, slice []uint64) []uint64 {
 func (index *flat) Add(id uint64, vector []float32) error {
 	index.trackDimensionsOnce.Do(func() {
 		atomic.StoreInt32(&index.dims, int32(len(vector)))
-		fmt.Println("dimensions: " + string(index.dims))
-		index.bq = *ssdhelpers.NewBinaryQuantizer(int(index.dims))
+		index.bq = ssdhelpers.NewBinaryQuantizer()
 		index.pool = newPools()
 		if index.compression == flatent.CompressionNone {
 			return
 		}
 		atomic.StoreInt32(&index.dims, int32(len(vector)))
-		index.bq = *ssdhelpers.NewBinaryQuantizer()
-		index.bq.Fit([][]float32{vector})
+		index.bq = ssdhelpers.NewBinaryQuantizer()
 	})
 	if index.compression == flatent.CompressionNone {
 		return nil
@@ -484,6 +482,10 @@ func (index *flat) DistanceBetweenVectors(x, y []float32) (float32, bool, error)
 
 func (index *flat) ContainsNode(id uint64) bool {
 	return true
+}
+
+func (index *flat) DistancerProvider() distancer.Provider {
+	return index.distancerProvider
 }
 
 func (index *flat) getCompressedVectorForID(ctx context.Context, id uint64) ([]uint64, error) {
