@@ -117,7 +117,7 @@ func TestGRPCRequest(t *testing.T) {
 							},
 						},
 					},
-					VectorIndexConfig: hnsw.UserConfig{Distance: hnsw.DefaultDistanceMetric},
+					VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DefaultDistanceMetric},
 				},
 			},
 		},
