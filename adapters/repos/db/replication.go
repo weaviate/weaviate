@@ -347,7 +347,6 @@ func (s *Shard) reinit(ctx context.Context) error {
 				},
 			}, hnswUserConfig,
 				s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks)
-
 			if err != nil {
 				return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
 			}
