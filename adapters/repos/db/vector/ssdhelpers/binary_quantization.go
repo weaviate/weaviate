@@ -17,8 +17,7 @@ import (
 	"math/bits"
 )
 
-type BinaryQuantizer struct {
-}
+type BinaryQuantizer struct{}
 
 func NewBinaryQuantizer() BinaryQuantizer {
 	return BinaryQuantizer{}

@@ -198,7 +198,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 				},
 			}, hnswUserConfig,
 				s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks)
-
 			if err != nil {
 				return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
 			}
