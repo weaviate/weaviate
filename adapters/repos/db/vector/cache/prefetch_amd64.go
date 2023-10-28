@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package hnsw
+package cache
 
 import "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 
