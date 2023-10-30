@@ -30,8 +30,7 @@ func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 
-
-	//Nothing to compact
+	// Nothing to compact
 	if len(sg.segments) < 2 {
 		return nil
 	}
@@ -41,12 +40,12 @@ func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 	lowestPairLevel := uint16(math.MaxUint16)
 	lowestLevel := uint16(math.MaxUint16)
 	lowestIndex := -1
-	//secondLowestLevel := uint16(math.MaxUint16)
+	// secondLowestLevel := uint16(math.MaxUint16)
 	secondLowestIndex := -1
 	highestLevel := uint16(0)
 	pairExists := false
-	//var lowestSegment *segment
-	//var secondLowestSegment *segment
+	// var lowestSegment *segment
+	// var secondLowestSegment *segment
 
 	for ind, seg := range sg.segments {
 		levels[seg.level]++
@@ -59,11 +58,11 @@ func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 		}
 
 		if seg.level < lowestLevel {
-			//secondLowestLevel = lowestLevel
-			//secondLowestSegment = lowestSegment
+			// secondLowestLevel = lowestLevel
+			// secondLowestSegment = lowestSegment
 			secondLowestIndex = lowestIndex
 			lowestLevel = seg.level
-			//lowestSegment = seg
+			// lowestSegment = seg
 			lowestIndex = ind
 		}
 
@@ -89,13 +88,13 @@ func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 		return res
 	} else {
 		if CompactLeftOverSegments {
-		//Some segments exist, but none are of the same level
-		//Merge the two lowest segments
+			// Some segments exist, but none are of the same level
+			// Merge the two lowest segments
 
-		return []int{ secondLowestIndex, lowestIndex}
+			return []int{secondLowestIndex, lowestIndex}
 		} else {
-			//No segments of the same level exist, and we are not allowed to merge the lowest segments
-			//This means we cannot compact.  Set COMPACT_LEFTOVER_SEGMENTS to true to compact the remaining segments
+			// No segments of the same level exist, and we are not allowed to merge the lowest segments
+			// This means we cannot compact.  Set COMPACT_LEFTOVER_SEGMENTS to true to compact the remaining segments
 			return nil
 		}
 	}

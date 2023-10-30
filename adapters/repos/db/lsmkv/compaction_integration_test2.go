@@ -1,15 +1,28 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package lsmkv
 
 import (
-
-	"testing"
+	"context"
 	"fmt"
-
 	"math/rand"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"gotest.tools/v3/assert"
 )
 
-
-func TestCompactionReplaceStrategyStraggler( t *testing.T) {
+func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 	opts := []BucketOption{WithStrategy(StrategyReplace)}
 	size := 200
 
@@ -202,12 +215,11 @@ func TestCompactionReplaceStrategyStraggler( t *testing.T) {
 		assert.Equal(t, len(expected), bucket.Count())
 	})
 
-
-
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		var compacted bool
 		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {}
+		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+		}
 		require.Nil(t, err)
 	})
 
@@ -243,5 +255,3 @@ func TestCompactionReplaceStrategyStraggler( t *testing.T) {
 		assert.Equal(t, len(expected), bucket.Count())
 	})
 }
-
-
