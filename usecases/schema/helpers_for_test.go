@@ -469,3 +469,15 @@ func (f *fakeRepo) UpdateShards(ctx context.Context, class string, shards []KeyV
 func (f *fakeRepo) DeleteShards(ctx context.Context, class string, shards []string) error {
 	return nil
 }
+
+type fakeNodes struct {
+	nodes []string
+}
+
+func (f fakeNodes) Candidates() []string {
+	return f.nodes
+}
+
+func (f fakeNodes) LocalName() string {
+	return f.nodes[0]
+}
