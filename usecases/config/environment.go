@@ -37,12 +37,11 @@ const (
 	DefaultGRPCPort                           = 50051
 	DefaultMinimumReplicationFactor           = 1
 
-	DefaultRaftPort         = 3000
-	DefaultRaftInternalPort = 3001
-	DefaultRaftExpect       = 1
+	DefaultRaftPort             = 8300
+	DefaultRaftInternalPort     = 8301
+	DefaultRaftBootstrapTimeout = 10
+	DefaultRaftBootstrapExpect  = 1
 )
-
-var DefaultRaftJoin = []string{"localhost:3000"}
 
 const VectorizerModuleNone = "none"
 
@@ -371,13 +370,23 @@ func FromEnv(config *Config) error {
 	parseStringList(
 		"RAFT_JOIN",
 		func(val []string) { config.Raft.Join = val },
-		DefaultRaftJoin,
+		// Default RAFT_JOIN must be the configured node name and the configured raft port. This allows us to have a one-node raft cluster
+		// able to bootstrap itself if the user doesn't pass any raft parameter.
+		[]string{fmt.Sprintf("%s:%d", config.Cluster.Hostname, config.Raft.InternalRPCPort)},
 	)
 
 	if err := parsePositiveInt(
+		"RAFT_BOOTSTRAP_TIMEOUT",
+		func(val int) { config.Raft.BootstrapTimeout = time.Second * time.Duration(val) },
+		DefaultRaftBootstrapTimeout,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveInt(
 		"RAFT_BOOTSTRAP_EXPECT",
-		func(val int) { config.Raft.BootstrapExcept = val },
-		DefaultRaftExpect,
+		func(val int) { config.Raft.BootstrapExpect = val },
+		DefaultRaftBootstrapExpect,
 	); err != nil {
 		return err
 	}

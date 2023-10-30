@@ -397,42 +397,88 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		migrator.RecountProperties(ctx)
 	}
 
-	// TODO_RAFT START
+	// TODO-RAFT START
 	appState.MetaStore = &fsm
 
-	boostrapper := false
+	// If bootstrap expect is bigger than 0, we are bootstraping a new cluster
+	bootstrapper := appState.ServerConfig.Config.Raft.BootstrapExpect > 0
 
-	// Create candidate list from config join parameter
-	candidateList := make([]schemav2.Candidate, 0, len(appState.ServerConfig.Config.Raft.Join))
-	for i, addr := range appState.ServerConfig.Config.Raft.Join {
-		candidateList = append(candidateList, schemav2.Candidate{
-			ID: fmt.Sprintf("node%d", i+1), Address: addr, NonVoter: false,
-		})
+	if bootstrapper {
+		// The bootstrap process follows these steps:
+		// 1. Ensure all the nodes we expect are running and joined in memberlist
+		// 2. Ensure we can resolve an address for the nodes in raft join
+		// 3. Build a candidate list from the address in memberlist and the port listed in join parameter
+		// 4. Open the FSM store and bootstrap the raft cluster
+
+		waitForNodeToBeInMemberList := func(nodeName string) string {
+			timeout := time.After(appState.ServerConfig.Config.Raft.BootstrapTimeout)
+			ticker := time.NewTicker(time.Second * 1)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-timeout:
+					appState.Logger.
+						WithField("action", "startup").
+						Fatalf("waited for node %s for %s raft nodes to join gossip", nodeName, appState.ServerConfig.Config.Raft.BootstrapTimeout)
+				case <-ticker.C:
+					hostnameAndPort, ok := appState.Cluster.NodeHostname(nodeName)
+					if ok {
+						return hostnameAndPort
+					}
+					appState.Logger.
+						WithField("action", "startup").
+						Infof("waiting for node %s for raft bootstrap", nodeName)
+				}
+			}
+		}
+
+		// Add nodes from bootstrap join parameter to the raft candidate list
+		candidateList := make([]schemav2.Candidate, 0, len(appState.ServerConfig.Config.Raft.Join))
+		for _, joinNodeNameAndPort := range appState.ServerConfig.Config.Raft.Join {
+			joinNodeNameAndPortSplitted := strings.Split(joinNodeNameAndPort, ":")
+			// shorter names for clearer usage below
+			joinNodeName := joinNodeNameAndPortSplitted[0]
+			joinNodePort := joinNodeNameAndPortSplitted[1]
+
+			// We need to find the node by it's name in the memberlist and remove the port appended to the hostname, as this port is the
+			// memberlist gossip port, not the raft port.
+			joinNodeAddrAndGossipPort := waitForNodeToBeInMemberList(joinNodeName)
+			joinNodeAddr := strings.Split(joinNodeAddrAndGossipPort, ":")[0] + ":" + joinNodePort
+
+			candidateList = append(candidateList, schemav2.Candidate{ID: joinNodeName, Address: joinNodeAddr})
+			appState.Logger.
+				WithField("action", "startup").
+				Debugf("added node %s with address %s to initial raft bootstrap list", joinNodeName, joinNodeAddr)
+		}
+
+		raftNode, err := fsm.Open(bootstrapper, candidateList)
+		if err != nil {
+			appState.Logger.
+				WithField("action", "startup").
+				WithError(err).
+				Fatal("could not open fsm store")
+		}
+
+		cAddr := addrs[0] + ":" + fmt.Sprintf("%d", appState.ServerConfig.Config.Raft.InternalRPCPort)
+		cluster := schemav2.NewCluster(raftNode, cAddr)
+		if err := cluster.Open(); err != nil {
+			appState.Logger.
+				WithField("action", "startup").
+				WithError(err).
+				Fatal("could not start raft cluster")
+		}
+	} else {
+		//serverAddress := addrs[0] + ":2" + "7101"
+		//raftAddress := addrs[0] + ":1" + addrs[1]
+		//cl := schemav2.NewClient(cluster)
+		//joinReq := proto.JoinPeerRequest{Id: nodeName, Address: raftAddress, Voter: true}
+		//err := cl.Join(serverAddress, &joinReq)
+		//if err != nil {
+		//	fmt.Printf("cluster.join %v", err.Error())
+		// os.Exit(1)
+		//}
 	}
-	// TODO-RAFT: Bootstrapper boolean is currently unused in fsm.Open and below. Should we keep it ?
-	// If yes then how do we determine who is bootstrapper/leader based on the flags ?
-	raftNode, err := fsm.Open(boostrapper, candidateList)
-	if err != nil {
-		fmt.Printf("fsm.open %v", err.Error())
-		os.Exit(1)
-	}
-	cAddr := addrs[0] + ":" + fmt.Sprintf("%d", appState.ServerConfig.Config.Raft.InternalRPCPort)
-	cluster := schemav2.NewCluster(raftNode, cAddr)
-	if err := cluster.Open(); err != nil {
-		fmt.Printf("cluster.open %v", err.Error())
-		os.Exit(1)
-	}
-	//if !boostrapper {
-	//serverAddress := addrs[0] + ":2" + "7101"
-	//raftAddress := addrs[0] + ":1" + addrs[1]
-	//cl := schemav2.NewClient(cluster)
-	//joinReq := proto.JoinPeerRequest{Id: nodeName, Address: raftAddress, Voter: true}
-	//err := cl.Join(serverAddress, &joinReq)
-	//if err != nil {
-	//	fmt.Printf("cluster.join %v", err.Error())
-	// os.Exit(1)
-	//}
-	//}
 	// TODO-RAFT END
 
 	return appState
