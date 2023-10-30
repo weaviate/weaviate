@@ -43,7 +43,7 @@ func ValidateConfig(class *models.Class, globalCfg replication.GlobalConfig) err
 func ValidateConfigUpdate(old, updated *models.Class, nodeCounter nodeCounter) error {
 	// This is not possible if schema is being updated via by a client.
 	// But for a test object that wasn't created by a client, it is.
-	if old.ReplicationConfig == nil {
+	if old.ReplicationConfig == nil || old.ReplicationConfig.Factor == 0 {
 		old.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
 	}
 
