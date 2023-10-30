@@ -27,13 +27,13 @@ import (
 // provided by other means (e.g. a config file) and will only extend those that
 // are set
 func FromEnv(config *Config) error {
-	if Enabled(os.Getenv("PROMETHEUS_MONITORING_ENABLED")) {
+	if enabled(os.Getenv("PROMETHEUS_MONITORING_ENABLED")) {
 		config.Monitoring.Enabled = true
 		config.Monitoring.Tool = "prometheus"
 		config.Monitoring.Port = 2112
 
-		if Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) ||
-			Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP")) {
+		if enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) ||
+			enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP")) {
 			// The variable was renamed with v1.20. Prior to v1.20 the recommended
 			// way to do MT was using classes. This lead to a lot of metrics which
 			// could be grouped with this variable. With v1.20 we introduced native
@@ -45,26 +45,26 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if Enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
+	if enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
 		config.TrackVectorDimensions = true
 	}
 
-	if Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
+	if enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
 		if config.TrackVectorDimensions {
 			config.ReindexVectorDimensionsAtStartup = true
 		}
 	}
 
 	// Recount all property lengths at startup to support accurate BM25 scoring
-	if Enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {
+	if enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {
 		config.RecountPropertiesAtStartup = true
 	}
 
-	if Enabled(os.Getenv("REINDEX_SET_TO_ROARINGSET_AT_STARTUP")) {
+	if enabled(os.Getenv("REINDEX_SET_TO_ROARINGSET_AT_STARTUP")) {
 		config.ReindexSetToRoaringsetAtStartup = true
 	}
 
-	if Enabled(os.Getenv("INDEX_MISSING_TEXT_FILTERABLE_AT_STARTUP")) {
+	if enabled(os.Getenv("INDEX_MISSING_TEXT_FILTERABLE_AT_STARTUP")) {
 		config.IndexMissingTextFilterableAtStartup = true
 	}
 
@@ -77,14 +77,14 @@ func FromEnv(config *Config) error {
 		config.Monitoring.Port = asInt
 	}
 
-	if Enabled(os.Getenv("AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED")) {
+	if enabled(os.Getenv("AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED")) {
 		config.Authentication.AnonymousAccess.Enabled = true
 	}
 
-	if Enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
+	if enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
 		config.Authentication.OIDC.Enabled = true
 
-		if Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
+		if enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
 			config.Authentication.OIDC.SkipClientIDCheck = true
 		}
 
@@ -109,7 +109,7 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if Enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
+	if enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
 		config.Authentication.APIKey.Enabled = true
 
 		if keysString, ok := os.LookupEnv("AUTHENTICATION_APIKEY_ALLOWED_KEYS"); ok {
@@ -123,7 +123,7 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if Enabled(os.Getenv("AUTHORIZATION_ADMINLIST_ENABLED")) {
+	if enabled(os.Getenv("AUTHORIZATION_ADMINLIST_ENABLED")) {
 		config.Authorization.AdminList.Enabled = true
 
 		usersString, ok := os.LookupEnv("AUTHORIZATION_ADMINLIST_USERS")
@@ -309,7 +309,7 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	config.DisableGraphQL = Enabled(os.Getenv("DISABLE_GRAPHQL"))
+	config.DisableGraphQL = enabled(os.Getenv("DISABLE_GRAPHQL"))
 
 	if err := parsePositiveInt(
 		"REPLICATION_MINIMUM_FACTOR",
@@ -430,7 +430,7 @@ const DefaultGossipBindPort = 7946
 // TODO: This should be retrieved dynamically from all installed modules
 const VectorizerModuleText2VecContextionary = "text2vec-contextionary"
 
-func Enabled(value string) bool {
+func enabled(value string) bool {
 	if value == "" {
 		return false
 	}
@@ -527,9 +527,9 @@ func parseClusterConfig() (cluster.Config, error) {
 			"number greater than CLUSTER_GOSSIP_BIND_PORT")
 	}
 
-	cfg.IgnoreStartupSchemaSync = Enabled(
+	cfg.IgnoreStartupSchemaSync = enabled(
 		os.Getenv("CLUSTER_IGNORE_SCHEMA_SYNC"))
-	cfg.SkipSchemaSyncRepair = Enabled(
+	cfg.SkipSchemaSyncRepair = enabled(
 		os.Getenv("CLUSTER_SKIP_SCHEMA_REPAIR"))
 
 	basicAuthUsername := os.Getenv("CLUSTER_BASIC_AUTH_USERNAME")
