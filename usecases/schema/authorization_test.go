@@ -158,7 +158,7 @@ package schema
 // 		for _, test := range tests {
 // 			t.Run(test.methodName, func(t *testing.T) {
 // 				authorizer := &authDenier{}
-// 				manager, err := NewManager(&NilMigrator{}, newFakeRepo(),
+// 				manager, err := NewManager(&nilMigrator{}, newFakeRepo(),
 // 					logger, authorizer, config.Config{},
 // 					dummyParseVectorConfig, &fakeVectorizerValidator{},
 // 					dummyValidateInvertedConfig, &fakeModuleConfig{},
