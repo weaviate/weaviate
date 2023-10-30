@@ -55,22 +55,22 @@ func NewSchema(nodeID string, shardReader shardReader) *schema {
 	}
 }
 
-func (s *schema) addClass(cls *models.Class, ss *sharding.State) error {
-	s.Lock()
-	defer s.Unlock()
-	_, exists := s.Classes[cls.Class]
-	if exists {
+func (f *schema) addClass(cls *models.Class, ss *sharding.State) error {
+	f.Lock()
+	defer f.Unlock()
+	info := f.Classes[cls.Class]
+	if info != nil {
 		return errClassExists
 	}
-	s.Classes[cls.Class] = &metaClass{*cls, *ss}
+	f.Classes[cls.Class] = &metaClass{*cls, *ss}
 	return nil
 }
 
-func (s *schema) updateClass(u *models.Class, ss *sharding.State) error {
-	s.Lock()
-	defer s.Unlock()
+func (f *schema) updateClass(u *models.Class, ss *sharding.State) error {
+	f.Lock()
+	defer f.Unlock()
 
-	info := s.Classes[u.Class]
+	info := f.Classes[u.Class]
 	if info == nil {
 		return errClassNotFound
 	}
@@ -84,17 +84,17 @@ func (s *schema) updateClass(u *models.Class, ss *sharding.State) error {
 	return nil
 }
 
-func (s *schema) deleteClass(name string) {
-	s.Lock()
-	defer s.Unlock()
-	delete(s.Classes, name)
+func (f *schema) deleteClass(name string) {
+	f.Lock()
+	defer f.Unlock()
+	delete(f.Classes, name)
 }
 
-func (s *schema) addProperty(class string, p models.Property) error {
-	s.Lock()
-	defer s.Unlock()
+func (f *schema) addProperty(class string, p models.Property) error {
+	f.Lock()
+	defer f.Unlock()
 
-	info := s.Classes[class]
+	info := f.Classes[class]
 	if info == nil {
 		return errClassNotFound
 	}
@@ -108,11 +108,11 @@ func (s *schema) addProperty(class string, p models.Property) error {
 	return nil
 }
 
-func (s *schema) addTenants(class string, req *command.AddTenantsRequest) error {
-	s.Lock()
-	defer s.Unlock()
+func (f *schema) addTenants(class string, req *command.AddTenantsRequest) error {
+	f.Lock()
+	defer f.Unlock()
 
-	info := s.Classes[class]
+	info := f.Classes[class]
 	if info == nil {
 		return errClassNotFound
 	}
@@ -127,7 +127,7 @@ func (s *schema) addTenants(class string, req *command.AddTenantsRequest) error 
 
 		p := sharding.Physical{Name: t.Name, Status: t.Status, BelongsToNodes: t.Nodes}
 		info.Sharding.Physical[t.Name] = p
-		if !slices.Contains[string](t.Nodes, s.nodeID) {
+		if !slices.Contains[string](t.Nodes, f.nodeID) {
 			req.Tenants[i] = nil // is owner by another node
 		}
 	}
@@ -135,11 +135,11 @@ func (s *schema) addTenants(class string, req *command.AddTenantsRequest) error 
 	return nil
 }
 
-func (s *schema) deleteTenants(class string, req *command.DeleteTenantsRequest) error {
-	s.Lock()
-	defer s.Unlock()
+func (f *schema) deleteTenants(class string, req *command.DeleteTenantsRequest) error {
+	f.Lock()
+	defer f.Unlock()
 
-	info := s.Classes[class]
+	info := f.Classes[class]
 	if info == nil {
 		return errClassNotFound
 	}
@@ -149,11 +149,11 @@ func (s *schema) deleteTenants(class string, req *command.DeleteTenantsRequest) 
 	return nil
 }
 
-func (s *schema) updateTenants(class string, req *command.UpdateTenantsRequest) (n int, err error) {
-	s.Lock()
-	defer s.Unlock()
+func (f *schema) updateTenants(class string, req *command.UpdateTenantsRequest) (n int, err error) {
+	f.Lock()
+	defer f.Unlock()
 
-	info := s.Classes[class]
+	info := f.Classes[class]
 	if info == nil {
 		return 0, errClassNotFound
 	}
@@ -175,7 +175,7 @@ func (s *schema) updateTenants(class string, req *command.UpdateTenantsRequest) 
 			copy.BelongsToNodes = u.Nodes
 		}
 		ps[u.Name] = copy
-		if !slices.Contains[string](copy.BelongsToNodes, s.nodeID) {
+		if !slices.Contains[string](copy.BelongsToNodes, f.nodeID) {
 			req.Tenants[i] = nil
 		}
 		n++
@@ -195,11 +195,11 @@ type ClassInfo struct {
 	Tenants           int
 }
 
-func (s *schema) ClassInfo(class string) (ci ClassInfo) {
-	s.RLock()
-	defer s.RUnlock()
+func (f *schema) ClassInfo(class string) (ci ClassInfo) {
+	f.RLock()
+	defer f.RUnlock()
 
-	i := s.Classes[class]
+	i := f.Classes[class]
 	if i == nil {
 		return
 	}
@@ -213,20 +213,20 @@ func (s *schema) ClassInfo(class string) (ci ClassInfo) {
 	return ci
 }
 
-func (s *schema) MultiTenancy(class string) bool {
-	s.RLock()
-	defer s.RUnlock()
+func (f *schema) MultiTenancy(class string) bool {
+	f.RLock()
+	defer f.RUnlock()
 
-	i := s.Classes[class]
+	i := f.Classes[class]
 	return i != nil && i.Class.MultiTenancyConfig != nil && i.Class.MultiTenancyConfig.Enabled
 }
 
 // Read
-func (s *schema) Read(class string, reader func(*models.Class, *sharding.State) error) error {
-	s.RLock()
-	defer s.RUnlock()
+func (f *schema) Read(class string, reader func(*models.Class, *sharding.State) error) error {
+	f.RLock()
+	defer f.RUnlock()
 
-	info := s.Classes[class]
+	info := f.Classes[class]
 	if info == nil {
 		return errClassNotFound
 	}
@@ -234,10 +234,10 @@ func (s *schema) Read(class string, reader func(*models.Class, *sharding.State) 
 	return reader(&info.Class, &info.Sharding)
 }
 
-func (s *schema) ReadOnlyClass(class string) *models.Class {
-	s.RLock()
-	defer s.RUnlock()
-	info := s.Classes[class]
+func (f *schema) ReadOnlyClass(class string) *models.Class {
+	f.RLock()
+	defer f.RUnlock()
+	info := f.Classes[class]
 	if info == nil {
 		return nil
 	}
@@ -254,13 +254,13 @@ func (s *schema) ReadOnlyClass(class string) *models.Class {
 // The properties attribute is the only one that might vary in size;
 // therefore, we perform a shallow copy of the existing properties.
 // This implementation assumes that individual properties are overwritten rather than partially updated
-func (s *schema) ReadOnlySchema() models.Schema {
+func (f *schema) ReadOnlySchema() models.Schema {
 	cp := models.Schema{}
-	s.RLock()
-	defer s.RUnlock()
-	cp.Classes = make([]*models.Class, len(s.Classes))
+	f.RLock()
+	defer f.RUnlock()
+	cp.Classes = make([]*models.Class, len(f.Classes))
 	i := 0
-	for _, meta := range s.Classes {
+	for _, meta := range f.Classes {
 		c := meta.Class
 		cp.Classes[i] = &c
 		i++
@@ -271,10 +271,10 @@ func (s *schema) ReadOnlySchema() models.Schema {
 
 // ClassEqual returns the name of an existing class with a similar name, and "" otherwise
 // strings.EqualFold is used to compare classes
-func (s *schema) ClassEqual(name string) string {
-	s.RLock()
-	defer s.RUnlock()
-	for k := range s.Classes {
+func (f *schema) ClassEqual(name string) string {
+	f.RLock()
+	defer f.RUnlock()
+	for k := range f.Classes {
 		if strings.EqualFold(k, name) {
 			return k
 		}
@@ -283,11 +283,11 @@ func (s *schema) ClassEqual(name string) string {
 }
 
 // ShardOwner returns the node owner of the specified shard
-func (s *schema) ShardOwner(class, shard string) (string, error) {
-	s.RLock()
-	defer s.RUnlock()
+func (f *schema) ShardOwner(class, shard string) (string, error) {
+	f.RLock()
+	defer f.RUnlock()
 
-	i := s.Classes[class]
+	i := f.Classes[class]
 	if i == nil {
 		return "", errClassNotFound
 	}
@@ -303,10 +303,10 @@ func (s *schema) ShardOwner(class, shard string) (string, error) {
 }
 
 // ShardFromUUID returns shard name of the provided uuid
-func (s *schema) ShardFromUUID(class string, uuid []byte) string {
-	s.RLock()
-	defer s.RUnlock()
-	i := s.Classes[class]
+func (f *schema) ShardFromUUID(class string, uuid []byte) string {
+	f.RLock()
+	defer f.RUnlock()
+	i := f.Classes[class]
 	if i == nil {
 		return ""
 	}
@@ -314,11 +314,11 @@ func (s *schema) ShardFromUUID(class string, uuid []byte) string {
 }
 
 // ShardOwner returns the node owner of the specified shard
-func (s *schema) ShardReplicas(class, shard string) ([]string, error) {
-	s.RLock()
-	defer s.RUnlock()
+func (f *schema) ShardReplicas(class, shard string) ([]string, error) {
+	f.RLock()
+	defer f.RUnlock()
 
-	i := s.Classes[class]
+	i := f.Classes[class]
 	if i == nil {
 		return nil, errClassNotFound
 	}
@@ -330,11 +330,11 @@ func (s *schema) ShardReplicas(class, shard string) ([]string, error) {
 }
 
 // TenantShard returns shard name for the provided tenant and its activity status
-func (s *schema) TenantShard(class, tenant string) (string, string) {
-	s.RLock()
-	defer s.RUnlock()
+func (f *schema) TenantShard(class, tenant string) (string, string) {
+	f.RLock()
+	defer f.RUnlock()
 
-	i := s.Classes[class]
+	i := f.Classes[class]
 	if i == nil || !i.Sharding.PartitioningEnabled {
 		return "", ""
 	}
@@ -345,11 +345,11 @@ func (s *schema) TenantShard(class, tenant string) (string, string) {
 	return "", ""
 }
 
-func (s *schema) CopyShardingState(class string) *sharding.State {
-	s.RLock()
-	defer s.RUnlock()
+func (f *schema) CopyShardingState(class string) *sharding.State {
+	f.RLock()
+	defer f.RUnlock()
 
-	i := s.Classes[class]
+	i := f.Classes[class]
 	if i == nil {
 		return nil
 	}
