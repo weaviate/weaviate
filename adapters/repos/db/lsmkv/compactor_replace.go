@@ -29,7 +29,10 @@ type compactorReplace struct {
 
 	// the level matching those of the cursors
 	currentLevel uint16
-
+	// Tells if tombstones or keys without corresponding values
+	// can be removed from merged segment.
+	// (left segment is root (1st) one, keepTombstones is off for bucket)
+	cleanupTombstones   bool
 	secondaryIndexCount uint16
 
 	w                io.WriteSeeker
@@ -39,7 +42,7 @@ type compactorReplace struct {
 
 func newCompactorReplace(w io.WriteSeeker,
 	c1, c2 *segmentCursorReplace, level, secondaryIndexCount uint16,
-	scratchSpacePath string,
+	scratchSpacePath string, cleanupTombstones bool,
 ) *compactorReplace {
 	return &compactorReplace{
 		c1:                  c1,
@@ -47,6 +50,7 @@ func newCompactorReplace(w io.WriteSeeker,
 		w:                   w,
 		bufw:                bufio.NewWriterSize(w, 256*1024),
 		currentLevel:        level,
+		cleanupTombstones:   cleanupTombstones,
 		secondaryIndexCount: secondaryIndexCount,
 		scratchSpacePath:    scratchSpacePath,
 	}
@@ -71,7 +75,10 @@ func (c *compactorReplace) do() error {
 		return errors.Wrap(err, "flush buffered")
 	}
 
-	dataEnd := uint64(kis[len(kis)-1].ValueEnd)
+	var dataEnd uint64 = segmentindex.HeaderSize
+	if len(kis) > 0 {
+		dataEnd = uint64(kis[len(kis)-1].ValueEnd)
+	}
 
 	if err := c.writeHeader(c.currentLevel, 0, c.secondaryIndexCount, dataEnd); err != nil {
 		return errors.Wrap(err, "write header")
@@ -106,15 +113,16 @@ func (c *compactorReplace) writeKeys() ([]segmentindex.Key, error) {
 			break
 		}
 		if bytes.Equal(res1.primaryKey, res2.primaryKey) {
-			ki, err := c.writeIndividualNode(offset, res2.primaryKey, res2.value,
-				res2.secondaryKeys, err2 == lsmkv.Deleted)
-			if err != nil {
-				return nil, errors.Wrap(err, "write individual node (equal keys)")
+			if !(c.cleanupTombstones && err2 == lsmkv.Deleted) {
+				ki, err := c.writeIndividualNode(offset, res2.primaryKey, res2.value,
+					res2.secondaryKeys, err2 == lsmkv.Deleted)
+				if err != nil {
+					return nil, errors.Wrap(err, "write individual node (equal keys)")
+				}
+
+				offset = ki.ValueEnd
+				kis = append(kis, ki)
 			}
-
-			offset = ki.ValueEnd
-			kis = append(kis, ki)
-
 			// advance both!
 			res1, err1 = c.c1.nextWithAllKeys()
 			res2, err2 = c.c2.nextWithAllKeys()
@@ -123,26 +131,29 @@ func (c *compactorReplace) writeKeys() ([]segmentindex.Key, error) {
 
 		if (res1.primaryKey != nil && bytes.Compare(res1.primaryKey, res2.primaryKey) == -1) || res2.primaryKey == nil {
 			// key 1 is smaller
-			ki, err := c.writeIndividualNode(offset, res1.primaryKey, res1.value,
-				res1.secondaryKeys, err1 == lsmkv.Deleted)
-			if err != nil {
-				return nil, errors.Wrap(err, "write individual node (res1.primaryKey smaller)")
-			}
+			if !(c.cleanupTombstones && err1 == lsmkv.Deleted) {
+				ki, err := c.writeIndividualNode(offset, res1.primaryKey, res1.value,
+					res1.secondaryKeys, err1 == lsmkv.Deleted)
+				if err != nil {
+					return nil, errors.Wrap(err, "write individual node (res1.primaryKey smaller)")
+				}
 
-			offset = ki.ValueEnd
-			kis = append(kis, ki)
+				offset = ki.ValueEnd
+				kis = append(kis, ki)
+			}
 			res1, err1 = c.c1.nextWithAllKeys()
 		} else {
 			// key 2 is smaller
-			ki, err := c.writeIndividualNode(offset, res2.primaryKey, res2.value,
-				res2.secondaryKeys, err2 == lsmkv.Deleted)
-			if err != nil {
-				return nil, errors.Wrap(err, "write individual node (res2.primaryKey smaller)")
+			if !(c.cleanupTombstones && err2 == lsmkv.Deleted) {
+				ki, err := c.writeIndividualNode(offset, res2.primaryKey, res2.value,
+					res2.secondaryKeys, err2 == lsmkv.Deleted)
+				if err != nil {
+					return nil, errors.Wrap(err, "write individual node (res2.primaryKey smaller)")
+				}
+
+				offset = ki.ValueEnd
+				kis = append(kis, ki)
 			}
-
-			offset = ki.ValueEnd
-			kis = append(kis, ki)
-
 			res2, err2 = c.c2.nextWithAllKeys()
 		}
 	}

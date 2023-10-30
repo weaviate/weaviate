@@ -29,6 +29,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
@@ -55,8 +56,16 @@ import (
 var (
 	errTenantNotFound  = errors.New("tenant not found")
 	errTenantNotActive = errors.New("tenant not active")
-	_NUMCPU            = runtime.NumCPU()
-	errShardNotFound   = errors.New("shard not found")
+
+	// Use runtime.GOMAXPROCS instead of runtime.NumCPU because NumCPU returns
+	// the physical CPU cores. However, in a containerization context, that might
+	// not be what we want. The physical node could have 128 cores, but we could
+	// be cgroup-limited to 2 cores. In that case, we want 2 to be our limit, not
+	// 128. It isn't guaranteed that MAXPROCS reflects the cgroup limit, but at
+	// least there is a chance that it was set correctly. If not, it defaults to
+	// NumCPU anyway, so we're not any worse off.
+	_NUMCPU          = runtime.GOMAXPROCS(0)
+	errShardNotFound = errors.New("shard not found")
 )
 
 // shardMap is a syn.Map which specialized in storing shards
@@ -70,6 +79,23 @@ func (m *shardMap) Range(f func(name string, shard *Shard) error) (err error) {
 		return err == nil
 	})
 	return err
+}
+
+// RangeConcurrently calls f for each key and value present in the map with at
+// most _NUMCPU executors running in parallel. As opposed to [Range] it does
+// not guarantee an exit on the first error.
+func (m *shardMap) RangeConcurrently(f func(name string, shard *Shard) error) (err error) {
+	eg := errgroup.Group{}
+	eg.SetLimit(_NUMCPU)
+	(*sync.Map)(m).Range(func(key, value any) bool {
+		name, shard := key.(string), value.(*Shard)
+		eg.Go(func() error {
+			return f(name, shard)
+		})
+		return true
+	})
+
+	return eg.Wait()
 }
 
 // Load returns the shard or nil if no shard is present.
@@ -142,8 +168,9 @@ type Index struct {
 	// RUnlock all picked indices
 	dropIndex sync.RWMutex
 
-	metrics         *Metrics
-	centralJobQueue chan job
+	metrics          *Metrics
+	centralJobQueue  chan job
+	indexCheckpoints *indexcheckpoint.Checkpoints
 
 	partitioningEnabled bool
 
@@ -180,6 +207,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, class *models.Class, jobQueueCh chan job,
+	indexCheckpoints *indexcheckpoint.Checkpoints,
 ) (*Index, error) {
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
 	if err != nil {
@@ -208,6 +236,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		centralJobQueue:     jobQueueCh,
 		partitioningEnabled: shardState.PartitioningEnabled,
 		backupMutex:         backupMutex{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
+		indexCheckpoints:    indexCheckpoints,
 	}
 	index.initCycleCallbacks()
 
@@ -215,23 +244,29 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		return nil, errors.Wrap(err, "migrating sharding state from previous version")
 	}
 
-	for _, shardName := range shardState.AllPhysicalShards() {
-		if !shardState.IsLocalShard(shardName) {
-			// do not create non-local shards
-			continue
-		}
+	eg := errgroup.Group{}
+	eg.SetLimit(_NUMCPU)
+	for _, shardName := range shardState.AllLocalPhysicalShards() {
 		physical := shardState.Physical[shardName]
 		if physical.ActivityStatus() != models.TenantActivityStatusHOT {
 			// do not instantiate inactive shard
 			continue
 		}
 
-		shard, err := NewShard(ctx, promMetrics, shardName, index, class, jobQueueCh)
-		if err != nil {
-			return nil, errors.Wrapf(err, "init shard %s of index %s", shardName, index.ID())
-		}
+		shardName := shardName // prevent loop variable capture
+		eg.Go(func() error {
+			shard, err := NewShard(ctx, promMetrics, shardName, index, class, jobQueueCh, indexCheckpoints)
+			if err != nil {
+				return fmt.Errorf("init shard %s of index %s: %w", shardName, index.ID(), err)
+			}
 
-		index.shards.Store(shardName, shard)
+			index.shards.Store(shardName, shard)
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, err
 	}
 
 	index.cycleCallbacks.compactionCycle.Start()
@@ -253,6 +288,10 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 
 func (i *Index) ForEachShard(f func(name string, shard *Shard) error) error {
 	return i.shards.Range(f)
+}
+
+func (i *Index) ForEachShardConcurrently(f func(name string, shard *Shard) error) error {
+	return i.shards.RangeConcurrently(f)
 }
 
 // Iterate over all objects in the shard, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
@@ -1576,9 +1615,8 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	i.backupMutex.RLock()
 	defer i.backupMutex.RUnlock()
 
-	// TODO run in parallel?
 	// TODO allow every resource cleanup to run, before returning early with error
-	if err := i.ForEachShard(func(name string, shard *Shard) error {
+	if err := i.ForEachShardConcurrently(func(name string, shard *Shard) error {
 		if err := shard.shutdown(ctx); err != nil {
 			return errors.Wrapf(err, "shutdown shard %q", name)
 		}
@@ -1608,13 +1646,56 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (i *Index) getShardsStatus(ctx context.Context) (map[string]string, error) {
+func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[string]int64, error) {
+	shardsQueueSize := make(map[string]int64)
+
+	shardState := i.getSchema.CopyShardingState(i.Config.ClassName.String())
+	shardNames := shardState.AllPhysicalShards()
+
+	for _, shardName := range shardNames {
+		if tenant != "" && shardName != tenant {
+			continue
+		}
+		var err error
+		var size int64
+		if !shardState.IsLocalShard(shardName) {
+			size, err = i.remote.GetShardQueueSize(ctx, shardName)
+		} else {
+			shard := i.localShard(shardName)
+			if shard == nil {
+				err = errors.Errorf("shard %s does not exist", shardName)
+			} else {
+				size = shard.queue.Size()
+			}
+		}
+		if err != nil {
+			return nil, errors.Wrapf(err, "shard %s", shardName)
+		}
+
+		shardsQueueSize[shardName] = size
+	}
+
+	return shardsQueueSize, nil
+}
+
+func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
+	shard := i.localShard(shardName)
+	if shard == nil {
+		return 0, errShardNotFound
+	}
+	return shard.queue.Size(), nil
+}
+
+func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]string, error) {
 	shardsStatus := make(map[string]string)
 
 	shardState := i.getSchema.CopyShardingState(i.Config.ClassName.String())
 	shardNames := shardState.AllPhysicalShards()
 
 	for _, shardName := range shardNames {
+		if tenant != "" && shardName != tenant {
+			continue
+		}
 		var err error
 		var status string
 		if !shardState.IsLocalShard(shardName) {
@@ -1808,7 +1889,7 @@ func (i *Index) addNewShard(ctx context.Context,
 	}
 
 	// TODO: metrics
-	s, err := NewShard(ctx, nil, shardName, i, class, i.centralJobQueue)
+	s, err := NewShard(ctx, nil, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
 	if err != nil {
 		return err
 	}

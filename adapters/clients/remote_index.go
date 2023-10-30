@@ -588,6 +588,49 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 	return batchDeleteResults
 }
 
+func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
+	hostName, indexName, shardName string,
+) (int64, error) {
+	path := fmt.Sprintf("/indices/%s/shards/%s/queuesize", indexName, shardName)
+	method := http.MethodGet
+	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+
+	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
+	if err != nil {
+		return 0, errors.Wrap(err, "open http request")
+	}
+	var size int64
+	clusterapi.IndicesPayloads.GetShardQueueSizeParams.SetContentTypeHeaderReq(req)
+	try := func(ctx context.Context) (bool, error) {
+		res, err := c.client.Do(req)
+		if err != nil {
+			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+		}
+		defer res.Body.Close()
+
+		if code := res.StatusCode; code != http.StatusOK {
+			body, _ := io.ReadAll(res.Body)
+			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
+		}
+		resBytes, err := io.ReadAll(res.Body)
+		if err != nil {
+			return false, errors.Wrap(err, "read body")
+		}
+
+		ct, ok := clusterapi.IndicesPayloads.GetShardQueueSizeResults.CheckContentTypeHeader(res)
+		if !ok {
+			return false, errors.Errorf("unexpected content type: %s", ct)
+		}
+
+		size, err = clusterapi.IndicesPayloads.GetShardQueueSizeResults.Unmarshal(resBytes)
+		if err != nil {
+			return false, errors.Wrap(err, "unmarshal body")
+		}
+		return false, nil
+	}
+	return size, c.retry(ctx, 9, try)
+}
+
 func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 	hostName, indexName, shardName string,
 ) (string, error) {

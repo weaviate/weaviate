@@ -87,6 +87,7 @@ type RemoteIndexClient interface {
 		filters *filters.LocalFilter) ([]uint64, error)
 	DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
 		docIDs []uint64, dryRun bool) objects.BatchSimpleObjects
+	GetShardQueueSize(ctx context.Context, hostName, indexName, shardName string) (int64, error)
 	GetShardStatus(ctx context.Context, hostName, indexName, shardName string) (string, error)
 	UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
 		targetStatus string) error
@@ -320,6 +321,20 @@ func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
 	}
 
 	return ri.client.DeleteObjectBatch(ctx, host, ri.class, shardName, docIDs, dryRun)
+}
+
+func (ri *RemoteIndex) GetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
+	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	if err != nil {
+		return 0, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
+	}
+
+	host, ok := ri.nodeResolver.NodeHostname(owner)
+	if !ok {
+		return 0, errors.Errorf("resolve node name %q to host", owner)
+	}
+
+	return ri.client.GetShardQueueSize(ctx, host, ri.class, shardName)
 }
 
 func (ri *RemoteIndex) GetShardStatus(ctx context.Context, shardName string) (string, error) {

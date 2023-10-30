@@ -140,6 +140,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	}
 
 	strategy := sg.segmentAtPos(pair[0]).strategy
+	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
 
 	pathLabel := "n/a"
 	if sg.metrics != nil && !sg.metrics.groupClasses {
@@ -151,7 +152,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 
 	case segmentindex.StrategyReplace:
 		c := newCompactorReplace(f, sg.segmentAtPos(pair[0]).newCursor(),
-			sg.segmentAtPos(pair[1]).newCursor(), level, secondaryIndices, scratchSpacePath)
+			sg.segmentAtPos(pair[1]).newCursor(), level, secondaryIndices, scratchSpacePath, cleanupTombstones)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionReplace.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -164,7 +165,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	case segmentindex.StrategySetCollection:
 		c := newCompactorSetCollection(f, sg.segmentAtPos(pair[0]).newCollectionCursor(),
 			sg.segmentAtPos(pair[1]).newCollectionCursor(), level, secondaryIndices,
-			scratchSpacePath)
+			scratchSpacePath, cleanupTombstones)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionSet.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -178,7 +179,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		c := newCompactorMapCollection(f,
 			sg.segmentAtPos(pair[0]).newCollectionCursorReusable(),
 			sg.segmentAtPos(pair[1]).newCollectionCursorReusable(),
-			level, secondaryIndices, scratchSpacePath, sg.mapRequiresSorting)
+			level, secondaryIndices, scratchSpacePath, sg.mapRequiresSorting, cleanupTombstones)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -196,7 +197,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		rightCursor := rightSegment.newRoaringSetCursor()
 
 		c := roaringset.NewCompactor(f, leftCursor, rightCursor,
-			level, scratchSpacePath)
+			level, scratchSpacePath, cleanupTombstones)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(1)

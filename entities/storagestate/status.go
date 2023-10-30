@@ -15,6 +15,7 @@ import "errors"
 
 const (
 	StatusReadOnly Status = "READONLY"
+	StatusIndexing Status = "INDEXING"
 	StatusReady    Status = "READY"
 )
 
@@ -33,6 +34,8 @@ func ValidateStatus(in string) (status Status, err error) {
 	switch in {
 	case string(StatusReadOnly):
 		status = StatusReadOnly
+	case string(StatusIndexing):
+		status = StatusIndexing
 	case string(StatusReady):
 		status = StatusReady
 	default:

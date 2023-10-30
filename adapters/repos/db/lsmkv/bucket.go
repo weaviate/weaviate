@@ -76,6 +76,18 @@ type Bucket struct {
 	monitorCount bool
 
 	pauseTimer *prometheus.Timer // Times the pause
+
+	// Whether tombstones (set/map/replace types) or deletions (roaringset type)
+	// should be kept in root segment during compaction process.
+	// Since segments are immutable, deletions are added as new entries with
+	// tombstones. Tombstones are by default copied to merged segment, as they
+	// can refer to keys/values present in previous segments.
+	// Those tombstones can be removed entirely when merging with root (1st) segment,
+	// due to lack of previous segments, tombstones may relate to.
+	// As info about key/value being deleted (based on tombstone presence) may be important
+	// for some use cases (e.g. replication needs to know if object(ObjectsBucketLSM) was deleted)
+	// keeping tombstones on compaction is optional
+	keepTombstones bool
 }
 
 // NewBucket initializes a new bucket. It either loads the state from disk if
@@ -121,7 +133,8 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	}
 
 	sg, err := newSegmentGroup(dir, logger, b.legacyMapSortingBeforeCompaction,
-		metrics, b.strategy, b.monitorCount, compactionCallbacks, b.mmapContents)
+		metrics, b.strategy, b.monitorCount, compactionCallbacks,
+		b.mmapContents, b.keepTombstones)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
 	}
@@ -490,6 +503,10 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 // in this order: active memtable, flushing memtable, and disk
 // segment
 func (b *Bucket) WasDeleted(key []byte) (bool, error) {
+	if !b.keepTombstones {
+		return false, fmt.Errorf("Bucket requires option `keepTombstones` set to check deleted keys")
+	}
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
