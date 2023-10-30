@@ -29,7 +29,7 @@ var ErrNotFound = errors.New("not found")
 
 type metaWriter interface {
 	AddClass(cls *models.Class, ss *sharding.State) error
-	RestoreClass(cls *models.Class, ss *sharding.State) error
+	// RestoreClass(cls *models.Class, ss *sharding.State) error
 	UpdateClass(cls *models.Class, ss *sharding.State) error
 	DeleteClass(name string) error
 	AddProperty(class string, p *models.Property) error
