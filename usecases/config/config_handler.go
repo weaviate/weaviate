@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/go-openapi/swag"
@@ -67,10 +68,11 @@ const (
 type Flags struct {
 	ConfigFile string `long:"config-file" description:"path to config file (default: ./weaviate.conf.json)"`
 
-	RaftPort            int      `long:"raft-port" description:"the port used by Raft for inter-node communication"`
-	RaftInternalRPCPort int      `long:"raft-internal-rpc-port" description:"the port used for internal RPCs within the cluster"`
-	RaftJoin            []string `long:"raft-join" description:"a comma-separated list of server addresses to join on startup"`
-	RaftBootstrapExcept int      `long:"raft-bootstrap-expect" description:"specifies the number of server nodes to wait for before bootstrapping the cluster"`
+	RaftPort             int      `long:"raft-port" description:"the port used by Raft for inter-node communication"`
+	RaftInternalRPCPort  int      `long:"raft-internal-rpc-port" description:"the port used for internal RPCs within the cluster"`
+	RaftJoin             []string `long:"raft-join" description:"a comma-separated list of server addresses to join on startup. Each element needs to be in the form NODE_NAME[:NODE_PORT]. If NODE_PORT is not present, raft-internal-rpc-port default value will be used instead"`
+	RaftBootstrapTimeout int      `long:"raft-bootstrap-timeout" description:"the duration for which the raft bootstrap procedure will wait for each node in raft-join to be reachable"`
+	RaftBootstrapExpect  int      `long:"raft-bootstrap-expect" description:"specifies the number of server nodes to wait for before bootstrapping the cluster"`
 }
 
 // Config outline of the config file
@@ -277,21 +279,55 @@ func (r ResourceUsage) Validate() error {
 }
 
 type Raft struct {
-	Port            int
-	InternalRPCPort int
-	Join            []string
-	BootstrapExcept int
+	Port             int
+	InternalRPCPort  int
+	Join             []string
+	BootstrapTimeout time.Duration
+	BootstrapExpect  int
 }
 
-func (r Raft) Validate() error {
+func (r *Raft) Validate() error {
 	if r.Port == 0 {
 		return fmt.Errorf("raft.port must be greater than 0")
 	}
+
 	if r.InternalRPCPort == 0 {
 		return fmt.Errorf("raft.intra_rpc_port must be greater than 0")
 	}
-	if r.BootstrapExcept == 0 {
+
+	uniqueMap := make(map[string]struct{}, len(r.Join))
+	updatedJoinList := make([]string, len(r.Join))
+	for i, nodeNameAndPort := range r.Join {
+		// Check that the format is correct. In case only node name is present we append the default raft port
+		nodeNameAndPortSplitted := strings.Split(nodeNameAndPort, ":")
+		if len(nodeNameAndPortSplitted) == 0 {
+			return fmt.Errorf("raft.join element %s has no node name", nodeNameAndPort)
+		} else if len(nodeNameAndPortSplitted) < 2 {
+			// If user only specify a node name and no port, use the default raft port
+			nodeNameAndPortSplitted = append(nodeNameAndPortSplitted, fmt.Sprintf("%d", DefaultRaftPort))
+		} else if len(nodeNameAndPortSplitted) > 2 {
+			return fmt.Errorf("raft.join element %s has unexpected amount of element", nodeNameAndPort)
+		}
+
+		// Check that the node name is unique
+		nodeName := nodeNameAndPortSplitted[0]
+		if _, ok := uniqueMap[nodeName]; ok {
+			return fmt.Errorf("raft.join contains the value %s multiple times. Joined nodes must have a unique id", nodeName)
+		} else {
+			uniqueMap[nodeName] = struct{}{}
+		}
+
+		updatedJoinList[i] = strings.Join(nodeNameAndPortSplitted, ":")
+	}
+	r.Join = updatedJoinList
+
+	if r.BootstrapExpect == 0 {
 		return fmt.Errorf("raft.bootstrap_expect must be greater than 0")
+	}
+	// TODO-RAFT: Currently to simplify bootstrapping we expect to bootstrap all the nodes in the join list together. We keep the expect
+	// paramater so that in the future we can change the behaviour if we want (bootstrap once X nodes among Y are online).
+	if r.BootstrapExpect != len(r.Join) {
+		return fmt.Errorf("raft.bootstrap.expect must be equal to the length of raft.join")
 	}
 	return nil
 }
@@ -422,8 +458,11 @@ func (f *WeaviateConfig) fromFlags(flags *Flags) {
 	if flags.RaftJoin != nil {
 		f.Config.Raft.Join = flags.RaftJoin
 	}
-	if flags.RaftBootstrapExcept > 0 {
-		f.Config.Raft.BootstrapExcept = flags.RaftBootstrapExcept
+	if flags.RaftBootstrapTimeout > 0 {
+		f.Config.Raft.BootstrapTimeout = time.Second * time.Duration(flags.RaftBootstrapTimeout)
+	}
+	if flags.RaftBootstrapExpect > 0 {
+		f.Config.Raft.BootstrapExpect = flags.RaftBootstrapExpect
 	}
 }
 
