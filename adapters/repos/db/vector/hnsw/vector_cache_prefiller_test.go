@@ -82,62 +82,47 @@ func newFakeCache() *fakeCache {
 	}
 }
 
-//nolint:unused
-func (f *fakeCache) all() [][]float32 {
-	return nil
-}
-
 type fakeCache struct {
 	store map[uint64]struct{}
 }
 
-//nolint:unused
 func (f *fakeCache) MultiGet(ctx context.Context, id []uint64) ([][]float32, []error) {
 	panic("not implemented")
 }
 
-//nolint:unused
 func (f *fakeCache) Get(ctx context.Context, id uint64) ([]float32, error) {
 	f.store[id] = struct{}{}
 	return nil, nil
 }
 
-//nolint:unused
 func (f *fakeCache) Delete(ctx context.Context, id uint64) {
 	panic("not implemented")
 }
 
-//nolint:unused
 func (f *fakeCache) Preload(id uint64, vec []float32) {
 	panic("not implemented")
 }
 
-//nolint:unused
 func (f *fakeCache) Prefetch(id uint64) {
 	panic("not implemented")
 }
 
-//nolint:unused
 func (f *fakeCache) Grow(id uint64) {
 	panic("not implemented")
 }
 
-//nolint:unused
 func (f *fakeCache) UpdateMaxSize(size int64) {
 	panic("not implemented")
 }
 
-//nolint:unused
 func (f *fakeCache) All() [][]float32 {
 	panic("not implemented")
 }
 
-//nolint:unused
 func (f *fakeCache) Drop() {
 	panic("not implemented")
 }
 
-//nolint:unused
 func (f *fakeCache) CopyMaxSize() int64 {
 	return 1e6
 }
@@ -146,12 +131,10 @@ func (f *fakeCache) Reset() {
 	f.store = map[uint64]struct{}{}
 }
 
-//nolint:unused
 func (f *fakeCache) Len() int32 {
 	return int32(len(f.store))
 }
 
-//nolint:unused
 func (f *fakeCache) CountVectors() int64 {
 	panic("not implemented")
 }

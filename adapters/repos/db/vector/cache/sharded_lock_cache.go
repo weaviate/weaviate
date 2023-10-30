@@ -34,6 +34,15 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 	logger              logrus.FieldLogger
 	trackDimensionsOnce sync.Once
 	deletionInterval    time.Duration
+	shardedLocks     []sync.RWMutex
+	cache            [][]T
+	vectorForID      common.VectorForID[T]
+	normalizeOnRead  bool
+	maxSize          int64
+	count            int64
+	cancel           chan bool
+	logger           logrus.FieldLogger
+	deletionInterval time.Duration
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
@@ -126,7 +135,6 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 	return vc
 }
 
-//nolint:unused
 func (s *shardedLockCache[T]) All() [][]T {
 	return s.cache
 }
@@ -143,7 +151,6 @@ func (s *shardedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
 	return s.handleCacheMiss(ctx, id)
 }
 
-//nolint:unused
 func (s *shardedLockCache[T]) Delete(ctx context.Context, id uint64) {
 	s.shardedLocks[id%shardFactor].Lock()
 	defer s.shardedLocks[id%shardFactor].Unlock()
@@ -197,7 +204,6 @@ var prefetchFunc func(in uintptr) = func(in uintptr) {
 	// this function will be overridden for amd64
 }
 
-//nolint:unused
 func (s *shardedLockCache[T]) Prefetch(id uint64) {
 	s.shardedLocks[id%shardFactor].RLock()
 	defer s.shardedLocks[id%shardFactor].RUnlock()
@@ -231,7 +237,6 @@ func (s *shardedLockCache[T]) Grow(node uint64) {
 	s.cache = newCache
 }
 
-//nolint:unused
 func (s *shardedLockCache[T]) Len() int32 {
 	return int32(len(s.cache))
 }
@@ -304,12 +309,10 @@ func (s *shardedLockCache[T]) releaseAllLocks() {
 	}
 }
 
-//nolint:unused
 func (s *shardedLockCache[T]) UpdateMaxSize(size int64) {
 	atomic.StoreInt64(&s.maxSize, size)
 }
 
-//nolint:unused
 func (s *shardedLockCache[T]) CopyMaxSize() int64 {
 	sizeCopy := atomic.LoadInt64(&s.maxSize)
 	return sizeCopy
@@ -326,14 +329,4 @@ func NewNoopCache(vecForID common.VectorForID[float32], maxSize int,
 	logger logrus.FieldLogger,
 ) *noopCache {
 	return &noopCache{vectorForID: vecForID}
-}
-
-//nolint:unused
-func (n *noopCache) get(ctx context.Context, id uint64) ([]float32, error) {
-	return n.vectorForID(ctx, id)
-}
-
-//nolint:unused
-func (n *noopCache) len() int32 {
-	return 0
 }

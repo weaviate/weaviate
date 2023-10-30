@@ -96,11 +96,6 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 	return nil
 }
 
-//nolint:unused
-func (h *hnsw) encodedVector(id uint64) ([]byte, error) {
-	return h.compressedVectorsCache.Get(context.Background(), id)
-}
-
 func (h *hnsw) storeCompressedVector(index uint64, vector []byte) {
 	Id := make([]byte, 8)
 	binary.LittleEndian.PutUint64(Id, index)
