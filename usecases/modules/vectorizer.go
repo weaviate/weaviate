@@ -85,16 +85,9 @@ func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 	objectDiff *moduletools.ObjectDiff, findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) error {
-	if class.VectorIndexConfig == nil {
-		return nil
-	}
-	_, okFlat := class.VectorIndexConfig.(flat.UserConfig)
-	if okFlat {
-		return nil
-	}
-
 	hnswConfig, okHnsw := class.VectorIndexConfig.(hnsw.UserConfig)
-	if !okHnsw {
+	_, okFlat := class.VectorIndexConfig.(flat.UserConfig)
+	if !(okHnsw || okFlat) {
 		return fmt.Errorf(errorVectorIndexType, class.VectorIndexConfig)
 	}
 
