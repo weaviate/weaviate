@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modjina
+package modjinaai
 
 import (
 	"context"
