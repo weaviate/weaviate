@@ -488,22 +488,6 @@ func (index *flat) DistancerProvider() distancer.Provider {
 	return index.distancerProvider
 }
 
-func (index *flat) getCompressedVectorForID(ctx context.Context, id uint64) ([]uint64, error) {
-	slice := index.tempVectors.Get(int(index.dims))
-	vec, err := index.TempVectorForIDThunk(context.Background(), id, slice)
-	index.tempVectors.Put(slice)
-	if err != nil {
-		return nil, errors.Wrap(err, "Getting vector for id")
-	}
-	if index.distancerProvider.Type() == "cosine-dot" {
-		// cosine-dot requires normalized vectors, as the dot product and cosine
-		// similarity are only identical if the vector is normalized
-		vec = distancer.Normalize(vec)
-	}
-
-	return index.bq.Encode(vec)
-}
-
 func newSearchByDistParams(maxLimit int64) *common.SearchByDistParams {
 	initialOffset := 0
 	initialLimit := common.DefaultSearchByDistInitialLimit
