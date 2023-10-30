@@ -46,8 +46,6 @@ type ClassSettings interface {
 	VectorizePropertyName(propertyName string) bool
 	VectorizeClassName() bool
 	Model() string
-	Type() string
-	ResourceName() string
 	BaseURL() string
 }
 
@@ -135,10 +133,8 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 	text := strings.Join(corpi, " ")
 
 	res, err := v.client.Vectorize(ctx, text, ent.VectorizationConfig{
-		Type:         icheck.Type(),
-		Model:        icheck.Model(),
-		ResourceName: icheck.ResourceName(),
-		BaseURL:      icheck.BaseURL(),
+		Model:   icheck.Model(),
+		BaseURL: icheck.BaseURL(),
 	})
 	if err != nil {
 		return nil, err
