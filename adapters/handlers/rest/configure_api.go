@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	txstore "github.com/weaviate/weaviate/adapters/repos/transactions"
@@ -353,6 +354,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
+
+	if config.Enabled(os.Getenv("COMPACT_LEFTOVER_SEGMENTS")) {
+		lsmkv.CompactLeftOverSegments = true
+	}
 
 	config.ServerVersion = parseVersionFromSwaggerSpec()
 	appState := MakeAppState(ctx, connectorOptionGroup)

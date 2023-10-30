@@ -24,6 +24,8 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
+var CompactLeftOverSegments = false
+
 func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
@@ -105,12 +107,17 @@ func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 
 		return res
 	} else {
+		if CompactLeftOverSegments {
 		//Some segments exist, but none are of the same level
-		//Lower the level of the highest segment
+		//Merge the two lowest segments
 
 		return []int{ secondLowestIndex, lowestIndex}
-
-		
+		} else {
+			fmt.Printf("No segments of the same level exist, and we are not allowed to merge the lowest segments\n")
+			//No segments of the same level exist, and we are not allowed to merge the lowest segments
+			//This means we cannot compact.  Set COMPACT_LEFTOVER_SEGMENTS to true to compact the remaining segments
+			return nil
+		}
 	}
 }
 
