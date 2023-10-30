@@ -14,7 +14,7 @@ package vectorizer
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-jinaai/ent"
 )
 
 type fakeClient struct {
@@ -50,13 +50,8 @@ type fakeSettings struct {
 	skippedProperty    string
 	vectorizeClassName bool
 	excludedProperty   string
-	openAIType         string
-	openAIModel        string
-	openAIModelVersion string
-	resourceName       string
-	deploymentID       string
+	jinaAIModel        string
 	baseURL            string
-	isAzure            bool
 }
 
 func (f *fakeSettings) PropertyIndexed(propName string) bool {
@@ -71,28 +66,8 @@ func (f *fakeSettings) VectorizeClassName() bool {
 	return f.vectorizeClassName
 }
 
-func (f *fakeSettings) Type() string {
-	return f.openAIType
-}
-
 func (f *fakeSettings) Model() string {
-	return f.openAIModel
-}
-
-func (f *fakeSettings) ModelVersion() string {
-	return f.openAIModelVersion
-}
-
-func (f *fakeSettings) ResourceName() string {
-	return f.resourceName
-}
-
-func (f *fakeSettings) DeploymentID() string {
-	return f.deploymentID
-}
-
-func (f *fakeSettings) IsAzure() bool {
-	return f.isAzure
+	return f.jinaAIModel
 }
 
 func (f *fakeSettings) BaseURL() string {
