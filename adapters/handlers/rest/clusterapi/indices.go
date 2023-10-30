@@ -909,7 +909,7 @@ func (i *indices) deleteObjects() http.Handler {
 
 func (i *indices) getGetShardQueueSize() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		args := i.regexpShardsStatus.FindStringSubmatch(r.URL.Path)
+		args := i.regexpShardsQueueSize.FindStringSubmatch(r.URL.Path)
 		if len(args) != 3 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return

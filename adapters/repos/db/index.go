@@ -141,15 +141,16 @@ func (m *shardMap) LoadAndDelete(name string) (*Shard, bool) {
 // class. An index can be further broken up into self-contained units, called
 // Shards, to allow for easy distribution across Nodes
 type Index struct {
-	classSearcher         inverted.ClassSearcher // to allow for nested by-references searches
-	shards                shardMap
-	Config                IndexConfig
-	vectorIndexUserConfig schema.VectorIndexConfig
-	getSchema             schemaUC.SchemaGetter
-	logger                logrus.FieldLogger
-	remote                *sharding.RemoteIndex
-	stopwords             *stopwords.Detector
-	replicator            *replica.Replicator
+	classSearcher             inverted.ClassSearcher // to allow for nested by-references searches
+	shards                    shardMap
+	Config                    IndexConfig
+	vectorIndexUserConfig     schema.VectorIndexConfig
+	vectorIndexUserConfigLock sync.Mutex
+	getSchema                 schemaUC.SchemaGetter
+	logger                    logrus.FieldLogger
+	remote                    *sharding.RemoteIndex
+	stopwords                 *stopwords.Detector
+	replicator                *replica.Replicator
 
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
@@ -347,7 +348,7 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 	updated schema.VectorIndexConfig,
 ) error {
 	// an updated is not specific to one shard, but rather all
-	return i.ForEachShard(func(name string, shard *Shard) error {
+	err := i.ForEachShard(func(name string, shard *Shard) error {
 		// At the moment, we don't do anything in an update that could fail, but
 		// technically this should be part of some sort of a two-phase commit  or
 		// have another way to rollback if we have updates that could potentially
@@ -357,6 +358,15 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	i.vectorIndexUserConfigLock.Lock()
+	defer i.vectorIndexUserConfigLock.Unlock()
+
+	i.vectorIndexUserConfig = updated
+
+	return nil
 }
 
 func (i *Index) getInvertedIndexConfig() schema.InvertedIndexConfig {

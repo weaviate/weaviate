@@ -326,7 +326,7 @@ func (s *Shard) drop() error {
 		s.stopMetrics <- struct{}{}
 		if s.promMetrics != nil {
 			// send 0 in when index gets dropped
-			s.sendVectorDimensionsMetric(0)
+			s.clearDimensionMetrics()
 		}
 	}
 
