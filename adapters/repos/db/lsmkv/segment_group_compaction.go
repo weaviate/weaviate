@@ -71,25 +71,6 @@ func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 			highestLevel = seg.level
 		}
 	}
-/*
-	fmt.Printf("lowestPairLevel: %d\n", lowestPairLevel)
-	fmt.Printf("lowestLevel: %d\n", lowestLevel)
-	fmt.Printf("secondLowestLevel: %d\n", secondLowestLevel)
-	fmt.Printf("highestLevel: %d\n", highestLevel)
-	fmt.Printf("pairExists: %t\n", pairExists)
-	if lowestSegment != nil {
-		fmt.Printf("lowestSegment - contenfile: %v, path %v, level %d, countNetAdditions %d, strategy %v, size %d\n", lowestSegment.contentFile, lowestSegment.path, lowestSegment.level, lowestSegment.countNetAdditions, lowestSegment.strategy, lowestSegment.Size())
-	}
-
-	if secondLowestSegment != nil {
-		fmt.Printf("secondLowestSegment - contenfile: %v, path %v, level %d, countNetAdditions %d, strategy %v, size %d\n", secondLowestSegment.contentFile, secondLowestSegment.path, secondLowestSegment.level, secondLowestSegment.countNetAdditions, secondLowestSegment.strategy, secondLowestSegment.Size())
-	}
-*/
-	// Print all levels, in order
-	for i := uint16(0); i <= highestLevel; i++ {
-		fmt.Printf("%v ", levels[i])
-	}
-	fmt.Printf("\n")
 
 	if pairExists {
 		// now pick any two segments which match the level
@@ -113,7 +94,6 @@ func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 
 		return []int{ secondLowestIndex, lowestIndex}
 		} else {
-			fmt.Printf("No segments of the same level exist, and we are not allowed to merge the lowest segments\n")
 			//No segments of the same level exist, and we are not allowed to merge the lowest segments
 			//This means we cannot compact.  Set COMPACT_LEFTOVER_SEGMENTS to true to compact the remaining segments
 			return nil
