@@ -80,14 +80,6 @@ func (cs *classSettings) Model() string {
 	return cs.getProperty("model", DefaultJinaAIModel)
 }
 
-func (cs *classSettings) Type() string {
-	return cs.getProperty("type", DefaultJinaAIDocumentType)
-}
-
-func (cs *classSettings) ResourceName() string {
-	return cs.getProperty("resourceName", "")
-}
-
 func (cs *classSettings) BaseURL() string {
 	return cs.getProperty("baseURL", DefaultBaseURL)
 }

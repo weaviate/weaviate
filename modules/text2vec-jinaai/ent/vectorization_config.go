@@ -12,6 +12,6 @@
 package ent
 
 type VectorizationConfig struct {
-	Type, Model, ResourceName string
-	BaseURL                   string
+	Model   string
+	BaseURL string
 }
