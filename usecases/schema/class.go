@@ -86,7 +86,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	return h.metaWriter.AddClass(cls, shardState)
 }
 
-func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) error {
+func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string) error {
 	// get schema and sharding state
 	class := &models.Class{}
 	if err := json.Unmarshal(d.Schema, &class); err != nil {
@@ -127,7 +127,10 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 	}
 
 	shardingState.MigrateFromOldFormat()
-	return h.metaWriter.RestoreClass(class, &shardingState)
+	/// TODO-RAFT START
+	/// Implement RAFT based restore
+	/// TODO-RAFT END
+	return nil // return h.metaWriter.RestoreClass(class, &shardingState)
 }
 
 // DeleteClass from the schema
@@ -223,6 +226,7 @@ func (h *Handler) setClassDefaults(class *models.Class) {
 func setPropertyDefaults(prop *models.Property) {
 	setPropertyDefaultTokenization(prop)
 	setPropertyDefaultIndexing(prop)
+	setNestedPropertiesDefaults(prop.NestedProperties)
 }
 
 func setPropertyDefaultTokenization(prop *models.Property) {
@@ -266,6 +270,63 @@ func setPropertyDefaultIndexing(prop *models.Property) {
 		default:
 			vFalse := false
 			prop.IndexSearchable = &vFalse
+		}
+	}
+}
+
+func setNestedPropertiesDefaults(properties []*models.NestedProperty) {
+	for _, property := range properties {
+		primitiveDataType, isPrimitive := schema.AsPrimitive(property.DataType)
+		nestedDataType, isNested := schema.AsNested(property.DataType)
+
+		setNestedPropertyDefaultTokenization(property, primitiveDataType, nestedDataType, isPrimitive, isNested)
+		setNestedPropertyDefaultIndexing(property, primitiveDataType, nestedDataType, isPrimitive, isNested)
+
+		if isNested {
+			setNestedPropertiesDefaults(property.NestedProperties)
+		}
+	}
+}
+
+func setNestedPropertyDefaultTokenization(property *models.NestedProperty,
+	primitiveDataType, nestedDataType schema.DataType,
+	isPrimitive, isNested bool,
+) {
+	if property.Tokenization == "" && isPrimitive {
+		switch primitiveDataType {
+		case schema.DataTypeText, schema.DataTypeTextArray:
+			property.Tokenization = models.NestedPropertyTokenizationWord
+		default:
+			// do nothing
+		}
+	}
+}
+
+func setNestedPropertyDefaultIndexing(property *models.NestedProperty,
+	primitiveDataType, nestedDataType schema.DataType,
+	isPrimitive, isNested bool,
+) {
+	vTrue := true
+	vFalse := false
+
+	if property.IndexFilterable == nil {
+		property.IndexFilterable = &vTrue
+
+		if isPrimitive && primitiveDataType == schema.DataTypeBlob {
+			property.IndexFilterable = &vFalse
+		}
+	}
+
+	if property.IndexSearchable == nil {
+		property.IndexSearchable = &vFalse
+
+		if isPrimitive {
+			switch primitiveDataType {
+			case schema.DataTypeText, schema.DataTypeTextArray:
+				property.IndexSearchable = &vTrue
+			default:
+				// do nothing
+			}
 		}
 	}
 }
