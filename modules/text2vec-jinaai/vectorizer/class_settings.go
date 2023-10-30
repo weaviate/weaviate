@@ -24,7 +24,7 @@ import (
 
 const (
 	DefaultJinaAIDocumentType    = "text"
-	DefaultJinaAIModel           = "jina-embedding-v2"
+	DefaultJinaAIModel           = "jina-embeddings-v2-base-en"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
