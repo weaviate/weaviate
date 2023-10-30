@@ -42,7 +42,6 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 
 	dirName := t.TempDir()
 
-	CompactLeftOverSegments = true
 	t.Run("create test data", func(t *testing.T) {
 		// The test data is split into 4 scenarios evenly:
 		//
@@ -134,7 +133,7 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(context.TODO(), dirName, "", nullLogger(), nil,
+		b, err := NewBucket(context.TODO(), dirName, "", nullLogger2(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
@@ -202,8 +201,8 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			keyCopy := copyByteSlice(k)
-			valueCopy := copyByteSlice(v)
+			keyCopy := copyByteSlice2(k)
+			valueCopy := copyByteSlice2(v)
 			retrieved = append(retrieved, kv{
 				key:   keyCopy,
 				value: valueCopy,
@@ -232,8 +231,8 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			keyCopy := copyByteSlice(k)
-			valueCopy := copyByteSlice(v)
+			keyCopy := copyByteSlice2(k)
+			valueCopy := copyByteSlice2(v)
 			retrieved = append(retrieved, kv{
 				key:   keyCopy,
 				value: valueCopy,
@@ -260,12 +259,12 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 
 
 
-func nullLogger() logrus.FieldLogger {
+func nullLogger2() logrus.FieldLogger {
 	log, _ := test.NewNullLogger()
 	return log
 }
 
-func copyByteSlice(src []byte) []byte {
+func copyByteSlice2(src []byte) []byte {
 	dst := make([]byte, len(src))
 	copy(dst, src)
 	return dst

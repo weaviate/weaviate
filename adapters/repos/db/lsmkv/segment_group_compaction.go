@@ -24,8 +24,6 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-var CompactLeftOverSegments = false
-
 func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
@@ -87,7 +85,7 @@ func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 
 		return res
 	} else {
-		if CompactLeftOverSegments {
+		if sg.compactLeftOverSegments {
 			// Some segments exist, but none are of the same level
 			// Merge the two lowest segments
 

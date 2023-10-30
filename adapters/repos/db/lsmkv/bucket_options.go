@@ -125,3 +125,10 @@ func WithKeepTombstones(keepTombstones bool) BucketOption {
 		return nil
 	}
 }
+
+func WithForceCompation(opt bool) BucketOption {
+	return func(b *Bucket) error {
+		b.forceCompaction = opt
+		return nil
+	}
+}
