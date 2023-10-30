@@ -127,10 +127,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	}
 
 	shardingState.MigrateFromOldFormat()
-	/// TODO-RAFT START
-	/// Implement RAFT based restore
-	/// TODO-RAFT END
-	return nil // return h.metaWriter.RestoreClass(class, &shardingState)
+	return h.metaWriter.RestoreClass(class, &shardingState)
 }
 
 // DeleteClass from the schema
