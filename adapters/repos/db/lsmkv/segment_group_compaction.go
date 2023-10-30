@@ -28,6 +28,14 @@ func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 
+	// if true, the parent shard has indicated that it has
+	// entered an immutable state. During this time, the
+	// SegmentGroup should refrain from flushing until its
+	// shard indicates otherwise
+	if sg.isReadyOnly() {
+		return nil
+	}
+
 	// Nothing to compact
 	if len(sg.segments) < 2 {
 		return nil
