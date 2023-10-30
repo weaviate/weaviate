@@ -257,8 +257,6 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 	})
 }
 
-
-
 func nullLogger2() logrus.FieldLogger {
 	log, _ := test.NewNullLogger()
 	return log

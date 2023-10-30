@@ -378,7 +378,6 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 		assert.Equal(t, expected, retrieved)
 	})
 
-
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		i := 0
 		var compacted bool
@@ -524,7 +523,8 @@ func compactionMapStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, 
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		var compacted bool
 		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {}
+		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+		}
 		require.Nil(t, err)
 	})
 
@@ -616,12 +616,11 @@ func compactionMapStrategy_FrequentPutDeleteOperations(ctx context.Context, t *t
 				}
 			})
 
-
-
 			t.Run("compact until no longer eligible", func(t *testing.T) {
 				var compacted bool
 				var err error
-				for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {}
+				for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+				}
 				require.Nil(t, err)
 			})
 

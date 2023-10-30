@@ -511,7 +511,8 @@ func compactionRoaringSetStrategy_RemoveUnnecessary(ctx context.Context, t *test
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		var compacted bool
 		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {}
+		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+		}
 		require.Nil(t, err)
 	})
 
@@ -606,7 +607,8 @@ func compactionRoaringSetStrategy_FrequentPutDeleteOperations(ctx context.Contex
 			t.Run("compact until no longer eligible", func(t *testing.T) {
 				var compacted bool
 				var err error
-				for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {}
+				for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+				}
 				require.Nil(t, err)
 			})
 
