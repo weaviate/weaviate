@@ -24,16 +24,6 @@ import (
 )
 
 type shardedLockCache[T float32 | byte | uint64] struct {
-	shardedLocks        []sync.RWMutex
-	cache               [][]T
-	vectorForID         common.VectorForID[T]
-	normalizeOnRead     bool
-	maxSize             int64
-	count               int64
-	cancel              chan bool
-	logger              logrus.FieldLogger
-	trackDimensionsOnce sync.Once
-	deletionInterval    time.Duration
 	shardedLocks     []sync.RWMutex
 	cache            [][]T
 	vectorForID      common.VectorForID[T]
@@ -198,7 +188,6 @@ func (s *shardedLockCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T
 	return out, errs
 }
 
-//nolint:unused
 var prefetchFunc func(in uintptr) = func(in uintptr) {
 	// do nothing on default arch
 	// this function will be overridden for amd64
