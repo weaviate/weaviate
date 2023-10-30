@@ -17,9 +17,11 @@ import (
 	"math/rand"
 	"testing"
 
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"gotest.tools/v3/assert"
 )
 
 func TestCompactionReplaceStrategyStraggler(t *testing.T) {
@@ -254,4 +256,17 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 	t.Run("verify count after compaction", func(*testing.T) {
 		assert.Equal(t, len(expected), bucket.Count())
 	})
+}
+
+
+
+func nullLogger() logrus.FieldLogger {
+	log, _ := test.NewNullLogger()
+	return log
+}
+
+func copyByteSlice(src []byte) []byte {
+	dst := make([]byte, len(src))
+	copy(dst, src)
+	return dst
 }
