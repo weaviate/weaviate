@@ -65,7 +65,7 @@ type vectorizer struct {
 	logger       logrus.FieldLogger
 }
 
-func New(jinaAIApiKey, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
+func New(jinaAIApiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
 		jinaAIApiKey: jinaAIApiKey,
 		httpClient: &http.Client{
