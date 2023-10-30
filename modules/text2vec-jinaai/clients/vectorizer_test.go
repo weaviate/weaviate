@@ -25,48 +25,24 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-jinaai/ent"
 )
 
 func TestBuildUrlFn(t *testing.T) {
-	t.Run("buildUrlFn returns default OpenAI Client", func(t *testing.T) {
+	t.Run("buildUrlFn returns default Jina AI URL", func(t *testing.T) {
 		config := ent.VectorizationConfig{
-			Type:         "",
-			Model:        "",
-			ModelVersion: "",
-			ResourceName: "",
-			DeploymentID: "",
-			BaseURL:      "https://api.openai.com",
-			IsAzure:      false,
+			Model:   "",
+			BaseURL: "https://api.jina.ai",
 		}
 		url, err := buildUrl(config)
 		assert.Nil(t, err)
-		assert.Equal(t, "https://api.openai.com/v1/embeddings", url)
-	})
-	t.Run("buildUrlFn returns Azure Client", func(t *testing.T) {
-		config := ent.VectorizationConfig{
-			Type:         "",
-			Model:        "",
-			ModelVersion: "",
-			ResourceName: "resourceID",
-			DeploymentID: "deploymentID",
-			BaseURL:      "",
-			IsAzure:      true,
-		}
-		url, err := buildUrl(config)
-		assert.Nil(t, err)
-		assert.Equal(t, "https://resourceID.openai.azure.com/openai/deployments/deploymentID/embeddings?api-version=2022-12-01", url)
+		assert.Equal(t, "https://api.jina.ai/v1/embeddings", url)
 	})
 
 	t.Run("buildUrlFn loads from BaseURL", func(t *testing.T) {
 		config := ent.VectorizationConfig{
-			Type:         "",
-			Model:        "",
-			ModelVersion: "",
-			ResourceName: "resourceID",
-			DeploymentID: "deploymentID",
-			BaseURL:      "https://foobar.some.proxy",
-			IsAzure:      false,
+			Model:   "",
+			BaseURL: "https://foobar.some.proxy",
 		}
 		url, err := buildUrl(config)
 		assert.Nil(t, err)
@@ -79,7 +55,7 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 
-		c := New("apiKey", "", "", 0, nullLogger())
+		c := New("apiKey", 0, nullLogger())
 		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
 			return server.URL, nil
 		}
@@ -91,8 +67,7 @@ func TestClient(t *testing.T) {
 		}
 		res, err := c.Vectorize(context.Background(), "This is my text",
 			ent.VectorizationConfig{
-				Type:  "text",
-				Model: "ada",
+				Model: "jina-embedding-v2",
 			})
 
 		assert.Nil(t, err)
@@ -102,7 +77,7 @@ func TestClient(t *testing.T) {
 	t.Run("when the context is expired", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New("apiKey", "", "", 0, nullLogger())
+		c := New("apiKey", 0, nullLogger())
 		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
 			return server.URL, nil
 		}
@@ -122,7 +97,7 @@ func TestClient(t *testing.T) {
 			serverError: errors.Errorf("nope, not gonna happen"),
 		})
 		defer server.Close()
-		c := New("apiKey", "", "", 0, nullLogger())
+		c := New("apiKey", 0, nullLogger())
 		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
 			return server.URL, nil
 		}
@@ -131,19 +106,19 @@ func TestClient(t *testing.T) {
 			ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
-		assert.EqualError(t, err, "connection to: OpenAI API failed with status: 500 error: nope, not gonna happen")
+		assert.EqualError(t, err, "connection to: JinaAI API failed with status: 500 error: nope, not gonna happen")
 	})
 
-	t.Run("when OpenAI key is passed using X-Openai-Api-Key header", func(t *testing.T) {
+	t.Run("when JinaAI key is passed using X-Jinaai-Api-Key header", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New("", "", "", 0, nullLogger())
+		c := New("", 0, nullLogger())
 		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
 			return server.URL, nil
 		}
 
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-Openai-Api-Key", []string{"some-key"})
+			"X-Jinaai-Api-Key", []string{"some-key"})
 
 		expected := &ent.VectorizationResult{
 			Text:       []string{"This is my text"},
@@ -152,18 +127,17 @@ func TestClient(t *testing.T) {
 		}
 		res, err := c.Vectorize(ctxWithValue, "This is my text",
 			ent.VectorizationConfig{
-				Type:  "text",
-				Model: "ada",
+				Model: "jina-emvedding-v2",
 			})
 
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
 
-	t.Run("when OpenAI key is empty", func(t *testing.T) {
+	t.Run("when JinaAI key is empty", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New("", "", "", 0, nullLogger())
+		c := New("", 0, nullLogger())
 		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
 			return server.URL, nil
 		}
@@ -175,31 +149,30 @@ func TestClient(t *testing.T) {
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "API Key: no api key found "+
-			"neither in request header: X-Openai-Api-Key "+
-			"nor in environment variable under OPENAI_APIKEY")
+			"neither in request header: X-Jinaai-Api-Key "+
+			"nor in environment variable under JINAAI_APIKEY")
 	})
 
-	t.Run("when X-Openai-Api-Key header is passed but empty", func(t *testing.T) {
+	t.Run("when X-Jinaai-Api-Key header is passed but empty", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New("", "", "", 0, nullLogger())
+		c := New("", 0, nullLogger())
 		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
 			return server.URL, nil
 		}
 
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-Openai-Api-Key", []string{""})
+			"X-Jinaai-Api-Key", []string{""})
 
 		_, err := c.Vectorize(ctxWithValue, "This is my text",
 			ent.VectorizationConfig{
-				Type:  "text",
-				Model: "ada",
+				Model: "jina-embeddings-v2",
 			})
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "API Key: no api key found "+
-			"neither in request header: X-Openai-Api-Key "+
-			"nor in environment variable under OPENAI_APIKEY")
+			"neither in request header: X-Jinaai-Api-Key "+
+			"nor in environment variable under JINAAI_APIKEY")
 	})
 }
 
@@ -257,155 +230,4 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func nullLogger() logrus.FieldLogger {
 	l, _ := test.NewNullLogger()
 	return l
-}
-
-func Test_getModelString(t *testing.T) {
-	t.Run("getModelStringDocument", func(t *testing.T) {
-		type args struct {
-			docType string
-			model   string
-			version string
-		}
-		tests := []struct {
-			name string
-			args args
-			want string
-		}{
-			{
-				name: "Document type: text model: ada vectorizationType: document",
-				args: args{
-					docType: "text",
-					model:   "ada",
-				},
-				want: "text-search-ada-doc-001",
-			},
-			{
-				name: "Document type: text model: ada-002 vectorizationType: document",
-				args: args{
-					docType: "text",
-					model:   "ada",
-					version: "002",
-				},
-				want: "text-embedding-ada-002",
-			},
-			{
-				name: "Document type: text model: babbage vectorizationType: document",
-				args: args{
-					docType: "text",
-					model:   "babbage",
-				},
-				want: "text-search-babbage-doc-001",
-			},
-			{
-				name: "Document type: text model: curie vectorizationType: document",
-				args: args{
-					docType: "text",
-					model:   "curie",
-				},
-				want: "text-search-curie-doc-001",
-			},
-			{
-				name: "Document type: text model: davinci vectorizationType: document",
-				args: args{
-					docType: "text",
-					model:   "davinci",
-				},
-				want: "text-search-davinci-doc-001",
-			},
-			{
-				name: "Document type: code model: ada vectorizationType: code",
-				args: args{
-					docType: "code",
-					model:   "ada",
-				},
-				want: "code-search-ada-code-001",
-			},
-			{
-				name: "Document type: code model: babbage vectorizationType: code",
-				args: args{
-					docType: "code",
-					model:   "babbage",
-				},
-				want: "code-search-babbage-code-001",
-			},
-		}
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				v := New("apiKey", "", "", 0, nullLogger())
-				if got := v.getModelString(tt.args.docType, tt.args.model, "document", tt.args.version); got != tt.want {
-					t.Errorf("vectorizer.getModelString() = %v, want %v", got, tt.want)
-				}
-			})
-		}
-	})
-
-	t.Run("getModelStringQuery", func(t *testing.T) {
-		type args struct {
-			docType string
-			model   string
-			version string
-		}
-		tests := []struct {
-			name string
-			args args
-			want string
-		}{
-			{
-				name: "Document type: text model: ada vectorizationType: query",
-				args: args{
-					docType: "text",
-					model:   "ada",
-				},
-				want: "text-search-ada-query-001",
-			},
-			{
-				name: "Document type: text model: babbage vectorizationType: query",
-				args: args{
-					docType: "text",
-					model:   "babbage",
-				},
-				want: "text-search-babbage-query-001",
-			},
-			{
-				name: "Document type: text model: curie vectorizationType: query",
-				args: args{
-					docType: "text",
-					model:   "curie",
-				},
-				want: "text-search-curie-query-001",
-			},
-			{
-				name: "Document type: text model: davinci vectorizationType: query",
-				args: args{
-					docType: "text",
-					model:   "davinci",
-				},
-				want: "text-search-davinci-query-001",
-			},
-			{
-				name: "Document type: code model: ada vectorizationType: text",
-				args: args{
-					docType: "code",
-					model:   "ada",
-				},
-				want: "code-search-ada-text-001",
-			},
-			{
-				name: "Document type: code model: babbage vectorizationType: text",
-				args: args{
-					docType: "code",
-					model:   "babbage",
-				},
-				want: "code-search-babbage-text-001",
-			},
-		}
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				v := New("apiKey", "", "", 0, nullLogger())
-				if got := v.getModelString(tt.args.docType, tt.args.model, "query", tt.args.version); got != tt.want {
-					t.Errorf("vectorizer.getModelString() = %v, want %v", got, tt.want)
-				}
-			})
-		}
-	})
 }
