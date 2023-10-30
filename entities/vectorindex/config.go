@@ -28,10 +28,6 @@ const (
 // ParseAndValidateConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
 func ParseAndValidateConfig(input interface{}, vectorIndexType string) (schema.VectorIndexConfig, error) {
-	if input == nil {
-		return nil, nil
-	}
-
 	if len(vectorIndexType) == 0 {
 		vectorIndexType = DefaultVectorIndexType
 	}
