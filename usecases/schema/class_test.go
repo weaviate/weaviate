@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -21,18 +22,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
-
-/// TODO-RAFT START
-// Fix Unit Tests
-// With class-related transactions refactored into class.go, we need to re-implement the following test cases:
-// - Updating existing classes (previously in update_test.go)
-// - Restore classes once Restore is implemented (previously in restore_test.go)
-// Please consult the previous implementation's test files for reference.
-/// TODO-RAFT END
 
 func Test_GetSchema(t *testing.T) {
 	t.Parallel()
@@ -1351,155 +1346,79 @@ func Test_UpdateClass(t *testing.T) {
 			})
 		}
 	})
+}
 
-	// TODO: hook in migrator for these tests
-	//t.Run("update vector index config", func(t *testing.T) {
-	//	t.Run("with a validation error", func(t *testing.T) {
-	//		sm := newSchemaManager()
-	//		sm.Handler = *handler
-	//		migrator := &configMigrator{
-	//			vectorConfigValidationError: fmt.Errorf("don't think so!"),
-	//		}
-	//
-	//		t.Run("create an initial class", func(t *testing.T) {
-	//			err := sm.AddClass(context.Background(), nil, &models.Class{
-	//				Class:      "ClassWithVectorIndexConfig",
-	//				Vectorizer: "none",
-	//				VectorIndexConfig: map[string]interface{}{
-	//					"setting-1": "value-1",
-	//				},
-	//			})
-	//
-	//			assert.Nil(t, err)
-	//		})
-	//
-	//		t.Run("attempt an update of the vector index config", func(t *testing.T) {
-	//			v := sm.validator
-	//			defer func() {
-	//				handler.validator = v
-	//			}()
-	//			sm.validator = migrator
-	//			class := models.Class{
-	//				Class:      "ClassWithVectorIndexConfig",
-	//				Vectorizer: "none",
-	//				VectorIndexConfig: map[string]interface{}{
-	//					"setting-1": "updated-value",
-	//				},
-	//			}
-	//			err := sm.UpdateClass(context.Background(), nil,
-	//				"ClassWithVectorIndexConfig", &class)
-	//			expectedErrMsg := "vector index config: don't think so!"
-	//			expectedValidateCalledWith := fakeVectorConfig{
-	//				raw: map[string]interface{}{
-	//					"setting-1": "updated-value",
-	//				},
-	//			}
-	//			expectedUpdateCalled := false
-	//
-	//			require.NotNil(t, err)
-	//			assert.Equal(t, expectedErrMsg, err.Error())
-	//			assert.Equal(t, expectedValidateCalledWith, migrator.vectorConfigValidateCalledWith)
-	//			assert.Equal(t, expectedUpdateCalled, migrator.vectorConfigUpdateCalled)
-	//			require.Nil(t, handler.DeleteClass(context.Background(), nil, class.Class))
-	//		})
-	//	})
-	//
-	//	t.Run("with a valid update", func(t *testing.T) {
-	//		sm := newSchemaManager()
-	//		migrator := &configMigrator{}
-	//		v := handler.validator
-	//		defer func() {
-	//			handler.validator = v
-	//		}()
-	//		handler.validator = migrator
-	//		sm.Handler = *handler
-	//
-	//
-	//		t.Run("create an initial class", func(t *testing.T) {
-	//			err := sm.AddClass(context.Background(), nil, &models.Class{
-	//				Class:      "ClassWithVectorIndexConfig",
-	//				Vectorizer: "none",
-	//				VectorIndexConfig: map[string]interface{}{
-	//					"setting-1": "value-1",
-	//				},
-	//			})
-	//
-	//			assert.Nil(t, err)
-	//		})
-	//
-	//		t.Run("update the vector index config", func(t *testing.T) {
-	//
-	//			class := models.Class{
-	//				Class:      "ClassWithVectorIndexConfig",
-	//				Vectorizer: "none",
-	//				VectorIndexConfig: map[string]interface{}{
-	//					"setting-1": "updated-value",
-	//				},
-	//			}
-	//			err := sm.UpdateClass(context.Background(), nil, "ClassWithVectorIndexConfig", &class)
-	//			expectedValidateCalledWith := fakeVectorConfig{
-	//				raw: map[string]interface{}{
-	//					"setting-1": "updated-value",
-	//				},
-	//			}
-	//			expectedUpdateCalledWith := fakeVectorConfig{
-	//				raw: map[string]interface{}{
-	//					"distance":  "cosine",
-	//					"setting-1": "updated-value",
-	//				},
-	//			}
-	//			expectedUpdateCalled := true
-	//
-	//			require.Nil(t, err)
-	//			assert.Equal(t, expectedValidateCalledWith, migrator.vectorConfigValidateCalledWith)
-	//			assert.Equal(t, expectedUpdateCalledWith, migrator.vectorConfigUpdateCalledWith)
-	//			assert.Equal(t, expectedUpdateCalled, migrator.vectorConfigUpdateCalled)
-	//		})
-	//
-	//		t.Run("the update is reflected", func(t *testing.T) {
-	//			class, err := handler.GetClass(context.Background(), nil, "ClassWithVectorIndexConfig")
-	//			require.Nil(t, err)
-	//			require.NotNil(t, class)
-	//			expectedVectorIndexConfig := fakeVectorConfig{
-	//				raw: map[string]interface{}{
-	//					"distance":  "cosine",
-	//					"setting-1": "updated-value",
-	//				},
-	//			}
-	//
-	//			assert.Equal(t, expectedVectorIndexConfig, class.VectorIndexConfig)
-	//		})
-	//	})
-	//})
-	//
-	//t.Run("update sharding config", func(t *testing.T) {
-	//	t.Run("with a validation error (immutable field)", func(t *testing.T) {
-	//		sm := newSchemaManager()
-	//		migrator := &nilMigrator{}
-	//		sm.migrator = migrator
-	//
-	//		t.Run("create an initial class", func(t *testing.T) {
-	//			err := sm.AddClass(context.Background(), nil, &models.Class{
-	//				Class: "ClassWithShardingConfig",
-	//			})
-	//
-	//			assert.Nil(t, err)
-	//		})
-	//
-	//		t.Run("attempt an update of the vector index config", func(t *testing.T) {
-	//			err := sm.UpdateClass(context.Background(), nil,
-	//				"ClassWithShardingConfig", &models.Class{
-	//					Class: "ClassWithShardingConfig",
-	//					ShardingConfig: map[string]interface{}{
-	//						"desiredCount": json.Number("7"),
-	//					},
-	//				})
-	//			expectedErrMsg := "re-sharding not supported yet: shard count is immutable: attempted change from \"1\" to \"7\""
-	//			require.NotNil(t, err)
-	//			assert.Contains(t, err.Error(), expectedErrMsg)
-	//		})
-	//	})
-	//})
+func TestRestoreClass_WithCircularRefs(t *testing.T) {
+	// When restoring a class, there could be circular refs between the classes,
+	// thus any validation that checks if linked classes exist would fail on the
+	// first class to import. Since we have no control over the order of imports
+	// when restoring, we need to relax this validation.
+
+	t.Parallel()
+	handler, shutdown := newTestHandler(t, &fakeDB{})
+	defer func() {
+		fut := shutdown()
+		require.Nil(t, fut.Error())
+	}()
+
+	classes := []*models.Class{
+		{
+			Class: "Class_A",
+			Properties: []*models.Property{{
+				Name:     "to_Class_B",
+				DataType: []string{"Class_B"},
+			}, {
+				Name:     "to_Class_C",
+				DataType: []string{"Class_C"},
+			}},
+			Vectorizer: "none",
+		},
+
+		{
+			Class: "Class_B",
+			Properties: []*models.Property{{
+				Name:     "to_Class_A",
+				DataType: []string{"Class_A"},
+			}, {
+				Name:     "to_Class_C",
+				DataType: []string{"Class_C"},
+			}},
+			Vectorizer: "none",
+		},
+
+		{
+			Class: "Class_C",
+			Properties: []*models.Property{{
+				Name:     "to_Class_A",
+				DataType: []string{"Class_A"},
+			}, {
+				Name:     "to_Class_B",
+				DataType: []string{"Class_B"},
+			}},
+			Vectorizer: "none",
+		},
+	}
+
+	for _, classRaw := range classes {
+		schemaBytes, err := json.Marshal(classRaw)
+		require.Nil(t, err)
+
+		// for this particular test the sharding state does not matter, so we can
+		// initiate any new sharding state
+		shardingConfig, err := sharding.ParseConfig(nil, 1)
+		require.Nil(t, err)
+
+		nodes := fakeNodes{[]string{"node1", "node2"}}
+		shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes, 1, false)
+		require.Nil(t, err)
+
+		shardingBytes, err := shardingState.JSON()
+		require.Nil(t, err)
+
+		descriptor := backup.ClassDescriptor{Name: classRaw.Class, Schema: schemaBytes, ShardingState: shardingBytes}
+		err = handler.RestoreClass(context.Background(), &descriptor)
+		assert.Nil(t, err, "class passes validation")
+	}
 }
 
 func testGetClassNames(h *Handler) []string {
