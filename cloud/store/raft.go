@@ -89,23 +89,24 @@ func (f *Store) Open(isLeader bool, joiners []Candidate) (*raft.Raft, error) {
 		return nil, fmt.Errorf("raft.NewRaft %v %w", address, err)
 	}
 
-	// Construct clusterConfig based on the expected initial joiners
+	// Construct clusterConfig based on the joiners parameter
 	clusterConfig := raft.Configuration{Servers: []raft.Server{}}
 	for _, j := range joiners {
-		voter := raft.Nonvoter
-		if !j.NonVoter {
-			voter = raft.Voter
+		isVoter := raft.Voter
+		if j.NonVoter {
+			isVoter = raft.Nonvoter
 		}
 		clusterConfig.Servers = append(clusterConfig.Servers, raft.Server{
 			ID:       raft.ServerID(j.ID),
 			Address:  raft.ServerAddress(j.Address),
-			Suffrage: voter,
+			Suffrage: isVoter,
 		})
 	}
 
+	f.raft = raftNode
+
 	log.Println(clusterConfig.Servers)
 	raftNode.BootstrapCluster(clusterConfig)
-	f.raft = raftNode
 
 	go func() {
 		//isLeader = isLeader && raftNode.Leader() == ""
