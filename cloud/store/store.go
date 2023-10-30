@@ -41,36 +41,43 @@ type Parser interface {
 }
 
 type Config struct {
-	WorkDir  string // raft working directory
-	NodeID   string
-	Host     string
-	RaftPort int
-	DB       DB
-	Parser   Parser
+	WorkDir              string // raft working directory
+	NodeID               string
+	Host                 string
+	RaftPort             int
+	RaftHeartbeatTimeout time.Duration
+	RaftElectionTimeout  time.Duration
+	DB                   DB
+	Parser               Parser
 }
 
 type Store struct {
-	raft         *raft.Raft
-	applyTimeout time.Duration
-	raftDir      string
-	nodeID       string
-	host         string
-	raftPort     int
-	schema       *schema
-	db           DB
-	parser       Parser
+	raft                 *raft.Raft
+	raftDir              string
+	raftPort             int
+	raftHeartbeatTimeout time.Duration
+	raftElectionTimeout  time.Duration
+	raftApplyTimeout     time.Duration
+
+	nodeID string
+	host   string
+	schema *schema
+	db     DB
+	parser Parser
 }
 
 func New(cfg Config) Store {
 	return Store{
-		raftDir:      cfg.WorkDir,
-		applyTimeout: time.Second * 20,
-		nodeID:       cfg.NodeID,
-		host:         cfg.Host,
-		raftPort:     cfg.RaftPort,
-		schema:       NewSchema(cfg.NodeID, cfg.DB),
-		db:           cfg.DB,
-		parser:       cfg.Parser,
+		raftDir:              cfg.WorkDir,
+		raftPort:             cfg.RaftPort,
+		raftHeartbeatTimeout: cfg.RaftHeartbeatTimeout,
+		raftElectionTimeout:  cfg.RaftElectionTimeout,
+		raftApplyTimeout:     time.Second * 20,
+		nodeID:               cfg.NodeID,
+		host:                 cfg.Host,
+		schema:               NewSchema(cfg.NodeID, cfg.DB),
+		db:                   cfg.DB,
+		parser:               cfg.Parser,
 	}
 }
 
@@ -89,7 +96,19 @@ func (f *Store) AddClass(cls *models.Class, ss *sharding.State) error {
 		Class:      cls.Class,
 		SubCommand: subCommand,
 	}
-	return f.executeCommand(cmd)
+	cmdBytes, err := proto.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("marshal command: %w", err)
+	}
+
+	fut := f.raft.Apply(cmdBytes, f.raftApplyTimeout)
+	if err := fut.Error(); err != nil {
+		if errors.Is(err, raft.ErrNotLeader) {
+			return ErrNotLeader
+		}
+		return err
+	}
+	return nil
 }
 
 func (f *Store) UpdateClass(cls *models.Class, ss *sharding.State) error {
@@ -103,7 +122,19 @@ func (f *Store) UpdateClass(cls *models.Class, ss *sharding.State) error {
 		Class:      cls.Class,
 		SubCommand: subCommand,
 	}
-	return f.executeCommand(cmd)
+	cmdBytes, err := proto.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("marshal command: %w", err)
+	}
+
+	fut := f.raft.Apply(cmdBytes, f.raftApplyTimeout)
+	if err := fut.Error(); err != nil {
+		if errors.Is(err, raft.ErrNotLeader) {
+			return ErrNotLeader
+		}
+		return err
+	}
+	return nil
 }
 
 func (f *Store) DeleteClass(name string) error {
@@ -111,21 +142,19 @@ func (f *Store) DeleteClass(name string) error {
 		Type:  command.Command_TYPE_DELETE_CLASS,
 		Class: name,
 	}
-	return f.executeCommand(cmd)
-}
-
-func (f *Store) RestoreClass(cls *models.Class, ss *sharding.State) error {
-	req := command.AddClassRequest{Class: cls, State: ss}
-	subCommand, err := json.Marshal(&req)
+	cmdBytes, err := proto.Marshal(cmd)
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return fmt.Errorf("marshal command: %w", err)
 	}
-	cmd := &command.Command{
-		Type:       command.Command_TYPE_RESTORE_CLASS,
-		Class:      cls.Class,
-		SubCommand: subCommand,
+
+	fut := f.raft.Apply(cmdBytes, f.raftApplyTimeout)
+	if err := fut.Error(); err != nil {
+		if errors.Is(err, raft.ErrNotLeader) {
+			return ErrNotLeader
+		}
+		return err
 	}
-	return f.executeCommand(cmd)
+	return nil
 }
 
 func (f *Store) AddProperty(class string, p *models.Property) error {
@@ -139,7 +168,19 @@ func (f *Store) AddProperty(class string, p *models.Property) error {
 		Class:      class,
 		SubCommand: subCommand,
 	}
-	return f.executeCommand(cmd)
+	cmdBytes, err := proto.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("marshal command: %w", err)
+	}
+
+	fut := f.raft.Apply(cmdBytes, f.raftApplyTimeout)
+	if err := fut.Error(); err != nil {
+		if errors.Is(err, raft.ErrNotLeader) {
+			return ErrNotLeader
+		}
+		return err
+	}
+	return nil
 }
 
 func (f *Store) UpdateShardStatus(class, shard, status string) error {
@@ -158,7 +199,7 @@ func (f *Store) UpdateShardStatus(class, shard, status string) error {
 		return fmt.Errorf("marshal command: %w", err)
 	}
 
-	fut := f.raft.Apply(cmdBytes, f.applyTimeout)
+	fut := f.raft.Apply(cmdBytes, f.raftApplyTimeout)
 	if err := fut.Error(); err != nil {
 		if errors.Is(err, raft.ErrNotLeader) {
 			return ErrNotLeader
@@ -178,7 +219,19 @@ func (f *Store) AddTenants(class string, req *command.AddTenantsRequest) error {
 		Class:      class,
 		SubCommand: subCommand,
 	}
-	return f.executeCommand(cmd)
+	cmdBytes, err := proto.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("marshal command: %w", err)
+	}
+
+	fut := f.raft.Apply(cmdBytes, f.raftApplyTimeout)
+	if err := fut.Error(); err != nil {
+		if errors.Is(err, raft.ErrNotLeader) {
+			return ErrNotLeader
+		}
+		return err
+	}
+	return nil
 }
 
 func (f *Store) UpdateTenants(class string, req *command.UpdateTenantsRequest) error {
@@ -191,7 +244,19 @@ func (f *Store) UpdateTenants(class string, req *command.UpdateTenantsRequest) e
 		Class:      class,
 		SubCommand: subCommand,
 	}
-	return f.executeCommand(cmd)
+	cmdBytes, err := proto.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("marshal command: %w", err)
+	}
+
+	fut := f.raft.Apply(cmdBytes, f.raftApplyTimeout)
+	if err := fut.Error(); err != nil {
+		if errors.Is(err, raft.ErrNotLeader) {
+			return ErrNotLeader
+		}
+		return err
+	}
+	return nil
 }
 
 func (f *Store) DeleteTenants(class string, req *command.DeleteTenantsRequest) error {
@@ -204,16 +269,12 @@ func (f *Store) DeleteTenants(class string, req *command.DeleteTenantsRequest) e
 		Class:      class,
 		SubCommand: subCommand,
 	}
-	return f.executeCommand(cmd)
-}
-
-func (f *Store) executeCommand(cmd *command.Command) error {
 	cmdBytes, err := proto.Marshal(cmd)
 	if err != nil {
 		return fmt.Errorf("marshal command: %w", err)
 	}
 
-	fut := f.raft.Apply(cmdBytes, f.applyTimeout)
+	fut := f.raft.Apply(cmdBytes, f.raftApplyTimeout)
 	if err := fut.Error(); err != nil {
 		if errors.Is(err, raft.ErrNotLeader) {
 			return ErrNotLeader

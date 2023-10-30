@@ -234,7 +234,7 @@ func (n *NilMigrator) UpdateTenants(ctx context.Context, class *models.Class, up
 	return nil, nil
 }
 
-func (n *NilMigrator) DeleteTenants(ctx context.Context, class *models.Class, partitions []string) (commit func(success bool), err error) {
+func (n *NilMigrator) DeleteTenants(ctx context.Context, class string, tenants []string) (commit func(success bool), err error) {
 	return nil, nil
 }
 
