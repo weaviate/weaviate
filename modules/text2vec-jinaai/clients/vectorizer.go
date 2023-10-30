@@ -164,7 +164,7 @@ func (v *vectorizer) getApiKeyHeaderAndValue(apiKey string) (string, string) {
 func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
 	var apiKey, envVar string
 
-	apiKey = "X-Openai-Api-Key"
+	apiKey = "X-Jinaai-Api-Key"
 	envVar = "JINAAI_APIKEY"
 	if len(v.jinaAIApiKey) > 0 {
 		return v.jinaAIApiKey, nil

@@ -49,7 +49,7 @@ func TestNearTextGraphQLArgument(t *testing.T) {
 		//   }
 		// }
 		assert.NotNil(t, nearText)
-		assert.Equal(t, "Txt2VecOpenAIPrefixClassNearTextInpObj", nearText.Type.Name())
+		assert.Equal(t, "Txt2VecJinaAIPrefixClassNearTextInpObj", nearText.Type.Name())
 		nearTextFields, ok := nearText.Type.(*graphql.InputObject)
 		assert.True(t, ok)
 		assert.NotNil(t, nearTextFields)
@@ -137,7 +137,7 @@ func TestNearTextGraphQLArgumentWithAutocorrect(t *testing.T) {
 		//   }
 		// }
 		assert.NotNil(t, nearText)
-		assert.Equal(t, "Txt2VecOpenAIPrefixClassNearTextInpObj", nearText.Type.Name())
+		assert.Equal(t, "Txt2VecJinaAIPrefixClassNearTextInpObj", nearText.Type.Name())
 		nearTextFields, ok := nearText.Type.(*graphql.InputObject)
 		assert.True(t, ok)
 		assert.NotNil(t, nearTextFields)
