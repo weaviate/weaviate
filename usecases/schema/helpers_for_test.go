@@ -324,6 +324,10 @@ func dummyValidateInvertedConfig(in *models.InvertedIndexConfig) error {
 
 type fakeMigrator struct{}
 
+func (f *fakeMigrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
+	return nil, nil
+}
+
 func (f *fakeMigrator) AddClass(ctx context.Context, class *models.Class, shardingState *sharding.State) error {
 	return nil
 }
@@ -356,7 +360,7 @@ func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants 
 	return nil, nil
 }
 
-func (f *fakeMigrator) GetShardsStatus(ctx context.Context, className string) (map[string]string, error) {
+func (f *fakeMigrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
 	return nil, nil
 }
 
