@@ -28,9 +28,6 @@ func (bq BinaryQuantizer) Encode(vec []float32) ([]uint64, error) {
 	if len(vec)%64 != 0 {
 		total++
 	}
-	if total*64 < len(vec) {
-		return nil, errors.New("BinaryQuantizer.Encode: The vector to encode is longer than those used for training")
-	}
 	code := make([]uint64, total)
 	for j := 0; j < len(vec); j++ {
 		if vec[j] < 0 {
