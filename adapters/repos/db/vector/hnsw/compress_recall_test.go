@@ -64,7 +64,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 	for _, distancer := range distancers {
 		truths := make([][]uint64, queries_size)
 		ssdhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
-			truths[i] = testinghelpers.BruteForce(vectors, queries[i], k, distanceWrapper(distancer))
+			truths[i], _ = testinghelpers.BruteForce(vectors, queries[i], k, distanceWrapper(distancer))
 		})
 		fmt.Printf("generating data took %s\n", time.Since(before))
 
