@@ -84,7 +84,10 @@ func (f *Store) Open(isLeader bool, joiners []Candidate) (*raft.Raft, error) {
 	log.Printf("raft.NewTCPTransport  address=%v tcpAddress=%v maxPool=%v timeOut=%v\n", address, tcpAddr, tcpMaxPool, tcpTimeout)
 
 	// raft node
-	raftNode, err := raft.NewRaft(f.configureRaft(), f, logCache, logStore, snapshotStore, transport)
+	raftNodeConfig := raft.DefaultConfig()
+	raftNodeConfig.LocalID = raft.ServerID(f.nodeID)
+	raftNodeConfig.SnapshotThreshold = 250
+	raftNode, err := raft.NewRaft(raftNodeConfig, f, logCache, logStore, snapshotStore, transport)
 	if err != nil {
 		return nil, fmt.Errorf("raft.NewRaft %v %w", address, err)
 	}
@@ -290,17 +293,4 @@ func (f *Store) Restore(rc io.ReadCloser) error {
 		}
 	}
 	return nil
-}
-
-func (f *Store) configureRaft() *raft.Config {
-	cfg := raft.DefaultConfig()
-	if f.raftHeartbeatTimeout != 0 {
-		cfg.HeartbeatTimeout = f.raftHeartbeatTimeout
-	}
-	if f.raftElectionTimeout != 0 {
-		cfg.ElectionTimeout = f.raftElectionTimeout
-	}
-	cfg.LocalID = raft.ServerID(f.nodeID)
-	cfg.SnapshotThreshold = 250
-	return cfg
 }
