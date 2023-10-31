@@ -39,8 +39,7 @@ type Migrator interface {
 	UpdateClass(ctx context.Context, className string,
 		newClassName *string) error
 	GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error)
-	GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error)
-	UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error
+
 	AddProperty(ctx context.Context, className string,
 		prop *models.Property) error
 	UpdateProperty(ctx context.Context, className string,
@@ -50,8 +49,11 @@ type Migrator interface {
 	UpdateTenants(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload) (commit func(success bool), err error)
 	DeleteTenants(ctx context.Context, class string, tenants []string) (commit func(success bool), err error)
 
-	GetShardsStatus(ctx context.Context, className string) (map[string]string, error)
+	GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error)
 	UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error
+
+	// GetShardsStatus(ctx context.Context, className string) (map[string]string, error)
+	// UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error
 
 	ValidateVectorIndexConfigUpdate(ctx context.Context,
 		old, updated schema.VectorIndexConfig) error
