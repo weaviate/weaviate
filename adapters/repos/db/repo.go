@@ -361,6 +361,14 @@ func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Dura
 			}
 		}
 
+		// call onIndexed callbacks
+		for i := range c.data[:c.cursor] {
+			fn := c.data[i].onIndexed
+			if fn != nil {
+				fn()
+			}
+		}
+
 		job.queue.persistCheckpoint(ids)
 		job.queue.releaseChunk(c)
 

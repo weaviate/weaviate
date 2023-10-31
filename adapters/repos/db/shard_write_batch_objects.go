@@ -292,13 +292,6 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 
 		status := ob.statuses[object.ID()]
 
-		if shouldGeoIndex {
-			if err := ob.shard.updatePropertySpecificIndices(object, status); err != nil {
-				ob.setErrorAtIndex(errors.Wrap(err, "update prop-specific indices"), i)
-				continue
-			}
-		}
-
 		if len(object.Vector) == 0 {
 			continue
 		}
@@ -306,6 +299,16 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 		desc := vectorDescriptor{
 			id:     status.docID,
 			vector: object.Vector,
+		}
+
+		// the geo-index will be updated asynchronously, after the vector has been indexed
+		if shouldGeoIndex {
+			desc.onIndexed = func() {
+				err := ob.shard.updatePropertySpecificIndices(object, status)
+				if err != nil {
+					ob.shard.index.logger.WithField("err", err).Error("update prop-specific indices")
+				}
+			}
 		}
 
 		vectors = append(vectors, desc)
