@@ -126,6 +126,20 @@ func WithKeepTombstones(keepTombstones bool) BucketOption {
 	}
 }
 
+/*
+
+Background for this option:
+
+We use the LSM store in two places:
+Our existing key/value and inverted buckets
+As part of the new brute-force based index (to be built this week).
+
+Brute-force index
+This is a simple disk-index where we use a cursor to iterate over all objects. This is what we need the force-compaction for. The experimentation so far has shown that the cursor is much more performant on a single segment than it is on multiple segments. This is because with a single segment it’s essentially just one conitiguuous chunk of data on disk that we read through. But with multiple segments (and an unpredicatable order) it ends up being many tiny reads (inefficient).
+Existing uses of the LSM store
+For existing uses, e.g. the object store, we don’t want to force-compact. This is because they can grow massive. For example, you could have a 100GB segment, then a new write leads to a new segment that is just a few bytes. If we would force-compact those two we would write 100GB every time the user sends a few bytes to Weaviate. In this case, the existing tiered compaction strategy makes more sense.
+Configurability of buckets
+*/
 func WithForceCompation(opt bool) BucketOption {
 	return func(b *Bucket) error {
 		b.forceCompaction = opt
