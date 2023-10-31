@@ -165,6 +165,16 @@ func FromEnv(config *Config) error {
 		if ok {
 			config.Authorization.AdminList.ReadOnlyUsers = strings.Split(roUsersString, ",")
 		}
+
+		groupsString, ok := os.LookupEnv("AUTHORIZATION_ADMINLIST_GROUPS")
+		if ok {
+			config.Authorization.AdminList.Groups = strings.Split(groupsString, ",")
+		}
+
+		roGroupsString, ok := os.LookupEnv("AUTHORIZATION_ADMINLIST_READONLY_GROUPS")
+		if ok {
+			config.Authorization.AdminList.ReadOnlyGroups = strings.Split(roGroupsString, ",")
+		}
 	}
 
 	if os.Getenv("PERSISTENCE_LSM_ACCESS_STRATEGY") == "pread" {
@@ -182,6 +192,10 @@ func FromEnv(config *Config) error {
 	}
 
 	if err := config.parseMemtableConfig(); err != nil {
+		return err
+	}
+
+	if err := config.parseCORSConfig(); err != nil {
 		return err
 	}
 
@@ -363,6 +377,28 @@ func FromEnv(config *Config) error {
 		DefaultMinimumReplicationFactor,
 	); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (c *Config) parseCORSConfig() error {
+	if v := os.Getenv("CORS_ALLOW_ORIGIN"); v != "" {
+		c.CORS.AllowOrigin = v
+	} else {
+		c.CORS.AllowOrigin = DefaultCORSAllowOrigin
+	}
+
+	if v := os.Getenv("CORS_ALLOW_METHODS"); v != "" {
+		c.CORS.AllowMethods = v
+	} else {
+		c.CORS.AllowMethods = DefaultCORSAllowMethods
+	}
+
+	if v := os.Getenv("CORS_ALLOW_HEADERS"); v != "" {
+		c.CORS.AllowHeaders = v
+	} else {
+		c.CORS.AllowHeaders = DefaultCORSAllowHeaders
 	}
 
 	return nil

@@ -61,7 +61,7 @@ type participantStatus struct {
 // selector is used to select participant nodes
 type selector interface {
 	// Shards gets all nodes on which this class is sharded
-	Shards(ctx context.Context, class string) []string
+	Shards(ctx context.Context, class string) ([]string, error)
 	// ListClasses returns a list of all existing classes
 	// This will be needed if user doesn't include any classes
 	ListClasses(ctx context.Context) []string
@@ -215,8 +215,7 @@ func (c *coordinator) Restore(
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, true)
 		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor); err != nil {
-			c.log.WithField("action", OpRestore).
-				WithField("backup_id", desc.ID).Errorf("put_meta: %v", err)
+			c.log.WithField("action", OpRestore).WithField("backup_id", desc.ID).Errorf("put_meta: %v", err)
 		}
 	}()
 
@@ -265,6 +264,7 @@ func (c *coordinator) canCommit(ctx context.Context, method Op, backend string) 
 	}
 
 	id := c.descriptor.ID
+	nodeMapping := c.descriptor.NodeMapping
 	groups := c.descriptor.Nodes
 
 	g, ctx := errgroup.WithContext(ctx)
@@ -279,6 +279,9 @@ func (c *coordinator) canCommit(ctx context.Context, method Op, backend string) 
 			default:
 			}
 
+			// If we have a nodeMapping with the node name from the backup, replace the node with the new one
+			node = c.descriptor.ToMappedNodeName(node)
+
 			host, found := c.nodeResolver.NodeHostname(node)
 			if !found {
 				return fmt.Errorf("cannot resolve hostname for %q", node)
@@ -287,11 +290,12 @@ func (c *coordinator) canCommit(ctx context.Context, method Op, backend string) 
 			reqChan <- pair{
 				nodeHost{node, host},
 				&Request{
-					Method:   method,
-					ID:       id,
-					Backend:  backend,
-					Classes:  gr.Classes,
-					Duration: _BookingPeriod,
+					Method:      method,
+					ID:          id,
+					Backend:     backend,
+					Classes:     gr.Classes,
+					NodeMapping: nodeMapping,
+					Duration:    _BookingPeriod,
 				},
 			}
 		}
@@ -354,7 +358,7 @@ func (c *coordinator) commit(ctx context.Context,
 	reason := ""
 	groups := c.descriptor.Nodes
 	for node, p := range c.Participants {
-		st := groups[node]
+		st := groups[c.descriptor.ToOriginalNodeName(node)]
 		st.Status, st.Error = p.Status, p.Reason
 		if p.Status != backup.Success {
 			status = backup.Failed
@@ -468,8 +472,8 @@ func (c *coordinator) abortAll(ctx context.Context, req *AbortRequest, nodes map
 func (c *coordinator) groupByShard(ctx context.Context, classes []string) (nodeMap, error) {
 	m := make(nodeMap, 32)
 	for _, cls := range classes {
-		nodes := c.selector.Shards(ctx, cls)
-		if len(nodes) == 0 {
+		nodes, err := c.selector.Shards(ctx, cls)
+		if err != nil {
 			return nil, fmt.Errorf("class %q: %w", cls, errNoShardFound)
 		}
 		for _, node := range nodes {

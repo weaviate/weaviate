@@ -63,6 +63,7 @@ type RemoteIndexIncomingRepo interface {
 		filters *filters.LocalFilter) ([]uint64, error)
 	IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 		docIDs []uint64, dryRun bool) objects.BatchSimpleObjects
+	IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error)
 	IncomingGetShardStatus(ctx context.Context, shardName string) (string, error)
 	IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string) error
 	IncomingOverwriteObjects(ctx context.Context, shard string,
@@ -224,6 +225,17 @@ func (rii *RemoteIndexIncoming) DeleteObjectBatch(ctx context.Context, indexName
 	}
 
 	return index.IncomingDeleteObjectBatch(ctx, shardName, docIDs, dryRun)
+}
+
+func (rii *RemoteIndexIncoming) GetShardQueueSize(ctx context.Context,
+	indexName, shardName string,
+) (int64, error) {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		return 0, errors.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingGetShardQueueSize(ctx, shardName)
 }
 
 func (rii *RemoteIndexIncoming) GetShardStatus(ctx context.Context,

@@ -44,8 +44,8 @@ func TestClient(t *testing.T) {
 			logger: nullLogger(),
 		}
 		expected := &ent.VectorizationResult{
-			Text:       "This is my text",
-			Vector:     []float32{0.1, 0.2, 0.3},
+			Texts:      []string{"This is my text"},
+			Vectors:    [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
 		res, err := c.Vectorize(context.Background(), []string{"This is my text"},
@@ -115,8 +115,8 @@ func TestClient(t *testing.T) {
 			"X-Palm-Api-Key", []string{"some-key"})
 
 		expected := &ent.VectorizationResult{
-			Text:       "This is my text",
-			Vector:     []float32{0.1, 0.2, 0.3},
+			Texts:      []string{"This is my text"},
+			Vectors:    [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
 		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, ent.VectorizationConfig{})

@@ -168,7 +168,19 @@ func (s *schemaHandlers) getClusterStatus(params schema.SchemaClusterStatusParam
 func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	// TODO-RAFT START
+	// Fix changed interface GetShardsStatus -> ShardsStatus
+	// Previous definition:
+	// status, err := s.manager.GetShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName, tenant)
+	// var tenant string
+	// if params.Tenant == nil {
+	// 	tenant = ""
+	// } else {
+	// 	tenant = *params.Tenant
+	// }
+
 	status, err := s.manager.ShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName)
+	// TODO-RAFT END
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {

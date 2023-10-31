@@ -55,12 +55,14 @@ type SegmentGroup struct {
 	// is that of the bucket that holds objects
 	monitorCount bool
 
-	mmapContents bool
+	mmapContents   bool
+	keepTombstones bool // see bucket for more datails
 }
 
 func newSegmentGroup(dir string, logger logrus.FieldLogger,
 	mapRequiresSorting bool, metrics *Metrics, strategy string,
-	monitorCount bool, compactionCallbacks cyclemanager.CycleCallbackGroup, mmapContents bool,
+	monitorCount bool, compactionCallbacks cyclemanager.CycleCallbackGroup,
+	mmapContents bool, keepTombstones bool,
 ) (*SegmentGroup, error) {
 	list, err := os.ReadDir(dir)
 	if err != nil {
@@ -76,6 +78,7 @@ func newSegmentGroup(dir string, logger logrus.FieldLogger,
 		mapRequiresSorting: mapRequiresSorting,
 		strategy:           strategy,
 		mmapContents:       mmapContents,
+		keepTombstones:     keepTombstones,
 	}
 
 	segmentIndex := 0

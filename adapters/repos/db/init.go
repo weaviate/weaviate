@@ -17,6 +17,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -38,6 +39,15 @@ func (db *DB) init(ctx context.Context) error {
 	// over.
 	if err := db.migrateFileStructureIfNecessary(); err != nil {
 		return err
+	}
+
+	if asyncEnabled() {
+		// init the index checkpoint file
+		var err error
+		db.indexCheckpoints, err = indexcheckpoint.New(db.config.RootPath, db.logger)
+		if err != nil {
+			return errors.Wrap(err, "init index checkpoint")
+		}
 	}
 
 	objects := db.schemaGetter.GetSchemaSkipAuth().Objects
@@ -80,7 +90,7 @@ func (db *DB) init(ctx context.Context) error {
 				inverted.ConfigFromModel(invertedConfig),
 				class.VectorIndexConfig.(schema.VectorIndexConfig),
 				db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
-				db.replicaClient, db.promMetrics, class, db.jobQueueCh)
+				db.replicaClient, db.promMetrics, class, db.jobQueueCh, db.indexCheckpoints)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}

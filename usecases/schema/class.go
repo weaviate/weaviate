@@ -86,7 +86,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	return h.metaWriter.AddClass(cls, shardState)
 }
 
-func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) error {
+func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string) error {
 	// get schema and sharding state
 	class := &models.Class{}
 	if err := json.Unmarshal(d.Schema, &class); err != nil {

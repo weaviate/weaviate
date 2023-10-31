@@ -35,12 +35,13 @@ func CreateBackupStatus(t *testing.T, backend, backupID string) (*backups.Backup
 	return Client(t).Backups.BackupsCreateStatus(params, nil)
 }
 
-func RestoreBackup(t *testing.T, className, backend, backupID string) (*backups.BackupsRestoreOK, error) {
+func RestoreBackup(t *testing.T, className, backend, backupID string, nodeMapping map[string]string) (*backups.BackupsRestoreOK, error) {
 	params := backups.NewBackupsRestoreParams().
 		WithBackend(backend).
 		WithID(backupID).
 		WithBody(&models.BackupRestoreRequest{
-			Include: []string{className},
+			Include:     []string{className},
+			NodeMapping: nodeMapping,
 		})
 	return Client(t).Backups.BackupsRestore(params, nil)
 }

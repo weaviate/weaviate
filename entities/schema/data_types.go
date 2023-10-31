@@ -148,7 +148,8 @@ func IsArrayType(dt DataType) (DataType, bool) {
 		return DataTypeDate, true
 	case DataTypeUUIDArray:
 		return DataTypeUUID, true
-
+	case DataTypeObjectArray:
+		return DataTypeObject, true
 	default:
 		return "", false
 	}
