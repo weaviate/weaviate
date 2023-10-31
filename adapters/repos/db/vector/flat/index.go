@@ -120,23 +120,17 @@ func (index *flat) initStore(rootPath, className string) error {
 }
 
 func (index *flat) AddBatch(ids []uint64, vectors [][]float32) error {
-	/*if len(ids) != len(vectors) {
+	if len(ids) != len(vectors) {
 		return errors.Errorf("ids and vectors sizes does not match")
 	}
 	if len(ids) == 0 {
 		return errors.Errorf("insertBatch called with empty lists")
 	}
-	index.trackDimensionsOnce.Do(func() {
-		atomic.StoreInt32(&index.dims, int32(len(vectors[0])))
-		fmt.Println("dimensions: " + string(index.dims))
-		index.bq = *ssdhelpers.NewBinaryQuantizer()
-		index.bq.Fit(vectors)
-	})
 	for idx := range ids {
 		if err := index.Add(ids[idx], vectors[idx]); err != nil {
 			return err
 		}
-	}*/
+	}
 	return nil
 }
 
@@ -188,6 +182,18 @@ func (index *flat) Add(id uint64, vector []float32) error {
 }
 
 func (index *flat) Delete(ids ...uint64) error {
+	if index.compression == flatent.CompressionNone {
+		return nil
+	}
+
+	for _, i := range ids {
+		Id := make([]byte, 8)
+		binary.LittleEndian.PutUint64(Id, uint64(i))
+		err := index.store.Bucket(helpers.CompressedObjectsBucketLSM).Delete(Id)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -221,6 +227,8 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 	if allow != nil {
 		firstId, _ = allow.Iterator().Next()
 	}
+	var key []byte
+	var v []byte
 
 	if index.compression != flatent.CompressionNone {
 		query, err := index.bq.Encode(vector)
@@ -228,21 +236,20 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 			return nil, nil, err
 		}
 		cursor := index.store.Bucket(helpers.CompressedObjectsBucketLSM).Cursor()
-		var key []byte
-		var v []byte
 		if allow != nil {
-			buff := make([]byte, 16)
-			binary.BigEndian.PutUint64(buff[8:], firstId)
+			buff := make([]byte, 8)
+			binary.LittleEndian.PutUint64(buff, firstId)
 			key, v = cursor.Seek(buff)
 		} else {
 			key, v = cursor.First()
 		}
 		for key != nil && (allow == nil || alreadyFound < allow.Len()) {
-			alreadyFound++
 			id := binary.LittleEndian.Uint64(key)
 			if allow != nil && !allow.Contains(id) {
+				key, v = cursor.Next()
 				continue
 			}
+			alreadyFound++
 			t := index.pool.uint64SlicePool.Get(len(v) / 8)
 			candidate := uint64SliceFromByteSlice(v, t.slice)
 			d, _ := index.bq.DistanceBetweenCompressedVectors(candidate, query)
@@ -258,7 +265,7 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 		}
 		cursor.Close()
 
-		ids := make([]uint64, ef)
+		ids := make([]uint64, heap.Len())
 		for j := range ids {
 			ids[j] = heap.Pop().ID
 		}
@@ -281,8 +288,6 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 		}
 	} else {
 		cursor := index.flatStore()
-		var key []byte
-		var v []byte
 		if allow != nil {
 			buff := make([]byte, 16)
 			binary.BigEndian.PutUint64(buff[8:], firstId)
@@ -292,15 +297,16 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 		}
 
 		for key != nil && (allow == nil || alreadyFound < allow.Len()) {
-			alreadyFound++
 			obj, err := storobj.FromBinary(v)
+			if err != nil {
+				return nil, nil, errors.Wrapf(err, "unmarhsal item")
+			}
 			id := obj.DocID()
 			if allow != nil && !allow.Contains(id) {
+				key, v = cursor.Next()
 				continue
 			}
-			if err != nil {
-				return nil, nil, errors.Wrapf(err, "unmarhsal item %d", id)
-			}
+			alreadyFound++
 			candidate := obj.Vector
 			if index.distancerProvider.Type() == "cosine-dot" {
 				// cosine-dot requires normalized vectors, as the dot product and cosine
