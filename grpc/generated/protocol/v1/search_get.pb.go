@@ -165,7 +165,7 @@ type SearchRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// required
+	//required
 	Collection string `protobuf:"bytes,1,opt,name=collection,proto3" json:"collection,omitempty"`
 	// parameters
 	Tenant           string            `protobuf:"bytes,10,opt,name=tenant,proto3" json:"tenant,omitempty"`
@@ -759,7 +759,6 @@ type Filters struct {
 	On      []string   `protobuf:"bytes,2,rep,name=on,proto3" json:"on,omitempty"`
 	Filters []*Filters `protobuf:"bytes,3,rep,name=filters,proto3" json:"filters,omitempty"`
 	// Types that are assignable to TestValue:
-	//
 	//	*Filters_ValueText
 	//	*Filters_ValueInt
 	//	*Filters_ValueBoolean
