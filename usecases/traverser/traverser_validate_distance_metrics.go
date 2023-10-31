@@ -19,7 +19,6 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
-	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -38,7 +37,7 @@ func (t *Traverser) validateExploreDistance(params ExploreParams) error {
 func (t *Traverser) validateCrossClassDistanceCompatibility() (distType string, err error) {
 	s := t.schemaGetter.GetSchemaSkipAuth()
 	if s.Objects == nil {
-		return vectorIndex.DefaultDistanceMetric, nil
+		return common.DefaultDistanceMetric, nil
 	}
 
 	var (
@@ -90,7 +89,7 @@ func (t *Traverser) validateExploreDistanceParams(params ExploreParams, distType
 		return nil
 	}
 
-	if distType != vectorIndex.DistanceCosine {
+	if distType != common.DistanceCosine {
 		return certaintyUnsupportedError(distType)
 	}
 
