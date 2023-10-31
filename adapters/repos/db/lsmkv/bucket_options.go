@@ -127,7 +127,6 @@ func WithKeepTombstones(keepTombstones bool) BucketOption {
 }
 
 /*
-
 Background for this option:
 
 We use the LSM store in two places:
