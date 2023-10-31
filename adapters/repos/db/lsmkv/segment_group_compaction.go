@@ -47,7 +47,6 @@ func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 	lowestLevel := uint16(math.MaxUint16)
 	lowestIndex := -1
 	secondLowestIndex := -1
-	highestLevel := uint16(0)
 	pairExists := false
 
 	for ind, seg := range sg.segments {
@@ -64,10 +63,6 @@ func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 			secondLowestIndex = lowestIndex
 			lowestLevel = seg.level
 			lowestIndex = ind
-		}
-
-		if seg.level > highestLevel {
-			highestLevel = seg.level
 		}
 	}
 

@@ -389,6 +389,7 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 				// will not be removed regardless of keepTombstones setting
 				assertSecondSegmentOfSize(t, bucket, 11876, 11876)
 			}
+			i++
 		}
 		require.Nil(t, err)
 	})

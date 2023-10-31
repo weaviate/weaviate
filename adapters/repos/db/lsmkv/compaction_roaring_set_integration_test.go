@@ -421,6 +421,7 @@ func compactionRoaringSetStrategy(ctx context.Context, t *testing.T, opts []Buck
 				// will not be removed regardless of keepTombstones setting
 				assertSecondSegmentOfSize(t, bucket, 26768, 26768)
 			}
+			i++
 		}
 		require.Nil(t, err)
 	})
