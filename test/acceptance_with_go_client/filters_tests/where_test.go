@@ -27,7 +27,6 @@ func TestWhereFilter(t *testing.T) {
 func TestWhereFilter_Cluster(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
-		WithWeaviate().
 		WithWeaviateCluster().
 		WithText2VecContextionary().
 		Start(ctx)
@@ -38,7 +37,6 @@ func TestWhereFilter_Cluster(t *testing.T) {
 	endpoint := compose.GetWeaviate().URI()
 
 	t.Run("ContainsAny / ContainsAll", testContainsAnyAll(t, endpoint))
-	t.Run("ContainsAny / ContainsAll with bm25", testContainsAnyAllWithBM25(t, endpoint))
 	t.Run("Contains Text", testContainsText(t, endpoint))
 
 	if err := compose.Terminate(ctx); err != nil {
