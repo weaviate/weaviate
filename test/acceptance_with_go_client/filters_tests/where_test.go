@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
@@ -24,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/test/docker"
 )
 
 func TestWhereFilter(t *testing.T) {
@@ -465,4 +467,23 @@ func TestWhereFilter(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestWhereFilter_Cluster(t *testing.T) {
+	ctx := context.Background()
+	compose, err := docker.New().
+		WithWeaviateCluster().
+		WithText2VecContextionary().
+		Start(ctx)
+	if err != nil {
+		panic(errors.Wrapf(err, "cannot start"))
+	}
+
+	endpoint := compose.GetWeaviate().URI()
+
+	t.Run("ContainsAny / ContainsAll with bm25", testContainsAnyAllWithBM25(t, endpoint))
+
+	if err := compose.Terminate(ctx); err != nil {
+		panic(errors.Wrapf(err, "cannot terminate"))
+	}
 }
