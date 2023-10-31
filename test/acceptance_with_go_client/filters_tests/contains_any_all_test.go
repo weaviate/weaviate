@@ -110,75 +110,7 @@ func testContainsAnyAll(t *testing.T, host string) func(t *testing.T) {
 			require.Nil(t, err)
 		})
 
-		t.Run("insert data", func(t *testing.T) {
-			authors := []string{"John", "Jenny", "Joseph"}
-			authorsArray := [][]string{
-				{"John", "Jenny", "Joseph"},
-				{"John", "Jenny"},
-				{"John"},
-			}
-			colors := []string{"red", "blue", "green"}
-			colorssArray := [][]string{
-				{"red", "blue", "green"},
-				{"red", "blue"},
-				{"red"},
-			}
-			numbers := []float64{1.1, 2.2, 3.3}
-			numbersArray := [][]float64{
-				{1.1, 2.2, 3.3},
-				{1.1, 2.2},
-				{1.1},
-			}
-			ints := []int64{1, 2, 3}
-			intsArray := [][]int64{
-				{1, 2, 3},
-				{1, 2},
-				{1},
-			}
-			uuids := []string{id1, id2, id3}
-			uuidsArray := [][]string{
-				{id1, id2, id3},
-				{id1, id2},
-				{id1},
-			}
-			dates := []string{"2009-11-01T23:00:00Z", "2009-11-02T23:00:00Z", "2009-11-03T23:00:00Z"}
-			datesArray := [][]string{
-				{"2009-11-01T23:00:00Z", "2009-11-02T23:00:00Z", "2009-11-03T23:00:00Z"},
-				{"2009-11-01T23:00:00Z", "2009-11-02T23:00:00Z"},
-				{"2009-11-01T23:00:00Z"},
-			}
-			bools := []bool{true, false, true}
-			boolsArray := [][]bool{
-				{true, false, true},
-				{true, false},
-				{true},
-			}
-			for i, id := range ids {
-				_, err := client.Data().Creator().
-					WithClassName(className).
-					WithID(id).
-					WithProperties(map[string]interface{}{
-						"color":   colors[i],
-						"colors":  colorssArray[i],
-						"author":  authors[i],
-						"authors": authorsArray[i],
-						"number":  numbers[i],
-						"numbers": numbersArray[i],
-						"int":     ints[i],
-						"ints":    intsArray[i],
-						"uuid":    uuids[i],
-						"uuids":   uuidsArray[i],
-						"date":    dates[i],
-						"dates":   datesArray[i],
-						"bool":    bools[i],
-						"bools":   boolsArray[i],
-					}).
-					Do(context.TODO())
-				require.Nil(t, err)
-			}
-		})
-
-		t.Run("where", func(t *testing.T) {
+		t.Run("where with bm25 without data", func(t *testing.T) {
 			mustGetTime := func(date string) time.Time {
 				result, err := time.Parse(time.RFC3339Nano, date)
 				if err != nil {
@@ -187,39 +119,18 @@ func testContainsAnyAll(t *testing.T, host string) func(t *testing.T) {
 				return result
 			}
 			tests := []struct {
-				name        string
-				where       *filters.WhereBuilder
-				property    string
-				nearText    *graphql.NearTextArgumentBuilder
-				expectedIds []string
+				name     string
+				where    *filters.WhereBuilder
+				property string
 			}{
 				// Contains operator with array types
-				{
-					name: "contains all authors with string array",
-					where: filters.Where().
-						WithPath([]string{"authors"}).
-						WithOperator(filters.ContainsAll).
-						WithValueString("John", "Jenny", "Joseph"),
-					property:    "authors",
-					expectedIds: []string{id1},
-				},
 				{
 					name: "contains any authors with string array",
 					where: filters.Where().
 						WithPath([]string{"authors"}).
 						WithOperator(filters.ContainsAny).
 						WithValueString("John", "Jenny", "Joseph"),
-					property:    "authors",
-					expectedIds: []string{id1, id2, id3},
-				},
-				{
-					name: "contains all colors with text array",
-					where: filters.Where().
-						WithPath([]string{"colors"}).
-						WithOperator(filters.ContainsAll).
-						WithValueText("red", "blue", "green"),
-					property:    "colors",
-					expectedIds: []string{id1},
+					property: "authors",
 				},
 				{
 					name: "contains any colors with text array",
@@ -227,17 +138,7 @@ func testContainsAnyAll(t *testing.T, host string) func(t *testing.T) {
 						WithPath([]string{"colors"}).
 						WithOperator(filters.ContainsAny).
 						WithValueText("red", "blue", "green"),
-					property:    "colors",
-					expectedIds: []string{id1, id2, id3},
-				},
-				{
-					name: "contains all numbers with number array",
-					where: filters.Where().
-						WithPath([]string{"numbers"}).
-						WithOperator(filters.ContainsAll).
-						WithValueNumber(1.1, 2.2, 3.3),
-					property:    "numbers",
-					expectedIds: []string{id1},
+					property: "colors",
 				},
 				{
 					name: "contains any numbers with number array",
@@ -245,17 +146,7 @@ func testContainsAnyAll(t *testing.T, host string) func(t *testing.T) {
 						WithPath([]string{"numbers"}).
 						WithOperator(filters.ContainsAny).
 						WithValueNumber(1.1, 2.2, 3.3),
-					property:    "numbers",
-					expectedIds: []string{id1, id2, id3},
-				},
-				{
-					name: "contains all ints with int array",
-					where: filters.Where().
-						WithPath([]string{"ints"}).
-						WithOperator(filters.ContainsAll).
-						WithValueInt(1, 2, 3),
-					property:    "ints",
-					expectedIds: []string{id1},
+					property: "numbers",
 				},
 				{
 					name: "contains any ints with int array",
@@ -263,17 +154,7 @@ func testContainsAnyAll(t *testing.T, host string) func(t *testing.T) {
 						WithPath([]string{"ints"}).
 						WithOperator(filters.ContainsAny).
 						WithValueInt(1, 2, 3),
-					property:    "ints",
-					expectedIds: []string{id1, id2, id3},
-				},
-				{
-					name: "contains all bools with bool array",
-					where: filters.Where().
-						WithPath([]string{"bools"}).
-						WithOperator(filters.ContainsAll).
-						WithValueBoolean(true, false, true),
-					property:    "bools",
-					expectedIds: []string{id1, id2},
+					property: "ints",
 				},
 				{
 					name: "contains any bools with bool array",
@@ -281,17 +162,7 @@ func testContainsAnyAll(t *testing.T, host string) func(t *testing.T) {
 						WithPath([]string{"bools"}).
 						WithOperator(filters.ContainsAny).
 						WithValueBoolean(true, false),
-					property:    "bools",
-					expectedIds: []string{id1, id2, id3},
-				},
-				{
-					name: "contains all uuids with uuid array",
-					where: filters.Where().
-						WithPath([]string{"uuids"}).
-						WithOperator(filters.ContainsAll).
-						WithValueText(id1, id2, id3),
-					property:    "uuids",
-					expectedIds: []string{id1},
+					property: "bools",
 				},
 				{
 					name: "contains any uuids with uuid array",
@@ -299,19 +170,7 @@ func testContainsAnyAll(t *testing.T, host string) func(t *testing.T) {
 						WithPath([]string{"uuids"}).
 						WithOperator(filters.ContainsAny).
 						WithValueText(id1, id2, id3),
-					property:    "uuids",
-					expectedIds: []string{id1, id2, id3},
-				},
-				{
-					name: "contains all dates with dates array",
-					where: filters.Where().
-						WithPath([]string{"dates"}).
-						WithOperator(filters.ContainsAll).
-						WithValueDate(
-							mustGetTime("2009-11-01T23:00:00Z"), mustGetTime("2009-11-02T23:00:00Z"), mustGetTime("2009-11-03T23:00:00Z"),
-						),
-					property:    "dates",
-					expectedIds: []string{id1},
+					property: "uuids",
 				},
 				{
 					name: "contains any dates with dates array",
@@ -321,42 +180,7 @@ func testContainsAnyAll(t *testing.T, host string) func(t *testing.T) {
 						WithValueDate(
 							mustGetTime("2009-11-01T23:00:00Z"), mustGetTime("2009-11-02T23:00:00Z"), mustGetTime("2009-11-03T23:00:00Z"),
 						),
-					property:    "dates",
-					expectedIds: []string{id1, id2, id3},
-				},
-				{
-					name: "complex contains all ints and all numbers with AND on int array",
-					where: filters.Where().
-						WithOperator(filters.And).
-						WithOperands([]*filters.WhereBuilder{
-							filters.Where().
-								WithPath([]string{"numbers"}).
-								WithOperator(filters.ContainsAll).
-								WithValueNumber(1.1, 2.2, 3.3),
-							filters.Where().
-								WithPath([]string{"ints"}).
-								WithOperator(filters.ContainsAll).
-								WithValueInt(1, 2, 3),
-						}),
-					property:    "ints",
-					expectedIds: []string{id1},
-				},
-				{
-					name: "complex contains any ints and all numbers with OR on int array",
-					where: filters.Where().
-						WithOperator(filters.Or).
-						WithOperands([]*filters.WhereBuilder{
-							filters.Where().
-								WithPath([]string{"numbers"}).
-								WithOperator(filters.ContainsAll).
-								WithValueNumber(1.1, 2.2, 3.3),
-							filters.Where().
-								WithPath([]string{"ints"}).
-								WithOperator(filters.ContainsAny).
-								WithValueInt(1, 2, 3),
-						}),
-					property:    "ints",
-					expectedIds: []string{id1, id2, id3},
+					property: "dates",
 				},
 				// Contains operator with primitives
 				{
@@ -365,8 +189,7 @@ func testContainsAnyAll(t *testing.T, host string) func(t *testing.T) {
 						WithPath([]string{"author"}).
 						WithOperator(filters.ContainsAny).
 						WithValueString("John", "Jenny", "Joseph"),
-					property:    "author",
-					expectedIds: []string{id1, id2, id3},
+					property: "author",
 				},
 				{
 					name: "contains any color with text",
@@ -374,8 +197,7 @@ func testContainsAnyAll(t *testing.T, host string) func(t *testing.T) {
 						WithPath([]string{"color"}).
 						WithOperator(filters.ContainsAny).
 						WithValueText("red", "blue", "green"),
-					property:    "color",
-					expectedIds: []string{id1, id2, id3},
+					property: "color",
 				},
 				{
 					name: "contains any number with number",
@@ -383,8 +205,7 @@ func testContainsAnyAll(t *testing.T, host string) func(t *testing.T) {
 						WithPath([]string{"number"}).
 						WithOperator(filters.ContainsAny).
 						WithValueNumber(1.1, 2.2, 3.3),
-					property:    "number",
-					expectedIds: []string{id1, id2, id3},
+					property: "number",
 				},
 				{
 					name: "contains any int with int",
@@ -392,8 +213,7 @@ func testContainsAnyAll(t *testing.T, host string) func(t *testing.T) {
 						WithPath([]string{"int"}).
 						WithOperator(filters.ContainsAny).
 						WithValueInt(1, 2, 3),
-					property:    "int",
-					expectedIds: []string{id1, id2, id3},
+					property: "int",
 				},
 				{
 					name: "contains any bool with bool",
@@ -401,8 +221,7 @@ func testContainsAnyAll(t *testing.T, host string) func(t *testing.T) {
 						WithPath([]string{"bool"}).
 						WithOperator(filters.ContainsAny).
 						WithValueBoolean(true, false, true),
-					property:    "bool",
-					expectedIds: []string{id1, id2, id3},
+					property: "bool",
 				},
 				{
 					name: "contains any uuid with uuid",
@@ -410,8 +229,7 @@ func testContainsAnyAll(t *testing.T, host string) func(t *testing.T) {
 						WithPath([]string{"uuid"}).
 						WithOperator(filters.ContainsAny).
 						WithValueText(id1, id2, id3),
-					property:    "uuid",
-					expectedIds: []string{id1, id2, id3},
+					property: "uuid",
 				},
 				{
 					name: "contains any uuid with id",
@@ -419,8 +237,7 @@ func testContainsAnyAll(t *testing.T, host string) func(t *testing.T) {
 						WithPath([]string{"id"}).
 						WithOperator(filters.ContainsAny).
 						WithValueText(id1, id2, id3),
-					property:    "uuid",
-					expectedIds: []string{id1, id2, id3},
+					property: "uuid",
 				},
 				{
 					name: "contains any date with date",
@@ -430,19 +247,7 @@ func testContainsAnyAll(t *testing.T, host string) func(t *testing.T) {
 						WithValueDate(
 							mustGetTime("2009-11-01T23:00:00Z"), mustGetTime("2009-11-02T23:00:00Z"), mustGetTime("2009-11-03T23:00:00Z"),
 						),
-					property:    "date",
-					expectedIds: []string{id1, id2, id3},
-				},
-				{
-					name: "contains all authors with string array and nearText",
-					where: filters.Where().
-						WithPath([]string{"authors"}).
-						WithOperator(filters.ContainsAll).
-						WithValueString("John", "Jenny", "Joseph"),
-					property: "authors",
-					nearText: client.GraphQL().NearTextArgBuilder().
-						WithConcepts([]string{"John"}),
-					expectedIds: []string{id1},
+					property: "date",
 				},
 			}
 			for _, tt := range tests {
@@ -454,15 +259,373 @@ func testContainsAnyAll(t *testing.T, host string) func(t *testing.T) {
 					resp, err := client.GraphQL().Get().
 						WithClassName(className).
 						WithWhere(tt.where).
+						WithBM25(client.GraphQL().
+							Bm25ArgBuilder().
+							WithQuery(tt.property),
+						).
 						WithFields(fields...).
-						WithNearText(tt.nearText).
 						Do(context.TODO())
 					require.Nil(t, err)
-					resultIds := acceptance_with_go_client.GetIds(t, resp, className)
-					assert.Len(t, resultIds, len(tt.expectedIds))
-					assert.ElementsMatch(t, resultIds, tt.expectedIds)
+					require.Empty(t, resp.Errors)
 				})
 			}
+		})
+
+		t.Run("with data", func(t *testing.T) {
+			t.Run("insert data", func(t *testing.T) {
+				authors := []string{"John", "Jenny", "Joseph"}
+				authorsArray := [][]string{
+					{"John", "Jenny", "Joseph"},
+					{"John", "Jenny"},
+					{"John"},
+				}
+				colors := []string{"red", "blue", "green"}
+				colorssArray := [][]string{
+					{"red", "blue", "green"},
+					{"red", "blue"},
+					{"red"},
+				}
+				numbers := []float64{1.1, 2.2, 3.3}
+				numbersArray := [][]float64{
+					{1.1, 2.2, 3.3},
+					{1.1, 2.2},
+					{1.1},
+				}
+				ints := []int64{1, 2, 3}
+				intsArray := [][]int64{
+					{1, 2, 3},
+					{1, 2},
+					{1},
+				}
+				uuids := []string{id1, id2, id3}
+				uuidsArray := [][]string{
+					{id1, id2, id3},
+					{id1, id2},
+					{id1},
+				}
+				dates := []string{"2009-11-01T23:00:00Z", "2009-11-02T23:00:00Z", "2009-11-03T23:00:00Z"}
+				datesArray := [][]string{
+					{"2009-11-01T23:00:00Z", "2009-11-02T23:00:00Z", "2009-11-03T23:00:00Z"},
+					{"2009-11-01T23:00:00Z", "2009-11-02T23:00:00Z"},
+					{"2009-11-01T23:00:00Z"},
+				}
+				bools := []bool{true, false, true}
+				boolsArray := [][]bool{
+					{true, false, true},
+					{true, false},
+					{true},
+				}
+				for i, id := range ids {
+					_, err := client.Data().Creator().
+						WithClassName(className).
+						WithID(id).
+						WithProperties(map[string]interface{}{
+							"color":   colors[i],
+							"colors":  colorssArray[i],
+							"author":  authors[i],
+							"authors": authorsArray[i],
+							"number":  numbers[i],
+							"numbers": numbersArray[i],
+							"int":     ints[i],
+							"ints":    intsArray[i],
+							"uuid":    uuids[i],
+							"uuids":   uuidsArray[i],
+							"date":    dates[i],
+							"dates":   datesArray[i],
+							"bool":    bools[i],
+							"bools":   boolsArray[i],
+						}).
+						Do(context.TODO())
+					require.Nil(t, err)
+				}
+			})
+
+			t.Run("where", func(t *testing.T) {
+				mustGetTime := func(date string) time.Time {
+					result, err := time.Parse(time.RFC3339Nano, date)
+					if err != nil {
+						panic(fmt.Sprintf("can't parse date: %v", date))
+					}
+					return result
+				}
+				tests := []struct {
+					name        string
+					where       *filters.WhereBuilder
+					property    string
+					nearText    *graphql.NearTextArgumentBuilder
+					expectedIds []string
+				}{
+					// Contains operator with array types
+					{
+						name: "contains all authors with string array",
+						where: filters.Where().
+							WithPath([]string{"authors"}).
+							WithOperator(filters.ContainsAll).
+							WithValueString("John", "Jenny", "Joseph"),
+						property:    "authors",
+						expectedIds: []string{id1},
+					},
+					{
+						name: "contains any authors with string array",
+						where: filters.Where().
+							WithPath([]string{"authors"}).
+							WithOperator(filters.ContainsAny).
+							WithValueString("John", "Jenny", "Joseph"),
+						property:    "authors",
+						expectedIds: []string{id1, id2, id3},
+					},
+					{
+						name: "contains all colors with text array",
+						where: filters.Where().
+							WithPath([]string{"colors"}).
+							WithOperator(filters.ContainsAll).
+							WithValueText("red", "blue", "green"),
+						property:    "colors",
+						expectedIds: []string{id1},
+					},
+					{
+						name: "contains any colors with text array",
+						where: filters.Where().
+							WithPath([]string{"colors"}).
+							WithOperator(filters.ContainsAny).
+							WithValueText("red", "blue", "green"),
+						property:    "colors",
+						expectedIds: []string{id1, id2, id3},
+					},
+					{
+						name: "contains all numbers with number array",
+						where: filters.Where().
+							WithPath([]string{"numbers"}).
+							WithOperator(filters.ContainsAll).
+							WithValueNumber(1.1, 2.2, 3.3),
+						property:    "numbers",
+						expectedIds: []string{id1},
+					},
+					{
+						name: "contains any numbers with number array",
+						where: filters.Where().
+							WithPath([]string{"numbers"}).
+							WithOperator(filters.ContainsAny).
+							WithValueNumber(1.1, 2.2, 3.3),
+						property:    "numbers",
+						expectedIds: []string{id1, id2, id3},
+					},
+					{
+						name: "contains all ints with int array",
+						where: filters.Where().
+							WithPath([]string{"ints"}).
+							WithOperator(filters.ContainsAll).
+							WithValueInt(1, 2, 3),
+						property:    "ints",
+						expectedIds: []string{id1},
+					},
+					{
+						name: "contains any ints with int array",
+						where: filters.Where().
+							WithPath([]string{"ints"}).
+							WithOperator(filters.ContainsAny).
+							WithValueInt(1, 2, 3),
+						property:    "ints",
+						expectedIds: []string{id1, id2, id3},
+					},
+					{
+						name: "contains all bools with bool array",
+						where: filters.Where().
+							WithPath([]string{"bools"}).
+							WithOperator(filters.ContainsAll).
+							WithValueBoolean(true, false, true),
+						property:    "bools",
+						expectedIds: []string{id1, id2},
+					},
+					{
+						name: "contains any bools with bool array",
+						where: filters.Where().
+							WithPath([]string{"bools"}).
+							WithOperator(filters.ContainsAny).
+							WithValueBoolean(true, false),
+						property:    "bools",
+						expectedIds: []string{id1, id2, id3},
+					},
+					{
+						name: "contains all uuids with uuid array",
+						where: filters.Where().
+							WithPath([]string{"uuids"}).
+							WithOperator(filters.ContainsAll).
+							WithValueText(id1, id2, id3),
+						property:    "uuids",
+						expectedIds: []string{id1},
+					},
+					{
+						name: "contains any uuids with uuid array",
+						where: filters.Where().
+							WithPath([]string{"uuids"}).
+							WithOperator(filters.ContainsAny).
+							WithValueText(id1, id2, id3),
+						property:    "uuids",
+						expectedIds: []string{id1, id2, id3},
+					},
+					{
+						name: "contains all dates with dates array",
+						where: filters.Where().
+							WithPath([]string{"dates"}).
+							WithOperator(filters.ContainsAll).
+							WithValueDate(
+								mustGetTime("2009-11-01T23:00:00Z"), mustGetTime("2009-11-02T23:00:00Z"), mustGetTime("2009-11-03T23:00:00Z"),
+							),
+						property:    "dates",
+						expectedIds: []string{id1},
+					},
+					{
+						name: "contains any dates with dates array",
+						where: filters.Where().
+							WithPath([]string{"dates"}).
+							WithOperator(filters.ContainsAny).
+							WithValueDate(
+								mustGetTime("2009-11-01T23:00:00Z"), mustGetTime("2009-11-02T23:00:00Z"), mustGetTime("2009-11-03T23:00:00Z"),
+							),
+						property:    "dates",
+						expectedIds: []string{id1, id2, id3},
+					},
+					{
+						name: "complex contains all ints and all numbers with AND on int array",
+						where: filters.Where().
+							WithOperator(filters.And).
+							WithOperands([]*filters.WhereBuilder{
+								filters.Where().
+									WithPath([]string{"numbers"}).
+									WithOperator(filters.ContainsAll).
+									WithValueNumber(1.1, 2.2, 3.3),
+								filters.Where().
+									WithPath([]string{"ints"}).
+									WithOperator(filters.ContainsAll).
+									WithValueInt(1, 2, 3),
+							}),
+						property:    "ints",
+						expectedIds: []string{id1},
+					},
+					{
+						name: "complex contains any ints and all numbers with OR on int array",
+						where: filters.Where().
+							WithOperator(filters.Or).
+							WithOperands([]*filters.WhereBuilder{
+								filters.Where().
+									WithPath([]string{"numbers"}).
+									WithOperator(filters.ContainsAll).
+									WithValueNumber(1.1, 2.2, 3.3),
+								filters.Where().
+									WithPath([]string{"ints"}).
+									WithOperator(filters.ContainsAny).
+									WithValueInt(1, 2, 3),
+							}),
+						property:    "ints",
+						expectedIds: []string{id1, id2, id3},
+					},
+					// Contains operator with primitives
+					{
+						name: "contains any author with string",
+						where: filters.Where().
+							WithPath([]string{"author"}).
+							WithOperator(filters.ContainsAny).
+							WithValueString("John", "Jenny", "Joseph"),
+						property:    "author",
+						expectedIds: []string{id1, id2, id3},
+					},
+					{
+						name: "contains any color with text",
+						where: filters.Where().
+							WithPath([]string{"color"}).
+							WithOperator(filters.ContainsAny).
+							WithValueText("red", "blue", "green"),
+						property:    "color",
+						expectedIds: []string{id1, id2, id3},
+					},
+					{
+						name: "contains any number with number",
+						where: filters.Where().
+							WithPath([]string{"number"}).
+							WithOperator(filters.ContainsAny).
+							WithValueNumber(1.1, 2.2, 3.3),
+						property:    "number",
+						expectedIds: []string{id1, id2, id3},
+					},
+					{
+						name: "contains any int with int",
+						where: filters.Where().
+							WithPath([]string{"int"}).
+							WithOperator(filters.ContainsAny).
+							WithValueInt(1, 2, 3),
+						property:    "int",
+						expectedIds: []string{id1, id2, id3},
+					},
+					{
+						name: "contains any bool with bool",
+						where: filters.Where().
+							WithPath([]string{"bool"}).
+							WithOperator(filters.ContainsAny).
+							WithValueBoolean(true, false, true),
+						property:    "bool",
+						expectedIds: []string{id1, id2, id3},
+					},
+					{
+						name: "contains any uuid with uuid",
+						where: filters.Where().
+							WithPath([]string{"uuid"}).
+							WithOperator(filters.ContainsAny).
+							WithValueText(id1, id2, id3),
+						property:    "uuid",
+						expectedIds: []string{id1, id2, id3},
+					},
+					{
+						name: "contains any uuid with id",
+						where: filters.Where().
+							WithPath([]string{"id"}).
+							WithOperator(filters.ContainsAny).
+							WithValueText(id1, id2, id3),
+						property:    "uuid",
+						expectedIds: []string{id1, id2, id3},
+					},
+					{
+						name: "contains any date with date",
+						where: filters.Where().
+							WithPath([]string{"date"}).
+							WithOperator(filters.ContainsAny).
+							WithValueDate(
+								mustGetTime("2009-11-01T23:00:00Z"), mustGetTime("2009-11-02T23:00:00Z"), mustGetTime("2009-11-03T23:00:00Z"),
+							),
+						property:    "date",
+						expectedIds: []string{id1, id2, id3},
+					},
+					{
+						name: "contains all authors with string array and nearText",
+						where: filters.Where().
+							WithPath([]string{"authors"}).
+							WithOperator(filters.ContainsAll).
+							WithValueString("John", "Jenny", "Joseph"),
+						property: "authors",
+						nearText: client.GraphQL().NearTextArgBuilder().
+							WithConcepts([]string{"John"}),
+						expectedIds: []string{id1},
+					},
+				}
+				for _, tt := range tests {
+					t.Run(tt.name, func(t *testing.T) {
+						fields := []graphql.Field{
+							{Name: tt.property},
+							{Name: "_additional", Fields: []graphql.Field{{Name: "id"}}},
+						}
+						resp, err := client.GraphQL().Get().
+							WithClassName(className).
+							WithWhere(tt.where).
+							WithFields(fields...).
+							WithNearText(tt.nearText).
+							Do(context.TODO())
+						require.Nil(t, err)
+						resultIds := acceptance_with_go_client.GetIds(t, resp, className)
+						assert.Len(t, resultIds, len(tt.expectedIds))
+						assert.ElementsMatch(t, resultIds, tt.expectedIds)
+					})
+				}
+			})
 		})
 	}
 }
