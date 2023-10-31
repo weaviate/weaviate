@@ -88,6 +88,8 @@ type Bucket struct {
 	// for some use cases (e.g. replication needs to know if object(ObjectsBucketLSM) was deleted)
 	// keeping tombstones on compaction is optional
 	keepTombstones bool
+
+	forceCompaction bool
 }
 
 // NewBucket initializes a new bucket. It either loads the state from disk if
@@ -134,7 +136,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 
 	sg, err := newSegmentGroup(dir, logger, b.legacyMapSortingBeforeCompaction,
 		metrics, b.strategy, b.monitorCount, compactionCallbacks,
-		b.mmapContents, b.keepTombstones)
+		b.mmapContents, b.keepTombstones, b.forceCompaction)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
 	}
