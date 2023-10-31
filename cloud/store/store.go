@@ -96,7 +96,19 @@ func (f *Store) AddClass(cls *models.Class, ss *sharding.State) error {
 		Class:      cls.Class,
 		SubCommand: subCommand,
 	}
-	return f.executeCommand(cmd)
+	cmdBytes, err := proto.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("marshal command: %w", err)
+	}
+
+	fut := f.raft.Apply(cmdBytes, f.raftApplyTimeout)
+	if err := fut.Error(); err != nil {
+		if errors.Is(err, raft.ErrNotLeader) {
+			return ErrNotLeader
+		}
+		return err
+	}
+	return nil
 }
 
 func (f *Store) UpdateClass(cls *models.Class, ss *sharding.State) error {
@@ -110,7 +122,19 @@ func (f *Store) UpdateClass(cls *models.Class, ss *sharding.State) error {
 		Class:      cls.Class,
 		SubCommand: subCommand,
 	}
-	return f.executeCommand(cmd)
+	cmdBytes, err := proto.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("marshal command: %w", err)
+	}
+
+	fut := f.raft.Apply(cmdBytes, f.raftApplyTimeout)
+	if err := fut.Error(); err != nil {
+		if errors.Is(err, raft.ErrNotLeader) {
+			return ErrNotLeader
+		}
+		return err
+	}
+	return nil
 }
 
 func (f *Store) DeleteClass(name string) error {
@@ -118,21 +142,19 @@ func (f *Store) DeleteClass(name string) error {
 		Type:  command.Command_TYPE_DELETE_CLASS,
 		Class: name,
 	}
-	return f.executeCommand(cmd)
-}
-
-func (f *Store) RestoreClass(cls *models.Class, ss *sharding.State) error {
-	req := command.AddClassRequest{Class: cls, State: ss}
-	subCommand, err := json.Marshal(&req)
+	cmdBytes, err := proto.Marshal(cmd)
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return fmt.Errorf("marshal command: %w", err)
 	}
-	cmd := &command.Command{
-		Type:       command.Command_TYPE_RESTORE_CLASS,
-		Class:      cls.Class,
-		SubCommand: subCommand,
+
+	fut := f.raft.Apply(cmdBytes, f.raftApplyTimeout)
+	if err := fut.Error(); err != nil {
+		if errors.Is(err, raft.ErrNotLeader) {
+			return ErrNotLeader
+		}
+		return err
 	}
-	return f.executeCommand(cmd)
+	return nil
 }
 
 func (f *Store) AddProperty(class string, p *models.Property) error {
@@ -146,7 +168,19 @@ func (f *Store) AddProperty(class string, p *models.Property) error {
 		Class:      class,
 		SubCommand: subCommand,
 	}
-	return f.executeCommand(cmd)
+	cmdBytes, err := proto.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("marshal command: %w", err)
+	}
+
+	fut := f.raft.Apply(cmdBytes, f.raftApplyTimeout)
+	if err := fut.Error(); err != nil {
+		if errors.Is(err, raft.ErrNotLeader) {
+			return ErrNotLeader
+		}
+		return err
+	}
+	return nil
 }
 
 func (f *Store) UpdateShardStatus(class, shard, status string) error {
@@ -185,7 +219,19 @@ func (f *Store) AddTenants(class string, req *command.AddTenantsRequest) error {
 		Class:      class,
 		SubCommand: subCommand,
 	}
-	return f.executeCommand(cmd)
+	cmdBytes, err := proto.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("marshal command: %w", err)
+	}
+
+	fut := f.raft.Apply(cmdBytes, f.raftApplyTimeout)
+	if err := fut.Error(); err != nil {
+		if errors.Is(err, raft.ErrNotLeader) {
+			return ErrNotLeader
+		}
+		return err
+	}
+	return nil
 }
 
 func (f *Store) UpdateTenants(class string, req *command.UpdateTenantsRequest) error {
@@ -198,7 +244,19 @@ func (f *Store) UpdateTenants(class string, req *command.UpdateTenantsRequest) e
 		Class:      class,
 		SubCommand: subCommand,
 	}
-	return f.executeCommand(cmd)
+	cmdBytes, err := proto.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("marshal command: %w", err)
+	}
+
+	fut := f.raft.Apply(cmdBytes, f.raftApplyTimeout)
+	if err := fut.Error(); err != nil {
+		if errors.Is(err, raft.ErrNotLeader) {
+			return ErrNotLeader
+		}
+		return err
+	}
+	return nil
 }
 
 func (f *Store) DeleteTenants(class string, req *command.DeleteTenantsRequest) error {
@@ -211,10 +269,6 @@ func (f *Store) DeleteTenants(class string, req *command.DeleteTenantsRequest) e
 		Class:      class,
 		SubCommand: subCommand,
 	}
-	return f.executeCommand(cmd)
-}
-
-func (f *Store) executeCommand(cmd *command.Command) error {
 	cmdBytes, err := proto.Marshal(cmd)
 	if err != nil {
 		return fmt.Errorf("marshal command: %w", err)
