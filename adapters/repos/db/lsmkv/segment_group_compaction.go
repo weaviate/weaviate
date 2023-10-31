@@ -129,9 +129,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 
 	scratchSpacePath := sg.segmentAtPos(pair[1]).path + "compaction.scratch.d"
 
-	// the assumption is that both pairs are of the same level, so we can just
-	// take either value. If we want to support asymmetric compaction, then we
-	// might have to choose this value more intelligently
+	// the assumption is that the first element is older, and/or a higher level
 	level := sg.segmentAtPos(pair[0]).level
 	secondaryIndices := sg.segmentAtPos(pair[0]).secondaryIndexCount
 
