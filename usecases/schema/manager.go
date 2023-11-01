@@ -73,7 +73,6 @@ type ModuleConfig interface {
 	ValidateClass(ctx context.Context, class *models.Class) error
 }
 
-
 // SchemaStore is responsible for persisting the schema
 // by providing support for both partial and complete schema updates
 type SchemaStore interface {
