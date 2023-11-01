@@ -42,6 +42,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -145,7 +146,7 @@ type Index struct {
 	classSearcher             inverted.ClassSearcher // to allow for nested by-references searches
 	shards                    shardMap
 	Config                    IndexConfig
-	vectorIndexUserConfig     schema.VectorIndexConfig
+	vectorIndexUserConfig     schemaConfig.VectorIndexConfig
 	vectorIndexUserConfigLock sync.Mutex
 	getSchema                 schemaUC.SchemaGetter
 	logger                    logrus.FieldLogger
@@ -212,7 +213,7 @@ type nodeResolver interface {
 // the shards that are local to a node
 func NewIndex(ctx context.Context, cfg IndexConfig,
 	shardState *sharding.State, invertedIndexConfig schema.InvertedIndexConfig,
-	vectorIndexUserConfig schema.VectorIndexConfig, sg schemaUC.SchemaGetter,
+	vectorIndexUserConfig schemaConfig.VectorIndexConfig, sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
@@ -258,7 +259,6 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 
 	eg := errgroup.Group{}
 	eg.SetLimit(_NUMCPU)
-
 	if err := os.MkdirAll(index.path(), os.ModePerm); err != nil {
 		return nil, fmt.Errorf("init index %q: %w", index.ID(), err)
 	}
@@ -436,7 +436,7 @@ func (i *Index) addTimestampProperties(ctx context.Context) error {
 }
 
 func (i *Index) updateVectorIndexConfig(ctx context.Context,
-	updated schema.VectorIndexConfig,
+	updated schemaConfig.VectorIndexConfig,
 ) error {
 	// an updated is not specific to one shard, but rather all
 	err := i.ForEachShard(func(name string, shard ShardLike) error {
@@ -1041,6 +1041,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 		return i.replicator.Exists(ctx, cl, shardName, id)
 
 	}
+
 	if shard := i.localShard(shardName); shard != nil {
 		exists, err = shard.Exists(ctx, id)
 		if err != nil {

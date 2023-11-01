@@ -73,6 +73,22 @@ type ModuleConfig interface {
 	ValidateClass(ctx context.Context, class *models.Class) error
 }
 
+// State is a cached copy of the schema that can also be saved into a remote
+// storage, as specified by Repo
+type State struct {
+	ObjectSchema  *models.Schema `json:"object"`
+	ShardingState map[string]*sharding.State
+}
+
+// NewState returns a new state with room for nClasses classes
+func NewState(nClasses int) State {
+	return State{
+		ObjectSchema: &models.Schema{
+			Classes: make([]*models.Class, 0, nClasses),
+		},
+		ShardingState: make(map[string]*sharding.State, nClasses),
+	}
+}
 
 // SchemaStore is responsible for persisting the schema
 // by providing support for both partial and complete schema updates
@@ -244,7 +260,7 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	// 	return fmt.Errorf("store to persistent storage: %v", err)
 	// }
 
-	//return nil
+	// return nil
 }
 
 // StartServing indicates that the schema manager is ready to accept incoming
