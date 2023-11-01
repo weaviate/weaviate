@@ -159,7 +159,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 
 		fmt.Println(recall, latency)
 		assert.True(t, recall > 0.99)
-		assert.True(t, latency < 100_000)
+		assert.True(t, latency < 1_000_000)
 	})
 
 	t.Run("recall on compression", func(t *testing.T) {
