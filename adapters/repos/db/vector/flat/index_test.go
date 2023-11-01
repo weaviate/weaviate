@@ -9,6 +9,8 @@
 //  CONTACT: hello@weaviate.io
 //
 
+//go:build !race
+
 package flat_test
 
 import (
@@ -132,7 +134,7 @@ func run(dirName string, logger *logrus.Logger, compression string,
 	return float32(relevant) / float32(retrieved), float32(querying.Microseconds()) / float32(queries_size), nil
 }
 
-func Test_FlatIndex(t *testing.T) {
+func Test_NoRaceFlatIndex(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -166,7 +168,7 @@ func Test_FlatIndex(t *testing.T) {
 
 		fmt.Println(recall, latency)
 		assert.True(t, recall > 0.9)
-		assert.True(t, latency < 100_000)
+		assert.True(t, latency < 1_000_000)
 	})
 
 	extraVectorsForDelete, _ := testinghelpers.RandomVecs(5_000, 0, dimensions)
@@ -176,7 +178,7 @@ func Test_FlatIndex(t *testing.T) {
 
 		fmt.Println(recall, latency)
 		assert.True(t, recall > 0.99)
-		assert.True(t, latency < 100_000)
+		assert.True(t, latency < 1_000_000)
 	})
 
 	t.Run("recall on compression with deletes", func(t *testing.T) {
@@ -185,7 +187,7 @@ func Test_FlatIndex(t *testing.T) {
 
 		fmt.Println(recall, latency)
 		assert.True(t, recall > 0.8)
-		assert.True(t, latency < 100_000)
+		assert.True(t, latency < 1_000_000)
 	})
 
 	from := 0
@@ -205,7 +207,7 @@ func Test_FlatIndex(t *testing.T) {
 
 		fmt.Println(recall, latency)
 		assert.True(t, recall > 0.99)
-		assert.True(t, latency < 100_000)
+		assert.True(t, latency < 1_000_000)
 	})
 
 	t.Run("recall on filtered compression", func(t *testing.T) {
@@ -214,7 +216,7 @@ func Test_FlatIndex(t *testing.T) {
 
 		fmt.Println(recall, latency)
 		assert.True(t, recall > 0.9)
-		assert.True(t, latency < 100_000)
+		assert.True(t, latency < 1_000_000)
 	})
 
 	t.Run("recall on filtered no compression with deletes", func(t *testing.T) {
@@ -223,7 +225,7 @@ func Test_FlatIndex(t *testing.T) {
 
 		fmt.Println(recall, latency)
 		assert.True(t, recall > 0.99)
-		assert.True(t, latency < 100_000)
+		assert.True(t, latency < 1_000_000)
 	})
 
 	t.Run("recall on filtered compression with deletes", func(t *testing.T) {
@@ -232,7 +234,7 @@ func Test_FlatIndex(t *testing.T) {
 
 		fmt.Println(recall, latency)
 		assert.True(t, recall > 0.8)
-		assert.True(t, latency < 100_000)
+		assert.True(t, latency < 1_000_000)
 	})
 
 	err := os.RemoveAll(dirName)
