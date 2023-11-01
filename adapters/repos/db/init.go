@@ -17,7 +17,6 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -31,6 +30,14 @@ import (
 func (db *DB) init(ctx context.Context) error {
 	if err := os.MkdirAll(db.config.RootPath, 0o777); err != nil {
 		return fmt.Errorf("create root path directory at %s: %w", db.config.RootPath, err)
+	}
+
+	// As of v1.22, db files are stored in a hierarchical structure
+	// rather than a flat one. If weaviate is started with files
+	// that are still in the flat structure, we will migrate them
+	// over.
+	if err := db.migrateFileStructureIfNecessary(); err != nil {
+		return err
 	}
 
 	// As of v1.22, db files are stored in a hierarchical structure
