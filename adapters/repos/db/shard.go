@@ -42,6 +42,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -78,8 +79,8 @@ type ShardLike interface {
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
 	ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties) ([]*storobj.Object, []float32, error)
 	ObjectVectorSearch(ctx context.Context, searchVector []float32, targetVector string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error)
-	UpdateVectorIndexConfig(ctx context.Context, updated schema.VectorIndexConfig) error
-	UpdateVectorConfigForName(ctx context.Context, updated schema.VectorIndexConfig, targetVector string) error
+	UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error
+	UpdateVectorConfigForName(ctx context.Context, updated schemaConfig.VectorIndexConfig, targetVector string) error
 	AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error
 	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
 	DeleteObject(ctx context.Context, id strfmt.UUID) error                                           // Delete object by id
@@ -817,7 +818,7 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
 }
 
-func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schema.VectorIndexConfig) error {
+func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
