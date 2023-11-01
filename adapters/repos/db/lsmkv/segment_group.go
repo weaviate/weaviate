@@ -55,14 +55,15 @@ type SegmentGroup struct {
 	// is that of the bucket that holds objects
 	monitorCount bool
 
-	mmapContents   bool
-	keepTombstones bool // see bucket for more datails
+	mmapContents            bool
+	keepTombstones          bool // see bucket for more datails
+	compactLeftOverSegments bool // see bucket for more datails
 }
 
 func newSegmentGroup(dir string, logger logrus.FieldLogger,
 	mapRequiresSorting bool, metrics *Metrics, strategy string,
 	monitorCount bool, compactionCallbacks cyclemanager.CycleCallbackGroup,
-	mmapContents bool, keepTombstones bool,
+	mmapContents bool, keepTombstones bool, compactLeftOvers bool,
 ) (*SegmentGroup, error) {
 	list, err := os.ReadDir(dir)
 	if err != nil {
@@ -70,15 +71,16 @@ func newSegmentGroup(dir string, logger logrus.FieldLogger,
 	}
 
 	out := &SegmentGroup{
-		segments:           make([]*segment, len(list)),
-		dir:                dir,
-		logger:             logger,
-		metrics:            metrics,
-		monitorCount:       monitorCount,
-		mapRequiresSorting: mapRequiresSorting,
-		strategy:           strategy,
-		mmapContents:       mmapContents,
-		keepTombstones:     keepTombstones,
+		segments:                make([]*segment, len(list)),
+		dir:                     dir,
+		logger:                  logger,
+		metrics:                 metrics,
+		monitorCount:            monitorCount,
+		mapRequiresSorting:      mapRequiresSorting,
+		strategy:                strategy,
+		mmapContents:            mmapContents,
+		keepTombstones:          keepTombstones,
+		compactLeftOverSegments: compactLeftOvers,
 	}
 
 	segmentIndex := 0

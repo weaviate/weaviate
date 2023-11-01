@@ -520,6 +520,20 @@ func GetDimensionsFromRepo(repo *DB, className string) int {
 	return sum
 }
 
+func GetQuantizedDimensionsFromRepo(repo *DB, className string, segments int) int {
+	if !repo.config.TrackVectorDimensions {
+		log.Printf("Vector dimensions tracking is disabled, returning 0")
+		return 0
+	}
+	index := repo.GetIndex(schema.ClassName(className))
+	sum := 0
+	index.ForEachShard(func(name string, shard *Shard) error {
+		sum += shard.quantizedDimensions(segments)
+		return nil
+	})
+	return sum
+}
+
 func Test_AddingReferenceOneByOne(t *testing.T) {
 	dirName := t.TempDir()
 
