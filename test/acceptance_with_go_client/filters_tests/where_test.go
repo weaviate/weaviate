@@ -27,8 +27,7 @@ func TestWhereFilter(t *testing.T) {
 func TestWhereFilter_Cluster(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
-		WithWeaviate().
-		WithSecondWeaviate().
+		WithWeaviateCluster().
 		WithText2VecContextionary().
 		Start(ctx)
 	if err != nil {
