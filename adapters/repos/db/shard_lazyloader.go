@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -216,7 +217,7 @@ func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVector []f
 	return l.shard.ObjectVectorSearch(ctx, searchVector, targetVector, targetDist, limit, filters, sort, groupBy, additional)
 }
 
-func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated schema.VectorIndexConfig) error {
+func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
