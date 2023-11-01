@@ -622,33 +622,33 @@ func (s *Searcher) extractContains(path *filters.Path, propType schema.DataType,
 	var operands []filters.Clause
 	switch propType {
 	case schema.DataTypeText, schema.DataTypeTextArray:
-		valueStringArray, ok := value.([]string)
-		if !ok {
-			return nil, fmt.Errorf("value type should be []string but is %T", value)
+		valueStringArray, err := s.extractStringArray(value)
+		if err != nil {
+			return nil, err
 		}
 		operands = getContainsOperands(propType, path, valueStringArray)
 	case schema.DataTypeInt, schema.DataTypeIntArray:
-		valueInt64Array, ok := value.([]int)
-		if !ok {
-			return nil, fmt.Errorf("value type should be []int but is %T", value)
+		valueIntArray, err := s.extractIntArray(value)
+		if err != nil {
+			return nil, err
 		}
-		operands = getContainsOperands(propType, path, valueInt64Array)
+		operands = getContainsOperands(propType, path, valueIntArray)
 	case schema.DataTypeNumber, schema.DataTypeNumberArray:
-		valueFloat64Array, ok := value.([]float64)
-		if !ok {
-			return nil, fmt.Errorf("value type should be []float64 but is %T", value)
+		valueFloat64Array, err := s.extractFloat64Array(value)
+		if err != nil {
+			return nil, err
 		}
 		operands = getContainsOperands(propType, path, valueFloat64Array)
 	case schema.DataTypeBoolean, schema.DataTypeBooleanArray:
-		valueBooleanArray, ok := value.([]bool)
-		if !ok {
-			return nil, fmt.Errorf("value type should be []bool but is %T", value)
+		valueBooleanArray, err := s.extractBoolArray(value)
+		if err != nil {
+			return nil, err
 		}
 		operands = getContainsOperands(propType, path, valueBooleanArray)
 	case schema.DataTypeDate, schema.DataTypeDateArray:
-		valueDateArray, ok := value.([]string)
-		if !ok {
-			return nil, fmt.Errorf("value type should be []string but is %T", value)
+		valueDateArray, err := s.extractStringArray(value)
+		if err != nil {
+			return nil, err
 		}
 		operands = getContainsOperands(propType, path, valueDateArray)
 	default:
@@ -716,6 +716,84 @@ func (s *Searcher) onTokenizableProp(prop *models.Property) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func (s *Searcher) extractStringArray(value interface{}) ([]string, error) {
+	switch v := value.(type) {
+	case []string:
+		return v, nil
+	case []interface{}:
+		vals := make([]string, len(v))
+		for i := range v {
+			val, ok := v[i].(string)
+			if !ok {
+				return nil, fmt.Errorf("value[%d] type should be string but is %T", i, v[i])
+			}
+			vals[i] = val
+		}
+		return vals, nil
+	default:
+		return nil, fmt.Errorf("value type should be []string but is %T", value)
+	}
+}
+
+func (s *Searcher) extractIntArray(value interface{}) ([]int, error) {
+	switch v := value.(type) {
+	case []int:
+		return v, nil
+	case []interface{}:
+		vals := make([]int, len(v))
+		for i := range v {
+			// in this case all number values are unmarshalled to float64, so we need to cast to float64
+			// and then make int
+			val, ok := v[i].(float64)
+			if !ok {
+				return nil, fmt.Errorf("value[%d] type should be float64 but is %T", i, v[i])
+			}
+			vals[i] = int(val)
+		}
+		return vals, nil
+	default:
+		return nil, fmt.Errorf("value type should be []int but is %T", value)
+	}
+}
+
+func (s *Searcher) extractFloat64Array(value interface{}) ([]float64, error) {
+	switch v := value.(type) {
+	case []float64:
+		return v, nil
+	case []interface{}:
+		vals := make([]float64, len(v))
+		for i := range v {
+			val, ok := v[i].(float64)
+			if !ok {
+				return nil, fmt.Errorf("value[%d] type should be float64 but is %T", i, v[i])
+			}
+			vals[i] = val
+		}
+		return vals, nil
+	default:
+		return nil, fmt.Errorf("value type should be []float64 but is %T", value)
+	}
+}
+
+func (s *Searcher) extractBoolArray(value interface{}) ([]bool, error) {
+	switch v := value.(type) {
+	case []bool:
+		return v, nil
+	case []interface{}:
+		vals := make([]bool, len(v))
+		for i := range v {
+			val, ok := v[i].(bool)
+			if !ok {
+				return nil, fmt.Errorf("value[%d] type should be bool but is %T", i, v[i])
+			}
+			vals[i] = val
+		}
+		return vals, nil
+	default:
+		return nil, fmt.Errorf("value type should be []bool but is %T", value)
 	}
 }
 
