@@ -243,7 +243,14 @@ func ParseReplaceNodeInto(r *byteops.ReadWriter, secondaryIndexCount uint16, out
 		return err
 	}
 
-	// TODO: previously this was a copy. Do we need a copy or is sharing fine?
+	// Note: In a previous version (prior to
+	// https://github.com/weaviate/weaviate/pull/3660) this was a copy. The
+	// mentioned PR optimizes the Replace Cursor which led to this now being
+	// shared memory. After internal review, we believe this is safe to do. The
+	// cursor gives no guarantees about memory after calling .next(). Before
+	// .next() is called, this should be safe. Nevertheless, we are leaving this
+	// note in case a future bug appears, as this should make this spot easier to
+	// find.
 	out.primaryKey = r.ReadBytesFromBufferWithUint32LengthIndicator()
 
 	if secondaryIndexCount > 0 {
@@ -251,8 +258,14 @@ func ParseReplaceNodeInto(r *byteops.ReadWriter, secondaryIndexCount uint16, out
 	}
 
 	for j := 0; j < int(secondaryIndexCount); j++ {
-		// TODO: previously this was a copy. Do we need a copy or is sharing
-		// fine?
+		// Note: In a previous version (prior to
+		// https://github.com/weaviate/weaviate/pull/3660) this was a copy. The
+		// mentioned PR optimizes the Replace Cursor which led to this now being
+		// shared memory. After internal review, we believe this is safe to do. The
+		// cursor gives no guarantees about memory after calling .next(). Before
+		// .next() is called, this should be safe. Nevertheless, we are leaving this
+		// note in case a future bug appears, as this should make this spot easier to
+		// find.
 		out.secondaryKeys[j] = r.ReadBytesFromBufferWithUint32LengthIndicator()
 	}
 
