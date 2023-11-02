@@ -24,9 +24,7 @@ import (
 func (m *JinaAIModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
 		"vectorizeClassName": vectorizer.DefaultVectorizeClassName,
-		"type":               vectorizer.DefaultJinaAIDocumentType,
 		"model":              vectorizer.DefaultJinaAIModel,
-		"baseURL":            vectorizer.DefaultBaseURL,
 	}
 }
 
