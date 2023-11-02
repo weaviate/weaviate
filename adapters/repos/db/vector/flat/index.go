@@ -205,16 +205,17 @@ func (index *flat) Add(id uint64, vector []float32) error {
 
 func (index *flat) Delete(ids ...uint64) error {
 	for _, i := range ids {
-		Id := make([]byte, 8)
-		binary.BigEndian.PutUint64(Id, uint64(i))
-		err := index.store.Bucket(helpers.ObjectsBucketLSM).Delete(Id)
+		IdSlice := index.pool.byteSlicePool.Get(8)
+		binary.BigEndian.PutUint64(IdSlice.slice, uint64(i))
+		err := index.store.Bucket(helpers.ObjectsBucketLSM).Delete(IdSlice.slice)
+		index.pool.byteSlicePool.Put(IdSlice)
 		if err != nil {
 			return err
 		}
 		if index.compression == flatent.CompressionNone {
 			continue
 		}
-		err = index.store.Bucket(helpers.CompressedObjectsBucketLSM).Delete(Id)
+		err = index.store.Bucket(helpers.CompressedObjectsBucketLSM).Delete(IdSlice.slice)
 		if err != nil {
 			return err
 		}
@@ -262,9 +263,10 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 		}
 		cursor := index.store.Bucket(helpers.CompressedObjectsBucketLSM).Cursor()
 		if allow != nil {
-			buff := make([]byte, 8)
-			binary.BigEndian.PutUint64(buff, firstId)
-			key, v = cursor.Seek(buff)
+			IdSlice := index.pool.byteSlicePool.Get(8)
+			binary.BigEndian.PutUint64(IdSlice.slice, firstId)
+			key, v = cursor.Seek(IdSlice.slice)
+			index.pool.byteSlicePool.Put(IdSlice)
 		} else {
 			key, v = cursor.First()
 		}
@@ -290,7 +292,8 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 		}
 		cursor.Close()
 
-		ids := make([]uint64, heap.Len())
+		idsSlice := index.pool.uint64SlicePool.Get(heap.Len())
+		ids := idsSlice.slice
 		for j := range ids {
 			ids[j] = heap.Pop().ID
 		}
@@ -308,15 +311,17 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 				heap.Insert(uint64(id), d)
 			}
 		}
+		index.pool.uint64SlicePool.Put(idsSlice)
 		for heap.Len() > k {
 			heap.Pop()
 		}
 	} else {
 		cursor := index.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
 		if allow != nil {
-			buff := make([]byte, 8)
-			binary.BigEndian.PutUint64(buff, firstId)
-			key, v = cursor.Seek(buff)
+			IdSlice := index.pool.byteSlicePool.Get(8)
+			binary.BigEndian.PutUint64(IdSlice.slice, firstId)
+			key, v = cursor.Seek(IdSlice.slice)
+			index.pool.byteSlicePool.Put(IdSlice)
 		} else {
 			key, v = cursor.First()
 		}
