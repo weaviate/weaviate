@@ -13,18 +13,21 @@ package lsmkv
 
 import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 type segmentCursorReplace struct {
 	segment      *segment
 	nextOffset   uint64
 	reusableNode *segmentReplaceNode
+	reusableBORW byteops.ReadWriter
 }
 
 func (s *segment) newCursor() *segmentCursorReplace {
 	return &segmentCursorReplace{
 		segment:      s,
 		reusableNode: &segmentReplaceNode{},
+		reusableBORW: byteops.NewReadWriter(nil),
 	}
 }
 
@@ -45,8 +48,7 @@ func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
 		return nil, nil, err
 	}
 
-	err = s.segment.replaceStratParseDataWithKeyInto(
-		s.segment.contents[node.Start:node.End], s.reusableNode)
+	err = s.parse(s.segment.contents[node.Start:node.End])
 
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
@@ -65,9 +67,7 @@ func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 		return nil, nil, lsmkv.NotFound
 	}
 
-	err := s.segment.replaceStratParseDataWithKeyInto(
-		s.segment.contents[s.nextOffset:], s.reusableNode)
-
+	err := s.parse(s.segment.contents[s.nextOffset:])
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle
@@ -81,8 +81,7 @@ func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 
 func (s *segmentCursorReplace) first() ([]byte, []byte, error) {
 	s.nextOffset = s.segment.dataStartPos
-	err := s.segment.replaceStratParseDataWithKeyInto(
-		s.segment.contents[s.nextOffset:], s.reusableNode)
+	err := s.parse(s.segment.contents[s.nextOffset:])
 
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
@@ -129,4 +128,24 @@ func (s *segmentCursorReplace) firstWithAllKeys() (segmentReplaceNode, error) {
 	}
 
 	return parsed, nil
+}
+
+func (s *segmentCursorReplace) parse(in []byte) error {
+	if len(in) == 0 {
+		return lsmkv.NotFound
+	}
+
+	s.reusableBORW.ResetBuffer(in)
+
+	err := ParseReplaceNodeInto(&s.reusableBORW, s.segment.secondaryIndexCount,
+		s.reusableNode)
+	if err != nil {
+		return err
+	}
+
+	if s.reusableNode.tombstone {
+		return lsmkv.Deleted
+	}
+
+	return nil
 }

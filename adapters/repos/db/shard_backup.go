@@ -15,7 +15,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -56,14 +56,16 @@ func (s *Shard) listBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 	if err := s.readBackupMetadata(ret); err != nil {
 		return err
 	}
-	if ret.Files, err = s.store.ListFiles(ctx); err != nil {
+
+	if ret.Files, err = s.store.ListFiles(ctx, s.index.Config.RootPath); err != nil {
 		return err
 	}
-	files2, err := s.vectorIndex.ListFiles(ctx)
+	files, err := s.vectorIndex.ListFiles(ctx, s.index.Config.RootPath)
 	if err != nil {
 		return err
 	}
-	ret.Files = append(ret.Files, files2...)
+
+	ret.Files = append(ret.Files, files...)
 	return nil
 }
 
@@ -95,19 +97,26 @@ func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 	if d.DocIDCounter, err = os.ReadFile(fpath); err != nil {
 		return fmt.Errorf("read shard doc-id-counter %s: %w", fpath, err)
 	}
-	d.DocIDCounterPath = path.Base(fpath)
-
+	d.DocIDCounterPath, err = filepath.Rel(s.index.Config.RootPath, fpath)
+	if err != nil {
+		return fmt.Errorf("docid counter path: %w", err)
+	}
 	fpath = s.propLengths.FileName()
 	if d.PropLengthTracker, err = os.ReadFile(fpath); err != nil {
 		return fmt.Errorf("read shard prop-lengths %s: %w", fpath, err)
 	}
-	d.PropLengthTrackerPath = path.Base(fpath)
-
+	d.PropLengthTrackerPath, err = filepath.Rel(s.index.Config.RootPath, fpath)
+	if err != nil {
+		return fmt.Errorf("proplength tracker path: %w", err)
+	}
 	fpath = s.versioner.path
 	if d.Version, err = os.ReadFile(fpath); err != nil {
 		return fmt.Errorf("read shard version %s: %w", fpath, err)
 	}
-	d.ShardVersionPath = path.Base(fpath)
+	d.ShardVersionPath, err = filepath.Rel(s.index.Config.RootPath, fpath)
+	if err != nil {
+		return fmt.Errorf("shard version path: %w", err)
+	}
 	return nil
 }
 

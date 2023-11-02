@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 // a single node of strategy "replace"
@@ -163,7 +164,7 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 	return out, nil
 }
 
-func ParseReplaceNodeInto(r io.Reader, secondaryIndexCount uint16, out *segmentReplaceNode) error {
+func ParseReplaceNodeIntoOld(r io.Reader, secondaryIndexCount uint16, out *segmentReplaceNode) error {
 	out.offset = 0
 
 	if err := binary.Read(r, binary.LittleEndian, &out.tombstone); err != nil {
@@ -225,6 +226,50 @@ func ParseReplaceNodeInto(r io.Reader, secondaryIndexCount uint16, out *segmentR
 		}
 	}
 
+	return nil
+}
+
+func ParseReplaceNodeInto(r *byteops.ReadWriter, secondaryIndexCount uint16, out *segmentReplaceNode) error {
+	out.tombstone = r.ReadUint8() == 0x01
+	valueLength := r.ReadUint64()
+
+	if int(valueLength) > cap(out.value) {
+		out.value = make([]byte, valueLength)
+	} else {
+		out.value = out.value[:valueLength]
+	}
+
+	if _, err := r.CopyBytesFromBuffer(valueLength, out.value); err != nil {
+		return err
+	}
+
+	// Note: In a previous version (prior to
+	// https://github.com/weaviate/weaviate/pull/3660) this was a copy. The
+	// mentioned PR optimizes the Replace Cursor which led to this now being
+	// shared memory. After internal review, we believe this is safe to do. The
+	// cursor gives no guarantees about memory after calling .next(). Before
+	// .next() is called, this should be safe. Nevertheless, we are leaving this
+	// note in case a future bug appears, as this should make this spot easier to
+	// find.
+	out.primaryKey = r.ReadBytesFromBufferWithUint32LengthIndicator()
+
+	if secondaryIndexCount > 0 {
+		out.secondaryKeys = make([][]byte, secondaryIndexCount)
+	}
+
+	for j := 0; j < int(secondaryIndexCount); j++ {
+		// Note: In a previous version (prior to
+		// https://github.com/weaviate/weaviate/pull/3660) this was a copy. The
+		// mentioned PR optimizes the Replace Cursor which led to this now being
+		// shared memory. After internal review, we believe this is safe to do. The
+		// cursor gives no guarantees about memory after calling .next(). Before
+		// .next() is called, this should be safe. Nevertheless, we are leaving this
+		// note in case a future bug appears, as this should make this spot easier to
+		// find.
+		out.secondaryKeys[j] = r.ReadBytesFromBufferWithUint32LengthIndicator()
+	}
+
+	out.offset = int(r.Position)
 	return nil
 }
 

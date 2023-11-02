@@ -90,7 +90,8 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 			require.NotNil(t, statusResp.Payload.Status)
 		})
 
-		require.Equal(t, *statusResp.Payload.Status, string(backup.Success))
+		require.Equal(t, *statusResp.Payload.Status,
+			string(backup.Success), statusResp.Payload.Error)
 	})
 
 	t.Run("delete class for restoration", func(t *testing.T) {
