@@ -103,7 +103,7 @@ func (h *flat) storeVector(index uint64, vector []byte) {
 
 func (h *flat) storeGenericVector(index uint64, vector []byte, bucket string) {
 	Id := make([]byte, 8)
-	binary.LittleEndian.PutUint64(Id, index)
+	binary.BigEndian.PutUint64(Id, index)
 	h.store.Bucket(bucket).Put(Id, vector)
 }
 
@@ -206,7 +206,7 @@ func (index *flat) Add(id uint64, vector []float32) error {
 func (index *flat) Delete(ids ...uint64) error {
 	for _, i := range ids {
 		Id := make([]byte, 8)
-		binary.LittleEndian.PutUint64(Id, uint64(i))
+		binary.BigEndian.PutUint64(Id, uint64(i))
 		err := index.store.Bucket(helpers.ObjectsBucketLSM).Delete(Id)
 		if err != nil {
 			return err
@@ -263,13 +263,13 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 		cursor := index.store.Bucket(helpers.CompressedObjectsBucketLSM).Cursor()
 		if allow != nil {
 			buff := make([]byte, 8)
-			binary.LittleEndian.PutUint64(buff, firstId)
+			binary.BigEndian.PutUint64(buff, firstId)
 			key, v = cursor.Seek(buff)
 		} else {
 			key, v = cursor.First()
 		}
 		for key != nil && (allow == nil || alreadyFound < allow.Len()) {
-			id := binary.LittleEndian.Uint64(key)
+			id := binary.BigEndian.Uint64(key)
 			if allow != nil && !allow.Contains(id) {
 				key, v = cursor.Next()
 				continue
@@ -315,14 +315,14 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 		cursor := index.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
 		if allow != nil {
 			buff := make([]byte, 8)
-			binary.LittleEndian.PutUint64(buff, firstId)
+			binary.BigEndian.PutUint64(buff, firstId)
 			key, v = cursor.Seek(buff)
 		} else {
 			key, v = cursor.First()
 		}
 
 		for key != nil && (allow == nil || alreadyFound < allow.Len()) {
-			id := binary.LittleEndian.Uint64(key)
+			id := binary.BigEndian.Uint64(key)
 			if allow != nil && !allow.Contains(id) {
 				key, v = cursor.Next()
 				continue
