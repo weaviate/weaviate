@@ -464,7 +464,7 @@ func (index *flat) SwitchCommitLogs(context.Context) error {
 	return nil
 }
 
-func (index *flat) ListFiles(context.Context) ([]string, error) {
+func (index *flat) ListFiles(ctx context.Context, basePath string) ([]string, error) {
 	return nil, nil
 }
 
