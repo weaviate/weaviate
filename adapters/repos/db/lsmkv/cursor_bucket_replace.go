@@ -23,6 +23,8 @@ type CursorReplace struct {
 	state        []cursorStateReplace
 	unlock       func()
 	serveCache   cursorStateReplace
+
+	reusableIDList []int
 }
 
 type innerCursorReplace interface {
@@ -120,20 +122,20 @@ func (c *CursorReplace) serveCurrentStateAndAdvance() ([]byte, []byte) {
 func (c *CursorReplace) haveDuplicatesInState(idWithLowestKey int) ([]int, bool) {
 	key := c.state[idWithLowestKey].key
 
-	var idsFound []int
+	c.reusableIDList = c.reusableIDList[:0]
 
 	for i, cur := range c.state {
 		if i == idWithLowestKey {
-			idsFound = append(idsFound, i)
+			c.reusableIDList = append(c.reusableIDList, i)
 			continue
 		}
 
 		if bytes.Equal(key, cur.key) {
-			idsFound = append(idsFound, i)
+			c.reusableIDList = append(c.reusableIDList, i)
 		}
 	}
 
-	return idsFound, len(idsFound) > 1
+	return c.reusableIDList, len(c.reusableIDList) > 1
 }
 
 // if there are no duplicates present it will still work as returning the
