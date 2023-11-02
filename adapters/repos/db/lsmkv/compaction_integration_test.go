@@ -333,7 +333,7 @@ func copyByteSlice(src []byte) []byte {
 }
 
 func assertSingleSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, expectedMaxSize int64) {
-	files, err := bucket.ListFiles(context.Background())
+	files, err := bucket.ListFiles(context.Background(), bucket.dir)
 	require.NoError(t, err)
 
 	dbFiles := make([]string, 0, len(files))
@@ -344,14 +344,14 @@ func assertSingleSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, ex
 	}
 	require.Len(t, dbFiles, 1)
 
-	fi, err := os.Stat(bucket.dir + "/" + dbFiles[0])
+	fi, err := os.Stat(dbFiles[0])
 	require.NoError(t, err)
 	assert.LessOrEqual(t, expectedMinSize, fi.Size())
 	assert.GreaterOrEqual(t, expectedMaxSize, fi.Size())
 }
 
 func assertSecondSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, expectedMaxSize int64) {
-	files, err := bucket.ListFiles(context.Background())
+	files, err := bucket.ListFiles(context.Background(), bucket.dir)
 	require.NoError(t, err)
 
 	dbFiles := make([]string, 0, len(files))
@@ -362,7 +362,7 @@ func assertSecondSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, ex
 	}
 	require.Len(t, dbFiles, 2)
 
-	fi, err := os.Stat(bucket.dir + "/" + dbFiles[1])
+	fi, err := os.Stat(dbFiles[1])
 	require.NoError(t, err)
 	assert.LessOrEqual(t, expectedMinSize, fi.Size())
 	assert.GreaterOrEqual(t, expectedMaxSize, fi.Size())

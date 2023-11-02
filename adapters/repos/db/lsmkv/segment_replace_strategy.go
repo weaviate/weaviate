@@ -144,24 +144,3 @@ func (s *segment) replaceStratParseDataWithKey(in []byte) (segmentReplaceNode, e
 
 	return out, nil
 }
-
-func (s *segment) replaceStratParseDataWithKeyInto(in []byte,
-	node *segmentReplaceNode,
-) error {
-	if len(in) == 0 {
-		return lsmkv.NotFound
-	}
-
-	r := bytes.NewReader(in)
-
-	err := ParseReplaceNodeInto(r, s.secondaryIndexCount, node)
-	if err != nil {
-		return err
-	}
-
-	if node.tombstone {
-		return lsmkv.Deleted
-	}
-
-	return nil
-}
