@@ -17,6 +17,7 @@ package db
 import (
 	"context"
 	"math/rand"
+	"os"
 	"testing"
 	"time"
 
@@ -235,6 +236,9 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 		logger:                logger,
 		getSchema:             schemaGetter,
 		centralJobQueue:       queue,
+	}
+	if err = os.Mkdir(idx.path(), os.ModePerm); err != nil {
+		panic(err)
 	}
 	idx.initCycleCallbacksNoop()
 
