@@ -43,6 +43,11 @@ func NewReadWriter(buf []byte, opts ...func(writer *ReadWriter)) ReadWriter {
 	return rw
 }
 
+func (bo *ReadWriter) ResetBuffer(buf []byte) {
+	bo.Buffer = buf
+	bo.Position = 0
+}
+
 func (bo *ReadWriter) ReadUint64() uint64 {
 	bo.Position += uint64Len
 	return binary.LittleEndian.Uint64(bo.Buffer[bo.Position-uint64Len : bo.Position])
@@ -101,6 +106,10 @@ func (bo *ReadWriter) DiscardBytesFromBufferWithUint64LengthIndicator() uint64 {
 func (bo *ReadWriter) ReadBytesFromBufferWithUint32LengthIndicator() []byte {
 	bo.Position += uint32Len
 	bufLen := uint64(binary.LittleEndian.Uint32(bo.Buffer[bo.Position-uint32Len : bo.Position]))
+
+	if bufLen == 0 {
+		return nil
+	}
 
 	bo.Position += bufLen
 	subslice := bo.Buffer[bo.Position-bufLen : bo.Position]
