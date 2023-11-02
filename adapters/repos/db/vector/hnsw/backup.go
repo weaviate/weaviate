@@ -17,15 +17,40 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-
-	"github.com/pkg/errors"
 )
+
+// BeginBackup prepares the hnsw index so a backup can be created
+func (h *hnsw) BeginBackup(ctx context.Context) error {
+	if err := h.SwitchCommitLogs(ctx); err != nil {
+		return err
+	}
+
+	if h.compressed.Load() {
+		if err := h.compressedStore.PauseCompaction(ctx); err != nil {
+			return fmt.Errorf("pause compressed store compaction: %w", err)
+		}
+		if err := h.compressedStore.FlushMemtables(ctx); err != nil {
+			return fmt.Errorf("flush compressed store memtables: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (h *hnsw) ResumeMaintenanceCycles(ctx context.Context) error {
+	if h.compressed.Load() {
+		if err := h.compressedStore.ResumeCompaction(ctx); err != nil {
+			return fmt.Errorf("resume compressed store compaction: %w", err)
+		}
+	}
+	return nil
+}
 
 // SwitchCommitLogs makes sure that the previously writeable commitlog is
 // switched to a new one, thus making the existing file read-only.
 func (h *hnsw) SwitchCommitLogs(ctx context.Context) error {
 	if err := h.commitLog.SwitchCommitLogs(true); err != nil {
-		return errors.Wrap(err, "switch commitlogs")
+		return fmt.Errorf("switch commitlogs: %w", err)
 	}
 
 	return nil
@@ -37,7 +62,23 @@ func (h *hnsw) SwitchCommitLogs(ctx context.Context) error {
 // latest (writeable) log file is typically empty.
 // ListFiles errors if maintenance is not paused, as a stable state
 // cannot be guaranteed with maintenance going on in the background.
-func (h *hnsw) ListFiles(ctx context.Context, basePath string) ([]string, error) {
+func (h *hnsw) ListFiles(ctx context.Context, basePath string) (files []string, err error) {
+	files, err = h.listCommitLogFiles(ctx, basePath)
+	if err != nil {
+		return nil, err
+	}
+
+	if h.compressed.Load() {
+		compressed, err := h.listCompressedFiles(ctx, basePath)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, compressed...)
+	}
+	return
+}
+
+func (h *hnsw) listCommitLogFiles(ctx context.Context, basePath string) ([]string, error) {
 	var (
 		logRoot = filepath.Join(h.commitLog.RootPath(), fmt.Sprintf("%s.hnsw.commitlog.d", h.commitLog.ID()))
 		found   = make(map[string]struct{})
@@ -66,19 +107,19 @@ func (h *hnsw) ListFiles(ctx context.Context, basePath string) ([]string, error)
 		return nil
 	})
 	if err != nil {
-		return nil, errors.Errorf("failed to list files for hnsw commitlog: %s", err)
+		return nil, fmt.Errorf("failed to list files for hnsw commitlog: %w", err)
 	}
 
 	curr, _, err := getCurrentCommitLogFileName(logRoot)
 	if err != nil {
-		return nil, errors.Wrap(err, "current commitlog file name")
+		return nil, fmt.Errorf("current commitlog file name: %w", err)
 	}
 
 	// remove active log from list, as
 	// it is not part of the backup
 	path, err := filepath.Rel(basePath, filepath.Join(logRoot, curr))
 	if err != nil {
-		return nil, errors.Wrap(err, "delete active log")
+		return nil, fmt.Errorf("delete active log: %w", err)
 	}
 	delete(found, path)
 
@@ -88,5 +129,13 @@ func (h *hnsw) ListFiles(ctx context.Context, basePath string) ([]string, error)
 		i++
 	}
 
+	return files, nil
+}
+
+func (h *hnsw) listCompressedFiles(ctx context.Context, basePath string) ([]string, error) {
+	files, err := h.compressedStore.ListFiles(ctx, basePath)
+	if err != nil {
+		return nil, fmt.Errorf("list compressed files: %w", err)
+	}
 	return files, nil
 }

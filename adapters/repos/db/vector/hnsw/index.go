@@ -206,8 +206,8 @@ type (
 // criterium for the index to see if it has to recover from disk or if its a
 // truly new index. So instead the index is initialized, with un-biased disk
 // checks first and only then is the commit logger created
-func New(cfg Config, uc ent.UserConfig,
-	tombstoneCallbacks, shardCompactionCallbacks, shardFlushCallbacks cyclemanager.CycleCallbackGroup,
+func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallbacks,
+	shardFlushCallbacks cyclemanager.CycleCallbackGroup,
 ) (*hnsw, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")

@@ -14,26 +14,27 @@ package hnsw
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
-
-	"github.com/pkg/errors"
+	"path"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func (h *hnsw) initCompressedStore() error {
-	store, err := lsmkv.New(fmt.Sprintf("%s/%s/%s", h.rootPath, h.className, h.shardName), "", h.logger, nil,
+	storeDir := path.Join(h.rootPath, "compressed")
+	store, err := lsmkv.New(storeDir, h.rootPath, h.logger, nil,
 		h.shardCompactionCallbacks, h.shardFlushCallbacks)
 	if err != nil {
-		return errors.Wrap(err, "Init lsmkv (compressed vectors store)")
+		return fmt.Errorf("init lsmkv (compressed vectors store): %w", err)
 	}
-	err = store.CreateOrLoadBucket(context.Background(), helpers.CompressedObjectsBucketLSM)
+	err = store.CreateOrLoadBucket(context.Background(), helpers.CompressedVectorsBucketLSM)
 	if err != nil {
-		return errors.Wrapf(err, "Create or load bucket (compressed vectors store)")
+		return fmt.Errorf("create or load bucket (compressed vectors store): %w", err)
 	}
 	h.compressedStore = store
 	return nil
@@ -41,16 +42,16 @@ func (h *hnsw) initCompressedStore() error {
 
 func (h *hnsw) Compress(cfg ent.PQConfig) error {
 	if h.nodes[0] == nil {
-		return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
+		return errors.New("data must be inserted before compress command can be executed")
 	}
 	err := h.initCompressedStore()
 	if err != nil {
-		return errors.Wrap(err, "Initializing compressed vector store")
+		return fmt.Errorf("init compressed vector store: %w", err)
 	}
 
 	vec, err := h.vectorForID(context.Background(), h.nodes[0].id)
 	if err != nil {
-		return errors.Wrap(err, "Inferring data dimensions")
+		return fmt.Errorf("infer vector dimensions: %w", err)
 	}
 	dims := len(vec)
 
@@ -61,7 +62,7 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 
 	h.pq, err = ssdhelpers.NewProductQuantizer(cfg, h.distancerProvider, dims)
 	if err != nil {
-		return errors.Wrap(err, "Compressing vectors.")
+		return fmt.Errorf("compress vectors: %w", err)
 	}
 
 	data := h.cache.all()
@@ -88,7 +89,7 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 			h.compressedVectorsCache.preload(index, encoded)
 		})
 	if err := h.commitLog.AddPQ(h.pq.ExposeFields()); err != nil {
-		return errors.Wrap(err, "Adding PQ to the commit logger")
+		return fmt.Errorf("add PQ to commit logger: %w", err)
 	}
 
 	h.compressed.Store(true)
@@ -104,13 +105,13 @@ func (h *hnsw) encodedVector(id uint64) ([]byte, error) {
 func (h *hnsw) storeCompressedVector(index uint64, vector []byte) {
 	Id := make([]byte, 8)
 	binary.LittleEndian.PutUint64(Id, index)
-	h.compressedStore.Bucket(helpers.CompressedObjectsBucketLSM).Put(Id, vector)
+	h.compressedStore.Bucket(helpers.CompressedVectorsBucketLSM).Put(Id, vector)
 }
 
 func (h *hnsw) getCompressedVectorForID(ctx context.Context, id uint64) ([]byte, error) {
 	vec, err := h.vectorForID(ctx, id)
 	if err != nil {
-		return nil, errors.Wrap(err, "Getting vector for id")
+		return nil, fmt.Errorf("get vector for id: %w", err)
 	}
 	if h.distancerProvider.Type() == "cosine-dot" {
 		// cosine-dot requires normalized vectors, as the dot product and cosine

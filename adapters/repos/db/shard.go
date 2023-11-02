@@ -233,7 +233,8 @@ func (s *Shard) initVectorIndex(
 				s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
 		},
 	}, hnswUserConfig,
-		s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks)
+		s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
 	}
