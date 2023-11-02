@@ -21,14 +21,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -36,7 +34,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/storobj"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 )
 
@@ -55,25 +52,6 @@ func run(dirName string, logger *logrus.Logger, compression string,
 	vectors_size := len(vectors)
 	queries_size := len(queries)
 	runId := uuid.New().String()
-	store, err := lsmkv.New(runId, dirName, logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
-	if err != nil {
-		return 0, 0, err
-	}
-	err = store.CreateOrLoadBucket(context.Background(), helpers.ObjectsBucketLSM)
-	if err != nil {
-		return 0, 0, err
-	}
-	for k, v := range vectors {
-		object := storobj.New(uint64(k))
-		id := strfmt.UUID("bf706904-8618-463f-899c-4a2aafd48d56")
-		object.SetID(id)
-		object.Vector = v
-		data, _ := object.MarshalBinary()
-		Id := make([]byte, 8)
-		binary.LittleEndian.PutUint64(Id, uint64(k))
-		store.Bucket(helpers.ObjectsBucketLSM).Put(Id, data)
-	}
 
 	index, err := flat.New(hnsw.Config{
 		RootPath:              dirName,
@@ -90,9 +68,7 @@ func run(dirName string, logger *logrus.Logger, compression string,
 	}, flatent.UserConfig{
 		Compression: compression,
 		EF:          100 * k,
-	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), func() *lsmkv.CursorReplace {
-		return store.Bucket(helpers.ObjectsBucketLSM).Cursor()
-	})
+	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		return 0, 0, err
 	}
@@ -108,7 +84,6 @@ func run(dirName string, logger *logrus.Logger, compression string,
 	for i := range extraVectorsForDelete {
 		Id := make([]byte, 16)
 		binary.BigEndian.PutUint64(Id[8:], uint64(vectors_size+i))
-		store.Bucket(helpers.ObjectsBucketLSM).Delete(Id)
 		err := index.Delete(uint64(vectors_size + i))
 		if err != nil {
 			return 0, 0, err

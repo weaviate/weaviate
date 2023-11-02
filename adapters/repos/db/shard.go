@@ -226,9 +226,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 				return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(),
 					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
 			},
-		}, flatUserConfig, s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, func() *lsmkv.CursorReplace {
-			return s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
-		})
+		}, flatUserConfig, s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
 		}

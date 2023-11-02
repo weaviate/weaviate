@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/storobj"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
@@ -57,13 +57,11 @@ type flat struct {
 	shardFlushCallbacks      cyclemanager.CycleCallbackGroup
 
 	compression string
-	flatStore   func() *lsmkv.CursorReplace
 }
 
 func New(
 	cfg hnsw.Config, uc flatent.UserConfig,
 	shardCompactionCallbacks, shardFlushCallbacks cyclemanager.CycleCallbackGroup,
-	flatStore func() *lsmkv.CursorReplace,
 ) (*flat, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
@@ -88,7 +86,7 @@ func New(
 		compression:              uc.Compression,
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
-		flatStore:                flatStore,
+		pool:                     newPools(),
 	}
 	index.initStore(cfg.RootPath, cfg.ClassName)
 
@@ -96,24 +94,34 @@ func New(
 }
 
 func (h *flat) storeCompressedVector(index uint64, vector []byte) {
+	h.storeGenericVector(index, vector, helpers.CompressedObjectsBucketLSM)
+}
+
+func (h *flat) storeVector(index uint64, vector []byte) {
+	h.storeGenericVector(index, vector, helpers.ObjectsBucketLSM)
+}
+
+func (h *flat) storeGenericVector(index uint64, vector []byte, bucket string) {
 	Id := make([]byte, 8)
 	binary.LittleEndian.PutUint64(Id, index)
-	h.store.Bucket(helpers.CompressedObjectsBucketLSM).Put(Id, vector)
+	h.store.Bucket(bucket).Put(Id, vector)
 }
 
 func (index *flat) initStore(rootPath, className string) error {
-	if index.compression == flatent.CompressionNone {
-		return nil
-	}
-
 	store, err := lsmkv.New(fmt.Sprintf("%s/%s/%s", rootPath, className, index.shardName), "", index.logger, nil,
 		index.shardCompactionCallbacks, index.shardFlushCallbacks)
 	if err != nil {
 		return errors.Wrap(err, "Init lsmkv (compressed vectors store)")
 	}
-	err = store.CreateOrLoadBucket(context.Background(), helpers.CompressedObjectsBucketLSM)
+	err = store.CreateOrLoadBucket(context.Background(), helpers.ObjectsBucketLSM)
 	if err != nil {
-		return errors.Wrapf(err, "Create or load bucket (compressed vectors store)")
+		return errors.Wrapf(err, "Create or load bucket (vectors store)")
+	}
+	if index.compression != flatent.CompressionNone {
+		err = store.CreateOrLoadBucket(context.Background(), helpers.CompressedObjectsBucketLSM)
+		if err != nil {
+			return errors.Wrapf(err, "Create or load bucket (compressed vectors store)")
+		}
 	}
 	index.store = store
 	return nil
@@ -141,6 +149,13 @@ func byteSliceFromUint64Slice(x []uint64, slice []byte) []byte {
 	return slice
 }
 
+func byteSliceFromFloat32Slice(x []float32, slice []byte) []byte {
+	for i := range x {
+		binary.LittleEndian.PutUint32(slice[i*4:], math.Float32bits(x[i]))
+	}
+	return slice
+}
+
 func uint64SliceFromByteSlice(x []byte, slice []uint64) []uint64 {
 	len := len(x) / 8
 	for i := 0; i < len; i++ {
@@ -149,20 +164,22 @@ func uint64SliceFromByteSlice(x []byte, slice []uint64) []uint64 {
 	return slice
 }
 
+func float32SliceFromByteSlice(x []byte, slice []float32) []float32 {
+	len := len(x) / 4
+	for i := 0; i < len; i++ {
+		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(x[i*4:]))
+	}
+	return slice
+}
+
 func (index *flat) Add(id uint64, vector []float32) error {
 	index.trackDimensionsOnce.Do(func() {
 		atomic.StoreInt32(&index.dims, int32(len(vector)))
-		index.bq = ssdhelpers.NewBinaryQuantizer()
-		index.pool = newPools()
 		if index.compression == flatent.CompressionNone {
 			return
 		}
-		atomic.StoreInt32(&index.dims, int32(len(vector)))
 		index.bq = ssdhelpers.NewBinaryQuantizer()
 	})
-	if index.compression == flatent.CompressionNone {
-		return nil
-	}
 	if len(vector) != int(index.dims) {
 		return errors.Errorf("insert called with a vector of the wrong size")
 	}
@@ -171,25 +188,33 @@ func (index *flat) Add(id uint64, vector []float32) error {
 		// similarity are only identical if the vector is normalized
 		vector = distancer.Normalize(vector)
 	}
+	slice := make([]byte, len(vector)*4)
+	index.storeVector(id, byteSliceFromFloat32Slice(vector, slice))
+	if index.compression == flatent.CompressionNone {
+		return nil
+	}
 	vec, err := index.bq.Encode(vector)
 	if err != nil {
 		return err
 	}
-	slice := make([]byte, len(vec)*8)
+	slice = make([]byte, len(vec)*8)
 	index.storeCompressedVector(id, byteSliceFromUint64Slice(vec, slice))
 
 	return nil
 }
 
 func (index *flat) Delete(ids ...uint64) error {
-	if index.compression == flatent.CompressionNone {
-		return nil
-	}
-
 	for _, i := range ids {
 		Id := make([]byte, 8)
 		binary.LittleEndian.PutUint64(Id, uint64(i))
-		err := index.store.Bucket(helpers.CompressedObjectsBucketLSM).Delete(Id)
+		err := index.store.Bucket(helpers.ObjectsBucketLSM).Delete(Id)
+		if err != nil {
+			return err
+		}
+		if index.compression == flatent.CompressionNone {
+			continue
+		}
+		err = index.store.Bucket(helpers.CompressedObjectsBucketLSM).Delete(Id)
 		if err != nil {
 			return err
 		}
@@ -287,33 +312,24 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 			heap.Pop()
 		}
 	} else {
-		cursor := index.flatStore()
+		cursor := index.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
 		if allow != nil {
-			buff := make([]byte, 16)
-			binary.BigEndian.PutUint64(buff[8:], firstId)
+			buff := make([]byte, 8)
+			binary.LittleEndian.PutUint64(buff, firstId)
 			key, v = cursor.Seek(buff)
 		} else {
 			key, v = cursor.First()
 		}
 
 		for key != nil && (allow == nil || alreadyFound < allow.Len()) {
-			obj, err := storobj.FromBinary(v)
-			if err != nil {
-				return nil, nil, errors.Wrapf(err, "unmarhsal item")
-			}
-			id := obj.DocID()
+			id := binary.LittleEndian.Uint64(key)
 			if allow != nil && !allow.Contains(id) {
 				key, v = cursor.Next()
 				continue
 			}
 			alreadyFound++
-			candidate := obj.Vector
-			if index.distancerProvider.Type() == "cosine-dot" {
-				// cosine-dot requires normalized vectors, as the dot product and cosine
-				// similarity are only identical if the vector is normalized
-				candidate = distancer.Normalize(candidate)
-			}
-
+			t := index.pool.float32SlicePool.Get(len(v) / 4)
+			candidate := float32SliceFromByteSlice(v, t.slice)
 			d, _, _ := index.distancerProvider.SingleDist(vector, candidate)
 
 			if heap.Len() < ef || heap.Top().Dist > d {
@@ -452,24 +468,6 @@ func (i *flat) ValidateBeforeInsert(vector []float32) error {
 }
 
 func (index *flat) PostStartup() {
-	index.prefillCache()
-}
-
-func (h *flat) prefillCache() {
-	/*limit := 0
-	limit = int(h.cache.CopyMaxSize())
-
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
-		defer cancel()
-
-		var err error
-		err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
-
-		if err != nil {
-			h.logger.WithError(err).Error("prefill vector cache")
-		}
-	}()*/
 }
 
 func (index *flat) Dump(labels ...string) {
