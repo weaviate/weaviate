@@ -1918,7 +1918,8 @@ func (i *Index) addNewShard(ctx context.Context,
 	}
 
 	// TODO: metrics
-	s, err := NewShard(ctx, nil, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
+	s, err := NewShard(ctx, nil, shardName, i, class,
+		i.centralJobQueue, i.indexCheckpoints)
 	if err != nil {
 		return err
 	}

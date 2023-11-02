@@ -193,7 +193,7 @@ func (h *hnsw) prefillCache() {
 
 		var err error
 		if h.compressed.Load() {
-			cursor := h.compressedStore.Bucket(helpers.CompressedObjectsBucketLSM).Cursor()
+			cursor := h.compressedStore.Bucket(helpers.CompressedVectorsBucketLSM).Cursor()
 			for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 				id := binary.LittleEndian.Uint64(k)
 				h.compressedVectorsCache.grow(id)

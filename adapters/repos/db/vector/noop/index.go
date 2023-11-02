@@ -82,7 +82,11 @@ func (i *Index) Shutdown(context.Context) error {
 	return nil
 }
 
-func (i *Index) SwitchCommitLogs(context.Context) error {
+func (i *Index) BeginBackup(context.Context) error {
+	return nil
+}
+
+func (i *Index) ResumeMaintenanceCycles(context.Context) error {
 	return nil
 }
 
