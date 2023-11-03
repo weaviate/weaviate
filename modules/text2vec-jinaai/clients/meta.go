@@ -14,6 +14,6 @@ package clients
 func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{
 		"name":              "JinaAI Module",
-		"documentationHref": "",
+		"documentationHref": "https://jina.ai/embeddings/",
 	}, nil
 }
