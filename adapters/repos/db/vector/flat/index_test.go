@@ -232,6 +232,4 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	if err != nil {
 		fmt.Println(err)
 	}
-
-	require.False(t, true)
 }
