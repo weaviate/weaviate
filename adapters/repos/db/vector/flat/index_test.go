@@ -16,6 +16,7 @@ package flat_test
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -98,15 +99,30 @@ func run(dirName string, logger *logrus.Logger, compression string,
 	if allowIds != nil {
 		allowList = helpers.NewAllowList(allowIds...)
 	}
+	err = nil
 	ssdhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
 		before := time.Now()
 		results, _, _ := index.SearchByVector(queries[i], k, allowList)
+		if hasDuplicates(results) {
+			err = errors.New("results has duplicates")
+		}
 		querying += time.Since(before)
-		retrieved += k
+		retrieved += len(results)
 		relevant += testinghelpers.MatchesInLists(truths[i], results)
 	})
 
 	return float32(relevant) / float32(retrieved), float32(querying.Microseconds()) / float32(queries_size), nil
+}
+
+func hasDuplicates(results []uint64) bool {
+	for i := 0; i < len(results)-1; i++ {
+		for j := i + 1; j < len(results); j++ {
+			if results[i] == results[j] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func Test_NoRaceFlatIndex(t *testing.T) {
@@ -216,4 +232,6 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	if err != nil {
 		fmt.Println(err)
 	}
+
+	require.False(t, true)
 }
