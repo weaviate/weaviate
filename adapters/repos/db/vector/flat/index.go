@@ -25,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -44,10 +45,7 @@ type flat struct {
 	shardName           string
 	trackDimensionsOnce sync.Once
 	ef                  int64
-
-	TempVectorForIDThunk common.TempVectorForID
-	vectorForID          common.VectorForID[float32]
-	bq                   ssdhelpers.BinaryQuantizer
+	bq                  ssdhelpers.BinaryQuantizer
 
 	tempVectors *common.TempVectorsPool
 	pqResults   *common.PqMaxPool
@@ -79,8 +77,6 @@ func New(
 		distancerProvider:        cfg.DistanceProvider,
 		ef:                       int64(uc.EF),
 		shardName:                cfg.ShardName,
-		TempVectorForIDThunk:     cfg.TempVectorForIDThunk,
-		vectorForID:              cfg.VectorForIDThunk,
 		tempVectors:              common.NewTempVectorsPool(),
 		pqResults:                common.NewPqMaxPool(100),
 		compression:              uc.Compression,
@@ -108,17 +104,19 @@ func (h *flat) storeGenericVector(index uint64, vector []byte, bucket string) {
 }
 
 func (index *flat) initStore(rootPath, className string) error {
+	ctx := context.Background()
+
 	store, err := lsmkv.New(fmt.Sprintf("%s/%s/%s", rootPath, className, index.shardName), "", index.logger, nil,
 		index.shardCompactionCallbacks, index.shardFlushCallbacks)
 	if err != nil {
 		return errors.Wrap(err, "Init lsmkv (compressed vectors store)")
 	}
-	err = store.CreateOrLoadBucket(context.Background(), helpers.ObjectsBucketLSM)
+	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM, lsmkv.WithForceCompation(true))
 	if err != nil {
 		return errors.Wrapf(err, "Create or load bucket (vectors store)")
 	}
 	if index.compression != flatent.CompressionNone {
-		err = store.CreateOrLoadBucket(context.Background(), helpers.CompressedObjectsBucketLSM)
+		err = store.CreateOrLoadBucket(ctx, helpers.CompressedObjectsBucketLSM, lsmkv.WithForceCompation(true))
 		if err != nil {
 			return errors.Wrapf(err, "Create or load bucket (compressed vectors store)")
 		}
@@ -183,11 +181,7 @@ func (index *flat) Add(id uint64, vector []float32) error {
 	if len(vector) != int(index.dims) {
 		return errors.Errorf("insert called with a vector of the wrong size")
 	}
-	if index.distancerProvider.Type() == "cosine-dot" {
-		// cosine-dot requires normalized vectors, as the dot product and cosine
-		// similarity are only identical if the vector is normalized
-		vector = distancer.Normalize(vector)
-	}
+	vector = index.normalized(vector)
 	slice := make([]byte, len(vector)*4)
 	index.storeVector(id, byteSliceFromFloat32Slice(vector, slice))
 	if index.compression == flatent.CompressionNone {
@@ -223,9 +217,6 @@ func (index *flat) Delete(ids ...uint64) error {
 }
 
 func (index *flat) searchTimeEF(k int) int {
-	if index.compression == flatent.CompressionNone {
-		return k
-	}
 	// load atomically, so we can get away with concurrent updates of the
 	// userconfig without having to set a lock each time we try to read - which
 	// can be so common that it would cause considerable overhead
@@ -237,129 +228,174 @@ func (index *flat) searchTimeEF(k int) int {
 }
 
 func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
-	if index.distancerProvider.Type() == "cosine-dot" {
-		// cosine-dot requires normalized vectors, as the dot product and cosine
-		// similarity are only identical if the vector is normalized
-		vector = distancer.Normalize(vector)
+	switch index.compression {
+	case flatent.CompressionBQ:
+		return index.searchByVectorBQ(vector, k, allow)
+	case flatent.CompressionPQ:
+		// use uncompressed for now
+		fallthrough
+	default:
+		return index.searchByVector(vector, k, allow)
+	}
+}
+
+func (index *flat) searchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	heap := index.pqResults.GetMax(k)
+	defer index.pqResults.Put(heap)
+
+	vector = index.normalized(vector)
+
+	if err := index.findTopVectors(heap, allow, k,
+		index.store.Bucket(helpers.ObjectsBucketLSM).Cursor,
+		index.distanceFn(vector),
+	); err != nil {
+		return nil, nil, err
 	}
 
+	ids, dists := index.extractHeap(heap)
+	return ids, dists, nil
+}
+
+func (index *flat) distanceFn(vector []float32) func(vecAsBytes []byte) (float32, error) {
+	return func(vecAsBytes []byte) (float32, error) {
+		vecSlice := index.pool.float32SlicePool.Get(len(vecAsBytes) / 4)
+		defer index.pool.float32SlicePool.Put(vecSlice)
+
+		candidate := float32SliceFromByteSlice(vecAsBytes, vecSlice.slice)
+		distance, _, err := index.distancerProvider.SingleDist(vector, candidate)
+		return distance, err
+	}
+}
+
+func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	ef := index.searchTimeEF(k)
 	heap := index.pqResults.GetMax(ef)
 	defer index.pqResults.Put(heap)
 
-	firstId := uint64(0)
-	alreadyFound := 0
-	if allow != nil {
-		firstId, _ = allow.Iterator().Next()
+	vector = index.normalized(vector)
+	vectorBQ, err := index.bq.Encode(vector)
+	if err != nil {
+		return nil, nil, err
 	}
-	var key []byte
-	var v []byte
 
-	if index.compression != flatent.CompressionNone {
-		query, err := index.bq.Encode(vector)
+	if err := index.findTopVectors(heap, allow, ef,
+		index.store.Bucket(helpers.CompressedObjectsBucketLSM).Cursor,
+		index.distanceFnBQ(vectorBQ),
+	); err != nil {
+		return nil, nil, err
+	}
+
+	distanceFn := index.distanceFn(vector)
+	idsSlice := index.pool.uint64SlicePool.Get(heap.Len())
+	defer index.pool.uint64SlicePool.Put(idsSlice)
+
+	for i := range idsSlice.slice {
+		idsSlice.slice[i] = heap.Pop().ID
+	}
+	for _, id := range idsSlice.slice {
+		candidateAsBytes, err := index.vectorById(id)
 		if err != nil {
 			return nil, nil, err
 		}
-		cursor := index.store.Bucket(helpers.CompressedObjectsBucketLSM).Cursor()
-		if allow != nil {
-			IdSlice := index.pool.byteSlicePool.Get(8)
-			binary.BigEndian.PutUint64(IdSlice.slice, firstId)
-			key, v = cursor.Seek(IdSlice.slice)
-			index.pool.byteSlicePool.Put(IdSlice)
-		} else {
-			key, v = cursor.First()
+		distance, err := distanceFn(candidateAsBytes)
+		if err != nil {
+			return nil, nil, err
 		}
-		for key != nil && (allow == nil || alreadyFound < allow.Len()) {
-			id := binary.BigEndian.Uint64(key)
-			if allow != nil && !allow.Contains(id) {
-				key, v = cursor.Next()
-				continue
-			}
-			alreadyFound++
-			t := index.pool.uint64SlicePool.Get(len(v) / 8)
-			candidate := uint64SliceFromByteSlice(v, t.slice)
-			d, _ := index.bq.DistanceBetweenCompressedVectors(candidate, query)
-
-			index.pool.uint64SlicePool.Put(t)
-			if heap.Len() < ef || heap.Top().Dist > d {
-				if heap.Len() == ef {
-					heap.Pop()
-				}
-				heap.Insert(id, d)
-			}
-			key, v = cursor.Next()
-		}
-		cursor.Close()
-
-		idsSlice := index.pool.uint64SlicePool.Get(heap.Len())
-		ids := idsSlice.slice
-		for j := range ids {
-			ids[j] = heap.Pop().ID
-		}
-
-		for _, id := range ids {
-			candidate, err := index.vectorForID(context.Background(), id)
-			if err != nil {
-				return nil, nil, err
-			}
-			d, _, _ := index.distancerProvider.SingleDist(candidate, vector)
-			if heap.Len() < ef || heap.Top().Dist > d {
-				if heap.Len() == ef {
-					heap.Pop()
-				}
-				heap.Insert(uint64(id), d)
-			}
-		}
-		index.pool.uint64SlicePool.Put(idsSlice)
-		for heap.Len() > k {
-			heap.Pop()
-		}
-	} else {
-		cursor := index.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
-		if allow != nil {
-			IdSlice := index.pool.byteSlicePool.Get(8)
-			binary.BigEndian.PutUint64(IdSlice.slice, firstId)
-			key, v = cursor.Seek(IdSlice.slice)
-			index.pool.byteSlicePool.Put(IdSlice)
-		} else {
-			key, v = cursor.First()
-		}
-
-		for key != nil && (allow == nil || alreadyFound < allow.Len()) {
-			id := binary.BigEndian.Uint64(key)
-			if allow != nil && !allow.Contains(id) {
-				key, v = cursor.Next()
-				continue
-			}
-			alreadyFound++
-			t := index.pool.float32SlicePool.Get(len(v) / 4)
-			candidate := float32SliceFromByteSlice(v, t.slice)
-			d, _, _ := index.distancerProvider.SingleDist(vector, candidate)
-			index.pool.float32SlicePool.Put(t)
-
-			if heap.Len() < ef || heap.Top().Dist > d {
-				if heap.Len() == ef {
-					heap.Pop()
-				}
-				heap.Insert(id, d)
-			}
-			key, v = cursor.Next()
-		}
-		cursor.Close()
+		index.insertToHeap(heap, k, id, distance)
 	}
 
-	if heap.Len() < k {
-		k = heap.Len()
-	}
-	ids := make([]uint64, k)
-	dists := make([]float32, k)
-	for j := k - 1; j >= 0; j-- {
-		elem := heap.Pop()
-		ids[j] = elem.ID
-		dists[j] = elem.Dist
-	}
-
+	ids, dists := index.extractHeap(heap)
 	return ids, dists, nil
+}
+
+func (index *flat) distanceFnBQ(vectorBQ []uint64) func(vecAsBytes []byte) (float32, error) {
+	return func(vecAsBytes []byte) (float32, error) {
+		vecSliceBQ := index.pool.uint64SlicePool.Get(len(vecAsBytes) / 8)
+		defer index.pool.uint64SlicePool.Put(vecSliceBQ)
+
+		candidate := uint64SliceFromByteSlice(vecAsBytes, vecSliceBQ.slice)
+		return index.bq.DistanceBetweenCompressedVectors(candidate, vectorBQ)
+	}
+}
+
+func (index *flat) vectorById(id uint64) ([]byte, error) {
+	idSlice := index.pool.byteSlicePool.Get(8)
+	defer index.pool.byteSlicePool.Put(idSlice)
+
+	binary.BigEndian.PutUint64(idSlice.slice, id)
+	return index.store.Bucket(helpers.ObjectsBucketLSM).Get(idSlice.slice)
+}
+
+// populates given heap with smallest distances and corresponding ids calculated by
+// distanceFn
+func (index *flat) findTopVectors(heap *priorityqueue.Queue, allow helpers.AllowList, limit int,
+	cursorFn func() *lsmkv.CursorReplace, distanceFn func(vecAsBytes []byte) (float32, error),
+) error {
+	var key []byte
+	var v []byte
+	var id uint64
+	found := 0
+	allowLen := 0
+
+	cursor := cursorFn()
+	defer cursor.Close()
+
+	if allow != nil {
+		allowLen = allow.Len()
+		firstId, _ := allow.Iterator().Next()
+
+		idSlice := index.pool.byteSlicePool.Get(8)
+		binary.BigEndian.PutUint64(idSlice.slice, firstId)
+		key, v = cursor.Seek(idSlice.slice)
+		index.pool.byteSlicePool.Put(idSlice)
+	} else {
+		key, v = cursor.First()
+	}
+
+	for key != nil && (allow == nil || found < allowLen) {
+		id = binary.BigEndian.Uint64(key)
+		if allow == nil || allow.Contains(id) {
+			found++
+			distance, err := distanceFn(v)
+			if err != nil {
+				return err
+			}
+			index.insertToHeap(heap, limit, id, distance)
+		}
+		key, v = cursor.Next()
+	}
+	return nil
+}
+
+func (index *flat) insertToHeap(heap *priorityqueue.Queue, limit int, id uint64, distance float32) {
+	if heap.Len() < limit {
+		heap.Insert(id, distance)
+	} else if heap.Top().Dist > distance {
+		heap.Pop()
+		heap.Insert(id, distance)
+	}
+}
+
+func (index *flat) extractHeap(heap *priorityqueue.Queue) ([]uint64, []float32) {
+	len := heap.Len()
+
+	ids := make([]uint64, len)
+	dists := make([]float32, len)
+	for i := len - 1; i >= 0; i-- {
+		item := heap.Pop()
+		ids[i] = item.ID
+		dists[i] = item.Dist
+	}
+	return ids, dists
+}
+
+func (index *flat) normalized(vector []float32) []float32 {
+	if index.distancerProvider.Type() == "cosine-dot" {
+		// cosine-dot requires normalized vectors, as the dot product and cosine
+		// similarity are only identical if the vector is normalized
+		return distancer.Normalize(vector)
+	}
+	return vector
 }
 
 func (index *flat) SearchByVectorDistance(vector []float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
