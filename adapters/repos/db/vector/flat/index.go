@@ -205,17 +205,16 @@ func (index *flat) Add(id uint64, vector []float32) error {
 
 func (index *flat) Delete(ids ...uint64) error {
 	for _, i := range ids {
-		IdSlice := index.pool.byteSlicePool.Get(8)
-		binary.BigEndian.PutUint64(IdSlice.slice, uint64(i))
-		err := index.store.Bucket(helpers.ObjectsBucketLSM).Delete(IdSlice.slice)
-		index.pool.byteSlicePool.Put(IdSlice)
+		id := make([]byte, 8)
+		binary.BigEndian.PutUint64(id, uint64(i))
+		err := index.store.Bucket(helpers.ObjectsBucketLSM).Delete(id)
 		if err != nil {
 			return err
 		}
 		if index.compression == flatent.CompressionNone {
 			continue
 		}
-		err = index.store.Bucket(helpers.CompressedObjectsBucketLSM).Delete(IdSlice.slice)
+		err = index.store.Bucket(helpers.CompressedObjectsBucketLSM).Delete(id)
 		if err != nil {
 			return err
 		}
@@ -336,6 +335,7 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 			t := index.pool.float32SlicePool.Get(len(v) / 4)
 			candidate := float32SliceFromByteSlice(v, t.slice)
 			d, _, _ := index.distancerProvider.SingleDist(vector, candidate)
+			index.pool.float32SlicePool.Put(t)
 
 			if heap.Len() < ef || heap.Top().Dist > d {
 				if heap.Len() == ef {
