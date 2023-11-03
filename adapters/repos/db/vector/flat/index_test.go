@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -94,6 +95,7 @@ func run(dirName string, logger *logrus.Logger, compression string,
 	var relevant uint64
 	var retrieved int
 	var querying time.Duration = 0
+	mutex := new(sync.Mutex)
 
 	var allowList helpers.AllowList = nil
 	if allowIds != nil {
@@ -103,15 +105,23 @@ func run(dirName string, logger *logrus.Logger, compression string,
 	ssdhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
 		before := time.Now()
 		results, _, _ := index.SearchByVector(queries[i], k, allowList)
+
+		since := time.Since(before)
+		len := len(results)
+		matches := testinghelpers.MatchesInLists(truths[i], results)
+
 		if hasDuplicates(results) {
-			err = errors.New("results has duplicates")
+			err = errors.New("results have duplicates")
 		}
-		querying += time.Since(before)
-		retrieved += len(results)
-		relevant += testinghelpers.MatchesInLists(truths[i], results)
+
+		mutex.Lock()
+		querying += since
+		retrieved += len
+		relevant += matches
+		mutex.Unlock()
 	})
 
-	return float32(relevant) / float32(retrieved), float32(querying.Microseconds()) / float32(queries_size), nil
+	return float32(relevant) / float32(retrieved), float32(querying.Microseconds()) / float32(queries_size), err
 }
 
 func hasDuplicates(results []uint64) bool {
@@ -149,8 +159,8 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
-		assert.True(t, recall > 0.99)
-		assert.True(t, latency < 1_000_000)
+		assert.Greater(t, recall, float32(0.99))
+		assert.Less(t, latency, float32(1_000_000))
 	})
 
 	t.Run("recall on compression", func(t *testing.T) {
@@ -158,8 +168,8 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
-		assert.True(t, recall > 0.9)
-		assert.True(t, latency < 1_000_000)
+		assert.Greater(t, recall, float32(0.9))
+		assert.Less(t, latency, float32(1_000_000))
 	})
 
 	extraVectorsForDelete, _ := testinghelpers.RandomVecs(5_000, 0, dimensions)
@@ -168,8 +178,8 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
-		assert.True(t, recall > 0.99)
-		assert.True(t, latency < 1_000_000)
+		assert.Greater(t, recall, float32(0.99))
+		assert.Less(t, latency, float32(1_000_000))
 	})
 
 	t.Run("recall on compression with deletes", func(t *testing.T) {
@@ -177,8 +187,8 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
-		assert.True(t, recall > 0.8)
-		assert.True(t, latency < 1_000_000)
+		assert.Greater(t, recall, float32(0.8))
+		assert.Less(t, latency, float32(1_000_000))
 	})
 
 	from := 0
@@ -197,8 +207,8 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
-		assert.True(t, recall > 0.99)
-		assert.True(t, latency < 1_000_000)
+		assert.Greater(t, recall, float32(0.99))
+		assert.Less(t, latency, float32(1_000_000))
 	})
 
 	t.Run("recall on filtered compression", func(t *testing.T) {
@@ -206,8 +216,8 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
-		assert.True(t, recall > 0.9)
-		assert.True(t, latency < 1_000_000)
+		assert.Greater(t, recall, float32(0.9))
+		assert.Less(t, latency, float32(1_000_000))
 	})
 
 	t.Run("recall on filtered no compression with deletes", func(t *testing.T) {
@@ -215,8 +225,8 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
-		assert.True(t, recall > 0.99)
-		assert.True(t, latency < 1_000_000)
+		assert.Greater(t, recall, float32(0.99))
+		assert.Less(t, latency, float32(1_000_000))
 	})
 
 	t.Run("recall on filtered compression with deletes", func(t *testing.T) {
@@ -224,8 +234,8 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
-		assert.True(t, recall > 0.8)
-		assert.True(t, latency < 1_000_000)
+		assert.Greater(t, recall, float32(0.8))
+		assert.Less(t, latency, float32(1_000_000))
 	})
 
 	err := os.RemoveAll(dirName)
