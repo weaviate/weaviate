@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"path"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -106,7 +107,8 @@ func (h *flat) storeGenericVector(index uint64, vector []byte, bucket string) {
 func (index *flat) initStore(rootPath, className string) error {
 	ctx := context.Background()
 
-	store, err := lsmkv.New(fmt.Sprintf("%s/%s/%s", rootPath, className, index.shardName), "", index.logger, nil,
+	storeDir := path.Join(rootPath, "flat")
+	store, err := lsmkv.New(storeDir, rootPath, index.logger, nil,
 		index.shardCompactionCallbacks, index.shardFlushCallbacks)
 	if err != nil {
 		return errors.Wrap(err, "Init lsmkv (compressed vectors store)")
