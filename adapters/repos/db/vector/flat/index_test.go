@@ -29,7 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -60,13 +60,8 @@ func run(dirName string, logger *logrus.Logger, compression string,
 		ID:                    runId,
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 		DistanceProvider:      distancer,
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-			return vectors[int(id)], nil
-		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
-			copy(container.Slice, vectors[int(id)])
-			return container.Slice, nil
-		},
+		// dummy thunk, not used by index
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) { return nil, nil },
 	}, flatent.UserConfig{
 		Compression: compression,
 		EF:          100 * k,
