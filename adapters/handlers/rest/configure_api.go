@@ -118,7 +118,6 @@ func getCores() (int, error) {
 }
 
 func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
-
 	appState := startupRoutine(ctx, options)
 	setupGoProfiling(appState.ServerConfig.Config)
 
@@ -134,8 +133,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	if os.Getenv("LIMIT_RESOURCES") == "true" {
 		appState.Logger.Info("Limiting resources:  memory: 80%, cores: all but one")
 		if os.Getenv("GOMAXPROCS") == "" {
-			//Fetch the number of cores from the cgroups cpuset
-			//and parse it into an int
+			// Fetch the number of cores from the cgroups cpuset
+			// and parse it into an int
 			cores, err := getCores()
 			if err == nil {
 				appState.Logger.WithField("cores", cores).Warn("GOMAXPROCS not set, and unable to read from cgroups, setting to number of cores")
@@ -152,7 +151,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		limit, err := memlimit.SetGoMemLimit(0.8)
 		if err != nil {
 			appState.Logger.WithError(err).Warnf("Unable to set memory limit from cgroups: %v", err)
-			//Set memory limit to 90% of the available memory
+			// Set memory limit to 90% of the available memory
 			limit := int64(float64(memory.TotalMemory()) * 0.8)
 			debug.SetMemoryLimit(limit)
 			appState.Logger.WithField("limit", limit).Info("Set memory limit based on available memory")
