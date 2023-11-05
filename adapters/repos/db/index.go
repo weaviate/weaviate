@@ -1564,7 +1564,29 @@ func (i *Index) drop() error {
 	defer i.backupMutex.RUnlock()
 
 	i.shards.Range(dropShard)
-	return eg.Wait()
+	if err := eg.Wait(); err != nil {
+		return err
+	}
+
+	// Dropping the shards only unregisters the shards callbacks, but we still
+	// need to stop the cycle managers that those shards used to register with.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	if err := i.cycleCallbacks.compactionCycle.StopAndWait(ctx); err != nil {
+		return err
+	}
+	if err := i.cycleCallbacks.flushCycle.StopAndWait(ctx); err != nil {
+		return err
+	}
+	if err := i.cycleCallbacks.vectorCommitLoggerCycle.StopAndWait(ctx); err != nil {
+		return err
+	}
+	if err := i.cycleCallbacks.vectorTombstoneCleanupCycle.StopAndWait(ctx); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // dropShards deletes shards in a transactional manner.
