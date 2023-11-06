@@ -634,7 +634,15 @@ func extractAdditionalPropsForRefs(prop *pb.MetadataRequest) additional.Properti
 
 func isIdOnlyRequest(metadata *pb.MetadataRequest) bool {
 	// could also use reflect here but this is more explicit
-	return metadata != nil && metadata.Uuid && !metadata.Vector && !metadata.Certainty && !metadata.Distance && !metadata.LastUpdateTimeUnix && !metadata.CreationTimeUnix && !metadata.Score && !metadata.ExplainScore
+	return (metadata != nil &&
+		metadata.Uuid &&
+		!metadata.Vector &&
+		!metadata.Certainty &&
+		!metadata.Distance &&
+		!metadata.LastUpdateTimeUnix &&
+		!metadata.CreationTimeUnix &&
+		!metadata.Score &&
+		!metadata.ExplainScore)
 }
 
 func getAllNonRefNonBlobProperties(scheme schema.Schema, className string) ([]search.SelectProperty, error) {
