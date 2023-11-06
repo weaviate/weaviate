@@ -14,7 +14,6 @@ package flat
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	vectorindexcommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 )
@@ -101,14 +100,4 @@ func NewDefaultUserConfig() UserConfig {
 	uc := UserConfig{}
 	uc.SetDefaults()
 	return uc
-}
-
-func TypeAssertVectorIndex(class *models.Class) (UserConfig, error) {
-	flatConfig, ok := class.VectorIndexConfig.(UserConfig)
-	if !ok {
-		return UserConfig{}, fmt.Errorf("class '%s' vector index: config is not flat.UserConfig: %T",
-			class.Class, class.VectorIndexConfig)
-	}
-
-	return flatConfig, nil
 }
