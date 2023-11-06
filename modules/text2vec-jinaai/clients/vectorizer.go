@@ -187,7 +187,7 @@ func (v *vectorizer) getValueFromContext(ctx context.Context, key string) string
 		}
 	}
 	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetApiKeyFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
+	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
 		return apiKey[0]
 	}
 
