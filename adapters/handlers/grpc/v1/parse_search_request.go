@@ -75,7 +75,12 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	if len(out.Properties) == 0 && req.Metadata != nil {
 		// This is a pure-ID query without any props. Indicate this to the DB, so
 		// it can optimize accordingly
-		out.AdditionalProperties.NoProps = true
+		// out.AdditionalProperties.NoProps = true
+		returnProps, err := getAllNonRefNonBlobProperties(scheme, req.Collection)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
+		out.Properties = returnProps
 	} else if len(out.Properties) == 0 && req.Metadata == nil {
 		// no return values selected, return all properties and metadata. Ignore blobs and refs to not overload the
 		// response
