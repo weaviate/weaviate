@@ -637,12 +637,13 @@ func isIdOnlyRequest(metadata *pb.MetadataRequest) bool {
 	return (metadata != nil &&
 		metadata.Uuid &&
 		!metadata.Vector &&
-		!metadata.Certainty &&
-		!metadata.Distance &&
-		!metadata.LastUpdateTimeUnix &&
 		!metadata.CreationTimeUnix &&
+		!metadata.LastUpdateTimeUnix &&
+		!metadata.Distance &&
+		!metadata.Certainty &&
 		!metadata.Score &&
-		!metadata.ExplainScore)
+		!metadata.ExplainScore &&
+		!metadata.IsConsistent)
 }
 
 func getAllNonRefNonBlobProperties(scheme schema.Schema, className string) ([]search.SelectProperty, error) {
