@@ -27,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -41,7 +40,6 @@ type flat struct {
 	store               *lsmkv.Store
 	logger              logrus.FieldLogger
 	distancerProvider   distancer.Provider
-	shardName           string
 	trackDimensionsOnce sync.Once
 	ef                  int64
 	bq                  ssdhelpers.BinaryQuantizer
@@ -53,7 +51,7 @@ type flat struct {
 	compression string
 }
 
-func New(cfg hnsw.Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
+func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
 	}
@@ -69,7 +67,6 @@ func New(cfg hnsw.Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, err
 		logger:            cfg.Logger,
 		distancerProvider: cfg.DistanceProvider,
 		ef:                int64(uc.EF),
-		shardName:         cfg.ShardName,
 		tempVectors:       common.NewTempVectorsPool(),
 		pqResults:         common.NewPqMaxPool(100),
 		compression:       uc.Compression,
