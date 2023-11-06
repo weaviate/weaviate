@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/models"
 	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 
 	"github.com/weaviate/weaviate/entities/schema"
@@ -206,14 +205,4 @@ func NewDefaultUserConfig() UserConfig {
 	uc := UserConfig{}
 	uc.SetDefaults()
 	return uc
-}
-
-func TypeAssertVectorIndex(class *models.Class) (UserConfig, error) {
-	hnswConfig, ok := class.VectorIndexConfig.(UserConfig)
-	if !ok {
-		return UserConfig{}, fmt.Errorf("class '%s' vector index: config is not hnsw.UserConfig: %T",
-			class.Class, class.VectorIndexConfig)
-	}
-
-	return hnswConfig, nil
 }
