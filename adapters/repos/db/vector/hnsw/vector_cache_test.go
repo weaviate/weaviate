@@ -22,14 +22,23 @@ import (
 func TestVectorCacheGrowth(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	var vecForId VectorForID = nil
-	vectorCache := newShardedLockCache(vecForId, 1000000, logger, false, time.Duration(10000))
-	id := int64(100000)
-	assert.True(t, int64(len(vectorCache.cache)) < id)
+	id := 100_000
+	expectedCount := int64(0)
+
+	vectorCache := newShardedLockCache(vecForId, 1_000_000, logger, false, time.Duration(10_000))
+	initialSize := vectorCache.len()
+	assert.Less(t, int(initialSize), id)
+	assert.Equal(t, expectedCount, vectorCache.countVectors())
+
 	vectorCache.grow(uint64(id))
-	assert.True(t, int64(len(vectorCache.cache)) > id)
-	last := vectorCache.count
+	size1stGrow := vectorCache.len()
+	assert.Greater(t, int(size1stGrow), id)
+	assert.Equal(t, expectedCount, vectorCache.countVectors())
+
 	vectorCache.grow(uint64(id))
-	assert.True(t, int64(len(vectorCache.cache)) == last)
+	size2ndGrow := vectorCache.len()
+	assert.Equal(t, size1stGrow, size2ndGrow)
+	assert.Equal(t, expectedCount, vectorCache.countVectors())
 }
 
 func TestCacheCleanup(t *testing.T) {
