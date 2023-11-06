@@ -14,7 +14,6 @@
 package flat_test
 
 import (
-	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -32,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -62,13 +60,9 @@ func run(dirName string, logger *logrus.Logger, compression string,
 		return 0, 0, err
 	}
 
-	index, err := flat.New(hnsw.Config{
-		RootPath:              dirName,
-		ID:                    runId,
-		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-		DistanceProvider:      distancer,
-		// dummy thunk, not used by index
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) { return nil, nil },
+	index, err := flat.New(flat.Config{
+		ID:               runId,
+		DistanceProvider: distancer,
 	}, flatent.UserConfig{
 		Compression: compression,
 		EF:          100 * k,
