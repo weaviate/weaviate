@@ -55,25 +55,17 @@ func (params *SearchByDistParams) MaximumSearchLimit() int64 {
 }
 
 func (params *SearchByDistParams) OffsetCapacity(ids []uint64) int {
-	var offsetCap int
-	if params.offset < len(ids) {
-		offsetCap = params.offset
-	} else {
-		offsetCap = len(ids)
+	if l := len(ids); l < params.offset {
+		return l
 	}
-
-	return offsetCap
+	return params.offset
 }
 
 func (params *SearchByDistParams) TotalLimitCapacity(ids []uint64) int {
-	var totalLimitCap int
-	if params.totalLimit < len(ids) {
-		totalLimitCap = params.totalLimit
-	} else {
-		totalLimitCap = len(ids)
+	if l := len(ids); l < params.totalLimit {
+		return l
 	}
-
-	return totalLimitCap
+	return params.totalLimit
 }
 
 func (params *SearchByDistParams) Iterate() {
