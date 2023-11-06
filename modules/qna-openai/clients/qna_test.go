@@ -86,6 +86,21 @@ func TestGetAnswer(t *testing.T) {
 		require.NotNil(t, err)
 		assert.Error(t, err, "connection to OpenAI failed with status: 500 error: some error from the server")
 	})
+
+	t.Run("when X-OpenAI-BaseURL header is passed", func(t *testing.T) {
+		c := New("openAIApiKey", "", "", 0, nullLogger())
+
+		ctxWithValue := context.WithValue(context.Background(),
+			"X-OpenAI-BaseURL", []string{"http://base-url-passed-in-header.com"})
+
+		buildURL, err := c.buildOpenAIUrl(ctxWithValue, "http://default-url.com", "", "")
+		require.NoError(t, err)
+		assert.Equal(t, "http://base-url-passed-in-header.com/v1/completions", buildURL)
+
+		buildURL, err = c.buildOpenAIUrl(context.TODO(), "http://default-url.com", "", "")
+		require.NoError(t, err)
+		assert.Equal(t, "http://default-url.com/v1/completions", buildURL)
+	})
 }
 
 type testAnswerHandler struct {
