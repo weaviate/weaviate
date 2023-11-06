@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -55,6 +56,12 @@ func run(dirName string, logger *logrus.Logger, compression string,
 	queries_size := len(queries)
 	runId := uuid.New().String()
 
+	store, err := lsmkv.New(dirName, dirName, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	if err != nil {
+		return 0, 0, err
+	}
+
 	index, err := flat.New(hnsw.Config{
 		RootPath:              dirName,
 		ID:                    runId,
@@ -65,7 +72,7 @@ func run(dirName string, logger *logrus.Logger, compression string,
 	}, flatent.UserConfig{
 		Compression: compression,
 		EF:          100 * k,
-	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, store)
 	if err != nil {
 		return 0, 0, err
 	}
