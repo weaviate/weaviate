@@ -38,8 +38,10 @@ var availableOpenAILegacyModels = []string{
 var availableOpenAIModels = []string{
 	"gpt-3.5-turbo",
 	"gpt-3.5-turbo-16k",
+	"gpt-3.5-turbo-1106",
 	"gpt-4",
 	"gpt-4-32k",
+	"gpt-4-1106-preview",
 }
 
 var (
@@ -54,12 +56,14 @@ var (
 
 // todo Need to parse the tokenLimits in a smarter way, as the prompt defines the max length
 var defaultMaxTokens = map[string]float64{
-	"text-davinci-002":  4097,
-	"text-davinci-003":  4097,
-	"gpt-3.5-turbo":     4097,
-	"gpt-3.5-turbo-16k": 16384,
-	"gpt-4":             8192,
-	"gpt-4-32k":         32768,
+	"text-davinci-002":   4097,
+	"text-davinci-003":   4097,
+	"gpt-3.5-turbo":      4097,
+	"gpt-3.5-turbo-16k":  16384,
+	"gpt-3.5-turbo-1106": 16385,
+	"gpt-4":              8192,
+	"gpt-4-32k":          32768,
+	"gpt-4-1106-preview": 128000,
 }
 
 type ClassSettings interface {
