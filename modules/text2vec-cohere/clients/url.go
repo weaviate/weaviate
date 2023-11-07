@@ -21,7 +21,7 @@ type cohereUrlBuilder struct {
 func newCohereUrlBuilder() *cohereUrlBuilder {
 	return &cohereUrlBuilder{
 		origin:   "https://api.cohere.ai",
-		pathMask: "/embed",
+		pathMask: "/v1/embed",
 	}
 }
 

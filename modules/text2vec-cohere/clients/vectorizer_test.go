@@ -37,7 +37,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &cohereUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/embed",
+				pathMask: "/v1/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -63,7 +63,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &cohereUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/embed",
+				pathMask: "/v1/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -87,7 +87,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &cohereUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/embed",
+				pathMask: "/v1/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -106,7 +106,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &cohereUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/embed",
+				pathMask: "/v1/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -135,7 +135,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &cohereUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/embed",
+				pathMask: "/v1/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -158,7 +158,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &cohereUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/embed",
+				pathMask: "/v1/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -184,7 +184,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &cohereUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/embed",
+				pathMask: "/v1/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -194,10 +194,10 @@ func TestClient(t *testing.T) {
 			"X-Cohere-Baseurl", []string{"http://base-url-passed-in-header.com"})
 
 		buildURL := c.getCohereUrl(ctxWithValue, baseURL)
-		assert.Equal(t, "http://base-url-passed-in-header.com/embed", buildURL)
+		assert.Equal(t, "http://base-url-passed-in-header.com/v1/embed", buildURL)
 
 		buildURL = c.getCohereUrl(context.TODO(), baseURL)
-		assert.Equal(t, "http://default-url.com/embed", buildURL)
+		assert.Equal(t, "http://default-url.com/v1/embed", buildURL)
 	})
 }
 
