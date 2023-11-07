@@ -135,9 +135,6 @@ func (v *cohere) getCohereUrl(ctx context.Context, baseURL string) (string, erro
 	if headerBaseURL := v.getValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
-	if passedBaseURL == "" {
-		passedBaseURL = "https://api.cohere.ai"
-	}
 	return url.JoinPath(passedBaseURL, "/v1/generate")
 }
 
