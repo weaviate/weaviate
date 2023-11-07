@@ -141,7 +141,7 @@ func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
 	apiKey := ctx.Value(key)
 	// try getting header from GRPC if not successful
 	if apiKey == nil {
-		apiKey = modulecomponents.GetApiKeyFromGRPC(ctx, key)
+		apiKey = modulecomponents.GetValueFromGRPC(ctx, key)
 	}
 	if apiKeyHeader, ok := apiKey.([]string); ok &&
 		len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {

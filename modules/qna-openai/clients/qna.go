@@ -83,7 +83,7 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 		return nil, errors.Wrapf(err, "marshal body")
 	}
 
-	oaiUrl, err := v.buildUrlFn(settings.BaseURL(), settings.ResourceName(), settings.DeploymentID())
+	oaiUrl, err := v.buildOpenAIUrl(ctx, settings.BaseURL(), settings.ResourceName(), settings.DeploymentID())
 	if err != nil {
 		return nil, errors.Wrap(err, "join OpenAI API host and path")
 	}
@@ -135,6 +135,14 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 		Question: question,
 		Answer:   nil,
 	}, nil
+}
+
+func (v *qna) buildOpenAIUrl(ctx context.Context, baseURL, resourceName, deploymentID string) (string, error) {
+	passedBaseURL := baseURL
+	if headerBaseURL := v.getValueFromContext(ctx, "X-OpenAI-BaseURL"); headerBaseURL != "" {
+		passedBaseURL = headerBaseURL
+	}
+	return v.buildUrlFn(passedBaseURL, resourceName, deploymentID)
 }
 
 func (v *qna) getError(statusCode int, resBodyError *openAIApiError, isAzure bool) error {
@@ -199,7 +207,7 @@ func (v *qna) getValueFromContext(ctx context.Context, key string) string {
 		}
 	}
 	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetApiKeyFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
+	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
 		return apiKey[0]
 	}
 	return ""
