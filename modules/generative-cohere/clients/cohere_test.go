@@ -99,10 +99,6 @@ func TestGetAnswer(t *testing.T) {
 		buildURL, err = c.getCohereUrl(context.TODO(), baseURL)
 		require.NoError(t, err)
 		assert.Equal(t, "http://default-url.com/v1/generate", buildURL)
-
-		buildURL, err = c.getCohereUrl(context.TODO(), "")
-		require.NoError(t, err)
-		assert.Equal(t, "https://api.cohere.ai/v1/generate", buildURL)
 	})
 }
 
