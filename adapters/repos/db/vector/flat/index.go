@@ -391,26 +391,24 @@ func (index *flat) SearchByVectorDistance(vector []float32, targetDistance float
 	)
 
 	recursiveSearch := func() (bool, error) {
-		shouldContinue := false
-
-		ids, dist, err := index.SearchByVector(vector, searchParams.TotalLimit(), allow)
+		totalLimit := searchParams.TotalLimit()
+		ids, dist, err := index.SearchByVector(vector, totalLimit, allow)
 		if err != nil {
 			return false, errors.Wrap(err, "vector search")
 		}
 
-		// ensures the indexers aren't out of range
+		// if there is less results than given limit search can be stopped
+		shouldContinue := !(len(ids) < totalLimit)
+
+		// ensures the indexes aren't out of range
 		offsetCap := searchParams.OffsetCapacity(ids)
 		totalLimitCap := searchParams.TotalLimitCapacity(ids)
 
-		ids, dist = ids[offsetCap:totalLimitCap], dist[offsetCap:totalLimitCap]
-
-		if len(ids) == 0 {
+		if offsetCap == totalLimitCap {
 			return false, nil
 		}
 
-		lastFound := dist[len(dist)-1]
-		shouldContinue = lastFound <= targetDistance
-
+		ids, dist = ids[offsetCap:totalLimitCap], dist[offsetCap:totalLimitCap]
 		for i := range ids {
 			if aboveThresh := dist[i] <= targetDistance; aboveThresh ||
 				floatcomp.InDelta(float64(dist[i]), float64(targetDistance), 1e-6) {
@@ -419,6 +417,7 @@ func (index *flat) SearchByVectorDistance(vector []float32, targetDistance float
 			} else {
 				// as soon as we encounter a certainty which
 				// is below threshold, we can stop searching
+				shouldContinue = false
 				break
 			}
 		}
@@ -426,12 +425,9 @@ func (index *flat) SearchByVectorDistance(vector []float32, targetDistance float
 		return shouldContinue, nil
 	}
 
-	shouldContinue, err := recursiveSearch()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	for shouldContinue {
+	var shouldContinue bool
+	var err error
+	for shouldContinue, err = recursiveSearch(); shouldContinue && err == nil; {
 		searchParams.Iterate()
 		if searchParams.MaxLimitReached() {
 			index.logger.
@@ -440,11 +436,9 @@ func (index *flat) SearchByVectorDistance(vector []float32, targetDistance float
 					searchParams.MaximumSearchLimit())
 			break
 		}
-
-		shouldContinue, err = recursiveSearch()
-		if err != nil {
-			return nil, nil, err
-		}
+	}
+	if err != nil {
+		return nil, nil, err
 	}
 
 	return resultIDs, resultDist, nil
