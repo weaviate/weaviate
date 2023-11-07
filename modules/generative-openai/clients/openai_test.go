@@ -126,7 +126,7 @@ func TestGetAnswer(t *testing.T) {
 		c := New("openAIApiKey", "", "", 0, nullLogger())
 
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-OpenAI-BaseURL", []string{"http://base-url-passed-in-header.com"})
+			"X-Openai-Baseurl", []string{"http://base-url-passed-in-header.com"})
 
 		buildURL, err := c.buildOpenAIUrl(ctxWithValue, settings)
 		require.NoError(t, err)

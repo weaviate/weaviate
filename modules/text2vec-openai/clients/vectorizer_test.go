@@ -214,7 +214,7 @@ func TestClient(t *testing.T) {
 		}
 
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-OpenAI-BaseURL", []string{"http://base-url-passed-in-header.com"})
+			"X-Openai-Baseurl", []string{"http://base-url-passed-in-header.com"})
 
 		buildURL, err := c.buildURL(ctxWithValue, config)
 		require.NoError(t, err)

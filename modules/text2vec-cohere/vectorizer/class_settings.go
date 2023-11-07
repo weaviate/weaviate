@@ -23,6 +23,7 @@ import (
 )
 
 const (
+	DefaultBaseURL               = "https://api.cohere.ai"
 	DefaultCohereModel           = "embed-multilingual-v2.0"
 	DefaultTruncate              = "RIGHT"
 	DefaultVectorizeClassName    = true
@@ -91,6 +92,10 @@ func (cs *classSettings) Model() string {
 
 func (cs *classSettings) Truncate() string {
 	return cs.getProperty("truncate", DefaultTruncate)
+}
+
+func (cs *classSettings) BaseURL() string {
+	return cs.getProperty("baseURL", DefaultBaseURL)
 }
 
 func (cs *classSettings) VectorizeClassName() bool {

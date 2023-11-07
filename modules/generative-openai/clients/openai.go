@@ -163,7 +163,7 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 
 func (v *openai) buildOpenAIUrl(ctx context.Context, settings config.ClassSettings) (string, error) {
 	baseURL := settings.BaseURL()
-	if headerBaseURL := v.getValueFromContext(ctx, "X-OpenAI-BaseURL"); headerBaseURL != "" {
+	if headerBaseURL := v.getValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
 		baseURL = headerBaseURL
 	}
 	return v.buildUrl(settings.IsLegacy(), settings.ResourceName(), settings.DeploymentID(), baseURL)
