@@ -258,19 +258,10 @@ func (s *Shard) initVector(ctx context.Context) error {
 		// here we label the main vector index as such.
 		vecIdxID := "main"
 
-		vi, err := flat.New(hnsw.Config{
-			Logger:            s.index.logger,
-			RootPath:          s.path(),
-			ID:                vecIdxID,
-			ShardName:         s.name,
-			ClassName:         s.index.Config.ClassName.String(),
-			PrometheusMetrics: s.promMetrics,
-			VectorForIDThunk:  func(ctx context.Context, indexID uint64) ([]float32, error) { return nil, nil },
-			DistanceProvider:  distProv,
-			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-				return hnsw.NewCommitLogger(s.path(), vecIdxID,
-					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
-			},
+		vi, err := flat.New(flat.Config{
+			ID:               vecIdxID,
+			Logger:           s.index.logger,
+			DistanceProvider: distProv,
 		}, flatUserConfig, s.store)
 		if err != nil {
 			return errors.Wrapf(err, "init shard %q: flat index", s.ID())
