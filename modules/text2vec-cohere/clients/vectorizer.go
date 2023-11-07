@@ -28,10 +28,10 @@ import (
 )
 
 type embeddingsRequest struct {
-	Texts     []string `json:"texts"`
-	Model     string   `json:"model,omitempty"`
-	Truncate  string   `json:"truncate,omitempty"`
-	InputType string   `json:"input_type,omitempty"`
+	Texts     []string  `json:"texts"`
+	Model     string    `json:"model,omitempty"`
+	Truncate  string    `json:"truncate,omitempty"`
+	InputType inputType `json:"input_type,omitempty"`
 }
 
 type embeddingsResponse struct {
@@ -45,6 +45,13 @@ type vectorizer struct {
 	urlBuilder *cohereUrlBuilder
 	logger     logrus.FieldLogger
 }
+
+type inputType string
+
+const (
+	searchDocument inputType = "search_document"
+	searchQuery    inputType = "search_query"
+)
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
@@ -60,17 +67,17 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, "search_document")
+	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchDocument)
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, "search_query")
+	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchQuery)
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, input []string,
-	model, truncate, baseURL, inputType string,
+	model, truncate, baseURL string, inputType inputType,
 ) (*ent.VectorizationResult, error) {
 	body, err := json.Marshal(embeddingsRequest{
 		Texts:     input,
