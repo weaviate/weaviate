@@ -90,7 +90,7 @@ func TestGetAnswer(t *testing.T) {
 
 		baseURL := "http://default-url.com"
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-Cohere-BaseURL", []string{"http://base-url-passed-in-header.com"})
+			"X-Cohere-Baseurl", []string{"http://base-url-passed-in-header.com"})
 
 		buildURL, err := c.getCohereUrl(ctxWithValue, baseURL)
 		require.NoError(t, err)
