@@ -11,6 +11,8 @@
 
 package main
 
+//This example shows how to start weaviate and get the appState, which can be used for scripting and direct control
+
 import (
 	"context"
 	"flag"
