@@ -63,9 +63,9 @@ func NewServer(api *operations.WeaviateAPI) *Server {
 }
 
 // ConfigureAPI configures the API and handlers.
-func (s *Server) ConfigureAPI() {
+func (s *Server) ConfigureAPI(isLocalhost bool) {
 	if s.api != nil {
-		s.handler = configureAPI(s.api)
+		s.handler = configureAPI(s.api, isLocalhost)
 	}
 }
 
@@ -143,7 +143,7 @@ func (s *Server) SetAPI(api *operations.WeaviateAPI) {
 	}
 
 	s.api = api
-	s.handler = configureAPI(api)
+	s.handler = configureAPI(api, s.Host == "127.0.0.1"|| s.Host == "localhost" )
 }
 
 func (s *Server) hasScheme(scheme string) bool {
