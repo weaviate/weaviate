@@ -161,16 +161,13 @@ func (c *compressedShardedLockCache) grow(node uint64) {
 	newSize := node + minimumIndexGrowthDelta
 	newCache := make([][]byte, newSize)
 	copy(newCache, c.cache)
-	atomic.StoreInt64(&c.count, int64(newSize))
 	c.cache = newCache
 }
 
-//nolint:unused
 func (c *compressedShardedLockCache) len() int32 {
 	return int32(len(c.cache))
 }
 
-//nolint:unused
 func (c *compressedShardedLockCache) countVectors() int64 {
 	return atomic.LoadInt64(&c.count)
 }
