@@ -68,9 +68,10 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		distancerProvider: cfg.DistanceProvider,
 		ef:                int64(uc.EF),
 		pqResults:         common.NewPqMaxPool(100),
-		compression:       uc.Compression,
-		pool:              newPools(),
-		store:             store,
+		// disable for now until we have tested more
+		compression: flatent.CompressionNone, //uc.Compression,
+		pool:        newPools(),
+		store:       store,
 	}
 	index.initBuckets(context.Background())
 
