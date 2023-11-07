@@ -20,7 +20,7 @@ import (
 var (
 	ObjectsBucket              = []byte("objects")
 	ObjectsBucketLSM           = "objects"
-	CompressedVectorsBucketLSM = "vectors"
+	CompressedVectorsBucketLSM = "compressed_vectors"
 	DimensionsBucketLSM        = "dimensions"
 )
 
