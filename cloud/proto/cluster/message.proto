@@ -14,12 +14,27 @@ message RemovePeerRequest {
   string id = 1;
 }
 
-message RemovePeerResponse {}
-message JoinPeerResponse {}
+message NotifyPeerRequest {
+  string id = 1;
+  string address = 2;
+}
+
+message RemovePeerResponse {
+  string leader = 1;
+}
+
+message JoinPeerResponse {
+  string leader = 1;
+
+}
+
+message NotifyPeerResponse {}
 
 service ClusterService {
   rpc RemovePeer(RemovePeerRequest) returns (RemovePeerResponse) {}
   rpc JoinPeer(JoinPeerRequest) returns (JoinPeerResponse) {}
+  rpc NotifyPeer(NotifyPeerRequest) returns (NotifyPeerResponse) {}
+
 }
 
 message Command {
