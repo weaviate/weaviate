@@ -317,6 +317,9 @@ func (r *Raft) Validate() error {
 			uniqueMap[nodeName] = struct{}{}
 		}
 
+		// TODO-RAFT START
+		// Validate host and port
+
 		updatedJoinList[i] = strings.Join(nodeNameAndPortSplitted, ":")
 	}
 	r.Join = updatedJoinList
