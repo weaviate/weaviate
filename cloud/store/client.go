@@ -13,15 +13,20 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"log"
-	"strings"
+	"net"
+	"strconv"
 	"time"
 
 	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
+// Client is used for communication with remote nodes in a RAFT cluster.
 type Client struct {
 	localService Cluster
 }
@@ -30,63 +35,114 @@ func NewClient(localService Cluster) *Client {
 	return &Client{localService: localService}
 }
 
-func (cl Client) Join(leaderAddr string, req *cmd.JoinPeerRequest) error {
-	log.Printf("client join: %s %+v\n", leaderAddr, req)
-	if leaderAddr == cl.localService.address {
-		err := cl.localService.Join(req.Id, req.Address, req.Voter)
-		if err == nil {
-			return err
+// Join joins this node to an existing cluster identified by its leader's address.
+// If a new leader has been elected, the request is redirected to the new leader.
+func (cl *Client) Join(ctx context.Context, leaderAddr string, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error) {
+	resp, err := cl.join(ctx, leaderAddr, req)
+	if err != nil {
+		st := status.Convert(err)
+		if leader := resp.GetLeader(); st.Code() == codes.NotFound && leader != "" {
+			return cl.join(ctx, leader, req)
 		}
 	}
 
-	conn, err := grpc.Dial(leaderAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	return resp, err
+}
+
+// Remove removes this node from an existing cluster identified by its leader's address.
+// If a new leader has been elected, the request is redirected to the new leader.
+func (cl *Client) Remove(ctx context.Context, leaderAddress string, req *cmd.RemovePeerRequest) (*cmd.RemovePeerResponse, error) {
+	resp, err := cl.remove(ctx, leaderAddress, req)
 	if err != nil {
-		return err
+		st := status.Convert(err)
+		if leader := resp.GetLeader(); st.Code() == codes.NotFound && leader != "" {
+			return cl.remove(ctx, leader, req)
+		}
+	}
+
+	return resp, nil
+}
+
+// Notify informs a remote node rAddr of this node's readiness to join.
+func (cl *Client) Notify(ctx context.Context, rAddr string, req *cmd.NotifyPeerRequest) (*cmd.NotifyPeerResponse, error) {
+	log.Printf("client join: %s %+v\n", rAddr, req)
+	addr, err := cl.rpcAddressFromRAFT(rAddr)
+	if err != nil {
+		return nil, err
+	}
+	if addr == cl.localService.address {
+		return cl.localService.NotifyPeer(ctx, req)
+	}
+
+	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
 	}
 	defer conn.Close()
 	c := cmd.NewClusterServiceClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	r, err := c.JoinPeer(ctx, req)
-	if err != nil {
-		return err
-	}
-	log.Printf("join response: %s", r.String())
-	return nil
+	return c.NotifyPeer(ctx, req)
 }
 
-func (cl Client) Remove(leaderAddress string, req *cmd.RemovePeerRequest) error {
+func (cl *Client) join(ctx context.Context, leaderAddr string, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error) {
+	log.Printf("client join: %s %+v\n", leaderAddr, req)
+	addr, err := cl.rpcAddressFromRAFT(leaderAddr)
+	if err != nil {
+		return nil, err
+	}
+	if addr == cl.localService.address {
+		return cl.localService.JoinPeer(ctx, req)
+	}
+
+	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	c := cmd.NewClusterServiceClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	return c.JoinPeer(ctx, req)
+}
+
+func (cl *Client) remove(ctx context.Context, leaderAddress string, req *cmd.RemovePeerRequest) (*cmd.RemovePeerResponse, error) {
 	log.Printf("client remove: %s %+v\n", leaderAddress, req)
-	if cl.localService.address == leaderAddress {
-		return cl.localService.Remove(req.Id)
-	}
-	// lAddr := cl.leaderAddress()
-	// if lAddr == "" {
-	// 	return err
-	// }
-	conn, err := grpc.Dial(leaderAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	addr, err := cl.rpcAddressFromRAFT(leaderAddress)
 	if err != nil {
-		return err
+		return nil, err
+	}
+	if cl.localService.address == addr {
+		return cl.localService.RemovePeer(ctx, req)
+	}
+
+	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
 	}
 	defer conn.Close()
 	c := cmd.NewClusterServiceClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	r, err := c.RemovePeer(ctx, req)
-	if err != nil {
-		return err
-	}
-	log.Printf("join response: %s", r.String())
-	return nil
+	return c.RemovePeer(ctx, req)
 }
 
-// TODO-RAFT
-// leaderAddress is just a workaround to get address of leader rpc  service
-func (cl Client) leaderAddress() string {
-	lAddr, _ := cl.localService.Raft.LeaderWithID()
-	if lAddr == "" {
-		return ""
+// rpcAddressFromRAFT returns the RPC address based on the provided RAFT address.
+// In a real cluster, the RPC port is the same for all nodes.
+// In a local environment, the RAFT ports need to be different. Specifically,
+// we calculate the RPC port as the RAFT port + 1.
+func (cl *Client) rpcAddressFromRAFT(raftAddr string) (string, error) {
+	host, port, err := net.SplitHostPort(raftAddr)
+	if err != nil {
+		return "", err
 	}
-	xs := strings.Split(string(lAddr), ":")
-	return xs[0] + ":2" + xs[1][1:]
+	if !cl.localService.isLocal {
+		return fmt.Sprintf("%s:%s", host, cl.localService.rpcPort), nil
+	}
+	iPort, err := strconv.Atoi(port)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%s:%d", host, iPort+1), nil
 }
