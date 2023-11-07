@@ -82,11 +82,11 @@ func New(cfg hnsw.Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, err
 }
 
 func (h *flat) storeCompressedVector(index uint64, vector []byte) {
-	h.storeGenericVector(index, vector, helpers.VectorsCompressedBucketLSM)
+	h.storeGenericVector(index, vector, helpers.VectorsFlatBQBucketLSM)
 }
 
 func (h *flat) storeVector(index uint64, vector []byte) {
-	h.storeGenericVector(index, vector, helpers.VectorsBucketLSM)
+	h.storeGenericVector(index, vector, helpers.VectorsFlatBucketLSM)
 }
 
 func (h *flat) storeGenericVector(index uint64, vector []byte, bucket string) {
@@ -96,12 +96,12 @@ func (h *flat) storeGenericVector(index uint64, vector []byte, bucket string) {
 }
 
 func (index *flat) initBuckets(ctx context.Context) error {
-	if err := index.store.CreateOrLoadBucket(ctx, helpers.VectorsBucketLSM,
+	if err := index.store.CreateOrLoadBucket(ctx, helpers.VectorsFlatBucketLSM,
 		lsmkv.WithForceCompation(true)); err != nil {
 		return fmt.Errorf("Create or load flat vectors bucket: %w", err)
 	}
-	if index.compression != flatent.CompressionNone {
-		if err := index.store.CreateOrLoadBucket(ctx, helpers.VectorsCompressedBucketLSM,
+	if index.compression == flatent.CompressionBQ {
+		if err := index.store.CreateOrLoadBucket(ctx, helpers.VectorsFlatBQBucketLSM,
 			lsmkv.WithForceCompation(true)); err != nil {
 			return fmt.Errorf("Create or load flat compressed vectors bucket: %w", err)
 		}
@@ -185,14 +185,14 @@ func (index *flat) Delete(ids ...uint64) error {
 	for _, i := range ids {
 		id := make([]byte, 8)
 		binary.BigEndian.PutUint64(id, uint64(i))
-		err := index.store.Bucket(helpers.VectorsBucketLSM).Delete(id)
+		err := index.store.Bucket(helpers.VectorsFlatBucketLSM).Delete(id)
 		if err != nil {
 			return err
 		}
 		if index.compression == flatent.CompressionNone {
 			continue
 		}
-		err = index.store.Bucket(helpers.VectorsCompressedBucketLSM).Delete(id)
+		err = index.store.Bucket(helpers.VectorsFlatBQBucketLSM).Delete(id)
 		if err != nil {
 			return err
 		}
@@ -230,7 +230,7 @@ func (index *flat) searchByVector(vector []float32, k int, allow helpers.AllowLi
 	vector = index.normalized(vector)
 
 	if err := index.findTopVectors(heap, allow, k,
-		index.store.Bucket(helpers.VectorsBucketLSM).Cursor,
+		index.store.Bucket(helpers.VectorsFlatBucketLSM).Cursor,
 		index.distanceFn(vector),
 	); err != nil {
 		return nil, nil, err
@@ -263,7 +263,7 @@ func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.Allow
 	}
 
 	if err := index.findTopVectors(heap, allow, ef,
-		index.store.Bucket(helpers.VectorsCompressedBucketLSM).Cursor,
+		index.store.Bucket(helpers.VectorsFlatBQBucketLSM).Cursor,
 		index.distanceFnBQ(vectorBQ),
 	); err != nil {
 		return nil, nil, err
@@ -307,7 +307,7 @@ func (index *flat) vectorById(id uint64) ([]byte, error) {
 	defer index.pool.byteSlicePool.Put(idSlice)
 
 	binary.BigEndian.PutUint64(idSlice.slice, id)
-	return index.store.Bucket(helpers.VectorsBucketLSM).Get(idSlice.slice)
+	return index.store.Bucket(helpers.VectorsFlatBucketLSM).Get(idSlice.slice)
 }
 
 // populates given heap with smallest distances and corresponding ids calculated by
