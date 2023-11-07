@@ -139,7 +139,7 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 
 func (v *qna) buildOpenAIUrl(ctx context.Context, baseURL, resourceName, deploymentID string) (string, error) {
 	passedBaseURL := baseURL
-	if headerBaseURL := v.getValueFromContext(ctx, "X-OpenAI-BaseURL"); headerBaseURL != "" {
+	if headerBaseURL := v.getValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
 	return v.buildUrlFn(passedBaseURL, resourceName, deploymentID)
