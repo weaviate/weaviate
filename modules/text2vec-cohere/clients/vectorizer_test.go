@@ -175,6 +175,30 @@ func TestClient(t *testing.T) {
 			"neither in request header: X-Cohere-Api-Key "+
 			"nor in environment variable under COHERE_APIKEY")
 	})
+
+	t.Run("when X-Cohere-BaseURL header is passed", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t})
+		defer server.Close()
+		c := &vectorizer{
+			apiKey:     "",
+			httpClient: &http.Client{},
+			urlBuilder: &cohereUrlBuilder{
+				origin:   server.URL,
+				pathMask: "/embed",
+			},
+			logger: nullLogger(),
+		}
+
+		baseURL := "http://default-url.com"
+		ctxWithValue := context.WithValue(context.Background(),
+			"X-Cohere-BaseURL", []string{"http://base-url-passed-in-header.com"})
+
+		buildURL := c.getCohereUrl(ctxWithValue, baseURL)
+		assert.Equal(t, "http://base-url-passed-in-header.com/embed", buildURL)
+
+		buildURL = c.getCohereUrl(context.TODO(), baseURL)
+		assert.Equal(t, "http://default-url.com/embed", buildURL)
+	})
 }
 
 type fakeHandler struct {
