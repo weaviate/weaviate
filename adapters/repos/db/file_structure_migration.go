@@ -18,6 +18,10 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 const (
@@ -33,16 +37,17 @@ func init() {
 
 func (db *DB) migrateFileStructureIfNecessary() error {
 	fsMigrationPath := path.Join(db.config.RootPath, "migration1.22.fs.hierarchy")
-	if _, err := os.Stat(fsMigrationPath); err != nil {
-		if os.IsNotExist(err) {
-			if err = db.migrateToHierarchicalFS(); err != nil {
-				return fmt.Errorf("migrate to hierarchical fs: %w", err)
-			}
-			if _, err = os.Create(fsMigrationPath); err != nil {
-				return fmt.Errorf("create hierarchical fs indicator: %w", err)
-			}
-		}
+	exists, err := fileExists(fsMigrationPath)
+	if err != nil {
 		return err
+	}
+	if !exists {
+		if err = db.migrateToHierarchicalFS(); err != nil {
+			return fmt.Errorf("migrate to hierarchical fs: %w", err)
+		}
+		if _, err = os.Create(fsMigrationPath); err != nil {
+			return fmt.Errorf("create hierarchical fs indicator: %w", err)
+		}
 	}
 	return nil
 }
@@ -69,6 +74,11 @@ func (db *DB) migrateToHierarchicalFS() error {
 		}
 	}
 
+	err = db.migratePQVectors(plan)
+	if err != nil {
+		return fmt.Errorf("migrate pq vectors: %w", err)
+	}
+
 	db.logger.WithField("action", "hierarchical_fs_migration").
 		Debugf("fs migration took %s\n", time.Since(before))
 
@@ -78,6 +88,8 @@ func (db *DB) migrateToHierarchicalFS() error {
 type migrationPart struct {
 	oldAbsPath string
 	newRelPath string
+	index      string
+	shard      string
 }
 
 type shardRoot = string
@@ -100,6 +112,8 @@ func (db *DB) assembleFSMigrationPlan(entries []os.DirEntry) (migrationPlan, err
 					migrationPart{
 						oldAbsPath: path.Join(db.config.RootPath, entry.Name()),
 						newRelPath: makeNewRelPath(entry.Name(), fmt.Sprintf("%s_%s", idx, shard)),
+						index:      idx,
+						shard:      shard,
 					})
 			}
 		}
@@ -117,4 +131,79 @@ func makeNewRelPath(oldPath, prefix string) (newPath string) {
 		newPath = fmt.Sprintf("geo.%s", newPath)
 	}
 	return
+}
+
+func (db *DB) migratePQVectors(plan migrationPlan) error {
+	for _, parts := range plan {
+		oldClassPath := path.Join(
+			db.config.RootPath,
+			toTitleCase(parts[0].index),
+		)
+		oldStorePath := path.Join(
+			oldClassPath,
+			parts[0].shard,
+			"compressed_objects",
+		)
+
+		exists, err := fileExists(oldStorePath)
+		if err != nil {
+			return fmt.Errorf("check store exists: %w", err)
+		}
+
+		if !exists {
+			continue
+		}
+
+		newStorePath := path.Join(
+			oldClassPath,
+			parts[0].shard,
+			"pq",
+			helpers.CompressedVectorsBucketLSM,
+		)
+		if err := os.MkdirAll(newStorePath, os.ModePerm); err != nil {
+			return fmt.Errorf("make new store: %w", err)
+		}
+
+		entries, err := os.ReadDir(oldStorePath)
+		if err != nil {
+			return fmt.Errorf("read store: %w", err)
+		}
+
+		for _, entry := range entries {
+			oldPath := path.Join(oldStorePath, entry.Name())
+			newPath := path.Join(newStorePath, entry.Name())
+			if err = os.Rename(oldPath, newPath); err != nil {
+				return fmt.Errorf("rename store: %w", err)
+			}
+		}
+
+		if err := os.Remove(oldStorePath); err != nil {
+			return fmt.Errorf("rm old store: %w", err)
+		}
+
+		newClassPath := path.Join(
+			db.config.RootPath,
+			parts[0].index,
+		)
+		if err = os.Rename(oldClassPath, newClassPath); err != nil {
+			return fmt.Errorf("rename class path")
+		}
+	}
+
+	return nil
+}
+
+func fileExists(file string) (bool, error) {
+	_, err := os.Stat(file)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func toTitleCase(lower string) string {
+	return cases.Title(language.English).String(lower)
 }

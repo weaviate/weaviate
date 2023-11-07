@@ -26,7 +26,7 @@ import (
 )
 
 func (h *hnsw) initCompressedStore() error {
-	storeDir := path.Join(h.rootPath, "compressed")
+	storeDir := path.Join(h.rootPath, "pq")
 	store, err := lsmkv.New(storeDir, h.rootPath, h.logger, nil,
 		h.shardCompactionCallbacks, h.shardFlushCallbacks)
 	if err != nil {
