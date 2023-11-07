@@ -28,9 +28,10 @@ import (
 )
 
 type embeddingsRequest struct {
-	Input    []string `json:"texts"`
-	Model    string   `json:"model,omitempty"`
-	Truncate string   `json:"truncate,omitempty"`
+	Texts     []string `json:"texts"`
+	Model     string   `json:"model,omitempty"`
+	Truncate  string   `json:"truncate,omitempty"`
+	InputType string   `json:"input_type,omitempty"`
 }
 
 type embeddingsResponse struct {
@@ -59,22 +60,23 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL)
+	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, "search_document")
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL)
+	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, "search_query")
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, input []string,
-	model, truncate, baseURL string,
+	model, truncate, baseURL, inputType string,
 ) (*ent.VectorizationResult, error) {
 	body, err := json.Marshal(embeddingsRequest{
-		Input:    input,
-		Model:    model,
-		Truncate: truncate,
+		Texts:     input,
+		Model:     model,
+		Truncate:  truncate,
+		InputType: inputType,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "marshal body")
