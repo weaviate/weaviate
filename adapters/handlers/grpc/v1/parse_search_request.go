@@ -75,7 +75,9 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	if len(out.Properties) == 0 && req.Metadata != nil {
 		// This is a pure-ID query without any props. Indicate this to the DB, so
 		// it can optimize accordingly
-		out.AdditionalProperties.NoProps = true
+		if isIdOnlyRequest(req.Metadata) {
+			out.AdditionalProperties.NoProps = true
+		}
 	} else if len(out.Properties) == 0 && req.Metadata == nil {
 		// no return values selected, return all properties and metadata. Ignore blobs and refs to not overload the
 		// response
@@ -628,6 +630,20 @@ func extractAdditionalPropsForRefs(prop *pb.MetadataRequest) additional.Properti
 		Score:              prop.Score,
 		ExplainScore:       prop.ExplainScore,
 	}
+}
+
+func isIdOnlyRequest(metadata *pb.MetadataRequest) bool {
+	// could also use reflect here but this is more explicit
+	return (metadata != nil &&
+		metadata.Uuid &&
+		!metadata.Vector &&
+		!metadata.CreationTimeUnix &&
+		!metadata.LastUpdateTimeUnix &&
+		!metadata.Distance &&
+		!metadata.Certainty &&
+		!metadata.Score &&
+		!metadata.ExplainScore &&
+		!metadata.IsConsistent)
 }
 
 func getAllNonRefNonBlobProperties(scheme schema.Schema, className string) ([]search.SelectProperty, error) {

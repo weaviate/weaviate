@@ -36,8 +36,6 @@ var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 type cohere struct {
 	apiKey     string
-	host       string
-	path       string
 	httpClient *http.Client
 	logger     logrus.FieldLogger
 }
@@ -48,8 +46,6 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *coher
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
-		host:   "https://api.cohere.ai",
-		path:   "/v1/generate",
 		logger: logger,
 	}
 }
@@ -73,7 +69,7 @@ func (v *cohere) GenerateAllResults(ctx context.Context, textProperties []map[st
 func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
 	settings := config.NewClassSettings(cfg)
 
-	cohereUrl, err := url.JoinPath(v.host, v.path)
+	cohereUrl, err := v.getCohereUrl(ctx, settings.BaseURL())
 	if err != nil {
 		return nil, errors.Wrap(err, "join Cohere API host and path")
 	}
@@ -134,6 +130,14 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}, nil
 }
 
+func (v *cohere) getCohereUrl(ctx context.Context, baseURL string) (string, error) {
+	passedBaseURL := baseURL
+	if headerBaseURL := v.getValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
+		passedBaseURL = headerBaseURL
+	}
+	return url.JoinPath(passedBaseURL, "/v1/generate")
+}
+
 func (v *cohere) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
 	marshal, err := json.Marshal(textProperties)
 	if err != nil {
@@ -158,20 +162,25 @@ func (v *cohere) generateForPrompt(textProperties map[string]string, prompt stri
 	return prompt, nil
 }
 
-func (v *cohere) getApiKey(ctx context.Context) (string, error) {
-	if len(v.apiKey) > 0 {
-		return v.apiKey, nil
+func (v *cohere) getValueFromContext(ctx context.Context, key string) string {
+	if value := ctx.Value(key); value != nil {
+		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
+			return keyHeader[0]
+		}
 	}
-	key := "X-Cohere-Api-Key"
-
-	apiKey := ctx.Value(key)
 	// try getting header from GRPC if not successful
-	if apiKey == nil {
-		apiKey = modulecomponents.GetApiKeyFromGRPC(ctx, key)
+	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
+		return apiKey[0]
 	}
-	if apiKeyHeader, ok := apiKey.([]string); ok &&
-		len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
-		return apiKeyHeader[0], nil
+	return ""
+}
+
+func (v *cohere) getApiKey(ctx context.Context) (string, error) {
+	if apiKey := v.getValueFromContext(ctx, "X-Cohere-Api-Key"); apiKey != "" {
+		return apiKey, nil
+	}
+	if v.apiKey != "" {
+		return v.apiKey, nil
 	}
 	return "", errors.New("no api key found " +
 		"neither in request header: X-Cohere-Api-Key " +
