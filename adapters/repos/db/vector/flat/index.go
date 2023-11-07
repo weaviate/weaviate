@@ -69,7 +69,7 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		ef:                int64(uc.EF),
 		pqResults:         common.NewPqMaxPool(100),
 		// disable for now until we have tested more
-		compression: flatent.CompressionNone, //uc.Compression,
+		compression: flatent.CompressionNone,
 		pool:        newPools(),
 		store:       store,
 	}
