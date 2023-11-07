@@ -128,7 +128,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 
 func (v *vectorizer) getCohereUrl(ctx context.Context, baseURL string) string {
 	passedBaseURL := baseURL
-	if headerBaseURL := v.getValueFromContext(ctx, "X-Cohere-BaseURL"); headerBaseURL != "" {
+	if headerBaseURL := v.getValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
 	return v.urlBuilder.url(passedBaseURL)

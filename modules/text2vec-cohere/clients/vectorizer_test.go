@@ -191,7 +191,7 @@ func TestClient(t *testing.T) {
 
 		baseURL := "http://default-url.com"
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-Cohere-BaseURL", []string{"http://base-url-passed-in-header.com"})
+			"X-Cohere-Baseurl", []string{"http://base-url-passed-in-header.com"})
 
 		buildURL := c.getCohereUrl(ctxWithValue, baseURL)
 		assert.Equal(t, "http://base-url-passed-in-header.com/embed", buildURL)

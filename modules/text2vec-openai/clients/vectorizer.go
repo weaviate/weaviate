@@ -161,7 +161,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string, model string
 
 func (v *vectorizer) buildURL(ctx context.Context, config ent.VectorizationConfig) (string, error) {
 	baseURL, resourceName, deploymentID, isAzure := config.BaseURL, config.ResourceName, config.DeploymentID, config.IsAzure
-	if headerBaseURL := v.getValueFromContext(ctx, "X-OpenAI-BaseURL"); headerBaseURL != "" {
+	if headerBaseURL := v.getValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
 		baseURL = headerBaseURL
 	}
 	return v.buildUrlFn(baseURL, resourceName, deploymentID, isAzure)

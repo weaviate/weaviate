@@ -132,7 +132,7 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 
 func (v *cohere) getCohereUrl(ctx context.Context, baseURL string) (string, error) {
 	passedBaseURL := baseURL
-	if headerBaseURL := v.getValueFromContext(ctx, "X-Cohere-BaseURL"); headerBaseURL != "" {
+	if headerBaseURL := v.getValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
 	if passedBaseURL == "" {
