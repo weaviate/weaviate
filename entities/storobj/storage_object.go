@@ -89,6 +89,8 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 		return nil, errors.Errorf("unsupported binary marshaller version %d", version)
 	}
 
+	ko.MarshallerVersion = version
+
 	ko.docID = rw.ReadUint64()
 	rw.MoveBufferPositionForward(1) // ignore kind-byte
 	uuidObj, err := uuid.FromBytes(rw.ReadBytesFromBuffer(16))
