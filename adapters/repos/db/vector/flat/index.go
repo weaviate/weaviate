@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"path"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
@@ -52,16 +50,10 @@ type flat struct {
 	pqResults   *common.PqMaxPool
 	pool        *pools
 
-	shardCompactionCallbacks cyclemanager.CycleCallbackGroup
-	shardFlushCallbacks      cyclemanager.CycleCallbackGroup
-
 	compression string
 }
 
-func New(
-	cfg hnsw.Config, uc flatent.UserConfig,
-	shardCompactionCallbacks, shardFlushCallbacks cyclemanager.CycleCallbackGroup,
-) (*flat, error) {
+func New(cfg hnsw.Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
 	}
@@ -73,29 +65,28 @@ func New(
 	}
 
 	index := &flat{
-		id:                       cfg.ID,
-		logger:                   cfg.Logger,
-		distancerProvider:        cfg.DistanceProvider,
-		ef:                       int64(uc.EF),
-		shardName:                cfg.ShardName,
-		tempVectors:              common.NewTempVectorsPool(),
-		pqResults:                common.NewPqMaxPool(100),
-		compression:              uc.Compression,
-		shardCompactionCallbacks: shardCompactionCallbacks,
-		shardFlushCallbacks:      shardFlushCallbacks,
-		pool:                     newPools(),
+		id:                cfg.ID,
+		logger:            cfg.Logger,
+		distancerProvider: cfg.DistanceProvider,
+		ef:                int64(uc.EF),
+		shardName:         cfg.ShardName,
+		tempVectors:       common.NewTempVectorsPool(),
+		pqResults:         common.NewPqMaxPool(100),
+		compression:       uc.Compression,
+		pool:              newPools(),
+		store:             store,
 	}
-	index.initStore(cfg.RootPath, cfg.ClassName)
+	index.initBuckets(context.Background())
 
 	return index, nil
 }
 
 func (h *flat) storeCompressedVector(index uint64, vector []byte) {
-	h.storeGenericVector(index, vector, helpers.CompressedObjectsBucketLSM)
+	h.storeGenericVector(index, vector, helpers.VectorsFlatBQBucketLSM)
 }
 
 func (h *flat) storeVector(index uint64, vector []byte) {
-	h.storeGenericVector(index, vector, helpers.ObjectsBucketLSM)
+	h.storeGenericVector(index, vector, helpers.VectorsFlatBucketLSM)
 }
 
 func (h *flat) storeGenericVector(index uint64, vector []byte, bucket string) {
@@ -104,26 +95,17 @@ func (h *flat) storeGenericVector(index uint64, vector []byte, bucket string) {
 	h.store.Bucket(bucket).Put(Id, vector)
 }
 
-func (index *flat) initStore(rootPath, className string) error {
-	ctx := context.Background()
-
-	storeDir := path.Join(rootPath, "flat")
-	store, err := lsmkv.New(storeDir, rootPath, index.logger, nil,
-		index.shardCompactionCallbacks, index.shardFlushCallbacks)
-	if err != nil {
-		return errors.Wrap(err, "Init lsmkv (compressed vectors store)")
+func (index *flat) initBuckets(ctx context.Context) error {
+	if err := index.store.CreateOrLoadBucket(ctx, helpers.VectorsFlatBucketLSM,
+		lsmkv.WithForceCompation(true)); err != nil {
+		return fmt.Errorf("Create or load flat vectors bucket: %w", err)
 	}
-	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM, lsmkv.WithForceCompation(true))
-	if err != nil {
-		return errors.Wrapf(err, "Create or load bucket (vectors store)")
-	}
-	if index.compression != flatent.CompressionNone {
-		err = store.CreateOrLoadBucket(ctx, helpers.CompressedObjectsBucketLSM, lsmkv.WithForceCompation(true))
-		if err != nil {
-			return errors.Wrapf(err, "Create or load bucket (compressed vectors store)")
+	if index.compression == flatent.CompressionBQ {
+		if err := index.store.CreateOrLoadBucket(ctx, helpers.VectorsFlatBQBucketLSM,
+			lsmkv.WithForceCompation(true)); err != nil {
+			return fmt.Errorf("Create or load flat compressed vectors bucket: %w", err)
 		}
 	}
-	index.store = store
 	return nil
 }
 
@@ -203,14 +185,14 @@ func (index *flat) Delete(ids ...uint64) error {
 	for _, i := range ids {
 		id := make([]byte, 8)
 		binary.BigEndian.PutUint64(id, uint64(i))
-		err := index.store.Bucket(helpers.ObjectsBucketLSM).Delete(id)
+		err := index.store.Bucket(helpers.VectorsFlatBucketLSM).Delete(id)
 		if err != nil {
 			return err
 		}
 		if index.compression == flatent.CompressionNone {
 			continue
 		}
-		err = index.store.Bucket(helpers.CompressedObjectsBucketLSM).Delete(id)
+		err = index.store.Bucket(helpers.VectorsFlatBQBucketLSM).Delete(id)
 		if err != nil {
 			return err
 		}
@@ -248,7 +230,7 @@ func (index *flat) searchByVector(vector []float32, k int, allow helpers.AllowLi
 	vector = index.normalized(vector)
 
 	if err := index.findTopVectors(heap, allow, k,
-		index.store.Bucket(helpers.ObjectsBucketLSM).Cursor,
+		index.store.Bucket(helpers.VectorsFlatBucketLSM).Cursor,
 		index.distanceFn(vector),
 	); err != nil {
 		return nil, nil, err
@@ -281,7 +263,7 @@ func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.Allow
 	}
 
 	if err := index.findTopVectors(heap, allow, ef,
-		index.store.Bucket(helpers.CompressedObjectsBucketLSM).Cursor,
+		index.store.Bucket(helpers.VectorsFlatBQBucketLSM).Cursor,
 		index.distanceFnBQ(vectorBQ),
 	); err != nil {
 		return nil, nil, err
@@ -325,7 +307,7 @@ func (index *flat) vectorById(id uint64) ([]byte, error) {
 	defer index.pool.byteSlicePool.Put(idSlice)
 
 	binary.BigEndian.PutUint64(idSlice.slice, id)
-	return index.store.Bucket(helpers.ObjectsBucketLSM).Get(idSlice.slice)
+	return index.store.Bucket(helpers.VectorsFlatBucketLSM).Get(idSlice.slice)
 }
 
 // populates given heap with smallest distances and corresponding ids calculated by
@@ -484,6 +466,8 @@ func (index *flat) UpdateUserConfig(updated schema.VectorIndexConfig, callback f
 }
 
 func (index *flat) Drop(ctx context.Context) error {
+	// nothing to do here
+	// Shard::drop will take care of handling store's buckets
 	return nil
 }
 
@@ -492,10 +476,9 @@ func (index *flat) Flush() error {
 }
 
 func (index *flat) Shutdown(ctx context.Context) error {
-	if err := index.store.Shutdown(ctx); err != nil {
-		return errors.Wrap(err, "flat shutdown")
-	}
-	return index.Drop(ctx)
+	// nothing to do here
+	// Shard::shutdown will take care of handling store's buckets
+	return nil
 }
 
 func (index *flat) SwitchCommitLogs(context.Context) error {
@@ -503,7 +486,9 @@ func (index *flat) SwitchCommitLogs(context.Context) error {
 }
 
 func (index *flat) ListFiles(ctx context.Context, basePath string) ([]string, error) {
-	return nil, nil
+	// nothing to do here
+	// Shard::listBackupFiles will take care of handling store's buckets
+	return []string{}, nil
 }
 
 func (i *flat) ValidateBeforeInsert(vector []float32) error {
