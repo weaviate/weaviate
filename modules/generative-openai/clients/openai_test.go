@@ -25,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/modules/generative-openai/config"
 	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
@@ -117,6 +118,24 @@ func TestGetAnswer(t *testing.T) {
 		require.NotNil(t, err)
 		assert.Error(t, err, "connection to OpenAI failed with status: 500 error: some error from the server")
 	})
+
+	t.Run("when X-OpenAI-BaseURL header is passed", func(t *testing.T) {
+		settings := &fakeClassSettings{
+			baseURL: "http://default-url.com",
+		}
+		c := New("openAIApiKey", "", "", 0, nullLogger())
+
+		ctxWithValue := context.WithValue(context.Background(),
+			"X-OpenAI-BaseURL", []string{"http://base-url-passed-in-header.com"})
+
+		buildURL, err := c.buildOpenAIUrl(ctxWithValue, settings)
+		require.NoError(t, err)
+		assert.Equal(t, "http://base-url-passed-in-header.com/v1/chat/completions", buildURL)
+
+		buildURL, err = c.buildOpenAIUrl(context.TODO(), settings)
+		require.NoError(t, err)
+		assert.Equal(t, "http://default-url.com/v1/chat/completions", buildURL)
+	})
 }
 
 type testAnswerHandler struct {
@@ -153,4 +172,70 @@ func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func ptString(in string) *string {
 	return &in
+}
+
+type fakeClassSettings struct {
+	isLegacy         bool
+	model            string
+	maxTokens        float64
+	temperature      float64
+	frequencyPenalty float64
+	presencePenalty  float64
+	topP             float64
+	resourceName     string
+	deploymentID     string
+	isAzure          bool
+	baseURL          string
+}
+
+func (s *fakeClassSettings) IsLegacy() bool {
+	return s.isLegacy
+}
+
+func (s *fakeClassSettings) Model() string {
+	return s.model
+}
+
+func (s *fakeClassSettings) MaxTokens() float64 {
+	return s.maxTokens
+}
+
+func (s *fakeClassSettings) Temperature() float64 {
+	return s.temperature
+}
+
+func (s *fakeClassSettings) FrequencyPenalty() float64 {
+	return s.frequencyPenalty
+}
+
+func (s *fakeClassSettings) PresencePenalty() float64 {
+	return s.presencePenalty
+}
+
+func (s *fakeClassSettings) TopP() float64 {
+	return s.topP
+}
+
+func (s *fakeClassSettings) ResourceName() string {
+	return s.resourceName
+}
+
+func (s *fakeClassSettings) DeploymentID() string {
+	return s.deploymentID
+}
+
+func (s *fakeClassSettings) IsAzure() bool {
+	return s.isAzure
+}
+
+func (s *fakeClassSettings) GetMaxTokensForModel(model string) float64 {
+	return 0
+}
+
+func (s *fakeClassSettings) Validate(class *models.Class) error {
+	return nil
+}
+
+func (s *fakeClassSettings) BaseURL() string {
+	return s.baseURL
 }
