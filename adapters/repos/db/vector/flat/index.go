@@ -44,9 +44,8 @@ type flat struct {
 	ef                  int64
 	bq                  ssdhelpers.BinaryQuantizer
 
-	tempVectors *common.TempVectorsPool
-	pqResults   *common.PqMaxPool
-	pool        *pools
+	pqResults *common.PqMaxPool
+	pool      *pools
 
 	compression string
 }
@@ -56,18 +55,18 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		return nil, errors.Wrap(err, "invalid config")
 	}
 
-	if cfg.Logger == nil {
-		logger := logrus.New()
-		logger.Out = io.Discard
-		cfg.Logger = logger
+	logger := cfg.Logger
+	if logger == nil {
+		l := logrus.New()
+		l.Out = io.Discard
+		logger = l
 	}
 
 	index := &flat{
 		id:                cfg.ID,
-		logger:            cfg.Logger,
+		logger:            logger,
 		distancerProvider: cfg.DistanceProvider,
 		ef:                int64(uc.EF),
-		tempVectors:       common.NewTempVectorsPool(),
 		pqResults:         common.NewPqMaxPool(100),
 		compression:       uc.Compression,
 		pool:              newPools(),
@@ -78,18 +77,18 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	return index, nil
 }
 
-func (h *flat) storeCompressedVector(index uint64, vector []byte) {
-	h.storeGenericVector(index, vector, helpers.VectorsFlatBQBucketLSM)
+func (index *flat) storeCompressedVector(id uint64, vector []byte) {
+	index.storeGenericVector(id, vector, helpers.VectorsFlatBQBucketLSM)
 }
 
-func (h *flat) storeVector(index uint64, vector []byte) {
-	h.storeGenericVector(index, vector, helpers.VectorsFlatBucketLSM)
+func (index *flat) storeVector(id uint64, vector []byte) {
+	index.storeGenericVector(id, vector, helpers.VectorsFlatBucketLSM)
 }
 
-func (h *flat) storeGenericVector(index uint64, vector []byte, bucket string) {
-	Id := make([]byte, 8)
-	binary.BigEndian.PutUint64(Id, index)
-	h.store.Bucket(bucket).Put(Id, vector)
+func (index *flat) storeGenericVector(id uint64, vector []byte, bucket string) {
+	idBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(idBytes, id)
+	index.store.Bucket(bucket).Put(idBytes, vector)
 }
 
 func (index *flat) initBuckets(ctx context.Context) error {
@@ -113,40 +112,38 @@ func (index *flat) AddBatch(ids []uint64, vectors [][]float32) error {
 	if len(ids) == 0 {
 		return errors.Errorf("insertBatch called with empty lists")
 	}
-	for idx := range ids {
-		if err := index.Add(ids[idx], vectors[idx]); err != nil {
+	for i := range ids {
+		if err := index.Add(ids[i], vectors[i]); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func byteSliceFromUint64Slice(x []uint64, slice []byte) []byte {
-	for i := range x {
-		binary.LittleEndian.PutUint64(slice[i*8:], x[i])
+func byteSliceFromUint64Slice(vector []uint64, slice []byte) []byte {
+	for i := range vector {
+		binary.LittleEndian.PutUint64(slice[i*8:], vector[i])
 	}
 	return slice
 }
 
-func byteSliceFromFloat32Slice(x []float32, slice []byte) []byte {
-	for i := range x {
-		binary.LittleEndian.PutUint32(slice[i*4:], math.Float32bits(x[i]))
+func byteSliceFromFloat32Slice(vector []float32, slice []byte) []byte {
+	for i := range vector {
+		binary.LittleEndian.PutUint32(slice[i*4:], math.Float32bits(vector[i]))
 	}
 	return slice
 }
 
-func uint64SliceFromByteSlice(x []byte, slice []uint64) []uint64 {
-	len := len(x) / 8
-	for i := 0; i < len; i++ {
-		slice[i] = binary.LittleEndian.Uint64(x[i*8:])
+func uint64SliceFromByteSlice(vector []byte, slice []uint64) []uint64 {
+	for i := range slice {
+		slice[i] = binary.LittleEndian.Uint64(vector[i*8:])
 	}
 	return slice
 }
 
-func float32SliceFromByteSlice(x []byte, slice []float32) []float32 {
-	len := len(x) / 4
-	for i := 0; i < len; i++ {
-		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(x[i*4:]))
+func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
+	for i := range slice {
+		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(vector[i*4:]))
 	}
 	return slice
 }
@@ -154,10 +151,9 @@ func float32SliceFromByteSlice(x []byte, slice []float32) []float32 {
 func (index *flat) Add(id uint64, vector []float32) error {
 	index.trackDimensionsOnce.Do(func() {
 		atomic.StoreInt32(&index.dims, int32(len(vector)))
-		if index.compression == flatent.CompressionNone {
-			return
+		if index.compression == flatent.CompressionBQ {
+			index.bq = ssdhelpers.NewBinaryQuantizer()
 		}
-		index.bq = ssdhelpers.NewBinaryQuantizer()
 	})
 	if len(vector) != int(index.dims) {
 		return errors.Errorf("insert called with a vector of the wrong size")
@@ -165,33 +161,31 @@ func (index *flat) Add(id uint64, vector []float32) error {
 	vector = index.normalized(vector)
 	slice := make([]byte, len(vector)*4)
 	index.storeVector(id, byteSliceFromFloat32Slice(vector, slice))
-	if index.compression == flatent.CompressionNone {
-		return nil
-	}
-	vec, err := index.bq.Encode(vector)
-	if err != nil {
-		return err
-	}
-	slice = make([]byte, len(vec)*8)
-	index.storeCompressedVector(id, byteSliceFromUint64Slice(vec, slice))
 
+	if index.compression == flatent.CompressionBQ {
+		vectorBQ, err := index.bq.Encode(vector)
+		if err != nil {
+			return err
+		}
+		slice = make([]byte, len(vectorBQ)*8)
+		index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorBQ, slice))
+	}
 	return nil
 }
 
 func (index *flat) Delete(ids ...uint64) error {
-	for _, i := range ids {
-		id := make([]byte, 8)
-		binary.BigEndian.PutUint64(id, uint64(i))
-		err := index.store.Bucket(helpers.VectorsFlatBucketLSM).Delete(id)
-		if err != nil {
+	for i := range ids {
+		idBytes := make([]byte, 8)
+		binary.BigEndian.PutUint64(idBytes, ids[i])
+
+		if err := index.store.Bucket(helpers.VectorsFlatBucketLSM).Delete(idBytes); err != nil {
 			return err
 		}
-		if index.compression == flatent.CompressionNone {
-			continue
-		}
-		err = index.store.Bucket(helpers.VectorsFlatBQBucketLSM).Delete(id)
-		if err != nil {
-			return err
+
+		if index.compression == flatent.CompressionBQ {
+			if err := index.store.Bucket(helpers.VectorsFlatBQBucketLSM).Delete(idBytes); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -201,11 +195,10 @@ func (index *flat) searchTimeEF(k int) int {
 	// load atomically, so we can get away with concurrent updates of the
 	// userconfig without having to set a lock each time we try to read - which
 	// can be so common that it would cause considerable overhead
-	ef := int(atomic.LoadInt64(&index.ef))
-	if ef < k {
-		ef = k
+	if ef := int(atomic.LoadInt64(&index.ef)); ef > k {
+		return ef
 	}
-	return ef
+	return k
 }
 
 func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
@@ -463,6 +456,8 @@ func (index *flat) Drop(ctx context.Context) error {
 }
 
 func (index *flat) Flush() error {
+	// nothing to do here
+	// Shard will take care of handling store's buckets
 	return nil
 }
 
