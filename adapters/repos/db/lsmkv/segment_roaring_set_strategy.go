@@ -26,7 +26,7 @@ func (s *segment) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 		return out, fmt.Errorf("need strategy %s", StrategyRoaringSet)
 	}
 
-	if !s.bloomFilter.Test(key) {
+	if s.bloomFilter != nil && !s.bloomFilter.Test(key) {
 		return out, lsmkv.NotFound
 	}
 

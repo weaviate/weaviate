@@ -126,6 +126,20 @@ func WithKeepTombstones(keepTombstones bool) BucketOption {
 	}
 }
 
+func WithUseBloomFilter(useBloomFilter bool) BucketOption {
+	return func(b *Bucket) error {
+		b.useBloomFilter = useBloomFilter
+		return nil
+	}
+}
+
+func WithCalcNetAdditions(calcNetAdditions bool) BucketOption {
+	return func(b *Bucket) error {
+		b.calcNetAdditions = calcNetAdditions
+		return nil
+	}
+}
+
 /*
 Background for this option:
 
