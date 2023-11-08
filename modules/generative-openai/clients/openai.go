@@ -89,7 +89,7 @@ func (v *openai) GenerateAllResults(ctx context.Context, textProperties []map[st
 func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
 	settings := config.NewClassSettings(cfg)
 
-	oaiUrl, err := v.buildUrl(settings.IsLegacy(), settings.ResourceName(), settings.DeploymentID(), settings.BaseURL())
+	oaiUrl, err := v.buildOpenAIUrl(ctx, settings)
 	if err != nil {
 		return nil, errors.Wrap(err, "url join path")
 	}
@@ -159,6 +159,14 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	return &generativemodels.GenerateResponse{
 		Result: nil,
 	}, nil
+}
+
+func (v *openai) buildOpenAIUrl(ctx context.Context, settings config.ClassSettings) (string, error) {
+	baseURL := settings.BaseURL()
+	if headerBaseURL := v.getValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
+		baseURL = headerBaseURL
+	}
+	return v.buildUrl(settings.IsLegacy(), settings.ResourceName(), settings.DeploymentID(), baseURL)
 }
 
 func (v *openai) generateInput(prompt string, settings config.ClassSettings) (generateInput, error) {
@@ -287,7 +295,7 @@ func (v *openai) getValueFromContext(ctx context.Context, key string) string {
 		}
 	}
 	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetApiKeyFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
+	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
 		return apiKey[0]
 	}
 
