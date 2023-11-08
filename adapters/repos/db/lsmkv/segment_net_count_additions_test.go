@@ -152,6 +152,134 @@ func repairCorruptedCNAOnInit(ctx context.Context, t *testing.T, opts []BucketOp
 	assert.Equal(t, 1, b2.Count())
 }
 
+func TestCNA_OFF(t *testing.T) {
+	ctx := context.Background()
+	tests := bucketTests{
+		{
+			name: "dontCreateCNA",
+			f:    dontCreateCNA,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithCalcNetAdditions(false),
+			},
+		},
+		{
+			name: "dontRecreateCNA",
+			f:    dontRecreateCNA,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithCalcNetAdditions(false),
+			},
+		},
+		{
+			name: "dontPrecomputeCNA",
+			f:    dontPrecomputeCNA,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithCalcNetAdditions(false),
+			},
+		},
+	}
+	tests.run(ctx, t)
+}
+
+func dontCreateCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		opts...)
+	require.NoError(t, err)
+	defer b.Shutdown(ctx)
+
+	t.Run("populate", func(t *testing.T) {
+		require.NoError(t, b.Put([]byte("hello"), []byte("world")))
+		require.NoError(t, b.FlushMemtable())
+	})
+
+	t.Run("check files", func(t *testing.T) {
+		files, err := os.ReadDir(dirName)
+		require.NoError(t, err)
+
+		_, ok := findFileWithExt(files, ".cna")
+		assert.False(t, ok)
+	})
+
+	t.Run("count", func(t *testing.T) {
+		assert.Equal(t, 0, b.Count())
+	})
+}
+
+func dontRecreateCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	t.Run("create, populate, shutdown", func(t *testing.T) {
+		b, err := NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			opts...)
+		require.NoError(t, err)
+		defer b.Shutdown(ctx)
+
+		require.NoError(t, b.Put([]byte("hello"), []byte("world")))
+		require.NoError(t, b.FlushMemtable())
+	})
+
+	b2, err := NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		opts...)
+	require.NoError(t, err)
+	defer b2.Shutdown(ctx)
+
+	t.Run("check files", func(t *testing.T) {
+		files, err := os.ReadDir(dirName)
+		require.NoError(t, err)
+
+		_, ok := findFileWithExt(files, ".cna")
+		assert.False(t, ok)
+	})
+
+	t.Run("count", func(t *testing.T) {
+		assert.Equal(t, 0, b2.Count())
+	})
+}
+
+func dontPrecomputeCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		opts...)
+	require.NoError(t, err)
+	defer b.Shutdown(ctx)
+
+	t.Run("populate, compact", func(t *testing.T) {
+		require.NoError(t, b.Put([]byte("hello"), []byte("world")))
+		require.NoError(t, b.FlushMemtable())
+
+		require.NoError(t, b.Put([]byte("hello2"), []byte("world2")))
+		require.NoError(t, b.FlushMemtable())
+
+		compacted, err := b.disk.compactOnce()
+		require.NoError(t, err)
+		require.True(t, compacted)
+	})
+
+	t.Run("check files", func(t *testing.T) {
+		files, err := os.ReadDir(dirName)
+		require.NoError(t, err)
+
+		_, ok := findFileWithExt(files, ".cna")
+		assert.False(t, ok)
+	})
+
+	t.Run("count", func(t *testing.T) {
+		assert.Equal(t, 0, b.Count())
+	})
+}
+
 func findFileWithExt(files []os.DirEntry, ext string) (string, bool) {
 	for _, file := range files {
 		fname := file.Name()
