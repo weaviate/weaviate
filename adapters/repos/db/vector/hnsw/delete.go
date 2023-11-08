@@ -20,6 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -117,7 +118,7 @@ func (h *hnsw) resetUnsecured() error {
 	h.entryPointID = 0
 	h.currentMaximumLayer = 0
 	h.initialInsertOnce = &sync.Once{}
-	h.nodes = make([]*vertex, initialSize)
+	h.nodes = make([]*vertex, cache.InitialSize)
 
 	return h.commitLog.Reset()
 }
