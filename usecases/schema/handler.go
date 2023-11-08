@@ -14,6 +14,7 @@ package schema
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -173,3 +174,27 @@ func (h *Handler) ShardsStatus(ctx context.Context,
 
 	return h.metaReader.GetShardsStatus(class)
 }
+
+/// TODO-RAFT START
+/// https://semi-technology.atlassian.net/browse/WVT-33
+
+// JoinNode adds the given node to the cluster.
+// Node needs to reachable
+func (h *Handler) JoinNode(node string, voter bool) {
+	log.Println(node, voter)
+}
+
+// RemoveNode adds the given node to the cluster.
+func (h *Handler) RemoveNode(node string) {
+	log.Println(node)
+}
+
+// Statistics is used to return a map of various internal stats. This should only be used for informative purposes or debugging.
+func (h *Handler) Statistics() map[string]string {
+	return map[string]string{
+		"A": "1",
+		"B": "2",
+	}
+}
+
+/// TODO-RAFT END
