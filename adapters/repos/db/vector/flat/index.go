@@ -50,6 +50,8 @@ type flat struct {
 	compression string
 }
 
+type distanceCalc func(vecAsBytes []byte) (float32, error)
+
 func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
@@ -222,7 +224,7 @@ func (index *flat) searchByVector(vector []float32, k int, allow helpers.AllowLi
 
 	if err := index.findTopVectors(heap, allow, k,
 		index.store.Bucket(helpers.VectorsFlatBucketLSM).Cursor,
-		index.distanceFn(vector),
+		index.createDistanceCalc(vector),
 	); err != nil {
 		return nil, nil, err
 	}
@@ -231,7 +233,7 @@ func (index *flat) searchByVector(vector []float32, k int, allow helpers.AllowLi
 	return ids, dists, nil
 }
 
-func (index *flat) distanceFn(vector []float32) func(vecAsBytes []byte) (float32, error) {
+func (index *flat) createDistanceCalc(vector []float32) distanceCalc {
 	return func(vecAsBytes []byte) (float32, error) {
 		vecSlice := index.pool.float32SlicePool.Get(len(vecAsBytes) / 4)
 		defer index.pool.float32SlicePool.Put(vecSlice)
@@ -255,12 +257,12 @@ func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.Allow
 
 	if err := index.findTopVectors(heap, allow, ef,
 		index.store.Bucket(helpers.VectorsFlatBQBucketLSM).Cursor,
-		index.distanceFnBQ(vectorBQ),
+		index.createDistanceCalcBQ(vectorBQ),
 	); err != nil {
 		return nil, nil, err
 	}
 
-	distanceFn := index.distanceFn(vector)
+	distanceCalc := index.createDistanceCalc(vector)
 	idsSlice := index.pool.uint64SlicePool.Get(heap.Len())
 	defer index.pool.uint64SlicePool.Put(idsSlice)
 
@@ -272,7 +274,7 @@ func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.Allow
 		if err != nil {
 			return nil, nil, err
 		}
-		distance, err := distanceFn(candidateAsBytes)
+		distance, err := distanceCalc(candidateAsBytes)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -283,7 +285,7 @@ func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.Allow
 	return ids, dists, nil
 }
 
-func (index *flat) distanceFnBQ(vectorBQ []uint64) func(vecAsBytes []byte) (float32, error) {
+func (index *flat) createDistanceCalcBQ(vectorBQ []uint64) distanceCalc {
 	return func(vecAsBytes []byte) (float32, error) {
 		vecSliceBQ := index.pool.uint64SlicePool.Get(len(vecAsBytes) / 8)
 		defer index.pool.uint64SlicePool.Put(vecSliceBQ)
@@ -302,42 +304,45 @@ func (index *flat) vectorById(id uint64) ([]byte, error) {
 }
 
 // populates given heap with smallest distances and corresponding ids calculated by
-// distanceFn
+// distanceCalc
 func (index *flat) findTopVectors(heap *priorityqueue.Queue, allow helpers.AllowList, limit int,
-	cursorFn func() *lsmkv.CursorReplace, distanceFn func(vecAsBytes []byte) (float32, error),
+	cursorFn func() *lsmkv.CursorReplace, distanceCalc distanceCalc,
 ) error {
 	var key []byte
 	var v []byte
 	var id uint64
-	found := 0
-	allowLen := 0
+	allowMax := uint64(0)
 
 	cursor := cursorFn()
 	defer cursor.Close()
 
 	if allow != nil {
-		allowLen = allow.Len()
-		firstId, _ := allow.Iterator().Next()
+		// nothing allowed, skip search
+		if allow.IsEmpty() {
+			return nil
+		}
+
+		allowMax = allow.Max()
 
 		idSlice := index.pool.byteSlicePool.Get(8)
-		binary.BigEndian.PutUint64(idSlice.slice, firstId)
+		binary.BigEndian.PutUint64(idSlice.slice, allow.Min())
 		key, v = cursor.Seek(idSlice.slice)
 		index.pool.byteSlicePool.Put(idSlice)
 	} else {
 		key, v = cursor.First()
 	}
 
-	for key != nil && (allow == nil || found < allowLen) {
+	// since keys are sorted, once key/id get greater than max allowed one
+	// further search can be stopped
+	for ; key != nil && (allow == nil || id <= allowMax); key, v = cursor.Next() {
 		id = binary.BigEndian.Uint64(key)
 		if allow == nil || allow.Contains(id) {
-			found++
-			distance, err := distanceFn(v)
+			distance, err := distanceCalc(v)
 			if err != nil {
 				return err
 			}
 			index.insertToHeap(heap, limit, id, distance)
 		}
-		key, v = cursor.Next()
 	}
 	return nil
 }
