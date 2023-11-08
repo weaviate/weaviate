@@ -66,31 +66,32 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.AdditionalProperties.Score = req.Metadata.Score
 		out.AdditionalProperties.ExplainScore = req.Metadata.ExplainScore
 		out.AdditionalProperties.IsConsistent = req.Metadata.IsConsistent
+		// This is a pure-ID query without any additional props. Indicate this to the DB, so
+		// it can optimize accordingly
+		if isIdOnlyRequest(req.Metadata) {
+			out.AdditionalProperties.NoProps = true
+		}
+	} else {
+		// No return metadata selected, return all metadata.
+		// Ignore vector to not overload the response
+		addProps, err := setAllCheapAdditionalPropsToTrue(class)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
+		out.AdditionalProperties = addProps
 	}
 
 	out.Properties, err = extractPropertiesRequest(req.Properties, scheme, req.Collection)
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract properties request")
 	}
-	if len(out.Properties) == 0 && req.Metadata != nil {
-		// This is a pure-ID query without any props. Indicate this to the DB, so
-		// it can optimize accordingly
-		if isIdOnlyRequest(req.Metadata) {
-			out.AdditionalProperties.NoProps = true
-		}
-	} else if len(out.Properties) == 0 && req.Metadata == nil {
-		// no return values selected, return all properties and metadata. Ignore blobs and refs to not overload the
-		// response
+	if len(out.Properties) == 0 {
+		// No return properties selected, return all properties.
+		// Ignore blobs and refs to not overload the response
 		returnProps, err := getAllNonRefNonBlobProperties(scheme, req.Collection)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
-
-		addProps, err := setAllCheapAdditionalPropsToTrue(class)
-		if err != nil {
-			return dto.GetParams{}, err
-		}
-		out.AdditionalProperties = addProps
 		out.Properties = returnProps
 	}
 
