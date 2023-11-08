@@ -1582,14 +1582,16 @@ func (i *Index) drop() error {
 		return err
 	}
 
-	os.RemoveAll(i.path())
-
 	// Dropping the shards only unregisters the shards callbacks, but we still
 	// need to stop the cycle managers that those shards used to register with.
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	return i.stopCycleManagers(ctx, "drop")
+	if err := i.stopCycleManagers(ctx, "drop"); err != nil {
+		return err
+	}
+
+	return os.RemoveAll(i.path())
 }
 
 // dropShards deletes shards in a transactional manner.
