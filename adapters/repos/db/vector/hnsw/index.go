@@ -25,6 +25,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -94,13 +96,13 @@ type hnsw struct {
 
 	nodes []*vertex
 
-	vectorForID          VectorForID
-	TempVectorForIDThunk TempVectorForID
-	multiVectorForID     MultiVectorForID
+	vectorForID          common.VectorForID[float32]
+	TempVectorForIDThunk common.TempVectorForID
+	multiVectorForID     common.MultiVectorForID
 	trackDimensionsOnce  sync.Once
 	dims                 int32
 
-	cache cache[float32]
+	cache cache.Cache[float32]
 
 	commitLog CommitLogger
 
@@ -156,12 +158,12 @@ type hnsw struct {
 	doNotRescore           bool
 	pq                     *ssdhelpers.ProductQuantizer
 	pqConfig               ent.PQConfig
-	compressedVectorsCache cache[byte]
+	compressedVectorsCache cache.Cache[byte]
 	compressedStore        *lsmkv.Store
 	compressActionLock     *sync.RWMutex
 	className              string
 	shardName              string
-	VectorForIDThunk       VectorForID
+	VectorForIDThunk       common.VectorForID[float32]
 	shardedNodeLocks       []sync.RWMutex
 }
 
@@ -193,13 +195,6 @@ type BufferedLinksLogger interface {
 
 type MakeCommitLogger func() (CommitLogger, error)
 
-type (
-	VectorForID           func(ctx context.Context, id uint64) ([]float32, error)
-	TempVectorForID       func(ctx context.Context, id uint64, container *VectorSlice) ([]float32, error)
-	MultiVectorForID      func(ctx context.Context, ids []uint64) ([][]float32, []error)
-	CompressedVectorForID func(ctx context.Context, id uint64) ([]byte, error)
-)
-
 // New creates a new HNSW index, the commit logger is provided through a thunk
 // (a function which can be deferred). This is because creating a commit logger
 // opens files for writing. However, checking whether a file is present, is a
@@ -224,10 +219,10 @@ func New(cfg Config, uc ent.UserConfig,
 		normalizeOnRead = true
 	}
 
-	vectorCache := newShardedLockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
-		cfg.Logger, normalizeOnRead, defaultDeletionInterval)
+	vectorCache := cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
+		cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval)
 
-	var compressedVectorsCache *compressedShardedLockCache
+	var compressedVectorsCache cache.Cache[byte]
 
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	index := &hnsw{
@@ -240,10 +235,10 @@ func New(cfg Config, uc ent.UserConfig,
 		levelNormalizer:        1 / math.Log(float64(uc.MaxConnections)),
 		efConstruction:         uc.EFConstruction,
 		flatSearchCutoff:       int64(uc.FlatSearchCutoff),
-		nodes:                  make([]*vertex, initialSize),
+		nodes:                  make([]*vertex, cache.InitialSize),
 		cache:                  vectorCache,
-		vectorForID:            vectorCache.get,
-		multiVectorForID:       vectorCache.multiGet,
+		vectorForID:            vectorCache.Get,
+		multiVectorForID:       vectorCache.MultiGet,
 		compressedVectorsCache: compressedVectorsCache,
 		id:                     cfg.ID,
 		rootPath:               cfg.RootPath,
@@ -278,7 +273,7 @@ func New(cfg Config, uc ent.UserConfig,
 	}
 
 	if uc.PQ.Enabled {
-		index.compressedVectorsCache = newCompressedShardedLockCache(index.getCompressedVectorForID, uc.VectorCacheMaxObjects, cfg.Logger)
+		index.compressedVectorsCache = cache.NewShardedByteLockCache(index.getCompressedVectorForID, uc.VectorCacheMaxObjects, cfg.Logger, 0)
 	}
 
 	// TODO common_cycle_manager move to poststartup?
@@ -447,7 +442,7 @@ func min(a, b int) int {
 
 func (h *hnsw) distBetweenNodes(a, b uint64) (float32, bool, error) {
 	if h.compressed.Load() {
-		v1, err := h.compressedVectorsCache.get(context.Background(), a)
+		v1, err := h.compressedVectorsCache.Get(context.Background(), a)
 		if err != nil {
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
@@ -463,7 +458,7 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, bool, error) {
 			return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", a)
 		}
 
-		v2, err := h.compressedVectorsCache.get(context.Background(), b)
+		v2, err := h.compressedVectorsCache.Get(context.Background(), b)
 		if err != nil {
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
@@ -522,7 +517,7 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, bool, error) {
 
 func (h *hnsw) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, bool, error) {
 	if h.compressed.Load() {
-		v1, err := h.compressedVectorsCache.get(context.Background(), node)
+		v1, err := h.compressedVectorsCache.Get(context.Background(), node)
 		if err != nil {
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
@@ -630,10 +625,10 @@ func (h *hnsw) Drop(ctx context.Context) error {
 	}
 
 	if h.compressed.Load() {
-		h.compressedVectorsCache.drop()
+		h.compressedVectorsCache.Drop()
 	} else {
 		// cancel vector cache goroutine
-		h.cache.drop()
+		h.cache.Drop()
 	}
 
 	// cancel commit logger last, as the tombstone cleanup cycle might still
@@ -656,12 +651,12 @@ func (h *hnsw) Shutdown(ctx context.Context) error {
 	}
 
 	if h.compressed.Load() {
-		h.compressedVectorsCache.drop()
+		h.compressedVectorsCache.Drop()
 		if err := h.compressedStore.Shutdown(ctx); err != nil {
 			return errors.Wrap(err, "hnsw shutdown")
 		}
 	} else {
-		h.cache.drop()
+		h.cache.Drop()
 	}
 
 	return nil

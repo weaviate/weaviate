@@ -64,7 +64,7 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 		return errors.Wrap(err, "Compressing vectors.")
 	}
 
-	data := h.cache.all()
+	data := h.cache.All()
 	cleanData := make([][]float32, 0, len(data))
 	for _, point := range data {
 		if point == nil {
@@ -72,7 +72,7 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 		}
 		cleanData = append(cleanData, point)
 	}
-	h.compressedVectorsCache.grow(uint64(len(data)))
+	h.compressedVectorsCache.Grow(uint64(len(data)))
 	h.pq.Fit(cleanData)
 
 	h.compressActionLock.Lock()
@@ -85,20 +85,15 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 
 			encoded := h.pq.Encode(data[index])
 			h.storeCompressedVector(index, encoded)
-			h.compressedVectorsCache.preload(index, encoded)
+			h.compressedVectorsCache.Preload(index, encoded)
 		})
 	if err := h.commitLog.AddPQ(h.pq.ExposeFields()); err != nil {
 		return errors.Wrap(err, "Adding PQ to the commit logger")
 	}
 
 	h.compressed.Store(true)
-	h.cache.drop()
+	h.cache.Drop()
 	return nil
-}
-
-//nolint:unused
-func (h *hnsw) encodedVector(id uint64) ([]byte, error) {
-	return h.compressedVectorsCache.get(context.Background(), id)
 }
 
 func (h *hnsw) storeCompressedVector(index uint64, vector []byte) {

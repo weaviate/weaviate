@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package hnsw
+package cache
 
 import (
 	"testing"
@@ -17,33 +17,34 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 func TestVectorCacheGrowth(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	var vecForId VectorForID = nil
+	var vecForId common.VectorForID[float32] = nil
 	id := 100_000
 	expectedCount := int64(0)
 
-	vectorCache := newShardedLockCache(vecForId, 1_000_000, logger, false, time.Duration(10_000))
-	initialSize := vectorCache.len()
+	vectorCache := NewShardedFloat32LockCache(vecForId, 1_000_000, logger, false, time.Duration(10_000))
+	initialSize := vectorCache.Len()
 	assert.Less(t, int(initialSize), id)
-	assert.Equal(t, expectedCount, vectorCache.countVectors())
+	assert.Equal(t, expectedCount, vectorCache.CountVectors())
 
-	vectorCache.grow(uint64(id))
-	size1stGrow := vectorCache.len()
+	vectorCache.Grow(uint64(id))
+	size1stGrow := vectorCache.Len()
 	assert.Greater(t, int(size1stGrow), id)
-	assert.Equal(t, expectedCount, vectorCache.countVectors())
+	assert.Equal(t, expectedCount, vectorCache.CountVectors())
 
-	vectorCache.grow(uint64(id))
-	size2ndGrow := vectorCache.len()
+	vectorCache.Grow(uint64(id))
+	size2ndGrow := vectorCache.Len()
 	assert.Equal(t, size1stGrow, size2ndGrow)
-	assert.Equal(t, expectedCount, vectorCache.countVectors())
+	assert.Equal(t, expectedCount, vectorCache.CountVectors())
 }
 
 func TestCacheCleanup(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	var vecForId VectorForID = nil
+	var vecForId common.VectorForID[float32] = nil
 
 	maxSize := 10
 	batchSize := maxSize - 1
@@ -51,41 +52,45 @@ func TestCacheCleanup(t *testing.T) {
 	sleepMs := deletionInterval + 100*time.Millisecond
 
 	t.Run("count is not reset on unnecessary deletion", func(t *testing.T) {
-		shardedLockCache := newShardedLockCache(vecForId, maxSize, logger, false, deletionInterval)
+		vectorCache := NewShardedFloat32LockCache(vecForId, maxSize, logger, false, deletionInterval)
+		shardedLockCache, ok := vectorCache.(*shardedLockCache[float32])
+		assert.True(t, ok)
 
 		for i := 0; i < batchSize; i++ {
-			shardedLockCache.preload(uint64(i), []float32{float32(i), float32(i)})
+			shardedLockCache.Preload(uint64(i), []float32{float32(i), float32(i)})
 		}
 		time.Sleep(sleepMs) // wait for deletion to fire
 
-		assert.Equal(t, batchSize, int(shardedLockCache.countVectors()))
+		assert.Equal(t, batchSize, int(shardedLockCache.CountVectors()))
 		assert.Equal(t, batchSize, countCached(shardedLockCache))
 
-		shardedLockCache.drop()
+		shardedLockCache.Drop()
 
 		assert.Equal(t, 0, int(shardedLockCache.count))
 		assert.Equal(t, 0, countCached(shardedLockCache))
 	})
 
 	t.Run("deletion clears cache and counter when maxSize exceeded", func(t *testing.T) {
-		shardedLockCache := newShardedLockCache(vecForId, maxSize, logger, false, deletionInterval)
+		vectorCache := NewShardedFloat32LockCache(vecForId, maxSize, logger, false, deletionInterval)
+		shardedLockCache, ok := vectorCache.(*shardedLockCache[float32])
+		assert.True(t, ok)
 
 		for b := 0; b < 2; b++ {
 			for i := 0; i < batchSize; i++ {
 				id := b*batchSize + i
-				shardedLockCache.preload(uint64(id), []float32{float32(id), float32(id)})
+				shardedLockCache.Preload(uint64(id), []float32{float32(id), float32(id)})
 			}
 			time.Sleep(sleepMs) // wait for deletion to fire, 2nd should clean the cache
 		}
 
-		assert.Equal(t, 0, int(shardedLockCache.countVectors()))
+		assert.Equal(t, 0, int(shardedLockCache.CountVectors()))
 		assert.Equal(t, 0, countCached(shardedLockCache))
 
-		shardedLockCache.drop()
+		shardedLockCache.Drop()
 	})
 }
 
-func countCached(c *shardedLockCache) int {
+func countCached(c *shardedLockCache[float32]) int {
 	c.obtainAllLocks()
 	defer c.releaseAllLocks()
 
