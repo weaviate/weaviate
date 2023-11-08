@@ -519,30 +519,54 @@ func newSearchByDistParams(maxLimit int64) *common.SearchByDistParams {
 	return common.NewSearchByDistParams(initialOffset, initialLimit, initialOffset+initialLimit, maxLimit)
 }
 
+type immutableParameter struct {
+	accessor func(c flatent.UserConfig) interface{}
+	name     string
+}
+
+func validateImmutableField(u immutableParameter,
+	previous, next flatent.UserConfig,
+) error {
+	oldField := u.accessor(previous)
+	newField := u.accessor(next)
+	if oldField != newField {
+		return errors.Errorf("%s is immutable: attempted change from \"%v\" to \"%v\"",
+			u.name, oldField, newField)
+	}
+
+	return nil
+}
+
 func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
-	/*
-		initialParsed, ok := initial.(flatent.UserConfig)
-		if !ok {
-			return errors.Errorf("initial is not UserConfig, but %T", initial)
-		}
+	initialParsed, ok := initial.(flatent.UserConfig)
+	if !ok {
+		return errors.Errorf("initial is not UserConfig, but %T", initial)
+	}
 
-		updatedParsed, ok := updated.(flatent.UserConfig)
-		if !ok {
-			return errors.Errorf("updated is not UserConfig, but %T", updated)
-		}
+	updatedParsed, ok := updated.(flatent.UserConfig)
+	if !ok {
+		return errors.Errorf("updated is not UserConfig, but %T", updated)
+	}
 
-		immutableFields := []immutableParameter{
-			{
-				name:     "distance",
-				accessor: func(c flatent.UserConfig) interface{} { return c.Distance },
-			},
-		}
+	immutableFields := []immutableParameter{
+		{
+			name:     "distance",
+			accessor: func(c flatent.UserConfig) interface{} { return c.Distance },
+		},
+		{
+			name:     "fullyOnDisk",
+			accessor: func(c flatent.UserConfig) interface{} { return c.FullyOnDisk },
+		},
+		{
+			name:     "compression",
+			accessor: func(c flatent.UserConfig) interface{} { return c.Compression },
+		},
+	}
 
-		for _, u := range immutableFields {
-			if err := validateImmutableField(u, initialParsed, updatedParsed); err != nil {
-				return err
-			}
+	for _, u := range immutableFields {
+		if err := validateImmutableField(u, initialParsed, updatedParsed); err != nil {
+			return err
 		}
-	*/
+	}
 	return nil
 }
