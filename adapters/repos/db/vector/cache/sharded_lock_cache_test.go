@@ -23,16 +23,23 @@ import (
 func TestVectorCacheGrowth(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	var vecForId common.VectorForID[float32] = nil
-	vectorCache := NewShardedFloat32LockCache(vecForId, 1000000, logger, false, time.Duration(10000))
-	shardedLockCache, ok := vectorCache.(*shardedLockCache[float32])
-	assert.True(t, ok)
-	id := int64(100000)
-	assert.True(t, int64(len(shardedLockCache.cache)) < id)
+	id := 100_000
+	expectedCount := int64(0)
+
+	vectorCache := NewShardedFloat32LockCache(vecForId, 1_000_000, logger, false, time.Duration(10_000))
+	initialSize := vectorCache.Len()
+	assert.Less(t, int(initialSize), id)
+	assert.Equal(t, expectedCount, vectorCache.CountVectors())
+
 	vectorCache.Grow(uint64(id))
-	assert.True(t, int64(len(shardedLockCache.cache)) > id)
-	last := shardedLockCache.count
+	size1stGrow := vectorCache.Len()
+	assert.Greater(t, int(size1stGrow), id)
+	assert.Equal(t, expectedCount, vectorCache.CountVectors())
+
 	vectorCache.Grow(uint64(id))
-	assert.True(t, int64(len(shardedLockCache.cache)) == last)
+	size2ndGrow := vectorCache.Len()
+	assert.Equal(t, size1stGrow, size2ndGrow)
+	assert.Equal(t, expectedCount, vectorCache.CountVectors())
 }
 
 func TestCacheCleanup(t *testing.T) {

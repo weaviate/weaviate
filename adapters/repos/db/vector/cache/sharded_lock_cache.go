@@ -222,7 +222,6 @@ func (s *shardedLockCache[T]) Grow(node uint64) {
 	newSize := node + minimumIndexGrowthDelta
 	newCache := make([][]T, newSize)
 	copy(newCache, s.cache)
-	atomic.StoreInt64(&s.count, int64(newSize))
 	s.cache = newCache
 }
 
