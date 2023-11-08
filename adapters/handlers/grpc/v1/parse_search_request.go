@@ -17,7 +17,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 
@@ -729,13 +729,13 @@ func setAllCheapAdditionalPropsToTrue(class *models.Class) (additional.Propertie
 		Vector:             false, // can be expensive
 	}
 
-	// certainty is not compatible with dot distance
-	vectorIndex, err := hnsw.TypeAssertVectorIndex(class)
+	vectorIndex, err := schema.TypeAssertVectorIndex(class)
 	if err != nil {
 		return out, err
 	}
 
-	if vectorIndex.Distance == hnsw.DistanceCosine {
+	// certainty is not compatible with dot distance
+	if vectorIndex.DistanceName() == common.DistanceCosine {
 		out.Certainty = true
 	}
 
