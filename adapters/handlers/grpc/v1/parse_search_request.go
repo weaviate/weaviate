@@ -89,12 +89,10 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		}
 		out.Properties = returnProps
 	}
-	if len(out.Properties) == 0 {
+	if len(out.Properties) == 0 && isIdOnlyRequest(req.Metadata) {
 		// This is a pure-ID query without any properties or additional metadata.
 		// Indicate this to the DB, so it can optimize accordingly
-		if isIdOnlyRequest(req.Metadata) {
-			out.AdditionalProperties.NoProps = true
-		}
+		out.AdditionalProperties.NoProps = true
 	}
 
 	if hs := req.HybridSearch; hs != nil {
