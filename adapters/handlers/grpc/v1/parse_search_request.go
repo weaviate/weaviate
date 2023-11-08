@@ -66,11 +66,6 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.AdditionalProperties.Score = req.Metadata.Score
 		out.AdditionalProperties.ExplainScore = req.Metadata.ExplainScore
 		out.AdditionalProperties.IsConsistent = req.Metadata.IsConsistent
-		// This is a pure-ID query without any additional props. Indicate this to the DB, so
-		// it can optimize accordingly
-		if isIdOnlyRequest(req.Metadata) {
-			out.AdditionalProperties.NoProps = true
-		}
 	} else {
 		// No return metadata selected, return all metadata.
 		// Ignore vector to not overload the response
@@ -85,7 +80,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract properties request")
 	}
-	if len(out.Properties) == 0 {
+	if out.Properties == nil {
 		// No return properties selected, return all properties.
 		// Ignore blobs and refs to not overload the response
 		returnProps, err := getAllNonRefNonBlobProperties(scheme, req.Collection)
@@ -93,6 +88,13 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 			return dto.GetParams{}, err
 		}
 		out.Properties = returnProps
+	}
+	if len(out.Properties) == 0 {
+		// This is a pure-ID query without any properties or additional metadata.
+		// Indicate this to the DB, so it can optimize accordingly
+		if isIdOnlyRequest(req.Metadata) {
+			out.AdditionalProperties.NoProps = true
+		}
 	}
 
 	if hs := req.HybridSearch; hs != nil {
@@ -513,10 +515,10 @@ func extractPath(scheme schema.Schema, className string, on []string) (*filters.
 }
 
 func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Schema, className string) ([]search.SelectProperty, error) {
-	var props []search.SelectProperty
 	if reqProps == nil {
-		return props, nil
+		return nil, nil
 	}
+	props := make([]search.SelectProperty, 0)
 	if reqProps.NonRefProperties != nil && len(reqProps.NonRefProperties) > 0 {
 		for _, prop := range reqProps.NonRefProperties {
 			props = append(props, search.SelectProperty{

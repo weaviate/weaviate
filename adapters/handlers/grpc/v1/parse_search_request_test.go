@@ -163,6 +163,15 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
+			name: "Empty return properties given",
+			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{}},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{},
+				AdditionalProperties: defaultAddProps,
+			},
+			error: false,
+		},
+		{
 			name: "No return values given for dot distance",
 			req:  &pb.SearchRequest{Collection: dotClass},
 			out: dto.GetParams{
@@ -197,10 +206,10 @@ func TestGRPCRequest(t *testing.T) {
 		},
 		{
 			name: "Metadata ID only query",
-			req:  &pb.SearchRequest{Collection: classname, Metadata: &pb.MetadataRequest{Uuid: true}},
+			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{}, Metadata: &pb.MetadataRequest{Uuid: true}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties: defaultClassnameProps,
+				Properties: search.SelectProperties{},
 				AdditionalProperties: additional.Properties{
 					ID:      true,
 					NoProps: true,
