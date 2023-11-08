@@ -39,7 +39,7 @@ func TestBuildUrlFn(t *testing.T) {
 			BaseURL:      "https://api.openai.com",
 			IsAzure:      false,
 		}
-		url, err := buildUrl(config)
+		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.IsAzure)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://api.openai.com/v1/embeddings", url)
 	})
@@ -53,7 +53,7 @@ func TestBuildUrlFn(t *testing.T) {
 			BaseURL:      "",
 			IsAzure:      true,
 		}
-		url, err := buildUrl(config)
+		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.IsAzure)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://resourceID.openai.azure.com/openai/deployments/deploymentID/embeddings?api-version=2022-12-01", url)
 	})
@@ -68,7 +68,7 @@ func TestBuildUrlFn(t *testing.T) {
 			BaseURL:      "https://foobar.some.proxy",
 			IsAzure:      false,
 		}
-		url, err := buildUrl(config)
+		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.IsAzure)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://foobar.some.proxy/v1/embeddings", url)
 	})
@@ -80,7 +80,7 @@ func TestClient(t *testing.T) {
 		defer server.Close()
 
 		c := New("apiKey", "", "", 0, nullLogger())
-		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
 
@@ -103,7 +103,7 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := New("apiKey", "", "", 0, nullLogger())
-		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
 
@@ -123,7 +123,7 @@ func TestClient(t *testing.T) {
 		})
 		defer server.Close()
 		c := New("apiKey", "", "", 0, nullLogger())
-		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
 
@@ -138,7 +138,7 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := New("", "", "", 0, nullLogger())
-		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
 
@@ -164,7 +164,7 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := New("", "", "", 0, nullLogger())
-		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
 
@@ -183,7 +183,7 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := New("", "", "", 0, nullLogger())
-		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
 
@@ -200,6 +200,29 @@ func TestClient(t *testing.T) {
 		assert.EqualError(t, err, "API Key: no api key found "+
 			"neither in request header: X-Openai-Api-Key "+
 			"nor in environment variable under OPENAI_APIKEY")
+	})
+
+	t.Run("when X-OpenAI-BaseURL header is passed", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t})
+		defer server.Close()
+		c := New("", "", "", 0, nullLogger())
+
+		config := ent.VectorizationConfig{
+			Type:    "text",
+			Model:   "ada",
+			BaseURL: "http://default-url.com",
+		}
+
+		ctxWithValue := context.WithValue(context.Background(),
+			"X-Openai-Baseurl", []string{"http://base-url-passed-in-header.com"})
+
+		buildURL, err := c.buildURL(ctxWithValue, config)
+		require.NoError(t, err)
+		assert.Equal(t, "http://base-url-passed-in-header.com/v1/embeddings", buildURL)
+
+		buildURL, err = c.buildURL(context.TODO(), config)
+		require.NoError(t, err)
+		assert.Equal(t, "http://default-url.com/v1/embeddings", buildURL)
 	})
 }
 
