@@ -42,8 +42,8 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 var shardFactor = uint64(512)
 
 const (
-	initialSize             = 1000
-	minimumIndexGrowthDelta = 2000
+	InitialSize             = 1000
+	MinimumIndexGrowthDelta = 2000
 	indexGrowthRate         = 1.25
 )
 
@@ -61,7 +61,7 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize in
 			}
 			return vec, nil
 		},
-		cache:            make([][]float32, initialSize),
+		cache:            make([][]float32, InitialSize),
 		normalizeOnRead:  normalizeOnRead,
 		count:            0,
 		maxSize:          int64(maxSize),
@@ -84,7 +84,7 @@ func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int,
 ) Cache[byte] {
 	vc := &shardedLockCache[byte]{
 		vectorForID:      vecForID,
-		cache:            make([][]byte, initialSize),
+		cache:            make([][]byte, InitialSize),
 		normalizeOnRead:  false,
 		count:            0,
 		maxSize:          int64(maxSize),
@@ -107,7 +107,7 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 ) Cache[uint64] {
 	vc := &shardedLockCache[uint64]{
 		vectorForID:      vecForID,
-		cache:            make([][]uint64, initialSize),
+		cache:            make([][]uint64, InitialSize),
 		normalizeOnRead:  false,
 		count:            0,
 		maxSize:          int64(maxSize),
@@ -219,7 +219,7 @@ func (s *shardedLockCache[T]) Grow(node uint64) {
 	s.obtainAllLocks()
 	defer s.releaseAllLocks()
 
-	newSize := node + minimumIndexGrowthDelta
+	newSize := node + MinimumIndexGrowthDelta
 	newCache := make([][]T, newSize)
 	copy(newCache, s.cache)
 	s.cache = newCache
