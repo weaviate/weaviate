@@ -25,14 +25,23 @@ func dummyCompressedVectorForID(context.Context, uint64) ([]byte, error) {
 
 func TestCompressedVectorCacheGrowth(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	vectorCache := newCompressedShardedLockCache(dummyCompressedVectorForID, 1000000, logger)
-	id := 100000
-	assert.True(t, len(vectorCache.cache) < id)
+	id := 100_000
+	expectedCount := int64(0)
+
+	vectorCache := newCompressedShardedLockCache(dummyCompressedVectorForID, 1_000_000, logger)
+	initialSize := vectorCache.len()
+	assert.Less(t, int(initialSize), id)
+	assert.Equal(t, expectedCount, vectorCache.countVectors())
+
 	vectorCache.grow(uint64(id))
-	assert.True(t, len(vectorCache.cache) > id)
-	last := vectorCache.count
+	size1stGrow := vectorCache.len()
+	assert.Greater(t, int(size1stGrow), id)
+	assert.Equal(t, expectedCount, vectorCache.countVectors())
+
 	vectorCache.grow(uint64(id))
-	assert.True(t, len(vectorCache.cache) == int(last))
+	size2ndGrow := vectorCache.len()
+	assert.Equal(t, size1stGrow, size2ndGrow)
+	assert.Equal(t, expectedCount, vectorCache.countVectors())
 }
 
 func TestCompressedVectorCacheCacheMiss(t *testing.T) {

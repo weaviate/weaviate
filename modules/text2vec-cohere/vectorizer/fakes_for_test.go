@@ -52,6 +52,7 @@ type fakeSettings struct {
 	excludedProperty   string
 	cohereModel        string
 	truncateType       string
+	baseURL            string
 }
 
 func (f *fakeSettings) PropertyIndexed(propName string) bool {
@@ -72,4 +73,8 @@ func (f *fakeSettings) Model() string {
 
 func (f *fakeSettings) Truncate() string {
 	return f.truncateType
+}
+
+func (f *fakeSettings) BaseURL() string {
+	return f.baseURL
 }
