@@ -43,9 +43,6 @@ func (s *Shard) beginBackup(ctx context.Context) (err error) {
 	if err = s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
 		return fmt.Errorf("pause geo props maintenance: %w", err)
 	}
-	if err = s.vectorIndex.BeginBackup(ctx); err != nil {
-		return fmt.Errorf("switch commit logs: %w", err)
-	}
 	return nil
 }
 
@@ -73,9 +70,6 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 
 	g.Go(func() error {
 		return s.store.ResumeCompaction(ctx)
-	})
-	g.Go(func() error {
-		return s.vectorIndex.ResumeMaintenanceCycles(ctx)
 	})
 	g.Go(func() error {
 		return s.cycleCallbacks.vectorCombinedCallbacksCtrl.Activate()

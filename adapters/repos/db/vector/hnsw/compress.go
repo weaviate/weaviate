@@ -16,27 +16,19 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"path"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-func (h *hnsw) initCompressedStore() error {
-	storeDir := path.Join(h.rootPath, "pq")
-	store, err := lsmkv.New(storeDir, h.rootPath, h.logger, nil,
-		h.shardCompactionCallbacks, h.shardFlushCallbacks)
-	if err != nil {
-		return fmt.Errorf("init lsmkv (compressed vectors store): %w", err)
-	}
-	err = store.CreateOrLoadBucket(context.Background(), helpers.CompressedVectorsBucketLSM)
+func (h *hnsw) initCompressedBucket() error {
+	err := h.store.CreateOrLoadBucket(context.Background(), helpers.VectorsPQBucketLSM)
 	if err != nil {
 		return fmt.Errorf("create or load bucket (compressed vectors store): %w", err)
 	}
-	h.compressedStore = store
+	h.compressedBucket = h.store.Bucket(helpers.VectorsPQBucketLSM)
 	return nil
 }
 
@@ -44,7 +36,7 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 	if h.nodes[0] == nil {
 		return errors.New("data must be inserted before compress command can be executed")
 	}
-	err := h.initCompressedStore()
+	err := h.initCompressedBucket()
 	if err != nil {
 		return fmt.Errorf("init compressed vector store: %w", err)
 	}
@@ -100,7 +92,7 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 func (h *hnsw) storeCompressedVector(index uint64, vector []byte) {
 	Id := make([]byte, 8)
 	binary.LittleEndian.PutUint64(Id, index)
-	h.compressedStore.Bucket(helpers.CompressedVectorsBucketLSM).Put(Id, vector)
+	h.compressedBucket.Put(Id, vector)
 }
 
 func (h *hnsw) getCompressedVectorForID(ctx context.Context, id uint64) ([]byte, error) {

@@ -44,8 +44,8 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 		CleanupIntervalSeconds: cleanupIntervalSeconds,
 		MaxConnections:         30,
 		EFConstruction:         128,
-	},
-		tombstoneCallbacks, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, tombstoneCallbacks, cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
 	index.PostStartup()
 
 	require.Nil(t, err)
