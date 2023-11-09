@@ -154,17 +154,20 @@ type hnsw struct {
 	// negative impact on performance.
 	deleteVsInsertLock sync.RWMutex
 
-	compressed             atomic.Bool
-	doNotRescore           bool
+	compressed   atomic.Bool
+	doNotRescore bool
+
 	pq                     *ssdhelpers.ProductQuantizer
 	pqConfig               ent.PQConfig
 	compressedVectorsCache cache.Cache[byte]
-	compressedStore        *lsmkv.Store
+	compressedBucket       *lsmkv.Bucket
 	compressActionLock     *sync.RWMutex
-	className              string
-	shardName              string
-	VectorForIDThunk       common.VectorForID[float32]
-	shardedNodeLocks       []sync.RWMutex
+	store                  *lsmkv.Store
+
+	className        string
+	shardName        string
+	VectorForIDThunk common.VectorForID[float32]
+	shardedNodeLocks []sync.RWMutex
 }
 
 type CommitLogger interface {
@@ -202,7 +205,7 @@ type MakeCommitLogger func() (CommitLogger, error)
 // truly new index. So instead the index is initialized, with un-biased disk
 // checks first and only then is the commit logger created
 func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallbacks,
-	shardFlushCallbacks cyclemanager.CycleCallbackGroup,
+	shardFlushCallbacks cyclemanager.CycleCallbackGroup, store *lsmkv.Store,
 ) (*hnsw, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
@@ -267,6 +270,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 		pqConfig:             uc.PQ,
 		shardedNodeLocks:     make([]sync.RWMutex, NodeLockStripe),
+		store:                store,
 
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
@@ -652,7 +656,7 @@ func (h *hnsw) Shutdown(ctx context.Context) error {
 
 	if h.compressed.Load() {
 		h.compressedVectorsCache.Drop()
-		if err := h.compressedStore.Shutdown(ctx); err != nil {
+		if err := h.compressedBucket.Shutdown(ctx); err != nil {
 			return errors.Wrap(err, "hnsw shutdown")
 		}
 	} else {

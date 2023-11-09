@@ -55,21 +55,19 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 	uc.VectorCacheMaxObjects = 10e12
 	uc.PQ = ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "title", Distribution: "normal"}}
 
-	index, _ := hnsw.New(
-		hnsw.Config{
-			RootPath:              t.TempDir(),
-			ID:                    "recallbenchmark",
-			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-			DistanceProvider:      distancer,
-			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-				return vectors[int(id)], nil
-			},
-			TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
-				copy(container.Slice, vectors[int(id)])
-				return container.Slice, nil
-			},
-		}, uc,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	index, _ := hnsw.New(hnsw.Config{
+		RootPath:              t.TempDir(),
+		ID:                    "recallbenchmark",
+		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+		DistanceProvider:      distancer,
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[int(id)], nil
+		},
+		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+			copy(container.Slice, vectors[int(id)])
+			return container.Slice, nil
+		},
+	}, uc, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), nil)
 	defer index.Shutdown(context.Background())
 	ssdhelpers.Concurrently(uint64(len(vectors)), func(id uint64) {
 		index.Add(uint64(id), vectors[id])
@@ -134,7 +132,7 @@ func TestHnswPqNilVectors(t *testing.T) {
 			return vectors[int(id)], nil
 		},
 		TempVectorForIDThunk: hnsw.TempVectorForIDThunk(vectors),
-	}, userConfig, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, userConfig, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), nil)
 
 	require.NoError(t, err)
 

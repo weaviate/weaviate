@@ -82,14 +82,6 @@ func (i *Index) Shutdown(context.Context) error {
 	return nil
 }
 
-func (i *Index) BeginBackup(context.Context) error {
-	return nil
-}
-
-func (i *Index) ResumeMaintenanceCycles(context.Context) error {
-	return nil
-}
-
 func (i *Index) ListFiles(context.Context, string) ([]string, error) {
 	return nil, nil
 }

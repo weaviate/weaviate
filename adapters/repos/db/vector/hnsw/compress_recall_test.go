@@ -74,23 +74,21 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 			EF:                    ef,
 			VectorCacheMaxObjects: 10e12,
 		}
-		index, _ := hnsw.New(
-			hnsw.Config{
-				RootPath:              path,
-				ID:                    "recallbenchmark",
-				MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-				ClassName:             "clasRecallBenchmark",
-				ShardName:             "shardRecallBenchmark",
-				DistanceProvider:      distancer,
-				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-					return vectors[int(id)], nil
-				},
-				TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
-					copy(container.Slice, vectors[int(id)])
-					return container.Slice, nil
-				},
-			}, uc,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		index, _ := hnsw.New(hnsw.Config{
+			RootPath:              path,
+			ID:                    "recallbenchmark",
+			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+			ClassName:             "clasRecallBenchmark",
+			ShardName:             "shardRecallBenchmark",
+			DistanceProvider:      distancer,
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id)], nil
+			},
+			TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+				copy(container.Slice, vectors[int(id)])
+				return container.Slice, nil
+			},
+		}, uc, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), nil)
 		init := time.Now()
 		ssdhelpers.Concurrently(uint64(vectors_size), func(id uint64) {
 			index.Add(id, vectors[id])

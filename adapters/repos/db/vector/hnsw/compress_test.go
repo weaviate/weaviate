@@ -71,17 +71,15 @@ func TestRecall(t *testing.T) {
 	uc.EF = ef
 	uc.VectorCacheMaxObjects = 10e12
 
-	index, _ := hnsw.New(
-		hnsw.Config{
-			RootPath:              rootPath,
-			ID:                    "recallbenchmark",
-			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-			DistanceProvider:      distancer,
-			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-				return vectors[int(id)], nil
-			},
-		}, uc,
-	)
+	index, _ := hnsw.New(hnsw.Config{
+		RootPath:              rootPath,
+		ID:                    "recallbenchmark",
+		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+		DistanceProvider:      distancer,
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[int(id)], nil
+		},
+	}, uc, newDummyStore(t))
 	init := time.Now()
 	ssdhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
 		index.Add(uint64(id), vectors[id])
@@ -183,17 +181,15 @@ func TestHnswPqGist(t *testing.T) {
 					},
 				},
 			}
-			index, _ := hnsw.New(
-				hnsw.Config{
-					RootPath:              rootPath,
-					ID:                    "recallbenchmark",
-					MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-					DistanceProvider:      distancer,
-					VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-						return vectors[int(id)], nil
-					},
-				}, uc,
-			)
+			index, _ := hnsw.New(hnsw.Config{
+				RootPath:              rootPath,
+				ID:                    "recallbenchmark",
+				MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+				DistanceProvider:      distancer,
+				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+					return vectors[int(id)], nil
+				},
+			}, uc, newDummyStore(t))
 			init := time.Now()
 			total := 200000
 			ssdhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
@@ -352,17 +348,15 @@ func TestHnswPqSift(t *testing.T) {
 			},
 			VectorCacheMaxObjects: 10e12,
 		}
-		index, _ := hnsw.New(
-			hnsw.Config{
-				RootPath:              rootPath,
-				ID:                    "recallbenchmark",
-				MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-				DistanceProvider:      distancer,
-				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-					return vectors[int(id)], nil
-				},
-			}, uc,
-		)
+		index, _ := hnsw.New(hnsw.Config{
+			RootPath:              rootPath,
+			ID:                    "recallbenchmark",
+			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+			DistanceProvider:      distancer,
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id)], nil
+			},
+		}, uc, newDummyStore(t))
 		init := time.Now()
 		ssdhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
 			index.Add(uint64(id), vectors[id])
@@ -454,17 +448,15 @@ func TestHnswPqSiftDeletes(t *testing.T) {
 				},
 				VectorCacheMaxObjects: 10e12,
 			}
-			index, _ := hnsw.New(
-				hnsw.Config{
-					RootPath:              rootPath,
-					ID:                    "recallbenchmark",
-					MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-					DistanceProvider:      distancer,
-					VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-						return vectors[int(id)], nil
-					},
-				}, uc,
-			)
+			index, _ := hnsw.New(hnsw.Config{
+				RootPath:              rootPath,
+				ID:                    "recallbenchmark",
+				MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+				DistanceProvider:      distancer,
+				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+					return vectors[int(id)], nil
+				},
+			}, uc, newDummyStore(t))
 			init := time.Now()
 			ssdhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
 				index.Add(uint64(id), vectors[id])
@@ -549,17 +541,15 @@ func TestHnswPqDeepImage(t *testing.T) {
 				},
 				VectorCacheMaxObjects: 10e12,
 			}
-			index, _ := hnsw.New(
-				hnsw.Config{
-					RootPath:              rootPath,
-					ID:                    "recallbenchmark",
-					MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-					DistanceProvider:      distancer,
-					VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-						return vectors[int(id)], nil
-					},
-				}, uc,
-			)
+			index, _ := hnsw.New(hnsw.Config{
+				RootPath:              rootPath,
+				ID:                    "recallbenchmark",
+				MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+				DistanceProvider:      distancer,
+				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+					return vectors[int(id)], nil
+				},
+			}, uc, newDummyStore(t))
 			init := time.Now()
 			ssdhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
 				index.Add(uint64(id), vectors[id])
@@ -609,4 +599,13 @@ func parseFromTxt(file string, size int) [][]float32 {
 		}
 	}
 	return test
+}
+
+func newDummyStore(t *testing.T) *lsmkv.Store {
+	logger, _ := test.NewNullLogger()
+	storeDir := t.TempDir()
+	store, err := lsmkv.New(storeDir, storeDir, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	return store
 }

@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -130,7 +129,7 @@ func (h *hnsw) restoreFromDisk() error {
 	h.compressed.Store(state.Compressed)
 
 	if state.Compressed {
-		err := h.initCompressedStore()
+		err := h.initCompressedBucket()
 		if err != nil {
 			return err
 		}
@@ -193,7 +192,7 @@ func (h *hnsw) prefillCache() {
 
 		var err error
 		if h.compressed.Load() {
-			cursor := h.compressedStore.Bucket(helpers.CompressedVectorsBucketLSM).Cursor()
+			cursor := h.compressedBucket.Cursor()
 			for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 				id := binary.LittleEndian.Uint64(k)
 				h.compressedVectorsCache.Grow(id)
