@@ -28,6 +28,7 @@ var (
 
 const (
 	MaximumTokensKey = "maximum_tokens"
+	ModelKey		 = "model"
 )
 
 var availableAlephAlphaModels = []string{
@@ -60,7 +61,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.New("empty config")
 	}
 
-	model := ic.getStringProperty("model", DefaultAlephAlphaModel)
+	model := ic.getStringProperty(ModelKey, DefaultAlephAlphaModel)
 	if model == nil || !ic.validateModel(*model) {
 		return errors.Errorf("wrong Aleph Alpha model name, available model names are: %v", availableAlephAlphaModels)
 	}
@@ -80,7 +81,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 }
 
 func (ic *classSettings) Model() string {
-	return *ic.getStringProperty("model", DefaultAlephAlphaModel)
+	return *ic.getStringProperty(ModelKey, DefaultAlephAlphaModel)
 }
 
 func (ic *classSettings) MaximumTokens() int {
