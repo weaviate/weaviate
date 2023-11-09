@@ -23,6 +23,7 @@ import (
 var (
 	DefaultAlephAlphaModel = "luminous-base"
 	DefaultMaximumTokens   = 64
+	DefaultTemperature     = 0.0
 )
 
 const (
@@ -41,6 +42,7 @@ var availableAlephAlphaModels = []string{
 type ClassSettings interface {
 	Model() string
 	MaximumTokens() int
+	Temperature() float64
 	Validate(class *models.Class) error
 }
 
@@ -68,6 +70,11 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.Errorf("wrong maximum tokens configuration, value is required and should be greater than 0")
 	}
 
+	temperature := ic.getFloatProperty("temperature", DefaultTemperature)
+	if temperature == nil || !ic.validateTemperature(*temperature) {
+		return errors.Errorf("wrong temperature configuration, value should be between 0.0 and 1.0")
+	}
+
 	fmt.Printf("validation is successful!")
 	return nil
 }
@@ -78,6 +85,10 @@ func (ic *classSettings) Model() string {
 
 func (ic *classSettings) MaximumTokens() int {
 	return *ic.getIntProperty(MaximumTokensKey, DefaultMaximumTokens)
+}
+
+func (ic *classSettings) Temperature() float64 {
+	return *ic.getFloatProperty("temperature", DefaultTemperature)
 }
 
 func (ic *classSettings) validateModel(model string) bool {
@@ -93,6 +104,10 @@ func (ic *classSettings) validateMaximumTokens(maximumTokens int) bool {
 
 	return maximumTokens > 0
 
+}
+
+func (ic *classSettings) validateTemperature(temperature float64) bool {
+	return temperature >= 0.0 && temperature <= 1.0
 }
 
 func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
@@ -127,6 +142,25 @@ func (ic *classSettings) getIntProperty(name string, defaultValue int) *int {
 			return &casted
 		}
 		var empty int
+		return &empty
+	}
+	return &defaultValue
+}
+
+func (ic *classSettings) getFloatProperty(name string, defaultValue float64) *float64 {
+	if ic.cfg == nil {
+		// we would receive a nil-config on cross-class requests, such as Explore{}
+		return &defaultValue
+	}
+
+	value, ok := ic.cfg.ClassByModuleName("generative-alephalpha")[name]
+	if ok {
+		asFloat, ok := value.(json.Number)
+		if ok {
+			casted, _ := asFloat.Float64()
+			return &casted
+		}
+		var empty float64
 		return &empty
 	}
 	return &defaultValue

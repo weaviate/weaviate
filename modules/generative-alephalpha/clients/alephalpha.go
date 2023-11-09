@@ -41,6 +41,7 @@ type Completion struct {
 type Request struct {
 	URL           string
 	Model         string
+	Temperature   float64
 	Prompt        string
 	MaximumTokens int
 	APIKey        string
@@ -78,6 +79,7 @@ func (a *alephalpha) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 	input := Request{
 		URL:           "https://api.aleph-alpha.com/complete",
 		Model:         settings.Model(),
+		Temperature:   settings.Temperature(),
 		Prompt:        prompt,
 		MaximumTokens: settings.MaximumTokens(),
 		APIKey:        a.alephAlphaAPIKey,
@@ -98,8 +100,9 @@ func (a *alephalpha) makeRequest(input Request) ([]Completion, error) {
 	payload := strings.NewReader(fmt.Sprintf(`{
 		"model": "%s",
 		"prompt": "%s",
-		"maximum_tokens": %d
-	}`, input.Model, input.Prompt, input.MaximumTokens))
+		"maximum_tokens": %d,
+		"temperature": %f
+	}`, input.Model, input.Prompt, input.MaximumTokens, input.Temperature))
 
 	req, err := http.NewRequest(method, input.URL, payload)
 	if err != nil {
