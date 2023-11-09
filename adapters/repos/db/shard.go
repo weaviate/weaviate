@@ -234,7 +234,8 @@ func (s *Shard) initVector(ctx context.Context) error {
 					return hnsw.NewCommitLogger(s.path(), vecIdxID,
 						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
 				},
-			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, nil)
+			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+				s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, s.store)
 			if err != nil {
 				return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
 			}

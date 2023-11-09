@@ -656,9 +656,6 @@ func (h *hnsw) Shutdown(ctx context.Context) error {
 
 	if h.compressed.Load() {
 		h.compressedVectorsCache.Drop()
-		if err := h.compressedBucket.Shutdown(ctx); err != nil {
-			return errors.Wrap(err, "hnsw shutdown")
-		}
 	} else {
 		h.cache.Drop()
 	}
