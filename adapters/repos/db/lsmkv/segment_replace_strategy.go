@@ -28,17 +28,15 @@ func (s *segment) get(key []byte) ([]byte, error) {
 
 	before := time.Now()
 
-	if s.bloomFilter != nil && !s.bloomFilter.Test(key) {
-		if s.bloomFilterMetrics != nil {
-			s.bloomFilterMetrics.trueNegative(before)
-		}
+	if s.useBloomFilter && !s.bloomFilter.Test(key) {
+		s.bloomFilterMetrics.trueNegative(before)
 		return nil, lsmkv.NotFound
 	}
 
 	node, err := s.index.Get(key)
 	if err != nil {
 		if err == lsmkv.NotFound {
-			if s.bloomFilterMetrics != nil {
+			if s.useBloomFilter {
 				s.bloomFilterMetrics.falsePositive(before)
 			}
 			return nil, lsmkv.NotFound
@@ -48,7 +46,7 @@ func (s *segment) get(key []byte) ([]byte, error) {
 	}
 
 	defer func() {
-		if s.bloomFilterMetrics != nil {
+		if s.useBloomFilter {
 			s.bloomFilterMetrics.truePositive(before)
 		}
 	}()
@@ -81,7 +79,7 @@ func (s *segment) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) (
 		return nil, errors.Errorf("no secondary index at pos %d", pos), nil
 	}
 
-	if len(s.secondaryBloomFilters) > 0 && !s.secondaryBloomFilters[pos].Test(key) {
+	if s.useBloomFilter && !s.secondaryBloomFilters[pos].Test(key) {
 		return nil, lsmkv.NotFound, nil
 	}
 

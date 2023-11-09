@@ -133,9 +133,9 @@ func WithUseBloomFilter(useBloomFilter bool) BucketOption {
 	}
 }
 
-func WithCalcNetAdditions(calcNetAdditions bool) BucketOption {
+func WithCalcCountNetAdditions(calcCountNetAdditions bool) BucketOption {
 	return func(b *Bucket) error {
-		b.calcNetAdditions = calcNetAdditions
+		b.calcCountNetAdditions = calcCountNetAdditions
 		return nil
 	}
 }

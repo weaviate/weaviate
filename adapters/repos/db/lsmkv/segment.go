@@ -44,12 +44,14 @@ type segment struct {
 	size                int64
 	mmapContents        bool
 
+	useBloomFilter        bool // see bucket for more datails
 	bloomFilter           *bloom.BloomFilter
 	secondaryBloomFilters []*bloom.BloomFilter
 	bloomFilterMetrics    *bloomFilterMetrics
 
 	// the net addition this segment adds with respect to all previous segments
-	countNetAdditions int
+	calcCountNetAdditions bool // see bucket for more datails
+	countNetAdditions     int
 }
 
 type diskIndex interface {
@@ -70,7 +72,7 @@ type diskIndex interface {
 
 func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	existsLower existsOnLowerSegmentsFn, mmapContents bool,
-	useBloomFilter bool, calcNetAdditions bool,
+	useBloomFilter bool, calcCountNetAdditions bool,
 ) (*segment, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -107,21 +109,23 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
 
 	seg := &segment{
-		level:               header.Level,
-		path:                path,
-		contents:            contents,
-		version:             header.Version,
-		secondaryIndexCount: header.SecondaryIndices,
-		segmentStartPos:     header.IndexStart,
-		segmentEndPos:       uint64(fileInfo.Size()),
-		strategy:            header.Strategy,
-		dataStartPos:        segmentindex.HeaderSize, // fixed value that's the same for all strategies
-		dataEndPos:          header.IndexStart,
-		index:               primaryDiskIndex,
-		logger:              logger,
-		metrics:             metrics,
-		size:                fileInfo.Size(),
-		mmapContents:        mmapContents,
+		level:                 header.Level,
+		path:                  path,
+		contents:              contents,
+		version:               header.Version,
+		secondaryIndexCount:   header.SecondaryIndices,
+		segmentStartPos:       header.IndexStart,
+		segmentEndPos:         uint64(fileInfo.Size()),
+		strategy:              header.Strategy,
+		dataStartPos:          segmentindex.HeaderSize, // fixed value that's the same for all strategies
+		dataEndPos:            header.IndexStart,
+		index:                 primaryDiskIndex,
+		logger:                logger,
+		metrics:               metrics,
+		size:                  fileInfo.Size(),
+		mmapContents:          mmapContents,
+		useBloomFilter:        useBloomFilter,
+		calcCountNetAdditions: calcCountNetAdditions,
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime
@@ -142,12 +146,12 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}
 	}
 
-	if useBloomFilter {
+	if seg.useBloomFilter {
 		if err := seg.initBloomFilters(metrics); err != nil {
 			return nil, err
 		}
 	}
-	if calcNetAdditions {
+	if seg.calcCountNetAdditions {
 		if err := seg.initCountNetAdditions(existsLower); err != nil {
 			return nil, err
 		}

@@ -28,7 +28,7 @@ import (
 // created will have a .tmp suffix so they don't interfere with existing
 // segments that might have a similar name.
 func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
-	logger logrus.FieldLogger, useBloomFilter bool, calcNetAdditions bool,
+	logger logrus.FieldLogger, useBloomFilter bool, calcCountNetAdditions bool,
 ) ([]string, error) {
 	out := []string{path}
 
@@ -83,18 +83,20 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		// .tmp, but that is supposed to be the end of the file. if we didn't trim
 		// the path here, we would end up with filenames like
 		// segment.tmp.bloom.tmp, whereas we want to end up with segment.bloom.tmp
-		path:                strings.TrimSuffix(path, ".tmp"),
-		contents:            contents,
-		contentFile:         file,
-		version:             header.Version,
-		secondaryIndexCount: header.SecondaryIndices,
-		segmentStartPos:     header.IndexStart,
-		segmentEndPos:       uint64(fileInfo.Size()),
-		strategy:            header.Strategy,
-		dataStartPos:        segmentindex.HeaderSize, // fixed value that's the same for all strategies
-		dataEndPos:          header.IndexStart,
-		index:               primaryDiskIndex,
-		logger:              logger,
+		path:                  strings.TrimSuffix(path, ".tmp"),
+		contents:              contents,
+		contentFile:           file,
+		version:               header.Version,
+		secondaryIndexCount:   header.SecondaryIndices,
+		segmentStartPos:       header.IndexStart,
+		segmentEndPos:         uint64(fileInfo.Size()),
+		strategy:              header.Strategy,
+		dataStartPos:          segmentindex.HeaderSize, // fixed value that's the same for all strategies
+		dataEndPos:            header.IndexStart,
+		index:                 primaryDiskIndex,
+		logger:                logger,
+		useBloomFilter:        useBloomFilter,
+		calcCountNetAdditions: calcCountNetAdditions,
 	}
 
 	if seg.secondaryIndexCount > 0 {
@@ -108,14 +110,14 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		}
 	}
 
-	if useBloomFilter {
+	if seg.useBloomFilter {
 		files, err := seg.precomputeBloomFilters()
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, files...)
 	}
-	if calcNetAdditions {
+	if seg.calcCountNetAdditions {
 		files, err := seg.precomputeCountNetAdditions(updatedCountNetAdditions)
 		if err != nil {
 			return nil, err

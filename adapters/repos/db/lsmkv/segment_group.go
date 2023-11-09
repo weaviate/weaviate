@@ -58,20 +58,20 @@ type SegmentGroup struct {
 	mmapContents            bool
 	keepTombstones          bool // see bucket for more datails
 	useBloomFilter          bool // see bucket for more datails
-	calcNetAdditions        bool // see bucket for more datails
+	calcCountNetAdditions   bool // see bucket for more datails
 	compactLeftOverSegments bool // see bucket for more datails
 }
 
 type sgConfig struct {
-	dir                string
-	strategy           string
-	mapRequiresSorting bool
-	monitorCount       bool
-	mmapContents       bool
-	keepTombstones     bool
-	useBloomFilter     bool
-	calcNetAdditions   bool
-	forceCompaction    bool
+	dir                   string
+	strategy              string
+	mapRequiresSorting    bool
+	monitorCount          bool
+	mmapContents          bool
+	keepTombstones        bool
+	useBloomFilter        bool
+	calcCountNetAdditions bool
+	forceCompaction       bool
 }
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
@@ -93,7 +93,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		mmapContents:            cfg.mmapContents,
 		keepTombstones:          cfg.keepTombstones,
 		useBloomFilter:          cfg.useBloomFilter,
-		calcNetAdditions:        cfg.calcNetAdditions,
+		calcCountNetAdditions:   cfg.calcCountNetAdditions,
 		compactLeftOverSegments: cfg.forceCompaction,
 	}
 
@@ -139,7 +139,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 		segment, err := newSegment(filepath.Join(sg.dir, entry.Name()), logger,
 			metrics, sg.makeExistsOnLower(segmentIndex),
-			sg.mmapContents, sg.useBloomFilter, sg.calcNetAdditions)
+			sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init segment %s", entry.Name())
 		}
@@ -185,7 +185,7 @@ func (sg *SegmentGroup) add(path string) error {
 	newSegmentIndex := len(sg.segments)
 	segment, err := newSegment(path, sg.logger,
 		sg.metrics, sg.makeExistsOnLower(newSegmentIndex),
-		sg.mmapContents, sg.useBloomFilter, sg.calcNetAdditions)
+		sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions)
 	if err != nil {
 		return errors.Wrapf(err, "init segment %s", path)
 	}

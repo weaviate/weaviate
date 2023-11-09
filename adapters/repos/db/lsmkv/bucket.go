@@ -99,7 +99,7 @@ type Bucket struct {
 	// As some buckets don't have to provide Count info (see flat index),
 	// tracking additions can be disabled.
 	// ON by default
-	calcNetAdditions bool
+	calcCountNetAdditions bool
 
 	forceCompaction bool
 }
@@ -125,17 +125,17 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	}
 
 	b := &Bucket{
-		dir:               dir,
-		rootDir:           rootDir,
-		memtableThreshold: defaultMemTableThreshold,
-		walThreshold:      defaultWalThreshold,
-		flushAfterIdle:    defaultFlushAfterIdle,
-		strategy:          defaultStrategy,
-		mmapContents:      true,
-		logger:            logger,
-		metrics:           metrics,
-		useBloomFilter:    true,
-		calcNetAdditions:  true,
+		dir:                   dir,
+		rootDir:               rootDir,
+		memtableThreshold:     defaultMemTableThreshold,
+		walThreshold:          defaultWalThreshold,
+		flushAfterIdle:        defaultFlushAfterIdle,
+		strategy:              defaultStrategy,
+		mmapContents:          true,
+		logger:                logger,
+		metrics:               metrics,
+		useBloomFilter:        true,
+		calcCountNetAdditions: true,
 	}
 
 	for _, opt := range opts {
@@ -150,15 +150,15 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 
 	sg, err := newSegmentGroup(logger, metrics, compactionCallbacks,
 		sgConfig{
-			dir:                dir,
-			strategy:           b.strategy,
-			mapRequiresSorting: b.legacyMapSortingBeforeCompaction,
-			monitorCount:       b.monitorCount,
-			mmapContents:       b.mmapContents,
-			keepTombstones:     b.keepTombstones,
-			forceCompaction:    b.forceCompaction,
-			useBloomFilter:     b.useBloomFilter,
-			calcNetAdditions:   b.calcNetAdditions,
+			dir:                   dir,
+			strategy:              b.strategy,
+			mapRequiresSorting:    b.legacyMapSortingBeforeCompaction,
+			monitorCount:          b.monitorCount,
+			mmapContents:          b.mmapContents,
+			keepTombstones:        b.keepTombstones,
+			forceCompaction:       b.forceCompaction,
+			useBloomFilter:        b.useBloomFilter,
+			calcCountNetAdditions: b.calcCountNetAdditions,
 		})
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
