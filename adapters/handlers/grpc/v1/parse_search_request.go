@@ -613,13 +613,14 @@ func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRe
 	// certainty is only compatible with cosine distance
 	props := additional.Properties{
 		Vector:             prop.Vector,
-		Certainty:          false,
+		Certainty:          prop.Certainty,
 		ID:                 prop.Uuid,
 		CreationTimeUnix:   prop.CreationTimeUnix,
 		LastUpdateTimeUnix: prop.LastUpdateTimeUnix,
 		Distance:           prop.Distance,
 		Score:              prop.Score,
 		ExplainScore:       prop.ExplainScore,
+		IsConsistent:       prop.IsConsistent,
 	}
 
 	vectorIndex, err := hnsw.TypeAssertVectorIndex(class)
@@ -627,8 +628,10 @@ func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRe
 		return props, err
 	}
 
-	if vectorIndex.Distance == hnsw.DistanceCosine {
+	if vectorIndex.Distance == hnsw.DistanceCosine && props.Certainty {
 		props.Certainty = true
+	} else {
+		props.Certainty = false
 	}
 
 	return props, nil
