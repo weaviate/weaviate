@@ -1578,8 +1578,16 @@ func (i *Index) drop() error {
 	defer i.backupMutex.RUnlock()
 
 	i.shards.Range(dropShard)
-
 	if err := eg.Wait(); err != nil {
+		return err
+	}
+
+	// Dropping the shards only unregisters the shards callbacks, but we still
+	// need to stop the cycle managers that those shards used to register with.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	if err := i.stopCycleManagers(ctx, "drop"); err != nil {
 		return err
 	}
 
@@ -1653,25 +1661,32 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
-	if err := i.cycleCallbacks.compactionCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("stop compaction cycle: %w", err)
-	}
-	if err := i.cycleCallbacks.flushCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("stop flush cycle: %w", err)
-	}
-	if err := i.cycleCallbacks.vectorCommitLoggerCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("stop vector commit logger cycle: %w", err)
-	}
-	if err := i.cycleCallbacks.vectorTombstoneCleanupCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("stop vector tombstone cleanup cycle: %w", err)
-	}
-	if err := i.cycleCallbacks.geoPropsCommitLoggerCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("stop geo props commit logger cycle: %w", err)
-	}
-	if err := i.cycleCallbacks.geoPropsTombstoneCleanupCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("stop geo props tombsobe cleanup cycle: %w", err)
+	if err := i.stopCycleManagers(ctx, "shutdown"); err != nil {
+		return err
 	}
 
+	return nil
+}
+
+func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {
+	if err := i.cycleCallbacks.compactionCycle.StopAndWait(ctx); err != nil {
+		return fmt.Errorf("%s: stop compaction cycle: %w", usecase, err)
+	}
+	if err := i.cycleCallbacks.flushCycle.StopAndWait(ctx); err != nil {
+		return fmt.Errorf("%s: stop flush cycle: %w", usecase, err)
+	}
+	if err := i.cycleCallbacks.vectorCommitLoggerCycle.StopAndWait(ctx); err != nil {
+		return fmt.Errorf("%s: stop vector commit logger cycle: %w", usecase, err)
+	}
+	if err := i.cycleCallbacks.vectorTombstoneCleanupCycle.StopAndWait(ctx); err != nil {
+		return fmt.Errorf("%s: stop vector tombstone cleanup cycle: %w", usecase, err)
+	}
+	if err := i.cycleCallbacks.geoPropsCommitLoggerCycle.StopAndWait(ctx); err != nil {
+		return fmt.Errorf("%s: stop geo props commit logger cycle: %w", usecase, err)
+	}
+	if err := i.cycleCallbacks.geoPropsTombstoneCleanupCycle.StopAndWait(ctx); err != nil {
+		return fmt.Errorf("%s: stop geo props tombstone cleanup cycle: %w", usecase, err)
+	}
 	return nil
 }
 

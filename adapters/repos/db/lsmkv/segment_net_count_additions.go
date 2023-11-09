@@ -106,19 +106,6 @@ func (s *segment) storeCountNetOnDisk() error {
 	return storeCountNetOnDisk(s.countNetPath(), s.countNetAdditions)
 }
 
-// prefillCountNetAdditions is a helper function that can be used in
-// compactions. A compacted segment behaves exactly as the two segments it
-// replaces. As a result the count net additions of a compacted segment is
-// simply the sum of the old two segments.
-//
-// by "prefilling" which means creating the file on disk, the subsequent
-// newSegment() call can skip re-calculating the count net additions which
-// would have a high cost on large segment groups.
-func prefillCountNetAdditions(segPath string, updatedCountNetAdditions int) error {
-	return storeCountNetOnDisk(countNetPathFromSegmentPath(segPath),
-		updatedCountNetAdditions)
-}
-
 func storeCountNetOnDisk(path string, value int) error {
 	buf := new(bytes.Buffer)
 
@@ -138,4 +125,17 @@ func (s *segment) loadCountNetFromDisk() error {
 	s.countNetAdditions = int(binary.LittleEndian.Uint64(data[0:8]))
 
 	return nil
+}
+
+func (s *segment) precomputeCountNetAdditions(updatedCountNetAdditions int) ([]string, error) {
+	if s.strategy != segmentindex.StrategyReplace {
+		// only "replace" has count net additions, so we are done
+		return []string{}, nil
+	}
+
+	cnaPath := fmt.Sprintf("%s.tmp", s.countNetPath())
+	if err := storeCountNetOnDisk(cnaPath, updatedCountNetAdditions); err != nil {
+		return nil, err
+	}
+	return []string{cnaPath}, nil
 }

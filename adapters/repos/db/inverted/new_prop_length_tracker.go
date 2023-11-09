@@ -224,24 +224,6 @@ func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) int {
 	return int(bucket)
 }
 
-// Returns the value that the given bucket represents
-//
-//nolint:unused
-func (t *JsonPropertyLengthTracker) valueFromBucket(bucket int) float32 {
-	if t.UnlimitedBuckets {
-		return float32(bucket)
-	}
-	if bucket <= 5 {
-		return float32(bucket + 1)
-	}
-
-	if bucket > MAX_BUCKETS-1 {
-		return -1
-	}
-
-	return float32(4 * math.Pow(1.25, float64(bucket)-3.5))
-}
-
 // Returns the average length of the given property
 func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, error) {
 	t.Lock()

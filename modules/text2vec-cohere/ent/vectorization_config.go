@@ -14,4 +14,5 @@ package ent
 type VectorizationConfig struct {
 	Model    string
 	Truncate string
+	BaseURL  string
 }

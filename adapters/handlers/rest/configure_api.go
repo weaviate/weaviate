@@ -42,7 +42,7 @@ import (
 	txstore "github.com/weaviate/weaviate/adapters/repos/transactions"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
@@ -65,6 +65,7 @@ import (
 	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
 	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
+	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modtext2vecpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
@@ -224,7 +225,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
-		enthnsw.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
+		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
 		appState.Modules, appState.Cluster, schemaTxClient,
 		schemaTxPersistence, scaler,
 	)
@@ -743,6 +744,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modbind.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modjinaai.Name]; ok {
+		appState.Modules.Register(modjinaai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modjinaai.Name).
 			Debug("enabled module")
 	}
 

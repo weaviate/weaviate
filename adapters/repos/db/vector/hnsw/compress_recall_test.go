@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
@@ -63,7 +64,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 	for _, distancer := range distancers {
 		truths := make([][]uint64, queries_size)
 		ssdhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
-			truths[i] = testinghelpers.BruteForce(vectors, queries[i], k, distanceWrapper(distancer))
+			truths[i], _ = testinghelpers.BruteForce(vectors, queries[i], k, distanceWrapper(distancer))
 		})
 		fmt.Printf("generating data took %s\n", time.Since(before))
 
@@ -84,7 +85,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 					return vectors[int(id)], nil
 				},
-				TempVectorForIDThunk: func(ctx context.Context, id uint64, container *hnsw.VectorSlice) ([]float32, error) {
+				TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
 					copy(container.Slice, vectors[int(id)])
 					return container.Slice, nil
 				},

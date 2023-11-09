@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -84,8 +85,9 @@ func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 	objectDiff *moduletools.ObjectDiff, findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) error {
-	hnswConfig, ok := class.VectorIndexConfig.(hnsw.UserConfig)
-	if !ok {
+	hnswConfig, okHnsw := class.VectorIndexConfig.(hnsw.UserConfig)
+	_, okFlat := class.VectorIndexConfig.(flat.UserConfig)
+	if !(okHnsw || okFlat) {
 		return fmt.Errorf(errorVectorIndexType, class.VectorIndexConfig)
 	}
 
