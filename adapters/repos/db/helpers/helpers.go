@@ -21,6 +21,8 @@ var (
 	ObjectsBucket              = []byte("objects")
 	ObjectsBucketLSM           = "objects"
 	CompressedVectorsBucketLSM = "compressed_vectors"
+	VectorsFlatBucketLSM       = "vectors_flat"
+	VectorsFlatBQBucketLSM     = "vectors_flat_bq"
 	DimensionsBucketLSM        = "dimensions"
 )
 

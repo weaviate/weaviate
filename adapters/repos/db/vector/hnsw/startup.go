@@ -134,7 +134,7 @@ func (h *hnsw) restoreFromDisk() error {
 		if err != nil {
 			return err
 		}
-		h.cache.drop()
+		h.cache.Drop()
 
 		h.pq, err = ssdhelpers.NewProductQuantizerWithEncoders(
 			h.pqConfig,
@@ -147,10 +147,10 @@ func (h *hnsw) restoreFromDisk() error {
 		}
 
 		// make sure the compressed cache fits the current size
-		h.compressedVectorsCache.grow(uint64(len(h.nodes)))
+		h.compressedVectorsCache.Grow(uint64(len(h.nodes)))
 	} else {
 		// make sure the cache fits the current size
-		h.cache.grow(uint64(len(h.nodes)))
+		h.cache.Grow(uint64(len(h.nodes)))
 	}
 
 	// make sure the visited list pool fits the current size
@@ -182,9 +182,9 @@ func (h *hnsw) PostStartup() {
 func (h *hnsw) prefillCache() {
 	limit := 0
 	if h.compressed.Load() {
-		limit = int(h.compressedVectorsCache.copyMaxSize())
+		limit = int(h.compressedVectorsCache.CopyMaxSize())
 	} else {
-		limit = int(h.cache.copyMaxSize())
+		limit = int(h.cache.CopyMaxSize())
 	}
 
 	go func() {
@@ -196,7 +196,7 @@ func (h *hnsw) prefillCache() {
 			cursor := h.compressedStore.Bucket(helpers.CompressedVectorsBucketLSM).Cursor()
 			for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 				id := binary.LittleEndian.Uint64(k)
-				h.compressedVectorsCache.grow(id)
+				h.compressedVectorsCache.Grow(id)
 
 				// Make sure to copy the vector. The cursor only guarantees that
 				// the underlying memory won't change until we hit .Next(). Since
@@ -206,7 +206,7 @@ func (h *hnsw) prefillCache() {
 				// https://github.com/weaviate/weaviate/issues/3049
 				vc := make([]byte, len(v))
 				copy(vc, v)
-				h.compressedVectorsCache.preload(id, vc)
+				h.compressedVectorsCache.Preload(id, vc)
 			}
 			cursor.Close()
 		} else {

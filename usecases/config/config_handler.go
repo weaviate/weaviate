@@ -24,7 +24,7 @@ import (
 	"github.com/weaviate/weaviate/deprecations"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"gopkg.in/yaml.v2"
 )
@@ -132,7 +132,7 @@ func (c Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
 
 func (c Config) validateDefaultVectorDistanceMetric() error {
 	switch c.DefaultVectorDistanceMetric {
-	case "", hnsw.DistanceCosine, hnsw.DistanceDot, hnsw.DistanceL2Squared, hnsw.DistanceManhattan, hnsw.DistanceHamming:
+	case "", common.DistanceCosine, common.DistanceDot, common.DistanceL2Squared, common.DistanceManhattan, common.DistanceHamming:
 		return nil
 	default:
 		return fmt.Errorf("must be one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]")
@@ -252,7 +252,7 @@ type CORS struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Cohere-Api-Key, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Palm-Api-Key"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key"
 )
 
 func (r ResourceUsage) Validate() error {

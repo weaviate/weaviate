@@ -17,7 +17,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 
@@ -75,7 +75,9 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	if len(out.Properties) == 0 && req.Metadata != nil {
 		// This is a pure-ID query without any props. Indicate this to the DB, so
 		// it can optimize accordingly
-		out.AdditionalProperties.NoProps = true
+		if isIdOnlyRequest(req.Metadata) {
+			out.AdditionalProperties.NoProps = true
+		}
 	} else if len(out.Properties) == 0 && req.Metadata == nil {
 		// no return values selected, return all properties and metadata. Ignore blobs and refs to not overload the
 		// response
@@ -630,6 +632,20 @@ func extractAdditionalPropsForRefs(prop *pb.MetadataRequest) additional.Properti
 	}
 }
 
+func isIdOnlyRequest(metadata *pb.MetadataRequest) bool {
+	// could also use reflect here but this is more explicit
+	return (metadata != nil &&
+		metadata.Uuid &&
+		!metadata.Vector &&
+		!metadata.CreationTimeUnix &&
+		!metadata.LastUpdateTimeUnix &&
+		!metadata.Distance &&
+		!metadata.Certainty &&
+		!metadata.Score &&
+		!metadata.ExplainScore &&
+		!metadata.IsConsistent)
+}
+
 func getAllNonRefNonBlobProperties(scheme schema.Schema, className string) ([]search.SelectProperty, error) {
 	var props []search.SelectProperty
 	class := scheme.GetClass(schema.ClassName(className))
@@ -713,13 +729,13 @@ func setAllCheapAdditionalPropsToTrue(class *models.Class) (additional.Propertie
 		Vector:             false, // can be expensive
 	}
 
-	// certainty is not compatible with dot distance
-	vectorIndex, err := hnsw.TypeAssertVectorIndex(class)
+	vectorIndex, err := schema.TypeAssertVectorIndex(class)
 	if err != nil {
 		return out, err
 	}
 
-	if vectorIndex.Distance == hnsw.DistanceCosine {
+	// certainty is not compatible with dot distance
+	if vectorIndex.DistanceName() == common.DistanceCosine {
 		out.Certainty = true
 	}
 

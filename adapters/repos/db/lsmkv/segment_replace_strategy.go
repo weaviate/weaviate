@@ -28,7 +28,7 @@ func (s *segment) get(key []byte) ([]byte, error) {
 
 	before := time.Now()
 
-	if !s.bloomFilter.Test(key) {
+	if s.useBloomFilter && !s.bloomFilter.Test(key) {
 		s.bloomFilterMetrics.trueNegative(before)
 		return nil, lsmkv.NotFound
 	}
@@ -36,14 +36,20 @@ func (s *segment) get(key []byte) ([]byte, error) {
 	node, err := s.index.Get(key)
 	if err != nil {
 		if err == lsmkv.NotFound {
-			s.bloomFilterMetrics.falsePositive(before)
+			if s.useBloomFilter {
+				s.bloomFilterMetrics.falsePositive(before)
+			}
 			return nil, lsmkv.NotFound
 		} else {
 			return nil, err
 		}
 	}
 
-	defer s.bloomFilterMetrics.truePositive(before)
+	defer func() {
+		if s.useBloomFilter {
+			s.bloomFilterMetrics.truePositive(before)
+		}
+	}()
 
 	// We need to copy the data we read from the segment exactly once in this
 	// place. This means that future processing can share this memory as much as
@@ -73,7 +79,7 @@ func (s *segment) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) (
 		return nil, errors.Errorf("no secondary index at pos %d", pos), nil
 	}
 
-	if !s.secondaryBloomFilters[pos].Test(key) {
+	if s.useBloomFilter && !s.secondaryBloomFilters[pos].Test(key) {
 		return nil, lsmkv.NotFound, nil
 	}
 

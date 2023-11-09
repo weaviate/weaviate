@@ -16,29 +16,16 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 )
 
 type vectorCachePrefiller[T any] struct {
-	cache  cache[T]
+	cache  cache.Cache[T]
 	index  *hnsw
 	logger logrus.FieldLogger
 }
 
-type cache[T any] interface {
-	get(ctx context.Context, id uint64) ([]T, error)
-	len() int32
-	countVectors() int64
-	delete(ctx context.Context, id uint64)
-	preload(id uint64, vec []T)
-	prefetch(id uint64)
-	grow(size uint64)
-	drop()
-	updateMaxSize(size int64)
-	copyMaxSize() int64
-	all() [][]T
-}
-
-func newVectorCachePrefiller[T any](cache cache[T], index *hnsw,
+func newVectorCachePrefiller[T any](cache cache.Cache[T], index *hnsw,
 	logger logrus.FieldLogger,
 ) *vectorCachePrefiller[T] {
 	return &vectorCachePrefiller[T]{
@@ -61,7 +48,7 @@ func (pf *vectorCachePrefiller[T]) Prefill(ctx context.Context, limit int) error
 		}
 	}
 
-	pf.logTotal(int(pf.cache.len()), limit, before)
+	pf.logTotal(int(pf.cache.Len()), limit, before)
 	return nil
 }
 
@@ -80,7 +67,7 @@ func (pf *vectorCachePrefiller[T]) prefillLevel(ctx context.Context,
 	pf.index.Unlock()
 
 	for i := 0; i < nodesLen; i++ {
-		if int(pf.cache.len()) >= limit {
+		if int(pf.cache.Len()) >= limit {
 			break
 		}
 
@@ -106,7 +93,7 @@ func (pf *vectorCachePrefiller[T]) prefillLevel(ctx context.Context,
 		// we are not really interested in the result, we just want to populate the
 		// cache
 		pf.index.Lock()
-		pf.cache.get(ctx, uint64(i))
+		pf.cache.Get(ctx, uint64(i))
 		layerCount++
 		pf.index.Unlock()
 	}

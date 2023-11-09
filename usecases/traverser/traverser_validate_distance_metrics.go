@@ -18,7 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 )
 
 func (t *Traverser) validateExploreDistance(params ExploreParams) error {
@@ -36,7 +36,7 @@ func (t *Traverser) validateExploreDistance(params ExploreParams) error {
 func (t *Traverser) validateCrossClassDistanceCompatibility() (distType string, err error) {
 	s := t.schemaGetter.GetSchemaSkipAuth()
 	if s.Objects == nil {
-		return hnsw.DefaultDistanceMetric, nil
+		return common.DefaultDistanceMetric, nil
 	}
 
 	var (
@@ -57,14 +57,14 @@ func (t *Traverser) validateCrossClassDistanceCompatibility() (distType string, 
 			continue
 		}
 
-		hnswConfig, assertErr := hnsw.TypeAssertVectorIndex(class)
+		vectorConfig, assertErr := schema.TypeAssertVectorIndex(class)
 		if assertErr != nil {
 			err = assertErr
 			return
 		}
 
-		distancerTypes[hnswConfig.Distance] = struct{}{}
-		classDistanceConfigs[class.Class] = hnswConfig.Distance
+		distancerTypes[vectorConfig.DistanceName()] = struct{}{}
+		classDistanceConfigs[class.Class] = vectorConfig.DistanceName()
 	}
 
 	if len(distancerTypes) != 1 {
@@ -88,7 +88,7 @@ func (t *Traverser) validateExploreDistanceParams(params ExploreParams, distType
 		return nil
 	}
 
-	if distType != hnsw.DistanceCosine {
+	if distType != common.DistanceCosine {
 		return certaintyUnsupportedError(distType)
 	}
 
@@ -102,13 +102,13 @@ func (t *Traverser) validateGetDistanceParams(params dto.GetParams) error {
 		return fmt.Errorf("failed to find class '%s' in schema", params.ClassName)
 	}
 
-	hnswConfig, err := hnsw.TypeAssertVectorIndex(class)
+	vectorConfig, err := schema.TypeAssertVectorIndex(class)
 	if err != nil {
 		return err
 	}
 
-	if hnswConfig.Distance != hnsw.DistanceCosine {
-		return certaintyUnsupportedError(hnswConfig.Distance)
+	if dn := vectorConfig.DistanceName(); dn != common.DistanceCosine {
+		return certaintyUnsupportedError(dn)
 	}
 
 	return nil

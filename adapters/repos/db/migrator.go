@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
@@ -370,7 +371,13 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
 	// hnsw is the only supported vector index type at the moment, so no need
 	// to check, we can always use that an hnsw-specific validation should be
 	// used for now.
-	return hnsw.ValidateUserConfigUpdate(old, updated)
+	switch old.IndexType() {
+	case "hnsw":
+		return hnsw.ValidateUserConfigUpdate(old, updated)
+	case "flat":
+		return flat.ValidateUserConfigUpdate(old, updated)
+	}
+	return fmt.Errorf("Invalid index type: %s", old.IndexType())
 }
 
 func (m *Migrator) ValidateInvertedIndexConfigUpdate(ctx context.Context,

@@ -77,7 +77,11 @@ func (f fakeVectorConfig) IndexType() string {
 	return "fake"
 }
 
-func dummyParseVectorConfig(in interface{}) (schemaent.VectorIndexConfig, error) {
+func (f fakeVectorConfig) DistanceName() string {
+	return "fake"
+}
+
+func dummyParseVectorConfig(in interface{}, indexType string) (schemaent.VectorIndexConfig, error) {
 	return fakeVectorConfig(in.(map[string]interface{})), nil
 }
 

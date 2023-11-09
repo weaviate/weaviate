@@ -512,13 +512,13 @@ func (m *Manager) validateProperty(
 func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 	class *models.Class,
 ) error {
-	if class.VectorIndexType != "hnsw" {
+	if class.VectorIndexType != "hnsw" && class.VectorIndexType != "flat" {
 		return errors.Errorf(
 			"parse vector index config: unsupported vector index type: %q",
 			class.VectorIndexType)
 	}
 
-	parsed, err := m.hnswConfigParser(class.VectorIndexConfig)
+	parsed, err := m.configParser(class.VectorIndexConfig, class.VectorIndexType)
 	if err != nil {
 		return errors.Wrap(err, "parse vector index config")
 	}

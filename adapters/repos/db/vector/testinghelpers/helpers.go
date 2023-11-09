@@ -151,7 +151,7 @@ func ReadQueries(queriesSize int) [][]float32 {
 	return queries
 }
 
-func BruteForce(vectors [][]float32, query []float32, k int, distance DistanceFunction) []uint64 {
+func BruteForce(vectors [][]float32, query []float32, k int, distance DistanceFunction) ([]uint64, []float32) {
 	type distanceAndIndex struct {
 		distance float32
 		index    uint64
@@ -176,11 +176,13 @@ func BruteForce(vectors [][]float32, query []float32, k int, distance DistanceFu
 	}
 
 	out := make([]uint64, k)
+	dists := make([]float32, k)
 	for i := 0; i < k; i++ {
 		out[i] = distances[i].index
+		dists[i] = distances[i].distance
 	}
 
-	return out
+	return out, dists
 }
 
 func BuildTruths(queriesSize int, vectorsSize int, queries [][]float32, vectors [][]float32, k int, distance DistanceFunction, path ...string) [][]uint64 {
@@ -196,7 +198,7 @@ func BuildTruths(queriesSize int, vectorsSize int, queries [][]float32, vectors 
 	}
 
 	ssdhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
-		truths[i] = BruteForce(vectors, queries[i], k, distance)
+		truths[i], _ = BruteForce(vectors, queries[i], k, distance)
 	})
 
 	f, err := os.Create(fileName)

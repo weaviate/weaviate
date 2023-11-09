@@ -89,7 +89,7 @@ func Test_NoRacePQKMeans(t *testing.T) {
 	var relevant uint64
 	queries_size = 100
 	for _, query := range queries {
-		truth := testinghelpers.BruteForce(vectors, query, k, distance(distanceProvider))
+		truth, _ := testinghelpers.BruteForce(vectors, query, k, distance(distanceProvider))
 		distances := make([]IndexAndDistance, len(vectors))
 
 		distancer := pq.NewDistancer(query)

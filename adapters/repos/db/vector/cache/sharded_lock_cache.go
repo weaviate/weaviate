@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package hnsw
+package cache
 
 import (
 	"context"
@@ -19,21 +19,20 @@ import (
 	"unsafe"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
-type shardedLockCache struct {
-	shardedLocks        []sync.RWMutex
-	cache               [][]float32
-	vectorForID         VectorForID
-	normalizeOnRead     bool
-	maxSize             int64
-	count               int64
-	cancel              chan bool
-	logger              logrus.FieldLogger
-	dims                int32
-	trackDimensionsOnce sync.Once
-	deletionInterval    time.Duration
+type shardedLockCache[T float32 | byte | uint64] struct {
+	shardedLocks     []sync.RWMutex
+	cache            [][]T
+	vectorForID      common.VectorForID[T]
+	normalizeOnRead  bool
+	maxSize          int64
+	count            int64
+	cancel           chan bool
+	logger           logrus.FieldLogger
+	deletionInterval time.Duration
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
@@ -42,14 +41,27 @@ type shardedLockCache struct {
 
 var shardFactor = uint64(512)
 
-const defaultDeletionInterval = 3 * time.Second
+const (
+	InitialSize             = 1000
+	MinimumIndexGrowthDelta = 2000
+	indexGrowthRate         = 1.25
+)
 
-func newShardedLockCache(vecForID VectorForID, maxSize int,
+func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize int,
 	logger logrus.FieldLogger, normalizeOnRead bool, deletionInterval time.Duration,
-) *shardedLockCache {
-	vc := &shardedLockCache{
-		vectorForID:      vecForID,
-		cache:            make([][]float32, initialSize),
+) Cache[float32] {
+	vc := &shardedLockCache[float32]{
+		vectorForID: func(ctx context.Context, id uint64) ([]float32, error) {
+			vec, err := vecForID(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			if normalizeOnRead {
+				vec = distancer.Normalize(vec)
+			}
+			return vec, nil
+		},
+		cache:            make([][]float32, InitialSize),
 		normalizeOnRead:  normalizeOnRead,
 		count:            0,
 		maxSize:          int64(maxSize),
@@ -67,12 +79,57 @@ func newShardedLockCache(vecForID VectorForID, maxSize int,
 	return vc
 }
 
-//nolint:unused
-func (s *shardedLockCache) all() [][]float32 {
+func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int,
+	logger logrus.FieldLogger, deletionInterval time.Duration,
+) Cache[byte] {
+	vc := &shardedLockCache[byte]{
+		vectorForID:      vecForID,
+		cache:            make([][]byte, InitialSize),
+		normalizeOnRead:  false,
+		count:            0,
+		maxSize:          int64(maxSize),
+		cancel:           make(chan bool),
+		logger:           logger,
+		shardedLocks:     make([]sync.RWMutex, shardFactor),
+		maintenanceLock:  sync.Mutex{},
+		deletionInterval: deletionInterval,
+	}
+
+	for i := uint64(0); i < shardFactor; i++ {
+		vc.shardedLocks[i] = sync.RWMutex{}
+	}
+	vc.watchForDeletion()
+	return vc
+}
+
+func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
+	logger logrus.FieldLogger, deletionInterval time.Duration,
+) Cache[uint64] {
+	vc := &shardedLockCache[uint64]{
+		vectorForID:      vecForID,
+		cache:            make([][]uint64, InitialSize),
+		normalizeOnRead:  false,
+		count:            0,
+		maxSize:          int64(maxSize),
+		cancel:           make(chan bool),
+		logger:           logger,
+		shardedLocks:     make([]sync.RWMutex, shardFactor),
+		maintenanceLock:  sync.Mutex{},
+		deletionInterval: deletionInterval,
+	}
+
+	for i := uint64(0); i < shardFactor; i++ {
+		vc.shardedLocks[i] = sync.RWMutex{}
+	}
+	vc.watchForDeletion()
+	return vc
+}
+
+func (s *shardedLockCache[T]) All() [][]T {
 	return s.cache
 }
 
-func (s *shardedLockCache) get(ctx context.Context, id uint64) ([]float32, error) {
+func (s *shardedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
 	s.shardedLocks[id%shardFactor].RLock()
 	vec := s.cache[id]
 	s.shardedLocks[id%shardFactor].RUnlock()
@@ -84,8 +141,7 @@ func (s *shardedLockCache) get(ctx context.Context, id uint64) ([]float32, error
 	return s.handleCacheMiss(ctx, id)
 }
 
-//nolint:unused
-func (s *shardedLockCache) delete(ctx context.Context, id uint64) {
+func (s *shardedLockCache[T]) Delete(ctx context.Context, id uint64) {
 	s.shardedLocks[id%shardFactor].Lock()
 	defer s.shardedLocks[id%shardFactor].Unlock()
 
@@ -97,18 +153,10 @@ func (s *shardedLockCache) delete(ctx context.Context, id uint64) {
 	atomic.AddInt64(&s.count, -1)
 }
 
-func (s *shardedLockCache) handleCacheMiss(ctx context.Context, id uint64) ([]float32, error) {
+func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([]T, error) {
 	vec, err := s.vectorForID(ctx, id)
 	if err != nil {
 		return nil, err
-	}
-
-	s.trackDimensionsOnce.Do(func() {
-		atomic.StoreInt32(&s.dims, int32(len(vec)))
-	})
-
-	if s.normalizeOnRead {
-		vec = distancer.Normalize(vec)
 	}
 
 	atomic.AddInt64(&s.count, 1)
@@ -119,8 +167,8 @@ func (s *shardedLockCache) handleCacheMiss(ctx context.Context, id uint64) ([]fl
 	return vec, nil
 }
 
-func (s *shardedLockCache) multiGet(ctx context.Context, ids []uint64) ([][]float32, []error) {
-	out := make([][]float32, len(ids))
+func (s *shardedLockCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T, []error) {
+	out := make([][]T, len(ids))
 	errs := make([]error, len(ids))
 
 	for i, id := range ids {
@@ -140,33 +188,28 @@ func (s *shardedLockCache) multiGet(ctx context.Context, ids []uint64) ([][]floa
 	return out, errs
 }
 
-//nolint:unused
 var prefetchFunc func(in uintptr) = func(in uintptr) {
 	// do nothing on default arch
 	// this function will be overridden for amd64
 }
 
-//nolint:unused
-func (s *shardedLockCache) prefetch(id uint64) {
+func (s *shardedLockCache[T]) Prefetch(id uint64) {
 	s.shardedLocks[id%shardFactor].RLock()
 	defer s.shardedLocks[id%shardFactor].RUnlock()
 
 	prefetchFunc(uintptr(unsafe.Pointer(&s.cache[id])))
 }
 
-func (s *shardedLockCache) preload(id uint64, vec []float32) {
+func (s *shardedLockCache[T]) Preload(id uint64, vec []T) {
 	s.shardedLocks[id%shardFactor].Lock()
 	defer s.shardedLocks[id%shardFactor].Unlock()
 
 	atomic.AddInt64(&s.count, 1)
-	s.trackDimensionsOnce.Do(func() {
-		atomic.StoreInt32(&s.dims, int32(len(vec)))
-	})
 
 	s.cache[id] = vec
 }
 
-func (s *shardedLockCache) grow(node uint64) {
+func (s *shardedLockCache[T]) Grow(node uint64) {
 	if node < uint64(len(s.cache)) {
 		return
 	}
@@ -176,28 +219,28 @@ func (s *shardedLockCache) grow(node uint64) {
 	s.obtainAllLocks()
 	defer s.releaseAllLocks()
 
-	newSize := node + minimumIndexGrowthDelta
-	newCache := make([][]float32, newSize)
+	newSize := node + MinimumIndexGrowthDelta
+	newCache := make([][]T, newSize)
 	copy(newCache, s.cache)
-	atomic.StoreInt64(&s.count, int64(newSize))
 	s.cache = newCache
 }
 
-//nolint:unused
-func (s *shardedLockCache) len() int32 {
+func (s *shardedLockCache[T]) Len() int32 {
 	return int32(len(s.cache))
 }
 
-func (s *shardedLockCache) countVectors() int64 {
+func (s *shardedLockCache[T]) CountVectors() int64 {
 	return atomic.LoadInt64(&s.count)
 }
 
-func (s *shardedLockCache) drop() {
+func (s *shardedLockCache[T]) Drop() {
 	s.deleteAllVectors()
-	s.cancel <- true
+	if s.deletionInterval != 0 {
+		s.cancel <- true
+	}
 }
 
-func (s *shardedLockCache) deleteAllVectors() {
+func (s *shardedLockCache[T]) deleteAllVectors() {
 	s.obtainAllLocks()
 	defer s.releaseAllLocks()
 
@@ -210,22 +253,24 @@ func (s *shardedLockCache) deleteAllVectors() {
 	atomic.StoreInt64(&s.count, 0)
 }
 
-func (s *shardedLockCache) watchForDeletion() {
-	go func() {
-		t := time.NewTicker(s.deletionInterval)
-		defer t.Stop()
-		for {
-			select {
-			case <-s.cancel:
-				return
-			case <-t.C:
-				s.replaceIfFull()
+func (s *shardedLockCache[T]) watchForDeletion() {
+	if s.deletionInterval != 0 {
+		go func() {
+			t := time.NewTicker(s.deletionInterval)
+			defer t.Stop()
+			for {
+				select {
+				case <-s.cancel:
+					return
+				case <-t.C:
+					s.replaceIfFull()
+				}
 			}
-		}
-	}()
+		}()
+	}
 }
 
-func (s *shardedLockCache) replaceIfFull() {
+func (s *shardedLockCache[T]) replaceIfFull() {
 	if atomic.LoadInt64(&s.count) >= atomic.LoadInt64(&s.maxSize) {
 		s.maintenanceLock.Lock()
 		s.deleteAllVectors()
@@ -233,7 +278,7 @@ func (s *shardedLockCache) replaceIfFull() {
 	}
 }
 
-func (s *shardedLockCache) obtainAllLocks() {
+func (s *shardedLockCache[T]) obtainAllLocks() {
 	wg := &sync.WaitGroup{}
 	for i := uint64(0); i < shardFactor; i++ {
 		wg.Add(1)
@@ -246,19 +291,17 @@ func (s *shardedLockCache) obtainAllLocks() {
 	wg.Wait()
 }
 
-func (s *shardedLockCache) releaseAllLocks() {
+func (s *shardedLockCache[T]) releaseAllLocks() {
 	for i := uint64(0); i < shardFactor; i++ {
 		s.shardedLocks[i].Unlock()
 	}
 }
 
-//nolint:unused
-func (s *shardedLockCache) updateMaxSize(size int64) {
+func (s *shardedLockCache[T]) UpdateMaxSize(size int64) {
 	atomic.StoreInt64(&s.maxSize, size)
 }
 
-//nolint:unused
-func (s *shardedLockCache) copyMaxSize() int64 {
+func (s *shardedLockCache[T]) CopyMaxSize() int64 {
 	sizeCopy := atomic.LoadInt64(&s.maxSize)
 	return sizeCopy
 }
@@ -267,21 +310,11 @@ func (s *shardedLockCache) copyMaxSize() int64 {
 // explicitly pass through each vectorForID call to the underlying vectorForID
 // function without caching in between.
 type noopCache struct {
-	vectorForID VectorForID
+	vectorForID common.VectorForID[float32]
 }
 
-func NewNoopCache(vecForID VectorForID, maxSize int,
+func NewNoopCache(vecForID common.VectorForID[float32], maxSize int,
 	logger logrus.FieldLogger,
 ) *noopCache {
 	return &noopCache{vectorForID: vecForID}
-}
-
-//nolint:unused
-func (n *noopCache) get(ctx context.Context, id uint64) ([]float32, error) {
-	return n.vectorForID(ctx, id)
-}
-
-//nolint:unused
-func (n *noopCache) len() int32 {
-	return 0
 }

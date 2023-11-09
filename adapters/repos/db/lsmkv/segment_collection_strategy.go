@@ -26,7 +26,7 @@ func (s *segment) getCollection(key []byte) ([]value, error) {
 			StrategySetCollection, StrategyMapCollection)
 	}
 
-	if !s.bloomFilter.Test(key) {
+	if s.useBloomFilter && !s.bloomFilter.Test(key) {
 		return nil, lsmkv.NotFound
 	}
 
