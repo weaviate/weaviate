@@ -12,16 +12,21 @@
 package config
 
 import (
-	// "encoding/json"
+	"encoding/json"
 	"fmt"
-
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"strconv"
 )
 
 var (
-	DefaultAlephAlphaModel            = "luminous-base"
+	DefaultAlephAlphaModel = "luminous-base"
+	DefaultMaximumTokens   = 64
+)
+
+const (
+	MaximumTokensKey = "maximum_tokens"
 )
 
 var availableAlephAlphaModels = []string{
@@ -35,6 +40,7 @@ var availableAlephAlphaModels = []string{
 
 type ClassSettings interface {
 	Model() string
+	MaximumTokens() int
 	Validate(class *models.Class) error
 }
 
@@ -56,12 +62,22 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if model == nil || !ic.validateModel(*model) {
 		return errors.Errorf("wrong Aleph Alpha model name, available model names are: %v", availableAlephAlphaModels)
 	}
+
+	maximumTokens := ic.getIntProperty(MaximumTokensKey, DefaultMaximumTokens)
+	if maximumTokens == nil || !ic.validateMaximumTokens(*maximumTokens) {
+		return errors.Errorf("wrong maximum tokens configuration, value is required and should be greater than 0")
+	}
+
 	fmt.Printf("validation is successful!")
 	return nil
 }
 
 func (ic *classSettings) Model() string {
 	return *ic.getStringProperty("model", DefaultAlephAlphaModel)
+}
+
+func (ic *classSettings) MaximumTokens() int {
+	return *ic.getIntProperty(MaximumTokensKey, DefaultMaximumTokens)
 }
 
 func (ic *classSettings) validateModel(model string) bool {
@@ -71,6 +87,12 @@ func (ic *classSettings) validateModel(model string) bool {
 		}
 	}
 	return false
+}
+
+func (ic *classSettings) validateMaximumTokens(maximumTokens int) bool {
+
+	return maximumTokens > 0
+
 }
 
 func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
@@ -86,6 +108,25 @@ func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
 			return &asString
 		}
 		var empty string
+		return &empty
+	}
+	return &defaultValue
+}
+
+func (ic *classSettings) getIntProperty(name string, defaultValue int) *int {
+	if ic.cfg == nil {
+		// we would receive a nil-config on cross-class requests, such as Explore{}
+		return &defaultValue
+	}
+
+	value, ok := ic.cfg.ClassByModuleName("generative-alephalpha")[name]
+	if ok {
+		asInt, ok := value.(json.Number)
+		if ok {
+			casted, _ := strconv.Atoi(string(asInt))
+			return &casted
+		}
+		var empty int
 		return &empty
 	}
 	return &defaultValue

@@ -79,7 +79,7 @@ func (a *alephalpha) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 		URL:           "https://api.aleph-alpha.com/complete",
 		Model:         settings.Model(),
 		Prompt:        prompt,
-		MaximumTokens: 64,
+		MaximumTokens: settings.MaximumTokens(),
 		APIKey: 	  a.alephAlphaAPIKey,
 	}
 
