@@ -157,7 +157,7 @@ func (db *DB) migratePQVectors(plan migrationPlan) error {
 		newStorePath := path.Join(
 			oldClassPath,
 			parts[0].shard,
-			"pq",
+			"lsm",
 			helpers.VectorsPQBucketLSM,
 		)
 		if err := os.MkdirAll(newStorePath, os.ModePerm); err != nil {
