@@ -24,10 +24,12 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 func (h *Handler) GetClass(ctx context.Context, principal *models.Principal,
@@ -56,7 +58,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	} else if cls.MultiTenancyConfig == nil {
 		cls.MultiTenancyConfig = &models.MultiTenancyConfig{}
 	} else if cls.MultiTenancyConfig.Enabled {
-		cls.ShardingConfig = sharding.Config{DesiredCount: 0} // tenant shards will be created dynamically
+		cls.ShardingConfig = shardingConfig.Config{DesiredCount: 0} // tenant shards will be created dynamically
 	}
 
 	h.setClassDefaults(cls)
@@ -76,7 +78,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	}
 
 	shardState, err := sharding.InitState(cls.Class,
-		cls.ShardingConfig.(sharding.Config),
+		cls.ShardingConfig.(shardingConfig.Config),
 		h.clusterState, cls.ReplicationConfig.Factor,
 		schema.MultiTenancyEnabled(cls))
 	if err != nil {
@@ -169,8 +171,8 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	}
 
 	if err := h.validator.ValidateVectorIndexConfigUpdate(ctx,
-		initial.VectorIndexConfig.(schema.VectorIndexConfig),
-		updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
+		initial.VectorIndexConfig.(schemaConfig.VectorIndexConfig),
+		updated.VectorIndexConfig.(schemaConfig.VectorIndexConfig)); err != nil {
 		return errors.Wrap(err, "vector index config")
 	}
 
@@ -601,15 +603,15 @@ func validateShardingConfig(current, update *models.Class, mtEnabled bool, cl cl
 	if mtEnabled {
 		return nil
 	}
-	first, ok := current.ShardingConfig.(sharding.Config)
+	first, ok := current.ShardingConfig.(shardingConfig.Config)
 	if !ok {
 		return fmt.Errorf("current config is not well-formed")
 	}
-	second, ok := update.ShardingConfig.(sharding.Config)
+	second, ok := update.ShardingConfig.(shardingConfig.Config)
 	if !ok {
 		return fmt.Errorf("updated config is not well-formed")
 	}
-	if err := sharding.ValidateConfigUpdate(first, second, cl); err != nil {
+	if err := shardingConfig.ValidateConfigUpdate(first, second, cl); err != nil {
 		return err
 	}
 	return nil

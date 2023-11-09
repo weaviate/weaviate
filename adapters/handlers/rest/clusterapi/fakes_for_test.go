@@ -20,7 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
-	schemaent "github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	ucs "github.com/weaviate/weaviate/usecases/schema"
 
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -81,7 +81,7 @@ func (f fakeVectorConfig) IndexType() string {
 	return "fake"
 }
 
-func dummyParseVectorConfig(in interface{}) (schemaent.VectorIndexConfig, error) {
+func dummyParseVectorConfig(in interface{}) (schemaConfig.VectorIndexConfig, error) {
 	return fakeVectorConfig(in.(map[string]interface{})), nil
 }
 
@@ -246,11 +246,11 @@ func (n *NilMigrator) DropProperty(ctx context.Context, className string, propNa
 	return nil
 }
 
-func (n *NilMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context, old, updated schemaent.VectorIndexConfig) error {
+func (n *NilMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context, old, updated schemaConfig.VectorIndexConfig) error {
 	return nil
 }
 
-func (n *NilMigrator) UpdateVectorIndexConfig(ctx context.Context, className string, updated schemaent.VectorIndexConfig) error {
+func (n *NilMigrator) UpdateVectorIndexConfig(ctx context.Context, className string, updated schemaConfig.VectorIndexConfig) error {
 	return nil
 }
 

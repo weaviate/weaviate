@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/replica"
 
@@ -63,7 +64,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
-		class.VectorIndexConfig.(schema.VectorIndexConfig),
+		class.VectorIndexConfig.(schemaConfig.VectorIndexConfig),
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, m.db.promMetrics, class, m.db.jobQueueCh, m.db.indexCheckpoints)
 	if err != nil {
@@ -353,7 +354,7 @@ func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
 }
 
 func (m *Migrator) UpdateVectorIndexConfig(ctx context.Context,
-	className string, updated schema.VectorIndexConfig,
+	className string, updated schemaConfig.VectorIndexConfig,
 ) error {
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
@@ -364,7 +365,7 @@ func (m *Migrator) UpdateVectorIndexConfig(ctx context.Context,
 }
 
 func (m *Migrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
-	old, updated schema.VectorIndexConfig,
+	old, updated schemaConfig.VectorIndexConfig,
 ) error {
 	// hnsw is the only supported vector index type at the moment, so no need
 	// to check, we can always use that an hnsw-specific validation should be

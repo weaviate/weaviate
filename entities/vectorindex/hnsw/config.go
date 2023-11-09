@@ -19,9 +19,9 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema/config"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/schema"
 )
 
 const (
@@ -101,7 +101,7 @@ func (u *UserConfig) SetDefaults() {
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
-func ParseAndValidateConfig(input interface{}) (schema.VectorIndexConfig, error) {
+func ParseAndValidateConfig(input interface{}) (config.VectorIndexConfig, error) {
 	uc := UserConfig{}
 	uc.SetDefaults()
 

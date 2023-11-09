@@ -19,10 +19,12 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 // Manager Manages schema changes at a use-case level, i.e. agnostic of
@@ -45,7 +47,7 @@ type Manager struct {
 	metaReader
 }
 
-type VectorConfigParser func(in interface{}) (schema.VectorIndexConfig, error)
+type VectorConfigParser func(in interface{}) (schemaConfig.VectorIndexConfig, error)
 
 type InvertedConfigValidator func(in *models.InvertedIndexConfig) error
 
@@ -157,7 +159,7 @@ type clusterState interface {
 type scaleOut interface {
 	SetSchemaManager(sm scaler.SchemaManager)
 	Scale(ctx context.Context, className string,
-		updated sharding.Config, prevReplFactor, newReplFactor int64) (*sharding.State, error)
+		updated shardingConfig.Config, prevReplFactor, newReplFactor int64) (*sharding.State, error)
 }
 
 // NewManager creates a new manager
