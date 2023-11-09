@@ -21,7 +21,7 @@ import (
 )
 
 var (
-	DefaultAlephAlphaModel = "luminous-base"
+	DefaultAlephAlphaModel = "luminous-base-control"
 	DefaultMaximumTokens   = 64
 	DefaultTemperature     = 0.0
 )
