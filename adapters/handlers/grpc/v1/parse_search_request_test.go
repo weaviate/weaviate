@@ -46,18 +46,6 @@ func TestGRPCRequest(t *testing.T) {
 	dotClass := "DotClass"
 	objClass := "ObjClass"
 
-	defaultAddProps := additional.Properties{
-		Vector:             false,
-		Certainty:          true,
-		ID:                 true,
-		CreationTimeUnix:   true,
-		LastUpdateTimeUnix: true,
-		Distance:           true,
-		Score:              true,
-		ExplainScore:       true,
-		IsConsistent:       false,
-	}
-
 	defaultClassnameProps := search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}, {Name: "floats", IsPrimitive: true}, {Name: "uuid", IsPrimitive: true}}
 
 	scheme := schema.Schema{
@@ -158,7 +146,6 @@ func TestGRPCRequest(t *testing.T) {
 			req:  &pb.SearchRequest{Collection: classname},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, Properties: defaultClassnameProps,
-				AdditionalProperties: defaultAddProps,
 			},
 			error: false,
 		},
@@ -167,7 +154,6 @@ func TestGRPCRequest(t *testing.T) {
 			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{},
-				AdditionalProperties: defaultAddProps,
 			},
 			error: false,
 		},
@@ -176,17 +162,6 @@ func TestGRPCRequest(t *testing.T) {
 			req:  &pb.SearchRequest{Collection: dotClass},
 			out: dto.GetParams{
 				ClassName: dotClass, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "something", IsPrimitive: true}},
-				AdditionalProperties: additional.Properties{
-					Vector:             false,
-					Certainty:          false, // not compatible
-					ID:                 true,
-					CreationTimeUnix:   true,
-					LastUpdateTimeUnix: true,
-					Distance:           true,
-					Score:              true,
-					ExplainScore:       true,
-					IsConsistent:       false,
-				},
 			},
 			error: false,
 		},
@@ -224,7 +199,6 @@ func TestGRPCRequest(t *testing.T) {
 				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{{ClassName: refClass1, RefProperties: search.SelectProperties{{Name: "something", IsPrimitive: true}}, AdditionalProperties: additional.Properties{
 					Vector: true,
 				}}}}},
-				AdditionalProperties: defaultAddProps,
 			},
 			error: false,
 		},
@@ -233,7 +207,6 @@ func TestGRPCRequest(t *testing.T) {
 			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{NonRefProperties: []string{"name", "CapitalizedName"}}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "capitalizedName", IsPrimitive: true}},
-				AdditionalProperties: defaultAddProps,
 			},
 			error: false,
 		},
@@ -241,8 +214,7 @@ func TestGRPCRequest(t *testing.T) {
 			name: "ref returns no values given",
 			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{RefProperties: []*pb.RefPropertiesRequest{{ReferenceProperty: "ref", TargetCollection: refClass1}}}},
 			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{{ClassName: refClass1, RefProperties: search.SelectProperties{{Name: "something", IsPrimitive: true}}, AdditionalProperties: defaultAddProps}}}},
-				AdditionalProperties: defaultAddProps,
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{{ClassName: refClass1, RefProperties: search.SelectProperties{{Name: "something", IsPrimitive: true}}}}}},
 			},
 			error: false,
 		},
@@ -263,7 +235,6 @@ func TestGRPCRequest(t *testing.T) {
 					{Name: "multiRef", IsPrimitive: false, Refs: []search.SelectClass{{ClassName: refClass1, RefProperties: search.SelectProperties{{Name: "something", IsPrimitive: true}}, AdditionalProperties: additional.Properties{Vector: true}}}},
 					{Name: "multiRef", IsPrimitive: false, Refs: []search.SelectClass{{ClassName: refClass2, RefProperties: search.SelectProperties{{Name: "else", IsPrimitive: true}}, AdditionalProperties: additional.Properties{ID: true}}}},
 				},
-				AdditionalProperties: defaultAddProps,
 			},
 			error: false,
 		},
@@ -795,7 +766,6 @@ func TestGRPCRequest(t *testing.T) {
 						},
 					},
 				},
-				AdditionalProperties: defaultAddProps,
 			},
 		},
 		{
@@ -823,7 +793,6 @@ func TestGRPCRequest(t *testing.T) {
 						},
 					},
 				},
-				AdditionalProperties: defaultAddProps,
 			},
 			error: false,
 		},
