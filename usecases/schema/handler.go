@@ -14,7 +14,7 @@ package schema
 import (
 	"context"
 	"fmt"
-	"log"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -175,26 +175,31 @@ func (h *Handler) ShardsStatus(ctx context.Context,
 	return h.metaReader.GetShardsStatus(class)
 }
 
-/// TODO-RAFT START
-/// https://semi-technology.atlassian.net/browse/WVT-33
-
 // JoinNode adds the given node to the cluster.
-// Node needs to reachable
-func (h *Handler) JoinNode(node string, voter bool) {
-	log.Println(node, voter)
+// Node needs to reachable via memberlist/gossip.
+// If nodePort is an empty string, nodePort will be the default raft port.
+// If the node is not reachable using memberlist, an error is returned
+// If joining the node fails, an error is returned.
+func (h *Handler) JoinNode(ctx context.Context, node string, nodePort string, voter bool) error {
+	nodeAddr, ok := h.clusterState.NodeHostname(node)
+	if !ok {
+		return fmt.Errorf("could not resolve addr for node id %v", node)
+	}
+	nodeAddr = strings.Split(nodeAddr, ":")[0]
+
+	if nodePort == "" {
+		nodePort = fmt.Sprintf("%d", config.DefaultRaftPort)
+	}
+
+	return h.metaWriter.Join(ctx, node, nodeAddr+":"+nodePort, voter)
 }
 
-// RemoveNode adds the given node to the cluster.
-func (h *Handler) RemoveNode(node string) {
-	log.Println(node)
+// RemoveNode removes the given node from the cluster.
+func (h *Handler) RemoveNode(ctx context.Context, node string) error {
+	return h.metaWriter.Remove(ctx, node)
 }
 
 // Statistics is used to return a map of various internal stats. This should only be used for informative purposes or debugging.
 func (h *Handler) Statistics() map[string]string {
-	return map[string]string{
-		"A": "1",
-		"B": "2",
-	}
+	return h.metaWriter.Stats()
 }
-
-/// TODO-RAFT END
