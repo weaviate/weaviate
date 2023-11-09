@@ -112,6 +112,8 @@ case $CONFIG in
         CLUSTER_GOSSIP_BIND_PORT="7106" \
         CLUSTER_DATA_BIND_PORT="7107" \
         CLUSTER_JOIN="localhost:7100" \
+        RAFT_PORT="8306" \
+        RAFT_INTERNAL_RPC_PORT="8307" \
         CONTEXTIONARY_URL=localhost:9999 \
         DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
         ENABLE_MODULES="text2vec-contextionary" \
