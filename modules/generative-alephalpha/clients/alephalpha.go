@@ -29,38 +29,38 @@ import (
 
 // Response represents the response from the Aleph Alpha /complete endpoint.
 type Response struct {
-    Completions []Completion `json:"completions"`
-    ModelVersion string `json:"model_version"`
+	Completions  []Completion `json:"completions"`
+	ModelVersion string       `json:"model_version"`
 }
 
 type Completion struct {
-    Text string `json:"completion"`
-    FinishReason string `json:"finish_reason"`
+	Text         string `json:"completion"`
+	FinishReason string `json:"finish_reason"`
 }
 
 type Request struct {
-    URL           string
-    Model         string
-    Prompt        string
-    MaximumTokens int
-    APIKey        string
+	URL           string
+	Model         string
+	Prompt        string
+	MaximumTokens int
+	APIKey        string
 }
 
 type alephalpha struct {
 	alephAlphaAPIKey string
-	httpClient	  *http.Client
-	logger 	  logrus.FieldLogger
+	httpClient       *http.Client
+	logger           logrus.FieldLogger
 }
 
 func New(alephAlpaAPIKey string, logger logrus.FieldLogger) *alephalpha {
 	return &alephalpha{
 		alephAlphaAPIKey: alephAlpaAPIKey,
-		httpClient:	  &http.Client{},
-		logger: 	  logger,
+		httpClient:       &http.Client{},
+		logger:           logger,
 	}
 }
 
-func (a *alephalpha) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error)  {
+func (a *alephalpha) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
 	forPrompt, err := generateTextForPrompt(textProperties, prompt)
 	if err != nil {
 		return nil, err
@@ -80,20 +80,20 @@ func (a *alephalpha) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 		Model:         settings.Model(),
 		Prompt:        prompt,
 		MaximumTokens: settings.MaximumTokens(),
-		APIKey: 	  a.alephAlphaAPIKey,
+		APIKey:        a.alephAlphaAPIKey,
 	}
 
 	completions, err := a.makeRequest(input)
-    if err != nil {
-        return nil, err
-    }
+	if err != nil {
+		return nil, err
+	}
 
 	return &generativemodels.GenerateResponse{
 		Result: &completions[0].Text,
 	}, nil
 }
 
-func (a *alephalpha) makeRequest(input Request) ([] Completion, error) {
+func (a *alephalpha) makeRequest(input Request) ([]Completion, error) {
 	method := "POST"
 	payload := strings.NewReader(fmt.Sprintf(`{
 		"model": "%s",
@@ -132,6 +132,7 @@ func (a *alephalpha) makeRequest(input Request) ([] Completion, error) {
 
 	return response.Completions, nil
 }
+
 // generateTextForPrompt generates text for a given prompt by replacing placeholders in the prompt with values from a map of text properties.
 //
 // The function takes two arguments:
@@ -145,15 +146,15 @@ func (a *alephalpha) makeRequest(input Request) ([] Completion, error) {
 //
 // The function returns the generated text and an error, if any.
 func generateTextForPrompt(textProperties map[string]string, prompt string) (string, error) {
-    propertyPlaceholderRegex := regexp.MustCompile(`{([\w\s]*?)}`)
-    propertyPlaceholders := propertyPlaceholderRegex.FindAllString(prompt, -1)
-    for _, propertyPlaceholder := range propertyPlaceholders {
-        propertyName := strings.Trim(propertyPlaceholder, "{}")
-        propertyValue := textProperties[propertyName]
-        if propertyValue == "" {
-            return "", errors.Errorf("The following property has an empty value: '%v'. Make sure you spell the property name correctly, verify that the property exists and has a value", propertyName)
-        }
-        prompt = strings.ReplaceAll(prompt, propertyPlaceholder, propertyValue)
-    }
-    return prompt, nil
+	propertyPlaceholderRegex := regexp.MustCompile(`{([\w\s]*?)}`)
+	propertyPlaceholders := propertyPlaceholderRegex.FindAllString(prompt, -1)
+	for _, propertyPlaceholder := range propertyPlaceholders {
+		propertyName := strings.Trim(propertyPlaceholder, "{}")
+		propertyValue := textProperties[propertyName]
+		if propertyValue == "" {
+			return "", errors.Errorf("The following property has an empty value: '%v'. Make sure you spell the property name correctly, verify that the property exists and has a value", propertyName)
+		}
+		prompt = strings.ReplaceAll(prompt, propertyPlaceholder, propertyValue)
+	}
+	return prompt, nil
 }
