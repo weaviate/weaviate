@@ -160,7 +160,7 @@ func TestCNA_OFF(t *testing.T) {
 			f:    dontCreateCNA,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
-				WithCalcNetAdditions(false),
+				WithCalcCountNetAdditions(false),
 			},
 		},
 		{
@@ -168,7 +168,7 @@ func TestCNA_OFF(t *testing.T) {
 			f:    dontRecreateCNA,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
-				WithCalcNetAdditions(false),
+				WithCalcCountNetAdditions(false),
 			},
 		},
 		{
@@ -176,7 +176,7 @@ func TestCNA_OFF(t *testing.T) {
 			f:    dontPrecomputeCNA,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
-				WithCalcNetAdditions(false),
+				WithCalcCountNetAdditions(false),
 			},
 		},
 	}

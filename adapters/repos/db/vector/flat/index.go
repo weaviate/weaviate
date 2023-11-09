@@ -98,7 +98,7 @@ func (index *flat) initBuckets(ctx context.Context) error {
 	if err := index.store.CreateOrLoadBucket(ctx, helpers.VectorsFlatBucketLSM,
 		lsmkv.WithForceCompation(true),
 		lsmkv.WithUseBloomFilter(false),
-		lsmkv.WithCalcNetAdditions(false),
+		lsmkv.WithCalcCountNetAdditions(false),
 	); err != nil {
 		return fmt.Errorf("Create or load flat vectors bucket: %w", err)
 	}
@@ -106,7 +106,7 @@ func (index *flat) initBuckets(ctx context.Context) error {
 		if err := index.store.CreateOrLoadBucket(ctx, helpers.VectorsFlatBQBucketLSM,
 			lsmkv.WithForceCompation(true),
 			lsmkv.WithUseBloomFilter(false),
-			lsmkv.WithCalcNetAdditions(false),
+			lsmkv.WithCalcCountNetAdditions(false),
 		); err != nil {
 			return fmt.Errorf("Create or load flat compressed vectors bucket: %w", err)
 		}
