@@ -612,7 +612,6 @@ func extractNestedProperties(props []*pb.ObjectPropertiesRequest) []search.Selec
 func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRequest) (additional.Properties, error) {
 	props := additional.Properties{
 		Vector:             prop.Vector,
-		Certainty:          prop.Certainty,
 		ID:                 prop.Uuid,
 		CreationTimeUnix:   prop.CreationTimeUnix,
 		LastUpdateTimeUnix: prop.LastUpdateTimeUnix,
@@ -628,7 +627,7 @@ func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRe
 	}
 
 	// certainty is only compatible with cosine distance
-	if vectorIndex.Distance == hnsw.DistanceCosine && props.Certainty {
+	if vectorIndex.Distance == hnsw.DistanceCosine && prop.Certainty {
 		props.Certainty = true
 	} else {
 		props.Certainty = false
