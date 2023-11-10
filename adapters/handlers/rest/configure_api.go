@@ -250,6 +250,11 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup, is
 	nodeName := appState.Cluster.LocalName()
 	nodeAddr, _ := appState.Cluster.NodeHostname(nodeName)
 	addrs := strings.Split(nodeAddr, ":")
+	rpcPort := strconv.Itoa(appState.ServerConfig.Config.Raft.InternalRPCPort)
+	rpcAddr := addrs[0] + ":" + rpcPort
+	raftAddr := addrs[0] + ":" + fmt.Sprintf("%d", appState.ServerConfig.Config.Raft.Port)
+
+	cl := schemav2.NewClient(schemav2.NewRPCResolver(isLocalhost, rpcPort))
 
 	rConfig := schemav2.Config{
 		WorkDir:         filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, "raft"),
@@ -262,7 +267,14 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup, is
 	}
 
 	fsm := schemav2.New(rConfig)
-	appState.MetaStore = &fsm
+	appState.MetaStore = schemav2.NewService(&fsm, cl)
+	cluster := schemav2.NewCluster(&fsm, appState.MetaStore, rpcAddr)
+	if err := cluster.Open(); err != nil {
+		appState.Logger.
+			WithField("action", "startup").
+			WithError(err).
+			Fatal("could not start raft cluster")
+	}
 	schemaReader := fsm.SchemaReader()
 	executor, err := schema.NewExecutor(migrator, schemaReader, appState.Logger)
 	if err != nil {
@@ -400,19 +412,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup, is
 	}
 
 	// TODO-RAFT START
-	rpcAddr := addrs[0] + ":" + fmt.Sprintf("%d", appState.ServerConfig.Config.Raft.InternalRPCPort)
-	raftAddr := addrs[0] + ":" + fmt.Sprintf("%d", appState.ServerConfig.Config.Raft.Port)
-
-	cluster := schemav2.NewCluster(&fsm, rpcAddr, strconv.Itoa(appState.ServerConfig.Config.Raft.InternalRPCPort))
-	if isLocalhost {
-		cluster.SetLocal()
-	}
-	if err := cluster.Open(); err != nil {
-		appState.Logger.
-			WithField("action", "startup").
-			WithError(err).
-			Fatal("could not start raft cluster")
-	}
 
 	candidateList, err := resolveRaftAddresses(appState)
 	if err != nil {
@@ -430,7 +429,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup, is
 			Fatal("could not open fsm store")
 	}
 
-	cl := schemav2.NewClient(cluster)
 	bs := schemav2.NewBootstrapper(cl, nodeName, raftAddr)
 	bCtx, bCancel := context.WithTimeout(ctx, time.Second*60)
 	defer bCancel()

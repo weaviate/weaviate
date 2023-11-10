@@ -30,14 +30,20 @@ message JoinPeerResponse {
 
 message NotifyPeerResponse {}
 
+message ApplyResponse {
+  string leader = 1;
+}
+
+
 service ClusterService {
   rpc RemovePeer(RemovePeerRequest) returns (RemovePeerResponse) {}
   rpc JoinPeer(JoinPeerRequest) returns (JoinPeerResponse) {}
   rpc NotifyPeer(NotifyPeerRequest) returns (NotifyPeerResponse) {}
+  rpc Apply(ApplyRequest) returns (ApplyResponse) {}
 
 }
 
-message Command {
+message ApplyRequest {
   enum Type {
     TYPE_UNSPECIFIED = 0;
     TYPE_ADD_CLASS = 1;
