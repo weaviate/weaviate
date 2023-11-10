@@ -70,7 +70,11 @@ func (a *alephalpha) GenerateSingleResult(ctx context.Context, textProperties ma
 }
 
 func (a *alephalpha) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
-	return a.Generate(ctx, cfg, task)
+	forTask, err := generatePromptForGroupTask(textProperties, task)
+	if err != nil {
+		return nil, err
+	}
+	return a.Generate(ctx, cfg, forTask)
 }
 
 func (a *alephalpha) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
@@ -160,4 +164,35 @@ func generateTextForPrompt(textProperties map[string]string, prompt string) (str
 		prompt = strings.ReplaceAll(prompt, propertyPlaceholder, propertyValue)
 	}
 	return prompt, nil
+}
+
+// generatePromptForGroupTask generates the prompt for a grouped result generation.
+//
+// A grouped result generation generates a single response for all search results.
+func generatePromptForGroupTask(textProperties []map[string]string, task string) (string, error) {
+	textPropertiesStr, err := json.Marshal(textProperties)
+	if err != nil {
+		errors.Errorf("Error: %s", err)
+	}
+
+	prompt := fmt.Sprintf(`
+		### Instruction:
+		%s
+
+		### Input:
+		%s
+
+		### Response:
+		`,
+		task, string(textPropertiesStr))
+
+	return cleanPrompt(prompt), nil
+}
+
+// cleanPrompt performs a series of cleaning operations on the provided prompt.
+func cleanPrompt(prompt string) string {
+	re := regexp.MustCompile(`\s`)
+	cleanPrompt := strings.ReplaceAll(prompt, "\"", "'")
+	cleanPrompt = re.ReplaceAllString(cleanPrompt, " ")
+	return cleanPrompt
 }
