@@ -12,7 +12,6 @@
 package lsmkv
 
 import (
-	"bytes"
 	"encoding/binary"
 	"time"
 
@@ -130,23 +129,4 @@ func (s *segment) replaceStratParseData(in []byte) ([]byte, error) {
 	valueLength := binary.LittleEndian.Uint64(in[1:9])
 
 	return in[9 : 9+valueLength], nil
-}
-
-func (s *segment) replaceStratParseDataWithKey(in []byte) (segmentReplaceNode, error) {
-	if len(in) == 0 {
-		return segmentReplaceNode{}, lsmkv.NotFound
-	}
-
-	r := bytes.NewReader(in)
-
-	out, err := ParseReplaceNode(r, s.secondaryIndexCount)
-	if err != nil {
-		return out, err
-	}
-
-	if out.tombstone {
-		return out, lsmkv.Deleted
-	}
-
-	return out, nil
 }
