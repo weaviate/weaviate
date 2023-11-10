@@ -28,7 +28,7 @@ var (
 
 const (
 	MaximumTokensKey = "maximum_tokens"
-	ModelKey		 = "model"
+	ModelKey         = "model"
 )
 
 var availableAlephAlphaModels = []string{
