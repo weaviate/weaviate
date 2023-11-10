@@ -13,7 +13,6 @@ package modgenerativealephalpha
 
 import (
 	"context"
-
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"

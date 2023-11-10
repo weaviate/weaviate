@@ -13,7 +13,6 @@ package config
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -76,7 +75,6 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.Errorf("wrong temperature configuration, value should be between 0.0 and 1.0")
 	}
 
-	fmt.Printf("validation is successful!")
 	return nil
 }
 

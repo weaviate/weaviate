@@ -204,6 +204,10 @@ func cleanPrompt(prompt string) string {
 	return cleanPrompt
 }
 
+// tokenizePrompt uses Aleph Alpha's Tokenize endpoint to tokenize a prompt for a specific model.
+//
+// It takes a Request struct as input, which includes the model name, the prompt to be tokenized, and the API key.
+// It returns a map containing the response from the Aleph Alpha API, and an error if any occurred during the request.
 func (a *alephalpha) tokenizePrompt(request Request) (map[string]interface{}, error) {
 	url := "https://api.aleph-alpha.com/tokenize"
 	method := "POST"
