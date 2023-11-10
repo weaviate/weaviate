@@ -18,6 +18,7 @@ import (
 	"net"
 
 	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
+	command "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -26,23 +27,35 @@ import (
 var (
 	// ErrNotLeader is returned when an operation can't be completed on a
 	// follower or candidate node.
-	ErrNotLeader = errors.New("node is not the leader")
-	ErrNotOpen   = errors.New("store not open")
+	ErrNotLeader      = errors.New("node is not the leader")
+	ErrLeaderNotFound = errors.New("leader not found")
+	ErrNotOpen        = errors.New("store not open")
 )
 
 type members interface {
-	Join(id, addr string, voter bool) error
-	Notify(id, addr string) error
+	Join(id string, addr string, voter bool) error
+	Notify(id string, addr string) error
 	Remove(id string) error
 	Leader() string
 }
 
+type executor interface {
+	Execute(cmd *command.ApplyRequest) error
+}
+
 type Cluster struct {
-	members members
-	address string
-	rpcPort string
-	isLocal bool // localhost cluster used for testing only
-	ln      net.Listener
+	members  members
+	executor executor
+	address  string
+	ln       net.Listener
+}
+
+func NewCluster(ms members, ex executor, address string) Cluster {
+	return Cluster{
+		members:  ms,
+		executor: ex,
+		address:  address,
+	}
 }
 
 func (c *Cluster) JoinPeer(_ context.Context, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error) {
@@ -69,16 +82,16 @@ func (c *Cluster) NotifyPeer(_ context.Context, req *cmd.NotifyPeerRequest) (*cm
 	return &cmd.NotifyPeerResponse{}, toRPCError(c.members.Notify(req.Id, req.Address))
 }
 
-func NewCluster(members members, address, rpcPort string) Cluster {
-	return Cluster{
-		members: members,
-		address: address,
-		rpcPort: rpcPort,
+func (c *Cluster) Apply(_ context.Context, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error) {
+	err := c.executor.Execute(req)
+	if err == nil {
+		return &cmd.ApplyResponse{}, nil
 	}
+	return &cmd.ApplyResponse{Leader: c.members.Leader()}, toRPCError(err)
 }
 
-func (c *Cluster) SetLocal() { // cluster is running on localhost for testing purposes
-	c.isLocal = true
+func (c *Cluster) Leader() string {
+	return c.members.Leader()
 }
 
 func (c *Cluster) Open() error {
