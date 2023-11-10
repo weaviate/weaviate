@@ -70,7 +70,7 @@ type State struct {
 	ClusterHttpClient  *http.Client
 	ReindexCtxCancel   context.CancelFunc
 	/// TODO-RAFT START
-	MetaStore   *schemav2.Store
+	MetaStore   *schemav2.Service
 	MetaHandler *schema.Handler
 	/// TODO-RAFT END
 }
