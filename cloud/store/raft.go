@@ -104,7 +104,7 @@ func (st *Store) Open() (err error) {
 			if leader != lastLeader {
 				lastLeader = leader
 				log.Printf("Current Leader: %v\n", lastLeader)
-				// log.Printf("+%v", raftNode.Stats())
+				// log.Printf("+%v", st.raft.Stats())
 			}
 		}
 	}()
@@ -122,7 +122,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		return nil
 	}
 	ret := Response{}
-	cmd := command.Command{}
+	cmd := command.ApplyRequest{}
 
 	if err := gproto.Unmarshal(l.Data, &cmd); err != nil {
 		log.Printf("apply: unmarshal command %v\n", err)
@@ -130,7 +130,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	}
 	// log.Printf("apply: op=%v key=%v value=%v", cmd.Type, cmd.Class, cmd.SubCommand)
 	switch cmd.Type {
-	case command.Command_TYPE_ADD_CLASS, command.Command_TYPE_RESTORE_CLASS:
+	case command.ApplyRequest_TYPE_ADD_CLASS, command.ApplyRequest_TYPE_RESTORE_CLASS:
 		req := command.AddClassRequest{}
 		if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 			log.Printf("unmarshal sub command: %v", err)
@@ -146,7 +146,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		if ret.Error = st.schema.addClass(req.Class, req.State); ret.Error == nil {
 			st.db.AddClass(req)
 		}
-	case command.Command_TYPE_UPDATE_CLASS:
+	case command.ApplyRequest_TYPE_UPDATE_CLASS:
 		req := command.UpdateClassRequest{}
 		if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 			return Response{Error: err}
@@ -160,10 +160,10 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		if ret.Error = st.schema.updateClass(req.Class, req.State); ret.Error == nil {
 			st.db.UpdateClass(req)
 		}
-	case command.Command_TYPE_DELETE_CLASS:
+	case command.ApplyRequest_TYPE_DELETE_CLASS:
 		st.schema.deleteClass(cmd.Class)
 		st.db.DeleteClass(cmd.Class)
-	case command.Command_TYPE_ADD_PROPERTY:
+	case command.ApplyRequest_TYPE_ADD_PROPERTY:
 		req := command.AddPropertyRequest{}
 		if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 			return Response{Error: err}
@@ -175,14 +175,14 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			st.db.AddProperty(cmd.Class, req)
 		}
 
-	case command.Command_TYPE_UPDATE_SHARD_STATUS:
+	case command.ApplyRequest_TYPE_UPDATE_SHARD_STATUS:
 		req := command.UpdateShardStatusRequest{}
 		if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 			return Response{Error: err}
 		}
 		ret.Error = st.db.UpdateShardStatus(&req)
 
-	case command.Command_TYPE_ADD_TENANT:
+	case command.ApplyRequest_TYPE_ADD_TENANT:
 		req := &command.AddTenantsRequest{}
 		if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 			return Response{Error: err}
@@ -190,7 +190,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		if ret.Error = st.schema.addTenants(cmd.Class, req); ret.Error == nil {
 			st.db.AddTenants(cmd.Class, req)
 		}
-	case command.Command_TYPE_UPDATE_TENANT:
+	case command.ApplyRequest_TYPE_UPDATE_TENANT:
 		req := &command.UpdateTenantsRequest{}
 		if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 			return Response{Error: err}
@@ -199,7 +199,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		if ret.Error == nil {
 			st.db.UpdateTenants(cmd.Class, req)
 		}
-	case command.Command_TYPE_DELETE_TENANT:
+	case command.ApplyRequest_TYPE_DELETE_TENANT:
 		req := &command.DeleteTenantsRequest{}
 		if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 			return Response{Error: err}
