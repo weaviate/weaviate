@@ -47,6 +47,7 @@ type ClassSettings interface {
 	VectorizeClassName() bool
 	Model() string
 	Truncate() string
+	BaseURL() string
 }
 
 func sortStringKeys(schemaMap map[string]interface{}) []string {
@@ -132,13 +133,20 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 
 	text := []string{strings.Join(corpi, " ")}
 	res, err := v.client.Vectorize(ctx, text, ent.VectorizationConfig{
-		Model: icheck.Model(),
+		Model:   icheck.Model(),
+		BaseURL: icheck.BaseURL(),
 	})
 	if err != nil {
 		return nil, err
 	}
+	if len(res.Vectors) == 0 {
+		return nil, fmt.Errorf("no vectors generated")
+	}
 
-	return res.Vector, nil
+	if len(res.Vectors) > 1 {
+		return v.CombineVectors(res.Vectors), nil
+	}
+	return res.Vectors[0], nil
 }
 
 func camelCaseToLower(in string) string {

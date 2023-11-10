@@ -30,7 +30,10 @@ type Indexes struct {
 }
 
 func (s Indexes) WriteTo(w io.Writer) (int64, error) {
-	currentOffset := uint64(s.Keys[len(s.Keys)-1].ValueEnd)
+	var currentOffset uint64 = HeaderSize
+	if len(s.Keys) > 0 {
+		currentOffset = uint64(s.Keys[len(s.Keys)-1].ValueEnd)
+	}
 	var written int64
 
 	if _, err := os.Stat(s.ScratchSpacePath); err == nil {

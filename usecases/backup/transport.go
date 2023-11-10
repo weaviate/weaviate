@@ -37,6 +37,9 @@ type Request struct {
 	// Backend specify on which backend to store backups (gcs, s3, ..)
 	Backend string
 
+	// NodeMapping specify node names replacement to be made on restore
+	NodeMapping map[string]string
+
 	// Classes is list of class which need to be backed up
 	Classes []string
 

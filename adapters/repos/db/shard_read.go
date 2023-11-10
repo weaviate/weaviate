@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -145,10 +145,10 @@ func (s *Shard) objectByIndexID(ctx context.Context,
 
 func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32, error) {
 	keyBuf := make([]byte, 8)
-	return s.readVectorByIndexIDIntoSlice(ctx, indexID, &hnsw.VectorSlice{Buff8: keyBuf})
+	return s.readVectorByIndexIDIntoSlice(ctx, indexID, &common.VectorSlice{Buff8: keyBuf})
 }
 
-func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, container *hnsw.VectorSlice) ([]float32, error) {
+func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, container *common.VectorSlice) ([]float32, error) {
 	binary.LittleEndian.PutUint64(container.Buff8, indexID)
 
 	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
@@ -242,13 +242,13 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 
 	beforeVector := time.Now()
 	if limit < 0 {
-		ids, dists, err = s.vectorIndex.SearchByVectorDistance(
+		ids, dists, err = s.queue.SearchByVectorDistance(
 			searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "vector search by distance")
 		}
 	} else {
-		ids, dists, err = s.vectorIndex.SearchByVector(searchVector, limit, allowList)
+		ids, dists, err = s.queue.SearchByVector(searchVector, limit, allowList)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "vector search")
 		}
@@ -454,7 +454,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 	// TODO: do we still need this?
 	s.deletedDocIDs.Add(docID)
 
-	if err := s.vectorIndex.Delete(docID); err != nil {
+	if err := s.queue.Delete(docID); err != nil {
 		return errors.Wrap(err, "delete from vector index")
 	}
 

@@ -76,6 +76,32 @@ type Bucket struct {
 	monitorCount bool
 
 	pauseTimer *prometheus.Timer // Times the pause
+
+	// Whether tombstones (set/map/replace types) or deletions (roaringset type)
+	// should be kept in root segment during compaction process.
+	// Since segments are immutable, deletions are added as new entries with
+	// tombstones. Tombstones are by default copied to merged segment, as they
+	// can refer to keys/values present in previous segments.
+	// Those tombstones can be removed entirely when merging with root (1st) segment,
+	// due to lack of previous segments, tombstones may relate to.
+	// As info about key/value being deleted (based on tombstone presence) may be important
+	// for some use cases (e.g. replication needs to know if object(ObjectsBucketLSM) was deleted)
+	// keeping tombstones on compaction is optional
+	keepTombstones bool
+
+	// Init and use bloom filter for getting key from bucket segments.
+	// As some buckets can be accessed only with cursor (see flat index),
+	// where bloom filter is not applicable, it can be disabled.
+	// ON by default
+	useBloomFilter bool
+
+	// Net additions keep track of number of elements stored in bucket (of type replace).
+	// As some buckets don't have to provide Count info (see flat index),
+	// tracking additions can be disabled.
+	// ON by default
+	calcCountNetAdditions bool
+
+	forceCompaction bool
 }
 
 // NewBucket initializes a new bucket. It either loads the state from disk if
@@ -99,15 +125,17 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	}
 
 	b := &Bucket{
-		dir:               dir,
-		rootDir:           rootDir,
-		memtableThreshold: defaultMemTableThreshold,
-		walThreshold:      defaultWalThreshold,
-		flushAfterIdle:    defaultFlushAfterIdle,
-		strategy:          defaultStrategy,
-		mmapContents:      true,
-		logger:            logger,
-		metrics:           metrics,
+		dir:                   dir,
+		rootDir:               rootDir,
+		memtableThreshold:     defaultMemTableThreshold,
+		walThreshold:          defaultWalThreshold,
+		flushAfterIdle:        defaultFlushAfterIdle,
+		strategy:              defaultStrategy,
+		mmapContents:          true,
+		logger:                logger,
+		metrics:               metrics,
+		useBloomFilter:        true,
+		calcCountNetAdditions: true,
 	}
 
 	for _, opt := range opts {
@@ -120,8 +148,18 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		b.memtableThreshold = uint64(b.memtableResizer.Initial())
 	}
 
-	sg, err := newSegmentGroup(dir, logger, b.legacyMapSortingBeforeCompaction,
-		metrics, b.strategy, b.monitorCount, compactionCallbacks, b.mmapContents)
+	sg, err := newSegmentGroup(logger, metrics, compactionCallbacks,
+		sgConfig{
+			dir:                   dir,
+			strategy:              b.strategy,
+			mapRequiresSorting:    b.legacyMapSortingBeforeCompaction,
+			monitorCount:          b.monitorCount,
+			mmapContents:          b.mmapContents,
+			keepTombstones:        b.keepTombstones,
+			forceCompaction:       b.forceCompaction,
+			useBloomFilter:        b.useBloomFilter,
+			calcCountNetAdditions: b.calcCountNetAdditions,
+		})
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
 	}
@@ -169,6 +207,49 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	return b, nil
 }
 
+func (b *Bucket) GetDir() string {
+	return b.dir
+}
+
+func (b *Bucket) GetRootDir() string {
+	return b.rootDir
+}
+
+func (b *Bucket) GetStrategy() string {
+	return b.strategy
+}
+
+func (b *Bucket) GetDesiredStrategy() string {
+	return b.desiredStrategy
+}
+
+func (b *Bucket) GetSecondaryIndices() uint16 {
+	return b.secondaryIndices
+}
+
+func (b *Bucket) GetStatus() storagestate.Status {
+	b.statusLock.RLock()
+	defer b.statusLock.RUnlock()
+
+	return b.status
+}
+
+func (b *Bucket) GetMemtableThreshold() uint64 {
+	return b.memtableThreshold
+}
+
+func (b *Bucket) GetWalThreshold() uint64 {
+	return b.walThreshold
+}
+
+func (b *Bucket) GetFlushAfterIdle() time.Duration {
+	return b.flushAfterIdle
+}
+
+func (b *Bucket) GetFlushCallbackCtrl() cyclemanager.CycleCallbackCtrl {
+	return b.flushCallbackCtrl
+}
+
 func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error {
 	i := 0
 	cursor := b.Cursor()
@@ -184,6 +265,21 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 		}
 
 		i++
+	}
+
+	return nil
+}
+
+func (b *Bucket) IterateMapObjects(ctx context.Context, f func([]byte, []byte, []byte, bool) error) error {
+	cursor := b.MapCursor()
+	defer cursor.Close()
+
+	for kList, vList := cursor.First(); kList != nil; kList, vList = cursor.Next() {
+		for _, v := range vList {
+			if err := f(kList, v.Key, v.Value, v.Tombstone); err != nil {
+				return errors.Wrapf(err, "callback on object '%v' failed", v)
+			}
+		}
 	}
 
 	return nil
@@ -218,7 +314,7 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 	}
 
 	if err != lsmkv.NotFound {
-		panic("unsupported error in bucket.Get")
+		panic(fmt.Sprintf("unsupported error in bucket.Get: %v\n", err))
 	}
 
 	if b.flushing != nil {
@@ -432,6 +528,10 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 // in this order: active memtable, flushing memtable, and disk
 // segment
 func (b *Bucket) WasDeleted(key []byte) (bool, error) {
+	if !b.keepTombstones {
+		return false, fmt.Errorf("Bucket requires option `keepTombstones` set to check deleted keys")
+	}
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 

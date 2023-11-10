@@ -24,7 +24,6 @@ func TestVectorizingTexts(t *testing.T) {
 	type testCase struct {
 		name                    string
 		input                   []string
-		expectedClientCall      string
 		expectedPoolingStrategy string
 		poolingStrategy         string
 	}
@@ -35,14 +34,12 @@ func TestVectorizingTexts(t *testing.T) {
 			input:                   []string{"hello"},
 			poolingStrategy:         "cls",
 			expectedPoolingStrategy: "cls",
-			expectedClientCall:      "hello",
 		},
 		{
 			name:                    "multiple words",
 			input:                   []string{"hello world, this is me!"},
 			poolingStrategy:         "cls",
 			expectedPoolingStrategy: "cls",
-			expectedClientCall:      "hello world, this is me!",
 		},
 
 		{
@@ -50,7 +47,6 @@ func TestVectorizingTexts(t *testing.T) {
 			input:                   []string{"this is sentence 1", "and here's number 2"},
 			poolingStrategy:         "cls",
 			expectedPoolingStrategy: "cls",
-			expectedClientCall:      "this is sentence 1. and here's number 2",
 		},
 
 		{
@@ -58,28 +54,24 @@ func TestVectorizingTexts(t *testing.T) {
 			input:                   []string{"this is sentence 1.", "and here's number 2"},
 			poolingStrategy:         "cls",
 			expectedPoolingStrategy: "cls",
-			expectedClientCall:      "this is sentence 1. and here's number 2",
 		},
 		{
 			name:                    "multiple sentences already containing a question mark",
 			input:                   []string{"this is sentence 1?", "and here's number 2"},
 			poolingStrategy:         "cls",
 			expectedPoolingStrategy: "cls",
-			expectedClientCall:      "this is sentence 1? and here's number 2",
 		},
 		{
 			name:                    "multiple sentences already containing an exclamation mark",
 			input:                   []string{"this is sentence 1!", "and here's number 2"},
 			poolingStrategy:         "cls",
 			expectedPoolingStrategy: "cls",
-			expectedClientCall:      "this is sentence 1! and here's number 2",
 		},
 		{
 			name:                    "multiple sentences already containing comma",
 			input:                   []string{"this is sentence 1,", "and here's number 2"},
 			poolingStrategy:         "cls",
 			expectedPoolingStrategy: "cls",
-			expectedClientCall:      "this is sentence 1, and here's number 2",
 		},
 	}
 
@@ -96,7 +88,6 @@ func TestVectorizingTexts(t *testing.T) {
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0, 1, 2, 3}, vec)
-			assert.Equal(t, test.expectedClientCall, client.lastInput)
 			assert.Equal(t, client.lastConfig.PoolingStrategy, test.expectedPoolingStrategy)
 		})
 	}

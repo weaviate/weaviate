@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/entities/schema"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -101,13 +102,13 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 	}
 
 	// compression got enabled in this update
-	if h.compressedVectorsCache == (*compressedShardedLockCache)(nil) {
-		h.compressedVectorsCache = newCompressedShardedLockCache(h.getCompressedVectorForID, parsed.VectorCacheMaxObjects, h.logger)
+	if h.compressedVectorsCache == (cache.Cache[byte])(nil) {
+		h.compressedVectorsCache = cache.NewShardedByteLockCache(h.getCompressedVectorForID, parsed.VectorCacheMaxObjects, h.logger, 0)
 	} else {
 		if h.compressed.Load() {
-			h.compressedVectorsCache.updateMaxSize(int64(parsed.VectorCacheMaxObjects))
+			h.compressedVectorsCache.UpdateMaxSize(int64(parsed.VectorCacheMaxObjects))
 		} else {
-			h.cache.updateMaxSize(int64(parsed.VectorCacheMaxObjects))
+			h.cache.UpdateMaxSize(int64(parsed.VectorCacheMaxObjects))
 		}
 	}
 

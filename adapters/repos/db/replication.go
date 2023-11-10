@@ -20,12 +20,10 @@ import (
 	"path/filepath"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
-	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
@@ -288,24 +286,12 @@ func (s *Shard) reinit(ctx context.Context) error {
 		return fmt.Errorf("shutdown shard: %w", err)
 	}
 
-	hnswUserConfig, ok := s.index.vectorIndexUserConfig.(hnswent.UserConfig)
-	if !ok {
-		return fmt.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
-			s.index.vectorIndexUserConfig)
-	}
-
-	if hnswUserConfig.Skip {
-		s.vectorIndex = noop.NewIndex()
-	} else {
-		if err := s.initVectorIndex(ctx, hnswUserConfig); err != nil {
-			return fmt.Errorf("init vector index: %w", err)
-		}
-
-		defer s.vectorIndex.PostStartup()
-	}
-
 	if err := s.initNonVector(ctx, nil); err != nil {
-		return fmt.Errorf("init non-vector: %w", err)
+		return fmt.Errorf("reinit non-vector: %w", err)
+	}
+
+	if err := s.initVector(ctx); err != nil {
+		return fmt.Errorf("reinit vector: %w", err)
 	}
 
 	return nil

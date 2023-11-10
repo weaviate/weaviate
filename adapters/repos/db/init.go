@@ -17,6 +17,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -24,12 +25,29 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-// On init we get the current schema and create one index object per class.
-// They will in turn create shards which will either read an existing db file
-// from disk or create a new one if none exists
+// init gets the current schema and creates one index object per class.
+// The indices will in turn create shards, which will either read an
+// existing db file from disk, or create a new one if none exists
 func (db *DB) init(ctx context.Context) error {
 	if err := os.MkdirAll(db.config.RootPath, 0o777); err != nil {
-		return errors.Wrapf(err, "create root path directory at %s", db.config.RootPath)
+		return fmt.Errorf("create root path directory at %s: %w", db.config.RootPath, err)
+	}
+
+	// As of v1.22, db files are stored in a hierarchical structure
+	// rather than a flat one. If weaviate is started with files
+	// that are still in the flat structure, we will migrate them
+	// over.
+	if err := db.migrateFileStructureIfNecessary(); err != nil {
+		return err
+	}
+
+	if asyncEnabled() {
+		// init the index checkpoint file
+		var err error
+		db.indexCheckpoints, err = indexcheckpoint.New(db.config.RootPath, db.logger)
+		if err != nil {
+			return errors.Wrap(err, "init index checkpoint")
+		}
 	}
 
 	objects := db.schemaGetter.GetSchemaSkipAuth().Objects
@@ -72,7 +90,7 @@ func (db *DB) init(ctx context.Context) error {
 				inverted.ConfigFromModel(invertedConfig),
 				class.VectorIndexConfig.(schema.VectorIndexConfig),
 				db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
-				db.replicaClient, db.promMetrics, class, db.jobQueueCh)
+				db.replicaClient, db.promMetrics, class, db.jobQueueCh, db.indexCheckpoints)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}

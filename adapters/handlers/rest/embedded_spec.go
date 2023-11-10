@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.21.4"
+    "version": "1.22.3"
   },
   "basePath": "/v1",
   "paths": {
@@ -2624,6 +2624,11 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "name": "tenant",
+            "in": "query"
           }
         ],
         "responses": {
@@ -3091,6 +3096,13 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "node_mapping": {
+          "description": "Allows overriding the node names stored in the backup with different ones. Useful when restoring backups to a different environment.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
         }
       }
     },
@@ -3343,7 +3355,8 @@ func init() {
           "description": "How many objects are currently in the batch queue.",
           "type": "number",
           "format": "int",
-          "x-omitempty": false
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "ratePerSecond": {
           "description": "How many objects are approximately processed from the batch queue per second.",
@@ -3918,6 +3931,47 @@ func init() {
         "$ref": "#/definitions/SingleRef"
       }
     },
+    "NestedProperty": {
+      "type": "object",
+      "properties": {
+        "dataType": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": "string"
+        },
+        "indexFilterable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexSearchable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "name": {
+          "type": "string"
+        },
+        "nestedProperties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NestedProperty"
+          },
+          "x-omitempty": true
+        },
+        "tokenization": {
+          "type": "string",
+          "enum": [
+            "word",
+            "lowercase",
+            "whitespace",
+            "field"
+          ]
+        }
+      }
+    },
     "NodeShardStatus": {
       "description": "The definition of a node shard status response body",
       "properties": {
@@ -3933,6 +3987,17 @@ func init() {
         },
         "objectCount": {
           "description": "The number of objects in shard.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "vectorIndexingStatus": {
+          "description": "The status of the vector indexing process.",
+          "format": "string",
+          "x-omitempty": false
+        },
+        "vectorQueueLength": {
+          "description": "The length of the vector indexing queue.",
           "type": "number",
           "format": "int64",
           "x-omitempty": false
@@ -4305,6 +4370,14 @@ func init() {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
         },
+        "nestedProperties": {
+          "description": "The properties of the nested object(s). Applies to object and object[] data types.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NestedProperty"
+          },
+          "x-omitempty": true
+        },
         "tokenization": {
           "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default; splits on any non-alphanumerical, lowercases), ` + "`" + `lowercase` + "`" + ` (splits on white spaces, lowercases), ` + "`" + `whitespace` + "`" + ` (splits on white spaces), ` + "`" + `field` + "`" + ` (trims). Not supported for remaining data types",
           "type": "string",
@@ -4464,6 +4537,11 @@ func init() {
         "status": {
           "description": "Status of the shard",
           "type": "string"
+        },
+        "vectorQueueSize": {
+          "description": "Size of the vector queue of the shard",
+          "type": "integer",
+          "x-omitempty": false
         }
       }
     },
@@ -4859,7 +4937,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.21.4"
+    "version": "1.22.3"
   },
   "basePath": "/v1",
   "paths": {
@@ -7549,6 +7627,11 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "name": "tenant",
+            "in": "query"
           }
         ],
         "responses": {
@@ -8016,6 +8099,13 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "node_mapping": {
+          "description": "Allows overriding the node names stored in the backup with different ones. Useful when restoring backups to a different environment.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
         }
       }
     },
@@ -8357,7 +8447,8 @@ func init() {
           "description": "How many objects are currently in the batch queue.",
           "type": "number",
           "format": "int",
-          "x-omitempty": false
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "ratePerSecond": {
           "description": "How many objects are approximately processed from the batch queue per second.",
@@ -9002,6 +9093,47 @@ func init() {
         "$ref": "#/definitions/SingleRef"
       }
     },
+    "NestedProperty": {
+      "type": "object",
+      "properties": {
+        "dataType": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": "string"
+        },
+        "indexFilterable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexSearchable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "name": {
+          "type": "string"
+        },
+        "nestedProperties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NestedProperty"
+          },
+          "x-omitempty": true
+        },
+        "tokenization": {
+          "type": "string",
+          "enum": [
+            "word",
+            "lowercase",
+            "whitespace",
+            "field"
+          ]
+        }
+      }
+    },
     "NodeShardStatus": {
       "description": "The definition of a node shard status response body",
       "properties": {
@@ -9017,6 +9149,17 @@ func init() {
         },
         "objectCount": {
           "description": "The number of objects in shard.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "vectorIndexingStatus": {
+          "description": "The status of the vector indexing process.",
+          "format": "string",
+          "x-omitempty": false
+        },
+        "vectorQueueLength": {
+          "description": "The length of the vector indexing queue.",
           "type": "number",
           "format": "int64",
           "x-omitempty": false
@@ -9407,6 +9550,14 @@ func init() {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
         },
+        "nestedProperties": {
+          "description": "The properties of the nested object(s). Applies to object and object[] data types.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NestedProperty"
+          },
+          "x-omitempty": true
+        },
         "tokenization": {
           "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default; splits on any non-alphanumerical, lowercases), ` + "`" + `lowercase` + "`" + ` (splits on white spaces, lowercases), ` + "`" + `whitespace` + "`" + ` (splits on white spaces), ` + "`" + `field` + "`" + ` (trims). Not supported for remaining data types",
           "type": "string",
@@ -9566,6 +9717,11 @@ func init() {
         "status": {
           "description": "Status of the shard",
           "type": "string"
+        },
+        "vectorQueueSize": {
+          "description": "Size of the vector queue of the shard",
+          "type": "integer",
+          "x-omitempty": false
         }
       }
     },

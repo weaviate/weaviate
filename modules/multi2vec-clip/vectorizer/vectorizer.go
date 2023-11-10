@@ -93,6 +93,16 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 					vectorize = vectorize || (objDiff != nil && objDiff.IsChangedProp(prop))
 				}
 			}
+			valueArr, ok := value.([]interface{})
+			if ok {
+				for _, value := range valueArr {
+					valueString, ok := value.(string)
+					if ok {
+						texts = append(texts, valueString)
+						vectorize = vectorize || (objDiff != nil && objDiff.IsChangedProp(prop))
+					}
+				}
+			}
 		}
 	}
 

@@ -77,7 +77,11 @@ func (f fakeVectorConfig) IndexType() string {
 	return "fake"
 }
 
-func dummyParseVectorConfig(in interface{}) (schemaent.VectorIndexConfig, error) {
+func (f fakeVectorConfig) DistanceName() string {
+	return "fake"
+}
+
+func dummyParseVectorConfig(in interface{}, indexType string) (schemaent.VectorIndexConfig, error) {
 	return fakeVectorConfig(in.(map[string]interface{})), nil
 }
 
@@ -149,6 +153,10 @@ func (f *fakeClusterState) SchemaSyncIgnored() bool {
 	return false
 }
 
+func (f *fakeClusterState) SkipSchemaRepair() bool {
+	return false
+}
+
 func (f *fakeClusterState) Hostnames() []string {
 	return f.hosts
 }
@@ -198,7 +206,11 @@ func (n *NilMigrator) UpdateClass(ctx context.Context, className string, newClas
 	return nil
 }
 
-func (n *NilMigrator) GetShardsStatus(ctx context.Context, className string) (map[string]string, error) {
+func (n *NilMigrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
+	return nil, nil
+}
+
+func (n *NilMigrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
 	return nil, nil
 }
 

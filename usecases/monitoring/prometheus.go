@@ -55,12 +55,81 @@ type PrometheusMetrics struct {
 	BackupRestoreDataTransferred       *prometheus.CounterVec
 	BackupStoreDataTransferred         *prometheus.CounterVec
 	VectorDimensionsSum                *prometheus.GaugeVec
+	VectorSegmentsSum                  *prometheus.GaugeVec
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.SummaryVec
 	StartupDiskIO    *prometheus.SummaryVec
 
 	Group bool
+}
+
+// Delete Shard deletes existing label combinations that match both
+// the shard and class name. If a metric is not collected at the shard
+// level it is unaffected. This is to make sure that deleting a single
+// shard (e.g. multi-tenancy) does not affect metrics for existing
+// shards.
+//
+// In addition, there are some metrics that we explicitly keep, such
+// as vector_dimensions_sum as they can be used in billing decisions.
+func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
+	if pm == nil {
+		return nil
+	}
+
+	labels := prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	}
+	pm.BatchTime.DeletePartialMatch(labels)
+	pm.BatchDeleteTime.DeletePartialMatch(labels)
+	pm.ObjectsTime.DeletePartialMatch(labels)
+	pm.ObjectCount.DeletePartialMatch(labels)
+	pm.QueriesFilteredVectorDurations.DeletePartialMatch(labels)
+	pm.AsyncOperations.DeletePartialMatch(labels)
+	pm.LSMBloomFilters.DeletePartialMatch(labels)
+	pm.LSMMemtableDurations.DeletePartialMatch(labels)
+	pm.LSMMemtableSize.DeletePartialMatch(labels)
+	pm.LSMMemtableDurations.DeletePartialMatch(labels)
+	pm.LSMSegmentCount.DeletePartialMatch(labels)
+	pm.LSMSegmentSize.DeletePartialMatch(labels)
+	pm.LSMSegmentCountByLevel.DeletePartialMatch(labels)
+	pm.VectorIndexTombstones.DeletePartialMatch(labels)
+	pm.VectorIndexTombstoneCleanupThreads.DeletePartialMatch(labels)
+	pm.VectorIndexTombstoneCleanedCount.DeletePartialMatch(labels)
+	pm.VectorIndexOperations.DeletePartialMatch(labels)
+	pm.VectorIndexMaintenanceDurations.DeletePartialMatch(labels)
+	pm.VectorIndexDurations.DeletePartialMatch(labels)
+	pm.VectorIndexSize.DeletePartialMatch(labels)
+	pm.StartupProgress.DeletePartialMatch(labels)
+	pm.StartupDurations.DeletePartialMatch(labels)
+	pm.StartupDiskIO.DeletePartialMatch(labels)
+	return nil
+}
+
+// DeleteClass deletes all metrics that match the class name, but do
+// not have a shard-specific label. See [DeleteShard] for more
+// information.
+func (pm *PrometheusMetrics) DeleteClass(className string) error {
+	if pm == nil {
+		return nil
+	}
+
+	labels := prometheus.Labels{
+		"class_name": className,
+	}
+	pm.QueriesCount.DeletePartialMatch(labels)
+	pm.QueriesDurations.DeletePartialMatch(labels)
+	pm.GoroutinesCount.DeletePartialMatch(labels)
+	pm.BackupRestoreClassDurations.DeletePartialMatch(labels)
+	pm.BackupRestoreBackupInitDurations.DeletePartialMatch(labels)
+	pm.BackupRestoreFromStorageDurations.DeletePartialMatch(labels)
+	pm.BackupStoreDurations.DeletePartialMatch(labels)
+	pm.BackupRestoreDataTransferred.DeletePartialMatch(labels)
+	pm.BackupStoreDataTransferred.DeletePartialMatch(labels)
+	pm.QueriesFilteredVectorDurations.DeletePartialMatch(labels)
+
+	return nil
 }
 
 var (
@@ -192,6 +261,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		VectorDimensionsSum: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_dimensions_sum",
 			Help: "Total dimensions in a shard",
+		}, []string{"class_name", "shard_name"}),
+		VectorSegmentsSum: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "vector_segments_sum",
+			Help: "Total segments in a shard if quantization enabled",
 		}, []string{"class_name", "shard_name"}),
 
 		StartupProgress: promauto.NewGaugeVec(prometheus.GaugeOpts{

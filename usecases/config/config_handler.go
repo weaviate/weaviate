@@ -24,7 +24,7 @@ import (
 	"github.com/weaviate/weaviate/deprecations"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"gopkg.in/yaml.v2"
 )
@@ -101,6 +101,7 @@ type Config struct {
 	IndexMissingTextFilterableAtStartup bool                     `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
 	DisableGraphQL                      bool                     `json:"disable_graphql" yaml:"disable_graphql"`
 	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
+	CORS                                CORS                     `json:"cors" yaml:"cors"`
 }
 
 type moduleProvider interface {
@@ -131,7 +132,7 @@ func (c Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
 
 func (c Config) validateDefaultVectorDistanceMetric() error {
 	switch c.DefaultVectorDistanceMetric {
-	case "", hnsw.DistanceCosine, hnsw.DistanceDot, hnsw.DistanceL2Squared, hnsw.DistanceManhattan, hnsw.DistanceHamming:
+	case "", common.DistanceCosine, common.DistanceDot, common.DistanceL2Squared, common.DistanceManhattan, common.DistanceHamming:
 		return nil
 	default:
 		return fmt.Errorf("must be one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]")
@@ -241,6 +242,18 @@ type ResourceUsage struct {
 	DiskUse DiskUse
 	MemUse  MemUse
 }
+
+type CORS struct {
+	AllowOrigin  string `json:"allow_origin" yaml:"allow_origin"`
+	AllowMethods string `json:"allow_methods" yaml:"allow_methods"`
+	AllowHeaders string `json:"allow_headers" yaml:"allow_headers"`
+}
+
+const (
+	DefaultCORSAllowOrigin  = "*"
+	DefaultCORSAllowMethods = "*"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key"
+)
 
 func (r ResourceUsage) Validate() error {
 	if err := r.DiskUse.Validate(); err != nil {

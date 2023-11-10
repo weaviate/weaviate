@@ -12,7 +12,6 @@
 package lsmkv
 
 import (
-	"bytes"
 	"encoding/binary"
 	"time"
 
@@ -28,7 +27,7 @@ func (s *segment) get(key []byte) ([]byte, error) {
 
 	before := time.Now()
 
-	if !s.bloomFilter.Test(key) {
+	if s.useBloomFilter && !s.bloomFilter.Test(key) {
 		s.bloomFilterMetrics.trueNegative(before)
 		return nil, lsmkv.NotFound
 	}
@@ -36,14 +35,20 @@ func (s *segment) get(key []byte) ([]byte, error) {
 	node, err := s.index.Get(key)
 	if err != nil {
 		if err == lsmkv.NotFound {
-			s.bloomFilterMetrics.falsePositive(before)
+			if s.useBloomFilter {
+				s.bloomFilterMetrics.falsePositive(before)
+			}
 			return nil, lsmkv.NotFound
 		} else {
 			return nil, err
 		}
 	}
 
-	defer s.bloomFilterMetrics.truePositive(before)
+	defer func() {
+		if s.useBloomFilter {
+			s.bloomFilterMetrics.truePositive(before)
+		}
+	}()
 
 	// We need to copy the data we read from the segment exactly once in this
 	// place. This means that future processing can share this memory as much as
@@ -73,7 +78,7 @@ func (s *segment) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) (
 		return nil, errors.Errorf("no secondary index at pos %d", pos), nil
 	}
 
-	if !s.secondaryBloomFilters[pos].Test(key) {
+	if s.useBloomFilter && !s.secondaryBloomFilters[pos].Test(key) {
 		return nil, lsmkv.NotFound, nil
 	}
 
@@ -124,44 +129,4 @@ func (s *segment) replaceStratParseData(in []byte) ([]byte, error) {
 	valueLength := binary.LittleEndian.Uint64(in[1:9])
 
 	return in[9 : 9+valueLength], nil
-}
-
-func (s *segment) replaceStratParseDataWithKey(in []byte) (segmentReplaceNode, error) {
-	if len(in) == 0 {
-		return segmentReplaceNode{}, lsmkv.NotFound
-	}
-
-	r := bytes.NewReader(in)
-
-	out, err := ParseReplaceNode(r, s.secondaryIndexCount)
-	if err != nil {
-		return out, err
-	}
-
-	if out.tombstone {
-		return out, lsmkv.Deleted
-	}
-
-	return out, nil
-}
-
-func (s *segment) replaceStratParseDataWithKeyInto(in []byte,
-	node *segmentReplaceNode,
-) error {
-	if len(in) == 0 {
-		return lsmkv.NotFound
-	}
-
-	r := bytes.NewReader(in)
-
-	err := ParseReplaceNodeInto(r, s.secondaryIndexCount, node)
-	if err != nil {
-		return err
-	}
-
-	if node.tombstone {
-		return lsmkv.Deleted
-	}
-
-	return nil
 }

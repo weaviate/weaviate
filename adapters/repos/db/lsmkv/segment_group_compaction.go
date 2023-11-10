@@ -24,7 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-func (sg *SegmentGroup) eligibleForCompaction() bool {
+func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 
@@ -33,66 +33,66 @@ func (sg *SegmentGroup) eligibleForCompaction() bool {
 	// SegmentGroup should refrain from flushing until its
 	// shard indicates otherwise
 	if sg.isReadyOnly() {
-		return false
-	}
-
-	// if there are at least two segments of the same level a regular compaction
-	// can be performed
-
-	levels := map[uint16]int{}
-
-	for _, segment := range sg.segments {
-		levels[segment.level]++
-		if levels[segment.level] > 1 {
-			return true
-		}
-	}
-
-	return false
-}
-
-func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
-
-	// first determine the lowest level with candidates
-	levels := map[uint16]int{}
-
-	for _, segment := range sg.segments {
-		levels[segment.level]++
-	}
-
-	currLowestLevel := uint16(math.MaxUint16)
-	found := false
-	for level, count := range levels {
-		if count < 2 {
-			continue
-		}
-
-		if level < currLowestLevel {
-			currLowestLevel = level
-			found = true
-		}
-	}
-
-	if !found {
 		return nil
 	}
 
-	// now pick any two segments which match the level
-	var res []int
+	// Nothing to compact
+	if len(sg.segments) < 2 {
+		return nil
+	}
 
-	for i, segment := range sg.segments {
-		if len(res) >= 2 {
-			break
+	// first determine the lowest level with candidates
+	levels := map[uint16]int{}
+	lowestPairLevel := uint16(math.MaxUint16)
+	lowestLevel := uint16(math.MaxUint16)
+	lowestIndex := -1
+	secondLowestIndex := -1
+	pairExists := false
+
+	for ind, seg := range sg.segments {
+		levels[seg.level]++
+		val := levels[seg.level]
+		if val > 1 {
+			if seg.level < lowestPairLevel {
+				lowestPairLevel = seg.level
+				pairExists = true
+			}
 		}
 
-		if segment.level == currLowestLevel {
-			res = append(res, i)
+		if seg.level < lowestLevel {
+			secondLowestIndex = lowestIndex
+			lowestLevel = seg.level
+			lowestIndex = ind
 		}
 	}
 
-	return res
+	if pairExists {
+		// now pick any two segments which match the level
+		var res []int
+
+		for i, segment := range sg.segments {
+			if len(res) >= 2 {
+				break
+			}
+
+			if segment.level == lowestPairLevel {
+				res = append(res, i)
+			}
+		}
+
+		return res
+	} else {
+		if sg.compactLeftOverSegments {
+			// Some segments exist, but none are of the same level
+			// Merge the two lowest segments
+
+			return []int{secondLowestIndex, lowestIndex}
+		} else {
+			// No segments of the same level exist, and we are not allowed to merge the lowest segments
+			// This means we cannot compact.  Set COMPACT_LEFTOVER_SEGMENTS to true to compact the remaining segments
+			return nil
+		}
+	}
 }
 
 // segmentAtPos retrieves the segment for the given position using a read-lock
@@ -103,7 +103,7 @@ func (sg *SegmentGroup) segmentAtPos(pos int) *segment {
 	return sg.segments[pos]
 }
 
-func (sg *SegmentGroup) compactOnce() error {
+func (sg *SegmentGroup) compactOnce() (bool, error) {
 	// Is it safe to only occasionally lock instead of the entire duration? Yes,
 	// because other than compaction the only change to the segments array could
 	// be an append because of a new flush cycle, so we do not need to guarantee
@@ -113,24 +113,27 @@ func (sg *SegmentGroup) compactOnce() error {
 	pair := sg.bestCompactionCandidatePair()
 	if pair == nil {
 		// nothing to do
-		return nil
+		return false, nil
 	}
 
 	path := fmt.Sprintf("%s.tmp", sg.segmentAtPos(pair[1]).path)
 	f, err := os.Create(path)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	scratchSpacePath := sg.segmentAtPos(pair[1]).path + "compaction.scratch.d"
 
-	// the assumption is that both pairs are of the same level, so we can just
-	// take either value. If we want to support asymmetric compaction, then we
-	// might have to choose this value more intelligently
+	// the assumption is that the first element is older, and/or a higher level
 	level := sg.segmentAtPos(pair[0]).level
 	secondaryIndices := sg.segmentAtPos(pair[0]).secondaryIndexCount
 
+	if level == sg.segmentAtPos(pair[1]).level {
+		level = level + 1
+	}
+
 	strategy := sg.segmentAtPos(pair[0]).strategy
+	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
 
 	pathLabel := "n/a"
 	if sg.metrics != nil && !sg.metrics.groupClasses {
@@ -142,7 +145,7 @@ func (sg *SegmentGroup) compactOnce() error {
 
 	case segmentindex.StrategyReplace:
 		c := newCompactorReplace(f, sg.segmentAtPos(pair[0]).newCursor(),
-			sg.segmentAtPos(pair[1]).newCursor(), level, secondaryIndices, scratchSpacePath)
+			sg.segmentAtPos(pair[1]).newCursor(), level, secondaryIndices, scratchSpacePath, cleanupTombstones)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionReplace.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -150,12 +153,12 @@ func (sg *SegmentGroup) compactOnce() error {
 		}
 
 		if err := c.do(); err != nil {
-			return err
+			return false, err
 		}
 	case segmentindex.StrategySetCollection:
 		c := newCompactorSetCollection(f, sg.segmentAtPos(pair[0]).newCollectionCursor(),
 			sg.segmentAtPos(pair[1]).newCollectionCursor(), level, secondaryIndices,
-			scratchSpacePath)
+			scratchSpacePath, cleanupTombstones)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionSet.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -163,13 +166,13 @@ func (sg *SegmentGroup) compactOnce() error {
 		}
 
 		if err := c.do(); err != nil {
-			return err
+			return false, err
 		}
 	case segmentindex.StrategyMapCollection:
 		c := newCompactorMapCollection(f,
 			sg.segmentAtPos(pair[0]).newCollectionCursorReusable(),
 			sg.segmentAtPos(pair[1]).newCollectionCursorReusable(),
-			level, secondaryIndices, scratchSpacePath, sg.mapRequiresSorting)
+			level, secondaryIndices, scratchSpacePath, sg.mapRequiresSorting, cleanupTombstones)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -177,7 +180,7 @@ func (sg *SegmentGroup) compactOnce() error {
 		}
 
 		if err := c.do(); err != nil {
-			return err
+			return false, err
 		}
 	case segmentindex.StrategyRoaringSet:
 		leftSegment := sg.segmentAtPos(pair[0])
@@ -187,7 +190,7 @@ func (sg *SegmentGroup) compactOnce() error {
 		rightCursor := rightSegment.newRoaringSetCursor()
 
 		c := roaringset.NewCompactor(f, leftCursor, rightCursor,
-			level, scratchSpacePath)
+			level, scratchSpacePath, cleanupTombstones)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(1)
@@ -195,22 +198,22 @@ func (sg *SegmentGroup) compactOnce() error {
 		}
 
 		if err := c.Do(); err != nil {
-			return err
+			return false, err
 		}
 
 	default:
-		return errors.Errorf("unrecognized strategy %v", strategy)
+		return false, errors.Errorf("unrecognized strategy %v", strategy)
 	}
 
 	if err := f.Close(); err != nil {
-		return errors.Wrap(err, "close compacted segment file")
+		return false, errors.Wrap(err, "close compacted segment file")
 	}
 
 	if err := sg.replaceCompactedSegments(pair[0], pair[1], path); err != nil {
-		return errors.Wrap(err, "replace compacted segments")
+		return false, errors.Wrap(err, "replace compacted segments")
 	}
 
-	return nil
+	return true, nil
 }
 
 func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
@@ -222,7 +225,8 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	sg.maintenanceLock.RUnlock()
 
 	precomputedFiles, err := preComputeSegmentMeta(newPathTmp,
-		updatedCountNetAdditions, sg.logger)
+		updatedCountNetAdditions, sg.logger,
+		sg.useBloomFilter, sg.calcCountNetAdditions)
 	if err != nil {
 		return fmt.Errorf("precompute segment meta: %w", err)
 	}
@@ -265,7 +269,8 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		}
 	}
 
-	seg, err := newSegment(newPath, sg.logger, sg.metrics, nil, sg.mmapContents)
+	seg, err := newSegment(newPath, sg.logger, sg.metrics, nil,
+		sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions)
 	if err != nil {
 		return errors.Wrap(err, "create new segment")
 	}
@@ -294,20 +299,22 @@ func (sg *SegmentGroup) stripTmpExtension(oldPath string) (string, error) {
 func (sg *SegmentGroup) compactIfLevelsMatch(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	sg.monitorSegments()
 
-	if sg.eligibleForCompaction() {
-		if err := sg.compactOnce(); err != nil {
-			sg.logger.WithField("action", "lsm_compaction").
-				WithField("path", sg.dir).
-				WithError(err).
-				Errorf("compaction failed")
-		}
-		return true
+	compacted, err := sg.compactOnce()
+	if err != nil {
+		sg.logger.WithField("action", "lsm_compaction").
+			WithField("path", sg.dir).
+			WithError(err).
+			Errorf("compaction failed")
 	}
 
-	sg.logger.WithField("action", "lsm_compaction").
-		WithField("path", sg.dir).
-		Trace("no segment eligible for compaction")
-	return false
+	if compacted {
+		return true
+	} else {
+		sg.logger.WithField("action", "lsm_compaction").
+			WithField("path", sg.dir).
+			Trace("no segment eligible for compaction")
+		return false
+	}
 }
 
 func (sg *SegmentGroup) Len() int {

@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
@@ -64,7 +65,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		class.VectorIndexConfig.(schema.VectorIndexConfig),
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
-		m.db.replicaClient, m.db.promMetrics, class, m.db.jobQueueCh)
+		m.db.replicaClient, m.db.promMetrics, class, m.db.jobQueueCh, m.db.indexCheckpoints)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
@@ -130,13 +131,22 @@ func (m *Migrator) UpdateProperty(ctx context.Context, className string, propNam
 	return nil
 }
 
-func (m *Migrator) GetShardsStatus(ctx context.Context, className string) (map[string]string, error) {
+func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		return nil, errors.Errorf("cannot get shards status for a non-existing index for %s", className)
 	}
 
-	return idx.getShardsStatus(ctx)
+	return idx.getShardsQueueSize(ctx, tenant)
+}
+
+func (m *Migrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return nil, errors.Errorf("cannot get shards status for a non-existing index for %s", className)
+	}
+
+	return idx.getShardsStatus(ctx, tenant)
 }
 
 func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error {
@@ -188,7 +198,7 @@ func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates 
 		if pl.Status != models.TenantActivityStatusHOT {
 			continue // skip creating inactive shards
 		}
-		shard, err := NewShard(ctx, m.db.promMetrics, pl.Name, idx, class, idx.centralJobQueue)
+		shard, err := NewShard(ctx, m.db.promMetrics, pl.Name, idx, class, idx.centralJobQueue, m.db.indexCheckpoints)
 		if err != nil {
 			return nil, fmt.Errorf("cannot create partition %q: %w", pl, err)
 		}
@@ -278,7 +288,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 			if shard := idx.shards.Load(name); shard != nil {
 				continue
 			}
-			shard, err := NewShard(ctx, m.db.promMetrics, name, idx, class, idx.centralJobQueue)
+			shard, err := NewShard(ctx, m.db.promMetrics, name, idx, class, idx.centralJobQueue, m.db.indexCheckpoints)
 			if err != nil {
 				return fmt.Errorf("cannot activate shard '%s': %w", name, err)
 			}
@@ -359,7 +369,13 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
 	// hnsw is the only supported vector index type at the moment, so no need
 	// to check, we can always use that an hnsw-specific validation should be
 	// used for now.
-	return hnsw.ValidateUserConfigUpdate(old, updated)
+	switch old.IndexType() {
+	case "hnsw":
+		return hnsw.ValidateUserConfigUpdate(old, updated)
+	case "flat":
+		return flat.ValidateUserConfigUpdate(old, updated)
+	}
+	return fmt.Errorf("Invalid index type: %s", old.IndexType())
 }
 
 func (m *Migrator) ValidateInvertedIndexConfigUpdate(ctx context.Context,

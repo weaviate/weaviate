@@ -28,7 +28,7 @@ func (c *fakeClient) Vectorize(ctx context.Context,
 	c.lastInput = text
 	c.lastConfig = cfg
 	return &ent.VectorizationResult{
-		Vector:     []float32{0, 1, 2, 3},
+		Vectors:    [][]float32{{0, 1, 2, 3}},
 		Dimensions: 4,
 		Text:       text,
 	}, nil
@@ -40,7 +40,7 @@ func (c *fakeClient) VectorizeQuery(ctx context.Context,
 	c.lastInput = text
 	c.lastConfig = cfg
 	return &ent.VectorizationResult{
-		Vector:     []float32{0.1, 1.1, 2.1, 3.1},
+		Vectors:    [][]float32{{0.1, 1.1, 2.1, 3.1}},
 		Dimensions: 4,
 		Text:       text,
 	}, nil
@@ -52,6 +52,7 @@ type fakeSettings struct {
 	excludedProperty   string
 	cohereModel        string
 	truncateType       string
+	baseURL            string
 }
 
 func (f *fakeSettings) PropertyIndexed(propName string) bool {
@@ -72,4 +73,8 @@ func (f *fakeSettings) Model() string {
 
 func (f *fakeSettings) Truncate() string {
 	return f.truncateType
+}
+
+func (f *fakeSettings) BaseURL() string {
+	return f.baseURL
 }

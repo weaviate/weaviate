@@ -33,6 +33,9 @@ type ShardStatusGetResponse struct {
 
 	// Status of the shard
 	Status string `json:"status,omitempty"`
+
+	// Size of the vector queue of the shard
+	VectorQueueSize int64 `json:"vectorQueueSize"`
 }
 
 // Validate validates this shard status get response

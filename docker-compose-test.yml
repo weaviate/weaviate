@@ -25,6 +25,7 @@ services:
       PROMETHEUS_MONITORING_GROUP_CLASSES: 'true'
       CLUSTER_GOSSIP_BIND_PORT: "7100"
       CLUSTER_DATA_BIND_PORT: "7101"
+      ASYNC_INDEXING: ${ASYNC_INDEXING:-false}
 
       # necessary for the metrics tests, some metrics only exist once segments
       # are flushed. If we wait to long the before run is completely in

@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/autocut"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -31,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 	uc "github.com/weaviate/weaviate/usecases/schema"
@@ -748,12 +748,12 @@ func (e *Explorer) checkCertaintyCompatibility(className string) error {
 	if class == nil {
 		return errors.Errorf("failed to get class: %s", className)
 	}
-	hnswConfig, err := hnsw.TypeAssertVectorIndex(class)
+	vectorConfig, err := schema.TypeAssertVectorIndex(class)
 	if err != nil {
 		return err
 	}
-	if hnswConfig.Distance != hnsw.DistanceCosine {
-		return certaintyUnsupportedError(hnswConfig.Distance)
+	if dn := vectorConfig.DistanceName(); dn != common.DistanceCosine {
+		return certaintyUnsupportedError(dn)
 	}
 
 	return nil

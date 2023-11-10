@@ -13,10 +13,11 @@ package schema
 
 import (
 	"context"
+	"fmt"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
@@ -75,7 +76,11 @@ func (f fakeVectorConfig) IndexType() string {
 	return "fake"
 }
 
-func dummyParseVectorConfig(in interface{}) (schema.VectorIndexConfig, error) {
+func (f fakeVectorConfig) DistanceName() string {
+	return common.DistanceCosine
+}
+
+func dummyParseVectorConfig(in interface{}, vectorIndexType string) (schema.VectorIndexConfig, error) {
 	return fakeVectorConfig{raw: in}, nil
 }
 
@@ -94,7 +99,7 @@ func (f *fakeVectorizerValidator) ValidateVectorizer(moduleName string) error {
 		}
 	}
 
-	return errors.Errorf("invalid vectorizer %q", moduleName)
+	return fmt.Errorf("invalid vectorizer %q", moduleName)
 }
 
 type fakeModuleConfig struct{}
@@ -142,10 +147,15 @@ func (f *fakeModuleConfig) ValidateClass(ctx context.Context, class *models.Clas
 type fakeClusterState struct {
 	hosts       []string
 	syncIgnored bool
+	skipRepair  bool
 }
 
 func (f *fakeClusterState) SchemaSyncIgnored() bool {
 	return f.syncIgnored
+}
+
+func (f *fakeClusterState) SkipSchemaRepair() bool {
+	return f.skipRepair
 }
 
 func (f *fakeClusterState) Hostnames() []string {

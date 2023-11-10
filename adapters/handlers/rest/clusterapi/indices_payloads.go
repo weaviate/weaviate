@@ -47,6 +47,8 @@ type indicesPayloads struct {
 	FindDocIDsResults         findDocIDsResultsPayload
 	BatchDeleteParams         batchDeleteParamsPayload
 	BatchDeleteResults        batchDeleteResultsPayload
+	GetShardQueueSizeParams   getShardQueueSizeParamsPayload
+	GetShardQueueSizeResults  getShardQueueSizeResultsPayload
 	GetShardStatusParams      getShardStatusParamsPayload
 	GetShardStatusResults     getShardStatusResultsPayload
 	UpdateShardStatusParams   updateShardStatusParamsPayload
@@ -665,6 +667,46 @@ func (p batchDeleteResultsPayload) SetContentTypeHeader(w http.ResponseWriter) {
 }
 
 func (p batchDeleteResultsPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+type getShardQueueSizeParamsPayload struct{}
+
+func (p getShardQueueSizeParamsPayload) MIME() string {
+	return "vnd.weaviate.getshardqueuesizeparams+json"
+}
+
+func (p getShardQueueSizeParamsPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p getShardQueueSizeParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+type getShardQueueSizeResultsPayload struct{}
+
+func (p getShardQueueSizeResultsPayload) Unmarshal(in []byte) (int64, error) {
+	var out int64
+	err := json.Unmarshal(in, &out)
+	return out, err
+}
+
+func (p getShardQueueSizeResultsPayload) Marshal(in int64) ([]byte, error) {
+	return json.Marshal(in)
+}
+
+func (p getShardQueueSizeResultsPayload) MIME() string {
+	return "application/vnd.weaviate.getshardqueuesizeresults+octet-stream"
+}
+
+func (p getShardQueueSizeResultsPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p getShardQueueSizeResultsPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
 	ct := r.Header.Get("content-type")
 	return ct, ct == p.MIME()
 }

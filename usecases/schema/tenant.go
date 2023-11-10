@@ -211,7 +211,7 @@ func (m *Manager) onAddTenants(ctx context.Context, class *models.Class, request
 		WithField("action", "schema.add_tenants").
 		Debug("saving updated schema to configuration store")
 
-	if err := m.repo.NewShards(ctx, class.Class, pairs); err != nil {
+	if err = m.repo.NewShards(ctx, class.Class, pairs); err != nil {
 		commit(false) // rollback adding new tenant
 		return err
 	}
@@ -219,6 +219,9 @@ func (m *Manager) onAddTenants(ctx context.Context, class *models.Class, request
 	m.schemaCache.LockGuard(func() {
 		ost := m.schemaCache.ShardingState[request.Class]
 		for name, p := range st.Physical {
+			if ost.Physical == nil {
+				m.schemaCache.ShardingState[request.Class].Physical = make(map[string]sharding.Physical)
+			}
 			ost.Physical[name] = p
 		}
 	})
