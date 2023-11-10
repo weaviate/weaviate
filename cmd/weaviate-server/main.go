@@ -59,10 +59,12 @@ func main() {
 		os.Exit(code)
 	}
 
-	// TODO-RAFT START
-	// Is this enough?
+	/// TODO-RAFT START
+	// Quick workaround for node port assignment in a local test cluster.
+	// Since this file is auto-generated, communication of this flag needs to be moved outside this file.
+	//
 	isLocal := server.Host == "127.0.0.1"|| server.Host == "localhost"
-	// TODO-RAFT END
+	/// TODO-RAFT END
 
 	server.ConfigureAPI(isLocal)
 
