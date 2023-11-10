@@ -170,7 +170,7 @@ func generateTextForPrompt(textProperties map[string]string, prompt string) (str
 		}
 		prompt = strings.ReplaceAll(prompt, propertyPlaceholder, propertyValue)
 	}
-	return prompt, nil
+	return cleanPrompt(prompt), nil
 }
 
 // generatePromptForGroupTask generates the prompt for a grouped result generation.
