@@ -13,10 +13,11 @@ package config
 
 import (
 	"encoding/json"
+	"strconv"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"strconv"
 )
 
 var (
@@ -100,9 +101,7 @@ func (ic *classSettings) validateModel(model string) bool {
 }
 
 func (ic *classSettings) validateMaximumTokens(maximumTokens int) bool {
-
 	return maximumTokens > 0
-
 }
 
 func (ic *classSettings) validateTemperature(temperature float64) bool {
