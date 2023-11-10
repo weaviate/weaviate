@@ -143,7 +143,12 @@ func (s *Server) SetAPI(api *operations.WeaviateAPI) {
 	}
 
 	s.api = api
+	/// TODO-RAFT START
+	// Quick workaround for node port assignment in a local test cluster.
+	// Since this file is auto-generated, communication of this flag needs to be moved outside this file.
+	//
 	s.handler = configureAPI(api, s.Host == "127.0.0.1"|| s.Host == "localhost" )
+	/// TODO-RAFT END
 }
 
 func (s *Server) hasScheme(scheme string) bool {
