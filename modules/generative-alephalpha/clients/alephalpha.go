@@ -53,6 +53,8 @@ type alephalpha struct {
 	logger           logrus.FieldLogger
 }
 
+const MaxTokenLength = 2048
+
 func New(alephAlpaAPIKey string, logger logrus.FieldLogger) *alephalpha {
 	return &alephalpha{
 		alephAlphaAPIKey: alephAlpaAPIKey,
@@ -87,6 +89,11 @@ func (a *alephalpha) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 		Prompt:        prompt,
 		MaximumTokens: settings.MaximumTokens(),
 		APIKey:        a.alephAlphaAPIKey,
+	}
+
+	tokenizedPrompt, _ := a.tokenizePrompt(input)
+	if len(tokenizedPrompt["tokens"].([]interface{}))+input.MaximumTokens > MaxTokenLength {
+		return nil, errors.Errorf("the sum of the prompt length and the maximum tokens should not be greater than %d", MaxTokenLength)
 	}
 
 	completions, err := a.makeRequest(input)
@@ -195,4 +202,44 @@ func cleanPrompt(prompt string) string {
 	cleanPrompt := strings.ReplaceAll(prompt, "\"", "'")
 	cleanPrompt = re.ReplaceAllString(cleanPrompt, " ")
 	return cleanPrompt
+}
+
+func (a *alephalpha) tokenizePrompt(request Request) (map[string]interface{}, error) {
+	url := "https://api.aleph-alpha.com/tokenize"
+	method := "POST"
+
+	payload := strings.NewReader(fmt.Sprintf(`{
+        "model": "%s",
+        "prompt": "%s",
+        "tokens": true,
+        "token_ids": false
+    }`, request.Model, request.Prompt))
+
+	client := &http.Client{}
+	req, err := http.NewRequest(method, url, payload)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", request.APIKey))
+
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result map[string]interface{}
+	err = json.Unmarshal(body, &result)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }
