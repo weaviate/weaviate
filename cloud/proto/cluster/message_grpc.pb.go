@@ -22,6 +22,7 @@ const (
 	ClusterService_RemovePeer_FullMethodName = "/weaviate.cloud.internal.cluster.ClusterService/RemovePeer"
 	ClusterService_JoinPeer_FullMethodName   = "/weaviate.cloud.internal.cluster.ClusterService/JoinPeer"
 	ClusterService_NotifyPeer_FullMethodName = "/weaviate.cloud.internal.cluster.ClusterService/NotifyPeer"
+	ClusterService_Apply_FullMethodName      = "/weaviate.cloud.internal.cluster.ClusterService/Apply"
 )
 
 // ClusterServiceClient is the client API for ClusterService service.
@@ -31,6 +32,7 @@ type ClusterServiceClient interface {
 	RemovePeer(ctx context.Context, in *RemovePeerRequest, opts ...grpc.CallOption) (*RemovePeerResponse, error)
 	JoinPeer(ctx context.Context, in *JoinPeerRequest, opts ...grpc.CallOption) (*JoinPeerResponse, error)
 	NotifyPeer(ctx context.Context, in *NotifyPeerRequest, opts ...grpc.CallOption) (*NotifyPeerResponse, error)
+	Apply(ctx context.Context, in *ApplyRequest, opts ...grpc.CallOption) (*ApplyResponse, error)
 }
 
 type clusterServiceClient struct {
@@ -68,6 +70,15 @@ func (c *clusterServiceClient) NotifyPeer(ctx context.Context, in *NotifyPeerReq
 	return out, nil
 }
 
+func (c *clusterServiceClient) Apply(ctx context.Context, in *ApplyRequest, opts ...grpc.CallOption) (*ApplyResponse, error) {
+	out := new(ApplyResponse)
+	err := c.cc.Invoke(ctx, ClusterService_Apply_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ClusterServiceServer is the server API for ClusterService service.
 // All implementations should embed UnimplementedClusterServiceServer
 // for forward compatibility
@@ -75,6 +86,7 @@ type ClusterServiceServer interface {
 	RemovePeer(context.Context, *RemovePeerRequest) (*RemovePeerResponse, error)
 	JoinPeer(context.Context, *JoinPeerRequest) (*JoinPeerResponse, error)
 	NotifyPeer(context.Context, *NotifyPeerRequest) (*NotifyPeerResponse, error)
+	Apply(context.Context, *ApplyRequest) (*ApplyResponse, error)
 }
 
 // UnimplementedClusterServiceServer should be embedded to have forward compatible implementations.
@@ -89,6 +101,9 @@ func (UnimplementedClusterServiceServer) JoinPeer(context.Context, *JoinPeerRequ
 }
 func (UnimplementedClusterServiceServer) NotifyPeer(context.Context, *NotifyPeerRequest) (*NotifyPeerResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method NotifyPeer not implemented")
+}
+func (UnimplementedClusterServiceServer) Apply(context.Context, *ApplyRequest) (*ApplyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Apply not implemented")
 }
 
 // UnsafeClusterServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -156,6 +171,24 @@ func _ClusterService_NotifyPeer_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ClusterService_Apply_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApplyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClusterServiceServer).Apply(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ClusterService_Apply_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClusterServiceServer).Apply(ctx, req.(*ApplyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ClusterService_ServiceDesc is the grpc.ServiceDesc for ClusterService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -174,6 +207,10 @@ var ClusterService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "NotifyPeer",
 			Handler:    _ClusterService_NotifyPeer_Handler,
+		},
+		{
+			MethodName: "Apply",
+			Handler:    _ClusterService_Apply_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
