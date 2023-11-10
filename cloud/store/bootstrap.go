@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package store
 
 import (
@@ -7,6 +18,8 @@ import (
 	"time"
 
 	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type joiner interface {
@@ -60,11 +73,19 @@ func (b *Bootstrapper) Do(ctx context.Context, servers []string) error {
 }
 
 func (b *Bootstrapper) join(ctx context.Context, servers []string) (leader string, err error) {
+	var resp *cmd.JoinPeerResponse
+	req := &cmd.JoinPeerRequest{Id: b.localNodeID, Address: b.localRaftAddr, Voter: true}
 	for _, addr := range servers {
-		req := &cmd.JoinPeerRequest{Id: b.localNodeID, Address: b.localRaftAddr, Voter: true}
-		_, err = b.joiner.Join(ctx, addr, req)
+		resp, err = b.joiner.Join(ctx, addr, req)
 		if err == nil {
 			return addr, nil
+		}
+		st := status.Convert(err)
+		if leader = resp.GetLeader(); st.Code() == codes.NotFound && leader != "" {
+			_, err = b.joiner.Join(ctx, leader, req)
+			if err == nil {
+				return leader, nil
+			}
 		}
 	}
 	return
