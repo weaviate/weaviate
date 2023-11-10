@@ -122,7 +122,7 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 	}
 	generativeGroupResults := ""
 	// id is part of the _additional map in case of generative search - don't aks me why
-	if additionalPropsParams.ID && generativeSearchEnabled || fromGroup {
+	if additionalPropsParams.ID && (generativeSearchEnabled || fromGroup) {
 		idRaw, ok := additionalPropertiesMap["id"]
 		if !ok {
 			return nil, "", errors.Wrap(err, "get id generative")
