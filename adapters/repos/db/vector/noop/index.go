@@ -82,6 +82,10 @@ func (i *Index) Shutdown(context.Context) error {
 	return nil
 }
 
+func (i *Index) SwitchCommitLogs(context.Context) error {
+	return nil
+}
+
 func (i *Index) ListFiles(context.Context, string) ([]string, error) {
 	return nil, nil
 }
