@@ -38,6 +38,9 @@ type metaWriter interface {
 	AddTenants(class string, req *command.AddTenantsRequest) error
 	UpdateTenants(class string, req *command.UpdateTenantsRequest) error
 	DeleteTenants(class string, req *command.DeleteTenantsRequest) error
+	Join(_ context.Context, nodeID, raftAddr string, voter bool) error
+	Remove(_ context.Context, nodeID string) error
+	Stats() map[string]string
 }
 
 type metaReader interface {
