@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -97,6 +98,11 @@ type batchIndexer interface {
 	ContainsNode(id uint64) bool
 	Delete(id ...uint64) error
 	DistancerProvider() distancer.Provider
+	ShouldCompress() (bool, int)
+	ShouldCompressFromConfig(config schema.VectorIndexConfig) (bool, int)
+	Compressed() bool
+	AlreadyIndexed() uint64
+	TurnOnCompression(callback func()) error
 }
 
 type shardStatusUpdater interface {
@@ -369,6 +375,7 @@ func (q *IndexQueue) indexer() {
 				// then for indexing them.
 				q.pushToWorkers(1, true)
 			}
+			q.checkCompressionSettings()
 		case <-q.ctx.Done():
 			// stop the ticker
 			t.Stop()
@@ -474,6 +481,36 @@ func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowL
 	}
 
 	return ids, dists, nil
+}
+
+func (q *IndexQueue) checkCompressionSettings() {
+	shouldCompress, shouldCompressAt := q.Index.ShouldCompress()
+	if q.Index.Compressed() || !shouldCompress {
+		return
+	}
+
+	if q.Index.AlreadyIndexed() > uint64(shouldCompressAt) {
+		if err := q.pauseIndexing(); err != nil {
+			q.Logger.Error(err)
+			return
+		}
+		q.Index.TurnOnCompression(func() {
+			err := q.resumeIndexing()
+			if err != nil {
+				q.Logger.Error(err)
+			}
+		})
+	}
+}
+
+// ToDo: stop the workers
+func (q *IndexQueue) pauseIndexing() error {
+	return nil
+}
+
+// ToDo: resume the workers
+func (q *IndexQueue) resumeIndexing() error {
+	return nil
 }
 
 func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k int, results *priorityqueue.Queue, allowList helpers.AllowList, maxDistance float32, seen map[uint64]struct{}) error {

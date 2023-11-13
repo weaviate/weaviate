@@ -40,4 +40,9 @@ type VectorIndex interface {
 	DistanceBetweenVectors(x, y []float32) (float32, bool, error)
 	ContainsNode(id uint64) bool
 	DistancerProvider() distancer.Provider
+	ShouldCompress() (bool, int)
+	ShouldCompressFromConfig(config schema.VectorIndexConfig) (bool, int)
+	Compressed() bool
+	AlreadyIndexed() uint64
+	TurnOnCompression(callback func()) error
 }

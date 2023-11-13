@@ -576,3 +576,23 @@ func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
 	}
 	return nil
 }
+
+func (h *flat) ShouldCompress() (bool, int) {
+	return false, 0
+}
+
+func (h *flat) ShouldCompressFromConfig(config schema.VectorIndexConfig) (bool, int) {
+	return false, 0
+}
+
+func (h *flat) Compressed() bool {
+	return false
+}
+
+func (h *flat) AlreadyIndexed() uint64 {
+	return 0
+}
+
+func (h *flat) TurnOnCompression(callback func()) error {
+	return nil
+}

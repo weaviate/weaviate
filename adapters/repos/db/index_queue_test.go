@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
@@ -771,4 +772,24 @@ func (m *mockBatchIndexer) DistancerProvider() distancer.Provider {
 	}
 
 	return m.distancerProvider
+}
+
+func (m *mockBatchIndexer) ShouldCompress() (bool, int) {
+	return false, 0
+}
+
+func (m *mockBatchIndexer) ShouldCompressFromConfig(config schema.VectorIndexConfig) (bool, int) {
+	return false, 0
+}
+
+func (m *mockBatchIndexer) Compressed() bool {
+	return false
+}
+
+func (m *mockBatchIndexer) AlreadyIndexed() uint64 {
+	return 0
+}
+
+func (m *mockBatchIndexer) TurnOnCompression(callback func()) error {
+	return nil
 }
