@@ -90,7 +90,7 @@ func (cl *Client) Remove(ctx context.Context, leaderAddress string, req *cmd.Rem
 	return c.RemovePeer(ctx, req)
 }
 
-func (cl *Client) apply(leaderAddr string, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error) {
+func (cl *Client) Apply(leaderAddr string, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error) {
 	log.Printf("client apply on remote node: %s req-type: %v class: %v\n", leaderAddr, req.Type, req.Class)
 
 	ctx := context.Background()
