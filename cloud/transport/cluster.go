@@ -19,17 +19,10 @@ import (
 
 	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
 	command "github.com/weaviate/weaviate/cloud/proto/cluster"
+	"github.com/weaviate/weaviate/cloud/store"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-)
-
-var (
-	// ErrNotLeader is returned when an operation can't be completed on a
-	// follower or candidate node.
-	ErrNotLeader      = errors.New("node is not the leader")
-	ErrLeaderNotFound = errors.New("leader not found")
-	ErrNotOpen        = errors.New("store not open")
 )
 
 type members interface {
@@ -119,9 +112,9 @@ func toRPCError(err error) error {
 		return nil
 	}
 	ec := codes.Internal
-	if errors.Is(err, ErrNotLeader) {
+	if errors.Is(err, store.ErrNotLeader) {
 		ec = codes.NotFound
-	} else if errors.Is(err, ErrNotOpen) {
+	} else if errors.Is(err, store.ErrNotOpen) {
 		ec = codes.Unavailable
 	}
 	return status.Error(ec, err.Error())
