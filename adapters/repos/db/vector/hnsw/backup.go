@@ -15,9 +15,10 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"log"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 )
 
 // BeginBackup prepares the hnsw index so a backup can be created
@@ -130,8 +131,6 @@ func (h *hnsw) listCommitLogFiles(ctx context.Context) ([]string, error) {
 		i++
 	}
 
-	log.Printf("commitlog files: %+v", files)
-
 	return files, nil
 }
 
@@ -141,12 +140,8 @@ func (h *hnsw) listCompressedFiles(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("list compressed files: %w", err)
 	}
 	for i, file := range files {
-		withoutRoot, err := filepath.Rel("data", file)
-		if err != nil {
-			return nil, err
-		}
-		files[i] = withoutRoot
+		withoutRoot := strings.Split(file, "/")
+		files[i] = path.Join(withoutRoot[1:]...)
 	}
-	log.Printf("compressed files: %+v", files)
 	return files, nil
 }
