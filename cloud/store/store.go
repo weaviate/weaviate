@@ -20,20 +20,28 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
-	command "github.com/weaviate/weaviate/cloud/proto/cluster"
+	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/entities/models"
 	"google.golang.org/protobuf/proto"
 )
 
+var (
+	// ErrNotLeader is returned when an operation can't be completed on a
+	// follower or candidate node.
+	ErrNotLeader      = errors.New("node is not the leader")
+	ErrLeaderNotFound = errors.New("leader not found")
+	ErrNotOpen        = errors.New("store not open")
+)
+
 type DB interface {
-	AddClass(pl command.AddClassRequest) error
-	UpdateClass(req command.UpdateClassRequest) error
+	AddClass(pl cmd.AddClassRequest) error
+	UpdateClass(req cmd.UpdateClassRequest) error
 	DeleteClass(string) error
-	AddProperty(string, command.AddPropertyRequest) error
-	AddTenants(class string, req *command.AddTenantsRequest) error
-	UpdateTenants(class string, req *command.UpdateTenantsRequest) error
-	DeleteTenants(class string, req *command.DeleteTenantsRequest) error
-	UpdateShardStatus(req *command.UpdateShardStatusRequest) error
+	AddProperty(string, cmd.AddPropertyRequest) error
+	AddTenants(class string, req *cmd.AddTenantsRequest) error
+	UpdateTenants(class string, req *cmd.UpdateTenantsRequest) error
+	DeleteTenants(class string, req *cmd.DeleteTenantsRequest) error
+	UpdateShardStatus(req *cmd.UpdateShardStatusRequest) error
 	GetShardsStatus(class string) (models.ShardStatusList, error)
 }
 
@@ -99,10 +107,10 @@ func (f *Store) SetDB(db DB) {
 	f.db = db
 }
 
-func (st *Store) Execute(cmd *command.ApplyRequest) error {
-	log.Printf("server apply: %s %+v\n", cmd.Type, cmd.Class)
+func (st *Store) Execute(req *cmd.ApplyRequest) error {
+	log.Printf("server apply: %s %+v\n", req.Type, req.Class)
 
-	cmdBytes, err := proto.Marshal(cmd)
+	cmdBytes, err := proto.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("marshal command: %w", err)
 	}

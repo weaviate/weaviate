@@ -43,6 +43,7 @@ import (
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	txstore "github.com/weaviate/weaviate/adapters/repos/transactions"
 	schemav2 "github.com/weaviate/weaviate/cloud/store"
+	ctrans "github.com/weaviate/weaviate/cloud/transport"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -235,7 +236,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup, is
 	rpcAddr := addrs[0] + ":" + rpcPort
 	raftAddr := addrs[0] + ":" + fmt.Sprintf("%d", appState.ServerConfig.Config.Raft.Port)
 
-	cl := schemav2.NewClient(schemav2.NewRPCResolver(isLocalhost, rpcPort))
+	cl := ctrans.NewClient(ctrans.NewRPCResolver(isLocalhost, rpcPort))
 
 	rConfig := schemav2.Config{
 		WorkDir:         filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, "raft"),
@@ -249,7 +250,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup, is
 
 	fsm := schemav2.New(rConfig)
 	appState.MetaStore = schemav2.NewService(&fsm, cl)
-	cluster := schemav2.NewCluster(&fsm, appState.MetaStore, rpcAddr)
+	cluster := ctrans.NewCluster(&fsm, appState.MetaStore, rpcAddr)
 	if err := cluster.Open(); err != nil {
 		appState.Logger.
 			WithField("action", "startup").
