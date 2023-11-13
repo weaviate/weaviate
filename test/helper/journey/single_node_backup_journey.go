@@ -20,7 +20,7 @@ import (
 
 func singleNodeBackupJourneyTest(t *testing.T,
 	weaviateEndpoint, backend, className, backupID string,
-	tenantNames []string,
+	tenantNames []string, pqEnabled bool,
 ) {
 	if weaviateEndpoint != "" {
 		helper.SetupClient(weaviateEndpoint)
@@ -43,8 +43,18 @@ func singleNodeBackupJourneyTest(t *testing.T,
 		})
 	}
 
+	if pqEnabled {
+		pq := map[string]interface{}{
+			"enabled":   true,
+			"segments":  1,
+			"centroids": 16,
+		}
+		helper.EnablePQ(t, className, pq)
+	}
+
 	t.Run("single node backup", func(t *testing.T) {
-		backupJourney(t, className, backend, backupID, singleNodeJourney, checkClassAndDataPresence, tenantNames)
+		backupJourney(t, className, backend, backupID, singleNodeJourney,
+			checkClassAndDataPresence, tenantNames, pqEnabled)
 	})
 
 	t.Run("cleanup", func(t *testing.T) {
@@ -74,7 +84,8 @@ func singleNodeBackupEmptyClassJourneyTest(t *testing.T,
 	})
 
 	t.Run("single node backup", func(t *testing.T) {
-		backupJourney(t, className, backend, backupID, singleNodeJourney, checkClassPresenceOnly, tenantNames)
+		backupJourney(t, className, backend, backupID,
+			singleNodeJourney, checkClassPresenceOnly, tenantNames, false)
 	})
 
 	t.Run("cleanup", func(t *testing.T) {
