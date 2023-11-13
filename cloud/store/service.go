@@ -12,10 +12,12 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 
+	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
 	command "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -163,6 +165,39 @@ func (st *Service) Execute(req *command.ApplyRequest) error {
 	}
 	_, err := st.rpc.apply(leader, req)
 	return err
+}
+
+func (m *Service) Join(ctx context.Context, id, addr string, voter bool) error {
+	log.Printf("membership.join %v %v %v", id, addr, voter)
+	if m.store.IsLeader() {
+		return m.store.Join(id, addr, voter)
+	}
+	leader := m.store.Leader()
+	if leader == "" {
+		return ErrLeaderNotFound
+	}
+	req := &cmd.JoinPeerRequest{Id: id, Address: addr, Voter: voter}
+	_, err := m.rpc.Join(ctx, leader, req)
+	return err
+}
+
+func (s *Service) Remove(ctx context.Context, id string) error {
+	log.Printf("membership.remove %v ", id)
+	if s.store.IsLeader() {
+		return s.store.Remove(id)
+	}
+	leader := s.store.Leader()
+	if leader == "" {
+		return ErrLeaderNotFound
+	}
+	req := &cmd.RemovePeerRequest{Id: id}
+	_, err := s.rpc.Remove(ctx, leader, req)
+	return err
+}
+
+func (s *Service) Stats() map[string]string {
+	log.Printf("membership.Stats")
+	return s.store.Stats()
 }
 
 func removeNilTenants(tenants []*command.Tenant) []*command.Tenant {
