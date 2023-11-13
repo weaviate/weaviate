@@ -46,7 +46,7 @@ func TestGRPCRequest(t *testing.T) {
 	dotClass := "DotClass"
 	objClass := "ObjClass"
 
-	defaultClassnameProps := search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}, {Name: "floats", IsPrimitive: true}, {Name: "uuid", IsPrimitive: true}}
+	defaultTestClassProps := search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}, {Name: "floats", IsPrimitive: true}, {Name: "uuid", IsPrimitive: true}}
 
 	scheme := schema.Schema{
 		Objects: &models.Schema{
@@ -145,7 +145,7 @@ func TestGRPCRequest(t *testing.T) {
 			name: "No return values given",
 			req:  &pb.SearchRequest{Collection: classname},
 			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, Properties: defaultClassnameProps,
+				ClassName: classname, Pagination: defaultPagination, Properties: defaultTestClassProps,
 			},
 			error: false,
 		},
@@ -170,7 +170,7 @@ func TestGRPCRequest(t *testing.T) {
 			req:  &pb.SearchRequest{Collection: classname, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false, IsConsistent: true}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties: defaultClassnameProps,
+				Properties: defaultTestClassProps,
 				AdditionalProperties: additional.Properties{
 					Vector:       true,
 					NoProps:      false,
@@ -246,7 +246,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion, Alpha: 0.75, Properties: []string{"name", "capitalizedName"}},
-				Properties:           defaultClassnameProps,
+				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 			},
 			error: false,
@@ -259,7 +259,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRelativeScoreFusion},
-				Properties:           defaultClassnameProps,
+				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 			},
 			error: false,
@@ -272,7 +272,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion},
-				Properties:           defaultClassnameProps,
+				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 			},
 			error: false,
@@ -286,7 +286,7 @@ func TestGRPCRequest(t *testing.T) {
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
 				KeywordRanking:       &searchparams.KeywordRanking{Query: "query", Properties: []string{"name", "capitalizedName"}, Type: "bm25"},
-				Properties:           defaultClassnameProps,
+				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 			},
 			error: false,
@@ -299,7 +299,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties:           defaultClassnameProps,
+				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 				Filters: &filters.LocalFilter{
 					Root: &filters.Clause{
@@ -319,7 +319,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties:           defaultClassnameProps,
+				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 				Filters: &filters.LocalFilter{
 					Root: &filters.Clause{
@@ -342,7 +342,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties:           defaultClassnameProps,
+				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 				Filters: &filters.LocalFilter{
 					Root: &filters.Clause{
@@ -372,7 +372,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties:           defaultClassnameProps,
+				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 				Filters: &filters.LocalFilter{
 					Root: &filters.Clause{
@@ -396,7 +396,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties:           defaultClassnameProps,
+				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 				Filters: &filters.LocalFilter{
 					Root: &filters.Clause{
@@ -448,7 +448,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties:           defaultClassnameProps,
+				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 				Filters: &filters.LocalFilter{
 					Root: &filters.Clause{
@@ -479,7 +479,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties:           defaultClassnameProps,
+				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 				Filters: &filters.LocalFilter{
 					Root: &filters.Clause{
@@ -506,7 +506,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties:           defaultClassnameProps,
+				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 				Filters: &filters.LocalFilter{
 					Root: &filters.Clause{
@@ -533,7 +533,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties:           defaultClassnameProps,
+				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 				ModuleParams: map[string]interface{}{
 					"nearText": &nearText2.NearTextParams{
@@ -581,7 +581,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties:           defaultClassnameProps,
+				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 				ModuleParams: map[string]interface{}{
 					"nearAudio": &nearAudio.NearAudioParams{
@@ -601,7 +601,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties:           defaultClassnameProps,
+				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 				ModuleParams: map[string]interface{}{
 					"nearVideo": &nearVideo.NearVideoParams{
@@ -621,7 +621,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties:           defaultClassnameProps,
+				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 				ModuleParams: map[string]interface{}{
 					"nearImage": &nearImage.NearImageParams{
@@ -639,7 +639,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties:            defaultClassnameProps,
+				Properties:            defaultTestClassProps,
 				AdditionalProperties:  additional.Properties{Vector: true, NoProps: false},
 				ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: "QUORUM"},
 			},
@@ -653,7 +653,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties: defaultClassnameProps,
+				Properties: defaultTestClassProps,
 				AdditionalProperties: additional.Properties{
 					Vector:  true,
 					NoProps: false,
@@ -672,7 +672,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties: defaultClassnameProps,
+				Properties: defaultTestClassProps,
 				AdditionalProperties: additional.Properties{
 					Vector:  true,
 					NoProps: false,
@@ -700,7 +700,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties: defaultClassnameProps,
+				Properties: defaultTestClassProps,
 				AdditionalProperties: additional.Properties{
 					Vector:  true,
 					NoProps: false,
