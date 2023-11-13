@@ -42,12 +42,6 @@ const (
 	nRetainedSnapShots = 1
 )
 
-type Candidate struct {
-	ID       string
-	Address  string
-	NonVoter bool
-}
-
 // Open opens this store and marked as such.
 func (st *Store) Open() (err error) {
 	fmt.Println("bootstrapping started")
@@ -339,6 +333,10 @@ func (st *Store) Notify(id, addr string) (err error) {
 	}
 	st.bootstrapped.Store(true)
 	return nil
+}
+
+func (st *Store) Stats() map[string]string {
+	return st.raft.Stats()
 }
 
 func (st *Store) Leader() string {
