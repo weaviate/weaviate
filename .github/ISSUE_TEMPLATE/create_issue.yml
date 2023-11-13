@@ -1,0 +1,51 @@
+name: Found a bug?
+description: Report your bug here.
+labels: ["bug", "triage"]
+body:
+
+  - type: markdown
+    attributes:
+      value: |
+        #### Before you get started
+        * Check that sure someone hasn't already opened a similar [issue](https://github.com/weaviate/weaviate-io/issues).
+        * Read the [Contributor Guide](https://weaviate.io/developers/contributor-guide) and [Code of Conduct](https://weaviate.io/service/code-of-conduct).
+
+  - type: textarea
+    id: issue_body
+    attributes:
+      label: Describe your issue
+      description: |
+        * What is the expected behavior? 
+        * What is the actual behavior? 
+        * Can you replicate it in latest version?
+        * How can we reproduce it?
+    validations:
+      required: true
+
+  - type: input
+    id: server_version
+    attributes:
+      label: Server Version
+      description: What Weaviate Version are you running?
+    validations:
+      required: true
+
+  - type: textarea
+    id: suporting_information
+    attributes:
+      label: Supporting information
+      description: Please, paste any logs, context information (client version? environment variables?) or other details in here.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      description: This project has a Code of Conduct that all participants are expected to understand and follow.
+      options:
+        - label: I have read and agree to the Weaviate's [Contributor Guide](https://weaviate.io/developers/contributor-guide) and [Code of Conduct](https://weaviate.io/service/code-of-conduct)
+          required: true
+
+
+
