@@ -544,6 +544,52 @@ func TestIndexQueue(t *testing.T) {
 			require.True(t, dist >= 0 && dist <= 1)
 		}
 	})
+
+	t.Run("pause/resume indexing", func(t *testing.T) {
+		var idx mockBatchIndexer
+		called := make(chan struct{})
+		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
+			called <- struct{}{}
+			// simulate work
+			<-time.After(100 * time.Millisecond)
+			return nil
+		}
+
+		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+			BatchSize:     2,
+			IndexInterval: 10 * time.Millisecond,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		pushVector(t, ctx, q, 1, []float32{1, 2, 3})
+		pushVector(t, ctx, q, 2, []float32{4, 5, 6})
+
+		// batch indexed
+		<-called
+
+		// pause indexing: this will block until the batch is indexed
+		q.pauseIndexing()
+
+		// add more vectors
+		pushVector(t, ctx, q, 3, []float32{7, 8, 9})
+		pushVector(t, ctx, q, 4, []float32{1, 2, 3})
+
+		// wait enough time to make sure the indexing is not happening
+		<-time.After(200 * time.Millisecond)
+
+		select {
+		case <-called:
+			t.Fatal("should not have been called")
+		default:
+		}
+
+		// resume indexing
+		q.resumeIndexing()
+
+		// wait for the indexing to be done
+		<-called
+	})
 }
 
 func BenchmarkPush(b *testing.B) {

@@ -506,13 +506,16 @@ func (q *IndexQueue) checkCompressionSettings() {
 // pause indexing and wait for the workers to finish their current tasks
 // related to this queue.
 func (q *IndexQueue) pauseIndexing() {
+	q.Logger.Debug("pausing indexing, waiting for the current tasks to finish")
 	q.paused.Store(true)
 	q.queue.wait(q.ctx)
+	q.Logger.Debug("indexing paused")
 }
 
 // resume indexing
 func (q *IndexQueue) resumeIndexing() {
 	q.paused.Store(false)
+	q.Logger.Debug("indexing resumed")
 }
 
 func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k int, results *priorityqueue.Queue, allowList helpers.AllowList, maxDistance float32, seen map[uint64]struct{}) error {
