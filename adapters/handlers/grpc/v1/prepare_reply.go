@@ -253,6 +253,7 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 			isConsistentfmt, ok2 := isConsistent.(bool)
 			if ok2 {
 				additionalProps.IsConsistent = &isConsistentfmt
+				additionalProps.IsConsistentPresent = true
 			}
 		}
 	}
