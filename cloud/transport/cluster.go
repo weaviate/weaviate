@@ -17,6 +17,7 @@ import (
 	"log"
 	"net"
 
+	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
 	command "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/cloud/store"
@@ -41,18 +42,20 @@ type Cluster struct {
 	executor executor
 	address  string
 	ln       net.Listener
+	logger   logrus.FieldLogger
 }
 
-func NewCluster(ms members, ex executor, address string) Cluster {
+func NewCluster(ms members, ex executor, address string, logger logrus.FieldLogger) Cluster {
 	return Cluster{
 		members:  ms,
 		executor: ex,
 		address:  address,
+		logger:   logger.WithField("action", "cluster"),
 	}
 }
 
 func (c *Cluster) JoinPeer(_ context.Context, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error) {
-	log.Printf("server: join peer %+v\n", req)
+	c.logger.Debugf("server: join peer %+v\n", req)
 	err := c.members.Join(req.Id, req.Address, req.Voter)
 	if err == nil {
 		return &cmd.JoinPeerResponse{}, nil
@@ -62,7 +65,7 @@ func (c *Cluster) JoinPeer(_ context.Context, req *cmd.JoinPeerRequest) (*cmd.Jo
 }
 
 func (c *Cluster) RemovePeer(_ context.Context, req *cmd.RemovePeerRequest) (*cmd.RemovePeerResponse, error) {
-	log.Printf("server: remove peer %+v\n", req)
+	c.logger.Debugf("server: remove peer %+v\n", req)
 	err := c.members.Remove(req.Id)
 	if err == nil {
 		return &cmd.RemovePeerResponse{}, nil
@@ -71,7 +74,7 @@ func (c *Cluster) RemovePeer(_ context.Context, req *cmd.RemovePeerRequest) (*cm
 }
 
 func (c *Cluster) NotifyPeer(_ context.Context, req *cmd.NotifyPeerRequest) (*cmd.NotifyPeerResponse, error) {
-	log.Printf("server: join peer %+v\n", req)
+	c.logger.Debugf("server: join peer %+v\n", req)
 	return &cmd.NotifyPeerResponse{}, toRPCError(c.members.Notify(req.Id, req.Address))
 }
 
@@ -88,7 +91,7 @@ func (c *Cluster) Leader() string {
 }
 
 func (c *Cluster) Open() error {
-	log.Printf("server listening at %v", c.address)
+	c.logger.WithField("address", c.address).Infof("server listening on %v", c.address)
 	ln, err := net.Listen("tcp", c.address)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)

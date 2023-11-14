@@ -127,7 +127,7 @@ func (s *schema) addTenants(class string, req *command.AddTenantsRequest) error 
 
 		p := sharding.Physical{Name: t.Name, Status: t.Status, BelongsToNodes: t.Nodes}
 		info.Sharding.Physical[t.Name] = p
-		if !slices.Contains[string](t.Nodes, s.nodeID) {
+		if !slices.Contains(t.Nodes, s.nodeID) {
 			req.Tenants[i] = nil // is owner by another node
 		}
 	}
@@ -175,7 +175,7 @@ func (s *schema) updateTenants(class string, req *command.UpdateTenantsRequest) 
 			copy.BelongsToNodes = u.Nodes
 		}
 		ps[u.Name] = copy
-		if !slices.Contains[string](copy.BelongsToNodes, s.nodeID) {
+		if !slices.Contains(copy.BelongsToNodes, s.nodeID) {
 			req.Tenants[i] = nil
 		}
 		n++

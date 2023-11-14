@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
+	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/entities/models"
 	"google.golang.org/protobuf/proto"
@@ -61,6 +62,8 @@ type Config struct {
 
 	DB     DB
 	Parser Parser
+
+	Logger logrus.FieldLogger
 }
 
 type Store struct {
@@ -84,6 +87,8 @@ type Store struct {
 
 	mutex      sync.Mutex
 	candidates map[string]string
+
+	logger logrus.FieldLogger
 }
 
 func New(cfg Config) Store {
@@ -100,6 +105,7 @@ func New(cfg Config) Store {
 		schema:               NewSchema(cfg.NodeID, cfg.DB),
 		db:                   cfg.DB,
 		parser:               cfg.Parser,
+		logger:               cfg.Logger.WithField("action", "raft"),
 	}
 }
 

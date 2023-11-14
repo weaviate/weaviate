@@ -246,11 +246,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup, is
 		BootstrapExpect: appState.ServerConfig.Config.Raft.BootstrapExpect,
 		DB:              nil,
 		Parser:          schema.NewParser(appState.Cluster, enthnsw.ParseAndValidateConfig),
+		Logger:          appState.Logger,
 	}
 
 	fsm := schemav2.New(rConfig)
 	appState.MetaStore = schemav2.NewService(&fsm, cl)
-	cluster := ctrans.NewCluster(&fsm, appState.MetaStore, rpcAddr)
+	cluster := ctrans.NewCluster(&fsm, appState.MetaStore, rpcAddr, appState.Logger)
 	if err := cluster.Open(); err != nil {
 		appState.Logger.
 			WithField("action", "startup").

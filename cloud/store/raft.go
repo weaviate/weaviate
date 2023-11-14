@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -24,6 +23,8 @@ import (
 
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
+	"github.com/sirupsen/logrus"
+	spirelog "github.com/spiffe/spire/pkg/common/log"
 	command "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"golang.org/x/exp/slices"
 	gproto "google.golang.org/protobuf/proto"
@@ -81,7 +82,14 @@ func (st *Store) Open() (err error) {
 	if err != nil {
 		return fmt.Errorf("raft.NewTCPTransport  address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w", address, tcpAddr, tcpMaxPool, tcpTimeout, err)
 	}
-	log.Printf("raft.NewTCPTransport  address=%v tcpAddress=%v maxPool=%v timeOut=%v\n", address, tcpAddr, tcpMaxPool, tcpTimeout)
+	st.logger.WithFields(
+		logrus.Fields{
+			"address":   address,
+			"tcpAdress": tcpAddr,
+			"maxPool":   tcpMaxPool,
+			"timeOut":   tcpTimeout,
+		},
+	).Debug("raft.NewTCPTransport")
 
 	// raft node
 	st.raft, err = raft.NewRaft(st.configureRaft(), st, logCache, logStore, snapshotStore, transport)
@@ -97,7 +105,7 @@ func (st *Store) Open() (err error) {
 			leader := st.Leader()
 			if leader != lastLeader {
 				lastLeader = leader
-				log.Printf("Current Leader: %v\n", lastLeader)
+				st.logger.WithField("leader", lastLeader).Debugf("current leader: %v", lastLeader)
 				// log.Printf("+%v", st.raft.Stats())
 			}
 		}
@@ -112,14 +120,14 @@ func (st *Store) Open() (err error) {
 // method was called on the same Raft node as the FSM.
 func (st *Store) Apply(l *raft.Log) interface{} {
 	if l.Type != raft.LogCommand {
-		log.Printf("%v is not a log command\n", l.Type)
+		st.logger.Errorf("%v is not a log command\n", l.Type)
 		return nil
 	}
 	ret := Response{}
 	cmd := command.ApplyRequest{}
 
 	if err := gproto.Unmarshal(l.Data, &cmd); err != nil {
-		log.Printf("apply: unmarshal command %v\n", err)
+		st.logger.WithError(err).Errorf("apply: unmarshal command")
 		return nil
 	}
 	// log.Printf("apply: op=%v key=%v value=%v", cmd.Type, cmd.Class, cmd.SubCommand)
@@ -127,7 +135,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	case command.ApplyRequest_TYPE_ADD_CLASS, command.ApplyRequest_TYPE_RESTORE_CLASS:
 		req := command.AddClassRequest{}
 		if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
-			log.Printf("unmarshal sub command: %v", err)
+			st.logger.WithError(err).Errorf("unmarshal sub command")
 			return Response{Error: err}
 		}
 		if req.State == nil {
@@ -199,30 +207,30 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			return Response{Error: err}
 		}
 		if err := st.schema.deleteTenants(cmd.Class, req); err != nil {
-			log.Printf("delete tenants from class %q: %v", cmd.Class, err)
+			st.logger.WithError(err).Errorf("delete tenants from class %q", cmd.Class)
 		}
 		st.db.DeleteTenants(cmd.Class, req)
 
 	default:
-		log.Printf("unknown command %v\n", &cmd)
+		st.logger.Errorf("unknown command: %v", &cmd)
 	}
 	return ret
 }
 
 func (st *Store) Snapshot() (raft.FSMSnapshot, error) {
-	log.Println("persisting snapshot")
+	st.logger.Debugf("persisting snapshot")
 	return st.schema, nil
 }
 
 func (st *Store) Restore(rc io.ReadCloser) error {
-	log.Println("restoring snapshot")
+	st.logger.Debugf("restoring snapshot")
 	if err := st.schema.Restore(rc); err != nil {
-		log.Printf("restore shanpshot: %v", err)
+		st.logger.WithError(err).Errorf("restore snapshot")
 	}
 
 	for k, v := range st.schema.Classes {
 		if err := st.parser.ParseClass(&v.Class); err != nil {
-			log.Printf("parse class %v", err)
+			st.logger.WithError(err).Errorf("parse class")
 			continue
 		}
 		v.Sharding.SetLocalName(st.nodeID)
@@ -230,12 +238,12 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 			Class: &v.Class,
 			State: &v.Sharding,
 		}); err != nil {
-			log.Printf("add class %v", err)
+			st.logger.WithError(err).Errorf("add class")
 			continue
 		}
 
 		for _, t := range v.Sharding.Physical {
-			if !slices.Contains[string](t.BelongsToNodes, st.nodeID) {
+			if !slices.Contains(t.BelongsToNodes, st.nodeID) {
 				continue
 			}
 			st.db.AddTenants(k, &command.AddTenantsRequest{
@@ -294,7 +302,7 @@ func (st *Store) Remove(id string) error {
 // which includes this node.
 
 func (st *Store) Notify(id, addr string) (err error) {
-	log.Printf("received ntf from node=%v addr=%v \n", id, addr)
+	st.logger.WithFields(logrus.Fields{"node": id, "address": addr}).Debugf("received ntf from %v", id)
 	if !st.open.Load() {
 		return ErrNotOpen
 	}
@@ -308,7 +316,7 @@ func (st *Store) Notify(id, addr string) (err error) {
 
 	st.candidates[id] = addr
 	if len(st.candidates) < st.bootstrapExpect {
-		log.Printf("expected candidates %d has %d\n", st.bootstrapExpect, len(st.candidates))
+		st.logger.Errorf("expected candidates %d has %d\n", st.bootstrapExpect, len(st.candidates))
 		return nil
 	}
 	candidates := make([]raft.Server, 0, len(st.candidates))
@@ -323,9 +331,8 @@ func (st *Store) Notify(id, addr string) (err error) {
 		i++
 	}
 
-	log.Printf("starting bootstrapping with %d candidates\n", len(candidates))
-	log.Println(candidates)
-	log.Println("-----------------------------")
+	st.logger.WithField("candidates", candidates).
+		Debugf("starting bootstrapping with %d candidates\n", len(candidates))
 
 	fut := st.raft.BootstrapCluster(raft.Configuration{Servers: candidates})
 	if err := fut.Error(); err != nil {
@@ -373,5 +380,7 @@ func (f *Store) configureRaft() *raft.Config {
 	}
 	cfg.LocalID = raft.ServerID(f.nodeID)
 	cfg.SnapshotThreshold = 250 // TODO remove
+
+	cfg.Logger = spirelog.NewHCLogAdapter(f.logger, "raft")
 	return cfg
 }

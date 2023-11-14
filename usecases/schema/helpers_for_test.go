@@ -68,6 +68,8 @@ func startRaftCluster(t *testing.T) (*store.Cluster, *store.Store, clusterState)
 	root := t.TempDir()
 	clusterstate := newFakeClusterState()
 
+	logger, _ := test.NewNullLogger()
+
 	writer := store.New(store.Config{
 		WorkDir:              root,
 		NodeID:               node,
@@ -76,6 +78,7 @@ func startRaftCluster(t *testing.T) (*store.Cluster, *store.Store, clusterState)
 		RaftElectionTimeout:  500 * time.Millisecond,
 		RaftHeartbeatTimeout: 500 * time.Millisecond,
 		Parser:               NewParser(clusterstate, dummyParseVectorConfig),
+		Logger:               logger,
 	})
 
 	raftNode, err := writer.Open(false, candidates)
