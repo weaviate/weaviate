@@ -62,6 +62,8 @@ type IndexQueue struct {
 	pqMaxPool *pqMaxPool
 
 	checkpoints *indexcheckpoint.Checkpoints
+
+	paused atomic.Bool
 }
 
 type vectorDescriptor struct {
@@ -356,6 +358,9 @@ func (q *IndexQueue) indexer() {
 				_, _ = q.Shard.compareAndSwapStatus(storagestate.StatusIndexing.String(), storagestate.StatusReady.String())
 				continue
 			}
+			if q.paused.Load() {
+				continue
+			}
 			status, err := q.Shard.compareAndSwapStatus(storagestate.StatusReady.String(), storagestate.StatusIndexing.String())
 			if status != storagestate.StatusIndexing || err != nil {
 				q.Logger.WithField("status", status).WithError(err).Warn("failed to set shard status to 'indexing', trying again in " + q.IndexInterval.String())
@@ -485,32 +490,29 @@ func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowL
 
 func (q *IndexQueue) checkCompressionSettings() {
 	shouldCompress, shouldCompressAt := q.Index.ShouldCompress()
-	if q.Index.Compressed() || !shouldCompress {
+	if !shouldCompress || q.Index.Compressed() {
 		return
 	}
 
 	if q.Index.AlreadyIndexed() > uint64(shouldCompressAt) {
-		if err := q.pauseIndexing(); err != nil {
-			q.Logger.Error(err)
-			return
+		q.pauseIndexing()
+		err := q.Index.TurnOnCompression(q.resumeIndexing)
+		if err != nil {
+			q.Logger.WithError(err).Error("failed to turn on compression")
 		}
-		q.Index.TurnOnCompression(func() {
-			err := q.resumeIndexing()
-			if err != nil {
-				q.Logger.Error(err)
-			}
-		})
 	}
 }
 
-// ToDo: stop the workers
-func (q *IndexQueue) pauseIndexing() error {
-	return nil
+// pause indexing and wait for the workers to finish their current tasks
+// related to this queue.
+func (q *IndexQueue) pauseIndexing() {
+	q.paused.Store(true)
+	q.queue.wait(q.ctx)
 }
 
-// ToDo: resume the workers
-func (q *IndexQueue) resumeIndexing() error {
-	return nil
+// resume indexing
+func (q *IndexQueue) resumeIndexing() {
+	q.paused.Store(false)
 }
 
 func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k int, results *priorityqueue.Queue, allowList helpers.AllowList, maxDistance float32, seen map[uint64]struct{}) error {
