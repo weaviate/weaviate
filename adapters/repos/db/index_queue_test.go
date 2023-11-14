@@ -590,6 +590,62 @@ func TestIndexQueue(t *testing.T) {
 		// wait for the indexing to be done
 		<-called
 	})
+
+	t.Run("compression", func(t *testing.T) {
+		var idx mockBatchIndexer
+		called := make(chan struct{})
+		idx.shouldCompress = true
+		idx.threshold = 4
+		idx.alreadyIndexed = 6
+
+		release := make(chan struct{})
+		idx.onCompressionTurnedOn = func(callback func()) error {
+			go func() {
+				<-release
+				callback()
+			}()
+
+			close(called)
+			return nil
+		}
+
+		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+			BatchSize:     2,
+			IndexInterval: 10 * time.Millisecond,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		pushVector(t, ctx, q, 1, []float32{1, 2, 3})
+		pushVector(t, ctx, q, 2, []float32{4, 5, 6})
+
+		// compression requested
+		<-called
+
+		// indexing should be paused
+		require.True(t, q.paused.Load())
+
+		// release the compression
+		idx.compressed = true
+		close(release)
+
+		// indexing should be resumed eventually
+		time.Sleep(100 * time.Millisecond)
+		require.False(t, q.paused.Load())
+
+		indexed := make(chan struct{})
+		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
+			close(indexed)
+			return nil
+		}
+
+		// add more vectors
+		pushVector(t, ctx, q, 3, []float32{7, 8, 9})
+		pushVector(t, ctx, q, 4, []float32{1, 2, 3})
+
+		// indexing should happen
+		<-indexed
+	})
 }
 
 func BenchmarkPush(b *testing.B) {
@@ -638,11 +694,16 @@ func (m *mockShard) compareAndSwapStatus(old, new string) (storagestate.Status, 
 
 type mockBatchIndexer struct {
 	sync.Mutex
-	addBatchFn        func(id []uint64, vector [][]float32) error
-	vectors           map[uint64][]float32
-	containsNodeFn    func(id uint64) bool
-	deleteFn          func(ids ...uint64) error
-	distancerProvider distancer.Provider
+	addBatchFn            func(id []uint64, vector [][]float32) error
+	vectors               map[uint64][]float32
+	containsNodeFn        func(id uint64) bool
+	deleteFn              func(ids ...uint64) error
+	distancerProvider     distancer.Provider
+	shouldCompress        bool
+	threshold             int
+	compressed            bool
+	alreadyIndexed        uint64
+	onCompressionTurnedOn func(func()) error
 }
 
 func (m *mockBatchIndexer) AddBatch(ids []uint64, vector [][]float32) (err error) {
@@ -821,7 +882,7 @@ func (m *mockBatchIndexer) DistancerProvider() distancer.Provider {
 }
 
 func (m *mockBatchIndexer) ShouldCompress() (bool, int) {
-	return false, 0
+	return m.shouldCompress, m.threshold
 }
 
 func (m *mockBatchIndexer) ShouldCompressFromConfig(config schema.VectorIndexConfig) (bool, int) {
@@ -829,13 +890,17 @@ func (m *mockBatchIndexer) ShouldCompressFromConfig(config schema.VectorIndexCon
 }
 
 func (m *mockBatchIndexer) Compressed() bool {
-	return false
+	return m.compressed
 }
 
 func (m *mockBatchIndexer) AlreadyIndexed() uint64 {
-	return 0
+	return m.alreadyIndexed
 }
 
 func (m *mockBatchIndexer) TurnOnCompression(callback func()) error {
+	if m.onCompressionTurnedOn != nil {
+		return m.onCompressionTurnedOn(callback)
+	}
+
 	return nil
 }
