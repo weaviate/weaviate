@@ -273,6 +273,10 @@ func New(cfg Config, uc ent.UserConfig,
 		shardFlushCallbacks:      shardFlushCallbacks,
 	}
 
+	if uc.PQ.Enabled {
+		index.compressedVectorsCache = cache.NewShardedByteLockCache(index.getCompressedVectorForID, uc.VectorCacheMaxObjects, cfg.Logger, 0)
+	}
+
 	// TODO common_cycle_manager move to poststartup?
 	id := strings.Join([]string{
 		"hnsw", "tombstone_cleanup",
