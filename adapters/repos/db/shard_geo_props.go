@@ -24,7 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (s *Shard) initGeoProp(prop *models.Property) error {
+func (s *RealShard) initGeoProp(prop *models.Property) error {
 	// starts geo props cycles if actual geo property is present
 	// (safe to start multiple times)
 	s.index.cycleCallbacks.geoPropsCommitLoggerCycle.Start()
@@ -59,7 +59,7 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 	return nil
 }
 
-func (s *Shard) makeCoordinatesForID(propName string) geo.CoordinatesForID {
+func (s *RealShard) makeCoordinatesForID(propName string) geo.CoordinatesForID {
 	return func(ctx context.Context, id uint64) (*models.GeoCoordinates, error) {
 		obj, err := s.objectByIndexID(ctx, id, true)
 		if err != nil {
@@ -91,7 +91,7 @@ func geoPropID(propName string) string {
 	return fmt.Sprintf("geo.%s", propName)
 }
 
-func (s *Shard) updatePropertySpecificIndices(object *storobj.Object,
+func (s *RealShard) updatePropertySpecificIndices(object *storobj.Object,
 	status objectInsertStatus,
 ) error {
 	if s.isReadOnly() {
@@ -110,7 +110,7 @@ func (s *Shard) updatePropertySpecificIndices(object *storobj.Object,
 	return nil
 }
 
-func (s *Shard) updatePropertySpecificIndex(propName string,
+func (s *RealShard) updatePropertySpecificIndex(propName string,
 	index propertyspecific.Index, obj *storobj.Object,
 	status objectInsertStatus,
 ) error {
@@ -122,7 +122,7 @@ func (s *Shard) updatePropertySpecificIndex(propName string,
 	return s.updateGeoIndex(propName, index, obj, status)
 }
 
-func (s *Shard) updateGeoIndex(propName string, index propertyspecific.Index,
+func (s *RealShard) updateGeoIndex(propName string, index propertyspecific.Index,
 	obj *storobj.Object, status objectInsertStatus,
 ) error {
 	if s.isReadOnly() {
@@ -138,7 +138,7 @@ func (s *Shard) updateGeoIndex(propName string, index propertyspecific.Index,
 	return s.addToGeoIndex(propName, index, obj, status)
 }
 
-func (s *Shard) addToGeoIndex(propName string, index propertyspecific.Index,
+func (s *RealShard) addToGeoIndex(propName string, index propertyspecific.Index,
 	obj *storobj.Object, status objectInsertStatus,
 ) error {
 	if s.isReadOnly() {
@@ -169,7 +169,7 @@ func (s *Shard) addToGeoIndex(propName string, index propertyspecific.Index,
 	return nil
 }
 
-func (s *Shard) deleteFromGeoIndex(index propertyspecific.Index,
+func (s *RealShard) deleteFromGeoIndex(index propertyspecific.Index,
 	docID uint64,
 ) error {
 	if s.isReadOnly() {

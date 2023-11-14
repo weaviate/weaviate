@@ -20,7 +20,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func (s *Shard) initProperties(class *models.Class) error {
+func (s *RealShard) initProperties(class *models.Class) error {
 	s.propertyIndices = propertyspecific.Indices{}
 	if class == nil {
 		return nil

@@ -19,8 +19,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/multi"
+	"github.com/weaviate/weaviate/entities/searchparams"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/docid"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -32,10 +36,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
@@ -43,14 +51,79 @@ import (
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"golang.org/x/sync/errgroup"
+
+
+	"github.com/weaviate/weaviate/entities/storobj"
+
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 const IdLockPoolSize = 128
 
-// Shard is the smallest completely-contained index unit. A shard manages
+type ShardInterface interface {
+	GetIndex() *Index		//Get the parent index
+	Index() *Index		//Get the parent index
+	GetName() string 	//Get the shard name
+	Name() string //	//Get the shard name
+	GetStore() *lsmkv.Store //Get the underlying store
+	Store() *lsmkv.Store //Get the underlying store
+	NotifyReady() //Set shard status to ready
+	GetStatus() storagestate.Status //Return the shard status
+	UpdateStatus(status string) error // Set shard status
+	FindDocIDs(ctx context.Context,filters *filters.LocalFilter) ([]uint64, error) // Search and return document ids
+	GetCounter() *indexcounter.Counter //Get
+	Counter() *indexcounter.Counter
+	ObjectCount() int
+	GetVectorIndex() VectorIndex
+	GetPropertyIndices() propertyspecific.Indices
+	GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker
+	SetPropertyTracker(*inverted.JsonPropertyLengthTracker) //FIXME rename
+
+	PutObject(context.Context, *storobj.Object) error
+	PutObjectBatch(context.Context,  []*storobj.Object) []error
+	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error)
+	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
+	ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties) ([]*storobj.Object, []float32, error)
+	ObjectVectorSearch(ctx context.Context, searchVector []float32, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error)
+	UpdateVectorIndexConfig(ctx context.Context, updated schema.VectorIndexConfig) error
+	AddReferencesBatch(ctx context.Context,refs objects.BatchReferences) []error
+	DeleteObjectBatch(ctx context.Context, ids []uint64, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
+	DeleteObject(ctx context.Context, id strfmt.UUID) error // Delete object by id
+	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
+	ID() string //Get the shard id
+	path() string
+	DBPathLSM() string
+	uuidToIdLockPoolId(idBytes []byte) uint8
+	initLSMStore(ctx context.Context) error
+	drop() error
+	addIDProperty(ctx context.Context) error
+	addDimensionsProperty(ctx context.Context) error
+	addTimestampProperties(ctx context.Context) error
+	memtableIdleConfig() lsmkv.BucketOption
+	dynamicMemtableSizing() lsmkv.BucketOption
+	createPropertyIndex(ctx context.Context, prop *models.Property, eg *errgroup.Group)
+	BeginBackup(ctx context.Context) error
+	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error //
+	resumeMaintenanceCycles(ctx context.Context) error
+	SetPropertyLengths(props []inverted.Property) error
+	AnalyzeObject(*storobj.Object) ([]inverted.Property, []nilProp, error) //
+
+	Dimensions() int //dim(vector)*number vectors
+	QuantizedDimensions(segments int) int
+	Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error) //
+	MergeObject(ctx context.Context, object objects.MergeDocument) error //
+	Queue() *IndexQueue
+	Shutdown(context.Context) error //Shutdown the shard
+	ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) //Search and return objects
+	WasDeleted(ctx context.Context, id strfmt.UUID) (bool, error) //Check if an object was deleted
+	VectorIndex() VectorIndex //Get the vector index
+	Versioner() *shardVersioner //Get the shard versioner
+}
+
+// RealShard is the smallest completely-contained index unit. A shard manages
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
-type Shard struct {
+type RealShard struct {
 	index            *Index // a reference to the underlying index, which in turn contains schema information
 	queue            *IndexQueue
 	name             string
@@ -62,7 +135,7 @@ type Shard struct {
 	promMetrics      *monitoring.PrometheusMetrics
 	propertyIndices  propertyspecific.Indices
 	deletedDocIDs    *docid.InMemDeletedTracker
-	propLengths      *inverted.JsonPropertyLengthTracker
+	propertyLengths  *inverted.JsonPropertyLengthTracker
 	versioner        *shardVersioner
 
 	status              storagestate.Status
@@ -90,48 +163,74 @@ type Shard struct {
 	cycleCallbacks *shardCycleCallbacks
 }
 
-func (s *Shard) GetIndex() *Index {
-	return s.index
+func (s *RealShard) Queue() *IndexQueue {
+	return s.queue
+}
+func (s *RealShard) GetQueue() *IndexQueue {
+	return s.queue
 }
 
-func (s *Shard) GetName() string {
-	return s.name
-}
-
-func (s *Shard) GetStore() *lsmkv.Store {
-	return s.store
-}
-
-func (s *Shard) GetCounter() *indexcounter.Counter {
-	return s.counter
-}
-
-func (s *Shard) GetVectorIndex() VectorIndex {
+func (s *RealShard) VectorIndex() VectorIndex {
 	return s.vectorIndex
 }
 
-func (s *Shard) GetPropertyIndices() propertyspecific.Indices {
+func (s *RealShard) Versioner() *shardVersioner {
+	return s.versioner
+}
+
+func (s *RealShard) GetIndex() *Index {
+	return s.index
+}
+
+func (s *RealShard) Index() *Index {
+	return s.index
+}
+
+func (s *RealShard) GetName() string {
+	return s.name
+}
+
+func (s *RealShard) Name() string {
+	return s.name
+}
+
+func (s *RealShard) GetStore() *lsmkv.Store {
+	return s.store
+}
+func (s *RealShard) Store() *lsmkv.Store {
+	return s.store
+}
+
+func (s *RealShard) GetCounter() *indexcounter.Counter {
+	return s.counter
+}
+func (s *RealShard) Counter() *indexcounter.Counter {
+	return s.counter
+}
+
+func (s *RealShard) GetVectorIndex() VectorIndex {
+	return s.VectorIndex()
+}
+
+func (s *RealShard) GetPropertyIndices() propertyspecific.Indices {
 	return s.propertyIndices
 }
 
-func (s *Shard) GetPropertyLengths() *inverted.JsonPropertyLengthTracker {
-	return s.propLengths
+func (s *RealShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
+	return s.propertyLengths
 }
 
-func (s *Shard) GetStatus() storagestate.Status {
-	s.statusLock.Lock()
-	defer s.statusLock.Unlock()
-
-	return s.status
+func (s *RealShard) SetPropertyTracker(tracker *inverted.JsonPropertyLengthTracker) {
+	s.propertyLengths = tracker
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
-) (*Shard, error) {
+) (*RealShard, error) {
 	before := time.Now()
 
-	s := &Shard{
+	s := &RealShard{
 		index:       index,
 		name:        shardName,
 		promMetrics: promMetrics,
@@ -162,7 +261,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	var err error
-	s.queue, err = NewIndexQueue(s.ID(), s, s.vectorIndex, s.centralJobQueue, s.indexCheckpoints, IndexQueueOptions{
+	s.queue, err = NewIndexQueue(s.ID(), s, s.VectorIndex(), s.centralJobQueue, s.indexCheckpoints, IndexQueueOptions{
 		Logger: s.index.logger,
 	})
 	if err != nil {
@@ -173,12 +272,12 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if err != nil {
 		return nil, err
 	}
-	s.notifyReady()
+	s.NotifyReady()
 
 	return s, nil
 }
 
-func (s *Shard) initVector(ctx context.Context) error {
+func (s *RealShard) initVector(ctx context.Context) error {
 	var distProv distancer.Provider
 
 	switch s.index.vectorIndexUserConfig.DistanceName() {
@@ -275,7 +374,7 @@ func (s *Shard) initVector(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
+func (s *RealShard) initNonVector(ctx context.Context, class *models.Class) error {
 	err := s.initLSMStore(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: shard db", s.ID())
@@ -296,11 +395,12 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	s.versioner = versioner
 
 	plPath := path.Join(s.path(), "proplengths")
-	propLengths, err := inverted.NewJsonPropertyLengthTracker(plPath, s.index.logger)
+	tracker, err := inverted.NewJsonPropertyLengthTracker(plPath, s.index.logger)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
 	}
-	s.propLengths = propLengths
+
+	s.SetPropertyTracker(tracker)
 
 	if err := s.initProperties(class); err != nil {
 		return errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
@@ -311,25 +411,25 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	return nil
 }
 
-func (s *Shard) ID() string {
+func (s *RealShard) ID() string {
 	return fmt.Sprintf("%s_%s", s.index.ID(), s.name)
 }
 
-func (s *Shard) path() string {
+func (s *RealShard) path() string {
 	return path.Join(s.index.path(), s.name)
 }
 
-func (s *Shard) DBPathLSM() string {
+func (s *RealShard) DBPathLSM() string {
 	return path.Join(s.path(), "lsm")
 }
 
-func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
+func (s *RealShard) uuidToIdLockPoolId(idBytes []byte) uint8 {
 	// use the last byte of the uuid to determine which locking-pool a given object should use. The last byte is used
 	// as uuids probably often have some kind of order and the last byte will in general be the one that changes the most
 	return idBytes[15] % IdLockPoolSize
 }
 
-func (s *Shard) initLSMStore(ctx context.Context) error {
+func (s *RealShard) initLSMStore(ctx context.Context) error {
 	annotatedLogger := s.index.logger.WithFields(logrus.Fields{
 		"shard": s.name,
 		"index": s.index.ID(),
@@ -364,7 +464,7 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) drop() error {
+func (s *RealShard) drop() error {
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
 	s.replicationMap.clear()
 
@@ -419,13 +519,13 @@ func (s *Shard) drop() error {
 		return errors.Wrapf(err, "remove minindexed at %s", s.DBPathLSM())
 	}
 	// remove vector index
-	err = s.vectorIndex.Drop(ctx)
+	err = s.VectorIndex().Drop(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "remove vector index at %s", s.DBPathLSM())
 	}
 
 	// delete indexcount
-	err = s.propLengths.Drop()
+	err = s.GetPropertyLengthTracker().Drop()
 	if err != nil {
 		return errors.Wrapf(err, "remove prop length tracker at %s", s.DBPathLSM())
 	}
@@ -442,7 +542,7 @@ func (s *Shard) drop() error {
 	return nil
 }
 
-func (s *Shard) addIDProperty(ctx context.Context) error {
+func (s *RealShard) addIDProperty(ctx context.Context) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -454,7 +554,7 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
 }
 
-func (s *Shard) addDimensionsProperty(ctx context.Context) error {
+func (s *RealShard) addDimensionsProperty(ctx context.Context) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -472,7 +572,7 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) addTimestampProperties(ctx context.Context) error {
+func (s *RealShard) addTimestampProperties(ctx context.Context) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -487,7 +587,7 @@ func (s *Shard) addTimestampProperties(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
+func (s *RealShard) addCreationTimeUnixProperty(ctx context.Context) error {
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
@@ -495,7 +595,7 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
 }
 
-func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
+func (s *RealShard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
@@ -503,12 +603,12 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
 }
 
-func (s *Shard) memtableIdleConfig() lsmkv.BucketOption {
+func (s *RealShard) memtableIdleConfig() lsmkv.BucketOption {
 	return lsmkv.WithIdleThreshold(
 		time.Duration(s.index.Config.MemtablesFlushIdleAfter) * time.Second)
 }
 
-func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
+func (s *RealShard) dynamicMemtableSizing() lsmkv.BucketOption {
 	return lsmkv.WithDynamicMemtableSizing(
 		s.index.Config.MemtablesInitialSizeMB,
 		s.index.Config.MemtablesMaxSizeMB,
@@ -517,7 +617,7 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 	)
 }
 
-func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *errgroup.Group) {
+func (s *RealShard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *errgroup.Group) {
 	if !inverted.HasInvertedIndex(prop) {
 		return
 	}
@@ -549,7 +649,7 @@ func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property, 
 	})
 }
 
-func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property) error {
+func (s *RealShard) createPropertyValueIndex(ctx context.Context, prop *models.Property) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -600,7 +700,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	return nil
 }
 
-func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property) error {
+func (s *RealShard) createPropertyLengthIndex(ctx context.Context, prop *models.Property) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -619,7 +719,7 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
 }
 
-func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property) error {
+func (s *RealShard) createPropertyNullIndex(ctx context.Context, prop *models.Property) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -630,31 +730,29 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
 }
 
-func (s *Shard) updateVectorIndexConfig(ctx context.Context,
-	updated schema.VectorIndexConfig,
-) error {
+func (s *RealShard) UpdateVectorIndexConfig(ctx context.Context,updated schema.VectorIndexConfig) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
 
-	err := s.updateStatus(storagestate.StatusReadOnly.String())
+	err := s.UpdateStatus(storagestate.StatusReadOnly.String())
 	if err != nil {
 		return fmt.Errorf("attempt to mark read-only: %w", err)
 	}
 
-	return s.vectorIndex.UpdateUserConfig(updated, func() {
-		s.updateStatus(storagestate.StatusReady.String())
+	return s.VectorIndex().UpdateUserConfig(updated, func() {
+		s.UpdateStatus(storagestate.StatusReady.String())
 	})
 }
 
-func (s *Shard) shutdown(ctx context.Context) error {
+func (s *RealShard) Shutdown(ctx context.Context) error {
 	if s.index.Config.TrackVectorDimensions {
 		// tracking vector dimensions goroutine only works when tracking is enabled
 		// that's why we are trying to stop it only in this case
 		s.stopMetrics <- struct{}{}
 	}
 
-	if err := s.propLengths.Close(); err != nil {
+	if err := s.GetPropertyLengthTracker().Close(); err != nil {
 		return errors.Wrap(err, "close prop length tracker")
 	}
 
@@ -667,11 +765,11 @@ func (s *Shard) shutdown(ctx context.Context) error {
 	// 'RemoveTombstone' entry is not picked up on restarts
 	// resulting in perpetually attempting to remove a tombstone
 	// which doesn't actually exist anymore
-	if err := s.vectorIndex.Flush(); err != nil {
+	if err := s.VectorIndex().Flush(); err != nil {
 		return errors.Wrap(err, "flush vector index commitlog")
 	}
 
-	if err := s.vectorIndex.Shutdown(ctx); err != nil {
+	if err := s.VectorIndex().Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "shut down vector index")
 	}
 
@@ -692,14 +790,14 @@ func (s *Shard) shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) notifyReady() {
+func (s *RealShard) NotifyReady() {
 	s.initStatus()
 	s.index.logger.
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)
 }
 
-func (s *Shard) objectCount() int {
+func (s *RealShard) ObjectCount() int {
 	b := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
 		return 0
@@ -708,11 +806,11 @@ func (s *Shard) objectCount() int {
 	return b.Count()
 }
 
-func (s *Shard) isFallbackToSearchable() bool {
+func (s *RealShard) isFallbackToSearchable() bool {
 	return s.fallbackToSearchable
 }
 
-func (s *Shard) tenant() string {
+func (s *RealShard) tenant() string {
 	// TODO provide better impl
 	if s.index.partitioningEnabled {
 		return s.name

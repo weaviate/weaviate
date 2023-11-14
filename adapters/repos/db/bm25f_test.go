@@ -696,7 +696,7 @@ func TestBM25FCompare(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "journey"}
 		addit := additional.Properties{}
 
-		withBM25Fobjs, withBM25Fscores, err := shard.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		withBM25Fobjs, withBM25Fscores, err := shard.ObjectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
 		require.Nil(t, err)
 
 		for i, r := range withBM25Fobjs {
@@ -706,7 +706,7 @@ func TestBM25FCompare(t *testing.T) {
 		t.Logf("------ BM25 --------\n")
 		kwr.Type = ""
 
-		objs, scores, err := shard.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		objs, scores, err := shard.ObjectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
 		require.Nil(t, err)
 
 		for i, r := range objs {

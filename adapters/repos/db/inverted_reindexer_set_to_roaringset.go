@@ -21,12 +21,12 @@ import (
 type ShardInvertedReindexTaskSetToRoaringSet struct{}
 
 func (t *ShardInvertedReindexTaskSetToRoaringSet) GetPropertiesToReindex(ctx context.Context,
-	shard *Shard,
+	shard ShardInterface,
 ) ([]ReindexableProperty, error) {
 	reindexableProperties := []ReindexableProperty{}
 
 	bucketOptions := []lsmkv.BucketOption{
-		lsmkv.WithIdleThreshold(time.Duration(shard.index.Config.MemtablesFlushIdleAfter) * time.Second),
+		lsmkv.WithIdleThreshold(time.Duration(shard.Index().Config.MemtablesFlushIdleAfter) * time.Second),
 	}
 
 	for name, bucket := range shard.store.GetBucketsByName() {
@@ -71,6 +71,6 @@ func (t *ShardInvertedReindexTaskSetToRoaringSet) GetPropertiesToReindex(ctx con
 	return reindexableProperties, nil
 }
 
-func (t *ShardInvertedReindexTaskSetToRoaringSet) OnPostResumeStore(ctx context.Context, shard *Shard) error {
+func (t *ShardInvertedReindexTaskSetToRoaringSet) OnPostResumeStore(ctx context.Context, shard ShardInterface) error {
 	return nil
 }

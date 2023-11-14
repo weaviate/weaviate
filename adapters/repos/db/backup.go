@@ -99,7 +99,7 @@ func (db *DB) ShardsBackup(
 		}
 	}()
 
-	sm := make(map[string]*Shard, len(shards))
+	sm := make(map[string]ShardInterface, len(shards))
 	for _, shardName := range shards {
 		shard := idx.shards.Load(shardName)
 		if shard == nil {
@@ -112,12 +112,12 @@ func (db *DB) ShardsBackup(
 	idx.backupMutex.Lock()
 	defer idx.backupMutex.Unlock()
 	for shardName, shard := range sm {
-		if err := shard.beginBackup(ctx); err != nil {
+		if err := shard.BeginBackup(ctx); err != nil {
 			return cd, fmt.Errorf("class %q: shard %q: begin backup: %w", class, shardName, err)
 		}
 
 		sd := backup.ShardDescriptor{Name: shardName}
-		if err := shard.listBackupFiles(ctx, &sd); err != nil {
+		if err := shard.ListBackupFiles(ctx, &sd); err != nil {
 			return cd, fmt.Errorf("class %q: shard %q: list backup files: %w", class, shardName, err)
 		}
 
@@ -214,13 +214,13 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	i.backupMutex.Lock()
 	defer i.backupMutex.Unlock()
 
-	if err = i.ForEachShard(func(name string, s *Shard) error {
-		if err = s.beginBackup(ctx); err != nil {
+	if err = i.ForEachShard(func(name string, s ShardInterface) error {
+		if err = s.BeginBackup(ctx); err != nil {
 			return fmt.Errorf("pause compaction and flush: %w", err)
 		}
 		var sd backup.ShardDescriptor
-		if err := s.listBackupFiles(ctx, &sd); err != nil {
-			return fmt.Errorf("list shard %v files: %w", s.name, err)
+		if err := s.ListBackupFiles(ctx, &sd); err != nil {
+			return fmt.Errorf("list shard %v files: %w", s.Name(), err)
 		}
 
 		desc.Shards = append(desc.Shards, &sd)
@@ -273,7 +273,7 @@ func (i *Index) resetBackupState() {
 }
 
 func (i *Index) resumeMaintenanceCycles(ctx context.Context) (lastErr error) {
-	i.ForEachShard(func(name string, shard *Shard) error {
+	i.ForEachShard(func(name string, shard ShardInterface) error {
 		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
 			lastErr = err
 			i.logger.WithField("shard", name).WithField("op", "resume_maintenance").Error(err)

@@ -170,10 +170,10 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 		}
 		if err := index.ForEachShard(func(name string, shard *Shard) error {
 			if toFix, err := m.isPropToFix(prop, shard); toFix {
-				if _, ok := shard2PropsToFix[shard.name]; !ok {
-					shard2PropsToFix[shard.name] = map[string]struct{}{}
+				if _, ok := shard2PropsToFix[shard.Name()]; !ok {
+					shard2PropsToFix[shard.Name()] = map[string]struct{}{}
 				}
-				shard2PropsToFix[shard.name][prop.Name] = struct{}{}
+				shard2PropsToFix[shard.Name()][prop.Name] = struct{}{}
 				uniquePropsToFix[prop.Name] = struct{}{}
 			} else if err != nil {
 				m.logShard(shard).WithError(err).Error("failed discovering props to fix")
@@ -312,7 +312,7 @@ func (m *filterableToSearchableMigrator) logIndex(index *Index) *logrus.Entry {
 }
 
 func (m *filterableToSearchableMigrator) logShard(shard *Shard) *logrus.Entry {
-	return m.logIndex(shard.index).WithField("shard", shard.ID())
+	return m.logIndex(shard.Index()).WithField("shard", shard.ID())
 }
 
 func (m *filterableToSearchableMigrator) uniquePropsToSlice(uniqueProps map[string]struct{}) []string {

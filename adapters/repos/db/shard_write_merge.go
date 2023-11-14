@@ -23,14 +23,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-func (s *Shard) mergeObject(ctx context.Context, merge objects.MergeDocument) error {
+func (s *RealShard) MergeObject(ctx context.Context, merge objects.MergeDocument) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
 
 	if merge.Vector != nil {
 		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
-		err := s.vectorIndex.ValidateBeforeInsert(merge.Vector)
+		err := s.VectorIndex().ValidateBeforeInsert(merge.Vector)
 		if err != nil {
 			return errors.Wrapf(err, "Validate vector index for update of %v", merge.ID)
 		}
@@ -44,7 +44,7 @@ func (s *Shard) mergeObject(ctx context.Context, merge objects.MergeDocument) er
 	return s.merge(ctx, idBytes, merge)
 }
 
-func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocument) error {
+func (s *RealShard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocument) error {
 	next, status, err := s.mergeObjectInStorage(doc, idBytes)
 	if err != nil {
 		return err
@@ -62,14 +62,14 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 		return errors.Wrap(err, "flush all buffered WALs")
 	}
 
-	if err := s.vectorIndex.Flush(); err != nil {
+	if err := s.VectorIndex().Flush(); err != nil {
 		return errors.Wrap(err, "flush all vector index buffered WALs")
 	}
 
 	return nil
 }
 
-func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
+func (s *RealShard) mergeObjectInStorage(merge objects.MergeDocument,
 	idBytes []byte,
 ) (*storobj.Object, objectInsertStatus, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
@@ -134,7 +134,7 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 // The above makes this a perfect candidate for a batch reference update as
 // this alters neither the vector position, nor does it remove anything from
 // the inverted index
-func (s *Shard) mutableMergeObjectLSM(merge objects.MergeDocument,
+func (s *RealShard) mutableMergeObjectLSM(merge objects.MergeDocument,
 	idBytes []byte,
 ) (mutableMergeResult, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
@@ -186,7 +186,7 @@ type mutableMergeResult struct {
 	status   objectInsertStatus
 }
 
-func (s *Shard) mergeObjectData(previous []byte,
+func (s *RealShard) mergeObjectData(previous []byte,
 	merge objects.MergeDocument,
 ) (*storobj.Object, *storobj.Object, error) {
 	var previousObj *storobj.Object

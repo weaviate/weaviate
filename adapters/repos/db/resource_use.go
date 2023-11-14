@@ -185,8 +185,8 @@ func (db *DB) memUseReadonly(mon *memwatch.Monitor) {
 func (db *DB) setShardsReadOnly() {
 	db.indexLock.Lock()
 	for _, index := range db.indices {
-		index.ForEachShard(func(name string, shard *Shard) error {
-			err := shard.updateStatus(storagestate.StatusReadOnly.String())
+		index.ForEachShard(func(name string, shard ShardInterface) error {
+			err := shard.UpdateStatus(storagestate.StatusReadOnly.String())
 			if err != nil {
 				db.logger.WithField("action", "set_shard_read_only").
 					WithField("path", db.config.RootPath).

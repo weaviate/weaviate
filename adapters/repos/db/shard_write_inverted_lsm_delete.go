@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
-func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
+func (s *RealShard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 	docID uint64,
 ) error {
 	for _, prop := range props {
@@ -59,7 +59,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 	return nil
 }
 
-func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket *lsmkv.Bucket,
+func (s *RealShard) deleteInvertedIndexItemWithFrequencyLSM(bucket *lsmkv.Bucket,
 	item inverted.Countable, docID uint64,
 ) error {
 	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
@@ -76,7 +76,7 @@ func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket *lsmkv.Bucket,
 	return bucket.MapDeleteKey(item.Data, docIDBytes)
 }
 
-func (s *Shard) deleteInvertedIndexItemLSM(bucket *lsmkv.Bucket,
+func (s *RealShard) deleteInvertedIndexItemLSM(bucket *lsmkv.Bucket,
 	item inverted.Countable, docID uint64,
 ) error {
 	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)

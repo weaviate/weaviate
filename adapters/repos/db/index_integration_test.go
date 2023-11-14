@@ -241,7 +241,7 @@ func TestIndex_DropReadOnlyEmptyIndex(t *testing.T) {
 	class := &models.Class{Class: "deletetest"}
 	shard, index := testShard(t, ctx, class.Class)
 
-	err := index.updateShardStatus(ctx, shard.name, storagestate.StatusReadOnly.String())
+	err := index.updateShardStatus(ctx, shard.Name(), storagestate.StatusReadOnly.String())
 	require.Nil(t, err)
 
 	err = index.drop()
@@ -314,8 +314,8 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	}
 
 	// set all shards to readonly
-	index.ForEachShard(func(name string, shard *Shard) error {
-		err = shard.updateStatus(storagestate.StatusReadOnly.String())
+	index.ForEachShard(func(name string, shard ShardInterface) error {
+		err = shard.UpdateStatus(storagestate.StatusReadOnly.String())
 		require.Nil(t, err)
 		return nil
 	})

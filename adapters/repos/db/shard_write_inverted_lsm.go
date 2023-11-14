@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
-func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []nilProp,
+func (s *RealShard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []nilProp,
 	docID uint64,
 ) error {
 	for _, prop := range props {
@@ -68,7 +68,7 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []n
 	return nil
 }
 
-func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property) error {
+func (s *RealShard) addToPropertyValueIndex(docID uint64, property inverted.Property) error {
 	if property.HasFilterableIndex {
 		bucketValue := s.store.Bucket(helpers.BucketFromPropNameLSM(property.Name))
 		if bucketValue == nil {
@@ -102,7 +102,7 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 	return nil
 }
 
-func (s *Shard) addToPropertyLengthIndex(propName string, docID uint64, length int) error {
+func (s *RealShard) addToPropertyLengthIndex(propName string, docID uint64, length int) error {
 	bucketLength := s.store.Bucket(helpers.BucketFromPropNameLengthLSM(propName))
 	if bucketLength == nil {
 		return errors.Errorf("no bucket for prop '%s' length found", propName)
@@ -118,7 +118,7 @@ func (s *Shard) addToPropertyLengthIndex(propName string, docID uint64, length i
 	return nil
 }
 
-func (s *Shard) addToPropertyNullIndex(propName string, docID uint64, isNull bool) error {
+func (s *RealShard) addToPropertyNullIndex(propName string, docID uint64, isNull bool) error {
 	bucketNull := s.store.Bucket(helpers.BucketFromPropNameNullLSM(propName))
 	if bucketNull == nil {
 		return errors.Errorf("no bucket for prop '%s' null found", propName)
@@ -134,7 +134,7 @@ func (s *Shard) addToPropertyNullIndex(propName string, docID uint64, isNull boo
 	return nil
 }
 
-func (s *Shard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair {
+func (s *RealShard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair {
 	// 8 bytes for doc id, 4 bytes for frequency, 4 bytes for prop term length
 	buf := make([]byte, 16)
 
@@ -154,24 +154,24 @@ func (s *Shard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) l
 	}
 }
 
-func (s *Shard) keyPropertyLength(length int) ([]byte, error) {
+func (s *RealShard) keyPropertyLength(length int) ([]byte, error) {
 	return inverted.LexicographicallySortableInt64(int64(length))
 }
 
-func (s *Shard) keyPropertyNull(isNull bool) ([]byte, error) {
+func (s *RealShard) keyPropertyNull(isNull bool) ([]byte, error) {
 	if isNull {
 		return []byte{uint8(filters.InternalNullState)}, nil
 	}
 	return []byte{uint8(filters.InternalNotNullState)}, nil
 }
 
-func (s *Shard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
+func (s *RealShard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
 	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
 
 	return bucket.MapSet(key, pair)
 }
 
-func (s *Shard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
+func (s *RealShard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
 	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
 
 	if bucket.Strategy() == lsmkv.StrategySetCollection {
@@ -184,7 +184,7 @@ func (s *Shard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key [
 	return bucket.RoaringSetAddOne(key, docID)
 }
 
-func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket,
+func (s *RealShard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket,
 	item inverted.MergeItem,
 ) error {
 	if b.Strategy() != lsmkv.StrategySetCollection && b.Strategy() != lsmkv.StrategyRoaringSet {
@@ -208,13 +208,13 @@ func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket,
 	return b.SetAdd(item.Data, docIDs)
 }
 
-func (s *Shard) addPropLengths(props []inverted.Property) error {
+func (s *RealShard) SetPropertyLengths(props []inverted.Property) error {
 	for _, prop := range props {
 		if !prop.HasSearchableIndex {
 			continue
 		}
 
-		if err := s.propLengths.TrackProperty(prop.Name, float32(len(prop.Items))); err != nil {
+		if err := s.GetPropertyLengthTracker().TrackProperty(prop.Name, float32(len(prop.Items))); err != nil {
 			return err
 		}
 
@@ -223,13 +223,13 @@ func (s *Shard) addPropLengths(props []inverted.Property) error {
 	return nil
 }
 
-func (s *Shard) subtractPropLengths(props []inverted.Property) error {
+func (s *RealShard) subtractPropLengths(props []inverted.Property) error {
 	for _, prop := range props {
 		if !prop.HasSearchableIndex {
 			continue
 		}
 
-		if err := s.propLengths.UnTrackProperty(prop.Name, float32(len(prop.Items))); err != nil {
+		if err := s.GetPropertyLengthTracker().UnTrackProperty(prop.Name, float32(len(prop.Items))); err != nil {
 			return err
 		}
 
@@ -238,7 +238,7 @@ func (s *Shard) subtractPropLengths(props []inverted.Property) error {
 	return nil
 }
 
-func (s *Shard) extendDimensionTrackerLSM(
+func (s *RealShard) extendDimensionTrackerLSM(
 	count int, docID uint64,
 ) error {
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
@@ -265,7 +265,7 @@ func (s *Shard) extendDimensionTrackerLSM(
 // 128 | 1,2,4,5,17
 // 128 | 1,2,4,5,17, Tombstone 4,
 
-func (s *Shard) removeDimensionsLSM(
+func (s *RealShard) removeDimensionsLSM(
 	count int, docID uint64,
 ) error {
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)

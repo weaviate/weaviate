@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
+func (s *RealShard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -74,14 +74,14 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 		return fmt.Errorf("flush all buffered WALs: %w", err)
 	}
 
-	if err = s.vectorIndex.Flush(); err != nil {
+	if err = s.VectorIndex().Flush(); err != nil {
 		return fmt.Errorf("flush all vector index buffered WALs: %w", err)
 	}
 
 	return nil
 }
 
-func (s *Shard) canDeleteOne(ctx context.Context, id strfmt.UUID) (bucket *lsmkv.Bucket, obj, uid []byte, docID uint64, err error) {
+func (s *RealShard) canDeleteOne(ctx context.Context, id strfmt.UUID) (bucket *lsmkv.Bucket, obj, uid []byte, docID uint64, err error) {
 	if uid, err = parseBytesUUID(id); err != nil {
 		return nil, nil, uid, 0, err
 	}
@@ -105,7 +105,7 @@ func (s *Shard) canDeleteOne(ctx context.Context, id strfmt.UUID) (bucket *lsmkv
 	return bucket, existing, uid, docID, nil
 }
 
-func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idBytes []byte, docID uint64) error {
+func (s *RealShard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idBytes []byte, docID uint64) error {
 	if obj == nil || bucket == nil {
 		return nil
 	}
@@ -131,21 +131,21 @@ func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idByte
 		return fmt.Errorf("flush all buffered WALs: %w", err)
 	}
 
-	if err = s.vectorIndex.Flush(); err != nil {
+	if err = s.VectorIndex().Flush(); err != nil {
 		return fmt.Errorf("flush all vector index buffered WALs: %w", err)
 	}
 
 	return nil
 }
 
-func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) error {
+func (s *RealShard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) error {
 	previousObject, err := storobj.FromBinary(previous)
 	if err != nil {
 		return fmt.Errorf("unmarshal previous object: %w", err)
 	}
 
 	// TODO text_rbm_inverted_index null props cleanup?
-	previousInvertProps, _, err := s.analyzeObject(previousObject)
+	previousInvertProps, _, err := s.AnalyzeObject(previousObject)
 	if err != nil {
 		return fmt.Errorf("analyze previous object: %w", err)
 	}
