@@ -14,6 +14,7 @@ package schema
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -172,4 +173,33 @@ func (h *Handler) ShardsStatus(ctx context.Context,
 	}
 
 	return h.metaReader.GetShardsStatus(class)
+}
+
+// JoinNode adds the given node to the cluster.
+// Node needs to reachable via memberlist/gossip.
+// If nodePort is an empty string, nodePort will be the default raft port.
+// If the node is not reachable using memberlist, an error is returned
+// If joining the node fails, an error is returned.
+func (h *Handler) JoinNode(ctx context.Context, node string, nodePort string, voter bool) error {
+	nodeAddr, ok := h.clusterState.NodeHostname(node)
+	if !ok {
+		return fmt.Errorf("could not resolve addr for node id %v", node)
+	}
+	nodeAddr = strings.Split(nodeAddr, ":")[0]
+
+	if nodePort == "" {
+		nodePort = fmt.Sprintf("%d", config.DefaultRaftPort)
+	}
+
+	return h.metaWriter.Join(ctx, node, nodeAddr+":"+nodePort, voter)
+}
+
+// RemoveNode removes the given node from the cluster.
+func (h *Handler) RemoveNode(ctx context.Context, node string) error {
+	return h.metaWriter.Remove(ctx, node)
+}
+
+// Statistics is used to return a map of various internal stats. This should only be used for informative purposes or debugging.
+func (h *Handler) Statistics() map[string]string {
+	return h.metaWriter.Stats()
 }
