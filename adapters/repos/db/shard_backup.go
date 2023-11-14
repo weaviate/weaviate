@@ -15,9 +15,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/backup"
 	"golang.org/x/sync/errgroup"
 )
@@ -33,10 +32,10 @@ func (s *Shard) beginBackup(ctx context.Context) (err error) {
 		}
 	}()
 	if err = s.store.PauseCompaction(ctx); err != nil {
-		return errors.Wrap(err, "pause compaction")
+		return fmt.Errorf("pause compaction: %w", err)
 	}
 	if err = s.store.FlushMemtables(ctx); err != nil {
-		return errors.Wrap(err, "flush memtables")
+		return fmt.Errorf("flush memtables: %w", err)
 	}
 	if err = s.cycleCallbacks.vectorCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
 		return fmt.Errorf("pause vector maintenance: %w", err)
@@ -44,8 +43,8 @@ func (s *Shard) beginBackup(ctx context.Context) (err error) {
 	if err = s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
 		return fmt.Errorf("pause geo props maintenance: %w", err)
 	}
-	if err = s.vectorIndex.SwitchCommitLogs(ctx); err != nil {
-		return errors.Wrap(err, "switch commit logs")
+	if err = s.vectorIndex.BeginBackup(ctx); err != nil {
+		return fmt.Errorf("switch commit logs: %w", err)
 	}
 	return nil
 }
@@ -56,14 +55,16 @@ func (s *Shard) listBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 	if err := s.readBackupMetadata(ret); err != nil {
 		return err
 	}
+
 	if ret.Files, err = s.store.ListFiles(ctx); err != nil {
 		return err
 	}
-	files2, err := s.vectorIndex.ListFiles(ctx)
+	files, err := s.vectorIndex.ListFiles(ctx)
 	if err != nil {
 		return err
 	}
-	ret.Files = append(ret.Files, files2...)
+
+	ret.Files = append(ret.Files, files...)
 	return nil
 }
 
@@ -74,6 +75,9 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 		return s.store.ResumeCompaction(ctx)
 	})
 	g.Go(func() error {
+		return s.vectorIndex.ResumeMaintenanceCycles(ctx)
+	})
+	g.Go(func() error {
 		return s.cycleCallbacks.vectorCombinedCallbacksCtrl.Activate()
 	})
 	g.Go(func() error {
@@ -81,8 +85,7 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	})
 
 	if err := g.Wait(); err != nil {
-		return errors.Wrapf(err,
-			"failed to resume maintenance cycles for shard '%s'", s.name)
+		return fmt.Errorf("failed to resume maintenance cycles for shard '%s': %w", s.name, err)
 	}
 
 	return nil
@@ -95,19 +98,26 @@ func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 	if d.DocIDCounter, err = os.ReadFile(fpath); err != nil {
 		return fmt.Errorf("read shard doc-id-counter %s: %w", fpath, err)
 	}
-	d.DocIDCounterPath = path.Base(fpath)
-
+	d.DocIDCounterPath, err = filepath.Rel(s.index.Config.RootPath, fpath)
+	if err != nil {
+		return fmt.Errorf("docid counter path: %w", err)
+	}
 	fpath = s.propLengths.FileName()
 	if d.PropLengthTracker, err = os.ReadFile(fpath); err != nil {
 		return fmt.Errorf("read shard prop-lengths %s: %w", fpath, err)
 	}
-	d.PropLengthTrackerPath = path.Base(fpath)
-
+	d.PropLengthTrackerPath, err = filepath.Rel(s.index.Config.RootPath, fpath)
+	if err != nil {
+		return fmt.Errorf("proplength tracker path: %w", err)
+	}
 	fpath = s.versioner.path
 	if d.Version, err = os.ReadFile(fpath); err != nil {
 		return fmt.Errorf("read shard version %s: %w", fpath, err)
 	}
-	d.ShardVersionPath = path.Base(fpath)
+	d.ShardVersionPath, err = filepath.Rel(s.index.Config.RootPath, fpath)
+	if err != nil {
+		return fmt.Errorf("shard version path: %w", err)
+	}
 	return nil
 }
 
