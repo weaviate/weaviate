@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/backup"
 	"golang.org/x/sync/errgroup"
 )
@@ -32,10 +33,10 @@ func (s *Shard) beginBackup(ctx context.Context) (err error) {
 		}
 	}()
 	if err = s.store.PauseCompaction(ctx); err != nil {
-		return fmt.Errorf("pause compaction: %w", err)
+		return errors.Wrap(err, "pause compaction")
 	}
 	if err = s.store.FlushMemtables(ctx); err != nil {
-		return fmt.Errorf("flush memtables: %w", err)
+		return errors.Wrap(err, "flush memtables")
 	}
 	if err = s.cycleCallbacks.vectorCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
 		return fmt.Errorf("pause vector maintenance: %w", err)
@@ -44,7 +45,7 @@ func (s *Shard) beginBackup(ctx context.Context) (err error) {
 		return fmt.Errorf("pause geo props maintenance: %w", err)
 	}
 	if err = s.vectorIndex.SwitchCommitLogs(ctx); err != nil {
-		return fmt.Errorf("switch commit logs: %w", err)
+		return errors.Wrap(err, "switch commit logs")
 	}
 	return nil
 }
@@ -82,7 +83,8 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	})
 
 	if err := g.Wait(); err != nil {
-		return fmt.Errorf("failed to resume maintenance cycles for shard '%s': %w", s.name, err)
+		return errors.Wrapf(err,
+			"failed to resume maintenance cycles for shard '%s'", s.name)
 	}
 
 	return nil

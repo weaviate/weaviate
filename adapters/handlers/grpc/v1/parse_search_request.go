@@ -14,7 +14,10 @@ package v1
 import (
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 
@@ -24,9 +27,7 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
 
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
 
 	"github.com/go-openapi/strfmt"
@@ -56,30 +57,41 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	out.Tenant = req.Tenant
 
 	if req.Metadata != nil {
-		addProps, err := extractAdditionalPropsFromMetadata(class, req.Metadata)
-		if err != nil {
-			return dto.GetParams{}, errors.Wrap(err, "extract additional props")
-		}
-		out.AdditionalProperties = addProps
+		out.AdditionalProperties.ID = req.Metadata.Uuid
+		out.AdditionalProperties.Vector = req.Metadata.Vector
+		out.AdditionalProperties.Certainty = req.Metadata.Certainty
+		out.AdditionalProperties.Distance = req.Metadata.Distance
+		out.AdditionalProperties.LastUpdateTimeUnix = req.Metadata.LastUpdateTimeUnix
+		out.AdditionalProperties.CreationTimeUnix = req.Metadata.CreationTimeUnix
+		out.AdditionalProperties.Score = req.Metadata.Score
+		out.AdditionalProperties.ExplainScore = req.Metadata.ExplainScore
+		out.AdditionalProperties.IsConsistent = req.Metadata.IsConsistent
 	}
 
 	out.Properties, err = extractPropertiesRequest(req.Properties, scheme, req.Collection)
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract properties request")
 	}
-	if out.Properties == nil {
-		// No return properties selected, return all properties.
-		// Ignore blobs and refs to not overload the response
+	if len(out.Properties) == 0 && req.Metadata != nil {
+		// This is a pure-ID query without any props. Indicate this to the DB, so
+		// it can optimize accordingly
+		if isIdOnlyRequest(req.Metadata) {
+			out.AdditionalProperties.NoProps = true
+		}
+	} else if len(out.Properties) == 0 && req.Metadata == nil {
+		// no return values selected, return all properties and metadata. Ignore blobs and refs to not overload the
+		// response
 		returnProps, err := getAllNonRefNonBlobProperties(scheme, req.Collection)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
+
+		addProps, err := setAllCheapAdditionalPropsToTrue(class)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
+		out.AdditionalProperties = addProps
 		out.Properties = returnProps
-	}
-	if len(out.Properties) == 0 && isIdOnlyRequest(req.Metadata) {
-		// This is a pure-ID query without any properties or additional metadata.
-		// Indicate this to the DB, so it can optimize accordingly
-		out.AdditionalProperties.NoProps = true
 	}
 
 	if hs := req.HybridSearch; hs != nil {
@@ -500,10 +512,10 @@ func extractPath(scheme schema.Schema, className string, on []string) (*filters.
 }
 
 func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Schema, className string) ([]search.SelectProperty, error) {
+	var props []search.SelectProperty
 	if reqProps == nil {
-		return nil, nil
+		return props, nil
 	}
-	props := make([]search.SelectProperty, 0)
 	if reqProps.NonRefProperties != nil && len(reqProps.NonRefProperties) > 0 {
 		for _, prop := range reqProps.NonRefProperties {
 			props = append(props, search.SelectProperty{
@@ -537,7 +549,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Sche
 				}
 			}
 			var refProperties []search.SelectProperty
-			var addProps additional.Properties
+			var metaData additional.Properties
 			if prop.Properties != nil {
 				refProperties, err = extractPropertiesRequest(prop.Properties, scheme, linkedClassName)
 				if err != nil {
@@ -545,22 +557,20 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Sche
 				}
 			}
 			if prop.Metadata != nil {
-				addProps, err = extractAdditionalPropsFromMetadata(class, prop.Metadata)
-				if err != nil {
-					return nil, errors.Wrap(err, "extract additional props for refs")
-				}
+				metaData = extractAdditionalPropsForRefs(prop.Metadata)
 			}
 
-			if prop.Properties == nil {
+			if prop.Properties == nil && prop.Metadata == nil {
 				refProperties, err = getAllNonRefNonBlobProperties(scheme, linkedClassName)
 				if err != nil {
 					return nil, errors.Wrap(err, "get all non ref non blob properties")
 				}
-			}
-			if len(refProperties) == 0 && isIdOnlyRequest(prop.Metadata) {
-				// This is a pure-ID query without any properties or additional metadata.
-				// Indicate this to the DB, so it can optimize accordingly
-				addProps.NoProps = true
+
+				linkedClass := scheme.GetClass(schema.ClassName(linkedClassName))
+				metaData, err = setAllCheapAdditionalPropsToTrue(linkedClass)
+				if err != nil {
+					return nil, errors.Wrap(err, "set all cheap additional props to true")
+				}
 			}
 
 			props = append(props, search.SelectProperty{
@@ -570,7 +580,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Sche
 				Refs: []search.SelectClass{{
 					ClassName:            linkedClassName,
 					RefProperties:        refProperties,
-					AdditionalProperties: addProps,
+					AdditionalProperties: metaData,
 				}},
 			})
 		}
@@ -609,31 +619,17 @@ func extractNestedProperties(props []*pb.ObjectPropertiesRequest) []search.Selec
 	return selectProps
 }
 
-func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRequest) (additional.Properties, error) {
-	props := additional.Properties{
+func extractAdditionalPropsForRefs(prop *pb.MetadataRequest) additional.Properties {
+	return additional.Properties{
 		Vector:             prop.Vector,
+		Certainty:          prop.Certainty,
 		ID:                 prop.Uuid,
 		CreationTimeUnix:   prop.CreationTimeUnix,
 		LastUpdateTimeUnix: prop.LastUpdateTimeUnix,
 		Distance:           prop.Distance,
 		Score:              prop.Score,
 		ExplainScore:       prop.ExplainScore,
-		IsConsistent:       prop.IsConsistent,
 	}
-
-	vectorIndex, err := schema.TypeAssertVectorIndex(class)
-	if err != nil {
-		return props, err
-	}
-
-	// certainty is only compatible with cosine distance
-	if vectorIndex.DistanceName() == common.DistanceCosine && prop.Certainty {
-		props.Certainty = true
-	} else {
-		props.Certainty = false
-	}
-
-	return props, nil
 }
 
 func isIdOnlyRequest(metadata *pb.MetadataRequest) bool {
@@ -720,6 +716,30 @@ func getAllNonRefNonBlobNestedProperties[P schema.PropertyInterface](property P)
 		}
 	}
 	return props, nil
+}
+
+func setAllCheapAdditionalPropsToTrue(class *models.Class) (additional.Properties, error) {
+	out := additional.Properties{
+		ID:                 true,
+		Distance:           true,
+		LastUpdateTimeUnix: true,
+		CreationTimeUnix:   true,
+		Score:              true,
+		ExplainScore:       true,
+		Vector:             false, // can be expensive
+	}
+
+	vectorIndex, err := schema.TypeAssertVectorIndex(class)
+	if err != nil {
+		return out, err
+	}
+
+	// certainty is not compatible with dot distance
+	if vectorIndex.DistanceName() == common.DistanceCosine {
+		out.Certainty = true
+	}
+
+	return out, nil
 }
 
 func parseNearImage(ni *pb.NearImageSearch) (*nearImage.NearImageParams, error) {

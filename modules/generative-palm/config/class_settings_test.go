@@ -127,39 +127,6 @@ func Test_classSettings_Validate(t *testing.T) {
 				"topK has to be an integer value between 1 and 40, " +
 				"topP has to be float value between 0 and 1"),
 		},
-		{
-			name: "Generative AI",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"apiEndpoint": "generativelanguage.googleapis.com",
-				},
-			},
-			wantApiEndpoint: "generativelanguage.googleapis.com",
-			wantProjectID:   "",
-			wantModelID:     "chat-bison-001",
-			wantTemperature: 0.2,
-			wantTokenLimit:  256,
-			wantTopK:        40,
-			wantTopP:        0.95,
-			wantErr:         nil,
-		},
-		{
-			name: "Generative AI with model",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"apiEndpoint": "generativelanguage.googleapis.com",
-					"modelId":     "chat-bison-001",
-				},
-			},
-			wantApiEndpoint: "generativelanguage.googleapis.com",
-			wantProjectID:   "",
-			wantModelID:     "chat-bison-001",
-			wantTemperature: 0.2,
-			wantTokenLimit:  256,
-			wantTopK:        40,
-			wantTopP:        0.95,
-			wantErr:         nil,
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -45,8 +45,7 @@ const (
 )
 
 func backupJourney(t *testing.T, className, backend, backupID string,
-	journeyType journeyType, dataIntegrityCheck dataIntegrityCheck,
-	tenantNames []string, pqEnabled bool,
+	journeyType journeyType, dataIntegrityCheck dataIntegrityCheck, tenantNames []string,
 ) {
 	if journeyType == clusterJourney && backend == "filesystem" {
 		t.Run("should fail backup/restore with local filesystem backend", func(t *testing.T) {
@@ -148,9 +147,6 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 		if dataIntegrityCheck == checkClassAndDataPresence {
 			count := moduleshelper.GetClassCount(t, className, singleTenant)
 			assert.Equal(t, int64(500), count)
-			if pqEnabled {
-				moduleshelper.EnsureCompressedVectorsRestored(t, className)
-			}
 		}
 	}
 }
