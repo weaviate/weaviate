@@ -17,6 +17,8 @@ import (
 	"io"
 	"math"
 	"math/rand"
+	"os"
+	"path"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -621,11 +623,21 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 func (h *hnsw) Drop(ctx context.Context) error {
 	// cancel tombstone cleanup goroutine
 	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
-		return errors.Wrap(err, "hnsw drop")
+		return fmt.Errorf("hnsw drop: %w", err)
 	}
 
 	if h.compressed.Load() {
 		h.compressedVectorsCache.Drop()
+		if err := h.compressedStore.Shutdown(ctx); err != nil {
+			return fmt.Errorf("failed to shutdown compressed store")
+		}
+		storeRoot, _ := path.Split(h.compressedStoreLSMPath())
+		if _, err := os.Stat(storeRoot); err == nil {
+			err := os.RemoveAll(storeRoot)
+			if err != nil {
+				return fmt.Errorf("remove compressed store at %s: %w", storeRoot, err)
+			}
+		}
 	} else {
 		// cancel vector cache goroutine
 		h.cache.Drop()
@@ -635,7 +647,7 @@ func (h *hnsw) Drop(ctx context.Context) error {
 	// write while it's still running
 	err := h.commitLog.Drop(ctx)
 	if err != nil {
-		return errors.Wrap(err, "commit log drop")
+		return fmt.Errorf("commit log drop: %w", err)
 	}
 
 	return nil

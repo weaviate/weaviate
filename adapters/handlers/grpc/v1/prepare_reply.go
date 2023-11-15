@@ -122,7 +122,7 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 	}
 	generativeGroupResults := ""
 	// id is part of the _additional map in case of generative search - don't aks me why
-	if generativeSearchEnabled || fromGroup {
+	if additionalPropsParams.ID && (generativeSearchEnabled || fromGroup) {
 		idRaw, ok := additionalPropertiesMap["id"]
 		if !ok {
 			return nil, "", errors.Wrap(err, "get id generative")
@@ -253,6 +253,7 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 			isConsistentfmt, ok2 := isConsistent.(bool)
 			if ok2 {
 				additionalProps.IsConsistent = &isConsistentfmt
+				additionalProps.IsConsistentPresent = true
 			}
 		}
 	}
@@ -551,6 +552,10 @@ func extractArrayTypes(scheme schema.Schema, rawProps map[string]interface{}, pr
 		case schema.DataTypeIntArray:
 			propIntAsFloat, ok := prop.([]float64)
 			if !ok {
+				emptyArr, ok := prop.([]interface{})
+				if ok && len(emptyArr) == 0 {
+					continue
+				}
 				return fmt.Errorf("property %v with datatype %v needs to be []float64, got %T", propName, dataType, prop)
 			}
 			propInt := make([]int64, len(propIntAsFloat))
@@ -563,18 +568,26 @@ func extractArrayTypes(scheme schema.Schema, rawProps map[string]interface{}, pr
 			props.IntArrayProperties = append(props.IntArrayProperties, &pb.IntArrayProperties{PropName: propName, Values: propInt})
 			delete(rawProps, propName)
 		case schema.DataTypeNumberArray:
-			propIntAsFloat, ok := prop.([]float64)
+			propFloat, ok := prop.([]float64)
 			if !ok {
+				emptyArr, ok := prop.([]interface{})
+				if ok && len(emptyArr) == 0 {
+					continue
+				}
 				return fmt.Errorf("property %v with datatype %v needs to be []float64, got %T", propName, dataType, prop)
 			}
 			if props.NumberArrayProperties == nil {
 				props.NumberArrayProperties = make([]*pb.NumberArrayProperties, 0)
 			}
-			props.NumberArrayProperties = append(props.NumberArrayProperties, &pb.NumberArrayProperties{PropName: propName, Values: propIntAsFloat})
+			props.NumberArrayProperties = append(props.NumberArrayProperties, &pb.NumberArrayProperties{PropName: propName, Values: propFloat})
 			delete(rawProps, propName)
 		case schema.DataTypeStringArray, schema.DataTypeTextArray, schema.DataTypeDateArray, schema.DataTypeUUIDArray:
 			propString, ok := prop.([]string)
 			if !ok {
+				emptyArr, ok := prop.([]interface{})
+				if ok && len(emptyArr) == 0 {
+					continue
+				}
 				return fmt.Errorf("property %v with datatype %v needs to be []string, got %T", propName, dataType, prop)
 			}
 			if props.TextArrayProperties == nil {
@@ -585,6 +598,10 @@ func extractArrayTypes(scheme schema.Schema, rawProps map[string]interface{}, pr
 		case schema.DataTypeBooleanArray:
 			propBool, ok := prop.([]bool)
 			if !ok {
+				emptyArr, ok := prop.([]interface{})
+				if ok && len(emptyArr) == 0 {
+					continue
+				}
 				return fmt.Errorf("property %v with datatype %v needs to be []bool, got %T", propName, dataType, prop)
 			}
 			if props.BooleanArrayProperties == nil {
@@ -597,7 +614,6 @@ func extractArrayTypes(scheme schema.Schema, rawProps map[string]interface{}, pr
 			if isArray {
 				return fmt.Errorf("property %v with array type not handled %v", propName, dataType)
 			}
-			continue
 		}
 	}
 	return nil

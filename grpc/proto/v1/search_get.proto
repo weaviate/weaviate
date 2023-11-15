@@ -254,6 +254,7 @@ message MetadataResult {
   optional bool is_consistent = 15;
   string generative = 16;
   bool generative_present = 17;
+  bool is_consistent_present = 18;
 }
 
 message PropertiesResult {
