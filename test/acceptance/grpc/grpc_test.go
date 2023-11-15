@@ -88,9 +88,6 @@ func TestGRPC(t *testing.T) {
 			name: "Search without props",
 			req: &pb.SearchRequest{
 				Collection: booksClass.Class,
-				Metadata: &pb.MetadataRequest{
-					Uuid: true,
-				},
 			},
 		},
 	}

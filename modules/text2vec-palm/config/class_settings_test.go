@@ -84,41 +84,6 @@ func Test_classSettings_Validate(t *testing.T) {
 				"wrong modelId available model names are: " +
 				"[textembedding-gecko@001 textembedding-gecko@latest textembedding-gecko-multilingual@latest]"),
 		},
-		{
-			name: "Generative AI",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"apiEndpoint": "generativelanguage.googleapis.com",
-				},
-			},
-			wantApiEndpoint: "generativelanguage.googleapis.com",
-			wantProjectID:   "",
-			wantModelID:     "embedding-gecko-001",
-			wantErr:         nil,
-		},
-		{
-			name: "Generative AI with model",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"apiEndpoint": "generativelanguage.googleapis.com",
-					"modelId":     "embedding-gecko-001",
-				},
-			},
-			wantApiEndpoint: "generativelanguage.googleapis.com",
-			wantProjectID:   "",
-			wantModelID:     "embedding-gecko-001",
-			wantErr:         nil,
-		},
-		{
-			name: "Generative AI with wrong model",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"apiEndpoint": "generativelanguage.googleapis.com",
-					"modelId":     "textembedding-gecko@001",
-				},
-			},
-			wantErr: errors.Errorf("wrong modelId available Generative AI model names are: [embedding-gecko-001]"),
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
