@@ -33,7 +33,7 @@ var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 func buildBedrockUrl(service, region, model string) string {
 	urlTemplate := "https://%s.%s.amazonaws.com/model/%s/invoke"
-	return fmt.Sprintf(urlTemplate, service, region, model)
+	return fmt.Sprintf(urlTemplate, service + "-runtime", region, model)
 }
 
 func buildSagemakerUrl(service, region, endpoint string) string {
@@ -101,7 +101,7 @@ func (v *aws) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt 
 
 	if v.isBedrock(service) {
 		endpointUrl = v.buildBedrockUrlFn(service, region, model)
-		host = service + "." + region + ".amazonaws.com"
+		host = service + "-runtime" + "." + region + ".amazonaws.com"
 		path = "/model/" + model + "/invoke"
 
 		if v.isAmazonModel(model) {
@@ -137,12 +137,11 @@ func (v *aws) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt 
 				StopSequences: settings.StopSequences(),
 			})
 		} else if v.isCohereModel(model) {
-			var builder strings.Builder
 			body, err = json.Marshal(bedrockCohereRequest{
-				Prompt:           builder.String(),
+				Prompt:           prompt,
 				Temperature:      *settings.Temperature(),
 				MaxTokens:        *settings.MaxTokenCount(),
-				ReturnLikeliHood: "GENERATION",
+				// ReturnLikeliHood: "GENERATION", // contray to docs, this is invalid
 			})
 		}
 
@@ -216,9 +215,31 @@ func (v *aws) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt 
 }
 
 func (v *aws) parseBedrockResponse(bodyBytes []byte, res *http.Response) (*generativemodels.GenerateResponse, error) {
+	var resBodyMap map[string]interface{}
+    if err := json.Unmarshal(bodyBytes, &resBodyMap); err != nil {
+        return nil, errors.Wrap(err, "unmarshal response body")
+    }
+
 	var resBody bedrockGenerateResponse
-	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+
+	// assume this was for amazon model
+	if _, ok := resBodyMap["inputTextTokenCount"]; ok {
+        if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
+            return nil, errors.Wrap(err, "unmarshal response body")
+        }
+    } else {
+		// this is for cohere model
+		generationsInterface := resBodyMap["generations"].([]interface{})
+		firstGenerationMap := generationsInterface[0].(map[string]interface{})
+		text := firstGenerationMap["text"].(string)
+		finishReason := firstGenerationMap["finish_reason"].(string)
+		result := Result{
+			OutputText: text,
+			CompletionReason: finishReason,
+		}
+
+		resBody.Results = []Result{result}
+
 	}
 
 	if res.StatusCode != 200 || resBody.Message != nil {
