@@ -14,11 +14,10 @@ package lsmkv
 import (
 	"encoding/binary"
 	"fmt"
-	"io"
-
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/usecases/byteops"
+	"io"
 )
 
 // a single node of strategy "replace"
@@ -164,7 +163,7 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 	return out, nil
 }
 
-func ParseReplaceNodeIntoOld(r io.Reader, secondaryIndexCount uint16, out *segmentReplaceNode) error {
+func ParseReplaceNodeIntoPread(r io.Reader, secondaryIndexCount uint16, out *segmentReplaceNode) error {
 	out.offset = 0
 
 	if err := binary.Read(r, binary.LittleEndian, &out.tombstone); err != nil {
@@ -229,7 +228,7 @@ func ParseReplaceNodeIntoOld(r io.Reader, secondaryIndexCount uint16, out *segme
 	return nil
 }
 
-func ParseReplaceNodeInto(r *byteops.ReadWriter, secondaryIndexCount uint16, out *segmentReplaceNode) error {
+func ParseReplaceNodeIntoMMAP(r *byteops.ReadWriter, secondaryIndexCount uint16, out *segmentReplaceNode) error {
 	out.tombstone = r.ReadUint8() == 0x01
 	valueLength := r.ReadUint64()
 

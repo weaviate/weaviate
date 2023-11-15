@@ -14,7 +14,6 @@ package hnsw
 import (
 	"context"
 	"fmt"
-	"os"
 	"sort"
 	"testing"
 
@@ -518,34 +517,30 @@ func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 }
 
 func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
-	// there is a single bulk clean event after all the deletes
-	vectors := vectorsForDeleteTest()
-	var vectorIndex *hnsw
-	userConfig := ent.UserConfig{
-		MaxConnections: 30,
-		EFConstruction: 128,
+	var (
+		vectorIndex *hnsw
+		// there is a single bulk clean event after all the deletes
+		vectors    = vectorsForDeleteTest()
+		rootPath   = t.TempDir()
+		userConfig = ent.UserConfig{
+			MaxConnections: 30,
+			EFConstruction: 128,
 
-		// The actual size does not matter for this test, but if it defaults to
-		// zero it will constantly think it's full and needs to be deleted - even
-		// after just being deleted, so make sure to use a positive number here.
-		VectorCacheMaxObjects: 100000,
-		PQ: ent.PQConfig{
-			Enabled: true,
-			Encoder: ent.PQEncoder{
-				Type:         ent.PQEncoderTypeTile,
-				Distribution: ent.PQEncoderDistributionNormal,
+			// The actual size does not matter for this test, but if it defaults to
+			// zero it will constantly think it's full and needs to be deleted - even
+			// after just being deleted, so make sure to use a positive number here.
+			VectorCacheMaxObjects: 100000,
+			PQ: ent.PQConfig{
+				Enabled: true,
+				Encoder: ent.PQEncoder{
+					Type:         ent.PQEncoderTypeTile,
+					Distribution: ent.PQEncoderDistributionNormal,
+				},
 			},
-		},
-	}
+		}
+	)
 
 	t.Run("import the test vectors", func(t *testing.T) {
-		rootPath := "doesnt-matter-as-committlogger-is-mocked-out"
-		defer func(path string) {
-			err := os.RemoveAll(path)
-			if err != nil {
-				fmt.Println(err)
-			}
-		}(rootPath)
 		index, err := New(Config{
 			RootPath:              rootPath,
 			ID:                    "delete-test",
@@ -662,28 +657,24 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 }
 
 func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *testing.T) {
-	// there is a single bulk clean event after all the deletes
-	vectors := vectorsForDeleteTest()
-	var vectorIndex *hnsw
-	userConfig := ent.UserConfig{
-		MaxConnections: 30,
-		EFConstruction: 128,
+	var (
+		vectorIndex *hnsw
+		// there is a single bulk clean event after all the deletes
+		vectors    = vectorsForDeleteTest()
+		rootPath   = t.TempDir()
+		userConfig = ent.UserConfig{
+			MaxConnections: 30,
+			EFConstruction: 128,
 
-		// The actual size does not matter for this test, but if it defaults to
-		// zero it will constantly think it's full and needs to be deleted - even
-		// after just being deleted, so make sure to use a positive number here.
-		VectorCacheMaxObjects: 100000,
-		PQ:                    ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "tile", Distribution: "normal"}},
-	}
+			// The actual size does not matter for this test, but if it defaults to
+			// zero it will constantly think it's full and needs to be deleted - even
+			// after just being deleted, so make sure to use a positive number here.
+			VectorCacheMaxObjects: 100000,
+			PQ:                    ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "tile", Distribution: "normal"}},
+		}
+	)
 
 	t.Run("import the test vectors", func(t *testing.T) {
-		rootPath := "doesnt-matter-as-committlogger-is-mocked-out"
-		defer func(path string) {
-			err := os.RemoveAll(path)
-			if err != nil {
-				fmt.Println(err)
-			}
-		}(rootPath)
 		index, err := New(Config{
 			RootPath:              rootPath,
 			ID:                    "delete-test",
