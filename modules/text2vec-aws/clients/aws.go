@@ -96,7 +96,7 @@ func (v *aws) vectorize(ctx context.Context, input []string, config ent.Vectoriz
 	if v.isBedrock(service) {
 		endpointUrl = v.buildBedrockUrlFn(service, region, model)
 		host, path, _ = extractHostAndPath(endpointUrl)
-		
+
 		req, err := createRequestBody(model, input)
 		if err != nil {
 			return nil, err
@@ -169,9 +169,9 @@ func (v *aws) vectorize(ctx context.Context, input []string, config ent.Vectoriz
 func (v *aws) parseBedrockResponse(bodyBytes []byte, res *http.Response, input []string) (*ent.VectorizationResult, error) {
 	var resBodyMap map[string]interface{}
 	if err := json.Unmarshal(bodyBytes, &resBodyMap); err != nil {
-        return nil, errors.Wrap(err, "unmarshal response body")
-    }
-	
+		return nil, errors.Wrap(err, "unmarshal response body")
+	}
+
 	// if resBodyMap has inputTextTokenCount, it's a resonse from an Amazon model
 	// otherwise, it is a response from a Cohere model
 	var resBody bedrockEmbeddingResponse
@@ -182,7 +182,7 @@ func (v *aws) parseBedrockResponse(bodyBytes []byte, res *http.Response, input [
 	} else {
 		// Cohere's response does not give a token count, so we set it to 0
 		resBody.InputTextTokenCount = 0
-		
+
 		embeddingsInterface, _ := resBodyMap["embeddings"].([]interface{})
 		firstEmbeddingInterface, _ := embeddingsInterface[0].([]interface{})
 
@@ -194,7 +194,7 @@ func (v *aws) parseBedrockResponse(bodyBytes []byte, res *http.Response, input [
 				return nil, fmt.Errorf("expected the elements of the first 'embeddings' to be float64")
 			}
 		}
-		
+
 		resBody.Embedding = firstEmbeddingFloat
 
 	}
@@ -217,6 +217,7 @@ func (v *aws) parseBedrockResponse(bodyBytes []byte, res *http.Response, input [
 		Vector:     resBody.Embedding,
 	}, nil
 }
+
 func (v *aws) parseSagemakerResponse(bodyBytes []byte, res *http.Response, input []string) (*ent.VectorizationResult, error) {
 	var resBody sagemakerEmbeddingResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
@@ -297,6 +298,7 @@ func (v *aws) getEndpoint(config ent.VectorizationConfig) string {
 func (v *aws) getTargetModel(config ent.VectorizationConfig) string {
 	return config.TargetModel
 }
+
 func (v *aws) getTargetVariant(config ent.VectorizationConfig) string {
 	return config.TargetVariant
 }
@@ -306,8 +308,8 @@ type bedrockEmbeddingsRequest struct {
 }
 
 type bedrockCohereEmbeddingRequest struct {
-    Texts     []string `json:"texts"`
-    InputType string   `json:"input_type"`
+	Texts     []string `json:"texts"`
+	InputType string   `json:"input_type"`
 }
 
 type sagemakerEmbeddingsRequest struct {
@@ -329,37 +331,37 @@ type sagemakerEmbeddingResponse struct {
 }
 
 func extractHostAndPath(endpointUrl string) (string, string, error) {
-    u, err := url.Parse(endpointUrl)
-    if err != nil {
-        return "", "", err
-    }
+	u, err := url.Parse(endpointUrl)
+	if err != nil {
+		return "", "", err
+	}
 
-    if u.Host == "" || u.Path == "" {
-        return "", "", fmt.Errorf("invalid endpoint URL: %s", endpointUrl)
-    }
+	if u.Host == "" || u.Path == "" {
+		return "", "", fmt.Errorf("invalid endpoint URL: %s", endpointUrl)
+	}
 
-    return u.Host, u.Path, nil
+	return u.Host, u.Path, nil
 }
 
 func createRequestBody(model string, texts []string) (interface{}, error) {
-    modelParts := strings.Split(model, ".")
-    if len(modelParts) == 0 {
-        return nil, fmt.Errorf("invalid model: %s", model)
-    }
+	modelParts := strings.Split(model, ".")
+	if len(modelParts) == 0 {
+		return nil, fmt.Errorf("invalid model: %s", model)
+	}
 
-    modelProvider := modelParts[0]
+	modelProvider := modelParts[0]
 
-    switch modelProvider {
-    case "amazon":
-        return bedrockEmbeddingsRequest{
-            InputText: texts[0],
-        }, nil
-    case "cohere":
-        return bedrockCohereEmbeddingRequest{
-            Texts:     texts,
-            InputType: "search_document",
-        }, nil
-    default:
-        return nil, fmt.Errorf("unknown model provider: %s", modelProvider)
-    }
+	switch modelProvider {
+	case "amazon":
+		return bedrockEmbeddingsRequest{
+			InputText: texts[0],
+		}, nil
+	case "cohere":
+		return bedrockCohereEmbeddingRequest{
+			Texts:     texts,
+			InputType: "search_document",
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown model provider: %s", modelProvider)
+	}
 }

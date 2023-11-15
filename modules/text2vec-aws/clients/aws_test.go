@@ -207,137 +207,130 @@ func TestClient(t *testing.T) {
 
 func TestBuildBedrockUrl(t *testing.T) {
 	service := "bedrock"
-    region := "us-east-1"
-    t.Run("when using a Cohere", func(t *testing.T) {
+	region := "us-east-1"
+	t.Run("when using a Cohere", func(t *testing.T) {
+		model := "cohere.embed-english-v3"
 
-        model := "cohere.embed-english-v3"
+		expected := "https://bedrock-runtime.us-east-1.amazonaws.com/model/cohere.embed-english-v3/invoke"
+		result := buildBedrockUrl(service, region, model)
 
-        expected := "https://bedrock-runtime.us-east-1.amazonaws.com/model/cohere.embed-english-v3/invoke"
-        result := buildBedrockUrl(service, region, model)
+		if result != expected {
+			t.Errorf("Expected %s but got %s", expected, result)
+		}
+	})
 
-        if result != expected {
-            t.Errorf("Expected %s but got %s", expected, result)
-        }
-    })
+	t.Run("When using an AWS model", func(t *testing.T) {
+		model := "amazon.titan-e1t-medium"
 
-    t.Run("When using an AWS model", func(t *testing.T) {
+		expected := "https://bedrock.us-east-1.amazonaws.com/model/amazon.titan-e1t-medium/invoke"
+		result := buildBedrockUrl(service, region, model)
 
-        model := "amazon.titan-e1t-medium"
-
-        expected := "https://bedrock.us-east-1.amazonaws.com/model/amazon.titan-e1t-medium/invoke"
-        result := buildBedrockUrl(service, region, model)
-
-        if result != expected {
-            t.Errorf("Expected %s but got %s", expected, result)
-        }
-    })
+		if result != expected {
+			t.Errorf("Expected %s but got %s", expected, result)
+		}
+	})
 }
 
 func TestCreateRequestBody(t *testing.T) {
-    input := []string{"Hello, world!"}
+	input := []string{"Hello, world!"}
 
-    t.Run("Create request for Amazon embedding model", func(t *testing.T) {
-        model := "amazon.titan-e1t-medium"
-        req, _ := createRequestBody(model, input)
+	t.Run("Create request for Amazon embedding model", func(t *testing.T) {
+		model := "amazon.titan-e1t-medium"
+		req, _ := createRequestBody(model, input)
 		_, ok := req.(bedrockEmbeddingsRequest)
 		if !ok {
 			t.Fatalf("Expected req to be a bedrockEmbeddingsRequest, got %T", req)
 		}
+	})
 
-    })
-
-    t.Run("Create request for Cohere embedding model", func(t *testing.T) {
-        model := "cohere.embed-english-v3"
+	t.Run("Create request for Cohere embedding model", func(t *testing.T) {
+		model := "cohere.embed-english-v3"
 		req, _ := createRequestBody(model, input)
 		_, ok := req.(bedrockCohereEmbeddingRequest)
 		if !ok {
 			t.Fatalf("Expected req to be a bedrockCohereEmbeddingRequest, got %T", req)
 		}
+	})
 
-    })
-
-    t.Run("Create request for unknown embedding model", func(t *testing.T) {
-        model := "unknown.model"
-        _, err := createRequestBody(model, input)
-        if err == nil {
-            t.Errorf("Expected an error for unknown model, got nil")
-        }
-    })
+	t.Run("Create request for unknown embedding model", func(t *testing.T) {
+		model := "unknown.model"
+		_, err := createRequestBody(model, input)
+		if err == nil {
+			t.Errorf("Expected an error for unknown model, got nil")
+		}
+	})
 }
-func TestVectorize(t *testing.T) {
-    ctx := context.Background()
-    input := []string{"Hello, world!"}
 
-    t.Run("Vectorize using an Amazon model", func(t *testing.T) {
-        config := ent.VectorizationConfig{
-            Model: "amazon.titan-e1t-medium",
+func TestVectorize(t *testing.T) {
+	ctx := context.Background()
+	input := []string{"Hello, world!"}
+
+	t.Run("Vectorize using an Amazon model", func(t *testing.T) {
+		config := ent.VectorizationConfig{
+			Model:   "amazon.titan-e1t-medium",
 			Service: "bedrock",
-			Region: "us-east-1",
-        }
+			Region:  "us-east-1",
+		}
 
 		awsAccessKeyID := os.Getenv("AWS_ACCESS_KEY_ID_AMAZON")
-    	awsSecretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY_AMAZON")
+		awsSecretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY_AMAZON")
 
 		aws := New(awsAccessKeyID, awsSecretAccessKey, nil)
 
-        _, err := aws.Vectorize(ctx, input, config)
+		_, err := aws.Vectorize(ctx, input, config)
+		if err != nil {
+			t.Errorf("Vectorize returned an error: %v", err)
+		}
+	})
 
-        if err != nil {
-            t.Errorf("Vectorize returned an error: %v", err)
-        }
-
-    })
-
-    t.Run("Vectorize using a Cohere model", func(t *testing.T) {
+	t.Run("Vectorize using a Cohere model", func(t *testing.T) {
 		config := ent.VectorizationConfig{
-            Model: "cohere.embed-english-v3",
+			Model:   "cohere.embed-english-v3",
 			Service: "bedrock",
-			Region: "us-east-1",
-        }
+			Region:  "us-east-1",
+		}
 
 		awsAccessKeyID := os.Getenv("AWS_ACCESS_KEY_ID_COHERE")
-    	awsSecretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY_COHERE")
+		awsSecretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY_COHERE")
 
 		aws := New(awsAccessKeyID, awsSecretAccessKey, nil)
 
-        _, err := aws.Vectorize(ctx, input, config)
-
-        if err != nil {
-            t.Errorf("Vectorize returned an error: %v", err)
-        }
-
-    })
+		_, err := aws.Vectorize(ctx, input, config)
+		if err != nil {
+			t.Errorf("Vectorize returned an error: %v", err)
+		}
+	})
 }
 
 func TestExtractHostAndPath(t *testing.T) {
-    t.Run("valid URL", func(t *testing.T) {
-        endpointUrl := "https://service.region.amazonaws.com/model/model-name/invoke"
-        expectedHost := "service.region.amazonaws.com"
-        expectedPath := "/model/model-name/invoke"
+	t.Run("valid URL", func(t *testing.T) {
+		endpointUrl := "https://service.region.amazonaws.com/model/model-name/invoke"
+		expectedHost := "service.region.amazonaws.com"
+		expectedPath := "/model/model-name/invoke"
 
-        host, path, err := extractHostAndPath(endpointUrl)
+		host, path, err := extractHostAndPath(endpointUrl)
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		if host != expectedHost {
+			t.Errorf("Expected host %s but got %s", expectedHost, host)
+		}
+		if path != expectedPath {
+			t.Errorf("Expected path %s but got %s", expectedPath, path)
+		}
+	})
 
-        if err != nil {
-            t.Errorf("Unexpected error: %v", err)
-        }
-        if host != expectedHost {
-            t.Errorf("Expected host %s but got %s", expectedHost, host)
-        }
-        if path != expectedPath {
-            t.Errorf("Expected path %s but got %s", expectedPath, path)
-        }
-    })
+	t.Run("URL without host or path", func(t *testing.T) {
+		endpointUrl := "https://"
 
-    t.Run("URL without host or path", func(t *testing.T) {
-        endpointUrl := "https://"
+		_, _, err := extractHostAndPath(endpointUrl)
 
-        _, _, err := extractHostAndPath(endpointUrl)
-
-        if err == nil {
-            t.Error("Expected error but got nil")
-        }
-    })
+		if err == nil {
+			t.Error("Expected error but got nil")
+		}
+	})
 }
+
 type fakeHandler struct {
 	t           *testing.T
 	serverError error
