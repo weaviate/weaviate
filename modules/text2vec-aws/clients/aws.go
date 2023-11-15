@@ -167,9 +167,36 @@ func (v *aws) vectorize(ctx context.Context, input []string, config ent.Vectoriz
 }
 
 func (v *aws) parseBedrockResponse(bodyBytes []byte, res *http.Response, input []string) (*ent.VectorizationResult, error) {
+	var resBodyMap map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &resBodyMap); err != nil {
+        return nil, errors.Wrap(err, "unmarshal response body")
+    }
+	
+	// if resBodyMap has inputTextTokenCount, it's a resonse from an Amazon model
+	// otherwise, it is a response from a Cohere model
 	var resBody bedrockEmbeddingResponse
-	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+	if _, ok := resBodyMap["inputTextTokenCount"]; ok {
+		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
+			return nil, errors.Wrap(err, "unmarshal response body")
+		}
+	} else {
+		// Cohere's response does not give a token count, so we set it to 0
+		resBody.InputTextTokenCount = 0
+		
+		embeddingsInterface, _ := resBodyMap["embeddings"].([]interface{})
+		firstEmbeddingInterface, _ := embeddingsInterface[0].([]interface{})
+
+		firstEmbeddingFloat := make([]float32, len(firstEmbeddingInterface))
+		for i, v := range firstEmbeddingInterface {
+			if val, ok := v.(float64); ok {
+				firstEmbeddingFloat[i] = float32(val)
+			} else {
+				return nil, fmt.Errorf("expected the elements of the first 'embeddings' to be float64")
+			}
+		}
+		
+		resBody.Embedding = firstEmbeddingFloat
+
 	}
 
 	if res.StatusCode != 200 || resBody.Message != nil {

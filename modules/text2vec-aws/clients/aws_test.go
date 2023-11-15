@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -229,6 +230,82 @@ func TestBuildBedrockUrl(t *testing.T) {
         if result != expected {
             t.Errorf("Expected %s but got %s", expected, result)
         }
+    })
+}
+
+func TestCreateRequestBody(t *testing.T) {
+    input := []string{"Hello, world!"}
+
+    t.Run("Create request for Amazon embedding model", func(t *testing.T) {
+        model := "amazon.titan-e1t-medium"
+        req, _ := createRequestBody(model, input)
+		_, ok := req.(bedrockEmbeddingsRequest)
+		if !ok {
+			t.Fatalf("Expected req to be a bedrockEmbeddingsRequest, got %T", req)
+		}
+
+    })
+
+    t.Run("Create request for Cohere embedding model", func(t *testing.T) {
+        model := "cohere.embed-english-v3"
+		req, _ := createRequestBody(model, input)
+		_, ok := req.(bedrockCohereEmbeddingRequest)
+		if !ok {
+			t.Fatalf("Expected req to be a bedrockCohereEmbeddingRequest, got %T", req)
+		}
+
+    })
+
+    t.Run("Create request for unknown embedding model", func(t *testing.T) {
+        model := "unknown.model"
+        _, err := createRequestBody(model, input)
+        if err == nil {
+            t.Errorf("Expected an error for unknown model, got nil")
+        }
+    })
+}
+func TestVectorize(t *testing.T) {
+    ctx := context.Background()
+    input := []string{"Hello, world!"}
+
+    t.Run("Vectorize using an Amazon model", func(t *testing.T) {
+        config := ent.VectorizationConfig{
+            Model: "amazon.titan-e1t-medium",
+			Service: "bedrock",
+			Region: "us-east-1",
+        }
+
+		awsAccessKeyID := os.Getenv("AWS_ACCESS_KEY_ID_AMAZON")
+    	awsSecretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY_AMAZON")
+
+		aws := New(awsAccessKeyID, awsSecretAccessKey, nil)
+
+        _, err := aws.Vectorize(ctx, input, config)
+
+        if err != nil {
+            t.Errorf("Vectorize returned an error: %v", err)
+        }
+
+    })
+
+    t.Run("Vectorize using a Cohere model", func(t *testing.T) {
+		config := ent.VectorizationConfig{
+            Model: "cohere.embed-english-v3",
+			Service: "bedrock",
+			Region: "us-east-1",
+        }
+
+		awsAccessKeyID := os.Getenv("AWS_ACCESS_KEY_ID_COHERE")
+    	awsSecretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY_COHERE")
+
+		aws := New(awsAccessKeyID, awsSecretAccessKey, nil)
+
+        _, err := aws.Vectorize(ctx, input, config)
+
+        if err != nil {
+            t.Errorf("Vectorize returned an error: %v", err)
+        }
+
     })
 }
 
