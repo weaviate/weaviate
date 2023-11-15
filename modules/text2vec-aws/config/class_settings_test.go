@@ -102,7 +102,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"model":   "wrong-model",
 				},
 			},
-			wantErr: errors.Errorf("wrong model, available models are: [amazon.titan-e1t-medium]"),
+			wantErr: errors.Errorf("wrong model, available models are: [amazon.titan-e1t-medium amazon.titan-embed-g1-text-02 cohere.embed-english-v3 cohere.embed-multilingual-v3]"),
 		},
 		{
 			name: "wrong endpoint",
