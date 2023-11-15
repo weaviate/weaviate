@@ -96,9 +96,13 @@ func (v *aws) vectorize(ctx context.Context, input []string, config ent.Vectoriz
 	if v.isBedrock(service) {
 		endpointUrl = v.buildBedrockUrlFn(service, region, model)
 		host, path, _ = extractHostAndPath(endpointUrl)
-		body, err = json.Marshal(bedrockEmbeddingsRequest{
-			InputText: input[0],
-		})
+		
+		req, err := createRequestBody(model, input)
+		if err != nil {
+			return nil, err
+		}
+
+		body, err = json.Marshal(req)
 		if err != nil {
 			return nil, errors.Wrapf(err, "marshal body")
 		}
@@ -274,6 +278,11 @@ type bedrockEmbeddingsRequest struct {
 	InputText string `json:"inputText,omitempty"`
 }
 
+type bedrockCohereEmbeddingRequest struct {
+    Texts     []string `json:"texts"`
+    InputType string   `json:"input_type"`
+}
+
 type sagemakerEmbeddingsRequest struct {
 	TextInputs []string `json:"text_inputs,omitempty"`
 }
@@ -303,4 +312,27 @@ func extractHostAndPath(endpointUrl string) (string, string, error) {
     }
 
     return u.Host, u.Path, nil
+}
+
+func createRequestBody(model string, texts []string) (interface{}, error) {
+    modelParts := strings.Split(model, ".")
+    if len(modelParts) == 0 {
+        return nil, fmt.Errorf("invalid model: %s", model)
+    }
+
+    modelProvider := modelParts[0]
+
+    switch modelProvider {
+    case "amazon":
+        return bedrockEmbeddingsRequest{
+            InputText: texts[0],
+        }, nil
+    case "cohere":
+        return bedrockCohereEmbeddingRequest{
+            Texts:     texts,
+            InputType: "search_document",
+        }, nil
+    default:
+        return nil, fmt.Errorf("unknown model provider: %s", modelProvider)
+    }
 }
