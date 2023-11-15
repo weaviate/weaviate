@@ -133,6 +133,8 @@ type ShardInterface interface {
 	abortReplication(context.Context, string) replica.SimpleResponse
 	reinit(context.Context) error
 	filePutter(context.Context, string) (io.WriteCloser, error)
+
+	extendDimensionTrackerLSM(int, uint64) error
 }
 
 // RealShard is the smallest completely-contained index unit. A shard manages

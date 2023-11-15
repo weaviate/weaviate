@@ -228,7 +228,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		for name, shard := range shardsHotted {
 			name, shard := name, shard
 			eg.Go(func() error {
-				if err := shard.shutdown(ctx); err != nil {
+				if err := shard.Shutdown(ctx); err != nil {
 					idx.logger.WithField("action", "rollback_shutdown_shard").
 						WithField("shard", shard.ID()).
 						Errorf("cannot shutdown self activated shard %q: %s", name, err)
@@ -263,7 +263,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		for name, shard := range shardsColded {
 			name, shard := name, shard
 			eg.Go(func() error {
-				if err := shard.shutdown(ctx); err != nil {
+				if err := shard.Shutdown(ctx); err != nil {
 					idx.logger.WithField("action", "shutdown_shard").
 						WithField("shard", shard.ID()).
 						Errorf("cannot shutdown shard %q: %s", name, err)
