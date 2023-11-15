@@ -19,7 +19,7 @@ import (
 func BackupJourneyTests_SingleNode(t *testing.T, weaviateEndpoint, backend, className, backupID string, tenantNames []string) {
 	if len(tenantNames) > 0 {
 		t.Run("multi-tenant single node backup", func(t *testing.T) {
-			singleNodeBackupJourneyTest(t, weaviateEndpoint, backend, className, backupID, tenantNames, false)
+			singleNodeBackupJourneyTest(t, weaviateEndpoint, backend, className, backupID, tenantNames)
 		})
 		t.Run("multi-tenant single node backup with empty class", func(t *testing.T) {
 			singleNodeBackupEmptyClassJourneyTest(t, weaviateEndpoint, backend, className, backupID+"_empty", tenantNames)
@@ -34,11 +34,7 @@ func BackupJourneyTests_SingleNode(t *testing.T, weaviateEndpoint, backend, clas
 		})
 
 		t.Run("single-tenant single node backup", func(t *testing.T) {
-			singleNodeBackupJourneyTest(t, weaviateEndpoint, backend, className, backupID, nil, false)
-		})
-
-		t.Run("single-tenant single node backup with PQ", func(t *testing.T) {
-			singleNodeBackupJourneyTest(t, weaviateEndpoint, backend, className, backupID+"_pq", nil, true)
+			singleNodeBackupJourneyTest(t, weaviateEndpoint, backend, className, backupID, nil)
 		})
 	}
 }
@@ -55,7 +51,7 @@ func BackupJourneyTests_Cluster(t *testing.T, backend, className, backupID strin
 		t.Run("multi-tenant cluster backup", func(t *testing.T) {
 			coordinator := weaviateEndpoints[0]
 			clusterBackupJourneyTest(t, backend, className, backupID,
-				coordinator, tenantNames, false, weaviateEndpoints[1:]...)
+				coordinator, tenantNames, weaviateEndpoints[1:]...)
 		})
 		t.Run("multi-tenant cluster backup with empty class", func(t *testing.T) {
 			coordinator := weaviateEndpoints[0]
@@ -69,8 +65,8 @@ func BackupJourneyTests_Cluster(t *testing.T, backend, className, backupID strin
 			}
 
 			coordinator := weaviateEndpoints[0]
-			clusterBackupJourneyTest(t, backend, className, backupID+"_pq",
-				coordinator, nil, true, weaviateEndpoints[1:]...)
+			clusterBackupJourneyTest(t, backend, className, backupID,
+				coordinator, nil, weaviateEndpoints[1:]...)
 		})
 	}
 }

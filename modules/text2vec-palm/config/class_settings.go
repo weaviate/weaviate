@@ -31,23 +31,17 @@ const (
 )
 
 const (
-	DefaultVectorizeClassName     = false
-	DefaultPropertyIndexed        = true
-	DefaultVectorizePropertyName  = false
-	DefaultApiEndpoint            = "us-central1-aiplatform.googleapis.com"
-	DefaultModelID                = "textembedding-gecko@001"
-	DefaulGenerativeAIApiEndpoint = "generativelanguage.googleapis.com"
-	DefaulGenerativeAIModelID     = "embedding-gecko-001"
+	DefaultVectorizeClassName    = false
+	DefaultPropertyIndexed       = true
+	DefaultVectorizePropertyName = false
+	DefaultApiEndpoint           = "us-central1-aiplatform.googleapis.com"
+	DefaultModelID               = "textembedding-gecko@001"
 )
 
 var availablePalmModels = []string{
 	DefaultModelID,
 	"textembedding-gecko@latest",
 	"textembedding-gecko-multilingual@latest",
-}
-
-var availableGenerativeAIModels = []string{
-	DefaulGenerativeAIModelID,
 }
 
 type classSettings struct {
@@ -122,20 +116,13 @@ func (ic *classSettings) Validate(class *models.Class) error {
 
 	var errorMessages []string
 
-	apiEndpoint := ic.ApiEndpoint()
+	projectID := ic.ProjectID()
+	if projectID == "" {
+		errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", projectIDProperty))
+	}
 	model := ic.ModelID()
-	if apiEndpoint == DefaulGenerativeAIApiEndpoint {
-		if model != "" && !ic.validatePalmSetting(model, availableGenerativeAIModels) {
-			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available Generative AI model names are: %v", modelIDProperty, availableGenerativeAIModels))
-		}
-	} else {
-		projectID := ic.ProjectID()
-		if projectID == "" {
-			errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", projectIDProperty))
-		}
-		if model != "" && !ic.validatePalmSetting(model, availablePalmModels) {
-			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available model names are: %v", modelIDProperty, availablePalmModels))
-		}
+	if model != "" && !ic.validatePalmSetting(model, availablePalmModels) {
+		errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available model names are: %v", modelIDProperty, availablePalmModels))
 	}
 
 	if len(errorMessages) > 0 {
@@ -212,13 +199,6 @@ func (cv *classSettings) validateIndexState(class *models.Class, settings vector
 		"indexing")
 }
 
-func (ic *classSettings) getDefaultModel(apiEndpoint string) string {
-	if apiEndpoint == DefaulGenerativeAIApiEndpoint {
-		return DefaulGenerativeAIModelID
-	}
-	return DefaultModelID
-}
-
 // PaLM params
 func (ic *classSettings) ApiEndpoint() string {
 	return ic.getStringProperty(apiEndpointProperty, DefaultApiEndpoint)
@@ -229,5 +209,5 @@ func (ic *classSettings) ProjectID() string {
 }
 
 func (ic *classSettings) ModelID() string {
-	return ic.getStringProperty(modelIDProperty, ic.getDefaultModel(ic.ApiEndpoint()))
+	return ic.getStringProperty(modelIDProperty, DefaultModelID)
 }

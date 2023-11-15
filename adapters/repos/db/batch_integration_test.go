@@ -53,9 +53,7 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
+	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
@@ -85,9 +83,7 @@ func TestBatchPutObjects(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
+	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
@@ -112,9 +108,7 @@ func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
+	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
@@ -144,9 +138,7 @@ func TestBatchPutObjectsNoVectors(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
+	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
@@ -170,9 +162,7 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
+	defer repo.Shutdown(context.Background())
 
 	migrator := NewMigrator(repo, logger)
 
@@ -246,9 +236,7 @@ func TestBatchDeleteObjects(t *testing.T) {
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
+	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
@@ -274,9 +262,7 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
+	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
@@ -310,9 +296,7 @@ func TestBatchDeleteObjects_Journey(t *testing.T) {
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
+	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,

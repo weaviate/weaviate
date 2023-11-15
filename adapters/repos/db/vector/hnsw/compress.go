@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -25,7 +26,7 @@ import (
 )
 
 func (h *hnsw) initCompressedStore() error {
-	store, err := lsmkv.New(h.compressedStoreLSMPath(), "", h.logger, nil,
+	store, err := lsmkv.New(fmt.Sprintf("%s/%s/%s", h.rootPath, h.className, h.shardName), "", h.logger, nil,
 		h.shardCompactionCallbacks, h.shardFlushCallbacks)
 	if err != nil {
 		return errors.Wrap(err, "Init lsmkv (compressed vectors store)")
@@ -36,10 +37,6 @@ func (h *hnsw) initCompressedStore() error {
 	}
 	h.compressedStore = store
 	return nil
-}
-
-func (h *hnsw) compressedStoreLSMPath() string {
-	return fmt.Sprintf("%s/%s/%s", h.rootPath, h.className, h.shardName)
 }
 
 func (h *hnsw) Compress(cfg ent.PQConfig) error {
