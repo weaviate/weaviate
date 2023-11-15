@@ -29,7 +29,7 @@ func (t *ShardInvertedReindexTaskSetToRoaringSet) GetPropertiesToReindex(ctx con
 		lsmkv.WithIdleThreshold(time.Duration(shard.Index().Config.MemtablesFlushIdleAfter) * time.Second),
 	}
 
-	for name, bucket := range shard.store.GetBucketsByName() {
+	for name, bucket := range shard.Store().GetBucketsByName() {
 		if bucket.Strategy() == lsmkv.StrategySetCollection &&
 			bucket.DesiredStrategy() == lsmkv.StrategyRoaringSet {
 

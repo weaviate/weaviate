@@ -135,6 +135,14 @@ type ShardInterface interface {
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
 	extendDimensionTrackerLSM(int, uint64) error
+
+	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
+	addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error
+	pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair
+	keyPropertyNull(isNull bool) ([]byte, error)
+	keyPropertyLength(length int) ([]byte, error)
+
+	setFallbackToSearchable(fallback bool)
 }
 
 // RealShard is the smallest completely-contained index unit. A shard manages
@@ -239,6 +247,10 @@ func (s *RealShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTrack
 
 func (s *RealShard) SetPropertyTracker(tracker *inverted.JsonPropertyLengthTracker) {
 	s.propertyLengths = tracker
+}
+
+func (s *RealShard) setFallbackToSearchable(fallback bool) {
+	s.fallbackToSearchable = fallback
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,

@@ -143,12 +143,12 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 			return err
 		}
 		tempBucketName := helpers.TempBucketFromBucketName(bucketsToReindex[i])
-		tempBucket := r.shard.store.Bucket(tempBucketName)
+		tempBucket := r.shard.Store().Bucket(tempBucketName)
 		tempBucket.FlushMemtable()
 		tempBucket.UpdateStatus(storagestate.StatusReadOnly)
 
 		if reindexProperties[i].NewIndex {
-			if err := r.shard.store.RenameBucket(ctx, tempBucketName, bucketsToReindex[i]); err != nil {
+			if err := r.shard.Store().RenameBucket(ctx, tempBucketName, bucketsToReindex[i]); err != nil {
 				r.logError(err, "failed renaming buckets")
 				return err
 			}
@@ -160,7 +160,7 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 				WithField("temp_bucket", tempBucketName).
 				Debug("renamed bucket")
 		} else {
-			if err := r.shard.store.ReplaceBuckets(ctx, bucketsToReindex[i], tempBucketName); err != nil {
+			if err := r.shard.Store().ReplaceBuckets(ctx, bucketsToReindex[i], tempBucketName); err != nil {
 				r.logError(err, "failed replacing buckets")
 				return err
 			}
@@ -187,13 +187,13 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 }
 
 func (r *ShardInvertedReindexer) pauseStoreActivity(ctx context.Context) error {
-	if err := r.shard.store.PauseCompaction(ctx); err != nil {
+	if err := r.shard.Store().PauseCompaction(ctx); err != nil {
 		return errors.Wrapf(err, "failed pausing compaction for shard '%s'", r.shard.Name())
 	}
-	if err := r.shard.store.FlushMemtables(ctx); err != nil {
+	if err := r.shard.Store().FlushMemtables(ctx); err != nil {
 		return errors.Wrapf(err, "failed flushing memtables for shard '%s'", r.shard.Name())
 	}
-	r.shard.store.UpdateBucketsStatus(storagestate.StatusReadOnly)
+	r.shard.Store().UpdateBucketsStatus(storagestate.StatusReadOnly)
 
 	r.logger.
 		WithField("action", "inverted reindex").
@@ -204,10 +204,10 @@ func (r *ShardInvertedReindexer) pauseStoreActivity(ctx context.Context) error {
 }
 
 func (r *ShardInvertedReindexer) resumeStoreActivity(ctx context.Context, task ShardInvertedReindexTask) error {
-	if err := r.shard.store.ResumeCompaction(ctx); err != nil {
+	if err := r.shard.Store().ResumeCompaction(ctx); err != nil {
 		return errors.Wrapf(err, "failed resuming compaction for shard '%s'", r.shard.Name())
 	}
-	r.shard.store.UpdateBucketsStatus(storagestate.StatusReady)
+	r.shard.Store().UpdateBucketsStatus(storagestate.StatusReady)
 	if err := task.OnPostResumeStore(ctx, r.shard); err != nil {
 		return errors.Wrap(err, "failed OnPostResumeStore")
 	}
@@ -226,7 +226,7 @@ func (r *ShardInvertedReindexer) createTempBucket(ctx context.Context, name stri
 	tempName := helpers.TempBucketFromBucketName(name)
 	bucketOptions := append(options, lsmkv.WithStrategy(strategy))
 
-	if err := r.shard.store.CreateBucket(ctx, tempName, bucketOptions...); err != nil {
+	if err := r.shard.Store().CreateBucket(ctx, tempName, bucketOptions...); err != nil {
 		return errors.Wrapf(err, "failed creating temp bucket '%s'", tempName)
 	}
 	return nil
@@ -234,7 +234,7 @@ func (r *ShardInvertedReindexer) createTempBucket(ctx context.Context, name stri
 
 func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexableProperties []ReindexableProperty) error {
 	checker := newReindexablePropertyChecker(reindexableProperties, r.class)
-	objectsBucket := r.shard.store.Bucket(helpers.ObjectsBucketLSM)
+	objectsBucket := r.shard.Store().Bucket(helpers.ObjectsBucketLSM)
 
 	r.logger.
 		WithField("action", "inverted reindex").
@@ -424,7 +424,7 @@ func (r *ShardInvertedReindexer) bucketName(propName string, indexType PropertyI
 
 func (r *ShardInvertedReindexer) tempBucket(propName string, indexType PropertyIndexType) *lsmkv.Bucket {
 	tempBucketName := helpers.TempBucketFromBucketName(r.bucketName(propName, indexType))
-	return r.shard.store.Bucket(tempBucketName)
+	return r.shard.Store().Bucket(tempBucketName)
 }
 
 func (r *ShardInvertedReindexer) checkContextExpired(ctx context.Context, msg string) error {

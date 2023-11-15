@@ -50,7 +50,7 @@ func (t *shardInvertedReindexTaskMissingTextFilterable) init() error {
 }
 
 func (t *shardInvertedReindexTaskMissingTextFilterable) GetPropertiesToReindex(ctx context.Context,
-	shard *Shard,
+	shard ShardInterface,
 ) ([]ReindexableProperty, error) {
 	reindexableProperties := []ReindexableProperty{}
 
@@ -71,8 +71,8 @@ func (t *shardInvertedReindexTaskMissingTextFilterable) GetPropertiesToReindex(c
 		bucketNameSearchable := helpers.BucketSearchableFromPropNameLSM(propName)
 		bucketNameFilterable := helpers.BucketFromPropNameLSM(propName)
 
-		bucketSearchable := shard.store.Bucket(bucketNameSearchable)
-		bucketFilterable := shard.store.Bucket(bucketNameFilterable)
+		bucketSearchable := shard.Store().Bucket(bucketNameSearchable)
+		bucketFilterable := shard.Store().Bucket(bucketNameFilterable)
 
 		// exists bucket searchable of strategy map and either of
 		// - exists empty filterable bucket of strategy roaring set
@@ -113,8 +113,8 @@ func (t *shardInvertedReindexTaskMissingTextFilterable) updateMigrationStateAndS
 	return t.files.saveMigrationState(t.migrationState)
 }
 
-func (t *shardInvertedReindexTaskMissingTextFilterable) OnPostResumeStore(ctx context.Context, shard *Shard) error {
+func (t *shardInvertedReindexTaskMissingTextFilterable) OnPostResumeStore(ctx context.Context, shard ShardInterface) error {
 	// turn off fallback mode immediately after creating filterable index and resuming store's activity
-	shard.fallbackToSearchable = false
+	shard.setFallbackToSearchable(false)
 	return nil
 }
