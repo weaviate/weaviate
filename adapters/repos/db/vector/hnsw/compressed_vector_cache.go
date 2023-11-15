@@ -22,16 +22,14 @@ import (
 )
 
 type compressedShardedLockCache struct {
-	shardedLocks []sync.RWMutex
-	cache        [][]byte
-	maxSize      int64
-	count        int64
-	cancel       chan bool
-	vectorForID  CompressedVectorForID
-	logger       logrus.FieldLogger
-	//nolint:unused
-	dims int32
-	//nolint:unused
+	shardedLocks        []sync.RWMutex
+	cache               [][]byte
+	maxSize             int64
+	count               int64
+	cancel              chan bool
+	vectorForID         CompressedVectorForID
+	logger              logrus.FieldLogger
+	dims                int32
 	trackDimensionsOnce sync.Once
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
@@ -58,7 +56,6 @@ func newCompressedShardedLockCache(vecForID CompressedVectorForID, maxSize int, 
 	return vc
 }
 
-//nolint:unused
 func (c *compressedShardedLockCache) get(ctx context.Context, id uint64) ([]byte, error) {
 	c.shardedLocks[id%shardFactor].RLock()
 	vec := c.cache[id]
@@ -89,7 +86,6 @@ func (c *compressedShardedLockCache) delete(ctx context.Context, id uint64) {
 	atomic.AddInt64(&c.count, -1)
 }
 
-//nolint:unused
 func (c *compressedShardedLockCache) handleCacheMiss(ctx context.Context, id uint64) ([]byte, error) {
 	vec, err := c.vectorForID(ctx, id)
 	if err != nil {
@@ -151,7 +147,6 @@ func (c *compressedShardedLockCache) preload(id uint64, vec []byte) {
 	c.cache[id] = vec
 }
 
-//nolint:unused
 func (c *compressedShardedLockCache) grow(node uint64) {
 	if node < uint64(len(c.cache)) {
 		return
@@ -166,16 +161,13 @@ func (c *compressedShardedLockCache) grow(node uint64) {
 	newSize := node + minimumIndexGrowthDelta
 	newCache := make([][]byte, newSize)
 	copy(newCache, c.cache)
-	atomic.StoreInt64(&c.count, int64(newSize))
 	c.cache = newCache
 }
 
-//nolint:unused
 func (c *compressedShardedLockCache) len() int32 {
 	return int32(len(c.cache))
 }
 
-//nolint:unused
 func (c *compressedShardedLockCache) countVectors() int64 {
 	return atomic.LoadInt64(&c.count)
 }

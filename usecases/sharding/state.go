@@ -351,6 +351,30 @@ func (s *State) DeletePartition(name string) {
 	delete(s.Physical, name)
 }
 
+// ApplyNodeMapping replaces node names with their new value form nodeMapping in s.
+// If s.LegacyBelongsToNodeForBackwardCompat is non empty, it will also perform node name replacement if present in nodeMapping.
+func (s *State) ApplyNodeMapping(nodeMapping map[string]string) {
+	if len(nodeMapping) == 0 {
+		return
+	}
+
+	for k, v := range s.Physical {
+		if v.LegacyBelongsToNodeForBackwardCompat != "" {
+			if newNodeName, ok := nodeMapping[v.LegacyBelongsToNodeForBackwardCompat]; ok {
+				v.LegacyBelongsToNodeForBackwardCompat = newNodeName
+			}
+		}
+
+		for i, nodeName := range v.BelongsToNodes {
+			if newNodeName, ok := nodeMapping[nodeName]; ok {
+				v.BelongsToNodes[i] = newNodeName
+			}
+		}
+
+		s.Physical[k] = v
+	}
+}
+
 func (s *State) initVirtual() {
 	count := s.Config.DesiredVirtualCount
 	s.Virtual = make([]Virtual, count)

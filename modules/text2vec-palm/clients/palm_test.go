@@ -35,7 +35,7 @@ func TestClient(t *testing.T) {
 		c := &palm{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilderFn: func(apiEndoint, projectID, modelID string) string {
+			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
 				assert.Equal(t, "endpoint", apiEndoint)
 				assert.Equal(t, "project", projectID)
 				assert.Equal(t, "model", modelID)
@@ -44,8 +44,8 @@ func TestClient(t *testing.T) {
 			logger: nullLogger(),
 		}
 		expected := &ent.VectorizationResult{
-			Text:       "This is my text",
-			Vector:     []float32{0.1, 0.2, 0.3},
+			Texts:      []string{"This is my text"},
+			Vectors:    [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
 		res, err := c.Vectorize(context.Background(), []string{"This is my text"},
@@ -65,7 +65,7 @@ func TestClient(t *testing.T) {
 		c := &palm{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilderFn: func(apiEndoint, projectID, modelID string) string {
+			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -88,7 +88,7 @@ func TestClient(t *testing.T) {
 		c := &palm{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilderFn: func(apiEndoint, projectID, modelID string) string {
+			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -106,7 +106,7 @@ func TestClient(t *testing.T) {
 		c := &palm{
 			apiKey:     "",
 			httpClient: &http.Client{},
-			urlBuilderFn: func(apiEndoint, projectID, modelID string) string {
+			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -115,8 +115,8 @@ func TestClient(t *testing.T) {
 			"X-Palm-Api-Key", []string{"some-key"})
 
 		expected := &ent.VectorizationResult{
-			Text:       "This is my text",
-			Vector:     []float32{0.1, 0.2, 0.3},
+			Texts:      []string{"This is my text"},
+			Vectors:    [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
 		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, ent.VectorizationConfig{})
@@ -131,7 +131,7 @@ func TestClient(t *testing.T) {
 		c := &palm{
 			apiKey:     "",
 			httpClient: &http.Client{},
-			urlBuilderFn: func(apiEndoint, projectID, modelID string) string {
+			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
 				return server.URL
 			},
 			logger: nullLogger(),

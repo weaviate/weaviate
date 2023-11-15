@@ -149,6 +149,10 @@ func (f *fakeClusterState) SchemaSyncIgnored() bool {
 	return false
 }
 
+func (f *fakeClusterState) SkipSchemaRepair() bool {
+	return false
+}
+
 func (f *fakeClusterState) Hostnames() []string {
 	return f.hosts
 }
@@ -170,7 +174,7 @@ func (f *fakeClusterState) NodeCount() int {
 }
 
 func (f *fakeClusterState) ClusterHealthScore() int {
-	// 0 - healty, >0 - unhealthy
+	// 0 - healthy, >0 - unhealthy
 	return 0
 }
 
@@ -198,7 +202,11 @@ func (n *NilMigrator) UpdateClass(ctx context.Context, className string, newClas
 	return nil
 }
 
-func (n *NilMigrator) GetShardsStatus(ctx context.Context, className string) (map[string]string, error) {
+func (n *NilMigrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
+	return nil, nil
+}
+
+func (n *NilMigrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
 	return nil, nil
 }
 

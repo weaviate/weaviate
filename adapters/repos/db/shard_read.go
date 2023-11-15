@@ -242,13 +242,13 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 
 	beforeVector := time.Now()
 	if limit < 0 {
-		ids, dists, err = s.vectorIndex.SearchByVectorDistance(
+		ids, dists, err = s.queue.SearchByVectorDistance(
 			searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "vector search by distance")
 		}
 	} else {
-		ids, dists, err = s.vectorIndex.SearchByVector(searchVector, limit, allowList)
+		ids, dists, err = s.queue.SearchByVector(searchVector, limit, allowList)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "vector search")
 		}
@@ -454,7 +454,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 	// TODO: do we still need this?
 	s.deletedDocIDs.Add(docID)
 
-	if err := s.vectorIndex.Delete(docID); err != nil {
+	if err := s.queue.Delete(docID); err != nil {
 		return errors.Wrap(err, "delete from vector index")
 	}
 

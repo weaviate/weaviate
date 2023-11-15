@@ -10,9 +10,10 @@ on:
 
 jobs:
   Run-Swagger:
+    name: run-swagger
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
@@ -31,10 +32,11 @@ jobs:
             exit 0
           fi
   Vulnerability-Scanning:
+    name: vulnerability-scanning
     runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Scan for Vulnerabilities in Code
         uses: Templum/govulncheck-action@v1.0.0
         with:
@@ -42,9 +44,10 @@ jobs:
           package: ./...
           fail-on-vuln: true
   Unit-Tests:
+    name: unit-tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
@@ -58,9 +61,10 @@ jobs:
           name: coverage-report-unit
           path: coverage-unit.txt
   Integration-Tests:
+    name: integration-tests  
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
@@ -74,9 +78,10 @@ jobs:
           name: coverage-report-integration
           path: coverage-integration.txt
   Modules-Acceptance-Tests:
+    name: modules-acceptance-tests  
     runs-on: ubuntu-latest-8-cores
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
@@ -85,9 +90,10 @@ jobs:
       - name: Acceptance tests (modules)
         run: ./test/run.sh --acceptance-module-tests-only
   Acceptance-Tests:
+    name: acceptance-tests  
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
@@ -98,12 +104,29 @@ jobs:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
         run: ./test/run.sh --acceptance-only
+  Async-Acceptance-Tests:
+    name: async-acceptance-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+          cache: true
+      - name: Async Acceptance tests
+        env:
+          WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
+          WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
+          ASYNC_INDEXING: "true"
+        run: ./test/run.sh --acceptance-only
   Codecov:
     needs: [Unit-Tests, Integration-Tests]
+    name: codecov
     runs-on: ubuntu-latest
     if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'master') }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Download coverage artifacts integration
         uses: actions/download-artifact@v3
         with:
@@ -119,9 +142,10 @@ jobs:
           files: ./coverage-integration.txt, ./coverage-unit.txt
           verbose: true
   Compile-and-upload-binaries:
+    name: compile-and-upload-binaries
     runs-on: ubuntu-latest-8-cores
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
@@ -161,6 +185,7 @@ jobs:
 
 
   Acceptance-Tests-windows:
+    name: acceptance-tests-windows
     needs: Compile-and-upload-binaries
     runs-on: windows-latest
     env:
@@ -168,7 +193,7 @@ jobs:
       PERSISTENCE_DATA_PATH: /tmp
       QUERY_DEFAULTS_LIMIT: 20
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Download binaries
         uses: actions/download-artifact@v3
         with:
@@ -190,12 +215,13 @@ jobs:
 
   Push-Docker:
     needs: [Acceptance-Tests, Modules-Acceptance-Tests, Unit-Tests, Integration-Tests, Vulnerability-Scanning, Run-Swagger]
+    name: push-docker
     runs-on: ubuntu-latest-8-cores
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}

@@ -45,6 +45,7 @@ type indices struct {
 	regexpObjectsAggregations *regexp.Regexp
 	regexpObject              *regexp.Regexp
 	regexpReferences          *regexp.Regexp
+	regexpShardsQueueSize     *regexp.Regexp
 	regexpShardsStatus        *regexp.Regexp
 	regexpShardFiles          *regexp.Regexp
 	regexpShard               *regexp.Regexp
@@ -72,6 +73,8 @@ const (
 		`\/shards\/(` + sh + `)\/objects\/(` + ob + `)`
 	urlPatternReferences = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/references`
+	urlPatternShardsQueueSize = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/queuesize`
 	urlPatternShardsStatus = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/status`
 	urlPatternShardFiles = `\/indices\/(` + cl + `)` +
@@ -112,6 +115,7 @@ type shards interface {
 		filters *filters.LocalFilter) ([]uint64, error)
 	DeleteObjectBatch(ctx context.Context, indexName, shardName string,
 		docIDs []uint64, dryRun bool) objects.BatchSimpleObjects
+	GetShardQueueSize(ctx context.Context, indexName, shardName string) (int64, error)
 	GetShardStatus(ctx context.Context, indexName, shardName string) (string, error)
 	UpdateShardStatus(ctx context.Context, indexName, shardName,
 		targetStatus string) error
@@ -143,6 +147,7 @@ func NewIndices(shards shards, db db, auth auth) *indices {
 		regexpObjectsAggregations: regexp.MustCompile(urlPatternObjectsAggregations),
 		regexpObject:              regexp.MustCompile(urlPatternObject),
 		regexpReferences:          regexp.MustCompile(urlPatternReferences),
+		regexpShardsQueueSize:     regexp.MustCompile(urlPatternShardsQueueSize),
 		regexpShardsStatus:        regexp.MustCompile(urlPatternShardsStatus),
 		regexpShardFiles:          regexp.MustCompile(urlPatternShardFiles),
 		regexpShard:               regexp.MustCompile(urlPatternShard),
@@ -238,7 +243,13 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 
 			i.postReferences().ServeHTTP(w, r)
 			return
-
+		case i.regexpShardsQueueSize.MatchString(path):
+			if r.Method == http.MethodGet {
+				i.getGetShardQueueSize().ServeHTTP(w, r)
+				return
+			}
+			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			return
 		case i.regexpShardsStatus.MatchString(path):
 			if r.Method == http.MethodGet {
 				i.getGetShardStatus().ServeHTTP(w, r)
@@ -893,6 +904,33 @@ func (i *indices) deleteObjects() http.Handler {
 
 		IndicesPayloads.BatchDeleteResults.SetContentTypeHeader(w)
 		w.Write(resBytes)
+	})
+}
+
+func (i *indices) getGetShardQueueSize() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpShardsQueueSize.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		defer r.Body.Close()
+
+		size, err := i.shards.GetShardQueueSize(r.Context(), index, shard)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+
+		sizeBytes, err := IndicesPayloads.GetShardQueueSizeResults.Marshal(size)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+
+		IndicesPayloads.GetShardQueueSizeResults.SetContentTypeHeader(w)
+		w.Write(sizeBytes)
 	})
 }
 

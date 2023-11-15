@@ -48,7 +48,7 @@ func Test_GCSBackend_Backup(t *testing.T) {
 	t.Run("copy files", moduleLevelCopyFiles)
 
 	if err := compose.Terminate(ctx); err != nil {
-		t.Fatal(errors.Wrapf(err, "failed to terminte test containers"))
+		t.Fatal(errors.Wrapf(err, "failed to terminate test containers"))
 	}
 }
 
@@ -163,12 +163,12 @@ func moduleLevelCopyObjects(t *testing.T) {
 		err := gcs.Init(testCtx, newFakeModuleParams(dataDir))
 		require.Nil(t, err)
 
-		t.Run("put object to backet", func(t *testing.T) {
+		t.Run("put object to bucket", func(t *testing.T) {
 			err := gcs.PutObject(testCtx, backupID, key, []byte("hello"))
 			assert.Nil(t, err)
 		})
 
-		t.Run("get object from backet", func(t *testing.T) {
+		t.Run("get object from bucket", func(t *testing.T) {
 			meta, err := gcs.GetObject(testCtx, backupID, key)
 			assert.Nil(t, err)
 			assert.Equal(t, []byte("hello"), meta)
@@ -183,7 +183,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 	dataDir := t.TempDir()
 	key := "moduleLevelCopyFiles"
 	backupID := "backup_id"
-	bucketName := "backet"
+	bucketName := "bucket"
 	projectID := "project-id"
 	endpoint := os.Getenv(envGCSEndpoint)
 	gcsUseAuth := "false"

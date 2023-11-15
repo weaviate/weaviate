@@ -50,7 +50,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "GetShardsStatus",
-			additionalArgs:   []interface{}{"className"},
+			additionalArgs:   []interface{}{"className", "tenant"},
 			expectedVerb:     "list",
 			expectedResource: "schema/className/shards",
 		},
@@ -74,6 +74,12 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "AddClassProperty",
+			additionalArgs:   []interface{}{"somename", &models.Property{}},
+			expectedVerb:     "update",
+			expectedResource: "schema/objects",
+		},
+		{
+			methodName:       "MergeClassObjectProperty",
 			additionalArgs:   []interface{}{"somename", &models.Property{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/objects",

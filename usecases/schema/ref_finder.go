@@ -92,7 +92,7 @@ func (r *RefFinder) hasRefTo(needle libschema.ClassName, class *models.Class,
 			continue
 		}
 
-		if dt.IsPrimitive() {
+		if !dt.IsReference() {
 			continue
 		}
 

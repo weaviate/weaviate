@@ -12,19 +12,34 @@
 package helper
 
 import (
+	"crypto/tls"
 	"fmt"
+	"strings"
 
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-func CreateGrpcClient(address string) (pb.WeaviateClient, error) {
+func CreateGrpcConnectionClient(host string) (*grpc.ClientConn, error) {
 	var opts []grpc.DialOption
-	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	conn, err := grpc.Dial(address, opts...)
+	opts = append(opts, grpc.WithBlock())
+	if strings.HasSuffix(host, ":443") {
+		tlsConfig := &tls.Config{
+			InsecureSkipVerify: true,
+		}
+		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
+	} else {
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	}
+	conn, err := grpc.Dial(host, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial: %w", err)
 	}
-	return pb.NewWeaviateClient(conn), nil
+	return conn, nil
+}
+
+func CreateGrpcWeaviateClient(conn *grpc.ClientConn) pb.WeaviateClient {
+	return pb.NewWeaviateClient(conn)
 }

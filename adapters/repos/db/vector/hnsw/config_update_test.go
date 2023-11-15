@@ -56,6 +56,14 @@ func TestUserConfigUpdates(t *testing.T) {
 						"attempted change from \"60\" to \"90\""),
 			},
 			{
+				name:    "attempting to change distance",
+				initial: ent.UserConfig{Distance: "cosine"},
+				update:  ent.UserConfig{Distance: "l2-squared"},
+				expectedError: errors.Errorf(
+					"distance is immutable: " +
+						"attempted change from \"cosine\" to \"l2-squared\""),
+			},
+			{
 				name:          "changing ef",
 				initial:       ent.UserConfig{EF: 100},
 				update:        ent.UserConfig{EF: -1},

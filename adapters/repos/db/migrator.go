@@ -64,7 +64,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		class.VectorIndexConfig.(schema.VectorIndexConfig),
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
-		m.db.replicaClient, m.db.promMetrics, class, m.db.jobQueueCh)
+		m.db.replicaClient, m.db.promMetrics, class, m.db.jobQueueCh, m.db.indexCheckpoints)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
@@ -130,13 +130,22 @@ func (m *Migrator) UpdateProperty(ctx context.Context, className string, propNam
 	return nil
 }
 
-func (m *Migrator) GetShardsStatus(ctx context.Context, className string) (map[string]string, error) {
+func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		return nil, errors.Errorf("cannot get shards status for a non-existing index for %s", className)
 	}
 
-	return idx.getShardsStatus(ctx)
+	return idx.getShardsQueueSize(ctx, tenant)
+}
+
+func (m *Migrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return nil, errors.Errorf("cannot get shards status for a non-existing index for %s", className)
+	}
+
+	return idx.getShardsStatus(ctx, tenant)
 }
 
 func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error {
@@ -188,7 +197,7 @@ func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates 
 		if pl.Status != models.TenantActivityStatusHOT {
 			continue // skip creating inactive shards
 		}
-		shard, err := NewShard(ctx, m.db.promMetrics, pl.Name, idx, class, idx.centralJobQueue)
+		shard, err := NewShard(ctx, m.db.promMetrics, pl.Name, idx, class, idx.centralJobQueue, m.db.indexCheckpoints)
 		if err != nil {
 			return nil, fmt.Errorf("cannot create partition %q: %w", pl, err)
 		}
@@ -278,7 +287,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 			if shard := idx.shards.Load(name); shard != nil {
 				continue
 			}
-			shard, err := NewShard(ctx, m.db.promMetrics, name, idx, class, idx.centralJobQueue)
+			shard, err := NewShard(ctx, m.db.promMetrics, name, idx, class, idx.centralJobQueue, m.db.indexCheckpoints)
 			if err != nil {
 				return fmt.Errorf("cannot activate shard '%s': %w", name, err)
 			}
@@ -637,7 +646,7 @@ func (m *Migrator) logMissingFilterableShard(shard *Shard) *logrus.Entry {
 // As of v1.19 property's IndexInverted setting is replaced with IndexFilterable
 // and IndexSearchable
 // Filterable buckets use roaring set strategy and searchable ones use map strategy
-// (therefore are applicabe just for text/text[])
+// (therefore are applicable just for text/text[])
 // Since both type of buckets can coexist for text/text[] props they need to be
 // distinguished by their name: searchable bucket has "searchable" suffix.
 // Up until v1.19 default text/text[]/string/string[] (string/string[] deprecated since v1.19)
@@ -650,7 +659,7 @@ func (m *Migrator) logMissingFilterableShard(shard *Shard) *logrus.Entry {
 // Though IndexFilterable setting is enabled filterable index does not exists,
 // therefore shards are switched into fallback mode, to use searchable buckets instead of
 // filterable ones whenever filtered are expected.
-// Fallback mode efectivelly sets IndexFilterable to false, although it stays enabled according
+// Fallback mode effectively sets IndexFilterable to false, although it stays enabled according
 // to schema.
 //
 // If filterable indexes will be created (that is up to user to decide whether missing indexes

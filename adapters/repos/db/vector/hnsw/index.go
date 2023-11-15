@@ -17,6 +17,8 @@ import (
 	"io"
 	"math"
 	"math/rand"
+	"os"
+	"path"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,15 +26,17 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-const NodeLockStripe = uint64(512)
+const (
+	NodeLockStripe = uint64(512)
+)
 
 type hnsw struct {
 	// global lock to prevent concurrent map read/write, etc.
@@ -624,11 +628,21 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 func (h *hnsw) Drop(ctx context.Context) error {
 	// cancel tombstone cleanup goroutine
 	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
-		return errors.Wrap(err, "hnsw drop")
+		return fmt.Errorf("hnsw drop: %w", err)
 	}
 
 	if h.compressed.Load() {
 		h.compressedVectorsCache.drop()
+		if err := h.compressedStore.Shutdown(ctx); err != nil {
+			return fmt.Errorf("failed to shutdown compressed store")
+		}
+		storeRoot, _ := path.Split(h.compressedStoreLSMPath())
+		if _, err := os.Stat(storeRoot); err == nil {
+			err := os.RemoveAll(storeRoot)
+			if err != nil {
+				return fmt.Errorf("remove compressed store at %s: %w", storeRoot, err)
+			}
+		}
 	} else {
 		// cancel vector cache goroutine
 		h.cache.drop()
@@ -638,7 +652,7 @@ func (h *hnsw) Drop(ctx context.Context) error {
 	// write while it's still running
 	err := h.commitLog.Drop(ctx)
 	if err != nil {
-		return errors.Wrap(err, "commit log drop")
+		return fmt.Errorf("commit log drop: %w", err)
 	}
 
 	return nil
@@ -674,4 +688,19 @@ func (h *hnsw) Entrypoint() uint64 {
 	defer h.RUnlock()
 
 	return h.entryPointID
+}
+
+func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
+	return h.distancerProvider.SingleDist(x, y)
+}
+
+func (h *hnsw) ContainsNode(id uint64) bool {
+	h.RLock()
+	ok := len(h.nodes) > int(id) && h.nodes[id] != nil
+	h.RUnlock()
+	return ok
+}
+
+func (h *hnsw) DistancerProvider() distancer.Provider {
+	return h.distancerProvider
 }

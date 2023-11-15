@@ -17,7 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 )
 
 func (h *hnsw) findAndConnectNeighbors(node *vertex,
@@ -106,7 +106,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 
 	n.graph.pools.pqResults.Put(results)
 
-	// set all outoing in one go
+	// set all outgoing in one go
 	n.node.setConnectionsAtLevel(level, neighbors)
 	n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighbors)
 
@@ -156,7 +156,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			return err
 		}
 	} else {
-		// we need to run the heurisitc
+		// we need to run the heuristic
 
 		dist, ok, err := n.graph.distBetweenNodes(n.node.id, neighborID)
 		if err != nil {

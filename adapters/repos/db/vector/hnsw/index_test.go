@@ -61,6 +61,12 @@ func TestHnswIndex(t *testing.T) {
 			2, 1, 0, // cluster 1
 		}, res)
 	})
+
+	t.Run("searching with negative value of k", func(t *testing.T) {
+		position := 0
+		_, _, err := index.knnSearchByVector(testVectors[position], -1, 36, nil)
+		require.Error(t, err)
+	})
 }
 
 func TestHnswIndexGrow(t *testing.T) {
@@ -124,7 +130,7 @@ func TestHnswIndexGrow(t *testing.T) {
 	})
 }
 
-func createEmptyHnswIndexForTests(t *testing.T, vecForIDFn VectorForID) *hnsw {
+func createEmptyHnswIndexForTests(t testing.TB, vecForIDFn VectorForID) *hnsw {
 	// mock out commit logger before adding data so we don't leave a disk
 	// footprint. Commit logging and deserializing from a (condensed) commit log
 	// is tested in a separate integration test that takes care of providing and

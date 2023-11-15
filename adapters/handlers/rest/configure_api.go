@@ -26,6 +26,7 @@ import (
 
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/swag"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
@@ -66,6 +67,7 @@ import (
 	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
 	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
+	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modtext2vecpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
@@ -105,14 +107,8 @@ type vectorRepo interface {
 	Shutdown(ctx context.Context) error
 }
 
-func configureAPI(api *operations.WeaviateAPI) http.Handler {
-	ctx := context.Background()
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
-	defer cancel()
-
-	config.ServerVersion = parseVersionFromSwaggerSpec()
-
-	appState := startupRoutine(ctx)
+func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
+	appState := startupRoutine(ctx, options)
 	setupGoProfiling(appState.ServerConfig.Config)
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
@@ -139,19 +135,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			Fatal("invalid config")
 	}
 
-	api.ServeError = openapierrors.ServeError
-
-	api.JSONConsumer = runtime.JSONConsumer()
-
-	api.OidcAuth = composer.New(
-		appState.ServerConfig.Config.Authentication,
-		appState.APIKey, appState.OIDC)
-
-	api.Logger = func(msg string, args ...interface{}) {
-		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
-	}
-
-	clusterHttpClient := reasonableHttpClient(appState.ServerConfig.Config.Cluster.AuthConfig)
+	appState.ClusterHttpClient = reasonableHttpClient(appState.ServerConfig.Config.Cluster.AuthConfig)
 
 	var vectorRepo vectorRepo
 	var vectorMigrator migrate.Migrator
@@ -163,9 +147,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	// TODO: configure http transport for efficient intra-cluster comm
-	remoteIndexClient := clients.NewRemoteIndex(clusterHttpClient)
-	remoteNodesClient := clients.NewRemoteNode(clusterHttpClient)
-	replicationClient := clients.NewReplicationClient(clusterHttpClient)
+	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
+	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
+	replicationClient := clients.NewReplicationClient(appState.ClusterHttpClient)
 	repo, err := db.New(appState.Logger, db.Config{
 		ServerVersion:             config.ServerVersion,
 		GitHash:                   config.GitHash,
@@ -219,7 +203,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	// TODO: configure http transport for efficient intra-cluster comm
-	classificationsTxClient := clients.NewClusterClassifications(clusterHttpClient)
+	classificationsTxClient := clients.NewClusterClassifications(appState.ClusterHttpClient)
 	classifierRepo := classifications.NewDistributeRepo(classificationsTxClient,
 		appState.Cluster, localClassifierRepo, appState.Logger)
 	appState.ClassificationRepo = classifierRepo
@@ -229,7 +213,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	appState.Scaler = scaler
 
 	// TODO: configure http transport for efficient intra-cluster comm
-	schemaTxClient := clients.NewClusterSchema(clusterHttpClient)
+	schemaTxClient := clients.NewClusterSchema(appState.ClusterHttpClient)
 	schemaTxPersistence := txstore.NewStore(
 		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	schemaTxPersistence.SetUmarshalFn(schemaUC.UnmarshalTransaction)
@@ -260,13 +244,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo)
 
-	backupScheduler := backup.NewScheduler(
-		appState.Authorizer,
-		clients.NewClusterBackups(clusterHttpClient),
-		repo, appState.Modules,
-		appState.Cluster,
-		appState.Logger)
-
 	backupManager := backup.NewHandler(appState.Logger, appState.Authorizer,
 		schemaManager, repo, appState.Modules)
 	appState.BackupManager = backupManager
@@ -295,37 +272,18 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	}
 
-	objectsManager := objects.NewManager(appState.Locks,
-		schemaManager, appState.ServerConfig, appState.Logger,
-		appState.Authorizer, vectorRepo, appState.Modules,
-		objects.NewMetrics(appState.Metrics))
-	batchObjectsManager := objects.NewBatchManager(vectorRepo, appState.Modules,
+	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Metrics)
-	appState.BatchManager = batchObjectsManager
+	appState.BatchManager = batchManager
 	objectsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
 		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager,
 		appState.Modules, traverser.NewMetrics(appState.Metrics),
 		appState.ServerConfig.Config.MaximumConcurrentGetRequests)
 	appState.Traverser = objectsTraverser
 
-	classifier := classification.New(schemaManager, classifierRepo, vectorRepo, appState.Authorizer,
-		appState.Logger, appState.Modules)
-
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, objectsTraverser)
 	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
-
-	setupSchemaHandlers(api, schemaManager, appState.Metrics, appState.Logger)
-	setupObjectHandlers(api, objectsManager, appState.ServerConfig.Config, appState.Logger,
-		appState.Modules, appState.Metrics)
-	setupObjectBatchHandlers(api, batchObjectsManager, appState.Metrics, appState.Logger)
-	setupGraphQLHandlers(api, appState, schemaManager, appState.ServerConfig.Config.DisableGraphQL,
-		appState.Metrics, appState.Logger)
-	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Modules,
-		appState.Metrics, appState.Logger)
-	setupClassificationHandlers(api, classifier, appState.Metrics, appState.Logger)
-	setupBackupHandlers(api, backupScheduler, appState.Metrics, appState.Logger)
-	setupNodesHandlers(api, schemaManager, repo, appState)
 
 	err = migrator.AdjustFilterablePropSettings(ctx)
 	if err != nil {
@@ -338,7 +296,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	// FIXME to avoid import cycles, tasks are passed as strings
 	reindexTaskNames := []string{}
-	reindexCtx, reindexCtxCancel := context.WithCancel(context.Background())
+	var reindexCtx context.Context
+	reindexCtx, appState.ReindexCtxCancel = context.WithCancel(context.Background())
 	reindexFinished := make(chan error, 1)
 
 	if appState.ServerConfig.Config.ReindexSetToRoaringsetAtStartup {
@@ -358,29 +317,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}()
 	}
 
-	grpcServer := createGrpcServer(appState)
-
-	api.ServerShutdown = func() {
-		// stop reindexing on server shutdown
-		reindexCtxCancel()
-
-		// gracefully stop gRPC server
-		grpcServer.GracefulStop()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-
-		if err := schemaManager.Shutdown(ctx); err != nil {
-			panic(err)
-		}
-
-		if err := repo.Shutdown(ctx); err != nil {
-			panic(err)
-		}
-	}
 	configureServer = makeConfigureServer(appState)
-	setupMiddlewares := makeSetupMiddlewares(appState)
-	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState)
 
 	// while we accept an overall longer startup, e.g. due to a recovery, we
 	// still want to limit the module startup context, as that's mostly service
@@ -412,13 +349,85 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		migrator.RecountProperties(ctx)
 	}
 
+	return appState
+}
+
+func configureAPI(api *operations.WeaviateAPI) http.Handler {
+	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
+	defer cancel()
+
+	config.ServerVersion = parseVersionFromSwaggerSpec()
+	appState := MakeAppState(ctx, connectorOptionGroup)
+
+	api.ServeError = openapierrors.ServeError
+
+	api.JSONConsumer = runtime.JSONConsumer()
+
+	api.OidcAuth = composer.New(
+		appState.ServerConfig.Config.Authentication,
+		appState.APIKey, appState.OIDC)
+
+	api.Logger = func(msg string, args ...interface{}) {
+		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
+	}
+
+	classifier := classification.New(appState.SchemaManager, appState.ClassificationRepo, appState.DB, // the DB is the vectorrepo
+		appState.Authorizer,
+		appState.Logger, appState.Modules)
+
+	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
+	objectsManager := objects.NewManager(appState.Locks,
+		appState.SchemaManager, appState.ServerConfig, appState.Logger,
+		appState.Authorizer, appState.DB, appState.Modules,
+		objects.NewMetrics(appState.Metrics))
+	setupObjectHandlers(api, objectsManager, appState.ServerConfig.Config, appState.Logger,
+		appState.Modules, appState.Metrics)
+	setupObjectBatchHandlers(api, appState.BatchManager, appState.Metrics, appState.Logger)
+	setupGraphQLHandlers(api, appState, appState.SchemaManager, appState.ServerConfig.Config.DisableGraphQL,
+		appState.Metrics, appState.Logger)
+	setupMiscHandlers(api, appState.ServerConfig, appState.SchemaManager, appState.Modules,
+		appState.Metrics, appState.Logger)
+	setupClassificationHandlers(api, classifier, appState.Metrics, appState.Logger)
+	backupScheduler := backup.NewScheduler(
+		appState.Authorizer,
+		clients.NewClusterBackups(appState.ClusterHttpClient),
+		appState.DB, appState.Modules,
+		appState.Cluster,
+		appState.Logger)
+	setupBackupHandlers(api, backupScheduler, appState.Metrics, appState.Logger)
+	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
+
+	grpcServer := createGrpcServer(appState)
+	setupMiddlewares := makeSetupMiddlewares(appState)
+	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState)
+
+	api.ServerShutdown = func() {
+		// stop reindexing on server shutdown
+		appState.ReindexCtxCancel()
+
+		// gracefully stop gRPC server
+		grpcServer.GracefulStop()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		if err := appState.SchemaManager.Shutdown(ctx); err != nil {
+			panic(err)
+		}
+
+		if err := appState.DB.Shutdown(ctx); err != nil {
+			panic(err)
+		}
+	}
+
 	startGrpcServer(grpcServer, appState)
 
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState
-func startupRoutine(ctx context.Context) *state.State {
+func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	appState := &state.State{}
 
 	logger := logger()
@@ -430,7 +439,7 @@ func startupRoutine(ctx context.Context) *state.State {
 	// Load the config using the flags
 	serverConfig := &config.WeaviateConfig{}
 	appState.ServerConfig = serverConfig
-	err := serverConfig.LoadConfig(connectorOptionGroup, logger)
+	err := serverConfig.LoadConfig(options, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).Error("could not load config")
 		logger.Exit(1)
@@ -524,7 +533,7 @@ func (d *dummyLock) LockSchema() (func() error, error) {
 	return func() error { return nil }, nil
 }
 
-// everything hard-coded right now, to be made dynmaic (from go plugins later)
+// everything hard-coded right now, to be made dynamic (from go plugins later)
 func registerModules(appState *state.State) error {
 	appState.Logger.
 		WithField("action", "startup").
@@ -753,6 +762,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modbind.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modjinaai.Name]; ok {
+		appState.Modules.Register(modjinaai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modjinaai.Name).
 			Debug("enabled module")
 	}
 

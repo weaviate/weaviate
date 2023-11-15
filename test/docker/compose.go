@@ -27,8 +27,9 @@ import (
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
-	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
+	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
+	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 )
@@ -73,6 +74,7 @@ type Compose struct {
 	withContextionary             bool
 	withQnATransformers           bool
 	withWeaviate                  bool
+	withSecondWeaviate            bool
 	withWeaviateAuth              bool
 	withWeaviateBasicAuth         bool
 	withWeaviateBasicAuthUsername string
@@ -196,8 +198,8 @@ func (d *Compose) WithText2VecPaLM() *Compose {
 	return d
 }
 
-func (d *Compose) WithText2VecAWS() *Compose {
-	d.enableModules = append(d.enableModules, modaws.Name)
+func (d *Compose) WithText2VecHuggingFace() *Compose {
+	d.enableModules = append(d.enableModules, modhuggingface.Name)
 	return d
 }
 
@@ -226,6 +228,11 @@ func (d *Compose) WithQnAOpenAI() *Compose {
 	return d
 }
 
+func (d *Compose) WithRerankerCohere() *Compose {
+	d.enableModules = append(d.enableModules, modrerankercohere.Name)
+	return d
+}
+
 func (d *Compose) WithRerankerTransformers() *Compose {
 	d.withRerankerTransformers = true
 	d.enableModules = append(d.enableModules, RerankerTransformers)
@@ -234,6 +241,11 @@ func (d *Compose) WithRerankerTransformers() *Compose {
 
 func (d *Compose) WithWeaviate() *Compose {
 	d.withWeaviate = true
+	return d
+}
+
+func (d *Compose) WithSecondWeaviate() *Compose {
+	d.withSecondWeaviate = true
 	return d
 }
 
@@ -427,6 +439,22 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		envSettings["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate)
 		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
 			envSettings, networkName, image, hostname)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", hostname)
+		}
+		containers = append(containers, container)
+	}
+
+	if d.withSecondWeaviate {
+		image := os.Getenv(envTestWeaviateImage)
+		hostname := SecondWeaviate
+		secondWeaviateSettings := envSettings
+		// Ensure second weaviate doesn't get cluster settings from the first cluster if any.
+		delete(secondWeaviateSettings, "CLUSTER_HOSTNAME")
+		delete(secondWeaviateSettings, "CLUSTER_GOSSIP_BIND_PORT")
+		delete(secondWeaviateSettings, "CLUSTER_DATA_BIND_PORT")
+		delete(secondWeaviateSettings, "CLUSTER_JOIN")
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}

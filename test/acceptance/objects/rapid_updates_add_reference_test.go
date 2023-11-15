@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// This aimes to prevent a regression on
+// This aims to prevent a regression on
 // https://github.com/weaviate/weaviate/issues/1016
 // The issue was that rapid POST .../references/... request in succession would
 // overwrite each other due to the eventual consistency nature of the used

@@ -45,7 +45,8 @@ const (
 )
 
 func backupJourney(t *testing.T, className, backend, backupID string,
-	journeyType journeyType, dataIntegrityCheck dataIntegrityCheck, tenantNames []string,
+	journeyType journeyType, dataIntegrityCheck dataIntegrityCheck,
+	tenantNames []string, pqEnabled bool,
 ) {
 	if journeyType == clusterJourney && backend == "filesystem" {
 		t.Run("should fail backup/restore with local filesystem backend", func(t *testing.T) {
@@ -53,7 +54,7 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 			assert.Nil(t, backupResp)
 			assert.Error(t, err)
 
-			restoreResp, err := helper.RestoreBackup(t, className, backend, backupID)
+			restoreResp, err := helper.RestoreBackup(t, className, backend, backupID, map[string]string{})
 			assert.Nil(t, restoreResp)
 			assert.Error(t, err)
 		})
@@ -90,7 +91,8 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 			require.NotNil(t, statusResp.Payload.Status)
 		})
 
-		require.Equal(t, *statusResp.Payload.Status, string(backup.Success))
+		require.Equal(t, *statusResp.Payload.Status,
+			string(backup.Success), statusResp.Payload.Error)
 	})
 
 	t.Run("delete class for restoration", func(t *testing.T) {
@@ -98,7 +100,7 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 	})
 
 	t.Run("restore backup", func(t *testing.T) {
-		_, err := helper.RestoreBackup(t, className, backend, backupID)
+		_, err := helper.RestoreBackup(t, className, backend, backupID, map[string]string{})
 		require.Nil(t, err, "expected nil, got: %v", err)
 
 		// wait for restore success
@@ -146,7 +148,94 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 		if dataIntegrityCheck == checkClassAndDataPresence {
 			count := moduleshelper.GetClassCount(t, className, singleTenant)
 			assert.Equal(t, int64(500), count)
+			if pqEnabled {
+				moduleshelper.EnsureCompressedVectorsRestored(t, className)
+			}
 		}
+	}
+}
+
+func nodeMappingBackupJourney_Backup(t *testing.T, className, backend, backupID string, tenantNames []string,
+) {
+	t.Run("create backup", func(t *testing.T) {
+		resp, err := helper.CreateBackup(t, className, backend, backupID)
+		helper.AssertRequestOk(t, resp, err, nil)
+		// wait for create success
+		createTime := time.Now()
+		for {
+			if time.Now().After(createTime.Add(time.Minute)) {
+				break
+			}
+
+			resp, err := helper.CreateBackupStatus(t, backend, backupID)
+			helper.AssertRequestOk(t, resp, err, func() {
+				require.NotNil(t, resp)
+				require.NotNil(t, resp.Payload)
+				require.NotNil(t, resp.Payload.Status)
+			})
+
+			if *resp.Payload.Status == string(backup.Success) {
+				break
+			}
+			time.Sleep(time.Second * 1)
+		}
+
+		statusResp, err := helper.CreateBackupStatus(t, backend, backupID)
+		helper.AssertRequestOk(t, resp, err, func() {
+			require.NotNil(t, statusResp)
+			require.NotNil(t, statusResp.Payload)
+			require.NotNil(t, statusResp.Payload.Status)
+		})
+
+		require.Equal(t, *statusResp.Payload.Status, string(backup.Success))
+	})
+}
+
+func nodeMappingBackupJourney_Restore(t *testing.T, className, backend, backupID string, tenantNames []string, nodeMapping map[string]string) {
+	t.Run("restore backup", func(t *testing.T) {
+		_, err := helper.RestoreBackup(t, className, backend, backupID, nodeMapping)
+		require.Nil(t, err, "expected nil, got: %v", err)
+
+		// wait for restore success
+		restoreTime := time.Now()
+		for {
+			if time.Now().After(restoreTime.Add(time.Minute)) {
+				break
+			}
+
+			resp, err := helper.RestoreBackupStatus(t, backend, backupID)
+			helper.AssertRequestOk(t, resp, err, func() {
+				require.NotNil(t, resp)
+				require.NotNil(t, resp.Payload)
+				require.NotNil(t, resp.Payload.Status)
+			})
+
+			if *resp.Payload.Status == string(backup.Success) {
+				break
+			}
+
+			time.Sleep(time.Second)
+		}
+
+		statusResp, err := helper.RestoreBackupStatus(t, backend, backupID)
+		helper.AssertRequestOk(t, statusResp, err, func() {
+			require.NotNil(t, statusResp)
+			require.NotNil(t, statusResp.Payload)
+			require.NotNil(t, statusResp.Payload.Status)
+		})
+
+		require.Equal(t, *statusResp.Payload.Status, string(backup.Success))
+	})
+
+	// assert class exists again it its entirety
+	if tenantNames != nil {
+		for _, name := range tenantNames {
+			count := moduleshelper.GetClassCount(t, className, name)
+			assert.Equal(t, int64(500/len(tenantNames)), count)
+		}
+	} else {
+		count := moduleshelper.GetClassCount(t, className, singleTenant)
+		assert.Equal(t, int64(500), count)
 	}
 }
 

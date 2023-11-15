@@ -17,12 +17,14 @@ import (
 	"sync"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 var (
-	errClassNotFound = errors.New("class not found")
-	errShardNotFound = errors.New("shard not found")
+	errPropertyNotFound = errors.New("property not found")
+	errClassNotFound    = errors.New("class not found")
+	errShardNotFound    = errors.New("shard not found")
 )
 
 // State is a cached copy of the schema that can also be saved into a remote
@@ -65,7 +67,7 @@ func (s *schemaCache) ShardOwner(class, shard string) (string, error) {
 	return x.BelongsToNodes[0], nil
 }
 
-// ShardOwner returns the node owner of the specified shard
+// ShardReplicas returns the nodes owning shard in class
 func (s *schemaCache) ShardReplicas(class, shard string) ([]string, error) {
 	s.RLock()
 	defer s.RUnlock()
@@ -227,6 +229,30 @@ func (s *schemaCache) addProperty(class string, p *models.Property) (models.Clas
 	copy(dest, src)
 	dest[len(src)] = p
 	c.Properties = dest
+	return *c, nil
+}
+
+func (s *schemaCache) mergeObjectProperty(class string, p *models.Property) (models.Class, error) {
+	s.Lock()
+	defer s.Unlock()
+
+	c := s.unsafeFindClass(class)
+	if c == nil {
+		return models.Class{}, errClassNotFound
+	}
+
+	var prop *models.Property
+	for i := range c.Properties {
+		if c.Properties[i].Name == p.Name {
+			prop = c.Properties[i]
+			break
+		}
+	}
+	if prop == nil {
+		return models.Class{}, errPropertyNotFound
+	}
+
+	prop.NestedProperties, _ = schema.MergeRecursivelyNestedProperties(prop.NestedProperties, p.NestedProperties)
 	return *c, nil
 }
 

@@ -19,6 +19,7 @@ package models
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -52,6 +53,9 @@ type Property struct {
 	// Name of the property as URI relative to the schema URL.
 	Name string `json:"name,omitempty"`
 
+	// The properties of the nested object(s). Applies to object and object[] data types.
+	NestedProperties []*NestedProperty `json:"nestedProperties,omitempty"`
+
 	// Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are `word` (default; splits on any non-alphanumerical, lowercases), `lowercase` (splits on white spaces, lowercases), `whitespace` (splits on white spaces), `field` (trims). Not supported for remaining data types
 	// Enum: [word lowercase whitespace field]
 	Tokenization string `json:"tokenization,omitempty"`
@@ -61,6 +65,10 @@ type Property struct {
 func (m *Property) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateNestedProperties(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateTokenization(formats); err != nil {
 		res = append(res, err)
 	}
@@ -68,6 +76,32 @@ func (m *Property) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *Property) validateNestedProperties(formats strfmt.Registry) error {
+	if swag.IsZero(m.NestedProperties) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.NestedProperties); i++ {
+		if swag.IsZero(m.NestedProperties[i]) { // not required
+			continue
+		}
+
+		if m.NestedProperties[i] != nil {
+			if err := m.NestedProperties[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("nestedProperties" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("nestedProperties" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
 	return nil
 }
 
@@ -119,8 +153,37 @@ func (m *Property) validateTokenization(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validates this property based on context it is used
+// ContextValidate validate this property based on the context it is used
 func (m *Property) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateNestedProperties(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *Property) contextValidateNestedProperties(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.NestedProperties); i++ {
+
+		if m.NestedProperties[i] != nil {
+			if err := m.NestedProperties[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("nestedProperties" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("nestedProperties" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
 	return nil
 }
 

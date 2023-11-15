@@ -206,7 +206,7 @@ func TestDecoderRemoveTombstones(t *testing.T) {
 		assert.Equal(t, expected, actual)
 	})
 
-	t.Run("single entry, single tombstone, then readded", func(t *testing.T) {
+	t.Run("single entry, single tombstone, then read", func(t *testing.T) {
 		m := newMapDecoder()
 		input := mustEncode([]MapPair{
 			{

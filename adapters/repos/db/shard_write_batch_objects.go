@@ -37,12 +37,21 @@ func (s *Shard) putObjectBatch(ctx context.Context,
 	return s.putBatch(ctx, objects)
 }
 
+// asyncEnabled is a quick and dirty way to create a feature flag for async
+// indexing.
+func asyncEnabled() bool {
+	return os.Getenv("ASYNC_INDEXING") == "true"
+}
+
 // Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch
 // adds its jobs (that contain the respective object) to a single queue that is then processed by the workers.
 // When the last batch finishes, all workers receive a shutdown signal and exit
 func (s *Shard) putBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
+	if asyncEnabled() {
+		return s.putBatchAsync(ctx, objects)
+	}
 	// Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch
 	// adds its jobs (that contain the respective object) to a single queue that is then processed by the workers.
 	// When the last batch finishes, all workers receive a shutdown signal and exit
@@ -54,6 +63,21 @@ func (s *Shard) putBatch(ctx context.Context,
 	s.metrics.VectorIndex(batcher.batchStartTime)
 
 	return err
+}
+
+func (s *Shard) putBatchAsync(ctx context.Context, objects []*storobj.Object) []error {
+	beforeBatch := time.Now()
+	defer s.metrics.BatchObject(beforeBatch, len(objects))
+
+	batcher := newObjectsBatcher(s)
+
+	batcher.init(objects)
+	batcher.storeInObjectStore(ctx)
+	batcher.markDeletedInVectorStorage(ctx)
+	batcher.storeAdditionalStorageWithAsyncQueue(ctx)
+	batcher.flushWALs(ctx)
+
+	return batcher.errs
 }
 
 // objectsBatcher is a helper type wrapping around an underlying shard that can
@@ -127,10 +151,23 @@ func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 	}
 
 	wg := &sync.WaitGroup{}
+	concurrencyLimit := make(chan struct{}, _NUMCPU)
+
 	for j, object := range batch {
 		wg.Add(1)
 		go func(index int, object *storobj.Object) {
 			defer wg.Done()
+
+			// Acquire a semaphore to control the concurrency. Otherwise we would
+			// spawn one routine per object here. With very large batch sizes (e.g.
+			// 1000 or 10000+), this isn't helpuful and just leads to more lock
+			// contention down the line – especially when there's lots of text to be
+			// indexed in the inverted index.
+			concurrencyLimit <- struct{}{}
+			defer func() {
+				// Release the semaphore when the goroutine is done.
+				<-concurrencyLimit
+			}()
 
 			if err := ob.storeObjectOfBatchInLSM(ctx, index, object); err != nil {
 				errLock.Lock()
@@ -196,7 +233,7 @@ func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 		return
 	}
 
-	if err := ob.shard.vectorIndex.Delete(docIDsToDelete...); err != nil {
+	if err := ob.shard.queue.Delete(docIDsToDelete...); err != nil {
 		for _, pos := range positions {
 			ob.setErrorAtIndex(err, pos)
 		}
@@ -229,6 +266,54 @@ func (ob *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context)
 			ctx:     ctx,
 			batcher: ob,
 		}
+	}
+}
+
+func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Context) {
+	if ok := ob.checkContext(ctx); !ok {
+		// if the context is no longer OK, there's no point in continuing - abort
+		// early
+		return
+	}
+
+	ob.batchStartTime = time.Now()
+
+	var shouldGeoIndex bool
+	ob.shard.propertyIndicesLock.RLock()
+	shouldGeoIndex = len(ob.shard.propertyIndices) > 0
+	ob.shard.propertyIndicesLock.RUnlock()
+
+	vectors := make([]vectorDescriptor, 0, len(ob.objects))
+	for i := range ob.objects {
+		object := ob.objects[i]
+		if ob.shouldSkipInAdditionalStorage(i) {
+			continue
+		}
+
+		status := ob.statuses[object.ID()]
+
+		if shouldGeoIndex {
+			if err := ob.shard.updatePropertySpecificIndices(object, status); err != nil {
+				ob.setErrorAtIndex(errors.Wrap(err, "update prop-specific indices"), i)
+				continue
+			}
+		}
+
+		if len(object.Vector) == 0 {
+			continue
+		}
+
+		desc := vectorDescriptor{
+			id:     status.docID,
+			vector: object.Vector,
+		}
+
+		vectors = append(vectors, desc)
+	}
+
+	err := ob.shard.queue.Push(ctx, vectors...)
+	if err != nil {
+		ob.setErrorAtIndex(err, 0)
 	}
 }
 

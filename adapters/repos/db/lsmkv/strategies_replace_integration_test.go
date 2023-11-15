@@ -1421,7 +1421,7 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 	// This test is inspired by unusual behavior encountered as part of the
 	// evaluation of gh-1569 where a delete could sometimes lead to no data after
 	// a restart which was caused by the disk segment cursor's .first() method
-	// not returuning the correct key. Thus we'd have a null-key with a tombstone
+	// not returning the correct key. Thus we'd have a null-key with a tombstone
 	// which would override whatever is the real "first" key, since null is
 	// always smaller
 	t.Run("with deletes as latest in some segments", func(t *testing.T) {

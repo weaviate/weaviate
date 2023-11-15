@@ -5,4 +5,4 @@ languages. Instead you can now configure your own docker-compose file - on the
 fly - using Weaviate's documentation.
 
 Click here to [generate a `docker-compose.yml` file with your desired
-configuration](https://www.semi.technology/documentation/weaviate/current/getting-started/installation.html#docker-compose).
+configuration](https://weaviate.io/developers/weaviate/installation/docker-compose).

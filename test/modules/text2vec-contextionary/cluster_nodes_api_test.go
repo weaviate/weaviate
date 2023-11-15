@@ -77,6 +77,7 @@ func Test_WeaviateCluster_NodesAPI(t *testing.T) {
 						assert.True(t, len(shard.Name) > 0)
 						assert.True(t, shard.Class == multiShardClass.Class || shard.Class == booksClass.Class)
 						assert.GreaterOrEqual(t, shard.ObjectCount, int64(0))
+						assert.GreaterOrEqual(t, shard.VectorQueueLength, int64(0))
 						objectCount += shard.ObjectCount
 						shardCount++
 					}

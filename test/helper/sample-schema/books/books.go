@@ -15,7 +15,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -58,7 +58,7 @@ func ClassTransformersVectorizerWithQnATransformersWithName(className string) *m
 func ClassCLIPVectorizer() *models.Class {
 	c := class(defaultClassName, "multi2vec-clip")
 	c.ModuleConfig.(map[string]interface{})["multi2vec-clip"] = map[string]interface{}{
-		"textFields": []string{"title", "description"},
+		"textFields": []string{"title", "tags", "description"},
 	}
 	return c
 }
@@ -88,21 +88,37 @@ func class(className, vectorizer string, additionalModules ...string) *models.Cl
 				Name:         "title",
 				DataType:     schema.DataTypeText.PropString(),
 				Tokenization: models.PropertyTokenizationWhitespace,
-				ModuleConfig: map[string]interface{}{
-					vectorizer: map[string]interface{}{
-						"skip": false,
-					},
-				},
+				ModuleConfig: map[string]interface{}{vectorizer: map[string]interface{}{"skip": false}},
+			},
+			{
+				Name:         "tags",
+				DataType:     schema.DataTypeTextArray.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+				ModuleConfig: map[string]interface{}{vectorizer: map[string]interface{}{"skip": false}},
 			},
 			{
 				Name:         "description",
 				DataType:     schema.DataTypeText.PropString(),
 				Tokenization: models.PropertyTokenizationWhitespace,
-				ModuleConfig: map[string]interface{}{
-					vectorizer: map[string]interface{}{
-						"skip": false,
+				ModuleConfig: map[string]interface{}{vectorizer: map[string]interface{}{"skip": false}},
+			},
+			{
+				Name: "meta", DataType: schema.DataTypeObject.PropString(),
+				NestedProperties: []*models.NestedProperty{
+					{Name: "isbn", DataType: schema.DataTypeText.PropString()},
+					{
+						Name: "obj", DataType: schema.DataTypeObject.PropString(),
+						NestedProperties: []*models.NestedProperty{{Name: "text", DataType: schema.DataTypeText.PropString()}},
+					},
+					{
+						Name: "objs", DataType: schema.DataTypeObjectArray.PropString(),
+						NestedProperties: []*models.NestedProperty{{Name: "text", DataType: schema.DataTypeText.PropString()}},
 					},
 				},
+			},
+			{
+				Name: "reviews", DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: []*models.NestedProperty{{Name: "tags", DataType: schema.DataTypeTextArray.PropString()}},
 			},
 		},
 	}
@@ -143,6 +159,7 @@ func objects(className string) []*models.Object {
 			ID:    TheLordOfTheIceGarden,
 			Properties: map[string]interface{}{
 				"title":       "The Lord of the Ice Garden",
+				"tags":        []string{"three", "three", "three"},
 				"description": "The Lord of the Ice Garden (Polish: Pan Lodowego Ogrodu) is a four-volume science fiction and fantasy novel by Polish writer Jaroslaw Grzedowicz.",
 			},
 		},
@@ -150,10 +167,11 @@ func objects(className string) []*models.Object {
 }
 
 func batchObjects(className string) []*pb.BatchObject {
+	scifi := "sci-fi"
 	return []*pb.BatchObject{
 		{
-			ClassName: className,
-			Uuid:      Dune.String(),
+			Collection: className,
+			Uuid:       Dune.String(),
 			Properties: &pb.BatchObject_Properties{
 				NonRefProperties: &structpb.Struct{
 					Fields: map[string]*structpb.Value{
@@ -161,11 +179,33 @@ func batchObjects(className string) []*pb.BatchObject {
 						"description": structpb.NewStringValue("Dune is a 1965 epic science fiction novel by American author Frank Herbert."),
 					},
 				},
+				ObjectProperties: []*pb.ObjectProperties{{
+					PropName: "meta",
+					Value: &pb.ObjectPropertiesValue{
+						NonRefProperties: &structpb.Struct{Fields: map[string]*structpb.Value{"isbn": structpb.NewStringValue("978-0593099322")}},
+						ObjectProperties: []*pb.ObjectProperties{{
+							PropName: "obj",
+							Value: &pb.ObjectPropertiesValue{
+								NonRefProperties: &structpb.Struct{Fields: map[string]*structpb.Value{"text": structpb.NewStringValue("some text")}},
+							},
+						}},
+						ObjectArrayProperties: []*pb.ObjectArrayProperties{{
+							PropName: "objs",
+							Values: []*pb.ObjectPropertiesValue{{
+								NonRefProperties: &structpb.Struct{Fields: map[string]*structpb.Value{"text": structpb.NewStringValue("some text")}},
+							}},
+						}},
+					},
+				}},
+				ObjectArrayProperties: []*pb.ObjectArrayProperties{{
+					PropName: "reviews",
+					Values:   []*pb.ObjectPropertiesValue{{TextArrayProperties: []*pb.TextArrayProperties{{PropName: "tags", Values: []string{scifi, "epic"}}}}},
+				}},
 			},
 		},
 		{
-			ClassName: className,
-			Uuid:      ProjectHailMary.String(),
+			Collection: className,
+			Uuid:       ProjectHailMary.String(),
 			Properties: &pb.BatchObject_Properties{
 				NonRefProperties: &structpb.Struct{
 					Fields: map[string]*structpb.Value{
@@ -173,11 +213,31 @@ func batchObjects(className string) []*pb.BatchObject {
 						"description": structpb.NewStringValue("Project Hail Mary is a 2021 science fiction novel by American novelist Andy Weir."),
 					},
 				},
+				ObjectProperties: []*pb.ObjectProperties{{
+					PropName: "meta",
+					Value: &pb.ObjectPropertiesValue{
+						NonRefProperties: &structpb.Struct{Fields: map[string]*structpb.Value{"isbn": structpb.NewStringValue("978-0593135204")}},
+						ObjectProperties: []*pb.ObjectProperties{{
+							PropName: "obj",
+							Value:    &pb.ObjectPropertiesValue{NonRefProperties: &structpb.Struct{Fields: map[string]*structpb.Value{"text": structpb.NewStringValue("some text")}}},
+						}},
+						ObjectArrayProperties: []*pb.ObjectArrayProperties{{
+							PropName: "objs",
+							Values: []*pb.ObjectPropertiesValue{{
+								NonRefProperties: &structpb.Struct{Fields: map[string]*structpb.Value{"text": structpb.NewStringValue("some text")}},
+							}},
+						}},
+					},
+				}},
+				ObjectArrayProperties: []*pb.ObjectArrayProperties{{
+					PropName: "reviews",
+					Values:   []*pb.ObjectPropertiesValue{{TextArrayProperties: []*pb.TextArrayProperties{{PropName: "tags", Values: []string{scifi}}}}},
+				}},
 			},
 		},
 		{
-			ClassName: className,
-			Uuid:      TheLordOfTheIceGarden.String(),
+			Collection: className,
+			Uuid:       TheLordOfTheIceGarden.String(),
 			Properties: &pb.BatchObject_Properties{
 				NonRefProperties: &structpb.Struct{
 					Fields: map[string]*structpb.Value{
@@ -185,6 +245,26 @@ func batchObjects(className string) []*pb.BatchObject {
 						"description": structpb.NewStringValue("The Lord of the Ice Garden (Polish: Pan Lodowego Ogrodu) is a four-volume science fiction and fantasy novel by Polish writer Jaroslaw Grzedowicz."),
 					},
 				},
+				ObjectProperties: []*pb.ObjectProperties{{
+					PropName: "meta",
+					Value: &pb.ObjectPropertiesValue{
+						NonRefProperties: &structpb.Struct{Fields: map[string]*structpb.Value{"isbn": structpb.NewStringValue("978-8374812962")}},
+						ObjectProperties: []*pb.ObjectProperties{{
+							PropName: "obj",
+							Value:    &pb.ObjectPropertiesValue{NonRefProperties: &structpb.Struct{Fields: map[string]*structpb.Value{"text": structpb.NewStringValue("some text")}}},
+						}},
+						ObjectArrayProperties: []*pb.ObjectArrayProperties{{
+							PropName: "objs",
+							Values: []*pb.ObjectPropertiesValue{{
+								NonRefProperties: &structpb.Struct{Fields: map[string]*structpb.Value{"text": structpb.NewStringValue("some text")}},
+							}},
+						}},
+					},
+				}},
+				ObjectArrayProperties: []*pb.ObjectArrayProperties{{
+					PropName: "reviews",
+					Values:   []*pb.ObjectPropertiesValue{{TextArrayProperties: []*pb.TextArrayProperties{{PropName: "tags", Values: []string{scifi, "fantasy"}}}}},
+				}},
 			},
 		},
 	}

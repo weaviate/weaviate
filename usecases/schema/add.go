@@ -56,7 +56,7 @@ func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 	// TODO gh-846: Rollback state update if migration fails
 }
 
-func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) error {
+func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string) error {
 	// get schema and sharding state
 	class := &models.Class{}
 	if err := json.Unmarshal(d.Schema, &class); err != nil {
@@ -105,6 +105,7 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 	}
 
 	shardingState.MigrateFromOldFormat()
+	shardingState.ApplyNodeMapping(nodeMapping)
 
 	payload, err := CreateClassPayload(class, &shardingState)
 	if err != nil {
@@ -253,6 +254,7 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 func setPropertyDefaults(prop *models.Property) {
 	setPropertyDefaultTokenization(prop)
 	setPropertyDefaultIndexing(prop)
+	setNestedPropertiesDefaults(prop.NestedProperties)
 }
 
 func setPropertyDefaultTokenization(prop *models.Property) {
@@ -282,20 +284,88 @@ func setPropertyDefaultIndexing(prop *models.Property) {
 	}
 
 	vTrue := true
+	vFalse := false
+
 	if prop.IndexFilterable == nil {
 		prop.IndexFilterable = &vTrue
+
+		primitiveDataType, isPrimitive := schema.AsPrimitive(prop.DataType)
+		if isPrimitive && primitiveDataType == schema.DataTypeBlob {
+			prop.IndexFilterable = &vFalse
+		}
 	}
+
 	if prop.IndexSearchable == nil {
-		switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
-		case schema.DataTypeString, schema.DataTypeStringArray:
-			// string/string[] are migrated to text/text[] later,
-			// at this point they are still valid data types, therefore should be handled here
-			prop.IndexSearchable = &vTrue
+		prop.IndexSearchable = &vFalse
+
+		if dataType, isPrimitive := schema.AsPrimitive(prop.DataType); isPrimitive {
+			switch dataType {
+			case schema.DataTypeString, schema.DataTypeStringArray:
+				// string/string[] are migrated to text/text[] later,
+				// at this point they are still valid data types, therefore should be handled here
+				prop.IndexSearchable = &vTrue
+			case schema.DataTypeText, schema.DataTypeTextArray:
+				prop.IndexSearchable = &vTrue
+			default:
+				// do nothing
+			}
+		}
+	}
+}
+
+func setNestedPropertiesDefaults(properties []*models.NestedProperty) {
+	for _, property := range properties {
+		primitiveDataType, isPrimitive := schema.AsPrimitive(property.DataType)
+		nestedDataType, isNested := schema.AsNested(property.DataType)
+
+		setNestedPropertyDefaultTokenization(property, primitiveDataType, nestedDataType, isPrimitive, isNested)
+		setNestedPropertyDefaultIndexing(property, primitiveDataType, nestedDataType, isPrimitive, isNested)
+
+		if isNested {
+			setNestedPropertiesDefaults(property.NestedProperties)
+		}
+	}
+}
+
+func setNestedPropertyDefaultTokenization(property *models.NestedProperty,
+	primitiveDataType, nestedDataType schema.DataType,
+	isPrimitive, isNested bool,
+) {
+	if property.Tokenization == "" && isPrimitive {
+		switch primitiveDataType {
 		case schema.DataTypeText, schema.DataTypeTextArray:
-			prop.IndexSearchable = &vTrue
+			property.Tokenization = models.NestedPropertyTokenizationWord
 		default:
-			vFalse := false
-			prop.IndexSearchable = &vFalse
+			// do nothing
+		}
+	}
+}
+
+func setNestedPropertyDefaultIndexing(property *models.NestedProperty,
+	primitiveDataType, nestedDataType schema.DataType,
+	isPrimitive, isNested bool,
+) {
+	vTrue := true
+	vFalse := false
+
+	if property.IndexFilterable == nil {
+		property.IndexFilterable = &vTrue
+
+		if isPrimitive && primitiveDataType == schema.DataTypeBlob {
+			property.IndexFilterable = &vFalse
+		}
+	}
+
+	if property.IndexSearchable == nil {
+		property.IndexSearchable = &vFalse
+
+		if isPrimitive {
+			switch primitiveDataType {
+			case schema.DataTypeText, schema.DataTypeTextArray:
+				property.IndexSearchable = &vTrue
+			default:
+				// do nothing
+			}
 		}
 	}
 }
@@ -415,6 +485,17 @@ func (m *Manager) validateProperty(
 		relaxCrossRefValidation, schema.ClassName(className))
 	if err != nil {
 		return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
+	}
+
+	if propertyDataType.IsNested() {
+		if err := validateNestedProperties(property.NestedProperties, property.Name); err != nil {
+			return err
+		}
+	} else {
+		if len(property.NestedProperties) > 0 {
+			return fmt.Errorf("property '%s': nestedProperties not allowed for data types other than object/object[]",
+				property.Name)
+		}
 	}
 
 	if err := m.validatePropertyTokenization(property.Tokenization, propertyDataType); err != nil {

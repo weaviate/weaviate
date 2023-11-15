@@ -45,7 +45,11 @@ func (n *NilMigrator) UpdateClass(ctx context.Context, className string, newClas
 	return nil
 }
 
-func (n *NilMigrator) GetShardsStatus(ctx context.Context, className string) (map[string]string, error) {
+func (n *NilMigrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
+	return nil, nil
+}
+
+func (n *NilMigrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
 	return nil, nil
 }
 
@@ -677,4 +681,30 @@ func (f *fakeTxPersistence) IterateAll(ctx context.Context,
 	cb func(tx *cluster.Transaction),
 ) error {
 	return nil
+}
+
+type fakeBroadcaster struct {
+	openErr       error
+	commitErr     error
+	abortErr      error
+	abortCalledId string
+}
+
+func (f *fakeBroadcaster) BroadcastTransaction(ctx context.Context,
+	tx *cluster.Transaction,
+) error {
+	return f.openErr
+}
+
+func (f *fakeBroadcaster) BroadcastAbortTransaction(ctx context.Context,
+	tx *cluster.Transaction,
+) error {
+	f.abortCalledId = tx.ID
+	return f.abortErr
+}
+
+func (f *fakeBroadcaster) BroadcastCommitTransaction(ctx context.Context,
+	tx *cluster.Transaction,
+) error {
+	return f.commitErr
 }

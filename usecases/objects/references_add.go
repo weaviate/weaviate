@@ -68,7 +68,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 
 	if input.Class != "" && targetRef.Class == "" {
-		toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, input.Ref.Beacon)
+		toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, targetRef)
 		if err != nil {
 			return err
 		}

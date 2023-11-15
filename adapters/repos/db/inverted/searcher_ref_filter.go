@@ -93,6 +93,7 @@ func (r *refFilterExtractor) paramsForNestedRequest() (dto.GetParams, error) {
 		// the root query
 		AdditionalProperties: additional.Properties{ReferenceQuery: true},
 		Tenant:               r.tenant,
+		IsRefOrigin:          true,
 	}, nil
 }
 

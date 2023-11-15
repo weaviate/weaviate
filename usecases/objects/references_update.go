@@ -80,9 +80,9 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 		return &Error{"bad inputs", StatusBadRequest, err}
 	}
 
-	for i, ref := range input.Refs {
+	for i := range input.Refs {
 		if parsedTargetRefs[i].Class == "" {
-			toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, ref.Beacon)
+			toClass, toBeacon, replace, err := m.autodetectToClass(ctx, principal, input.Class, input.Property, parsedTargetRefs[i])
 			if err != nil {
 				return err
 			}
@@ -169,8 +169,8 @@ func validateReferenceSchema(class, property string, sch schema.Schema) error {
 		return err
 	}
 
-	if dt.IsPrimitive() {
-		return fmt.Errorf("property '%s' is a primitive datatype, not a reference-type", property)
+	if !dt.IsReference() {
+		return fmt.Errorf("property '%s' is not a reference-type", property)
 	}
 
 	return nil

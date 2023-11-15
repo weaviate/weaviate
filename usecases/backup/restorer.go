@@ -105,7 +105,7 @@ func (r *restorer) restore(ctx context.Context,
 			return
 		}
 
-		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store)
+		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, req.NodeMapping)
 		if err != nil {
 			r.logger.WithField("action", "restore").WithField("backup_id", desc.ID).Error(err)
 		}
@@ -116,12 +116,12 @@ func (r *restorer) restore(ctx context.Context,
 
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
-	store nodeStore,
+	store nodeStore, nodeMapping map[string]string,
 ) (err error) {
 	compressed := desc.Version > version1
 	r.lastOp.set(backup.Transferring)
 	for _, cdesc := range desc.Classes {
-		if err := r.restoreOne(ctx, desc.ID, &cdesc, compressed, cpuPercentage, store); err != nil {
+		if err := r.restoreOne(ctx, desc.ID, &cdesc, compressed, cpuPercentage, store, nodeMapping); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
 		}
 		r.logger.WithField("action", "restore").
@@ -141,7 +141,7 @@ func getType(myvar interface{}) string {
 
 func (r *restorer) restoreOne(ctx context.Context,
 	backupID string, desc *backup.ClassDescriptor,
-	compressed bool, cpuPercentage int, store nodeStore,
+	compressed bool, cpuPercentage int, store nodeStore, nodeMapping map[string]string,
 ) (err error) {
 	metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store.b), desc.Name)
 	if err != nil {
@@ -159,7 +159,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 	if err != nil {
 		return fmt.Errorf("write files: %w", err)
 	}
-	if err := r.schema.RestoreClass(ctx, desc); err != nil {
+	if err := r.schema.RestoreClass(ctx, desc, nodeMapping); err != nil {
 		if rerr := rollback(); rerr != nil {
 			r.logger.WithField("className", desc.Name).WithField("action", "rollback").Error(rerr)
 		}
@@ -191,7 +191,7 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 	if err != nil {
 		nerr := backup.ErrNotFound{}
 		if errors.As(err, &nerr) {
-			return nil, nil, fmt.Errorf("%w: %q", errMetaNotFound, destPath)
+			return nil, nil, fmt.Errorf("restorer cannot validate: %w: %q (%w)", errMetaNotFound, destPath, err)
 		}
 		return nil, nil, fmt.Errorf("find backup %s: %w", destPath, err)
 	}

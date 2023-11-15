@@ -663,7 +663,7 @@ func TestObjectCrefWithoutToClass(t *testing.T) {
 
 // This test suite is meant to prevent a regression on
 // https://github.com/weaviate/weaviate/issues/868, hence it tries to
-// reprodcue the steps outlined in there as closely as possible
+// reproduce the steps outlined in there as closely as possible
 func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 	defer func() {
 		// clean up so we can run this test multiple times in a row
@@ -797,7 +797,7 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 
 // This test suite is meant to prevent a regression on
 // https://github.com/weaviate/weaviate/issues/868, hence it tries to
-// reprodcue the steps outlined in there as closely as possible
+// reproduce the steps outlined in there as closely as possible
 func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 	defer func() {
 		// clean up so we can run this test multiple times in a row

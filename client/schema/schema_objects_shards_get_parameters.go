@@ -75,6 +75,9 @@ type SchemaObjectsShardsGetParams struct {
 	// ClassName.
 	ClassName string
 
+	// Tenant.
+	Tenant *string
+
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -139,6 +142,17 @@ func (o *SchemaObjectsShardsGetParams) SetClassName(className string) {
 	o.ClassName = className
 }
 
+// WithTenant adds the tenant to the schema objects shards get params
+func (o *SchemaObjectsShardsGetParams) WithTenant(tenant *string) *SchemaObjectsShardsGetParams {
+	o.SetTenant(tenant)
+	return o
+}
+
+// SetTenant adds the tenant to the schema objects shards get params
+func (o *SchemaObjectsShardsGetParams) SetTenant(tenant *string) {
+	o.Tenant = tenant
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *SchemaObjectsShardsGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -150,6 +164,23 @@ func (o *SchemaObjectsShardsGetParams) WriteToRequest(r runtime.ClientRequest, r
 	// path param className
 	if err := r.SetPathParam("className", o.ClassName); err != nil {
 		return err
+	}
+
+	if o.Tenant != nil {
+
+		// query param tenant
+		var qrTenant string
+
+		if o.Tenant != nil {
+			qrTenant = *o.Tenant
+		}
+		qTenant := qrTenant
+		if qTenant != "" {
+
+			if err := r.SetQueryParam("tenant", qTenant); err != nil {
+				return err
+			}
+		}
 	}
 
 	if len(res) > 0 {

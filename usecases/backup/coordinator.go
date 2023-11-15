@@ -215,8 +215,7 @@ func (c *coordinator) Restore(
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, true)
 		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor); err != nil {
-			c.log.WithField("action", OpRestore).
-				WithField("backup_id", desc.ID).Errorf("put_meta: %v", err)
+			c.log.WithField("action", OpRestore).WithField("backup_id", desc.ID).Errorf("put_meta: %v", err)
 		}
 	}()
 
@@ -237,7 +236,7 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	meta, err := store.Meta(ctx, filename)
 	if err != nil {
 		path := fmt.Sprintf("%s/%s", req.ID, filename)
-		return nil, fmt.Errorf("%w: %q: %v", errMetaNotFound, path, err)
+		return nil, fmt.Errorf("coordinator cannot get status: %w: %q: %v", errMetaNotFound, path, err)
 	}
 
 	return &Status{
@@ -265,6 +264,7 @@ func (c *coordinator) canCommit(ctx context.Context, method Op, backend string) 
 	}
 
 	id := c.descriptor.ID
+	nodeMapping := c.descriptor.NodeMapping
 	groups := c.descriptor.Nodes
 
 	g, ctx := errgroup.WithContext(ctx)
@@ -279,6 +279,9 @@ func (c *coordinator) canCommit(ctx context.Context, method Op, backend string) 
 			default:
 			}
 
+			// If we have a nodeMapping with the node name from the backup, replace the node with the new one
+			node = c.descriptor.ToMappedNodeName(node)
+
 			host, found := c.nodeResolver.NodeHostname(node)
 			if !found {
 				return fmt.Errorf("cannot resolve hostname for %q", node)
@@ -287,11 +290,12 @@ func (c *coordinator) canCommit(ctx context.Context, method Op, backend string) 
 			reqChan <- pair{
 				nodeHost{node, host},
 				&Request{
-					Method:   method,
-					ID:       id,
-					Backend:  backend,
-					Classes:  gr.Classes,
-					Duration: _BookingPeriod,
+					Method:      method,
+					ID:          id,
+					Backend:     backend,
+					Classes:     gr.Classes,
+					NodeMapping: nodeMapping,
+					Duration:    _BookingPeriod,
 				},
 			}
 		}
@@ -354,7 +358,7 @@ func (c *coordinator) commit(ctx context.Context,
 	reason := ""
 	groups := c.descriptor.Nodes
 	for node, p := range c.Participants {
-		st := groups[node]
+		st := groups[c.descriptor.ToOriginalNodeName(node)]
 		st.Status, st.Error = p.Status, p.Reason
 		if p.Status != backup.Success {
 			status = backup.Failed

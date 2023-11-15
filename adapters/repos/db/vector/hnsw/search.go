@@ -19,8 +19,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -488,6 +488,11 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	if h.isEmpty() {
 		return nil, nil, nil
 	}
+
+	if k < 0 {
+		return nil, nil, fmt.Errorf("k must be greater than zero")
+	}
+
 	h.RLock()
 	entryPointID := h.entryPointID
 	maxLayer := h.currentMaximumLayer
