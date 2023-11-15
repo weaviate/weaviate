@@ -232,6 +232,35 @@ func TestBuildBedrockUrl(t *testing.T) {
     })
 }
 
+func TestExtractHostAndPath(t *testing.T) {
+    t.Run("valid URL", func(t *testing.T) {
+        endpointUrl := "https://service.region.amazonaws.com/model/model-name/invoke"
+        expectedHost := "service.region.amazonaws.com"
+        expectedPath := "/model/model-name/invoke"
+
+        host, path, err := extractHostAndPath(endpointUrl)
+
+        if err != nil {
+            t.Errorf("Unexpected error: %v", err)
+        }
+        if host != expectedHost {
+            t.Errorf("Expected host %s but got %s", expectedHost, host)
+        }
+        if path != expectedPath {
+            t.Errorf("Expected path %s but got %s", expectedPath, path)
+        }
+    })
+
+    t.Run("URL without host or path", func(t *testing.T) {
+        endpointUrl := "https://"
+
+        _, _, err := extractHostAndPath(endpointUrl)
+
+        if err == nil {
+            t.Error("Expected error but got nil")
+        }
+    })
+}
 type fakeHandler struct {
 	t           *testing.T
 	serverError error

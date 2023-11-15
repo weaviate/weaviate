@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -94,8 +95,7 @@ func (v *aws) vectorize(ctx context.Context, input []string, config ent.Vectoriz
 
 	if v.isBedrock(service) {
 		endpointUrl = v.buildBedrockUrlFn(service, region, model)
-		host = service + "." + region + ".amazonaws.com"
-		path = "/model/" + model + "/invoke"
+		host, path, _ = extractHostAndPath(endpointUrl)
 		body, err = json.Marshal(bedrockEmbeddingsRequest{
 			InputText: input[0],
 		})
@@ -290,4 +290,17 @@ type sagemakerEmbeddingResponse struct {
 	OriginalMessage    *string     `json:"OriginalMessage,omitempty"`
 	Message            *string     `json:"Message,omitempty"`
 	OriginalStatusCode *int        `json:"OriginalStatusCode,omitempty"`
+}
+
+func extractHostAndPath(endpointUrl string) (string, string, error) {
+    u, err := url.Parse(endpointUrl)
+    if err != nil {
+        return "", "", err
+    }
+
+    if u.Host == "" || u.Path == "" {
+        return "", "", fmt.Errorf("invalid endpoint URL: %s", endpointUrl)
+    }
+
+    return u.Host, u.Path, nil
 }
