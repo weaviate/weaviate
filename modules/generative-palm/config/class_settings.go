@@ -33,40 +33,19 @@ const (
 )
 
 var (
-	DefaultPaLMApiEndpoint        = "us-central1-aiplatform.googleapis.com"
-	DefaultPaLMModel              = "chat-bison"
-	DefaultPaLMTemperature        = 0.2
-	DefaultTokenLimit             = 256
-	DefaultPaLMTopP               = 0.95
-	DefaultPaLMTopK               = 40
-	DefaulGenerativeAIApiEndpoint = "generativelanguage.googleapis.com"
-	DefaulGenerativeAIModelID     = "chat-bison-001"
+	DefaultPaLMApiEndpoint = "us-central1-aiplatform.googleapis.com"
+	DefaultPaLMModel       = "chat-bison"
+	DefaultPaLMTemperature = 0.2
+	DefaultTokenLimit      = 256
+	DefaultPaLMTopP        = 0.95
+	DefaultPaLMTopK        = 40
 )
-
-type ClassSettings interface {
-	Validate(class *models.Class) error
-	// Module settings
-	ApiEndpoint() string
-	ProjectID() string
-	EndpointID() string
-	ModelID() string
-
-	// parameters
-	// 0.0 - 1.0
-	Temperature() float64
-	// 1 - 1024
-	TokenLimit() int
-	// 1 - 40
-	TopK() int
-	// 0.0 - 1.0
-	TopP() float64
-}
 
 type classSettings struct {
 	cfg moduletools.ClassConfig
 }
 
-func NewClassSettings(cfg moduletools.ClassConfig) ClassSettings {
+func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{cfg: cfg}
 }
 
@@ -78,9 +57,8 @@ func (ic *classSettings) Validate(class *models.Class) error {
 
 	var errorMessages []string
 
-	apiEndpoint := ic.ApiEndpoint()
 	projectID := ic.ProjectID()
-	if apiEndpoint != DefaulGenerativeAIApiEndpoint && projectID == "" {
+	if projectID == "" {
 		errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", projectIDProperty))
 	}
 	temperature := ic.Temperature()
@@ -176,13 +154,6 @@ func (ic *classSettings) getIntProperty(name string, defaultValue int) int {
 	return defaultValue
 }
 
-func (ic *classSettings) getDefaultModel(apiEndpoint string) string {
-	if apiEndpoint == DefaulGenerativeAIApiEndpoint {
-		return DefaulGenerativeAIModelID
-	}
-	return DefaultPaLMModel
-}
-
 // PaLM params
 func (ic *classSettings) ApiEndpoint() string {
 	return ic.getStringProperty(apiEndpointProperty, DefaultPaLMApiEndpoint)
@@ -197,7 +168,7 @@ func (ic *classSettings) EndpointID() string {
 }
 
 func (ic *classSettings) ModelID() string {
-	return ic.getStringProperty(modelIDProperty, ic.getDefaultModel(ic.ApiEndpoint()))
+	return ic.getStringProperty(modelIDProperty, DefaultPaLMModel)
 }
 
 // parameters
