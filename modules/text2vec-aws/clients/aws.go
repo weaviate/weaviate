@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -26,6 +27,9 @@ import (
 )
 
 func buildBedrockUrl(service, region, model string) string {
+	if strings.Split(model, ".")[0] == "cohere" {
+		service += "-runtime"
+	}
 	urlTemplate := "https://%s.%s.amazonaws.com/model/%s/invoke"
 	return fmt.Sprintf(urlTemplate, service, region, model)
 }

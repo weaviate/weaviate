@@ -204,6 +204,34 @@ func TestClient(t *testing.T) {
 	})
 }
 
+func TestBuildBedrockUrl(t *testing.T) {
+	service := "bedrock"
+    region := "us-east-1"
+    t.Run("when using a Cohere", func(t *testing.T) {
+
+        model := "cohere.embed-english-v3"
+
+        expected := "https://bedrock-runtime.us-east-1.amazonaws.com/model/cohere.embed-english-v3/invoke"
+        result := buildBedrockUrl(service, region, model)
+
+        if result != expected {
+            t.Errorf("Expected %s but got %s", expected, result)
+        }
+    })
+
+    t.Run("When using an AWS model", func(t *testing.T) {
+
+        model := "amazon.titan-e1t-medium"
+
+        expected := "https://bedrock.us-east-1.amazonaws.com/model/amazon.titan-e1t-medium/invoke"
+        result := buildBedrockUrl(service, region, model)
+
+        if result != expected {
+            t.Errorf("Expected %s but got %s", expected, result)
+        }
+    })
+}
+
 type fakeHandler struct {
 	t           *testing.T
 	serverError error
