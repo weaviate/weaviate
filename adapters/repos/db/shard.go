@@ -127,6 +127,9 @@ type ShardInterface interface {
 	prepareDeleteObject(context.Context, string, strfmt.UUID) replica.SimpleResponse
 	prepareDeleteObjects(context.Context, string, []uint64, bool) replica.SimpleResponse
 	prepareAddReferences(context.Context, string, []objects.BatchReference) replica.SimpleResponse 
+
+	commitReplication(context.Context, string, *backupMutex) interface{} 
+	abortReplication(context.Context, string) replica.SimpleResponse
 }
 
 // RealShard is the smallest completely-contained index unit. A shard manages

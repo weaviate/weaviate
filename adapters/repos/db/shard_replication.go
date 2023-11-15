@@ -56,7 +56,7 @@ func (p *pendingReplicaTasks) delete(requestID string) {
 	p.Unlock()
 }
 
-func (s *RealShard) commit(ctx context.Context, requestID string, backupReadLock *backupMutex) interface{} {
+func (s *RealShard) commitReplication(ctx context.Context, requestID string, backupReadLock *backupMutex) interface{} {
 	f, ok := s.replicationMap.get(requestID)
 	if !ok {
 		return nil
@@ -68,7 +68,7 @@ func (s *RealShard) commit(ctx context.Context, requestID string, backupReadLock
 	return f(ctx)
 }
 
-func (s *RealShard) abort(ctx context.Context, requestID string) replica.SimpleResponse {
+func (s *RealShard) abortReplication(ctx context.Context, requestID string) replica.SimpleResponse {
 	s.replicationMap.delete(requestID)
 	return replica.SimpleResponse{}
 }

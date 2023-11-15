@@ -218,7 +218,7 @@ func (i *Index) CommitReplication(shard, requestID string) interface{} {
 	if localShard == nil {
 		return nil
 	}
-	return localShard.Commit(context.Background(), requestID, &i.backupMutex)
+	return localShard.commitReplication(context.Background(), requestID, &i.backupMutex)
 }
 
 func (i *Index) AbortReplication(shard, requestID string) interface{} {
@@ -228,7 +228,7 @@ func (i *Index) AbortReplication(shard, requestID string) interface{} {
 			{Code: replica.StatusShardNotFound, Msg: shard},
 		}}
 	}
-	return localShard.abort(context.Background(), requestID)
+	return localShard.abortReplication(context.Background(), requestID)
 }
 
 func (i *Index) IncomingFilePutter(ctx context.Context, shardName,
