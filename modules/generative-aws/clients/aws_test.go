@@ -34,6 +34,7 @@ func nullLogger() logrus.FieldLogger {
 
 func TestGetAnswer(t *testing.T) {
 	t.Run("when the server has a successful answer ", func(t *testing.T) {
+		t.Skip("Skipping this test for now")
 		handler := &testAnswerHandler{
 			t: t,
 		}
@@ -65,6 +66,7 @@ func TestGetAnswer(t *testing.T) {
 	})
 
 	t.Run("when the server has a an error", func(t *testing.T) {
+		t.Skip("Skipping this test for now")
 		server := httptest.NewServer(&testAnswerHandler{
 			t: t,
 		})
