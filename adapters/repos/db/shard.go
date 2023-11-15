@@ -52,7 +52,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"golang.org/x/sync/errgroup"
 
-
 	"github.com/weaviate/weaviate/entities/storobj"
 
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -61,17 +60,17 @@ import (
 const IdLockPoolSize = 128
 
 type ShardInterface interface {
-	GetIndex() *Index		//Get the parent index
+	// GetIndex() *Index		//Get the parent index
 	Index() *Index		//Get the parent index
-	GetName() string 	//Get the shard name
+	// GetName() string 	//Get the shard name
 	Name() string //	//Get the shard name
-	GetStore() *lsmkv.Store //Get the underlying store
+	// GetStore() *lsmkv.Store //Get the underlying store
 	Store() *lsmkv.Store //Get the underlying store
 	NotifyReady() //Set shard status to ready
 	GetStatus() storagestate.Status //Return the shard status
 	UpdateStatus(status string) error // Set shard status
 	FindDocIDs(ctx context.Context,filters *filters.LocalFilter) ([]uint64, error) // Search and return document ids
-	GetCounter() *indexcounter.Counter //Get
+	// GetCounter() *indexcounter.Counter //Get
 	Counter() *indexcounter.Counter
 	ObjectCount() int
 	GetVectorIndex() VectorIndex
@@ -166,9 +165,9 @@ type RealShard struct {
 func (s *RealShard) Queue() *IndexQueue {
 	return s.queue
 }
-func (s *RealShard) GetQueue() *IndexQueue {
-	return s.queue
-}
+// func (s *RealShard) GetQueue() *IndexQueue {
+// 	return s.queue
+// }
 
 func (s *RealShard) VectorIndex() VectorIndex {
 	return s.vectorIndex
@@ -178,32 +177,32 @@ func (s *RealShard) Versioner() *shardVersioner {
 	return s.versioner
 }
 
-func (s *RealShard) GetIndex() *Index {
-	return s.index
-}
+// func (s *RealShard) GetIndex() *Index {
+// 	return s.index
+// }
 
 func (s *RealShard) Index() *Index {
 	return s.index
 }
 
-func (s *RealShard) GetName() string {
-	return s.name
-}
+// func (s *RealShard) GetName() string {
+// 	return s.name
+// }
 
 func (s *RealShard) Name() string {
 	return s.name
 }
 
-func (s *RealShard) GetStore() *lsmkv.Store {
-	return s.store
-}
+// func (s *RealShard) GetStore() *lsmkv.Store {
+// 	return s.store
+// }
 func (s *RealShard) Store() *lsmkv.Store {
 	return s.store
 }
 
-func (s *RealShard) GetCounter() *indexcounter.Counter {
-	return s.counter
-}
+// func (s *RealShard) GetCounter() *indexcounter.Counter {
+// 	return s.counter
+// }
 func (s *RealShard) Counter() *indexcounter.Counter {
 	return s.counter
 }
