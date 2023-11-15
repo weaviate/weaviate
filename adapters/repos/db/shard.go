@@ -76,9 +76,9 @@ type ShardInterface interface {
 	Counter() *indexcounter.Counter
 	ObjectCount() int
 	// GetVectorIndex() VectorIndex
-	GetPropertyIndices() propertyspecific.Indices
+	// GetPropertyIndices() propertyspecific.Indices
 	GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker
-	SetPropertyTracker(*inverted.JsonPropertyLengthTracker) //FIXME rename
+	// SetPropertyTracker(*inverted.JsonPropertyLengthTracker) //FIXME rename
 
 	PutObject(context.Context, *storobj.Object) error
 	PutObjectBatch(context.Context,  []*storobj.Object) []error
@@ -92,16 +92,17 @@ type ShardInterface interface {
 	DeleteObject(ctx context.Context, id strfmt.UUID) error // Delete object by id
 	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
 	ID() string //Get the shard id
-	path() string
+	// path() string
+	// TODO tests only
 	DBPathLSM() string
-	uuidToIdLockPoolId(idBytes []byte) uint8
-	initLSMStore(ctx context.Context) error
+	// uuidToIdLockPoolId(idBytes []byte) uint8
+	// initLSMStore(ctx context.Context) error
 	drop() error
 	addIDProperty(ctx context.Context) error
 	addDimensionsProperty(ctx context.Context) error
 	addTimestampProperties(ctx context.Context) error
-	memtableIdleConfig() lsmkv.BucketOption
-	dynamicMemtableSizing() lsmkv.BucketOption
+	// memtableIdleConfig() lsmkv.BucketOption
+	// dynamicMemtableSizing() lsmkv.BucketOption
 	createPropertyIndex(ctx context.Context, prop *models.Property, eg *errgroup.Group)
 	BeginBackup(ctx context.Context) error
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error //
@@ -109,15 +110,19 @@ type ShardInterface interface {
 	SetPropertyLengths(props []inverted.Property) error
 	AnalyzeObject(*storobj.Object) ([]inverted.Property, []nilProp, error) //
 
+	// TODO tests only
 	Dimensions() int //dim(vector)*number vectors
+	// TODO tests only
 	QuantizedDimensions(segments int) int
 	Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error) //
 	MergeObject(ctx context.Context, object objects.MergeDocument) error //
 	Queue() *IndexQueue
 	Shutdown(context.Context) error //Shutdown the shard
+	// TODO tests only
 	ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) //Search and return objects
 	WasDeleted(ctx context.Context, id strfmt.UUID) (bool, error) //Check if an object was deleted
 	VectorIndex() VectorIndex //Get the vector index
+	// TODO tests only
 	Versioner() *shardVersioner //Get the shard versioner
 
 	isReadOnly() bool
@@ -249,17 +254,17 @@ func (s *RealShard) Counter() *indexcounter.Counter {
 // 	return s.VectorIndex()
 // }
 
-func (s *RealShard) GetPropertyIndices() propertyspecific.Indices {
-	return s.propertyIndices
-}
+// func (s *RealShard) GetPropertyIndices() propertyspecific.Indices {
+// 	return s.propertyIndices
+// }
 
 func (s *RealShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
 	return s.propertyLengths
 }
 
-func (s *RealShard) SetPropertyTracker(tracker *inverted.JsonPropertyLengthTracker) {
-	s.propertyLengths = tracker
-}
+// func (s *RealShard) SetPropertyTracker(tracker *inverted.JsonPropertyLengthTracker) {
+// 	s.propertyLengths = tracker
+// }
 
 func (s *RealShard) Metrics() *Metrics {
 	return s.metrics
@@ -461,7 +466,7 @@ func (s *RealShard) initNonVector(ctx context.Context, class *models.Class) erro
 		return errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
 	}
 
-	s.SetPropertyTracker(tracker)
+	s.propertyLengths = tracker
 
 	if err := s.initProperties(class); err != nil {
 		return errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
