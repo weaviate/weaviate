@@ -47,6 +47,8 @@ var availableAWSServices = []string{
 var availableAWSBedrockModels = []string{
 	"amazon.titan-e1t-medium",
 	"amazon.titan-embed-g1-text-02",
+	"cohere.embed-english-v3",
+	"cohere.embed-multilingual-v3",
 }
 
 type classSettings struct {
