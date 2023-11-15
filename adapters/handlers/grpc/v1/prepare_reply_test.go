@@ -205,6 +205,7 @@ func TestGRPCReply(t *testing.T) {
 						Score:                     0.25,
 						ScorePresent:              true,
 						IsConsistent:              &truePointer,
+						IsConsistentPresent:       true,
 					},
 					Properties: &pb.PropertiesResult{},
 				},
@@ -225,6 +226,7 @@ func TestGRPCReply(t *testing.T) {
 						Score:                     0.45,
 						ScorePresent:              true,
 						IsConsistent:              &truePointer,
+						IsConsistentPresent:       true,
 					},
 					Properties: &pb.PropertiesResult{},
 				},
@@ -474,7 +476,7 @@ func TestGRPCReply(t *testing.T) {
 			},
 		},
 		{
-			name: "generative single only",
+			name: "generative single only with ID",
 			res: []interface{}{
 				map[string]interface{}{
 					"_additional": map[string]interface{}{
@@ -505,6 +507,40 @@ func TestGRPCReply(t *testing.T) {
 				{
 					Metadata: &pb.MetadataResult{
 						Id:                string(UUID2),
+						Generative:        refClass2,
+						GenerativePresent: true,
+					},
+					Properties: &pb.PropertiesResult{},
+				},
+			},
+		},
+		{
+			name: "generative single only without ID",
+			res: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{ // different place for generative
+						"generate": &addModels.GenerateResult{SingleResult: &refClass1}, // just use some string
+					},
+				},
+				map[string]interface{}{
+					"_additional": map[string]interface{}{
+						"generate": &addModels.GenerateResult{SingleResult: &refClass2},
+					},
+				},
+			},
+			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{
+				ModuleParams: map[string]interface{}{"generate": "must be present for extraction"},
+			}},
+			outSearch: []*pb.SearchResult{
+				{
+					Metadata: &pb.MetadataResult{
+						Generative:        refClass1,
+						GenerativePresent: true,
+					},
+					Properties: &pb.PropertiesResult{},
+				},
+				{
+					Metadata: &pb.MetadataResult{
 						Generative:        refClass2,
 						GenerativePresent: true,
 					},
