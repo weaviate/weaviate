@@ -50,6 +50,7 @@ import (
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/replica"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -119,6 +120,13 @@ type ShardInterface interface {
 	Versioner() *shardVersioner //Get the shard versioner
 
 	isReadOnly() bool
+
+	preparePutObject(context.Context, string, *storobj.Object) replica.SimpleResponse
+	preparePutObjects(context.Context, string, []*storobj.Object) replica.SimpleResponse
+	prepareMergeObject(context.Context, string, *objects.MergeDocument) replica.SimpleResponse
+	prepareDeleteObject(context.Context, string, strfmt.UUID) replica.SimpleResponse
+	prepareDeleteObjects(context.Context, string, []uint64, bool) replica.SimpleResponse
+	prepareAddReferences(context.Context, string, []objects.BatchReference) replica.SimpleResponse 
 }
 
 // RealShard is the smallest completely-contained index unit. A shard manages
