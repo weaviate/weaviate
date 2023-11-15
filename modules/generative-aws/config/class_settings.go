@@ -78,6 +78,7 @@ var availableBedrockModels = []string{
 	"ai21.j2-mid",
 	"ai21.j2-ultra",
 	"cohere.command-text-v14",
+	"cohere.command-light-text-v14",
 }
 
 type classSettings struct {
