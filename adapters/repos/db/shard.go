@@ -117,6 +117,8 @@ type ShardInterface interface {
 	WasDeleted(ctx context.Context, id strfmt.UUID) (bool, error) //Check if an object was deleted
 	VectorIndex() VectorIndex //Get the vector index
 	Versioner() *shardVersioner //Get the shard versioner
+
+	isReadOnly() bool
 }
 
 // RealShard is the smallest completely-contained index unit. A shard manages
