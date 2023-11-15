@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"sync"
@@ -131,6 +132,7 @@ type ShardInterface interface {
 	commitReplication(context.Context, string, *backupMutex) interface{} 
 	abortReplication(context.Context, string) replica.SimpleResponse
 	reinit(context.Context) error
+	filePutter(context.Context, string) (io.WriteCloser, error)
 }
 
 // RealShard is the smallest completely-contained index unit. A shard manages

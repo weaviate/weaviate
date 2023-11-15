@@ -262,7 +262,7 @@ func (i *Index) IncomingReinitShard(ctx context.Context,
 	return shard.reinit(ctx)
 }
 
-func (s ShardInterface) filePutter(ctx context.Context,
+func (s *RealShard) filePutter(ctx context.Context,
 	filePath string,
 ) (io.WriteCloser, error) {
 	// TODO: validate file prefix to rule out that we're accidentally writing
