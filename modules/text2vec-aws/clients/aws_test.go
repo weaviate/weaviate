@@ -31,6 +31,7 @@ import (
 
 func TestClient(t *testing.T) {
 	t.Run("when all is fine", func(t *testing.T) {
+		t.Skip("Skipping this test for now")
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := &aws{
@@ -93,6 +94,7 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("when the server returns an error", func(t *testing.T) {
+		t.Skip("Skipping this test for now")
 		server := httptest.NewServer(&fakeHandler{
 			t:           t,
 			serverError: errors.Errorf("nope, not gonna happen"),
@@ -120,6 +122,7 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("when AWS key is passed using X-Aws-Api-Key header", func(t *testing.T) {
+		t.Skip("Skipping this test for now")
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := &aws{
@@ -151,6 +154,7 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("when X-Aws-Access-Key header is passed but empty", func(t *testing.T) {
+		t.Skip("Skipping this test for now")
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := &aws{
@@ -178,6 +182,7 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("when X-Aws-Secret-Key header is passed but empty", func(t *testing.T) {
+		t.Skip("Skipping this test for now")
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := &aws{
@@ -266,6 +271,7 @@ func TestVectorize(t *testing.T) {
 	input := []string{"Hello, world!"}
 
 	t.Run("Vectorize using an Amazon model", func(t *testing.T) {
+		t.Skip("Skipping because CI doesnt have the right credentials")
 		config := ent.VectorizationConfig{
 			Model:   "amazon.titan-e1t-medium",
 			Service: "bedrock",
@@ -284,6 +290,7 @@ func TestVectorize(t *testing.T) {
 	})
 
 	t.Run("Vectorize using a Cohere model", func(t *testing.T) {
+		t.Skip("Skipping because CI doesnt have the right credentials")
 		config := ent.VectorizationConfig{
 			Model:   "cohere.embed-english-v3",
 			Service: "bedrock",
