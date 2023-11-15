@@ -75,7 +75,7 @@ type ShardInterface interface {
 	// GetCounter() *indexcounter.Counter //Get
 	Counter() *indexcounter.Counter
 	ObjectCount() int
-	GetVectorIndex() VectorIndex
+	// GetVectorIndex() VectorIndex
 	GetPropertyIndices() propertyspecific.Indices
 	GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker
 	SetPropertyTracker(*inverted.JsonPropertyLengthTracker) //FIXME rename
@@ -143,6 +143,18 @@ type ShardInterface interface {
 	keyPropertyLength(length int) ([]byte, error)
 
 	setFallbackToSearchable(fallback bool)
+	addJobToQueue(job job)
+	uuidFromDocID(docID uint64) (strfmt.UUID, error)
+	batchDeleteObject(ctx context.Context, id strfmt.UUID) error
+	putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
+	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
+	deleteInvertedIndexItemLSM(bucket *lsmkv.Bucket, item inverted.Countable, docID uint64) error
+	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error  
+	updatePropertySpecificIndices(object *storobj.Object, status objectInsertStatus) error
+	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
+	hasGeoIndex() bool
+
+	Metrics() *Metrics
 }
 
 // RealShard is the smallest completely-contained index unit. A shard manages
@@ -233,9 +245,9 @@ func (s *RealShard) Counter() *indexcounter.Counter {
 	return s.counter
 }
 
-func (s *RealShard) GetVectorIndex() VectorIndex {
-	return s.VectorIndex()
-}
+// func (s *RealShard) GetVectorIndex() VectorIndex {
+// 	return s.VectorIndex()
+// }
 
 func (s *RealShard) GetPropertyIndices() propertyspecific.Indices {
 	return s.propertyIndices
@@ -249,8 +261,28 @@ func (s *RealShard) SetPropertyTracker(tracker *inverted.JsonPropertyLengthTrack
 	s.propertyLengths = tracker
 }
 
+func (s *RealShard) Metrics() *Metrics {
+	return s.metrics
+}
+
 func (s *RealShard) setFallbackToSearchable(fallback bool) {
 	s.fallbackToSearchable = fallback
+}
+
+func (s *RealShard) addJobToQueue(job job) {
+	s.centralJobQueue <- job
+}
+
+func (s *RealShard) hasGeoIndex() bool {
+	s.propertyIndicesLock.RLock()
+	defer s.propertyIndicesLock.RUnlock()
+
+	for _, idx := range s.propertyIndices {
+		if idx.Type == schema.DataTypeGeoCoordinates {
+			return true
+		}
+	}
+	return false
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,

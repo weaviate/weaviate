@@ -36,11 +36,11 @@ func (s *RealShard) DeleteObjectBatch(ctx context.Context,docIDs []uint64, dryRu
 
 type deleteObjectsBatcher struct {
 	sync.Mutex
-	shard   *RealShard
+	shard   ShardInterface
 	objects objects.BatchSimpleObjects
 }
 
-func newDeleteObjectsBatcher(shard *RealShard) *deleteObjectsBatcher {
+func newDeleteObjectsBatcher(shard ShardInterface) *deleteObjectsBatcher {
 	return &deleteObjectsBatcher{shard: shard}
 }
 
@@ -56,7 +56,7 @@ func (b *deleteObjectsBatcher) delete(ctx context.Context,docIDs []uint64, dryRu
 
 func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,batch []uint64, dryRun bool) objects.BatchSimpleObjects {
 	before := time.Now()
-	defer b.shard.metrics.BatchDelete(before, "shard_delete_all")
+	defer b.shard.Metrics().BatchDelete(before, "shard_delete_all")
 
 	result := make(objects.BatchSimpleObjects, len(batch))
 	objLock := &sync.Mutex{}
@@ -88,7 +88,7 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,batch 
 
 func (b *deleteObjectsBatcher) deleteObjectOfBatchInLSM(ctx context.Context,docID uint64, dryRun bool) objects.BatchSimpleObject {
 	before := time.Now()
-	defer b.shard.metrics.BatchDelete(before, "shard_delete_individual_total")
+	defer b.shard.Metrics().BatchDelete(before, "shard_delete_individual_total")
 
 	uuid, err := b.shard.uuidFromDocID(docID)
 	if err != nil {
@@ -105,15 +105,15 @@ func (b *deleteObjectsBatcher) deleteObjectOfBatchInLSM(ctx context.Context,docI
 
 func (b *deleteObjectsBatcher) flushWALs(ctx context.Context) {
 	before := time.Now()
-	defer b.shard.metrics.BatchDelete(before, "shard_flush_wals")
+	defer b.shard.Metrics().BatchDelete(before, "shard_flush_wals")
 
-	if err := b.shard.store.WriteWALs(); err != nil {
+	if err := b.shard.Store().WriteWALs(); err != nil {
 		for i := range b.objects {
 			b.setErrorAtIndex(err, i)
 		}
 	}
 
-	if err := b.shard.vectorIndex.Flush(); err != nil {
+	if err := b.shard.VectorIndex().Flush(); err != nil {
 		for i := range b.objects {
 			b.setErrorAtIndex(err, i)
 		}

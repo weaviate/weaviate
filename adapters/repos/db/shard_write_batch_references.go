@@ -41,12 +41,12 @@ func (s *RealShard) AddReferencesBatch(ctx context.Context,refs objects.BatchRef
 // operations)
 type referencesBatcher struct {
 	sync.Mutex
-	shard *RealShard
+	shard ShardInterface
 	errs  []error
 	refs  objects.BatchReferences
 }
 
-func newReferencesBatcher(s *RealShard) *referencesBatcher {
+func newReferencesBatcher(s ShardInterface) *referencesBatcher {
 	return &referencesBatcher{
 		shard: s,
 	}
@@ -186,13 +186,13 @@ func (b *referencesBatcher) writeInverted(in inverted.DeltaMergeResult) error {
 	if err := b.writeInvertedAdditions(in.Additions); err != nil {
 		return errors.Wrap(err, "write additions")
 	}
-	b.shard.metrics.InvertedExtend(before, len(in.Additions))
+	b.shard.Metrics().InvertedExtend(before, len(in.Additions))
 
 	before = time.Now()
 	if err := b.writeInvertedDeletions(in.Deletions); err != nil {
 		return errors.Wrap(err, "write deletions")
 	}
-	b.shard.metrics.InvertedDeleteDelta(before)
+	b.shard.Metrics().InvertedDeleteDelta(before)
 
 	return nil
 }
@@ -204,7 +204,7 @@ func (b *referencesBatcher) writeInvertedDeletions(in []inverted.MergeProperty) 
 		// are guaranteed to be not have a frequency, meaning they will use the
 		// "Set" strategy in the lsmkv store
 		if prop.HasFilterableIndex {
-			bucket := b.shard.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
+			bucket := b.shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name))
 			if bucket == nil {
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}
@@ -231,7 +231,7 @@ func (b *referencesBatcher) writeInvertedAdditions(in []inverted.MergeProperty) 
 		// are guaranteed to be not have a frequency, meaning they will use the
 		// "Set" strategy in the lsmkv store
 		if prop.HasFilterableIndex {
-			bucket := b.shard.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
+			bucket := b.shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name))
 			if bucket == nil {
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}
@@ -319,13 +319,13 @@ func mergeDocFromBatchReference(ref objects.BatchReference) objects.MergeDocumen
 }
 
 func (b *referencesBatcher) flushWALs(ctx context.Context) {
-	if err := b.shard.store.WriteWALs(); err != nil {
+	if err := b.shard.Store().WriteWALs(); err != nil {
 		for i := range b.refs {
 			b.setErrorAtIndex(err, i)
 		}
 	}
 
-	if err := b.shard.vectorIndex.Flush(); err != nil {
+	if err := b.shard.VectorIndex().Flush(); err != nil {
 		for i := range b.refs {
 			b.setErrorAtIndex(err, i)
 		}
