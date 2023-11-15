@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/text2vec-aws/ent"
@@ -149,7 +150,7 @@ func (v *aws) vectorize(ctx context.Context, input []string, config ent.Vectoriz
 		req.Header.Set(k, v)
 	}
 
-	res, err := v.httpClient.Do(req)
+	res, err := v.makeRequest(req, 30, 5)
 	if err != nil {
 		return nil, errors.Wrap(err, "send POST request")
 	}
@@ -164,6 +165,37 @@ func (v *aws) vectorize(ctx context.Context, input []string, config ent.Vectoriz
 	} else {
 		return v.parseSagemakerResponse(bodyBytes, res, input)
 	}
+}
+
+func (v *aws) makeRequest(req *http.Request, delayInSeconds int, maxRetries int) (*http.Response, error) {
+	var res *http.Response
+	var err error
+
+	// Generate a UUID for this request
+	requestID := uuid.New().String()
+
+	for i := 0; i < maxRetries; i++ {
+		res, err = v.httpClient.Do(req)
+		if err != nil {
+			return nil, errors.Wrap(err, "send POST request")
+		}
+
+		// If the status code is not 429 or 400, break the loop
+		if res.StatusCode != http.StatusTooManyRequests && res.StatusCode != http.StatusBadRequest {
+			break
+		}
+
+		v.logger.Debugf("Request ID %s to %s returned 429, retrying in %d seconds", requestID, req.URL, delayInSeconds)
+
+		// Sleep for a while and then continue to the next iteration
+		time.Sleep(time.Duration(delayInSeconds) * time.Second)
+
+		// Double the delay for the next iteration
+		delayInSeconds *= 2
+
+	}
+
+	return res, err
 }
 
 func (v *aws) parseBedrockResponse(bodyBytes []byte, res *http.Response, input []string) (*ent.VectorizationResult, error) {
