@@ -111,8 +111,6 @@ func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		outBytes, err = json.Marshal(request)
 		require.Nil(f.t, err)
-	} else {
-
 	}
 
 	w.Write(outBytes)
