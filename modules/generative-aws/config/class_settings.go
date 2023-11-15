@@ -51,13 +51,12 @@ var (
 	DefaultAnthropicTopP              = 0.999
 )
 
-var (
-	DefaultAI21MaxTokens = 300
-	//DefaultAnthropicStopSequences = []string{"\\n\\nHuman:"}
-	//DefaultAnthropicTemperature   = 1.0
-	//DefaultAnthropicTopK          = 250
-	//DefaultAnthropicTopP          = 0.999
-)
+var DefaultAI21MaxTokens = 300
+
+// DefaultAnthropicStopSequences = []string{"\\n\\nHuman:"}
+// DefaultAnthropicTemperature   = 1.0
+// DefaultAnthropicTopK          = 250
+// DefaultAnthropicTopP          = 0.999
 
 var (
 	DefaultCohereMaxTokens   = 100
@@ -233,7 +232,7 @@ func (ic *classSettings) getIntProperty(name string, defaultValue *int) *int {
 			asInt := int(asFloat)
 			return &asInt
 		}
-		var wrongVal = -1
+		wrongVal := -1
 		return &wrongVal
 	}
 
@@ -302,7 +301,6 @@ func (ic *classSettings) StopSequences() []string {
 		}
 	}
 	return *ic.getListOfStringsProperty(stopSequencesProperty, nil)
-
 }
 
 func (ic *classSettings) Temperature() *float64 {

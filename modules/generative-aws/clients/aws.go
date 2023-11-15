@@ -33,7 +33,7 @@ var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 func buildBedrockUrl(service, region, model string) string {
 	urlTemplate := "https://%s.%s.amazonaws.com/model/%s/invoke"
-	return fmt.Sprintf(urlTemplate, service + "-runtime", region, model)
+	return fmt.Sprintf(urlTemplate, service+"-runtime", region, model)
 }
 
 func buildSagemakerUrl(service, region, endpoint string) string {
@@ -138,9 +138,9 @@ func (v *aws) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt 
 			})
 		} else if v.isCohereModel(model) {
 			body, err = json.Marshal(bedrockCohereRequest{
-				Prompt:           prompt,
-				Temperature:      *settings.Temperature(),
-				MaxTokens:        *settings.MaxTokenCount(),
+				Prompt:      prompt,
+				Temperature: *settings.Temperature(),
+				MaxTokens:   *settings.MaxTokenCount(),
 				// ReturnLikeliHood: "GENERATION", // contray to docs, this is invalid
 			})
 		}
@@ -216,25 +216,25 @@ func (v *aws) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt 
 
 func (v *aws) parseBedrockResponse(bodyBytes []byte, res *http.Response) (*generativemodels.GenerateResponse, error) {
 	var resBodyMap map[string]interface{}
-    if err := json.Unmarshal(bodyBytes, &resBodyMap); err != nil {
-        return nil, errors.Wrap(err, "unmarshal response body")
-    }
+	if err := json.Unmarshal(bodyBytes, &resBodyMap); err != nil {
+		return nil, errors.Wrap(err, "unmarshal response body")
+	}
 
 	var resBody bedrockGenerateResponse
 
 	// assume this was for amazon model
 	if _, ok := resBodyMap["inputTextTokenCount"]; ok {
-        if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-            return nil, errors.Wrap(err, "unmarshal response body")
-        }
-    } else {
+		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
+			return nil, errors.Wrap(err, "unmarshal response body")
+		}
+	} else {
 		// this is for cohere model
 		generationsInterface := resBodyMap["generations"].([]interface{})
 		firstGenerationMap := generationsInterface[0].(map[string]interface{})
 		text := firstGenerationMap["text"].(string)
 		finishReason := firstGenerationMap["finish_reason"].(string)
 		result := Result{
-			OutputText: text,
+			OutputText:       text,
 			CompletionReason: finishReason,
 		}
 
@@ -281,7 +281,7 @@ func (v *aws) parseSagemakerResponse(bodyBytes []byte, res *http.Response) (*gen
 		return nil, errors.Errorf("empty embeddings response")
 	}
 
-	//todo fix this ID check, just a temp thing
+	// todo fix this ID check, just a temp thing
 	if len(resBody.Generations) > 0 && len(resBody.Generations[0].Id) > 0 {
 		content := resBody.Generations[0].Text
 		if content != "" {
