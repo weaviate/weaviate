@@ -130,6 +130,7 @@ type ShardInterface interface {
 
 	commitReplication(context.Context, string, *backupMutex) interface{} 
 	abortReplication(context.Context, string) replica.SimpleResponse
+	reinit(context.Context) error
 }
 
 // RealShard is the smallest completely-contained index unit. A shard manages

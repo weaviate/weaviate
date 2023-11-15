@@ -281,16 +281,16 @@ func (s ShardInterface) filePutter(ctx context.Context,
 	return f, nil
 }
 
-func (s ShardInterface) reinit(ctx context.Context) error {
+func (s *RealShard) reinit(ctx context.Context) error {
 	if err := s.Shutdown(ctx); err != nil {
 		return fmt.Errorf("shutdown shard: %w", err)
 	}
 
-	if err := s.InitNonVector(ctx, nil); err != nil {
+	if err := s.initNonVector(ctx, nil); err != nil {
 		return fmt.Errorf("reinit non-vector: %w", err)
 	}
 
-	if err := s.InitVector(ctx); err != nil {
+	if err := s.initVector(ctx); err != nil {
 		return fmt.Errorf("reinit vector: %w", err)
 	}
 
