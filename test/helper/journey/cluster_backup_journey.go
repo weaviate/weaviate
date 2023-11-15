@@ -20,8 +20,9 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-func clusterBackupJourneyTest(t *testing.T, backend, className, backupID,
-	coordinatorEndpoint string, tenantNames []string, nodeEndpoints ...string,
+func clusterBackupJourneyTest(t *testing.T, backend, className,
+	backupID, coordinatorEndpoint string, tenantNames []string, pqEnabled bool,
+	nodeEndpoints ...string,
 ) {
 	uploaderEndpoint := nodeEndpoints[rand.Intn(len(nodeEndpoints))]
 	helper.SetupClient(uploaderEndpoint)
@@ -46,12 +47,22 @@ func clusterBackupJourneyTest(t *testing.T, backend, className, backupID,
 		})
 	}
 
+	if pqEnabled {
+		pq := map[string]interface{}{
+			"enabled":   true,
+			"segments":  1,
+			"centroids": 16,
+		}
+		helper.EnablePQ(t, className, pq)
+	}
+
 	helper.SetupClient(coordinatorEndpoint)
 	t.Logf("coordinator selected -> %s:%s", helper.ServerHost, helper.ServerPort)
 
 	// send backup requests to the chosen coordinator
 	t.Run(fmt.Sprintf("with coordinator endpoint: %s", coordinatorEndpoint), func(t *testing.T) {
-		backupJourney(t, className, backend, backupID, clusterJourney, checkClassAndDataPresence, tenantNames)
+		backupJourney(t, className, backend, backupID, clusterJourney,
+			checkClassAndDataPresence, tenantNames, pqEnabled)
 	})
 
 	t.Run("cleanup", func(t *testing.T) {
@@ -88,7 +99,8 @@ func clusterBackupEmptyClassJourneyTest(t *testing.T, backend, className, backup
 
 	// send backup requests to the chosen coordinator
 	t.Run(fmt.Sprintf("with coordinator endpoint: %s", coordinatorEndpoint), func(t *testing.T) {
-		backupJourney(t, className, backend, backupID, clusterJourney, checkClassPresenceOnly, tenantNames)
+		backupJourney(t, className, backend, backupID, clusterJourney,
+			checkClassPresenceOnly, tenantNames, false)
 	})
 
 	t.Run("cleanup", func(t *testing.T) {
