@@ -28,9 +28,10 @@ import (
 )
 
 type embeddingsRequest struct {
-	Input    []string `json:"texts"`
-	Model    string   `json:"model,omitempty"`
-	Truncate string   `json:"truncate,omitempty"`
+	Texts     []string  `json:"texts"`
+	Model     string    `json:"model,omitempty"`
+	Truncate  string    `json:"truncate,omitempty"`
+	InputType inputType `json:"input_type,omitempty"`
 }
 
 type embeddingsResponse struct {
@@ -44,6 +45,13 @@ type vectorizer struct {
 	urlBuilder *cohereUrlBuilder
 	logger     logrus.FieldLogger
 }
+
+type inputType string
+
+const (
+	searchDocument inputType = "search_document"
+	searchQuery    inputType = "search_query"
+)
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
@@ -59,27 +67,29 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, v.url(), v.getModel(config), v.getTruncate(config))
+	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchDocument)
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, v.url(), v.getModel(config), v.getTruncate(config))
+	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchQuery)
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, input []string,
-	url string, model string, truncate string,
+	model, truncate, baseURL string, inputType inputType,
 ) (*ent.VectorizationResult, error) {
 	body, err := json.Marshal(embeddingsRequest{
-		Input:    input,
-		Model:    model,
-		Truncate: truncate,
+		Texts:     input,
+		Model:     model,
+		Truncate:  truncate,
+		InputType: inputType,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "marshal body")
 	}
 
+	url := v.getCohereUrl(ctx, baseURL)
 	req, err := http.NewRequestWithContext(ctx, "POST", url,
 		bytes.NewReader(body))
 	if err != nil {
@@ -125,6 +135,14 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	}, nil
 }
 
+func (v *vectorizer) getCohereUrl(ctx context.Context, baseURL string) string {
+	passedBaseURL := baseURL
+	if headerBaseURL := v.getValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
+		passedBaseURL = headerBaseURL
+	}
+	return v.urlBuilder.url(passedBaseURL)
+}
+
 func getErrorMessage(statusCode int, resBodyError string, errorTemplate string) string {
 	if resBodyError != "" {
 		return fmt.Sprintf(errorTemplate, statusCode, resBodyError)
@@ -132,34 +150,27 @@ func getErrorMessage(statusCode int, resBodyError string, errorTemplate string) 
 	return fmt.Sprintf(errorTemplate, statusCode)
 }
 
-func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
-	if len(v.apiKey) > 0 {
-		return v.apiKey, nil
+func (v *vectorizer) getValueFromContext(ctx context.Context, key string) string {
+	if value := ctx.Value(key); value != nil {
+		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
+			return keyHeader[0]
+		}
 	}
-	key := "X-Cohere-Api-Key"
-
-	apiKey := ctx.Value(key)
 	// try getting header from GRPC if not successful
-	if apiKey == nil {
-		apiKey = modulecomponents.GetApiKeyFromGRPC(ctx, key)
+	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
+		return apiKey[0]
 	}
-	if apiKeyHeader, ok := apiKey.([]string); ok &&
-		len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
-		return apiKeyHeader[0], nil
+	return ""
+}
+
+func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
+	if apiKey := v.getValueFromContext(ctx, "X-Cohere-Api-Key"); apiKey != "" {
+		return apiKey, nil
+	}
+	if v.apiKey != "" {
+		return v.apiKey, nil
 	}
 	return "", errors.New("no api key found " +
 		"neither in request header: X-Cohere-Api-Key " +
 		"nor in environment variable under COHERE_APIKEY")
-}
-
-func (v *vectorizer) url() string {
-	return v.urlBuilder.url()
-}
-
-func (v *vectorizer) getModel(config ent.VectorizationConfig) string {
-	return config.Model
-}
-
-func (v *vectorizer) getTruncate(config ent.VectorizationConfig) string {
-	return config.Truncate
 }

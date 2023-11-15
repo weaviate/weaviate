@@ -24,6 +24,7 @@ func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 	res, err := v.client.VectorizeQuery(ctx, inputs, ent.VectorizationConfig{
 		Model:    settings.Model(),
 		Truncate: settings.Truncate(),
+		BaseURL:  settings.BaseURL(),
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "remote client vectorize")
